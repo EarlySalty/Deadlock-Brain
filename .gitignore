@@ -1,11 +1,13 @@
 .venv/
 __pycache__/
 *.py[cod]
+*.egg-info/
 
 data/*.sqlite3
 data/*.sqlite3-*
 data/cache/
 data/raw/
+data/youtube_audio/
+data/youtube_transcripts/
 
 .env
-

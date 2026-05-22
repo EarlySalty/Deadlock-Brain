@@ -1,0 +1,69 @@
+{
+  "feeds": [
+    {
+      "type": "channel",
+      "url": "https://www.youtube.com/@Deathy",
+      "handle": "Deathy"
+    },
+    {
+      "type": "channel",
+      "url": "https://www.youtube.com/@DLMYTHBUSTERS",
+      "handle": "DLMYTHBUSTERS"
+    },
+    {
+      "type": "channel",
+      "url": "https://www.youtube.com/@Midknighttxt",
+      "handle": "Midknighttxt"
+    },
+    {
+      "type": "playlist",
+      "url": "https://www.youtube.com/watch?v=fZXYW9qcy24&list=PLRaixQ0u4jjmv-q9g1XUgO3G2ppTaSWpS",
+      "playlist_id": "PLRaixQ0u4jjmv-q9g1XUgO3G2ppTaSWpS"
+    },
+    {
+      "type": "channel",
+      "url": "https://www.youtube.com/@MetroDeadlock",
+      "handle": "MetroDeadlock"
+    },
+    {
+      "type": "channel",
+      "url": "https://www.youtube.com/@Zerggyyyy",
+      "handle": "Zerggyyyy"
+    },
+    {
+      "type": "channel",
+      "url": "https://www.youtube.com/@poshypop",
+      "handle": "poshypop"
+    },
+    {
+      "type": "channel",
+      "url": "https://www.youtube.com/@crayon_fps",
+      "handle": "crayon_fps"
+    },
+    {
+      "type": "channel",
+      "url": "https://www.youtube.com/@piggyxdd",
+      "handle": "piggyxdd"
+    },
+    {
+      "type": "channel",
+      "url": "https://www.youtube.com/@NatanDeadlock",
+      "handle": "NatanDeadlock"
+    },
+    {
+      "type": "channel",
+      "url": "https://www.youtube.com/@Shiere",
+      "handle": "Shiere"
+    },
+    {
+      "type": "channel",
+      "url": "https://www.youtube.com/@xlvi4804",
+      "handle": "xlvi4804"
+    },
+    {
+      "type": "channel",
+      "url": "https://www.youtube.com/@Shyerow",
+      "handle": "Shyerow"
+    }
+  ]
+}

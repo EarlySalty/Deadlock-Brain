@@ -51,6 +51,15 @@ from deadlock_brain.sources.statlocker import pull_statlocker
 from deadlock_brain.sources.wiki import pull_wiki_page
 from deadlock_brain.storage import BrainStore
 from deadlock_brain.timeline import build_entity_timeline
+from deadlock_brain.youtube_learning import (
+    analyze_next_youtube_videos,
+    discover_youtube_videos,
+    fetch_missing_transcripts_with_ytdlp,
+    import_transcript_directory,
+    list_youtube_queue,
+    run_youtube_auto_learning,
+    transcribe_missing_videos_locally,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -158,6 +167,70 @@ def build_parser() -> argparse.ArgumentParser:
     player_next.add_argument("--dry-run", action="store_true")
     player_next.add_argument("--delay-seconds", type=float, default=2.0)
     player_next.add_argument("--pretty", action="store_true")
+
+    youtube = sub.add_parser("youtube", help="Entdeckt und verarbeitet YouTube-Lernfeeds.")
+    youtube_sub = youtube.add_subparsers(dest="target", required=True)
+    youtube_discover = youtube_sub.add_parser("discover", help="Holt alle Videos aus der festen YouTube-Feedliste in die Queue.")
+    youtube_discover.add_argument("--config", type=Path, default=Path("config/youtube_feeds.json"))
+    youtube_discover.add_argument("--max-videos-per-feed", type=int, default=50)
+    youtube_discover.add_argument("--cache-ttl-seconds", type=int, default=21600)
+    youtube_discover.add_argument("--pretty", action="store_true")
+    youtube_import = youtube_sub.add_parser("import-transcripts", help="Importiert lokale YouTube-Transkripte fuer die Queue.")
+    youtube_import.add_argument("--transcript-dir", type=Path, default=Path("data/youtube_transcripts"))
+    youtube_import.add_argument("--limit", type=int)
+    youtube_import.add_argument("--pretty", action="store_true")
+    youtube_fetch = youtube_sub.add_parser("fetch-transcripts", help="Holt fehlende Untertitel/Auto-Captions mit yt-dlp.")
+    youtube_fetch.add_argument("--transcript-dir", type=Path, default=Path("data/youtube_transcripts"))
+    youtube_fetch.add_argument("--limit", type=int, default=20)
+    youtube_fetch.add_argument("--languages", default="original")
+    youtube_fetch.add_argument("--order", choices=["oldest", "newest"], default="oldest")
+    youtube_fetch.add_argument("--pretty", action="store_true")
+    youtube_transcribe = youtube_sub.add_parser("transcribe-local", help="Laedt Audio und transkribiert fehlende Videos lokal mit faster-whisper.")
+    youtube_transcribe.add_argument("--audio-dir", type=Path, default=Path("data/youtube_audio"))
+    youtube_transcribe.add_argument("--limit", type=int, default=3)
+    youtube_transcribe.add_argument("--model-size", default="base")
+    youtube_transcribe.add_argument("--device", default="auto")
+    youtube_transcribe.add_argument("--compute-type", default="int8")
+    youtube_transcribe.add_argument("--order", choices=["oldest", "newest"], default="oldest")
+    youtube_transcribe.add_argument("--keep-audio", action="store_true")
+    youtube_transcribe.add_argument("--download-timeout-seconds", type=int, default=900)
+    youtube_transcribe.add_argument("--pretty", action="store_true")
+    youtube_analyze = youtube_sub.add_parser("analyze-next", help="Laesst MiniMax die naechsten Videos bewerten und prueft Claims lokal.")
+    youtube_analyze.add_argument("--limit", type=int, default=5)
+    youtube_analyze.add_argument("--model")
+    youtube_analyze.add_argument("--max-completion-tokens", type=int)
+    youtube_analyze.add_argument("--temperature", type=float)
+    youtube_analyze.add_argument("--top-p", type=float)
+    youtube_analyze.add_argument("--dry-run", action="store_true")
+    youtube_analyze.add_argument("--delay-seconds", type=float, default=1.0)
+    youtube_analyze.add_argument("--pretty", action="store_true")
+    youtube_auto = youtube_sub.add_parser("auto-learn", help="Discover -> Transcript-Import -> MiniMax -> lokale Claim-Pruefung.")
+    youtube_auto.add_argument("--config", type=Path, default=Path("config/youtube_feeds.json"))
+    youtube_auto.add_argument("--transcript-dir", type=Path, default=Path("data/youtube_transcripts"))
+    youtube_auto.add_argument("--discover-limit", type=int, default=50)
+    youtube_auto.add_argument("--analyze-limit", type=int, default=5)
+    youtube_auto.add_argument("--transcript-fetch-limit", type=int, default=20)
+    youtube_auto.add_argument("--languages", default="original")
+    youtube_auto.add_argument("--local-transcribe", action="store_true")
+    youtube_auto.add_argument("--local-transcribe-limit", type=int, default=2)
+    youtube_auto.add_argument("--audio-dir", type=Path, default=Path("data/youtube_audio"))
+    youtube_auto.add_argument("--asr-model-size", default="base")
+    youtube_auto.add_argument("--asr-device", default="auto")
+    youtube_auto.add_argument("--asr-compute-type", default="int8")
+    youtube_auto.add_argument("--keep-audio", action="store_true")
+    youtube_auto.add_argument("--cache-ttl-seconds", type=int, default=21600)
+    youtube_auto.add_argument("--model")
+    youtube_auto.add_argument("--max-completion-tokens", type=int)
+    youtube_auto.add_argument("--temperature", type=float)
+    youtube_auto.add_argument("--top-p", type=float)
+    youtube_auto.add_argument("--no-fetch-transcripts", action="store_true")
+    youtube_auto.add_argument("--dry-run", action="store_true")
+    youtube_auto.add_argument("--delay-seconds", type=float, default=1.0)
+    youtube_auto.add_argument("--pretty", action="store_true")
+    youtube_queue = youtube_sub.add_parser("queue", help="Listet YouTube-Videos in der Lernqueue.")
+    youtube_queue.add_argument("--status")
+    youtube_queue.add_argument("--limit", type=int, default=25)
+    youtube_queue.add_argument("--pretty", action="store_true")
 
     analysis = sub.add_parser("analysis", help="Speichert oder listet persistente Analyse-Kontexte.")
     analysis_sub = analysis.add_subparsers(dest="target", required=True)
@@ -319,6 +392,11 @@ def build_parser() -> argparse.ArgumentParser:
     deadlock_api.add_argument("--no-death-details", action="store_true")
     deadlock_api.add_argument("--no-objectives", action="store_true")
 
+    youtube_pull = pull_sub.add_parser("youtube", help="Entdeckt Videos aus der festen YouTube-Feedliste.")
+    youtube_pull.add_argument("--config", type=Path, default=Path("config/youtube_feeds.json"))
+    youtube_pull.add_argument("--max-videos-per-feed", type=int, default=50)
+    youtube_pull.add_argument("--cache-ttl-seconds", type=int, default=21600)
+
     all_sources = pull_sub.add_parser("all", help="Zieht sichere Standardquellen ohne Wiki.")
     all_sources.add_argument("--include-patchnotes", action="store_true", default=True)
     return parser
@@ -450,6 +528,10 @@ def main(argv: list[str] | None = None) -> int:
                 _print_player_result(args, result)
             else:
                 print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
+        if args.command == "youtube":
+            result = _run_youtube(args, store, http, settings)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
             return 0
         if args.command == "events":
             _print_events(store, args)
@@ -912,6 +994,73 @@ def _run_single_build_learning_analysis(
     }
 
 
+def _run_youtube(args: argparse.Namespace, store: BrainStore, http: HttpClient, settings) -> dict[str, Any] | list[dict[str, Any]]:
+    if args.target == "discover":
+        return discover_youtube_videos(
+            store,
+            http,
+            config_path=args.config,
+            max_videos_per_feed=args.max_videos_per_feed,
+            cache_ttl_seconds=args.cache_ttl_seconds,
+        )
+    if args.target == "import-transcripts":
+        return import_transcript_directory(store, transcript_dir=args.transcript_dir, limit=args.limit)
+    if args.target == "fetch-transcripts":
+        return fetch_missing_transcripts_with_ytdlp(
+            store.conn,
+            transcript_dir=args.transcript_dir,
+            limit=args.limit,
+            languages=args.languages,
+            order=args.order,
+        )
+    if args.target == "transcribe-local":
+        return transcribe_missing_videos_locally(
+            store,
+            audio_dir=args.audio_dir,
+            limit=args.limit,
+            model_size=args.model_size,
+            device=args.device,
+            compute_type=args.compute_type,
+            order=args.order,
+            keep_audio=args.keep_audio,
+            download_timeout_seconds=args.download_timeout_seconds,
+        )
+    if args.target == "analyze-next":
+        return analyze_next_youtube_videos(
+            store,
+            _build_learn_minimax_config(args, settings),
+            limit=args.limit,
+            dry_run=args.dry_run,
+            delay_seconds=args.delay_seconds,
+        )
+    if args.target == "auto-learn":
+        return run_youtube_auto_learning(
+            store,
+            http,
+            _build_learn_minimax_config(args, settings),
+            config_path=args.config,
+            transcript_dir=args.transcript_dir,
+            discover_limit=args.discover_limit,
+            analyze_limit=args.analyze_limit,
+            fetch_transcripts=not args.no_fetch_transcripts,
+            transcript_fetch_limit=args.transcript_fetch_limit,
+            transcript_languages=args.languages,
+            local_transcribe=args.local_transcribe,
+            local_transcribe_limit=args.local_transcribe_limit,
+            audio_dir=args.audio_dir,
+            asr_model_size=args.asr_model_size,
+            asr_device=args.asr_device,
+            asr_compute_type=args.asr_compute_type,
+            keep_audio=args.keep_audio,
+            dry_run=args.dry_run,
+            cache_ttl_seconds=args.cache_ttl_seconds,
+            delay_seconds=args.delay_seconds,
+        )
+    if args.target == "queue":
+        return list_youtube_queue(store.conn, status=args.status, limit=args.limit)
+    raise ValueError(f"Unbekanntes YouTube-Ziel: {args.target}")
+
+
 def _run_pull(args: argparse.Namespace, store: BrainStore, http: HttpClient, settings) -> dict[str, Any]:
     run_id = store.begin_run(args.source)
     try:
@@ -975,6 +1124,14 @@ def _run_pull(args: argparse.Namespace, store: BrainStore, http: HttpClient, set
                 include_player_stats=not args.no_player_stats,
                 include_player_death_details=not args.no_death_details,
                 include_objectives=not args.no_objectives,
+                cache_ttl_seconds=args.cache_ttl_seconds,
+            )
+        elif args.source == "youtube":
+            summary = discover_youtube_videos(
+                store,
+                http,
+                config_path=args.config,
+                max_videos_per_feed=args.max_videos_per_feed,
                 cache_ttl_seconds=args.cache_ttl_seconds,
             )
         elif args.source == "all":
