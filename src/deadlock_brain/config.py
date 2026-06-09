@@ -93,7 +93,7 @@ def load_settings() -> Settings:
             "MINIMAX_TOKEN_PLAN_BASE_URL" if minimax_use_token_plan else "MINIMAX_BASE_URL",
             default_minimax_base_url,
         ).rstrip("/"),
-        minimax_model=os.getenv("MINIMAX_MODEL", "MiniMax-M2.7"),
+        minimax_model=os.getenv("MINIMAX_MODEL", "MiniMax-M3"),
         minimax_timeout_seconds=int(os.getenv("MINIMAX_TIMEOUT_SECONDS", "300")),
         minimax_max_completion_tokens=int(os.getenv("MINIMAX_MAX_COMPLETION_TOKENS", "16000")),
         minimax_temperature=float(os.getenv("MINIMAX_TEMPERATURE", "0.2")),

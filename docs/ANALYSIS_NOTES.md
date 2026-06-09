@@ -39,7 +39,7 @@ The adapter reads configuration from environment variables:
 
 - `MINIMAX_API_KEY` or `MINIMAX_TOKEN_PLAN_KEY`
 - `MINIMAX_BASE_URL`, default `https://api.minimax.io/v1`
-- `MINIMAX_MODEL`, default `MiniMax-M2.7`
+- `MINIMAX_MODEL`, default `MiniMax-M3`
 - `MINIMAX_TIMEOUT_SECONDS`
 - `MINIMAX_MAX_COMPLETION_TOKENS`
 - `MINIMAX_TEMPERATURE`
