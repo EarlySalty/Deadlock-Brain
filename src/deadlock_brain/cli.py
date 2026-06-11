@@ -323,6 +323,7 @@ def build_parser() -> argparse.ArgumentParser:
     enrich_patch_impact = enrich_sub.add_parser("patch-impact", help="Analysiert die Patch-Entwicklung von Entities.")
     enrich_patch_impact.add_argument("--hero", help="Optional: Beschraenken auf diesen Hero.")
     enrich_patch_impact.add_argument("--limit", type=int, default=10, help="Anzahl der abzuarbeitenden Entities.")
+    enrich_patch_impact.add_argument("--dry-run", action="store_true", help="Nur Prompt/Request bauen (benoetigt --hero), kein Modellaufruf.")
     enrich_meta_trends = enrich_sub.add_parser("meta-trends", help="Analysiert aktuelle Meta-Trends.")
 
     pull = sub.add_parser("pull", help="Zieht Daten aus einer Quelle.")
