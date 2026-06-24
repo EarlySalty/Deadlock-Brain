@@ -12,6 +12,7 @@ pub const REGULAR_TABLES: &[&str] = &[
     "learned_builds",
     "legacy_entities",
     "mechanic_notes",
+    "meta_trend_notes",
     "patch_event_enrichments",
     "patch_events",
     "patch_impact_notes",
@@ -224,6 +225,18 @@ CREATE TABLE IF NOT EXISTS mechanic_notes (
   rowid INTEGER NOT NULL,
   created_at INTEGER NOT NULL,
   UNIQUE(title)
+);
+
+CREATE TABLE IF NOT EXISTS meta_trend_notes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entity_name TEXT NOT NULL,
+  trend_direction TEXT NOT NULL,
+  winrate_delta REAL NOT NULL,
+  context_json TEXT NOT NULL DEFAULT '{}',
+  result_text TEXT,
+  status TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS patch_event_enrichments (
@@ -532,6 +545,8 @@ CREATE INDEX IF NOT EXISTS idx_legacy_entities_name
 
 CREATE INDEX IF NOT EXISTS idx_legacy_entities_type
   ON legacy_entities(legacy_type, status);
+
+CREATE INDEX IF NOT EXISTS idx_mtn_entity_name ON meta_trend_notes(entity_name);
 
 CREATE INDEX IF NOT EXISTS idx_patch_event_enrichments_secondary_entity
   ON patch_event_enrichments(secondary_entity_name);

@@ -1795,14 +1795,20 @@ mod tests {
     }
 
     #[test]
-    fn meta_trends_do_not_create_missing_table() {
+    fn meta_trends_use_core_schema_table() {
         let conn = temp_conn();
         let config = test_config();
-        let error = run_meta_trend_analysis_with_chat(&conn, &config, |_request| {
+        let summary = run_meta_trend_analysis_with_chat(&conn, &config, |_request| {
             Ok(json!({"choices":[{"message":{"content":"ok"}}]}))
         })
-        .expect_err("meta table is intentionally absent from core schema");
+        .expect("meta trend analysis");
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM meta_trend_notes", [], |row| row.get(0))
+            .expect("meta note count");
 
-        assert!(matches!(error, EnrichError::MissingTable("meta_trend_notes")));
+        assert_eq!(summary.processed, 2);
+        assert_eq!(summary.success, 2);
+        assert_eq!(summary.failed, 0);
+        assert_eq!(count, 2);
     }
 }
