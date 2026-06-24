@@ -9,5 +9,7 @@ data/cache/
 data/raw/
 data/youtube_audio/
 data/youtube_transcripts/
+data/gemini_profile/
+rust/target/
 
 .env
