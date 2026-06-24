@@ -279,7 +279,15 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "dbrain-enrich",
+ "dbrain-learn",
+ "dbrain-normalize",
+ "dbrain-retrieval",
+ "dbrain-sources",
  "deadlock-brain-core",
+ "rusqlite",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
