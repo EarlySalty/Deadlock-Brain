@@ -206,11 +206,70 @@ dependencies = [
 ]
 
 [[package]]
+name = "dbrain-enrich"
+version = "0.1.0"
+dependencies = [
+ "deadlock-brain-core",
+]
+
+[[package]]
+name = "dbrain-learn"
+version = "0.1.0"
+dependencies = [
+ "deadlock-brain-core",
+]
+
+[[package]]
+name = "dbrain-normalize"
+version = "0.1.0"
+dependencies = [
+ "deadlock-brain-core",
+]
+
+[[package]]
+name = "dbrain-retrieval"
+version = "0.1.0"
+dependencies = [
+ "deadlock-brain-core",
+]
+
+[[package]]
+name = "dbrain-sources"
+version = "0.1.0"
+dependencies = [
+ "deadlock-brain-core",
+]
+
+[[package]]
+name = "deadlock-brain"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "deadlock-brain-core",
+]
+
+[[package]]
+name = "deadlock-brain-core"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "deadlock-brain-yt"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "deadlock-brain-core",
  "hex",
  "regex",
  "reqwest",

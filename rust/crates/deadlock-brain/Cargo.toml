@@ -1,0 +1,13 @@
+[package]
+name = "deadlock-brain"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "deadlock-brain"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+deadlock-brain-core = { path = "../deadlock-brain-core" }

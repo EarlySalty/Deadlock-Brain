@@ -1,0 +1,11 @@
+[package]
+name = "dbrain-sources"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "dbrain_sources"
+path = "src/lib.rs"
+
+[dependencies]
+deadlock-brain-core = { path = "../deadlock-brain-core" }

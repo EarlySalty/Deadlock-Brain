@@ -1,0 +1,20 @@
+[package]
+name = "deadlock-brain-core"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "deadlock_brain_core"
+path = "src/lib.rs"
+
+[dependencies]
+hex.workspace = true
+reqwest.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
