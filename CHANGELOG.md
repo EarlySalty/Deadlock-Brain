@@ -1,5 +1,13 @@
 # Changelog
 
+## #3 — Brain auf Rust umgestellt: eine Sprache, gleiche Befehle
+
+Das Brain — das Werkzeug, das Patchnotes, Statistiken, Sheet- und Creator-Wissen einsammelt und zu abrufbarem Spielwissen verdichtet — lief bisher in Python, während der Rest der Plattform längst auf Rust läuft. Eine in zwei Sprachen geteilte Codebasis ist schwerer zu warten und weiterzuentwickeln.
+
+Die gesamte Funktionalität wurde nach Rust überführt. Ein gemeinsamer Kern trägt jetzt Datenbankzugriff, Datenbankschema, Konfiguration, die Netz-Abrufe und die Modellanbindung; darauf sitzen klar getrennte Fachbausteine für Quellen-Import, Normalisierung der Entitäten, Anreicherung der Patch-Daten, die Lern-Auswertung von Builds und Matches sowie den Abruf von Kontext, Timeline und Reviews. Alles ist unter einem einzigen Kommandozeilen-Werkzeug zusammengefasst, das exakt dieselben Befehle anbietet wie zuvor. Das Datenbankschema wurde aus dem Live-Bestand übernommen und nachweislich deckungsgleich nachgebaut, sodass beide Fassungen dieselbe Wissensdatenbank teilen.
+
+Das Rust-Werkzeug arbeitet damit gegen dieselbe Datenbank und liefert dieselben Befehle; gegen eine Kopie der echten Datenbank wurden alle Abruf-Befehle erfolgreich gegengeprüft. Die bisherige Python-Fassung bleibt vorerst der aktive Hintergrunddienst — die Umstellung der Automatik auf die Rust-Fassung folgt als eigener, geprüfter Schritt. Die Vektor-Ähnlichkeitssuche ist bewusst noch ausgeklammert und kommt später.
+
 ## #2 — Autonomes YouTube-Lernen: Creator-Wissen fließt in die Wissens-DB
 
 Das System sammelt zwar seit Längerem Videos der kuratierten Deadlock-Creator ein, doch das darin steckende Spielwissen wurde bisher nicht nutzbar gemacht — es gab keinen Weg, die Inhalte automatisch zu verstehen und strukturiert abzulegen. Wer die Erkenntnisse aus einem Coaching- oder Meta-Video wollte, musste es selbst schauen.
