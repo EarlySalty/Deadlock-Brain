@@ -28,10 +28,11 @@ pub fn build_prompt(url: &str) -> String {
 
 pub fn parse_model_claims(response_text: &str) -> Vec<Claim> {
     let mut text = response_text.trim().to_string();
-    let fenced = Regex::new(r"(?is)```(?:json)?\s*(.*?)```").expect("valid regex");
-    if let Some(captures) = fenced.captures(&text) {
-        if let Some(inner) = captures.get(1) {
-            text = inner.as_str().trim().to_string();
+    if let Ok(fenced) = Regex::new(r"(?is)```(?:json)?\s*(.*?)```") {
+        if let Some(captures) = fenced.captures(&text) {
+            if let Some(inner) = captures.get(1) {
+                text = inner.as_str().trim().to_string();
+            }
         }
     }
 

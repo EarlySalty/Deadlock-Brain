@@ -13,3 +13,6 @@ data/gemini_profile/
 rust/target/
 
 .env
+
+# Codex-Worker-Arbeitslog (nicht versionieren)
+WORKFLOW.md

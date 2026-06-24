@@ -1,0 +1,27 @@
+[package]
+name = "deadlock-brain-yt"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "deadlock-brain-yt"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+deadlock-brain-core = { path = "../deadlock-brain-core" }
+hex.workspace = true
+regex.workspace = true
+reqwest.workspace = true
+roxmltree.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+urlencoding.workspace = true
+wait-timeout.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
