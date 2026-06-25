@@ -252,30 +252,118 @@ pub(crate) fn sorted_counts(values: Vec<String>) -> Value {
 }
 
 pub(crate) fn extract_insights(text: &str) -> Value {
-    let marker = "\"insights\"";
-    if !text.contains(marker) {
-        return json!({});
+    let mut latest = None;
+    for (start, character) in text.char_indices() {
+        if character != '{' {
+            continue;
+        }
+        let Some(end) = balanced_json_end(text, start) else {
+            continue;
+        };
+        let Some(candidate) = parse_insights_candidate(&text[start..end]) else {
+            continue;
+        };
+        latest = Some(candidate);
     }
-    let marker_pos = text.find(marker).unwrap_or(0);
-    let search_start = marker_pos.saturating_sub(50);
-    let Some(relative_start) = text[search_start..].find('{') else {
-        return json!({});
-    };
-    let start = search_start + relative_start;
-    let Some(end) = text.rfind('}') else {
-        return json!({});
-    };
-    if end <= start {
-        return json!({});
+    latest.unwrap_or_else(|| json!({}))
+}
+
+fn balanced_json_end(text: &str, start: usize) -> Option<usize> {
+    let mut depth = 0_i64;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (offset, character) in text[start..].char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match character {
+            '"' => in_string = true,
+            '{' => depth += 1,
+            '}' => {
+                if depth <= 0 {
+                    return None;
+                }
+                depth -= 1;
+                if depth == 0 {
+                    return Some(start + offset + character.len_utf8());
+                }
+            }
+            _ => {}
+        }
     }
-    let parsed = serde_json::from_str::<Value>(&text[start..=end]).unwrap_or_else(|_| json!({}));
-    if let Some(insights) = parsed.get("insights").filter(|value| value.is_object()) {
-        insights.clone()
-    } else if parsed.is_object() {
-        parsed
+    None
+}
+
+fn parse_insights_candidate(raw: &str) -> Option<Value> {
+    let parsed = parse_json_tolerant(raw)?;
+    let insights = get(&parsed, "insights")
+        .filter(|value| value.is_object())
+        .cloned()
+        .unwrap_or(parsed);
+    if !insights.is_object() {
+        return None;
+    }
+    if get(&insights, "core_items").is_some() || get(&insights, "hero_job").is_some() {
+        Some(insights)
     } else {
-        json!({})
+        None
     }
+}
+
+fn parse_json_tolerant(raw: &str) -> Option<Value> {
+    serde_json::from_str::<Value>(raw)
+        .ok()
+        .or_else(|| {
+            let cleaned = strip_trailing_json_commas(raw);
+            if cleaned == raw {
+                None
+            } else {
+                serde_json::from_str::<Value>(&cleaned).ok()
+            }
+        })
+}
+
+fn strip_trailing_json_commas(raw: &str) -> String {
+    let mut result = String::with_capacity(raw.len());
+    let mut chars = raw.chars().peekable();
+    let mut in_string = false;
+    let mut escaped = false;
+    while let Some(character) = chars.next() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == '"' {
+                in_string = false;
+            }
+            result.push(character);
+            continue;
+        }
+        if character == '"' {
+            in_string = true;
+            result.push(character);
+            continue;
+        }
+        if character == ',' {
+            let mut lookahead = chars.clone();
+            while matches!(lookahead.peek(), Some(next) if next.is_whitespace()) {
+                lookahead.next();
+            }
+            if matches!(lookahead.peek(), Some('}' | ']')) {
+                continue;
+            }
+        }
+        result.push(character);
+    }
+    result
 }
 
 pub(crate) fn clean_html_text(value: &str) -> String {
