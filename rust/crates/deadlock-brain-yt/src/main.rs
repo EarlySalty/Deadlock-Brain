@@ -4,6 +4,8 @@ mod gemini;
 mod loop_runner;
 mod queue;
 mod schema;
+mod transcripts;
+mod video_classification;
 
 use std::path::PathBuf;
 
@@ -38,6 +40,14 @@ enum Commands {
     Smoke {
         #[arg(long)]
         url: String,
+    },
+    FetchTranscripts {
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+    },
+    ClassifyVideos {
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
     },
 }
 
@@ -94,6 +104,14 @@ fn run() -> anyhow::Result<()> {
                     std::process::exit(1);
                 }
             }
+        }
+        Commands::FetchTranscripts { limit } => {
+            let conn = db::open_db(cli.db)?;
+            print_json(&transcripts::fetch_transcripts(&conn, limit)?)
+        }
+        Commands::ClassifyVideos { limit } => {
+            let conn = db::open_db(cli.db)?;
+            print_json(&video_classification::classify_videos(&conn, limit)?)
         }
     }
 }

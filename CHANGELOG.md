@@ -1,5 +1,13 @@
 # Changelog
 
+## #7 — YouTube-Transcripts direkt laden statt aus dem Video raten
+
+Die Lernpipeline hing bisher daran, dass ein externes Modell das Video „anschaut" und zusammenfasst — unzuverlässig, modellabhängig, und bei Videos ohne verfügbares Transcript lieferte es teils erfundene oder leere Ergebnisse. Außerdem war nicht unterschieden, welche Videos überhaupt aus Text auswertbar sind und welche ihren Inhalt im Bild tragen.
+
+Ein neuer Schritt lädt die Untertitel der Videos in der Originalsprache direkt von der Quelle und legt sie als echten Transcript-Text ab — wiederholbar und ohne Dubletten; Videos ohne verfügbare Untertitel werden klar als solche markiert und für eine spätere Tonspur-Transkription vorgemerkt. Ein zweiter Schritt ordnet jedes Video einem Inhaltstyp zu: strategisch-verbal (Build, Lane, Matchup — aus Text auswertbar) gegenüber visuell-mechanisch (Bewegungs- und Technik-Demonstrationen, deren Inhalt das Bild trägt), und markiert rein visuelle Videos, deren Transcript allein wenig hergibt.
+
+Damit steht eine verlässliche Transcript-Grundlage in Originalsprache für die spätere, sorgfältige Aussagen-Extraktion bereit, und visuelle Technik-Videos werden korrekt als transcript-arm erkannt statt überbewertet.
+
 ## #6 — Build-Vorschläge treffen jetzt, was starke Spieler wirklich kaufen
 
 Der Build-Vorschlag pro Held empfahl im Schnitt nur rund ein Drittel dessen, was echte Quality-Spieler-Builds tatsächlich kaufen — bei spirit-lastigen Helden kippte er sogar in einen Waffen-Carry und ließ die eigentlichen Skalierungs-Items komplett weg. Ursache: Der deterministische Vorschlag ignorierte die bereits vorhandene, treffsichere Build-Analyse und optimierte vorrangig die Shop-Bonus-Ökonomie statt die tatsächliche Schadensquelle des Helden; ganze Item-Klassen wie Cooldown-Reduktion oder defensive Aktiv-Items wurden gar nicht bewertet.
