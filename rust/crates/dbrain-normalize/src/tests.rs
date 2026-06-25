@@ -5,7 +5,7 @@ use tempfile::TempDir;
 use crate::{
     enrich_legacy_entities_with_conn, enrich_lineage_with_conn, extract_lineage_candidates,
     normalize_entities_with_conn, normalize_sheet_stats_with_conn, normalize_sheet_tabs_with_conn,
-    parse_patchnotes_with_conn, LineageEvent,
+    parse_patchnotes_with_conn, resolve_gaps_with_conn, LineageEvent,
 };
 
 fn test_conn() -> (TempDir, Connection) {
@@ -386,6 +386,179 @@ fn normalizes_sheet_stats_and_tabs() {
     assert!(row_json.contains("Parry"));
 }
 
+#[test]
+fn resolve_gaps_reresolves_patch_event_subjects_conservatively() {
+    let (_temp, conn) = test_conn();
+    let hero_id = insert_entity(&conn, "hero", "Doorman");
+    insert_alias(&conn, hero_id, "Doorman", "canonical");
+    let snapshot_id = insert_snapshot(
+        &conn,
+        "patchnotes",
+        "patchnote",
+        "patch-resolve-gap",
+        Some("Resolve Gap Patch"),
+        json!({"raw_content": ""}),
+        None,
+    );
+    conn.execute(
+        r#"
+        INSERT INTO patch_events(
+          patch_snapshot_id, patch_external_id, patch_title, patch_url,
+          source_kind, posted_at, line_index, section, entity_type,
+          entity_name, subject, change_type, raw_line, normalized_line,
+          old_value, new_value, confidence, metadata_json, event_hash, created_at
+        )
+        VALUES(?1,'patch-resolve-gap','Resolve Gap Patch',NULL,'forum','2026-01-01',1,'Heroes','general',
+               NULL,'Doorman','changed','- Doorman: damage increased.','damage increased.',NULL,NULL,0.45,'{}','gap-doorman',1),
+              (?1,'patch-resolve-gap','Resolve Gap Patch',NULL,'forum','2026-01-01',2,'Heroes','general',
+               NULL,'Unknown Hero','changed','- Unknown Hero: damage increased.','damage increased.',NULL,NULL,0.45,'{}','gap-unknown',1)
+        "#,
+        [snapshot_id],
+    )
+    .expect("insert patch gaps");
+
+    let dry = resolve_gaps_with_conn(&conn, true).expect("dry resolve gaps");
+    assert_eq!(dry["patch_events"]["changed"], 1);
+    let dry_type: String = conn
+        .query_row(
+            "SELECT entity_type FROM patch_events WHERE event_hash='gap-doorman'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("dry run unchanged");
+    assert_eq!(dry_type, "general");
+
+    let first = resolve_gaps_with_conn(&conn, false).expect("resolve gaps");
+    assert_eq!(first["patch_events"]["changed"], 1);
+    let resolved: (String, Option<String>, f64) = conn
+        .query_row(
+            "SELECT entity_type, entity_name, confidence FROM patch_events WHERE event_hash='gap-doorman'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .expect("resolved patch event");
+    assert_eq!(resolved.0, "hero");
+    assert_eq!(resolved.1.as_deref(), Some("Doorman"));
+    assert_eq!(resolved.2, 0.95);
+
+    let heuristic_left: String = conn
+        .query_row(
+            "SELECT entity_type FROM patch_events WHERE event_hash='gap-unknown'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("heuristic left untouched");
+    assert_eq!(heuristic_left, "general");
+
+    let second = resolve_gaps_with_conn(&conn, false).expect("resolve gaps again");
+    assert_eq!(second["patch_events"]["changed"], 0);
+    assert_eq!(second["claims"]["changed"], 0);
+    assert_eq!(second["entity_id_backfill"]["changed"], 0);
+}
+
+#[test]
+fn resolve_gaps_reresolves_claim_from_first_resolvable_split_part() {
+    let (_temp, conn) = test_conn();
+    let item_id = insert_entity(&conn, "item", "Close Quarters");
+    insert_alias(&conn, item_id, "Close Quarters", "canonical");
+    insert_youtube_video(&conn, "video-split-claim");
+    conn.execute(
+        r#"
+        INSERT INTO youtube_learning_claims(
+          video_id, claim_hash, claim_index, entity_type, entity_name,
+          claim_type, claim_text, evidence_quote, timestamp_seconds,
+          model_confidence, verifier_confidence, status, model, prompt_version,
+          prompt_text, model_response_text, provider_metadata_json, verifier_json,
+          created_at, updated_at
+        )
+        VALUES(
+          'video-split-claim', 'claim-split', 0, NULL, 'Point Blank / Close Quarters',
+          'item_note', 'claim text', 'quote', NULL,
+          0.8, 0.2, 'needs_review', 'test-model', 'test-prompt',
+          'prompt', 'response', '{}', ?1, 1, 1
+        )
+        "#,
+        [json!({"reasons": ["entity_not_resolved", "low_context"]}).to_string()],
+    )
+    .expect("insert claim");
+
+    let first = resolve_gaps_with_conn(&conn, false).expect("resolve claim gaps");
+    assert_eq!(first["claims"]["changed"], 1);
+
+    let resolved: (String, String, String, String) = conn
+        .query_row(
+            r#"
+            SELECT entity_type, entity_name, status, verifier_json
+            FROM youtube_learning_claims
+            WHERE claim_hash='claim-split'
+            "#,
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .expect("resolved claim");
+    assert_eq!(resolved.0, "item");
+    assert_eq!(resolved.1, "Close Quarters");
+    assert_eq!(resolved.2, "needs_review");
+    let verifier: Value = serde_json::from_str(&resolved.3).expect("verifier json");
+    assert_eq!(verifier["entity_resolution"], "reresolved_deadlock_data");
+    assert_eq!(verifier["reasons"], json!(["low_context"]));
+
+    let second = resolve_gaps_with_conn(&conn, false).expect("resolve claim gaps again");
+    assert_eq!(second["claims"]["changed"], 0);
+}
+
+#[test]
+fn resolve_gaps_backfills_entity_ids_and_skips_ambiguous_or_empty_names() {
+    let (_temp, conn) = test_conn();
+    let abrams_id = insert_entity(&conn, "hero", "Abrams");
+    insert_alias(&conn, abrams_id, "Abrams", "canonical");
+    let hero_a = insert_entity(&conn, "hero", "Hero A");
+    let hero_b = insert_entity(&conn, "hero", "Hero B");
+    insert_alias(&conn, hero_a, "Shared Hero", "snapshot_name");
+    insert_alias(&conn, hero_b, "Shared Hero", "snapshot_name");
+
+    insert_backfill_rows(&conn);
+
+    let first = resolve_gaps_with_conn(&conn, false).expect("resolve backfill gaps");
+    assert_eq!(first["entity_id_backfill"]["changed"], 5);
+    for table in [
+        "hero_stat_profiles",
+        "hero_stat_values",
+        "sheet_heroes_stats",
+        "sheet_raw_heroes",
+        "sheet_hero_rankings",
+    ] {
+        let count: i64 = conn
+            .query_row(
+                &format!("SELECT COUNT(*) FROM {table} WHERE hero_name='Abrams' AND entity_id=?1"),
+                [abrams_id],
+                |row| row.get(0),
+            )
+            .expect("backfilled table");
+        assert_eq!(count, 1, "{table}");
+    }
+
+    let ambiguous: Option<i64> = conn
+        .query_row(
+            "SELECT entity_id FROM sheet_raw_heroes WHERE hero_name='Shared Hero'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("ambiguous row");
+    assert_eq!(ambiguous, None);
+    let empty: Option<i64> = conn
+        .query_row(
+            "SELECT entity_id FROM sheet_heroes_stats WHERE hero_name=''",
+            [],
+            |row| row.get(0),
+        )
+        .expect("empty row");
+    assert_eq!(empty, None);
+
+    let second = resolve_gaps_with_conn(&conn, false).expect("resolve backfill gaps again");
+    assert_eq!(second["entity_id_backfill"]["changed"], 0);
+}
+
 fn parse_multi_entity_patch_line(order: [&str; 3]) -> (String, String) {
     let (_temp, conn) = test_conn();
     for name in order {
@@ -414,4 +587,167 @@ fn parse_multi_entity_patch_line(order: [&str; 3]) -> (String, String) {
         |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
     )
     .expect("multi entity patch event")
+}
+
+fn insert_youtube_video(conn: &Connection, video_id: &str) {
+    conn.execute(
+        r#"
+        INSERT INTO youtube_feed_sources(
+          feed_key, source_type, url, handle, playlist_id, channel_id, title,
+          enabled, metadata_json, created_at, updated_at
+        )
+        VALUES('test-feed','channel','https://example.invalid',NULL,NULL,NULL,'Test',1,'{}',1,1)
+        ON CONFLICT(feed_key) DO NOTHING
+        "#,
+        [],
+    )
+    .expect("insert youtube feed");
+    conn.execute(
+        r#"
+        INSERT INTO youtube_videos(
+          video_id, feed_key, channel_id, channel_title, title, url,
+          published_at, description, metadata_json, transcript_status,
+          learning_status, discovered_at, updated_at
+        )
+        VALUES(?1,'test-feed',NULL,NULL,'Test Video','https://example.invalid/video',
+               NULL,NULL,'{}','missing','queued',1,1)
+        "#,
+        [video_id],
+    )
+    .expect("insert youtube video");
+}
+
+fn insert_backfill_rows(conn: &Connection) {
+    let profile_snapshot = insert_snapshot(
+        conn,
+        "deadlock_stats_sheet",
+        "hero_stats_sheet",
+        "profile-backfill",
+        Some("Abrams"),
+        json!({"values": {"Hero Name": "Abrams"}}),
+        None,
+    );
+    conn.execute(
+        r#"
+        INSERT INTO hero_stat_profiles(
+          snapshot_id, entity_id, hero_name, source, external_id, payload_hash,
+          row_number, created_at, updated_at
+        )
+        VALUES(?1,NULL,'Abrams','test','profile-backfill','profile-hash',1,1,1)
+        "#,
+        [profile_snapshot],
+    )
+    .expect("insert stat profile");
+    let profile_id = conn.last_insert_rowid();
+    conn.execute(
+        r#"
+        INSERT INTO hero_stat_values(
+          profile_id, entity_id, hero_name, stat_key, stat_label,
+          numeric_value, raw_value, created_at, updated_at
+        )
+        VALUES(?1,NULL,'Abrams','base_hp','Base HP',600.0,'600',1,1)
+        "#,
+        [profile_id],
+    )
+    .expect("insert stat value");
+
+    let heroes_stats_snapshot = insert_snapshot(
+        conn,
+        "deadlock_stats_sheet",
+        "sheet_row",
+        "heroes-stats-backfill",
+        Some("Abrams"),
+        json!({"sheet_name": "Hero Stats"}),
+        None,
+    );
+    conn.execute(
+        r#"
+        INSERT INTO sheet_heroes_stats(
+          snapshot_id, entity_id, hero_name, payload_hash, created_at, updated_at
+        )
+        VALUES(?1,NULL,'Abrams','heroes-stats-hash',1,1)
+        "#,
+        [heroes_stats_snapshot],
+    )
+    .expect("insert heroes stats");
+
+    let empty_snapshot = insert_snapshot(
+        conn,
+        "deadlock_stats_sheet",
+        "sheet_row",
+        "heroes-stats-empty",
+        None,
+        json!({"sheet_name": "Hero Stats"}),
+        None,
+    );
+    conn.execute(
+        r#"
+        INSERT INTO sheet_heroes_stats(
+          snapshot_id, entity_id, hero_name, payload_hash, created_at, updated_at
+        )
+        VALUES(?1,NULL,'','heroes-stats-empty-hash',1,1)
+        "#,
+        [empty_snapshot],
+    )
+    .expect("insert empty heroes stats");
+
+    let raw_snapshot = insert_snapshot(
+        conn,
+        "deadlock_stats_sheet",
+        "sheet_row",
+        "raw-heroes-backfill",
+        Some("Abrams"),
+        json!({"sheet_name": "Raw Heroes"}),
+        None,
+    );
+    conn.execute(
+        r#"
+        INSERT INTO sheet_raw_heroes(
+          snapshot_id, entity_id, hero_name, payload_hash, created_at, updated_at
+        )
+        VALUES(?1,NULL,'Abrams','raw-heroes-hash',1,1)
+        "#,
+        [raw_snapshot],
+    )
+    .expect("insert raw heroes");
+
+    let ambiguous_snapshot = insert_snapshot(
+        conn,
+        "deadlock_stats_sheet",
+        "sheet_row",
+        "raw-heroes-ambiguous",
+        Some("Shared Hero"),
+        json!({"sheet_name": "Raw Heroes"}),
+        None,
+    );
+    conn.execute(
+        r#"
+        INSERT INTO sheet_raw_heroes(
+          snapshot_id, entity_id, hero_name, payload_hash, created_at, updated_at
+        )
+        VALUES(?1,NULL,'Shared Hero','raw-heroes-ambiguous-hash',1,1)
+        "#,
+        [ambiguous_snapshot],
+    )
+    .expect("insert ambiguous raw heroes");
+
+    let ranking_snapshot = insert_snapshot(
+        conn,
+        "deadlock_stats_sheet",
+        "sheet_row",
+        "ranking-backfill",
+        Some("Abrams"),
+        json!({"sheet_name": "Hero meta ranking"}),
+        None,
+    );
+    conn.execute(
+        r#"
+        INSERT INTO sheet_hero_rankings(
+          snapshot_id, entity_id, hero_name, payload_hash, created_at, updated_at
+        )
+        VALUES(?1,NULL,'Abrams','ranking-hash',1,1)
+        "#,
+        [ranking_snapshot],
+    )
+    .expect("insert ranking");
 }

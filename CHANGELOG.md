@@ -1,5 +1,13 @@
 # Changelog
 
+## #5 — Mehr Patch-Änderungen und Creator-Aussagen korrekt einem Helden, Item oder einer Fähigkeit zugeordnet
+
+Viele Patch-Änderungen und Creator-Aussagen lagen ohne klaren Besitzer im Wissensspeicher: Der Betreff einer Patch-Zeile oder der genannte Bezug einer Aussage ließ sich nicht auf einen bekannten Helden, ein Item oder eine Fähigkeit abbilden, weil der Entitäten-Katalog zum Zeitpunkt der Verarbeitung noch unvollständig war. Solche Einträge blieben unzugeordnet und tauchten daher nicht auf, wenn man gezielt nach dem betreffenden Helden oder Item fragte.
+
+Ein neuer, bewusst zurückhaltender Abgleich ordnet diese besitzerlosen Einträge dem inzwischen deutlich reicheren Entitäten-Katalog zu — einschließlich der neuen Spieldaten-Aliasse und der im Spiel sichtbaren Anzeigenamen. Zugeordnet wird nur, wenn der bereinigte Name eindeutig zu genau einer bekannten Entität passt; zusammengesetzte und annotierte Bezeichnungen (Schrägstriche, in Klammern genannte Fähigkeiten, Sprach-Zusätze) werden zerlegt und Teil für Teil geprüft, während mehrdeutige oder unauflösbare Namen absichtlich unangetastet bleiben. Ein erneuter Lauf verändert nichts bereits Zugeordnetes.
+
+Dadurch ist ein spürbarer Teil der zuvor besitzerlosen Patch-Änderungen und Creator-Aussagen jetzt korrekt mit seinem Helden, Item oder seiner Fähigkeit verknüpft — auch über die Anzeigenamen, die Spieler tatsächlich sehen. Die verbleibenden offenen Einträge sind entweder wirklich allgemein (Spielsysteme, globale Regeln) oder zu mehrdeutig für eine sichere Zuordnung.
+
 ## #4 — Vertrauenswürdige Spieldaten-Quelle: Scaling, Helden- und Item-Details, strukturierte Patch-Daten
 
 Dem Wissensspeicher fehlten die maßgeblichen, strukturierten Spieldaten — vor allem die Skalierungswerte der Helden sowie die Detailangaben zu Fähigkeiten und Items. Diese Informationen lagen bislang nur auf der gerenderten Wiki-Seite, die von diesem System aus nicht erreichbar ist; die vorhandenen Patch-Daten stammten aus weniger strukturierten Quellen.

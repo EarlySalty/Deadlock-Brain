@@ -650,6 +650,8 @@ enum NormalizeCommands {
     SheetStats(NormalizeSheetStatsArgs),
     #[command(name = "sheet-tabs", about = "Baut normalisierte Tabellen fuer Hero-Rankings, Boons/AP und Raw-Heroes.")]
     SheetTabs(NormalizeSheetTabsArgs),
+    #[command(name = "resolve-gaps", about = "Loest offene Entity-Luecken konservativ neu auf.")]
+    ResolveGaps(ResolveGapsArgs),
 }
 
 #[derive(Debug, Args)]
@@ -668,6 +670,12 @@ struct NormalizeSheetStatsArgs {
 struct NormalizeSheetTabsArgs {
     #[arg(long, help = "Loescht Tab-Tabellen vorher.")]
     rebuild: bool,
+}
+
+#[derive(Debug, Args)]
+struct ResolveGapsArgs {
+    #[arg(long = "dry-run", help = "Nur Report erzeugen, keine DB-Aenderungen schreiben.")]
+    dry_run: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -1173,6 +1181,9 @@ fn run_normalize(conn: &Connection, target: NormalizeCommands) -> Result<()> {
         }
         NormalizeCommands::SheetTabs(args) => {
             print_json(&dbrain_normalize::normalize_sheet_tabs_with_conn(conn, args.rebuild)?)
+        }
+        NormalizeCommands::ResolveGaps(args) => {
+            print_json(&dbrain_normalize::resolve_gaps_with_conn(conn, args.dry_run)?)
         }
     }
 }
