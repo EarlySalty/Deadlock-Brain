@@ -98,3 +98,16 @@ When `ingest --write` is used without `--no-backup`, the binary copies the opene
 ```
 
 If that file already exists, a `-HHMMSS` suffix is added, with an extra numeric suffix if needed to avoid overwrite. The summary returns the backup path.
+
+The DB runs in WAL mode, so before copying, `ingest` forces `PRAGMA wal_checkpoint(TRUNCATE)` to flush committed pages into the main file; if a checkpoint cannot fully truncate (busy), the non-empty `-wal`/`-shm` sidecars are copied alongside the backup. This makes the copied file self-consistent.
+
+## Status (Stand 2026-06-26)
+
+- `transcript_v1` corpus: ~2090 Claims über ~133 Videos (Status accepted/needs_review/unverified/rejected). Wellen 1+2 dieser Pipeline haben die ~169 verbal-Videos mit Transcript bis 150k Zeichen abgearbeitet.
+- **Zero-Yield-Reselect (offen):** Videos, deren Transcript keine prüfbaren Claims hergibt (dünne Shorts), bekommen keine `transcript_v1`-Zeile und werden vom `NOT EXISTS`-Filter in `prepare` bei jedem Lauf erneut ausgewählt. Folgepunkt: einen "attempted"-Marker (z.B. `youtube_videos.learning_status` oder ein metadata-Flag) setzen und in der Selektion ausschließen, damit Null-Ertrag-Videos nicht wiederholt verarbeitet werden.
+- **Monster-VODs (offen):** ~94 verbal-Videos > 150k Zeichen (bis ~1,3 Mio, mehrstündige Stream-/Coaching-VODs) brauchen eine Chunking-Variante (Transcript segmentieren → mehrere Extract-Agenten pro Video → Claims vereinen), bevor sie sinnvoll ausgewertet werden. Offensichtlich themenfremde Streams ausschließen.
+- **needs_asr (offen):** ~109 verbal-Videos haben keine Captions (`transcript_status='unavailable'`) und brauchen Whisper-ASR (nicht installiert).
+
+## Orchestrierung (wie die LLM-Stufe heute läuft)
+
+`prepare`/`ingest` sind die deterministische Daten-Ebene; die Extraktion+Verifikation dazwischen läuft als Claude-Workflow (deutsche `claim_text` + abgeleitete-Mechanik-Verifikation, NIE MiniMax). Pro Welle: `prepare`/Selektion → Workflow (Extract→Verify, schreibt `verified_<id>.json` pro Video) → `verified_*.json` zu einem Array bündeln → `ingest --write`. Eine vollautonome In-Rust-Variante (Rust ruft GPT direkt) wäre ein Folgeschritt; dafür fehlt im Core noch ein OpenAI/Anthropic-Client (nur MiniMax vorhanden).

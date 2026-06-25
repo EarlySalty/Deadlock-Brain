@@ -1,5 +1,13 @@
 # Changelog
 
+## #12 — Geprüftes Creator-Wissen vervielfacht: das Brain weiß jetzt deutlich mehr
+
+Die neue Lernpipeline war fertig, aber erst an einer Handvoll Videos erprobt — das Wissens-Paket zu vielen Fragen blieb dünn, weil zu wenige geprüfte Creator-Aussagen in der Datenbank lagen (zu manchen Helden gab es nur eine einzige belegte Aussage).
+
+Die Pipeline lief nun in zwei Wellen über rund 170 Strategie-Videos mit Transcript bis zu üblicher Länge. Jedes Video wurde ausgewertet und jede einzelne Aussage gegen die gesicherten Spieldaten geprüft und eingestuft: bestätigt, ungewiss, nicht prüfbar oder widerlegt. Konkrete Patch-Werte und Karten-Daten stützen die bestätigten Aussagen; die wenigen klar falschen Creator-Behauptungen — etwa eine verwechselte Fähigkeit oder eine falsche Zahl — werden ausdrücklich als widerlegt markiert, damit sie nicht weitergereicht werden.
+
+Der geprüfte Creator-Wissensschatz ist von rund 100 auf über 2.000 Aussagen gewachsen und deckt jetzt über 130 Videos ab; damit liefert das Wissens-Paket zu deutlich mehr Fragen belegte Treffer. Sehr lange Stream-Mitschnitte und Videos ohne Untertitel stehen noch aus.
+
 ## #11 — Creator-Wissen aus Transcripts wird jetzt per wiederkehrendem Befehl geprüft eingespeist
 
 Bisher entstand das transcript-basierte Creator-Wissen in einem einmaligen, von Hand zusammengesteckten Lauf — Sammeln, Prüfen und Einschreiben ließen sich nicht wiederholen, und erst eine Handvoll Videos war erfasst. Es fehlte ein fester, wiederholbarer Weg, neue Videos nachzuziehen, ohne den ganzen Ablauf jedes Mal neu zu orchestrieren.
