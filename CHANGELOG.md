@@ -1,5 +1,13 @@
 # Changelog
 
+## #6 — Build-Vorschläge treffen jetzt, was starke Spieler wirklich kaufen
+
+Der Build-Vorschlag pro Held empfahl im Schnitt nur rund ein Drittel dessen, was echte Quality-Spieler-Builds tatsächlich kaufen — bei spirit-lastigen Helden kippte er sogar in einen Waffen-Carry und ließ die eigentlichen Skalierungs-Items komplett weg. Ursache: Der deterministische Vorschlag ignorierte die bereits vorhandene, treffsichere Build-Analyse und optimierte vorrangig die Shop-Bonus-Ökonomie statt die tatsächliche Schadensquelle des Helden; ganze Item-Klassen wie Cooldown-Reduktion oder defensive Aktiv-Items wurden gar nicht bewertet.
+
+Die Build-Analyse fließt jetzt als harter Faktor in den Vorschlag ein: Als Kern erkannte Items werden hochgewichtet, als fraglich markierte abgewertet, und Items, die häufig in echten Quality-Builds vorkommen, bekommen einen Bonus. Das Schadensprofil eines Helden (Spirit- gegenüber Waffen-Fokus) wird belastbarer bestimmt und steuert die Item-Gewichtung — bei spirit-dominanten Helden werden fehlplatzierte Waffen-Kernitems gezielt abgewertet. Drei zuvor unbewertete Item-Klassen — Cooldown-Reduktion, Spirit-Resistenz-Verringerung und defensive Aktiv-Items — werden nun nach Heldenbedarf gewertet, während die Shop-Bonus-Heuristik als Haupttreiber zurückgestuft wurde, sodass effektlose Allzweck-Items keine Kernränge mehr belegen.
+
+Der Vorschlag deckt sich dadurch im Schnitt mehr als doppelt so stark mit echten Quality-Builds; spirit-lastige Helden erhalten ihre Skalierungs- und Cooldown-Kerne statt deplatzierter Waffen-Items, und die Item-Detailanzeige stellt Vorzeichen und Werte wieder korrekt dar.
+
 ## #5 — Mehr Patch-Änderungen und Creator-Aussagen korrekt einem Helden, Item oder einer Fähigkeit zugeordnet
 
 Viele Patch-Änderungen und Creator-Aussagen lagen ohne klaren Besitzer im Wissensspeicher: Der Betreff einer Patch-Zeile oder der genannte Bezug einer Aussage ließ sich nicht auf einen bekannten Helden, ein Item oder eine Fähigkeit abbilden, weil der Entitäten-Katalog zum Zeitpunkt der Verarbeitung noch unvollständig war. Solche Einträge blieben unzugeordnet und tauchten daher nicht auf, wenn man gezielt nach dem betreffenden Helden oder Item fragte.

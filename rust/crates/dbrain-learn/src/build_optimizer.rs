@@ -17,6 +17,18 @@ use crate::{
 const PUBLIC_ITEM_SLOTS: &[&str] = &["weapon", "vitality", "spirit"];
 const SHOP_BONUS_SPIKE: i64 = 4800;
 const SHOP_BONUS_CAP: i64 = 28800;
+const UNKNOWN_COST_SENTINEL: i64 = 9999;
+const SHOP_EARLY_ECONOMY_SCORE: f64 = 2.0;
+const SHOP_CORE_WINDOW_SCORE: f64 = 1.0;
+const SHOP_LANE_FARM_SCORE: f64 = 3.0;
+const SHOP_LANE_TRADE_SCORE: f64 = 2.0;
+const LEARNING_CORE_ITEM_BONUS: f64 = 68.0;
+const LEARNING_CORE_ITEM_COUNT_BONUS: f64 = 7.0;
+const LEARNING_AVOID_ITEM_MALUS: f64 = 34.0;
+const LEARNED_BUILD_FREQUENCY_BONUS: f64 = 26.0;
+const LEARNED_BUILD_FREQUENCY_THRESHOLD: f64 = 0.67;
+const SPIRIT_DOMINANT_WEAPON_CORE_MALUS: f64 = 120.0;
+const PASSIVE_ECONOMY_GENERALIST_MALUS: f64 = 42.0;
 
 const SITUATIONAL_ITEMS: &[&str] = &[
     "Healbane",
@@ -52,6 +64,110 @@ const ENGAGE_ACTIVE_HINTS: &[&str] = &[
 ];
 
 const PURE_DEFENSE_HINTS: &[&str] = &["bonus health", "resist", "armor", "regen"];
+
+const SPIRIT_DOMINANT_WEAPON_CORE_ITEMS: &[&str] = &[
+    "Active Reload",
+    "Burst Fire",
+    "Glass Cannon",
+    "Crushing Fists",
+    "Kinetic Dash",
+];
+
+const SPIRIT_AFFINITY_ITEMS: &[&str] = &[
+    "Extra Spirit",
+    "Improved Spirit",
+    "Boundless Spirit",
+    "Spirit Lifesteal",
+    "Duration Extender",
+    "Superior Duration",
+    "Mystic Vulnerability",
+    "Escalating Exposure",
+    "Spirit Shredder Bullets",
+    "Spirit Rend",
+    "Spirit Resilience",
+    "Spirit Shielding",
+    "Spirit Burn",
+    "Spirit Sap",
+    "Mystic Burst",
+    "Mystic Expansion",
+    "Mystic Slow",
+    "Extra Charge",
+    "Rapid Recharge",
+    "Compress Cooldown",
+    "Superior Cooldown",
+    "Transcendent Cooldown",
+    "Surge of Power",
+    "Tankbuster",
+    "Enchanter's Emblem",
+    "Toxic Bullets",
+];
+
+const WEAPON_AFFINITY_ITEMS: &[&str] = &[
+    "Active Reload",
+    "Burst Fire",
+    "Kinetic Dash",
+    "Glass Cannon",
+    "Crushing Fists",
+    "Extended Magazine",
+    "Titanic Magazine",
+    "Rapid Rounds",
+    "Swift Striker",
+    "Intensifying Magazine",
+    "Lucky Shot",
+    "Sharpshooter",
+    "Long Range",
+    "Ricochet",
+    "Spiritual Overflow",
+    "Quicksilver Reload",
+];
+
+const COOLDOWN_AFFINITY_ITEMS: &[&str] = &[
+    "Compress Cooldown",
+    "Superior Cooldown",
+    "Transcendent Cooldown",
+    "Rapid Recharge",
+    "Recharging Rush",
+];
+
+const DURATION_AFFINITY_ITEMS: &[&str] = &["Duration Extender", "Superior Duration"];
+
+#[derive(Debug, Clone, Default)]
+struct BuildLearningSignals {
+    core_items: BTreeMap<String, ItemLearningSignal>,
+    avoid_items: BTreeMap<String, ItemLearningSignal>,
+    rows_used: usize,
+}
+
+#[derive(Debug, Clone, Default)]
+struct ItemLearningSignal {
+    display_name: String,
+    count: i64,
+    weight: f64,
+}
+
+#[derive(Debug, Clone, Default)]
+struct LearnedBuildItemProfile {
+    total_builds: i64,
+    item_counts: BTreeMap<String, LearnedItemFrequency>,
+    spirit_item_hits: i64,
+    weapon_item_hits: i64,
+    cooldown_item_hits: i64,
+    duration_item_hits: i64,
+}
+
+#[derive(Debug, Clone, Default)]
+struct LearnedItemFrequency {
+    count: i64,
+}
+
+struct ScoreSupport<'a> {
+    review_context: &'a Value,
+    hero_needs: &'a Value,
+    statlocker_signals: &'a BTreeMap<String, Value>,
+    learning_signals: &'a BuildLearningSignals,
+    learned_item_profile: &'a LearnedBuildItemProfile,
+    vs_heroes: &'a [String],
+}
 
 #[derive(Debug, Clone)]
 pub struct BuildSuggestOptions {
@@ -110,20 +226,24 @@ pub fn build_hero_build_context(
         )));
     };
     let abilities = load_hero_abilities(conn, &hero_payload)?;
-    let hero_needs = infer_hero_needs(&hero_payload, &abilities);
+    let learning_signals = load_build_learning_signals(conn, &hero_name)?;
+    let learned_item_profile = load_learned_build_item_profile(conn, &hero_name)?;
+    let mut hero_needs = infer_hero_needs(&hero_payload, &abilities);
+    apply_learned_item_profile(&mut hero_needs, &learned_item_profile);
     let wiki_summary = load_wiki_summary(conn, &hero_name)?;
     let statlocker_signals = load_statlocker_wpa_signals(conn, &hero_name)?;
     let items = load_public_items(conn)?;
+    let score_support = ScoreSupport {
+        review_context: &review_context,
+        hero_needs: &hero_needs,
+        statlocker_signals: &statlocker_signals,
+        learning_signals: &learning_signals,
+        learned_item_profile: &learned_item_profile,
+        vs_heroes,
+    };
     let mut scored_items = Vec::new();
     for item in items {
-        scored_items.push(score_item(
-            &hero_payload,
-            &item,
-            &review_context,
-            &hero_needs,
-            &statlocker_signals,
-            vs_heroes,
-        ));
+        scored_items.push(score_item(&hero_payload, &item, &score_support));
     }
     scored_items.sort_by(|left, right| {
         score_of(right)
@@ -150,6 +270,7 @@ pub fn build_hero_build_context(
         "build": build,
         "top_items": scored_items.iter().take(40).cloned().collect::<Vec<_>>(),
         "rejected_expensive_items": rejected_expensive_items(&scored_items),
+        "learning_signals": compact_learning_signals(&learning_signals, &learned_item_profile),
         "statlocker_signals": compact_statlocker_signals(&statlocker_signals, 12),
         "review_signals": review_signals,
     }))
@@ -193,7 +314,7 @@ fn build_recommendation(
         .filter(|item| {
             let cost = item_cost(item);
             (1600..=SHOP_BONUS_SPIKE).contains(&cost)
-                && !tag(item, "situational")
+                && (!tag(item, "situational") || tag(item, "learning_core"))
                 && !tag(item, "questionable_core")
                 && (!tag(item, "pure_defense") || needs.contains("frontline_survival"))
         })
@@ -236,10 +357,7 @@ fn build_recommendation(
 fn score_item(
     hero_payload: &Value,
     item_payload: &Value,
-    review_context: &Value,
-    hero_needs: &Value,
-    statlocker_signals: &BTreeMap<String, Value>,
-    vs_heroes: &[String],
+    support: &ScoreSupport<'_>,
 ) -> Value {
     let item = item_summary(item_payload);
     let archetypes = string_set(get(&item, "archetypes"));
@@ -253,6 +371,35 @@ fn score_item(
     }
 
     let name = get_string(&item, "name").unwrap_or_default();
+    let learning_core = learning_signal_for_item(&support.learning_signals.core_items, &name).cloned();
+    let learning_avoid = learning_signal_for_item(&support.learning_signals.avoid_items, &name).cloned();
+    let learned_frequency = learned_item_frequency(support.learned_item_profile, &name);
+    let passive_generalist_without_quality_signal = is_passive_economy_generalist(&item)
+        && learned_frequency.map(|(frequency, _)| frequency < 0.34).unwrap_or(true);
+
+    if let Some(signal) = learning_core.as_ref().filter(|_| !passive_generalist_without_quality_signal) {
+        let bonus = LEARNING_CORE_ITEM_BONUS + (signal.count.saturating_sub(1) as f64 * LEARNING_CORE_ITEM_COUNT_BONUS);
+        score += bonus.min(LEARNING_CORE_ITEM_BONUS + 28.0);
+        tags.insert("learning_core".to_string(), json!(true));
+        tags.insert("learning_core_count".to_string(), json!(signal.count));
+        reasons.push("Core-Item laut Build-Analyse aehnlicher Quality-Builds".to_string());
+    } else if learning_core.is_some() && passive_generalist_without_quality_signal {
+        tags.insert("learning_core_suppressed".to_string(), json!(true));
+    }
+    if let Some(signal) = learning_avoid.as_ref() {
+        score -= LEARNING_AVOID_ITEM_MALUS + (signal.count.saturating_sub(1) as f64 * 4.0).min(16.0);
+        tags.insert("learning_avoid".to_string(), json!(true));
+        tags.insert("questionable_core".to_string(), json!(true));
+        tags.insert("learning_avoid_count".to_string(), json!(signal.count));
+        warnings.push("Build-Analyse stuft dieses Item als fraglich ein".to_string());
+    }
+    if let Some((frequency, count)) = learned_frequency.filter(|(frequency, _)| *frequency >= LEARNED_BUILD_FREQUENCY_THRESHOLD) {
+        score += LEARNED_BUILD_FREQUENCY_BONUS * frequency;
+        tags.insert("learned_quality_frequency".to_string(), json!(true));
+        tags.insert("learned_quality_count".to_string(), json!(count));
+        reasons.push("haeufig in echten Quality-Builds dieses Heroes".to_string());
+    }
+
     if let Some(phase_hint) = phase_hint(&name) {
         tags.insert(phase_hint.to_string(), json!(true));
         if phase_hint == "situational" {
@@ -260,44 +407,46 @@ fn score_item(
         }
     }
 
-    let cost = int_or_zero(get(&item, "cost"));
+    let cost = known_summary_cost(&item);
     let tier = int_or_zero(get(&item, "tier"));
     let slot = get_string(&item, "slot").unwrap_or_default();
-    if cost <= 1600 {
-        score += 9.0;
-        tags.insert("early_economy".to_string(), json!(true));
-        reasons.push("hilft frueh beim Shop-Bonus-Aufbau".to_string());
-        if archetypes.contains("lane_farm") {
-            score += 10.0;
-            reasons.push("Lane/Farm-Item: verbessert Souls oder NPC/Orb-Druck".to_string());
+    if let Some(cost) = cost {
+        if cost <= 1600 {
+            score += SHOP_EARLY_ECONOMY_SCORE;
+            tags.insert("early_economy".to_string(), json!(true));
+            reasons.push("hilft frueh beim Shop-Bonus-Aufbau".to_string());
+            if archetypes.contains("lane_farm") {
+                score += SHOP_LANE_FARM_SCORE;
+                reasons.push("Lane/Farm-Item: verbessert Souls oder NPC/Orb-Druck".to_string());
+            }
+            if archetypes.contains("lane_trade") {
+                score += SHOP_LANE_TRADE_SCORE;
+                reasons.push("Lane-Trade-Item: verbessert fruehe Trades oder Druck".to_string());
+            }
+        } else if cost <= SHOP_BONUS_SPIKE {
+            score += SHOP_CORE_WINDOW_SCORE;
+            tags.insert("core_window".to_string(), json!(true));
+            reasons.push("liegt vor/bei dem wichtigen 4800-Shop-Bonus-Fenster".to_string());
+        } else if cost >= 6400 {
+            score -= 10.0;
+            tags.insert("late_only".to_string(), json!(true));
+            warnings.push("teuer; nur kaufen, wenn der Effekt wirklich der Gameplan ist".to_string());
         }
-        if archetypes.contains("lane_trade") {
-            score += 6.0;
-            reasons.push("Lane-Trade-Item: verbessert fruehe Trades oder Druck".to_string());
-        }
-    } else if cost <= SHOP_BONUS_SPIKE {
-        score += 5.0;
-        tags.insert("core_window".to_string(), json!(true));
-        reasons.push("liegt vor/bei dem wichtigen 4800-Shop-Bonus-Fenster".to_string());
-    } else if cost >= 6400 {
-        score -= 10.0;
-        tags.insert("late_only".to_string(), json!(true));
-        warnings.push("teuer; nur kaufen, wenn der Effekt wirklich der Gameplan ist".to_string());
     }
 
-    let needs = string_set(get(hero_needs, "needs"));
-    if !vs_heroes.is_empty() && SITUATIONAL_ITEMS.contains(&name.as_str()) {
-        if vs_heroes.iter().any(|hero| hero == "Infernus") && name == "Debuff Reducer" {
+    let needs = string_set(get(support.hero_needs, "needs"));
+    if !support.vs_heroes.is_empty() && SITUATIONAL_ITEMS.contains(&name.as_str()) {
+        if support.vs_heroes.iter().any(|hero| hero == "Infernus") && name == "Debuff Reducer" {
             score += 30.0;
             tags.insert("counter_item".to_string(), json!(true));
             reasons.push("ESSENTIELLER COUNTER: Reduziert Infernus' DoT stark.".to_string());
         }
-        if vs_heroes.iter().any(|hero| hero == "Abrams") && matches!(name.as_str(), "Healbane" | "Toxic Bullets") {
+        if support.vs_heroes.iter().any(|hero| hero == "Abrams") && matches!(name.as_str(), "Healbane" | "Toxic Bullets") {
             score += 30.0;
             tags.insert("counter_item".to_string(), json!(true));
             reasons.push("ESSENTIELLER COUNTER: Stoppt Abrams' Heal.".to_string());
         }
-        if vs_heroes.iter().any(|hero| hero == "Kelvin") && name == "Unstoppable" {
+        if support.vs_heroes.iter().any(|hero| hero == "Kelvin") && name == "Unstoppable" {
             score += 20.0;
             tags.insert("counter_item".to_string(), json!(true));
             reasons.push("Guter Counter: Verhindert Kelvins Slows/Roots.".to_string());
@@ -323,13 +472,13 @@ fn score_item(
         }
     }
 
-    let (property_score, property_reasons, property_tags) = score_properties(&item, hero_needs);
+    let (property_score, property_reasons, property_tags) = score_properties(&item, support.hero_needs);
     score += property_score;
     reasons.extend(property_reasons.into_iter().take(4));
     tags.extend(property_tags);
 
     let (archetype_score, archetype_reasons, archetype_tags, archetype_warnings) =
-        score_archetypes(&item, hero_needs);
+        score_archetypes(&item, support.hero_needs);
     score += archetype_score;
     reasons.extend(archetype_reasons);
     warnings.extend(archetype_warnings);
@@ -345,6 +494,12 @@ fn score_item(
         score -= 34.0;
         tags.insert("questionable_core".to_string(), json!(true));
         warnings.push("Cooldown-Reset ist teuer und braucht einen klaren Hero-spezifischen Gameplan".to_string());
+    }
+
+    if passive_generalist_without_quality_signal {
+        score -= PASSIVE_ECONOMY_GENERALIST_MALUS;
+        tags.insert("questionable_core".to_string(), json!(true));
+        warnings.push("Economy-Generalist ohne Rueckhalt in echten Builds: nur situativ".to_string());
     }
 
     if name == "Refresher" {
@@ -365,16 +520,22 @@ fn score_item(
         warnings.push("T4 ohne Hero-Good-Bucket braucht klare Begruendung".to_string());
     }
 
-    let (patch_bonus, patch_reasons) = patch_synergy_bonus(&item, review_context);
+    let (patch_bonus, patch_reasons) = patch_synergy_bonus(&item, support.review_context);
     score += patch_bonus;
     reasons.extend(patch_reasons);
 
-    let (need_bonus, need_reasons) = hero_need_bonus(&item, hero_needs);
+    let (need_bonus, need_reasons) = hero_need_bonus(&item, support.hero_needs);
     score += need_bonus;
     reasons.extend(need_reasons);
 
+    if is_spirit_dominant(support.hero_needs) && is_spirit_dominant_weapon_core_item(&name) {
+        score -= SPIRIT_DOMINANT_WEAPON_CORE_MALUS;
+        tags.insert("questionable_core".to_string(), json!(true));
+        warnings.push("Weapon-Core passt nicht zum Spirit-Profil dieses Heroes".to_string());
+    }
+
     let (statlocker_bonus, statlocker_reasons, statlocker_tags, statlocker_warnings) =
-        statlocker_wpa_bonus(&item, statlocker_signals);
+        statlocker_wpa_bonus(&item, support.statlocker_signals);
     score += statlocker_bonus;
     reasons.extend(statlocker_reasons.clone());
     tags.extend(statlocker_tags);
@@ -405,7 +566,7 @@ fn score_properties(item: &Value, hero_needs: &Value) -> (f64, Vec<String>, Map<
             .collect::<Vec<_>>()
             .join(" ")
             .to_lowercase();
-        if let Some((reason, value)) = property_hint_score(&label_blob, hero_needs) {
+        if let Some((reason, value)) = property_hint_score(prop, &label_blob, hero_needs) {
             score += value;
             reasons.push(reason);
         }
@@ -428,10 +589,19 @@ fn score_properties(item: &Value, hero_needs: &Value) -> (f64, Vec<String>, Map<
     (score.min(36.0), dedupe_strings(reasons), tags)
 }
 
-fn property_hint_score(label_blob: &str, hero_needs: &Value) -> Option<(String, f64)> {
+fn property_hint_score(prop: &Value, label_blob: &str, hero_needs: &Value) -> Option<(String, f64)> {
+    if is_non_scoring_stat_property(prop) {
+        return None;
+    }
     let needs = string_set(get(hero_needs, "needs"));
-    if label_blob.contains("cooldown") {
-        return Some(("Cooldown economy".to_string(), if needs.contains("cooldown_reliability") { 12.0 } else { 4.0 }));
+    if is_cooldown_reduction_property(prop, label_blob) {
+        return Some(("Cooldown-Reduktion: haeufigere Casts der zentralen Abilities".to_string(), if needs.contains("cooldown_reliability") { 16.0 } else { 5.0 }));
+    }
+    if is_spirit_resist_shred_property(prop, label_blob) {
+        return Some(("Spirit-Resist-Shred verstaerkt den gesamten Spirit-Schaden".to_string(), if needs.contains("spirit_damage") { 15.0 } else { 4.0 }));
+    }
+    if is_spirit_amp_property(label_blob) {
+        return Some(("Spirit-Amp skaliert den Spirit-Schaden hoch".to_string(), if needs.contains("spirit_damage") { 13.0 } else { 4.0 }));
     }
     if label_blob.contains("duration") {
         return Some(("Duration/value uptime".to_string(), if needs.contains("ability_uptime") { 9.0 } else { 3.0 }));
@@ -491,10 +661,12 @@ fn property_hint_score(label_blob: &str, hero_needs: &Value) -> Option<(String, 
 }
 
 fn hero_need_bonus(item: &Value, hero_needs: &Value) -> (f64, Vec<String>) {
-    let property_blob = get(item, "properties")
+    let properties = get(item, "properties")
         .and_then(as_array)
-        .into_iter()
-        .flatten()
+        .cloned()
+        .unwrap_or_default();
+    let property_blob = properties
+        .iter()
         .map(|prop| {
             get_any_string(prop, &["label", "name", "provided_property_type"]).unwrap_or_default()
         })
@@ -505,6 +677,16 @@ fn hero_need_bonus(item: &Value, hero_needs: &Value) -> (f64, Vec<String>) {
     let needs = string_set(get(hero_needs, "needs"));
     let mut score: f64 = 0.0;
     let mut reasons = Vec::new();
+    let has_cooldown_reduction = properties.iter().any(|prop| {
+        let blob = ["name", "label", "provided_property_type"]
+            .iter()
+            .filter_map(|key| get(prop, key))
+            .map(value_to_string)
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase();
+        is_cooldown_reduction_property(prop, &blob)
+    });
     if needs.contains("engage_reach")
         && ["range", "move speed", "teleport", "dash"]
             .iter()
@@ -513,9 +695,9 @@ fn hero_need_bonus(item: &Value, hero_needs: &Value) -> (f64, Vec<String>) {
         score += 9.0;
         reasons.push("loest ein Hero-Reichweiten-/Engage-Problem".to_string());
     }
-    if needs.contains("cooldown_reliability") && property_blob.contains("cooldown") {
-        score += 8.0;
-        reasons.push("senkt lange zentrale Cooldowns".to_string());
+    if needs.contains("cooldown_reliability") && has_cooldown_reduction {
+        score += 10.0;
+        reasons.push("senkt zentrale Ability-Cooldowns".to_string());
     }
     if needs.contains("ability_uptime") && property_blob.contains("duration") {
         score += 6.0;
@@ -602,6 +784,15 @@ fn score_archetypes(item: &Value, hero_needs: &Value) -> (f64, Vec<String>, Map<
     }
     if archetypes.contains("counter") {
         warnings.push("Counter-/Defense-Anteil pruefen; als Core nur kaufen, wenn der Haupt-Effekt zum Hero-Plan passt".to_string());
+    }
+    if archetypes.contains("defensive_active") || archetypes.contains("defensive_proc") {
+        if needs.contains("frontline_survival") || needs.contains("team_support") {
+            score += 11.0;
+            reasons.push("Defensiv-Active gegen Burst/CC: haelt den Hero im Fight".to_string());
+        } else {
+            tags.insert("situational".to_string(), json!(true));
+            warnings.push("Defensiv-Item nur bei konkretem Gegnerdruck kaufen".to_string());
+        }
     }
     if archetypes.contains("support") {
         if needs.contains("team_support") {
@@ -787,7 +978,7 @@ pub(crate) fn item_summary(payload: &Value) -> Value {
         "class_name": get(payload, "class_name").cloned().unwrap_or(Value::Null),
         "slot": get(payload, "item_slot_type").cloned().unwrap_or(Value::Null),
         "tier": int_or_zero(get(payload, "item_tier")),
-        "cost": int_or_zero(get(payload, "cost")),
+        "cost": known_payload_cost(payload).map(Value::from).unwrap_or(Value::Null),
         "is_active": bool_value(get(payload, "is_active_item")),
         "activation": get(payload, "activation").cloned().unwrap_or(Value::Null),
         "description": description,
@@ -840,6 +1031,10 @@ fn classify_item_archetypes(item: &Value) -> Vec<String> {
     add_if_any(&mut archetypes, &blob, "escape", &["teleport", "dash", "move speed", "sprint speed", "stamina", "escape", "barrier"]);
     add_if_any(&mut archetypes, &blob, "teamfight_engage", &["stun", "silence", "disarm", "knock", "hex", "curse", "area", "nearby enemies", "radius"]);
     add_if_any(&mut archetypes, &blob, "counter", &["debuff", "cleanse", "dispel", "unstoppable", "immune", "barrier", "shield", "return fire", "healing reduction", "metal skin"]);
+    if bool_value(get(item, "is_active")) {
+        add_if_any(&mut archetypes, &blob, "defensive_active", &["immune", "unstoppable", "metal skin", "negative status", "status effects", "bullet resist", "debuff resist", "barrier", "shield"]);
+    }
+    add_if_any(&mut archetypes, &blob, "defensive_proc", &["reactive barrier", "gain a barrier", "when you are stunned", "when you are chained", "when you are immobilized", "when you are slept", "when you are silenced"]);
     add_if_any(&mut archetypes, &blob, "anti_heal", &["healing reduction", "anti-heal", "healbane"]);
     add_if_any(&mut archetypes, &blob, "anti_carry", &["disarm", "return fire", "metal skin", "bullet resist", "weapon damage reduction", "fire rate slow"]);
     add_if_any(&mut archetypes, &blob, "save", &["rescue", "barrier", "shield", "cleanse", "dispel", "heal yourself and nearby allies"]);
@@ -857,6 +1052,9 @@ fn compact_properties(properties: Option<&Value>) -> Value {
     let mut rows = Vec::new();
     for (name, prop) in object {
         if !prop.is_object() {
+            continue;
+        }
+        if is_property_sentinel(name, prop) {
             continue;
         }
         let value = get(prop, "value").cloned().unwrap_or(Value::Null);
@@ -911,7 +1109,10 @@ fn load_public_items(conn: &Connection) -> Result<Vec<Value>> {
         if !PUBLIC_ITEM_SLOTS.contains(&slot.as_str()) {
             continue;
         }
-        if int_or_zero(get(&payload, "cost")) <= 0 {
+        let Some(cost) = known_payload_cost(&payload) else {
+            continue;
+        };
+        if cost <= 0 {
             continue;
         }
         items.push(payload);
@@ -1024,7 +1225,7 @@ fn infer_hero_needs(hero_payload: &Value, abilities: &[Value]) -> Value {
     }
     let needs_vec: Vec<String> = needs.into_iter().collect();
     json!({
-        "summary": gameplan_summary(hero_payload, &ability_tags),
+        "summary": gameplan_summary(hero_payload, &ability_tags, &damage_profile),
         "needs": needs_vec,
         "ability_role_tags": ability_tags,
         "scaling_stats": scaling_stats,
@@ -1068,16 +1269,17 @@ fn infer_ability_role_tags(text: &str, props: &Value) -> Vec<String> {
     }
     for prop in props.as_array().into_iter().flatten() {
         let label = get_any_string(prop, &["label", "name"]).unwrap_or_default().to_lowercase();
-        if label.contains("cooldown") {
+        if label.contains("cooldown") && !is_non_scoring_stat_property(prop) {
             tags.insert("cooldown_bound".to_string());
         }
         if label.contains("cast range") || label == "radius" {
             tags.insert("range_sensitive".to_string());
         }
-        if ["weapon damage", "fire rate", "ammo", "reload", "headshot"]
-            .iter()
-            .any(|word| label.contains(word))
-            || (label.contains("bullet") && !label.contains("resist") && !label.contains("armor"))
+        if meaningful_property_value(prop)
+            && (["weapon damage", "fire rate", "ammo", "reload", "headshot"]
+                .iter()
+                .any(|word| label.contains(word))
+                || (label.contains("bullet") && !label.contains("resist") && !label.contains("armor")))
         {
             tags.insert("weapon_scaling".to_string());
         }
@@ -1138,13 +1340,14 @@ fn ability_damage_profile(props: &Value) -> Value {
         let name = get_string(prop, "name").unwrap_or_default();
         let label = get_any_string(prop, &["label", "name"]).unwrap_or_default().to_lowercase();
         let scales = string_set(get(prop, "scales_with"));
-        if matches!(name.as_str(), "Damage" | "DPS") && numeric_value(get(prop, "value")) > 0.0 {
+        if damage_property_name(&name) && numeric_value(get(prop, "value")) > 0.0 {
             damage_sources += 1;
             if scales.contains("ETechPower") {
                 spirit_scaling_damage_sources += 1;
             }
         }
-        if ["weapon damage", "fire rate", "ammo", "reload", "headshot"]
+        if meaningful_property_value(prop)
+            && ["weapon damage", "fire rate", "ammo", "reload", "headshot"]
             .iter()
             .any(|word| label.contains(word))
         {
@@ -1184,22 +1387,21 @@ fn hero_damage_profile(abilities: &[Value], ability_tags: &[String], role: &str,
         weapon_stat_sources += int_or_zero(get(&profile, "weapon_stat_sources"));
     }
     if ability_tags.iter().any(|tag| tag == "weapon_scaling") {
-        weapon_stat_sources += 2;
-    }
-    if gun_tag.contains("rapid") || role.contains("gun") || role.contains("marksman") || role.contains("assassin") {
         weapon_stat_sources += 1;
     }
-    let damage_plan = if ability_damage_sources >= 3 && weapon_stat_sources >= 2 {
-        "hybrid"
-    } else if weapon_stat_sources >= 3 && spirit_scaling_damage_sources <= 1 {
+    if gun_tag.contains("rapid") || role.contains("gun") || role.contains("assassin") {
+        weapon_stat_sources += 1;
+    }
+    let spirit_signal = spirit_scaling_damage_sources + if ability_damage_sources >= 3 { 1 } else { 0 };
+    let damage_plan = if weapon_stat_sources >= 3 && weapon_stat_sources > spirit_signal {
         "weapon"
-    } else if spirit_scaling_damage_sources >= 3 && weapon_stat_sources <= 1 {
+    } else if spirit_signal >= 3 && spirit_signal > weapon_stat_sources {
         "spirit"
-    } else if spirit_scaling_damage_sources >= 2 && weapon_stat_sources >= 1 {
+    } else if spirit_signal >= 2 && weapon_stat_sources >= 1 {
         "hybrid"
     } else if weapon_stat_sources >= 2 {
         "weapon"
-    } else if spirit_scaling_damage_sources >= 2 || ability_damage_sources >= 3 {
+    } else if spirit_signal >= 2 || ability_damage_sources >= 3 {
         "spirit"
     } else {
         "utility"
@@ -1209,6 +1411,7 @@ fn hero_damage_profile(abilities: &[Value], ability_tags: &[String], role: &str,
         "ability_damage_sources": ability_damage_sources,
         "spirit_scaling_damage_sources": spirit_scaling_damage_sources,
         "weapon_stat_sources": weapon_stat_sources,
+        "spirit_signal": spirit_signal,
     })
 }
 
@@ -1267,7 +1470,10 @@ fn compact_ability_upgrades(upgrades: Option<&Value>) -> Value {
     )
 }
 
-fn gameplan_summary(hero_payload: &Value, ability_tags: &[String]) -> String {
+fn gameplan_summary(hero_payload: &Value, ability_tags: &[String], damage_profile: &Value) -> String {
+    if get_string(damage_profile, "damage_plan").as_deref() == Some("spirit") {
+        return "Spirit-dominanter Plan: Ability-Schaden ueber Spirit-Skalierung, Cooldown-Reduktion und Resist-Shred maximieren".to_string();
+    }
     if ability_tags.iter().any(|tag| tag == "pick") && ability_tags.iter().any(|tag| tag == "engage") {
         return "Engage-/Pick-Hero: Reichweitenfenster erzwingen, Control landen und Team-Follow-up auf ein priorisiertes Ziel ermoeglichen.".to_string();
     }
@@ -1472,6 +1678,289 @@ fn load_statlocker_wpa_signals(conn: &Connection, hero_name: &str) -> Result<BTr
         Ok(fallback)
     } else {
         Ok(signals)
+    }
+}
+
+fn load_build_learning_signals(conn: &Connection, hero_name: &str) -> Result<BuildLearningSignals> {
+    if !table_exists(conn, "build_learning_notes")? {
+        return Ok(BuildLearningSignals::default());
+    }
+    let rows = query_json_rows(
+        conn,
+        r#"
+        SELECT insights_json, updated_at, created_at, id
+        FROM build_learning_notes
+        WHERE lower(hero_name)=lower(?1)
+          AND COALESCE(insights_json, '') NOT IN ('', '{}', 'null')
+        ORDER BY updated_at DESC, created_at DESC, id DESC
+        LIMIT 24
+        "#,
+        &[&hero_name],
+    )?;
+    let mut signals = BuildLearningSignals::default();
+    for (index, row) in rows.iter().enumerate() {
+        let parsed = json_loads(get(row, "insights_json").and_then(Value::as_str), json!({}));
+        let insights = get(&parsed, "insights")
+            .filter(|value| value.is_object())
+            .cloned()
+            .unwrap_or(parsed);
+        let core_items = insight_string_values(get(&insights, "core_items"));
+        if core_items.is_empty() {
+            continue;
+        }
+        signals.rows_used += 1;
+        let recency_weight = 1.0 + (12_usize.saturating_sub(index.min(12)) as f64 * 0.05);
+        for item in core_items {
+            record_learning_signal(&mut signals.core_items, &item, recency_weight);
+        }
+        for item in insight_string_values(get(&insights, "avoid_or_question")) {
+            record_learning_signal(&mut signals.avoid_items, &item, recency_weight);
+        }
+    }
+    Ok(signals)
+}
+
+fn load_learned_build_item_profile(conn: &Connection, hero_name: &str) -> Result<LearnedBuildItemProfile> {
+    if !table_exists(conn, "learned_builds")? {
+        return Ok(LearnedBuildItemProfile::default());
+    }
+    let rows = query_json_rows(
+        conn,
+        r#"
+        SELECT item_names_json, quality_tier, quality_score, source_rank, updated_at
+        FROM learned_builds
+        WHERE lower(hero_name)=lower(?1)
+          AND quality_tier IN ('likely_good', 'usable_noisy')
+        ORDER BY quality_score DESC, source_rank ASC, updated_at DESC, id ASC
+        LIMIT 12
+        "#,
+        &[&hero_name],
+    )?;
+    let mut profile = LearnedBuildItemProfile::default();
+    for row in rows {
+        let items = json_loads(get(&row, "item_names_json").and_then(Value::as_str), json!([]));
+        let mut seen = BTreeSet::new();
+        for item in insight_string_values(Some(&items)) {
+            let candidate = learning_item_candidate_name(&item);
+            let key = normalized_item_key(&candidate);
+            if key.is_empty() || !seen.insert(key.clone()) {
+                continue;
+            }
+            let entry = profile.item_counts.entry(key).or_default();
+            entry.count += 1;
+            if item_name_in(&candidate, SPIRIT_AFFINITY_ITEMS) {
+                profile.spirit_item_hits += 1;
+            }
+            if item_name_in(&candidate, WEAPON_AFFINITY_ITEMS) {
+                profile.weapon_item_hits += 1;
+            }
+            if item_name_in(&candidate, COOLDOWN_AFFINITY_ITEMS) {
+                profile.cooldown_item_hits += 1;
+            }
+            if item_name_in(&candidate, DURATION_AFFINITY_ITEMS) {
+                profile.duration_item_hits += 1;
+            }
+        }
+        profile.total_builds += 1;
+    }
+    Ok(profile)
+}
+
+fn apply_learned_item_profile(hero_needs: &mut Value, profile: &LearnedBuildItemProfile) {
+    if profile.total_builds <= 0 {
+        return;
+    }
+    let spirit_dominant = learned_profile_spirit_dominant(profile);
+    let weapon_dominant = learned_profile_weapon_dominant(profile);
+    if spirit_dominant {
+        add_need(hero_needs, "spirit_damage");
+        if !weapon_dominant {
+            remove_need(hero_needs, "weapon_damage");
+        }
+    }
+    if weapon_dominant {
+        add_need(hero_needs, "weapon_damage");
+    }
+    if profile.cooldown_item_hits >= profile.total_builds {
+        add_need(hero_needs, "cooldown_reliability");
+    }
+    if profile.duration_item_hits >= profile.total_builds {
+        add_need(hero_needs, "ability_uptime");
+    }
+    if let Some(object) = hero_needs.as_object_mut() {
+        if let Some(damage_profile) = object.get_mut("damage_profile").and_then(Value::as_object_mut) {
+            damage_profile.insert("learned_spirit_item_hits".to_string(), json!(profile.spirit_item_hits));
+            damage_profile.insert("learned_weapon_item_hits".to_string(), json!(profile.weapon_item_hits));
+            damage_profile.insert("learned_spirit_dominant".to_string(), json!(spirit_dominant));
+            damage_profile.insert("learned_weapon_dominant".to_string(), json!(weapon_dominant));
+            if spirit_dominant && !weapon_dominant {
+                damage_profile.insert("damage_plan".to_string(), json!("spirit"));
+                let current = int_or_zero(damage_profile.get("spirit_scaling_damage_sources"));
+                damage_profile.insert("spirit_scaling_damage_sources".to_string(), json!(current.max(3)));
+            } else if weapon_dominant && !spirit_dominant {
+                damage_profile.insert("damage_plan".to_string(), json!("weapon"));
+            } else if spirit_dominant && weapon_dominant {
+                damage_profile.insert("damage_plan".to_string(), json!("hybrid"));
+            }
+        }
+        if spirit_dominant && !weapon_dominant {
+            object.insert(
+                "summary".to_string(),
+                json!("Spirit-dominanter Plan: Ability-Schaden ueber Spirit-Skalierung, Cooldown-Reduktion und Resist-Shred maximieren"),
+            );
+        }
+    }
+    refresh_priority_scaling_stats(hero_needs);
+}
+
+fn compact_learning_signals(
+    learning_signals: &BuildLearningSignals,
+    learned_item_profile: &LearnedBuildItemProfile,
+) -> Value {
+    json!({
+        "insight_rows_used": learning_signals.rows_used,
+        "core_items": compact_learning_map(&learning_signals.core_items, 16),
+        "avoid_items": compact_learning_map(&learning_signals.avoid_items, 12),
+        "learned_builds_used": learned_item_profile.total_builds,
+        "learned_spirit_item_hits": learned_item_profile.spirit_item_hits,
+        "learned_weapon_item_hits": learned_item_profile.weapon_item_hits,
+    })
+}
+
+fn compact_learning_map(values: &BTreeMap<String, ItemLearningSignal>, limit: usize) -> Value {
+    let mut rows = values.values().cloned().collect::<Vec<_>>();
+    rows.sort_by(|left, right| {
+        right
+            .count
+            .cmp(&left.count)
+            .then_with(|| right.weight.partial_cmp(&left.weight).unwrap_or(std::cmp::Ordering::Equal))
+            .then_with(|| left.display_name.cmp(&right.display_name))
+    });
+    Value::Array(
+        rows.into_iter()
+            .take(limit)
+            .map(|row| json!({"name": row.display_name, "count": row.count, "weight": (row.weight * 100.0).round() / 100.0}))
+            .collect(),
+    )
+}
+
+fn insight_string_values(value: Option<&Value>) -> Vec<String> {
+    match value {
+        Some(Value::String(text)) => vec![text.trim().to_string()],
+        Some(Value::Array(items)) => items.iter().flat_map(|item| insight_string_values(Some(item))).collect(),
+        Some(Value::Object(object)) => object.values().flat_map(|item| insight_string_values(Some(item))).collect(),
+        Some(Value::Number(_)) | Some(Value::Bool(_)) | Some(Value::Null) | None => Vec::new(),
+    }
+    .into_iter()
+    .filter(|item| !item.trim().is_empty())
+    .collect()
+}
+
+fn record_learning_signal(values: &mut BTreeMap<String, ItemLearningSignal>, raw_name: &str, weight: f64) {
+    let display_name = learning_item_candidate_name(raw_name);
+    let key = normalized_item_key(&display_name);
+    if key.is_empty() {
+        return;
+    }
+    let entry = values.entry(key).or_insert_with(|| ItemLearningSignal {
+        display_name: display_name.clone(),
+        count: 0,
+        weight: 0.0,
+    });
+    entry.count += 1;
+    entry.weight += weight;
+}
+
+fn learning_item_candidate_name(raw_name: &str) -> String {
+    let mut candidate = raw_name
+        .trim()
+        .trim_matches(|character: char| {
+            matches!(character, '-' | '*' | '"' | '\'' | '`' | '[' | ']' | '{' | '}')
+        })
+        .trim()
+        .to_string();
+    for delimiter in [" (", " - ", " – ", " — ", ":", ";", " + ", ","] {
+        if let Some(index) = candidate.find(delimiter) {
+            candidate.truncate(index);
+        }
+    }
+    candidate.trim().to_string()
+}
+
+fn normalized_item_key(value: &str) -> String {
+    statlocker_key(value)
+}
+
+fn learning_signal_for_item<'a>(
+    values: &'a BTreeMap<String, ItemLearningSignal>,
+    item_name: &str,
+) -> Option<&'a ItemLearningSignal> {
+    values.get(&normalized_item_key(item_name))
+}
+
+fn learned_item_frequency(profile: &LearnedBuildItemProfile, item_name: &str) -> Option<(f64, i64)> {
+    if profile.total_builds <= 0 {
+        return None;
+    }
+    profile
+        .item_counts
+        .get(&normalized_item_key(item_name))
+        .map(|entry| (entry.count as f64 / profile.total_builds as f64, entry.count))
+}
+
+fn learned_profile_spirit_dominant(profile: &LearnedBuildItemProfile) -> bool {
+    profile.total_builds > 0
+        && profile.spirit_item_hits >= profile.total_builds * 3
+        && profile.spirit_item_hits >= profile.weapon_item_hits
+}
+
+fn learned_profile_weapon_dominant(profile: &LearnedBuildItemProfile) -> bool {
+    profile.total_builds > 0
+        && profile.weapon_item_hits >= profile.total_builds * 3
+        && profile.weapon_item_hits > profile.spirit_item_hits
+}
+
+fn item_name_in(name: &str, values: &[&str]) -> bool {
+    let key = normalized_item_key(name);
+    values.iter().any(|value| normalized_item_key(value) == key)
+}
+
+fn add_need(hero_needs: &mut Value, need: &str) {
+    let Some(object) = hero_needs.as_object_mut() else {
+        return;
+    };
+    let needs = object.entry("needs".to_string()).or_insert_with(|| json!([]));
+    let Some(items) = needs.as_array_mut() else {
+        return;
+    };
+    if !items.iter().any(|item| item.as_str() == Some(need)) {
+        items.push(json!(need));
+    }
+    items.sort_by_key(value_to_string);
+}
+
+fn remove_need(hero_needs: &mut Value, need: &str) {
+    let Some(items) = hero_needs
+        .as_object_mut()
+        .and_then(|object| object.get_mut("needs"))
+        .and_then(Value::as_array_mut)
+    else {
+        return;
+    };
+    items.retain(|item| item.as_str() != Some(need));
+}
+
+fn refresh_priority_scaling_stats(hero_needs: &mut Value) {
+    let needs = get(hero_needs, "needs")
+        .and_then(as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(value_to_non_empty_string)
+        .collect::<Vec<_>>();
+    let damage_profile = get(hero_needs, "damage_profile").cloned().unwrap_or_else(|| json!({}));
+    let priority = priority_scaling_stats(&needs, &damage_profile);
+    if let Some(object) = hero_needs.as_object_mut() {
+        object.insert("priority_scaling_stats".to_string(), json!(priority));
     }
 }
 
@@ -1697,6 +2186,14 @@ fn scale_hint(scale_function: Option<&Value>) -> Value {
     };
     if let Some(stats) = get(scale_function, "scaling_stats").filter(|value| value.is_array()) {
         return stats.clone();
+    }
+    if let Some(subclass) = get(scale_function, "subclass") {
+        if let Some(stats) = get(subclass, "scaling_stats").filter(|value| value.is_array()) {
+            return stats.clone();
+        }
+        if let Some(stat) = get(subclass, "specific_stat_scale_type") {
+            return json!([value_to_string(stat)]);
+        }
     }
     get(scale_function, "specific_stat_scale_type")
         .map(|stat| json!([value_to_string(stat)]))
@@ -2418,6 +2915,112 @@ pub(crate) fn key_item_properties(properties: Option<&Value>) -> Value {
     Value::Array(selected.into_iter().take(10).collect())
 }
 
+fn known_payload_cost(payload: &Value) -> Option<i64> {
+    let cost = int_or_none(get(payload, "cost"))?;
+    if cost >= UNKNOWN_COST_SENTINEL {
+        None
+    } else {
+        Some(cost)
+    }
+}
+
+fn known_summary_cost(item: &Value) -> Option<i64> {
+    let cost = int_or_none(get(item, "cost"))?;
+    if cost >= UNKNOWN_COST_SENTINEL {
+        None
+    } else {
+        Some(cost)
+    }
+}
+
+fn is_property_sentinel(name: &str, prop: &Value) -> bool {
+    let label = get_any_string(prop, &["label", "postvalue_label"]).unwrap_or_default();
+    let blob = format!("{name} {label}").to_lowercase();
+    let value = numeric_value(get(prop, "value"));
+    if value >= 9999.0 && (blob.contains("channel duration") || blob.contains("abilitychanneltime")) {
+        return true;
+    }
+    name == "ChannelMoveSpeed" && value <= -1.0
+}
+
+fn is_non_scoring_stat_property(prop: &Value) -> bool {
+    let name = get_string(prop, "name").unwrap_or_default();
+    matches!(
+        name.as_str(),
+        "AbilityCastDelay"
+            | "AbilityCastRange"
+            | "AbilityChannelTime"
+            | "AbilityCooldown"
+            | "AbilityCooldownBetweenCharge"
+            | "AbilityDuration"
+            | "AbilityPostCastDuration"
+            | "AbilityResourceCost"
+            | "AbilityUnitTargetLimit"
+            | "ChannelMoveSpeed"
+            | "TechPower"
+            | "WeaponPower"
+    ) && !meaningful_property_value(prop)
+}
+
+fn is_cooldown_reduction_property(prop: &Value, label_blob: &str) -> bool {
+    let name = get_string(prop, "name").unwrap_or_default().to_lowercase();
+    let provided = get_string(prop, "provided_property_type").unwrap_or_default().to_lowercase();
+    meaningful_property_value(prop)
+        && (name.contains("cooldownreduction")
+            || provided.contains("cooldown_reduction")
+            || label_blob.contains("cooldown reduction")
+            || label_blob.contains("faster time between charges"))
+}
+
+fn is_spirit_resist_shred_property(prop: &Value, label_blob: &str) -> bool {
+    let provided = get_string(prop, "provided_property_type").unwrap_or_default().to_lowercase();
+    let value = numeric_value(get(prop, "value"));
+    meaningful_property_value(prop)
+        && (provided.contains("tech_armor_damage_resist_reduction")
+            || label_blob.contains("spirit resist on spirit damage")
+            || (label_blob.contains("spirit resist") && (label_blob.contains("reduction") || value < 0.0)))
+}
+
+fn is_spirit_amp_property(label_blob: &str) -> bool {
+    label_blob.contains("spirit amp")
+        || label_blob.contains("tech damage percent")
+        || label_blob.contains("outgoing tech damage")
+        || label_blob.contains("magic increase")
+}
+
+fn meaningful_property_value(prop: &Value) -> bool {
+    let value = get(prop, "value");
+    let numeric = numeric_value(value);
+    let text = value.map(value_to_string).unwrap_or_default();
+    !text.trim().is_empty() && numeric != 0.0 && numeric > -9999.0 && numeric < 9999.0
+}
+
+fn damage_property_name(name: &str) -> bool {
+    matches!(name, "Damage" | "DPS") || name.contains("DamagePer") || name.contains("DPS")
+}
+
+fn is_spirit_dominant(hero_needs: &Value) -> bool {
+    let damage_profile = get(hero_needs, "damage_profile").unwrap_or(&Value::Null);
+    if bool_value(get(damage_profile, "learned_spirit_dominant")) {
+        return true;
+    }
+    get_string(damage_profile, "damage_plan").as_deref() == Some("spirit")
+        && int_or_zero(get(damage_profile, "spirit_scaling_damage_sources")) >= 3
+}
+
+fn is_spirit_dominant_weapon_core_item(name: &str) -> bool {
+    item_name_in(name, SPIRIT_DOMINANT_WEAPON_CORE_ITEMS)
+}
+
+fn is_passive_economy_generalist(item: &Value) -> bool {
+    let name = get_string(item, "name").unwrap_or_default();
+    if name == "Trophy Collector" {
+        return true;
+    }
+    let description = get_string(item, "description").unwrap_or_default().to_lowercase();
+    description.contains("passive soul generation") || description.contains("souls per minute")
+}
+
 fn add_if_any(archetypes: &mut BTreeSet<String>, blob: &str, tag: &str, needles: &[&str]) {
     if needles.iter().any(|needle| blob.contains(needle)) {
         archetypes.insert(tag.to_string());
@@ -2444,7 +3047,9 @@ fn bucket_score(bucket: &str) -> f64 {
 }
 
 fn item_cost(item: &Value) -> i64 {
-    get(item, "item").map(|item| int_or_zero(get(item, "cost"))).unwrap_or(0)
+    get(item, "item")
+        .and_then(known_summary_cost)
+        .unwrap_or(SHOP_BONUS_CAP + 1)
 }
 
 fn score_of(item: &Value) -> f64 {

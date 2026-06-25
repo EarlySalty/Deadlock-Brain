@@ -73,6 +73,70 @@ mod tests {
     }
 
     #[test]
+    fn extract_insights_reads_fenced_minimax_json_at_end() {
+        let text = r#"
+        # Analyse
+
+        Vorheriger JSON-Block, der nicht relevant ist:
+        {"status":"draft"}
+
+        ```json
+        {
+          "verdict": "ok",
+          "insights": {
+            "hero_job": "spirit_poke",
+            "build_variant": "cooldown_spirit",
+            "core_items": ["Improved Spirit", "Superior Cooldown"],
+            "situational_items": ["Reactive Barrier"],
+            "avoid_or_question": ["Burst Fire"],
+            "timing_rules": ["Cooldown nach erstem Core"],
+            "scoring_hints": ["Spirit vor Weapon"]
+          }
+        }
+        ```
+
+        Nachsatz: nicht jeder Block mit {Klammern} ist JSON.
+        "#;
+
+        let insights = crate::util::extract_insights(text);
+
+        assert_eq!(insights["hero_job"], "spirit_poke");
+        assert_eq!(insights["core_items"][0], "Improved Spirit");
+        assert_eq!(insights["core_items"][1], "Superior Cooldown");
+    }
+
+    #[test]
+    fn build_suggest_uses_learning_note_core_items() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let conn = test_conn(temp.path());
+        seed_assets(&conn);
+        seed_learning_bridge_items(&conn);
+        seed_build_learning_note(&conn);
+
+        let result = build_suggest(&conn, BuildSuggestOptions::new("TestHero")).expect("suggest");
+        let core_names = result["build"]["core"]
+            .as_array()
+            .expect("core array")
+            .iter()
+            .filter_map(|row| row.get("name"))
+            .collect::<Vec<_>>();
+        let top_items = result["top_items"].as_array().expect("top items");
+        let learned_item = top_items
+            .iter()
+            .find(|row| row["item"]["name"] == "Learned Spirit Core")
+            .expect("learned item");
+        let avoided_item = top_items
+            .iter()
+            .find(|row| row["item"]["name"] == "Avoided Gun Core")
+            .expect("avoided item");
+
+        assert!(core_names.iter().any(|name| *name == "Learned Spirit Core"));
+        assert!(learned_item["score"].as_f64().expect("learned score") > avoided_item["score"].as_f64().expect("avoided score"));
+        assert_eq!(learned_item["tags"]["learning_core"], true);
+        assert_eq!(avoided_item["tags"]["learning_avoid"], true);
+    }
+
+    #[test]
     fn learn_analyze_build_dry_run_stores_context_without_api_call() {
         let temp = tempfile::tempdir().expect("tempdir");
         let conn = test_conn(temp.path());
@@ -202,6 +266,74 @@ mod tests {
             }
         });
         insert_snapshot(conn, "deadlock_assets_api", "item_or_ability", "100", "Extra Stamina", &item);
+    }
+
+    fn seed_learning_bridge_items(conn: &Connection) {
+        let learned = json!({
+            "id": 101,
+            "name": "Learned Spirit Core",
+            "class_name": "item_learned_spirit_core",
+            "item_slot_type": "spirit",
+            "item_tier": 3,
+            "cost": 3200,
+            "shopable": true,
+            "disabled": false,
+            "is_active_item": false,
+            "description": {"desc": "Spirit power and cooldown reduction"},
+            "properties": {
+                "TechPower": {"value": 20, "label": "Spirit Power", "disable_value": 1, "provided_property_type": "MODIFIER_VALUE_TECH_POWER", "prefix": "{s:sign}"},
+                "CooldownReduction": {"value": 12, "label": "Ability Cooldown Reduction", "disable_value": 1, "provided_property_type": "MODIFIER_VALUE_COOLDOWN_REDUCTION_PERCENTAGE", "prefix": "{s:sign}", "postfix": "%"}
+            }
+        });
+        insert_snapshot(conn, "deadlock_assets_api", "item_or_ability", "101", "Learned Spirit Core", &learned);
+
+        let avoided = json!({
+            "id": 102,
+            "name": "Avoided Gun Core",
+            "class_name": "item_avoided_gun_core",
+            "item_slot_type": "weapon",
+            "item_tier": 3,
+            "cost": 3200,
+            "shopable": true,
+            "disabled": false,
+            "is_active_item": false,
+            "description": {"desc": "Weapon damage, fire rate, and reload pressure"},
+            "properties": {
+                "WeaponPower": {"value": 25, "label": "Weapon Damage", "disable_value": 1, "provided_property_type": "MODIFIER_VALUE_WEAPON_POWER", "prefix": "{s:sign}", "postfix": "%"},
+                "BonusFireRate": {"value": 20, "label": "Fire Rate", "disable_value": 1, "provided_property_type": "MODIFIER_VALUE_FIRE_RATE", "prefix": "{s:sign}", "postfix": "%"}
+            }
+        });
+        insert_snapshot(conn, "deadlock_assets_api", "item_or_ability", "102", "Avoided Gun Core", &avoided);
+    }
+
+    fn seed_build_learning_note(conn: &Connection) {
+        conn.execute(
+            "INSERT INTO build_learning_notes(
+               learned_build_id, hero_name, source, context_hash, prompt_version,
+               prompt_text, result_text, insights_json, model, status, created_at, updated_at
+             )
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            (
+                Option::<i64>::None,
+                "TestHero",
+                "test",
+                "hash-learning-bridge",
+                BUILD_LEARNING_PROMPT_VERSION,
+                "prompt",
+                "result",
+                json!({
+                    "hero_job": "spirit_control",
+                    "core_items": ["Learned Spirit Core"],
+                    "avoid_or_question": ["Avoided Gun Core"]
+                })
+                .to_string(),
+                "test-model",
+                "analysis_ready",
+                10_i64,
+                10_i64,
+            ),
+        )
+        .expect("insert build note");
     }
 
     fn insert_snapshot(

@@ -2290,7 +2290,20 @@ fn format_prop_value(prop: &Value) -> String {
     if !postfix.is_empty() && value.ends_with(postfix.trim()) {
         postfix.clear();
     }
-    format!("{prefix}{value}{postfix}")
+    render_sign_token(prefix, &value, &postfix)
+}
+
+fn render_sign_token(prefix: &str, value: &str, postfix: &str) -> String {
+    let mut rendered_prefix = prefix.to_string();
+    let mut rendered_postfix = postfix.to_string();
+    if !rendered_prefix.contains("{s:sign}") && !rendered_postfix.contains("{s:sign}") {
+        return format!("{rendered_prefix}{value}{rendered_postfix}");
+    }
+    let sign = if value.trim_start().starts_with('-') { "-" } else { "+" };
+    let unsigned_value = value.trim_start_matches(|character| character == '+' || character == '-');
+    rendered_prefix = rendered_prefix.replace("{s:sign}", sign);
+    rendered_postfix = rendered_postfix.replace("{s:sign}", sign);
+    format!("{rendered_prefix}{unsigned_value}{rendered_postfix}")
 }
 
 fn get<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
