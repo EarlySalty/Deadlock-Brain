@@ -1,5 +1,13 @@
 # Changelog
 
+## #11 — Creator-Wissen aus Transcripts wird jetzt per wiederkehrendem Befehl geprüft eingespeist
+
+Bisher entstand das transcript-basierte Creator-Wissen in einem einmaligen, von Hand zusammengesteckten Lauf — Sammeln, Prüfen und Einschreiben ließen sich nicht wiederholen, und erst eine Handvoll Videos war erfasst. Es fehlte ein fester, wiederholbarer Weg, neue Videos nachzuziehen, ohne den ganzen Ablauf jedes Mal neu zu orchestrieren.
+
+Der Ablauf ist nun ein fester Befehl mit zwei Stufen. Die erste wählt gezielt die noch unbearbeiteten Strategie-Videos aus, die bereits ein Transcript haben, und stellt sie für die Auswertung bereit. Die zweite nimmt die ausgewerteten und gegen die gesicherten Spieldaten geprüften Aussagen entgegen und schreibt sie verlustfrei in die Wissensdatenbank — jede Aussage genau einmal (Doppelte werden zuverlässig erkannt und übersprungen), versehen mit ihrem Prüf-Urteil und der daraus folgenden Vertrauensstufe. Vor jedem Schreibvorgang legt der Befehl automatisch eine vollständige, in sich konsistente Sicherung der Datenbank an.
+
+Damit lässt sich neues Creator-Wissen in klaren, wiederholbaren Wellen nachziehen, ohne den Ablauf jedes Mal neu zu bauen und ohne Gefahr für die bestehende Datenbasis. Das legt die Grundlage, die Auswertung über alle verbleibenden Strategie-Videos zu skalieren.
+
 ## #10 — Mehr Treffer trotz anderer Schreibweise, geordnet nach Relevanz
 
 Auch nach der vorherigen Verbesserung fand das Wissens-Paket manches nicht: Stand eine Aussage in der Datenbank deutsch gebeugt, eine Frage aber englisch (oder umgekehrt), ging der Treffer verloren; gab es zu einer Frage nur ungeprüfte Creator-Aussagen, kam fast nichts zurück; häufige Allerweltswörter zogen beliebige Aussagen herein, während die seltenen, fragebestimmenden Begriffe untergingen; und die intern berechnete Relevanz-Reihenfolge kam nicht zuverlässig in der Ausgabe an.
