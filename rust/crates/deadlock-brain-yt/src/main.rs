@@ -4,11 +4,13 @@ mod gemini;
 mod loop_runner;
 mod queue;
 mod schema;
+mod transcript_claims;
 mod transcripts;
 mod video_classification;
 
-use std::path::PathBuf;
+use std::{fs, path::PathBuf};
 
+use anyhow::Context;
 use clap::{Parser, Subcommand};
 use serde::Serialize;
 use serde_json::json;
@@ -16,7 +18,7 @@ use serde_json::json;
 #[derive(Debug, Parser)]
 #[command(
     name = "deadlock-brain-yt",
-    about = "Deadlock-Brain YouTube-Ingestion: holt Videos aus den kuratierten Feeds, lässt sie von Gemini analysieren und speichert die Erkenntnisse in der SQLite-Wissens-DB."
+    about = "Deadlock-Brain YouTube ingestion for curated feeds, transcript handling, classification, and claim storage."
 )]
 struct Cli {
     #[arg(long, global = true, value_name = "PATH")]
@@ -48,6 +50,37 @@ enum Commands {
     ClassifyVideos {
         #[arg(long, default_value_t = 20)]
         limit: usize,
+    },
+    #[command(about = "Prepare or ingest transcript claim batches")]
+    TranscriptClaims {
+        #[command(subcommand)]
+        action: TranscriptClaimsAction,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum TranscriptClaimsAction {
+    #[command(about = "Select transcript batches for external claim extraction")]
+    Prepare {
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        #[arg(long, value_name = "PATH")]
+        out: Option<PathBuf>,
+        #[arg(long, value_enum, default_value_t = transcript_claims::PrepareOrder::Recent)]
+        order: transcript_claims::PrepareOrder,
+    },
+    #[command(about = "Insert externally verified transcript claims")]
+    Ingest {
+        #[arg(long = "in", value_name = "PATH")]
+        input: PathBuf,
+        #[arg(long)]
+        write: bool,
+        #[arg(long)]
+        no_backup: bool,
+        #[arg(long, default_value = "claude")]
+        model: String,
+        #[arg(long, default_value = "youtube_claims_de_transcript_v1")]
+        prompt_version: String,
     },
 }
 
@@ -113,6 +146,40 @@ fn run() -> anyhow::Result<()> {
             let conn = db::open_db(cli.db)?;
             print_json(&video_classification::classify_videos(&conn, limit)?)
         }
+        Commands::TranscriptClaims { action } => match action {
+            TranscriptClaimsAction::Prepare { limit, out, order } => {
+                let conn = db::open_db(cli.db)?;
+                let summary = transcript_claims::prepare(&conn, limit, order)?;
+                if let Some(out) = out {
+                    let content = serde_json::to_string_pretty(&summary)?;
+                    fs::write(&out, format!("{content}\n"))
+                        .with_context(|| format!("write prepare output {}", out.display()))?;
+                    Ok(())
+                } else {
+                    print_json(&summary)
+                }
+            }
+            TranscriptClaimsAction::Ingest {
+                input,
+                write,
+                no_backup,
+                model,
+                prompt_version,
+            } => {
+                let mut conn = db::open_db(cli.db)?;
+                let summary = transcript_claims::ingest(
+                    &mut conn,
+                    &input,
+                    transcript_claims::IngestOptions {
+                        write,
+                        no_backup,
+                        model,
+                        prompt_version,
+                    },
+                )?;
+                print_json(&summary)
+            }
+        },
     }
 }
 
