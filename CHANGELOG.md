@@ -1,5 +1,13 @@
 # Changelog
 
+## #10 — Mehr Treffer trotz anderer Schreibweise, geordnet nach Relevanz
+
+Auch nach der vorherigen Verbesserung fand das Wissens-Paket manches nicht: Stand eine Aussage in der Datenbank deutsch gebeugt, eine Frage aber englisch (oder umgekehrt), ging der Treffer verloren; gab es zu einer Frage nur ungeprüfte Creator-Aussagen, kam fast nichts zurück; häufige Allerweltswörter zogen beliebige Aussagen herein, während die seltenen, fragebestimmenden Begriffe untergingen; und die intern berechnete Relevanz-Reihenfolge kam nicht zuverlässig in der Ausgabe an.
+
+Häufige Spielbegriffe werden jetzt über ihre Wortformen und nahe Entsprechungen abgeglichen, sodass unterschiedliche Schreibweisen denselben Treffer finden. Liegt zu einer Frage kaum gesichertes Wissen vor, werden die am besten passenden ungeprüften Aussagen als klar gekennzeichneter Notbehelf ergänzt, statt die Antwort leer zu lassen — die Vertrauensstufen bleiben dabei sauber getrennt. Seltene, aussagekräftige Begriffe wiegen bei der Gewichtung jetzt schwerer als allgegenwärtige Füllwörter, und nur Aussagen mit echtem Bezug zur Frage gelangen überhaupt in die Auswahl. Schließlich werden die gesammelten Fakten zuverlässig nach ihrer Passung zur Frage geordnet, bevor die Auswahl begrenzt wird, sodass das Wichtigste oben steht.
+
+Damit liefert eine Frage jetzt auch dann passendes Wissen, wenn die Schreibweise abweicht oder nur ungeprüfte Creator-Aussagen vorliegen — letztere klar als solche markiert — und die relevantesten Fakten stehen vorn. Die vollständige Patch-Historie bleibt für Build-Fragen erhalten, damit Builds an die jüngsten Änderungen angepasst werden können.
+
 ## #9 — Wissens-Paket versteht die Frage jetzt richtig und ordnet nach Relevanz
 
 Das neue Frage-Werkzeug lieferte zwar ein Wissens-Paket, verstand die Frage aber kaum: Jede Frage wurde wie eine allgemeine Heldenübersicht behandelt, der genannte Held oder das Item wurde in einem ganzen Satz nicht erkannt, und die gesammelten Aussagen wurden allein nach Quellen-Sicherheit sortiert — eine themenfremde, aber sicher belegte Aussage verdrängte so die eigentliche Antwort. Wissen, das unter einer anderen Bezugsgröße abgelegt war (etwa ein Konter-Item, das beim Konter und nicht beim Ziel steht), tauchte gar nicht auf; zufällige Zeichenketten-Treffer im Wortinneren erzeugten Rauschen; und selbst klar spielfremde Fragen wurden beantwortet, als gäbe es Spieldaten dazu.
