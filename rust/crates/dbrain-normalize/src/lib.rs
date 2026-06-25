@@ -7,6 +7,7 @@ mod error;
 mod legacy;
 mod lineage;
 mod patch;
+mod resolve_gaps;
 mod sheet_stats;
 mod sheet_tabs;
 mod util;
@@ -52,6 +53,10 @@ pub fn normalize_sheet_tabs(rebuild: bool) -> Result<Value> {
 
 pub fn normalize_sheet_tabs_with_conn(conn: &Connection, rebuild: bool) -> Result<Value> {
     sheet_tabs::normalize_sheet_tabs(conn, rebuild)
+}
+
+pub fn resolve_gaps_with_conn(conn: &Connection, dry_run: bool) -> Result<Value> {
+    resolve_gaps::resolve_gaps(conn, dry_run)
 }
 
 pub fn enrich_lineage(rebuild: bool) -> Result<Value> {

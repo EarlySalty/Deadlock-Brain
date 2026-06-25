@@ -38,7 +38,7 @@ const NEGATIVE_STATS: &[&str] = &["cooldown", "recharge", "delay", "cost", "fall
 const GENERIC_INTERNAL_KEYS: &[&str] = &["melee"];
 
 #[derive(Debug, Default)]
-struct EntityIndex {
+pub(crate) struct EntityIndex {
     hero_names: HashMap<String, String>,
     hero_internal_names: HashMap<String, String>,
     item_names: HashMap<String, String>,
@@ -49,7 +49,7 @@ struct EntityIndex {
 }
 
 impl EntityIndex {
-    fn canonical(&self, name: &str, section: Option<&str>) -> (String, Option<String>, f64) {
+    pub(crate) fn canonical(&self, name: &str, section: Option<&str>) -> (String, Option<String>, f64) {
         let cleaned = clean_subject(Some(name));
         let key = normalize_key(&cleaned);
         if key.is_empty() {
@@ -397,7 +397,7 @@ fn build_entity_index(conn: &Connection) -> Result<EntityIndex> {
     Ok(index)
 }
 
-fn build_entity_index_from_entities(conn: &Connection) -> Result<Option<EntityIndex>> {
+pub(crate) fn build_entity_index_from_entities(conn: &Connection) -> Result<Option<EntityIndex>> {
     let mut stmt = conn.prepare(
         r#"
         SELECT e.entity_type, e.canonical_name, a.alias
