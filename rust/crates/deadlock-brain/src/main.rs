@@ -540,6 +540,8 @@ struct AnalysisListArgs {
 enum PullCommands {
     #[command(about = "Zieht Deadlock Assets API Daten.")]
     Assets(PullAssetsArgs),
+    #[command(name = "deadlock-data", about = "Zieht trusted deadlock-data aus GitHub.")]
+    DeadlockData(PullDeadlockDataArgs),
     #[command(about = "Importiert bestehende Patchnotes aus der zentralen Bot-DB.")]
     Patchnotes(PullPatchnotesArgs),
     #[command(about = "Zieht gezielt Statlocker WPA-/Leaderboard-Daten.")]
@@ -565,6 +567,14 @@ struct PullAssetsArgs {
         help = "Endpoint auswaehlen. Mehrfach nutzbar. Default: items/heroes/raw_items/raw_heroes."
     )]
     kind: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+struct PullDeadlockDataArgs {
+    #[arg(long = "repo-dir", help = "Lokaler Cache. Standard: data/external/deadlock-data.")]
+    repo_dir: Option<PathBuf>,
+    #[arg(long = "no-git-update", help = "Nutze vorhandenen Cache ohne git pull.")]
+    no_git_update: bool,
 }
 
 #[derive(Debug, Args)]
@@ -1072,6 +1082,24 @@ fn run_pull(conn: &Connection, settings: &Settings, source: PullCommands) -> Res
                 dbrain_sources::PullAssetsOptions { kinds: args.kind },
             )?;
             print_json(&result)
+        }
+        PullCommands::DeadlockData(args) => {
+            let repo_dir = args
+                .repo_dir
+                .unwrap_or_else(|| settings.data_dir.join("external/deadlock-data"));
+            let pull = dbrain_sources::pull_deadlock_data(
+                conn,
+                &settings.raw_dir,
+                dbrain_sources::PullDeadlockDataOptions {
+                    repo_dir,
+                    update_repo: !args.no_git_update,
+                },
+            )?;
+            let patch_events = dbrain_normalize::parse_patchnotes_with_conn(conn, false)?;
+            print_json(&json!({
+                "pull": pull,
+                "patch_events": patch_events,
+            }))
         }
         PullCommands::Patchnotes(args) => {
             let central_db_path = args.db_path.unwrap_or_else(|| settings.central_deadlock_db_path.clone());

@@ -263,6 +263,7 @@ dependencies = [
 name = "dbrain-sources"
 version = "0.1.0"
 dependencies = [
+ "dbrain-normalize",
  "deadlock-brain-core",
  "regex",
  "rusqlite",

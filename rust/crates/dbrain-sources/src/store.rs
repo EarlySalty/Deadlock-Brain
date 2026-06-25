@@ -128,6 +128,15 @@ impl<'a> SourceStore<'a> {
         snapshot: &EntitySnapshotInput,
         source_document_id: Option<i64>,
     ) -> Result<()> {
+        let _ = self.upsert_entity_snapshot_id(snapshot, source_document_id)?;
+        Ok(())
+    }
+
+    pub(crate) fn upsert_entity_snapshot_id(
+        &self,
+        snapshot: &EntitySnapshotInput,
+        source_document_id: Option<i64>,
+    ) -> Result<i64> {
         let payload_json = json_string(&snapshot.payload)?;
         let payload_hash = stable_hash_text(&payload_json);
         let fetched_at = db::now_epoch_seconds()?;
@@ -150,7 +159,28 @@ impl<'a> SourceStore<'a> {
                 source_document_id,
             ],
         )?;
-        Ok(())
+
+        let row_id = self
+            .conn
+            .query_row(
+                r#"
+                SELECT id FROM entity_snapshots
+                WHERE source=?1 AND entity_type=?2 AND external_id=?3 AND payload_hash=?4
+                ORDER BY id DESC LIMIT 1
+                "#,
+                params![
+                    snapshot.source,
+                    snapshot.entity_type,
+                    snapshot.external_id,
+                    payload_hash,
+                ],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+
+        row_id.ok_or_else(|| {
+            SourcesError::invariant("entity_snapshots row missing after INSERT OR IGNORE")
+        })
     }
 
     pub(crate) fn insert_many_snapshots(
