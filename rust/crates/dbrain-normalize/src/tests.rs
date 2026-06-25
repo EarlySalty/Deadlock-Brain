@@ -246,6 +246,25 @@ fn parses_patchnotes_and_builds_lineage() {
 }
 
 #[test]
+fn parses_multi_entity_patch_line_with_deterministic_subject_and_event_hash() {
+    let orders = [
+        ["Ivy", "Viscous", "Magic Carpet"],
+        ["Magic Carpet", "Viscous", "Ivy"],
+        ["Viscous", "Ivy", "Magic Carpet"],
+    ];
+    let mut observed = Vec::new();
+    for order in orders {
+        observed.push(parse_multi_entity_patch_line(order));
+    }
+
+    let (subject, event_hash) = &observed[0];
+    assert_eq!(subject, "Ivy");
+    assert!(observed
+        .iter()
+        .all(|(next_subject, next_hash)| next_subject == subject && next_hash == event_hash));
+}
+
+#[test]
 fn builds_legacy_entities_from_unknown_patch_names() {
     let (_temp, conn) = test_conn();
     let snapshot_id = insert_snapshot(
@@ -365,4 +384,34 @@ fn normalizes_sheet_stats_and_tabs() {
         )
         .expect("freeform row");
     assert!(row_json.contains("Parry"));
+}
+
+fn parse_multi_entity_patch_line(order: [&str; 3]) -> (String, String) {
+    let (_temp, conn) = test_conn();
+    for name in order {
+        let entity_id = insert_entity(&conn, "hero", name);
+        insert_alias(&conn, entity_id, name, "canonical");
+    }
+    insert_snapshot(
+        &conn,
+        "deadlock_data",
+        "patchnote",
+        "changelogs/raw/2026-06-01",
+        Some("06-01-2026"),
+        json!({
+            "title": "06-01-2026",
+            "posted_at": "2026-06-01",
+            "raw_content": "General\n- Fixed Ivy, Viscous and Magic Carpet moving faster than intended.\n"
+        }),
+        None,
+    );
+
+    let summary = parse_patchnotes_with_conn(&conn, true).expect("parse multi entity patch");
+    assert_eq!(summary["events_inserted"], 1);
+    conn.query_row(
+        "SELECT subject, event_hash FROM patch_events WHERE normalized_line LIKE 'Fixed Ivy%'",
+        [],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+    )
+    .expect("multi entity patch event")
 }

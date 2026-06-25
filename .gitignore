@@ -5,6 +5,7 @@ __pycache__/
 
 data/*.sqlite3
 data/*.sqlite3-*
+data/external/
 data/cache/
 data/raw/
 data/youtube_audio/

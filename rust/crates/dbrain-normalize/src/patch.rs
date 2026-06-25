@@ -583,40 +583,65 @@ fn looks_like_group_heading(text: &str) -> bool {
 }
 
 fn infer_entities_from_line(text: &str, index: &EntityIndex) -> Vec<(String, String, f64)> {
-    let mut found = Vec::new();
+    let mut found: Vec<(usize, String, String, f64)> = Vec::new();
     let lower = normalize_scan_text(text);
-    for (key, name) in &index.hero_names {
-        if !key.is_empty() && lower.contains(&format!(" {key} ")) {
-            found.push(("hero".to_string(), name.clone(), 0.65));
-        }
-    }
-    for (key, name) in &index.hero_internal_names {
-        if !key.is_empty() && lower.contains(&format!(" {key} ")) {
-            found.push(("hero_internal".to_string(), name.clone(), 0.5));
-        }
-    }
-    for (key, name) in &index.item_names {
-        if key.len() >= 4 && lower.contains(&format!(" {key} ")) {
-            found.push(("item".to_string(), name.clone(), 0.6));
-        }
-    }
-    for (key, name) in &index.special_item_names {
-        if key.len() >= 4 && lower.contains(&format!(" {key} ")) {
-            found.push(("item_special".to_string(), name.clone(), 0.55));
-        }
-    }
-    for (key, name) in &index.ability_names {
-        if key.len() >= 4 && lower.contains(&format!(" {key} ")) {
-            found.push(("ability".to_string(), name.clone(), 0.58));
-        }
-    }
-    for (key, name) in &index.internal_ability_names {
-        if key.len() >= 4 && lower.contains(&format!(" {key} ")) {
-            found.push(("ability_internal".to_string(), name.clone(), 0.45));
-        }
-    }
+    push_inferred_entities(&mut found, &lower, &index.hero_names, 1, "hero", 0.65);
+    push_inferred_entities(
+        &mut found,
+        &lower,
+        &index.hero_internal_names,
+        1,
+        "hero_internal",
+        0.5,
+    );
+    push_inferred_entities(&mut found, &lower, &index.item_names, 4, "item", 0.6);
+    push_inferred_entities(
+        &mut found,
+        &lower,
+        &index.special_item_names,
+        4,
+        "item_special",
+        0.55,
+    );
+    push_inferred_entities(&mut found, &lower, &index.ability_names, 4, "ability", 0.58);
+    push_inferred_entities(
+        &mut found,
+        &lower,
+        &index.internal_ability_names,
+        4,
+        "ability_internal",
+        0.45,
+    );
+    found.sort_by(|left, right| {
+        left.0
+            .cmp(&right.0)
+            .then_with(|| left.2.cmp(&right.2))
+            .then_with(|| left.1.cmp(&right.1))
+    });
     found.truncate(5);
     found
+        .into_iter()
+        .map(|(_, entity_type, entity_name, confidence)| (entity_type, entity_name, confidence))
+        .collect()
+}
+
+fn push_inferred_entities(
+    found: &mut Vec<(usize, String, String, f64)>,
+    lower: &str,
+    entries: &HashMap<String, String>,
+    min_key_len: usize,
+    entity_type: &str,
+    confidence: f64,
+) {
+    for (key, name) in entries {
+        if key.len() < min_key_len {
+            continue;
+        }
+        let needle = format!(" {key} ");
+        if let Some(position) = lower.find(&needle) {
+            found.push((position, entity_type.to_string(), name.clone(), confidence));
+        }
+    }
 }
 
 fn classify_change_type(text: &str) -> String {

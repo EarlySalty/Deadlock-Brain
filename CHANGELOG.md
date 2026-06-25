@@ -1,5 +1,13 @@
 # Changelog
 
+## #4 — Vertrauenswürdige Spieldaten-Quelle: Scaling, Helden- und Item-Details, strukturierte Patch-Daten
+
+Dem Wissensspeicher fehlten die maßgeblichen, strukturierten Spieldaten — vor allem die Skalierungswerte der Helden sowie die Detailangaben zu Fähigkeiten und Items. Diese Informationen lagen bislang nur auf der gerenderten Wiki-Seite, die von diesem System aus nicht erreichbar ist; die vorhandenen Patch-Daten stammten aus weniger strukturierten Quellen.
+
+Neu ist eine als vertrauenswürdig gekennzeichnete Datenquelle, die das offizielle Daten-Repository des Spiels anzapft — dieselbe Ursprungsquelle, aus der auch die Wiki-Seiten erzeugt werden. Sie hält dieses Repository lokal aktuell und liest daraus Helden, Fähigkeiten und Items samt ihrer Skalierungsfaktoren sowie die strukturierten Änderungsprotokolle der Patches. Alle so gewonnenen Datensätze werden als gesicherte Grundwahrheit markiert und damit klar von den noch ungeprüften Creator-Aussagen abgegrenzt. Der Import ist gefahrlos wiederholbar: unveränderte Inhalte erzeugen keine Dubletten, und zwar auch dann, wenn die Ursprungsquelle zwischenzeitlich aktualisiert wurde — die Wiedererkennung hängt am Inhalt, nicht an der Herkunftsversion.
+
+Damit enthält der Wissensspeicher jetzt die belastbaren Skalierungswerte und strukturierten Entitätsdaten, die zuvor fehlten. Wiederholte Läufe und Aktualisierungen der Quelle reichern den Bestand an, ohne ihn aufzublähen, und die gesicherten Daten sind als solche erkennbar.
+
 ## #3 — Brain auf Rust umgestellt: eine Sprache, gleiche Befehle
 
 Das Brain — das Werkzeug, das Patchnotes, Statistiken, Sheet- und Creator-Wissen einsammelt und zu abrufbarem Spielwissen verdichtet — lief bisher in Python, während der Rest der Plattform längst auf Rust läuft. Eine in zwei Sprachen geteilte Codebasis ist schwerer zu warten und weiterzuentwickeln.
