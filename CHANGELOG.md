@@ -1,5 +1,13 @@
 # Changelog
 
+## #9 — Wissens-Paket versteht die Frage jetzt richtig und ordnet nach Relevanz
+
+Das neue Frage-Werkzeug lieferte zwar ein Wissens-Paket, verstand die Frage aber kaum: Jede Frage wurde wie eine allgemeine Heldenübersicht behandelt, der genannte Held oder das Item wurde in einem ganzen Satz nicht erkannt, und die gesammelten Aussagen wurden allein nach Quellen-Sicherheit sortiert — eine themenfremde, aber sicher belegte Aussage verdrängte so die eigentliche Antwort. Wissen, das unter einer anderen Bezugsgröße abgelegt war (etwa ein Konter-Item, das beim Konter und nicht beim Ziel steht), tauchte gar nicht auf; zufällige Zeichenketten-Treffer im Wortinneren erzeugten Rauschen; und selbst klar spielfremde Fragen wurden beantwortet, als gäbe es Spieldaten dazu.
+
+Das Werkzeug erkennt jetzt die Art der Frage — Build, Item, Mechanik, Matchup/Konter, Patch-Änderung, Meta — und löst den genannten Helden oder das Item auch mitten in einem Satz auf. Die gesammelten Fakten werden danach geordnet, wie gut sie wirklich zur Frage passen, nicht mehr allein nach Quellen-Sicherheit. Wissen, das unter einer verwandten Bezugsgröße liegt, wird mitgefunden (das Konter-Item zu einem Helden erscheint auch dann, wenn es beim Item und nicht beim Helden verzeichnet ist). Es werden nur noch ganze Wörter abgeglichen, sodass eine Frage nach einem Helden keine zufällig ähnlich geschriebenen Begriffe mehr hereinzieht. Klar spielfremde Fragen werden als solche erkannt und ehrlich beantwortet, statt erfundene Treffer zu liefern. Für Build-Fragen bleibt die vollständige Patch-Historie erhalten, damit ein Build an die jüngsten Änderungen angepasst werden kann; nur reine Hilfsfelder ohne Inhalt bleiben aus dem an das Modell gehenden Text heraus.
+
+Damit enthält das Wissens-Paket jetzt Fakten, die tatsächlich zur Frage gehören, in der richtigen Reihenfolge, mit korrekt aufgelöster Bezugsgröße, einschließlich des Wissens aus verwandten Einträgen und mit einem klaren Signal, wenn eine Frage außerhalb des Spiels liegt. Über alle geprüften Fragetypen hinweg ist die Trefferqualität deutlich gestiegen.
+
 ## #8 — Beliebige Frage rein, vertrauenssortiertes Wissens-Paket für ein Sprachmodell raus
 
 Das Brain sammelt und prüft inzwischen Spieldaten und Creator-Wissen, doch es gab keinen Weg, zu einer konkreten Frage die passenden, nach Vertrauen gewichteten Fakten gebündelt an ein Sprachmodell zu übergeben. Man musste den genauen Befehl und den exakten Namen einer Entität kennen, die Ausgaben waren Rohdaten, und die geprüften Creator-Aussagen waren überhaupt nicht mit dem Abruf verbunden — sie lagen ungenutzt in der Wissensdatenbank.

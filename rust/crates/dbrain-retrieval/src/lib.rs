@@ -51,23 +51,41 @@ Regeln:
 FAKTEN (JSON, vertrauenssortiert):
 {{ordered_context_json}}"#;
 const ASK_TRUST_LEGEND: &str = "Vertrauensstufen: 'ground_truth' = gesicherte Spieldaten (höchste Priorität). 'creator_knowledge.verified' = gegen die Spieldaten geprüfte Creator-Aussagen. 'creator_knowledge.flagged' = nur teilweise oder unbestätigt, nur mit Vorbehalt nutzen. 'creator_knowledge.refuted' = nachweislich falsch, nicht verwenden. Bei Widerspruch gilt immer ground_truth.";
+const ASK_OOD_NOTICE: &str = "HINWEIS: Diese Frage scheint sich nicht auf Deadlock zu beziehen — es wurden keine gesicherten Spieldaten und keine geprüften Creator-Aussagen dazu gefunden. Wenn die Frage tatsächlich nichts mit Deadlock zu tun hat, weise freundlich darauf hin, dass du auf Deadlock-Wissen spezialisiert bist und dazu keine belegten Fakten vorliegen. Falls sie doch Deadlock betrifft, bitte um eine konkretere Formulierung (Held, Item, Fähigkeit oder Mechanik). Erfinde nichts.";
 const CLAIM_KEYWORD_STOPWORDS: &[&str] = &[
     "about",
     "also",
+    "besser",
     "build",
     "counter",
     "does",
+    "etwas",
     "from",
+    "funktionieren",
+    "funktioniert",
+    "geht",
+    "gibt",
     "have",
     "hero",
     "item",
+    "kostet",
+    "macht",
+    "mehr",
     "need",
+    "sehr",
     "should",
+    "sind",
+    "schneller",
     "that",
     "this",
     "when",
     "with",
     "without",
+    "wann",
+    "warum",
+    "werden",
+    "wieso",
+    "works",
     "aber",
     "auch",
     "dass",
@@ -84,7 +102,43 @@ const CLAIM_KEYWORD_STOPWORDS: &[&str] = &[
     "ueber",
     "wenn",
     "wird",
+    "viel",
+    "viele",
 ];
+const ENTITY_MATCH_STOPWORDS: &[&str] = &[
+    "build",
+    "items",
+    "item",
+    "baue",
+    "guide",
+    "beste",
+    "best",
+    "geaendert",
+    "stark",
+    "kontert",
+    "counter",
+    "gegen",
+];
+const DEADLOCK_QUERY_TERMS: &[&str] = &[
+    "souls",
+    "lane",
+    "urn",
+    "ability",
+    "item",
+    "build",
+    "hero",
+    "patch",
+    "farm",
+    "jungle",
+    "breakable",
+    "guardian",
+    "walker",
+    "creep",
+    "trooper",
+    "denying",
+    "secured",
+];
+const GENERIC_SHORT_GAME_KEYWORDS: &[&str] = &["echo", "hex", "shot"];
 
 const PRIMARY_STAT_KEYS: &[&str] = &[
     "base_hp",
@@ -205,6 +259,8 @@ struct AskClaimRecord {
     source_video: JsonValue,
     verifier: JsonMap<String, JsonValue>,
     match_sources: BTreeSet<String>,
+    relevance_score: i64,
+    matched_keyword_count: usize,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -228,6 +284,28 @@ struct AskClaimOmitted {
 struct AskEntityClaimMatch {
     names: Vec<String>,
     matched: bool,
+    canonical_name: Option<String>,
+    entity_type: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct KnownAskEntity {
+    name: String,
+    entity_type: String,
+}
+
+#[derive(Debug, Clone)]
+struct AskKeywordSpec {
+    text: String,
+    entity_or_alias: bool,
+    generic_ranking_only: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+struct AskClaimRelevance {
+    score: i64,
+    distinct_matches: usize,
+    entity_keyword_hit: bool,
 }
 
 pub fn status(conn: &Connection) -> Result<JsonValue> {
@@ -498,10 +576,24 @@ pub fn build_review_context(conn: &Connection, query: &str, limit_events: i64) -
 
 pub fn ask_context(conn: &Connection, query: &str, opts: &AskContextOptions) -> Result<JsonValue> {
     let plan = analyze_query(conn, query)?;
-    let base = build_review_context(conn, query, opts.limit_events)?;
     let entity_match = resolve_ask_entity_match(conn, query, &plan)?;
-    let (claims, entity_matched, keyword_matched) =
-        load_ask_claims(conn, query, &entity_match.names)?;
+    let out_of_domain = !entity_match.matched && !query_has_deadlock_vocabulary(conn, query)?;
+    let intent = if out_of_domain {
+        "out_of_domain".to_string()
+    } else {
+        plan.intent.clone()
+    };
+    let context_query = resolved_plan_entity_name(&plan).unwrap_or_else(|| query.trim().to_string());
+    let base = if out_of_domain {
+        JsonValue::Object(JsonMap::new())
+    } else {
+        build_review_context(conn, &context_query, opts.limit_events)?
+    };
+    let (claims, entity_matched, keyword_matched) = if out_of_domain {
+        (Vec::new(), 0, 0)
+    } else {
+        load_ask_claims(conn, query, &entity_match, &intent)?
+    };
     let claim_buckets = partition_ask_claims(claims, opts.include_unverified, opts.max_claims);
 
     let entity = base.get("entity_summary").cloned().unwrap_or(JsonValue::Null);
@@ -513,20 +605,22 @@ pub fn ask_context(conn: &Connection, query: &str, opts: &AskContextOptions) -> 
         "item": item_ground_truth,
     });
     let mut creator_knowledge = JsonMap::new();
-    creator_knowledge.insert("verified".to_string(), claims_to_json(&claim_buckets.verified));
-    creator_knowledge.insert("flagged".to_string(), claims_to_json(&claim_buckets.flagged));
-    creator_knowledge.insert("refuted".to_string(), claims_to_json(&claim_buckets.refuted));
-    if opts.include_unverified {
-        creator_knowledge.insert(
-            "unverified".to_string(),
-            claims_to_json(&claim_buckets.unverified),
-        );
+    if !out_of_domain {
+        creator_knowledge.insert("verified".to_string(), claims_to_json(&claim_buckets.verified));
+        creator_knowledge.insert("flagged".to_string(), claims_to_json(&claim_buckets.flagged));
+        creator_knowledge.insert("refuted".to_string(), claims_to_json(&claim_buckets.refuted));
+        if opts.include_unverified {
+            creator_knowledge.insert(
+                "unverified".to_string(),
+                claims_to_json(&claim_buckets.unverified),
+            );
+        }
+        creator_knowledge.insert("omitted".to_string(), omitted_to_json(&claim_buckets.omitted));
     }
-    creator_knowledge.insert("omitted".to_string(), omitted_to_json(&claim_buckets.omitted));
 
     let mut result = JsonMap::new();
     result.insert("query".to_string(), json!(query));
-    result.insert("intent".to_string(), json!(plan.intent.clone()));
+    result.insert("intent".to_string(), json!(intent.clone()));
     result.insert("entity".to_string(), entity);
     result.insert("ground_truth".to_string(), ground_truth);
     result.insert(
@@ -549,7 +643,9 @@ pub fn ask_context(conn: &Connection, query: &str, opts: &AskContextOptions) -> 
             "entity_matched": entity_matched,
             "entity_match_resolved": entity_match.matched,
             "keyword_matched": keyword_matched,
-            "intent": plan.intent,
+            "intent": intent,
+            "out_of_domain": out_of_domain,
+            "context_query": context_query,
             "base_prompt_de_available": base.get("prompt_de").and_then(JsonValue::as_str).is_some_and(|value| !value.trim().is_empty()),
         }),
     );
@@ -742,44 +838,44 @@ pub fn search_mechanic_notes(conn: &Connection, _query: &str, _limit: i64) -> Re
 }
 
 pub fn analyze_query(conn: &Connection, query: &str) -> Result<QueryPlan> {
-    let known_heroes = fetch_all(
-        conn,
-        "SELECT canonical_name FROM entities WHERE entity_type='hero'",
-        vec![],
-    )?
-    .into_iter()
-    .filter_map(|row| value_to_nonempty_string(row.get("canonical_name")))
-    .collect::<Vec<_>>();
-    let known_items = fetch_all(
-        conn,
-        "SELECT canonical_name FROM entities WHERE entity_type='item' LIMIT 60",
-        vec![],
-    )?
-    .into_iter()
-    .filter_map(|row| value_to_nonempty_string(row.get("canonical_name")))
-    .collect::<Vec<_>>();
-
-    let mut intent = "hero_overview".to_string();
+    let known_entities = load_known_ask_entities(conn)?;
     let mut entities = Vec::new();
     let mut threats = Vec::new();
-    let query_lower = query.to_lowercase();
-    for hero in &known_heroes {
-        if query_lower.contains(&hero.to_lowercase()) {
-            if entities.is_empty() {
-                entities.push(json!({"name": hero, "type": "hero", "raw": hero}));
-            } else {
-                threats.push(hero.clone());
+    let query_norm = normalize_alias(query);
+
+    for entity in known_entities.iter().filter(|entity| entity.entity_type == "hero") {
+        if keyword_starts_word(&query_norm, &normalize_alias(&entity.name)) {
+            push_query_entity(&mut entities, &mut threats, entity);
+        }
+    }
+    if entities.is_empty() {
+        for entity in known_entities
+            .iter()
+            .filter(|entity| matches!(entity.entity_type.as_str(), "item" | "item_special"))
+        {
+            if keyword_starts_word(&query_norm, &normalize_alias(&entity.name)) {
+                push_query_entity(&mut entities, &mut threats, entity);
             }
         }
     }
     if entities.is_empty() {
-        for item in &known_items {
-            if query_lower.contains(&item.to_lowercase()) {
-                entities.push(json!({"name": item, "type": "item", "raw": item}));
-                intent = "item_question".to_string();
+        if let Some(best_match) = resolve_entity_from_query_tokens(conn, query)? {
+            if let (Some(name), Some(entity_type)) = (
+                value_to_nonempty_string(best_match.get("canonical_name")),
+                value_to_nonempty_string(best_match.get("entity_type")),
+            ) {
+                entities.push(json!({"name": name, "type": entity_type, "raw": query}));
             }
         }
     }
+
+    let matched = !entities.is_empty();
+    let entity_type = entities
+        .first()
+        .and_then(|entity| value_to_nonempty_string(entity.get("type")))
+        .unwrap_or_default();
+    let query_lower = query.to_lowercase();
+    let intent = classify_ask_intent(&query_lower, matched, &entity_type);
     Ok(QueryPlan {
         fetch: intent_fetch(&intent),
         entities,
@@ -789,6 +885,143 @@ pub fn analyze_query(conn: &Connection, query: &str) -> Result<QueryPlan> {
         raw_query: query.to_string(),
         language: "de".to_string(),
     })
+}
+
+fn load_known_ask_entities(conn: &Connection) -> Result<Vec<KnownAskEntity>> {
+    if !table_exists(conn, "entities")? {
+        return Ok(Vec::new());
+    }
+    Ok(fetch_all(
+        conn,
+        r#"
+        SELECT canonical_name, entity_type
+        FROM entities
+        WHERE entity_type IN ('hero', 'item', 'item_special')
+        ORDER BY entity_type, length(canonical_name) DESC, canonical_name
+        "#,
+        vec![],
+    )?
+    .into_iter()
+    .filter_map(|row| {
+        Some(KnownAskEntity {
+            name: value_to_nonempty_string(row.get("canonical_name"))?,
+            entity_type: value_to_nonempty_string(row.get("entity_type"))?,
+        })
+    })
+    .collect())
+}
+
+fn push_query_entity(
+    entities: &mut Vec<JsonValue>,
+    threats: &mut Vec<String>,
+    entity: &KnownAskEntity,
+) {
+    if entities.is_empty() {
+        entities.push(json!({"name": entity.name.clone(), "type": entity.entity_type.clone(), "raw": entity.name.clone()}));
+    } else if entity.entity_type == "hero" {
+        threats.push(entity.name.clone());
+    }
+}
+
+fn classify_ask_intent(query_lower: &str, matched: bool, entity_type: &str) -> String {
+    let terms = intent_query_terms(query_lower);
+    let item_entity = matches!(entity_type, "item" | "item_special");
+    if item_entity && contains_any_intent_term(&terms, &["build", "items", "item", "baue", "guide"]) {
+        return "build_recommendation".to_string();
+    }
+    if item_entity && !has_explicit_ask_action(&terms) {
+        return "item_question".to_string();
+    }
+    if contains_any_intent_term(&terms, &["geaendert", "geändert", "nerf", "buff", "patch", "update", "changelog"]) {
+        return "patch_changes".to_string();
+    }
+    if contains_any_intent_term(&terms, &["meta", "tier", "viable", "noch stark", "noch gut"]) {
+        return "meta_question".to_string();
+    }
+    if contains_any_intent_term(&terms, &["kontert", "counter", "gegen", "matchup", "vs"]) {
+        return "matchup".to_string();
+    }
+    if !matched
+        && contains_any_intent_term(
+            &terms,
+            &[
+                "souls",
+                "soul",
+                "denying",
+                "breakables",
+                "breakable",
+                "jungle",
+                "urn",
+                "secured",
+                "lane",
+                "farm",
+            ],
+        )
+    {
+        return "mechanics_question".to_string();
+    }
+    if matched && contains_any_intent_term(&terms, &["build", "items", "item", "baue", "guide"]) {
+        return "build_recommendation".to_string();
+    }
+    if item_entity {
+        return "item_question".to_string();
+    }
+    "hero_overview".to_string()
+}
+
+fn has_explicit_ask_action(terms: &[String]) -> bool {
+    contains_any_intent_term(
+        terms,
+        &[
+            "baue",
+            "build",
+            "buff",
+            "changelog",
+            "counter",
+            "gegen",
+            "geaendert",
+            "geändert",
+            "guide",
+            "items",
+            "kontert",
+            "matchup",
+            "meta",
+            "nerf",
+            "patch",
+            "tier",
+            "update",
+            "viable",
+            "vs",
+        ],
+    )
+}
+
+fn contains_any_intent_term(terms: &[String], needles: &[&str]) -> bool {
+    needles.iter().any(|needle| intent_terms_contain(terms, needle))
+}
+
+fn intent_terms_contain(terms: &[String], needle: &str) -> bool {
+    let needle_terms = intent_query_terms(needle);
+    if needle_terms.is_empty() {
+        return false;
+    }
+    if needle_terms.len() == 1 {
+        return terms.iter().any(|term| term == &needle_terms[0]);
+    }
+    terms
+        .windows(needle_terms.len())
+        .any(|window| window == needle_terms.as_slice())
+}
+
+fn intent_query_terms(value: &str) -> Vec<String> {
+    value
+        .split_whitespace()
+        .map(|term| {
+            term.trim_matches(|character: char| !character.is_alphanumeric())
+                .to_lowercase()
+        })
+        .filter(|term| !term.is_empty())
+        .collect()
 }
 
 fn intent_fetch(intent: &str) -> Vec<String> {
@@ -811,6 +1044,7 @@ fn intent_fetch(intent: &str) -> Vec<String> {
         "meta_question" | "hero_comparison" => {
             vec!["hero_rankings", "hero_stats", "patch_impact_notes"]
         }
+        "matchup" => vec!["counterplay_claims", "matchup_claims", "hero_stats", "patch_events"],
         "match_coaching" => vec!["match_data", "build_notes"],
         _ => vec![
             "hero_stats",
@@ -880,6 +1114,114 @@ fn find_best_entity_match(
         ],
     )?;
     let Some(mut row) = rows.into_iter().next() else {
+        return Ok(None);
+    };
+    let score = row.get("score").and_then(JsonValue::as_i64).unwrap_or(0);
+    if score < MIN_ENTITY_MATCH_SCORE {
+        return Ok(None);
+    }
+    let metadata = loads_json_object(row.remove("metadata_json").as_ref());
+    let alias_kinds = split_group_concat(row.get("matched_alias_kinds"));
+    row.insert("metadata".to_string(), JsonValue::Object(metadata));
+    row.insert("score".to_string(), json!(score));
+    row.insert(
+        "matched_alias_kinds".to_string(),
+        JsonValue::Array(alias_kinds.into_iter().map(JsonValue::String).collect()),
+    );
+    Ok(Some(row))
+}
+
+fn resolve_entity_from_query_tokens(
+    conn: &Connection,
+    query: &str,
+) -> Result<Option<JsonMap<String, JsonValue>>> {
+    let tokens = entity_match_tokens(query);
+    if tokens.is_empty() {
+        return Ok(None);
+    }
+    let mut candidates = Vec::new();
+    for window in tokens.windows(2) {
+        if let [left, right] = window {
+            candidates.push(format!("{left} {right}"));
+        }
+    }
+    candidates.extend(tokens);
+
+    let mut best: Option<JsonMap<String, JsonValue>> = None;
+    for candidate in candidates {
+        let Some(row) = find_exact_entity_match(conn, &candidate)? else {
+            continue;
+        };
+        let row_score = row.get("score").and_then(JsonValue::as_i64).unwrap_or(0);
+        let row_len = value_to_string(row.get("canonical_name")).len();
+        let replace = best
+            .as_ref()
+            .map(|current| {
+                let current_score = current.get("score").and_then(JsonValue::as_i64).unwrap_or(0);
+                let current_len = value_to_string(current.get("canonical_name")).len();
+                row_score > current_score || (row_score == current_score && row_len > current_len)
+            })
+            .unwrap_or(true);
+        if replace {
+            best = Some(row);
+        }
+    }
+    Ok(best)
+}
+
+fn entity_match_tokens(query: &str) -> Vec<String> {
+    tokenize_ascii_lower(query)
+        .into_iter()
+        .filter(|token| !ENTITY_MATCH_STOPWORDS.contains(&token.as_str()))
+        .collect()
+}
+
+fn find_exact_entity_match(
+    conn: &Connection,
+    candidate: &str,
+) -> Result<Option<JsonMap<String, JsonValue>>> {
+    let query_norm = normalize_alias(candidate);
+    if query_norm.is_empty()
+        || !table_exists(conn, "entities")?
+        || !table_exists(conn, "entity_aliases")?
+    {
+        return Ok(None);
+    }
+    let Some(mut row) = fetch_one(
+        conn,
+        r#"
+        SELECT
+          e.id,
+          e.entity_type,
+          e.canonical_name,
+          e.primary_external_id,
+          e.source,
+          e.metadata_json,
+          MAX(
+            CASE
+              WHEN lower(e.canonical_name)=lower(?) THEN 120
+              WHEN a.alias_norm=? AND a.alias_kind='canonical' THEN 115
+              WHEN a.alias_norm=? THEN 110
+              ELSE 0
+            END
+          ) AS score,
+          GROUP_CONCAT(DISTINCT a.alias_kind) AS matched_alias_kinds
+        FROM entities e
+        LEFT JOIN entity_aliases a ON a.entity_id=e.id
+        WHERE lower(e.canonical_name)=lower(?) OR a.alias_norm=?
+        GROUP BY e.id
+        ORDER BY score DESC, e.entity_type, length(e.canonical_name) DESC, e.canonical_name
+        LIMIT 1
+        "#,
+        vec![
+            SqlValue::Text(candidate.to_string()),
+            SqlValue::Text(query_norm.clone()),
+            SqlValue::Text(query_norm.clone()),
+            SqlValue::Text(candidate.to_string()),
+            SqlValue::Text(query_norm),
+        ],
+    )?
+    else {
         return Ok(None);
     };
     let score = row.get("score").and_then(JsonValue::as_i64).unwrap_or(0);
@@ -2024,6 +2366,11 @@ fn resolve_ask_entity_match(
         }
     }
     candidates.push(query.to_string());
+    if let Some(best_match) = resolve_entity_from_query_tokens(conn, query)? {
+        if let Some(name) = value_to_nonempty_string(best_match.get("canonical_name")) {
+            candidates.push(name);
+        }
+    }
 
     for candidate in candidates {
         let query_norm = normalize_alias(&candidate);
@@ -2031,26 +2378,90 @@ fn resolve_ask_entity_match(
             continue;
         };
         let mut names = BTreeSet::new();
-        if let Some(name) = value_to_nonempty_string(best_match.get("canonical_name")) {
-            names.insert(name);
+        let canonical_name = value_to_nonempty_string(best_match.get("canonical_name"));
+        let entity_type = value_to_nonempty_string(best_match.get("entity_type"));
+        if let Some(name) = canonical_name.clone() {
+            insert_ask_entity_match_name(&mut names, &name, true);
         }
         if let Some(entity_id) = best_match.get("id").and_then(JsonValue::as_i64) {
             for alias in load_aliases(conn, entity_id, MAX_ALIASES)? {
                 if let Some(value) = value_to_nonempty_string(alias.get("alias")) {
-                    names.insert(value);
+                    insert_ask_entity_match_name(&mut names, &value, false);
                 }
                 if let Some(value) = value_to_nonempty_string(alias.get("alias_norm")) {
-                    names.insert(value);
+                    insert_ask_entity_match_name(&mut names, &value, false);
                 }
             }
         }
         return Ok(AskEntityClaimMatch {
             names: names.into_iter().collect(),
             matched: true,
+            canonical_name,
+            entity_type,
         });
     }
 
     Ok(AskEntityClaimMatch::default())
+}
+
+fn insert_ask_entity_match_name(names: &mut BTreeSet<String>, name: &str, allow_short: bool) {
+    let name_norm = normalize_alias(name);
+    if name_norm.is_empty() {
+        return;
+    }
+    if !allow_short && (name_norm.chars().all(|character| character.is_ascii_digit()) || name_norm.len() < 4) {
+        return;
+    }
+    names.insert(name.to_string());
+}
+
+fn resolved_plan_entity_name(plan: &QueryPlan) -> Option<String> {
+    plan.entities
+        .first()
+        .and_then(|entity| value_to_nonempty_string(entity.get("name")))
+}
+
+fn query_has_deadlock_vocabulary(conn: &Connection, query: &str) -> Result<bool> {
+    let query_norm = normalize_alias(query);
+    if query_norm.is_empty() {
+        return Ok(false);
+    }
+    if DEADLOCK_QUERY_TERMS
+        .iter()
+        .any(|term| keyword_starts_word(&query_norm, term))
+    {
+        return Ok(true);
+    }
+    if !tables_exist(conn, &["entities", "entity_aliases"])? {
+        return Ok(false);
+    }
+    let rows = fetch_all(
+        conn,
+        r#"
+        SELECT canonical_name AS name
+        FROM entities
+        WHERE entity_type IN ('hero', 'item', 'item_special', 'ability')
+        UNION
+        SELECT a.alias AS name
+        FROM entity_aliases a
+        JOIN entities e ON e.id=a.entity_id
+        WHERE e.entity_type IN ('hero', 'item', 'item_special', 'ability')
+        "#,
+        vec![],
+    )?;
+    for row in rows {
+        let Some(name) = value_to_nonempty_string(row.get("name")) else {
+            continue;
+        };
+        let name_norm = normalize_alias(&name);
+        if name_norm.len() < 4 || matches!(name_norm.as_str(), "hero" | "item" | "ability") {
+            continue;
+        }
+        if keyword_starts_word(&query_norm, &name_norm) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn ask_item_ground_truth(conn: &Connection, entity: &JsonValue) -> Result<JsonValue> {
@@ -2074,28 +2485,37 @@ fn ask_item_ground_truth(conn: &Connection, entity: &JsonValue) -> Result<JsonVa
 fn load_ask_claims(
     conn: &Connection,
     query: &str,
-    entity_names: &[String],
+    entity_match: &AskEntityClaimMatch,
+    intent: &str,
 ) -> Result<(Vec<AskClaimRecord>, usize, usize)> {
     if !tables_exist(conn, &["youtube_learning_claims", "youtube_videos"])? {
         return Ok((Vec::new(), 0, 0));
     }
 
     let mut by_id = BTreeMap::new();
-    let entity_rows = load_entity_claim_rows(conn, entity_names)?;
+    let entity_rows = load_entity_claim_rows(conn, &entity_match.names, intent)?;
     let entity_matched = entity_rows.len();
     merge_claim_rows(&mut by_id, entity_rows, "entity");
 
-    let keywords = ask_query_keywords(query);
-    let keyword_rows = load_keyword_claim_rows(conn, &keywords)?;
+    let keywords = ask_query_keyword_specs(query, entity_match);
+    let keyword_rows = load_keyword_claim_rows(conn, &keywords, entity_match, intent)?;
     let keyword_matched = keyword_rows.len();
     merge_claim_rows(&mut by_id, keyword_rows, "keyword");
 
-    Ok((by_id.into_values().collect(), entity_matched, keyword_matched))
+    let mut claims = by_id.into_values().collect::<Vec<_>>();
+    for claim in &mut claims {
+        let relevance = ask_claim_relevance(claim, &keywords, entity_match);
+        claim.relevance_score = relevance.score + claim_intent_relevance_bonus(claim, intent, entity_match);
+        claim.matched_keyword_count = relevance.distinct_matches;
+    }
+    claims.retain(|claim| ask_claim_passes_minimum_relevance(claim, &keywords, entity_match));
+    Ok((claims, entity_matched, keyword_matched))
 }
 
 fn load_entity_claim_rows(
     conn: &Connection,
     entity_names: &[String],
+    intent: &str,
 ) -> Result<Vec<JsonMap<String, JsonValue>>> {
     let names = entity_names
         .iter()
@@ -2107,28 +2527,74 @@ fn load_entity_claim_rows(
     if names.is_empty() {
         return Ok(Vec::new());
     }
-    let sql = format!(
+    let matchup_type_filter = if intent == "matchup" {
+        " AND lower(c.claim_type) IN ('counterplay','matchup')"
+    } else {
+        ""
+    };
+    let exact_sql = format!(
         r#"
         SELECT c.id, c.video_id, c.entity_type, c.entity_name, c.claim_type,
                c.claim_text, c.evidence_quote, c.verifier_confidence, c.status,
                c.verifier_json, v.title AS source_video_title
         FROM youtube_learning_claims c
         LEFT JOIN youtube_videos v ON v.video_id=c.video_id
-        WHERE lower(c.entity_name) IN ({})
+        WHERE lower(c.entity_name) IN ({}){}
         ORDER BY c.verifier_confidence DESC, c.id
         "#,
-        placeholders(names.len())
+        placeholders(names.len()),
+        matchup_type_filter
     );
-    fetch_all(
+    let mut by_id = BTreeMap::new();
+    for row in fetch_all(
         conn,
-        &sql,
-        names.into_iter().map(SqlValue::Text).collect(),
-    )
+        &exact_sql,
+        names.iter().cloned().map(SqlValue::Text).collect(),
+    )? {
+        if let Some(id) = row.get("id").and_then(JsonValue::as_i64) {
+            by_id.insert(id, row);
+        }
+    }
+
+    let mut clauses = Vec::new();
+    let mut values = Vec::new();
+    for name in &names {
+        clauses.push("(lower(c.claim_text) LIKE ? OR lower(c.evidence_quote) LIKE ?)".to_string());
+        let pattern = format!("%{}%", name);
+        values.push(SqlValue::Text(pattern.clone()));
+        values.push(SqlValue::Text(pattern));
+    }
+    let mut text_sql = format!(
+        r#"
+        SELECT c.id, c.video_id, c.entity_type, c.entity_name, c.claim_type,
+               c.claim_text, c.evidence_quote, c.verifier_confidence, c.status,
+               c.verifier_json, v.title AS source_video_title
+        FROM youtube_learning_claims c
+        LEFT JOIN youtube_videos v ON v.video_id=c.video_id
+        WHERE ({})
+        "#,
+        clauses.join(" OR ")
+    );
+    if intent == "matchup" {
+        text_sql.push_str(" AND lower(c.claim_type) IN ('counterplay','matchup')");
+    }
+    text_sql.push_str(" ORDER BY c.verifier_confidence DESC, c.id");
+    for row in fetch_all(conn, &text_sql, values)?
+        .into_iter()
+        .filter(|row| entity_text_row_matches_name(row, &names))
+    {
+        if let Some(id) = row.get("id").and_then(JsonValue::as_i64) {
+            by_id.entry(id).or_insert(row);
+        }
+    }
+    Ok(by_id.into_values().collect())
 }
 
 fn load_keyword_claim_rows(
     conn: &Connection,
-    keywords: &[String],
+    keywords: &[AskKeywordSpec],
+    entity_match: &AskEntityClaimMatch,
+    intent: &str,
 ) -> Result<Vec<JsonMap<String, JsonValue>>> {
     if keywords.is_empty() {
         return Ok(Vec::new());
@@ -2137,11 +2603,16 @@ fn load_keyword_claim_rows(
     let mut values = Vec::new();
     for keyword in keywords {
         clauses.push("(lower(c.claim_text) LIKE ? OR lower(c.evidence_quote) LIKE ? OR lower(c.verifier_json) LIKE ?)".to_string());
-        let pattern = format!("%{}%", keyword);
+        let pattern = format!("%{}%", keyword.text);
         values.push(SqlValue::Text(pattern.clone()));
         values.push(SqlValue::Text(pattern.clone()));
         values.push(SqlValue::Text(pattern));
     }
+    let matchup_type_filter = if intent == "matchup" {
+        " AND lower(c.claim_type) IN ('counterplay','matchup')"
+    } else {
+        ""
+    };
     let sql = format!(
         r#"
         SELECT c.id, c.video_id, c.entity_type, c.entity_name, c.claim_type,
@@ -2149,26 +2620,36 @@ fn load_keyword_claim_rows(
                c.verifier_json, v.title AS source_video_title
         FROM youtube_learning_claims c
         LEFT JOIN youtube_videos v ON v.video_id=c.video_id
-        WHERE {}
+        WHERE ({}){}
         ORDER BY c.verifier_confidence DESC, c.id
         "#,
-        clauses.join(" OR ")
+        clauses.join(" OR "),
+        matchup_type_filter
     );
     let rows = fetch_all(conn, &sql, values)?;
     Ok(rows
         .into_iter()
         .filter(|row| keyword_row_starts_word(row, keywords))
+        .filter(|row| keyword_row_passes_minimum_relevance(row, keywords, entity_match))
         .collect())
 }
 
-fn keyword_row_starts_word(row: &JsonMap<String, JsonValue>, keywords: &[String]) -> bool {
+fn entity_text_row_matches_name(row: &JsonMap<String, JsonValue>, names: &[String]) -> bool {
+    let claim_text = value_to_string(row.get("claim_text")).to_lowercase();
+    let evidence_quote = value_to_string(row.get("evidence_quote")).to_lowercase();
+    names.iter().any(|name| {
+        keyword_starts_word(&claim_text, name) || keyword_starts_word(&evidence_quote, name)
+    })
+}
+
+fn keyword_row_starts_word(row: &JsonMap<String, JsonValue>, keywords: &[AskKeywordSpec]) -> bool {
     let claim_text = value_to_string(row.get("claim_text")).to_lowercase();
     let evidence_quote = value_to_string(row.get("evidence_quote")).to_lowercase();
     let verifier_json = value_to_string(row.get("verifier_json")).to_lowercase();
     keywords.iter().any(|keyword| {
-        keyword_starts_word(&claim_text, keyword)
-            || keyword_starts_word(&evidence_quote, keyword)
-            || keyword_starts_word(&verifier_json, keyword)
+        keyword_starts_word(&claim_text, &keyword.text)
+            || keyword_starts_word(&evidence_quote, &keyword.text)
+            || keyword_starts_word(&verifier_json, &keyword.text)
     })
 }
 
@@ -2177,12 +2658,39 @@ fn keyword_starts_word(haystack_lower: &str, token_lower: &str) -> bool {
         return false;
     }
     haystack_lower.match_indices(token_lower).any(|(index, _)| {
-        index == 0
-            || haystack_lower[..index]
-                .chars()
-                .next_back()
-                .is_some_and(|previous| !previous.is_ascii_alphanumeric())
+        keyword_has_start_boundary(haystack_lower, index)
+            && keyword_has_end_boundary(haystack_lower, index + token_lower.len())
     })
+}
+
+fn keyword_has_start_boundary(value: &str, index: usize) -> bool {
+    index == 0
+        || value[..index]
+            .chars()
+            .next_back()
+            .is_some_and(|previous| !previous.is_ascii_alphanumeric())
+}
+
+fn keyword_has_end_boundary(value: &str, end: usize) -> bool {
+    if end >= value.len() {
+        return true;
+    }
+    let mut chars = value[end..].char_indices();
+    let Some((_, next)) = chars.next() else {
+        return true;
+    };
+    if !next.is_ascii_alphanumeric() {
+        return true;
+    }
+    if matches!(next, 's' | 'n' | 'e') {
+        let suffix_end = end + next.len_utf8();
+        return suffix_end >= value.len()
+            || value[suffix_end..]
+                .chars()
+                .next()
+                .is_some_and(|after| !after.is_ascii_alphanumeric());
+    }
+    false
 }
 
 fn merge_claim_rows(
@@ -2225,28 +2733,274 @@ fn ask_claim_from_row(
         }),
         verifier,
         match_sources,
+        relevance_score: 0,
+        matched_keyword_count: 0,
     })
 }
 
 fn ask_query_keywords(query: &str) -> Vec<String> {
-    let mut current = String::new();
-    let mut tokens = BTreeSet::new();
-    for character in query.to_lowercase().chars() {
-        if character.is_ascii_alphanumeric() {
-            current.push(character);
-        } else {
-            push_ask_keyword(&mut tokens, &mut current);
+    let raw_tokens = tokenize_ascii_lower(query);
+    let mut keywords = Vec::new();
+    let mut seen = HashSet::new();
+    for window in raw_tokens.windows(2) {
+        if let [left, right] = window {
+            push_ask_keyword(&mut keywords, &mut seen, &format!("{left} {right}"));
         }
     }
-    push_ask_keyword(&mut tokens, &mut current);
-    tokens.into_iter().take(12).collect()
+    for token in raw_tokens
+        .into_iter()
+        .filter(|token| token.len() >= 4 && !CLAIM_KEYWORD_STOPWORDS.contains(&token.as_str()))
+    {
+        push_ask_keyword(&mut keywords, &mut seen, &token);
+    }
+    keywords.into_iter().take(12).collect()
 }
 
-fn push_ask_keyword(tokens: &mut BTreeSet<String>, current: &mut String) {
-    if current.len() >= 4 && !CLAIM_KEYWORD_STOPWORDS.contains(&current.as_str()) {
-        tokens.insert(current.clone());
+fn push_ask_keyword(keywords: &mut Vec<String>, seen: &mut HashSet<String>, keyword: &str) {
+    let keyword = normalize_alias(keyword);
+    if !keyword.is_empty() && seen.insert(keyword.clone()) {
+        keywords.push(keyword);
     }
-    current.clear();
+}
+
+fn ask_query_keyword_specs(
+    query: &str,
+    entity_match: &AskEntityClaimMatch,
+) -> Vec<AskKeywordSpec> {
+    let mut specs = BTreeMap::<String, AskKeywordSpec>::new();
+    let ranking_only_short_tokens = entity_match.matched
+        && entity_match
+            .entity_type
+            .as_deref()
+            .is_some_and(|entity_type| matches!(entity_type, "hero" | "item" | "item_special"));
+    for keyword in ask_query_keywords(query) {
+        let generic_ranking_only = ranking_only_short_tokens
+            && !keyword.contains(' ')
+            && is_generic_short_game_keyword(&keyword);
+        insert_keyword_spec(&mut specs, &keyword, false, generic_ranking_only);
+    }
+    let query_norm = normalize_alias(query);
+    for name in &entity_match.names {
+        let name_norm = normalize_alias(name);
+        if name_norm.len() < 4 {
+            continue;
+        }
+        let is_canonical = entity_match
+            .canonical_name
+            .as_deref()
+            .map(normalize_alias)
+            .as_deref()
+            == Some(name_norm.as_str());
+        if is_canonical || keyword_starts_word(&query_norm, &name_norm) {
+            insert_keyword_spec(&mut specs, &name_norm, true, false);
+        }
+    }
+    specs.into_values().take(16).collect()
+}
+
+fn insert_keyword_spec(
+    specs: &mut BTreeMap<String, AskKeywordSpec>,
+    text: &str,
+    entity_or_alias: bool,
+    generic_ranking_only: bool,
+) {
+    let text = normalize_alias(text);
+    if text.is_empty() {
+        return;
+    }
+    specs
+        .entry(text.clone())
+        .and_modify(|existing| {
+            existing.entity_or_alias |= entity_or_alias;
+            existing.generic_ranking_only &= generic_ranking_only;
+        })
+        .or_insert(AskKeywordSpec {
+            text,
+            entity_or_alias,
+            generic_ranking_only,
+        });
+}
+
+fn is_generic_short_game_keyword(token: &str) -> bool {
+    token.len() <= 5 || GENERIC_SHORT_GAME_KEYWORDS.contains(&token)
+}
+
+fn keyword_row_passes_minimum_relevance(
+    row: &JsonMap<String, JsonValue>,
+    keywords: &[AskKeywordSpec],
+    entity_match: &AskEntityClaimMatch,
+) -> bool {
+    let relevance = row_relevance(
+        &value_to_string(row.get("claim_text")),
+        &value_to_string(row.get("evidence_quote")),
+        &value_to_string(row.get("entity_name")),
+        keywords,
+        entity_match,
+    );
+    relevance.distinct_matches >= 2
+        || relevance.entity_keyword_hit
+        || (relevance.distinct_matches >= 1 && allows_single_specific_keyword(keywords, entity_match))
+}
+
+fn ask_claim_passes_minimum_relevance(
+    claim: &AskClaimRecord,
+    keywords: &[AskKeywordSpec],
+    entity_match: &AskEntityClaimMatch,
+) -> bool {
+    if claim.match_sources.iter().any(|source| source != "keyword") {
+        return true;
+    }
+    let relevance = ask_claim_relevance(claim, keywords, entity_match);
+    relevance.distinct_matches >= 2
+        || relevance.entity_keyword_hit
+        || (relevance.distinct_matches >= 1 && allows_single_specific_keyword(keywords, entity_match))
+}
+
+fn allows_single_specific_keyword(
+    keywords: &[AskKeywordSpec],
+    entity_match: &AskEntityClaimMatch,
+) -> bool {
+    !entity_match.matched
+        && keywords
+            .iter()
+            .filter(|keyword| {
+                !keyword.entity_or_alias
+                    && !keyword.generic_ranking_only
+                    && !keyword.text.contains(' ')
+                    && keyword.text.len() >= 8
+            })
+            .count()
+            == 1
+}
+
+fn ask_claim_relevance(
+    claim: &AskClaimRecord,
+    keywords: &[AskKeywordSpec],
+    entity_match: &AskEntityClaimMatch,
+) -> AskClaimRelevance {
+    row_relevance(
+        &claim.claim_text,
+        &claim.evidence_quote,
+        &claim.entity_name,
+        keywords,
+        entity_match,
+    )
+}
+
+fn row_relevance(
+    claim_text: &str,
+    evidence_quote: &str,
+    entity_name: &str,
+    keywords: &[AskKeywordSpec],
+    entity_match: &AskEntityClaimMatch,
+) -> AskClaimRelevance {
+    let claim_text = claim_text.to_lowercase();
+    let evidence_quote = evidence_quote.to_lowercase();
+    let entity_name_norm = normalize_alias(entity_name);
+    let entity_name_is_canonical = entity_name_matches_canonical(&entity_name_norm, entity_match);
+    let entity_name_is_match = entity_name_matches_entity(&entity_name_norm, entity_match);
+    let mut score = 0;
+    let mut distinct_matches = BTreeSet::new();
+    let mut entity_keyword_hit = entity_name_is_match;
+    let mut entity_text_hit = false;
+    for keyword in keywords {
+        let in_claim = keyword_starts_word(&claim_text, &keyword.text);
+        let in_evidence = keyword_starts_word(&evidence_quote, &keyword.text);
+        if !in_claim && !in_evidence {
+            continue;
+        }
+        let text_weight = if keyword.entity_or_alias && entity_name_is_canonical {
+            6
+        } else if keyword.entity_or_alias {
+            2
+        } else {
+            3
+        };
+        let evidence_weight = if keyword.entity_or_alias && entity_name_is_canonical {
+            4
+        } else {
+            1
+        };
+        if in_claim {
+            score += text_weight;
+        }
+        if in_evidence {
+            score += evidence_weight;
+        }
+        if keyword.entity_or_alias {
+            entity_text_hit = true;
+            entity_keyword_hit = true;
+        }
+        if !keyword.generic_ranking_only || keyword.entity_or_alias {
+            distinct_matches.insert(keyword.text.clone());
+        }
+    }
+    if entity_name_is_canonical {
+        score += 8;
+        entity_keyword_hit = true;
+    } else if entity_name_is_match {
+        score += 4;
+    } else if entity_text_hit {
+        score += 1;
+    }
+    AskClaimRelevance {
+        score,
+        distinct_matches: distinct_matches.len(),
+        entity_keyword_hit,
+    }
+}
+
+fn claim_intent_relevance_bonus(
+    claim: &AskClaimRecord,
+    intent: &str,
+    entity_match: &AskEntityClaimMatch,
+) -> i64 {
+    let claim_type = claim.claim_type.to_lowercase();
+    let entity_name_norm = normalize_alias(&claim.entity_name);
+    match intent {
+        "build_recommendation" => match claim_type.as_str() {
+            "build" => 8,
+            "item_timing" => 6,
+            _ => 0,
+        },
+        "item_question" => {
+            if entity_name_matches_canonical(&entity_name_norm, entity_match) {
+                8
+            } else {
+                0
+            }
+        }
+        "matchup" | "counterplay" => match claim_type.as_str() {
+            "counterplay" | "matchup" => 8,
+            "general" | "meta" | "macro" => -6,
+            _ => 0,
+        },
+        "patch_changes" => match claim_type.as_str() {
+            "meta" | "general" | "mechanic" => 4,
+            "build" | "item_timing" | "matchup" => -6,
+            _ => 0,
+        },
+        _ => 0,
+    }
+}
+
+fn entity_name_matches_entity(entity_name_norm: &str, entity_match: &AskEntityClaimMatch) -> bool {
+    if entity_name_norm.is_empty() {
+        return false;
+    }
+    entity_match
+        .names
+        .iter()
+        .any(|name| normalize_alias(name) == entity_name_norm)
+}
+
+fn entity_name_matches_canonical(entity_name_norm: &str, entity_match: &AskEntityClaimMatch) -> bool {
+    entity_match
+        .canonical_name
+        .as_deref()
+        .map(normalize_alias)
+        .as_deref()
+        == Some(entity_name_norm)
 }
 
 fn partition_ask_claims(
@@ -2295,8 +3049,13 @@ fn partition_ask_claims(
 fn sort_ask_claims(claims: &mut [AskClaimRecord]) {
     claims.sort_by(|left, right| {
         right
-            .verifier_confidence
-            .total_cmp(&left.verifier_confidence)
+            .relevance_score
+            .cmp(&left.relevance_score)
+            .then_with(|| {
+                right
+                    .verifier_confidence
+                    .total_cmp(&left.verifier_confidence)
+            })
             .then_with(|| left.id.cmp(&right.id))
     });
 }
@@ -2370,6 +3129,8 @@ fn ask_claim_to_json(claim: &AskClaimRecord) -> JsonValue {
         "entity_name": claim.entity_name,
         "status": claim.status,
         "verifier_confidence": claim.verifier_confidence,
+        "relevance_score": claim.relevance_score,
+        "matched_keyword_count": claim.matched_keyword_count,
         "source_video": claim.source_video,
         "verdict": claim.verifier.get("verdict").cloned().unwrap_or(JsonValue::Null),
         "db_evidence": claim.verifier.get("db_evidence").cloned().unwrap_or(JsonValue::Null),
@@ -2388,18 +3149,14 @@ fn omitted_to_json(omitted: &AskClaimOmitted) -> JsonValue {
 }
 
 fn render_ask_prompt(bundle: &JsonValue) -> Result<String> {
-    let ordered_context = json!({
-        "ground_truth": bundle.get("ground_truth").cloned().unwrap_or(JsonValue::Null),
-        "creator_knowledge": {
-            "verified": bundle.pointer("/creator_knowledge/verified").cloned().unwrap_or_else(|| json!([])),
-            "flagged": bundle.pointer("/creator_knowledge/flagged").cloned().unwrap_or_else(|| json!([])),
-            "refuted": bundle.pointer("/creator_knowledge/refuted").cloned().unwrap_or_else(|| json!([])),
-            "unverified": bundle.pointer("/creator_knowledge/unverified").cloned().unwrap_or_else(|| json!([])),
-        },
-        "query": bundle.get("query").cloned().unwrap_or(JsonValue::Null),
-        "sources": bundle.get("sources").cloned().unwrap_or_else(|| json!([])),
-    });
-    let ordered_context_json = serde_json::to_string_pretty(&ordered_context)?;
+    if bundle
+        .pointer("/retrieval_meta/out_of_domain")
+        .and_then(JsonValue::as_bool)
+        .unwrap_or(false)
+    {
+        return Ok(render_ask_ood_prompt(bundle));
+    }
+    let ordered_context_json = serde_json::to_string_pretty(&ordered_ask_context_for_prompt(bundle))?;
     let mut rendered = ASK_PROMPT_TEMPLATE
         .replace("{{query}}", &value_to_string(bundle.get("query")))
         .replace("{{intent}}", &value_to_string(bundle.get("intent")))
@@ -2410,6 +3167,204 @@ fn render_ask_prompt(bundle: &JsonValue) -> Result<String> {
         rendered.push_str("\n```");
     }
     Ok(rendered)
+}
+
+fn render_ask_ood_prompt(bundle: &JsonValue) -> String {
+    let role_line = ASK_PROMPT_TEMPLATE
+        .split('.')
+        .next()
+        .map(|value| format!("{}.", value.trim()))
+        .unwrap_or_default();
+    let query = value_to_string(bundle.get("query"));
+    if role_line.is_empty() {
+        format!("{ASK_OOD_NOTICE}\n\nFRAGE: {query}")
+    } else {
+        format!("{role_line}\n\n{ASK_OOD_NOTICE}\n\nFRAGE: {query}")
+    }
+}
+
+fn ordered_ask_context_for_prompt(bundle: &JsonValue) -> JsonValue {
+    let mut ordered_context = JsonMap::new();
+    if let Some(ground_truth) = prompt_ground_truth(bundle) {
+        ordered_context.insert("ground_truth".to_string(), ground_truth);
+    }
+    if let Some(creator_knowledge) = prompt_creator_knowledge(bundle) {
+        ordered_context.insert("creator_knowledge".to_string(), creator_knowledge);
+    }
+    ordered_context.insert(
+        "query".to_string(),
+        bundle.get("query").cloned().unwrap_or(JsonValue::Null),
+    );
+    if let Some(sources) = bundle.get("sources").filter(|value| prompt_value_available(value)) {
+        ordered_context.insert("sources".to_string(), sources.clone());
+    }
+    JsonValue::Object(ordered_context)
+}
+
+fn prompt_ground_truth(bundle: &JsonValue) -> Option<JsonValue> {
+    let ground_truth = bundle.get("ground_truth")?.as_object()?;
+    let mut compact = JsonMap::new();
+    for key in ["stats", "lineage", "item"] {
+        if let Some(value) = ground_truth.get(key).filter(|value| prompt_value_available(value)) {
+            compact.insert(key.to_string(), value.clone());
+        }
+    }
+    if let Some(timeline) = ground_truth
+        .get("timeline")
+        .and_then(compact_timeline_for_prompt)
+    {
+        compact.insert("timeline".to_string(), timeline);
+    }
+    if compact.is_empty() {
+        None
+    } else {
+        Some(JsonValue::Object(compact))
+    }
+}
+
+fn compact_timeline_for_prompt(timeline: &JsonValue) -> Option<JsonValue> {
+    let compact = prune_prompt_value(timeline)?;
+    let object = compact.as_object()?;
+    let has_timeline_facts = [
+        "latest_patch",
+        "change_type_counts",
+        "source_counts",
+        "top_sections",
+        "recent_events",
+        "stat_changes",
+        "ability_mentions",
+    ]
+    .iter()
+    .any(|key| object.contains_key(*key));
+    if has_timeline_facts {
+        Some(compact)
+    } else {
+        None
+    }
+}
+
+fn prune_prompt_value(value: &JsonValue) -> Option<JsonValue> {
+    match value {
+        JsonValue::Null => None,
+        JsonValue::Array(items) => {
+            let compact = items
+                .iter()
+                .filter_map(prune_prompt_value)
+                .collect::<Vec<_>>();
+            if compact.is_empty() {
+                None
+            } else {
+                Some(JsonValue::Array(compact))
+            }
+        }
+        JsonValue::Object(object) => {
+            if object
+                .get("available")
+                .and_then(JsonValue::as_bool)
+                .is_some_and(|available| !available)
+            {
+                return None;
+            }
+            let mut compact = JsonMap::new();
+            for (key, value) in object {
+                if let Some(value) = prune_prompt_value(value) {
+                    compact.insert(key.clone(), value);
+                }
+            }
+            if compact.is_empty() {
+                None
+            } else {
+                Some(JsonValue::Object(compact))
+            }
+        }
+        JsonValue::String(value) if value.trim().is_empty() => None,
+        _ => Some(value.clone()),
+    }
+}
+
+fn prompt_creator_knowledge(bundle: &JsonValue) -> Option<JsonValue> {
+    let mut compact = JsonMap::new();
+    for bucket in ["verified", "flagged", "refuted", "unverified"] {
+        let claims = bundle
+            .pointer(&format!("/creator_knowledge/{bucket}"))
+            .and_then(JsonValue::as_array)
+            .map(|claims| {
+                claims
+                    .iter()
+                    .map(|claim| compact_claim_for_prompt(claim, bucket))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if !claims.is_empty() {
+            compact.insert(bucket.to_string(), JsonValue::Array(claims));
+        }
+    }
+    if compact.is_empty() {
+        None
+    } else {
+        Some(JsonValue::Object(compact))
+    }
+}
+
+fn compact_claim_for_prompt(claim: &JsonValue, bucket: &str) -> JsonValue {
+    let mut compact = JsonMap::new();
+    compact.insert(
+        "claim_text".to_string(),
+        claim.get("claim_text").cloned().unwrap_or(JsonValue::Null),
+    );
+    compact.insert("bucket".to_string(), json!(bucket));
+    if let Some(title) = claim
+        .pointer("/source_video/title")
+        .and_then(JsonValue::as_str)
+        .filter(|title| !title.trim().is_empty())
+    {
+        compact.insert("source_video".to_string(), json!({"title": title}));
+    }
+    if matches!(bucket, "flagged" | "refuted") {
+        if let Some(db_evidence) = claim.get("db_evidence").filter(|value| prompt_value_available(value)) {
+            compact.insert(
+                "db_evidence".to_string(),
+                JsonValue::String(short_prompt_text(&value_to_string(Some(db_evidence)), 280)),
+            );
+        }
+    }
+    JsonValue::Object(compact)
+}
+
+fn prompt_value_available(value: &JsonValue) -> bool {
+    match value {
+        JsonValue::Null => false,
+        JsonValue::Array(items) => !items.is_empty(),
+        JsonValue::Object(object) => {
+            if object
+                .get("available")
+                .and_then(JsonValue::as_bool)
+                .is_some_and(|available| !available)
+            {
+                return false;
+            }
+            !object.is_empty()
+        }
+        JsonValue::String(value) => !value.trim().is_empty(),
+        _ => true,
+    }
+}
+
+fn short_prompt_text(value: &str, max_chars: usize) -> String {
+    let mut end = value.len();
+    let mut truncated = false;
+    for (count, (index, _)) in value.char_indices().enumerate() {
+        if count == max_chars {
+            end = index;
+            truncated = true;
+            break;
+        }
+    }
+    if truncated {
+        format!("{}...", &value[..end])
+    } else {
+        value.to_string()
+    }
 }
 
 fn sheet_rows_for_source(
@@ -4157,6 +5112,22 @@ fn normalize_alias(value: &str) -> String {
     collapse_whitespace(&value.trim().to_lowercase().replace('_', " "))
 }
 
+fn tokenize_ascii_lower(value: &str) -> Vec<String> {
+    let mut current = String::new();
+    let mut tokens = Vec::new();
+    for character in value.to_lowercase().chars() {
+        if character.is_ascii_alphanumeric() {
+            current.push(character);
+        } else if !current.is_empty() {
+            tokens.push(std::mem::take(&mut current));
+        }
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+    tokens
+}
+
 fn normalize_key(text: &str) -> String {
     let cleaned = clean_subject(text).to_lowercase().replace('&', " and ");
     let mut result = String::new();
@@ -4288,6 +5259,116 @@ mod tests {
         .expect("enrichment");
     }
 
+    fn insert_light_entity(conn: &Connection, id: i64, entity_type: &str, name: &str) {
+        conn.execute(
+            r#"
+            INSERT INTO entities(
+              id, entity_type, canonical_name, primary_external_id, source,
+              first_snapshot_id, metadata_json, created_at, updated_at
+            )
+            VALUES(?, ?, ?, ?, 'test', NULL, '{}', 100, 100)
+            "#,
+            params![id, entity_type, name, format!("test-{id}")],
+        )
+        .expect("entity");
+        conn.execute(
+            r#"
+            INSERT INTO entity_aliases(
+              entity_id, alias, alias_norm, alias_kind, source, external_id,
+              snapshot_id, created_at
+            )
+            VALUES(?, ?, ?, 'canonical', 'test', ?, NULL, 100)
+            "#,
+            params![id, name, normalize_alias(name), format!("test-{id}")],
+        )
+        .expect("alias");
+    }
+
+    fn insert_light_alias(conn: &Connection, entity_id: i64, alias: &str, alias_kind: &str) {
+        conn.execute(
+            r#"
+            INSERT INTO entity_aliases(
+              entity_id, alias, alias_norm, alias_kind, source, external_id,
+              snapshot_id, created_at
+            )
+            VALUES(?, ?, ?, ?, 'test', ?, NULL, 100)
+            "#,
+            params![
+                entity_id,
+                alias,
+                normalize_alias(alias),
+                alias_kind,
+                format!("alias-{entity_id}-{alias}")
+            ],
+        )
+        .expect("alias");
+    }
+
+    fn insert_youtube_video(conn: &Connection, video_id: &str, title: &str) {
+        conn.execute(
+            r#"
+            INSERT OR IGNORE INTO youtube_feed_sources(
+              feed_key, source_type, url, playlist_id, channel_id, title, enabled,
+              metadata_json, created_at, updated_at
+            )
+            VALUES('test-feed', 'test', 'https://example.invalid/feed', NULL, NULL, 'Test Feed', 1, '{}', 100, 100)
+            "#,
+            [],
+        )
+        .expect("feed source");
+        conn.execute(
+            r#"
+            INSERT INTO youtube_videos(
+              video_id, feed_key, channel_id, channel_title, title, url,
+              published_at, description, metadata_json, transcript_status,
+              learning_status, discovered_at, updated_at
+            )
+            VALUES(?, 'test-feed', NULL, NULL, ?, ?, NULL, NULL, '{}', 'ready', 'ready', 100, 100)
+            "#,
+            params![video_id, title, format!("https://example.invalid/{video_id}")],
+        )
+        .expect("video");
+    }
+
+    struct LearningClaimFixture<'a> {
+        id: i64,
+        video_id: &'a str,
+        entity_type: Option<&'a str>,
+        entity_name: Option<&'a str>,
+        claim_type: &'a str,
+        claim_text: &'a str,
+        status: &'a str,
+        verifier: JsonValue,
+    }
+
+    fn insert_learning_claim(conn: &Connection, claim: LearningClaimFixture<'_>) {
+        conn.execute(
+            r#"
+            INSERT INTO youtube_learning_claims(
+              id, video_id, claim_hash, claim_index, entity_type, entity_name,
+              claim_type, claim_text, evidence_quote, timestamp_seconds,
+              model_confidence, verifier_confidence, status, model, prompt_version,
+              prompt_text, model_response_text, provider_metadata_json, verifier_json,
+              created_at, updated_at
+            )
+            VALUES(?, ?, ?, 0, ?, ?, ?, ?, '', NULL, 0.9, 0.9, ?, 'test-model',
+              'test-prompt', 'prompt', '{}', '{}', ?, 100, 100)
+            "#,
+            params![
+                claim.id,
+                claim.video_id,
+                format!("claim-{}", claim.id),
+                claim.entity_type,
+                claim.entity_name,
+                claim.claim_type,
+                claim.claim_text,
+                claim.status,
+                serde_json::to_string(&claim.verifier).expect("verifier json")
+            ],
+        )
+        .expect("claim");
+    }
+
     fn ask_claim_fixture(id: i64, status: &str, confidence: f64) -> AskClaimRecord {
         AskClaimRecord {
             id,
@@ -4300,6 +5381,25 @@ mod tests {
             source_video: json!({"video_id": "vid", "title": "Video"}),
             verifier: JsonMap::new(),
             match_sources: BTreeSet::new(),
+            relevance_score: 0,
+            matched_keyword_count: 0,
+        }
+    }
+
+    fn claim_row(claim_text: &str, evidence_quote: &str, entity_name: &str) -> JsonMap<String, JsonValue> {
+        let mut row = JsonMap::new();
+        row.insert("claim_text".to_string(), json!(claim_text));
+        row.insert("evidence_quote".to_string(), json!(evidence_quote));
+        row.insert("entity_name".to_string(), json!(entity_name));
+        row
+    }
+
+    fn entity_match_fixture(name: &str, entity_type: &str) -> AskEntityClaimMatch {
+        AskEntityClaimMatch {
+            names: vec![name.to_string()],
+            matched: true,
+            canonical_name: Some(name.to_string()),
+            entity_type: Some(entity_type.to_string()),
         }
     }
 
@@ -4352,12 +5452,312 @@ mod tests {
     }
 
     #[test]
+    fn relevance_score_ranks_more_keyword_hits_before_confidence() {
+        let entity_match = AskEntityClaimMatch::default();
+        let keywords = ask_query_keyword_specs("soul denying advantage", &entity_match);
+        let mut two_hits = ask_claim_fixture(1, "accepted", 0.2);
+        two_hits.claim_text = "Soul denying creates a double advantage.".to_string();
+        let relevance = ask_claim_relevance(&two_hits, &keywords, &entity_match);
+        two_hits.relevance_score = relevance.score;
+        two_hits.matched_keyword_count = relevance.distinct_matches;
+
+        let mut one_hit = ask_claim_fixture(2, "accepted", 0.99);
+        one_hit.claim_text = "Soul control matters.".to_string();
+        let relevance = ask_claim_relevance(&one_hit, &keywords, &entity_match);
+        one_hit.relevance_score = relevance.score;
+        one_hit.matched_keyword_count = relevance.distinct_matches;
+
+        let buckets = partition_ask_claims(vec![one_hit, two_hits], false, 10);
+
+        assert_eq!(buckets.verified[0].id, 1);
+        assert!(buckets.verified[0].relevance_score > buckets.verified[1].relevance_score);
+    }
+
+    #[test]
+    fn analyze_query_classifies_specific_ask_intents() {
+        let conn = temp_conn();
+        insert_light_entity(&conn, 10, "hero", "Seven");
+        insert_light_entity(&conn, 11, "item", "Metal Skin");
+
+        let patch = analyze_query(&conn, "was wurde an Seven geaendert").expect("patch intent");
+        let matchup = analyze_query(&conn, "was kontert Seven").expect("matchup intent");
+        let mechanics = analyze_query(&conn, "wie funktioniert souls denying").expect("mechanics intent");
+        let build = analyze_query(&conn, "Seven build").expect("build intent");
+        let item = analyze_query(&conn, "Metal Skin").expect("item intent");
+
+        assert_eq!(patch.intent, "patch_changes");
+        assert_eq!(matchup.intent, "matchup");
+        assert_eq!(mechanics.intent, "mechanics_question");
+        assert_eq!(build.intent, "build_recommendation");
+        assert_eq!(item.intent, "item_question");
+        assert_eq!(
+            classify_ask_intent("metal skin", true, "item"),
+            "item_question"
+        );
+        assert_eq!(classify_ask_intent("meta", false, ""), "meta_question");
+        assert_ne!(classify_ask_intent("metal", false, ""), "meta_question");
+    }
+
+    #[test]
+    fn ask_entity_match_skips_short_numeric_aliases_for_text_recall() {
+        let conn = temp_conn();
+        insert_light_entity(&conn, 31, "hero", "Seven");
+        insert_light_alias(&conn, 31, "2", "external_id");
+        insert_light_alias(&conn, 31, "sev", "short_name");
+
+        let plan = analyze_query(&conn, "was wurde an Seven geaendert").expect("plan");
+        let entity_match = resolve_ask_entity_match(&conn, "was wurde an Seven geaendert", &plan)
+            .expect("entity match");
+        let names = entity_match
+            .names
+            .iter()
+            .map(|name| normalize_alias(name))
+            .collect::<Vec<_>>();
+        let leak_row = claim_row("Damage reduced from 2 to 1.", "", "Apollo");
+
+        assert!(names.contains(&"seven".to_string()));
+        assert!(!names.contains(&"2".to_string()));
+        assert!(!names.contains(&"sev".to_string()));
+        assert!(!entity_text_row_matches_name(&leak_row, &names));
+    }
+
+    #[test]
     fn keyword_starts_word_filters_mid_word_matches() {
         assert!(!keyword_starts_word("crimson slash", "lash"));
         assert!(!keyword_starts_word("flash farming", "lash"));
+        assert!(!keyword_starts_word("automatisch", "auto"));
         assert!(keyword_starts_word("lash's ground strike", "lash"));
         assert!(keyword_starts_word("denying souls", "soul"));
         assert!(keyword_starts_word("the disarming hex counter", "disarming"));
+    }
+
+    #[test]
+    fn keyword_phrase_keeps_echo_shard_from_echo_noise() {
+        let entity_match = entity_match_fixture("Echo Shard", "item");
+        let keywords = ask_query_keyword_specs("Echo Shard", &entity_match);
+        let echo_shard = claim_row("Echo Shard gives another cast.", "", "Echo Shard");
+        let echo_charge = claim_row("Echo Charge improves tempo.", "", "Echo Charge");
+
+        assert!(keyword_row_passes_minimum_relevance(
+            &echo_shard,
+            &keywords,
+            &entity_match
+        ));
+        assert!(!keyword_row_passes_minimum_relevance(
+            &echo_charge,
+            &keywords,
+            &entity_match
+        ));
+    }
+
+    #[test]
+    fn breakables_spawn_query_recalls_single_specific_claim() {
+        let conn = temp_conn();
+        insert_youtube_video(&conn, "breakables", "Breakables Guide");
+        insert_learning_claim(
+            &conn,
+            LearningClaimFixture {
+                id: 101,
+                video_id: "breakables",
+                entity_type: Some("mechanic"),
+                entity_name: Some("Breakables"),
+                claim_type: "mechanic",
+                claim_text: "Alle Breakables spawnen 3 Minuten nach Matchstart.",
+                status: "accepted",
+                verifier: JsonValue::Null,
+            },
+        );
+        let entity_match = AskEntityClaimMatch::default();
+        let keywords = ask_query_keyword_specs("wann spawnen breakables", &entity_match);
+        let rows = load_keyword_claim_rows(
+            &conn,
+            &keywords,
+            &entity_match,
+            "mechanics_question",
+        )
+        .expect("keyword rows");
+        let (claims, _, keyword_matched) = load_ask_claims(
+            &conn,
+            "wann spawnen breakables",
+            &entity_match,
+            "mechanics_question",
+        )
+        .expect("claims");
+        let buckets = partition_ask_claims(claims, false, 3);
+
+        assert!(keywords.iter().any(|keyword| keyword.text == "spawnen breakables"));
+        assert!(rows.iter().any(|row| row.get("id").and_then(JsonValue::as_i64) == Some(101)));
+        assert!(keyword_matched >= 1);
+        assert_eq!(buckets.verified.first().map(|claim| claim.id), Some(101));
+    }
+
+    #[test]
+    fn build_intent_prefers_owned_build_claim_over_general_mention() {
+        let entity_match = entity_match_fixture("Seven", "hero");
+        let keywords = ask_query_keyword_specs("Seven build", &entity_match);
+        let mut build_claim = ask_claim_fixture(201, "accepted", 0.5);
+        build_claim.claim_text = "Seven wants Arcane Surge early.".to_string();
+        build_claim.entity_name = "Seven".to_string();
+        build_claim.claim_type = "build".to_string();
+        let relevance = ask_claim_relevance(&build_claim, &keywords, &entity_match);
+        build_claim.relevance_score =
+            relevance.score + claim_intent_relevance_bonus(&build_claim, "build_recommendation", &entity_match);
+
+        let mut general_claim = ask_claim_fixture(202, "accepted", 0.99);
+        general_claim.claim_text = "Seven is mentioned in a broad meta note.".to_string();
+        general_claim.entity_name = "Seven".to_string();
+        general_claim.claim_type = "general".to_string();
+        let relevance = ask_claim_relevance(&general_claim, &keywords, &entity_match);
+        general_claim.relevance_score =
+            relevance.score + claim_intent_relevance_bonus(&general_claim, "build_recommendation", &entity_match);
+
+        let buckets = partition_ask_claims(vec![general_claim, build_claim], false, 2);
+
+        assert_eq!(buckets.verified.first().map(|claim| claim.id), Some(201));
+    }
+
+    #[test]
+    fn ask_context_marks_out_of_domain_queries() {
+        let conn = temp_conn();
+        let context = ask_context(
+            &conn,
+            "wie viel kostet ein Auto",
+            &AskContextOptions {
+                limit_events: 10,
+                include_unverified: false,
+                max_claims: 12,
+            },
+        )
+        .expect("ask context");
+
+        assert_eq!(context["retrieval_meta"]["out_of_domain"], true);
+        assert_eq!(context["retrieval_meta"]["intent"], "out_of_domain");
+        assert_eq!(context["intent"], "out_of_domain");
+        assert_eq!(context["retrieval_meta"]["claims_scanned"], 0);
+        assert_eq!(
+            context["creator_knowledge"]
+                .as_object()
+                .expect("creator knowledge")
+                .len(),
+            0
+        );
+        let prompt = context["prompt"].as_str().expect("prompt");
+        assert!(prompt.contains(ASK_OOD_NOTICE));
+        assert!(!prompt.contains("FAKTEN"));
+        assert!(!prompt.contains("ordered_context_json"));
+        assert!(!prompt.contains("ground_truth"));
+    }
+
+    #[test]
+    fn ask_prompt_preserves_timeline_details_and_hides_debug_claim_fields() {
+        let bundle = json!({
+            "query": "was kontert Lash",
+            "intent": "matchup",
+            "ground_truth": {
+                "stats": {"available": false},
+                "lineage": null,
+                "item": null,
+                "timeline": {
+                    "latest_patch": {"title": "Patch 1"},
+                    "change_type_counts": [{"key": "buff", "count": 2}],
+                    "recent_events": [{"raw_line": "full event"}],
+                    "stat_changes": [{"stat_name": "damage"}],
+                    "ability_mentions": [{"key": "Ground Strike", "count": 4}]
+                }
+            },
+            "creator_knowledge": {
+                "verified": [{
+                    "claim_text": "Reactive Barrier is strong into Lash engage.",
+                    "claim_type": "counterplay",
+                    "entity_name": "Lash",
+                    "status": "accepted",
+                    "verifier_confidence": 0.9,
+                    "relevance_score": 42,
+                    "matched_keyword_count": 2,
+                    "source_video": {"video_id": "v1", "title": "Lash Counters"},
+                    "verdict": "supported",
+                    "db_evidence": {"debug": "hidden"},
+                    "db_value": {"debug": true},
+                    "match_sources": ["keyword"]
+                }],
+                "flagged": [],
+                "refuted": [],
+                "unverified": []
+            },
+            "sources": [],
+            "retrieval_meta": {"out_of_domain": false}
+        });
+        let prompt = render_ask_prompt(&bundle).expect("prompt");
+
+        assert!(prompt.contains("latest_patch"));
+        assert!(prompt.contains("change_type_counts"));
+        assert!(prompt.contains("recent_events"));
+        assert!(prompt.contains("stat_changes"));
+        assert!(prompt.contains("ability_mentions"));
+        assert!(!prompt.contains("relevance_score"));
+        assert!(!prompt.contains("match_sources"));
+        assert!(!prompt.contains("verifier_confidence"));
+        assert!(!prompt.contains("db_value"));
+        assert!(!prompt.contains("status"));
+        assert!(prompt.contains("Lash Counters"));
+    }
+
+    #[test]
+    fn ask_context_keeps_detail_timeline_for_build_and_matchup() {
+        let conn = temp_conn();
+        insert_entity_fixture(&conn);
+
+        for (query, intent) in [
+            ("Mystic Shot build", "build_recommendation"),
+            ("was kontert Mystic Shot", "matchup"),
+        ] {
+            let context = ask_context(
+                &conn,
+                query,
+                &AskContextOptions {
+                    limit_events: 10,
+                    include_unverified: false,
+                    max_claims: 12,
+                },
+            )
+            .expect("ask context");
+            let timeline = context
+                .pointer("/ground_truth/timeline")
+                .and_then(JsonValue::as_object)
+                .expect("timeline");
+            let prompt = context["prompt"].as_str().expect("prompt");
+
+            assert_eq!(context["intent"], intent);
+            assert!(timeline
+                .get("recent_events")
+                .and_then(JsonValue::as_array)
+                .is_some_and(|events| !events.is_empty()));
+            assert!(timeline
+                .get("stat_changes")
+                .and_then(JsonValue::as_array)
+                .is_some_and(|changes| !changes.is_empty()));
+            assert!(prompt.contains("recent_events"));
+            assert!(prompt.contains("stat_changes"));
+        }
+    }
+
+    #[test]
+    fn entity_token_resolver_matches_query_phrases() {
+        let conn = temp_conn();
+        insert_light_entity(&conn, 20, "hero", "Pocket");
+        insert_light_entity(&conn, 21, "hero", "Seven");
+
+        let pocket_plan = analyze_query(&conn, "Pocket build items").expect("pocket plan");
+        let pocket_match =
+            resolve_ask_entity_match(&conn, "Pocket build items", &pocket_plan).expect("pocket");
+        let seven_plan = analyze_query(&conn, "was wurde an Seven geaendert").expect("seven plan");
+        let seven_match = resolve_ask_entity_match(&conn, "was wurde an Seven geaendert", &seven_plan)
+            .expect("seven");
+
+        assert!(pocket_match.matched);
+        assert_eq!(pocket_match.canonical_name.as_deref(), Some("Pocket"));
+        assert!(seven_match.matched);
+        assert_eq!(seven_match.canonical_name.as_deref(), Some("Seven"));
     }
 
     #[test]
