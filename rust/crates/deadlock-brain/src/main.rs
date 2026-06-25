@@ -42,6 +42,8 @@ enum Commands {
     Timeline(TimelineArgs),
     #[command(about = "Baut einen KI-tauglichen Review-Kontext ohne Modellaufruf.")]
     Review(ReviewArgs),
+    #[command(name = "ask-context", about = "Baut ein vertrauenssortiertes Wissens-Buendel plus LLM-Prompt zu einer beliebigen Deadlock-Frage.")]
+    AskContext(AskContextArgs),
     #[command(about = "Fuehrt lokale Datenqualitaetschecks aus.")]
     Quality(PrettyArgs),
     #[command(about = "Zeigt Rename-/Rework-Beziehungen aus Patchnotes.")]
@@ -134,6 +136,21 @@ struct ReviewArgs {
     pretty: bool,
     #[arg(long = "prompt-only", help = "Nur den deutschen Prompt-Entwurf ausgeben.")]
     prompt_only: bool,
+}
+
+#[derive(Debug, Args)]
+struct AskContextArgs {
+    query: String,
+    #[arg(long = "limit-events", default_value_t = 80)]
+    limit_events: usize,
+    #[arg(long = "include-unverified")]
+    include_unverified: bool,
+    #[arg(long = "max-claims", default_value_t = 12)]
+    max_claims: usize,
+    #[arg(long = "prompt-only")]
+    prompt_only: bool,
+    #[arg(long)]
+    pretty: bool,
 }
 
 #[derive(Debug, Args)]
@@ -793,6 +810,23 @@ fn run(cli: Cli) -> Result<()> {
                 Ok(())
             } else if args.pretty {
                 print_review_context(&result);
+                Ok(())
+            } else {
+                print_json(&result)
+            }
+        }
+        Commands::AskContext(args) => {
+            let result = dbrain_retrieval::ask_context(
+                &conn,
+                &args.query,
+                &dbrain_retrieval::AskContextOptions {
+                    limit_events: usize_to_i64(args.limit_events),
+                    include_unverified: args.include_unverified,
+                    max_claims: args.max_claims,
+                },
+            )?;
+            if args.prompt_only {
+                println!("{}", str_value(get(&result, "prompt")).unwrap_or_default());
                 Ok(())
             } else {
                 print_json(&result)
@@ -2300,7 +2334,7 @@ fn render_sign_token(prefix: &str, value: &str, postfix: &str) -> String {
         return format!("{rendered_prefix}{value}{rendered_postfix}");
     }
     let sign = if value.trim_start().starts_with('-') { "-" } else { "+" };
-    let unsigned_value = value.trim_start_matches(|character| character == '+' || character == '-');
+    let unsigned_value = value.trim_start_matches(['+', '-']);
     rendered_prefix = rendered_prefix.replace("{s:sign}", sign);
     rendered_postfix = rendered_postfix.replace("{s:sign}", sign);
     format!("{rendered_prefix}{unsigned_value}{rendered_postfix}")

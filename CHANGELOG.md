@@ -1,5 +1,13 @@
 # Changelog
 
+## #8 — Beliebige Frage rein, vertrauenssortiertes Wissens-Paket für ein Sprachmodell raus
+
+Das Brain sammelt und prüft inzwischen Spieldaten und Creator-Wissen, doch es gab keinen Weg, zu einer konkreten Frage die passenden, nach Vertrauen gewichteten Fakten gebündelt an ein Sprachmodell zu übergeben. Man musste den genauen Befehl und den exakten Namen einer Entität kennen, die Ausgaben waren Rohdaten, und die geprüften Creator-Aussagen waren überhaupt nicht mit dem Abruf verbunden — sie lagen ungenutzt in der Wissensdatenbank.
+
+Ein neuer Befehl nimmt eine beliebige Deadlock-Frage — Held, Item, Fähigkeit, Mechanik, Matchup, Build oder freie Frage — und baut daraus ein nach Vertrauen gestaffeltes Wissens-Paket: gesicherte Spieldaten zuoberst, darunter die gegen diese Daten geprüften Creator-Aussagen, darunter die nur teilweise bestätigten mit ausdrücklichem Vorbehalt, und schließlich die nachweislich falschen — letztere klar als Irrtum markiert, damit ein Modell sie nicht wiederholt. Die geprüften Creator-Aussagen fließen sowohl über die erkannte Entität als auch über eine wortgenaue Stichwortsuche ein, die zufällige Zeichenketten-Treffer im Wortinneren vermeidet. Heraus kommt beides: ein strukturiertes Bündel und ein fertiger Prompt, den ein externes Sprachmodell direkt nutzt, um zu antworten oder einen Build zu bauen.
+
+Eine Frage genügt jetzt, und das Brain liefert das vertrauenssortierte Wissens-Paket für das Modell. Gesicherte Spieldaten schlagen bei jedem Widerspruch die Creator-Aussagen, und entlarvte Creator-Irrtümer werden klar als solche mitgeliefert, sodass das Modell aus belegten Fakten schöpft statt zu raten. Das Brain bleibt dabei der Zubringer; die eigentliche Antwort erzeugt das Sprachmodell.
+
 ## #7 — YouTube-Transcripts direkt laden statt aus dem Video raten
 
 Die Lernpipeline hing bisher daran, dass ein externes Modell das Video „anschaut" und zusammenfasst — unzuverlässig, modellabhängig, und bei Videos ohne verfügbares Transcript lieferte es teils erfundene oder leere Ergebnisse. Außerdem war nicht unterschieden, welche Videos überhaupt aus Text auswertbar sind und welche ihren Inhalt im Bild tragen.

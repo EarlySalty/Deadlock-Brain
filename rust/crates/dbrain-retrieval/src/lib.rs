@@ -31,6 +31,60 @@ const SAMPLE_LIMIT: i64 = 20;
 const GENERAL_ENTITY_SCAN_LIMIT: usize = 50;
 const LOW_CONFIDENCE_THRESHOLD: f64 = 0.5;
 const PROMPT_VERSION: &str = "review_context_de_v1";
+const ASK_PROMPT_TEMPLATE: &str = r#"Du bist ein erfahrener Deadlock-Coach und Analyst. Beantworte die folgende Frage – oder erstelle den gewünschten Build – AUSSCHLIESSLICH auf Basis der unten gelieferten, geprüften Fakten. Erfinde keine Werte, Items, Fähigkeiten oder Patch-Stände. Wenn die Fakten etwas nicht hergeben, sage das offen, statt zu raten.
+
+FRAGE: {{query}}
+ERKANNTE ABSICHT: {{intent}}
+
+Die Fakten unten sind nach Vertrauensgrad geordnet. Halte dich strikt an diese Rangfolge:
+1. ground_truth – gesicherte Spieldaten (offizielle Werte, Skalierung, Item- und Ability-Karten, Patch-Verlauf). Das ist die harte Wahrheit; bei jedem Widerspruch schlägt sie alles andere.
+2. creator_knowledge.verified – Creator-Aussagen, die gegen die Spieldaten geprüft wurden. Belastbar und als Quelle nutzbar.
+3. creator_knowledge.flagged – nur teilweise oder gar nicht bestätigt. Höchstens mit klarem Vorbehalt erwähnen ("ein Creator meint …, unbestätigt").
+4. creator_knowledge.refuted – nachweislich FALSCH. Niemals als wahr verwenden. Wenn die Frage es berührt, stelle den Irrtum aktiv richtig; die korrekte Tatsache steht in der Begründung oder in ground_truth.
+
+Regeln:
+- Nenne konkrete Zahlenwerte nur, wenn sie in ground_truth oder verified belegt sind.
+- Zitiere bei Creator-Wissen die Quelle (Video-Titel), sofern vorhanden.
+- Beziehe dich auf den aktuellen Patch-Stand und markiere erkennbar veraltete Aussagen als solche.
+- Antworte auf Deutsch, präzise und ohne Floskeln.
+
+FAKTEN (JSON, vertrauenssortiert):
+{{ordered_context_json}}"#;
+const ASK_TRUST_LEGEND: &str = "Vertrauensstufen: 'ground_truth' = gesicherte Spieldaten (höchste Priorität). 'creator_knowledge.verified' = gegen die Spieldaten geprüfte Creator-Aussagen. 'creator_knowledge.flagged' = nur teilweise oder unbestätigt, nur mit Vorbehalt nutzen. 'creator_knowledge.refuted' = nachweislich falsch, nicht verwenden. Bei Widerspruch gilt immer ground_truth.";
+const CLAIM_KEYWORD_STOPWORDS: &[&str] = &[
+    "about",
+    "also",
+    "build",
+    "counter",
+    "does",
+    "from",
+    "have",
+    "hero",
+    "item",
+    "need",
+    "should",
+    "that",
+    "this",
+    "when",
+    "with",
+    "without",
+    "aber",
+    "auch",
+    "dass",
+    "eine",
+    "einen",
+    "einer",
+    "fuer",
+    "gegen",
+    "hero",
+    "item",
+    "kann",
+    "oder",
+    "soll",
+    "ueber",
+    "wenn",
+    "wird",
+];
 
 const PRIMARY_STAT_KEYS: &[&str] = &[
     "base_hp",
@@ -130,6 +184,50 @@ pub struct AnalysisRunMinimaxOptions {
     pub limit_events: i64,
     pub config: core::minimax::MiniMaxConfig,
     pub dry_run: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct AskContextOptions {
+    pub limit_events: i64,
+    pub include_unverified: bool,
+    pub max_claims: usize,
+}
+
+#[derive(Debug, Clone)]
+struct AskClaimRecord {
+    id: i64,
+    claim_text: String,
+    evidence_quote: String,
+    claim_type: String,
+    entity_name: String,
+    status: String,
+    verifier_confidence: f64,
+    source_video: JsonValue,
+    verifier: JsonMap<String, JsonValue>,
+    match_sources: BTreeSet<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct AskClaimBuckets {
+    verified: Vec<AskClaimRecord>,
+    flagged: Vec<AskClaimRecord>,
+    refuted: Vec<AskClaimRecord>,
+    unverified: Vec<AskClaimRecord>,
+    omitted: AskClaimOmitted,
+}
+
+#[derive(Debug, Clone, Default)]
+struct AskClaimOmitted {
+    verified: usize,
+    flagged: usize,
+    refuted: usize,
+    unverified: usize,
+}
+
+#[derive(Debug, Clone, Default)]
+struct AskEntityClaimMatch {
+    names: Vec<String>,
+    matched: bool,
 }
 
 pub fn status(conn: &Connection) -> Result<JsonValue> {
@@ -396,6 +494,69 @@ pub fn build_review_context(conn: &Connection, query: &str, limit_events: i64) -
             "sheet_stats_available": ctx.get("sheet_stats").and_then(JsonValue::as_object).and_then(|value| value.get("available")).and_then(JsonValue::as_bool).unwrap_or(false),
         },
     }))
+}
+
+pub fn ask_context(conn: &Connection, query: &str, opts: &AskContextOptions) -> Result<JsonValue> {
+    let plan = analyze_query(conn, query)?;
+    let base = build_review_context(conn, query, opts.limit_events)?;
+    let entity_match = resolve_ask_entity_match(conn, query, &plan)?;
+    let (claims, entity_matched, keyword_matched) =
+        load_ask_claims(conn, query, &entity_match.names)?;
+    let claim_buckets = partition_ask_claims(claims, opts.include_unverified, opts.max_claims);
+
+    let entity = base.get("entity_summary").cloned().unwrap_or(JsonValue::Null);
+    let item_ground_truth = ask_item_ground_truth(conn, &entity)?;
+    let ground_truth = json!({
+        "stats": base.get("current_stat_hints").cloned().unwrap_or(JsonValue::Null),
+        "timeline": base.get("timeline_signals").cloned().unwrap_or(JsonValue::Null),
+        "lineage": base.get("lineage").cloned().unwrap_or(JsonValue::Null),
+        "item": item_ground_truth,
+    });
+    let mut creator_knowledge = JsonMap::new();
+    creator_knowledge.insert("verified".to_string(), claims_to_json(&claim_buckets.verified));
+    creator_knowledge.insert("flagged".to_string(), claims_to_json(&claim_buckets.flagged));
+    creator_knowledge.insert("refuted".to_string(), claims_to_json(&claim_buckets.refuted));
+    if opts.include_unverified {
+        creator_knowledge.insert(
+            "unverified".to_string(),
+            claims_to_json(&claim_buckets.unverified),
+        );
+    }
+    creator_knowledge.insert("omitted".to_string(), omitted_to_json(&claim_buckets.omitted));
+
+    let mut result = JsonMap::new();
+    result.insert("query".to_string(), json!(query));
+    result.insert("intent".to_string(), json!(plan.intent.clone()));
+    result.insert("entity".to_string(), entity);
+    result.insert("ground_truth".to_string(), ground_truth);
+    result.insert(
+        "creator_knowledge".to_string(),
+        JsonValue::Object(creator_knowledge),
+    );
+    result.insert(
+        "sources".to_string(),
+        base.get("source_references").cloned().unwrap_or_else(|| json!([])),
+    );
+    result.insert("trust_legend".to_string(), json!(ASK_TRUST_LEGEND));
+    result.insert(
+        "retrieval_meta".to_string(),
+        json!({
+            "claims_scanned": entity_matched + keyword_matched,
+            "claims_selected": claim_buckets.verified.len()
+                + claim_buckets.flagged.len()
+                + claim_buckets.refuted.len()
+                + claim_buckets.unverified.len(),
+            "entity_matched": entity_matched,
+            "entity_match_resolved": entity_match.matched,
+            "keyword_matched": keyword_matched,
+            "intent": plan.intent,
+            "base_prompt_de_available": base.get("prompt_de").and_then(JsonValue::as_str).is_some_and(|value| !value.trim().is_empty()),
+        }),
+    );
+
+    let prompt = render_ask_prompt(&JsonValue::Object(result.clone()))?;
+    result.insert("prompt".to_string(), JsonValue::String(prompt));
+    Ok(JsonValue::Object(result))
 }
 
 pub fn quality(conn: &Connection) -> Result<JsonValue> {
@@ -1847,6 +2008,408 @@ fn build_prompt_de(best_match: &JsonMap<String, JsonValue>, query: &str) -> Stri
     format!(
         "Du bist ein Deadlock-Analyseassistent. Nutze ausschliesslich den bereitgestellten Review-Kontext und kennzeichne Unsicherheiten klar. Behalte Namen von Items, Heroes und Abilities exakt auf Englisch; erklaere Bewertung, Patch-Interpretation und offene Fragen auf Deutsch. Ziel: Erstelle eine kompakte Review fuer {name} ({entity_type}) mit aktueller Stat-Einordnung, relevanten Timeline-Signalen, moeglichen Balance- oder Build-Implikationen und Quellenhinweisen. Erfinde keine Zahlen oder Patchdetails, die nicht im Kontext stehen."
     )
+}
+
+fn resolve_ask_entity_match(
+    conn: &Connection,
+    query: &str,
+    plan: &QueryPlan,
+) -> Result<AskEntityClaimMatch> {
+    let mut candidates = Vec::new();
+    for entity in &plan.entities {
+        if let Some(name) = value_to_nonempty_string(entity.get("name")) {
+            candidates.push(name);
+        } else if let Some(raw) = value_to_nonempty_string(entity.get("raw")) {
+            candidates.push(raw);
+        }
+    }
+    candidates.push(query.to_string());
+
+    for candidate in candidates {
+        let query_norm = normalize_alias(&candidate);
+        let Some(best_match) = find_best_entity_match(conn, &candidate, &query_norm)? else {
+            continue;
+        };
+        let mut names = BTreeSet::new();
+        if let Some(name) = value_to_nonempty_string(best_match.get("canonical_name")) {
+            names.insert(name);
+        }
+        if let Some(entity_id) = best_match.get("id").and_then(JsonValue::as_i64) {
+            for alias in load_aliases(conn, entity_id, MAX_ALIASES)? {
+                if let Some(value) = value_to_nonempty_string(alias.get("alias")) {
+                    names.insert(value);
+                }
+                if let Some(value) = value_to_nonempty_string(alias.get("alias_norm")) {
+                    names.insert(value);
+                }
+            }
+        }
+        return Ok(AskEntityClaimMatch {
+            names: names.into_iter().collect(),
+            matched: true,
+        });
+    }
+
+    Ok(AskEntityClaimMatch::default())
+}
+
+fn ask_item_ground_truth(conn: &Connection, entity: &JsonValue) -> Result<JsonValue> {
+    let entity_type = entity
+        .get("entity_type")
+        .and_then(JsonValue::as_str)
+        .unwrap_or_default();
+    if entity_type != "item" && entity_type != "item_special" {
+        return Ok(JsonValue::Null);
+    }
+    let Some(name) = entity.get("name").and_then(JsonValue::as_str) else {
+        return Ok(JsonValue::Null);
+    };
+    match build_item_context(conn, name) {
+        Ok(value) => Ok(value),
+        Err(RetrievalError::Invalid(_)) => Ok(JsonValue::Null),
+        Err(error) => Err(error),
+    }
+}
+
+fn load_ask_claims(
+    conn: &Connection,
+    query: &str,
+    entity_names: &[String],
+) -> Result<(Vec<AskClaimRecord>, usize, usize)> {
+    if !tables_exist(conn, &["youtube_learning_claims", "youtube_videos"])? {
+        return Ok((Vec::new(), 0, 0));
+    }
+
+    let mut by_id = BTreeMap::new();
+    let entity_rows = load_entity_claim_rows(conn, entity_names)?;
+    let entity_matched = entity_rows.len();
+    merge_claim_rows(&mut by_id, entity_rows, "entity");
+
+    let keywords = ask_query_keywords(query);
+    let keyword_rows = load_keyword_claim_rows(conn, &keywords)?;
+    let keyword_matched = keyword_rows.len();
+    merge_claim_rows(&mut by_id, keyword_rows, "keyword");
+
+    Ok((by_id.into_values().collect(), entity_matched, keyword_matched))
+}
+
+fn load_entity_claim_rows(
+    conn: &Connection,
+    entity_names: &[String],
+) -> Result<Vec<JsonMap<String, JsonValue>>> {
+    let names = entity_names
+        .iter()
+        .map(|name| name.trim().to_lowercase())
+        .filter(|name| !name.is_empty())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    if names.is_empty() {
+        return Ok(Vec::new());
+    }
+    let sql = format!(
+        r#"
+        SELECT c.id, c.video_id, c.entity_type, c.entity_name, c.claim_type,
+               c.claim_text, c.evidence_quote, c.verifier_confidence, c.status,
+               c.verifier_json, v.title AS source_video_title
+        FROM youtube_learning_claims c
+        LEFT JOIN youtube_videos v ON v.video_id=c.video_id
+        WHERE lower(c.entity_name) IN ({})
+        ORDER BY c.verifier_confidence DESC, c.id
+        "#,
+        placeholders(names.len())
+    );
+    fetch_all(
+        conn,
+        &sql,
+        names.into_iter().map(SqlValue::Text).collect(),
+    )
+}
+
+fn load_keyword_claim_rows(
+    conn: &Connection,
+    keywords: &[String],
+) -> Result<Vec<JsonMap<String, JsonValue>>> {
+    if keywords.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut clauses = Vec::new();
+    let mut values = Vec::new();
+    for keyword in keywords {
+        clauses.push("(lower(c.claim_text) LIKE ? OR lower(c.evidence_quote) LIKE ? OR lower(c.verifier_json) LIKE ?)".to_string());
+        let pattern = format!("%{}%", keyword);
+        values.push(SqlValue::Text(pattern.clone()));
+        values.push(SqlValue::Text(pattern.clone()));
+        values.push(SqlValue::Text(pattern));
+    }
+    let sql = format!(
+        r#"
+        SELECT c.id, c.video_id, c.entity_type, c.entity_name, c.claim_type,
+               c.claim_text, c.evidence_quote, c.verifier_confidence, c.status,
+               c.verifier_json, v.title AS source_video_title
+        FROM youtube_learning_claims c
+        LEFT JOIN youtube_videos v ON v.video_id=c.video_id
+        WHERE {}
+        ORDER BY c.verifier_confidence DESC, c.id
+        "#,
+        clauses.join(" OR ")
+    );
+    let rows = fetch_all(conn, &sql, values)?;
+    Ok(rows
+        .into_iter()
+        .filter(|row| keyword_row_starts_word(row, keywords))
+        .collect())
+}
+
+fn keyword_row_starts_word(row: &JsonMap<String, JsonValue>, keywords: &[String]) -> bool {
+    let claim_text = value_to_string(row.get("claim_text")).to_lowercase();
+    let evidence_quote = value_to_string(row.get("evidence_quote")).to_lowercase();
+    let verifier_json = value_to_string(row.get("verifier_json")).to_lowercase();
+    keywords.iter().any(|keyword| {
+        keyword_starts_word(&claim_text, keyword)
+            || keyword_starts_word(&evidence_quote, keyword)
+            || keyword_starts_word(&verifier_json, keyword)
+    })
+}
+
+fn keyword_starts_word(haystack_lower: &str, token_lower: &str) -> bool {
+    if token_lower.is_empty() {
+        return false;
+    }
+    haystack_lower.match_indices(token_lower).any(|(index, _)| {
+        index == 0
+            || haystack_lower[..index]
+                .chars()
+                .next_back()
+                .is_some_and(|previous| !previous.is_ascii_alphanumeric())
+    })
+}
+
+fn merge_claim_rows(
+    by_id: &mut BTreeMap<i64, AskClaimRecord>,
+    rows: Vec<JsonMap<String, JsonValue>>,
+    match_source: &str,
+) {
+    for row in rows {
+        let Some(mut claim) = ask_claim_from_row(row, match_source) else {
+            continue;
+        };
+        if let Some(existing) = by_id.get_mut(&claim.id) {
+            existing.match_sources.insert(match_source.to_string());
+        } else {
+            claim.match_sources.insert(match_source.to_string());
+            by_id.insert(claim.id, claim);
+        }
+    }
+}
+
+fn ask_claim_from_row(
+    mut row: JsonMap<String, JsonValue>,
+    match_source: &str,
+) -> Option<AskClaimRecord> {
+    let id = row.get("id").and_then(JsonValue::as_i64)?;
+    let verifier = loads_json_object(row.remove("verifier_json").as_ref());
+    let mut match_sources = BTreeSet::new();
+    match_sources.insert(match_source.to_string());
+    Some(AskClaimRecord {
+        id,
+        claim_text: value_to_string(row.get("claim_text")),
+        evidence_quote: value_to_string(row.get("evidence_quote")),
+        claim_type: value_to_string(row.get("claim_type")),
+        entity_name: value_to_string(row.get("entity_name")),
+        status: value_to_string(row.get("status")).to_lowercase(),
+        verifier_confidence: safe_f64(row.get("verifier_confidence"), 0.0),
+        source_video: json!({
+            "video_id": row.get("video_id").cloned().unwrap_or(JsonValue::Null),
+            "title": row.get("source_video_title").cloned().unwrap_or(JsonValue::Null),
+        }),
+        verifier,
+        match_sources,
+    })
+}
+
+fn ask_query_keywords(query: &str) -> Vec<String> {
+    let mut current = String::new();
+    let mut tokens = BTreeSet::new();
+    for character in query.to_lowercase().chars() {
+        if character.is_ascii_alphanumeric() {
+            current.push(character);
+        } else {
+            push_ask_keyword(&mut tokens, &mut current);
+        }
+    }
+    push_ask_keyword(&mut tokens, &mut current);
+    tokens.into_iter().take(12).collect()
+}
+
+fn push_ask_keyword(tokens: &mut BTreeSet<String>, current: &mut String) {
+    if current.len() >= 4 && !CLAIM_KEYWORD_STOPWORDS.contains(&current.as_str()) {
+        tokens.insert(current.clone());
+    }
+    current.clear();
+}
+
+fn partition_ask_claims(
+    claims: Vec<AskClaimRecord>,
+    include_unverified: bool,
+    max_claims: usize,
+) -> AskClaimBuckets {
+    let mut all = AskClaimBuckets::default();
+    for claim in claims {
+        match claim.status.as_str() {
+            "accepted" => all.verified.push(claim),
+            "needs_review" => all.flagged.push(claim),
+            "rejected" => all.refuted.push(claim),
+            "unverified" => all.unverified.push(claim),
+            _ => {}
+        }
+    }
+    sort_ask_claims(&mut all.verified);
+    sort_ask_claims(&mut all.flagged);
+    sort_ask_claims(&mut all.refuted);
+    sort_ask_claims(&mut all.unverified);
+
+    let take = ask_claim_take_counts(&all, include_unverified, max_claims);
+    let total_verified = all.verified.len();
+    let total_flagged = all.flagged.len();
+    let total_refuted = all.refuted.len();
+    let total_unverified = all.unverified.len();
+    AskClaimBuckets {
+        verified: all.verified.into_iter().take(take.verified).collect(),
+        flagged: all.flagged.into_iter().take(take.flagged).collect(),
+        refuted: all.refuted.into_iter().take(take.refuted).collect(),
+        unverified: if include_unverified {
+            all.unverified.into_iter().take(take.unverified).collect()
+        } else {
+            Vec::new()
+        },
+        omitted: AskClaimOmitted {
+            verified: total_verified.saturating_sub(take.verified),
+            flagged: total_flagged.saturating_sub(take.flagged),
+            refuted: total_refuted.saturating_sub(take.refuted),
+            unverified: total_unverified.saturating_sub(take.unverified),
+        },
+    }
+}
+
+fn sort_ask_claims(claims: &mut [AskClaimRecord]) {
+    claims.sort_by(|left, right| {
+        right
+            .verifier_confidence
+            .total_cmp(&left.verifier_confidence)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+}
+
+fn ask_claim_take_counts(
+    claims: &AskClaimBuckets,
+    include_unverified: bool,
+    max_claims: usize,
+) -> AskClaimOmitted {
+    let mut take = AskClaimOmitted::default();
+    let mut remaining = max_claims;
+    if remaining == 0 {
+        return take;
+    }
+
+    let reserve_flagged = usize::from(!claims.flagged.is_empty());
+    let reserve_refuted = usize::from(!claims.refuted.is_empty());
+    let reserve_unverified = usize::from(include_unverified && !claims.unverified.is_empty());
+    let reserve = (reserve_flagged + reserve_refuted + reserve_unverified).min(remaining.saturating_sub(1));
+
+    take.verified = claims.verified.len().min(remaining.saturating_sub(reserve));
+    remaining = remaining.saturating_sub(take.verified);
+
+    if reserve_flagged > 0 && remaining > 0 {
+        take.flagged = 1;
+        remaining -= 1;
+    }
+    if reserve_refuted > 0 && remaining > 0 {
+        take.refuted = 1;
+        remaining -= 1;
+    }
+    if reserve_unverified > 0 && remaining > 0 {
+        take.unverified = 1;
+        remaining -= 1;
+    }
+
+    while remaining > 0 {
+        let before = remaining;
+        if take.verified < claims.verified.len() {
+            take.verified += 1;
+            remaining -= 1;
+        }
+        if remaining > 0 && take.flagged < claims.flagged.len() {
+            take.flagged += 1;
+            remaining -= 1;
+        }
+        if remaining > 0 && take.refuted < claims.refuted.len() {
+            take.refuted += 1;
+            remaining -= 1;
+        }
+        if include_unverified && remaining > 0 && take.unverified < claims.unverified.len() {
+            take.unverified += 1;
+            remaining -= 1;
+        }
+        if remaining == before {
+            break;
+        }
+    }
+    take
+}
+
+fn claims_to_json(claims: &[AskClaimRecord]) -> JsonValue {
+    JsonValue::Array(claims.iter().map(ask_claim_to_json).collect())
+}
+
+fn ask_claim_to_json(claim: &AskClaimRecord) -> JsonValue {
+    json!({
+        "claim_text": claim.claim_text,
+        "evidence_quote": claim.evidence_quote,
+        "claim_type": claim.claim_type,
+        "entity_name": claim.entity_name,
+        "status": claim.status,
+        "verifier_confidence": claim.verifier_confidence,
+        "source_video": claim.source_video,
+        "verdict": claim.verifier.get("verdict").cloned().unwrap_or(JsonValue::Null),
+        "db_evidence": claim.verifier.get("db_evidence").cloned().unwrap_or(JsonValue::Null),
+        "db_value": claim.verifier.get("db_value").cloned().unwrap_or(JsonValue::Null),
+        "match_sources": claim.match_sources.iter().cloned().collect::<Vec<_>>(),
+    })
+}
+
+fn omitted_to_json(omitted: &AskClaimOmitted) -> JsonValue {
+    json!({
+        "verified": omitted.verified,
+        "flagged": omitted.flagged,
+        "refuted": omitted.refuted,
+        "unverified": omitted.unverified,
+    })
+}
+
+fn render_ask_prompt(bundle: &JsonValue) -> Result<String> {
+    let ordered_context = json!({
+        "ground_truth": bundle.get("ground_truth").cloned().unwrap_or(JsonValue::Null),
+        "creator_knowledge": {
+            "verified": bundle.pointer("/creator_knowledge/verified").cloned().unwrap_or_else(|| json!([])),
+            "flagged": bundle.pointer("/creator_knowledge/flagged").cloned().unwrap_or_else(|| json!([])),
+            "refuted": bundle.pointer("/creator_knowledge/refuted").cloned().unwrap_or_else(|| json!([])),
+            "unverified": bundle.pointer("/creator_knowledge/unverified").cloned().unwrap_or_else(|| json!([])),
+        },
+        "query": bundle.get("query").cloned().unwrap_or(JsonValue::Null),
+        "sources": bundle.get("sources").cloned().unwrap_or_else(|| json!([])),
+    });
+    let ordered_context_json = serde_json::to_string_pretty(&ordered_context)?;
+    let mut rendered = ASK_PROMPT_TEMPLATE
+        .replace("{{query}}", &value_to_string(bundle.get("query")))
+        .replace("{{intent}}", &value_to_string(bundle.get("intent")))
+        .replace("{{ordered_context_json}}", &ordered_context_json);
+    if !rendered.contains(&ordered_context_json) {
+        rendered.push_str("\n\n```json\n");
+        rendered.push_str(&ordered_context_json);
+        rendered.push_str("\n```");
+    }
+    Ok(rendered)
 }
 
 fn sheet_rows_for_source(
@@ -3723,6 +4286,78 @@ mod tests {
             [],
         )
         .expect("enrichment");
+    }
+
+    fn ask_claim_fixture(id: i64, status: &str, confidence: f64) -> AskClaimRecord {
+        AskClaimRecord {
+            id,
+            claim_text: format!("claim {id}"),
+            evidence_quote: format!("evidence {id}"),
+            claim_type: "mechanic".to_string(),
+            entity_name: "Mystic Shot".to_string(),
+            status: status.to_string(),
+            verifier_confidence: confidence,
+            source_video: json!({"video_id": "vid", "title": "Video"}),
+            verifier: JsonMap::new(),
+            match_sources: BTreeSet::new(),
+        }
+    }
+
+    #[test]
+    fn ask_claim_partitioning_keeps_rejected_out_of_verified() {
+        let buckets = partition_ask_claims(
+            vec![
+                ask_claim_fixture(1, "accepted", 0.7),
+                ask_claim_fixture(2, "needs_review", 0.8),
+                ask_claim_fixture(3, "rejected", 0.9),
+                ask_claim_fixture(4, "accepted", 0.6),
+            ],
+            true,
+            10,
+        );
+
+        assert_eq!(buckets.verified.len(), 2);
+        assert_eq!(buckets.flagged.len(), 1);
+        assert_eq!(buckets.refuted.len(), 1);
+        assert!(buckets
+            .verified
+            .iter()
+            .all(|claim| claim.status == "accepted"));
+        assert_eq!(buckets.refuted[0].status, "rejected");
+    }
+
+    #[test]
+    fn ask_claim_partitioning_respects_include_unverified() {
+        let without_unverified = partition_ask_claims(
+            vec![
+                ask_claim_fixture(1, "accepted", 0.9),
+                ask_claim_fixture(2, "unverified", 0.8),
+            ],
+            false,
+            10,
+        );
+        let with_unverified = partition_ask_claims(
+            vec![
+                ask_claim_fixture(1, "accepted", 0.9),
+                ask_claim_fixture(2, "unverified", 0.8),
+            ],
+            true,
+            10,
+        );
+
+        assert!(without_unverified.unverified.is_empty());
+        assert_eq!(without_unverified.omitted.unverified, 1);
+        assert_eq!(with_unverified.unverified.len(), 1);
+        assert_eq!(with_unverified.omitted.unverified, 0);
+    }
+
+    #[test]
+    fn keyword_starts_word_filters_mid_word_matches() {
+        assert!(!keyword_starts_word("crimson slash", "lash"));
+        assert!(!keyword_starts_word("flash farming", "lash"));
+        assert!(keyword_starts_word("lash's ground strike", "lash"));
+        assert!(keyword_starts_word("denying souls", "soul"));
+        assert!(keyword_starts_word("the disarming hex counter", "disarming"));
     }
 
     #[test]
