@@ -31,6 +31,9 @@ const SAMPLE_LIMIT: i64 = 20;
 const GENERAL_ENTITY_SCAN_LIMIT: usize = 50;
 const LOW_CONFIDENCE_THRESHOLD: f64 = 0.5;
 const PROMPT_VERSION: &str = "review_context_de_v1";
+const ASK_STRONG_ON_TOPIC_TARGET: usize = 3;
+const ASK_IDF_SCALE: f64 = 10.0;
+const ASK_DISTINCTIVE_KEYWORD_MIN_IDF: i64 = 8;
 const ASK_PROMPT_TEMPLATE: &str = r#"Du bist ein erfahrener Deadlock-Coach und Analyst. Beantworte die folgende Frage – oder erstelle den gewünschten Build – AUSSCHLIESSLICH auf Basis der unten gelieferten, geprüften Fakten. Erfinde keine Werte, Items, Fähigkeiten oder Patch-Stände. Wenn die Fakten etwas nicht hergeben, sage das offen, statt zu raten.
 
 FRAGE: {{query}}
@@ -40,7 +43,8 @@ Die Fakten unten sind nach Vertrauensgrad geordnet. Halte dich strikt an diese R
 1. ground_truth – gesicherte Spieldaten (offizielle Werte, Skalierung, Item- und Ability-Karten, Patch-Verlauf). Das ist die harte Wahrheit; bei jedem Widerspruch schlägt sie alles andere.
 2. creator_knowledge.verified – Creator-Aussagen, die gegen die Spieldaten geprüft wurden. Belastbar und als Quelle nutzbar.
 3. creator_knowledge.flagged – nur teilweise oder gar nicht bestätigt. Höchstens mit klarem Vorbehalt erwähnen ("ein Creator meint …, unbestätigt").
-4. creator_knowledge.refuted – nachweislich FALSCH. Niemals als wahr verwenden. Wenn die Frage es berührt, stelle den Irrtum aktiv richtig; die korrekte Tatsache steht in der Begründung oder in ground_truth.
+4. creator_knowledge.unverified – ungeprüft, noch nicht gegen die Spieldaten abgeglichen (erscheint nur als Notbehelf, wenn kaum bestätigtes Wissen zur Frage vorliegt). Nur als möglichen Hinweis nutzen, klar als ungeprüft kennzeichnen und keine konkreten Zahlen darauf stützen.
+5. creator_knowledge.refuted – nachweislich FALSCH. Niemals als wahr verwenden. Wenn die Frage es berührt, stelle den Irrtum aktiv richtig; die korrekte Tatsache steht in der Begründung oder in ground_truth.
 
 Regeln:
 - Nenne konkrete Zahlenwerte nur, wenn sie in ground_truth oder verified belegt sind.
@@ -50,7 +54,7 @@ Regeln:
 
 FAKTEN (JSON, vertrauenssortiert):
 {{ordered_context_json}}"#;
-const ASK_TRUST_LEGEND: &str = "Vertrauensstufen: 'ground_truth' = gesicherte Spieldaten (höchste Priorität). 'creator_knowledge.verified' = gegen die Spieldaten geprüfte Creator-Aussagen. 'creator_knowledge.flagged' = nur teilweise oder unbestätigt, nur mit Vorbehalt nutzen. 'creator_knowledge.refuted' = nachweislich falsch, nicht verwenden. Bei Widerspruch gilt immer ground_truth.";
+const ASK_TRUST_LEGEND: &str = "Vertrauensstufen: 'ground_truth' = gesicherte Spieldaten (höchste Priorität). 'creator_knowledge.verified' = gegen die Spieldaten geprüfte Creator-Aussagen. 'creator_knowledge.flagged' = nur teilweise oder unbestätigt, nur mit Vorbehalt nutzen. 'creator_knowledge.unverified' = ungeprüft (nicht gegen Spieldaten abgeglichen), nur als möglicher Hinweis, keine Zahlen darauf stützen. 'creator_knowledge.refuted' = nachweislich falsch, nicht verwenden. Bei Widerspruch gilt immer ground_truth.";
 const ASK_OOD_NOTICE: &str = "HINWEIS: Diese Frage scheint sich nicht auf Deadlock zu beziehen — es wurden keine gesicherten Spieldaten und keine geprüften Creator-Aussagen dazu gefunden. Wenn die Frage tatsächlich nichts mit Deadlock zu tun hat, weise freundlich darauf hin, dass du auf Deadlock-Wissen spezialisiert bist und dazu keine belegten Fakten vorliegen. Falls sie doch Deadlock betrifft, bitte um eine konkretere Formulierung (Held, Item, Fähigkeit oder Mechanik). Erfinde nichts.";
 const CLAIM_KEYWORD_STOPWORDS: &[&str] = &[
     "about",
@@ -139,6 +143,32 @@ const DEADLOCK_QUERY_TERMS: &[&str] = &[
     "secured",
 ];
 const GENERIC_SHORT_GAME_KEYWORDS: &[&str] = &["echo", "hex", "shot"];
+const GENERIC_INTENT_BONUS_KEYWORDS: &[&str] = &[
+    "ability",
+    "abilities",
+    "build",
+    "builds",
+    "counter",
+    "farm",
+    "farming",
+    "gegen",
+    "hero",
+    "heroes",
+    "item",
+    "items",
+    "kontert",
+    "lane",
+    "laning",
+    "macro",
+    "mechanic",
+    "mechanics",
+    "meta",
+    "patch",
+    "seele",
+    "seelen",
+    "soul",
+    "souls",
+];
 
 const PRIMARY_STAT_KEYS: &[&str] = &[
     "base_hp",
@@ -260,6 +290,7 @@ struct AskClaimRecord {
     verifier: JsonMap<String, JsonValue>,
     match_sources: BTreeSet<String>,
     relevance_score: i64,
+    relevance_floor_score: i64,
     matched_keyword_count: usize,
 }
 
@@ -297,8 +328,10 @@ struct KnownAskEntity {
 #[derive(Debug, Clone)]
 struct AskKeywordSpec {
     text: String,
+    match_key: String,
     entity_or_alias: bool,
     generic_ranking_only: bool,
+    prefix_match: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -306,6 +339,18 @@ struct AskClaimRelevance {
     score: i64,
     distinct_matches: usize,
     entity_keyword_hit: bool,
+    distinctive_keyword_hit: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+struct AskIdfWeights {
+    weights: BTreeMap<String, i64>,
+}
+
+impl AskIdfWeights {
+    fn keyword_weight(&self, match_key: &str) -> i64 {
+        self.weights.get(match_key).copied().unwrap_or(1).max(1)
+    }
 }
 
 pub fn status(conn: &Connection) -> Result<JsonValue> {
@@ -594,7 +639,13 @@ pub fn ask_context(conn: &Connection, query: &str, opts: &AskContextOptions) -> 
     } else {
         load_ask_claims(conn, query, &entity_match, &intent)?
     };
-    let claim_buckets = partition_ask_claims(claims, opts.include_unverified, opts.max_claims);
+    let claim_buckets = partition_ask_claims(
+        claims,
+        opts.include_unverified,
+        opts.max_claims,
+        &intent,
+        &entity_match,
+    );
 
     let entity = base.get("entity_summary").cloned().unwrap_or(JsonValue::Null);
     let item_ground_truth = ask_item_ground_truth(conn, &entity)?;
@@ -609,7 +660,7 @@ pub fn ask_context(conn: &Connection, query: &str, opts: &AskContextOptions) -> 
         creator_knowledge.insert("verified".to_string(), claims_to_json(&claim_buckets.verified));
         creator_knowledge.insert("flagged".to_string(), claims_to_json(&claim_buckets.flagged));
         creator_knowledge.insert("refuted".to_string(), claims_to_json(&claim_buckets.refuted));
-        if opts.include_unverified {
+        if opts.include_unverified || !claim_buckets.unverified.is_empty() {
             creator_knowledge.insert(
                 "unverified".to_string(),
                 claims_to_json(&claim_buckets.unverified),
@@ -2492,30 +2543,34 @@ fn load_ask_claims(
         return Ok((Vec::new(), 0, 0));
     }
 
+    let keywords = ask_query_keyword_specs(query, entity_match);
+    let idf_weights = load_ask_idf_weights(conn, &keywords)?;
+
     let mut by_id = BTreeMap::new();
-    let entity_rows = load_entity_claim_rows(conn, &entity_match.names, intent)?;
+    let entity_rows = load_entity_claim_rows(conn, &entity_match.names)?;
     let entity_matched = entity_rows.len();
     merge_claim_rows(&mut by_id, entity_rows, "entity");
 
-    let keywords = ask_query_keyword_specs(query, entity_match);
-    let keyword_rows = load_keyword_claim_rows(conn, &keywords, entity_match, intent)?;
+    let keyword_rows = load_keyword_claim_rows(conn, &keywords, entity_match, &idf_weights)?;
     let keyword_matched = keyword_rows.len();
     merge_claim_rows(&mut by_id, keyword_rows, "keyword");
 
     let mut claims = by_id.into_values().collect::<Vec<_>>();
     for claim in &mut claims {
-        let relevance = ask_claim_relevance(claim, &keywords, entity_match);
-        claim.relevance_score = relevance.score + claim_intent_relevance_bonus(claim, intent, entity_match);
+        let relevance = ask_claim_relevance(claim, &keywords, entity_match, &idf_weights);
+        let noise_penalty = claim_noise_penalty(claim, entity_match);
+        claim.relevance_floor_score = relevance.score + noise_penalty;
+        claim.relevance_score = claim.relevance_floor_score
+            + claim_intent_relevance_bonus(claim, intent, entity_match, &relevance);
         claim.matched_keyword_count = relevance.distinct_matches;
     }
-    claims.retain(|claim| ask_claim_passes_minimum_relevance(claim, &keywords, entity_match));
+    claims.retain(|claim| ask_claim_passes_minimum_relevance(claim, &keywords, entity_match, &idf_weights));
     Ok((claims, entity_matched, keyword_matched))
 }
 
 fn load_entity_claim_rows(
     conn: &Connection,
     entity_names: &[String],
-    intent: &str,
 ) -> Result<Vec<JsonMap<String, JsonValue>>> {
     let names = entity_names
         .iter()
@@ -2527,11 +2582,6 @@ fn load_entity_claim_rows(
     if names.is_empty() {
         return Ok(Vec::new());
     }
-    let matchup_type_filter = if intent == "matchup" {
-        " AND lower(c.claim_type) IN ('counterplay','matchup')"
-    } else {
-        ""
-    };
     let exact_sql = format!(
         r#"
         SELECT c.id, c.video_id, c.entity_type, c.entity_name, c.claim_type,
@@ -2539,11 +2589,10 @@ fn load_entity_claim_rows(
                c.verifier_json, v.title AS source_video_title
         FROM youtube_learning_claims c
         LEFT JOIN youtube_videos v ON v.video_id=c.video_id
-        WHERE lower(c.entity_name) IN ({}){}
+        WHERE lower(c.entity_name) IN ({})
         ORDER BY c.verifier_confidence DESC, c.id
         "#,
-        placeholders(names.len()),
-        matchup_type_filter
+        placeholders(names.len())
     );
     let mut by_id = BTreeMap::new();
     for row in fetch_all(
@@ -2575,9 +2624,6 @@ fn load_entity_claim_rows(
         "#,
         clauses.join(" OR ")
     );
-    if intent == "matchup" {
-        text_sql.push_str(" AND lower(c.claim_type) IN ('counterplay','matchup')");
-    }
     text_sql.push_str(" ORDER BY c.verifier_confidence DESC, c.id");
     for row in fetch_all(conn, &text_sql, values)?
         .into_iter()
@@ -2594,7 +2640,7 @@ fn load_keyword_claim_rows(
     conn: &Connection,
     keywords: &[AskKeywordSpec],
     entity_match: &AskEntityClaimMatch,
-    intent: &str,
+    idf_weights: &AskIdfWeights,
 ) -> Result<Vec<JsonMap<String, JsonValue>>> {
     if keywords.is_empty() {
         return Ok(Vec::new());
@@ -2608,11 +2654,6 @@ fn load_keyword_claim_rows(
         values.push(SqlValue::Text(pattern.clone()));
         values.push(SqlValue::Text(pattern));
     }
-    let matchup_type_filter = if intent == "matchup" {
-        " AND lower(c.claim_type) IN ('counterplay','matchup')"
-    } else {
-        ""
-    };
     let sql = format!(
         r#"
         SELECT c.id, c.video_id, c.entity_type, c.entity_name, c.claim_type,
@@ -2620,18 +2661,70 @@ fn load_keyword_claim_rows(
                c.verifier_json, v.title AS source_video_title
         FROM youtube_learning_claims c
         LEFT JOIN youtube_videos v ON v.video_id=c.video_id
-        WHERE ({}){}
+        WHERE ({})
         ORDER BY c.verifier_confidence DESC, c.id
         "#,
-        clauses.join(" OR "),
-        matchup_type_filter
+        clauses.join(" OR ")
     );
     let rows = fetch_all(conn, &sql, values)?;
     Ok(rows
         .into_iter()
         .filter(|row| keyword_row_starts_word(row, keywords))
-        .filter(|row| keyword_row_passes_minimum_relevance(row, keywords, entity_match))
+        .filter(|row| keyword_row_passes_minimum_relevance(row, keywords, entity_match, idf_weights))
         .collect())
+}
+
+fn load_ask_idf_weights(conn: &Connection, keywords: &[AskKeywordSpec]) -> Result<AskIdfWeights> {
+    if keywords.is_empty() {
+        return Ok(AskIdfWeights::default());
+    }
+    let rows = fetch_all(
+        conn,
+        r#"
+        SELECT claim_text, evidence_quote, verifier_json, entity_name
+        FROM youtube_learning_claims
+        "#,
+        vec![],
+    )?;
+    if rows.is_empty() {
+        return Ok(AskIdfWeights::default());
+    }
+
+    let mut document_frequency = BTreeMap::<String, usize>::new();
+    for row in &rows {
+        let haystack = format!(
+            "{} {} {} {}",
+            value_to_string(row.get("claim_text")),
+            value_to_string(row.get("evidence_quote")),
+            value_to_string(row.get("verifier_json")),
+            value_to_string(row.get("entity_name"))
+        )
+        .to_lowercase();
+        let mut seen_in_document = BTreeSet::new();
+        for keyword in keywords {
+            if keyword_spec_matches_text(&haystack, keyword) {
+                seen_in_document.insert(keyword.match_key.clone());
+            }
+        }
+        for match_key in seen_in_document {
+            *document_frequency.entry(match_key).or_insert(0) += 1;
+        }
+    }
+
+    let document_count = rows.len() as f64;
+    let weights = keywords
+        .iter()
+        .map(|keyword| {
+            let df = document_frequency
+                .get(&keyword.match_key)
+                .copied()
+                .unwrap_or(0)
+                .max(1) as f64;
+            let weight = ((document_count / df).ln() * ASK_IDF_SCALE).round() as i64;
+            (keyword.match_key.clone(), weight.max(0))
+        })
+        .collect::<BTreeMap<_, _>>();
+    Ok(AskIdfWeights { weights })
 }
 
 fn entity_text_row_matches_name(row: &JsonMap<String, JsonValue>, names: &[String]) -> bool {
@@ -2647,10 +2740,18 @@ fn keyword_row_starts_word(row: &JsonMap<String, JsonValue>, keywords: &[AskKeyw
     let evidence_quote = value_to_string(row.get("evidence_quote")).to_lowercase();
     let verifier_json = value_to_string(row.get("verifier_json")).to_lowercase();
     keywords.iter().any(|keyword| {
-        keyword_starts_word(&claim_text, &keyword.text)
-            || keyword_starts_word(&evidence_quote, &keyword.text)
-            || keyword_starts_word(&verifier_json, &keyword.text)
+        keyword_spec_matches_text(&claim_text, keyword)
+            || keyword_spec_matches_text(&evidence_quote, keyword)
+            || keyword_spec_matches_text(&verifier_json, keyword)
     })
+}
+
+fn keyword_spec_matches_text(haystack_lower: &str, keyword: &AskKeywordSpec) -> bool {
+    if keyword.prefix_match {
+        keyword_starts_word_prefix(haystack_lower, &keyword.text)
+    } else {
+        keyword_starts_word(haystack_lower, &keyword.text)
+    }
 }
 
 fn keyword_starts_word(haystack_lower: &str, token_lower: &str) -> bool {
@@ -2661,6 +2762,15 @@ fn keyword_starts_word(haystack_lower: &str, token_lower: &str) -> bool {
         keyword_has_start_boundary(haystack_lower, index)
             && keyword_has_end_boundary(haystack_lower, index + token_lower.len())
     })
+}
+
+fn keyword_starts_word_prefix(haystack_lower: &str, token_lower: &str) -> bool {
+    if token_lower.is_empty() {
+        return false;
+    }
+    haystack_lower
+        .match_indices(token_lower)
+        .any(|(index, _)| keyword_has_start_boundary(haystack_lower, index))
 }
 
 fn keyword_has_start_boundary(value: &str, index: usize) -> bool {
@@ -2734,6 +2844,7 @@ fn ask_claim_from_row(
         verifier,
         match_sources,
         relevance_score: 0,
+        relevance_floor_score: 0,
         matched_keyword_count: 0,
     })
 }
@@ -2777,7 +2888,35 @@ fn ask_query_keyword_specs(
         let generic_ranking_only = ranking_only_short_tokens
             && !keyword.contains(' ')
             && is_generic_short_game_keyword(&keyword);
-        insert_keyword_spec(&mut specs, &keyword, false, generic_ranking_only);
+        let (match_key, prefix_match) = ask_keyword_synonym_group(&keyword)
+            .map(|(match_key, variants)| {
+                let prefix_match = variants
+                    .iter()
+                    .find(|variant| variant.text == keyword)
+                    .is_some_and(|variant| variant.prefix_match);
+                (match_key.to_string(), prefix_match)
+            })
+            .unwrap_or_else(|| (keyword.clone(), false));
+        insert_keyword_spec(
+            &mut specs,
+            &keyword,
+            &match_key,
+            false,
+            generic_ranking_only,
+            prefix_match,
+        );
+        if !keyword.contains(' ') {
+            for expansion in ask_keyword_synonym_expansions(&keyword) {
+                insert_keyword_spec(
+                    &mut specs,
+                    &expansion.text,
+                    &expansion.match_key,
+                    false,
+                    generic_ranking_only,
+                    expansion.prefix_match,
+                );
+            }
+        }
     }
     let query_norm = normalize_alias(query);
     for name in &entity_match.names {
@@ -2792,19 +2931,22 @@ fn ask_query_keyword_specs(
             .as_deref()
             == Some(name_norm.as_str());
         if is_canonical || keyword_starts_word(&query_norm, &name_norm) {
-            insert_keyword_spec(&mut specs, &name_norm, true, false);
+            insert_keyword_spec(&mut specs, &name_norm, &name_norm, true, false, false);
         }
     }
-    specs.into_values().take(16).collect()
+    specs.into_values().take(32).collect()
 }
 
 fn insert_keyword_spec(
     specs: &mut BTreeMap<String, AskKeywordSpec>,
     text: &str,
+    match_key: &str,
     entity_or_alias: bool,
     generic_ranking_only: bool,
+    prefix_match: bool,
 ) {
     let text = normalize_alias(text);
+    let match_key = normalize_alias(match_key);
     if text.is_empty() {
         return;
     }
@@ -2813,12 +2955,110 @@ fn insert_keyword_spec(
         .and_modify(|existing| {
             existing.entity_or_alias |= entity_or_alias;
             existing.generic_ranking_only &= generic_ranking_only;
+            existing.prefix_match |= prefix_match;
+            if existing.match_key.is_empty() {
+                existing.match_key = match_key.clone();
+            }
         })
         .or_insert(AskKeywordSpec {
             text,
+            match_key,
             entity_or_alias,
             generic_ranking_only,
+            prefix_match,
         });
+}
+
+#[derive(Debug, Clone)]
+struct AskKeywordExpansion {
+    text: String,
+    match_key: String,
+    prefix_match: bool,
+}
+
+fn ask_keyword_synonym_expansions(keyword: &str) -> Vec<AskKeywordExpansion> {
+    let keyword = normalize_alias(keyword);
+    let Some((match_key, variants)) = ask_keyword_synonym_group(&keyword) else {
+        return Vec::new();
+    };
+    variants
+        .into_iter()
+        .filter(|variant| variant.text != keyword)
+        .map(|variant| AskKeywordExpansion {
+            text: variant.text.to_string(),
+            match_key: match_key.to_string(),
+            prefix_match: variant.prefix_match,
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone, Copy)]
+struct AskKeywordVariant {
+    text: &'static str,
+    prefix_match: bool,
+}
+
+fn ask_keyword_synonym_group(keyword: &str) -> Option<(&'static str, Vec<AskKeywordVariant>)> {
+    match keyword {
+        "deny" | "denying" | "denied" | "denies" | "denyen" | "deniet" | "deni" => Some((
+            "deny",
+            vec![
+                AskKeywordVariant {
+                    text: "deny",
+                    prefix_match: true,
+                },
+                AskKeywordVariant {
+                    text: "deni",
+                    prefix_match: true,
+                },
+                AskKeywordVariant {
+                    text: "denyen",
+                    prefix_match: true,
+                },
+            ],
+        )),
+        "soul" | "souls" | "seele" | "seelen" | "seelenkugel" | "seelenkugeln" => Some((
+            "soul",
+            vec![
+                AskKeywordVariant {
+                    text: "soul",
+                    prefix_match: true,
+                },
+                AskKeywordVariant {
+                    text: "seele",
+                    prefix_match: true,
+                },
+                AskKeywordVariant {
+                    text: "seelen",
+                    prefix_match: true,
+                },
+            ],
+        )),
+        "breakable" | "breakables" | "box" | "boxes" | "crate" | "crates" | "kiste" | "kisten" => {
+            Some((
+                "breakable",
+                vec![
+                    AskKeywordVariant {
+                        text: "breakable",
+                        prefix_match: true,
+                    },
+                    AskKeywordVariant {
+                        text: "box",
+                        prefix_match: true,
+                    },
+                    AskKeywordVariant {
+                        text: "crate",
+                        prefix_match: true,
+                    },
+                    AskKeywordVariant {
+                        text: "kiste",
+                        prefix_match: true,
+                    },
+                ],
+            ))
+        }
+        _ => None,
+    }
 }
 
 fn is_generic_short_game_keyword(token: &str) -> bool {
@@ -2829,6 +3069,7 @@ fn keyword_row_passes_minimum_relevance(
     row: &JsonMap<String, JsonValue>,
     keywords: &[AskKeywordSpec],
     entity_match: &AskEntityClaimMatch,
+    idf_weights: &AskIdfWeights,
 ) -> bool {
     let relevance = row_relevance(
         &value_to_string(row.get("claim_text")),
@@ -2836,6 +3077,7 @@ fn keyword_row_passes_minimum_relevance(
         &value_to_string(row.get("entity_name")),
         keywords,
         entity_match,
+        idf_weights,
     );
     relevance.distinct_matches >= 2
         || relevance.entity_keyword_hit
@@ -2846,11 +3088,12 @@ fn ask_claim_passes_minimum_relevance(
     claim: &AskClaimRecord,
     keywords: &[AskKeywordSpec],
     entity_match: &AskEntityClaimMatch,
+    idf_weights: &AskIdfWeights,
 ) -> bool {
     if claim.match_sources.iter().any(|source| source != "keyword") {
         return true;
     }
-    let relevance = ask_claim_relevance(claim, keywords, entity_match);
+    let relevance = ask_claim_relevance(claim, keywords, entity_match, idf_weights);
     relevance.distinct_matches >= 2
         || relevance.entity_keyword_hit
         || (relevance.distinct_matches >= 1 && allows_single_specific_keyword(keywords, entity_match))
@@ -2877,6 +3120,7 @@ fn ask_claim_relevance(
     claim: &AskClaimRecord,
     keywords: &[AskKeywordSpec],
     entity_match: &AskEntityClaimMatch,
+    idf_weights: &AskIdfWeights,
 ) -> AskClaimRelevance {
     row_relevance(
         &claim.claim_text,
@@ -2884,6 +3128,7 @@ fn ask_claim_relevance(
         &claim.entity_name,
         keywords,
         entity_match,
+        idf_weights,
     )
 }
 
@@ -2893,6 +3138,7 @@ fn row_relevance(
     entity_name: &str,
     keywords: &[AskKeywordSpec],
     entity_match: &AskEntityClaimMatch,
+    idf_weights: &AskIdfWeights,
 ) -> AskClaimRelevance {
     let claim_text = claim_text.to_lowercase();
     let evidence_quote = evidence_quote.to_lowercase();
@@ -2903,36 +3149,43 @@ fn row_relevance(
     let mut distinct_matches = BTreeSet::new();
     let mut entity_keyword_hit = entity_name_is_match;
     let mut entity_text_hit = false;
+    let mut distinctive_keyword_hit = false;
     for keyword in keywords {
-        let in_claim = keyword_starts_word(&claim_text, &keyword.text);
-        let in_evidence = keyword_starts_word(&evidence_quote, &keyword.text);
-        if !in_claim && !in_evidence {
+        let in_claim = keyword_spec_matches_text(&claim_text, keyword);
+        let in_evidence = keyword_spec_matches_text(&evidence_quote, keyword);
+        let in_entity_name = keyword.entity_or_alias
+            && keyword_spec_matches_text(&entity_name_norm, keyword);
+        if !in_claim && !in_evidence && !in_entity_name {
             continue;
         }
-        let text_weight = if keyword.entity_or_alias && entity_name_is_canonical {
-            6
+        let idf_weight = idf_weights.keyword_weight(&keyword.match_key);
+        if is_distinctive_bonus_keyword(keyword, idf_weight) {
+            distinctive_keyword_hit = true;
+        }
+        let text_multiplier = if keyword.entity_or_alias && entity_name_is_canonical {
+            3
         } else if keyword.entity_or_alias {
             2
         } else {
-            3
+            1
         };
-        let evidence_weight = if keyword.entity_or_alias && entity_name_is_canonical {
-            4
+        let evidence_multiplier = if keyword.entity_or_alias && entity_name_is_canonical {
+            2
         } else {
             1
         };
         if in_claim {
-            score += text_weight;
+            score += idf_weight * text_multiplier;
         }
         if in_evidence {
-            score += evidence_weight;
+            score += idf_weight * evidence_multiplier;
         }
         if keyword.entity_or_alias {
             entity_text_hit = true;
             entity_keyword_hit = true;
         }
         if !keyword.generic_ranking_only || keyword.entity_or_alias {
-            distinct_matches.insert(keyword.text.clone());
+            distinct_matches.insert(keyword.match_key.clone());
         }
     }
     if entity_name_is_canonical {
@@ -2947,10 +3200,102 @@ fn row_relevance(
         score,
         distinct_matches: distinct_matches.len(),
         entity_keyword_hit,
+        distinctive_keyword_hit,
+    }
+}
+
+fn is_distinctive_bonus_keyword(keyword: &AskKeywordSpec, idf_weight: i64) -> bool {
+    if keyword.generic_ranking_only {
+        return false;
+    }
+    let generic_text = GENERIC_INTENT_BONUS_KEYWORDS.contains(&keyword.text.as_str())
+        || GENERIC_INTENT_BONUS_KEYWORDS.contains(&keyword.match_key.as_str());
+    if generic_text {
+        return false;
+    }
+    if keyword.entity_or_alias && keyword.match_key.len() >= 4 {
+        return true;
+    }
+    idf_weight >= ASK_DISTINCTIVE_KEYWORD_MIN_IDF
+}
+
+fn preferred_claim_type_bonus(preferred: bool, relevance: &AskClaimRelevance) -> i64 {
+    if !preferred {
+        return 0;
+    }
+    if relevance.distinctive_keyword_hit {
+        60
+    } else {
+        2
     }
 }
 
 fn claim_intent_relevance_bonus(
+    claim: &AskClaimRecord,
+    intent: &str,
+    entity_match: &AskEntityClaimMatch,
+    relevance: &AskClaimRelevance,
+) -> i64 {
+    let claim_type = claim.claim_type.to_lowercase();
+    let entity_name_norm = normalize_alias(&claim.entity_name);
+    match intent {
+        "build_recommendation" => {
+            let preferred = matches!(claim_type.as_str(), "build" | "item_timing");
+            preferred_claim_type_bonus(preferred, relevance)
+                + match claim_type.as_str() {
+                    "mechanic" => -220,
+                    "general" | "meta" | "macro" => -220,
+                    "matchup" | "counterplay" | "combo" => -220,
+                    _ => 0,
+                }
+        }
+        "item_question" => {
+            if entity_name_matches_canonical(&entity_name_norm, entity_match) {
+                10
+            } else {
+                0
+            }
+        }
+        "matchup" | "counterplay" => {
+            let preferred = matches!(claim_type.as_str(), "counterplay" | "matchup" | "combo");
+            preferred_claim_type_bonus(preferred, relevance)
+                + match claim_type.as_str() {
+                    "mechanic" if entity_name_matches_canonical(&entity_name_norm, entity_match) => {
+                        if relevance.distinctive_keyword_hit { 2 } else { -20 }
+                    }
+                    "mechanic" => -60,
+                    "general" | "meta" | "macro" => -100,
+                    "build" | "item_timing" => -100,
+                    _ => 0,
+                }
+        }
+        "patch_changes" => match claim_type.as_str() {
+            "meta" | "general" | "mechanic" | "buff" | "nerf" | "rework" => 8,
+            "build" | "item_timing" | "matchup" | "counterplay" => -10,
+            _ => 0,
+        },
+        "mechanics_question" => {
+            let preferred = claim_type == "mechanic";
+            preferred_claim_type_bonus(preferred, relevance)
+                + match claim_type.as_str() {
+                    "general" => 0,
+                    "build" | "item_timing" | "matchup" | "counterplay" | "combo" => -8,
+                    _ => 0,
+                }
+        }
+        "meta_question" | "hero_overview" => {
+            let preferred = matches!(claim_type.as_str(), "meta" | "macro");
+            preferred_claim_type_bonus(preferred, relevance)
+                + match claim_type.as_str() {
+                    "general" => 2,
+                    _ => 0,
+                }
+        },
+        _ => 0,
+    }
+}
+
+fn claim_intent_priority(
     claim: &AskClaimRecord,
     intent: &str,
     entity_match: &AskEntityClaimMatch,
@@ -2959,29 +3304,80 @@ fn claim_intent_relevance_bonus(
     let entity_name_norm = normalize_alias(&claim.entity_name);
     match intent {
         "build_recommendation" => match claim_type.as_str() {
-            "build" => 8,
-            "item_timing" => 6,
+            "build" | "item_timing" => 3,
+            "mechanic" => 1,
             _ => 0,
         },
-        "item_question" => {
-            if entity_name_matches_canonical(&entity_name_norm, entity_match) {
-                8
-            } else {
-                0
-            }
-        }
         "matchup" | "counterplay" => match claim_type.as_str() {
-            "counterplay" | "matchup" => 8,
-            "general" | "meta" | "macro" => -6,
+            "counterplay" | "matchup" if entity_name_is_multi_entity_listing(claim) => 1,
+            "counterplay" | "matchup" if multi_entity_claim_for_single_entity_intent(claim, entity_match) => 2,
+            "counterplay" | "matchup" => 3,
+            "mechanic" if entity_name_matches_canonical(&entity_name_norm, entity_match) => 2,
             _ => 0,
         },
         "patch_changes" => match claim_type.as_str() {
-            "meta" | "general" | "mechanic" => 4,
-            "build" | "item_timing" | "matchup" => -6,
+            "meta" | "general" | "mechanic" | "buff" | "nerf" | "rework" => 2,
+            _ => 0,
+        },
+        "mechanics_question" => match claim_type.as_str() {
+            "mechanic" => 3,
+            "general" => 1,
+            _ => 0,
+        },
+        "meta_question" | "hero_overview" => match claim_type.as_str() {
+            "meta" | "general" => 2,
             _ => 0,
         },
         _ => 0,
     }
+}
+
+fn claim_noise_penalty(claim: &AskClaimRecord, entity_match: &AskEntityClaimMatch) -> i64 {
+    if !entity_match.matched {
+        return 0;
+    }
+    let entity_name_norm = normalize_alias(&claim.entity_name);
+    if entity_name_matches_canonical(&entity_name_norm, entity_match) {
+        return 0;
+    }
+
+    let mut penalty = 0;
+    let keyword_only = claim.match_sources.len() == 1 && claim.match_sources.contains("keyword");
+    if keyword_only && claim.matched_keyword_count <= 1 {
+        penalty -= 40;
+    }
+    if multi_entity_claim_for_single_entity_intent(claim, entity_match) {
+        penalty -= 40;
+    }
+    if entity_name_is_multi_entity_listing(claim) {
+        penalty -= 20;
+    }
+    penalty
+}
+
+fn multi_entity_claim_for_single_entity_intent(
+    claim: &AskClaimRecord,
+    entity_match: &AskEntityClaimMatch,
+) -> bool {
+    let Some(canonical_name) = entity_match.canonical_name.as_deref() else {
+        return false;
+    };
+    let entity_name_lower = claim.entity_name.to_lowercase();
+    let claim_text_lower = claim.claim_text.to_lowercase();
+    let canonical_lower = canonical_name.to_lowercase();
+    let entity_listing = entity_name_lower.contains(" vs ")
+        || entity_name_lower.matches(',').count() >= 2
+        || entity_name_lower.matches('/').count() >= 2;
+    let text_listing = claim_text_lower.contains(&canonical_lower)
+        && (claim_text_lower.matches(',').count() >= 3 || claim_text_lower.matches(" vs ").count() >= 2);
+    entity_listing || text_listing
+}
+
+fn entity_name_is_multi_entity_listing(claim: &AskClaimRecord) -> bool {
+    let entity_name_lower = claim.entity_name.to_lowercase();
+    entity_name_lower.contains(" vs ")
+        || entity_name_lower.matches(',').count() >= 2
+        || entity_name_lower.matches('/').count() >= 2
 }
 
 fn entity_name_matches_entity(entity_name_norm: &str, entity_match: &AskEntityClaimMatch) -> bool {
@@ -3007,9 +3403,11 @@ fn partition_ask_claims(
     claims: Vec<AskClaimRecord>,
     include_unverified: bool,
     max_claims: usize,
+    intent: &str,
+    entity_match: &AskEntityClaimMatch,
 ) -> AskClaimBuckets {
     let mut all = AskClaimBuckets::default();
-    for claim in claims {
+    for claim in relevance_filtered_claims(claims, intent, entity_match) {
         match claim.status.as_str() {
             "accepted" => all.verified.push(claim),
             "needs_review" => all.flagged.push(claim),
@@ -3018,22 +3416,17 @@ fn partition_ask_claims(
             _ => {}
         }
     }
-    sort_ask_claims(&mut all.verified);
-    sort_ask_claims(&mut all.flagged);
-    sort_ask_claims(&mut all.refuted);
-    sort_ask_claims(&mut all.unverified);
-
-    let take = ask_claim_take_counts(&all, include_unverified, max_claims);
+    let take = ask_claim_take_counts(&all, include_unverified, max_claims, intent, entity_match);
     let total_verified = all.verified.len();
     let total_flagged = all.flagged.len();
     let total_refuted = all.refuted.len();
     let total_unverified = all.unverified.len();
     AskClaimBuckets {
-        verified: all.verified.into_iter().take(take.verified).collect(),
-        flagged: all.flagged.into_iter().take(take.flagged).collect(),
-        refuted: all.refuted.into_iter().take(take.refuted).collect(),
-        unverified: if include_unverified {
-            all.unverified.into_iter().take(take.unverified).collect()
+        verified: sorted_take_ask_claims(all.verified, take.verified, intent, entity_match),
+        flagged: sorted_take_ask_claims(all.flagged, take.flagged, intent, entity_match),
+        refuted: sorted_take_ask_claims(all.refuted, take.refuted, intent, entity_match),
+        unverified: if include_unverified || take.unverified > 0 {
+            sorted_take_ask_claims(all.unverified, take.unverified, intent, entity_match)
         } else {
             Vec::new()
         },
@@ -3046,24 +3439,58 @@ fn partition_ask_claims(
     }
 }
 
-fn sort_ask_claims(claims: &mut [AskClaimRecord]) {
+fn relevance_filtered_claims(
+    claims: Vec<AskClaimRecord>,
+    intent: &str,
+    entity_match: &AskEntityClaimMatch,
+) -> Vec<AskClaimRecord> {
+    let mut claims = claims
+        .into_iter()
+        .filter(|claim| claim.relevance_score > 0 && claim.relevance_floor_score > 0)
+        .collect::<Vec<_>>();
+    let Some(top_score) = claims.iter().map(|claim| claim.relevance_floor_score).max() else {
+        return Vec::new();
+    };
+    let floor = dynamic_relevance_floor(top_score);
+    claims.retain(|claim| claim.relevance_floor_score >= floor);
+    sort_ask_claims(&mut claims, intent, entity_match);
+    claims
+}
+
+fn dynamic_relevance_floor(top_score: i64) -> i64 {
+    let quarter = ((top_score.max(0) as f64) * 0.25).ceil() as i64;
+    quarter.max(1)
+}
+
+fn sort_ask_claims(
+    claims: &mut [AskClaimRecord],
+    intent: &str,
+    entity_match: &AskEntityClaimMatch,
+) {
     claims.sort_by(|left, right| {
-        right
-            .relevance_score
-            .cmp(&left.relevance_score)
-            .then_with(|| {
-                right
-                    .verifier_confidence
-                    .total_cmp(&left.verifier_confidence)
-            })
+        claim_intent_priority(right, intent, entity_match)
+            .cmp(&claim_intent_priority(left, intent, entity_match))
+            .then_with(|| right.relevance_score.cmp(&left.relevance_score))
             .then_with(|| left.id.cmp(&right.id))
     });
+}
+
+fn sorted_take_ask_claims(
+    mut claims: Vec<AskClaimRecord>,
+    take: usize,
+    intent: &str,
+    entity_match: &AskEntityClaimMatch,
+) -> Vec<AskClaimRecord> {
+    sort_ask_claims(&mut claims, intent, entity_match);
+    claims.into_iter().take(take).collect()
 }
 
 fn ask_claim_take_counts(
     claims: &AskClaimBuckets,
     include_unverified: bool,
     max_claims: usize,
+    intent: &str,
+    entity_match: &AskEntityClaimMatch,
 ) -> AskClaimOmitted {
     let mut take = AskClaimOmitted::default();
     let mut remaining = max_claims;
@@ -3071,26 +3498,32 @@ fn ask_claim_take_counts(
         return take;
     }
 
-    let reserve_flagged = usize::from(!claims.flagged.is_empty());
+    let reserve_flagged = flagged_reserve_count(claims, max_claims, intent, entity_match);
     let reserve_refuted = usize::from(!claims.refuted.is_empty());
-    let reserve_unverified = usize::from(include_unverified && !claims.unverified.is_empty());
+    let reserve_unverified = unverified_reserve_count(
+        claims,
+        include_unverified,
+        max_claims,
+        intent,
+        entity_match,
+    );
     let reserve = (reserve_flagged + reserve_refuted + reserve_unverified).min(remaining.saturating_sub(1));
 
     take.verified = claims.verified.len().min(remaining.saturating_sub(reserve));
     remaining = remaining.saturating_sub(take.verified);
 
-    if reserve_flagged > 0 && remaining > 0 {
-        take.flagged = 1;
-        remaining -= 1;
-    }
+    let flagged_to_take = reserve_flagged.min(claims.flagged.len()).min(remaining);
+    take.flagged = flagged_to_take;
+    remaining = remaining.saturating_sub(flagged_to_take);
     if reserve_refuted > 0 && remaining > 0 {
         take.refuted = 1;
         remaining -= 1;
     }
-    if reserve_unverified > 0 && remaining > 0 {
-        take.unverified = 1;
-        remaining -= 1;
-    }
+    let unverified_to_take = reserve_unverified
+        .min(claims.unverified.len())
+        .min(remaining);
+    take.unverified = unverified_to_take;
+    remaining = remaining.saturating_sub(unverified_to_take);
 
     while remaining > 0 {
         let before = remaining;
@@ -3115,6 +3548,70 @@ fn ask_claim_take_counts(
         }
     }
     take
+}
+
+fn flagged_reserve_count(
+    claims: &AskClaimBuckets,
+    max_claims: usize,
+    intent: &str,
+    entity_match: &AskEntityClaimMatch,
+) -> usize {
+    if claims.flagged.is_empty() || max_claims == 0 {
+        return 0;
+    }
+    let max_verified_score = claims
+        .verified
+        .iter()
+        .map(|claim| claim.relevance_score)
+        .max()
+        .unwrap_or(0);
+    let competitive = claims
+        .flagged
+        .iter()
+        .filter(|claim| {
+            claim_intent_priority(claim, intent, entity_match) >= 2
+                && claim.relevance_score >= max_verified_score
+        })
+        .count();
+    competitive.max(1).min(claims.flagged.len()).min(ASK_STRONG_ON_TOPIC_TARGET)
+}
+
+fn unverified_reserve_count(
+    claims: &AskClaimBuckets,
+    include_unverified: bool,
+    max_claims: usize,
+    intent: &str,
+    entity_match: &AskEntityClaimMatch,
+) -> usize {
+    if claims.unverified.is_empty() || max_claims == 0 {
+        return 0;
+    }
+    let strong_verified_flagged = claims
+        .verified
+        .iter()
+        .chain(claims.flagged.iter())
+        .filter(|claim| strong_on_topic_claim(claim, intent, entity_match))
+        .count();
+    let fallback_needed = ASK_STRONG_ON_TOPIC_TARGET.saturating_sub(strong_verified_flagged);
+    let fallback_available = claims
+        .unverified
+        .iter()
+        .filter(|claim| strong_on_topic_claim(claim, intent, entity_match))
+        .count();
+    let fallback_take = fallback_needed.min(fallback_available);
+    if fallback_take > 0 {
+        fallback_take
+    } else {
+        usize::from(include_unverified)
+    }
+}
+
+fn strong_on_topic_claim(
+    claim: &AskClaimRecord,
+    intent: &str,
+    entity_match: &AskEntityClaimMatch,
+) -> bool {
+    claim.relevance_score > 0 && claim_intent_priority(claim, intent, entity_match) >= 2
 }
 
 fn claims_to_json(claims: &[AskClaimRecord]) -> JsonValue {
@@ -5381,7 +5878,8 @@ mod tests {
             source_video: json!({"video_id": "vid", "title": "Video"}),
             verifier: JsonMap::new(),
             match_sources: BTreeSet::new(),
-            relevance_score: 0,
+            relevance_score: 1,
+            relevance_floor_score: 1,
             matched_keyword_count: 0,
         }
     }
@@ -5414,6 +5912,8 @@ mod tests {
             ],
             true,
             10,
+            "hero_overview",
+            &AskEntityClaimMatch::default(),
         );
 
         assert_eq!(buckets.verified.len(), 2);
@@ -5435,6 +5935,8 @@ mod tests {
             ],
             false,
             10,
+            "hero_overview",
+            &AskEntityClaimMatch::default(),
         );
         let with_unverified = partition_ask_claims(
             vec![
@@ -5443,6 +5945,8 @@ mod tests {
             ],
             true,
             10,
+            "hero_overview",
+            &AskEntityClaimMatch::default(),
         );
 
         assert!(without_unverified.unverified.is_empty());
@@ -5457,20 +5961,184 @@ mod tests {
         let keywords = ask_query_keyword_specs("soul denying advantage", &entity_match);
         let mut two_hits = ask_claim_fixture(1, "accepted", 0.2);
         two_hits.claim_text = "Soul denying creates a double advantage.".to_string();
-        let relevance = ask_claim_relevance(&two_hits, &keywords, &entity_match);
+        let idf = AskIdfWeights::default();
+        let relevance = ask_claim_relevance(&two_hits, &keywords, &entity_match, &idf);
         two_hits.relevance_score = relevance.score;
+        two_hits.relevance_floor_score = relevance.score;
         two_hits.matched_keyword_count = relevance.distinct_matches;
 
         let mut one_hit = ask_claim_fixture(2, "accepted", 0.99);
-        one_hit.claim_text = "Soul control matters.".to_string();
-        let relevance = ask_claim_relevance(&one_hit, &keywords, &entity_match);
+        one_hit.claim_text = "Soul denying matters.".to_string();
+        let relevance = ask_claim_relevance(&one_hit, &keywords, &entity_match, &idf);
         one_hit.relevance_score = relevance.score;
+        one_hit.relevance_floor_score = relevance.score;
         one_hit.matched_keyword_count = relevance.distinct_matches;
 
-        let buckets = partition_ask_claims(vec![one_hit, two_hits], false, 10);
+        let buckets = partition_ask_claims(
+            vec![one_hit, two_hits],
+            false,
+            10,
+            "mechanics_question",
+            &entity_match,
+        );
 
         assert_eq!(buckets.verified[0].id, 1);
         assert!(buckets.verified[0].relevance_score > buckets.verified[1].relevance_score);
+    }
+
+    #[test]
+    fn final_verified_json_is_sorted_by_relevance_before_cutoff() {
+        let entity_match = AskEntityClaimMatch::default();
+        let mut low = ask_claim_fixture(701, "accepted", 0.99);
+        low.claim_type = "mechanic".to_string();
+        low.relevance_score = 30;
+        low.relevance_floor_score = 30;
+        let mut high = ask_claim_fixture(702, "accepted", 0.1);
+        high.claim_type = "mechanic".to_string();
+        high.relevance_score = 40;
+        high.relevance_floor_score = 40;
+        let mut mid = ask_claim_fixture(703, "accepted", 0.5);
+        mid.claim_type = "mechanic".to_string();
+        mid.relevance_score = 35;
+        mid.relevance_floor_score = 35;
+
+        let buckets = partition_ask_claims(
+            vec![low, mid, high],
+            false,
+            2,
+            "mechanics_question",
+            &entity_match,
+        );
+        let JsonValue::Array(serialized) = claims_to_json(&buckets.verified) else {
+            panic!("claims json array");
+        };
+        let rel_scores = serialized
+            .iter()
+            .filter_map(|claim| claim.get("relevance_score").and_then(JsonValue::as_i64))
+            .collect::<Vec<_>>();
+
+        assert_eq!(buckets.verified.iter().map(|claim| claim.id).collect::<Vec<_>>(), vec![702, 703]);
+        assert_eq!(rel_scores, vec![40, 35]);
+        assert_eq!(buckets.omitted.verified, 1);
+    }
+
+    #[test]
+    fn on_intent_flagged_claims_keep_slots_over_tangential_verified_claims() {
+        let entity_match = entity_match_fixture("Lash", "hero");
+        let mut accepted_a = ask_claim_fixture(301, "accepted", 0.9);
+        accepted_a.claim_type = "general".to_string();
+        accepted_a.entity_name = "Lash".to_string();
+        accepted_a.relevance_score = 24;
+        accepted_a.relevance_floor_score = 24;
+        let mut accepted_b = ask_claim_fixture(302, "accepted", 0.8);
+        accepted_b.claim_type = "general".to_string();
+        accepted_b.entity_name = "Lash".to_string();
+        accepted_b.relevance_score = 23;
+        accepted_b.relevance_floor_score = 23;
+        let mut accepted_c = ask_claim_fixture(303, "accepted", 0.7);
+        accepted_c.claim_type = "general".to_string();
+        accepted_c.entity_name = "Lash".to_string();
+        accepted_c.relevance_score = 22;
+        accepted_c.relevance_floor_score = 22;
+        let mut flagged_a = ask_claim_fixture(304, "needs_review", 0.6);
+        flagged_a.claim_type = "counterplay".to_string();
+        flagged_a.entity_name = "Lash".to_string();
+        flagged_a.relevance_score = 30;
+        flagged_a.relevance_floor_score = 30;
+        let mut flagged_b = ask_claim_fixture(305, "needs_review", 0.5);
+        flagged_b.claim_type = "matchup".to_string();
+        flagged_b.entity_name = "Lash".to_string();
+        flagged_b.relevance_score = 28;
+        flagged_b.relevance_floor_score = 28;
+
+        let buckets = partition_ask_claims(
+            vec![accepted_a, accepted_b, accepted_c, flagged_a, flagged_b],
+            false,
+            4,
+            "matchup",
+            &entity_match,
+        );
+
+        assert_eq!(buckets.flagged.len(), 2);
+        assert_eq!(
+            buckets.flagged.iter().map(|claim| claim.id).collect::<Vec<_>>(),
+            vec![304, 305]
+        );
+        assert_eq!(buckets.omitted.verified, 1);
+    }
+
+    #[test]
+    fn thin_verified_bucket_gets_on_topic_unverified_fallback() {
+        let entity_match = AskEntityClaimMatch::default();
+        let mut verified = ask_claim_fixture(401, "accepted", 0.9);
+        verified.claim_type = "mechanic".to_string();
+        verified.relevance_score = 20;
+        verified.relevance_floor_score = 20;
+        let mut unverified_a = ask_claim_fixture(402, "unverified", 0.7);
+        unverified_a.claim_type = "mechanic".to_string();
+        unverified_a.relevance_score = 18;
+        unverified_a.relevance_floor_score = 18;
+        let mut unverified_b = ask_claim_fixture(403, "unverified", 0.6);
+        unverified_b.claim_type = "mechanic".to_string();
+        unverified_b.relevance_score = 17;
+        unverified_b.relevance_floor_score = 17;
+        let mut unverified_c = ask_claim_fixture(404, "unverified", 0.5);
+        unverified_c.claim_type = "mechanic".to_string();
+        unverified_c.relevance_score = 16;
+        unverified_c.relevance_floor_score = 16;
+
+        let buckets = partition_ask_claims(
+            vec![verified, unverified_a, unverified_b, unverified_c],
+            false,
+            12,
+            "mechanics_question",
+            &entity_match,
+        );
+
+        assert_eq!(buckets.verified.len(), 1);
+        assert_eq!(buckets.unverified.len(), 2);
+        assert_eq!(
+            buckets.unverified.iter().map(|claim| claim.id).collect::<Vec<_>>(),
+            vec![402, 403]
+        );
+    }
+
+    #[test]
+    fn relevance_floor_drops_non_positive_and_low_tail_claims() {
+        let entity_match = AskEntityClaimMatch::default();
+        let mut top = ask_claim_fixture(501, "accepted", 0.9);
+        top.relevance_score = 12;
+        top.relevance_floor_score = 12;
+        let mut kept = ask_claim_fixture(502, "accepted", 0.8);
+        kept.relevance_score = 3;
+        kept.relevance_floor_score = 3;
+        let mut low_tail = ask_claim_fixture(503, "accepted", 0.7);
+        low_tail.relevance_score = 2;
+        low_tail.relevance_floor_score = 2;
+        let mut zero = ask_claim_fixture(504, "accepted", 0.6);
+        zero.relevance_score = 0;
+        zero.relevance_floor_score = 0;
+        let mut negative = ask_claim_fixture(505, "accepted", 0.5);
+        negative.relevance_score = -4;
+        negative.relevance_floor_score = -4;
+
+        let buckets = partition_ask_claims(
+            vec![top, kept, low_tail, zero, negative],
+            false,
+            12,
+            "hero_overview",
+            &entity_match,
+        );
+
+        assert_eq!(
+            buckets.verified.iter().map(|claim| claim.id).collect::<Vec<_>>(),
+            vec![501, 502]
+        );
+        assert!(buckets
+            .verified
+            .iter()
+            .all(|claim| claim.relevance_score > 0));
+        assert!(buckets.verified.len() < 12);
     }
 
     #[test]
@@ -5541,12 +6209,14 @@ mod tests {
         assert!(keyword_row_passes_minimum_relevance(
             &echo_shard,
             &keywords,
-            &entity_match
+            &entity_match,
+            &AskIdfWeights::default()
         ));
         assert!(!keyword_row_passes_minimum_relevance(
             &echo_charge,
             &keywords,
-            &entity_match
+            &entity_match,
+            &AskIdfWeights::default()
         ));
     }
 
@@ -5573,7 +6243,7 @@ mod tests {
             &conn,
             &keywords,
             &entity_match,
-            "mechanics_question",
+            &AskIdfWeights::default(),
         )
         .expect("keyword rows");
         let (claims, _, keyword_matched) = load_ask_claims(
@@ -5583,7 +6253,13 @@ mod tests {
             "mechanics_question",
         )
         .expect("claims");
-        let buckets = partition_ask_claims(claims, false, 3);
+        let buckets = partition_ask_claims(
+            claims,
+            false,
+            3,
+            "mechanics_question",
+            &entity_match,
+        );
 
         assert!(keywords.iter().any(|keyword| keyword.text == "spawnen breakables"));
         assert!(rows.iter().any(|row| row.get("id").and_then(JsonValue::as_i64) == Some(101)));
@@ -5599,21 +6275,219 @@ mod tests {
         build_claim.claim_text = "Seven wants Arcane Surge early.".to_string();
         build_claim.entity_name = "Seven".to_string();
         build_claim.claim_type = "build".to_string();
-        let relevance = ask_claim_relevance(&build_claim, &keywords, &entity_match);
-        build_claim.relevance_score =
-            relevance.score + claim_intent_relevance_bonus(&build_claim, "build_recommendation", &entity_match);
+        let idf = AskIdfWeights::default();
+        let relevance = ask_claim_relevance(&build_claim, &keywords, &entity_match, &idf);
+        build_claim.relevance_floor_score = relevance.score;
+        build_claim.relevance_score = relevance.score
+            + claim_intent_relevance_bonus(&build_claim, "build_recommendation", &entity_match, &relevance);
 
         let mut general_claim = ask_claim_fixture(202, "accepted", 0.99);
         general_claim.claim_text = "Seven is mentioned in a broad meta note.".to_string();
         general_claim.entity_name = "Seven".to_string();
         general_claim.claim_type = "general".to_string();
-        let relevance = ask_claim_relevance(&general_claim, &keywords, &entity_match);
-        general_claim.relevance_score =
-            relevance.score + claim_intent_relevance_bonus(&general_claim, "build_recommendation", &entity_match);
+        let relevance = ask_claim_relevance(&general_claim, &keywords, &entity_match, &idf);
+        general_claim.relevance_floor_score = relevance.score;
+        general_claim.relevance_score = relevance.score
+            + claim_intent_relevance_bonus(&general_claim, "build_recommendation", &entity_match, &relevance);
 
-        let buckets = partition_ask_claims(vec![general_claim, build_claim], false, 2);
+        let buckets = partition_ask_claims(
+            vec![general_claim, build_claim],
+            false,
+            2,
+            "build_recommendation",
+            &entity_match,
+        );
 
         assert_eq!(buckets.verified.first().map(|claim| claim.id), Some(201));
+    }
+
+    #[test]
+    fn intent_claim_type_bonus_requires_distinctive_keyword_hit() {
+        let entity_match = AskEntityClaimMatch::default();
+        let keywords = ask_query_keyword_specs("surge items", &entity_match);
+        let mut weights = BTreeMap::new();
+        weights.insert("surge".to_string(), 24);
+        weights.insert("items".to_string(), 1);
+        let idf = AskIdfWeights { weights };
+
+        let mut build_claim = ask_claim_fixture(901, "accepted", 0.5);
+        build_claim.claim_type = "build".to_string();
+        build_claim.claim_text = "Buy Surge before flexing into damage.".to_string();
+        let build_relevance = ask_claim_relevance(&build_claim, &keywords, &entity_match, &idf);
+        build_claim.relevance_floor_score = build_relevance.score;
+        build_claim.relevance_score = build_relevance.score
+            + claim_intent_relevance_bonus(
+                &build_claim,
+                "build_recommendation",
+                &entity_match,
+                &build_relevance,
+            );
+
+        let mut mechanic_claim = ask_claim_fixture(902, "accepted", 0.9);
+        mechanic_claim.claim_type = "mechanic".to_string();
+        mechanic_claim.claim_text = "Items can change your combat pattern.".to_string();
+        let mechanic_relevance = ask_claim_relevance(&mechanic_claim, &keywords, &entity_match, &idf);
+        let mechanic_bonus = claim_intent_relevance_bonus(
+            &mechanic_claim,
+            "mechanics_question",
+            &entity_match,
+            &mechanic_relevance,
+        );
+        mechanic_claim.relevance_floor_score = mechanic_relevance.score;
+        mechanic_claim.relevance_score = mechanic_relevance.score
+            + claim_intent_relevance_bonus(
+                &mechanic_claim,
+                "build_recommendation",
+                &entity_match,
+                &mechanic_relevance,
+            );
+
+        let buckets = partition_ask_claims(
+            vec![mechanic_claim, build_claim],
+            false,
+            2,
+            "build_recommendation",
+            &entity_match,
+        );
+
+        assert!(build_relevance.distinctive_keyword_hit);
+        assert!(!mechanic_relevance.distinctive_keyword_hit);
+        assert!(mechanic_bonus < 60);
+        assert_eq!(buckets.verified.first().map(|claim| claim.id), Some(901));
+    }
+
+    #[test]
+    fn relevance_floor_uses_score_without_intent_claim_type_bonus() {
+        let entity_match = AskEntityClaimMatch::default();
+        let mut specific = ask_claim_fixture(911, "accepted", 0.5);
+        specific.claim_type = "mechanic".to_string();
+        specific.relevance_floor_score = 20;
+        specific.relevance_score = 80;
+        let mut generic = ask_claim_fixture(912, "accepted", 0.9);
+        generic.claim_type = "mechanic".to_string();
+        generic.relevance_floor_score = 4;
+        generic.relevance_score = 64;
+
+        let buckets = partition_ask_claims(
+            vec![generic, specific],
+            false,
+            12,
+            "mechanics_question",
+            &entity_match,
+        );
+
+        assert_eq!(buckets.verified.iter().map(|claim| claim.id).collect::<Vec<_>>(), vec![911]);
+        assert_eq!(buckets.omitted.verified, 0);
+    }
+
+    #[test]
+    fn matchup_allows_mechanic_claim_when_entity_is_target() {
+        let conn = temp_conn();
+        insert_light_entity(&conn, 41, "hero", "Lash");
+        insert_youtube_video(&conn, "lash-mech", "Lash Notes");
+        insert_learning_claim(
+            &conn,
+            LearningClaimFixture {
+                id: 601,
+                video_id: "lash-mech",
+                entity_type: Some("hero"),
+                entity_name: Some("Lash"),
+                claim_type: "mechanic",
+                claim_text: "Lash engage timing can be interrupted by prepared defense.",
+                status: "accepted",
+                verifier: JsonValue::Null,
+            },
+        );
+        let entity_match = entity_match_fixture("Lash", "hero");
+        let (claims, _, _) = load_ask_claims(&conn, "was kontert Lash", &entity_match, "matchup")
+            .expect("claims");
+        let buckets = partition_ask_claims(claims, false, 12, "matchup", &entity_match);
+
+        assert_eq!(buckets.verified.first().map(|claim| claim.id), Some(601));
+        assert_eq!(
+            buckets.verified.first().map(|claim| claim.claim_type.as_str()),
+            Some("mechanic")
+        );
+    }
+
+    #[test]
+    fn idf_weights_rare_token_above_ubiquitous_token() {
+        let conn = temp_conn();
+        insert_youtube_video(&conn, "idf", "IDF Notes");
+        for id in 700..705 {
+            insert_learning_claim(
+                &conn,
+                LearningClaimFixture {
+                    id,
+                    video_id: "idf",
+                    entity_type: Some("mechanic"),
+                    entity_name: Some("Lane"),
+                    claim_type: "mechanic",
+                    claim_text: "lane pressure note",
+                    status: "accepted",
+                    verifier: JsonValue::Null,
+                },
+            );
+        }
+        insert_learning_claim(
+            &conn,
+            LearningClaimFixture {
+                id: 706,
+                video_id: "idf",
+                entity_type: Some("mechanic"),
+                entity_name: Some("Souls"),
+                claim_type: "mechanic",
+                claim_text: "unsecured souls note",
+                status: "accepted",
+                verifier: JsonValue::Null,
+            },
+        );
+        let entity_match = AskEntityClaimMatch::default();
+        let keywords = ask_query_keyword_specs("unsecured lane", &entity_match);
+        let idf_weights = load_ask_idf_weights(&conn, &keywords).expect("idf");
+        let mut rare = ask_claim_fixture(707, "accepted", 0.5);
+        rare.claim_text = "unsecured souls note".to_string();
+        let mut ubiquitous = ask_claim_fixture(708, "accepted", 0.5);
+        ubiquitous.claim_text = "lane pressure note".to_string();
+
+        let rare_relevance = ask_claim_relevance(&rare, &keywords, &entity_match, &idf_weights);
+        let ubiquitous_relevance =
+            ask_claim_relevance(&ubiquitous, &keywords, &entity_match, &idf_weights);
+
+        assert!(rare_relevance.score > ubiquitous_relevance.score);
+    }
+
+    #[test]
+    fn denying_query_matches_denyen_claim() {
+        let conn = temp_conn();
+        insert_youtube_video(&conn, "deny", "Deny Notes");
+        insert_learning_claim(
+            &conn,
+            LearningClaimFixture {
+                id: 801,
+                video_id: "deny",
+                entity_type: Some("mechanic"),
+                entity_name: Some("Souls"),
+                claim_type: "mechanic",
+                claim_text: "denyen souls in lane",
+                status: "accepted",
+                verifier: JsonValue::Null,
+            },
+        );
+        let entity_match = AskEntityClaimMatch::default();
+        let (claims, _, keyword_matched) =
+            load_ask_claims(&conn, "soul denying", &entity_match, "mechanics_question")
+                .expect("claims");
+        let buckets = partition_ask_claims(
+            claims,
+            false,
+            12,
+            "mechanics_question",
+            &entity_match,
+        );
+
+        assert!(keyword_matched >= 1);
+        assert_eq!(buckets.verified.first().map(|claim| claim.id), Some(801));
     }
 
     #[test]
