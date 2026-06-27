@@ -1,5 +1,13 @@
 # Changelog
 
+## #13 — Ertraglose Videos werden nicht mehr in jeder Welle neu versucht
+
+Die Auswertung griff bei jedem Lauf erneut nach Videos, deren Transcript schlicht nichts Prüfbares hergibt — kurze Clips ohne belastbare Aussage. Das System merkte sich bisher nur, welche Videos bereits Wissen geliefert hatten, nicht aber, welche schon erfolglos versucht worden waren. Dadurch landeten dieselben ertraglosen Kurzvideos Welle für Welle wieder im Stapel und verbrauchten Auswertung, ohne je etwas beizutragen.
+
+Das Brain führt jetzt ein eigenes Verarbeitungs-Verzeichnis: zu jedem ausgewerteten Video wird festgehalten, dass es versucht wurde und wie viele geprüfte Aussagen dabei heraus kamen — ausdrücklich auch dann, wenn es null waren. Die Auswahl für neue Wellen überspringt fortan alles, was schon einen Versuch hinter sich hat, und beschränkt sich von sich aus auf Videos in auswertbarer Länge; sehr lange Mitschnitte bleiben einem eigenen Verfahren vorbehalten. Die 42 bereits erfolglos geprüften Kurzvideos wurden in einem Zug als erledigt vermerkt, ohne sie erneut durch die Auswertung zu schicken. Wer es braucht, kann die Längenschranke gezielt aufheben.
+
+Jede neue Welle zieht damit nur noch frische, lohnende Videos statt Ertragloses zu wiederholen; vor jedem Schreibvorgang wird die Datenbank wie gewohnt vollständig gesichert. Die Auswertung ist so sauber wiederholbar und bereit, auf die noch offenen Fälle — sehr lange Mitschnitte und Videos ohne Untertitel — ausgeweitet zu werden.
+
 ## #12 — Geprüftes Creator-Wissen vervielfacht: das Brain weiß jetzt deutlich mehr
 
 Die neue Lernpipeline war fertig, aber erst an einer Handvoll Videos erprobt — das Wissens-Paket zu vielen Fragen blieb dünn, weil zu wenige geprüfte Creator-Aussagen in der Datenbank lagen (zu manchen Helden gab es nur eine einzige belegte Aussage).

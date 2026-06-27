@@ -28,6 +28,7 @@ pub const REGULAR_TABLES: &[&str] = &[
     "source_runs",
     "youtube_feed_sources",
     "youtube_learning_claims",
+    "youtube_transcript_claim_attempts",
     "youtube_transcripts",
     "youtube_videos",
 ];
@@ -696,6 +697,23 @@ pub const YOUTUBE_SCHEMA: &str = r#"
 
         CREATE INDEX IF NOT EXISTS idx_youtube_learning_claims_video
           ON youtube_learning_claims(video_id, status);
+
+        CREATE TABLE IF NOT EXISTS youtube_transcript_claim_attempts (
+          video_id TEXT NOT NULL,
+          prompt_version TEXT NOT NULL,
+          mode TEXT NOT NULL DEFAULT 'normal',
+          status TEXT NOT NULL,
+          claim_count INTEGER NOT NULL DEFAULT 0,
+          char_len INTEGER NOT NULL DEFAULT 0,
+          note TEXT,
+          attempted_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (video_id, prompt_version),
+          FOREIGN KEY(video_id) REFERENCES youtube_videos(video_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_youtube_transcript_claim_attempts_prompt_status
+          ON youtube_transcript_claim_attempts(prompt_version, status);
 "#;
 
 pub fn ensure_schema(conn: &Connection) -> rusqlite::Result<()> {
@@ -725,7 +743,10 @@ mod tests {
             .expect("collect");
 
         for table in REGULAR_TABLES {
-            assert!(tables.iter().any(|actual| actual == table), "missing {table}");
+            assert!(
+                tables.iter().any(|actual| actual == table),
+                "missing {table}"
+            );
         }
         for table in VECTOR_TABLES_OMITTED {
             assert!(

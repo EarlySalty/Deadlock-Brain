@@ -1,14 +1,13 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     ffi::OsString,
-    fmt,
-    fs,
+    fmt, fs,
     path::{Path, PathBuf},
 };
 
 use anyhow::Context;
 use clap::ValueEnum;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, params_from_iter, types::Value as SqlValue, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -73,22 +72,43 @@ pub struct IngestSummary {
     pub backup_path: Option<String>,
     pub inserted: usize,
     pub skipped_existing: usize,
+    pub attempts_recorded: usize,
     pub errors: Vec<String>,
     pub status_breakdown: BTreeMap<String, usize>,
     pub total_claims_in_table_after: usize,
+}
+
+#[derive(Debug)]
+pub struct BackfillAttemptsOptions {
+    pub write: bool,
+    pub no_backup: bool,
+    pub prompt_version: String,
+    pub max_chars: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BackfillAttemptsSummary {
+    pub dry_run: bool,
+    pub would_mark: usize,
+    pub marked: usize,
+    pub backup_path: Option<String>,
 }
 
 pub fn prepare(
     conn: &Connection,
     limit: usize,
     order: PrepareOrder,
+    max_chars: Option<usize>,
 ) -> anyhow::Result<PrepareSummary> {
     let order_sql = match order {
         PrepareOrder::Recent => "COALESCE(v.published_at,'') DESC, v.video_id ASC",
         PrepareOrder::Shortest => "length(t.transcript_text) ASC, v.video_id ASC",
     };
-    let sql = format!(
-        r#"
+    let max_chars = max_chars
+        .map(|value| usize_to_i64(value, "prepare max chars"))
+        .transpose()?;
+    let limit = usize_to_i64(limit, "prepare limit")?;
+    let mut sql = r#"
         SELECT v.video_id, v.title, v.url, v.channel_title, t.transcript_text
         FROM youtube_videos v JOIN youtube_transcripts t ON t.video_id=v.video_id
         WHERE json_extract(v.metadata_json,'$.content_type')='verbal_strategy'
@@ -96,14 +116,32 @@ pub fn prepare(
             SELECT 1 FROM youtube_learning_claims c
             WHERE c.video_id=v.video_id AND c.prompt_version=?
           )
+          AND NOT EXISTS (
+            SELECT 1 FROM youtube_transcript_claim_attempts a
+            WHERE a.video_id=v.video_id AND a.prompt_version=?
+          )
+        "#
+    .to_string();
+    if max_chars.is_some() {
+        sql.push_str("          AND length(t.transcript_text) <= ?\n");
+    }
+    sql.push_str(&format!(
+        r#"
         ORDER BY {order_sql}
         LIMIT ?
         "#
-    );
-    let limit = i64::try_from(limit).context("prepare limit is too large")?;
+    ));
+    let mut bind_values = vec![
+        SqlValue::Text(PROMPT_VERSION.to_string()),
+        SqlValue::Text(PROMPT_VERSION.to_string()),
+    ];
+    if let Some(max_chars) = max_chars {
+        bind_values.push(SqlValue::Integer(max_chars));
+    }
+    bind_values.push(SqlValue::Integer(limit));
     let mut statement = conn.prepare(&sql)?;
     let videos = statement
-        .query_map(params![PROMPT_VERSION, limit], |row| {
+        .query_map(params_from_iter(bind_values), |row| {
             let transcript_text: String = row.get(4)?;
             Ok(PrepareVideo {
                 video_id: row.get(0)?,
@@ -148,6 +186,7 @@ pub fn ingest(
         backup_path,
         inserted: 0,
         skipped_existing: 0,
+        attempts_recorded: 0,
         errors: Vec::new(),
         status_breakdown: initial_status_breakdown(),
         total_claims_in_table_after: 0,
@@ -156,17 +195,19 @@ pub fn ingest(
     let mut new_hashes_in_batch = HashSet::new();
 
     for video in &videos {
+        let mut valid_claim_count = 0_usize;
         for (claim_position, raw_claim) in video.claims().iter().enumerate() {
-            let Some(claim) =
-                validate_claim_record(&video.video_id, claim_position, raw_claim, &mut summary.errors)
-            else {
+            let Some(claim) = validate_claim_record(
+                &video.video_id,
+                claim_position,
+                raw_claim,
+                &mut summary.errors,
+            ) else {
                 continue;
             };
-            let claim_hash = transcript_claim_hash(
-                &video.video_id,
-                &claim.claim_text,
-                &claim.evidence_quote,
-            );
+            valid_claim_count += 1;
+            let claim_hash =
+                transcript_claim_hash(&video.video_id, &claim.claim_text, &claim.evidence_quote);
             if claim_hash_exists(&tx, &claim_hash)? || new_hashes_in_batch.contains(&claim_hash) {
                 summary.skipped_existing += 1;
                 continue;
@@ -197,6 +238,18 @@ pub fn ingest(
             summary.inserted += 1;
             increment_status(&mut summary.status_breakdown, &claim.status);
         }
+
+        if options.write {
+            let char_len = transcript_char_len(&tx, &video.video_id)?;
+            summary.attempts_recorded += upsert_transcript_claim_attempt(
+                &tx,
+                &video.video_id,
+                &options.prompt_version,
+                valid_claim_count,
+                char_len,
+                now,
+            )?;
+        }
     }
 
     summary.total_claims_in_table_after = count_claims(&tx)?;
@@ -205,6 +258,37 @@ pub fn ingest(
     } else {
         tx.rollback()?;
     }
+    Ok(summary)
+}
+
+pub fn backfill_attempts(
+    conn: &mut Connection,
+    options: BackfillAttemptsOptions,
+) -> anyhow::Result<BackfillAttemptsSummary> {
+    let max_chars = options
+        .max_chars
+        .map(|value| usize_to_i64(value, "backfill max chars"))
+        .transpose()?;
+    let would_mark = count_backfill_attempt_candidates(conn, &options.prompt_version, max_chars)?;
+    let backup_path = if options.write && !options.no_backup && would_mark > 0 {
+        Some(create_backup(conn)?)
+    } else {
+        None
+    };
+    let mut summary = BackfillAttemptsSummary {
+        dry_run: !options.write,
+        would_mark,
+        marked: 0,
+        backup_path,
+    };
+
+    if options.write && would_mark > 0 {
+        let tx = conn.transaction()?;
+        let now = db::now_epoch_seconds();
+        summary.marked = insert_backfill_attempts(&tx, &options.prompt_version, max_chars, now)?;
+        tx.commit()?;
+    }
+
     Ok(summary)
 }
 
@@ -405,6 +489,143 @@ fn insert_claim(
     Ok(inserted)
 }
 
+fn upsert_transcript_claim_attempt(
+    conn: &Connection,
+    video_id: &str,
+    prompt_version: &str,
+    claim_count: usize,
+    char_len: usize,
+    now: i64,
+) -> anyhow::Result<usize> {
+    let status = if claim_count == 0 { "zero_yield" } else { "ok" };
+    let claim_count = usize_to_i64(claim_count, "attempt claim count")?;
+    let char_len = usize_to_i64(char_len, "attempt transcript char length")?;
+    let affected = conn.execute(
+        r#"
+        INSERT INTO youtube_transcript_claim_attempts(
+          video_id, prompt_version, mode, status, claim_count, char_len,
+          note, attempted_at, updated_at
+        )
+        VALUES(?, ?, 'normal', ?, ?, ?, NULL, ?, ?)
+        ON CONFLICT(video_id, prompt_version) DO UPDATE SET
+          status=excluded.status,
+          claim_count=excluded.claim_count,
+          mode=excluded.mode,
+          char_len=excluded.char_len,
+          updated_at=excluded.updated_at
+        "#,
+        params![
+            video_id,
+            prompt_version,
+            status,
+            claim_count,
+            char_len,
+            now,
+            now
+        ],
+    )?;
+    Ok(affected)
+}
+
+fn transcript_char_len(conn: &Connection, video_id: &str) -> anyhow::Result<usize> {
+    let char_len = conn
+        .query_row(
+            "SELECT length(transcript_text) FROM youtube_transcripts WHERE video_id=? LIMIT 1",
+            params![video_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?;
+    match char_len {
+        Some(char_len) => {
+            usize::try_from(char_len).context("transcript char length is negative or too large")
+        }
+        None => Ok(0),
+    }
+}
+
+fn count_backfill_attempt_candidates(
+    conn: &Connection,
+    prompt_version: &str,
+    max_chars: Option<i64>,
+) -> anyhow::Result<usize> {
+    let mut sql = r#"
+        SELECT COUNT(*)
+        FROM youtube_videos v JOIN youtube_transcripts t ON t.video_id=v.video_id
+        WHERE json_extract(v.metadata_json,'$.content_type')='verbal_strategy'
+          AND length(t.transcript_text) > 0
+          AND NOT EXISTS (
+            SELECT 1 FROM youtube_learning_claims c
+            WHERE c.video_id=v.video_id AND c.prompt_version=?
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM youtube_transcript_claim_attempts a
+            WHERE a.video_id=v.video_id AND a.prompt_version=?
+          )
+        "#
+    .to_string();
+    if max_chars.is_some() {
+        sql.push_str("          AND length(t.transcript_text) <= ?\n");
+    }
+    let mut bind_values = vec![
+        SqlValue::Text(prompt_version.to_string()),
+        SqlValue::Text(prompt_version.to_string()),
+    ];
+    if let Some(max_chars) = max_chars {
+        bind_values.push(SqlValue::Integer(max_chars));
+    }
+    let count = conn.query_row(&sql, params_from_iter(bind_values), |row| {
+        row.get::<_, i64>(0)
+    })?;
+    usize::try_from(count).context("backfill candidate count is negative or too large")
+}
+
+fn insert_backfill_attempts(
+    conn: &Connection,
+    prompt_version: &str,
+    max_chars: Option<i64>,
+    now: i64,
+) -> anyhow::Result<usize> {
+    let mut sql = r#"
+        INSERT INTO youtube_transcript_claim_attempts(
+          video_id, prompt_version, mode, status, claim_count, char_len,
+          note, attempted_at, updated_at
+        )
+        SELECT v.video_id, ?, 'normal', 'zero_yield', 0, length(t.transcript_text),
+               NULL, ?, ?
+        FROM youtube_videos v JOIN youtube_transcripts t ON t.video_id=v.video_id
+        WHERE json_extract(v.metadata_json,'$.content_type')='verbal_strategy'
+          AND length(t.transcript_text) > 0
+          AND NOT EXISTS (
+            SELECT 1 FROM youtube_learning_claims c
+            WHERE c.video_id=v.video_id AND c.prompt_version=?
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM youtube_transcript_claim_attempts a
+            WHERE a.video_id=v.video_id AND a.prompt_version=?
+          )
+        "#
+    .to_string();
+    if max_chars.is_some() {
+        sql.push_str("          AND length(t.transcript_text) <= ?\n");
+    }
+    let mut bind_values = vec![
+        SqlValue::Text(prompt_version.to_string()),
+        SqlValue::Integer(now),
+        SqlValue::Integer(now),
+        SqlValue::Text(prompt_version.to_string()),
+        SqlValue::Text(prompt_version.to_string()),
+    ];
+    if let Some(max_chars) = max_chars {
+        bind_values.push(SqlValue::Integer(max_chars));
+    }
+    let inserted = conn.execute(&sql, params_from_iter(bind_values))?;
+    Ok(inserted)
+}
+
+fn usize_to_i64(value: usize, name: &str) -> anyhow::Result<i64> {
+    i64::try_from(value).with_context(|| format!("{name} is too large"))
+}
+
 fn count_claims(conn: &Connection) -> anyhow::Result<usize> {
     let count = conn.query_row("SELECT COUNT(*) FROM youtube_learning_claims", [], |row| {
         row.get::<_, i64>(0)
@@ -536,11 +757,20 @@ mod tests {
 CREATE TABLE youtube_videos (video_id TEXT PRIMARY KEY, feed_key TEXT NOT NULL, channel_id TEXT, channel_title TEXT, title TEXT NOT NULL, url TEXT NOT NULL, published_at TEXT, description TEXT, metadata_json TEXT NOT NULL DEFAULT '{}', transcript_status TEXT NOT NULL DEFAULT 'missing', learning_status TEXT NOT NULL DEFAULT 'queued', discovered_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
 CREATE TABLE youtube_transcripts (video_id TEXT PRIMARY KEY, language TEXT, source_kind TEXT NOT NULL, transcript_text TEXT NOT NULL, content_hash TEXT NOT NULL, source_document_id INTEGER, imported_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
 CREATE TABLE youtube_learning_claims (id INTEGER PRIMARY KEY AUTOINCREMENT, video_id TEXT NOT NULL, claim_hash TEXT NOT NULL UNIQUE, claim_index INTEGER NOT NULL, entity_type TEXT, entity_name TEXT, claim_type TEXT NOT NULL, claim_text TEXT NOT NULL, evidence_quote TEXT NOT NULL, timestamp_seconds REAL, model_confidence REAL NOT NULL, verifier_confidence REAL NOT NULL, status TEXT NOT NULL, model TEXT, prompt_version TEXT NOT NULL, prompt_text TEXT NOT NULL, model_response_text TEXT NOT NULL, provider_metadata_json TEXT NOT NULL DEFAULT '{}', verifier_json TEXT NOT NULL DEFAULT '{}', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE TABLE youtube_transcript_claim_attempts (video_id TEXT NOT NULL, prompt_version TEXT NOT NULL, mode TEXT NOT NULL DEFAULT 'normal', status TEXT NOT NULL, claim_count INTEGER NOT NULL DEFAULT 0, char_len INTEGER NOT NULL DEFAULT 0, note TEXT, attempted_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (video_id, prompt_version), FOREIGN KEY(video_id) REFERENCES youtube_videos(video_id));
 "#;
 
     #[test]
     fn ingest_maps_verdicts_and_is_idempotent() {
         let mut conn = test_conn();
+        seed_prepare_video(
+            &conn,
+            "vid-ingest",
+            "Ingest video",
+            Some("2026-06-01T00:00:00Z"),
+            r#"{"content_type":"verbal_strategy"}"#,
+            "ingest transcript",
+        );
         let input = temp_input(&json!([
             {
                 "video_id": "vid-ingest",
@@ -578,6 +808,7 @@ CREATE TABLE youtube_learning_claims (id INTEGER PRIMARY KEY AUTOINCREMENT, vide
 
         assert_eq!(first.inserted, 4);
         assert_eq!(first.skipped_existing, 0);
+        assert_eq!(first.attempts_recorded, 1);
         assert_eq!(first.status_breakdown["accepted"], 1);
         assert_eq!(first.status_breakdown["needs_review"], 1);
         assert_eq!(first.status_breakdown["unverified"], 1);
@@ -585,6 +816,7 @@ CREATE TABLE youtube_learning_claims (id INTEGER PRIMARY KEY AUTOINCREMENT, vide
         assert_eq!(first.total_claims_in_table_after, 4);
         assert_eq!(second.inserted, 0);
         assert_eq!(second.skipped_existing, 4);
+        assert_eq!(second.attempts_recorded, 1);
         assert_eq!(second.total_claims_in_table_after, 4);
 
         let statuses = query_statuses(&conn);
@@ -666,6 +898,7 @@ CREATE TABLE youtube_learning_claims (id INTEGER PRIMARY KEY AUTOINCREMENT, vide
         assert_eq!(summary.backup_path, None);
         assert_eq!(summary.inserted, 1);
         assert_eq!(summary.skipped_existing, 0);
+        assert_eq!(summary.attempts_recorded, 0);
         assert_eq!(count_claims(&conn), 0);
         assert_eq!(summary.total_claims_in_table_after, 0);
     }
@@ -774,6 +1007,14 @@ CREATE TABLE youtube_learning_claims (id INTEGER PRIMARY KEY AUTOINCREMENT, vide
     #[test]
     fn ingest_unknown_verdict_is_error_and_not_inserted() {
         let mut conn = test_conn();
+        seed_prepare_video(
+            &conn,
+            "vid-error",
+            "Error video",
+            Some("2026-06-01T00:00:00Z"),
+            r#"{"content_type":"verbal_strategy"}"#,
+            "error transcript",
+        );
         let input = temp_input(&json!([
             {
                 "video_id": "vid-error",
@@ -839,8 +1080,10 @@ CREATE TABLE youtube_learning_claims (id INTEGER PRIMARY KEY AUTOINCREMENT, vide
         );
         insert_existing_claim(&conn, "verbal_done", PROMPT_VERSION, "done-hash");
 
-        let recent = prepare(&conn, 20, PrepareOrder::Recent).expect("prepare recent");
-        let shortest = prepare(&conn, 20, PrepareOrder::Shortest).expect("prepare shortest");
+        let recent =
+            prepare(&conn, 20, PrepareOrder::Recent, Some(150_000)).expect("prepare recent");
+        let shortest =
+            prepare(&conn, 20, PrepareOrder::Shortest, Some(150_000)).expect("prepare shortest");
 
         assert_eq!(recent.prompt_version, PROMPT_VERSION);
         assert_eq!(recent.order, "recent");
@@ -853,7 +1096,10 @@ CREATE TABLE youtube_learning_claims (id INTEGER PRIMARY KEY AUTOINCREMENT, vide
                 .collect::<Vec<_>>(),
             vec!["verbal_recent", "verbal_short"]
         );
-        assert_eq!(recent.videos[0].char_len, "a longer transcript".chars().count());
+        assert_eq!(
+            recent.videos[0].char_len,
+            "a longer transcript".chars().count()
+        );
         assert_eq!(recent.videos[0].transcript_text, "a longer transcript");
 
         assert_eq!(
@@ -865,6 +1111,307 @@ CREATE TABLE youtube_learning_claims (id INTEGER PRIMARY KEY AUTOINCREMENT, vide
             vec!["verbal_short", "verbal_recent"]
         );
         assert_eq!(shortest.videos[0].char_len, "short".chars().count());
+    }
+
+    #[test]
+    fn prepare_excludes_videos_with_matching_attempt_ledger_row() {
+        let conn = test_conn();
+        seed_prepare_video(
+            &conn,
+            "attempted",
+            "Attempted verbal",
+            Some("2026-06-02T00:00:00Z"),
+            r#"{"content_type":"verbal_strategy"}"#,
+            "attempted transcript",
+        );
+        seed_prepare_video(
+            &conn,
+            "other_prompt",
+            "Other prompt verbal",
+            Some("2026-06-01T00:00:00Z"),
+            r#"{"content_type":"verbal_strategy"}"#,
+            "other prompt transcript",
+        );
+        insert_attempt(&conn, "attempted", PROMPT_VERSION, "zero_yield", 0, 20);
+        insert_attempt(
+            &conn,
+            "other_prompt",
+            "different_prompt",
+            "zero_yield",
+            0,
+            23,
+        );
+
+        let summary =
+            prepare(&conn, 20, PrepareOrder::Recent, Some(150_000)).expect("prepare attempts");
+
+        assert_eq!(summary.count, 1);
+        assert_eq!(summary.videos[0].video_id, "other_prompt");
+    }
+
+    #[test]
+    fn prepare_respects_max_chars() {
+        let conn = test_conn();
+        let large_transcript = "x".repeat(150_001);
+        seed_prepare_video(
+            &conn,
+            "small",
+            "Small verbal",
+            Some("2026-06-01T00:00:00Z"),
+            r#"{"content_type":"verbal_strategy"}"#,
+            "short",
+        );
+        seed_prepare_video(
+            &conn,
+            "large",
+            "Large verbal",
+            Some("2026-06-02T00:00:00Z"),
+            r#"{"content_type":"verbal_strategy"}"#,
+            &large_transcript,
+        );
+
+        let capped =
+            prepare(&conn, 20, PrepareOrder::Recent, Some(150_000)).expect("prepare capped");
+        let uncapped = prepare(&conn, 20, PrepareOrder::Recent, None).expect("prepare uncapped");
+
+        assert_eq!(capped.count, 1);
+        assert_eq!(capped.videos[0].video_id, "small");
+        assert_eq!(uncapped.count, 2);
+        assert_eq!(uncapped.videos[0].video_id, "large");
+    }
+
+    #[test]
+    fn ingest_write_records_zero_yield_and_ok_attempts() {
+        let mut conn = test_conn();
+        seed_prepare_video(
+            &conn,
+            "vid-zero",
+            "Zero yield",
+            Some("2026-06-01T00:00:00Z"),
+            r#"{"content_type":"verbal_strategy"}"#,
+            "zero transcript",
+        );
+        seed_prepare_video(
+            &conn,
+            "vid-ok",
+            "Has claim",
+            Some("2026-06-02T00:00:00Z"),
+            r#"{"content_type":"verbal_strategy"}"#,
+            "claim transcript",
+        );
+        let input = temp_input(&json!([
+            {
+                "video_id": "vid-zero",
+                "claims": []
+            },
+            {
+                "video_id": "vid-ok",
+                "claims": [
+                    claim_json("supported", "build", "Ledger claim.", "Ledger quote.", 0.91, None, Some("ok"))
+                ]
+            }
+        ]));
+
+        let summary = ingest(
+            &mut conn,
+            input.path(),
+            IngestOptions {
+                write: true,
+                no_backup: true,
+                model: "claude-test".to_string(),
+                prompt_version: PROMPT_VERSION.to_string(),
+            },
+        )
+        .expect("ingest attempts");
+
+        assert_eq!(summary.inserted, 1);
+        assert_eq!(summary.attempts_recorded, 2);
+        assert_eq!(
+            query_attempts(&conn),
+            vec![
+                (
+                    "vid-ok".to_string(),
+                    "ok".to_string(),
+                    1,
+                    "claim transcript".chars().count() as i64
+                ),
+                (
+                    "vid-zero".to_string(),
+                    "zero_yield".to_string(),
+                    0,
+                    "zero transcript".chars().count() as i64
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn ingest_reingest_refreshes_attempt_char_len() {
+        let mut conn = test_conn();
+        seed_prepare_video(
+            &conn,
+            "vid-refresh",
+            "Refresh attempt",
+            Some("2026-06-01T00:00:00Z"),
+            r#"{"content_type":"verbal_strategy"}"#,
+            "short",
+        );
+        let input = temp_input(&json!([
+            {
+                "video_id": "vid-refresh",
+                "claims": []
+            }
+        ]));
+
+        ingest(
+            &mut conn,
+            input.path(),
+            IngestOptions {
+                write: true,
+                no_backup: true,
+                model: "claude-test".to_string(),
+                prompt_version: PROMPT_VERSION.to_string(),
+            },
+        )
+        .expect("first ingest");
+
+        let first_char_len: i64 = conn
+            .query_row(
+                "SELECT char_len FROM youtube_transcript_claim_attempts WHERE video_id=?",
+                params!["vid-refresh"],
+                |row| row.get(0),
+            )
+            .expect("query first char len");
+        assert_eq!(first_char_len, "short".chars().count() as i64);
+
+        conn.execute(
+            r#"
+            UPDATE youtube_transcripts
+            SET transcript_text=?, content_hash=?, updated_at=?
+            WHERE video_id=?
+            "#,
+            params![
+                "short transcript with fresh appended text",
+                "hash-refresh-updated",
+                1_700_000_001_i64,
+                "vid-refresh"
+            ],
+        )
+        .expect("update transcript");
+
+        let second = ingest(
+            &mut conn,
+            input.path(),
+            IngestOptions {
+                write: true,
+                no_backup: true,
+                model: "claude-test".to_string(),
+                prompt_version: PROMPT_VERSION.to_string(),
+            },
+        )
+        .expect("second ingest");
+
+        let refreshed_char_len: i64 = conn
+            .query_row(
+                "SELECT char_len FROM youtube_transcript_claim_attempts WHERE video_id=?",
+                params!["vid-refresh"],
+                |row| row.get(0),
+            )
+            .expect("query refreshed char len");
+        assert_eq!(second.attempts_recorded, 1);
+        assert_eq!(
+            refreshed_char_len,
+            "short transcript with fresh appended text".chars().count() as i64
+        );
+    }
+
+    #[test]
+    fn backfill_attempts_marks_leftovers_and_is_idempotent() {
+        let mut conn = test_conn();
+        seed_prepare_video(
+            &conn,
+            "leftover",
+            "Leftover verbal",
+            Some("2026-06-01T00:00:00Z"),
+            r#"{"content_type":"verbal_strategy"}"#,
+            "small",
+        );
+        seed_prepare_video(
+            &conn,
+            "too_large",
+            "Too large verbal",
+            Some("2026-06-02T00:00:00Z"),
+            r#"{"content_type":"verbal_strategy"}"#,
+            "too large",
+        );
+        seed_prepare_video(
+            &conn,
+            "empty",
+            "Empty verbal",
+            Some("2026-06-03T00:00:00Z"),
+            r#"{"content_type":"verbal_strategy"}"#,
+            "",
+        );
+        seed_prepare_video(
+            &conn,
+            "claimed",
+            "Claimed verbal",
+            Some("2026-06-04T00:00:00Z"),
+            r#"{"content_type":"verbal_strategy"}"#,
+            "claim",
+        );
+        seed_prepare_video(
+            &conn,
+            "attempted",
+            "Attempted verbal",
+            Some("2026-06-05T00:00:00Z"),
+            r#"{"content_type":"verbal_strategy"}"#,
+            "prior",
+        );
+        insert_existing_claim(&conn, "claimed", PROMPT_VERSION, "claimed-hash");
+        insert_attempt(&conn, "attempted", PROMPT_VERSION, "zero_yield", 0, 5);
+
+        let first = backfill_attempts(
+            &mut conn,
+            BackfillAttemptsOptions {
+                write: true,
+                no_backup: true,
+                prompt_version: PROMPT_VERSION.to_string(),
+                max_chars: Some(5),
+            },
+        )
+        .expect("first backfill");
+        let second = backfill_attempts(
+            &mut conn,
+            BackfillAttemptsOptions {
+                write: true,
+                no_backup: true,
+                prompt_version: PROMPT_VERSION.to_string(),
+                max_chars: Some(5),
+            },
+        )
+        .expect("second backfill");
+
+        assert!(!first.dry_run);
+        assert_eq!(first.would_mark, 1);
+        assert_eq!(first.marked, 1);
+        assert_eq!(first.backup_path, None);
+        assert_eq!(second.would_mark, 0);
+        assert_eq!(second.marked, 0);
+
+        let attempts = query_attempts(&conn);
+        assert!(attempts.contains(&(
+            "leftover".to_string(),
+            "zero_yield".to_string(),
+            0,
+            "small".chars().count() as i64
+        )));
+        assert!(!attempts
+            .iter()
+            .any(|(video_id, _, _, _)| video_id == "too_large"));
+        assert!(!attempts
+            .iter()
+            .any(|(video_id, _, _, _)| video_id == "empty"));
     }
 
     fn test_conn() -> Connection {
@@ -910,15 +1457,28 @@ CREATE TABLE youtube_learning_claims (id INTEGER PRIMARY KEY AUTOINCREMENT, vide
 
     fn query_statuses(conn: &Connection) -> Vec<(i64, String)> {
         let mut statement = conn
-            .prepare(
-                "SELECT claim_index, status FROM youtube_learning_claims ORDER BY claim_index",
-            )
+            .prepare("SELECT claim_index, status FROM youtube_learning_claims ORDER BY claim_index")
             .expect("prepare status query");
         statement
             .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
             .expect("query statuses")
             .collect::<rusqlite::Result<Vec<_>>>()
             .expect("collect statuses")
+    }
+
+    fn query_attempts(conn: &Connection) -> Vec<(String, String, i64, i64)> {
+        let mut statement = conn
+            .prepare(
+                "SELECT video_id, status, claim_count, char_len FROM youtube_transcript_claim_attempts ORDER BY video_id",
+            )
+            .expect("prepare attempts query");
+        statement
+            .query_map([], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })
+            .expect("query attempts")
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .expect("collect attempts")
     }
 
     fn count_claims(conn: &Connection) -> usize {
@@ -1027,5 +1587,35 @@ CREATE TABLE youtube_learning_claims (id INTEGER PRIMARY KEY AUTOINCREMENT, vide
             ],
         )
         .expect("insert existing claim");
+    }
+
+    fn insert_attempt(
+        conn: &Connection,
+        video_id: &str,
+        prompt_version: &str,
+        status: &str,
+        claim_count: i64,
+        char_len: i64,
+    ) {
+        let now = 1_700_000_000_i64;
+        conn.execute(
+            r#"
+            INSERT INTO youtube_transcript_claim_attempts(
+              video_id, prompt_version, mode, status, claim_count, char_len,
+              note, attempted_at, updated_at
+            )
+            VALUES(?, ?, 'normal', ?, ?, ?, NULL, ?, ?)
+            "#,
+            params![
+                video_id,
+                prompt_version,
+                status,
+                claim_count,
+                char_len,
+                now,
+                now
+            ],
+        )
+        .expect("insert attempt");
     }
 }
