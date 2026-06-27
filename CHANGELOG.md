@@ -1,5 +1,13 @@
 # Changelog
 
+## #14 — Sehr lange Stream-Mitschnitte werden auswertbar (abschnittsweise)
+
+Die längsten Quellen blieben bisher außen vor: mehrstündige Stream- und Coaching-Mitschnitte mit teils über einer Million Zeichen Transcript. Die Auswertung war auf Videos üblicher Länge begrenzt; alles darüber wurde übersprungen — obwohl gerade diese VODs besonders dichtes Spielwissen tragen.
+
+Solche Mitschnitte werden nun in überlappende Abschnitte zerlegt, einzeln ausgewertet und ihre geprüften Aussagen anschließend wieder zusammengeführt; die Überlappung verhindert, dass eine Aussage an einer Abschnittsgrenze zerrissen und übersehen wird. Die Pipeline erkennt von selbst, ob eine Quelle als langer Mitschnitt oder als normales Video behandelt wird. Offensichtlich themenfremde Streams — etwa wenn ein Creator ein ganz anderes Spiel zockt — lassen sich gezielt aussortieren, bevor Auswertung in Inhalte fließt, die nichts über Deadlock aussagen.
+
+Damit ist der Weg frei, auch die bisher offenen über hundert langen Mitschnitte in den geprüften Wissensschatz zu holen — abschnittsweise, gegen Dopplungen abgesichert und ohne themenfremden Ballast. Wie gewohnt wird vor jedem Schreibvorgang die Datenbank vollständig gesichert.
+
 ## #13 — Ertraglose Videos werden nicht mehr in jeder Welle neu versucht
 
 Die Auswertung griff bei jedem Lauf erneut nach Videos, deren Transcript schlicht nichts Prüfbares hergibt — kurze Clips ohne belastbare Aussage. Das System merkte sich bisher nur, welche Videos bereits Wissen geliefert hatten, nicht aber, welche schon erfolglos versucht worden waren. Dadurch landeten dieselben ertraglosen Kurzvideos Welle für Welle wieder im Stapel und verbrauchten Auswertung, ohne je etwas beizutragen.

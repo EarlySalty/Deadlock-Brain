@@ -68,13 +68,26 @@ enum TranscriptClaimsAction {
         out: Option<PathBuf>,
         #[arg(long, value_enum, default_value_t = transcript_claims::PrepareOrder::Recent)]
         order: transcript_claims::PrepareOrder,
+        #[arg(long, value_enum, default_value_t = transcript_claims::PrepareMode::Normal)]
+        mode: transcript_claims::PrepareMode,
         #[arg(
             long,
-            default_value_t = 150_000,
+            default_value_t = transcript_claims::MONSTER_CHAR_THRESHOLD,
             hide_default_value = true,
             help = "Maximum transcript characters [default: 150000] (0 = kein Limit)"
         )]
         max_chars: usize,
+        #[arg(
+            long,
+            default_value_t = transcript_claims::MONSTER_CHAR_THRESHOLD,
+            hide_default_value = true,
+            help = "Minimum transcript characters for monster mode [default: 150000] (0 = kein Minimum)"
+        )]
+        min_chars: usize,
+        #[arg(long, default_value_t = 60_000)]
+        chunk_chars: usize,
+        #[arg(long, default_value_t = 4_000)]
+        overlap_chars: usize,
     },
     #[command(about = "Insert externally verified transcript claims")]
     Ingest {
@@ -93,11 +106,24 @@ enum TranscriptClaimsAction {
     BackfillAttempts {
         #[arg(
             long,
-            default_value_t = 150_000,
+            default_value_t = transcript_claims::MONSTER_CHAR_THRESHOLD,
             hide_default_value = true,
             help = "Maximum transcript characters [default: 150000] (0 = kein Limit)"
         )]
         max_chars: usize,
+        #[arg(long, default_value = "youtube_claims_de_transcript_v1")]
+        prompt_version: String,
+        #[arg(long)]
+        write: bool,
+        #[arg(long)]
+        no_backup: bool,
+    },
+    #[command(about = "Mark monster transcript claim candidates as off-topic")]
+    MarkOfftopic {
+        #[arg(long = "title-contains", value_name = "STR")]
+        title_contains: Vec<String>,
+        #[arg(long = "video-ids", value_name = "PATH")]
+        video_ids: Option<PathBuf>,
         #[arg(long, default_value = "youtube_claims_de_transcript_v1")]
         prompt_version: String,
         #[arg(long)]
@@ -174,22 +200,46 @@ fn run() -> anyhow::Result<()> {
                 limit,
                 out,
                 order,
+                mode,
                 max_chars,
+                min_chars,
+                chunk_chars,
+                overlap_chars,
             } => {
                 let conn = db::open_db(cli.db)?;
-                let max_chars = if max_chars == 0 {
-                    None
+                if mode == transcript_claims::PrepareMode::Monster {
+                    let summary = transcript_claims::prepare_monster(
+                        &conn,
+                        limit,
+                        order,
+                        min_chars,
+                        chunk_chars,
+                        overlap_chars,
+                    )?;
+                    if let Some(out) = out {
+                        let content = serde_json::to_string_pretty(&summary)?;
+                        fs::write(&out, format!("{content}\n")).with_context(|| {
+                            format!("write monster prepare output {}", out.display())
+                        })?;
+                        Ok(())
+                    } else {
+                        print_json(&summary)
+                    }
                 } else {
-                    Some(max_chars)
-                };
-                let summary = transcript_claims::prepare(&conn, limit, order, max_chars)?;
-                if let Some(out) = out {
-                    let content = serde_json::to_string_pretty(&summary)?;
-                    fs::write(&out, format!("{content}\n"))
-                        .with_context(|| format!("write prepare output {}", out.display()))?;
-                    Ok(())
-                } else {
-                    print_json(&summary)
+                    let max_chars = if max_chars == 0 {
+                        None
+                    } else {
+                        Some(max_chars)
+                    };
+                    let summary = transcript_claims::prepare(&conn, limit, order, max_chars)?;
+                    if let Some(out) = out {
+                        let content = serde_json::to_string_pretty(&summary)?;
+                        fs::write(&out, format!("{content}\n"))
+                            .with_context(|| format!("write prepare output {}", out.display()))?;
+                        Ok(())
+                    } else {
+                        print_json(&summary)
+                    }
                 }
             }
             TranscriptClaimsAction::Ingest {
@@ -231,6 +281,26 @@ fn run() -> anyhow::Result<()> {
                         no_backup,
                         prompt_version,
                         max_chars,
+                    },
+                )?;
+                print_json(&summary)
+            }
+            TranscriptClaimsAction::MarkOfftopic {
+                title_contains,
+                video_ids,
+                prompt_version,
+                write,
+                no_backup,
+            } => {
+                let mut conn = db::open_db(cli.db)?;
+                let summary = transcript_claims::mark_offtopic(
+                    &mut conn,
+                    transcript_claims::MarkOfftopicOptions {
+                        write,
+                        no_backup,
+                        prompt_version,
+                        title_contains,
+                        video_ids_path: video_ids,
                     },
                 )?;
                 print_json(&summary)

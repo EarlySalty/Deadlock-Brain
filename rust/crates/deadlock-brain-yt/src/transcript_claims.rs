@@ -17,6 +17,7 @@ use crate::db;
 pub const PROMPT_VERSION: &str = "youtube_claims_de_transcript_v1";
 pub const PROMPT_TEXT: &str =
     "Transcript-basierte Claim-Extraktion (Claude) + DB-Verifikation gegen deadlock_data/patch_events.";
+pub const MONSTER_CHAR_THRESHOLD: usize = 150_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum PrepareOrder {
@@ -39,6 +40,27 @@ impl fmt::Display for PrepareOrder {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum PrepareMode {
+    Normal,
+    Monster,
+}
+
+impl PrepareMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Normal => "normal",
+            Self::Monster => "monster",
+        }
+    }
+}
+
+impl fmt::Display for PrepareMode {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct PrepareSummary {
     pub generated_at: i64,
@@ -56,6 +78,38 @@ pub struct PrepareVideo {
     pub channel_title: Option<String>,
     pub char_len: usize,
     pub transcript_text: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MonsterPrepareSummary {
+    pub generated_at: i64,
+    pub prompt_version: String,
+    pub mode: String,
+    pub chunk_chars: usize,
+    pub overlap_chars: usize,
+    pub min_chars: usize,
+    pub count: usize,
+    pub videos: Vec<MonsterPrepareVideo>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MonsterPrepareVideo {
+    pub video_id: String,
+    pub title: String,
+    pub url: String,
+    pub channel_title: Option<String>,
+    pub char_len: usize,
+    pub chunk_count: usize,
+    pub chunks: Vec<TranscriptChunk>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TranscriptChunk {
+    pub chunk_index: usize,
+    pub char_start: usize,
+    pub char_end: usize,
+    pub char_len: usize,
+    pub text: String,
 }
 
 #[derive(Debug)]
@@ -92,6 +146,33 @@ pub struct BackfillAttemptsSummary {
     pub would_mark: usize,
     pub marked: usize,
     pub backup_path: Option<String>,
+}
+
+#[derive(Debug)]
+pub struct MarkOfftopicOptions {
+    pub write: bool,
+    pub no_backup: bool,
+    pub prompt_version: String,
+    pub title_contains: Vec<String>,
+    pub video_ids_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MarkOfftopicSummary {
+    pub dry_run: bool,
+    pub would_mark: usize,
+    pub marked: usize,
+    pub matched_titles: Vec<MarkOfftopicTitleMatch>,
+    pub backup_path: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MarkOfftopicTitleMatch {
+    pub video_id: String,
+    pub title: String,
+    pub char_len: usize,
+    pub matched_by_title_contains: Vec<String>,
+    pub matched_by_video_ids: bool,
 }
 
 pub fn prepare(
@@ -161,6 +242,149 @@ pub fn prepare(
         count: videos.len(),
         videos,
     })
+}
+
+pub fn prepare_monster(
+    conn: &Connection,
+    limit: usize,
+    order: PrepareOrder,
+    min_chars: usize,
+    chunk_chars: usize,
+    overlap_chars: usize,
+) -> anyhow::Result<MonsterPrepareSummary> {
+    validate_chunk_options(chunk_chars, overlap_chars)?;
+
+    let order_sql = match order {
+        PrepareOrder::Recent => "COALESCE(v.published_at,'') DESC, v.video_id ASC",
+        PrepareOrder::Shortest => "length(t.transcript_text) ASC, v.video_id ASC",
+    };
+    let limit = usize_to_i64(limit, "monster prepare limit")?;
+    let min_chars_i64 = if min_chars == 0 {
+        None
+    } else {
+        Some(usize_to_i64(min_chars, "monster prepare min chars")?)
+    };
+
+    let mut sql = r#"
+        SELECT v.video_id, v.title, v.url, v.channel_title, t.transcript_text
+        FROM youtube_videos v JOIN youtube_transcripts t ON t.video_id=v.video_id
+        WHERE json_extract(v.metadata_json,'$.content_type')='verbal_strategy'
+          AND length(t.transcript_text) > 0
+          AND NOT EXISTS (
+            SELECT 1 FROM youtube_learning_claims c
+            WHERE c.video_id=v.video_id AND c.prompt_version=?
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM youtube_transcript_claim_attempts a
+            WHERE a.video_id=v.video_id AND a.prompt_version=?
+          )
+        "#
+    .to_string();
+    if min_chars_i64.is_some() {
+        sql.push_str("          AND length(t.transcript_text) > ?\n");
+    }
+    sql.push_str(&format!(
+        r#"
+        ORDER BY {order_sql}
+        LIMIT ?
+        "#
+    ));
+
+    let mut bind_values = vec![
+        SqlValue::Text(PROMPT_VERSION.to_string()),
+        SqlValue::Text(PROMPT_VERSION.to_string()),
+    ];
+    if let Some(min_chars) = min_chars_i64 {
+        bind_values.push(SqlValue::Integer(min_chars));
+    }
+    bind_values.push(SqlValue::Integer(limit));
+
+    let mut statement = conn.prepare(&sql)?;
+    let videos = statement
+        .query_map(params_from_iter(bind_values), |row| {
+            let transcript_text: String = row.get(4)?;
+            let char_len = transcript_text.chars().count();
+            let chunks = chunk_transcript_text(&transcript_text, chunk_chars, overlap_chars)
+                .map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        4,
+                        rusqlite::types::Type::Text,
+                        error.into(),
+                    )
+                })?;
+            Ok(MonsterPrepareVideo {
+                video_id: row.get(0)?,
+                title: row.get(1)?,
+                url: row.get(2)?,
+                channel_title: row.get(3)?,
+                char_len,
+                chunk_count: chunks.len(),
+                chunks,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    Ok(MonsterPrepareSummary {
+        generated_at: db::now_epoch_seconds(),
+        prompt_version: PROMPT_VERSION.to_string(),
+        mode: PrepareMode::Monster.as_str().to_string(),
+        chunk_chars,
+        overlap_chars,
+        min_chars,
+        count: videos.len(),
+        videos,
+    })
+}
+
+fn validate_chunk_options(chunk_chars: usize, overlap_chars: usize) -> anyhow::Result<()> {
+    if overlap_chars >= chunk_chars {
+        anyhow::bail!(
+            "overlap_chars ({overlap_chars}) must be smaller than chunk_chars ({chunk_chars})"
+        );
+    }
+    Ok(())
+}
+
+fn chunk_transcript_text(
+    text: &str,
+    chunk_chars: usize,
+    overlap_chars: usize,
+) -> anyhow::Result<Vec<TranscriptChunk>> {
+    validate_chunk_options(chunk_chars, overlap_chars)?;
+
+    let mut char_byte_offsets = Vec::with_capacity(text.len().saturating_add(1).min(1_000_000));
+    for (byte_offset, _) in text.char_indices() {
+        char_byte_offsets.push(byte_offset);
+    }
+    char_byte_offsets.push(text.len());
+    let char_len = char_byte_offsets.len().saturating_sub(1);
+    if char_len == 0 {
+        return Ok(Vec::new());
+    }
+
+    let step = chunk_chars - overlap_chars;
+    let mut chunks = Vec::new();
+    let mut char_start = 0_usize;
+    while char_start < char_len {
+        let char_end = char_start.saturating_add(chunk_chars).min(char_len);
+        if char_end <= char_start {
+            break;
+        }
+        let byte_start = char_byte_offsets[char_start];
+        let byte_end = char_byte_offsets[char_end];
+        chunks.push(TranscriptChunk {
+            chunk_index: chunks.len(),
+            char_start,
+            char_end,
+            char_len: char_end - char_start,
+            text: text[byte_start..byte_end].to_string(),
+        });
+        if char_end == char_len {
+            break;
+        }
+        char_start = char_start.saturating_add(step);
+    }
+    Ok(chunks)
 }
 
 pub fn ingest(
@@ -290,6 +514,205 @@ pub fn backfill_attempts(
     }
 
     Ok(summary)
+}
+
+pub fn mark_offtopic(
+    conn: &mut Connection,
+    options: MarkOfftopicOptions,
+) -> anyhow::Result<MarkOfftopicSummary> {
+    let title_terms = normalize_title_terms(&options.title_contains);
+    let video_ids = load_video_ids(options.video_ids_path.as_deref())?;
+    if title_terms.is_empty() && video_ids.is_empty() {
+        anyhow::bail!("mark-offtopic requires --title-contains or --video-ids");
+    }
+
+    let candidates = off_topic_candidates(conn, &options.prompt_version)?;
+    let matched_candidates = candidates
+        .into_iter()
+        .filter_map(|candidate| match_offtopic_candidate(candidate, &title_terms, &video_ids))
+        .collect::<Vec<_>>();
+    let backup_path = if options.write && !options.no_backup && !matched_candidates.is_empty() {
+        Some(create_backup(conn)?)
+    } else {
+        None
+    };
+
+    let mut summary = MarkOfftopicSummary {
+        dry_run: !options.write,
+        would_mark: matched_candidates.len(),
+        marked: 0,
+        matched_titles: matched_candidates
+            .iter()
+            .map(|candidate| MarkOfftopicTitleMatch {
+                video_id: candidate.video_id.clone(),
+                title: candidate.title.clone(),
+                char_len: candidate.char_len,
+                matched_by_title_contains: candidate.matched_by_title_contains.clone(),
+                matched_by_video_ids: candidate.matched_by_video_ids,
+            })
+            .collect(),
+        backup_path,
+    };
+
+    if options.write && !matched_candidates.is_empty() {
+        let tx = conn.transaction()?;
+        let now = db::now_epoch_seconds();
+        let mut marked = 0_usize;
+        for candidate in &matched_candidates {
+            marked += insert_offtopic_attempt(
+                &tx,
+                &candidate.video_id,
+                &options.prompt_version,
+                candidate.char_len,
+                now,
+            )?;
+        }
+        tx.commit()?;
+        summary.marked = marked;
+    }
+
+    Ok(summary)
+}
+
+#[derive(Debug)]
+struct OfftopicCandidate {
+    video_id: String,
+    title: String,
+    char_len: usize,
+}
+
+#[derive(Debug)]
+struct MatchedOfftopicCandidate {
+    video_id: String,
+    title: String,
+    char_len: usize,
+    matched_by_title_contains: Vec<String>,
+    matched_by_video_ids: bool,
+}
+
+fn normalize_title_terms(values: &[String]) -> Vec<String> {
+    values
+        .iter()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(str::to_lowercase)
+        .collect()
+}
+
+fn load_video_ids(path: Option<&Path>) -> anyhow::Result<HashSet<String>> {
+    let Some(path) = path else {
+        return Ok(HashSet::new());
+    };
+    let content = fs::read_to_string(path)
+        .with_context(|| format!("read mark-offtopic video ids {}", path.display()))?;
+    Ok(content
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(ToOwned::to_owned)
+        .collect())
+}
+
+fn off_topic_candidates(
+    conn: &Connection,
+    prompt_version: &str,
+) -> anyhow::Result<Vec<OfftopicCandidate>> {
+    let mut statement = conn.prepare(
+        r#"
+        SELECT v.video_id, v.title, length(t.transcript_text)
+        FROM youtube_videos v JOIN youtube_transcripts t ON t.video_id=v.video_id
+        WHERE json_extract(v.metadata_json,'$.content_type')='verbal_strategy'
+          AND length(t.transcript_text) > 0
+          AND length(t.transcript_text) > ?
+          AND NOT EXISTS (
+            SELECT 1 FROM youtube_learning_claims c
+            WHERE c.video_id=v.video_id AND c.prompt_version=?
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM youtube_transcript_claim_attempts a
+            WHERE a.video_id=v.video_id AND a.prompt_version=?
+          )
+        ORDER BY COALESCE(v.published_at,'') DESC, v.video_id ASC
+        "#,
+    )?;
+    let rows = statement
+        .query_map(
+            params![
+                usize_to_i64(MONSTER_CHAR_THRESHOLD, "monster char threshold")?,
+                prompt_version,
+                prompt_version
+            ],
+            |row| {
+                let char_len: i64 = row.get(2)?;
+                let char_len = usize::try_from(char_len).map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        2,
+                        rusqlite::types::Type::Integer,
+                        Box::new(error),
+                    )
+                })?;
+                Ok(OfftopicCandidate {
+                    video_id: row.get(0)?,
+                    title: row.get(1)?,
+                    char_len,
+                })
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+fn match_offtopic_candidate(
+    candidate: OfftopicCandidate,
+    title_terms: &[String],
+    video_ids: &HashSet<String>,
+) -> Option<MatchedOfftopicCandidate> {
+    let title_lower = candidate.title.to_lowercase();
+    let matched_by_title_contains = title_terms
+        .iter()
+        .filter(|term| title_lower.contains(term.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    let matched_by_video_ids = video_ids.contains(&candidate.video_id);
+    if matched_by_title_contains.is_empty() && !matched_by_video_ids {
+        return None;
+    }
+    Some(MatchedOfftopicCandidate {
+        video_id: candidate.video_id,
+        title: candidate.title,
+        char_len: candidate.char_len,
+        matched_by_title_contains,
+        matched_by_video_ids,
+    })
+}
+
+fn insert_offtopic_attempt(
+    conn: &Connection,
+    video_id: &str,
+    prompt_version: &str,
+    char_len: usize,
+    now: i64,
+) -> anyhow::Result<usize> {
+    let char_len = usize_to_i64(char_len, "offtopic transcript char length")?;
+    let inserted = conn.execute(
+        r#"
+        INSERT INTO youtube_transcript_claim_attempts(
+          video_id, prompt_version, mode, status, claim_count, char_len,
+          note, attempted_at, updated_at
+        )
+        VALUES(?, ?, 'monster', 'offtopic', 0, ?, ?, ?, ?)
+        ON CONFLICT(video_id, prompt_version) DO NOTHING
+        "#,
+        params![
+            video_id,
+            prompt_version,
+            char_len,
+            "marked off-topic before monster workflow",
+            now,
+            now
+        ],
+    )?;
+    Ok(inserted)
 }
 
 #[derive(Debug, Deserialize)]
@@ -498,6 +921,11 @@ fn upsert_transcript_claim_attempt(
     now: i64,
 ) -> anyhow::Result<usize> {
     let status = if claim_count == 0 { "zero_yield" } else { "ok" };
+    let mode = if char_len > MONSTER_CHAR_THRESHOLD {
+        PrepareMode::Monster.as_str()
+    } else {
+        PrepareMode::Normal.as_str()
+    };
     let claim_count = usize_to_i64(claim_count, "attempt claim count")?;
     let char_len = usize_to_i64(char_len, "attempt transcript char length")?;
     let affected = conn.execute(
@@ -506,7 +934,7 @@ fn upsert_transcript_claim_attempt(
           video_id, prompt_version, mode, status, claim_count, char_len,
           note, attempted_at, updated_at
         )
-        VALUES(?, ?, 'normal', ?, ?, ?, NULL, ?, ?)
+        VALUES(?, ?, ?, ?, ?, ?, NULL, ?, ?)
         ON CONFLICT(video_id, prompt_version) DO UPDATE SET
           status=excluded.status,
           claim_count=excluded.claim_count,
@@ -517,6 +945,7 @@ fn upsert_transcript_claim_attempt(
         params![
             video_id,
             prompt_version,
+            mode,
             status,
             claim_count,
             char_len,
@@ -1181,6 +1610,120 @@ CREATE TABLE youtube_transcript_claim_attempts (video_id TEXT NOT NULL, prompt_v
     }
 
     #[test]
+    fn monster_prepare_selects_only_unprocessed_videos_above_min_chars() {
+        let conn = test_conn();
+        seed_prepare_video(
+            &conn,
+            "above",
+            "Above min",
+            Some("2026-06-04T00:00:00Z"),
+            r#"{"content_type":"verbal_strategy"}"#,
+            "x".repeat(11).as_str(),
+        );
+        seed_prepare_video(
+            &conn,
+            "equal",
+            "Equal min",
+            Some("2026-06-03T00:00:00Z"),
+            r#"{"content_type":"verbal_strategy"}"#,
+            "x".repeat(10).as_str(),
+        );
+        seed_prepare_video(
+            &conn,
+            "claimed",
+            "Claimed above",
+            Some("2026-06-02T00:00:00Z"),
+            r#"{"content_type":"verbal_strategy"}"#,
+            "x".repeat(12).as_str(),
+        );
+        seed_prepare_video(
+            &conn,
+            "attempted",
+            "Attempted above",
+            Some("2026-06-01T00:00:00Z"),
+            r#"{"content_type":"verbal_strategy"}"#,
+            "x".repeat(13).as_str(),
+        );
+        seed_prepare_video(
+            &conn,
+            "visual_above",
+            "Visual above",
+            Some("2026-06-05T00:00:00Z"),
+            r#"{"content_type":"visual_tech"}"#,
+            "x".repeat(14).as_str(),
+        );
+        insert_existing_claim(&conn, "claimed", PROMPT_VERSION, "claimed-monster-hash");
+        insert_attempt(&conn, "attempted", PROMPT_VERSION, "zero_yield", 0, 13);
+
+        let summary =
+            prepare_monster(&conn, 20, PrepareOrder::Recent, 10, 6, 2).expect("monster prepare");
+
+        assert_eq!(summary.mode, "monster");
+        assert_eq!(summary.min_chars, 10);
+        assert_eq!(summary.count, 1);
+        assert_eq!(summary.videos[0].video_id, "above");
+        assert_eq!(summary.videos[0].char_len, 11);
+        assert_eq!(summary.videos[0].chunk_count, 3);
+        assert_eq!(
+            summary.videos[0]
+                .chunks
+                .iter()
+                .map(|chunk| (chunk.char_start, chunk.char_end))
+                .collect::<Vec<_>>(),
+            vec![(0, 6), (4, 10), (8, 11)]
+        );
+    }
+
+    #[test]
+    fn chunking_is_char_based_overlapping_and_multibyte_safe() {
+        let transcript = "x".repeat(250_000);
+        let chunks = chunk_transcript_text(&transcript, 60_000, 4_000).expect("chunk transcript");
+
+        assert_eq!(chunks.len(), 5);
+        assert_eq!(chunks.last().expect("last chunk").char_end, 250_000);
+        for chunk in &chunks {
+            assert_eq!(chunk.char_len, chunk.char_end - chunk.char_start);
+            assert_eq!(chunk.text.chars().count(), chunk.char_len);
+            assert!(!chunk.text.is_empty());
+        }
+        for pair in chunks.windows(2) {
+            assert_eq!(pair[1].char_start, pair[0].char_end - 4_000);
+        }
+        let mut covered = vec![false; 250_000];
+        for chunk in &chunks {
+            for covered_slot in &mut covered[chunk.char_start..chunk.char_end] {
+                *covered_slot = true;
+            }
+        }
+        assert!(covered.into_iter().all(|covered_slot| covered_slot));
+
+        let multibyte = "aä🙂漢".repeat(5);
+        let multibyte_chunks =
+            chunk_transcript_text(&multibyte, 7, 2).expect("chunk multibyte transcript");
+        assert_eq!(multibyte.chars().count(), 20);
+        assert_eq!(
+            multibyte_chunks.last().expect("last multibyte").char_end,
+            20
+        );
+        for chunk in &multibyte_chunks {
+            let expected_text = multibyte
+                .chars()
+                .skip(chunk.char_start)
+                .take(chunk.char_len)
+                .collect::<String>();
+            assert_eq!(chunk.text, expected_text);
+        }
+    }
+
+    #[test]
+    fn chunking_rejects_overlap_greater_or_equal_to_chunk_size() {
+        let error = chunk_transcript_text("abc", 4, 4).expect_err("invalid overlap");
+        assert!(error
+            .to_string()
+            .contains("overlap_chars (4) must be smaller than chunk_chars (4)"));
+    }
+
+    #[test]
     fn ingest_write_records_zero_yield_and_ok_attempts() {
         let mut conn = test_conn();
         seed_prepare_video(
@@ -1241,6 +1784,59 @@ CREATE TABLE youtube_transcript_claim_attempts (video_id TEXT NOT NULL, prompt_v
                     0,
                     "zero transcript".chars().count() as i64
                 ),
+            ]
+        );
+    }
+
+    #[test]
+    fn ingest_attempt_mode_follows_monster_threshold() {
+        let mut conn = test_conn();
+        seed_prepare_video(
+            &conn,
+            "vid-small",
+            "Small attempt",
+            Some("2026-06-01T00:00:00Z"),
+            r#"{"content_type":"verbal_strategy"}"#,
+            "small transcript",
+        );
+        let monster_transcript = "x".repeat(MONSTER_CHAR_THRESHOLD + 1);
+        seed_prepare_video(
+            &conn,
+            "vid-monster",
+            "Monster attempt",
+            Some("2026-06-02T00:00:00Z"),
+            r#"{"content_type":"verbal_strategy"}"#,
+            &monster_transcript,
+        );
+        let input = temp_input(&json!([
+            {
+                "video_id": "vid-small",
+                "claims": []
+            },
+            {
+                "video_id": "vid-monster",
+                "claims": []
+            }
+        ]));
+
+        let summary = ingest(
+            &mut conn,
+            input.path(),
+            IngestOptions {
+                write: true,
+                no_backup: true,
+                model: "claude-test".to_string(),
+                prompt_version: PROMPT_VERSION.to_string(),
+            },
+        )
+        .expect("ingest mode attempts");
+
+        assert_eq!(summary.attempts_recorded, 2);
+        assert_eq!(
+            query_attempt_modes(&conn),
+            vec![
+                ("vid-monster".to_string(), "monster".to_string()),
+                ("vid-small".to_string(), "normal".to_string()),
             ]
         );
     }
@@ -1414,6 +2010,115 @@ CREATE TABLE youtube_transcript_claim_attempts (video_id TEXT NOT NULL, prompt_v
             .any(|(video_id, _, _, _)| video_id == "empty"));
     }
 
+    #[test]
+    fn mark_offtopic_title_contains_is_dry_run_idempotent_and_requires_source() {
+        let mut conn = test_conn();
+        let monster_transcript = "m".repeat(MONSTER_CHAR_THRESHOLD + 1);
+        let normal_transcript = "n".repeat(MONSTER_CHAR_THRESHOLD);
+        seed_prepare_video(
+            &conn,
+            "subnautica",
+            "Subnautica stream break",
+            Some("2026-06-03T00:00:00Z"),
+            r#"{"content_type":"verbal_strategy"}"#,
+            &monster_transcript,
+        );
+        seed_prepare_video(
+            &conn,
+            "subnautica-short",
+            "Subnautica normal length stream break",
+            Some("2026-06-04T00:00:00Z"),
+            r#"{"content_type":"verbal_strategy"}"#,
+            &normal_transcript,
+        );
+        seed_prepare_video(
+            &conn,
+            "deadlock",
+            "Deadlock coaching",
+            Some("2026-06-02T00:00:00Z"),
+            r#"{"content_type":"verbal_strategy"}"#,
+            "deadlock transcript",
+        );
+        seed_prepare_video(
+            &conn,
+            "visual",
+            "Subnautica visual clip",
+            Some("2026-06-01T00:00:00Z"),
+            r#"{"content_type":"visual_tech"}"#,
+            "visual transcript",
+        );
+
+        let missing_source = mark_offtopic(
+            &mut conn,
+            MarkOfftopicOptions {
+                write: false,
+                no_backup: true,
+                prompt_version: PROMPT_VERSION.to_string(),
+                title_contains: Vec::new(),
+                video_ids_path: None,
+            },
+        )
+        .expect_err("source required");
+        assert!(missing_source.to_string().contains("requires"));
+
+        let dry_run = mark_offtopic(
+            &mut conn,
+            MarkOfftopicOptions {
+                write: false,
+                no_backup: true,
+                prompt_version: PROMPT_VERSION.to_string(),
+                title_contains: vec!["SUBNAUTICA".to_string()],
+                video_ids_path: None,
+            },
+        )
+        .expect("dry-run mark offtopic");
+        assert!(dry_run.dry_run);
+        assert_eq!(dry_run.would_mark, 1);
+        assert_eq!(dry_run.marked, 0);
+        assert_eq!(dry_run.matched_titles[0].video_id, "subnautica");
+        assert_eq!(
+            dry_run.matched_titles[0].char_len,
+            MONSTER_CHAR_THRESHOLD + 1
+        );
+        assert_eq!(query_attempt_modes(&conn), Vec::<(String, String)>::new());
+
+        let first_write = mark_offtopic(
+            &mut conn,
+            MarkOfftopicOptions {
+                write: true,
+                no_backup: true,
+                prompt_version: PROMPT_VERSION.to_string(),
+                title_contains: vec!["subnautica".to_string()],
+                video_ids_path: None,
+            },
+        )
+        .expect("write mark offtopic");
+        let second_write = mark_offtopic(
+            &mut conn,
+            MarkOfftopicOptions {
+                write: true,
+                no_backup: true,
+                prompt_version: PROMPT_VERSION.to_string(),
+                title_contains: vec!["subnautica".to_string()],
+                video_ids_path: None,
+            },
+        )
+        .expect("idempotent mark offtopic");
+
+        assert_eq!(first_write.would_mark, 1);
+        assert_eq!(first_write.marked, 1);
+        assert_eq!(second_write.would_mark, 0);
+        assert_eq!(second_write.marked, 0);
+        assert_eq!(
+            query_attempt_status_modes(&conn),
+            vec![(
+                "subnautica".to_string(),
+                "offtopic".to_string(),
+                "monster".to_string()
+            )]
+        );
+    }
+
     fn test_conn() -> Connection {
         let conn = Connection::open_in_memory().expect("open sqlite");
         conn.execute_batch(TEST_SCHEMA).expect("create schema");
@@ -1479,6 +2184,32 @@ CREATE TABLE youtube_transcript_claim_attempts (video_id TEXT NOT NULL, prompt_v
             .expect("query attempts")
             .collect::<rusqlite::Result<Vec<_>>>()
             .expect("collect attempts")
+    }
+
+    fn query_attempt_modes(conn: &Connection) -> Vec<(String, String)> {
+        let mut statement = conn
+            .prepare(
+                "SELECT video_id, mode FROM youtube_transcript_claim_attempts ORDER BY video_id",
+            )
+            .expect("prepare attempt mode query");
+        statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .expect("query attempt modes")
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .expect("collect attempt modes")
+    }
+
+    fn query_attempt_status_modes(conn: &Connection) -> Vec<(String, String, String)> {
+        let mut statement = conn
+            .prepare(
+                "SELECT video_id, status, mode FROM youtube_transcript_claim_attempts ORDER BY video_id",
+            )
+            .expect("prepare attempt status mode query");
+        statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .expect("query attempt status modes")
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .expect("collect attempt status modes")
     }
 
     fn count_claims(conn: &Connection) -> usize {
