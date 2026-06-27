@@ -8,12 +8,14 @@ Scope: `deadlock-brain-yt transcript-claims` owns only the deterministic data pl
 2. Send the selected transcripts to an external LLM workflow that extracts and verifies claims against trusted DB data.
 3. Save the LLM workflow output as the ingest JSON array.
 4. Run `deadlock-brain-yt transcript-claims ingest --in <path> --write`.
+5. For historical zero-yield leftovers, run `deadlock-brain-yt transcript-claims backfill-attempts --write`.
 
 Dry-run is the default for ingest. Omit `--write` to compute the summary without inserts or backup.
+Dry-run is also the default for `backfill-attempts`.
 
 ## Prepare Output
 
-`prepare` selects verbal strategy videos that have transcripts and no `youtube_claims_de_transcript_v1` rows yet. It never writes to the DB.
+`prepare` selects verbal strategy videos that have transcripts, no `youtube_claims_de_transcript_v1` rows yet, and no matching row in `youtube_transcript_claim_attempts`. It never writes to the DB. Normal `prepare` caps transcript length at 150,000 characters by default, so Monster transcripts >150k stay out of regular batches and go through the separate Monster mode in a follow-up ticket. Use `--max-chars 0` to lift the length limit.
 
 Output shape:
 
@@ -79,6 +81,12 @@ Verdict mapping:
 
 Unknown verdicts are collected in `errors` and skipped.
 
+## Attempts Ledger
+
+`ingest --write` records one `youtube_transcript_claim_attempts` row for every input video, even when the video has zero valid claims. Videos with at least one valid claim get `status='ok'`; videos with no valid claims get `status='zero_yield'`. Dry-runs do not write attempts.
+
+`backfill-attempts` marks old verbal-strategy videos with non-empty transcripts, no claims for the prompt version, no existing attempt row, and transcript length within `--max-chars` as `zero_yield` without running LLM extraction. Use `--max-chars 0` to ignore transcript length. It returns `would_mark` and `marked` counts and is idempotent.
+
 ## Idempotency
 
 `claim_hash` is SHA-256 lower hex over:
@@ -101,10 +109,10 @@ If that file already exists, a `-HHMMSS` suffix is added, with an extra numeric 
 
 The DB runs in WAL mode, so before copying, `ingest` forces `PRAGMA wal_checkpoint(TRUNCATE)` to flush committed pages into the main file; if a checkpoint cannot fully truncate (busy), the non-empty `-wal`/`-shm` sidecars are copied alongside the backup. This makes the copied file self-consistent.
 
-## Status (Stand 2026-06-26)
+## Status (Stand 2026-06-27)
 
 - `transcript_v1` corpus: ~2090 Claims über ~133 Videos (Status accepted/needs_review/unverified/rejected). Wellen 1+2 dieser Pipeline haben die ~169 verbal-Videos mit Transcript bis 150k Zeichen abgearbeitet.
-- **Zero-Yield-Reselect (offen):** Videos, deren Transcript keine prüfbaren Claims hergibt (dünne Shorts), bekommen keine `transcript_v1`-Zeile und werden vom `NOT EXISTS`-Filter in `prepare` bei jedem Lauf erneut ausgewählt. Folgepunkt: einen "attempted"-Marker (z.B. `youtube_videos.learning_status` oder ein metadata-Flag) setzen und in der Selektion ausschließen, damit Null-Ertrag-Videos nicht wiederholt verarbeitet werden.
+- **Zero-Yield-Reselect (behoben 2026-06-27):** `youtube_transcript_claim_attempts` hält verarbeitete Videos getrennt von Claims fest. `prepare` schließt passende Attempt-Zeilen aus; `ingest --write` schreibt `ok`/`zero_yield`; `backfill-attempts` markiert historische <=150k-Zeichen-Leftovers ohne LLM-Lauf.
 - **Monster-VODs (offen):** ~94 verbal-Videos > 150k Zeichen (bis ~1,3 Mio, mehrstündige Stream-/Coaching-VODs) brauchen eine Chunking-Variante (Transcript segmentieren → mehrere Extract-Agenten pro Video → Claims vereinen), bevor sie sinnvoll ausgewertet werden. Offensichtlich themenfremde Streams ausschließen.
 - **needs_asr (offen):** ~109 verbal-Videos haben keine Captions (`transcript_status='unavailable'`) und brauchen Whisper-ASR (nicht installiert).
 

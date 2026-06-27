@@ -30,6 +30,7 @@ mod tests {
             vec![
                 "youtube_feed_sources",
                 "youtube_learning_claims",
+                "youtube_transcript_claim_attempts",
                 "youtube_transcripts",
                 "youtube_videos"
             ]
