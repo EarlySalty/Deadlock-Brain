@@ -52,6 +52,8 @@ enum Commands {
     Legacy(LegacyArgs),
     #[command(about = "Erzeugt einen erklaerbaren Hero-Build-Vorschlag aus API-/Sheet-/Patchdaten.")]
     Build(BuildArgs),
+    #[command(name = "build-context")]
+    BuildContext(BuildContextArgs),
     #[command(about = "Zeigt strukturierte Item-Daten aus der Deadlock Assets API.")]
     Item(ItemArgs),
     #[command(about = "Importiert und analysiert Build-Trainingsdaten.")]
@@ -181,6 +183,13 @@ struct BuildArgs {
     limit_events: usize,
     #[arg(long, help = "Kompakter menschenlesbarer Output statt JSON.")]
     pretty: bool,
+}
+
+#[derive(Debug, Args)]
+struct BuildContextArgs {
+    hero: String,
+    #[arg(long, value_enum)]
+    playstyle: Option<BuildPlaystyle>,
 }
 
 #[derive(Debug, Args)]
@@ -559,6 +568,8 @@ enum PullCommands {
     Assets(PullAssetsArgs),
     #[command(name = "deadlock-data", about = "Zieht trusted deadlock-data aus GitHub.")]
     DeadlockData(PullDeadlockDataArgs),
+    #[command(name = "build-data")]
+    BuildData(PullBuildDataArgs),
     #[command(about = "Importiert bestehende Patchnotes aus der zentralen Bot-DB.")]
     Patchnotes(PullPatchnotesArgs),
     #[command(about = "Zieht gezielt Statlocker WPA-/Leaderboard-Daten.")]
@@ -592,6 +603,12 @@ struct PullDeadlockDataArgs {
     repo_dir: Option<PathBuf>,
     #[arg(long = "no-git-update", help = "Nutze vorhandenen Cache ohne git pull.")]
     no_git_update: bool,
+}
+
+#[derive(Debug, Args)]
+struct PullBuildDataArgs {
+    #[arg(long)]
+    hero: String,
 }
 
 #[derive(Debug, Args)]
@@ -657,6 +674,23 @@ enum GameMode {
     All,
     Standard,
     Brawl,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum BuildPlaystyle {
+    Weapon,
+    Spirit,
+    Tank,
+}
+
+impl BuildPlaystyle {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Weapon => "weapon",
+            Self::Spirit => "spirit",
+            Self::Tank => "tank",
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -872,6 +906,11 @@ fn run(cli: Cli) -> Result<()> {
             } else {
                 print_json(&result)
             }
+        }
+        Commands::BuildContext(args) => {
+            let playstyle = args.playstyle.map(BuildPlaystyle::as_str);
+            let result = dbrain_builds::build_context(&conn, &args.hero, playstyle)?;
+            print_json(&result)
         }
         Commands::Item(args) => {
             let result = dbrain_retrieval::build_item_context(&conn, &args.query)?;
@@ -1142,6 +1181,13 @@ fn run_pull(conn: &Connection, settings: &Settings, source: PullCommands) -> Res
                 "pull": pull,
                 "patch_events": patch_events,
             }))
+        }
+        PullCommands::BuildData(args) => {
+            let result = dbrain_builds::sync_build_data(
+                conn,
+                dbrain_builds::BuildDataSyncOptions::new(args.hero, settings.user_agent.clone()),
+            )?;
+            print_json(&result)
         }
         PullCommands::Patchnotes(args) => {
             let central_db_path = args.db_path.unwrap_or_else(|| settings.central_deadlock_db_path.clone());

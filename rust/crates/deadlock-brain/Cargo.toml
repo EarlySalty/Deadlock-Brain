@@ -11,6 +11,7 @@ path = "src/main.rs"
 anyhow.workspace = true
 clap.workspace = true
 deadlock-brain-core = { path = "../deadlock-brain-core" }
+dbrain-builds = { path = "../dbrain-builds" }
 dbrain-enrich = { path = "../dbrain-enrich" }
 dbrain-learn = { path = "../dbrain-learn" }
 dbrain-normalize = { path = "../dbrain-normalize" }

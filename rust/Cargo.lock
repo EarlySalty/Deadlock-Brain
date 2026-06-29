@@ -206,6 +206,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "dbrain-builds"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "dbrain-enrich"
 version = "0.1.0"
 dependencies = [
@@ -280,6 +293,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "dbrain-builds",
  "dbrain-enrich",
  "dbrain-learn",
  "dbrain-normalize",

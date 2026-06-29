@@ -5,6 +5,7 @@ members = [
   "crates/deadlock-brain-core",
   "crates/deadlock-brain-yt",
   "crates/dbrain-enrich",
+  "crates/dbrain-builds",
   "crates/dbrain-learn",
   "crates/dbrain-normalize",
   "crates/dbrain-retrieval",
