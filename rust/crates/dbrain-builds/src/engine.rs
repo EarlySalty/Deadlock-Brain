@@ -10,7 +10,7 @@ use crate::{
         clamp_unit, normalize_name, now_epoch_seconds, winrate_pp, BRACKET_BADGE_80,
         PATCH_TAG_CURRENT,
     },
-    BuildContext, BuildPath, BuildPathSummary, BuildPhase, FitFlag, ItemDossier,
+    BuildContext, BuildPath, BuildPathSummary, BuildPhase, ItemDossier,
 };
 
 const DEFAULT_MIN_MATCHES: i64 = 500;
@@ -75,14 +75,7 @@ pub(crate) fn build_context(
         label: primary.label.clone(),
         winrate: primary.winrate,
         sample_matches: primary.sample_matches,
-        phases: build_phases(
-            conn,
-            hero_id,
-            &hero.archetype,
-            &primary.label,
-            &selected_items,
-            &name_lookup,
-        )?,
+        phases: build_phases(conn, hero_id, &selected_items, &name_lookup)?,
     };
     let alternative_paths = paths
         .into_iter()
@@ -98,6 +91,7 @@ pub(crate) fn build_context(
         hero_id,
         hero_name: hero.name,
         hero_archetype: hero.archetype,
+        hero_base_health: hero.base_health,
         playstyle: requested_playstyle,
         primary_path,
         alternative_paths,
@@ -216,16 +210,19 @@ fn resolve_from_entity_aliases(conn: &Connection, query_norm: &str) -> Result<Op
 struct HeroRow {
     name: String,
     archetype: String,
+    base_health: Option<f64>,
 }
 
 fn load_hero(conn: &Connection, hero_id: i64) -> Result<HeroRow> {
     conn.query_row(
-        "SELECT name, archetype FROM hero_catalog WHERE hero_id=?1",
+        "SELECT name, archetype, base_health FROM hero_catalog WHERE hero_id=?1",
         [hero_id],
         |row| {
+            let base_health = row.get::<_, Option<i64>>(2)?.map(|value| value as f64);
             Ok(HeroRow {
                 name: row.get(0)?,
                 archetype: row.get(1)?,
+                base_health,
             })
         },
     )
@@ -431,8 +428,6 @@ fn buy_phase(row: &ItemRow) -> &'static str {
 fn build_phases(
     conn: &Connection,
     hero_id: i64,
-    hero_archetype: &str,
-    path_label: &str,
     selected_items: &[&ScoredItem],
     name_lookup: &HashMap<i64, String>,
 ) -> Result<Vec<BuildPhase>> {
@@ -446,14 +441,7 @@ fn build_phases(
         phase_items.sort_by(compare_buy_order);
         let mut dossiers = Vec::new();
         for item in phase_items {
-            dossiers.push(build_dossier(
-                conn,
-                hero_id,
-                hero_archetype,
-                path_label,
-                item,
-                name_lookup,
-            )?);
+            dossiers.push(build_dossier(conn, hero_id, item, name_lookup)?);
         }
         phases.push(BuildPhase {
             phase: phase.to_string(),
@@ -466,8 +454,6 @@ fn build_phases(
 fn build_dossier(
     conn: &Connection,
     hero_id: i64,
-    hero_archetype: &str,
-    path_label: &str,
     item: &ScoredItem,
     name_lookup: &HashMap<i64, String>,
 ) -> Result<ItemDossier> {
@@ -486,45 +472,8 @@ fn build_dossier(
         lift_pp: row.lift_pp,
         buy_phase,
         synergy_with: synergy_names(conn, hero_id, row.item_id, name_lookup)?,
-        fit_flags: fit_flags(hero_archetype, path_label, row, &item.confidence),
         confidence: item.confidence.clone(),
     })
-}
-
-fn fit_flags(
-    hero_archetype: &str,
-    path_label: &str,
-    row: &ItemRow,
-    confidence: &str,
-) -> Vec<FitFlag> {
-    let mut flags = Vec::new();
-    if matches!(hero_archetype, "tank" | "bruiser")
-        && row.defense_kind.iter().any(|kind| kind == "flat_shield")
-    {
-        flags.push(FitFlag {
-            code: "flat_shield_on_tank".to_string(),
-            severity: "warning".to_string(),
-            message_de: "Platzhalter".to_string(),
-        });
-    }
-    if matches!(path_label, "weapon" | "spirit")
-        && row.damage_axis != path_label
-        && row.damage_axis != "hybrid"
-    {
-        flags.push(FitFlag {
-            code: "axis_mismatch".to_string(),
-            severity: "info".to_string(),
-            message_de: "Platzhalter".to_string(),
-        });
-    }
-    if confidence == "low" {
-        flags.push(FitFlag {
-            code: "low_sample".to_string(),
-            severity: "warning".to_string(),
-            message_de: "Platzhalter".to_string(),
-        });
-    }
-    flags
 }
 
 fn synergy_names(
@@ -644,6 +593,7 @@ mod tests {
 
         assert_eq!(context.hero_id, 18);
         assert_eq!(context.hero_name, "Mo & Krill");
+        assert_eq!(context.hero_base_health, Some(930.0));
         assert_ne!(context.primary_path.label, "weapon");
         let primary_items = context
             .primary_path
@@ -685,32 +635,33 @@ mod tests {
     }
 
     #[test]
+    fn emitted_items_are_typed_evidence() {
+        let conn = Connection::open_in_memory().expect("open sqlite");
+        sync_fixture_payloads(&conn).expect("sync fixtures");
+        let context = build_context(&conn, "Mo", None).expect("build context");
+
+        assert_eq!(context.hero_base_health, Some(930.0));
+        for item in context
+            .primary_path
+            .phases
+            .iter()
+            .flat_map(|phase| phase.items.iter())
+        {
+            assert!(!item.slot_type.trim().is_empty());
+            assert!(!item.damage_axis.trim().is_empty());
+            assert!(matches!(item.confidence.as_str(), "medium" | "high"));
+            assert!(item.prevalence_builds >= 30);
+            assert!(item.sample_matches >= 500);
+        }
+    }
+
+    #[test]
     fn playstyle_selects_requested_path() {
         let conn = Connection::open_in_memory().expect("open sqlite");
         sync_fixture_payloads(&conn).expect("sync fixtures");
         let context = build_context(&conn, "Mo", Some("tank")).expect("build context");
         assert_eq!(context.playstyle.as_deref(), Some("tank"));
         assert_eq!(context.primary_path.label, "tank");
-    }
-
-    #[test]
-    fn fit_flag_messages_are_placeholders() {
-        let row = ItemRow {
-            item_id: 1,
-            name: "Shield".to_string(),
-            slot_type: "vitality".to_string(),
-            tier: 2,
-            defense_kind: vec!["flat_shield".to_string()],
-            damage_axis: "utility".to_string(),
-            prevalence_builds: 1,
-            wins: 1,
-            losses: 1,
-            matches: 2,
-            avg_buy_time_relative: Some(10.0),
-            lift_pp: None,
-        };
-        let flags = fit_flags("tank", "spirit", &row, "low");
-        assert!(flags.iter().all(|flag| flag.message_de == "Platzhalter"));
     }
 
     #[test]

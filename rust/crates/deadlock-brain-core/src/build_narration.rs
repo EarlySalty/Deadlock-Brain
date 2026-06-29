@@ -3,16 +3,27 @@ use std::collections::BTreeSet;
 use anyhow::{anyhow, Context};
 use serde::{Deserialize, Serialize};
 
-pub use dbrain_builds::{
-    BuildContext, BuildPath, BuildPathSummary, BuildPhase, FitFlag, ItemDossier,
-};
+pub use dbrain_builds::{BuildContext, BuildPath, BuildPathSummary, BuildPhase, ItemDossier};
 
 use crate::minimax::{
     extract_minimax_text, ChatCompletionRequest, ChatMessage, MiniMaxClient, MiniMaxConfig,
 };
 
-pub const BUILD_NARRATION_SYSTEM_PROMPT: &str = "Platzhalter";
-pub const BUILD_NARRATION_USER_PROMPT: &str = "Platzhalter";
+pub const BUILD_NARRATION_SYSTEM_PROMPT: &str = "Du bist ein Deadlock-Build-Coach für einen deutschen Discord. Dir wird ein Build vorgelegt, der bereits aus echten High-MMR-Spieldaten berechnet wurde: Pfade, Phasen und pro Item harte Fakten (slot_type, tier, defense_kind, damage_axis, prevalence_builds, winrate, lift_pp, sample_matches, confidence, buy_phase, synergy_with) sowie zum Helden archetype und hero_base_health.
+
+Deine Aufgabe: Erkläre genau diesen Build auf Deutsch und leite jede Begründung selbst aus den gelieferten Fakten ab. Behaupte nichts, was nicht aus den Daten folgt.
+
+Harte Regeln:
+- Nenne ausschließlich Items, die im Kontext stehen. Erfinde keine Items und tausche keine aus.
+- Item-, Helden- und Ability-Namen bleiben exakt Englisch, der Rest ist Deutsch.
+- Sei bei niedriger confidence oder kleiner sample_matches ehrlich vorsichtig.
+
+So gehst du beim Begründen vor (Methodik, kein vorgegebenes Ergebnis):
+- Verteidigung: berücksichtige, wie defense_kind und hero_base_health zusammenwirken, also ob ein Schutz mit steigender HP an Wert gewinnt oder verliert.
+- Schadensachse: prüfe, ob die damage_axis eines Items zur Achse des gewählten Pfades passt; liegt der Hauptwert daneben, bleibt er für diesen Build weitgehend wirkungslos.
+- Gewichtung: lies prevalence_builds, winrate und lift_pp zusammen statt einzeln; eine einzelne Zahl trägt keine Aussage. sample_matches und confidence sagen dir, wie sehr du der Zahl traust.
+- Ablauf: nutze buy_phase und synergy_with, um Kauf-Reihenfolge und Zusammenspiel zu erklären.";
+pub const BUILD_NARRATION_USER_PROMPT: &str = "Erkläre den folgenden, bereits berechneten Build verständlich auf Deutsch. Geh die Phasen early/mid/late durch und begründe pro Kern-Item kurz, warum es hier passt — ausschließlich anhand der gelieferten Fakten. Schließe mit einem kurzen Hinweis auf alternative_paths, falls vorhanden. Knapp und konkret, kein Marketing.";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ValidationResult {
@@ -338,6 +349,7 @@ mod tests {
             hero_id: 7,
             hero_name: "Seven".to_string(),
             hero_archetype: "Spirit Carry".to_string(),
+            hero_base_health: Some(550.0),
             playstyle: Some("spirit".to_string()),
             primary_path: BuildPath {
                 label: "Spirit Burst".to_string(),
@@ -359,11 +371,6 @@ mod tests {
                             lift_pp: Some(2.1),
                             buy_phase: "early".to_string(),
                             synergy_with: vec!["Storm Cloud".to_string()],
-                            fit_flags: vec![FitFlag {
-                                code: "spirit_scaling".to_string(),
-                                severity: "info".to_string(),
-                                message_de: "Platzhalter".to_string(),
-                            }],
                             confidence: "high".to_string(),
                         }],
                     },
@@ -382,7 +389,6 @@ mod tests {
                             lift_pp: Some(1.4),
                             buy_phase: "mid".to_string(),
                             synergy_with: vec![],
-                            fit_flags: vec![],
                             confidence: "medium".to_string(),
                         }],
                     },

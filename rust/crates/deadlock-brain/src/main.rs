@@ -10,6 +10,7 @@ use std::{
 use anyhow::{anyhow, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use deadlock_brain_core::{
+    build_narration,
     config::{self, Settings},
     db,
     http::HttpClient,
@@ -54,6 +55,8 @@ enum Commands {
     Build(BuildArgs),
     #[command(name = "build-context")]
     BuildContext(BuildContextArgs),
+    #[command(name = "build-eval")]
+    BuildEval(BuildEvalArgs),
     #[command(about = "Zeigt strukturierte Item-Daten aus der Deadlock Assets API.")]
     Item(ItemArgs),
     #[command(about = "Importiert und analysiert Build-Trainingsdaten.")]
@@ -187,6 +190,13 @@ struct BuildArgs {
 
 #[derive(Debug, Args)]
 struct BuildContextArgs {
+    hero: String,
+    #[arg(long, value_enum)]
+    playstyle: Option<BuildPlaystyle>,
+}
+
+#[derive(Debug, Args)]
+struct BuildEvalArgs {
     hero: String,
     #[arg(long, value_enum)]
     playstyle: Option<BuildPlaystyle>,
@@ -912,6 +922,7 @@ fn run(cli: Cli) -> Result<()> {
             let result = dbrain_builds::build_context(&conn, &args.hero, playstyle)?;
             print_json(&result)
         }
+        Commands::BuildEval(args) => run_build_eval(&conn, &settings, args),
         Commands::Item(args) => {
             let result = dbrain_retrieval::build_item_context(&conn, &args.query)?;
             if args.pretty {
@@ -931,6 +942,29 @@ fn run(cli: Cli) -> Result<()> {
         Commands::Parse { target } => run_parse(&conn, target),
         Commands::Enrich { target } => run_enrich(&conn, &settings, target),
     }
+}
+
+fn run_build_eval(conn: &Connection, settings: &Settings, args: BuildEvalArgs) -> Result<()> {
+    let playstyle = args.playstyle.map(BuildPlaystyle::as_str);
+    let build_context = dbrain_builds::build_context(conn, &args.hero, playstyle)?;
+    let config = MiniMaxConfig::from_settings(settings);
+    if !config.api_key_present() {
+        return print_json(&json!({
+            "build_context": build_context,
+            "notice": "MiniMax environment is not configured; skipping narration."
+        }));
+    }
+
+    let client = MiniMaxClient::new(config)?;
+    let request = build_narration::build_narration_request(&build_context, client.config())?;
+    let response = client.chat(&request)?;
+    let narration = extract_minimax_text(&response);
+    let validation = build_narration::validate_narration(&narration, &build_context);
+    print_json(&json!({
+        "build_context": build_context,
+        "narration": narration,
+        "validation": validation
+    }))
 }
 
 fn run_learn(conn: &Connection, settings: &Settings, target: LearnCommands) -> Result<()> {

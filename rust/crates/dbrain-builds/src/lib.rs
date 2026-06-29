@@ -21,6 +21,7 @@ pub struct BuildContext {
     pub hero_id: i64,
     pub hero_name: String,
     pub hero_archetype: String,
+    pub hero_base_health: Option<f64>,
     pub playstyle: Option<String>,
     pub primary_path: BuildPath,
     pub alternative_paths: Vec<BuildPathSummary>,
@@ -63,15 +64,7 @@ pub struct ItemDossier {
     pub lift_pp: Option<f64>,
     pub buy_phase: String,
     pub synergy_with: Vec<String>,
-    pub fit_flags: Vec<FitFlag>,
     pub confidence: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct FitFlag {
-    pub code: String,
-    pub severity: String,
-    pub message_de: String,
 }
 
 pub fn build_context(
