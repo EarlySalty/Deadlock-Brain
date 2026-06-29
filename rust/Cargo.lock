@@ -262,6 +262,7 @@ dependencies = [
 name = "dbrain-retrieval"
 version = "0.1.0"
 dependencies = [
+ "dbrain-builds",
  "deadlock-brain-core",
  "regex",
  "rusqlite",
@@ -310,6 +311,7 @@ name = "deadlock-brain-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "dbrain-builds",
  "hex",
  "reqwest",
  "rusqlite",

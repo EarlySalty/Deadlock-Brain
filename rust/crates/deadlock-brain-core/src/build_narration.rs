@@ -3,70 +3,16 @@ use std::collections::BTreeSet;
 use anyhow::{anyhow, Context};
 use serde::{Deserialize, Serialize};
 
+pub use dbrain_builds::{
+    BuildContext, BuildPath, BuildPathSummary, BuildPhase, FitFlag, ItemDossier,
+};
+
 use crate::minimax::{
     extract_minimax_text, ChatCompletionRequest, ChatMessage, MiniMaxClient, MiniMaxConfig,
 };
 
 pub const BUILD_NARRATION_SYSTEM_PROMPT: &str = "Platzhalter";
 pub const BUILD_NARRATION_USER_PROMPT: &str = "Platzhalter";
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct BuildContext {
-    pub hero_id: i64,
-    pub hero_name: String,
-    pub hero_archetype: String,
-    pub playstyle: Option<String>,
-    pub primary_path: BuildPath,
-    pub alternative_paths: Vec<BuildPathSummary>,
-    pub ability_order: Option<Vec<i64>>,
-    pub generated_at: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct BuildPath {
-    pub label: String,
-    pub winrate: Option<f64>,
-    pub sample_matches: i64,
-    pub phases: Vec<BuildPhase>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct BuildPathSummary {
-    pub label: String,
-    pub winrate: Option<f64>,
-    pub sample_matches: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct BuildPhase {
-    pub phase: String,
-    pub items: Vec<ItemDossier>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ItemDossier {
-    pub item_id: i64,
-    pub name: String,
-    pub slot_type: String,
-    pub tier: i64,
-    pub defense_kind: Vec<String>,
-    pub damage_axis: String,
-    pub prevalence_builds: i64,
-    pub winrate: Option<f64>,
-    pub sample_matches: i64,
-    pub lift_pp: Option<f64>,
-    pub buy_phase: String,
-    pub synergy_with: Vec<String>,
-    pub fit_flags: Vec<FitFlag>,
-    pub confidence: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct FitFlag {
-    pub code: String,
-    pub severity: String,
-    pub message_de: String,
-}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ValidationResult {

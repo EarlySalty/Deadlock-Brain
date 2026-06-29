@@ -9,9 +9,8 @@ use std::{
 
 pub use deadlock_brain_core as core;
 
-use deadlock_brain_core::build_narration::{
-    self, BuildContext, BuildPath, BuildPathSummary, BuildPhase, FitFlag, ItemDossier,
-};
+use dbrain_builds::BuildContext;
+use deadlock_brain_core::build_narration;
 use regex::Regex;
 use rusqlite::{
     params, params_from_iter,
@@ -760,81 +759,8 @@ fn load_build_context(
     hero_query: &str,
     playstyle: Option<&str>,
 ) -> Result<BuildContext> {
-    // INTEGRATION: dbrain_builds::build_context
-    let _ = conn;
-    Ok(fixture_build_context(hero_query, playstyle))
-}
-
-fn fixture_build_context(hero_query: &str, playstyle: Option<&str>) -> BuildContext {
-    let hero_name = if hero_query.trim().is_empty() {
-        "Hero".to_string()
-    } else {
-        hero_query.trim().to_string()
-    };
-    BuildContext {
-        hero_id: 0,
-        hero_name,
-        hero_archetype: "Spirit Carry".to_string(),
-        playstyle: playstyle.map(str::to_string),
-        primary_path: BuildPath {
-            label: "Spirit Tempo".to_string(),
-            winrate: Some(0.53),
-            sample_matches: 100,
-            phases: vec![
-                BuildPhase {
-                    phase: "early".to_string(),
-                    items: vec![
-                        fixture_item(1, "Mystic Burst", "spirit", 2, "spirit", "early"),
-                        fixture_item(2, "Extra Spirit", "spirit", 1, "spirit", "early"),
-                    ],
-                },
-                BuildPhase {
-                    phase: "mid".to_string(),
-                    items: vec![
-                        fixture_item(3, "Improved Spirit", "spirit", 3, "spirit", "mid"),
-                        fixture_item(4, "Spirit Armor", "vitality", 2, "none", "mid"),
-                    ],
-                },
-            ],
-        },
-        alternative_paths: vec![BuildPathSummary {
-            label: "Weapon Tempo".to_string(),
-            winrate: Some(0.51),
-            sample_matches: 40,
-        }],
-        ability_order: Some(vec![1, 2, 3, 4]),
-        generated_at: core::db::now_epoch_seconds().map_or(0, |value| value),
-    }
-}
-
-fn fixture_item(
-    item_id: i64,
-    name: &str,
-    slot_type: &str,
-    tier: i64,
-    damage_axis: &str,
-    buy_phase: &str,
-) -> ItemDossier {
-    ItemDossier {
-        item_id,
-        name: name.to_string(),
-        slot_type: slot_type.to_string(),
-        tier,
-        defense_kind: Vec::new(),
-        damage_axis: damage_axis.to_string(),
-        prevalence_builds: 10,
-        winrate: Some(0.52),
-        sample_matches: 50,
-        lift_pp: Some(1.0),
-        buy_phase: buy_phase.to_string(),
-        synergy_with: Vec::new(),
-        fit_flags: vec![FitFlag {
-            code: "fixture".to_string(),
-            severity: "info".to_string(),
-            message_de: "Platzhalter".to_string(),
-        }],
-        confidence: "fixture".to_string(),
-    }
+    dbrain_builds::build_context(conn, hero_query, playstyle)
+        .map_err(|err| RetrievalError::Invalid(format!("build context failed: {err}")))
 }
 
 pub fn is_build_engine_intent(plan: &QueryPlan) -> bool {
