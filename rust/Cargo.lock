@@ -309,6 +309,7 @@ dependencies = [
 name = "deadlock-brain-core"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "hex",
  "reqwest",
  "rusqlite",

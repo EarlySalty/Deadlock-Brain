@@ -6,6 +6,7 @@
 //! HTTP/MiniMax und gemeinsame Datenmodelle. Feature-Logik lebt in den
 //! nachgelagerten `dbrain-*`-Crates.
 
+pub mod build_narration;
 pub mod config;
 pub mod db;
 pub mod error;

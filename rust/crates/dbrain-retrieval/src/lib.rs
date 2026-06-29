@@ -9,6 +9,9 @@ use std::{
 
 pub use deadlock_brain_core as core;
 
+use deadlock_brain_core::build_narration::{
+    self, BuildContext, BuildPath, BuildPathSummary, BuildPhase, FitFlag, ItemDossier,
+};
 use regex::Regex;
 use rusqlite::{
     params, params_from_iter,
@@ -56,6 +59,17 @@ FAKTEN (JSON, vertrauenssortiert):
 {{ordered_context_json}}"#;
 const ASK_TRUST_LEGEND: &str = "Vertrauensstufen: 'ground_truth' = gesicherte Spieldaten (höchste Priorität). 'creator_knowledge.verified' = gegen die Spieldaten geprüfte Creator-Aussagen. 'creator_knowledge.flagged' = nur teilweise oder unbestätigt, nur mit Vorbehalt nutzen. 'creator_knowledge.unverified' = ungeprüft (nicht gegen Spieldaten abgeglichen), nur als möglicher Hinweis, keine Zahlen darauf stützen. 'creator_knowledge.refuted' = nachweislich falsch, nicht verwenden. Bei Widerspruch gilt immer ground_truth.";
 const ASK_OOD_NOTICE: &str = "HINWEIS: Diese Frage scheint sich nicht auf Deadlock zu beziehen — es wurden keine gesicherten Spieldaten und keine geprüften Creator-Aussagen dazu gefunden. Wenn die Frage tatsächlich nichts mit Deadlock zu tun hat, weise freundlich darauf hin, dass du auf Deadlock-Wissen spezialisiert bist und dazu keine belegten Fakten vorliegen. Falls sie doch Deadlock betrifft, bitte um eine konkretere Formulierung (Held, Item, Fähigkeit oder Mechanik). Erfinde nichts.";
+const ASK_BUILD_INTENT_TERMS: &[&str] = &[
+    "build",
+    "builds",
+    "items",
+    "item",
+    "baue",
+    "bauen",
+    "guide",
+    "itemization",
+    "skillung",
+];
 const CLAIM_KEYWORD_STOPWORDS: &[&str] = &[
     "about",
     "also",
@@ -111,10 +125,14 @@ const CLAIM_KEYWORD_STOPWORDS: &[&str] = &[
 ];
 const ENTITY_MATCH_STOPWORDS: &[&str] = &[
     "build",
+    "builds",
+    "bauen",
     "items",
     "item",
     "baue",
+    "itemization",
     "guide",
+    "skillung",
     "beste",
     "best",
     "geaendert",
@@ -621,6 +639,9 @@ pub fn build_review_context(conn: &Connection, query: &str, limit_events: i64) -
 
 pub fn ask_context(conn: &Connection, query: &str, opts: &AskContextOptions) -> Result<JsonValue> {
     let plan = analyze_query(conn, query)?;
+    if is_build_engine_intent(&plan) {
+        return ask_build_context(conn, query, &plan);
+    }
     let entity_match = resolve_ask_entity_match(conn, query, &plan)?;
     let out_of_domain = !entity_match.matched && !query_has_deadlock_vocabulary(conn, query)?;
     let intent = if out_of_domain {
@@ -704,6 +725,141 @@ pub fn ask_context(conn: &Connection, query: &str, opts: &AskContextOptions) -> 
     let prompt = render_ask_prompt(&JsonValue::Object(result.clone()))?;
     result.insert("prompt".to_string(), JsonValue::String(prompt));
     Ok(JsonValue::Object(result))
+}
+
+fn ask_build_context(conn: &Connection, query: &str, plan: &QueryPlan) -> Result<JsonValue> {
+    let hero_query = resolved_plan_entity_name(plan).unwrap_or_else(|| query.trim().to_string());
+    let playstyle = detect_build_playstyle(query);
+    let build_context = load_build_context(conn, &hero_query, playstyle.as_deref())?;
+    let prompt = build_narration::build_narration_user_prompt(&build_context)
+        .map_err(|err| RetrievalError::Invalid(format!("build narration prompt failed: {err}")))?;
+    let narration = build_narration::narrate_build(&build_context)
+        .map_err(|err| RetrievalError::Invalid(format!("build narration failed: {err}")))?;
+    let validation = build_narration::validate_narration(&narration, &build_context);
+    let result_text = validation.text.clone();
+
+    Ok(json!({
+        "query": query,
+        "intent": plan.intent.clone(),
+        "entity": plan.entities.first().cloned().unwrap_or(JsonValue::Null),
+        "build_context": build_context,
+        "result_text": result_text,
+        "validation": validation,
+        "prompt": prompt,
+        "sources": [],
+        "retrieval_meta": {
+            "route": "build_engine",
+            "context_query": hero_query,
+            "playstyle": playstyle,
+        },
+    }))
+}
+
+fn load_build_context(
+    conn: &Connection,
+    hero_query: &str,
+    playstyle: Option<&str>,
+) -> Result<BuildContext> {
+    // INTEGRATION: dbrain_builds::build_context
+    let _ = conn;
+    Ok(fixture_build_context(hero_query, playstyle))
+}
+
+fn fixture_build_context(hero_query: &str, playstyle: Option<&str>) -> BuildContext {
+    let hero_name = if hero_query.trim().is_empty() {
+        "Hero".to_string()
+    } else {
+        hero_query.trim().to_string()
+    };
+    BuildContext {
+        hero_id: 0,
+        hero_name,
+        hero_archetype: "Spirit Carry".to_string(),
+        playstyle: playstyle.map(str::to_string),
+        primary_path: BuildPath {
+            label: "Spirit Tempo".to_string(),
+            winrate: Some(0.53),
+            sample_matches: 100,
+            phases: vec![
+                BuildPhase {
+                    phase: "early".to_string(),
+                    items: vec![
+                        fixture_item(1, "Mystic Burst", "spirit", 2, "spirit", "early"),
+                        fixture_item(2, "Extra Spirit", "spirit", 1, "spirit", "early"),
+                    ],
+                },
+                BuildPhase {
+                    phase: "mid".to_string(),
+                    items: vec![
+                        fixture_item(3, "Improved Spirit", "spirit", 3, "spirit", "mid"),
+                        fixture_item(4, "Spirit Armor", "vitality", 2, "none", "mid"),
+                    ],
+                },
+            ],
+        },
+        alternative_paths: vec![BuildPathSummary {
+            label: "Weapon Tempo".to_string(),
+            winrate: Some(0.51),
+            sample_matches: 40,
+        }],
+        ability_order: Some(vec![1, 2, 3, 4]),
+        generated_at: core::db::now_epoch_seconds().map_or(0, |value| value),
+    }
+}
+
+fn fixture_item(
+    item_id: i64,
+    name: &str,
+    slot_type: &str,
+    tier: i64,
+    damage_axis: &str,
+    buy_phase: &str,
+) -> ItemDossier {
+    ItemDossier {
+        item_id,
+        name: name.to_string(),
+        slot_type: slot_type.to_string(),
+        tier,
+        defense_kind: Vec::new(),
+        damage_axis: damage_axis.to_string(),
+        prevalence_builds: 10,
+        winrate: Some(0.52),
+        sample_matches: 50,
+        lift_pp: Some(1.0),
+        buy_phase: buy_phase.to_string(),
+        synergy_with: Vec::new(),
+        fit_flags: vec![FitFlag {
+            code: "fixture".to_string(),
+            severity: "info".to_string(),
+            message_de: "Platzhalter".to_string(),
+        }],
+        confidence: "fixture".to_string(),
+    }
+}
+
+pub fn is_build_engine_intent(plan: &QueryPlan) -> bool {
+    plan.intent == "build_recommendation" && plan_primary_entity_type(plan).as_deref() == Some("hero")
+}
+
+fn plan_primary_entity_type(plan: &QueryPlan) -> Option<String> {
+    plan.entities
+        .first()
+        .and_then(|entity| value_to_nonempty_string(entity.get("type")))
+}
+
+fn detect_build_playstyle(query: &str) -> Option<String> {
+    let terms = intent_query_terms(query);
+    for (style, needles) in [
+        ("tank", &["tank", "tanky", "defense", "defensive"][..]),
+        ("spirit", &["spirit", "ap", "caster"][..]),
+        ("weapon", &["weapon", "gun", "bullet", "dps"][..]),
+        ("support", &["support", "utility"][..]),
+    ] {
+        if contains_any_intent_term(&terms, needles) {
+            return Some(style.to_string());
+        }
+    }
+    None
 }
 
 pub fn quality(conn: &Connection) -> Result<JsonValue> {
@@ -977,7 +1133,7 @@ fn push_query_entity(
 fn classify_ask_intent(query_lower: &str, matched: bool, entity_type: &str) -> String {
     let terms = intent_query_terms(query_lower);
     let item_entity = matches!(entity_type, "item" | "item_special");
-    if item_entity && contains_any_intent_term(&terms, &["build", "items", "item", "baue", "guide"]) {
+    if item_entity && contains_any_intent_term(&terms, ASK_BUILD_INTENT_TERMS) {
         return "build_recommendation".to_string();
     }
     if item_entity && !has_explicit_ask_action(&terms) {
@@ -1011,7 +1167,7 @@ fn classify_ask_intent(query_lower: &str, matched: bool, entity_type: &str) -> S
     {
         return "mechanics_question".to_string();
     }
-    if matched && contains_any_intent_term(&terms, &["build", "items", "item", "baue", "guide"]) {
+    if matched && contains_any_intent_term(&terms, ASK_BUILD_INTENT_TERMS) {
         return "build_recommendation".to_string();
     }
     if item_entity {
@@ -1025,7 +1181,9 @@ fn has_explicit_ask_action(terms: &[String]) -> bool {
         terms,
         &[
             "baue",
+            "bauen",
             "build",
+            "builds",
             "buff",
             "changelog",
             "counter",
@@ -1033,6 +1191,8 @@ fn has_explicit_ask_action(terms: &[String]) -> bool {
             "geaendert",
             "geändert",
             "guide",
+            "item",
+            "itemization",
             "items",
             "kontert",
             "matchup",
@@ -1043,6 +1203,7 @@ fn has_explicit_ask_action(terms: &[String]) -> bool {
             "update",
             "viable",
             "vs",
+            "skillung",
         ],
     )
 }
@@ -6158,12 +6319,43 @@ mod tests {
         assert_eq!(mechanics.intent, "mechanics_question");
         assert_eq!(build.intent, "build_recommendation");
         assert_eq!(item.intent, "item_question");
+        assert!(is_build_engine_intent(&build));
+        assert!(!is_build_engine_intent(&item));
         assert_eq!(
             classify_ask_intent("metal skin", true, "item"),
             "item_question"
         );
         assert_eq!(classify_ask_intent("meta", false, ""), "meta_question");
         assert_ne!(classify_ask_intent("metal", false, ""), "meta_question");
+    }
+
+    #[test]
+    fn build_engine_intent_requires_hero_build_query() {
+        let conn = temp_conn();
+        insert_light_entity(&conn, 10, "hero", "Seven");
+        insert_light_entity(&conn, 11, "item", "Metal Skin");
+
+        for query in [
+            "Seven build",
+            "was bauen auf Seven",
+            "Seven itemization",
+            "Seven skillung",
+            "welche items auf Seven",
+        ] {
+            let plan = analyze_query(&conn, query).expect("build plan");
+            assert_eq!(plan.intent, "build_recommendation", "{query}");
+            assert!(is_build_engine_intent(&plan), "{query}");
+        }
+
+        let item_plan = analyze_query(&conn, "Metal Skin build").expect("item plan");
+        let patch_plan = analyze_query(&conn, "was wurde an Seven geaendert").expect("patch plan");
+        let generic_plan = analyze_query(&conn, "bester build").expect("generic plan");
+
+        assert_eq!(item_plan.intent, "build_recommendation");
+        assert!(!is_build_engine_intent(&item_plan));
+        assert_eq!(patch_plan.intent, "patch_changes");
+        assert!(!is_build_engine_intent(&patch_plan));
+        assert!(!is_build_engine_intent(&generic_plan));
     }
 
     #[test]
