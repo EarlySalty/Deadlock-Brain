@@ -8,6 +8,7 @@ name = "deadlock_brain_core"
 path = "src/lib.rs"
 
 [dependencies]
+anyhow.workspace = true
 hex.workspace = true
 reqwest.workspace = true
 rusqlite.workspace = true
