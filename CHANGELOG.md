@@ -1,5 +1,13 @@
 # Changelog
 
+## #15 — Patchnotes lernen automatisch aus Originaldaten
+
+Neue Patchnotes lagen zwar im Patchnotes-Bot, aber das Brain zog sie nicht selbst nach. Dadurch konnten aktuelle Steam-Patches schon im Discord stehen, während Brain noch mit älteren Patch-Events und alten Spielwerten arbeitete.
+
+Der neue Sync-Lauf prüft die Patchnotes-DB auf frische Einträge und arbeitet nur dann: zuerst werden die vertrauenswürdigen Spieldaten aktualisiert, danach die aktuellen Item-/Hero-Daten nachgezogen, die Original-Patchnotes aus `raw_content` importiert, daraus Patch-Events gebaut und diese wieder mit Entitäten, Zahlenänderungen, Lineage und Legacy-Hinweisen angereichert. Übersetzte Patchtexte bleiben nur gespeicherte Anzeige-Information; gelernt wird aus dem Originaltext, außer ein alter Datensatz hat gar keinen Rohtext.
+
+Damit kann das Brain nach einem Patch automatisch aus den Daten lernen, die der Patchnotes-Bot bereits gesichert hat, ohne deutsche Zusammenfassungen als Wissensquelle zu verwenden.
+
 ## #14 — Sehr lange Stream-Mitschnitte werden auswertbar (abschnittsweise)
 
 Die längsten Quellen blieben bisher außen vor: mehrstündige Stream- und Coaching-Mitschnitte mit teils über einer Million Zeichen Transcript. Die Auswertung war auf Videos üblicher Länge begrenzt; alles darüber wurde übersprungen — obwohl gerade diese VODs besonders dichtes Spielwissen tragen.
