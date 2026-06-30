@@ -1,5 +1,13 @@
 # Changelog
 
+## #16 — Patchfragen bekommen Meta-Überblick und aktuelle Item-Overrides
+
+Breite Patchfragen wie „Was ist die neue Meta?" fanden zwar die Patchabsicht, bekamen aber keinen Patch-Kontext, solange kein konkreter Held oder kein konkretes Item genannt war. Bei Items konnte außerdem die statische Item-Karte älter sein als die neuesten Patchnotes; dadurch stand bei Scourge noch der alte Kartenwert im harten Faktenblock, obwohl die Patchnote bereits die neue Reduktion und Spirit-Skalierung enthielt.
+
+Das Wissenspaket baut für allgemeine Patchfragen jetzt automatisch einen Überblick über den neuesten beziehungsweise angefragten Patch: Anzahl der Änderungen, betroffene Bereiche, stärkste Hero-Bewegungen, Item-/Ability-Änderungen sowie Objective- und Economy-Änderungen. Bei Item-Fragen werden neuere Patchwerte zusätzlich als aktuelle Overrides an die Item-Karte gehängt und ausdrücklich höher priorisiert als ältere statische Kartenwerte.
+
+Damit kann das Brain den Patch vom 30.06.2026 als Gesamtpatch bewerten und bei Scourge die aktuelle Änderung als „2,6% Max-HP-DPS plus 0,0055 Spirit-Skalierung" verwenden, statt am alten 3,5%-Kartenwert hängen zu bleiben.
+
 ## #15 — Patchnotes lernen automatisch aus Originaldaten
 
 Neue Patchnotes lagen zwar im Patchnotes-Bot, aber das Brain zog sie nicht selbst nach. Dadurch konnten aktuelle Steam-Patches schon im Discord stehen, während Brain noch mit älteren Patch-Events und alten Spielwerten arbeitete.
