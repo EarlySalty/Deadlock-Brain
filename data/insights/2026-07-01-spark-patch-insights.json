@@ -1,0 +1,382 @@
+[
+  {
+    "entity_type": "hero",
+    "entity_name": "Abrams",
+    "insight_type": "rework",
+    "currentness": "2026-05-22",
+    "summary": "Abrams: Infernal Resilience T1 wurde von Regeneration auf +200 Max HP umgestellt; alter Wertpfad ist invalidiert.",
+    "source_patch_event_ids": [96467],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/"],
+    "confidence": 0.95
+  },
+  {
+    "entity_type": "hero",
+    "entity_name": "Abrams",
+    "insight_type": "rework",
+    "currentness": "2026-05-22",
+    "summary": "Abrams: Infernal Resilience T2 wechselt von +200 Max HP auf +18% Melee Lifesteal, mit 40% Effektivitaet gegen Nicht-Helden.",
+    "source_patch_event_ids": [96468],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/"],
+    "confidence": 0.95
+  },
+  {
+    "entity_type": "hero",
+    "entity_name": "Calico",
+    "insight_type": "rework",
+    "currentness": "2026-05-22",
+    "summary": "Calico: Gloom Bomb T2 gibt nicht mehr +75 Schaden an Barrieren, sondern -5% Melee Resist fuer 5s pro Bombe.",
+    "source_patch_event_ids": [96485],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/"],
+    "confidence": 0.95
+  },
+  {
+    "entity_type": "hero",
+    "entity_name": "Celeste",
+    "insight_type": "rework",
+    "currentness": "2026-05-22",
+    "summary": "Celeste: Radiant Daggers T2 wurde von -18s und +70 Schaden auf -22s und +80 Schaden umgestellt.",
+    "source_patch_event_ids": [96488],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/"],
+    "confidence": 0.95
+  },
+  {
+    "entity_type": "hero",
+    "entity_name": "Dynamo",
+    "insight_type": "rework",
+    "currentness": "2026-05-22",
+    "summary": "Dynamo: Quantum Entanglement T3 dispellt Debuffs nicht mehr; die Dauer nicht-ultischer Debuffs wird stattdessen halbiert.",
+    "source_patch_event_ids": [96502],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/"],
+    "confidence": 0.95
+  },
+  {
+    "entity_type": "hero",
+    "entity_name": "Grey Talon",
+    "insight_type": "rework",
+    "currentness": "2026-05-22",
+    "summary": "Grey Talon: Rain of Arrows T2 Mobilitaetsbonus wurde von -9% auf +25% Laufdistanz pro Talisman geaendert.",
+    "source_patch_event_ids": [96521],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/"],
+    "confidence": 0.95
+  },
+  {
+    "entity_type": "hero",
+    "entity_name": "Grey Talon",
+    "insight_type": "rework",
+    "currentness": "2026-05-22",
+    "summary": "Grey Talon: Rain of Arrows T1 ist nicht mehr nur Cooldown, sondern gibt +3 Weapon Damage und +30% Slow fuer 1.5s.",
+    "source_patch_event_ids": [96523],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/"],
+    "confidence": 0.95
+  },
+  {
+    "entity_type": "hero",
+    "entity_name": "Grey Talon",
+    "insight_type": "rework",
+    "currentness": "2026-05-22",
+    "summary": "Grey Talon: Rain of Arrows T2 wurde von Schaden/Slow-Fokus auf -13s Cooldown umgestellt.",
+    "source_patch_event_ids": [96524],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/"],
+    "confidence": 0.95
+  },
+  {
+    "entity_type": "hero",
+    "entity_name": "Silver",
+    "insight_type": "rework",
+    "currentness": "2026-05-22",
+    "summary": "Silver: Entangling Bola T2 wurde von +0.75s Dauer auf -5s Cooldown geaendert.",
+    "source_patch_event_ids": [96584],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/"],
+    "confidence": 0.95
+  },
+  {
+    "entity_type": "hero",
+    "entity_name": "Silver",
+    "insight_type": "rework",
+    "currentness": "2026-05-22",
+    "summary": "Silver: Entangling Bola T3 wurde von -5s Cooldown auf +0.75s Dauer-Fokus umgestellt.",
+    "source_patch_event_ids": [96585],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/"],
+    "confidence": 0.95
+  },
+  {
+    "entity_type": "item",
+    "entity_name": "Spiritual Overflow",
+    "insight_type": "rework",
+    "currentness": "2026-05-22",
+    "summary": "Spiritual Overflow: Spirit Lifesteal wurde von Active auf Innate geaendert und von 16% auf 13% reduziert.",
+    "source_patch_event_ids": [96389],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/"],
+    "confidence": 0.92
+  },
+  {
+    "entity_type": "ability_internal",
+    "entity_name": "Soul Urn",
+    "insight_type": "rework",
+    "currentness": "2026-05-28",
+    "summary": "Soul Urn: Spawn-/Intervallskala wurde auf 12/18/24/30/... geaendert statt 10/15/20/25/...",
+    "source_patch_event_ids": [96622],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/post-261657"],
+    "confidence": 0.45
+  },
+  {
+    "entity_type": "hero",
+    "entity_name": "Apollo",
+    "insight_type": "balance_delta",
+    "currentness": "2026-05-31",
+    "summary": "Apollo: Disengaging Sigil T2 Fire Rate wurde von +20% auf +30% erhoeht.",
+    "source_patch_event_ids": [96637],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/post-263371"],
+    "confidence": 0.95
+  },
+  {
+    "entity_type": "hero",
+    "entity_name": "Apollo",
+    "insight_type": "balance_delta",
+    "currentness": "2026-05-31",
+    "summary": "Apollo: Flawless Advance T1 Heal wurde von 30+0.75 auf 35+1.0 erhoeht.",
+    "source_patch_event_ids": [96638],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/post-263371"],
+    "confidence": 0.95
+  },
+  {
+    "entity_type": "hero",
+    "entity_name": "Apollo",
+    "insight_type": "balance_delta",
+    "currentness": "2026-05-31",
+    "summary": "Apollo: Flawless Advance T2 Cooldown wurde von -10s auf -12s verbessert.",
+    "source_patch_event_ids": [96639],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/post-263371"],
+    "confidence": 0.95
+  },
+  {
+    "entity_type": "hero",
+    "entity_name": "Apollo",
+    "insight_type": "balance_delta",
+    "currentness": "2026-05-31",
+    "summary": "Apollo: Itani Lo Sahn Schaden wurde von 190 auf 200 erhoeht.",
+    "source_patch_event_ids": [96640],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/post-263371"],
+    "confidence": 0.95
+  },
+  {
+    "entity_type": "hero",
+    "entity_name": "Graves",
+    "insight_type": "balance_delta",
+    "currentness": "2026-05-31",
+    "summary": "Graves: Jar of the Dead Schaden wurde von 20+0.31 auf 17+0.27 pro Spirit reduziert.",
+    "source_patch_event_ids": [96642],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/post-263371"],
+    "confidence": 0.95
+  },
+  {
+    "entity_type": "hero",
+    "entity_name": "Graves",
+    "insight_type": "balance_delta",
+    "currentness": "2026-05-31",
+    "summary": "Graves: Ghoul Bounty wurde von 25+1/min auf 35+2/min erhoeht.",
+    "source_patch_event_ids": [96644],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/post-263371"],
+    "confidence": 0.95
+  },
+  {
+    "entity_type": "hero",
+    "entity_name": "McGinnis",
+    "insight_type": "balance_delta",
+    "currentness": "2026-05-31",
+    "summary": "McGinnis: Heavy Barrage Reichweite wurde von 50m auf 36m reduziert.",
+    "source_patch_event_ids": [96645],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/post-263371"],
+    "confidence": 0.95
+  },
+  {
+    "entity_type": "hero",
+    "entity_name": "McGinnis",
+    "insight_type": "balance_delta",
+    "currentness": "2026-05-31",
+    "summary": "McGinnis: Heavy Barrage T1 Dash-Slow wurde von 30% auf 18% reduziert; Regular-Slow bleibt 30%.",
+    "source_patch_event_ids": [96646],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/post-263371"],
+    "confidence": 0.95
+  },
+  {
+    "entity_type": "hero",
+    "entity_name": "McGinnis",
+    "insight_type": "balance_delta",
+    "currentness": "2026-05-31",
+    "summary": "McGinnis: Heavy Barrage T3 Damage pro Rocket wurde von +18 auf +15 reduziert.",
+    "source_patch_event_ids": [96647],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/post-263371"],
+    "confidence": 0.95
+  },
+  {
+    "entity_type": "hero",
+    "entity_name": "Pocket",
+    "insight_type": "balance_delta",
+    "currentness": "2026-05-31",
+    "summary": "Pocket: Affliction T3 DPS wurde von +18 auf +14 reduziert.",
+    "source_patch_event_ids": [96649],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/post-263371"],
+    "confidence": 0.95
+  },
+  {
+    "entity_type": "hero",
+    "entity_name": "Silver",
+    "insight_type": "balance_delta",
+    "currentness": "2026-05-31",
+    "summary": "Silver: Slam Fire Current-HP-Damage wurde von 3% auf 2% reduziert.",
+    "source_patch_event_ids": [96650],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/post-263371"],
+    "confidence": 0.95
+  },
+  {
+    "entity_type": "hero",
+    "entity_name": "Silver",
+    "insight_type": "balance_delta",
+    "currentness": "2026-05-31",
+    "summary": "Silver: Entangling Bola T2 Cooldown wurde von -5s auf -8s verbessert.",
+    "source_patch_event_ids": [96653],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/post-263371"],
+    "confidence": 0.95
+  },
+  {
+    "entity_type": "hero",
+    "entity_name": "Yamato",
+    "insight_type": "balance_delta",
+    "currentness": "2026-05-31",
+    "summary": "Yamato: Power Slash Spirit Scaling wurde von 2.1 auf 1.85 reduziert.",
+    "source_patch_event_ids": [96656],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/post-263371"],
+    "confidence": 0.95
+  },
+  {
+    "entity_type": "hero",
+    "entity_name": "Yamato",
+    "insight_type": "balance_delta",
+    "currentness": "2026-05-31",
+    "summary": "Yamato: Flying Slash Reichweite wurde von 30m auf 28m reduziert.",
+    "source_patch_event_ids": [96657],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/post-263371"],
+    "confidence": 0.95
+  },
+  {
+    "entity_type": "general",
+    "entity_name": "General",
+    "insight_type": "mechanic_removed",
+    "currentness": "2026-05-22",
+    "summary": "General: Zwei Jump-Pads in der Kartenmitte wurden entfernt.",
+    "source_patch_event_ids": [96310],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/"],
+    "confidence": 0.7
+  },
+  {
+    "entity_type": "general",
+    "entity_name": "General",
+    "insight_type": "mechanic_removed",
+    "currentness": "2026-05-22",
+    "summary": "General: Ziplines haben keinen Delay mehr bei alternativen Belegungstasten.",
+    "source_patch_event_ids": [96332],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/"],
+    "confidence": 0.7
+  },
+  {
+    "entity_type": "general",
+    "entity_name": "Other Details",
+    "insight_type": "mechanic_removed",
+    "currentness": "2026-05-22",
+    "summary": "Other Details: Bullet-/Spirit-Resist-Bonus auf der Urn beim Tragen wurde entfernt.",
+    "source_patch_event_ids": [96345],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/"],
+    "confidence": 0.7
+  },
+  {
+    "entity_type": "item",
+    "entity_name": "Restorative Locket",
+    "insight_type": "mechanic_removed",
+    "currentness": "2026-05-22",
+    "summary": "Restorative Locket: Mindestwert von 1 Stamina beim Stamina-Return entfaellt.",
+    "source_patch_event_ids": [96401],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/"],
+    "confidence": 0.92
+  },
+  {
+    "entity_type": "item",
+    "entity_name": "Bullet Resist Shredder",
+    "insight_type": "mechanic_removed",
+    "currentness": "2026-05-22",
+    "summary": "Bullet Resist Shredder: Bonus-HP-Gewaehrung auf dem Traeger entfaellt.",
+    "source_patch_event_ids": [96444],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/"],
+    "confidence": 0.92
+  },
+  {
+    "entity_type": "general",
+    "entity_name": null,
+    "insight_type": "mechanic_removed",
+    "currentness": "2026-05-28",
+    "summary": "Urn-Aura +35% Bullet/Spirit Resist fuer das hintere Team ist nur noch beim Ablegen aktiv, nicht im Carry/Drop.",
+    "source_patch_event_ids": [96624],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/post-261657"],
+    "confidence": 0.45
+  },
+  {
+    "entity_type": "general",
+    "entity_name": null,
+    "insight_type": "mechanic_removed",
+    "currentness": "2026-05-28",
+    "summary": "Urn-Pickup: 12s Sperre nach Drop durch 50s-Team-Hold-Timer entfaellt.",
+    "source_patch_event_ids": [96629],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/post-261657"],
+    "confidence": 0.45
+  },
+  {
+    "entity_type": "ability",
+    "entity_name": "Parry",
+    "insight_type": "mechanic_removed",
+    "currentness": "2026-05-28",
+    "summary": "Parry: Parrying von Troopern resetet den Parry-Cooldown nicht mehr.",
+    "source_patch_event_ids": [96632],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/post-261657"],
+    "confidence": 0.58
+  },
+  {
+    "entity_type": "item",
+    "entity_name": "Tesla Bullets",
+    "insight_type": "value_invalidation",
+    "currentness": "2026-05-22",
+    "summary": "Tesla Bullets: Proc-CD wurde von 0.25s auf 0.2s geaendert; alte Proc-Timing-Annahmen sind entwertet.",
+    "source_patch_event_ids": [96361],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/"],
+    "confidence": 0.92
+  },
+  {
+    "entity_type": "item",
+    "entity_name": "Capacitor",
+    "insight_type": "value_invalidation",
+    "currentness": "2026-05-22",
+    "summary": "Capacitor: Proc-CD wurde von 0.25s auf 0.2s geaendert; alte Proc-Timing-Annahmen sind entwertet.",
+    "source_patch_event_ids": [96382],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/"],
+    "confidence": 0.92
+  },
+  {
+    "entity_type": "hero",
+    "entity_name": "Rem",
+    "insight_type": "value_invalidation",
+    "currentness": "2026-05-22",
+    "summary": "Rem: Tag Along T3 ergaenzt Missing-Health-Heal; fruehere Formel 0.03/0.66 ist nicht mehr vollstaendig.",
+    "source_patch_event_ids": [96563],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/"],
+    "confidence": 0.95
+  },
+  {
+    "entity_type": "item",
+    "entity_name": "Sharpshooter",
+    "insight_type": "value_invalidation",
+    "currentness": "2026-05-22",
+    "summary": "Sharpshooter: Upgrade-Pfad mit High-Velocity Rounds wurde in Richtung Long-Range umgestellt.",
+    "source_patch_event_ids": [96374],
+    "source_urls": ["https://forums.playdeadlock.com/threads/05-22-2026-update.135477/"],
+    "confidence": 0.92
+  }
+]

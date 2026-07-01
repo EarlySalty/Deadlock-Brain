@@ -1,5 +1,13 @@
 # Changelog
 
+## #19 — Patch-Erkenntnisse lassen sich direkt ins zentrale Brain importieren
+
+Spark- und Analyse-Agenten konnten gute Patch-Erkenntnisse liefern, aber diese Ergebnisse lagen danach nur als Chat-Text vor. Damit wären wichtige Hinweise zu Reworks, alten Werten oder versteckten Mechanikänderungen nicht dauerhaft und nicht zitierbar im Brain gelandet.
+
+Das Brain bekommt einen Importbefehl für kuratierte Insight-JSONs. Die Einträge werden per stabilem Hash dedupliziert, mit Currentness, Vertrauen, Patch-Event-IDs und Quellenlinks in die zentrale Postgres-Tabelle geschrieben und zusätzlich als Timeline-Wissensereignisse materialisiert.
+
+Damit können Agenten Patch-Historie autonom durcharbeiten und ihre verdichteten Erkenntnisse sauber ins zentrale Brain füttern, ohne Rohdaten oder aktuelle Snapshots zu überschreiben.
+
 ## #18 — Postgres-Export ersetzt abgeleitete Patch-Timeline sauber
 
 Beim Neuaufbau der Patchdaten kann der Parser weniger oder anders normalisierte Events erzeugen als ein früherer Lauf. Der bisherige Postgres-Export hat solche Daten nur aktualisiert oder ergänzt; dadurch konnten alte abgeleitete Timeline-Zeilen im zentralen Brain stehen bleiben, obwohl sie lokal nach dem Rebuild nicht mehr existieren.

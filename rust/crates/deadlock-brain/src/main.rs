@@ -3,6 +3,7 @@
 
 use std::{
     fs,
+    io::{self, Read},
     path::PathBuf,
     process,
 };
@@ -24,6 +25,7 @@ use serde::Serialize;
 use serde_json::{json, Map, Value};
 
 mod pg_export;
+mod pg_insights;
 
 #[derive(Debug, Parser)]
 #[command(name = "deadlock-brain")]
@@ -102,6 +104,11 @@ enum Commands {
     Pg {
         #[command(subcommand)]
         target: PgCommands,
+    },
+    #[command(about = "Importiert kuratierte Insights in die zentrale Postgres-DB.")]
+    Insights {
+        #[command(subcommand)]
+        target: InsightCommands,
     },
 }
 
@@ -789,11 +796,27 @@ enum PgCommands {
     Export(PgExportArgs),
 }
 
+#[derive(Debug, Subcommand)]
+enum InsightCommands {
+    #[command(name = "import-json", about = "Importiert ein Insight-JSON-Array nach brain.insight_records.")]
+    ImportJson(InsightImportJsonArgs),
+}
+
 #[derive(Debug, Args)]
 struct PgExportArgs {
     #[arg(long = "dsn-env", default_value = "DEADLOCK_CENTRAL_DSN")]
     dsn_env: String,
     #[arg(long = "dry-run", help = "Nur lokale Zaehler ermitteln; keine PG-Verbindung, keine Schreibzugriffe.")]
+    dry_run: bool,
+}
+
+#[derive(Debug, Args)]
+struct InsightImportJsonArgs {
+    #[arg(long = "file", value_name = "PATH", help = "JSON-Datei; ohne Datei wird stdin gelesen.")]
+    file: Option<PathBuf>,
+    #[arg(long = "dsn-env", default_value = "DEADLOCK_CENTRAL_DSN")]
+    dsn_env: String,
+    #[arg(long = "dry-run", help = "Nur validieren und zaehlen, keine PG-Schreibzugriffe.")]
     dry_run: bool,
 }
 
@@ -940,6 +963,7 @@ fn run(cli: Cli) -> Result<()> {
         Commands::Parse { target } => run_parse(&conn, target),
         Commands::Enrich { target } => run_enrich(&conn, &settings, target),
         Commands::Pg { target } => run_pg(&conn, target),
+        Commands::Insights { target } => run_insights(target),
     }
 }
 
@@ -953,6 +977,30 @@ fn run_pg(conn: &Connection, target: PgCommands) -> Result<()> {
             },
         )?),
     }
+}
+
+fn run_insights(target: InsightCommands) -> Result<()> {
+    match target {
+        InsightCommands::ImportJson(args) => {
+            let raw = read_json_input(args.file.as_ref())?;
+            print_json(&pg_insights::import_insights_json(
+                &raw,
+                &pg_insights::ImportInsightOptions {
+                    dsn_env: args.dsn_env,
+                    dry_run: args.dry_run,
+                },
+            )?)
+        }
+    }
+}
+
+fn read_json_input(path: Option<&PathBuf>) -> Result<String> {
+    if let Some(path) = path {
+        return fs::read_to_string(path).map_err(Into::into);
+    }
+    let mut raw = String::new();
+    io::stdin().read_to_string(&mut raw)?;
+    Ok(raw)
 }
 
 fn run_learn(conn: &Connection, settings: &Settings, target: LearnCommands) -> Result<()> {
