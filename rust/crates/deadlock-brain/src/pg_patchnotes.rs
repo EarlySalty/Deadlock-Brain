@@ -783,6 +783,9 @@ fn patch_lines(content: &str) -> Vec<String> {
     if let Some(flat_lines) = split_flat_forum_lines(&normalized) {
         return flat_lines;
     }
+    if let Some(flat_lines) = split_square_bracket_forum_lines(&normalized) {
+        return flat_lines;
+    }
 
     let mut lines = Vec::new();
     for raw in normalized.lines() {
@@ -874,6 +877,100 @@ fn split_flat_forum_lines(content: &str) -> Option<Vec<String>> {
     } else {
         Some(lines)
     }
+}
+
+fn split_square_bracket_forum_lines(content: &str) -> Option<Vec<String>> {
+    if content.is_empty()
+        || content.contains('\n')
+        || !content.starts_with('[')
+        || !content.contains(" - ")
+    {
+        return None;
+    }
+
+    let mut lines = Vec::new();
+    let mut saw_section = false;
+    let mut saw_event = false;
+
+    for raw_piece in content.split(" - ") {
+        let piece = raw_piece.trim();
+        if piece.is_empty() {
+            continue;
+        }
+        if let Some(section) = extract_forum_square_section_name(piece) {
+            lines.push(section);
+            saw_section = true;
+            continue;
+        }
+        if let Some((event, section)) = split_square_forum_piece_with_embedded_section(piece) {
+            if let Some(event) = event {
+                saw_event = true;
+                lines.push(format!("- {event}"));
+            }
+            lines.push(section);
+            saw_section = true;
+            continue;
+        }
+        if !saw_section {
+            continue;
+        }
+        saw_event = true;
+        lines.push(format!("- {piece}"));
+    }
+
+    if saw_section && saw_event {
+        Some(lines)
+    } else {
+        None
+    }
+}
+
+fn split_square_forum_piece_with_embedded_section(piece: &str) -> Option<(Option<String>, String)> {
+    let piece = piece.trim();
+    if !piece.ends_with(']') {
+        return None;
+    }
+    let close = piece.len() - 1;
+    let open = piece[..close].rfind('[')?;
+    if open > 0 && !piece[..open].ends_with(' ') {
+        return None;
+    }
+    let section = extract_forum_square_section_name_inner(piece[open + 1..close].trim())?;
+    let event = piece[..open].trim();
+    if event.is_empty() {
+        return Some((None, section));
+    }
+    if event.len() < 2 {
+        return Some((None, section));
+    }
+    Some((Some(event.to_string()), section))
+}
+
+fn extract_forum_square_section_name(raw_line: &str) -> Option<String> {
+    let line = raw_line.trim();
+    if !line.starts_with('[') || !line.ends_with(']') {
+        return None;
+    }
+    extract_forum_square_section_name_inner(
+        line.trim_start_matches('[').trim_end_matches(']').trim(),
+    )
+}
+
+fn extract_forum_square_section_name_inner(raw_line: &str) -> Option<String> {
+    let inner = raw_line.trim();
+    if inner.len() < 2 || inner.len() > 80 {
+        return None;
+    }
+    if !inner.chars().next()?.is_ascii_uppercase() {
+        return None;
+    }
+    if !inner
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, ' ' | '&' | '/' | '+' | '-' | '(' | ')' | '.'))
+    {
+        return None;
+    }
+    Some(inner.to_string())
 }
 
 fn extract_forum_section_name(before_marker: &str) -> Option<String> {
@@ -1040,6 +1137,16 @@ fn bullet_body(line: &str) -> Option<String> {
 
 fn section_heading(line: &str) -> Option<String> {
     let cleaned = line.trim().trim_matches(':').trim();
+    if cleaned.starts_with('[') && cleaned.ends_with(']') {
+        let cleaned = cleaned
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .trim();
+        if cleaned.is_empty() {
+            return None;
+        }
+        return Some(cleaned.to_string());
+    }
     if cleaned.is_empty() || cleaned.len() > 80 {
         return None;
     }
@@ -1262,6 +1369,35 @@ mod tests {
             .events
             .iter()
             .any(|event| event.subject.as_deref() == Some("Abrams")));
+    }
+
+    #[test]
+    fn parses_forum_square_bracket_single_line_sections() {
+        let row = PatchnoteRow {
+            id: 69,
+            title: Some("06-13-2024 Update".to_string()),
+            url: Some("https://forums.playdeadlock.com/threads/06-13-2024-update.5773/".to_string()),
+            posted_at: Some(posted_at("2024-06-13T14:01:34+00:00")),
+            raw_content: Some(
+                "[ General Changes] - Voice/Text chat is now opt-in. There is a prompt pre-match for joining the chat. - You can now press ESC to mute individual players. - The Patrons no longer care about the well being of the Urn Runner, and so they will stop asking you to protect them [ Misc Gameplay ] - Added two new underground tunnels, one on each side of the map. - Added two new teleporters, one on each outer lane"
+                    .to_string(),
+            ),
+            translated_content: None,
+        };
+        let prepared = prepare_patch(&row, &EntityIndex::default()).expect("prepare");
+        assert_eq!(prepared.events.len(), 5);
+        assert_eq!(
+            prepared.events[0].section.as_deref(),
+            Some("General Changes")
+        );
+        assert!(prepared
+            .events
+            .iter()
+            .any(|event| event.section.as_deref() == Some("Misc Gameplay")));
+        assert!(prepared
+            .events
+            .iter()
+            .any(|event| event.subject.is_none()));
     }
 
     #[test]

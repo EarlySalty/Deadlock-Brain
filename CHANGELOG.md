@@ -1,5 +1,13 @@
 # Changelog
 
+## #23 — Forum-Abschnittsmarker im Einzeilenformat
+
+Problem: Patch 69 liegt im Forum als Einzeiler mit eckigen Abschnittsmarkern vor (z. B. `[ General Changes] ... [ Misc Gameplay ] ...`). Das bestehende Parserverhalten hat dieses Muster nicht als Struktur erkannt, dadurch wurden Inhalte nicht als Ereignisse aufgespalten und es wurden null Events gezählt.
+
+Änderung: Die Vorverarbeitung erkennt jetzt Foruminhalte mit eckigen Abschnittsmarkern in einer Zeile, splittet sie in Abschnittsblöcke und ordnet die enthaltenen Beschreibungen wieder als Listeinträge ein. Bestehende Formate mit Mehrzeilen-Abschnitten und bereits stabilisierter Flat-Fix-Logik bleiben unverändert aktiv.
+
+Aktuelles Verhalten: Patch 69 liefert im Dry-Run wieder Event-Anzahlen größer 0 und Abschnittskontexte bleiben korrekt getrennt; Patch 80 bleibt stabil bei `parsed_patch_events=80`, ohne dass Abschnittsüberschriften als Events importiert werden.
+
 ## #22 — Patch-Forum-Parsing robust gegenüber Abschnittsüberschriften
 
 Problem: Beim Verarbeiten von Foruminhalten wurden einzelne Abschnittszeilen wie General Changes: wie normale Ereigniszeilen behandelt. Dadurch verschwanden Abschnittskontexte und die Ereigniszuordnung im Forum-Import wurde unzuverlässig, besonders bei älteren flachen Patchnotizen.
