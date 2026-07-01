@@ -1019,6 +1019,7 @@ fn parse_bullet_event(context: &EventParseContext<'_>) -> Option<PreparedEvent> 
     let entity = subject
         .as_deref()
         .and_then(|subject| context.index.exact(subject))
+        .or_else(|| section_subject(context.section).and_then(|subject| context.index.exact(subject)))
         .or_else(|| context.index.infer(&normalized_line));
     let (entity_type, entity_name, confidence) = if let Some(entity) = entity {
         (
@@ -1071,6 +1072,15 @@ fn parse_bullet_event(context: &EventParseContext<'_>) -> Option<PreparedEvent> 
         metadata,
         event_hash,
     })
+}
+
+fn section_subject(section: Option<&str>) -> Option<&str> {
+    let section = section?.trim();
+    let candidate = section.split(':').next()?.trim();
+    if candidate.is_empty() || candidate == section {
+        return None;
+    }
+    Some(candidate)
 }
 
 fn parse_posted_at(raw: Option<&str>) -> Result<Option<DateTime<Utc>>> {
@@ -2322,7 +2332,8 @@ mod tests {
         assert!(prepared
             .events
             .iter()
-            .any(|event| event.entity_name.as_deref() == Some("Mina")));
+            .any(|event| event.section.as_deref() == Some("Mina: Hero Spotlight")
+                && event.entity_name.as_deref() == Some("Mina")));
     }
 
     #[test]
