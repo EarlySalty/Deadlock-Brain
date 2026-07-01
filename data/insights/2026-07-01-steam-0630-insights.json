@@ -1,0 +1,278 @@
+[
+  {
+    "insight_type": "patch_meta",
+    "entity_type": "patch",
+    "entity_name": "Minor Update - 06-30-2026",
+    "summary": "Official Deadlock Steam patch with a broad objective, economy, hero, and item balance pass.",
+    "validity_status": "curated_patch_insight",
+    "currentness": "2026-06-30",
+    "trust_tier": "curated_patch_history",
+    "confidence": 0.99,
+    "source_urls": [
+      "https://store.steampowered.com/news/app/1422450/view/688635449342692003",
+      "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1836506165563227"
+    ],
+    "payload": {
+      "patch_gid": "1836506165563227",
+      "patch_title": "Minor Update - 06-30-2026"
+    },
+    "metadata": {
+      "curator": "gpt-5.3-codex-spark",
+      "import_batch": "steam_0630"
+    }
+  },
+  {
+    "insight_type": "objective_rework",
+    "entity_type": "objective",
+    "entity_name": "Unstable Rift",
+    "summary": "King of the Hill was rethemed and renamed to Unstable Rift with a variable start window, a 25 second global warning, and lane telegraphing before spawn.",
+    "validity_status": "curated_patch_insight",
+    "currentness": "2026-06-30",
+    "trust_tier": "curated_patch_history",
+    "confidence": 0.98,
+    "source_urls": [
+      "https://store.steampowered.com/news/app/1422450/view/688635449342692003",
+      "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1836506165563227"
+    ],
+    "payload": {
+      "patch_gid": "1836506165563227"
+    },
+    "metadata": {
+      "curator": "gpt-5.3-codex-spark",
+      "import_batch": "steam_0630"
+    }
+  },
+  {
+    "insight_type": "objective_timing",
+    "entity_type": "objective",
+    "entity_name": "Unstable Rift",
+    "summary": "Unstable Rift spawn interval increased from 6 to 7 minutes, with comeback scaling based on net worth deficit from 0 percent to 15 percent.",
+    "validity_status": "curated_patch_insight",
+    "currentness": "2026-06-30",
+    "trust_tier": "curated_patch_history",
+    "confidence": 0.97,
+    "source_urls": [
+      "https://store.steampowered.com/news/app/1422450/view/688635449342692003",
+      "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1836506165563227"
+    ],
+    "payload": {
+      "patch_gid": "1836506165563227"
+    },
+    "metadata": {
+      "curator": "gpt-5.3-codex-spark",
+      "import_batch": "steam_0630"
+    }
+  },
+  {
+    "insight_type": "objective_troopers",
+    "entity_type": "objective_entity",
+    "entity_name": "Rift Troopers",
+    "summary": "Securing Unstable Rift now creates a Rift Trooper wave: 5 baseline Troopers, up to 12 for a trailing team, no soul bounty on death, and scaling health and damage per event.",
+    "validity_status": "curated_patch_insight",
+    "currentness": "2026-06-30",
+    "trust_tier": "curated_patch_history",
+    "confidence": 0.95,
+    "source_urls": [
+      "https://store.steampowered.com/news/app/1422450/view/688635449342692003",
+      "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1836506165563227"
+    ],
+    "payload": {
+      "patch_gid": "1836506165563227"
+    },
+    "metadata": {
+      "curator": "gpt-5.3-codex-spark",
+      "import_batch": "steam_0630"
+    }
+  },
+  {
+    "insight_type": "objective_rework",
+    "entity_type": "objective",
+    "entity_name": "Urn",
+    "summary": "Urn became its own objective phase, separate from Unstable Rift: it spawns on the map edge, routes toward the enemy side, decays bounty after 45 seconds, and deposits instantly at the goal.",
+    "validity_status": "curated_patch_insight",
+    "currentness": "2026-06-30",
+    "trust_tier": "curated_patch_history",
+    "confidence": 0.98,
+    "source_urls": [
+      "https://store.steampowered.com/news/app/1422450/view/688635449342692003",
+      "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1836506165563227"
+    ],
+    "payload": {
+      "patch_gid": "1836506165563227"
+    },
+    "metadata": {
+      "curator": "gpt-5.3-codex-spark",
+      "import_batch": "steam_0630"
+    }
+  },
+  {
+    "insight_type": "obsolete_statement",
+    "entity_type": "objective",
+    "entity_name": "Urn / King of the Hill",
+    "summary": "Obsolete after 2026-06-30: an Urn delivery no longer triggers King of the Hill as the live rule. The objective is now Unstable Rift with separate trigger logic.",
+    "validity_status": "superseded_by_patch",
+    "currentness": "historical_only",
+    "trust_tier": "curated_patch_history",
+    "confidence": 0.98,
+    "source_urls": [
+      "https://store.steampowered.com/news/app/1422450/view/688635449342692003",
+      "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1836506165563227"
+    ],
+    "payload": {
+      "patch_date": "2026-06-30",
+      "patch_gid": "1836506165563227"
+    },
+    "metadata": {
+      "curator": "gpt-5.3-codex-spark",
+      "import_batch": "steam_0630"
+    }
+  },
+  {
+    "insight_type": "obsolete_statement",
+    "entity_type": "objective",
+    "entity_name": "Urn Running",
+    "summary": "Obsolete after 2026-06-30: manual Urn drop and older disarm/silence/parry-bar assumptions are no longer reliable; the Urn now drops automatically on hit, crowd control, or death and cannot be manually dropped.",
+    "validity_status": "superseded_by_patch",
+    "currentness": "historical_only",
+    "trust_tier": "curated_patch_history",
+    "confidence": 0.97,
+    "source_urls": [
+      "https://store.steampowered.com/news/app/1422450/view/688635449342692003",
+      "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1836506165563227"
+    ],
+    "payload": {
+      "patch_date": "2026-06-30",
+      "patch_gid": "1836506165563227"
+    },
+    "metadata": {
+      "curator": "gpt-5.3-codex-spark",
+      "import_batch": "steam_0630"
+    }
+  },
+  {
+    "insight_type": "meta_system",
+    "entity_type": "general_balance",
+    "entity_name": "Bounty/XP Economy",
+    "summary": "The 2026-06-30 patch recalibrated several economy levers: health boon down, ultimate cooldown boons down, respawn ramp up, guard/walker/first-blood/kill bounties down, and Trooper bounty formula changed.",
+    "validity_status": "curated_patch_insight",
+    "currentness": "2026-06-30",
+    "trust_tier": "curated_patch_history",
+    "confidence": 0.96,
+    "source_urls": [
+      "https://store.steampowered.com/news/app/1422450/view/688635449342692003",
+      "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1836506165563227"
+    ],
+    "payload": {
+      "patch_gid": "1836506165563227"
+    },
+    "metadata": {
+      "curator": "gpt-5.3-codex-spark",
+      "import_batch": "steam_0630"
+    }
+  },
+  {
+    "insight_type": "mechanic_change",
+    "entity_type": "hero",
+    "entity_name": "Apollo",
+    "summary": "Apollo received a mixed buff pass around Riposte and Flawless Advance, including reach/angle/heal-scaling improvements plus smaller cooldown and tier adjustments.",
+    "validity_status": "curated_patch_insight",
+    "currentness": "2026-06-30",
+    "trust_tier": "curated_patch_history",
+    "confidence": 0.94,
+    "source_urls": [
+      "https://store.steampowered.com/news/app/1422450/view/688635449342692003",
+      "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1836506165563227"
+    ],
+    "payload": {
+      "patch_gid": "1836506165563227"
+    },
+    "metadata": {
+      "curator": "gpt-5.3-codex-spark",
+      "import_batch": "steam_0630"
+    }
+  },
+  {
+    "insight_type": "mechanic_change",
+    "entity_type": "hero",
+    "entity_name": "Shiv",
+    "summary": "Shiv received a broad kit adjustment touching Killing Blow range/charge, amp and threshold behavior, recast on hero kill, alt-fire, and Slice and Dice tradeoffs.",
+    "validity_status": "curated_patch_insight",
+    "currentness": "2026-06-30",
+    "trust_tier": "curated_patch_history",
+    "confidence": 0.96,
+    "source_urls": [
+      "https://store.steampowered.com/news/app/1422450/view/688635449342692003",
+      "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1836506165563227"
+    ],
+    "payload": {
+      "patch_gid": "1836506165563227"
+    },
+    "metadata": {
+      "curator": "gpt-5.3-codex-spark",
+      "import_batch": "steam_0630"
+    }
+  },
+  {
+    "insight_type": "mechanic_change",
+    "entity_type": "hero",
+    "entity_name": "Seven",
+    "summary": "Seven's Storm Cloud and Lightning Ball profile shifted toward more wind-up and area/timing flexibility while keeping nominal damage throughput similar.",
+    "validity_status": "curated_patch_insight",
+    "currentness": "2026-06-30",
+    "trust_tier": "curated_patch_history",
+    "confidence": 0.93,
+    "source_urls": [
+      "https://store.steampowered.com/news/app/1422450/view/688635449342692003",
+      "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1836506165563227"
+    ],
+    "payload": {
+      "patch_gid": "1836506165563227"
+    },
+    "metadata": {
+      "curator": "gpt-5.3-codex-spark",
+      "import_batch": "steam_0630"
+    }
+  },
+  {
+    "insight_type": "item_change",
+    "entity_type": "item",
+    "entity_name": "Cursed Relic",
+    "summary": "Cursed Relic became more conservative offensively: its damage penalty was worsened to -14 percent.",
+    "validity_status": "curated_patch_insight",
+    "currentness": "2026-06-30",
+    "trust_tier": "curated_patch_history",
+    "confidence": 0.95,
+    "source_urls": [
+      "https://store.steampowered.com/news/app/1422450/view/688635449342692003",
+      "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1836506165563227"
+    ],
+    "payload": {
+      "patch_gid": "1836506165563227"
+    },
+    "metadata": {
+      "curator": "gpt-5.3-codex-spark",
+      "import_batch": "steam_0630"
+    }
+  },
+  {
+    "insight_type": "item_change",
+    "entity_type": "item",
+    "entity_name": "Scourge / Toxic Bullets / Mystic Shot",
+    "summary": "Several item damage rules were retuned together: Toxic Bullets bleed increased, Scourge max-health DPS now interacts with Spirit Power, and Mystic Shot cooldown increased.",
+    "validity_status": "curated_patch_insight",
+    "currentness": "2026-06-30",
+    "trust_tier": "curated_patch_history",
+    "confidence": 0.92,
+    "source_urls": [
+      "https://store.steampowered.com/news/app/1422450/view/688635449342692003",
+      "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1836506165563227"
+    ],
+    "payload": {
+      "patch_gid": "1836506165563227"
+    },
+    "metadata": {
+      "curator": "gpt-5.3-codex-spark",
+      "import_batch": "steam_0630"
+    }
+  }
+]

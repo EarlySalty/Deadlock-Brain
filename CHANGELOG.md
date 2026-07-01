@@ -1,5 +1,13 @@
 # Changelog
 
+## #20 — Offizielle Steam-Patches fließen direkt in die zentrale Brain-Timeline
+
+Nach der Umstellung auf die zentrale Postgres-Datenbank durfte der Patch-Backfill nicht mehr über die alte lokale SQLite-Brücke laufen. Außerdem fehlten die offiziellen Steam-Updates nach dem letzten bisher erfassten Patchstand, wodurch die zentrale Timeline bei Ende Mai 2026 stehen blieb.
+
+Das Brain hat jetzt einen PG-direkten Steam-News-Import. Er holt offizielle Steam-Community-Announcements alt nach neu ab 2024, speichert die Quellen und Patchnote-Snapshots direkt im zentralen `brain`-Schema, zerlegt Bullet-Änderungen in Patch-Events und materialisiert daraus Timeline-Wissen. Historische Quellen bleiben erhalten; direkte Steam-Events werden als vertrauenswürdige Patchhistorie ergänzt statt alte Daten blind zu überschreiben.
+
+Der aktuelle Lauf hat die zentrale Timeline bis zum offiziellen 2026-06-30-Patch erweitert und zusätzlich kuratierte Erkenntnisse zu Unstable Rift, Urn, Economy, ausgewählten Helden und Items mit Quellenlinks ins Brain geschrieben.
+
 ## #19 — Patch-Erkenntnisse lassen sich direkt ins zentrale Brain importieren
 
 Spark- und Analyse-Agenten konnten gute Patch-Erkenntnisse liefern, aber diese Ergebnisse lagen danach nur als Chat-Text vor. Damit wären wichtige Hinweise zu Reworks, alten Werten oder versteckten Mechanikänderungen nicht dauerhaft und nicht zitierbar im Brain gelandet.

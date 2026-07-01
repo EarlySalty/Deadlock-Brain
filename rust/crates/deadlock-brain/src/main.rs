@@ -26,6 +26,7 @@ use serde_json::{json, Map, Value};
 
 mod pg_export;
 mod pg_insights;
+mod pg_steam_news;
 
 #[derive(Debug, Parser)]
 #[command(name = "deadlock-brain")]
@@ -794,6 +795,8 @@ struct PatchImpactArgs {
 enum PgCommands {
     #[command(about = "Exportiert die lokale Brain-SQLite in das zentrale brain.* Postgres-Schema.")]
     Export(PgExportArgs),
+    #[command(name = "import-steam-news", about = "Importiert offizielle Steam-News-Patches direkt nach brain.* in Postgres.")]
+    ImportSteamNews(PgSteamNewsArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -807,6 +810,26 @@ struct PgExportArgs {
     #[arg(long = "dsn-env", default_value = "DEADLOCK_CENTRAL_DSN")]
     dsn_env: String,
     #[arg(long = "dry-run", help = "Nur lokale Zaehler ermitteln; keine PG-Verbindung, keine Schreibzugriffe.")]
+    dry_run: bool,
+}
+
+#[derive(Debug, Args)]
+struct PgSteamNewsArgs {
+    #[arg(long = "dsn-env", default_value = "DEADLOCK_CENTRAL_DSN")]
+    dsn_env: String,
+    #[arg(long, default_value_t = 1_422_450)]
+    appid: u32,
+    #[arg(long = "start-date", default_value = "2024-01-01")]
+    start_date: String,
+    #[arg(long, default_value_t = 500)]
+    count: u32,
+    #[arg(long = "cache-ttl-seconds", default_value_t = 900)]
+    cache_ttl_seconds: u64,
+    #[arg(long = "include-non-official", help = "Auch externe Steam-News-Feeds importieren; Standard ist nur steam_community_announcements.")]
+    include_non_official: bool,
+    #[arg(long = "gid", action = clap::ArgAction::Append, help = "Optional auf einzelne Steam-News-GIDs begrenzen.")]
+    gids: Vec<String>,
+    #[arg(long = "dry-run", help = "Nur Steam-News holen/parsen, keine PG-Verbindung, keine Schreibzugriffe.")]
     dry_run: bool,
 }
 
@@ -838,6 +861,28 @@ fn run(cli: Cli) -> Result<()> {
     if let Some(path) = db_path {
         settings.db_path = path;
     }
+    let command = match command {
+        Commands::Pg {
+            target: PgCommands::ImportSteamNews(args),
+        } => {
+            fs::create_dir_all(&settings.cache_dir)?;
+            let http = http_client(&settings)?;
+            return print_json(&pg_steam_news::import_steam_news(
+                &http,
+                &pg_steam_news::ImportSteamNewsOptions {
+                    dsn_env: args.dsn_env,
+                    appid: args.appid,
+                    start_date: args.start_date,
+                    count: args.count,
+                    cache_ttl_seconds: args.cache_ttl_seconds,
+                    include_non_official: args.include_non_official,
+                    gids: args.gids,
+                    dry_run: args.dry_run,
+                },
+            )?);
+        }
+        other => other,
+    };
     prepare_dirs(&settings)?;
     let conn = db::open_connection(Some(settings.db_path.clone()))?;
 
@@ -976,6 +1021,7 @@ fn run_pg(conn: &Connection, target: PgCommands) -> Result<()> {
                 dry_run: args.dry_run,
             },
         )?),
+        PgCommands::ImportSteamNews(_) => unreachable!("PG-Steam-News wird vor SQLite-Open behandelt"),
     }
 }
 
