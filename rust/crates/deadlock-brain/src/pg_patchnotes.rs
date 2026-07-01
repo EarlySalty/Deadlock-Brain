@@ -1,0 +1,1056 @@
+use std::{collections::HashMap, env};
+
+use anyhow::{anyhow, Result};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use postgres::types::ToSql;
+use postgres::{Client, NoTls, Transaction};
+use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
+
+const SOURCE: &str = "deadlock_patchnotes_db";
+const IMPORTER: &str = "deadlock_patchnotes_db_pg";
+
+#[derive(Debug, Clone)]
+pub struct ImportPatchnoteOptions {
+    pub patch_id: i64,
+    pub dsn_env: String,
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Clone)]
+struct PatchnoteRow {
+    id: i64,
+    title: Option<String>,
+    url: Option<String>,
+    posted_at: Option<String>,
+    raw_content: Option<String>,
+    translated_content: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct PreparedPatch {
+    row_id: i64,
+    patch_external_id: String,
+    source_external_id: String,
+    title: Option<String>,
+    url: Option<String>,
+    posted_at: Option<String>,
+    source_kind: String,
+    raw_payload_text: String,
+    raw_payload_hash: String,
+    snapshot_payload_text: String,
+    snapshot_payload_hash: String,
+    events: Vec<PreparedEvent>,
+}
+
+#[derive(Debug, Clone)]
+struct PreparedEvent {
+    line_index: i64,
+    section: Option<String>,
+    entity_type: String,
+    entity_name: Option<String>,
+    subject: Option<String>,
+    change_type: String,
+    raw_line: String,
+    normalized_line: String,
+    old_value: Option<String>,
+    new_value: Option<String>,
+    confidence: f64,
+    metadata: Value,
+    event_hash: String,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct PgWriteCounts {
+    documents: u64,
+    snapshots: u64,
+    patch_events: u64,
+    knowledge_events: u64,
+}
+
+#[derive(Debug, Default, Clone)]
+struct EntityIndex {
+    by_key: HashMap<String, EntityAlias>,
+    aliases_desc: Vec<EntityAlias>,
+}
+
+#[derive(Debug, Clone)]
+struct EntityAlias {
+    key: String,
+    entity_type: String,
+    canonical_name: String,
+}
+
+#[derive(Debug)]
+struct EventParseContext<'a> {
+    row: &'a PatchnoteRow,
+    posted_at: Option<&'a str>,
+    section: Option<&'a str>,
+    line_index: i64,
+    raw_line: &'a str,
+    body: &'a str,
+    source_kind: &'a str,
+    index: &'a EntityIndex,
+}
+
+impl EntityIndex {
+    fn insert(&mut self, entity_type: &str, canonical_name: &str, alias: &str) {
+        let key = normalize_key(alias);
+        if key.len() < 3 || !key.chars().any(|ch| ch.is_ascii_alphabetic()) {
+            return;
+        }
+        let alias = EntityAlias {
+            key: key.clone(),
+            entity_type: public_entity_type(entity_type).to_string(),
+            canonical_name: canonical_name.to_string(),
+        };
+        self.by_key.entry(key).or_insert(alias);
+    }
+
+    fn finish(mut self) -> Self {
+        self.aliases_desc = self.by_key.values().cloned().collect();
+        self.aliases_desc.sort_by(|left, right| {
+            right
+                .key
+                .len()
+                .cmp(&left.key.len())
+                .then(left.key.cmp(&right.key))
+        });
+        self
+    }
+
+    fn exact(&self, value: &str) -> Option<&EntityAlias> {
+        self.by_key.get(&normalize_key(value))
+    }
+
+    fn infer(&self, value: &str) -> Option<&EntityAlias> {
+        let haystack = format!(" {} ", normalize_key(value));
+        self.aliases_desc
+            .iter()
+            .find(|alias| contains_alias(&haystack, &alias.key))
+    }
+}
+
+pub fn import_patchnote(options: &ImportPatchnoteOptions) -> Result<Value> {
+    let dsn = env::var(&options.dsn_env).map_err(|_| {
+        anyhow!(
+            "{} ist nicht gesetzt; DSN wird nicht ausgegeben.",
+            options.dsn_env
+        )
+    })?;
+    let mut client = Client::connect(&dsn, NoTls).map_err(|_| {
+        anyhow!("Konnte zentrale Postgres-DB nicht oeffnen; DSN wird nicht ausgegeben.")
+    })?;
+    ensure_pg_schema(&mut client)?;
+    let patch = load_patchnote(&mut client, options.patch_id)?;
+    let index = load_entity_index(&mut client)?;
+    let prepared = prepare_patch(&patch, &index)?;
+    if options.dry_run {
+        return Ok(summary_json(
+            true,
+            options,
+            &prepared,
+            PgWriteCounts::default(),
+        ));
+    }
+    let mut tx = client.transaction()?;
+    let run_id = begin_run(&mut tx)?;
+    let document_id = upsert_source_document(&mut tx, &prepared)?;
+    let snapshot_id = upsert_entity_snapshot(&mut tx, &prepared, document_id)?;
+    prune_direct_patch_events(&mut tx, &prepared.patch_external_id)?;
+    let patch_events = insert_patch_events(&mut tx, &prepared, snapshot_id)?;
+    let knowledge_events =
+        materialize_patch_knowledge_events(&mut tx, &prepared.patch_external_id)?;
+    let counts = PgWriteCounts {
+        documents: 1,
+        snapshots: 1,
+        patch_events,
+        knowledge_events,
+    };
+    finish_run(
+        &mut tx,
+        run_id,
+        &summary_json(false, options, &prepared, counts),
+    )?;
+    tx.commit()?;
+    Ok(summary_json(false, options, &prepared, counts))
+}
+
+fn load_patchnote(client: &mut Client, patch_id: i64) -> Result<PatchnoteRow> {
+    let row = client
+        .query_opt(
+            r#"
+            SELECT id, title, url, posted_at::text, raw_content, translated_content
+            FROM patchnotes.changelog_posts
+            WHERE id = $1
+            "#,
+            &[&patch_id],
+        )
+        .map_err(|error| anyhow!("Fehler beim Lesen von changelog_posts: {error}"))?;
+    let row = row.ok_or_else(|| anyhow!("Patchnote nicht gefunden: {patch_id}"))?;
+    Ok(PatchnoteRow {
+        id: row.get(0),
+        title: row.get(1),
+        url: row.get(2),
+        posted_at: row.get(3),
+        raw_content: row.get(4),
+        translated_content: row.get(5),
+    })
+}
+
+fn prepare_patch(row: &PatchnoteRow, index: &EntityIndex) -> Result<PreparedPatch> {
+    let source_external_id = match row.url.as_deref().map(str::trim) {
+        Some(url) if !url.is_empty() => url.to_string(),
+        _ => format!("patchnotes:{}", row.id),
+    };
+    let patch_external_id = row.id.to_string();
+    let source_kind = classify_source_kind(row.url.as_deref());
+    let title = Some(row.title.clone().unwrap_or_else(|| format!("Patchnotes {}", row.id)));
+    let url = row.url.clone();
+    let posted_at = parse_posted_at(row.posted_at.as_deref())?;
+    let raw_content = row.raw_content.clone().unwrap_or_default();
+    let content = raw_content;
+    let payload = json!({
+        "id": row.id,
+        "title": row.title,
+        "url": row.url,
+        "posted_at": posted_at,
+        "raw_content": content,
+        "translated_content": row.translated_content,
+        "source_kind": source_kind,
+        "importer": IMPORTER,
+    });
+    let raw_payload_text = json_text(&payload)?;
+    let raw_payload_hash = stable_hash(raw_payload_text.as_bytes());
+    let snapshot_payload = json!({
+        "id": row.id,
+        "title": row.title,
+        "url": row.url,
+        "posted_at": posted_at,
+        "raw_content": content,
+        "translated_content": row.translated_content,
+        "source_kind": source_kind,
+        "patchnotes": true,
+        "importer": IMPORTER,
+    });
+    let snapshot_payload_text = json_text(&snapshot_payload)?;
+    let snapshot_payload_hash = stable_hash(snapshot_payload_text.as_bytes());
+    let events = parse_events(row, &source_kind, posted_at.as_deref(), &content, index);
+    Ok(PreparedPatch {
+        row_id: row.id,
+        patch_external_id,
+        source_external_id,
+        title,
+        url,
+        posted_at,
+        source_kind,
+        raw_payload_text,
+        raw_payload_hash,
+        snapshot_payload_text,
+        snapshot_payload_hash,
+        events,
+    })
+}
+
+fn parse_events(
+    row: &PatchnoteRow,
+    source_kind: &str,
+    posted_at: Option<&str>,
+    content: &str,
+    index: &EntityIndex,
+) -> Vec<PreparedEvent> {
+    let mut events = Vec::new();
+    let mut section: Option<String> = None;
+    let mut line_index = 0_i64;
+    for line in patch_lines(content) {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Some(body) = bullet_body(trimmed) {
+            line_index += 1;
+            let event = parse_bullet_event(&EventParseContext {
+                row,
+                posted_at,
+                section: section.as_deref(),
+                line_index,
+                raw_line: trimmed,
+                body: &body,
+                source_kind,
+                index,
+            });
+            if let Some(event) = event {
+                events.push(event);
+            }
+            continue;
+        }
+        if let Some(next_section) = section_heading(trimmed) {
+            section = Some(next_section);
+        }
+    }
+    events
+}
+
+fn parse_bullet_event(context: &EventParseContext<'_>) -> Option<PreparedEvent> {
+    let normalized_line = normalize_patch_line(context.body);
+    if normalized_line.is_empty() {
+        return None;
+    }
+    let (subject, remainder) = split_subject(&normalized_line);
+    let entity = subject
+        .as_deref()
+        .and_then(|subject| context.index.exact(subject))
+        .or_else(|| context.index.infer(&normalized_line));
+    let (entity_type, entity_name, confidence) = if let Some(entity) = entity {
+        (
+            entity.entity_type.clone(),
+            Some(entity.canonical_name.clone()),
+            if subject.is_some() { 0.88 } else { 0.72 },
+        )
+    } else {
+        ("general".to_string(), None, 0.52)
+    };
+    let (old_value, new_value) = extract_old_new(&normalized_line);
+    let change_type = classify_change_type(&normalized_line);
+    let metadata = json!({
+        "importer": IMPORTER,
+        "patch_id": context.row.id,
+        "source_kind": context.source_kind,
+        "source_language": "en",
+        "source_posted_at": context.posted_at,
+        "line_subject": subject,
+        "line_remainder": remainder,
+        "section": context.section,
+        "patch_title": context.row.title,
+        "url": context.row.url,
+    });
+    let event_hash = stable_hash(
+        format!(
+            "patchnotes|{}|{}|{}|{}|{}",
+            context.row.id,
+            context.line_index,
+            context.section.unwrap_or_default(),
+            entity_type,
+            normalized_line
+        )
+        .as_bytes(),
+    );
+
+    Some(PreparedEvent {
+        line_index: context.line_index,
+        section: context.section.map(ToString::to_string),
+        entity_type,
+        entity_name,
+        subject,
+        change_type,
+        raw_line: context.raw_line.to_string(),
+        normalized_line,
+        old_value,
+        new_value,
+        confidence,
+        metadata,
+        event_hash,
+    })
+}
+
+fn parse_posted_at(raw: Option<&str>) -> Result<Option<String>> {
+    let raw = raw.unwrap_or("").trim();
+    if raw.is_empty() {
+        return Ok(None);
+    }
+    if let Ok(value) = DateTime::parse_from_rfc3339(raw) {
+        return Ok(Some(value.to_rfc3339()));
+    }
+    if let Ok(value) = DateTime::parse_from_str(raw, "%Y-%m-%d %H:%M:%S%.f %z") {
+        return Ok(Some(value.to_rfc3339()));
+    }
+    if let Ok(value) = DateTime::parse_from_str(raw, "%Y-%m-%d %H:%M:%S%.f") {
+        return Ok(Some(value.with_timezone(&Utc).to_rfc3339()));
+    }
+    if let Ok(value) = NaiveDateTime::parse_from_str(raw, "%Y-%m-%d %H:%M:%S") {
+        return Ok(Some(Utc.from_utc_datetime(&value).to_rfc3339()));
+    }
+    if let Ok(value) = NaiveDate::parse_from_str(raw, "%Y-%m-%d") {
+        if let Some(time) = value.and_hms_opt(0, 0, 0) {
+            return Ok(Some(Utc.from_utc_datetime(&time).to_rfc3339()));
+        }
+        return Ok(None);
+    }
+    if let Ok(value) = raw.parse::<i64>() {
+        if let Some(value) = DateTime::<Utc>::from_timestamp(value, 0) {
+            return Ok(Some(value.to_rfc3339()));
+        }
+    }
+    Ok(None)
+}
+
+fn ensure_pg_schema(client: &mut Client) -> Result<()> {
+    let row = client.query_one(
+        r#"
+        SELECT
+            to_regclass('brain.source_documents')::text,
+            to_regclass('brain.entity_snapshots')::text,
+            to_regclass('brain.patch_events')::text,
+            to_regclass('brain.knowledge_events')::text
+        "#,
+        &[],
+    )?;
+    let missing = [
+        "source_documents",
+        "entity_snapshots",
+        "patch_events",
+        "knowledge_events",
+    ]
+    .iter()
+    .zip([
+        row.get::<_, Option<String>>(0),
+        row.get::<_, Option<String>>(1),
+        row.get::<_, Option<String>>(2),
+        row.get::<_, Option<String>>(3),
+    ])
+    .filter_map(|(name, value)| value.is_none().then_some(*name))
+    .collect::<Vec<_>>();
+    if !missing.is_empty() {
+        return Err(anyhow!(
+            "Zentrales brain-Schema fehlt/unvollstaendig: {}",
+            missing.join(", ")
+        ));
+    }
+    Ok(())
+}
+
+fn load_entity_index(client: &mut Client) -> Result<EntityIndex> {
+    let mut index = EntityIndex::default();
+    for row in client.query(
+        r#"
+        SELECT entity_type, canonical_name, canonical_name AS alias
+        FROM brain.entities
+        UNION ALL
+        SELECT e.entity_type, e.canonical_name, a.alias
+        FROM brain.entity_aliases a
+        JOIN brain.entities e ON e.id = a.entity_id
+        "#,
+        &[],
+    )? {
+        let entity_type: String = row.get(0);
+        let canonical_name: String = row.get(1);
+        let alias: String = row.get(2);
+        index.insert(&entity_type, &canonical_name, &alias);
+    }
+    add_manual_objective_aliases(&mut index);
+    Ok(index.finish())
+}
+
+fn add_manual_objective_aliases(index: &mut EntityIndex) {
+    for (entity_type, canonical, aliases) in [
+        (
+            "objective",
+            "Unstable Rift",
+            &["Unstable Rift", "King of the Hill", "KOTH"][..],
+        ),
+        ("objective", "Urn", &["Urn", "Soul Urn"][..]),
+        (
+            "objective_entity",
+            "Rift Troopers",
+            &["Rift Trooper", "Rift Troopers"][..],
+        ),
+        ("objective", "Mid Boss", &["Mid Boss", "Midboss"][..]),
+        ("objective", "Patron", &["Patron", "Weakened Patron"][..]),
+        ("objective", "Walker", &["Walker", "Walkers"][..]),
+        ("objective", "Guardian", &["Guardian", "Guardians"][..]),
+    ] {
+        for alias in aliases {
+            index.insert(entity_type, canonical, alias);
+        }
+    }
+}
+
+fn begin_run(tx: &mut Transaction<'_>) -> Result<i64> {
+    let row = tx.query_one(
+        "INSERT INTO brain.source_runs(source, status, started_at) VALUES ($1, 'running', now()) RETURNING id",
+        &[&IMPORTER],
+    )?;
+    Ok(row.get(0))
+}
+
+fn finish_run(tx: &mut Transaction<'_>, run_id: i64, summary: &Value) -> Result<()> {
+    let summary = json_text(summary)?;
+    tx.execute(
+        r#"
+        UPDATE brain.source_runs
+        SET status='ok', finished_at=now(), summary=$2::text::jsonb
+        WHERE id=$1
+        "#,
+        &[
+            &run_id as &(dyn ToSql + Sync),
+            &summary as &(dyn ToSql + Sync),
+        ],
+    )?;
+    Ok(())
+}
+
+fn upsert_source_document(tx: &mut Transaction<'_>, patch: &PreparedPatch) -> Result<i64> {
+    let metadata = json_text(&json!({
+        "patch_id": patch.row_id,
+        "source_kind": patch.source_kind,
+        "importer": IMPORTER,
+        "source_external_id": patch.source_external_id,
+        "policy": "Patchnotes aus zentraler changelog_posts werden als historisch importiert."
+    }))?;
+    let raw_path = format!("{SOURCE}/{}.json", patch.row_id);
+    let row = tx.query_one(
+        r#"
+        INSERT INTO brain.source_documents(
+            source, external_id, title, url, content_type, raw_path,
+            content_hash, fetched_at, metadata
+        )
+        VALUES ($1,$2,$3,$4,'application/json',$5,$6,now(),$7::text::jsonb)
+        ON CONFLICT (source, external_id, content_hash) DO UPDATE SET
+            title = EXCLUDED.title,
+            url = EXCLUDED.url,
+            content_type = EXCLUDED.content_type,
+            raw_path = EXCLUDED.raw_path,
+            fetched_at = EXCLUDED.fetched_at,
+            metadata = EXCLUDED.metadata
+        RETURNING id
+        "#,
+        &[
+            &SOURCE as &(dyn ToSql + Sync),
+            &patch.source_external_id as &(dyn ToSql + Sync),
+            &patch.title as &(dyn ToSql + Sync),
+            &patch.url as &(dyn ToSql + Sync),
+            &raw_path as &(dyn ToSql + Sync),
+            &patch.raw_payload_hash as &(dyn ToSql + Sync),
+            &metadata as &(dyn ToSql + Sync),
+        ],
+    )?;
+    Ok(row.get(0))
+}
+
+fn upsert_entity_snapshot(
+    tx: &mut Transaction<'_>,
+    patch: &PreparedPatch,
+    document_id: i64,
+) -> Result<i64> {
+    let row = tx.query_one(
+        r#"
+        INSERT INTO brain.entity_snapshots(
+            source, entity_type, external_id, canonical_name, payload_hash,
+            payload, fetched_at, source_document_id
+        )
+        VALUES ($1,'patchnote',$2,$3,$4,$5::text::jsonb,now(),$6)
+        ON CONFLICT (source, entity_type, external_id, payload_hash) DO UPDATE SET
+            canonical_name = EXCLUDED.canonical_name,
+            payload = EXCLUDED.payload,
+            fetched_at = EXCLUDED.fetched_at,
+            source_document_id = EXCLUDED.source_document_id
+        RETURNING id
+        "#,
+        &[
+            &SOURCE as &(dyn ToSql + Sync),
+            &patch.source_external_id as &(dyn ToSql + Sync),
+            &patch.title as &(dyn ToSql + Sync),
+            &patch.snapshot_payload_hash as &(dyn ToSql + Sync),
+            &patch.snapshot_payload_text as &(dyn ToSql + Sync),
+            &document_id as &(dyn ToSql + Sync),
+        ],
+    )?;
+    Ok(row.get(0))
+}
+
+fn prune_direct_patch_events(tx: &mut Transaction<'_>, patch_external_id: &str) -> Result<()> {
+    let rows = tx.query(
+        r#"
+        SELECT id
+        FROM brain.patch_events
+        WHERE patch_external_id=$1
+          AND metadata->>'importer'=$2
+        "#,
+        &[
+            &patch_external_id as &(dyn ToSql + Sync),
+            &IMPORTER as &(dyn ToSql + Sync),
+        ],
+    )?;
+    let ids = rows
+        .into_iter()
+        .map(|row| row.get::<_, i64>(0))
+        .collect::<Vec<_>>();
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let delete_params: &[&(dyn ToSql + Sync)] = &[&ids as &(dyn ToSql + Sync)];
+    tx.execute(
+        "DELETE FROM brain.knowledge_events WHERE event_source='patch_event' AND patch_event_id = ANY($1)",
+        delete_params,
+    )?;
+    tx.execute(
+        "DELETE FROM brain.patch_events WHERE id = ANY($1)",
+        delete_params,
+    )?;
+    Ok(())
+}
+
+fn insert_patch_events(
+    tx: &mut Transaction<'_>,
+    patch: &PreparedPatch,
+    snapshot_id: i64,
+) -> Result<u64> {
+    let mut changed = 0_u64;
+    let legacy_patch_snapshot_id = -snapshot_id;
+    for event in &patch.events {
+        let metadata = json_text(&event.metadata)?;
+        tx.execute(
+            r#"
+            INSERT INTO brain.patch_events(
+                patch_snapshot_id, legacy_patch_snapshot_id, patch_external_id,
+                patch_title, patch_url, source_kind, posted_at, line_index, section,
+                entity_type, entity_name, subject, change_type, raw_line, normalized_line,
+                old_value, new_value, confidence, metadata, event_hash, created_at
+            )
+            VALUES (
+                $1,$2,$3,$4,$5,$6,$7::timestamptz,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::text::jsonb,$19,now()
+            )
+            ON CONFLICT (event_hash) DO UPDATE SET
+                patch_snapshot_id = EXCLUDED.patch_snapshot_id,
+                legacy_patch_snapshot_id = EXCLUDED.legacy_patch_snapshot_id,
+                patch_title = EXCLUDED.patch_title,
+                patch_url = EXCLUDED.patch_url,
+                source_kind = EXCLUDED.source_kind,
+                posted_at = EXCLUDED.posted_at,
+                line_index = EXCLUDED.line_index,
+                section = EXCLUDED.section,
+                entity_type = EXCLUDED.entity_type,
+                entity_name = EXCLUDED.entity_name,
+                subject = EXCLUDED.subject,
+                change_type = EXCLUDED.change_type,
+                raw_line = EXCLUDED.raw_line,
+                normalized_line = EXCLUDED.normalized_line,
+                old_value = EXCLUDED.old_value,
+                new_value = EXCLUDED.new_value,
+                confidence = EXCLUDED.confidence,
+                metadata = EXCLUDED.metadata,
+                created_at = EXCLUDED.created_at
+            "#,
+            &[
+                &snapshot_id as &(dyn ToSql + Sync),
+                &legacy_patch_snapshot_id as &(dyn ToSql + Sync),
+                &patch.patch_external_id as &(dyn ToSql + Sync),
+                &patch.title as &(dyn ToSql + Sync),
+                &patch.url as &(dyn ToSql + Sync),
+                &patch.source_kind as &(dyn ToSql + Sync),
+                &patch.posted_at as &(dyn ToSql + Sync),
+                &event.line_index as &(dyn ToSql + Sync),
+                &event.section as &(dyn ToSql + Sync),
+                &event.entity_type as &(dyn ToSql + Sync),
+                &event.entity_name as &(dyn ToSql + Sync),
+                &event.subject as &(dyn ToSql + Sync),
+                &event.change_type as &(dyn ToSql + Sync),
+                &event.raw_line as &(dyn ToSql + Sync),
+                &event.normalized_line as &(dyn ToSql + Sync),
+                &event.old_value as &(dyn ToSql + Sync),
+                &event.new_value as &(dyn ToSql + Sync),
+                &event.confidence as &(dyn ToSql + Sync),
+                &metadata as &(dyn ToSql + Sync),
+                &event.event_hash as &(dyn ToSql + Sync),
+            ],
+        )?;
+        changed += 1;
+    }
+    Ok(changed)
+}
+
+fn materialize_patch_knowledge_events(
+    tx: &mut Transaction<'_>,
+    patch_external_id: &str,
+) -> Result<u64> {
+    Ok(tx.execute(
+        r#"
+        INSERT INTO brain.knowledge_events(
+            event_hash, event_source, source_table, source_legacy_id, source_document_id,
+            snapshot_id, patch_event_id, entity_type, entity_name, subject, event_type,
+            validity_status, currentness, trust_tier, source_url, occurred_at, observed_at,
+            effective_from, raw_text, normalized_text, old_value, new_value, confidence,
+            source_references, payload, metadata
+        )
+        SELECT
+            'patch:' || pe.event_hash,
+            'patch_event',
+            'patch_events',
+            pe.id,
+            sd.id,
+            pe.patch_snapshot_id,
+            pe.id,
+            pe.entity_type,
+            pe.entity_name,
+            pe.subject,
+            pe.change_type,
+            'patch_history',
+            'historical_patch_event',
+            'trusted',
+            pe.patch_url,
+            pe.posted_at,
+            COALESCE(pe.posted_at, pe.created_at),
+            pe.posted_at,
+            pe.raw_line,
+            pe.normalized_line,
+            pe.old_value,
+            pe.new_value,
+            pe.confidence,
+            jsonb_build_array(jsonb_build_object('url', pe.patch_url, 'title', pe.patch_title)),
+            jsonb_build_object(
+                'patch_external_id', pe.patch_external_id,
+                'patch_title', pe.patch_title,
+                'source_kind', pe.source_kind,
+                'section', pe.section,
+                'importer', pe.metadata->>'importer',
+                'source_posted_at', pe.metadata->>'source_posted_at'
+            ),
+            pe.metadata
+        FROM brain.patch_events pe
+        LEFT JOIN brain.entity_snapshots es ON es.id = pe.patch_snapshot_id
+        LEFT JOIN brain.source_documents sd ON sd.id = es.source_document_id
+        WHERE pe.patch_external_id=$1
+          AND pe.metadata->>'importer'=$2
+        ON CONFLICT (event_hash) DO UPDATE SET
+            source_document_id = EXCLUDED.source_document_id,
+            snapshot_id = EXCLUDED.snapshot_id,
+            patch_event_id = EXCLUDED.patch_event_id,
+            entity_type = EXCLUDED.entity_type,
+            entity_name = EXCLUDED.entity_name,
+            subject = EXCLUDED.subject,
+            event_type = EXCLUDED.event_type,
+            validity_status = EXCLUDED.validity_status,
+            currentness = EXCLUDED.currentness,
+            trust_tier = EXCLUDED.trust_tier,
+            source_url = EXCLUDED.source_url,
+            occurred_at = EXCLUDED.occurred_at,
+            observed_at = EXCLUDED.observed_at,
+            effective_from = EXCLUDED.effective_from,
+            raw_text = EXCLUDED.raw_text,
+            normalized_text = EXCLUDED.normalized_text,
+            old_value = EXCLUDED.old_value,
+            new_value = EXCLUDED.new_value,
+            confidence = EXCLUDED.confidence,
+            source_references = EXCLUDED.source_references,
+            payload = EXCLUDED.payload,
+            metadata = EXCLUDED.metadata,
+            updated_at = now()
+        "#,
+        &[&patch_external_id, &IMPORTER],
+    )?)
+}
+
+fn summary_json(
+    dry_run: bool,
+    options: &ImportPatchnoteOptions,
+    patch: &PreparedPatch,
+    counts: PgWriteCounts,
+) -> Value {
+    json!({
+        "dry_run": dry_run,
+        "target": "postgres",
+        "dsn_env": options.dsn_env,
+        "source": SOURCE,
+        "patch_external_id": patch.patch_external_id,
+        "source_external_id": patch.source_external_id,
+        "patch_id": patch.row_id,
+        "source_kind": patch.source_kind,
+        "parsed_patch_events": patch.events.len(),
+        "written": {
+            "source_documents": counts.documents,
+            "entity_snapshots": counts.snapshots,
+            "patch_events": counts.patch_events,
+            "knowledge_events_from_patch_events": counts.knowledge_events
+        },
+        "policy": {
+            "order": "Pro Aufruf wird genau ein Patchnote-Datensatz importiert.",
+            "duplication": "Duplikate werden durch ON CONFLICT (event_hash) idempotent behandelt.",
+            "source_id": "source_documents.external_id = URL if present, else patchnotes:<id>"
+        }
+    })
+}
+
+fn patch_lines(content: &str) -> Vec<String> {
+    let mut lines = Vec::new();
+    for raw in content.lines() {
+        let stripped = raw.trim();
+        if stripped.starts_with("- ") && stripped.contains(" - ") {
+            let pieces = stripped[2..].split(" - ").collect::<Vec<_>>();
+            if pieces.len() > 1
+                && pieces.iter().skip(1).all(|part| {
+                    part.chars().next().is_some_and(|ch| {
+                        ch.is_ascii_uppercase() || ch.is_ascii_digit() || ch == '"' || ch == '\''
+                    })
+                })
+            {
+                for piece in pieces {
+                    let piece = piece.trim();
+                    if !piece.is_empty() {
+                        lines.push(format!("- {piece}"));
+                    }
+                }
+                continue;
+            }
+        }
+        lines.push(raw.to_string());
+    }
+    lines
+}
+
+fn bullet_body(line: &str) -> Option<String> {
+    for marker in ["- ", "* ", "• "] {
+        if let Some(body) = line.strip_prefix(marker) {
+            return Some(body.trim().to_string());
+        }
+    }
+    None
+}
+
+fn section_heading(line: &str) -> Option<String> {
+    let cleaned = line.trim().trim_matches(':').trim();
+    if cleaned.is_empty() || cleaned.len() > 80 {
+        return None;
+    }
+    let lower = cleaned.to_ascii_lowercase();
+    if lower.contains("http") || lower.starts_with('-') {
+        return None;
+    }
+    Some(cleaned.to_string())
+}
+
+fn split_subject(line: &str) -> (Option<String>, Option<String>) {
+    let Some(index) = line.find(':') else {
+        return (None, Some(line.to_string()));
+    };
+    let subject = line[..index].trim();
+    let remainder = line[index + 1..].trim();
+    if subject.is_empty() || remainder.is_empty() || subject.len() > 64 {
+        return (None, Some(line.to_string()));
+    }
+    if subject.matches(' ').count() > 7 {
+        return (None, Some(line.to_string()));
+    }
+    (Some(subject.to_string()), Some(remainder.to_string()))
+}
+
+fn classify_source_kind(url: Option<&str>) -> String {
+    let lower = url.unwrap_or_default().to_lowercase();
+    if lower.contains("steamcommunity.com")
+        || lower.contains("steampowered.com")
+        || lower.contains("steamstore-a.akamaihd.net")
+    {
+        "steam".to_string()
+    } else if lower.contains("forums.playdeadlock.com") {
+        "forum".to_string()
+    } else {
+        "other".to_string()
+    }
+}
+
+fn normalize_patch_line(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn classify_change_type(text: &str) -> String {
+    let lower = text.to_ascii_lowercase();
+    if lower.contains("renamed") || lower.contains("retitled") {
+        "rename"
+    } else if lower.contains("reworked") || lower.contains("rework") || lower.contains("redesigned")
+    {
+        "rework"
+    } else if lower.contains("removed") || lower.contains("no longer") {
+        "removed"
+    } else if lower.contains("fixed") || lower.contains("fix ") || lower.starts_with("fix") {
+        "fix"
+    } else if lower.contains("added") || lower.contains("new ") || lower.starts_with("new") {
+        "added"
+    } else if lower.contains("increased")
+        || lower.contains("improved")
+        || lower.contains("higher")
+        || lower.contains("more ")
+    {
+        "buff"
+    } else if lower.contains("reduced")
+        || lower.contains("decreased")
+        || lower.contains("lower")
+        || lower.contains("less ")
+        || lower.contains("slower")
+    {
+        "nerf"
+    } else if lower.contains(" from ") && lower.contains(" to ") {
+        "balance_delta"
+    } else {
+        "mechanic_change"
+    }
+    .to_string()
+}
+
+fn extract_old_new(line: &str) -> (Option<String>, Option<String>) {
+    let lower = line.to_ascii_lowercase();
+    let Some(from_pos) = lower.find(" from ") else {
+        return (None, None);
+    };
+    let Some(to_rel) = lower[from_pos + 6..].find(" to ") else {
+        return (None, None);
+    };
+    let old_start = from_pos + 6;
+    let to_pos = old_start + to_rel;
+    let new_start = to_pos + 4;
+    let old_value = trim_value(&line[old_start..to_pos]);
+    let new_value = trim_value(&line[new_start..]);
+    if old_value.is_empty() || new_value.is_empty() {
+        (None, None)
+    } else {
+        (Some(old_value), Some(new_value))
+    }
+}
+
+fn trim_value(value: &str) -> String {
+    value
+        .trim()
+        .trim_end_matches(['.', ',', ';'])
+        .chars()
+        .take(80)
+        .collect::<String>()
+}
+
+fn json_text(value: &Value) -> Result<String> {
+    Ok(serde_json::to_string(value)?)
+}
+
+fn stable_hash(content: &[u8]) -> String {
+    hex::encode(Sha256::digest(content))
+}
+
+fn normalize_key(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    let mut last_space = true;
+    for ch in value.chars().flat_map(char::to_lowercase) {
+        if ch.is_ascii_alphanumeric() {
+            output.push(ch);
+            last_space = false;
+        } else if !last_space {
+            output.push(' ');
+            last_space = true;
+        }
+    }
+    output.trim().to_string()
+}
+
+fn contains_alias(haystack: &str, alias: &str) -> bool {
+    let needle = format!(" {alias} ");
+    haystack.contains(&needle)
+}
+
+fn public_entity_type(entity_type: &str) -> &str {
+    if entity_type.contains("hero") {
+        "hero"
+    } else if entity_type.contains("item") {
+        "item"
+    } else if entity_type.contains("ability") {
+        "ability"
+    } else {
+        entity_type
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_bullet_lines_and_event_hash_is_stable() {
+        let row = PatchnoteRow {
+            id: 17,
+            title: Some("Patch 17".to_string()),
+            url: Some("https://steamcommunity.com/nachrichten/17".to_string()),
+            posted_at: Some("2026-06-30".to_string()),
+            raw_content: Some("- Aegis: increased health by 10".to_string()),
+            translated_content: None,
+        };
+        let mut index = EntityIndex::default();
+        index.insert("item", "Aegis", "Aegis");
+        let index = index.finish();
+        let prepared = prepare_patch(&row, &index).expect("prepare");
+        assert_eq!(prepared.events.len(), 1);
+        assert_eq!(prepared.events[0].entity_name.as_deref(), Some("Aegis"));
+        assert_eq!(
+            prepared.events[0].event_hash,
+            build_event_hash(
+                17,
+                1,
+                "",
+                &prepared.events[0].entity_type,
+                &prepared.events[0].normalized_line
+            )
+        );
+    }
+
+    #[test]
+    fn parse_events_have_deduplicated_hashes_by_line() {
+        let row = PatchnoteRow {
+            id: 17,
+            title: Some("Patch 17".to_string()),
+            url: Some("https://steamcommunity.com/nachrichten/17".to_string()),
+            posted_at: Some("2026-06-30".to_string()),
+            raw_content: Some(
+                "- Aegis: increased health by 10\n- Aegis: increased speed by 12".to_string(),
+            ),
+            translated_content: None,
+        };
+        let mut index = EntityIndex::default();
+        index.insert("item", "Aegis", "Aegis");
+        let index = index.finish();
+        let prepared = prepare_patch(&row, &index).expect("prepare");
+        assert_eq!(prepared.events.len(), 2);
+        assert_ne!(prepared.events[0].event_hash, prepared.events[1].event_hash);
+        assert_eq!(
+            prepared.events[0].event_hash,
+            build_event_hash(
+                17,
+                1,
+                "",
+                &prepared.events[0].entity_type,
+                &prepared.events[0].normalized_line
+            )
+        );
+        assert_eq!(
+            prepared.events[1].event_hash,
+            build_event_hash(
+                17,
+                2,
+                "",
+                &prepared.events[1].entity_type,
+                &prepared.events[1].normalized_line
+            )
+        );
+    }
+
+    #[test]
+    fn posted_at_allows_plain_date_and_text() {
+        let parsed = parse_posted_at(Some("2026-06-30"))
+            .expect("parsed")
+            .expect("value");
+        assert!(parsed.starts_with("2026-06-30T00:00:00+00:00"));
+        let fallback = parse_posted_at(Some("2026-06-30T17:22:14Z"))
+            .expect("parsed")
+            .expect("value");
+        assert!(fallback.contains("2026-06-30T17:22:14"));
+    }
+
+    fn build_event_hash(
+        patch_id: i64,
+        line_index: i64,
+        section: &str,
+        entity_type: &str,
+        normalized_line: &str,
+    ) -> String {
+        stable_hash(
+            format!(
+                "patchnotes|{patch_id}|{line_index}|{}|{entity_type}|{normalized_line}",
+                section
+            )
+            .as_bytes(),
+        )
+    }
+}

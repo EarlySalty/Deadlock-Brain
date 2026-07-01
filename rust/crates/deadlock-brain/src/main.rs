@@ -2,6 +2,7 @@
 #![allow(dead_code)]
 
 use std::{
+    collections::BTreeSet,
     fs,
     path::PathBuf,
     process,
@@ -23,6 +24,8 @@ use rusqlite::{
 };
 use serde::Serialize;
 use serde_json::{json, Map, Value};
+
+mod pg_patchnotes;
 
 #[derive(Debug, Parser)]
 #[command(name = "deadlock-brain")]
@@ -100,6 +103,11 @@ enum Commands {
     Enrich {
         #[command(subcommand)]
         target: EnrichCommands,
+    },
+    #[command(name = "pg", about = "Synchronisiert Daten direkt in die zentrale Postgres-DB.")]
+    Pg {
+        #[command(subcommand)]
+        target: PgCommands,
     },
 }
 
@@ -793,6 +801,22 @@ struct PatchImpactArgs {
     dry_run: bool,
 }
 
+#[derive(Debug, Subcommand)]
+enum PgCommands {
+    #[command(name = "import-patchnote", about = "Importiert exakt einen Patchnote-Eintrag direkt nach brain.* in Postgres.")]
+    ImportPatchnote(PgImportPatchnoteArgs),
+}
+
+#[derive(Debug, Args)]
+struct PgImportPatchnoteArgs {
+    #[arg(long = "patch-id", help = "changelog_posts.id")]
+    patch_id: i64,
+    #[arg(long = "dsn-env", default_value = "DEADLOCK_CENTRAL_DSN")]
+    dsn_env: String,
+    #[arg(long = "dry-run", help = "Nur Datensatz lesen/parsen; keine Schreibzugriffe in brain-Tabellen.")]
+    dry_run: bool,
+}
+
 fn main() {
     if let Err(error) = run_from_cli() {
         eprintln!("{error:#}");
@@ -811,6 +835,12 @@ fn run(cli: Cli) -> Result<()> {
     if let Some(path) = db_path {
         settings.db_path = path;
     }
+    let command = match command {
+        Commands::Pg { target } => {
+            return run_pg(target);
+        }
+        other => other,
+    };
     prepare_dirs(&settings)?;
     let conn = db::open_connection(Some(settings.db_path.clone()))?;
 
@@ -941,6 +971,23 @@ fn run(cli: Cli) -> Result<()> {
         Commands::Normalize { target } => run_normalize(&conn, target),
         Commands::Parse { target } => run_parse(&conn, target),
         Commands::Enrich { target } => run_enrich(&conn, &settings, target),
+        Commands::Pg { target: _ } => {
+            unreachable!("PG-Commands werden vor SQLite-Einrichtung ausgefuehrt.")
+        }
+    }
+}
+
+fn run_pg(target: PgCommands) -> Result<()> {
+    match target {
+        PgCommands::ImportPatchnote(args) => {
+            print_json(&pg_patchnotes::import_patchnote(
+                &pg_patchnotes::ImportPatchnoteOptions {
+                    patch_id: args.patch_id,
+                    dsn_env: args.dsn_env,
+                    dry_run: args.dry_run,
+                },
+            )?)
+        }
     }
 }
 
@@ -959,12 +1006,28 @@ fn run_build_eval(conn: &Connection, settings: &Settings, args: BuildEvalArgs) -
     let request = build_narration::build_narration_request(&build_context, client.config())?;
     let response = client.chat(&request)?;
     let narration = extract_minimax_text(&response);
-    let validation = build_narration::validate_narration(&narration, &build_context);
+    let known_item_names = load_known_item_names(conn)?;
+    let validation =
+        build_narration::validate_narration(&narration, &build_context, &known_item_names);
     print_json(&json!({
         "build_context": build_context,
         "narration": narration,
         "validation": validation
     }))
+}
+
+fn load_known_item_names(conn: &Connection) -> Result<BTreeSet<String>> {
+    let mut statement = conn.prepare("SELECT name FROM item_catalog")?;
+    let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+    let mut names = BTreeSet::new();
+    for row in rows {
+        let name = row?;
+        let trimmed = name.trim();
+        if !trimmed.is_empty() {
+            names.insert(trimmed.to_string());
+        }
+    }
+    Ok(names)
 }
 
 fn run_learn(conn: &Connection, settings: &Settings, target: LearnCommands) -> Result<()> {
