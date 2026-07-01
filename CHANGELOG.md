@@ -1,5 +1,12 @@
 # Changelog
 
+## #21 — Patchnotes lassen sich einzeln direkt nach brain.* schreiben
+
+Ein neuer PG-Subcommand `pg import-patchnote` ergänzt die bestehende PG-Pipeline.
+Damit kann ein einzelner Patch aus `patchnotes.changelog_posts` direkt geparst und als
+`brain.source_documents`, `brain.entity_snapshots`, `brain.patch_events` sowie passende
+`brain.knowledge_events` importiert werden.
+
 ## #20 — Offizielle Steam-Patches fließen direkt in die zentrale Brain-Timeline
 
 Nach der Umstellung auf die zentrale Postgres-Datenbank durfte der Patch-Backfill nicht mehr über die alte lokale SQLite-Brücke laufen. Außerdem fehlten die offiziellen Steam-Updates nach dem letzten bisher erfassten Patchstand, wodurch die zentrale Timeline bei Ende Mai 2026 stehen blieb.

@@ -27,6 +27,7 @@ use serde_json::{json, Map, Value};
 mod pg_export;
 mod pg_insights;
 mod pg_steam_news;
+mod pg_patchnotes;
 
 #[derive(Debug, Parser)]
 #[command(name = "deadlock-brain")]
@@ -797,6 +798,8 @@ enum PgCommands {
     Export(PgExportArgs),
     #[command(name = "import-steam-news", about = "Importiert offizielle Steam-News-Patches direkt nach brain.* in Postgres.")]
     ImportSteamNews(PgSteamNewsArgs),
+    #[command(name = "import-patchnote", about = "Importiert exakt einen Patchnote-Eintrag direkt nach brain.* in Postgres.")]
+    ImportPatchnote(PgImportPatchnoteArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -830,6 +833,16 @@ struct PgSteamNewsArgs {
     #[arg(long = "gid", action = clap::ArgAction::Append, help = "Optional auf einzelne Steam-News-GIDs begrenzen.")]
     gids: Vec<String>,
     #[arg(long = "dry-run", help = "Nur Steam-News holen/parsen, keine PG-Verbindung, keine Schreibzugriffe.")]
+    dry_run: bool,
+}
+
+#[derive(Debug, Args)]
+struct PgImportPatchnoteArgs {
+    #[arg(long = "patch-id", help = "changelog_posts.id")]
+    patch_id: i64,
+    #[arg(long = "dsn-env", default_value = "DEADLOCK_CENTRAL_DSN")]
+    dsn_env: String,
+    #[arg(long = "dry-run", help = "Nur Datensatz lesen/parsen; keine Schreibzugriffe in brain-Tabellen.")]
     dry_run: bool,
 }
 
@@ -881,6 +894,9 @@ fn run(cli: Cli) -> Result<()> {
                 },
             )?);
         }
+        Commands::Pg {
+            target: PgCommands::ImportPatchnote(args),
+        } => return run_pg_patchnote(args),
         other => other,
     };
     prepare_dirs(&settings)?;
@@ -1022,7 +1038,18 @@ fn run_pg(conn: &Connection, target: PgCommands) -> Result<()> {
             },
         )?),
         PgCommands::ImportSteamNews(_) => unreachable!("PG-Steam-News wird vor SQLite-Open behandelt"),
+        PgCommands::ImportPatchnote(_) => unreachable!("PG-Import-Patchnote wird vor SQLite-Open behandelt"),
     }
+}
+
+fn run_pg_patchnote(args: PgImportPatchnoteArgs) -> Result<()> {
+    print_json(&pg_patchnotes::import_patchnote(
+        &pg_patchnotes::ImportPatchnoteOptions {
+            patch_id: args.patch_id,
+            dsn_env: args.dsn_env,
+            dry_run: args.dry_run,
+        },
+    )?)
 }
 
 fn run_insights(target: InsightCommands) -> Result<()> {
