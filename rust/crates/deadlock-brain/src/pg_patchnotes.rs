@@ -1138,14 +1138,9 @@ fn bullet_body(line: &str) -> Option<String> {
 fn section_heading(line: &str) -> Option<String> {
     let cleaned = line.trim().trim_matches(':').trim();
     if cleaned.starts_with('[') && cleaned.ends_with(']') {
-        let cleaned = cleaned
-            .trim_start_matches('[')
-            .trim_end_matches(']')
-            .trim();
-        if cleaned.is_empty() {
-            return None;
-        }
-        return Some(cleaned.to_string());
+        return extract_forum_square_section_name_inner(
+            cleaned.trim_start_matches('[').trim_end_matches(']').trim(),
+        );
     }
     if cleaned.is_empty() || cleaned.len() > 80 {
         return None;
@@ -1336,6 +1331,12 @@ mod tests {
     fn expands_forum_section_headings_without_bullet_prefix() {
         let expanded = expand_inline_bullets("General Changes:");
         assert_eq!(expanded, vec!["General Changes:"]);
+    }
+
+    #[test]
+    fn section_heading_rejects_invalid_square_bracket_sections() {
+        assert_eq!(section_heading("[http://forums.playdeadlock.com/threads/x]"), None);
+        assert_eq!(section_heading("[b]"), None);
     }
 
     #[test]

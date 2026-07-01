@@ -6,7 +6,7 @@ Problem: Patch 69 liegt im Forum als Einzeiler mit eckigen Abschnittsmarkern vor
 
 Änderung: Die Vorverarbeitung erkennt jetzt Foruminhalte mit eckigen Abschnittsmarkern in einer Zeile, splittet sie in Abschnittsblöcke und ordnet die enthaltenen Beschreibungen wieder als Listeinträge ein. Bestehende Formate mit Mehrzeilen-Abschnitten und bereits stabilisierter Flat-Fix-Logik bleiben unverändert aktiv.
 
-Aktuelles Verhalten: Patch 69 liefert im Dry-Run wieder Event-Anzahlen größer 0 und Abschnittskontexte bleiben korrekt getrennt; Patch 80 bleibt stabil bei `parsed_patch_events=80`, ohne dass Abschnittsüberschriften als Events importiert werden.
+Aktuelles Verhalten: Patch 69 liefert im Probe-Lauf wieder Ereignisse größer 0, und Abschnittskontexte bleiben korrekt getrennt. Patch 80 bleibt stabil bei achtzig geparsten Ereignissen, ohne dass Abschnittsüberschriften als Ereignisse importiert werden.
 
 ## #22 — Patch-Forum-Parsing robust gegenüber Abschnittsüberschriften
 
