@@ -36,9 +36,15 @@ pub fn export_to_postgres(conn: &Connection, options: &PgExportOptions) -> Resul
     ensure_pg_schema(&mut client)?;
 
     let mut tx = client.transaction()?;
+    let pruned = prune_materialized_brain_tables(&mut tx)?;
     let source_documents = export_source_documents(conn, &mut tx)?;
     let entity_snapshots = export_entity_snapshots(conn, &mut tx)?;
+    let entities = export_entities(conn, &mut tx)?;
+    let entity_aliases = export_entity_aliases(conn, &mut tx)?;
     let patch_events = export_patch_events(conn, &mut tx)?;
+    let patch_event_enrichments = export_patch_event_enrichments(conn, &mut tx)?;
+    let entity_lineage = export_entity_lineage(conn, &mut tx)?;
+    let legacy_entities = export_legacy_entities(conn, &mut tx)?;
     let forum_claims = export_forum_claims(conn, &mut tx)?;
     let knowledge_from_patch_events = materialize_patch_knowledge_events(&mut tx)?;
     let knowledge_from_forum_claims = materialize_forum_knowledge_events(&mut tx)?;
@@ -50,10 +56,16 @@ pub fn export_to_postgres(conn: &Connection, options: &PgExportOptions) -> Resul
         "target": "postgres",
         "dsn_env": options.dsn_env,
         "local_counts": local,
+        "pruned": pruned,
         "exported": {
             "source_documents": source_documents,
             "entity_snapshots": entity_snapshots,
+            "entities": entities,
+            "entity_aliases": entity_aliases,
             "patch_events": patch_events,
+            "patch_event_enrichments": patch_event_enrichments,
+            "entity_lineage": entity_lineage,
+            "legacy_entities": legacy_entities,
             "forum_claims": forum_claims,
             "knowledge_events_from_patch_events": knowledge_from_patch_events,
             "knowledge_events_from_forum_claims": knowledge_from_forum_claims,
@@ -88,6 +100,9 @@ fn local_counts(conn: &Connection) -> Result<Value> {
         "source_documents": table_count(conn, "source_documents")?,
         "entity_snapshots": table_count(conn, "entity_snapshots")?,
         "patch_events": table_count(conn, "patch_events")?,
+        "patch_event_enrichments": table_count(conn, "patch_event_enrichments")?,
+        "entity_lineage": table_count(conn, "entity_lineage")?,
+        "legacy_entities": table_count(conn, "legacy_entities")?,
         "forum_claims": table_count(conn, "forum_claims")?,
     }))
 }
@@ -109,6 +124,33 @@ fn table_exists(conn: &Connection, table: &str) -> Result<bool> {
         )
         .optional()?
         .is_some())
+}
+
+fn prune_materialized_brain_tables(tx: &mut Transaction<'_>) -> Result<Value> {
+    let current_entity_state = tx.execute("DELETE FROM brain.current_entity_state", &[])?;
+    let knowledge_events = tx.execute(
+        "DELETE FROM brain.knowledge_events WHERE event_source IN ('patch_event', 'forum_claim')",
+        &[],
+    )?;
+    let patch_event_enrichments = tx.execute("DELETE FROM brain.patch_event_enrichments", &[])?;
+    let entity_lineage = tx.execute("DELETE FROM brain.entity_lineage", &[])?;
+    let legacy_entities = tx.execute("DELETE FROM brain.legacy_entities", &[])?;
+    let forum_claims = tx.execute("DELETE FROM brain.forum_claims", &[])?;
+    let patch_events = tx.execute("DELETE FROM brain.patch_events", &[])?;
+    let entity_aliases = tx.execute("DELETE FROM brain.entity_aliases", &[])?;
+    let entities = tx.execute("DELETE FROM brain.entities", &[])?;
+
+    Ok(json!({
+        "current_entity_state": current_entity_state,
+        "knowledge_events": knowledge_events,
+        "patch_event_enrichments": patch_event_enrichments,
+        "entity_lineage": entity_lineage,
+        "legacy_entities": legacy_entities,
+        "forum_claims": forum_claims,
+        "patch_events": patch_events,
+        "entity_aliases": entity_aliases,
+        "entities": entities,
+    }))
 }
 
 fn export_source_documents(conn: &Connection, tx: &mut Transaction<'_>) -> Result<u64> {
@@ -238,6 +280,137 @@ fn export_entity_snapshots(conn: &Connection, tx: &mut Transaction<'_>) -> Resul
     Ok(changed)
 }
 
+fn export_entities(conn: &Connection, tx: &mut Transaction<'_>) -> Result<u64> {
+    if !table_exists(conn, "entities")? {
+        return Ok(0);
+    }
+    let mut stmt = conn.prepare(
+        r#"
+        SELECT id, entity_type, canonical_name, primary_external_id, source, first_snapshot_id,
+               metadata_json, created_at, updated_at
+        FROM entities
+        ORDER BY id
+        "#,
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(EntityRow {
+            id: row.get(0)?,
+            entity_type: row.get(1)?,
+            canonical_name: row.get(2)?,
+            primary_external_id: row.get(3)?,
+            source: row.get(4)?,
+            first_snapshot_id: row.get(5)?,
+            metadata: json_text(row.get(6)?, "{}"),
+            created_at: unix_param(Some(row.get(7)?)),
+            updated_at: unix_param(Some(row.get(8)?)),
+        })
+    })?;
+
+    let mut changed = 0;
+    for row in rows {
+        let row = row?;
+        changed += tx.execute(
+            r#"
+            INSERT INTO brain.entities(
+                legacy_sqlite_id, entity_type, canonical_name, primary_external_id, source,
+                first_snapshot_id, legacy_first_snapshot_id, metadata, created_at, updated_at
+            )
+            VALUES (
+                $1,$2,$3,$4,$5,
+                (SELECT id FROM brain.entity_snapshots WHERE legacy_sqlite_id = $6),
+                $6,$7::text::jsonb,to_timestamp($8::double precision),to_timestamp($9::double precision)
+            )
+            ON CONFLICT (entity_type, canonical_name) DO UPDATE SET
+                legacy_sqlite_id = EXCLUDED.legacy_sqlite_id,
+                primary_external_id = EXCLUDED.primary_external_id,
+                source = EXCLUDED.source,
+                first_snapshot_id = EXCLUDED.first_snapshot_id,
+                legacy_first_snapshot_id = EXCLUDED.legacy_first_snapshot_id,
+                metadata = EXCLUDED.metadata,
+                updated_at = EXCLUDED.updated_at
+            "#,
+            &[
+                &row.id,
+                &row.entity_type,
+                &row.canonical_name,
+                &row.primary_external_id,
+                &row.source,
+                &row.first_snapshot_id,
+                &row.metadata,
+                &row.created_at,
+                &row.updated_at,
+            ],
+        )?;
+    }
+    Ok(changed)
+}
+
+fn export_entity_aliases(conn: &Connection, tx: &mut Transaction<'_>) -> Result<u64> {
+    if !table_exists(conn, "entity_aliases")? {
+        return Ok(0);
+    }
+    let mut stmt = conn.prepare(
+        r#"
+        SELECT id, entity_id, alias, alias_norm, alias_kind, source, external_id, snapshot_id, created_at
+        FROM entity_aliases
+        ORDER BY id
+        "#,
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(EntityAliasRow {
+            id: row.get(0)?,
+            entity_id: row.get(1)?,
+            alias: row.get(2)?,
+            alias_norm: row.get(3)?,
+            alias_kind: row.get(4)?,
+            source: row.get(5)?,
+            external_id: row.get(6)?,
+            snapshot_id: row.get(7)?,
+            created_at: unix_param(Some(row.get(8)?)),
+        })
+    })?;
+
+    let mut changed = 0;
+    for row in rows {
+        let row = row?;
+        changed += tx.execute(
+            r#"
+            INSERT INTO brain.entity_aliases(
+                legacy_sqlite_id, entity_id, legacy_entity_id, alias, alias_norm, alias_kind,
+                source, external_id, snapshot_id, legacy_snapshot_id, created_at
+            )
+            VALUES (
+                $1,
+                (SELECT id FROM brain.entities WHERE legacy_sqlite_id = $2),
+                $2,$3,$4,$5,$6,$7,
+                (SELECT id FROM brain.entity_snapshots WHERE legacy_sqlite_id = $8),
+                $8,to_timestamp($9::double precision)
+            )
+            ON CONFLICT (entity_id, alias_norm, alias_kind) DO UPDATE SET
+                legacy_sqlite_id = EXCLUDED.legacy_sqlite_id,
+                legacy_entity_id = EXCLUDED.legacy_entity_id,
+                alias = EXCLUDED.alias,
+                source = EXCLUDED.source,
+                external_id = EXCLUDED.external_id,
+                snapshot_id = EXCLUDED.snapshot_id,
+                legacy_snapshot_id = EXCLUDED.legacy_snapshot_id
+            "#,
+            &[
+                &row.id,
+                &row.entity_id,
+                &row.alias,
+                &row.alias_norm,
+                &row.alias_kind,
+                &row.source,
+                &row.external_id,
+                &row.snapshot_id,
+                &row.created_at,
+            ],
+        )?;
+    }
+    Ok(changed)
+}
+
 fn export_patch_events(conn: &Connection, tx: &mut Transaction<'_>) -> Result<u64> {
     if !table_exists(conn, "patch_events")? {
         return Ok(0);
@@ -338,6 +511,247 @@ fn export_patch_events(conn: &Connection, tx: &mut Transaction<'_>) -> Result<u6
                 &row.metadata,
                 &row.event_hash,
                 &row.created_at,
+            ],
+        )?;
+    }
+    Ok(changed)
+}
+
+fn export_patch_event_enrichments(conn: &Connection, tx: &mut Transaction<'_>) -> Result<u64> {
+    if !table_exists(conn, "patch_event_enrichments")? {
+        return Ok(0);
+    }
+    let mut stmt = conn.prepare(
+        r#"
+        SELECT id, patch_event_id, stat_name, old_value, new_value, unit, ability_name,
+               secondary_entity_name, confidence, flags_json, created_at, updated_at
+        FROM patch_event_enrichments
+        ORDER BY id
+        "#,
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(PatchEventEnrichmentRow {
+            id: row.get(0)?,
+            patch_event_id: row.get(1)?,
+            stat_name: row.get(2)?,
+            old_value: row.get(3)?,
+            new_value: row.get(4)?,
+            unit: row.get(5)?,
+            ability_name: row.get(6)?,
+            secondary_entity_name: row.get(7)?,
+            confidence: row.get(8)?,
+            flags: json_text(row.get(9)?, "[]"),
+            created_at: unix_param(Some(row.get(10)?)),
+            updated_at: unix_param(Some(row.get(11)?)),
+        })
+    })?;
+
+    let mut changed = 0;
+    for row in rows {
+        let row = row?;
+        changed += tx.execute(
+            r#"
+            INSERT INTO brain.patch_event_enrichments(
+                legacy_sqlite_id, patch_event_id, legacy_patch_event_id, stat_name, old_value,
+                new_value, unit, ability_name, secondary_entity_name, confidence, flags,
+                created_at, updated_at
+            )
+            VALUES (
+                $1,
+                (SELECT id FROM brain.patch_events WHERE legacy_sqlite_id = $2),
+                $2,$3,$4,$5,$6,$7,$8,$9,$10::text::jsonb,
+                to_timestamp($11::double precision),to_timestamp($12::double precision)
+            )
+            ON CONFLICT (patch_event_id) DO UPDATE SET
+                legacy_sqlite_id = EXCLUDED.legacy_sqlite_id,
+                legacy_patch_event_id = EXCLUDED.legacy_patch_event_id,
+                stat_name = EXCLUDED.stat_name,
+                old_value = EXCLUDED.old_value,
+                new_value = EXCLUDED.new_value,
+                unit = EXCLUDED.unit,
+                ability_name = EXCLUDED.ability_name,
+                secondary_entity_name = EXCLUDED.secondary_entity_name,
+                confidence = EXCLUDED.confidence,
+                flags = EXCLUDED.flags,
+                updated_at = EXCLUDED.updated_at
+            "#,
+            &[
+                &row.id,
+                &row.patch_event_id,
+                &row.stat_name,
+                &row.old_value,
+                &row.new_value,
+                &row.unit,
+                &row.ability_name,
+                &row.secondary_entity_name,
+                &row.confidence,
+                &row.flags,
+                &row.created_at,
+                &row.updated_at,
+            ],
+        )?;
+    }
+    Ok(changed)
+}
+
+fn export_entity_lineage(conn: &Connection, tx: &mut Transaction<'_>) -> Result<u64> {
+    if !table_exists(conn, "entity_lineage")? {
+        return Ok(0);
+    }
+    let mut stmt = conn.prepare(
+        r#"
+        SELECT id, patch_event_id, relation_type, source_entity_type, source_name, source_name_norm,
+               target_entity_type, target_name, target_name_norm, owner_entity_type, owner_name,
+               owner_name_norm, confidence, metadata_json, created_at, updated_at
+        FROM entity_lineage
+        ORDER BY id
+        "#,
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(EntityLineageRow {
+            id: row.get(0)?,
+            patch_event_id: row.get(1)?,
+            relation_type: row.get(2)?,
+            source_entity_type: row.get(3)?,
+            source_name: row.get(4)?,
+            source_name_norm: row.get(5)?,
+            target_entity_type: row.get(6)?,
+            target_name: row.get(7)?,
+            target_name_norm: row.get(8)?,
+            owner_entity_type: row.get(9)?,
+            owner_name: row.get(10)?,
+            owner_name_norm: row.get(11)?,
+            confidence: row.get(12)?,
+            metadata: json_text(row.get(13)?, "{}"),
+            created_at: unix_param(Some(row.get(14)?)),
+            updated_at: unix_param(Some(row.get(15)?)),
+        })
+    })?;
+
+    let mut changed = 0;
+    for row in rows {
+        let row = row?;
+        changed += tx.execute(
+            r#"
+            INSERT INTO brain.entity_lineage(
+                legacy_sqlite_id, patch_event_id, legacy_patch_event_id, relation_type,
+                source_entity_type, source_name, source_name_norm, target_entity_type,
+                target_name, target_name_norm, owner_entity_type, owner_name, owner_name_norm,
+                confidence, metadata, created_at, updated_at
+            )
+            VALUES (
+                $1,
+                (SELECT id FROM brain.patch_events WHERE legacy_sqlite_id = $2),
+                $2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::text::jsonb,
+                to_timestamp($15::double precision),to_timestamp($16::double precision)
+            )
+            "#,
+            &[
+                &row.id,
+                &row.patch_event_id,
+                &row.relation_type,
+                &row.source_entity_type,
+                &row.source_name,
+                &row.source_name_norm,
+                &row.target_entity_type,
+                &row.target_name,
+                &row.target_name_norm,
+                &row.owner_entity_type,
+                &row.owner_name,
+                &row.owner_name_norm,
+                &row.confidence,
+                &row.metadata,
+                &row.created_at,
+                &row.updated_at,
+            ],
+        )?;
+    }
+    Ok(changed)
+}
+
+fn export_legacy_entities(conn: &Connection, tx: &mut Transaction<'_>) -> Result<u64> {
+    if !table_exists(conn, "legacy_entities")? {
+        return Ok(0);
+    }
+    let mut stmt = conn.prepare(
+        r#"
+        SELECT id, legacy_type, canonical_name, name_norm, observed_entity_type,
+               first_patch_event_id, last_patch_event_id, first_seen_at, last_seen_at,
+               event_count, confidence, status, samples_json, created_at, updated_at
+        FROM legacy_entities
+        ORDER BY id
+        "#,
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(LegacyEntityRow {
+            id: row.get(0)?,
+            legacy_type: row.get(1)?,
+            canonical_name: row.get(2)?,
+            name_norm: row.get(3)?,
+            observed_entity_type: row.get(4)?,
+            first_patch_event_id: row.get(5)?,
+            last_patch_event_id: row.get(6)?,
+            first_seen_at: text_timestamptz(row.get(7)?),
+            last_seen_at: text_timestamptz(row.get(8)?),
+            event_count: row.get(9)?,
+            confidence: row.get(10)?,
+            status: row.get(11)?,
+            samples: json_text(row.get(12)?, "[]"),
+            created_at: unix_param(Some(row.get(13)?)),
+            updated_at: unix_param(Some(row.get(14)?)),
+        })
+    })?;
+
+    let mut changed = 0;
+    for row in rows {
+        let row = row?;
+        changed += tx.execute(
+            r#"
+            INSERT INTO brain.legacy_entities(
+                legacy_sqlite_id, legacy_type, canonical_name, name_norm, observed_entity_type,
+                first_patch_event_id, last_patch_event_id, legacy_first_patch_event_id,
+                legacy_last_patch_event_id, first_seen_at, last_seen_at, event_count, confidence,
+                status, samples, created_at, updated_at
+            )
+            VALUES (
+                $1,$2,$3,$4,$5,
+                (SELECT id FROM brain.patch_events WHERE legacy_sqlite_id = $6),
+                (SELECT id FROM brain.patch_events WHERE legacy_sqlite_id = $7),
+                $6,$7,$8::text::timestamptz,$9::text::timestamptz,$10,$11,$12,$13::text::jsonb,
+                to_timestamp($14::double precision),to_timestamp($15::double precision)
+            )
+            ON CONFLICT (legacy_type, name_norm) DO UPDATE SET
+                legacy_sqlite_id = EXCLUDED.legacy_sqlite_id,
+                canonical_name = EXCLUDED.canonical_name,
+                observed_entity_type = EXCLUDED.observed_entity_type,
+                first_patch_event_id = EXCLUDED.first_patch_event_id,
+                last_patch_event_id = EXCLUDED.last_patch_event_id,
+                legacy_first_patch_event_id = EXCLUDED.legacy_first_patch_event_id,
+                legacy_last_patch_event_id = EXCLUDED.legacy_last_patch_event_id,
+                first_seen_at = EXCLUDED.first_seen_at,
+                last_seen_at = EXCLUDED.last_seen_at,
+                event_count = EXCLUDED.event_count,
+                confidence = EXCLUDED.confidence,
+                status = EXCLUDED.status,
+                samples = EXCLUDED.samples,
+                updated_at = EXCLUDED.updated_at
+            "#,
+            &[
+                &row.id,
+                &row.legacy_type,
+                &row.canonical_name,
+                &row.name_norm,
+                &row.observed_entity_type,
+                &row.first_patch_event_id,
+                &row.last_patch_event_id,
+                &row.first_seen_at,
+                &row.last_seen_at,
+                &row.event_count,
+                &row.confidence,
+                &row.status,
+                &row.samples,
+                &row.created_at,
+                &row.updated_at,
             ],
         )?;
     }
@@ -697,6 +1111,32 @@ struct EntitySnapshotRow {
 }
 
 #[derive(Debug)]
+struct EntityRow {
+    id: i64,
+    entity_type: String,
+    canonical_name: String,
+    primary_external_id: Option<String>,
+    source: String,
+    first_snapshot_id: Option<i64>,
+    metadata: String,
+    created_at: Option<f64>,
+    updated_at: Option<f64>,
+}
+
+#[derive(Debug)]
+struct EntityAliasRow {
+    id: i64,
+    entity_id: i64,
+    alias: String,
+    alias_norm: String,
+    alias_kind: String,
+    source: String,
+    external_id: Option<String>,
+    snapshot_id: Option<i64>,
+    created_at: Option<f64>,
+}
+
+#[derive(Debug)]
 struct PatchEventRow {
     id: i64,
     patch_snapshot_id: i64,
@@ -719,6 +1159,61 @@ struct PatchEventRow {
     metadata: String,
     event_hash: String,
     created_at: Option<f64>,
+}
+
+#[derive(Debug)]
+struct PatchEventEnrichmentRow {
+    id: i64,
+    patch_event_id: i64,
+    stat_name: Option<String>,
+    old_value: Option<String>,
+    new_value: Option<String>,
+    unit: Option<String>,
+    ability_name: Option<String>,
+    secondary_entity_name: Option<String>,
+    confidence: f64,
+    flags: String,
+    created_at: Option<f64>,
+    updated_at: Option<f64>,
+}
+
+#[derive(Debug)]
+struct EntityLineageRow {
+    id: i64,
+    patch_event_id: i64,
+    relation_type: String,
+    source_entity_type: Option<String>,
+    source_name: String,
+    source_name_norm: String,
+    target_entity_type: Option<String>,
+    target_name: Option<String>,
+    target_name_norm: Option<String>,
+    owner_entity_type: Option<String>,
+    owner_name: Option<String>,
+    owner_name_norm: Option<String>,
+    confidence: f64,
+    metadata: String,
+    created_at: Option<f64>,
+    updated_at: Option<f64>,
+}
+
+#[derive(Debug)]
+struct LegacyEntityRow {
+    id: i64,
+    legacy_type: String,
+    canonical_name: String,
+    name_norm: String,
+    observed_entity_type: String,
+    first_patch_event_id: Option<i64>,
+    last_patch_event_id: Option<i64>,
+    first_seen_at: Option<String>,
+    last_seen_at: Option<String>,
+    event_count: i64,
+    confidence: f64,
+    status: String,
+    samples: String,
+    created_at: Option<f64>,
+    updated_at: Option<f64>,
 }
 
 #[derive(Debug)]

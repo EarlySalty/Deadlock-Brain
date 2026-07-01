@@ -1,5 +1,13 @@
 # Changelog
 
+## #18 — Postgres-Export ersetzt abgeleitete Patch-Timeline sauber
+
+Beim Neuaufbau der Patchdaten kann der Parser weniger oder anders normalisierte Events erzeugen als ein früherer Lauf. Der bisherige Postgres-Export hat solche Daten nur aktualisiert oder ergänzt; dadurch konnten alte abgeleitete Timeline-Zeilen im zentralen Brain stehen bleiben, obwohl sie lokal nach dem Rebuild nicht mehr existieren.
+
+Der Export leert jetzt vor dem Wiederaufbau die abgeleiteten Brain-Tabellen für Patch-Events, Forum-Claims, Lineage, Legacy-Hinweise, Enrichments und Current-State und schreibt sie aus dem aktuellen lokalen Parserstand neu. Zusätzlich werden normalisierte Entities, Aliase, Patch-Enrichments, Rework-/Rename-Lineage und Legacy-Entities vollständig in Postgres übernommen.
+
+Damit entspricht die zentrale Timeline nach einem Rebuild wieder exakt dem aktuellen Wissensstand: historische Patchdaten bleiben erhalten, aber veraltete Parser-Artefakte werden nicht weiter als gültige Timeline-Ereignisse mitgeführt.
+
 ## #17 — Brain-Wissen kann in die zentrale Postgres-Timeline exportiert werden
 
 Das Brain lag bisher weiter in einer eigenen SQLite-Datenbank. Für eine echte Historie aus alten Patchständen, Forum-Funden, Reworks und aktuellen Gewinnerdaten ist das nur als Übergang sinnvoll, aber nicht als zentrale Wissensquelle.
