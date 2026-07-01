@@ -69,7 +69,12 @@ mod tests {
         let result = build_suggest(&conn, BuildSuggestOptions::new("TestHero")).expect("suggest");
 
         assert_eq!(result["hero"]["name"], "TestHero");
-        assert!(result["build"]["early"].as_array().expect("early array").len() > 0);
+        assert!(
+            !result["build"]["early"]
+                .as_array()
+                .expect("early array")
+                .is_empty()
+        );
     }
 
     #[test]

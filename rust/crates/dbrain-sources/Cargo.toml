@@ -10,7 +10,9 @@ path = "src/lib.rs"
 [dependencies]
 deadlock-brain-core = { path = "../deadlock-brain-core" }
 regex.workspace = true
+roxmltree.workspace = true
 rusqlite.workspace = true
+scraper.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

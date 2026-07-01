@@ -1,5 +1,13 @@
 # Changelog
 
+## #15 — Forum-Wissen kann schonend in Wellen ins Brain fließen
+
+Das offizielle Deadlock-Forum war bisher nur indirekt über einzelne Patchnotes im Wissensspeicher vertreten. Diskussionen zu Bugs, Meta-Fragen, Heldenfeedback und Entwicklerantworten lagen dadurch außerhalb der Datenbasis, obwohl sie öffentlich und thematisch sehr wertvoll sind.
+
+Das Brain kann jetzt öffentliche Forum-Threads aus der Sitemap von alt nach neu in kleinen, wiederholbaren Wellen importieren. Jede Thread-Seite wird als Rohquelle gespeichert und zusätzlich in strukturierte Thread- und Beitragsdaten zerlegt; bereits gespeicherte Threads werden beim nächsten Lauf übersprungen, damit ein großer Backfill sauber fortgesetzt werden kann. Bereiche, die das Forum per Robots-Regeln ausschließt, werden nicht gecrawlt; Attachment-Links werden nur als Referenz gesichert und nicht heruntergeladen.
+
+Damit steht der sichere Grundkanal, um Forum-Inhalte erst vollständig zu sichern und danach getrennt auszuwerten: Bugs, Exploits als Risikosignale, Meta-Diskussionen, Heldenfeedback und später auch Bildhinweise aus erlaubten Quellen.
+
 ## #14 — Sehr lange Stream-Mitschnitte werden auswertbar (abschnittsweise)
 
 Die längsten Quellen blieben bisher außen vor: mehrstündige Stream- und Coaching-Mitschnitte mit teils über einer Million Zeichen Transcript. Die Auswertung war auf Videos üblicher Länge begrenzt; alles darüber wurde übersprungen — obwohl gerade diese VODs besonders dichtes Spielwissen tragen.

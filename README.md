@@ -25,6 +25,7 @@ deadlock-brain status
 deadlock-brain pull assets
 deadlock-brain pull sheet
 deadlock-brain pull patchnotes
+deadlock-brain pull forum --limit 100
 deadlock-brain pull statlocker --kind wpa-items --patch patch_129989 --hero "Mo & Krill" --min-sample-size 50
 deadlock-brain normalize entities --rebuild
 deadlock-brain parse patchnotes --rebuild
@@ -53,6 +54,28 @@ cd /home/naniadm/Documents/Deadlock-Brain
 PYTHONPATH=src python3 -m deadlock_brain.cli status
 PYTHONPATH=src python3 -m deadlock_brain.cli pull assets
 ```
+
+## Forum schonend importieren
+
+Das öffentliche Deadlock-Forum kann über die Sitemap in kleinen Wellen importiert
+werden. Der Import läuft von alten zu neuen Thread-IDs, speichert die komplette
+Thread-HTML-Seite als Rohquelle und legt zusätzlich strukturierte Thread- und
+Post-Snapshots ab:
+
+```bash
+cd /home/naniadm/Documents/Deadlock-Brain
+deadlock-brain pull forum --limit 100 --delay-seconds 1
+```
+
+Bereits gespeicherte Thread-IDs werden standardmäßig übersprungen. Dadurch kann
+der Backfill beliebig oft mit kleinen Limits fortgesetzt werden. Mit
+`--refresh-existing` lassen sich vorhandene Threads gezielt erneut abrufen.
+
+Der Import hält sich an die Forum-Robots-Regeln: `/search/`, `/posts/`,
+`/attachments/`, Login-/Account-Bereiche und private Inhalte werden nicht
+gecrawlt. Attachment- und Bild-URLs, die in öffentlichen Thread-Seiten sichtbar
+sind, werden nur als Referenz in den Post-Snapshots gespeichert; der Download
+und die Bildanalyse sind ein separater, späterer Schritt.
 
 ## Wiki bewusst schonend nutzen
 

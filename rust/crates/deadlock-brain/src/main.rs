@@ -561,6 +561,8 @@ enum PullCommands {
     DeadlockData(PullDeadlockDataArgs),
     #[command(about = "Importiert bestehende Patchnotes aus der zentralen Bot-DB.")]
     Patchnotes(PullPatchnotesArgs),
+    #[command(about = "Zieht oeffentliche Threads aus dem Deadlock-Forum anhand der Sitemap.")]
+    Forum(PullForumArgs),
     #[command(about = "Zieht gezielt Statlocker WPA-/Leaderboard-Daten.")]
     Statlocker(Box<PullStatlockerArgs>),
 }
@@ -598,6 +600,23 @@ struct PullDeadlockDataArgs {
 struct PullPatchnotesArgs {
     #[arg(long = "db-path")]
     db_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+struct PullForumArgs {
+    #[arg(
+        long = "sitemap-url",
+        default_value = "https://forums.playdeadlock.com/sitemap.xml"
+    )]
+    sitemap_url: String,
+    #[arg(long, default_value_t = 25, help = "0 bedeutet ohne Limit; fuer Backfills besser kleine Wellen nutzen.")]
+    limit: usize,
+    #[arg(long = "delay-seconds", default_value_t = 1.0)]
+    delay_seconds: f64,
+    #[arg(long = "cache-ttl-seconds", default_value_t = 86_400)]
+    cache_ttl_seconds: u64,
+    #[arg(long = "refresh-existing", help = "Bereits gespeicherte Thread-IDs erneut abrufen.")]
+    refresh_existing: bool,
 }
 
 #[derive(Debug, Args)]
@@ -1150,6 +1169,21 @@ fn run_pull(conn: &Connection, settings: &Settings, source: PullCommands) -> Res
                 &settings.raw_dir,
                 dbrain_sources::PullPatchnotesOptions {
                     central_db_path: &central_db_path,
+                },
+            )?;
+            print_json(&result)
+        }
+        PullCommands::Forum(args) => {
+            let result = dbrain_sources::pull_forum(
+                conn,
+                &settings.raw_dir,
+                &http,
+                dbrain_sources::PullForumOptions {
+                    sitemap_url: args.sitemap_url,
+                    limit: args.limit,
+                    delay_seconds: args.delay_seconds,
+                    cache_ttl_seconds: args.cache_ttl_seconds,
+                    refresh_existing: args.refresh_existing,
                 },
             )?;
             print_json(&result)
