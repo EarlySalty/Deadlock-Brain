@@ -1,4 +1,5 @@
-use std::{collections::HashMap, env};
+use std::collections::HashMap;
+use std::env;
 
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
@@ -34,7 +35,7 @@ struct PreparedPatch {
     source_external_id: String,
     title: Option<String>,
     url: Option<String>,
-    posted_at: Option<String>,
+    posted_at: Option<DateTime<Utc>>,
     source_kind: String,
     raw_payload_text: String,
     raw_payload_hash: String,
@@ -84,7 +85,7 @@ struct EntityAlias {
 #[derive(Debug)]
 struct EventParseContext<'a> {
     row: &'a PatchnoteRow,
-    posted_at: Option<&'a str>,
+    posted_at: Option<DateTime<Utc>>,
     section: Option<&'a str>,
     line_index: i64,
     raw_line: &'a str,
@@ -199,6 +200,9 @@ fn load_patchnote(client: &mut Client, patch_id: i64) -> Result<PatchnoteRow> {
 }
 
 fn prepare_patch(row: &PatchnoteRow, index: &EntityIndex) -> Result<PreparedPatch> {
+    let posted_at = parse_posted_at(row.posted_at.as_deref())?;
+    let posted_at_text = posted_at.map(|value| value.to_rfc3339());
+
     let source_external_id = match row.url.as_deref().map(str::trim) {
         Some(url) if !url.is_empty() => url.to_string(),
         _ => format!("patchnotes:{}", row.id),
@@ -211,14 +215,13 @@ fn prepare_patch(row: &PatchnoteRow, index: &EntityIndex) -> Result<PreparedPatc
             .unwrap_or_else(|| format!("Patchnotes {}", row.id)),
     );
     let url = row.url.clone();
-    let posted_at = parse_posted_at(row.posted_at.as_deref())?;
     let raw_content = row.raw_content.clone().unwrap_or_default();
     let content = raw_content;
     let payload = json!({
         "id": row.id,
         "title": row.title,
         "url": row.url,
-        "posted_at": posted_at,
+        "posted_at": posted_at_text,
         "raw_content": content,
         "translated_content": row.translated_content,
         "source_kind": source_kind,
@@ -230,7 +233,7 @@ fn prepare_patch(row: &PatchnoteRow, index: &EntityIndex) -> Result<PreparedPatc
         "id": row.id,
         "title": row.title,
         "url": row.url,
-        "posted_at": posted_at,
+        "posted_at": posted_at_text,
         "raw_content": content,
         "translated_content": row.translated_content,
         "source_kind": source_kind,
@@ -239,7 +242,7 @@ fn prepare_patch(row: &PatchnoteRow, index: &EntityIndex) -> Result<PreparedPatc
     });
     let snapshot_payload_text = json_text(&snapshot_payload)?;
     let snapshot_payload_hash = stable_hash(snapshot_payload_text.as_bytes());
-    let events = parse_events(row, &source_kind, posted_at.as_deref(), &content, index);
+    let events = parse_events(row, &source_kind, posted_at, &content, index);
     Ok(PreparedPatch {
         row_id: row.id,
         patch_external_id,
@@ -259,7 +262,7 @@ fn prepare_patch(row: &PatchnoteRow, index: &EntityIndex) -> Result<PreparedPatc
 fn parse_events(
     row: &PatchnoteRow,
     source_kind: &str,
-    posted_at: Option<&str>,
+    posted_at: Option<DateTime<Utc>>,
     content: &str,
     index: &EntityIndex,
 ) -> Vec<PreparedEvent> {
@@ -321,7 +324,7 @@ fn parse_bullet_event(context: &EventParseContext<'_>) -> Option<PreparedEvent> 
         "patch_id": context.row.id,
         "source_kind": context.source_kind,
         "source_language": "en",
-        "source_posted_at": context.posted_at,
+        "source_posted_at": context.posted_at.map(|value| value.to_rfc3339()),
         "line_subject": subject,
         "line_remainder": remainder,
         "section": context.section,
@@ -357,32 +360,32 @@ fn parse_bullet_event(context: &EventParseContext<'_>) -> Option<PreparedEvent> 
     })
 }
 
-fn parse_posted_at(raw: Option<&str>) -> Result<Option<String>> {
+fn parse_posted_at(raw: Option<&str>) -> Result<Option<DateTime<Utc>>> {
     let raw = raw.unwrap_or("").trim();
     if raw.is_empty() {
         return Ok(None);
     }
     if let Ok(value) = DateTime::parse_from_rfc3339(raw) {
-        return Ok(Some(value.to_rfc3339()));
+        return Ok(Some(value.with_timezone(&Utc)));
     }
     if let Ok(value) = DateTime::parse_from_str(raw, "%Y-%m-%d %H:%M:%S%.f %z") {
-        return Ok(Some(value.to_rfc3339()));
+        return Ok(Some(value.with_timezone(&Utc)));
     }
     if let Ok(value) = DateTime::parse_from_str(raw, "%Y-%m-%d %H:%M:%S%.f") {
-        return Ok(Some(value.with_timezone(&Utc).to_rfc3339()));
+        return Ok(Some(value.with_timezone(&Utc)));
     }
     if let Ok(value) = NaiveDateTime::parse_from_str(raw, "%Y-%m-%d %H:%M:%S") {
-        return Ok(Some(Utc.from_utc_datetime(&value).to_rfc3339()));
+        return Ok(Some(Utc.from_utc_datetime(&value)));
     }
     if let Ok(value) = NaiveDate::parse_from_str(raw, "%Y-%m-%d") {
         if let Some(time) = value.and_hms_opt(0, 0, 0) {
-            return Ok(Some(Utc.from_utc_datetime(&time).to_rfc3339()));
+            return Ok(Some(Utc.from_utc_datetime(&time)));
         }
         return Ok(None);
     }
     if let Ok(value) = raw.parse::<i64>() {
         if let Some(value) = DateTime::<Utc>::from_timestamp(value, 0) {
-            return Ok(Some(value.to_rfc3339()));
+            return Ok(Some(value));
         }
     }
     Ok(None)
@@ -602,6 +605,7 @@ fn insert_patch_events(
     let mut changed = 0_u64;
     let legacy_patch_snapshot_id = -snapshot_id;
     for event in &patch.events {
+        let posted_at_timestamp = patch.posted_at.map(|value| value.timestamp() as f64);
         let metadata = json_text(&event.metadata)?;
         tx.execute(
             r#"
@@ -612,7 +616,7 @@ fn insert_patch_events(
                 old_value, new_value, confidence, metadata, event_hash, created_at
             )
             VALUES (
-                $1,$2,$3,$4,$5,$6,$7::timestamptz,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::text::jsonb,$19,now()
+                $1,$2,$3,$4,$5,$6,to_timestamp($7),$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::text::jsonb,$20,now()
             )
             ON CONFLICT (event_hash) DO UPDATE SET
                 patch_snapshot_id = EXCLUDED.patch_snapshot_id,
@@ -642,7 +646,7 @@ fn insert_patch_events(
                 &patch.title as &(dyn ToSql + Sync),
                 &patch.url as &(dyn ToSql + Sync),
                 &patch.source_kind as &(dyn ToSql + Sync),
-                &patch.posted_at as &(dyn ToSql + Sync),
+                &posted_at_timestamp as &(dyn ToSql + Sync),
                 &event.line_index as &(dyn ToSql + Sync),
                 &event.section as &(dyn ToSql + Sync),
                 &event.entity_type as &(dyn ToSql + Sync),
@@ -775,34 +779,229 @@ fn summary_json(
 }
 
 fn patch_lines(content: &str) -> Vec<String> {
+    let normalized = cleanup_patch_content(content);
+    if let Some(flat_lines) = split_flat_forum_lines(&normalized) {
+        return flat_lines;
+    }
+
     let mut lines = Vec::new();
-    for raw in content.lines() {
-        let stripped = raw.trim();
-        if stripped.starts_with("- ") && stripped.contains(" - ") {
-            let pieces = stripped[2..].split(" - ").collect::<Vec<_>>();
-            if pieces.len() > 1
-                && pieces.iter().skip(1).all(|part| {
-                    part.chars().next().is_some_and(|ch| {
-                        ch.is_ascii_uppercase() || ch.is_ascii_digit() || ch == '"' || ch == '\''
-                    })
-                })
-            {
-                for piece in pieces {
-                    let piece = piece.trim();
-                    if !piece.is_empty() {
-                        lines.push(format!("- {piece}"));
-                    }
-                }
-                continue;
-            }
+    for raw in normalized.lines() {
+        for part in expand_inline_bullets(raw) {
+            lines.push(part);
         }
-        lines.push(raw.to_string());
     }
     lines
 }
 
+fn cleanup_patch_content(content: &str) -> String {
+    let mut text = content
+        .replace("&nbsp;", " ")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace('\u{00A0}', " ");
+
+    text = text.replace("<br/>", "\n");
+    text = text.replace("<br />", "\n");
+    text = text.replace("<br>", "\n");
+    text = text.replace("</p>", "\n");
+    text = text.replace("<p>", "\n");
+    text = text.replace("<ul>", "\n");
+    text = text.replace("</ul>", "\n");
+    text = text.replace("<li>", "- ");
+    text = text.replace("</li>", "\n");
+    text = text.replace("</b>", "");
+    text = text.replace("<b>", "");
+    text = text.replace("<strong>", "");
+    text = text.replace("</strong>", "");
+
+    text = text.replace("\r\n", "\n");
+    text = text.replace('\r', "\n");
+
+    text
+}
+
+fn split_flat_forum_lines(content: &str) -> Option<Vec<String>> {
+    if content.is_empty()
+        || content.contains('\n')
+        || !content.contains(": ==")
+        || !content.contains(" - ")
+    {
+        return None;
+    }
+
+    let mut markers = Vec::new();
+    let mut search_from = 0usize;
+    while let Some(marker_pos_rel) = content[search_from..].find(": ==") {
+        let marker_pos = search_from + marker_pos_rel;
+        if let Some(section) = extract_forum_section_name(&content[..marker_pos]) {
+            markers.push((marker_pos, section));
+        }
+        search_from = marker_pos + 4;
+    }
+
+    if markers.is_empty() {
+        return None;
+    }
+
+    let mut lines = Vec::new();
+    for (idx, (marker_pos, section)) in markers.iter().enumerate() {
+        lines.push(section.trim().to_string());
+
+        let section_body_end = markers.get(idx + 1).map_or(content.len(), |next| next.0);
+        let section_body = content[*marker_pos + 4..section_body_end].trim();
+        let section_body = if let Some((_, next_section)) = markers.get(idx + 1) {
+            if section_body.ends_with(next_section) {
+                let trimmed = section_body[..section_body.len() - next_section.len()].trim_end();
+                trimmed.strip_suffix('-').unwrap_or(trimmed).trim_end()
+            } else {
+                section_body
+            }
+        } else {
+            section_body
+        };
+
+        for line in expand_inline_bullets(section_body) {
+            lines.push(line);
+        }
+    }
+
+    if lines.is_empty() {
+        None
+    } else {
+        Some(lines)
+    }
+}
+
+fn extract_forum_section_name(before_marker: &str) -> Option<String> {
+    let mut words = Vec::new();
+
+    for token in before_marker.split_whitespace().rev() {
+        let token = token
+            .trim_matches(|ch: char| matches!(ch, ',' | '.' | ':' | ';' | '!' | '?' | ')' | '('));
+        if token == "A" {
+            break;
+        }
+        if !is_forum_section_word(token) {
+            break;
+        }
+
+        words.push(token);
+        if words.len() >= 3 {
+            break;
+        }
+    }
+
+    if words.is_empty() {
+        return None;
+    }
+
+    words.reverse();
+    let section = words.join(" ");
+    if section.len() < 2 || section.len() > 80 {
+        return None;
+    }
+
+    let mut words_iter = section.split_whitespace();
+    let first_word = words_iter.next()?;
+    if matches!(
+        first_word,
+        "Added"
+            | "Updated"
+            | "Fixed"
+            | "Changed"
+            | "Reduced"
+            | "Increased"
+            | "Decreased"
+            | "Removed"
+    ) {
+        return None;
+    }
+
+    Some(section)
+}
+
+fn is_forum_section_word(word: &str) -> bool {
+    if word.is_empty() {
+        return false;
+    }
+
+    let mut chars = word.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if !(first.is_ascii_alphabetic() && first.is_ascii_uppercase() || first.is_ascii_digit()) {
+        return false;
+    }
+
+    for ch in chars {
+        if !(ch.is_ascii_alphanumeric() || matches!(ch, '&' | '/' | '+' | '-')) {
+            return false;
+        }
+    }
+
+    true
+}
+
+fn is_inline_bullet_start(ch: char) -> bool {
+    ch.is_ascii_uppercase() || ch.is_ascii_digit() || ch == '"' || ch == '\''
+}
+
+fn expand_inline_bullets(raw_line: &str) -> Vec<String> {
+    let stripped = raw_line.trim();
+    if stripped.is_empty() {
+        return Vec::new();
+    }
+
+    let normalized = if let Some(rest) = stripped.strip_prefix("- ") {
+        rest.trim()
+    } else {
+        stripped
+    };
+
+    if normalized.contains(" - ") {
+        let pieces = normalized.split(" - ").collect::<Vec<_>>();
+        if pieces.len() > 1
+            && pieces
+                .iter()
+                .skip(1)
+                .all(|part| part.chars().next().is_some_and(is_inline_bullet_start))
+        {
+            return pieces
+                .into_iter()
+                .filter_map(|piece| {
+                    let piece = piece.trim();
+                    if piece.is_empty() {
+                        None
+                    } else {
+                        Some(format!("- {piece}"))
+                    }
+                })
+                .collect();
+        }
+    }
+
+    if normalized
+        .chars()
+        .next()
+        .is_some_and(is_inline_bullet_start)
+    {
+        vec![format!("- {normalized}")]
+    } else if stripped.starts_with("- ") || stripped.starts_with("* ") || stripped.starts_with("• ")
+    {
+        vec![format!("- {}", stripped[2..].trim())]
+    } else if stripped.starts_with("\u{2022} ") {
+        vec![format!("- {}", stripped[3..].trim())]
+    } else {
+        vec![raw_line.to_string()]
+    }
+}
+
 fn bullet_body(line: &str) -> Option<String> {
-    for marker in ["- ", "* ", "• "] {
+    for marker in ["- ", "* ", "• ", "\u{2022} "] {
         if let Some(body) = line.strip_prefix(marker) {
             return Some(body.trim().to_string());
         }
@@ -962,13 +1161,20 @@ fn public_entity_type(entity_type: &str) -> &str {
 mod tests {
     use super::*;
 
+    fn posted_at(value: &str) -> String {
+        parse_posted_at(Some(value))
+            .expect("parse posted_at")
+            .expect("value")
+            .to_rfc3339()
+    }
+
     #[test]
     fn parse_bullet_lines_and_event_hash_is_stable() {
         let row = PatchnoteRow {
             id: 17,
             title: Some("Patch 17".to_string()),
             url: Some("https://steamcommunity.com/nachrichten/17".to_string()),
-            posted_at: Some("2026-06-30".to_string()),
+            posted_at: Some(posted_at("2026-06-30")),
             raw_content: Some("- Aegis: increased health by 10".to_string()),
             translated_content: None,
         };
@@ -991,12 +1197,58 @@ mod tests {
     }
 
     #[test]
+    fn parses_forum_single_line_sections() {
+        let row = PatchnoteRow {
+            id: 80,
+            title: Some("05-03-2024 Update".to_string()),
+            url: Some("https://forums.playdeadlock.com/threads/05-03-2024-update.427/".to_string()),
+            posted_at: Some(posted_at("2024-05-03T20:02:54+00:00")),
+            raw_content: Some(
+                "General Changes: == - Added a Recommend A Friend button to the dashboard - Added the Patron to the spectate-when-dead cycle if the enemy is in your base or everyone on your team is dead Gameplay Changes: == - Abrams: Base Health increased from 550 to 600 - Urn bounty increased from 900 + 160/minute to 900 + 200/minute".to_string(),
+            ),
+            translated_content: None,
+        };
+        let mut index = EntityIndex::default();
+        index.insert("hero", "Abrams", "Abrams");
+        index.insert("hero", "Patron", "Patron");
+        let index = index.finish();
+
+        let prepared = prepare_patch(&row, &index).expect("prepare");
+        assert!(!prepared.events.is_empty());
+        assert_eq!(
+            prepared.events[0].section.as_deref(),
+            Some("General Changes")
+        );
+        assert!(prepared
+            .events
+            .iter()
+            .any(|event| event.section.as_deref() == Some("Gameplay Changes")));
+        assert!(prepared
+            .events
+            .iter()
+            .any(|event| event.subject.as_deref() == Some("Abrams")));
+    }
+
+    #[test]
+    fn split_flat_forum_content() {
+        let lines = split_flat_forum_lines(
+            "General Changes: == - Added A - Gameplay Changes: == - Abrams: Base Health increased from 550 to 600",
+        )
+        .expect("flat");
+        assert_eq!(lines.len(), 4);
+        assert_eq!(lines[0], "General Changes");
+        assert_eq!(lines[1], "- Added A");
+        assert_eq!(lines[2], "Gameplay Changes");
+        assert_eq!(lines[3], "- Abrams: Base Health increased from 550 to 600");
+    }
+
+    #[test]
     fn parse_events_have_deduplicated_hashes_by_line() {
         let row = PatchnoteRow {
             id: 17,
             title: Some("Patch 17".to_string()),
             url: Some("https://steamcommunity.com/nachrichten/17".to_string()),
-            posted_at: Some("2026-06-30".to_string()),
+            posted_at: Some(posted_at("2026-06-30")),
             raw_content: Some(
                 "- Aegis: increased health by 10\n- Aegis: increased speed by 12".to_string(),
             ),
@@ -1035,11 +1287,11 @@ mod tests {
         let parsed = parse_posted_at(Some("2026-06-30"))
             .expect("parsed")
             .expect("value");
-        assert!(parsed.starts_with("2026-06-30T00:00:00+00:00"));
+        assert_eq!(parsed.to_rfc3339(), "2026-06-30T00:00:00+00:00");
         let fallback = parse_posted_at(Some("2026-06-30T17:22:14Z"))
             .expect("parsed")
             .expect("value");
-        assert!(fallback.contains("2026-06-30T17:22:14"));
+        assert_eq!(fallback.to_rfc3339(), "2026-06-30T17:22:14+00:00");
     }
 
     fn build_event_hash(
