@@ -1,5 +1,13 @@
 # Changelog
 
+## #22 — Patch-Forum-Parsing robust gegenüber Abschnittsüberschriften
+
+Problem: `expand_inline_bullets` wurde so erweitert, dass einzelne Abschnittszeilen wie `General Changes:` als Bullet erkannt wurden. Dadurch verlor der Parser bei Forum-Importen die Section-Heads und konnte Events nicht mehr korrekt den Abschnitten zuordnen.
+
+Änderung: Das Mapping erkennt section-Header gezielt vor der Inline-Bullet-Normalisierung und lässt das `: ==`/einzeilige-Flat-Verhalten für Patch 80 unverändert. Zudem wird `posted_at` bei PostgreSQL-Importen jetzt als `DateTime<Utc>` gebunden statt über `to_timestamp($7)` aus `f64` erzeugt.
+
+Aktuelles Verhalten: Abschnittsüberschriften bleiben Section-Header, Event-Zeilen in denselben Blöcken behalten die erwartete Sektion, und Timestamps laufen mit voller `DateTime`-Präzision durch den PG-Pfad.
+
 ## #21 — Patchnotes lassen sich einzeln direkt nach brain.* schreiben
 
 Ein neuer PG-Subcommand `pg import-patchnote` ergänzt die bestehende PG-Pipeline.

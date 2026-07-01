@@ -605,7 +605,7 @@ fn insert_patch_events(
     let mut changed = 0_u64;
     let legacy_patch_snapshot_id = -snapshot_id;
     for event in &patch.events {
-        let posted_at_timestamp = patch.posted_at.map(|value| value.timestamp() as f64);
+        let posted_at_text = patch.posted_at.map(|value| value.to_rfc3339());
         let metadata = json_text(&event.metadata)?;
         tx.execute(
             r#"
@@ -616,7 +616,7 @@ fn insert_patch_events(
                 old_value, new_value, confidence, metadata, event_hash, created_at
             )
             VALUES (
-                $1,$2,$3,$4,$5,$6,to_timestamp($7),$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::text::jsonb,$20,now()
+                $1,$2,$3,$4,$5,$6,$7::text::timestamptz,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::text::jsonb,$20,now()
             )
             ON CONFLICT (event_hash) DO UPDATE SET
                 patch_snapshot_id = EXCLUDED.patch_snapshot_id,
@@ -646,7 +646,7 @@ fn insert_patch_events(
                 &patch.title as &(dyn ToSql + Sync),
                 &patch.url as &(dyn ToSql + Sync),
                 &patch.source_kind as &(dyn ToSql + Sync),
-                &posted_at_timestamp as &(dyn ToSql + Sync),
+                &posted_at_text as &(dyn ToSql + Sync),
                 &event.line_index as &(dyn ToSql + Sync),
                 &event.section as &(dyn ToSql + Sync),
                 &event.entity_type as &(dyn ToSql + Sync),
@@ -956,6 +956,10 @@ fn expand_inline_bullets(raw_line: &str) -> Vec<String> {
         return Vec::new();
     }
 
+    if is_forum_section_heading(stripped) {
+        return vec![raw_line.to_string()];
+    }
+
     let normalized = if let Some(rest) = stripped.strip_prefix("- ") {
         rest.trim()
     } else {
@@ -998,6 +1002,31 @@ fn expand_inline_bullets(raw_line: &str) -> Vec<String> {
     } else {
         vec![raw_line.to_string()]
     }
+}
+
+fn is_forum_section_heading(line: &str) -> bool {
+    let trimmed = line.trim();
+    if !trimmed.ends_with(':') {
+        return false;
+    }
+    let body = trimmed.trim_end_matches(':').trim();
+    if body.is_empty() || body.len() > 80 {
+        return false;
+    }
+    let mut chars = body.chars();
+    match chars.next() {
+        Some(first) if first.is_ascii_alphabetic() => {}
+        _ => return false,
+    }
+    if body.contains("http") {
+        return false;
+    }
+
+    body.chars().all(|ch| {
+        ch.is_ascii_alphanumeric()
+            || ch.is_ascii_whitespace()
+            || matches!(ch, '&' | '/' | '+' | '-')
+    })
 }
 
 fn bullet_body(line: &str) -> Option<String> {
@@ -1197,6 +1226,12 @@ mod tests {
     }
 
     #[test]
+    fn expands_forum_section_headings_without_bullet_prefix() {
+        let expanded = expand_inline_bullets("General Changes:");
+        assert_eq!(expanded, vec!["General Changes:"]);
+    }
+
+    #[test]
     fn parses_forum_single_line_sections() {
         let row = PatchnoteRow {
             id: 80,
@@ -1227,6 +1262,36 @@ mod tests {
             .events
             .iter()
             .any(|event| event.subject.as_deref() == Some("Abrams")));
+    }
+
+    #[test]
+    fn parses_forum_multiline_sections_with_flat_fix_still_intact() {
+        let row = PatchnoteRow {
+            id: 81,
+            title: Some("Patch with multiline headings".to_string()),
+            url: Some("https://forums.playdeadlock.com/threads/patch-81-update".to_string()),
+            posted_at: Some(posted_at("2024-06-01")),
+            raw_content: Some(
+                "General Changes:\nPatron: Added the spectate timer to combat flow\nGameplay Changes:\nAbrams: Base Health increased from 550 to 600"
+                    .to_string(),
+            ),
+            translated_content: None,
+        };
+        let mut index = EntityIndex::default();
+        index.insert("objective", "Patron", "Patron");
+        index.insert("hero", "Abrams", "Abrams");
+        let index = index.finish();
+
+        let prepared = prepare_patch(&row, &index).expect("prepare");
+        assert_eq!(prepared.events.len(), 2);
+        assert_eq!(
+            prepared.events[0].section.as_deref(),
+            Some("General Changes")
+        );
+        assert_eq!(
+            prepared.events[1].section.as_deref(),
+            Some("Gameplay Changes")
+        );
     }
 
     #[test]
