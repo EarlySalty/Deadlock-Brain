@@ -1,5 +1,13 @@
 # Changelog
 
+## #17 — Brain-Wissen kann in die zentrale Postgres-Timeline exportiert werden
+
+Das Brain lag bisher weiter in einer eigenen SQLite-Datenbank. Für eine echte Historie aus alten Patchständen, Forum-Funden, Reworks und aktuellen Gewinnerdaten ist das nur als Übergang sinnvoll, aber nicht als zentrale Wissensquelle.
+
+Der neue PG-Export schreibt die lokalen Quellen, Snapshots, Patch-Events und Forum-Claims idempotent in das zentrale `brain`-Schema der Postgres-Datenbank. Zusätzlich entstehen vereinheitlichte Wissens-Events für die Timeline und ein aktueller Snapshot-Stand, bei dem vertrauenswürdige aktuelle Quellen nach Priorität gewinnen, während Forum-Claims in ihrer historischen Quarantäne bleiben.
+
+Damit kann die bestehende SQLite-Basis sicher in die zentrale Datenbank überführt werden, ohne alte Daten zu verlieren oder alte Forum-/Patch-Aussagen als heutige Wahrheit zu behandeln.
+
 ## #16 — Forum-Daten landen zuerst als historische Claims mit Link und Schutzstatus
 
 Forum-Beiträge enthalten wertvolle Bug-, Exploit-, Meta- und Entwicklerhinweise, können aber alt, gefixt oder durch Reworks überholt sein. Wenn solche Aussagen direkt wie aktuelle Fakten behandelt würden, könnte das Brain falsche Builds, alte Werte oder nicht mehr existierende Mechaniken weiterreichen.

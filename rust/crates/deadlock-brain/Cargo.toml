@@ -9,6 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
+chrono.workspace = true
 clap.workspace = true
 deadlock-brain-core = { path = "../deadlock-brain-core" }
 dbrain-enrich = { path = "../dbrain-enrich" }
@@ -16,6 +17,7 @@ dbrain-learn = { path = "../dbrain-learn" }
 dbrain-normalize = { path = "../dbrain-normalize" }
 dbrain-retrieval = { path = "../dbrain-retrieval" }
 dbrain-sources = { path = "../dbrain-sources" }
+postgres.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true

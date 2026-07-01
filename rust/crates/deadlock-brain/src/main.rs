@@ -23,6 +23,8 @@ use rusqlite::{
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 
+mod pg_export;
+
 #[derive(Debug, Parser)]
 #[command(name = "deadlock-brain")]
 struct Cli {
@@ -95,6 +97,11 @@ enum Commands {
     Enrich {
         #[command(subcommand)]
         target: EnrichCommands,
+    },
+    #[command(name = "pg", about = "Synchronisiert Brain-Wissen in die zentrale Postgres-DB.")]
+    Pg {
+        #[command(subcommand)]
+        target: PgCommands,
     },
 }
 
@@ -776,6 +783,20 @@ struct PatchImpactArgs {
     dry_run: bool,
 }
 
+#[derive(Debug, Subcommand)]
+enum PgCommands {
+    #[command(about = "Exportiert die lokale Brain-SQLite in das zentrale brain.* Postgres-Schema.")]
+    Export(PgExportArgs),
+}
+
+#[derive(Debug, Args)]
+struct PgExportArgs {
+    #[arg(long = "dsn-env", default_value = "DEADLOCK_CENTRAL_DSN")]
+    dsn_env: String,
+    #[arg(long = "dry-run", help = "Nur lokale Zaehler ermitteln; keine PG-Verbindung, keine Schreibzugriffe.")]
+    dry_run: bool,
+}
+
 fn main() {
     if let Err(error) = run_from_cli() {
         eprintln!("{error:#}");
@@ -918,6 +939,19 @@ fn run(cli: Cli) -> Result<()> {
         Commands::Normalize { target } => run_normalize(&conn, target),
         Commands::Parse { target } => run_parse(&conn, target),
         Commands::Enrich { target } => run_enrich(&conn, &settings, target),
+        Commands::Pg { target } => run_pg(&conn, target),
+    }
+}
+
+fn run_pg(conn: &Connection, target: PgCommands) -> Result<()> {
+    match target {
+        PgCommands::Export(args) => print_json(&pg_export::export_to_postgres(
+            conn,
+            &pg_export::PgExportOptions {
+                dsn_env: args.dsn_env,
+                dry_run: args.dry_run,
+            },
+        )?),
     }
 }
 
