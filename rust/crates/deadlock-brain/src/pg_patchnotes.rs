@@ -1,21 +1,62 @@
 use std::collections::HashMap;
 use std::env;
+use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use deadlock_brain_core::http::{HttpClient, HttpGetOptions};
 use postgres::types::ToSql;
 use postgres::{Client, NoTls, Transaction};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 const SOURCE: &str = "deadlock_patchnotes_db";
 const IMPORTER: &str = "deadlock_patchnotes_db_pg";
+const STEAM_APPID: u32 = 1_422_450;
+const STEAM_APPNEWS_API: &str = "https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/";
+const STEAM_LOOKBACK_COUNT: u32 = 500;
 
 #[derive(Debug, Clone)]
 pub struct ImportPatchnoteOptions {
     pub patch_id: i64,
     pub dsn_env: String,
     pub dry_run: bool,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedPatchSource {
+    raw_content: String,
+    source_url: Option<String>,
+    source_kind: String,
+    resolved_from: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct SteamAppNewsResponse {
+    appnews: SteamAppNews
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct SteamAppNews {
+    #[serde(default)]
+    newsitems: Vec<SteamAppNewsItem>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct SteamAppNewsItem {
+    gid: String,
+    title: String,
+    url: String,
+    #[serde(default)]
+    contents: String,
+    date: i64,
+    #[serde(default)]
+    author: Option<String>,
+    #[serde(default)]
+    feedlabel: Option<String>,
+    #[serde(default)]
+    feedname: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -85,6 +126,7 @@ struct EntityAlias {
 #[derive(Debug)]
 struct EventParseContext<'a> {
     row: &'a PatchnoteRow,
+    source_url: Option<&'a str>,
     posted_at: Option<DateTime<Utc>>,
     section: Option<&'a str>,
     line_index: i64,
@@ -132,7 +174,7 @@ impl EntityIndex {
     }
 }
 
-pub fn import_patchnote(options: &ImportPatchnoteOptions) -> Result<Value> {
+pub fn import_patchnote(http: &HttpClient, options: &ImportPatchnoteOptions) -> Result<Value> {
     let dsn = env::var(&options.dsn_env).map_err(|_| {
         anyhow!(
             "{} ist nicht gesetzt; DSN wird nicht ausgegeben.",
@@ -145,7 +187,8 @@ pub fn import_patchnote(options: &ImportPatchnoteOptions) -> Result<Value> {
     ensure_pg_schema(&mut client)?;
     let patch = load_patchnote(&mut client, options.patch_id)?;
     let index = load_entity_index(&mut client)?;
-    let prepared = prepare_patch(&patch, &index)?;
+    let resolved = resolve_patch_source(http, &patch)?;
+    let prepared = prepare_patch(&patch, &resolved, &index)?;
     if options.dry_run {
         return Ok(summary_json(
             true,
@@ -199,32 +242,108 @@ fn load_patchnote(client: &mut Client, patch_id: i64) -> Result<PatchnoteRow> {
     })
 }
 
-fn prepare_patch(row: &PatchnoteRow, index: &EntityIndex) -> Result<PreparedPatch> {
+fn resolve_patch_source(http: &HttpClient, row: &PatchnoteRow) -> Result<PatchSourceResolution> {
+    let posted_at = parse_posted_at(row.posted_at.as_deref())?;
+    let candidates = collect_steam_links(row);
+    let source_kind = classify_source_kind(row.url.as_deref());
+    let should_search_steam = source_kind == "forum" || !candidates.is_empty();
+    if !should_search_steam {
+        return Ok(PatchSourceResolution::from_row(row));
+    }
+
+    let items = match fetch_steam_news_items(http) {
+        Ok(items) => items,
+        Err(_) => {
+            return Ok(PatchSourceResolution::from_row(row));
+        }
+    };
+    let item = match_steam_news_item(row, posted_at, &candidates, &items)
+        .or_else(|| find_matching_official_news_item(row, posted_at, &items));
+
+    let Some(item) = item else {
+        return Ok(PatchSourceResolution::from_row(row));
+    };
+
+    Ok(PatchSourceResolution {
+        raw_content: clean_steam_content(&item.contents),
+        source_url: Some(item.url),
+        source_kind: "steam".to_string(),
+        resolved_from: Some(format!("steam_gid:{}", item.gid)),
+    })
+}
+
+fn fetch_steam_news_items(http: &HttpClient) -> Result<Vec<SteamAppNewsItem>> {
+    let url = appnews_url(STEAM_LOOKBACK_COUNT);
+    let response: SteamAppNewsResponse = http.get_json(
+        &url,
+        HttpGetOptions {
+            cache_ttl_seconds: Some(900),
+            timeout: Duration::from_secs(45),
+            ..HttpGetOptions::default()
+        },
+    )?;
+    Ok(response.appnews.newsitems)
+}
+
+fn appnews_url(count: u32) -> String {
+    format!(
+        "{STEAM_APPNEWS_API}?appid={STEAM_APPID}&count={count}&maxlength=100000&format=json"
+    )
+}
+
+#[derive(Debug, Clone)]
+struct PatchSourceResolution {
+    raw_content: String,
+    source_url: Option<String>,
+    source_kind: String,
+    resolved_from: Option<String>,
+}
+
+impl PatchSourceResolution {
+    fn from_row(row: &PatchnoteRow) -> Self {
+        Self {
+            raw_content: row.raw_content.clone().unwrap_or_default(),
+            source_url: row.url.clone(),
+            source_kind: classify_source_kind(row.url.as_deref()),
+            resolved_from: None,
+        }
+    }
+}
+
+fn prepare_patch(
+    row: &PatchnoteRow,
+    resolved: &PatchSourceResolution,
+    index: &EntityIndex,
+) -> Result<PreparedPatch> {
     let posted_at = parse_posted_at(row.posted_at.as_deref())?;
     let posted_at_text = posted_at.map(|value| value.to_rfc3339());
 
-    let source_external_id = match row.url.as_deref().map(str::trim) {
+    let source_external_id = match resolved.source_url.as_deref().map(str::trim) {
         Some(url) if !url.is_empty() => url.to_string(),
         _ => format!("patchnotes:{}", row.id),
     };
     let patch_external_id = row.id.to_string();
-    let source_kind = classify_source_kind(row.url.as_deref());
+    let source_kind = resolved.source_kind.clone();
     let title = Some(
         row.title
             .clone()
             .unwrap_or_else(|| format!("Patchnotes {}", row.id)),
     );
-    let url = row.url.clone();
-    let raw_content = row.raw_content.clone().unwrap_or_default();
-    let content = raw_content;
+    let url = resolved.source_url.clone().or_else(|| row.url.clone());
+    let canonical_source_url = url.as_deref();
+    let resolved_from = resolved.resolved_from.clone();
+    let content = resolved.raw_content.clone();
     let payload = json!({
         "id": row.id,
         "title": row.title,
-        "url": row.url,
+        "url": url,
+        "changelog_url": row.url,
         "posted_at": posted_at_text,
         "raw_content": content,
         "translated_content": row.translated_content,
         "source_kind": source_kind,
+        "source_url": canonical_source_url,
+        "resolved_from": resolved_from,
         "importer": IMPORTER,
     });
     let raw_payload_text = json_text(&payload)?;
@@ -232,17 +351,26 @@ fn prepare_patch(row: &PatchnoteRow, index: &EntityIndex) -> Result<PreparedPatc
     let snapshot_payload = json!({
         "id": row.id,
         "title": row.title,
-        "url": row.url,
+        "url": url,
+        "changelog_url": row.url,
         "posted_at": posted_at_text,
         "raw_content": content,
         "translated_content": row.translated_content,
         "source_kind": source_kind,
+        "source_url": canonical_source_url,
         "patchnotes": true,
         "importer": IMPORTER,
     });
     let snapshot_payload_text = json_text(&snapshot_payload)?;
     let snapshot_payload_hash = stable_hash(snapshot_payload_text.as_bytes());
-    let events = parse_events(row, &source_kind, posted_at, &content, index);
+    let events = parse_events(
+        row,
+        canonical_source_url,
+        &source_kind,
+        posted_at,
+        &content,
+        index,
+    );
     Ok(PreparedPatch {
         row_id: row.id,
         patch_external_id,
@@ -259,8 +387,344 @@ fn prepare_patch(row: &PatchnoteRow, index: &EntityIndex) -> Result<PreparedPatc
     })
 }
 
+#[derive(Debug, Clone)]
+struct SteamLinkCandidate {
+    source_url: String,
+    gid: Option<String>,
+}
+
+fn collect_steam_links(row: &PatchnoteRow) -> Vec<SteamLinkCandidate> {
+    let mut candidates = Vec::new();
+    let mut seen = HashMap::<String, bool>::new();
+    let mut add_candidate = |raw_url: &str| {
+        if !is_steam_news_url(raw_url) {
+            return;
+        }
+        let normalized = normalize_url_token(raw_url);
+        if seen.insert(normalized.clone(), true).is_some() {
+            return;
+        }
+        let gid = extract_steam_gid(&normalized);
+        candidates.push(SteamLinkCandidate {
+            source_url: normalized,
+            gid,
+        });
+    };
+
+    for text in row.url.iter().chain(row.raw_content.iter()).chain(row.translated_content.iter()) {
+        for raw in extract_http_tokens(text) {
+            add_candidate(&raw);
+        }
+    }
+
+    candidates
+}
+
+fn extract_http_tokens(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+
+    while index + 4 <= bytes.len() {
+        if bytes[index..].starts_with(b"http://") || bytes[index..].starts_with(b"https://") {
+            let start = index;
+            index += 1;
+            while index < bytes.len() {
+                if bytes[index].is_ascii_whitespace() {
+                    break;
+                }
+                index += 1;
+            }
+            out.push(String::from_utf8_lossy(&bytes[start..index]).into_owned());
+            continue;
+        }
+        index += 1;
+    }
+    out
+}
+
+fn normalize_url_token(raw: &str) -> String {
+    raw.trim()
+        .trim_start_matches('(')
+        .trim_start_matches('<')
+        .trim_start_matches('"')
+        .trim_end_matches(&[')', '>', ']', '"', '\'', ';', ',', '.'][..])
+        .to_string()
+}
+
+fn is_steam_news_url(url: &str) -> bool {
+    let lower = url.to_lowercase();
+    (lower.contains("steamcommunity.com") || lower.contains("steampowered.com") || lower.contains("steamstore-a.akamaihd.net"))
+        && (lower.contains("externalpost")
+            || lower.contains("announcements")
+            || lower.contains("steam_community_announcements"))
+}
+
+fn extract_steam_gid(url: &str) -> Option<String> {
+    for marker in [
+        "externalpost/steam_community_announcements/",
+        "/announcements/detail/",
+    ] {
+        let lower = url.to_lowercase();
+        if let Some(offset) = lower.find(marker) {
+            let digits = lower[offset + marker.len()..]
+                .chars()
+                .take_while(|ch| ch.is_ascii_digit())
+                .collect::<String>();
+            if !digits.is_empty() {
+                return Some(digits);
+            }
+        }
+    }
+    None
+}
+
+fn match_steam_news_item(
+    row: &PatchnoteRow,
+    posted_at: Option<DateTime<Utc>>,
+    candidates: &[SteamLinkCandidate],
+    items: &[SteamAppNewsItem],
+) -> Option<SteamAppNewsItem> {
+    for candidate in candidates {
+        if let Some(gid) = &candidate.gid {
+            if let Some(item) = items.iter().find(|item| &item.gid == gid) {
+                return Some(item.clone());
+            }
+        }
+    }
+
+    let wanted_urls = candidates
+        .iter()
+        .map(|candidate| normalize_steam_url(&candidate.source_url))
+        .collect::<Vec<_>>();
+    for item in items {
+        let item_url = normalize_steam_url(&item.url);
+        if wanted_urls.iter().any(|wanted| item_url.contains(wanted.as_str())) {
+            return Some(item.clone());
+        }
+    }
+
+    if let Some(posted_at) = posted_at {
+        let wanted_rows = normalize_steam_title(row.title.as_deref());
+        let mut best: Option<(i64, SteamAppNewsItem)> = None;
+        for item in items {
+            if !is_official_steam_item(item) {
+                continue;
+            }
+            let Some(item_time) = steam_item_time(item) else {
+                continue;
+            };
+            let mut score = -(item_time.timestamp() - posted_at.timestamp()).abs();
+            if score < -100_000 {
+                continue;
+            }
+            let title_score = title_similarity(&wanted_rows, &normalize_steam_title(Some(&item.title)));
+            score += title_score as i64;
+            if score > best.as_ref().map_or(i64::MIN, |value| value.0) {
+                best = Some((score, item.clone()));
+            }
+        }
+        if let Some((_, item)) = best {
+            return Some(item);
+        }
+    }
+
+    None
+}
+
+fn find_matching_official_news_item(
+    row: &PatchnoteRow,
+    posted_at: Option<DateTime<Utc>>,
+    items: &[SteamAppNewsItem],
+) -> Option<SteamAppNewsItem> {
+    let title = normalize_steam_title(row.title.as_deref());
+    let mut best: Option<(i64, SteamAppNewsItem)> = None;
+    let max_date_diff_seconds: i64 = 60_i64 * 60_i64 * 24_i64 * 14;
+    for item in items {
+        if !is_official_steam_item(item) {
+            continue;
+        }
+        let mut score = 0_i64;
+        if let Some(posted_at) = posted_at {
+            let Some(item_time) = steam_item_time(item) else {
+                continue;
+            };
+            let diff = (item_time.timestamp() - posted_at.timestamp()).abs();
+            if diff > max_date_diff_seconds {
+                continue;
+            }
+            score += (max_date_diff_seconds - diff) / 300;
+        }
+        score += title_similarity(&title, &normalize_steam_title(Some(&item.title))) as i64;
+        if score > best.as_ref().map_or(i64::MIN, |best| best.0) {
+            best = Some((score, item.clone()));
+        }
+    }
+    best.map(|(_, item)| item)
+}
+
+fn is_official_steam_item(item: &SteamAppNewsItem) -> bool {
+    item.feedname.as_deref() == Some("steam_community_announcements")
+        || item.url.contains("steam_community_announcements")
+}
+
+fn steam_item_time(item: &SteamAppNewsItem) -> Option<DateTime<Utc>> {
+    DateTime::<Utc>::from_timestamp(item.date, 0)
+}
+
+fn title_similarity(left: &str, right: &str) -> usize {
+    if left.is_empty() || right.is_empty() {
+        return 0;
+    }
+    let left_words = left.split_ascii_whitespace().collect::<Vec<_>>();
+    let mut count = 0usize;
+    for left_word in left_words {
+        if right.contains(left_word) {
+            count += 1;
+        }
+    }
+    count
+}
+
+fn normalize_steam_url(url: &str) -> String {
+    let mut lowered = url.to_lowercase();
+    if let Some(pos) = lowered.find('?') {
+        lowered = lowered[..pos].to_string();
+    }
+    lowered
+        .trim_end_matches('/')
+        .trim_end_matches(".html")
+        .to_string()
+}
+
+fn clean_steam_content(raw: &str) -> String {
+    let mut text = raw.replace("\r\n", "\n").replace('\r', "\n");
+    for (from, to) in [
+        ("\\-", "\n- "),
+        ("[list]", "\n"),
+        ("[/list]", "\n"),
+        ("[*]", "\n- "),
+        ("[/*]", "\n"),
+        ("<br>", "\n"),
+        ("<br/>", "\n"),
+        ("<br />", "\n"),
+        ("</p>", "\n"),
+    ] {
+        text = text.replace(from, to);
+    }
+    for tag in [
+        "[b]",
+        "[/b]",
+        "[i]",
+        "[/i]",
+        "[u]",
+        "[/u]",
+        "[h1]",
+        "[/h1]",
+        "[h2]",
+        "[/h2]",
+        "[h3]",
+        "[/h3]",
+        "[code]",
+        "[/code]",
+    ] {
+        text = text.replace(tag, "");
+    }
+    text = strip_bbcode_with_value(&text);
+    text = strip_html_tags(&text);
+    text = decode_basic_entities(&text);
+    text = separate_inline_dash_bullets(&text);
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn strip_bbcode_with_value(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    let mut chars = value.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '[' {
+            let mut tag = String::new();
+            while let Some(next) = chars.peek().copied() {
+                chars.next();
+                if next == ']' {
+                    break;
+                }
+                tag.push(next);
+            }
+            let lower = tag.to_ascii_lowercase();
+            if lower.starts_with("url=")
+                || lower.starts_with("/url")
+                || lower.starts_with("img")
+                || lower.starts_with("/img")
+            {
+                continue;
+            }
+            output.push('[');
+            output.push_str(&tag);
+            output.push(']');
+        } else {
+            output.push(ch);
+        }
+    }
+    output
+}
+
+fn strip_html_tags(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    let mut in_tag = false;
+    for ch in value.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' if in_tag => in_tag = false,
+            _ if !in_tag => output.push(ch),
+            _ => {}
+        }
+    }
+    output
+}
+
+fn decode_basic_entities(value: &str) -> String {
+    value
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+}
+
+fn separate_inline_dash_bullets(value: &str) -> String {
+    let chars = value.chars().collect::<Vec<_>>();
+    let mut output = String::with_capacity(value.len());
+    let mut index = 0;
+    while index < chars.len() {
+        let ch = chars[index];
+        if ch == '-'
+            && chars.get(index + 1) == Some(&' ')
+            && index > 0
+            && chars[index - 1] != '\n'
+            && chars.get(index + 2).is_some_and(|next| {
+                next.is_ascii_uppercase() || next.is_ascii_digit() || *next == '"'
+            })
+        {
+            output.push('\n');
+        }
+        output.push(ch);
+        index += 1;
+    }
+    output
+}
+
+fn normalize_steam_title(title: Option<&str>) -> String {
+    normalize_key(title.unwrap_or_default())
+}
+
 fn parse_events(
     row: &PatchnoteRow,
+    source_url: Option<&str>,
     source_kind: &str,
     posted_at: Option<DateTime<Utc>>,
     content: &str,
@@ -278,6 +742,7 @@ fn parse_events(
             line_index += 1;
             let event = parse_bullet_event(&EventParseContext {
                 row,
+                source_url,
                 posted_at,
                 section: section.as_deref(),
                 line_index,
@@ -329,7 +794,8 @@ fn parse_bullet_event(context: &EventParseContext<'_>) -> Option<PreparedEvent> 
         "line_remainder": remainder,
         "section": context.section,
         "patch_title": context.row.title,
-        "url": context.row.url,
+        "url": context.source_url.or(context.row.url.as_deref()),
+        "changelog_url": context.row.url,
     });
     let event_hash = stable_hash(
         format!(
@@ -365,10 +831,26 @@ fn parse_posted_at(raw: Option<&str>) -> Result<Option<DateTime<Utc>>> {
     if raw.is_empty() {
         return Ok(None);
     }
+    let mut normalized = raw.to_string();
+    if normalized.ends_with("+00") || normalized.ends_with("-00") {
+        normalized.push_str(":00");
+    }
     if let Ok(value) = DateTime::parse_from_rfc3339(raw) {
         return Ok(Some(value.with_timezone(&Utc)));
     }
+    if let Ok(value) = DateTime::parse_from_rfc3339(&normalized) {
+        return Ok(Some(value.with_timezone(&Utc)));
+    }
     if let Ok(value) = DateTime::parse_from_str(raw, "%Y-%m-%d %H:%M:%S%.f %z") {
+        return Ok(Some(value.with_timezone(&Utc)));
+    }
+    if let Ok(value) = DateTime::parse_from_str(&normalized, "%Y-%m-%d %H:%M:%S%.f %z") {
+        return Ok(Some(value.with_timezone(&Utc)));
+    }
+    if let Ok(value) = DateTime::parse_from_str(raw, "%Y-%m-%d %H:%M:%S %z") {
+        return Ok(Some(value.with_timezone(&Utc)));
+    }
+    if let Ok(value) = DateTime::parse_from_str(&normalized, "%Y-%m-%d %H:%M:%S %z") {
         return Ok(Some(value.with_timezone(&Utc)));
     }
     if let Ok(value) = DateTime::parse_from_str(raw, "%Y-%m-%d %H:%M:%S%.f") {
@@ -1300,6 +1782,156 @@ mod tests {
     }
 
     #[test]
+    fn collects_steam_link_candidates_from_forum_teaser() {
+        let row = PatchnoteRow {
+            id: 12,
+            title: Some("05-08-2025 Update".to_string()),
+            url: Some("https://forums.playdeadlock.com/threads/05-08-2025-update.63133/".to_string()),
+            posted_at: Some(posted_at("2025-05-08")),
+            raw_content: Some("Full patch details on Steam: https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1799088287841594".to_string()),
+            translated_content: None,
+        };
+
+        let candidates = collect_steam_links(&row);
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].gid.as_deref(), Some("1799088287841594"));
+    }
+
+    #[test]
+    fn match_steam_news_item_prefers_gid_candidate() {
+        let row = PatchnoteRow {
+            id: 12,
+            title: Some("05-08-2025 Update".to_string()),
+            url: Some("https://forums.playdeadlock.com/threads/05-08-2025-update.63133/".to_string()),
+            posted_at: Some(posted_at("2025-05-08")),
+            raw_content: Some("Full patch details on Steam: https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1799088287841594".to_string()),
+            translated_content: None,
+        };
+        let candidates = collect_steam_links(&row);
+        let items = [
+            SteamAppNewsItem {
+                gid: "11".to_string(),
+                title: "Other".to_string(),
+                url: "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/11".to_string(),
+                contents: "- Other".to_string(),
+                date: 0,
+                author: None,
+                feedname: None,
+                feedlabel: Some("Steam".to_string()),
+            },
+            SteamAppNewsItem {
+                gid: "1799088287841594".to_string(),
+                title: "Shop Rework Update".to_string(),
+                url: "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1799088287841594".to_string(),
+                contents: "- General Changes: Test".to_string(),
+                date: 1,
+                author: None,
+                feedname: Some("steam_community_announcements".to_string()),
+                feedlabel: Some("Steam".to_string()),
+            },
+        ];
+
+        let item = match_steam_news_item(
+            &row,
+            Some(
+                parse_posted_at(Some("2025-05-08T00:00:00+00:00"))
+                    .expect("posted_at")
+                    .expect("timestamp"),
+            ),
+            &candidates,
+            &items,
+        )
+        .expect("match");
+
+        assert_eq!(item.gid, "1799088287841594");
+        assert!(item.title.contains("Shop Rework"));
+    }
+
+    #[test]
+    fn finds_official_steam_item_for_forum_patch_with_date_filter() {
+        let row = PatchnoteRow {
+            id: 12,
+            title: Some("05-08-2025 Update".to_string()),
+            url: Some("https://forums.playdeadlock.com/threads/05-08-2025-update.63133/".to_string()),
+            posted_at: Some("2025-05-08T19:43:20+00:00".to_string()),
+            raw_content: Some("Deadlock - Shop Rework Update - Steam News Full shop rework including many new items, build authoring, quickbuy redesign and several other game updates store.steampowered.com".to_string()),
+            translated_content: None,
+        };
+        let items = [
+            SteamAppNewsItem {
+                gid: "1833968530895860".to_string(),
+                title: "Minor Update - 05-31-2026".to_string(),
+                url: "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1833968530895860".to_string(),
+                contents: "- Minor".to_string(),
+                date: 1780256754,
+                author: None,
+                feedname: Some("steam_community_announcements".to_string()),
+                feedlabel: Some("Steam".to_string()),
+            },
+            SteamAppNewsItem {
+                gid: "1799088287841594".to_string(),
+                title: "Shop Rework Update".to_string(),
+                url: "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1799088287841594".to_string(),
+                contents: "- Shop".to_string(),
+                date: 1746732792,
+                author: None,
+                feedname: Some("steam_community_announcements".to_string()),
+                feedlabel: Some("Steam".to_string()),
+            },
+        ];
+
+        let item = find_matching_official_news_item(
+            &row,
+            Some(
+                parse_posted_at(row.posted_at.as_deref())
+                    .expect("parse posted_at")
+                    .expect("value"),
+            ),
+            &items,
+        )
+            .expect("found item");
+
+        assert_eq!(item.gid, "1799088287841594");
+        assert_eq!(item.title, "Shop Rework Update");
+    }
+
+    #[test]
+    fn uses_steam_source_when_resolved_for_prepare() {
+        let row = PatchnoteRow {
+            id: 12,
+            title: Some("05-08-2025 Update".to_string()),
+            url: Some("https://forums.playdeadlock.com/threads/05-08-2025-update.63133/".to_string()),
+            posted_at: Some(posted_at("2025-05-08")),
+            raw_content: Some(
+                "- General Changes: Added a new interaction."
+                    .to_string(),
+            ),
+            translated_content: None,
+        };
+
+        let source = PatchSourceResolution {
+            raw_content: clean_steam_content(
+                "[list][*]- General Changes: Added a new interaction.[/*][/list]",
+            ),
+            source_url: Some("https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1799088287841594".to_string()),
+            source_kind: "steam".to_string(),
+            resolved_from: Some("steam_gid:1799088287841594".to_string()),
+        };
+        let mut index = EntityIndex::default();
+        index.insert("objective", "something", "interaction");
+        let index = index.finish();
+        let prepared = prepare_patch(&row, &source, &index).expect("prepare");
+
+        assert_eq!(prepared.source_kind, "steam");
+        assert_eq!(
+            prepared.url,
+            Some("https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1799088287841594".to_string())
+        );
+        assert_eq!(prepared.events.len(), 1);
+    }
+
+    #[test]
     fn parse_bullet_lines_and_event_hash_is_stable() {
         let row = PatchnoteRow {
             id: 17,
@@ -1312,7 +1944,7 @@ mod tests {
         let mut index = EntityIndex::default();
         index.insert("item", "Aegis", "Aegis");
         let index = index.finish();
-        let prepared = prepare_patch(&row, &index).expect("prepare");
+        let prepared = prepare_patch(&row, &PatchSourceResolution::from_row(&row), &index).expect("prepare");
         assert_eq!(prepared.events.len(), 1);
         assert_eq!(prepared.events[0].entity_name.as_deref(), Some("Aegis"));
         assert_eq!(
@@ -1356,7 +1988,7 @@ mod tests {
         index.insert("hero", "Patron", "Patron");
         let index = index.finish();
 
-        let prepared = prepare_patch(&row, &index).expect("prepare");
+        let prepared = prepare_patch(&row, &PatchSourceResolution::from_row(&row), &index).expect("prepare");
         assert!(!prepared.events.is_empty());
         assert_eq!(
             prepared.events[0].section.as_deref(),
@@ -1385,7 +2017,7 @@ mod tests {
             ),
             translated_content: None,
         };
-        let prepared = prepare_patch(&row, &EntityIndex::default()).expect("prepare");
+        let prepared = prepare_patch(&row, &PatchSourceResolution::from_row(&row), &EntityIndex::default()).expect("prepare");
         assert_eq!(prepared.events.len(), 5);
         assert_eq!(
             prepared.events[0].section.as_deref(),
@@ -1419,7 +2051,7 @@ mod tests {
         index.insert("hero", "Abrams", "Abrams");
         let index = index.finish();
 
-        let prepared = prepare_patch(&row, &index).expect("prepare");
+        let prepared = prepare_patch(&row, &PatchSourceResolution::from_row(&row), &index).expect("prepare");
         assert_eq!(prepared.events.len(), 2);
         assert_eq!(
             prepared.events[0].section.as_deref(),
@@ -1459,7 +2091,7 @@ mod tests {
         let mut index = EntityIndex::default();
         index.insert("item", "Aegis", "Aegis");
         let index = index.finish();
-        let prepared = prepare_patch(&row, &index).expect("prepare");
+        let prepared = prepare_patch(&row, &PatchSourceResolution::from_row(&row), &index).expect("prepare");
         assert_eq!(prepared.events.len(), 2);
         assert_ne!(prepared.events[0].event_hash, prepared.events[1].event_hash);
         assert_eq!(
@@ -1494,6 +2126,11 @@ mod tests {
             .expect("parsed")
             .expect("value");
         assert_eq!(fallback.to_rfc3339(), "2026-06-30T17:22:14+00:00");
+
+        let db_style = parse_posted_at(Some("2025-05-08 19:43:20+00"))
+            .expect("parsed")
+            .expect("value");
+        assert_eq!(db_style.to_rfc3339(), "2025-05-08T19:43:20+00:00");
     }
 
     fn build_event_hash(

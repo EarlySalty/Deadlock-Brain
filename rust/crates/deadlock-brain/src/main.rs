@@ -896,7 +896,11 @@ fn run(cli: Cli) -> Result<()> {
         }
         Commands::Pg {
             target: PgCommands::ImportPatchnote(args),
-        } => return run_pg_patchnote(args),
+        } => {
+            fs::create_dir_all(&settings.cache_dir)?;
+            let http = http_client(&settings)?;
+            return run_pg_patchnote(&http, args);
+        }
         other => other,
     };
     prepare_dirs(&settings)?;
@@ -1042,8 +1046,9 @@ fn run_pg(conn: &Connection, target: PgCommands) -> Result<()> {
     }
 }
 
-fn run_pg_patchnote(args: PgImportPatchnoteArgs) -> Result<()> {
+fn run_pg_patchnote(http: &HttpClient, args: PgImportPatchnoteArgs) -> Result<()> {
     print_json(&pg_patchnotes::import_patchnote(
+        http,
         &pg_patchnotes::ImportPatchnoteOptions {
             patch_id: args.patch_id,
             dsn_env: args.dsn_env,

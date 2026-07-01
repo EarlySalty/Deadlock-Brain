@@ -1,5 +1,13 @@
 # Changelog
 
+## #24 — Patch12: Steam-Volltext statt Forum-Teaser als Quelle
+
+Problem: `patch_12` wurde bisher über den Forum-Teaser eingelesen und lieferte nur drei Events, obwohl im kompletten Steam-Post mit derselben ID ~470 Einträge vorlagen.
+
+Änderung: Der PostgreSQL-Patchnote-Importer erkennt jetzt Steam-Links in Forum-/Teaser-Quellen, lädt den zugehörigen offiziellen Steam-News-Feed per `ISteamNews.GetNewsForApp` und löst den passenden Steam-Eintrag über GID, URL oder Titel/Datum auf. Ist ein Steam-Match gefunden, wird der Volltext als kanonische Quelle verwendet und anschließend granular geparst. Wenn keine Übereinstimmung gelingt oder der Abruf fehlschlägt, bleibt der bestehende Fallback unverändert auf der ursprünglichen Changelog-Quelle.
+
+Aktuelles Verhalten: Der Import von `patch_12` nutzt den Volltext aus `steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1799088287841594` und schreibt die resultierenden Patch-Events idempotent in zentrale Postgres-Tabellen, inklusive Quell-Metadaten zur Unterscheidung von Original-Forum-Teaser und aufgelöstem Volltext.
+
 ## #23 — Forum-Abschnittsmarker im Einzeilenformat
 
 Problem: Patch 69 liegt im Forum als Einzeiler mit eckigen Abschnittsmarkern vor (z. B. `[ General Changes] ... [ Misc Gameplay ] ...`). Das bestehende Parserverhalten hat dieses Muster nicht als Struktur erkannt, dadurch wurden Inhalte nicht als Ereignisse aufgespalten und es wurden null Events gezählt.
