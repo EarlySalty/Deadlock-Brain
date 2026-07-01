@@ -59,6 +59,24 @@ struct SteamAppNewsItem {
     feedname: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct SteamPartnerEvent {
+    gid: String,
+    event_name: String,
+    #[serde(default)]
+    rtime32_start_time: Option<i64>,
+    #[serde(default)]
+    announcement_body: Option<SteamAnnouncementBody>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct SteamAnnouncementBody {
+    #[serde(default)]
+    headline: Option<String>,
+    #[serde(default)]
+    body: String,
+}
+
 #[derive(Debug, Clone)]
 struct PatchnoteRow {
     id: i64,
@@ -268,7 +286,7 @@ fn resolve_patch_source(http: &HttpClient, row: &PatchnoteRow) -> Result<PatchSo
     };
 
     Ok(PatchSourceResolution {
-        raw_content: clean_steam_content(&item.contents),
+        raw_content: resolve_steam_content(http, &item),
         source_url: Some(item.url),
         source_kind: "steam".to_string(),
         resolved_from: Some(format!("steam_gid:{}", item.gid)),
@@ -351,6 +369,102 @@ fn fetch_steam_news_items(http: &HttpClient) -> Result<Vec<SteamAppNewsItem>> {
         },
     )?;
     Ok(response.appnews.newsitems)
+}
+
+fn resolve_steam_content(http: &HttpClient, item: &SteamAppNewsItem) -> String {
+    let api_content = clean_steam_content(&item.contents);
+    let full_body = fetch_steam_announcement_body(http, item)
+        .ok()
+        .flatten()
+        .map(|body| clean_steam_content(&body))
+        .filter(|body| !body.is_empty());
+    match full_body {
+        Some(body) => body,
+        None => api_content,
+    }
+}
+
+fn fetch_steam_announcement_body(http: &HttpClient, item: &SteamAppNewsItem) -> Result<Option<String>> {
+    if !item.url.contains("externalpost/steam_community_announcements/") {
+        return Ok(None);
+    }
+    let page = http.get(
+        &item.url,
+        HttpGetOptions {
+            cache_ttl_seconds: Some(900),
+            timeout: Duration::from_secs(45),
+            ..HttpGetOptions::default()
+        },
+    )?;
+    Ok(extract_steam_announcement_body_from_html(&page.text(), item))
+}
+
+fn extract_steam_announcement_body_from_html(html: &str, item: &SteamAppNewsItem) -> Option<String> {
+    let raw_store = extract_html_attribute(html, "data-partnereventstore")?;
+    let decoded = decode_basic_entities(raw_store);
+    let events: Vec<SteamPartnerEvent> = serde_json::from_str(&decoded).ok()?;
+    let wanted_gid = extract_steam_view_gid(html);
+    let wanted_title = normalize_steam_title(Some(&item.title));
+    let wanted_time = steam_item_time(item).map(|value| value.timestamp()).unwrap_or_default();
+
+    if let Some(event) = wanted_gid.as_deref().and_then(|gid| {
+        events
+            .iter()
+            .find(|event| event.gid == gid && has_announcement_body(event))
+    }) {
+        return event.announcement_body.as_ref().map(|body| body.body.clone());
+    }
+
+    let mut best: Option<(i64, &SteamPartnerEvent)> = None;
+    for event in &events {
+        if !has_announcement_body(event) {
+            continue;
+        }
+        let event_title = normalize_steam_title(
+            event
+                .announcement_body
+                .as_ref()
+                .and_then(|body| body.headline.as_deref())
+                .or(Some(event.event_name.as_str())),
+        );
+        let mut score = title_similarity(&wanted_title, &event_title) as i64 * 50;
+        if let Some(event_time) = event.rtime32_start_time {
+            score -= ((event_time - wanted_time).abs() / 60).min(10_000);
+        }
+        if score > best.as_ref().map_or(i64::MIN, |value| value.0) {
+            best = Some((score, event));
+        }
+    }
+
+    best.and_then(|(_, event)| event.announcement_body.as_ref().map(|body| body.body.clone()))
+}
+
+fn has_announcement_body(event: &SteamPartnerEvent) -> bool {
+    event.announcement_body
+        .as_ref()
+        .is_some_and(|body| !body.body.trim().is_empty())
+}
+
+fn extract_html_attribute<'a>(html: &'a str, attribute: &str) -> Option<&'a str> {
+    let needle = format!("{attribute}=\"");
+    let start = html.find(&needle)? + needle.len();
+    let rest = &html[start..];
+    let end = rest.find('"')?;
+    Some(&rest[..end])
+}
+
+fn extract_steam_view_gid(html: &str) -> Option<String> {
+    let marker = "/view/";
+    let start = html.find(marker)? + marker.len();
+    let digits = html[start..]
+        .chars()
+        .take_while(|ch| ch.is_ascii_digit())
+        .collect::<String>();
+    if digits.is_empty() {
+        None
+    } else {
+        Some(digits)
+    }
 }
 
 fn appnews_url(count: u32) -> String {
@@ -671,11 +785,16 @@ fn clean_steam_content(raw: &str) -> String {
         ("\\-", "\n- "),
         ("[list]", "\n"),
         ("[/list]", "\n"),
+        ("[p]", "\n"),
+        ("[/p]", "\n"),
         ("[*]", "\n- "),
         ("[/*]", "\n"),
+        ("[img]", "\n"),
+        ("[/img]", "\n"),
         ("<br>", "\n"),
         ("<br/>", "\n"),
         ("<br />", "\n"),
+        ("<p>", "\n"),
         ("</p>", "\n"),
     ] {
         text = text.replace(from, to);
@@ -698,6 +817,7 @@ fn clean_steam_content(raw: &str) -> String {
     ] {
         text = text.replace(tag, "");
     }
+    text = strip_steam_media_tokens(&text);
     text = strip_bbcode_with_value(&text);
     text = strip_html_tags(&text);
     text = decode_basic_entities(&text);
@@ -707,6 +827,32 @@ fn clean_steam_content(raw: &str) -> String {
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn strip_steam_media_tokens(value: &str) -> String {
+    let marker = "{STEAM_CLAN_IMAGE}/";
+    let suffixes = [".png", ".jpg", ".jpeg", ".gif", ".webm"];
+    let mut output = String::with_capacity(value.len());
+    let mut rest = value;
+    loop {
+        let Some(pos) = rest.find(marker) else {
+            output.push_str(rest);
+            return output;
+        };
+        output.push_str(&rest[..pos]);
+        let after = &rest[pos + marker.len()..];
+        let mut consumed = 0usize;
+        for suffix in suffixes {
+            if let Some(idx) = after.find(suffix) {
+                consumed = idx + suffix.len();
+                break;
+            }
+        }
+        if consumed == 0 {
+            return output;
+        }
+        rest = &after[consumed..];
+    }
 }
 
 fn strip_bbcode_with_value(value: &str) -> String {
@@ -798,10 +944,12 @@ fn parse_events(
     content: &str,
     index: &EntityIndex,
 ) -> Vec<PreparedEvent> {
+    let lines = patch_lines(content);
     let mut events = Vec::new();
+    let mut narrative_lines = Vec::<(Option<String>, String)>::new();
     let mut section: Option<String> = None;
     let mut line_index = 0_i64;
-    for line in patch_lines(content) {
+    for line in lines {
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
@@ -826,9 +974,40 @@ fn parse_events(
         }
         if let Some(next_section) = section_heading(trimmed) {
             section = Some(next_section);
+            continue;
+        }
+        if is_narrative_event_line(trimmed) {
+            narrative_lines.push((section.clone(), trimmed.to_string()));
+        }
+    }
+    if !events.is_empty() {
+        return events;
+    }
+
+    for (narrative_section, narrative_line) in narrative_lines {
+        line_index += 1;
+        if let Some(event) = parse_bullet_event(&EventParseContext {
+            row,
+            source_url,
+            posted_at,
+            section: narrative_section.as_deref(),
+            line_index,
+            raw_line: &narrative_line,
+            body: &narrative_line,
+            source_kind,
+            index,
+        }) {
+            events.push(event);
         }
     }
     events
+}
+
+fn is_narrative_event_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    !trimmed.is_empty()
+        && !trimmed.starts_with('{')
+        && trimmed.split_whitespace().count() >= 5
 }
 
 fn parse_bullet_event(context: &EventParseContext<'_>) -> Option<PreparedEvent> {
@@ -1603,7 +1782,7 @@ fn expand_inline_bullets(raw_line: &str) -> Vec<String> {
         return Vec::new();
     }
 
-    if is_forum_section_heading(stripped) {
+    if is_forum_section_heading(stripped) || looks_like_plain_section_heading(stripped) {
         return vec![raw_line.to_string()];
     }
 
@@ -1649,6 +1828,21 @@ fn expand_inline_bullets(raw_line: &str) -> Vec<String> {
     } else {
         vec![raw_line.to_string()]
     }
+}
+
+fn looks_like_plain_section_heading(line: &str) -> bool {
+    let trimmed = line.trim();
+    let word_count = trimmed.split_whitespace().count();
+    word_count > 0
+        && word_count <= 6
+        && !trimmed.contains("http")
+        && !trimmed.ends_with('.')
+        && !trimmed.ends_with('!')
+        && !trimmed.ends_with('?')
+        && trimmed
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch.is_ascii_whitespace() || matches!(ch, '&' | '/' | '+' | '-' | ':' | '\'' | '"'))
+        && trimmed.chars().any(|ch| ch.is_ascii_uppercase())
 }
 
 fn is_forum_section_heading(line: &str) -> bool {
@@ -2067,6 +2261,68 @@ mod tests {
             Some("https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1799088287841594".to_string())
         );
         assert_eq!(prepared.events.len(), 1);
+    }
+
+    #[test]
+    fn extract_externalpost_html_announcement_body() {
+        let item = SteamAppNewsItem {
+            gid: "1808061939479652".to_string(),
+            title: "Six New Heroes".to_string(),
+            url: "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1808061939479652".to_string(),
+            contents: String::new(),
+            date: 1755549740,
+            author: None,
+            feedname: Some("steam_community_announcements".to_string()),
+            feedlabel: Some("Community Announcements".to_string()),
+        };
+        let html = r#"
+            <meta property="og:url" content="https://store.steampowered.com/news/app/1422450/view/669466707009471267">
+            <div data-partnereventstore="[{&quot;gid&quot;:&quot;669466707009471267&quot;,&quot;event_name&quot;:&quot;Six New Heroes&quot;,&quot;rtime32_start_time&quot;:1755549720,&quot;announcement_body&quot;:{&quot;headline&quot;:&quot;Six New Heroes&quot;,&quot;body&quot;:&quot;[h3]The Hideout[/h3][p]Welcome to the Hideout![/p][h3]Hero Voting[/h3][p]Today we introduce Mina.[/p]&quot;}}]"></div>
+        "#;
+
+        let body = extract_steam_announcement_body_from_html(html, &item).expect("body");
+
+        assert!(body.contains("[h3]The Hideout[/h3]"));
+        assert!(body.contains("Today we introduce Mina."));
+    }
+
+    #[test]
+    fn narrative_steam_sections_parse_when_bullets_are_missing() {
+        let row = PatchnoteRow {
+            id: 4,
+            title: Some("08-18-2025 Update".to_string()),
+            url: Some("https://forums.playdeadlock.com/threads/08-18-2025-update.75046/".to_string()),
+            posted_at: Some("2025-08-18T20:42:20+00:00".to_string()),
+            raw_content: Some("Deadlock - Six New Heroes - Steam News".to_string()),
+            translated_content: None,
+        };
+        let source = PatchSourceResolution {
+            raw_content: clean_steam_content(
+                "[h3]The Hideout[/h3][p]Welcome to the Hideout! The Hideout replaces the existing Dashboard UI and is your personal area to play around in while waiting for a match.[/p][h3]Hero Voting[/h3][p]Today we introduce the first of the six new heroes, Mina, with another new hero unlocking every two days.[/p][h3]Mina: Hero Spotlight[/h3][p]Killing enemies has never looked better. Mina is a glass cannon that delivers quick bursts of Spirit damage at range with her passive, Love Bites.[/p]",
+            ),
+            source_url: Some("https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1808061939479652".to_string()),
+            source_kind: "steam".to_string(),
+            resolved_from: Some("steam_gid:1808061939479652".to_string()),
+        };
+        let mut index = EntityIndex::default();
+        index.insert("hero", "Mina", "Mina");
+        let index = index.finish();
+
+        let prepared = prepare_patch(&row, &source, &index).expect("prepare");
+
+        assert!(prepared.events.len() >= 3);
+        assert!(prepared
+            .events
+            .iter()
+            .any(|event| event.section.as_deref() == Some("The Hideout")));
+        assert!(prepared
+            .events
+            .iter()
+            .any(|event| event.section.as_deref() == Some("Hero Voting")));
+        assert!(prepared
+            .events
+            .iter()
+            .any(|event| event.entity_name.as_deref() == Some("Mina")));
     }
 
     #[test]

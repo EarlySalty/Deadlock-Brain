@@ -1,5 +1,13 @@
 # Changelog
 
+## #26 — Patch4 nutzt den offiziellen Steam-Announcement-Body
+
+Problem: `patch_4` zeigte im Forum nur einen kurzen Steam-Teaser. Der bestehende PG-Patchnote-Import hat zwar den offiziellen Steam-GID `1808061939479652` gefunden, aber nur den flachen `ISteamNews.contents`-Text verarbeitet. Dadurch gingen die Abschnittsgrenzen des Posts verloren und der Parser lieferte null Events.
+
+Änderung: Der Steam-Fallback zieht fuer `steam_community_announcements` jetzt bevorzugt den vollstaendigen offiziellen Announcement-Body direkt aus der Externalpost-Seite und faellt nur bei Bedarf auf den API-`contents` zurueck. Zusaetzlich gibt es einen eng begrenzten Paragraph-Fallback fuer Steam-Posts ohne Bullet-Liste, damit strukturierte Abschnittstexte wie `The Hideout`, `Hero Voting` oder `Mina: Hero Spotlight` trotzdem als Patch-Events materialisiert werden. Die bestehende Schutzlogik fuer `patch_11` und das explizite Steam-Matching fuer `patch_12` bleiben unveraendert.
+
+Aktuelles Verhalten: `patch_4` importiert jetzt den offiziellen Volltext von `Six New Heroes` granular statt des Forum-Teasers; der Lauf bleibt idempotent und bestehende patch11/patch12-Schutzfaelle bleiben gruen.
+
 ## #25 — Patch11 bleibt eigener Forum-Inhalt
 
 Problem: `patch_11` hatte denselben Steam-Teaser/Steam-News-Inhalt wie `patch_12` übernommen, obwohl der Forum-Rohtext (1785 Zeichen, `md5: b1656d54778e3efddf3953dfaf33b392`) substanziell ist.
