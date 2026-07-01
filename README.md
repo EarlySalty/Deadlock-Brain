@@ -26,6 +26,7 @@ deadlock-brain pull assets
 deadlock-brain pull sheet
 deadlock-brain pull patchnotes
 deadlock-brain pull forum --limit 100
+deadlock-brain parse forum-claims --rebuild
 deadlock-brain pull statlocker --kind wpa-items --patch patch_129989 --hero "Mo & Krill" --min-sample-size 50
 deadlock-brain normalize entities --rebuild
 deadlock-brain parse patchnotes --rebuild
@@ -76,6 +77,19 @@ Der Import hält sich an die Forum-Robots-Regeln: `/search/`, `/posts/`,
 gecrawlt. Attachment- und Bild-URLs, die in öffentlichen Thread-Seiten sichtbar
 sind, werden nur als Referenz in den Post-Snapshots gespeichert; der Download
 und die Bildanalyse sind ein separater, späterer Schritt.
+
+Aus den gespeicherten Forum-Posts kann danach eine historische Claim-Schicht
+gebaut werden:
+
+```bash
+deadlock-brain parse forum-claims --rebuild
+```
+
+Diese Claims sind absichtlich quarantined: Sie enthalten konkrete
+Thread-/Post-Links, Datum, Autor-/Rollenhinweis, Vertrauensart und
+Gültigkeitsstatus, gelten aber nicht als aktuelle Spieldaten. Alte Reports,
+Bugfix-Antworten und Exploit-Risiken bleiben dadurch nachlesbar, ohne aktuelle
+API-/Patch-/Sheet-Daten zu überschreiben oder Default-Antworten zu vergiften.
 
 ## Wiki bewusst schonend nutzen
 

@@ -5,7 +5,7 @@ use tempfile::TempDir;
 use crate::{
     enrich_legacy_entities_with_conn, enrich_lineage_with_conn, extract_lineage_candidates,
     normalize_entities_with_conn, normalize_sheet_stats_with_conn, normalize_sheet_tabs_with_conn,
-    parse_patchnotes_with_conn, resolve_gaps_with_conn, LineageEvent,
+    parse_forum_claims_with_conn, parse_patchnotes_with_conn, resolve_gaps_with_conn, LineageEvent,
 };
 
 fn test_conn() -> (TempDir, Connection) {
@@ -243,6 +243,92 @@ fn parses_patchnotes_and_builds_lineage() {
         )
         .expect("ability lineage owner");
     assert_eq!(ability_owner, "Abrams");
+}
+
+#[test]
+fn parses_forum_claims_as_historical_quarantine_with_source_links() {
+    let (_temp, conn) = test_conn();
+    let haze_id = insert_entity(&conn, "hero", "Haze");
+    insert_alias(&conn, haze_id, "Haze", "canonical");
+
+    insert_snapshot(
+        &conn,
+        "playdeadlock_forum",
+        "forum_post",
+        "100",
+        Some("Incorrect value on Haze Fixation"),
+        json!({
+            "thread_id": 337,
+            "thread_title": "Incorrect value on Haze Fixation",
+            "thread_url": "https://forums.playdeadlock.com/threads/incorrect-value-on-haze-fixation.337/",
+            "post_id": 100,
+            "post_index": 0,
+            "author": "tester",
+            "user_title": "New member",
+            "datetime": "2024-05-01T18:55:00-0700",
+            "text": "Haze Fixation shows the wrong value in the UI.",
+            "attachments": []
+        }),
+        None,
+    );
+    insert_snapshot(
+        &conn,
+        "playdeadlock_forum",
+        "forum_post",
+        "101",
+        Some("Incorrect value on Haze Fixation"),
+        json!({
+            "thread_id": 337,
+            "thread_title": "Incorrect value on Haze Fixation",
+            "thread_url": "https://forums.playdeadlock.com/threads/incorrect-value-on-haze-fixation.337/",
+            "post_id": 101,
+            "post_index": 1,
+            "author": "Valve",
+            "user_title": "Valve Developer",
+            "datetime": "2024-05-01T18:55:21-0700",
+            "text": "Fixed internally, will go out with an update soon.",
+            "attachments": []
+        }),
+        None,
+    );
+
+    let summary = parse_forum_claims_with_conn(&conn, true).expect("parse forum claims");
+    assert_eq!(summary["claims_inserted"], 2);
+    assert_eq!(summary["by_type"]["bug_report"], 1);
+    assert_eq!(summary["by_type"]["developer_fix_status"], 1);
+
+    let rows = conn
+        .prepare(
+            r#"
+            SELECT claim_type, entity_name, source_url, validity_status, currentness,
+                   source_references_json
+            FROM forum_claims
+            ORDER BY claim_type
+            "#,
+        )
+        .expect("prepare forum claims")
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+            ))
+        })
+        .expect("query forum claims")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("collect forum claims");
+
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().all(|row| row.4 == "historical_quarantine"));
+    assert!(rows.iter().all(|row| row.2.contains("/post-")));
+    assert!(rows.iter().all(|row| row.5.contains("forums.playdeadlock.com")));
+    assert!(rows.iter().any(|row| row.1.as_deref() == Some("Haze")));
+    assert!(rows
+        .iter()
+        .any(|row| row.0 == "developer_fix_status" && row.3 == "fixed_or_obsolete"));
 }
 
 #[test]

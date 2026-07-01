@@ -7,6 +7,7 @@ pub const REGULAR_TABLES: &[&str] = &[
     "entity_aliases",
     "entity_lineage",
     "entity_snapshots",
+    "forum_claims",
     "hero_stat_profiles",
     "hero_stat_values",
     "learned_builds",
@@ -139,6 +140,35 @@ CREATE TABLE IF NOT EXISTS entity_snapshots (
   source_document_id INTEGER,
   UNIQUE(source, entity_type, external_id, payload_hash),
   FOREIGN KEY(source_document_id) REFERENCES source_documents(id)
+);
+
+CREATE TABLE IF NOT EXISTS forum_claims (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  post_snapshot_id INTEGER NOT NULL,
+  thread_id TEXT NOT NULL,
+  post_id TEXT NOT NULL,
+  thread_title TEXT,
+  source_url TEXT NOT NULL,
+  posted_at TEXT,
+  author TEXT,
+  author_role TEXT,
+  claim_hash TEXT NOT NULL UNIQUE,
+  claim_index INTEGER NOT NULL,
+  claim_type TEXT NOT NULL,
+  entity_type TEXT,
+  entity_name TEXT,
+  claim_text TEXT NOT NULL,
+  evidence_quote TEXT NOT NULL,
+  source_trust TEXT NOT NULL,
+  validity_status TEXT NOT NULL,
+  currentness TEXT NOT NULL,
+  confidence REAL NOT NULL,
+  safety_labels_json TEXT NOT NULL DEFAULT '[]',
+  source_references_json TEXT NOT NULL DEFAULT '[]',
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY(post_snapshot_id) REFERENCES entity_snapshots(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS hero_stat_profiles (
@@ -522,6 +552,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_entity_lineage_unique
 
 CREATE INDEX IF NOT EXISTS idx_entity_snapshots_entity
   ON entity_snapshots(entity_type, canonical_name);
+
+CREATE INDEX IF NOT EXISTS idx_forum_claims_currentness
+  ON forum_claims(currentness, validity_status);
+
+CREATE INDEX IF NOT EXISTS idx_forum_claims_entity
+  ON forum_claims(entity_type, entity_name);
+
+CREATE INDEX IF NOT EXISTS idx_forum_claims_posted
+  ON forum_claims(posted_at);
+
+CREATE INDEX IF NOT EXISTS idx_forum_claims_type
+  ON forum_claims(claim_type, source_trust);
 
 CREATE INDEX IF NOT EXISTS idx_hero_stat_profiles_entity
   ON hero_stat_profiles(entity_id);

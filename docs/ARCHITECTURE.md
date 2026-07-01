@@ -18,6 +18,9 @@ Die KI ist nicht die Datenbank. Die Datenbank ist das Gedaechtnis, die KI ist de
 
 - `source_documents`: jedes gezogene Rohdokument mit Hash und Pfad.
 - `entity_snapshots`: strukturierte Snapshots aus Quellen, z.B. Hero, Item, Patchnote.
+- `forum_claims`: historische Claims aus oeffentlichen Forum-Posts, inklusive
+  Post-Link, Datum, Autorrolle, Vertrauensart, Gültigkeitsstatus und
+  Quarantäne-Status; diese Claims überschreiben keine aktuellen Spieldaten.
 - `entities`: kanonische Entities aus Snapshots, aktuell Hero, Hero/Internal,
   Item, Item/Special, Ability, Ability/Internal, Weapon/Internal und Rank.
 - `entity_aliases`: Aliase je Entity, z.B. Anzeigename, API-ID und Classname.
@@ -74,6 +77,21 @@ Wenn `entities` vorhanden sind, nutzt der Parser die normalisierten Alias-Tabell
 zur Entity-Aufloesung. Dadurch werden Patch-Events nach `hero`, `item`,
 `ability` oder `weapon_or_internal` klassifiziert, statt Item-/Ability-Zeilen nur
 grob zusammenzufassen.
+
+## Forum-Claims
+
+`deadlock-brain pull forum` speichert öffentliche Thread-Seiten als Rohquellen
+und Post-Snapshots. `deadlock-brain parse forum-claims` baut daraus eine
+separate historische Claim-Schicht. Diese Claims sind absichtlich nicht Teil der
+aktuellen Grundwahrheit: `currentness` steht auf `historical_quarantine`, alte
+Community-Reports bleiben `historical_unverified`, und Entwicklerantworten wie
+`fixed internally` werden als `fixed_or_obsolete` markiert. Jeder Claim enthält
+einen konkreten Thread-/Post-Link in `source_url` und `source_references_json`,
+damit die Originalstelle nachlesbar bleibt.
+
+Aktuelle API-, Patch- und Sheet-Daten haben Vorrang. Forum-Claims dürfen nur als
+historischer Kontext, Regressionssignal, Dev-Beleg oder explizit angeforderte
+Altfall-Recherche in Antworten einfließen.
 
 ## Deterministische Anreicherung
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## #16 — Forum-Daten landen zuerst als historische Claims mit Link und Schutzstatus
+
+Forum-Beiträge enthalten wertvolle Bug-, Exploit-, Meta- und Entwicklerhinweise, können aber alt, gefixt oder durch Reworks überholt sein. Wenn solche Aussagen direkt wie aktuelle Fakten behandelt würden, könnte das Brain falsche Builds, alte Werte oder nicht mehr existierende Mechaniken weiterreichen.
+
+Aus importierten Forum-Posts entsteht deshalb jetzt eine getrennte historische Claim-Schicht. Jeder Claim bekommt den Link zum konkreten Thread-/Post-Anker, Datum, Autor-/Rollenhinweis, Vertrauensart, Gültigkeitsstatus und einen festen Quarantäne-Status: historische Forumdaten überschreiben keine aktuellen API-, Patch- oder Sheet-Daten und werden nicht automatisch als heutige Wahrheit in Antworten verwendet. Entwicklerantworten wie „fixed internally“ werden als historischer Fix-/Obsolete-Hinweis gespeichert, Community-Reports bleiben als unbestätigte historische Reports markiert.
+
+Damit kann das Forum vollständig eingesammelt werden, ohne das aktuelle Wissen zu vergiften: alte Bugs, Exploit-Risiken, Meta-Diskussionen und Dev-Bestätigungen bleiben nachlesbar und zitierbar, aber sauber von aktuellen Fakten getrennt.
+
 ## #15 — Forum-Wissen kann schonend in Wellen ins Brain fließen
 
 Das offizielle Deadlock-Forum war bisher nur indirekt über einzelne Patchnotes im Wissensspeicher vertreten. Diskussionen zu Bugs, Meta-Fragen, Heldenfeedback und Entwicklerantworten lagen dadurch außerhalb der Datenbasis, obwohl sie öffentlich und thematisch sehr wertvoll sind.

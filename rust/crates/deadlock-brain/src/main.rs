@@ -718,11 +718,19 @@ struct ResolveGapsArgs {
 enum ParseCommands {
     #[command(about = "Parst Patchnotes zu patch_events.")]
     Patchnotes(ParsePatchnotesArgs),
+    #[command(name = "forum-claims", about = "Parst Forum-Posts zu historischen, quarantined Claims.")]
+    ForumClaims(ParseForumClaimsArgs),
 }
 
 #[derive(Debug, Args)]
 struct ParsePatchnotesArgs {
     #[arg(long, help = "Loescht patch_events vorher neu.")]
+    rebuild: bool,
+}
+
+#[derive(Debug, Args)]
+struct ParseForumClaimsArgs {
+    #[arg(long, help = "Loescht forum_claims vorher neu.")]
     rebuild: bool,
 }
 
@@ -1260,6 +1268,9 @@ fn run_parse(conn: &Connection, target: ParseCommands) -> Result<()> {
     match target {
         ParseCommands::Patchnotes(args) => {
             print_json(&dbrain_normalize::parse_patchnotes_with_conn(conn, args.rebuild)?)
+        }
+        ParseCommands::ForumClaims(args) => {
+            print_json(&dbrain_normalize::parse_forum_claims_with_conn(conn, args.rebuild)?)
         }
     }
 }

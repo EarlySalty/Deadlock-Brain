@@ -4,6 +4,7 @@
 
 mod entities;
 mod error;
+mod forum_claims;
 mod legacy;
 mod lineage;
 mod patch;
@@ -26,6 +27,10 @@ pub fn parse_patchnotes(rebuild: bool) -> Result<Value> {
 
 pub fn parse_patchnotes_with_conn(conn: &Connection, rebuild: bool) -> Result<Value> {
     patch::parse_patchnotes(conn, rebuild)
+}
+
+pub fn parse_forum_claims_with_conn(conn: &Connection, rebuild: bool) -> Result<Value> {
+    forum_claims::parse_forum_claims(conn, rebuild)
 }
 
 pub fn normalize_entities(rebuild: bool) -> Result<Value> {
