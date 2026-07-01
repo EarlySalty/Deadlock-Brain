@@ -246,8 +246,11 @@ fn resolve_patch_source(http: &HttpClient, row: &PatchnoteRow) -> Result<PatchSo
     let posted_at = parse_posted_at(row.posted_at.as_deref())?;
     let candidates = collect_steam_links(row);
     let source_kind = classify_source_kind(row.url.as_deref());
-    let should_search_steam = source_kind == "forum" || !candidates.is_empty();
+    let should_search_steam = source_kind == "forum" || (source_kind == "steam" && !candidates.is_empty());
     if !should_search_steam {
+        return Ok(PatchSourceResolution::from_row(row));
+    }
+    if !should_use_steam_news(row, &source_kind, &candidates) {
         return Ok(PatchSourceResolution::from_row(row));
     }
 
@@ -270,6 +273,71 @@ fn resolve_patch_source(http: &HttpClient, row: &PatchnoteRow) -> Result<PatchSo
         source_kind: "steam".to_string(),
         resolved_from: Some(format!("steam_gid:{}", item.gid)),
     })
+}
+
+fn should_use_steam_news(
+    row: &PatchnoteRow,
+    source_kind: &str,
+    candidates: &[SteamLinkCandidate],
+) -> bool {
+    if explicit_steam_gid(candidates).is_some() {
+        return true;
+    }
+    if source_kind == "forum" {
+        !is_substantial_forum_content(row.raw_content.as_deref(), row.translated_content.as_deref())
+    } else {
+        false
+    }
+}
+
+fn explicit_steam_gid(candidates: &[SteamLinkCandidate]) -> Option<&str> {
+    let mut single_gid: Option<&str> = None;
+    for candidate in candidates {
+        let Some(gid) = candidate.gid.as_deref() else {
+            continue;
+        };
+        if let Some(existing) = single_gid {
+            if existing != gid {
+                return None;
+            }
+        } else {
+            single_gid = Some(gid);
+        }
+    }
+    single_gid
+}
+
+fn is_substantial_forum_content(raw_content: Option<&str>, translated_content: Option<&str>) -> bool {
+    let raw_content = raw_content.unwrap_or_default();
+    let translated_content = translated_content.unwrap_or_default();
+    let combined = [raw_content, translated_content].join("\n");
+    let trimmed = combined.trim();
+    if trimmed.len() > 450 {
+        return true;
+    }
+    if trimmed
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .count()
+        > 4
+    {
+        return true;
+    }
+    if combined.matches("- ").count() > 4 {
+        return true;
+    }
+    for marker in [
+        "General Changes:",
+        "Gameplay Changes:",
+        "Patch Notes:",
+        "Hero Changes:",
+        "Item Changes:",
+    ] {
+        if combined.contains(marker) {
+            return true;
+        }
+    }
+    false
 }
 
 fn fetch_steam_news_items(http: &HttpClient) -> Result<Vec<SteamAppNewsItem>> {
@@ -1894,6 +1962,76 @@ mod tests {
 
         assert_eq!(item.gid, "1799088287841594");
         assert_eq!(item.title, "Shop Rework Update");
+    }
+
+    #[test]
+    fn patch11_substantial_forum_content_prevents_steam_fallback() {
+        let row = PatchnoteRow {
+            id: 11,
+            title: Some("05-11-2025 Update".to_string()),
+            url: Some("https://forums.playdeadlock.com/threads/05-11-2025-update.64113/".to_string()),
+            posted_at: Some(posted_at("2025-05-11")),
+            raw_content: Some(
+                "General Changes:\n- Increased Patron health and added survivability options.\n- Aegis base values changed.\n- Urn bounty updated with base regen from 900 to 900 + 160/minute.\nGameplay Changes:\n- Added new neutral objective timing windows.\n- Teamfight flow was tuned for late game.\n- Added smoke charge interaction behavior improvements.\n- Hero Abilities:\n-- Reduced cooldown on Shield.\n-- Increased damage falloff.\n- Several economy related values changed in quick match."
+                    .to_string(),
+            ),
+            translated_content: None,
+        };
+        let candidates = collect_steam_links(&row);
+        assert!(
+            !should_use_steam_news(
+                &row,
+                &classify_source_kind(row.url.as_deref()),
+                &candidates
+            )
+        );
+    }
+
+    #[test]
+    fn patch12_short_forum_teaser_allows_steam_match() {
+        let row = PatchnoteRow {
+            id: 12,
+            title: Some("05-08-2025 Update".to_string()),
+            url: Some("https://forums.playdeadlock.com/threads/05-08-2025-update.63133/".to_string()),
+            posted_at: Some(posted_at("2025-05-08")),
+            raw_content: Some("Full patch details on Steam: https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1799088287841594".to_string()),
+            translated_content: None,
+        };
+        let candidates = collect_steam_links(&row);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(explicit_steam_gid(&candidates).map(str::to_string), Some("1799088287841594".to_string()));
+        assert!(
+            should_use_steam_news(
+                &row,
+                &classify_source_kind(row.url.as_deref()),
+                &candidates
+            )
+        );
+
+        let item = match_steam_news_item(
+            &row,
+            Some(
+                parse_posted_at(Some("2025-05-08T00:00:00+00:00"))
+                    .expect("posted_at")
+                    .expect("timestamp"),
+            ),
+            &candidates,
+            &[
+                SteamAppNewsItem {
+                    gid: "1799088287841594".to_string(),
+                    title: "Shop Rework Update".to_string(),
+                    url: "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1799088287841594".to_string(),
+                    contents: "- General Changes: Added a new banner.".to_string(),
+                    date: 1746732792,
+                    author: None,
+                    feedname: Some("steam_community_announcements".to_string()),
+                    feedlabel: Some("Steam".to_string()),
+                },
+            ],
+        )
+        .expect("match");
+
+        assert_eq!(item.gid, "1799088287841594");
     }
 
     #[test]

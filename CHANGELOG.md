@@ -1,5 +1,13 @@
 # Changelog
 
+## #25 — Patch11 bleibt eigener Forum-Inhalt
+
+Problem: `patch_11` hatte denselben Steam-Teaser/Steam-News-Inhalt wie `patch_12` übernommen, obwohl der Forum-Rohtext (1785 Zeichen, `md5: b1656d54778e3efddf3953dfaf33b392`) substanziell ist.
+
+Änderung: Der PG-Patchnote-Resolver ersetzt Forum-Quellen nur noch durch Steam-Volltext, wenn der Forentext eindeutig kurz/Teaser ist oder ein eindeutiger Steam-GID-Link für denselben Patch nachweislich vorhanden ist. Bei substanziellem Forum-Raw-Text bleibt der eigene Content erhalten und ein Datums-Fallback wird nicht mehr verwendet.
+
+Aktuelles Verhalten: `patch_11` importiert wieder den eigenen Forum-Text; `patch_12` trifft weiterhin den Steam-News-Volltext über den eindeutigen Steam-GID-Candidate.
+
 ## #24 — Patch12: Steam-Volltext statt Forum-Teaser als Quelle
 
 Problem: `patch_12` wurde bisher über den Forum-Teaser eingelesen und lieferte nur drei Events, obwohl im kompletten Steam-Post mit derselben ID ~470 Einträge vorlagen.
