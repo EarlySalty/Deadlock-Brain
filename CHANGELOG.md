@@ -1,5 +1,13 @@
 # Changelog
 
+## #27 — Patch2-Forumformat und patch_-IDs im PG-Import stabilisiert
+
+Problem: `patch_2` lag im Forum als kompakte Einzeile mit eckigen Abschnittsmarkern und `*`-Bullets vor (`[ General ] * ... [ Heroes ] * ... [ Items ] * ...`). Der direkte PG-Import hat dieses Format nicht aufgespalten, daher kam nur ein Event heraus. Gleichzeitig materialisierte der Import fuer `changelog_posts.id=2` die falsche `patch_external_id` `2` statt `patch_2`.
+
+Änderung: Der Parser zerlegt kompakte Forum-Einzeiler mit eckigen Abschnittsmarkern jetzt abschnittsweise auch fuer `*`-Bullets und behaelt die bestehende `-`-Logik bei. Zusaetzlich normalisiert der PG-Import numerische Patch-IDs auf `patch_<id>`, schreibt diese Kennung konsistent in Event-Metadaten und bereinigt beim Reimport kompatibel auch fruehere importer-eigene Legacy-IDs wie `2`.
+
+Aktuelles Verhalten: `patch_2` wird granular aus `General`, `Heroes` und `Items` importiert; neue PG-Events und daraus materialisierte Knowledge-Events tragen konsistent `patch_2`, ohne bestehende URL-basierte oder nicht-numerische Historien-IDs umzubiegen.
+
 ## #26 — Patch4 nutzt den offiziellen Steam-Announcement-Body
 
 Problem: `patch_4` zeigte im Forum nur einen kurzen Steam-Teaser. Der bestehende PG-Patchnote-Import hat zwar den offiziellen Steam-GID `1808061939479652` gefunden, aber nur den flachen `ISteamNews.contents`-Text verarbeitet. Dadurch gingen die Abschnittsgrenzen des Posts verloren und der Parser lieferte null Events.

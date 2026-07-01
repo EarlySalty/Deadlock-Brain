@@ -504,7 +504,7 @@ fn prepare_patch(
         Some(url) if !url.is_empty() => url.to_string(),
         _ => format!("patchnotes:{}", row.id),
     };
-    let patch_external_id = row.id.to_string();
+    let patch_external_id = canonical_patch_external_id(row.id);
     let source_kind = resolved.source_kind.clone();
     let title = Some(
         row.title
@@ -1015,6 +1015,7 @@ fn parse_bullet_event(context: &EventParseContext<'_>) -> Option<PreparedEvent> 
     if normalized_line.is_empty() {
         return None;
     }
+    let patch_external_id = canonical_patch_external_id(context.row.id);
     let (subject, remainder) = split_subject(&normalized_line);
     let entity = subject
         .as_deref()
@@ -1035,6 +1036,7 @@ fn parse_bullet_event(context: &EventParseContext<'_>) -> Option<PreparedEvent> 
     let metadata = json!({
         "importer": IMPORTER,
         "patch_id": context.row.id,
+        "patch_external_id": patch_external_id,
         "source_kind": context.source_kind,
         "source_language": "en",
         "source_posted_at": context.posted_at.map(|value| value.to_rfc3339()),
@@ -1309,11 +1311,11 @@ fn prune_direct_patch_events(tx: &mut Transaction<'_>, patch_external_id: &str) 
         r#"
         SELECT id
         FROM brain.patch_events
-        WHERE patch_external_id=$1
+        WHERE patch_external_id = ANY($1)
           AND metadata->>'importer'=$2
         "#,
         &[
-            &patch_external_id as &(dyn ToSql + Sync),
+            &legacy_compatible_patch_external_ids(patch_external_id) as &(dyn ToSql + Sync),
             &IMPORTER as &(dyn ToSql + Sync),
         ],
     )?;
@@ -1512,7 +1514,8 @@ fn summary_json(
         "policy": {
             "order": "Pro Aufruf wird genau ein Patchnote-Datensatz importiert.",
             "duplication": "Duplikate werden durch ON CONFLICT (event_hash) idempotent behandelt.",
-            "source_id": "source_documents.external_id = URL if present, else patchnotes:<id>"
+            "source_id": "source_documents.external_id = URL if present, else patchnotes:<id>",
+            "patch_external_id": "Numerische changelog_posts.id wird als patch_<id> materialisiert."
         }
     })
 }
@@ -1622,77 +1625,80 @@ fn split_square_bracket_forum_lines(content: &str) -> Option<Vec<String>> {
     if content.is_empty()
         || content.contains('\n')
         || !content.starts_with('[')
-        || !content.contains(" - ")
     {
         return None;
     }
 
-    let mut lines = Vec::new();
-    let mut saw_section = false;
-    let mut saw_event = false;
-
-    for raw_piece in content.split(" - ") {
-        let piece = raw_piece.trim();
-        if piece.is_empty() {
-            continue;
-        }
-        if let Some(section) = extract_forum_square_section_name(piece) {
-            lines.push(section);
-            saw_section = true;
-            continue;
-        }
-        if let Some((event, section)) = split_square_forum_piece_with_embedded_section(piece) {
-            if let Some(event) = event {
-                saw_event = true;
-                lines.push(format!("- {event}"));
-            }
-            lines.push(section);
-            saw_section = true;
-            continue;
-        }
-        if !saw_section {
-            continue;
-        }
-        saw_event = true;
-        lines.push(format!("- {piece}"));
+    let mut markers = Vec::new();
+    let mut search_from = 0usize;
+    while let Some(marker) = find_square_section_marker(content, search_from) {
+        search_from = marker.1;
+        markers.push(marker);
+    }
+    if markers.is_empty() {
+        return None;
     }
 
-    if saw_section && saw_event {
+    let mut lines = Vec::new();
+    let mut saw_event = false;
+
+    for (idx, (_, section_end, section)) in markers.iter().enumerate() {
+        let body_end = markers.get(idx + 1).map_or(content.len(), |next| next.0);
+        let body = content[*section_end..body_end].trim();
+        lines.push(section.clone());
+        for bullet in split_compact_forum_bullets(body) {
+            lines.push(format!("- {bullet}"));
+            saw_event = true;
+        }
+    }
+
+    if saw_event {
         Some(lines)
     } else {
         None
     }
 }
 
-fn split_square_forum_piece_with_embedded_section(piece: &str) -> Option<(Option<String>, String)> {
-    let piece = piece.trim();
-    if !piece.ends_with(']') {
-        return None;
+fn find_square_section_marker(content: &str, start: usize) -> Option<(usize, usize, String)> {
+    let mut search_from = start;
+    while let Some(open_rel) = content[search_from..].find('[') {
+        let open = search_from + open_rel;
+        let close_rel = content[open..].find(']')?;
+        let close = open + close_rel;
+        if let Some(section) = extract_forum_square_section_name_inner(content[open + 1..close].trim()) {
+            return Some((open, close + 1, section));
+        }
+        search_from = close + 1;
     }
-    let close = piece.len() - 1;
-    let open = piece[..close].rfind('[')?;
-    if open > 0 && !piece[..open].ends_with(' ') {
-        return None;
-    }
-    let section = extract_forum_square_section_name_inner(piece[open + 1..close].trim())?;
-    let event = piece[..open].trim();
-    if event.is_empty() {
-        return Some((None, section));
-    }
-    if event.len() < 2 {
-        return Some((None, section));
-    }
-    Some((Some(event.to_string()), section))
+    None
 }
 
-fn extract_forum_square_section_name(raw_line: &str) -> Option<String> {
-    let line = raw_line.trim();
-    if !line.starts_with('[') || !line.ends_with(']') {
-        return None;
+fn split_compact_forum_bullets(body: &str) -> Vec<String> {
+    let trimmed = body.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
     }
-    extract_forum_square_section_name_inner(
-        line.trim_start_matches('[').trim_end_matches(']').trim(),
-    )
+
+    for (marker, prefix) in [('*', "* "), ('-', "- ")] {
+        if let Some(rest) = trimmed.strip_prefix(prefix) {
+            return split_compact_forum_bullets_with_marker(rest, marker);
+        }
+        let delimiter = format!(" {marker} ");
+        if trimmed.contains(&delimiter) {
+            return split_compact_forum_bullets_with_marker(trimmed, marker);
+        }
+    }
+
+    vec![trimmed.to_string()]
+}
+
+fn split_compact_forum_bullets_with_marker(body: &str, marker: char) -> Vec<String> {
+    let delimiter = format!(" {marker} ");
+    body.split(&delimiter)
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(ToString::to_string)
+        .collect()
 }
 
 fn extract_forum_square_section_name_inner(raw_line: &str) -> Option<String> {
@@ -1937,6 +1943,20 @@ fn classify_source_kind(url: Option<&str>) -> String {
 
 fn normalize_patch_line(value: &str) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn canonical_patch_external_id(patch_id: i64) -> String {
+    format!("patch_{patch_id}")
+}
+
+fn legacy_compatible_patch_external_ids(patch_external_id: &str) -> Vec<String> {
+    let mut ids = vec![patch_external_id.to_string()];
+    if let Some(legacy) = patch_external_id.strip_prefix("patch_") {
+        if legacy.chars().all(|ch| ch.is_ascii_digit()) {
+            ids.push(legacy.to_string());
+        }
+    }
+    ids
 }
 
 fn classify_change_type(text: &str) -> String {
@@ -2365,6 +2385,49 @@ mod tests {
     }
 
     #[test]
+    fn patch2_compact_forum_sections_parse_granularly_and_normalize_external_id() {
+        let row = PatchnoteRow {
+            id: 2,
+            title: Some("10-02-2025 Update".to_string()),
+            url: Some("https://forums.playdeadlock.com/threads/10-02-2025-update.84332/".to_string()),
+            posted_at: Some(posted_at("2025-10-02")),
+            raw_content: Some(
+                "[ General ] * Weapon Investment bonus increased from 7 to 9 * Mid Boss base HP increased from 12500 to 13000 [ Heroes ] * Abrams: Siphon Life damage reduced from 90 to 80 * Ivy: Kudzu Bomb DPS reduced from 55 to 50 [ Items ] * Mystic Shot: Damage reduced from 60 to 55"
+                    .to_string(),
+            ),
+            translated_content: None,
+        };
+        let mut index = EntityIndex::default();
+        index.insert("hero", "Abrams", "Abrams");
+        index.insert("hero", "Ivy", "Ivy");
+        index.insert("item", "Mystic Shot", "Mystic Shot");
+        let index = index.finish();
+
+        let prepared = prepare_patch(&row, &PatchSourceResolution::from_row(&row), &index).expect("prepare");
+
+        assert_eq!(prepared.patch_external_id, "patch_2");
+        assert_eq!(prepared.events.len(), 5);
+        assert!(prepared
+            .events
+            .iter()
+            .any(|event| event.section.as_deref() == Some("General")));
+        assert!(prepared
+            .events
+            .iter()
+            .any(|event| event.section.as_deref() == Some("Heroes")
+                && event.subject.as_deref() == Some("Abrams")));
+        assert!(prepared
+            .events
+            .iter()
+            .any(|event| event.section.as_deref() == Some("Items")
+                && event.entity_name.as_deref() == Some("Mystic Shot")));
+        assert!(prepared
+            .events
+            .iter()
+            .all(|event| event.metadata["patch_external_id"] == json!("patch_2")));
+    }
+
+    #[test]
     fn expands_forum_section_headings_without_bullet_prefix() {
         let expanded = expand_inline_bullets("General Changes:");
         assert_eq!(expanded, vec!["General Changes:"]);
@@ -2552,5 +2615,17 @@ mod tests {
             )
             .as_bytes(),
         )
+    }
+
+    #[test]
+    fn legacy_compatible_patch_external_ids_include_numeric_fallback() {
+        assert_eq!(
+            legacy_compatible_patch_external_ids("patch_2"),
+            vec!["patch_2".to_string(), "2".to_string()]
+        );
+        assert_eq!(
+            legacy_compatible_patch_external_ids("patch_alpha"),
+            vec!["patch_alpha".to_string()]
+        );
     }
 }

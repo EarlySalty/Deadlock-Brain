@@ -246,6 +246,55 @@ fn parses_patchnotes_and_builds_lineage() {
 }
 
 #[test]
+fn parses_compact_square_forum_patchnotes_and_normalizes_numeric_patch_ids() {
+    let (_temp, conn) = test_conn();
+    let abrams_id = insert_entity(&conn, "hero", "Abrams");
+    let ivy_id = insert_entity(&conn, "hero", "Ivy");
+    let mystic_shot_id = insert_entity(&conn, "item", "Mystic Shot");
+    insert_alias(&conn, abrams_id, "Abrams", "canonical");
+    insert_alias(&conn, ivy_id, "Ivy", "canonical");
+    insert_alias(&conn, mystic_shot_id, "Mystic Shot", "canonical");
+
+    insert_snapshot(
+        &conn,
+        "patchnotes",
+        "patchnote",
+        "2",
+        Some("10-02-2025 Update"),
+        json!({
+            "title": "10-02-2025 Update",
+            "url": "https://forums.playdeadlock.com/threads/10-02-2025-update.84332/",
+            "posted_at": "2025-10-02",
+            "raw_content": "[ General ] * Weapon Investment bonus increased from 7 to 9 * Mid Boss base HP increased from 12500 to 13000 [ Heroes ] * Abrams: Siphon Life damage reduced from 90 to 80 * Ivy: Kudzu Bomb DPS reduced from 55 to 50 [ Items ] * Mystic Shot: Damage reduced from 60 to 55"
+        }),
+        None,
+    );
+
+    let summary = parse_patchnotes_with_conn(&conn, true).expect("parse patchnotes");
+    assert_eq!(summary["events_inserted"], json!(5));
+
+    let patch_external_ids = conn
+        .prepare("SELECT DISTINCT patch_external_id FROM patch_events ORDER BY patch_external_id")
+        .expect("prepare ids")
+        .query_map([], |row| row.get::<_, String>(0))
+        .expect("query ids")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("collect ids");
+    assert_eq!(patch_external_ids, vec!["patch_2".to_string()]);
+
+    let sections = conn
+        .prepare("SELECT section FROM patch_events ORDER BY line_index")
+        .expect("prepare sections")
+        .query_map([], |row| row.get::<_, Option<String>>(0))
+        .expect("query sections")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("collect sections");
+    assert_eq!(sections[0].as_deref(), Some("General"));
+    assert!(sections.iter().any(|section| section.as_deref() == Some("Heroes")));
+    assert!(sections.iter().any(|section| section.as_deref() == Some("Items")));
+}
+
+#[test]
 fn parses_forum_claims_as_historical_quarantine_with_source_links() {
     let (_temp, conn) = test_conn();
     let haze_id = insert_entity(&conn, "hero", "Haze");
