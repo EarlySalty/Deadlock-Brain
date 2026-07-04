@@ -77,14 +77,18 @@ Tier 0→4 aus dem Phase-0-Report; Truncate = umgekehrt), in einer TX. Muster je
 `UPDATE child SET fk = parent.id FROM parent WHERE parent.legacy_sqlite_id = child.legacy_<fk>_id`
 auflösen. Typ-Mapping: INTEGER-Sek. → TIMESTAMPTZ, **TEXT-ISO → TIMESTAMPTZ** (eigener Parser!),
 TEXT-JSON → JSONB. Natürliche/Komposit-PK-Tabellen (Katalog, youtube_*) ohne id-Remap.
-**Nichts löschen:** Vor der Migration die 3 PG-only Tabellen (`insight_records`,
-`knowledge_events`, `current_entity_state`) dumpen. Nach dem Reload der Basis:
-`current_entity_state` + `knowledge_events` aus der neuen Basis **rematerialisieren** (patch_event-Scheibe
-via portiertem `pg_patchnotes`-Materializer; forum_claim-/insight-Scheiben implementieren oder verbatim
-mit ID-Remap wiederherstellen); `insight_records` **verbatim** wieder einspielen (`source_patch_event_ids`
-auf neue IDs remappen). **SQLite-Backup vorher.**
-**DoD:** PG `brain.*` == aktueller Live-SQLite-Stand für alle 36 Tabellen (Counts + Stichproben-Diff);
-die 3 kuratierten/derived Tabellen vollständig erhalten (Counts vor==nach); Backup gesichert.
+Tool `dbrain-pg-migrate` (Crate `rust/crates/dbrain-pg-migrate`, Commit 235da7d) — Phase-1a-VERIFIZIERT:
+36/36 Count-Parität, 27/27 FKs 0 mismatched, feld-level 0 Diffs, idempotent, gegen Scratch-PG.
+
+**Phase 1b (kein Build — Cutover-Runbook, live durch Claude):** Die 3 PG-only Tabellen
+(`insight_records`, `knowledge_events`, `current_entity_state`) haben **KEINEN Laufzeit-Leser**
+(grep Brain + dl-brain leer; nur `pg_patchnotes.rs` *schreibt* die patch-Scheibe). Daher: am Cutover
+alle 3 **dumpen** (Backup → nichts verloren); `knowledge_events` + `current_entity_state` **leeren**
+(sie referenzieren die Basistabellen per FK → würden den Basis-DELETE blockieren); `insight_records`
+(51 kuratiert, nur Array-Ref, kein FK) bleibt bestehen. **Rematerialisieren verschoben**, bis der
+Knowledge-Layer tatsächlich gelesen wird (patch-Scheibe macht `pg_patchnotes` künftig weiter).
+**DoD Phase 1:** PG `brain.*` == Live-SQLite-Stand für alle 36 Basistabellen (bewiesen, 1a); die 3
+derived/kuratierten Tabellen im Backup gesichert; SQLite-Backup vorher.
 
 ### Phase 2 — DB-Kern auf sqlx
 `deadlock-brain-core/src/db.rs` von rusqlite auf einen **sqlx `PgPool`** umstellen; eine gemeinsame
