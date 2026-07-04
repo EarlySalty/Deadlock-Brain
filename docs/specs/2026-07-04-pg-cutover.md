@@ -18,11 +18,17 @@ Parse-/Normalize-/Enrich-/Retrieval-Semantik bleibt identisch (verifiziert per P
 - **Voll-Cutover** (nicht nur „Datei weg"): `rusqlite` raus aus allen Crates.
 - **sqlx (async)** statt sync-`postgres`. Grund: Ökosystem-Konsistenz, compile-geprüfte Queries
   sichern die 9-Crate-SQL-Migration ab, Schema zentral über dl-central-db.
-- **Reconcile:** Der aktuelle **Live-SQLite-Stand ist die Wahrheit**. Der stale PG-Seed
-  (2026-07-02: 25.689 patch_events, `knowledge_events`) wird von der Migration **überschrieben**.
-  Begründung: Die Divergenz ist rein *abgeleitet* — jede Erzeuger-Stufe (`parse patchnotes`,
-  `normalize entities`, `enrich patch-events/legacy`) baut per `--rebuild` deterministisch neu,
-  und `knowledge_events` ist nur aus `patch_events` materialisiert. Kein Quellverlust.
+- **Reconcile (Owner: „alles migrieren, nichts löschen"):** Der aktuelle **Live-SQLite-Stand ist
+  die Wahrheit** für die 10 gemappten + 26 fehlenden Tabellen (der stale, divergente Teil des
+  PG-Seeds wird dort ersetzt). Die 3 **PG-only kuratierten/derived** Tabellen bleiben **erhalten**:
+  `insight_records` (51 kuratiert) + `knowledge_events`/`current_entity_state` — vor der Migration
+  dumpen, nach dem Reload rematerialisieren bzw. verbatim mit ID-Remap wieder einspielen. **Kein
+  Datenverlust.**
+- **Sauber anlegen (Owner):** Die Migration ist die Gelegenheit, `brain.*` PG-idiomatisch zu
+  gestalten statt SQLite 1:1 zu kopieren — durchgängig `TIMESTAMPTZ`/`JSONB`/`bigint`/`double
+  precision`, konsistenter `_json`-Suffix-Drop, echte `PK/FK/UNIQUE` + Indizes für die Read-Pfade,
+  und SQLite-Warzen fixen (`mechanic_notes.rowid`-Spalte, `learned_builds.language INTEGER`,
+  TEXT-vs-INTEGER-Zeitquellen vereinheitlichen). Kein Daten-/Semantik-Redesign — nur sauberes Schema.
 - **Roh-Blobs** bleiben auf Disk (`data/raw/`, `data/youtube_transcripts/`); nur die DB-Tabellen
   (`source_documents`-Metadaten, `entity_snapshots`, alle abgeleiteten) ziehen nach PG.
 
@@ -41,17 +47,44 @@ Parse-/Normalize-/Enrich-/Retrieval-Semantik bleibt identisch (verifiziert per P
 
 ## Phasenplan (Strangler; Binary erst nach Phase 3 wieder komplett → Deploy als ein Flip)
 
-### Phase 0 — Schema-Abgleich
-Brain-SQLite-Schema (`deadlock-brain-core/src/schema.rs`) tabellen-/spaltenweise gegen das
-`brain.*`-PG-Schema (`dl-central-db/migrations`) mappen. Lücken beidseitig auflisten (SQLite-Tabellen
-ohne PG-Pendant; PG-Zusatztabellen). Fehlende per **dl-central-db-Migration** ergänzen.
-**DoD:** vollständige Tabellen-/Spalten-Mapping-Matrix + Migrationsbedarf dokumentiert.
+### Phase 0 — Schema-Abgleich (ERLEDIGT 2026-07-04, native Agent)
+Ergebnis (Mapping-Matrix im Agent-Report):
+- SQLite hat **36 reguläre Tabellen** (+ 5 `vector_embeddings*`, brauchen `vec0` — separat, kein
+  Teil dieses Cutovers). PG `brain.*` hat **13**.
+- **10 Tabellen mappen 1:1** (PG ist reine Obermenge: `_json→jsonb`, INTEGER/TEXT-Zeit→TIMESTAMPTZ,
+  BIGSERIAL id + `legacy_sqlite_id`/`legacy_<fk>_id` fürs FK-Remap).
+- **GAP A: 26 SQLite-Tabellen fehlen komplett in `brain.*`** (Katalog hero/item, Sheet, Builds,
+  Notes, YouTube-Lern-Layer inkl. 11.941 `youtube_learning_claims`) → Phase 0.5.
+- **GAP B: 3 PG-only Tabellen** (`knowledge_events` 26.685 abgeleitet; `current_entity_state` 5.804
+  Projektion; `insight_records` 51 **kuratiert, kein Rebuilder**) → erhalten (s. Reconcile).
+- Stolpersteine: TEXT-ISO-Zeitfelder (`posted_at`, `first/last_seen_at`, `published_at`) ≠ Unix-Sek.;
+  Materializer für `knowledge_events` deckt nur die patch_event-Scheibe ab (forum_claim/insight fehlen).
+
+### Phase 0.5 — Schema-Migrationen (dl-central-db), SAUBER angelegt
+Die **26 GAP-A-Tabellen** als neue `dl-central-db`-Migration(en) anlegen, PG-idiomatisch (kein
+1:1-SQLite-Copy): BIGSERIAL id + `legacy_sqlite_id` (nur bei Autoincrement-PK) + `legacy_<fk>_id` je
+FK; `*_json → JSONB`; alle Zeit → `TIMESTAMPTZ`; `bigint`/`double precision`; natürliche/komposite PKs
+(Katalog, youtube_*) erhalten; SQLite-UNIQUE übernehmen; Cross-Schema-FK per Barrier-Muster
+(`0011_barrier_orphans_and_cross_fks.sql`). Warzen fixen: `mechanic_notes.rowid`, `learned_builds.language`.
+Sinnvolle Indizes für die Read-Pfade (Phase 3) gleich mitanlegen.
+**DoD:** Migration(en) compilen/`sqlx migrate` grün gegen Scratch-DB; alle 36 SQLite-Tabellen haben ein
+sauberes PG-Ziel; Review durch Claude vor Apply auf Live-PG.
 
 ### Phase 1 — Daten-Migration (einmalig, deterministisch)
-Rust/sqlx One-Shot-Tool: kopiert jede Brain-SQLite-Tabelle → `brain.*` in PG (überschreibt Seed,
-idempotent/truncate-then-load in TX). Typ-Mapping (SQLite INTEGER-Sekunden → TIMESTAMPTZ, TEXT-JSON
-→ JSONB). **SQLite-Backup vorher.** Danach Parität Zahl-gegen-Zahl je Tabelle.
-**DoD:** PG `brain.*` == aktueller Live-SQLite-Stand (Counts + Stichproben-Diff), Backup gesichert.
+Rust/sqlx One-Shot-Tool lädt **alle 36** SQLite-Tabellen → `brain.*`, FK-sicher (Ladereihenfolge
+Tier 0→4 aus dem Phase-0-Report; Truncate = umgekehrt), in einer TX. Muster je Tabelle: erst mit
+`legacy_sqlite_id` + `legacy_<fk>_id` laden, dann FK per
+`UPDATE child SET fk = parent.id FROM parent WHERE parent.legacy_sqlite_id = child.legacy_<fk>_id`
+auflösen. Typ-Mapping: INTEGER-Sek. → TIMESTAMPTZ, **TEXT-ISO → TIMESTAMPTZ** (eigener Parser!),
+TEXT-JSON → JSONB. Natürliche/Komposit-PK-Tabellen (Katalog, youtube_*) ohne id-Remap.
+**Nichts löschen:** Vor der Migration die 3 PG-only Tabellen (`insight_records`,
+`knowledge_events`, `current_entity_state`) dumpen. Nach dem Reload der Basis:
+`current_entity_state` + `knowledge_events` aus der neuen Basis **rematerialisieren** (patch_event-Scheibe
+via portiertem `pg_patchnotes`-Materializer; forum_claim-/insight-Scheiben implementieren oder verbatim
+mit ID-Remap wiederherstellen); `insight_records` **verbatim** wieder einspielen (`source_patch_event_ids`
+auf neue IDs remappen). **SQLite-Backup vorher.**
+**DoD:** PG `brain.*` == aktueller Live-SQLite-Stand für alle 36 Tabellen (Counts + Stichproben-Diff);
+die 3 kuratierten/derived Tabellen vollständig erhalten (Counts vor==nach); Backup gesichert.
 
 ### Phase 2 — DB-Kern auf sqlx
 `deadlock-brain-core/src/db.rs` von rusqlite auf einen **sqlx `PgPool`** umstellen; eine gemeinsame
