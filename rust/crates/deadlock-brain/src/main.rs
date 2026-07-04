@@ -25,6 +25,7 @@ use rusqlite::{
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 
+mod pg_entities;
 mod pg_patchnotes;
 
 #[derive(Debug, Parser)]
@@ -54,6 +55,8 @@ enum Commands {
     Lineage(LineageArgs),
     #[command(about = "Zeigt alte/entfernte Entities aus Patchnotes.")]
     Legacy(LegacyArgs),
+    #[command(about = "Sucht Entities nach Typ/Name in der zentralen Postgres (brain.entities + brain.entity_aliases).")]
+    Entities(EntitiesArgs),
     #[command(about = "Erzeugt einen erklaerbaren Hero-Build-Vorschlag aus API-/Sheet-/Patchdaten.")]
     Build(BuildArgs),
     #[command(name = "build-context")]
@@ -115,6 +118,14 @@ enum Commands {
 struct PrettyArgs {
     #[arg(long, help = "Kompakter menschenlesbarer Output statt JSON.")]
     pretty: bool,
+}
+
+#[derive(Debug, Args)]
+struct EntitiesArgs {
+    #[arg(long = "type", value_name = "TYPE", help = "Optionaler Entity-Typ-Filter (z.B. hero, item, ability).")]
+    entity_type: Option<String>,
+    #[arg(long, value_name = "QUERY", help = "Suchbegriff (Teilstring in canonical_name oder Alias).")]
+    query: String,
 }
 
 #[derive(Debug, Args)]
@@ -839,6 +850,9 @@ fn run(cli: Cli) -> Result<()> {
         Commands::Pg { target } => {
             return run_pg(target);
         }
+        Commands::Entities(args) => {
+            return pg_entities::run(args);
+        }
         other => other,
     };
     prepare_dirs(&settings)?;
@@ -971,6 +985,9 @@ fn run(cli: Cli) -> Result<()> {
         Commands::Normalize { target } => run_normalize(&conn, target),
         Commands::Parse { target } => run_parse(&conn, target),
         Commands::Enrich { target } => run_enrich(&conn, &settings, target),
+        Commands::Entities(_) => {
+            unreachable!("PG-Entities werden vor SQLite-Einrichtung ausgefuehrt.")
+        }
         Commands::Pg { target: _ } => {
             unreachable!("PG-Commands werden vor SQLite-Einrichtung ausgefuehrt.")
         }
