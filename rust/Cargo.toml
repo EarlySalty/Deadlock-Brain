@@ -10,6 +10,7 @@ members = [
   "crates/dbrain-normalize",
   "crates/dbrain-retrieval",
   "crates/dbrain-sources",
+  "crates/dbrain-pg-migrate",
 ]
 
 [workspace.package]
