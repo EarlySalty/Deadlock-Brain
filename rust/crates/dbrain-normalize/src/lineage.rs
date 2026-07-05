@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
-use rusqlite::{params, Connection};
 use serde_json::{json, Value};
+use sqlx::PgPool;
 
 use crate::util::{clean_subject, normalize_alias, object_json_string, table_count};
 use crate::Result;
@@ -51,23 +51,26 @@ struct CandidateInput {
     confidence: f64,
 }
 
-pub fn enrich_lineage(conn: &Connection, rebuild: bool) -> Result<Value> {
-    let before_total = table_count(conn, "entity_lineage")?;
+pub async fn enrich_lineage(pool: &PgPool, rebuild: bool) -> Result<Value> {
+    let before_total = table_count(pool, "entity_lineage").await?;
     let deleted = if rebuild {
-        conn.execute("DELETE FROM entity_lineage", [])? as i64
+        sqlx::query!("DELETE FROM brain.entity_lineage")
+            .execute(pool)
+            .await?
+            .rows_affected() as i64
     } else {
         0
     };
 
-    let events = load_events(conn)?;
+    let events = load_events(pool).await?;
     let mut processed = 0_i64;
     let mut inserted = 0_i64;
     let mut by_relation: BTreeMap<String, i64> = BTreeMap::new();
-    for event in events {
+    for (event, legacy_patch_event_id) in events {
         let candidates = extract_lineage_candidates(&event);
         processed += 1;
         for candidate in candidates {
-            if insert_lineage(conn, &candidate)? {
+            if insert_lineage(pool, &candidate, legacy_patch_event_id).await? {
                 inserted += 1;
                 *by_relation.entry(candidate.relation_type.clone()).or_default() += 1;
             }
@@ -78,7 +81,7 @@ pub fn enrich_lineage(conn: &Connection, rebuild: bool) -> Result<Value> {
         "events_processed": processed,
         "lineage_inserted": inserted,
         "lineage_before": before_total,
-        "lineage_total": table_count(conn, "entity_lineage")?,
+        "lineage_total": table_count(pool, "entity_lineage").await?,
         "deleted_before_build": deleted,
         "by_relation": by_relation,
         "rebuild": rebuild,
@@ -179,12 +182,22 @@ pub fn extract_lineage_candidates(event: &LineageEvent) -> Vec<LineageCandidate>
     valid_candidates(candidates)
 }
 
-fn load_events(conn: &Connection) -> Result<Vec<LineageEvent>> {
-    let mut stmt = conn.prepare(
+async fn load_events(pool: &PgPool) -> Result<Vec<(LineageEvent, i64)>> {
+    let rows = sqlx::query!(
         r#"
-        SELECT id, patch_title, patch_url, source_kind, posted_at, entity_type,
-               entity_name, subject, change_type, normalized_line, raw_line
-        FROM patch_events
+        SELECT id AS "id!",
+               patch_title AS "patch_title?",
+               patch_url AS "patch_url?",
+               source_kind AS "source_kind?",
+               posted_at::text AS "posted_at?",
+               entity_type AS "entity_type?",
+               entity_name AS "entity_name?",
+               subject AS "subject?",
+               change_type AS "change_type?",
+               normalized_line AS "normalized_line?",
+               raw_line AS "raw_line?",
+               COALESCE(legacy_sqlite_id, id) AS "legacy_patch_event_id!"
+        FROM brain.patch_events
         WHERE
           change_type IN ('changed', 'rework', 'removed', 'added')
           OR lower(normalized_line) LIKE '%rename%'
@@ -192,27 +205,30 @@ fn load_events(conn: &Connection) -> Result<Vec<LineageEvent>> {
           OR lower(normalized_line) LIKE '%replaced%'
         ORDER BY id ASC
         "#,
-    )?;
-    let rows = stmt.query_map([], |row| {
-        Ok(LineageEvent {
-            id: row.get("id")?,
-            patch_title: row.get("patch_title")?,
-            patch_url: row.get("patch_url")?,
-            source_kind: row.get("source_kind")?,
-            posted_at: row.get("posted_at")?,
-            entity_type: row.get("entity_type")?,
-            entity_name: row.get("entity_name")?,
-            subject: row.get("subject")?,
-            change_type: row.get("change_type")?,
-            normalized_line: row.get("normalized_line")?,
-            raw_line: row.get("raw_line")?,
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            (
+                LineageEvent {
+                    id: row.id,
+                    patch_title: row.patch_title,
+                    patch_url: row.patch_url,
+                    source_kind: row.source_kind,
+                    posted_at: row.posted_at,
+                    entity_type: row.entity_type,
+                    entity_name: row.entity_name,
+                    subject: row.subject,
+                    change_type: row.change_type,
+                    normalized_line: row.normalized_line,
+                    raw_line: row.raw_line,
+                },
+                row.legacy_patch_event_id,
+            )
         })
-    })?;
-    let mut out = Vec::new();
-    for row in rows {
-        out.push(row?);
-    }
-    Ok(out)
+        .collect())
 }
 
 fn candidate(event: &LineageEvent, input: CandidateInput) -> LineageCandidate {
@@ -252,38 +268,44 @@ fn candidate(event: &LineageEvent, input: CandidateInput) -> LineageCandidate {
     }
 }
 
-fn insert_lineage(conn: &Connection, candidate: &LineageCandidate) -> Result<bool> {
-    let now = crate::util::now()?;
+async fn insert_lineage(
+    pool: &PgPool,
+    candidate: &LineageCandidate,
+    legacy_patch_event_id: i64,
+) -> Result<bool> {
     let metadata_json = object_json_string(candidate.metadata.clone())?;
-    let changed = conn.execute(
+    let result = sqlx::query!(
         r#"
-        INSERT INTO entity_lineage(
-          patch_event_id, relation_type, source_entity_type, source_name, source_name_norm,
-          target_entity_type, target_name, target_name_norm, owner_entity_type, owner_name,
-          owner_name_norm, confidence, metadata_json, created_at, updated_at
+        INSERT INTO brain.entity_lineage(
+          patch_event_id, legacy_patch_event_id, relation_type, source_entity_type, source_name,
+          source_name_norm, target_entity_type, target_name, target_name_norm, owner_entity_type,
+          owner_name, owner_name_norm, confidence, metadata, created_at, updated_at
         )
-        VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)
+        VALUES(
+          $1, $2, $3, $4, $5,
+          $6, $7, $8, $9, $10,
+          $11, $12, $13, $14::text::jsonb, now(), now()
+        )
         ON CONFLICT DO NOTHING
         "#,
-        params![
-            candidate.patch_event_id,
-            candidate.relation_type,
-            candidate.source_entity_type,
-            candidate.source_name,
-            candidate.source_name_norm,
-            candidate.target_entity_type,
-            candidate.target_name,
-            candidate.target_name_norm,
-            candidate.owner_entity_type,
-            candidate.owner_name,
-            candidate.owner_name_norm,
-            candidate.confidence,
-            metadata_json,
-            now,
-            now,
-        ],
-    )?;
-    Ok(changed > 0)
+        candidate.patch_event_id,
+        legacy_patch_event_id,
+        candidate.relation_type,
+        candidate.source_entity_type,
+        candidate.source_name,
+        candidate.source_name_norm,
+        candidate.target_entity_type,
+        candidate.target_name,
+        candidate.target_name_norm,
+        candidate.owner_entity_type,
+        candidate.owner_name,
+        candidate.owner_name_norm,
+        candidate.confidence,
+        metadata_json,
+    )
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
 }
 
 fn valid_candidates(candidates: Vec<LineageCandidate>) -> Vec<LineageCandidate> {
