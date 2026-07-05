@@ -1,8 +1,8 @@
-//! PG-gestuetzter `entities`-Lesebefehl (Phase-2-Tracer).
+//! PG-gestuetzter `entities`-Lesebefehl.
 //!
-//! Dies ist der EINE Befehl, der von rusqlite auf sqlx/PgPool umgestellt wurde.
-//! Er liest `brain.entities` + `brain.entity_aliases` aus der zentralen Postgres.
-//! Alle anderen Befehle laufen weiterhin ueber rusqlite (`db::open_connection`).
+//! Liest `brain.entities` + `brain.entity_aliases` aus der zentralen Postgres.
+//! Seit dem PG-Cutover laufen alle Binary-Befehle async ueber `PgPool`; die alte
+//! SQLite-Verbindung (`db::open_connection`) wird erst in Phase 6 entfernt.
 //!
 //! Suchsemantik (identisch zur SQLite-Referenz fuers Paritaets-Diffing):
 //! Ein Entity passt, wenn `canonical_name` ODER einer seiner Aliase den `--query`

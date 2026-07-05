@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO brain.sheet_tab_rows(\n              snapshot_id, legacy_snapshot_id, tab_name, gid, row_number, canonical_name,\n              row_data, created_at, updated_at\n            )\n            VALUES($1, $2, $3, $4, $5, $6, $7::text::jsonb, now(), now())\n            ON CONFLICT (snapshot_id) DO UPDATE SET\n              tab_name = EXCLUDED.tab_name, gid = EXCLUDED.gid, row_number = EXCLUDED.row_number,\n              canonical_name = EXCLUDED.canonical_name, row_data = EXCLUDED.row_data,\n              updated_at = now()\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "afe5d104464dfaab2cfac493aaff08c38a0fcd3278db57b43b3c13f3a1f8ca74"
+}

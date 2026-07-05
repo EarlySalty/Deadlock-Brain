@@ -1,0 +1,56 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id AS \"id!\", COALESCE(legacy_sqlite_id, id) AS \"legacy_snapshot_id!\",\n               source AS \"source!\", external_id AS \"external_id!\",\n               canonical_name AS \"canonical_name?\", payload_hash AS \"payload_hash!\",\n               payload::text AS \"payload_json!\"\n        FROM brain.entity_snapshots\n        WHERE entity_type = 'hero_stats_sheet'\n        ORDER BY id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "legacy_snapshot_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "source!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "external_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "canonical_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "payload_hash!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "payload_json!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      null,
+      false,
+      false,
+      true,
+      false,
+      null
+    ]
+  },
+  "hash": "5b48f0f3b20458c796f7e805baf4e5283b8824e9e0ed3affe353911cccfb3105"
+}

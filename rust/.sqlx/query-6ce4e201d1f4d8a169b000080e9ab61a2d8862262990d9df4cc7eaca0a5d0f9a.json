@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT latest.external_id AS \"external_id!\",\n               latest.canonical_name AS \"canonical_name?\"\n        FROM (\n            SELECT DISTINCT ON (external_id)\n                   external_id, canonical_name, payload, fetched_at\n            FROM brain.entity_snapshots\n            WHERE source = $1 AND entity_type = 'statlocker_leaderboard_player'\n            ORDER BY external_id, fetched_at DESC\n        ) latest\n        ORDER BY\n            CASE WHEN latest.payload->>'rank' ~ '^-?[0-9]+$'\n                 THEN (latest.payload->>'rank')::int ELSE 2147483647 END ASC,\n            CASE WHEN latest.payload->>'leaderboard_page' ~ '^-?[0-9]+$'\n                 THEN (latest.payload->>'leaderboard_page')::int ELSE 2147483647 END ASC,\n            latest.fetched_at DESC\n        LIMIT $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "external_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "canonical_name?",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "6ce4e201d1f4d8a169b000080e9ab61a2d8862262990d9df4cc7eaca0a5d0f9a"
+}

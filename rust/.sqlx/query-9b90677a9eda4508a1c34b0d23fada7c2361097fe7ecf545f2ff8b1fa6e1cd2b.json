@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE brain.youtube_learning_claims\n                SET entity_type = $1, entity_name = $2, verifier = $3::text::jsonb\n                WHERE id = $4\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9b90677a9eda4508a1c34b0d23fada7c2361097fe7ecf545f2ff8b1fa6e1cd2b"
+}

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO brain.source_documents(\n              source, external_id, title, url, content_type, raw_path,\n              content_hash, fetched_at, metadata\n            )\n            VALUES($1, $2, $3, $4, $5, $6, $7, now(), $8::text::jsonb)\n            ON CONFLICT (source, external_id, content_hash) DO NOTHING\n            RETURNING id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a499d8f13d3f10100a3ffb2d874ea8750b58f3ac1f8b080d60f42ed28b7e522c"
+}

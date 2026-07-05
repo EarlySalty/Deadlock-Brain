@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT e.entity_type AS \"entity_type!\",\n               e.canonical_name AS \"canonical_name!\",\n               a.alias AS \"alias?\"\n        FROM brain.entities e\n        LEFT JOIN brain.entity_aliases a ON a.entity_id = e.id\n        WHERE e.entity_type IN (\n          'hero', 'hero_internal', 'item', 'item_special',\n          'ability', 'ability_internal', 'weapon_or_internal'\n        )\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "entity_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "canonical_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "alias?",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "a5a295bf47eea07bb85cd09ddfcc0fd7a839e86a8214688e9a603114efe65bc4"
+}

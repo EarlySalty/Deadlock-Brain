@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE brain.entities\n            SET primary_external_id=COALESCE(primary_external_id, $1),\n                first_snapshot_id=COALESCE(first_snapshot_id, $2),\n                metadata=$3::text::jsonb,\n                updated_at=now()\n            WHERE id=$4\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6f6b3ff8b8692980f30ae6cbf13555e64fe65b223c49dd0eac05f39f35172173"
+}

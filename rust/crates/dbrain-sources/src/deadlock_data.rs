@@ -1957,15 +1957,138 @@ mod tests {
         cleanup_entity(&pool).await;
     }
 
-    /// SONDERFALL (deferred): Dieser Cross-Crate-Test rief frueher
-    /// `dbrain_normalize::parse_patchnotes_with_conn` gegen eine In-Memory-SQLite
-    /// auf. Da `dbrain_normalize` in diesem Worktree noch synchron (SQLite) ist,
-    /// wird er beim Seam-Schluss (normalize async) reaktiviert und auf PG-Pool +
-    /// async normalize umgestellt.
+    /// Synthetische Test-Kennungen, kollisionsfrei gegen die geteilten Echtdaten.
+    const SEAM_SOURCE: &str = "__dbrain_seam_test_source__";
+    const SEAM_EXTERNAL_ID: &str = "__dbrain_seam_test_patchnote__";
+
+    async fn cleanup_seam_patchnote(pool: &PgPool) {
+        let _ = sqlx::query("DELETE FROM brain.patch_events WHERE patch_external_id = $1")
+            .bind(SEAM_EXTERNAL_ID)
+            .execute(pool)
+            .await;
+        let _ = sqlx::query(
+            "DELETE FROM brain.entity_snapshots WHERE entity_type = 'patchnote' AND source = $1 AND external_id = $2",
+        )
+        .bind(SEAM_SOURCE)
+        .bind(SEAM_EXTERNAL_ID)
+        .execute(pool)
+        .await;
+    }
+
+    async fn insert_seam_patchnote(pool: &PgPool, raw_content: &str, commit: &str) {
+        let payload = json!({
+            "title": "Seam Test Patch",
+            "url": "https://example.invalid/seam-test",
+            "posted_at": "2026-01-01T00:00:00Z",
+            "raw_content": raw_content,
+            "commit": commit,
+        });
+        sqlx::query(
+            r#"
+            INSERT INTO brain.entity_snapshots
+                (source, entity_type, external_id, canonical_name, payload_hash, payload, fetched_at, imported_at)
+            VALUES ($1, 'patchnote', $2, NULL, $3, $4, now(), now())
+            "#,
+        )
+        .bind(SEAM_SOURCE)
+        .bind(SEAM_EXTERNAL_ID)
+        .bind(format!("seam-{commit}"))
+        .bind(payload)
+        .execute(pool)
+        .await
+        .expect("insert seam patchnote snapshot");
+    }
+
+    async fn update_seam_commit(pool: &PgPool, commit: &str) {
+        sqlx::query(
+            r#"
+            UPDATE brain.entity_snapshots
+               SET payload = jsonb_set(payload, '{commit}', to_jsonb($3::text)),
+                   payload_hash = $4
+             WHERE entity_type = 'patchnote' AND source = $1 AND external_id = $2
+            "#,
+        )
+        .bind(SEAM_SOURCE)
+        .bind(SEAM_EXTERNAL_ID)
+        .bind(commit)
+        .bind(format!("seam-{commit}"))
+        .execute(pool)
+        .await
+        .expect("update seam commit metadata");
+    }
+
+    async fn seam_event_count(pool: &PgPool) -> i64 {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*)::int8 FROM brain.patch_events WHERE patch_external_id = $1",
+        )
+        .bind(SEAM_EXTERNAL_ID)
+        .fetch_one(pool)
+        .await
+        .expect("count seam patch_events")
+    }
+
+    /// Cross-Crate-PG-Integration: Re-Import desselben Patchnotes mit geaenderten
+    /// Commit-Metadaten darf `brain.patch_events` NICHT duplizieren. Die Idempotenz
+    /// haengt am `event_hash` (aus `legacy_snapshot_id` + Zeileninhalt), NICHT an den
+    /// Commit-/Snapshot-Metadaten. Nutzt einen isolierten Synthetik-Snapshot mit
+    /// eindeutiger `source`/`external_id` und raeumt restlos wieder auf (Netto-Null).
     #[tokio::test]
-    #[ignore = "cross-crate PG-Integration: wird beim Seam-Schluss (normalize async) reaktiviert"]
+    #[ignore = "cross-crate PG-Integration: needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
     async fn patchnote_events_do_not_duplicate_when_commit_metadata_changes() {
-        // TODO(seam-close): auf PG-Pool + async normalize umstellen.
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        // Identischer Patch-Inhalt ueber beide Importe; nur `commit` aendert sich.
+        let raw_content =
+            "Gameplay\n- Bullet Damage increased from 10 to 20\n- Fire Rate reduced from 5 to 4\n";
+
+        // Idempotenter Start: eventuelle Test-Reste entfernen.
+        cleanup_seam_patchnote(&pool).await;
+
+        // 1) Synthetischen Patchnote-Snapshot mit Commit-Metadaten "A" anlegen.
+        insert_seam_patchnote(&pool, raw_content, "commit-A").await;
+
+        // 2) Erster Parse-Lauf erzeugt die Events dieses Snapshots.
+        let first = dbrain_normalize::parse_patchnotes(&pool, false)
+            .await
+            .expect("erster parse_patchnotes-Lauf");
+        let first_inserted = first
+            .get("events_inserted")
+            .and_then(Value::as_i64)
+            .expect("events_inserted im Ergebnis");
+        let events_after_first = seam_event_count(&pool).await;
+        assert!(
+            events_after_first >= 1,
+            "Snapshot muss mindestens ein patch_event erzeugen (war {events_after_first})"
+        );
+        assert!(
+            first_inserted >= events_after_first,
+            "erster Lauf muss die neuen Events einfuegen (inserted={first_inserted}, snapshot_events={events_after_first})"
+        );
+
+        // 3) Commit-Metadaten aendern (Inhalt bleibt identisch) und erneut importieren.
+        update_seam_commit(&pool, "commit-B").await;
+        let second = dbrain_normalize::parse_patchnotes(&pool, false)
+            .await
+            .expect("zweiter parse_patchnotes-Lauf");
+        let second_inserted = second
+            .get("events_inserted")
+            .and_then(Value::as_i64)
+            .expect("events_inserted im Ergebnis");
+        let events_after_second = seam_event_count(&pool).await;
+
+        // 4) Kein Duplikat: gleiche Event-Menge, keine neuen Inserts (event_hash stabil).
+        assert_eq!(
+            events_after_second, events_after_first,
+            "Commit-Metadaten-Wechsel darf patch_events nicht duplizieren"
+        );
+        assert_eq!(
+            second_inserted, 0,
+            "zweiter Lauf darf keine Events einfuegen (event_hash stabil), war {second_inserted}"
+        );
+
+        // 5) Aufraeumen: Netto-Null gegen die geteilten Echtdaten.
+        cleanup_seam_patchnote(&pool).await;
     }
 
     #[test]

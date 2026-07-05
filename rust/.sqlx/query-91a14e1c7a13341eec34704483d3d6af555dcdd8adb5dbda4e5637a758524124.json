@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT es.id AS \"id!\", es.entity_type AS \"entity_type!\", es.external_id AS \"external_id!\",\n               es.canonical_name AS \"canonical_name?\", es.payload::text AS \"payload_json!\",\n               sd.external_id AS \"document_kind?\"\n        FROM brain.entity_snapshots es\n        LEFT JOIN brain.source_documents sd ON sd.id = es.source_document_id\n        WHERE es.source = $1\n        ORDER BY\n          CASE sd.external_id\n            WHEN 'heroes' THEN 0\n            WHEN 'items' THEN 1\n            WHEN 'raw_heroes' THEN 2\n            WHEN 'raw_items' THEN 3\n            ELSE 4\n          END,\n          es.id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "entity_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "external_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "canonical_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "payload_json!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "document_kind?",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      null,
+      false
+    ]
+  },
+  "hash": "91a14e1c7a13341eec34704483d3d6af555dcdd8adb5dbda4e5637a758524124"
+}

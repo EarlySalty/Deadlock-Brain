@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id AS \"id!\", patch_title AS \"patch_title?\", patch_url AS \"patch_url?\",\n               posted_at::text AS \"posted_at?\", entity_type AS \"entity_type!\",\n               entity_name AS \"entity_name!\", raw_line AS \"raw_line!\",\n               normalized_line AS \"normalized_line!\"\n        FROM brain.patch_events\n        WHERE entity_type <> 'general'\n          AND entity_name IS NOT NULL\n          AND TRIM(entity_name) <> ''\n        ORDER BY id ASC\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "patch_title?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "patch_url?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "posted_at?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "entity_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "entity_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "raw_line!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "normalized_line!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      null,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "73cfd969ba5fa340ea343c0e9200caa6d70dc630cf4357ad9cce876a288d2e62"
+}

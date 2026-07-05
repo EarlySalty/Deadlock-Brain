@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM brain.entity_aliases",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "846cc1c2b6bd9ded9fe5fe309ad923459874ea6a3920c5bd96e595d88160d5d1"
+}

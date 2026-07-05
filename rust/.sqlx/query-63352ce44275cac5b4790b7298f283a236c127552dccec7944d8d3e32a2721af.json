@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT e.id AS \"id!\", e.metadata::text AS \"metadata_json!\"\n            FROM brain.entity_aliases a\n            JOIN brain.entities e ON e.id=a.entity_id\n            WHERE e.entity_type=$1 AND a.alias_norm=$2\n            ORDER BY\n              CASE a.alias_kind WHEN 'canonical' THEN 0 WHEN 'snapshot_name' THEN 1 ELSE 2 END,\n              e.id\n            LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "metadata_json!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "63352ce44275cac5b4790b7298f283a236c127552dccec7944d8d3e32a2721af"
+}
