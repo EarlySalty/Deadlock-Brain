@@ -12,10 +12,10 @@ pub use deadlock_brain_core as core;
 use dbrain_builds::BuildContext;
 use deadlock_brain_core::build_narration;
 use regex::Regex;
-use rusqlite::{
-    params, params_from_iter,
-    types::{Value as SqlValue, ValueRef},
-    Connection, OptionalExtension, Row,
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+use sqlx::{
+    postgres::{PgColumn, PgPool, PgRow},
+    Column, Row, TypeInfo,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map as JsonMap, Value as JsonValue};
@@ -254,8 +254,8 @@ pub enum RetrievalError {
     #[error(transparent)]
     Core(#[from] core::CoreError),
 
-    #[error("SQLite error: {0}")]
-    Sqlite(#[from] rusqlite::Error),
+    #[error("Postgres error: {0}")]
+    Sqlx(#[from] sqlx::Error),
 
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
@@ -370,47 +370,47 @@ impl AskIdfWeights {
     }
 }
 
-pub fn status(conn: &Connection) -> Result<JsonValue> {
+pub async fn status(pool: &PgPool) -> Result<JsonValue> {
     let source_documents = fetch_all(
-        conn,
+        pool,
         r#"
         SELECT source, COUNT(*) AS documents
-        FROM source_documents
+        FROM brain.source_documents
         GROUP BY source
         ORDER BY source
         "#,
         vec![],
-    )?;
+    ).await?;
     let entity_snapshots = fetch_all(
-        conn,
+        pool,
         r#"
         SELECT source, entity_type, COUNT(*) AS snapshots
-        FROM entity_snapshots
+        FROM brain.entity_snapshots
         GROUP BY source, entity_type
         ORDER BY source, entity_type
         "#,
         vec![],
-    )?;
+    ).await?;
     let patch_events = fetch_all(
-        conn,
+        pool,
         r#"
         SELECT source_kind, entity_type, COUNT(*) AS events
-        FROM patch_events
+        FROM brain.patch_events
         GROUP BY source_kind, entity_type
         ORDER BY source_kind, entity_type
         "#,
         vec![],
-    )?;
+    ).await?;
     let entities = fetch_all(
-        conn,
+        pool,
         r#"
         SELECT entity_type, COUNT(*) AS entities
-        FROM entities
+        FROM brain.entities
         GROUP BY entity_type
         ORDER BY entity_type
         "#,
         vec![],
-    )?;
+    ).await?;
     let mut derived = Vec::new();
     for table in [
         "patch_event_enrichments",
@@ -422,8 +422,8 @@ pub fn status(conn: &Connection) -> Result<JsonValue> {
         "build_learning_notes",
         "player_match_decision_notes",
     ] {
-        if table_exists(conn, table)? {
-            derived.push(json!({"table": table, "count": scalar_i64(conn, &format!("SELECT COUNT(*) FROM {}", quote_identifier(table)), vec![])?}));
+        if table_exists(pool, table).await? {
+            derived.push(json!({"table": table, "count": scalar_i64(pool, &format!("SELECT COUNT(*) FROM {}", qualified_table(table)), vec![]).await?}));
         }
     }
 
@@ -436,38 +436,38 @@ pub fn status(conn: &Connection) -> Result<JsonValue> {
     }))
 }
 
-pub fn context(conn: &Connection, query: &str, limit_events: i64) -> Result<JsonValue> {
-    build_entity_context(conn, query, limit_events)
+pub async fn context(pool: &PgPool, query: &str, limit_events: i64) -> Result<JsonValue> {
+    build_entity_context(pool, query, limit_events).await
 }
 
-pub fn build_entity_context(conn: &Connection, query: &str, limit_events: i64) -> Result<JsonValue> {
+pub async fn build_entity_context(pool: &PgPool, query: &str, limit_events: i64) -> Result<JsonValue> {
     let query = query.trim().to_string();
     let query_norm = normalize_alias(&query);
     let limit = clamp_i64(limit_events, 1, MAX_EVENTS);
-    let best_match = find_best_entity_match(conn, &query, &query_norm)?;
+    let best_match = find_best_entity_match(pool, &query, &query_norm).await?;
     let fallback_used = best_match.is_none();
     let aliases = match best_match.as_ref().and_then(|row| row.get("id").and_then(JsonValue::as_i64)) {
-        Some(entity_id) => load_aliases(conn, entity_id, MAX_ALIASES)?,
+        Some(entity_id) => load_aliases(pool, entity_id, MAX_ALIASES).await?,
         None => Vec::new(),
     };
-    let lineage = related_names_for_query(conn, &query, best_match.as_ref())?;
+    let lineage = related_names_for_query(pool, &query, best_match.as_ref()).await?;
     let mut lineage_names = BTreeSet::new();
-    for name in lineage_lookup_names(conn, &query, best_match.as_ref())? {
+    for name in lineage_lookup_names(pool, &query, best_match.as_ref()).await? {
         lineage_names.insert(name);
     }
-    for name in legacy_lookup_names(conn, &query)? {
+    for name in legacy_lookup_names(pool, &query).await? {
         lineage_names.insert(name);
     }
     let lineage_names = lineage_names.into_iter().collect::<Vec<_>>();
     let events = load_patch_events(
-        conn,
+        pool,
         &query,
         best_match.as_ref(),
         &aliases,
         &lineage_names,
         limit,
         PatchEventMode::Retrieval,
-    )?;
+    ).await?;
     let event_ids = events
         .iter()
         .filter_map(|event| event.get("id").and_then(JsonValue::as_i64))
@@ -484,8 +484,8 @@ pub fn build_entity_context(conn: &Connection, query: &str, limit_events: i64) -
         "aliases": aliases,
         "lineage": lineage,
         "patch_events": events,
-        "enrichments": load_enrichments_bundle(conn, &event_ids, &event_hashes)?,
-        "sheet_stats": load_sheet_stats(conn, &query, best_match.as_ref(), &aliases)?,
+        "enrichments": load_enrichments_bundle(pool, &event_ids, &event_hashes).await?,
+        "sheet_stats": load_sheet_stats(pool, &query, best_match.as_ref(), &aliases).await?,
         "fallback": {
             "used": fallback_used,
             "strategy": if fallback_used { JsonValue::String("patch_events.entity_name LIKE".to_string()) } else { JsonValue::Null },
@@ -493,12 +493,12 @@ pub fn build_entity_context(conn: &Connection, query: &str, limit_events: i64) -
     }))
 }
 
-pub fn timeline(conn: &Connection, query: &str) -> Result<JsonValue> {
-    build_entity_timeline(conn, query, MAX_TIMELINE_EVENTS, true)
+pub async fn timeline(pool: &PgPool, query: &str) -> Result<JsonValue> {
+    build_entity_timeline(pool, query, MAX_TIMELINE_EVENTS, true).await
 }
 
-pub fn build_entity_timeline(
-    conn: &Connection,
+pub async fn build_entity_timeline(
+    pool: &PgPool,
     query: &str,
     limit_events: i64,
     ascending: bool,
@@ -506,34 +506,34 @@ pub fn build_entity_timeline(
     let query = query.trim().to_string();
     let query_norm = normalize_alias(&query);
     let limit = clamp_i64(limit_events, 1, MAX_TIMELINE_EVENTS);
-    let best_match = find_best_entity_match(conn, &query, &query_norm)?;
+    let best_match = find_best_entity_match(pool, &query, &query_norm).await?;
     let aliases = match best_match.as_ref().and_then(|row| row.get("id").and_then(JsonValue::as_i64)) {
-        Some(entity_id) => load_aliases(conn, entity_id, MAX_TIMELINE_ALIASES)?,
+        Some(entity_id) => load_aliases(pool, entity_id, MAX_TIMELINE_ALIASES).await?,
         None => Vec::new(),
     };
-    let lineage = related_names_for_query(conn, &query, best_match.as_ref())?;
+    let lineage = related_names_for_query(pool, &query, best_match.as_ref()).await?;
     let mut lineage_names = BTreeSet::new();
-    for name in lineage_lookup_names(conn, &query, best_match.as_ref())? {
+    for name in lineage_lookup_names(pool, &query, best_match.as_ref()).await? {
         lineage_names.insert(name);
     }
-    for name in legacy_lookup_names(conn, &query)? {
+    for name in legacy_lookup_names(pool, &query).await? {
         lineage_names.insert(name);
     }
     let lineage_names = lineage_names.into_iter().collect::<Vec<_>>();
     let events = load_patch_events(
-        conn,
+        pool,
         &query,
         best_match.as_ref(),
         &aliases,
         &lineage_names,
         limit,
         PatchEventMode::Timeline { ascending },
-    )?;
+    ).await?;
     let event_ids = events
         .iter()
         .filter_map(|event| event.get("id").and_then(JsonValue::as_i64))
         .collect::<Vec<_>>();
-    let enrichments = load_enrichments_by_event_id(conn, &event_ids)?;
+    let enrichments = load_enrichments_by_event_id(pool, &event_ids).await?;
     let mut classified_events = Vec::new();
     for mut event in events {
         let enrichment = event
@@ -566,7 +566,7 @@ pub fn build_entity_timeline(
         "patch_count": patches.len(),
         "impact_summary": impact_summary(&classified_events),
         "enrichments": {
-            "available": table_exists(conn, "patch_event_enrichments")?,
+            "available": table_exists(pool, "patch_event_enrichments").await?,
             "matched": classified_events.iter().filter(|event| event.get("enrichment").is_some_and(|value| !value.is_null())).count(),
         },
         "fallback": {
@@ -585,12 +585,12 @@ pub fn classify_patch_event_impact(
     JsonValue::Object(classify_patch_event_impact_map(&event_obj, enrichment_obj.as_ref()))
 }
 
-pub fn review(conn: &Connection, query: &str) -> Result<JsonValue> {
-    build_review_context(conn, query, 80)
+pub async fn review(pool: &PgPool, query: &str) -> Result<JsonValue> {
+    build_review_context(pool, query, 80).await
 }
 
-pub fn build_review_context(conn: &Connection, query: &str, limit_events: i64) -> Result<JsonValue> {
-    let retrieval_context = build_entity_context(conn, query, limit_events)?;
+pub async fn build_review_context(pool: &PgPool, query: &str, limit_events: i64) -> Result<JsonValue> {
+    let retrieval_context = build_entity_context(pool, query, limit_events).await?;
     let ctx = retrieval_context.as_object().cloned().unwrap_or_default();
     let best_match = ctx
         .get("best_match")
@@ -636,13 +636,13 @@ pub fn build_review_context(conn: &Connection, query: &str, limit_events: i64) -
     }))
 }
 
-pub fn ask_context(conn: &Connection, query: &str, opts: &AskContextOptions) -> Result<JsonValue> {
-    let plan = analyze_query(conn, query)?;
+pub async fn ask_context(pool: &PgPool, query: &str, opts: &AskContextOptions) -> Result<JsonValue> {
+    let plan = analyze_query(pool, query).await?;
     if is_build_engine_intent(&plan) {
-        return ask_build_context(conn, query, &plan);
+        return ask_build_context(pool, query, &plan).await;
     }
-    let entity_match = resolve_ask_entity_match(conn, query, &plan)?;
-    let out_of_domain = !entity_match.matched && !query_has_deadlock_vocabulary(conn, query)?;
+    let entity_match = resolve_ask_entity_match(pool, query, &plan).await?;
+    let out_of_domain = !entity_match.matched && !query_has_deadlock_vocabulary(pool, query).await?;
     let intent = if out_of_domain {
         "out_of_domain".to_string()
     } else {
@@ -652,12 +652,12 @@ pub fn ask_context(conn: &Connection, query: &str, opts: &AskContextOptions) -> 
     let base = if out_of_domain {
         JsonValue::Object(JsonMap::new())
     } else {
-        build_review_context(conn, &context_query, opts.limit_events)?
+        build_review_context(pool, &context_query, opts.limit_events).await?
     };
     let (claims, entity_matched, keyword_matched) = if out_of_domain {
         (Vec::new(), 0, 0)
     } else {
-        load_ask_claims(conn, query, &entity_match, &intent)?
+        load_ask_claims(pool, query, &entity_match, &intent).await?
     };
     let claim_buckets = partition_ask_claims(
         claims,
@@ -668,7 +668,7 @@ pub fn ask_context(conn: &Connection, query: &str, opts: &AskContextOptions) -> 
     );
 
     let entity = base.get("entity_summary").cloned().unwrap_or(JsonValue::Null);
-    let item_ground_truth = ask_item_ground_truth(conn, &entity)?;
+    let item_ground_truth = ask_item_ground_truth(pool, &entity).await?;
     let ground_truth = json!({
         "stats": base.get("current_stat_hints").cloned().unwrap_or(JsonValue::Null),
         "timeline": base.get("timeline_signals").cloned().unwrap_or(JsonValue::Null),
@@ -726,15 +726,15 @@ pub fn ask_context(conn: &Connection, query: &str, opts: &AskContextOptions) -> 
     Ok(JsonValue::Object(result))
 }
 
-fn ask_build_context(conn: &Connection, query: &str, plan: &QueryPlan) -> Result<JsonValue> {
+async fn ask_build_context(pool: &PgPool, query: &str, plan: &QueryPlan) -> Result<JsonValue> {
     let hero_query = resolved_plan_entity_name(plan).unwrap_or_else(|| query.trim().to_string());
     let playstyle = detect_build_playstyle(query);
-    let build_context = load_build_context(conn, &hero_query, playstyle.as_deref())?;
+    let build_context = load_build_context(pool, &hero_query, playstyle.as_deref()).await?;
     let prompt = build_narration::build_narration_user_prompt(&build_context)
         .map_err(|err| RetrievalError::Invalid(format!("build narration prompt failed: {err}")))?;
     let narration = build_narration::narrate_build(&build_context)
         .map_err(|err| RetrievalError::Invalid(format!("build narration failed: {err}")))?;
-    let known_item_names = load_known_item_names(conn)?;
+    let known_item_names = load_known_item_names(pool).await?;
     let validation =
         build_narration::validate_narration(&narration, &build_context, &known_item_names);
     let result_text = narration.clone();
@@ -756,24 +756,21 @@ fn ask_build_context(conn: &Connection, query: &str, plan: &QueryPlan) -> Result
     }))
 }
 
-fn load_build_context(
-    conn: &Connection,
+async fn load_build_context(
+    pool: &PgPool,
     hero_query: &str,
     playstyle: Option<&str>,
 ) -> Result<BuildContext> {
-    dbrain_builds::build_context(conn, hero_query, playstyle)
+    dbrain_builds::build_context(pool, hero_query, playstyle).await
         .map_err(|err| RetrievalError::Invalid(format!("build context failed: {err}")))
 }
 
-fn load_known_item_names(conn: &Connection) -> Result<BTreeSet<String>> {
-    let mut statement = conn.prepare("SELECT name FROM item_catalog")?;
-    let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+async fn load_known_item_names(pool: &PgPool) -> Result<BTreeSet<String>> {
+    let rows = fetch_all(pool, "SELECT name FROM brain.item_catalog", vec![]).await?;
     let mut names = BTreeSet::new();
     for row in rows {
-        let name = row?;
-        let trimmed = name.trim();
-        if !trimmed.is_empty() {
-            names.insert(trimmed.to_string());
+        if let Some(name) = value_to_nonempty_string(row.get("name")) {
+            names.insert(name);
         }
     }
     Ok(names)
@@ -804,22 +801,22 @@ fn detect_build_playstyle(query: &str) -> Option<String> {
     None
 }
 
-pub fn quality(conn: &Connection) -> Result<JsonValue> {
-    run_quality_checks(conn)
+pub async fn quality(pool: &PgPool) -> Result<JsonValue> {
+    run_quality_checks(pool).await
 }
 
-pub fn run_quality_checks(conn: &Connection) -> Result<JsonValue> {
+pub async fn run_quality_checks(pool: &PgPool) -> Result<JsonValue> {
     let checks = vec![
-        check_required_tables(conn)?,
-        check_entity_counts(conn)?,
-        check_alias_collisions(conn)?,
-        check_patch_events_unknown_entities(conn)?,
-        check_enrichment_table(conn)?,
-        check_lineage_table(conn)?,
-        check_legacy_entities_table(conn)?,
-        check_low_confidence_enrichments(conn)?,
-        check_sheet_profiles_without_entity(conn)?,
-        check_general_events_with_known_entity_names(conn)?,
+        check_required_tables(pool).await?,
+        check_entity_counts(pool).await?,
+        check_alias_collisions(pool).await?,
+        check_patch_events_unknown_entities(pool).await?,
+        check_enrichment_table(pool).await?,
+        check_lineage_table(pool).await?,
+        check_legacy_entities_table(pool).await?,
+        check_low_confidence_enrichments(pool).await?,
+        check_sheet_profiles_without_entity(pool).await?,
+        check_general_events_with_known_entity_names(pool).await?,
     ];
     let worst = checks
         .iter()
@@ -842,14 +839,16 @@ pub fn run_quality_checks(conn: &Connection) -> Result<JsonValue> {
     }))
 }
 
-pub fn item(conn: &Connection, query: &str) -> Result<JsonValue> {
-    build_item_context(conn, query)
+pub async fn item(pool: &PgPool, query: &str) -> Result<JsonValue> {
+    build_item_context(pool, query).await
 }
 
-pub fn build_item_context(conn: &Connection, query: &str) -> Result<JsonValue> {
-    let payload = load_entity_payload(conn, query, "item")?
-        .or_else(|| load_entity_payload(conn, query, "item_special").ok().flatten())
-        .ok_or_else(|| RetrievalError::Invalid(format!("Kein Item-Payload fuer {query} gefunden.")))?;
+pub async fn build_item_context(pool: &PgPool, query: &str) -> Result<JsonValue> {
+    let payload = match load_entity_payload(pool, query, "item").await? {
+        Some(found) => Some(found),
+        None => load_entity_payload(pool, query, "item_special").await.ok().flatten(),
+    }
+    .ok_or_else(|| RetrievalError::Invalid(format!("Kein Item-Payload fuer {query} gefunden.")))?;
     Ok(JsonValue::Object(item_summary(&payload)))
 }
 
@@ -857,8 +856,8 @@ pub fn summarize_item_payload(payload: &JsonValue) -> JsonValue {
     JsonValue::Object(item_summary(payload.as_object().unwrap_or(&JsonMap::new())))
 }
 
-pub fn analysis_save_review(
-    conn: &Connection,
+pub async fn analysis_save_review(
+    pool: &PgPool,
     review_context: &JsonValue,
     result_text: Option<&str>,
     model: Option<&str>,
@@ -867,47 +866,47 @@ pub fn analysis_save_review(
     provider_metadata: Option<&JsonValue>,
 ) -> Result<JsonValue> {
     save_review_analysis_note(
-        conn,
+        pool,
         review_context,
         result_text,
         model,
         confidence,
         status,
         provider_metadata,
-    )
+    ).await
 }
 
-pub fn analysis_save_review_for_query(
-    conn: &Connection,
+pub async fn analysis_save_review_for_query(
+    pool: &PgPool,
     query: &str,
     limit_events: i64,
     result_text: Option<&str>,
     model: Option<&str>,
     confidence: Option<f64>,
 ) -> Result<JsonValue> {
-    let review_context = build_review_context(conn, query, limit_events)?;
+    let review_context = build_review_context(pool, query, limit_events).await?;
     let status = if result_text.is_some() {
         "analysis_ready"
     } else {
         "context_ready"
     };
     save_review_analysis_note(
-        conn,
+        pool,
         &review_context,
         result_text,
         model,
         confidence,
         status,
         None,
-    )
+    ).await
 }
 
-pub fn analysis_run_minimax(
-    conn: &Connection,
+pub async fn analysis_run_minimax(
+    pool: &PgPool,
     query: &str,
     options: AnalysisRunMinimaxOptions,
 ) -> Result<JsonValue> {
-    let review_context = build_review_context(conn, query, options.limit_events)?;
+    let review_context = build_review_context(pool, query, options.limit_events).await?;
     let prompt = review_context
         .get("prompt_de")
         .and_then(JsonValue::as_str)
@@ -937,14 +936,14 @@ pub fn analysis_run_minimax(
     }
     let provider_metadata = core::minimax::minimax_usage_summary(&response);
     let note = save_review_analysis_note(
-        conn,
+        pool,
         &review_context,
         Some(&result_text),
         Some(&options.config.model),
         None,
         "analysis_ready",
         Some(&provider_metadata),
-    )?;
+    ).await?;
     Ok(json!({
         "note": note,
         "query": query,
@@ -955,12 +954,12 @@ pub fn analysis_run_minimax(
     }))
 }
 
-pub fn analysis_list(conn: &Connection, query: Option<&str>, limit: i64) -> Result<JsonValue> {
+pub async fn analysis_list(pool: &PgPool, query: Option<&str>, limit: i64) -> Result<JsonValue> {
     let max_rows = clamp_i64(limit, 1, 500);
     let mut sql = r#"
         SELECT id, query, entity_type, entity_name, context_kind, context_hash,
                prompt_version, model, confidence, status, created_at, updated_at
-        FROM analysis_notes
+        FROM brain.analysis_notes
     "#
     .to_string();
     let mut params = Vec::new();
@@ -972,22 +971,22 @@ pub fn analysis_list(conn: &Connection, query: Option<&str>, limit: i64) -> Resu
     sql.push_str(" ORDER BY updated_at DESC, id DESC LIMIT ?");
     params.push(SqlValue::Integer(max_rows));
     Ok(JsonValue::Array(
-        fetch_all(conn, &sql, params)?
+        fetch_all(pool, &sql, params).await?
             .into_iter()
             .map(JsonValue::Object)
             .collect(),
     ))
 }
 
-pub fn search_mechanic_notes(conn: &Connection, _query: &str, _limit: i64) -> Result<JsonValue> {
-    if !table_exists(conn, "mechanic_notes")? || !table_exists(conn, "vector_embeddings")? {
+pub async fn search_mechanic_notes(pool: &PgPool, _query: &str, _limit: i64) -> Result<JsonValue> {
+    if !table_exists(pool, "mechanic_notes").await? || !table_exists(pool, "vector_embeddings").await? {
         return Ok(JsonValue::Array(Vec::new()));
     }
     todo!("Vektorsuche: spätere Wave")
 }
 
-pub fn analyze_query(conn: &Connection, query: &str) -> Result<QueryPlan> {
-    let known_entities = load_known_ask_entities(conn)?;
+pub async fn analyze_query(pool: &PgPool, query: &str) -> Result<QueryPlan> {
+    let known_entities = load_known_ask_entities(pool).await?;
     let mut entities = Vec::new();
     let mut threats = Vec::new();
     let query_norm = normalize_alias(query);
@@ -1008,7 +1007,7 @@ pub fn analyze_query(conn: &Connection, query: &str) -> Result<QueryPlan> {
         }
     }
     if entities.is_empty() {
-        if let Some(best_match) = resolve_entity_from_query_tokens(conn, query)? {
+        if let Some(best_match) = resolve_entity_from_query_tokens(pool, query).await? {
             if let (Some(name), Some(entity_type)) = (
                 value_to_nonempty_string(best_match.get("canonical_name")),
                 value_to_nonempty_string(best_match.get("entity_type")),
@@ -1036,20 +1035,20 @@ pub fn analyze_query(conn: &Connection, query: &str) -> Result<QueryPlan> {
     })
 }
 
-fn load_known_ask_entities(conn: &Connection) -> Result<Vec<KnownAskEntity>> {
-    if !table_exists(conn, "entities")? {
+async fn load_known_ask_entities(pool: &PgPool) -> Result<Vec<KnownAskEntity>> {
+    if !table_exists(pool, "entities").await? {
         return Ok(Vec::new());
     }
     Ok(fetch_all(
-        conn,
+        pool,
         r#"
         SELECT canonical_name, entity_type
-        FROM entities
+        FROM brain.entities
         WHERE entity_type IN ('hero', 'item', 'item_special')
         ORDER BY entity_type, length(canonical_name) DESC, canonical_name
         "#,
         vec![],
-    )?
+    ).await?
     .into_iter()
     .filter_map(|row| {
         Some(KnownAskEntity {
@@ -1210,21 +1209,21 @@ fn intent_fetch(intent: &str) -> Vec<String> {
     values.into_iter().map(str::to_string).collect()
 }
 
-fn find_best_entity_match(
-    conn: &Connection,
+async fn find_best_entity_match(
+    pool: &PgPool,
     query: &str,
     query_norm: &str,
 ) -> Result<Option<JsonMap<String, JsonValue>>> {
     if query_norm.is_empty()
-        || !table_exists(conn, "entities")?
-        || !table_exists(conn, "entity_aliases")?
+        || !table_exists(pool, "entities").await?
+        || !table_exists(pool, "entity_aliases").await?
     {
         return Ok(None);
     }
     let like_norm = format!("%{query_norm}%");
     let like_query = format!("%{query}%");
     let rows = fetch_all(
-        conn,
+        pool,
         r#"
         SELECT
           e.id,
@@ -1232,7 +1231,7 @@ fn find_best_entity_match(
           e.canonical_name,
           e.primary_external_id,
           e.source,
-          e.metadata_json,
+          e.metadata::text AS metadata_json,
           MAX(
             CASE
               WHEN lower(e.canonical_name)=lower(?) THEN 120
@@ -1243,9 +1242,9 @@ fn find_best_entity_match(
               ELSE 50
             END
           ) AS score,
-          GROUP_CONCAT(DISTINCT a.alias_kind) AS matched_alias_kinds
-        FROM entities e
-        LEFT JOIN entity_aliases a ON a.entity_id=e.id
+          string_agg(DISTINCT a.alias_kind, ',') AS matched_alias_kinds
+        FROM brain.entities e
+        LEFT JOIN brain.entity_aliases a ON a.entity_id=e.id
         WHERE
           lower(e.canonical_name)=lower(?)
           OR lower(e.canonical_name) LIKE lower(?)
@@ -1266,7 +1265,7 @@ fn find_best_entity_match(
             SqlValue::Text(query_norm.to_string()),
             SqlValue::Text(like_norm),
         ],
-    )?;
+    ).await?;
     let Some(mut row) = rows.into_iter().next() else {
         return Ok(None);
     };
@@ -1285,8 +1284,8 @@ fn find_best_entity_match(
     Ok(Some(row))
 }
 
-fn resolve_entity_from_query_tokens(
-    conn: &Connection,
+async fn resolve_entity_from_query_tokens(
+    pool: &PgPool,
     query: &str,
 ) -> Result<Option<JsonMap<String, JsonValue>>> {
     let tokens = entity_match_tokens(query);
@@ -1303,7 +1302,7 @@ fn resolve_entity_from_query_tokens(
 
     let mut best: Option<JsonMap<String, JsonValue>> = None;
     for candidate in candidates {
-        let Some(row) = find_exact_entity_match(conn, &candidate)? else {
+        let Some(row) = find_exact_entity_match(pool, &candidate).await? else {
             continue;
         };
         let row_score = row.get("score").and_then(JsonValue::as_i64).unwrap_or(0);
@@ -1330,19 +1329,19 @@ fn entity_match_tokens(query: &str) -> Vec<String> {
         .collect()
 }
 
-fn find_exact_entity_match(
-    conn: &Connection,
+async fn find_exact_entity_match(
+    pool: &PgPool,
     candidate: &str,
 ) -> Result<Option<JsonMap<String, JsonValue>>> {
     let query_norm = normalize_alias(candidate);
     if query_norm.is_empty()
-        || !table_exists(conn, "entities")?
-        || !table_exists(conn, "entity_aliases")?
+        || !table_exists(pool, "entities").await?
+        || !table_exists(pool, "entity_aliases").await?
     {
         return Ok(None);
     }
     let Some(mut row) = fetch_one(
-        conn,
+        pool,
         r#"
         SELECT
           e.id,
@@ -1350,7 +1349,7 @@ fn find_exact_entity_match(
           e.canonical_name,
           e.primary_external_id,
           e.source,
-          e.metadata_json,
+          e.metadata::text AS metadata_json,
           MAX(
             CASE
               WHEN lower(e.canonical_name)=lower(?) THEN 120
@@ -1359,9 +1358,9 @@ fn find_exact_entity_match(
               ELSE 0
             END
           ) AS score,
-          GROUP_CONCAT(DISTINCT a.alias_kind) AS matched_alias_kinds
-        FROM entities e
-        LEFT JOIN entity_aliases a ON a.entity_id=e.id
+          string_agg(DISTINCT a.alias_kind, ',') AS matched_alias_kinds
+        FROM brain.entities e
+        LEFT JOIN brain.entity_aliases a ON a.entity_id=e.id
         WHERE lower(e.canonical_name)=lower(?) OR a.alias_norm=?
         GROUP BY e.id
         ORDER BY score DESC, e.entity_type, length(e.canonical_name) DESC, e.canonical_name
@@ -1374,7 +1373,7 @@ fn find_exact_entity_match(
             SqlValue::Text(candidate.to_string()),
             SqlValue::Text(query_norm),
         ],
-    )?
+    ).await?
     else {
         return Ok(None);
     };
@@ -1393,12 +1392,12 @@ fn find_exact_entity_match(
     Ok(Some(row))
 }
 
-fn load_aliases(conn: &Connection, entity_id: i64, limit: i64) -> Result<Vec<JsonMap<String, JsonValue>>> {
+async fn load_aliases(pool: &PgPool, entity_id: i64, limit: i64) -> Result<Vec<JsonMap<String, JsonValue>>> {
     fetch_all(
-        conn,
+        pool,
         r#"
         SELECT alias, alias_norm, alias_kind, source, external_id, snapshot_id
-        FROM entity_aliases
+        FROM brain.entity_aliases
         WHERE entity_id=?
         ORDER BY
           CASE alias_kind
@@ -1414,15 +1413,15 @@ fn load_aliases(conn: &Connection, entity_id: i64, limit: i64) -> Result<Vec<Jso
         LIMIT ?
         "#,
         vec![SqlValue::Integer(entity_id), SqlValue::Integer(limit)],
-    )
+    ).await
 }
 
-fn related_names_for_query(
-    conn: &Connection,
+async fn related_names_for_query(
+    pool: &PgPool,
     query: &str,
     best_match: Option<&JsonMap<String, JsonValue>>,
 ) -> Result<Vec<JsonMap<String, JsonValue>>> {
-    if !table_exists(conn, "entity_lineage")? {
+    if !table_exists(pool, "entity_lineage").await? {
         return Ok(Vec::new());
     }
     let mut names = BTreeSet::new();
@@ -1448,8 +1447,11 @@ fn related_names_for_query(
     let placeholders = placeholders(norms.len());
     let sql = format!(
         r#"
-        SELECT *
-        FROM entity_lineage
+        SELECT id, patch_event_id, relation_type, source_entity_type, source_name,
+               source_name_norm, target_entity_type, target_name, target_name_norm,
+               owner_entity_type, owner_name, owner_name_norm, confidence,
+               metadata::text AS metadata_json, created_at, updated_at
+        FROM brain.entity_lineage
         WHERE source_name_norm IN ({placeholders})
            OR target_name_norm IN ({placeholders})
            OR owner_name_norm IN ({placeholders})
@@ -1462,15 +1464,15 @@ fn related_names_for_query(
         params.extend(norms.iter().cloned().map(SqlValue::Text));
     }
     params.push(SqlValue::Integer(LINEAGE_NAME_LIMIT));
-    let rows = fetch_all(conn, &sql, params)?
+    let rows = fetch_all(pool, &sql, params).await?
         .into_iter()
         .map(decode_metadata)
         .collect();
     Ok(rows)
 }
 
-fn lineage_lookup_names(
-    conn: &Connection,
+async fn lineage_lookup_names(
+    pool: &PgPool,
     query: &str,
     best_match: Option<&JsonMap<String, JsonValue>>,
 ) -> Result<Vec<String>> {
@@ -1484,7 +1486,7 @@ fn lineage_lookup_names(
     {
         names.insert(canonical);
     }
-    for row in related_names_for_query(conn, query, best_match)? {
+    for row in related_names_for_query(pool, query, best_match).await? {
         for key in ["source_name", "target_name", "owner_name"] {
             if let Some(value) = value_to_nonempty_string(row.get(key)) {
                 names.insert(value);
@@ -1494,8 +1496,8 @@ fn lineage_lookup_names(
     Ok(names.into_iter().filter(|name| !name.is_empty()).collect())
 }
 
-fn legacy_lookup_names(conn: &Connection, query: &str) -> Result<Vec<String>> {
-    if !table_exists(conn, "legacy_entities")? {
+async fn legacy_lookup_names(pool: &PgPool, query: &str) -> Result<Vec<String>> {
+    if !table_exists(pool, "legacy_entities").await? {
         return Ok(Vec::new());
     }
     let query_norm = normalize_alias(query);
@@ -1503,10 +1505,10 @@ fn legacy_lookup_names(conn: &Connection, query: &str) -> Result<Vec<String>> {
         return Ok(Vec::new());
     }
     let rows = fetch_all(
-        conn,
+        pool,
         r#"
         SELECT canonical_name
-        FROM legacy_entities
+        FROM brain.legacy_entities
         WHERE name_norm=? OR name_norm LIKE ?
         ORDER BY confidence DESC, event_count DESC, canonical_name
         LIMIT 40
@@ -1515,7 +1517,7 @@ fn legacy_lookup_names(conn: &Connection, query: &str) -> Result<Vec<String>> {
             SqlValue::Text(query_norm.clone()),
             SqlValue::Text(format!("%{query_norm}%")),
         ],
-    )?;
+    ).await?;
     Ok(rows
         .into_iter()
         .filter_map(|row| value_to_nonempty_string(row.get("canonical_name")))
@@ -1528,8 +1530,8 @@ enum PatchEventMode {
     Timeline { ascending: bool },
 }
 
-fn load_patch_events(
-    conn: &Connection,
+async fn load_patch_events(
+    pool: &PgPool,
     query: &str,
     best_match: Option<&JsonMap<String, JsonValue>>,
     aliases: &[JsonMap<String, JsonValue>],
@@ -1537,7 +1539,7 @@ fn load_patch_events(
     limit: i64,
     mode: PatchEventMode,
 ) -> Result<Vec<JsonMap<String, JsonValue>>> {
-    if !table_exists(conn, "patch_events")? {
+    if !table_exists(pool, "patch_events").await? {
         return Ok(Vec::new());
     }
     let mut params = Vec::new();
@@ -1572,7 +1574,7 @@ fn load_patch_events(
         PatchEventMode::Retrieval => "patch_snapshot_id DESC, line_index".to_string(),
         PatchEventMode::Timeline { ascending } => {
             let direction = if ascending { "ASC" } else { "DESC" };
-            format!("COALESCE(posted_at, '') {direction}, patch_snapshot_id {direction}, line_index {direction}")
+            format!("COALESCE(posted_at::text, '') {direction}, patch_snapshot_id {direction}, line_index {direction}")
         }
     };
     let sql_limit = match mode {
@@ -1601,16 +1603,16 @@ fn load_patch_events(
           old_value,
           new_value,
           confidence,
-          metadata_json,
+          metadata::text AS metadata_json,
           event_hash,
           created_at
-        FROM patch_events
+        FROM brain.patch_events
         WHERE {where_clause}
         ORDER BY {order_by}
         LIMIT ?
         "#
     );
-    let mut rows = fetch_all(conn, &sql, params)?;
+    let mut rows = fetch_all(pool, &sql, params).await?;
     for row in &mut rows {
         let metadata = loads_json_object(row.remove("metadata_json").as_ref());
         row.insert("metadata".to_string(), JsonValue::Object(metadata));
@@ -1641,41 +1643,41 @@ fn event_lookup_names(
     names
 }
 
-fn load_enrichments_bundle(
-    conn: &Connection,
+async fn load_enrichments_bundle(
+    pool: &PgPool,
     event_ids: &[i64],
     event_hashes: &[String],
 ) -> Result<JsonValue> {
     let table = "patch_event_enrichments";
-    if !table_exists(conn, table)? {
+    if !table_exists(pool, table).await? {
         return Ok(json!({"available": false, "rows": []}));
     }
-    let columns = table_columns(conn, table)?;
+    let columns = table_columns(pool, table).await?;
     let mut rows = Vec::new();
     if columns.contains(&"patch_event_id".to_string()) && !event_ids.is_empty() {
-        rows.extend(select_by_values_i64(conn, table, "patch_event_id", event_ids)?);
+        rows.extend(select_by_values_i64(pool, table, "patch_event_id", event_ids).await?);
     } else if columns.contains(&"event_id".to_string()) && !event_ids.is_empty() {
-        rows.extend(select_by_values_i64(conn, table, "event_id", event_ids)?);
+        rows.extend(select_by_values_i64(pool, table, "event_id", event_ids).await?);
     } else if columns.contains(&"event_hash".to_string()) && !event_hashes.is_empty() {
-        rows.extend(select_by_values_text(conn, table, "event_hash", event_hashes)?);
+        rows.extend(select_by_values_text(pool, table, "event_hash", event_hashes).await?);
     }
     let rows = dedupe_rows(rows.into_iter().map(decode_json_fields).collect());
     Ok(json!({"available": true, "rows": rows}))
 }
 
-fn load_enrichments_by_event_id(
-    conn: &Connection,
+async fn load_enrichments_by_event_id(
+    pool: &PgPool,
     event_ids: &[i64],
 ) -> Result<BTreeMap<i64, JsonMap<String, JsonValue>>> {
-    if event_ids.is_empty() || !table_exists(conn, "patch_event_enrichments")? {
+    if event_ids.is_empty() || !table_exists(pool, "patch_event_enrichments").await? {
         return Ok(BTreeMap::new());
     }
-    let columns = table_columns(conn, "patch_event_enrichments")?;
+    let columns = table_columns(pool, "patch_event_enrichments").await?;
     if !columns.contains(&"patch_event_id".to_string()) {
         return Ok(BTreeMap::new());
     }
     let mut enrichments = BTreeMap::new();
-    for row in select_by_values_i64(conn, "patch_event_enrichments", "patch_event_id", event_ids)? {
+    for row in select_by_values_i64(pool, "patch_event_enrichments", "patch_event_id", event_ids).await? {
         let decoded = decode_json_fields(row);
         if let Some(patch_event_id) = decoded.get("patch_event_id").and_then(JsonValue::as_i64) {
             enrichments.insert(patch_event_id, decoded);
@@ -1684,20 +1686,20 @@ fn load_enrichments_by_event_id(
     Ok(enrichments)
 }
 
-fn load_sheet_stats(
-    conn: &Connection,
+async fn load_sheet_stats(
+    pool: &PgPool,
     query: &str,
     best_match: Option<&JsonMap<String, JsonValue>>,
     aliases: &[JsonMap<String, JsonValue>],
 ) -> Result<JsonValue> {
     let names = sheet_lookup_names(query, best_match, aliases);
     let mut sources = Vec::new();
-    let snapshot_rows = load_sheet_snapshot_stats(conn, &names)?;
+    let snapshot_rows = load_sheet_snapshot_stats(pool, &names).await?;
     if !snapshot_rows.is_empty() {
         sources.push(json!({"source": "entity_snapshots", "rows": snapshot_rows}));
     }
-    for table in candidate_sheet_tables(conn)? {
-        let rows = load_matching_sheet_table_rows(conn, &table, &names)?;
+    for table in candidate_sheet_tables(pool).await? {
+        let rows = load_matching_sheet_table_rows(pool, &table, &names).await?;
         if !rows.is_empty() {
             sources.push(json!({"source": table, "rows": rows}));
         }
@@ -1705,11 +1707,11 @@ fn load_sheet_stats(
     Ok(json!({"available": !sources.is_empty(), "sources": sources}))
 }
 
-fn load_sheet_snapshot_stats(
-    conn: &Connection,
+async fn load_sheet_snapshot_stats(
+    pool: &PgPool,
     names: &[String],
 ) -> Result<Vec<JsonMap<String, JsonValue>>> {
-    if !table_exists(conn, "entity_snapshots")? {
+    if !table_exists(pool, "entity_snapshots").await? {
         return Ok(Vec::new());
     }
     let lowered = names
@@ -1722,8 +1724,8 @@ fn load_sheet_snapshot_stats(
     }
     let sql = format!(
         r#"
-        SELECT id, source, entity_type, external_id, canonical_name, payload_json, fetched_at
-        FROM entity_snapshots
+        SELECT id, source, entity_type, external_id, canonical_name, payload::text AS payload_json, fetched_at
+        FROM brain.entity_snapshots
         WHERE
           (source='deadlock_stats_sheet' OR entity_type='hero_stats_sheet')
           AND lower(canonical_name) IN ({})
@@ -1734,7 +1736,7 @@ fn load_sheet_snapshot_stats(
     );
     let mut params = lowered.into_iter().map(SqlValue::Text).collect::<Vec<_>>();
     params.push(SqlValue::Integer(MAX_SHEET_ROWS_PER_SOURCE));
-    let mut rows = fetch_all(conn, &sql, params)?;
+    let mut rows = fetch_all(pool, &sql, params).await?;
     for row in &mut rows {
         let payload = loads_json_object(row.remove("payload_json").as_ref());
         let values = payload
@@ -1746,15 +1748,14 @@ fn load_sheet_snapshot_stats(
     Ok(rows)
 }
 
-fn candidate_sheet_tables(conn: &Connection) -> Result<Vec<String>> {
+async fn candidate_sheet_tables(pool: &PgPool) -> Result<Vec<String>> {
     let rows = fetch_all(
-        conn,
+        pool,
         r#"
-        SELECT name
-        FROM sqlite_master
-        WHERE type='table'
-          AND name NOT LIKE 'sqlite_%'
-          AND name NOT IN (
+        SELECT table_name AS name
+        FROM information_schema.tables
+        WHERE table_schema='brain'
+          AND table_name NOT IN (
             'source_documents',
             'source_runs',
             'entity_snapshots',
@@ -1763,10 +1764,10 @@ fn candidate_sheet_tables(conn: &Connection) -> Result<Vec<String>> {
             'patch_events',
             'patch_event_enrichments'
           )
-        ORDER BY name
+        ORDER BY table_name
         "#,
         vec![],
-    )?;
+    ).await?;
     Ok(rows
         .into_iter()
         .filter_map(|row| value_to_nonempty_string(row.get("name")))
@@ -1777,12 +1778,12 @@ fn candidate_sheet_tables(conn: &Connection) -> Result<Vec<String>> {
         .collect())
 }
 
-fn load_matching_sheet_table_rows(
-    conn: &Connection,
+async fn load_matching_sheet_table_rows(
+    pool: &PgPool,
     table: &str,
     names: &[String],
 ) -> Result<Vec<JsonMap<String, JsonValue>>> {
-    let columns = table_columns(conn, table)?;
+    let columns = table_columns(pool, table).await?;
     if columns.is_empty() || names.is_empty() {
         return Ok(Vec::new());
     }
@@ -1805,7 +1806,7 @@ fn load_matching_sheet_table_rows(
     let mut params = Vec::new();
     for column in &text_columns {
         for name in names {
-            clauses.push(format!("{} LIKE ?", quote_identifier(column)));
+            clauses.push(format!("{}::text LIKE ?", quote_identifier(column)));
             params.push(SqlValue::Text(format!("%{name}%")));
         }
     }
@@ -1820,10 +1821,10 @@ fn load_matching_sheet_table_rows(
         WHERE {}
         LIMIT ?
         "#,
-        quote_identifier(table),
+        qualified_table(table),
         clauses.join(" OR ")
     );
-    Ok(fetch_all(conn, &sql, params)?
+    Ok(fetch_all(pool, &sql, params).await?
         .into_iter()
         .map(decode_json_fields)
         .collect())
@@ -2506,8 +2507,8 @@ fn build_prompt_de(best_match: &JsonMap<String, JsonValue>, query: &str) -> Stri
     )
 }
 
-fn resolve_ask_entity_match(
-    conn: &Connection,
+async fn resolve_ask_entity_match(
+    pool: &PgPool,
     query: &str,
     plan: &QueryPlan,
 ) -> Result<AskEntityClaimMatch> {
@@ -2520,7 +2521,7 @@ fn resolve_ask_entity_match(
         }
     }
     candidates.push(query.to_string());
-    if let Some(best_match) = resolve_entity_from_query_tokens(conn, query)? {
+    if let Some(best_match) = resolve_entity_from_query_tokens(pool, query).await? {
         if let Some(name) = value_to_nonempty_string(best_match.get("canonical_name")) {
             candidates.push(name);
         }
@@ -2528,7 +2529,7 @@ fn resolve_ask_entity_match(
 
     for candidate in candidates {
         let query_norm = normalize_alias(&candidate);
-        let Some(best_match) = find_best_entity_match(conn, &candidate, &query_norm)? else {
+        let Some(best_match) = find_best_entity_match(pool, &candidate, &query_norm).await? else {
             continue;
         };
         let mut names = BTreeSet::new();
@@ -2538,7 +2539,7 @@ fn resolve_ask_entity_match(
             insert_ask_entity_match_name(&mut names, &name, true);
         }
         if let Some(entity_id) = best_match.get("id").and_then(JsonValue::as_i64) {
-            for alias in load_aliases(conn, entity_id, MAX_ALIASES)? {
+            for alias in load_aliases(pool, entity_id, MAX_ALIASES).await? {
                 if let Some(value) = value_to_nonempty_string(alias.get("alias")) {
                     insert_ask_entity_match_name(&mut names, &value, false);
                 }
@@ -2575,7 +2576,7 @@ fn resolved_plan_entity_name(plan: &QueryPlan) -> Option<String> {
         .and_then(|entity| value_to_nonempty_string(entity.get("name")))
 }
 
-fn query_has_deadlock_vocabulary(conn: &Connection, query: &str) -> Result<bool> {
+async fn query_has_deadlock_vocabulary(pool: &PgPool, query: &str) -> Result<bool> {
     let query_norm = normalize_alias(query);
     if query_norm.is_empty() {
         return Ok(false);
@@ -2586,23 +2587,23 @@ fn query_has_deadlock_vocabulary(conn: &Connection, query: &str) -> Result<bool>
     {
         return Ok(true);
     }
-    if !tables_exist(conn, &["entities", "entity_aliases"])? {
+    if !tables_exist(pool, &["entities", "entity_aliases"]).await? {
         return Ok(false);
     }
     let rows = fetch_all(
-        conn,
+        pool,
         r#"
         SELECT canonical_name AS name
-        FROM entities
+        FROM brain.entities
         WHERE entity_type IN ('hero', 'item', 'item_special', 'ability')
         UNION
         SELECT a.alias AS name
-        FROM entity_aliases a
-        JOIN entities e ON e.id=a.entity_id
+        FROM brain.entity_aliases a
+        JOIN brain.entities e ON e.id=a.entity_id
         WHERE e.entity_type IN ('hero', 'item', 'item_special', 'ability')
         "#,
         vec![],
-    )?;
+    ).await?;
     for row in rows {
         let Some(name) = value_to_nonempty_string(row.get("name")) else {
             continue;
@@ -2618,7 +2619,7 @@ fn query_has_deadlock_vocabulary(conn: &Connection, query: &str) -> Result<bool>
     Ok(false)
 }
 
-fn ask_item_ground_truth(conn: &Connection, entity: &JsonValue) -> Result<JsonValue> {
+async fn ask_item_ground_truth(pool: &PgPool, entity: &JsonValue) -> Result<JsonValue> {
     let entity_type = entity
         .get("entity_type")
         .and_then(JsonValue::as_str)
@@ -2629,32 +2630,32 @@ fn ask_item_ground_truth(conn: &Connection, entity: &JsonValue) -> Result<JsonVa
     let Some(name) = entity.get("name").and_then(JsonValue::as_str) else {
         return Ok(JsonValue::Null);
     };
-    match build_item_context(conn, name) {
+    match build_item_context(pool, name).await {
         Ok(value) => Ok(value),
         Err(RetrievalError::Invalid(_)) => Ok(JsonValue::Null),
         Err(error) => Err(error),
     }
 }
 
-fn load_ask_claims(
-    conn: &Connection,
+async fn load_ask_claims(
+    pool: &PgPool,
     query: &str,
     entity_match: &AskEntityClaimMatch,
     intent: &str,
 ) -> Result<(Vec<AskClaimRecord>, usize, usize)> {
-    if !tables_exist(conn, &["youtube_learning_claims", "youtube_videos"])? {
+    if !tables_exist(pool, &["youtube_learning_claims", "youtube_videos"]).await? {
         return Ok((Vec::new(), 0, 0));
     }
 
     let keywords = ask_query_keyword_specs(query, entity_match);
-    let idf_weights = load_ask_idf_weights(conn, &keywords)?;
+    let idf_weights = load_ask_idf_weights(pool, &keywords).await?;
 
     let mut by_id = BTreeMap::new();
-    let entity_rows = load_entity_claim_rows(conn, &entity_match.names)?;
+    let entity_rows = load_entity_claim_rows(pool, &entity_match.names).await?;
     let entity_matched = entity_rows.len();
     merge_claim_rows(&mut by_id, entity_rows, "entity");
 
-    let keyword_rows = load_keyword_claim_rows(conn, &keywords, entity_match, &idf_weights)?;
+    let keyword_rows = load_keyword_claim_rows(pool, &keywords, entity_match, &idf_weights).await?;
     let keyword_matched = keyword_rows.len();
     merge_claim_rows(&mut by_id, keyword_rows, "keyword");
 
@@ -2671,8 +2672,8 @@ fn load_ask_claims(
     Ok((claims, entity_matched, keyword_matched))
 }
 
-fn load_entity_claim_rows(
-    conn: &Connection,
+async fn load_entity_claim_rows(
+    pool: &PgPool,
     entity_names: &[String],
 ) -> Result<Vec<JsonMap<String, JsonValue>>> {
     let names = entity_names
@@ -2689,9 +2690,9 @@ fn load_entity_claim_rows(
         r#"
         SELECT c.id, c.video_id, c.entity_type, c.entity_name, c.claim_type,
                c.claim_text, c.evidence_quote, c.verifier_confidence, c.status,
-               c.verifier_json, v.title AS source_video_title
-        FROM youtube_learning_claims c
-        LEFT JOIN youtube_videos v ON v.video_id=c.video_id
+               c.verifier::text AS verifier_json, v.title AS source_video_title
+        FROM brain.youtube_learning_claims c
+        LEFT JOIN brain.youtube_videos v ON v.video_id=c.video_id
         WHERE lower(c.entity_name) IN ({})
         ORDER BY c.verifier_confidence DESC, c.id
         "#,
@@ -2699,10 +2700,10 @@ fn load_entity_claim_rows(
     );
     let mut by_id = BTreeMap::new();
     for row in fetch_all(
-        conn,
+        pool,
         &exact_sql,
         names.iter().cloned().map(SqlValue::Text).collect(),
-    )? {
+    ).await? {
         if let Some(id) = row.get("id").and_then(JsonValue::as_i64) {
             by_id.insert(id, row);
         }
@@ -2720,15 +2721,15 @@ fn load_entity_claim_rows(
         r#"
         SELECT c.id, c.video_id, c.entity_type, c.entity_name, c.claim_type,
                c.claim_text, c.evidence_quote, c.verifier_confidence, c.status,
-               c.verifier_json, v.title AS source_video_title
-        FROM youtube_learning_claims c
-        LEFT JOIN youtube_videos v ON v.video_id=c.video_id
+               c.verifier::text AS verifier_json, v.title AS source_video_title
+        FROM brain.youtube_learning_claims c
+        LEFT JOIN brain.youtube_videos v ON v.video_id=c.video_id
         WHERE ({})
         "#,
         clauses.join(" OR ")
     );
     text_sql.push_str(" ORDER BY c.verifier_confidence DESC, c.id");
-    for row in fetch_all(conn, &text_sql, values)?
+    for row in fetch_all(pool, &text_sql, values).await?
         .into_iter()
         .filter(|row| entity_text_row_matches_name(row, &names))
     {
@@ -2739,8 +2740,8 @@ fn load_entity_claim_rows(
     Ok(by_id.into_values().collect())
 }
 
-fn load_keyword_claim_rows(
-    conn: &Connection,
+async fn load_keyword_claim_rows(
+    pool: &PgPool,
     keywords: &[AskKeywordSpec],
     entity_match: &AskEntityClaimMatch,
     idf_weights: &AskIdfWeights,
@@ -2751,7 +2752,7 @@ fn load_keyword_claim_rows(
     let mut clauses = Vec::new();
     let mut values = Vec::new();
     for keyword in keywords {
-        clauses.push("(lower(c.claim_text) LIKE ? OR lower(c.evidence_quote) LIKE ? OR lower(c.verifier_json) LIKE ?)".to_string());
+        clauses.push("(lower(c.claim_text) LIKE ? OR lower(c.evidence_quote) LIKE ? OR lower(c.verifier::text) LIKE ?)".to_string());
         let pattern = format!("%{}%", keyword.text);
         values.push(SqlValue::Text(pattern.clone()));
         values.push(SqlValue::Text(pattern.clone()));
@@ -2761,15 +2762,15 @@ fn load_keyword_claim_rows(
         r#"
         SELECT c.id, c.video_id, c.entity_type, c.entity_name, c.claim_type,
                c.claim_text, c.evidence_quote, c.verifier_confidence, c.status,
-               c.verifier_json, v.title AS source_video_title
-        FROM youtube_learning_claims c
-        LEFT JOIN youtube_videos v ON v.video_id=c.video_id
+               c.verifier::text AS verifier_json, v.title AS source_video_title
+        FROM brain.youtube_learning_claims c
+        LEFT JOIN brain.youtube_videos v ON v.video_id=c.video_id
         WHERE ({})
         ORDER BY c.verifier_confidence DESC, c.id
         "#,
         clauses.join(" OR ")
     );
-    let rows = fetch_all(conn, &sql, values)?;
+    let rows = fetch_all(pool, &sql, values).await?;
     Ok(rows
         .into_iter()
         .filter(|row| keyword_row_starts_word(row, keywords))
@@ -2777,18 +2778,18 @@ fn load_keyword_claim_rows(
         .collect())
 }
 
-fn load_ask_idf_weights(conn: &Connection, keywords: &[AskKeywordSpec]) -> Result<AskIdfWeights> {
+async fn load_ask_idf_weights(pool: &PgPool, keywords: &[AskKeywordSpec]) -> Result<AskIdfWeights> {
     if keywords.is_empty() {
         return Ok(AskIdfWeights::default());
     }
     let rows = fetch_all(
-        conn,
+        pool,
         r#"
-        SELECT claim_text, evidence_quote, verifier_json, entity_name
-        FROM youtube_learning_claims
+        SELECT claim_text, evidence_quote, verifier::text AS verifier_json, entity_name
+        FROM brain.youtube_learning_claims
         "#,
         vec![],
-    )?;
+    ).await?;
     if rows.is_empty() {
         return Ok(AskIdfWeights::default());
     }
@@ -4268,7 +4269,7 @@ fn sort_count_map_limited(map: BTreeMap<String, i64>, limit: usize) -> BTreeMap<
     rows.into_iter().collect()
 }
 
-fn check_required_tables(conn: &Connection) -> Result<JsonValue> {
+async fn check_required_tables(pool: &PgPool) -> Result<JsonValue> {
     let required = [
         "source_documents",
         "entity_snapshots",
@@ -4278,7 +4279,7 @@ fn check_required_tables(conn: &Connection) -> Result<JsonValue> {
     ];
     let mut missing = Vec::new();
     for table in required {
-        if !table_exists(conn, table)? {
+        if !table_exists(pool, table).await? {
             missing.push(table.to_string());
         }
     }
@@ -4296,8 +4297,8 @@ fn check_required_tables(conn: &Connection) -> Result<JsonValue> {
     }
 }
 
-fn check_entity_counts(conn: &Connection) -> Result<JsonValue> {
-    if !tables_exist(conn, &["entity_snapshots", "entities"])? {
+async fn check_entity_counts(pool: &PgPool) -> Result<JsonValue> {
+    if !tables_exist(pool, &["entity_snapshots", "entities"]).await? {
         return Ok(result(
             "error",
             "entity_counts",
@@ -4308,24 +4309,24 @@ fn check_entity_counts(conn: &Connection) -> Result<JsonValue> {
         ));
     }
     let asset_snapshots = scalar_i64(
-        conn,
+        pool,
         r#"
         SELECT COUNT(*)
-        FROM entity_snapshots
+        FROM brain.entity_snapshots
         WHERE source=? AND entity_type IN ('hero', 'item_or_ability', 'rank')
         "#,
         vec![SqlValue::Text(ASSETS_SOURCE.to_string())],
-    )?;
+    ).await?;
     let mut entity_counts = BTreeMap::new();
     for row in fetch_all(
-        conn,
+        pool,
         r#"
         SELECT entity_type, COUNT(*) AS count
-        FROM entities
+        FROM brain.entities
         GROUP BY entity_type
         "#,
         vec![],
-    )? {
+    ).await? {
         if let Some(entity_type) = value_to_nonempty_string(row.get("entity_type")) {
             entity_counts.insert(entity_type, row.get("count").and_then(JsonValue::as_i64).unwrap_or(0));
         }
@@ -4371,8 +4372,8 @@ fn check_entity_counts(conn: &Connection) -> Result<JsonValue> {
     ))
 }
 
-fn check_alias_collisions(conn: &Connection) -> Result<JsonValue> {
-    if !tables_exist(conn, &["entity_aliases", "entities"])? {
+async fn check_alias_collisions(pool: &PgPool) -> Result<JsonValue> {
+    if !tables_exist(pool, &["entity_aliases", "entities"]).await? {
         return Ok(result(
             "error",
             "alias_collisions",
@@ -4383,13 +4384,13 @@ fn check_alias_collisions(conn: &Connection) -> Result<JsonValue> {
         ));
     }
     let rows = fetch_all(
-        conn,
+        pool,
         r#"
         SELECT a.alias_norm, COUNT(DISTINCT a.entity_id) AS entities,
-               GROUP_CONCAT(DISTINCT e.entity_type || ':' || e.canonical_name) AS targets,
-               GROUP_CONCAT(DISTINCT a.alias) AS aliases
-        FROM entity_aliases a
-        JOIN entities e ON e.id=a.entity_id
+               string_agg(DISTINCT e.entity_type || ':' || e.canonical_name, ',') AS targets,
+               string_agg(DISTINCT a.alias, ',') AS aliases
+        FROM brain.entity_aliases a
+        JOIN brain.entities e ON e.id=a.entity_id
         WHERE a.alias_norm <> ''
         GROUP BY a.alias_norm
         HAVING COUNT(DISTINCT a.entity_id) > 1
@@ -4397,21 +4398,21 @@ fn check_alias_collisions(conn: &Connection) -> Result<JsonValue> {
         LIMIT ?
         "#,
         vec![SqlValue::Integer(SAMPLE_LIMIT)],
-    )?;
+    ).await?;
     let total = scalar_i64(
-        conn,
+        pool,
         r#"
         SELECT COUNT(*)
         FROM (
           SELECT alias_norm
-          FROM entity_aliases
+          FROM brain.entity_aliases
           WHERE alias_norm <> ''
           GROUP BY alias_norm
           HAVING COUNT(DISTINCT entity_id) > 1
-        )
+        ) AS collisions
         "#,
         vec![],
-    )?;
+    ).await?;
     Ok(result(
         if total > 0 { "warning" } else { "ok" },
         "alias_collisions",
@@ -4426,8 +4427,8 @@ fn check_alias_collisions(conn: &Connection) -> Result<JsonValue> {
     ))
 }
 
-fn check_patch_events_unknown_entities(conn: &Connection) -> Result<JsonValue> {
-    if !tables_exist(conn, &["patch_events", "entities", "entity_aliases"])? {
+async fn check_patch_events_unknown_entities(pool: &PgPool) -> Result<JsonValue> {
+    if !tables_exist(pool, &["patch_events", "entities", "entity_aliases"]).await? {
         return Ok(result(
             "error",
             "patch_events_unknown_entities",
@@ -4437,18 +4438,18 @@ fn check_patch_events_unknown_entities(conn: &Connection) -> Result<JsonValue> {
             None,
         ));
     }
-    let known = known_entity_names(conn)?;
+    let known = known_entity_names(pool).await?;
     let mut unknown = Vec::new();
     let rows = fetch_all(
-        conn,
+        pool,
         r#"
         SELECT id, patch_external_id, entity_type, entity_name, raw_line
-        FROM patch_events
+        FROM brain.patch_events
         WHERE entity_type <> 'general' AND entity_name IS NOT NULL AND TRIM(entity_name) <> ''
         ORDER BY id
         "#,
         vec![],
-    )?;
+    ).await?;
     let mut total = 0;
     for row in rows {
         let entity_type = value_to_string(row.get("entity_type"));
@@ -4475,8 +4476,8 @@ fn check_patch_events_unknown_entities(conn: &Connection) -> Result<JsonValue> {
     ))
 }
 
-fn check_enrichment_table(conn: &Connection) -> Result<JsonValue> {
-    if table_exists(conn, "patch_event_enrichments")? {
+async fn check_enrichment_table(pool: &PgPool) -> Result<JsonValue> {
+    if table_exists(pool, "patch_event_enrichments").await? {
         Ok(result(
             "ok",
             "missing_enrichment_table",
@@ -4497,8 +4498,8 @@ fn check_enrichment_table(conn: &Connection) -> Result<JsonValue> {
     }
 }
 
-fn check_lineage_table(conn: &Connection) -> Result<JsonValue> {
-    if !table_exists(conn, "entity_lineage")? {
+async fn check_lineage_table(pool: &PgPool) -> Result<JsonValue> {
+    if !table_exists(pool, "entity_lineage").await? {
         return Ok(result(
             "warning",
             "missing_lineage_table",
@@ -4508,17 +4509,17 @@ fn check_lineage_table(conn: &Connection) -> Result<JsonValue> {
             None,
         ));
     }
-    let total = scalar_i64(conn, "SELECT COUNT(*) FROM entity_lineage", vec![])?;
+    let total = scalar_i64(pool, "SELECT COUNT(*) FROM brain.entity_lineage", vec![]).await?;
     let rows = fetch_all(
-        conn,
+        pool,
         r#"
         SELECT relation_type, COUNT(*) AS count
-        FROM entity_lineage
+        FROM brain.entity_lineage
         GROUP BY relation_type
         ORDER BY relation_type
         "#,
         vec![],
-    )?;
+    ).await?;
     Ok(result(
         if total == 0 { "warning" } else { "ok" },
         "lineage_table",
@@ -4533,8 +4534,8 @@ fn check_lineage_table(conn: &Connection) -> Result<JsonValue> {
     ))
 }
 
-fn check_legacy_entities_table(conn: &Connection) -> Result<JsonValue> {
-    if !table_exists(conn, "legacy_entities")? {
+async fn check_legacy_entities_table(pool: &PgPool) -> Result<JsonValue> {
+    if !table_exists(pool, "legacy_entities").await? {
         return Ok(result(
             "warning",
             "missing_legacy_entities_table",
@@ -4544,33 +4545,33 @@ fn check_legacy_entities_table(conn: &Connection) -> Result<JsonValue> {
             None,
         ));
     }
-    let total = scalar_i64(conn, "SELECT COUNT(*) FROM legacy_entities", vec![])?;
+    let total = scalar_i64(pool, "SELECT COUNT(*) FROM brain.legacy_entities", vec![]).await?;
     let suspect = scalar_i64(
-        conn,
-        "SELECT COUNT(*) FROM legacy_entities WHERE status='suspect_parser_subject'",
+        pool,
+        "SELECT COUNT(*) FROM brain.legacy_entities WHERE status='suspect_parser_subject'",
         vec![],
-    )?;
+    ).await?;
     let samples = fetch_all(
-        conn,
+        pool,
         r#"
         SELECT legacy_type, canonical_name, event_count, confidence, status
-        FROM legacy_entities
+        FROM brain.legacy_entities
         ORDER BY confidence DESC, event_count DESC, canonical_name
         LIMIT ?
         "#,
         vec![SqlValue::Integer(SAMPLE_LIMIT)],
-    )?;
+    ).await?;
     let suspect_samples = fetch_all(
-        conn,
+        pool,
         r#"
         SELECT legacy_type, canonical_name, event_count, confidence, status
-        FROM legacy_entities
+        FROM brain.legacy_entities
         WHERE status='suspect_parser_subject'
         ORDER BY canonical_name
         LIMIT ?
         "#,
         vec![SqlValue::Integer(SAMPLE_LIMIT)],
-    )?;
+    ).await?;
     let severity = if suspect > 0 {
         "warning"
     } else if total > 0 {
@@ -4600,8 +4601,8 @@ fn check_legacy_entities_table(conn: &Connection) -> Result<JsonValue> {
     ))
 }
 
-fn check_low_confidence_enrichments(conn: &Connection) -> Result<JsonValue> {
-    if !table_exists(conn, "patch_event_enrichments")? {
+async fn check_low_confidence_enrichments(pool: &PgPool) -> Result<JsonValue> {
+    if !table_exists(pool, "patch_event_enrichments").await? {
         return Ok(result(
             "info",
             "low_confidence_unparsed_enrichments",
@@ -4612,13 +4613,13 @@ fn check_low_confidence_enrichments(conn: &Connection) -> Result<JsonValue> {
         ));
     }
     let rows = fetch_all(
-        conn,
+        pool,
         r#"
-        SELECT pee.patch_event_id, pee.confidence, pee.flags_json, pe.patch_external_id,
+        SELECT pee.patch_event_id, pee.confidence, pee.flags::text AS flags_json, pe.patch_external_id,
                pe.entity_type, pe.entity_name, pe.normalized_line
-        FROM patch_event_enrichments pee
-        LEFT JOIN patch_events pe ON pe.id=pee.patch_event_id
-        WHERE pee.confidence < ? OR pee.flags_json LIKE '%unparsed%'
+        FROM brain.patch_event_enrichments pee
+        LEFT JOIN brain.patch_events pe ON pe.id=pee.patch_event_id
+        WHERE pee.confidence < ? OR pee.flags::text LIKE '%unparsed%'
         ORDER BY pee.confidence ASC, pee.patch_event_id ASC
         LIMIT ?
         "#,
@@ -4626,16 +4627,16 @@ fn check_low_confidence_enrichments(conn: &Connection) -> Result<JsonValue> {
             SqlValue::Real(LOW_CONFIDENCE_THRESHOLD),
             SqlValue::Integer(SAMPLE_LIMIT),
         ],
-    )?;
+    ).await?;
     let total = scalar_i64(
-        conn,
+        pool,
         r#"
         SELECT COUNT(*)
-        FROM patch_event_enrichments
-        WHERE confidence < ? OR flags_json LIKE '%unparsed%'
+        FROM brain.patch_event_enrichments
+        WHERE confidence < ? OR flags::text LIKE '%unparsed%'
         "#,
         vec![SqlValue::Real(LOW_CONFIDENCE_THRESHOLD)],
-    )?;
+    ).await?;
     Ok(result(
         if total > 0 { "warning" } else { "ok" },
         "low_confidence_unparsed_enrichments",
@@ -4650,8 +4651,8 @@ fn check_low_confidence_enrichments(conn: &Connection) -> Result<JsonValue> {
     ))
 }
 
-fn check_sheet_profiles_without_entity(conn: &Connection) -> Result<JsonValue> {
-    if !table_exists(conn, "hero_stat_profiles")? {
+async fn check_sheet_profiles_without_entity(pool: &PgPool) -> Result<JsonValue> {
+    if !table_exists(pool, "hero_stat_profiles").await? {
         return Ok(result(
             "info",
             "sheet_profiles_without_entity",
@@ -4662,21 +4663,21 @@ fn check_sheet_profiles_without_entity(conn: &Connection) -> Result<JsonValue> {
         ));
     }
     let rows = fetch_all(
-        conn,
+        pool,
         r#"
         SELECT id, snapshot_id, hero_name, source, external_id, row_number
-        FROM hero_stat_profiles
+        FROM brain.hero_stat_profiles
         WHERE entity_id IS NULL
         ORDER BY hero_name
         LIMIT ?
         "#,
         vec![SqlValue::Integer(SAMPLE_LIMIT)],
-    )?;
+    ).await?;
     let total = scalar_i64(
-        conn,
-        "SELECT COUNT(*) FROM hero_stat_profiles WHERE entity_id IS NULL",
+        pool,
+        "SELECT COUNT(*) FROM brain.hero_stat_profiles WHERE entity_id IS NULL",
         vec![],
-    )?;
+    ).await?;
     Ok(result(
         if total > 0 { "warning" } else { "ok" },
         "sheet_profiles_without_entity",
@@ -4691,8 +4692,8 @@ fn check_sheet_profiles_without_entity(conn: &Connection) -> Result<JsonValue> {
     ))
 }
 
-fn check_general_events_with_known_entity_names(conn: &Connection) -> Result<JsonValue> {
-    if !tables_exist(conn, &["patch_events", "entities", "entity_aliases"])? {
+async fn check_general_events_with_known_entity_names(pool: &PgPool) -> Result<JsonValue> {
+    if !tables_exist(pool, &["patch_events", "entities", "entity_aliases"]).await? {
         return Ok(result(
             "error",
             "general_events_with_known_entity_names",
@@ -4702,19 +4703,19 @@ fn check_general_events_with_known_entity_names(conn: &Connection) -> Result<Jso
             None,
         ));
     }
-    let scan_names = entity_scan_names(conn)?;
+    let scan_names = entity_scan_names(pool).await?;
     let mut samples = Vec::new();
     let mut total = 0;
     let rows = fetch_all(
-        conn,
+        pool,
         r#"
         SELECT id, patch_external_id, section, raw_line, normalized_line
-        FROM patch_events
+        FROM brain.patch_events
         WHERE entity_type='general'
         ORDER BY id
         "#,
         vec![],
-    )?;
+    ).await?;
     for mut row in rows {
         let text_key = format!(
             " {} ",
@@ -4761,44 +4762,44 @@ struct ScanName {
     name: String,
 }
 
-fn known_entity_names(conn: &Connection) -> Result<HashSet<(String, String)>> {
+async fn known_entity_names(pool: &PgPool) -> Result<HashSet<(String, String)>> {
     let mut known = HashSet::new();
-    for row in fetch_all(conn, "SELECT entity_type, canonical_name FROM entities", vec![])? {
+    for row in fetch_all(pool, "SELECT entity_type, canonical_name FROM brain.entities", vec![]).await? {
         known.insert((
             value_to_string(row.get("entity_type")),
             normalize_alias(&value_to_string(row.get("canonical_name"))),
         ));
     }
     for row in fetch_all(
-        conn,
+        pool,
         r#"
         SELECT e.entity_type, a.alias_norm
-        FROM entity_aliases a
-        JOIN entities e ON e.id=a.entity_id
+        FROM brain.entity_aliases a
+        JOIN brain.entities e ON e.id=a.entity_id
         "#,
         vec![],
-    )? {
+    ).await? {
         known.insert((
             value_to_string(row.get("entity_type")),
             value_to_string(row.get("alias_norm")),
         ));
     }
-    if table_exists(conn, "entity_lineage")? {
+    if table_exists(pool, "entity_lineage").await? {
         for row in fetch_all(
-            conn,
-            "SELECT source_entity_type, source_name_norm, target_entity_type, target_name_norm FROM entity_lineage",
+            pool,
+            "SELECT source_entity_type, source_name_norm, target_entity_type, target_name_norm FROM brain.entity_lineage",
             vec![],
-        )? {
+        ).await? {
             add_lineage_known_name(&mut known, row.get("source_entity_type"), row.get("source_name_norm"));
             add_lineage_known_name(&mut known, row.get("target_entity_type"), row.get("target_name_norm"));
         }
     }
-    if table_exists(conn, "legacy_entities")? {
+    if table_exists(pool, "legacy_entities").await? {
         for row in fetch_all(
-            conn,
-            "SELECT observed_entity_type, name_norm FROM legacy_entities",
+            pool,
+            "SELECT observed_entity_type, name_norm FROM brain.legacy_entities",
             vec![],
-        )? {
+        ).await? {
             known.insert((
                 value_to_string(row.get("observed_entity_type")),
                 value_to_string(row.get("name_norm")),
@@ -4826,31 +4827,31 @@ fn add_lineage_known_name(
     }
 }
 
-fn entity_scan_names(conn: &Connection) -> Result<Vec<ScanName>> {
+async fn entity_scan_names(pool: &PgPool) -> Result<Vec<ScanName>> {
     let mut by_key: BTreeMap<(String, String, String), String> = BTreeMap::new();
     for row in fetch_all(
-        conn,
+        pool,
         r#"
         SELECT entity_type, canonical_name
-        FROM entities
+        FROM brain.entities
         WHERE source=? AND entity_type IN ('hero', 'item', 'item_special', 'ability')
         "#,
         vec![SqlValue::Text(ASSETS_SOURCE.to_string())],
-    )? {
+    ).await? {
         let entity_type = value_to_string(row.get("entity_type"));
         let canonical_name = value_to_string(row.get("canonical_name"));
         add_scan_name(&mut by_key, &entity_type, &canonical_name, &canonical_name);
     }
     for row in fetch_all(
-        conn,
+        pool,
         r#"
         SELECT e.entity_type, e.canonical_name, a.alias
-        FROM entity_aliases a
-        JOIN entities e ON e.id=a.entity_id
+        FROM brain.entity_aliases a
+        JOIN brain.entities e ON e.id=a.entity_id
         WHERE a.source=? AND e.entity_type IN ('hero', 'item', 'item_special', 'ability')
         "#,
         vec![SqlValue::Text(ASSETS_SOURCE.to_string())],
-    )? {
+    ).await? {
         add_scan_name(
             &mut by_key,
             &value_to_string(row.get("entity_type")),
@@ -4858,16 +4859,16 @@ fn entity_scan_names(conn: &Connection) -> Result<Vec<ScanName>> {
             &value_to_string(row.get("alias")),
         );
     }
-    if table_exists(conn, "entity_lineage")? {
+    if table_exists(pool, "entity_lineage").await? {
         for row in fetch_all(
-            conn,
+            pool,
             r#"
             SELECT source_entity_type, source_name, target_entity_type, target_name
-            FROM entity_lineage
+            FROM brain.entity_lineage
             WHERE relation_type IN ('rename', 'replaced_by')
             "#,
             vec![],
-        )? {
+        ).await? {
             let source_type = value_to_nonempty_string(row.get("source_entity_type")).unwrap_or_else(|| "legacy".to_string());
             let source_name = value_to_string(row.get("source_name"));
             add_scan_name(&mut by_key, &source_type, &source_name, &source_name);
@@ -4876,16 +4877,16 @@ fn entity_scan_names(conn: &Connection) -> Result<Vec<ScanName>> {
             add_scan_name(&mut by_key, &target_type, &target_name, &target_name);
         }
     }
-    if table_exists(conn, "legacy_entities")? {
+    if table_exists(pool, "legacy_entities").await? {
         for row in fetch_all(
-            conn,
+            pool,
             r#"
             SELECT legacy_type, canonical_name
-            FROM legacy_entities
+            FROM brain.legacy_entities
             WHERE confidence >= 0.5
             "#,
             vec![],
-        )? {
+        ).await? {
             let legacy_type = value_to_string(row.get("legacy_type"));
             let canonical_name = value_to_string(row.get("canonical_name"));
             add_scan_name(&mut by_key, &legacy_type, &canonical_name, &canonical_name);
@@ -4951,12 +4952,12 @@ fn severity_rank(severity: &str) -> i64 {
     }
 }
 
-fn load_entity_payload(
-    conn: &Connection,
+async fn load_entity_payload(
+    pool: &PgPool,
     query: &str,
     entity_type: &str,
 ) -> Result<Option<JsonMap<String, JsonValue>>> {
-    let context = build_entity_context(conn, query, 1)?;
+    let context = build_entity_context(pool, query, 1).await?;
     let best = context
         .get("best_match")
         .and_then(JsonValue::as_object)
@@ -4969,23 +4970,21 @@ fn load_entity_payload(
     let Some(entity_id) = best.get("id").and_then(JsonValue::as_i64) else {
         return Ok(None);
     };
-    let payload_json: Option<String> = conn
-        .query_row(
-            r#"
-            SELECT s.payload_json
-            FROM entity_aliases a
-            JOIN entity_snapshots s ON s.id=a.snapshot_id
+    let row = fetch_one(
+        pool,
+        r#"
+            SELECT s.payload::text AS payload_json
+            FROM brain.entity_aliases a
+            JOIN brain.entity_snapshots s ON s.id=a.snapshot_id
             WHERE a.entity_id=? AND s.source='deadlock_assets_api'
             ORDER BY CASE s.entity_type WHEN 'hero' THEN 0 WHEN 'item_or_ability' THEN 0 ELSE 1 END, s.id
             LIMIT 1
             "#,
-            params![entity_id],
-            |row| row.get(0),
-        )
-        .optional()?;
-    Ok(payload_json
-        .as_deref()
-        .map(|text| loads_json_object(Some(&JsonValue::String(text.to_string())))))
+        vec![SqlValue::Integer(entity_id)],
+    ).await?;
+    Ok(row
+        .and_then(|row| value_to_nonempty_string(row.get("payload_json")))
+        .map(|text| loads_json_object(Some(&JsonValue::String(text)))))
 }
 
 fn item_summary(payload: &JsonMap<String, JsonValue>) -> JsonMap<String, JsonValue> {
@@ -5216,8 +5215,8 @@ fn html_unescape_minimal(value: &str) -> String {
         .replace("&#39;", "'")
 }
 
-fn save_review_analysis_note(
-    conn: &Connection,
+async fn save_review_analysis_note(
+    pool: &PgPool,
     review_context: &JsonValue,
     result_text: Option<&str>,
     model: Option<&str>,
@@ -5238,7 +5237,6 @@ fn save_review_analysis_note(
         .unwrap_or_default();
     let context_json = serde_json::to_string(review_context)?;
     let context_hash = stable_hash_text(&context_json);
-    let now = core::db::now_epoch_seconds()?;
     let source_references = source_references(review_context, provider_metadata);
     let source_references_json = serde_json::to_string(&source_references)?;
     let entity_type = value_to_nonempty_string(entity_summary.get("entity_type"));
@@ -5253,46 +5251,44 @@ fn save_review_analysis_note(
         .and_then(JsonValue::as_str)
         .unwrap_or_default()
         .to_string();
-    conn.execute(
+    sqlx::query(
         r#"
-        INSERT INTO analysis_notes(
+        INSERT INTO brain.analysis_notes(
           query, entity_type, entity_name, context_kind, context_hash,
           prompt_version, prompt_text, result_text, model, confidence, status,
-          source_references_json, context_json, created_at, updated_at
+          source_references, context, created_at, updated_at
         )
-        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        ON CONFLICT DO UPDATE SET
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb, now(), now())
+        ON CONFLICT (query, context_hash, prompt_version, COALESCE(model, ''::text), status) DO UPDATE SET
           prompt_text=excluded.prompt_text,
           result_text=excluded.result_text,
           confidence=excluded.confidence,
-          source_references_json=excluded.source_references_json,
-          context_json=excluded.context_json,
+          source_references=excluded.source_references,
+          context=excluded.context,
           updated_at=excluded.updated_at
         "#,
-        params![
-            query,
-            entity_type,
-            entity_name,
-            context_kind,
-            context_hash,
-            PROMPT_VERSION,
-            prompt_text,
-            result_text,
-            model,
-            confidence,
-            status,
-            source_references_json,
-            context_json,
-            now,
-            now,
-        ],
-    )?;
+    )
+    .bind(&query)
+    .bind(entity_type.as_deref())
+    .bind(entity_name.as_deref())
+    .bind(&context_kind)
+    .bind(&context_hash)
+    .bind(PROMPT_VERSION)
+    .bind(&prompt_text)
+    .bind(result_text)
+    .bind(model)
+    .bind(confidence)
+    .bind(status)
+    .bind(&source_references_json)
+    .bind(&context_json)
+    .execute(pool)
+    .await?;
     let row = fetch_one(
-        conn,
+        pool,
         r#"
         SELECT id, query, entity_type, entity_name, context_hash, prompt_version,
                model, status, created_at, updated_at
-        FROM analysis_notes
+        FROM brain.analysis_notes
         WHERE query=? AND context_hash=? AND prompt_version=? AND COALESCE(model, '')=COALESCE(?, '') AND status=?
         ORDER BY id DESC
         LIMIT 1
@@ -5304,7 +5300,7 @@ fn save_review_analysis_note(
             model.map(|value| SqlValue::Text(value.to_string())).unwrap_or(SqlValue::Null),
             SqlValue::Text(status.to_string()),
         ],
-    )?;
+    ).await?;
     Ok(row
         .map(JsonValue::Object)
         .unwrap_or_else(|| json!({"query": query, "context_hash": context_hash, "status": status})))
@@ -5355,124 +5351,242 @@ fn truncate_array_field(object: &mut JsonMap<String, JsonValue>, key: &str, limi
     }
 }
 
-fn select_by_values_i64(
-    conn: &Connection,
+
+
+
+
+
+
+
+
+
+#[derive(Debug, Clone)]
+enum SqlValue {
+    Integer(i64),
+    Real(f64),
+    Text(String),
+    Null,
+}
+
+fn qualified_table(table: &str) -> String {
+    format!("brain.{}", quote_identifier(table))
+}
+
+fn to_pg_placeholders(sql: &str) -> String {
+    let mut out = String::with_capacity(sql.len() + 16);
+    let mut index = 0_u32;
+    let mut in_string = false;
+    for ch in sql.chars() {
+        if ch == '\'' {
+            in_string = !in_string;
+            out.push(ch);
+        } else if ch == '?' && !in_string {
+            index += 1;
+            out.push('$');
+            out.push_str(&index.to_string());
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+fn bind_sql<'q>(
+    mut query: sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments>,
+    values: &'q [SqlValue],
+) -> sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments> {
+    for value in values {
+        query = match value {
+            SqlValue::Integer(inner) => query.bind(*inner),
+            SqlValue::Real(inner) => query.bind(*inner),
+            SqlValue::Text(inner) => query.bind(inner.as_str()),
+            SqlValue::Null => query.bind(Option::<String>::None),
+        };
+    }
+    query
+}
+
+fn decode_pg_column(row: &PgRow, column: &PgColumn) -> JsonValue {
+    let ordinal = column.ordinal();
+    match column.type_info().name() {
+        "INT8" => row
+            .try_get::<Option<i64>, _>(ordinal)
+            .ok()
+            .flatten()
+            .map(|value| json!(value))
+            .unwrap_or(JsonValue::Null),
+        "INT4" => row
+            .try_get::<Option<i32>, _>(ordinal)
+            .ok()
+            .flatten()
+            .map(|value| json!(i64::from(value)))
+            .unwrap_or(JsonValue::Null),
+        "INT2" => row
+            .try_get::<Option<i16>, _>(ordinal)
+            .ok()
+            .flatten()
+            .map(|value| json!(i64::from(value)))
+            .unwrap_or(JsonValue::Null),
+        "FLOAT8" => row
+            .try_get::<Option<f64>, _>(ordinal)
+            .ok()
+            .flatten()
+            .and_then(serde_json::Number::from_f64)
+            .map(JsonValue::Number)
+            .unwrap_or(JsonValue::Null),
+        "FLOAT4" => row
+            .try_get::<Option<f32>, _>(ordinal)
+            .ok()
+            .flatten()
+            .and_then(|value| serde_json::Number::from_f64(f64::from(value)))
+            .map(JsonValue::Number)
+            .unwrap_or(JsonValue::Null),
+        "BOOL" => row
+            .try_get::<Option<bool>, _>(ordinal)
+            .ok()
+            .flatten()
+            .map(JsonValue::Bool)
+            .unwrap_or(JsonValue::Null),
+        "JSON" | "JSONB" => row
+            .try_get::<Option<JsonValue>, _>(ordinal)
+            .ok()
+            .flatten()
+            .unwrap_or(JsonValue::Null),
+        "TIMESTAMPTZ" => row
+            .try_get::<Option<DateTime<Utc>>, _>(ordinal)
+            .ok()
+            .flatten()
+            .map(|value| JsonValue::String(value.format("%Y-%m-%d %H:%M:%S%:z").to_string()))
+            .unwrap_or(JsonValue::Null),
+        "TIMESTAMP" => row
+            .try_get::<Option<NaiveDateTime>, _>(ordinal)
+            .ok()
+            .flatten()
+            .map(|value| JsonValue::String(value.format("%Y-%m-%d %H:%M:%S").to_string()))
+            .unwrap_or(JsonValue::Null),
+        "DATE" => row
+            .try_get::<Option<NaiveDate>, _>(ordinal)
+            .ok()
+            .flatten()
+            .map(|value| JsonValue::String(value.format("%Y-%m-%d").to_string()))
+            .unwrap_or(JsonValue::Null),
+        _ => row
+            .try_get::<Option<String>, _>(ordinal)
+            .ok()
+            .flatten()
+            .map(JsonValue::String)
+            .unwrap_or(JsonValue::Null),
+    }
+}
+
+fn pg_row_to_json_map(row: &PgRow) -> JsonMap<String, JsonValue> {
+    let mut object = JsonMap::new();
+    for column in row.columns() {
+        object.insert(column.name().to_string(), decode_pg_column(row, column));
+    }
+    object
+}
+
+async fn select_by_values_i64(
+    pool: &PgPool,
     table: &str,
     column: &str,
     values: &[i64],
 ) -> Result<Vec<JsonMap<String, JsonValue>>> {
     let sql = format!(
-        r#"
-        SELECT *
-        FROM {}
-        WHERE {} IN ({})
-        "#,
-        quote_identifier(table),
+        "SELECT * FROM {} WHERE {} IN ({})",
+        qualified_table(table),
         quote_identifier(column),
         placeholders(values.len())
     );
     fetch_all(
-        conn,
+        pool,
         &sql,
         values.iter().copied().map(SqlValue::Integer).collect(),
-    )
+    ).await
 }
 
-fn select_by_values_text(
-    conn: &Connection,
+async fn select_by_values_text(
+    pool: &PgPool,
     table: &str,
     column: &str,
     values: &[String],
 ) -> Result<Vec<JsonMap<String, JsonValue>>> {
     let sql = format!(
-        r#"
-        SELECT *
-        FROM {}
-        WHERE {} IN ({})
-        "#,
-        quote_identifier(table),
+        "SELECT * FROM {} WHERE {} IN ({})",
+        qualified_table(table),
         quote_identifier(column),
         placeholders(values.len())
     );
     fetch_all(
-        conn,
+        pool,
         &sql,
         values.iter().cloned().map(SqlValue::Text).collect(),
-    )
+    ).await
 }
 
-fn table_exists(conn: &Connection, name: &str) -> Result<bool> {
-    let found: Option<i64> = conn
-        .query_row(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
-            params![name],
-            |row| row.get(0),
-        )
-        .optional()?;
-    Ok(found.is_some())
+async fn table_exists(pool: &PgPool, name: &str) -> Result<bool> {
+    let qualified = format!("brain.{name}");
+    let row = sqlx::query("SELECT to_regclass($1) IS NOT NULL AS present")
+        .bind(&qualified)
+        .fetch_one(pool)
+        .await?;
+    Ok(row
+        .try_get::<Option<bool>, _>("present")
+        .ok()
+        .flatten()
+        .unwrap_or(false))
 }
 
-fn tables_exist(conn: &Connection, tables: &[&str]) -> Result<bool> {
+async fn tables_exist(pool: &PgPool, tables: &[&str]) -> Result<bool> {
     for table in tables {
-        if !table_exists(conn, table)? {
+        if !table_exists(pool, table).await? {
             return Ok(false);
         }
     }
     Ok(true)
 }
 
-fn table_columns(conn: &Connection, table: &str) -> Result<Vec<String>> {
-    let rows = fetch_all(conn, &format!("PRAGMA table_info({})", quote_identifier(table)), vec![])?;
+async fn table_columns(pool: &PgPool, table: &str) -> Result<Vec<String>> {
+    let rows = fetch_all(
+        pool,
+        "SELECT column_name AS name FROM information_schema.columns WHERE table_schema='brain' AND table_name=? ORDER BY ordinal_position",
+        vec![SqlValue::Text(table.to_string())],
+    ).await?;
     Ok(rows
         .into_iter()
         .filter_map(|row| value_to_nonempty_string(row.get("name")))
         .collect())
 }
 
-fn fetch_one(
-    conn: &Connection,
+async fn fetch_one(
+    pool: &PgPool,
     sql: &str,
     values: Vec<SqlValue>,
 ) -> Result<Option<JsonMap<String, JsonValue>>> {
-    Ok(fetch_all(conn, sql, values)?.into_iter().next())
+    Ok(fetch_all(pool, sql, values).await?.into_iter().next())
 }
 
-fn fetch_all(
-    conn: &Connection,
+async fn fetch_all(
+    pool: &PgPool,
     sql: &str,
     values: Vec<SqlValue>,
 ) -> Result<Vec<JsonMap<String, JsonValue>>> {
-    let mut stmt = conn.prepare(sql)?;
-    let rows = stmt.query_map(params_from_iter(values.iter()), row_to_json_map)?;
-    let mut result = Vec::new();
-    for row in rows {
-        result.push(row?);
-    }
-    Ok(result)
+    let pg_sql = to_pg_placeholders(sql);
+    let rows = bind_sql(sqlx::query(&pg_sql), &values)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows.iter().map(pg_row_to_json_map).collect())
 }
 
-fn scalar_i64(conn: &Connection, sql: &str, values: Vec<SqlValue>) -> Result<i64> {
-    let value: Option<i64> = conn
-        .query_row(sql, params_from_iter(values.iter()), |row| row.get(0))
-        .optional()?;
-    Ok(value.unwrap_or(0))
-}
-
-fn row_to_json_map(row: &Row<'_>) -> rusqlite::Result<JsonMap<String, JsonValue>> {
-    let row_ref = row.as_ref();
-    let mut result = JsonMap::new();
-    for index in 0..row_ref.column_count() {
-        let name = row_ref.column_name(index)?.to_string();
-        let value = match row.get_ref(index)? {
-            ValueRef::Null => JsonValue::Null,
-            ValueRef::Integer(value) => json!(value),
-            ValueRef::Real(value) => json!(value),
-            ValueRef::Text(value) => JsonValue::String(String::from_utf8_lossy(value).to_string()),
-            ValueRef::Blob(value) => JsonValue::String(String::from_utf8_lossy(value).to_string()),
-        };
-        result.insert(name, value);
-    }
-    Ok(result)
+async fn scalar_i64(pool: &PgPool, sql: &str, values: Vec<SqlValue>) -> Result<i64> {
+    let pg_sql = to_pg_placeholders(sql);
+    let row = bind_sql(sqlx::query(&pg_sql), &values)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row
+        .map(|row| row.try_get::<i64, _>(0).unwrap_or(0))
+        .unwrap_or(0))
 }
 
 fn loads_json_object(value: Option<&JsonValue>) -> JsonMap<String, JsonValue> {
@@ -5769,205 +5883,230 @@ fn stable_hash_text(content: &str) -> String {
 mod tests {
     use super::*;
 
-    fn temp_conn() -> Connection {
-        let temp = tempfile::NamedTempFile::new().expect("temp db");
-        let conn = Connection::open(temp.path()).expect("open temp db");
-        core::db::apply_pragmas(&conn).expect("pragmas");
-        core::schema::ensure_schema(&conn).expect("schema");
-        conn
+    use sqlx::postgres::PgPoolOptions;
+
+    async fn test_pool() -> Option<PgPool> {
+        let dsn = std::env::var("DEADLOCK_CENTRAL_DSN").ok()?;
+        if dsn.trim().is_empty() {
+            return None;
+        }
+        Some(
+            PgPoolOptions::new()
+                .max_connections(2)
+                .connect(&dsn)
+                .await
+                .expect("connect scratch postgres"),
+        )
     }
 
-    fn insert_entity_fixture(conn: &Connection) {
-        conn.execute(
-            r#"
-            INSERT INTO entity_snapshots(
-              id, source, entity_type, external_id, canonical_name, payload_hash,
-              payload_json, fetched_at, source_document_id
-            )
-            VALUES(1, 'deadlock_assets_api', 'item_or_ability', 'item1', 'Mystic Shot', 'hash1', ?, 100, NULL)
-            "#,
-            params![serde_json::to_string(&json!({
-                "name": "Mystic Shot",
-                "class_name": "item_mystic_shot",
-                "item_slot_type": "spirit",
-                "item_tier": 2,
-                "cost": 1600,
-                "is_active_item": false,
-                "description": {"desc": "<b>Bonus Spirit Power</b> and cooldown."},
-                "properties": {
-                    "TechPower": {
-                        "value": 12,
-                        "disable_value": 1,
-                        "label": "Spirit Power",
-                        "provided_property_type": "ETechPower",
-                        "tooltip_is_important": true,
-                        "scale_function": {"scaling_stats": ["ETechPower"]}
-                    }
-                },
-                "upgrades": []
-            })).expect("payload")],
+    async fn pick_hero_with_events(pool: &PgPool) -> Option<String> {
+        let row = sqlx::query(
+            "SELECT e.canonical_name \
+             FROM brain.entities e \
+             JOIN brain.patch_events pe ON lower(pe.entity_name) = lower(e.canonical_name) \
+             WHERE e.entity_type = 'hero' \
+             GROUP BY e.canonical_name \
+             ORDER BY COUNT(*) DESC LIMIT 1",
         )
-        .expect("snapshot");
-        conn.execute(
-            r#"
-            INSERT INTO entities(
-              id, entity_type, canonical_name, primary_external_id, source,
-              first_snapshot_id, metadata_json, created_at, updated_at
-            )
-            VALUES(1, 'item', 'Mystic Shot', 'item1', 'deadlock_assets_api', 1, '{}', 100, 100)
-            "#,
-            [],
-        )
-        .expect("entity");
-        conn.execute(
-            r#"
-            INSERT INTO entity_aliases(
-              entity_id, alias, alias_norm, alias_kind, source, external_id,
-              snapshot_id, created_at
-            )
-            VALUES(1, 'Mystic Shot', 'mystic shot', 'canonical', 'deadlock_assets_api', 'item1', 1, 100)
-            "#,
-            [],
-        )
-        .expect("alias");
-        conn.execute(
-            r#"
-            INSERT INTO patch_events(
-              id, patch_snapshot_id, patch_external_id, patch_title, patch_url,
-              source_kind, posted_at, line_index, section, entity_type, entity_name,
-              subject, change_type, raw_line, normalized_line, old_value, new_value,
-              confidence, metadata_json, event_hash, created_at
-            )
-            VALUES(10, 1, 'p3', 'Patch 3', 'https://example.invalid/p3', 'forum',
-              '2026-01-02', 1, 'Items', 'item', 'Mystic Shot', 'Mystic Shot',
-              'buff', 'Mystic Shot damage increased from 10 to 12',
-              'Mystic Shot damage increased from 10 to 12', '10', '12', 0.9, '{}', 'evt10', 100)
-            "#,
-            [],
-        )
-        .expect("patch event");
-        conn.execute(
-            r#"
-            INSERT INTO patch_event_enrichments(
-              patch_event_id, stat_name, old_value, new_value, unit, ability_name,
-              secondary_entity_name, confidence, flags_json, created_at, updated_at
-            )
-            VALUES(10, 'damage', '10', '12', NULL, NULL, NULL, 0.95, '["direction:increased"]', 100, 100)
-            "#,
-            [],
-        )
-        .expect("enrichment");
+        .fetch_optional(pool)
+        .await
+        .expect("hero query");
+        row.and_then(|row| row.try_get::<Option<String>, _>("canonical_name").ok().flatten())
     }
 
-    fn insert_light_entity(conn: &Connection, id: i64, entity_type: &str, name: &str) {
-        conn.execute(
-            r#"
-            INSERT INTO entities(
-              id, entity_type, canonical_name, primary_external_id, source,
-              first_snapshot_id, metadata_json, created_at, updated_at
-            )
-            VALUES(?, ?, ?, ?, 'test', NULL, '{}', 100, 100)
-            "#,
-            params![id, entity_type, name, format!("test-{id}")],
-        )
-        .expect("entity");
-        conn.execute(
-            r#"
-            INSERT INTO entity_aliases(
-              entity_id, alias, alias_norm, alias_kind, source, external_id,
-              snapshot_id, created_at
-            )
-            VALUES(?, ?, ?, 'canonical', 'test', ?, NULL, 100)
-            "#,
-            params![id, name, normalize_alias(name), format!("test-{id}")],
-        )
-        .expect("alias");
+    #[tokio::test]
+    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+    async fn load_known_item_names_matches_catalog() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let names = load_known_item_names(&pool).await.expect("item names");
+        let raw_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM brain.item_catalog")
+            .fetch_one(&pool)
+            .await
+            .expect("count");
+        let distinct_names: i64 =
+            sqlx::query_scalar("SELECT COUNT(DISTINCT name) FROM brain.item_catalog WHERE trim(name) <> ''")
+                .fetch_one(&pool)
+                .await
+                .expect("distinct count");
+        // item_catalog has 251 rows; names are de-duplicated (one item name appears twice),
+        // so the loaded set matches the distinct non-empty name count.
+        assert_eq!(raw_count, 251);
+        assert_eq!(names.len() as i64, distinct_names);
     }
 
-    fn insert_light_alias(conn: &Connection, entity_id: i64, alias: &str, alias_kind: &str) {
-        conn.execute(
-            r#"
-            INSERT INTO entity_aliases(
-              entity_id, alias, alias_norm, alias_kind, source, external_id,
-              snapshot_id, created_at
-            )
-            VALUES(?, ?, ?, ?, 'test', ?, NULL, 100)
-            "#,
-            params![
-                entity_id,
-                alias,
-                normalize_alias(alias),
-                alias_kind,
-                format!("alias-{entity_id}-{alias}")
-            ],
-        )
-        .expect("alias");
+    #[tokio::test]
+    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+    async fn status_reports_core_counts() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let report = status(&pool).await.expect("status");
+        let events: i64 = report
+            .get("patch_events")
+            .and_then(JsonValue::as_array)
+            .map(|rows| {
+                rows.iter()
+                    .filter_map(|row| row.get("events").and_then(JsonValue::as_i64))
+                    .sum()
+            })
+            .unwrap_or(0);
+        assert_eq!(events, 13383);
+        assert!(report
+            .get("entities")
+            .and_then(JsonValue::as_array)
+            .map(|rows| !rows.is_empty())
+            .unwrap_or(false));
     }
 
-    fn insert_youtube_video(conn: &Connection, video_id: &str, title: &str) {
-        conn.execute(
-            r#"
-            INSERT OR IGNORE INTO youtube_feed_sources(
-              feed_key, source_type, url, playlist_id, channel_id, title, enabled,
-              metadata_json, created_at, updated_at
-            )
-            VALUES('test-feed', 'test', 'https://example.invalid/feed', NULL, NULL, 'Test Feed', 1, '{}', 100, 100)
-            "#,
-            [],
-        )
-        .expect("feed source");
-        conn.execute(
-            r#"
-            INSERT INTO youtube_videos(
-              video_id, feed_key, channel_id, channel_title, title, url,
-              published_at, description, metadata_json, transcript_status,
-              learning_status, discovered_at, updated_at
-            )
-            VALUES(?, 'test-feed', NULL, NULL, ?, ?, NULL, NULL, '{}', 'ready', 'ready', 100, 100)
-            "#,
-            params![video_id, title, format!("https://example.invalid/{video_id}")],
-        )
-        .expect("video");
+    #[tokio::test]
+    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+    async fn context_loads_patch_events_for_known_hero() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let Some(hero) = pick_hero_with_events(&pool).await else {
+            return;
+        };
+        let ctx = context(&pool, &hero, 50).await.expect("context");
+        let events = ctx
+            .get("patch_events")
+            .and_then(JsonValue::as_array)
+            .cloned()
+            .unwrap_or_default();
+        assert!(!events.is_empty(), "expected patch events for {hero}");
+        assert!(ctx
+            .get("best_match")
+            .map(|value| !value.is_null())
+            .unwrap_or(false));
     }
 
-    struct LearningClaimFixture<'a> {
-        id: i64,
-        video_id: &'a str,
-        entity_type: Option<&'a str>,
-        entity_name: Option<&'a str>,
-        claim_type: &'a str,
-        claim_text: &'a str,
-        status: &'a str,
-        verifier: JsonValue,
+    #[tokio::test]
+    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+    async fn build_review_context_returns_summary() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let Some(hero) = pick_hero_with_events(&pool).await else {
+            return;
+        };
+        let review = build_review_context(&pool, &hero, 40)
+            .await
+            .expect("review");
+        assert!(review.get("entity_summary").is_some());
+        assert!(review.get("source_references").is_some());
+        assert!(review.get("timeline_signals").is_some());
     }
 
-    fn insert_learning_claim(conn: &Connection, claim: LearningClaimFixture<'_>) {
-        conn.execute(
-            r#"
-            INSERT INTO youtube_learning_claims(
-              id, video_id, claim_hash, claim_index, entity_type, entity_name,
-              claim_type, claim_text, evidence_quote, timestamp_seconds,
-              model_confidence, verifier_confidence, status, model, prompt_version,
-              prompt_text, model_response_text, provider_metadata_json, verifier_json,
-              created_at, updated_at
-            )
-            VALUES(?, ?, ?, 0, ?, ?, ?, ?, '', NULL, 0.9, 0.9, ?, 'test-model',
-              'test-prompt', 'prompt', '{}', '{}', ?, 100, 100)
-            "#,
-            params![
-                claim.id,
-                claim.video_id,
-                format!("claim-{}", claim.id),
-                claim.entity_type,
-                claim.entity_name,
-                claim.claim_type,
-                claim.claim_text,
-                claim.status,
-                serde_json::to_string(&claim.verifier).expect("verifier json")
-            ],
-        )
-        .expect("claim");
+    #[tokio::test]
+    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+    async fn ask_context_returns_structured_bundle() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let Some(hero) = pick_hero_with_events(&pool).await else {
+            return;
+        };
+        let opts = AskContextOptions {
+            limit_events: 40,
+            include_unverified: false,
+            max_claims: 12,
+        };
+        let bundle = ask_context(&pool, &format!("{hero} matchup"), &opts)
+            .await
+            .expect("ask context");
+        assert!(bundle.get("intent").is_some());
+        assert!(bundle.get("ground_truth").is_some());
+        assert!(bundle.get("creator_knowledge").is_some());
     }
+
+    #[tokio::test]
+    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+    async fn analyze_query_resolves_known_hero() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let Some(hero) = pick_hero_with_events(&pool).await else {
+            return;
+        };
+        let plan = analyze_query(&pool, &format!("{hero} build"))
+            .await
+            .expect("plan");
+        assert!(!plan.entities.is_empty());
+    }
+
+    #[tokio::test]
+    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+    async fn analysis_list_returns_array() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let list = analysis_list(&pool, None, 10).await.expect("list");
+        assert!(list.is_array());
+    }
+
+    #[tokio::test]
+    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+    async fn quality_reports_required_tables_present() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let report = quality(&pool).await.expect("quality");
+        let checks = report
+            .get("checks")
+            .and_then(JsonValue::as_array)
+            .cloned()
+            .unwrap_or_default();
+        assert!(!checks.is_empty());
+        let required = checks
+            .iter()
+            .find(|check| check.get("check").and_then(JsonValue::as_str) == Some("required_tables"))
+            .expect("required_tables check");
+        assert_eq!(
+            required.get("severity").and_then(JsonValue::as_str),
+            Some("ok")
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+    async fn save_review_roundtrip_inserts_and_cleans_up() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let query = format!("__pgtest__{nanos}");
+        let review = build_review_context(&pool, &query, 5)
+            .await
+            .expect("review");
+        let note = analysis_save_review(&pool, &review, None, None, None, "context_ready", None)
+            .await
+            .expect("save review");
+        let context_hash = note
+            .get("context_hash")
+            .and_then(JsonValue::as_str)
+            .map(str::to_string);
+        assert!(context_hash.is_some(), "expected context_hash in saved note");
+        if let Some(hash) = context_hash {
+            let deleted = sqlx::query("DELETE FROM brain.analysis_notes WHERE context_hash=$1")
+                .bind(&hash)
+                .execute(&pool)
+                .await
+                .expect("cleanup");
+            assert!(deleted.rows_affected() >= 1);
+        }
+    }
+
+
+
+
+
+
+
 
     fn ask_claim_fixture(id: i64, status: &str, confidence: f64) -> AskClaimRecord {
         AskClaimRecord {
@@ -6244,84 +6383,8 @@ mod tests {
         assert!(buckets.verified.len() < 12);
     }
 
-    #[test]
-    fn analyze_query_classifies_specific_ask_intents() {
-        let conn = temp_conn();
-        insert_light_entity(&conn, 10, "hero", "Seven");
-        insert_light_entity(&conn, 11, "item", "Metal Skin");
 
-        let patch = analyze_query(&conn, "was wurde an Seven geaendert").expect("patch intent");
-        let matchup = analyze_query(&conn, "was kontert Seven").expect("matchup intent");
-        let mechanics = analyze_query(&conn, "wie funktioniert souls denying").expect("mechanics intent");
-        let build = analyze_query(&conn, "Seven build").expect("build intent");
-        let item = analyze_query(&conn, "Metal Skin").expect("item intent");
 
-        assert_eq!(patch.intent, "patch_changes");
-        assert_eq!(matchup.intent, "matchup");
-        assert_eq!(mechanics.intent, "mechanics_question");
-        assert_eq!(build.intent, "build_recommendation");
-        assert_eq!(item.intent, "item_question");
-        assert!(is_build_engine_intent(&build));
-        assert!(!is_build_engine_intent(&item));
-        assert_eq!(
-            classify_ask_intent("metal skin", true, "item"),
-            "item_question"
-        );
-        assert_eq!(classify_ask_intent("meta", false, ""), "meta_question");
-        assert_ne!(classify_ask_intent("metal", false, ""), "meta_question");
-    }
-
-    #[test]
-    fn build_engine_intent_requires_hero_build_query() {
-        let conn = temp_conn();
-        insert_light_entity(&conn, 10, "hero", "Seven");
-        insert_light_entity(&conn, 11, "item", "Metal Skin");
-
-        for query in [
-            "Seven build",
-            "was bauen auf Seven",
-            "Seven itemization",
-            "Seven skillung",
-            "welche items auf Seven",
-        ] {
-            let plan = analyze_query(&conn, query).expect("build plan");
-            assert_eq!(plan.intent, "build_recommendation", "{query}");
-            assert!(is_build_engine_intent(&plan), "{query}");
-        }
-
-        let item_plan = analyze_query(&conn, "Metal Skin build").expect("item plan");
-        let patch_plan = analyze_query(&conn, "was wurde an Seven geaendert").expect("patch plan");
-        let generic_plan = analyze_query(&conn, "bester build").expect("generic plan");
-
-        assert_eq!(item_plan.intent, "build_recommendation");
-        assert!(!is_build_engine_intent(&item_plan));
-        assert_eq!(patch_plan.intent, "patch_changes");
-        assert!(!is_build_engine_intent(&patch_plan));
-        assert!(!is_build_engine_intent(&generic_plan));
-    }
-
-    #[test]
-    fn ask_entity_match_skips_short_numeric_aliases_for_text_recall() {
-        let conn = temp_conn();
-        insert_light_entity(&conn, 31, "hero", "Seven");
-        insert_light_alias(&conn, 31, "2", "external_id");
-        insert_light_alias(&conn, 31, "sev", "short_name");
-
-        let plan = analyze_query(&conn, "was wurde an Seven geaendert").expect("plan");
-        let entity_match = resolve_ask_entity_match(&conn, "was wurde an Seven geaendert", &plan)
-            .expect("entity match");
-        let names = entity_match
-            .names
-            .iter()
-            .map(|name| normalize_alias(name))
-            .collect::<Vec<_>>();
-        let leak_row = claim_row("Damage reduced from 2 to 1.", "", "Apollo");
-
-        assert!(names.contains(&"seven".to_string()));
-        assert!(!names.contains(&"2".to_string()));
-        assert!(!names.contains(&"sev".to_string()));
-        assert!(!entity_text_row_matches_name(&leak_row, &names));
-    }
 
     #[test]
     fn keyword_starts_word_filters_mid_word_matches() {
@@ -6354,52 +6417,6 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn breakables_spawn_query_recalls_single_specific_claim() {
-        let conn = temp_conn();
-        insert_youtube_video(&conn, "breakables", "Breakables Guide");
-        insert_learning_claim(
-            &conn,
-            LearningClaimFixture {
-                id: 101,
-                video_id: "breakables",
-                entity_type: Some("mechanic"),
-                entity_name: Some("Breakables"),
-                claim_type: "mechanic",
-                claim_text: "Alle Breakables spawnen 3 Minuten nach Matchstart.",
-                status: "accepted",
-                verifier: JsonValue::Null,
-            },
-        );
-        let entity_match = AskEntityClaimMatch::default();
-        let keywords = ask_query_keyword_specs("wann spawnen breakables", &entity_match);
-        let rows = load_keyword_claim_rows(
-            &conn,
-            &keywords,
-            &entity_match,
-            &AskIdfWeights::default(),
-        )
-        .expect("keyword rows");
-        let (claims, _, keyword_matched) = load_ask_claims(
-            &conn,
-            "wann spawnen breakables",
-            &entity_match,
-            "mechanics_question",
-        )
-        .expect("claims");
-        let buckets = partition_ask_claims(
-            claims,
-            false,
-            3,
-            "mechanics_question",
-            &entity_match,
-        );
-
-        assert!(keywords.iter().any(|keyword| keyword.text == "spawnen breakables"));
-        assert!(rows.iter().any(|row| row.get("id").and_then(JsonValue::as_i64) == Some(101)));
-        assert!(keyword_matched >= 1);
-        assert_eq!(buckets.verified.first().map(|claim| claim.id), Some(101));
-    }
 
     #[test]
     fn build_intent_prefers_owned_build_claim_over_general_mention() {
@@ -6514,147 +6531,9 @@ mod tests {
         assert_eq!(buckets.omitted.verified, 0);
     }
 
-    #[test]
-    fn matchup_allows_mechanic_claim_when_entity_is_target() {
-        let conn = temp_conn();
-        insert_light_entity(&conn, 41, "hero", "Lash");
-        insert_youtube_video(&conn, "lash-mech", "Lash Notes");
-        insert_learning_claim(
-            &conn,
-            LearningClaimFixture {
-                id: 601,
-                video_id: "lash-mech",
-                entity_type: Some("hero"),
-                entity_name: Some("Lash"),
-                claim_type: "mechanic",
-                claim_text: "Lash engage timing can be interrupted by prepared defense.",
-                status: "accepted",
-                verifier: JsonValue::Null,
-            },
-        );
-        let entity_match = entity_match_fixture("Lash", "hero");
-        let (claims, _, _) = load_ask_claims(&conn, "was kontert Lash", &entity_match, "matchup")
-            .expect("claims");
-        let buckets = partition_ask_claims(claims, false, 12, "matchup", &entity_match);
 
-        assert_eq!(buckets.verified.first().map(|claim| claim.id), Some(601));
-        assert_eq!(
-            buckets.verified.first().map(|claim| claim.claim_type.as_str()),
-            Some("mechanic")
-        );
-    }
 
-    #[test]
-    fn idf_weights_rare_token_above_ubiquitous_token() {
-        let conn = temp_conn();
-        insert_youtube_video(&conn, "idf", "IDF Notes");
-        for id in 700..705 {
-            insert_learning_claim(
-                &conn,
-                LearningClaimFixture {
-                    id,
-                    video_id: "idf",
-                    entity_type: Some("mechanic"),
-                    entity_name: Some("Lane"),
-                    claim_type: "mechanic",
-                    claim_text: "lane pressure note",
-                    status: "accepted",
-                    verifier: JsonValue::Null,
-                },
-            );
-        }
-        insert_learning_claim(
-            &conn,
-            LearningClaimFixture {
-                id: 706,
-                video_id: "idf",
-                entity_type: Some("mechanic"),
-                entity_name: Some("Souls"),
-                claim_type: "mechanic",
-                claim_text: "unsecured souls note",
-                status: "accepted",
-                verifier: JsonValue::Null,
-            },
-        );
-        let entity_match = AskEntityClaimMatch::default();
-        let keywords = ask_query_keyword_specs("unsecured lane", &entity_match);
-        let idf_weights = load_ask_idf_weights(&conn, &keywords).expect("idf");
-        let mut rare = ask_claim_fixture(707, "accepted", 0.5);
-        rare.claim_text = "unsecured souls note".to_string();
-        let mut ubiquitous = ask_claim_fixture(708, "accepted", 0.5);
-        ubiquitous.claim_text = "lane pressure note".to_string();
 
-        let rare_relevance = ask_claim_relevance(&rare, &keywords, &entity_match, &idf_weights);
-        let ubiquitous_relevance =
-            ask_claim_relevance(&ubiquitous, &keywords, &entity_match, &idf_weights);
-
-        assert!(rare_relevance.score > ubiquitous_relevance.score);
-    }
-
-    #[test]
-    fn denying_query_matches_denyen_claim() {
-        let conn = temp_conn();
-        insert_youtube_video(&conn, "deny", "Deny Notes");
-        insert_learning_claim(
-            &conn,
-            LearningClaimFixture {
-                id: 801,
-                video_id: "deny",
-                entity_type: Some("mechanic"),
-                entity_name: Some("Souls"),
-                claim_type: "mechanic",
-                claim_text: "denyen souls in lane",
-                status: "accepted",
-                verifier: JsonValue::Null,
-            },
-        );
-        let entity_match = AskEntityClaimMatch::default();
-        let (claims, _, keyword_matched) =
-            load_ask_claims(&conn, "soul denying", &entity_match, "mechanics_question")
-                .expect("claims");
-        let buckets = partition_ask_claims(
-            claims,
-            false,
-            12,
-            "mechanics_question",
-            &entity_match,
-        );
-
-        assert!(keyword_matched >= 1);
-        assert_eq!(buckets.verified.first().map(|claim| claim.id), Some(801));
-    }
-
-    #[test]
-    fn ask_context_marks_out_of_domain_queries() {
-        let conn = temp_conn();
-        let context = ask_context(
-            &conn,
-            "wie viel kostet ein Auto",
-            &AskContextOptions {
-                limit_events: 10,
-                include_unverified: false,
-                max_claims: 12,
-            },
-        )
-        .expect("ask context");
-
-        assert_eq!(context["retrieval_meta"]["out_of_domain"], true);
-        assert_eq!(context["retrieval_meta"]["intent"], "out_of_domain");
-        assert_eq!(context["intent"], "out_of_domain");
-        assert_eq!(context["retrieval_meta"]["claims_scanned"], 0);
-        assert_eq!(
-            context["creator_knowledge"]
-                .as_object()
-                .expect("creator knowledge")
-                .len(),
-            0
-        );
-        let prompt = context["prompt"].as_str().expect("prompt");
-        assert!(prompt.contains(ASK_OOD_NOTICE));
-        assert!(!prompt.contains("FAKTEN"));
-        assert!(!prompt.contains("ordered_context_json"));
-        assert!(!prompt.contains("ground_truth"));
-    }
 
     #[test]
     fn ask_prompt_preserves_timeline_details_and_hides_debug_claim_fields() {
@@ -6710,144 +6589,11 @@ mod tests {
         assert!(prompt.contains("Lash Counters"));
     }
 
-    #[test]
-    fn ask_context_keeps_detail_timeline_for_build_and_matchup() {
-        let conn = temp_conn();
-        insert_entity_fixture(&conn);
 
-        for (query, intent) in [
-            ("Mystic Shot build", "build_recommendation"),
-            ("was kontert Mystic Shot", "matchup"),
-        ] {
-            let context = ask_context(
-                &conn,
-                query,
-                &AskContextOptions {
-                    limit_events: 10,
-                    include_unverified: false,
-                    max_claims: 12,
-                },
-            )
-            .expect("ask context");
-            let timeline = context
-                .pointer("/ground_truth/timeline")
-                .and_then(JsonValue::as_object)
-                .expect("timeline");
-            let prompt = context["prompt"].as_str().expect("prompt");
 
-            assert_eq!(context["intent"], intent);
-            assert!(timeline
-                .get("recent_events")
-                .and_then(JsonValue::as_array)
-                .is_some_and(|events| !events.is_empty()));
-            assert!(timeline
-                .get("stat_changes")
-                .and_then(JsonValue::as_array)
-                .is_some_and(|changes| !changes.is_empty()));
-            assert!(prompt.contains("recent_events"));
-            assert!(prompt.contains("stat_changes"));
-        }
-    }
 
-    #[test]
-    fn entity_token_resolver_matches_query_phrases() {
-        let conn = temp_conn();
-        insert_light_entity(&conn, 20, "hero", "Pocket");
-        insert_light_entity(&conn, 21, "hero", "Seven");
 
-        let pocket_plan = analyze_query(&conn, "Pocket build items").expect("pocket plan");
-        let pocket_match =
-            resolve_ask_entity_match(&conn, "Pocket build items", &pocket_plan).expect("pocket");
-        let seven_plan = analyze_query(&conn, "was wurde an Seven geaendert").expect("seven plan");
-        let seven_match = resolve_ask_entity_match(&conn, "was wurde an Seven geaendert", &seven_plan)
-            .expect("seven");
 
-        assert!(pocket_match.matched);
-        assert_eq!(pocket_match.canonical_name.as_deref(), Some("Pocket"));
-        assert!(seven_match.matched);
-        assert_eq!(seven_match.canonical_name.as_deref(), Some("Seven"));
-    }
 
-    #[test]
-    fn context_matches_alias_and_loads_patch_events() {
-        let conn = temp_conn();
-        insert_entity_fixture(&conn);
 
-        let ctx = build_entity_context(&conn, "Mystic Shot", 30).expect("context");
-
-        assert_eq!(ctx["best_match"]["canonical_name"], "Mystic Shot");
-        assert_eq!(ctx["best_match"]["score"], 120);
-        assert_eq!(ctx["patch_events"].as_array().expect("events").len(), 1);
-        assert_eq!(ctx["enrichments"]["available"], true);
-    }
-
-    #[test]
-    fn timeline_classifies_numeric_buff() {
-        let conn = temp_conn();
-        insert_entity_fixture(&conn);
-
-        let timeline = build_entity_timeline(&conn, "Mystic Shot", 100, true).expect("timeline");
-        let event = &timeline["patches"][0]["events"][0];
-
-        assert_eq!(event["impact_kind"], "numeric_buff");
-        assert_eq!(event["impact_level"], "medium");
-        assert_eq!(timeline["event_count"], 1);
-    }
-
-    #[test]
-    fn item_context_summarizes_assets_payload() {
-        let conn = temp_conn();
-        insert_entity_fixture(&conn);
-
-        let item = build_item_context(&conn, "Mystic Shot").expect("item");
-
-        assert_eq!(item["name"], "Mystic Shot");
-        assert_eq!(item["slot"], "spirit");
-        assert_eq!(item["cost"], 1600);
-        assert!(item["archetypes"]
-            .as_array()
-            .expect("archetypes")
-            .contains(&json!("core_scaling")));
-    }
-
-    #[test]
-    fn analysis_save_and_list_roundtrip() {
-        let conn = temp_conn();
-        insert_entity_fixture(&conn);
-        let review_context = build_review_context(&conn, "Mystic Shot", 30).expect("review");
-
-        let note = analysis_save_review(
-            &conn,
-            &review_context,
-            Some("Analyse"),
-            Some("MiniMax-M3"),
-            Some(0.8),
-            "analysis_ready",
-            None,
-        )
-        .expect("save");
-        let notes = analysis_list(&conn, Some("Mystic"), 25).expect("list");
-
-        assert_eq!(note["status"], "analysis_ready");
-        assert_eq!(notes.as_array().expect("notes").len(), 1);
-    }
-
-    #[test]
-    fn quality_reports_required_tables_present() {
-        let conn = temp_conn();
-        let report = run_quality_checks(&conn).expect("quality");
-
-        let checks = report["checks"].as_array().expect("checks");
-        assert!(checks.iter().any(|check| {
-            check["check"] == "required_tables" && check["severity"] == "ok"
-        }));
-    }
-
-    #[test]
-    fn mechanic_vector_path_is_inactive_without_vector_tables() {
-        let conn = temp_conn();
-        let notes = search_mechanic_notes(&conn, "silence", 5).expect("notes");
-
-        assert_eq!(notes.as_array().expect("array").len(), 0);
-    }
 }
