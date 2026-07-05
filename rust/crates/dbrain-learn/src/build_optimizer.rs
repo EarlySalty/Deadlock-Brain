@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use rusqlite::{params_from_iter, Connection};
 use serde_json::{json, Map, Value};
+use sqlx::PgPool;
 
 use crate::{
     util::{
@@ -9,7 +9,7 @@ use crate::{
         decode_json_fields, dedupe_strings, get, get_any, get_any_string, get_string, int_or_none,
         int_or_zero, json_loads, numeric_value, query_json_rows, query_one_json,
         sorted_counts, statlocker_key, statlocker_hero_name, table_exists,
-        value_to_non_empty_string, value_to_string,
+        value_to_non_empty_string, value_to_string, SqlParam,
     },
     LearnError, Result,
 };
@@ -186,22 +186,23 @@ impl BuildSuggestOptions {
     }
 }
 
-pub fn build_suggest(conn: &Connection, options: BuildSuggestOptions) -> Result<Value> {
+pub async fn build_suggest(pool: &PgPool, options: BuildSuggestOptions) -> Result<Value> {
     build_hero_build_context(
-        conn,
+        pool,
         &options.query,
         &options.vs_heroes,
         options.limit_events,
     )
+    .await
 }
 
-pub fn build_hero_build_context(
-    conn: &Connection,
+pub async fn build_hero_build_context(
+    pool: &PgPool,
     query: &str,
     vs_heroes: &[String],
     limit_events: usize,
 ) -> Result<Value> {
-    let review_context = build_review_context(conn, query, limit_events)?;
+    let review_context = build_review_context(pool, query, limit_events).await?;
     let entity = get(&review_context, "entity_summary")
         .and_then(as_object)
         .cloned()
@@ -220,19 +221,19 @@ pub fn build_hero_build_context(
         .get("name")
         .and_then(value_to_non_empty_string)
         .unwrap_or_else(|| query.to_string());
-    let Some(hero_payload) = load_entity_payload(conn, &hero_name, "hero")? else {
+    let Some(hero_payload) = load_entity_payload(pool, &hero_name, "hero").await? else {
         return Err(LearnError::InvalidInput(format!(
             "Kein Hero-Payload fuer {query} gefunden."
         )));
     };
-    let abilities = load_hero_abilities(conn, &hero_payload)?;
-    let learning_signals = load_build_learning_signals(conn, &hero_name)?;
-    let learned_item_profile = load_learned_build_item_profile(conn, &hero_name)?;
+    let abilities = load_hero_abilities(pool, &hero_payload).await?;
+    let learning_signals = load_build_learning_signals(pool, &hero_name).await?;
+    let learned_item_profile = load_learned_build_item_profile(pool, &hero_name).await?;
     let mut hero_needs = infer_hero_needs(&hero_payload, &abilities);
     apply_learned_item_profile(&mut hero_needs, &learned_item_profile);
-    let wiki_summary = load_wiki_summary(conn, &hero_name)?;
-    let statlocker_signals = load_statlocker_wpa_signals(conn, &hero_name)?;
-    let items = load_public_items(conn)?;
+    let wiki_summary = load_wiki_summary(pool, &hero_name).await?;
+    let statlocker_signals = load_statlocker_wpa_signals(pool, &hero_name).await?;
+    let items = load_public_items(pool).await?;
     let score_support = ScoreSupport {
         review_context: &review_context,
         hero_needs: &hero_needs,
@@ -1080,17 +1081,18 @@ fn compact_properties(properties: Option<&Value>) -> Value {
     Value::Array(rows)
 }
 
-fn load_public_items(conn: &Connection) -> Result<Vec<Value>> {
+async fn load_public_items(pool: &PgPool) -> Result<Vec<Value>> {
     let rows = query_json_rows(
-        conn,
+        pool,
         r#"
-        SELECT payload_json
-        FROM entity_snapshots
+        SELECT payload::text AS payload_json
+        FROM brain.entity_snapshots
         WHERE source='deadlock_assets_api'
           AND entity_type='item_or_ability'
         "#,
         &[],
-    )?;
+    )
+    .await?;
     let mut items = Vec::new();
     let mut seen = BTreeSet::new();
     for row in rows {
@@ -1120,7 +1122,7 @@ fn load_public_items(conn: &Connection) -> Result<Vec<Value>> {
     Ok(items)
 }
 
-fn load_hero_abilities(conn: &Connection, hero_payload: &Value) -> Result<Vec<Value>> {
+async fn load_hero_abilities(pool: &PgPool, hero_payload: &Value) -> Result<Vec<Value>> {
     let hero_items = get(hero_payload, "items").cloned().unwrap_or_else(|| json!({}));
     let mut ability_classes = Vec::new();
     for key in ["signature1", "signature2", "signature3", "signature4"] {
@@ -1133,17 +1135,21 @@ fn load_hero_abilities(conn: &Connection, hero_payload: &Value) -> Result<Vec<Va
         let pattern_spaced = format!("%\"class_name\": \"{class_name}\"%");
         let pattern_compact = format!("%\"class_name\":\"{class_name}\"%");
         let row = query_one_json(
-            conn,
+            pool,
             r#"
-            SELECT payload_json
-            FROM entity_snapshots
+            SELECT payload::text AS payload_json
+            FROM brain.entity_snapshots
             WHERE source='deadlock_assets_api'
               AND entity_type='item_or_ability'
-              AND (payload_json LIKE ?1 OR payload_json LIKE ?2)
+              AND (payload::text LIKE $1 OR payload::text LIKE $2)
             LIMIT 1
             "#,
-            &[&pattern_spaced, &pattern_compact],
-        )?;
+            &[
+                SqlParam::Text(pattern_spaced),
+                SqlParam::Text(pattern_compact),
+            ],
+        )
+        .await?;
         if let Some(row) = row {
             let payload = json_loads(get(&row, "payload_json").and_then(Value::as_str), json!({}));
             abilities.push(ability_summary(&payload));
@@ -1563,47 +1569,54 @@ fn hero_decision_framework() -> Vec<&'static str> {
     ]
 }
 
-pub(crate) fn load_entity_payload(conn: &Connection, query: &str, entity_type: &str) -> Result<Option<Value>> {
+pub(crate) async fn load_entity_payload(pool: &PgPool, query: &str, entity_type: &str) -> Result<Option<Value>> {
     let wanted_snapshot_type = if entity_type == "hero" { "hero" } else { "item_or_ability" };
     let lower = query.to_lowercase();
     let like = format!("%{query}%");
     let row = query_one_json(
-        conn,
+        pool,
         r#"
-        SELECT payload_json
-        FROM entity_snapshots
+        SELECT payload::text AS payload_json
+        FROM brain.entity_snapshots
         WHERE source='deadlock_assets_api'
-          AND entity_type=?1
+          AND entity_type=$1
           AND (
-            lower(canonical_name)=?2
-            OR canonical_name LIKE ?3
-            OR payload_json LIKE ?3
+            lower(canonical_name)=$2
+            OR canonical_name LIKE $3
+            OR payload::text LIKE $3
           )
         ORDER BY
-          CASE WHEN lower(canonical_name)=?2 THEN 0 ELSE 1 END,
+          CASE WHEN lower(canonical_name)=$2 THEN 0 ELSE 1 END,
           fetched_at DESC,
           id DESC
         LIMIT 1
         "#,
-        &[&wanted_snapshot_type, &lower, &like],
-    )?;
+        &[
+            SqlParam::Text(wanted_snapshot_type.to_string()),
+            SqlParam::Text(lower),
+            SqlParam::Text(like),
+        ],
+    )
+    .await?;
     Ok(row
         .and_then(|item| get(&item, "payload_json").and_then(Value::as_str).map(|raw| json_loads(Some(raw), json!({}))))
         .filter(Value::is_object))
 }
 
-fn load_wiki_summary(conn: &Connection, title: &str) -> Result<Option<Value>> {
+async fn load_wiki_summary(pool: &PgPool, title: &str) -> Result<Option<Value>> {
     let row = query_one_json(
-        conn,
+        pool,
         r#"
-        SELECT payload_json, fetched_at
-        FROM entity_snapshots
-        WHERE source='deadlock_wiki' AND external_id=?1
+        SELECT payload::text AS payload_json,
+               extract(epoch from fetched_at)::int8 AS fetched_at
+        FROM brain.entity_snapshots
+        WHERE source='deadlock_wiki' AND external_id=$1
         ORDER BY id DESC
         LIMIT 1
         "#,
-        &[&title],
-    )?;
+        &[SqlParam::Text(title.to_string())],
+    )
+    .await?;
     let Some(row) = row else {
         return Ok(None);
     };
@@ -1634,20 +1647,22 @@ fn load_wiki_summary(conn: &Connection, title: &str) -> Result<Option<Value>> {
     })))
 }
 
-fn load_statlocker_wpa_signals(conn: &Connection, hero_name: &str) -> Result<BTreeMap<String, Value>> {
+async fn load_statlocker_wpa_signals(pool: &PgPool, hero_name: &str) -> Result<BTreeMap<String, Value>> {
     let hero_key = statlocker_key(hero_name);
     let hero_web_key = statlocker_key(&statlocker_hero_name(hero_name));
     let rows = query_json_rows(
-        conn,
+        pool,
         r#"
-        SELECT payload_json, fetched_at
-        FROM entity_snapshots
+        SELECT payload::text AS payload_json,
+               extract(epoch from fetched_at)::int8 AS fetched_at
+        FROM brain.entity_snapshots
         WHERE source='statlocker'
           AND entity_type='statlocker_wpa_item'
         ORDER BY fetched_at DESC, id DESC
         "#,
         &[],
-    )?;
+    )
+    .await?;
     let mut signals = BTreeMap::new();
     let mut fallback = BTreeMap::new();
     for row in rows {
@@ -1681,22 +1696,23 @@ fn load_statlocker_wpa_signals(conn: &Connection, hero_name: &str) -> Result<BTr
     }
 }
 
-fn load_build_learning_signals(conn: &Connection, hero_name: &str) -> Result<BuildLearningSignals> {
-    if !table_exists(conn, "build_learning_notes")? {
+async fn load_build_learning_signals(pool: &PgPool, hero_name: &str) -> Result<BuildLearningSignals> {
+    if !table_exists(pool, "build_learning_notes").await? {
         return Ok(BuildLearningSignals::default());
     }
     let rows = query_json_rows(
-        conn,
+        pool,
         r#"
-        SELECT insights_json, updated_at, created_at, id
-        FROM build_learning_notes
-        WHERE lower(hero_name)=lower(?1)
-          AND COALESCE(insights_json, '') NOT IN ('', '{}', 'null')
+        SELECT insights::text AS insights_json
+        FROM brain.build_learning_notes
+        WHERE lower(hero_name)=lower($1)
+          AND COALESCE(insights::text, '') NOT IN ('', '{}', 'null')
         ORDER BY updated_at DESC, created_at DESC, id DESC
         LIMIT 24
         "#,
-        &[&hero_name],
-    )?;
+        &[SqlParam::Text(hero_name.to_string())],
+    )
+    .await?;
     let mut signals = BuildLearningSignals::default();
     for (index, row) in rows.iter().enumerate() {
         let parsed = json_loads(get(row, "insights_json").and_then(Value::as_str), json!({}));
@@ -1720,22 +1736,23 @@ fn load_build_learning_signals(conn: &Connection, hero_name: &str) -> Result<Bui
     Ok(signals)
 }
 
-fn load_learned_build_item_profile(conn: &Connection, hero_name: &str) -> Result<LearnedBuildItemProfile> {
-    if !table_exists(conn, "learned_builds")? {
+async fn load_learned_build_item_profile(pool: &PgPool, hero_name: &str) -> Result<LearnedBuildItemProfile> {
+    if !table_exists(pool, "learned_builds").await? {
         return Ok(LearnedBuildItemProfile::default());
     }
     let rows = query_json_rows(
-        conn,
+        pool,
         r#"
-        SELECT item_names_json, quality_tier, quality_score, source_rank, updated_at
-        FROM learned_builds
-        WHERE lower(hero_name)=lower(?1)
+        SELECT item_names::text AS item_names_json
+        FROM brain.learned_builds
+        WHERE lower(hero_name)=lower($1)
           AND quality_tier IN ('likely_good', 'usable_noisy')
         ORDER BY quality_score DESC, source_rank ASC, updated_at DESC, id ASC
         LIMIT 12
         "#,
-        &[&hero_name],
-    )?;
+        &[SqlParam::Text(hero_name.to_string())],
+    )
+    .await?;
     let mut profile = LearnedBuildItemProfile::default();
     for row in rows {
         let items = json_loads(get(&row, "item_names_json").and_then(Value::as_str), json!([]));
@@ -2200,24 +2217,24 @@ fn scale_hint(scale_function: Option<&Value>) -> Value {
         .unwrap_or_else(|| json!([]))
 }
 
-fn build_review_context(conn: &Connection, query: &str, limit_events: usize) -> Result<Value> {
+async fn build_review_context(pool: &PgPool, query: &str, limit_events: usize) -> Result<Value> {
     let limit = clamp_usize(limit_events, 1, 500);
-    let best_match = find_best_entity_match(conn, query)?;
+    let best_match = find_best_entity_match(pool, query).await?;
     let aliases = if let Some(entity_id) = best_match
         .as_ref()
         .and_then(|value| int_or_none(get(value, "id")))
     {
-        load_aliases(conn, entity_id)?
+        load_aliases(pool, entity_id).await?
     } else {
         Vec::new()
     };
-    let events = load_patch_events(conn, query, best_match.as_ref(), &aliases, limit)?;
+    let events = load_patch_events(pool, query, best_match.as_ref(), &aliases, limit).await?;
     let event_ids: Vec<i64> = events
         .iter()
         .filter_map(|event| int_or_none(get(event, "id")))
         .collect();
-    let enrichments = load_enrichments(conn, &event_ids)?;
-    let current_stat_hints = build_current_stat_hints(conn, query, best_match.as_ref(), &aliases)?;
+    let enrichments = load_enrichments(pool, &event_ids).await?;
+    let current_stat_hints = build_current_stat_hints(pool, query, best_match.as_ref(), &aliases).await?;
     let entity_summary = build_entity_summary(query, best_match.as_ref(), &aliases);
     let timeline_signals = build_timeline_signals(&events, &enrichments);
     let open_questions = build_open_questions(
@@ -2253,13 +2270,13 @@ fn build_review_context(conn: &Connection, query: &str, limit_events: usize) -> 
     }))
 }
 
-fn find_best_entity_match(conn: &Connection, query: &str) -> Result<Option<Value>> {
+async fn find_best_entity_match(pool: &PgPool, query: &str) -> Result<Option<Value>> {
     let query_norm = normalize_alias(query);
-    if table_exists(conn, "entities")? && table_exists(conn, "entity_aliases")? {
+    if table_exists(pool, "entities").await? && table_exists(pool, "entity_aliases").await? {
         let like_norm = format!("%{query_norm}%");
         let like_query = format!("%{query}%");
         let rows = query_json_rows(
-            conn,
+            pool,
             r#"
             SELECT
               e.id,
@@ -2267,31 +2284,37 @@ fn find_best_entity_match(conn: &Connection, query: &str) -> Result<Option<Value
               e.canonical_name,
               e.primary_external_id,
               e.source,
-              e.metadata_json,
+              e.metadata::text AS metadata_json,
               MAX(
                 CASE
-                  WHEN lower(e.canonical_name)=lower(?1) THEN 120
-                  WHEN a.alias_norm=?2 AND a.alias_kind='canonical' THEN 115
-                  WHEN a.alias_norm=?2 THEN 110
-                  WHEN a.alias_norm LIKE ?3 THEN 80
-                  WHEN lower(e.canonical_name) LIKE lower(?4) THEN 70
+                  WHEN lower(e.canonical_name)=lower($1) THEN 120
+                  WHEN a.alias_norm=$2 AND a.alias_kind='canonical' THEN 115
+                  WHEN a.alias_norm=$2 THEN 110
+                  WHEN a.alias_norm LIKE $3 THEN 80
+                  WHEN lower(e.canonical_name) LIKE lower($4) THEN 70
                   ELSE 50
                 END
               ) AS score,
-              GROUP_CONCAT(DISTINCT a.alias_kind) AS matched_alias_kinds
-            FROM entities e
-            LEFT JOIN entity_aliases a ON a.entity_id=e.id
+              string_agg(DISTINCT a.alias_kind, ',') AS matched_alias_kinds
+            FROM brain.entities e
+            LEFT JOIN brain.entity_aliases a ON a.entity_id=e.id
             WHERE
-              lower(e.canonical_name)=lower(?1)
-              OR lower(e.canonical_name) LIKE lower(?4)
-              OR a.alias_norm=?2
-              OR a.alias_norm LIKE ?3
+              lower(e.canonical_name)=lower($1)
+              OR lower(e.canonical_name) LIKE lower($4)
+              OR a.alias_norm=$2
+              OR a.alias_norm LIKE $3
             GROUP BY e.id
             ORDER BY score DESC, e.entity_type, length(e.canonical_name), e.canonical_name
             LIMIT 1
             "#,
-            &[&query, &query_norm, &like_norm, &like_query],
-        )?;
+            &[
+                SqlParam::Text(query.to_string()),
+                SqlParam::Text(query_norm.clone()),
+                SqlParam::Text(like_norm),
+                SqlParam::Text(like_query),
+            ],
+        )
+        .await?;
         if let Some(mut row) = rows.into_iter().next() {
             if int_or_zero(get(&row, "score")) >= 100 {
                 if let Some(object) = row.as_object_mut() {
@@ -2312,28 +2335,29 @@ fn find_best_entity_match(conn: &Connection, query: &str) -> Result<Option<Value
 
     let like = format!("%{query}%");
     let row = query_one_json(
-        conn,
+        pool,
         r#"
         SELECT
-          NULL AS id,
+          NULL::int8 AS id,
           entity_type,
           canonical_name,
           external_id AS primary_external_id,
           source,
-          payload_json,
+          payload::text AS payload_json,
           100 AS score
-        FROM entity_snapshots
+        FROM brain.entity_snapshots
         WHERE source='deadlock_assets_api'
           AND (
-            lower(canonical_name)=lower(?1)
-            OR canonical_name LIKE ?2
-            OR payload_json LIKE ?2
+            lower(canonical_name)=lower($1)
+            OR canonical_name LIKE $2
+            OR payload::text LIKE $2
           )
-        ORDER BY CASE WHEN lower(canonical_name)=lower(?1) THEN 0 ELSE 1 END, fetched_at DESC, id DESC
+        ORDER BY CASE WHEN lower(canonical_name)=lower($1) THEN 0 ELSE 1 END, fetched_at DESC, id DESC
         LIMIT 1
         "#,
-        &[&query, &like],
-    )?;
+        &[SqlParam::Text(query.to_string()), SqlParam::Text(like)],
+    )
+    .await?;
     Ok(row.map(|mut value| {
         if let Some(object) = value.as_object_mut() {
             let payload = json_loads(object.get("payload_json").and_then(Value::as_str), json!({}));
@@ -2350,13 +2374,13 @@ fn find_best_entity_match(conn: &Connection, query: &str) -> Result<Option<Value
     }))
 }
 
-fn load_aliases(conn: &Connection, entity_id: i64) -> Result<Vec<Value>> {
+async fn load_aliases(pool: &PgPool, entity_id: i64) -> Result<Vec<Value>> {
     let rows = query_json_rows(
-        conn,
+        pool,
         r#"
         SELECT alias, alias_norm, alias_kind, source, external_id, snapshot_id
-        FROM entity_aliases
-        WHERE entity_id=?1
+        FROM brain.entity_aliases
+        WHERE entity_id=$1
         ORDER BY
           CASE alias_kind
             WHEN 'canonical' THEN 0
@@ -2370,19 +2394,20 @@ fn load_aliases(conn: &Connection, entity_id: i64) -> Result<Vec<Value>> {
           alias
         LIMIT 80
         "#,
-        &[&entity_id],
-    )?;
+        &[SqlParam::Int(entity_id)],
+    )
+    .await?;
     Ok(rows)
 }
 
-fn load_patch_events(
-    conn: &Connection,
+async fn load_patch_events(
+    pool: &PgPool,
     query: &str,
     best_match: Option<&Value>,
     aliases: &[Value],
     limit: usize,
 ) -> Result<Vec<Value>> {
-    if !table_exists(conn, "patch_events")? {
+    if !table_exists(pool, "patch_events").await? {
         return Ok(Vec::new());
     }
     let mut names = BTreeSet::new();
@@ -2399,34 +2424,34 @@ fn load_patch_events(
             }
         }
     }
+    const PATCH_EVENT_COLUMNS: &str = r#"
+        SELECT id, patch_snapshot_id, patch_external_id, patch_title, patch_url, source_kind,
+               posted_at::text AS posted_at, line_index, section, entity_type, entity_name,
+               subject, change_type, raw_line, normalized_line, old_value, new_value, confidence,
+               metadata::text AS metadata_json, event_hash,
+               extract(epoch from created_at)::int8 AS created_at
+        FROM brain.patch_events
+    "#;
     let mut rows = if names.is_empty() {
         let like = format!("%{query}%");
         query_json_rows(
-            conn,
-            r#"
-            SELECT *
-            FROM patch_events
-            WHERE entity_name LIKE ?1
-            ORDER BY patch_snapshot_id DESC, line_index
-            LIMIT 500
-            "#,
-            &[&like],
-        )?
+            pool,
+            &format!(
+                "{PATCH_EVENT_COLUMNS} WHERE entity_name LIKE $1 ORDER BY patch_snapshot_id DESC, line_index LIMIT 500"
+            ),
+            &[SqlParam::Text(like)],
+        )
+        .await?
     } else {
-        let placeholders = (0..names.len()).map(|_| "?").collect::<Vec<_>>().join(",");
-        let sql = format!(
-            r#"
-            SELECT *
-            FROM patch_events
-            WHERE lower(entity_name) IN ({placeholders})
-            ORDER BY patch_snapshot_id DESC, line_index
-            LIMIT 500
-            "#
-        );
-        let params = names.into_iter().collect::<Vec<_>>();
-        let mut stmt = conn.prepare(&sql)?;
-        let iter = stmt.query_map(params_from_iter(params.iter()), crate::util::row_to_json)?;
-        iter.collect::<rusqlite::Result<Vec<_>>>()?
+        let names_vec = names.into_iter().collect::<Vec<_>>();
+        query_json_rows(
+            pool,
+            &format!(
+                "{PATCH_EVENT_COLUMNS} WHERE lower(entity_name) = ANY($1) ORDER BY patch_snapshot_id DESC, line_index LIMIT 500"
+            ),
+            &[SqlParam::TextArray(names_vec)],
+        )
+        .await?
     };
     for row in &mut rows {
         if let Some(object) = row.as_object_mut() {
@@ -2440,23 +2465,27 @@ fn load_patch_events(
     Ok(rows)
 }
 
-fn load_enrichments(conn: &Connection, event_ids: &[i64]) -> Result<Vec<Value>> {
-    if event_ids.is_empty() || !table_exists(conn, "patch_event_enrichments")? {
+async fn load_enrichments(pool: &PgPool, event_ids: &[i64]) -> Result<Vec<Value>> {
+    if event_ids.is_empty() || !table_exists(pool, "patch_event_enrichments").await? {
         return Ok(Vec::new());
     }
-    let placeholders = (0..event_ids.len()).map(|_| "?").collect::<Vec<_>>().join(",");
-    let sql = format!(
-        "SELECT * FROM patch_event_enrichments WHERE patch_event_id IN ({placeholders})"
-    );
-    let mut stmt = conn.prepare(&sql)?;
-    let iter = stmt.query_map(params_from_iter(event_ids.iter()), |row| {
-        crate::util::row_to_json(row).map(|value| decode_json_fields(&value))
-    })?;
-    Ok(iter.collect::<rusqlite::Result<Vec<_>>>()?)
+    let rows = query_json_rows(
+        pool,
+        r#"
+        SELECT patch_event_id, stat_name, old_value, new_value, unit,
+               ability_name, secondary_entity_name, confidence,
+               flags::text AS flags_json
+        FROM brain.patch_event_enrichments
+        WHERE patch_event_id = ANY($1)
+        "#,
+        &[SqlParam::IntArray(event_ids.to_vec())],
+    )
+    .await?;
+    Ok(rows.iter().map(decode_json_fields).collect())
 }
 
-fn build_current_stat_hints(
-    conn: &Connection,
+async fn build_current_stat_hints(
+    pool: &PgPool,
     query: &str,
     best_match: Option<&Value>,
     aliases: &[Value],
@@ -2477,29 +2506,35 @@ fn build_current_stat_hints(
     let lowered = names.iter().map(|name| name.to_lowercase()).collect::<Vec<_>>();
     let mut profile = Value::Null;
     let mut value_rows = Vec::new();
-    if !lowered.is_empty() && table_exists(conn, "hero_stat_profiles")? {
-        let placeholders = (0..lowered.len()).map(|_| "?").collect::<Vec<_>>().join(",");
-        let sql = format!(
-            "SELECT hero_name, source, external_id, snapshot_id, row_number, id FROM hero_stat_profiles WHERE lower(hero_name) IN ({placeholders}) ORDER BY updated_at DESC LIMIT 1"
-        );
-        let mut stmt = conn.prepare(&sql)?;
-        let mut rows = stmt.query_map(params_from_iter(lowered.iter()), crate::util::row_to_json)?;
-        if let Some(row) = rows.next() {
-            profile = row?;
+    if !lowered.is_empty() && table_exists(pool, "hero_stat_profiles").await? {
+        let mut rows = query_json_rows(
+            pool,
+            r#"
+            SELECT hero_name, source, external_id, snapshot_id, row_number, id
+            FROM brain.hero_stat_profiles
+            WHERE lower(hero_name) = ANY($1)
+            ORDER BY updated_at DESC LIMIT 1
+            "#,
+            &[SqlParam::TextArray(lowered.clone())],
+        )
+        .await?;
+        if !rows.is_empty() {
+            profile = rows.remove(0);
         }
     }
-    if !profile.is_null() && table_exists(conn, "hero_stat_values")? {
+    if !profile.is_null() && table_exists(pool, "hero_stat_values").await? {
         if let Some(profile_id) = int_or_none(get(&profile, "id")) {
             value_rows = query_json_rows(
-                conn,
+                pool,
                 r#"
                 SELECT stat_key, stat_label, raw_value, numeric_value
-                FROM hero_stat_values
-                WHERE profile_id=?1
+                FROM brain.hero_stat_values
+                WHERE profile_id=$1
                 ORDER BY stat_key
                 "#,
-                &[&profile_id],
-            )?;
+                &[SqlParam::Int(profile_id)],
+            )
+            .await?;
         }
     }
     let hints = merged_sheet_stat_hints(&value_rows);
@@ -2790,43 +2825,48 @@ fn merged_sheet_stat_hints(value_rows: &[Value]) -> Vec<Value> {
     ordered
 }
 
-pub(crate) fn hero_name_from_id(conn: &Connection, hero_id: Option<&str>) -> Result<Option<String>> {
+pub(crate) async fn hero_name_from_id(pool: &PgPool, hero_id: Option<&str>) -> Result<Option<String>> {
     let Some(hero_id) = hero_id.filter(|value| !value.trim().is_empty()) else {
         return Ok(None);
     };
     let id_int = hero_id.parse::<i64>().ok();
     let row = if let Some(id_int) = id_int {
         query_one_json(
-            conn,
+            pool,
             r#"
-            SELECT canonical_name, payload_json
-            FROM entity_snapshots
+            SELECT canonical_name, payload::text AS payload_json
+            FROM brain.entity_snapshots
             WHERE source='deadlock_assets_api' AND entity_type='hero'
-              AND (external_id=?1 OR payload_json LIKE ?2)
+              AND (external_id=$1 OR payload::text LIKE $2)
             ORDER BY
               CASE
-                WHEN payload_json LIKE '%"name"%' AND payload_json NOT LIKE '%hero_%'
+                WHEN payload::text LIKE '%"name"%' AND payload::text NOT LIKE '%hero_%'
                 THEN 0 ELSE 1
               END,
               fetched_at DESC,
               id DESC
             LIMIT 1
             "#,
-            &[&hero_id, &format!("%\"id\": {id_int}%")],
-        )?
+            &[
+                SqlParam::Text(hero_id.to_string()),
+                SqlParam::Text(format!("%\"id\": {id_int}%")),
+            ],
+        )
+        .await?
     } else {
         query_one_json(
-            conn,
+            pool,
             r#"
-            SELECT canonical_name, payload_json
-            FROM entity_snapshots
+            SELECT canonical_name, payload::text AS payload_json
+            FROM brain.entity_snapshots
             WHERE source='deadlock_assets_api' AND entity_type='hero'
-              AND external_id=?1
+              AND external_id=$1
             ORDER BY fetched_at DESC, id DESC
             LIMIT 1
             "#,
-            &[&hero_id],
-        )?
+            &[SqlParam::Text(hero_id.to_string())],
+        )
+        .await?
     };
     Ok(row.and_then(|row| {
         let payload = json_loads(get(&row, "payload_json").and_then(Value::as_str), json!({}));
@@ -2834,41 +2874,41 @@ pub(crate) fn hero_name_from_id(conn: &Connection, hero_id: Option<&str>) -> Res
     }))
 }
 
-pub(crate) fn asset_payload_by_id(conn: &Connection, asset_id: Option<&str>) -> Result<Option<Value>> {
+pub(crate) async fn asset_payload_by_id(pool: &PgPool, asset_id: Option<&str>) -> Result<Option<Value>> {
     let Some(asset_id) = asset_id.filter(|value| !value.trim().is_empty()) else {
         return Ok(None);
     };
-    let row = query_one_json(
-        conn,
+    let mut row = query_one_json(
+        pool,
         r#"
-        SELECT payload_json
-        FROM entity_snapshots
+        SELECT payload::text AS payload_json
+        FROM brain.entity_snapshots
         WHERE source='deadlock_assets_api'
           AND entity_type='item_or_ability'
-          AND external_id=?1
+          AND external_id=$1
         ORDER BY fetched_at DESC, id DESC
         LIMIT 1
         "#,
-        &[&asset_id],
-    )?
-    .or_else(|| {
+        &[SqlParam::Text(asset_id.to_string())],
+    )
+    .await?;
+    if row.is_none() {
         let pattern = format!("%\"id\": {asset_id}%");
-        query_one_json(
-            conn,
+        row = query_one_json(
+            pool,
             r#"
-            SELECT payload_json
-            FROM entity_snapshots
+            SELECT payload::text AS payload_json
+            FROM brain.entity_snapshots
             WHERE source='deadlock_assets_api'
               AND entity_type='item_or_ability'
-              AND payload_json LIKE ?1
+              AND payload::text LIKE $1
             ORDER BY fetched_at DESC, id DESC
             LIMIT 1
             "#,
-            &[&pattern],
+            &[SqlParam::Text(pattern)],
         )
-        .ok()
-        .flatten()
-    });
+        .await?;
+    }
     Ok(row.and_then(|row| get(&row, "payload_json").and_then(Value::as_str).map(|raw| json_loads(Some(raw), json!({})))))
 }
 

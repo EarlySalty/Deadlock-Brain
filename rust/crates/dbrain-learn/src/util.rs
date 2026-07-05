@@ -1,27 +1,133 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use rusqlite::{
-    types::{ToSql, ValueRef},
-    Connection, Row,
-};
 use serde_json::{json, Map, Number, Value};
 use sha2::{Digest, Sha256};
+use sqlx::{
+    postgres::{PgColumn, PgPool, PgRow},
+    Column, Row, TypeInfo,
+};
 
 use crate::Result;
 
-pub(crate) fn ensure_schema(conn: &Connection) -> Result<()> {
-    deadlock_brain_core::schema::ensure_schema(conn)?;
-    Ok(())
+/// Bind-Parameter fuer die dynamischen Laufzeit-Queries (`sqlx::query`).
+///
+/// Die Lern-Crate baut ihre Ergebniszeilen bewusst dynamisch als
+/// `serde_json::Value` (Payloads sind JSON). Deshalb laufen die Queries ueber
+/// `sqlx::query` (Laufzeit) statt ueber die typgepruefte `query!`-Makro-Form;
+/// die Bindings werden ueber diese kleine Parameter-Abstraktion gesetzt.
+#[derive(Debug, Clone)]
+pub(crate) enum SqlParam {
+    Int(i64),
+    IntOpt(Option<i64>),
+    Float(f64),
+    Text(String),
+    TextOpt(Option<String>),
+    IntArray(Vec<i64>),
+    TextArray(Vec<String>),
+}
+
+fn bind_params<'q>(
+    mut query: sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments>,
+    params: &'q [SqlParam],
+) -> sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments> {
+    for param in params {
+        query = match param {
+            SqlParam::Int(value) => query.bind(*value),
+            SqlParam::IntOpt(value) => query.bind(*value),
+            SqlParam::Float(value) => query.bind(*value),
+            SqlParam::Text(value) => query.bind(value.as_str()),
+            SqlParam::TextOpt(value) => query.bind(value.as_deref()),
+            SqlParam::IntArray(value) => query.bind(value.as_slice()),
+            SqlParam::TextArray(value) => query.bind(value.as_slice()),
+        };
+    }
+    query
+}
+
+pub(crate) async fn query_json_rows(
+    pool: &PgPool,
+    sql: &str,
+    params: &[SqlParam],
+) -> Result<Vec<Value>> {
+    let rows = bind_params(sqlx::query(sql), params)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows.iter().map(pg_row_to_json).collect())
+}
+
+pub(crate) async fn query_one_json(
+    pool: &PgPool,
+    sql: &str,
+    params: &[SqlParam],
+) -> Result<Option<Value>> {
+    let row = bind_params(sqlx::query(sql), params)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row.as_ref().map(pg_row_to_json))
+}
+
+pub(crate) async fn execute_sql(pool: &PgPool, sql: &str, params: &[SqlParam]) -> Result<u64> {
+    let result = bind_params(sqlx::query(sql), params).execute(pool).await?;
+    Ok(result.rows_affected())
+}
+
+/// Prueft, ob eine Tabelle im `brain`-Schema existiert.
+pub(crate) async fn table_exists(pool: &PgPool, name: &str) -> Result<bool> {
+    let qualified = format!("brain.{name}");
+    let row = sqlx::query("SELECT to_regclass($1) IS NOT NULL AS present")
+        .bind(&qualified)
+        .fetch_one(pool)
+        .await?;
+    Ok(row
+        .try_get::<Option<bool>, _>("present")
+        .ok()
+        .flatten()
+        .unwrap_or(false))
+}
+
+pub(crate) fn pg_row_to_json(row: &PgRow) -> Value {
+    let mut object = Map::new();
+    for column in row.columns() {
+        object.insert(column.name().to_string(), decode_pg_column(row, column));
+    }
+    Value::Object(object)
+}
+
+fn decode_pg_column(row: &PgRow, column: &PgColumn) -> Value {
+    let ordinal = column.ordinal();
+    match column.type_info().name() {
+        "INT8" | "INT4" | "INT2" => row
+            .try_get::<Option<i64>, _>(ordinal)
+            .ok()
+            .flatten()
+            .map(|value| json!(value))
+            .unwrap_or(Value::Null),
+        "FLOAT8" | "FLOAT4" => row
+            .try_get::<Option<f64>, _>(ordinal)
+            .ok()
+            .flatten()
+            .and_then(Number::from_f64)
+            .map(Value::Number)
+            .unwrap_or(Value::Null),
+        "BOOL" => row
+            .try_get::<Option<bool>, _>(ordinal)
+            .ok()
+            .flatten()
+            .map(Value::Bool)
+            .unwrap_or(Value::Null),
+        _ => row
+            .try_get::<Option<String>, _>(ordinal)
+            .ok()
+            .flatten()
+            .map(Value::String)
+            .unwrap_or(Value::Null),
+    }
 }
 
 pub(crate) fn stable_hash_text(content: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(content.as_bytes());
     format!("{:x}", hasher.finalize())
-}
-
-pub(crate) fn now_epoch_seconds() -> Result<i64> {
-    Ok(deadlock_brain_core::db::now_epoch_seconds()?)
 }
 
 pub(crate) fn clamp_i64(value: i64, min: i64, max: i64) -> i64 {
@@ -125,62 +231,6 @@ pub(crate) fn loads_json_value(value: Option<&Value>, fallback: Value) -> Value 
         Some(Value::String(text)) => serde_json::from_str::<Value>(text).unwrap_or(fallback),
         Some(other) => serde_json::from_str::<Value>(&value_to_string(other)).unwrap_or(fallback),
         None => fallback,
-    }
-}
-
-pub(crate) fn row_to_json(row: &Row<'_>) -> rusqlite::Result<Value> {
-    let mut object = Map::new();
-    let row_ref = row.as_ref();
-    for index in 0..row_ref.column_count() {
-        let name = row_ref.column_name(index)?.to_string();
-        object.insert(name, sql_value_to_json(row.get_ref(index)?));
-    }
-    Ok(Value::Object(object))
-}
-
-pub(crate) fn query_json_rows(
-    conn: &Connection,
-    sql: &str,
-    params: &[&dyn ToSql],
-) -> rusqlite::Result<Vec<Value>> {
-    let mut stmt = conn.prepare(sql)?;
-    let rows = stmt.query_map(params, row_to_json)?;
-    rows.collect()
-}
-
-pub(crate) fn query_one_json(
-    conn: &Connection,
-    sql: &str,
-    params: &[&dyn ToSql],
-) -> rusqlite::Result<Option<Value>> {
-    let mut rows = query_json_rows(conn, sql, params)?;
-    Ok(if rows.is_empty() {
-        None
-    } else {
-        Some(rows.remove(0))
-    })
-}
-
-pub(crate) fn table_exists(conn: &Connection, name: &str) -> rusqlite::Result<bool> {
-    let row = conn.query_row(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1",
-        [name],
-        |_row| Ok(()),
-    );
-    match row {
-        Ok(()) => Ok(true),
-        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(false),
-        Err(error) => Err(error),
-    }
-}
-
-pub(crate) fn sql_value_to_json(value: ValueRef<'_>) -> Value {
-    match value {
-        ValueRef::Null => Value::Null,
-        ValueRef::Integer(item) => json!(item),
-        ValueRef::Real(item) => Number::from_f64(item).map(Value::Number).unwrap_or(Value::Null),
-        ValueRef::Text(bytes) => String::from_utf8_lossy(bytes).to_string().into(),
-        ValueRef::Blob(bytes) => bytes.iter().map(|byte| format!("{byte:02x}")).collect::<String>().into(),
     }
 }
 

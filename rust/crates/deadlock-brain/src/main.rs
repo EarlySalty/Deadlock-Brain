@@ -960,12 +960,14 @@ async fn run(cli: Cli) -> Result<()> {
             }
         }
         Commands::Build(args) => {
+            let pool = deadlock_brain_core::pg::pg_pool().await?;
             let result = dbrain_learn::build_hero_build_context(
-                &conn,
+                &pool,
                 &args.query,
                 &[],
                 args.limit_events,
-            )?;
+            )
+            .await?;
             if args.pretty {
                 print_build_context(&result);
                 Ok(())
@@ -988,8 +990,8 @@ async fn run(cli: Cli) -> Result<()> {
                 print_json(&result)
             }
         }
-        Commands::Learn { target } => run_learn(&conn, &settings, target),
-        Commands::Player { target } => run_player(&conn, &settings, target),
+        Commands::Learn { target } => run_learn(&settings, target).await,
+        Commands::Player { target } => run_player(&settings, target).await,
         Commands::Youtube { target } => print_json(&youtube_deferral(&target)),
         Commands::Analysis { target } => run_analysis(&conn, &settings, target),
         Commands::Pull { source } => run_pull(&conn, &settings, source),
@@ -1059,18 +1061,20 @@ fn load_known_item_names(conn: &Connection) -> Result<BTreeSet<String>> {
     Ok(names)
 }
 
-fn run_learn(conn: &Connection, settings: &Settings, target: LearnCommands) -> Result<()> {
+async fn run_learn(settings: &Settings, target: LearnCommands) -> Result<()> {
+    let pool = deadlock_brain_core::pg::pg_pool().await?;
     match target {
         LearnCommands::ImportSteamBuilds(args) => {
             let result = dbrain_learn::learn_import_steam_builds(
-                conn,
+                &pool,
                 dbrain_learn::LearnImportSteamBuildsOptions {
                     steam_db_path: Some(args.db_path.unwrap_or_else(|| settings.central_deadlock_db_path.clone())),
                     hero: args.hero,
                     language: args.language,
                     limit_per_hero: usize_to_i64(args.limit_per_hero),
                 },
-            )?;
+            )
+            .await?;
             if args.pretty {
                 print_learn_result("import-steam-builds", &result);
                 Ok(())
@@ -1080,10 +1084,11 @@ fn run_learn(conn: &Connection, settings: &Settings, target: LearnCommands) -> R
         }
         LearnCommands::ListBuilds(args) => {
             let result = Value::Array(dbrain_learn::learn_list_builds(
-                conn,
+                &pool,
                 args.hero.as_deref(),
                 usize_to_i64(args.limit),
-            )?);
+            )
+            .await?);
             if args.pretty {
                 print_learn_result("list-builds", &result);
                 Ok(())
@@ -1100,14 +1105,15 @@ fn run_learn(conn: &Connection, settings: &Settings, target: LearnCommands) -> R
                 args.top_p,
             );
             let result = dbrain_learn::learn_analyze_build(
-                conn,
+                &pool,
                 dbrain_learn::LearnAnalyzeBuildOptions {
                     build_id: args.build_id,
                     config,
                     dry_run: args.dry_run,
                     include_request: true,
                 },
-            )?;
+            )
+            .await?;
             if args.pretty {
                 print_learn_result("analyze-build", &result);
                 Ok(())
@@ -1124,7 +1130,7 @@ fn run_learn(conn: &Connection, settings: &Settings, target: LearnCommands) -> R
                 args.top_p,
             );
             let result = dbrain_learn::learn_analyze_next(
-                conn,
+                &pool,
                 dbrain_learn::LearnAnalyzeNextOptions {
                     hero: args.hero,
                     limit: usize_to_i64(args.limit),
@@ -1132,7 +1138,8 @@ fn run_learn(conn: &Connection, settings: &Settings, target: LearnCommands) -> R
                     dry_run: args.dry_run,
                     delay_seconds: args.delay_seconds,
                 },
-            )?;
+            )
+            .await?;
             if args.pretty {
                 print_learn_result("analyze-next", &result);
                 Ok(())
@@ -1143,14 +1150,16 @@ fn run_learn(conn: &Connection, settings: &Settings, target: LearnCommands) -> R
     }
 }
 
-fn run_player(conn: &Connection, settings: &Settings, target: PlayerCommands) -> Result<()> {
+async fn run_player(settings: &Settings, target: PlayerCommands) -> Result<()> {
+    let pool = deadlock_brain_core::pg::pg_pool().await?;
     match target {
         PlayerCommands::ListMatches(args) => {
             let result = Value::Array(dbrain_learn::player_list_matches(
-                conn,
+                &pool,
                 args.account_id.as_deref(),
                 usize_to_i64(args.limit),
-            )?);
+            )
+            .await?);
             if args.pretty {
                 print_player_result("list-matches", &result);
                 Ok(())
@@ -1159,7 +1168,7 @@ fn run_player(conn: &Connection, settings: &Settings, target: PlayerCommands) ->
             }
         }
         PlayerCommands::MatchContext(args) => {
-            let result = dbrain_learn::player_match_context(conn, &args.account_id, &args.match_id)?;
+            let result = dbrain_learn::player_match_context(&pool, &args.account_id, &args.match_id).await?;
             if args.pretty {
                 print_player_result("match-context", &result);
                 Ok(())
@@ -1176,7 +1185,7 @@ fn run_player(conn: &Connection, settings: &Settings, target: PlayerCommands) ->
                 args.top_p,
             );
             let result = dbrain_learn::player_analyze_match(
-                conn,
+                &pool,
                 dbrain_learn::PlayerAnalyzeMatchOptions {
                     account_id: args.account_id,
                     match_id: args.match_id,
@@ -1184,7 +1193,8 @@ fn run_player(conn: &Connection, settings: &Settings, target: PlayerCommands) ->
                     dry_run: args.dry_run,
                     include_request: true,
                 },
-            )?;
+            )
+            .await?;
             if args.pretty {
                 print_player_result("analyze-match", &result);
                 Ok(())
@@ -1201,7 +1211,7 @@ fn run_player(conn: &Connection, settings: &Settings, target: PlayerCommands) ->
                 args.top_p,
             );
             let result = dbrain_learn::player_analyze_next(
-                conn,
+                &pool,
                 dbrain_learn::PlayerAnalyzeNextOptions {
                     account_id: args.account_id,
                     limit: usize_to_i64(args.limit),
@@ -1209,7 +1219,8 @@ fn run_player(conn: &Connection, settings: &Settings, target: PlayerCommands) ->
                     dry_run: args.dry_run,
                     delay_seconds: args.delay_seconds,
                 },
-            )?;
+            )
+            .await?;
             if args.pretty {
                 print_player_result("analyze-next", &result);
                 Ok(())
