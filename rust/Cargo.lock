@@ -458,12 +458,13 @@ dependencies = [
  "dbrain-normalize",
  "deadlock-brain-core",
  "regex",
- "rusqlite",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "sqlx",
  "tempfile",
  "thiserror 1.0.69",
+ "tokio",
 ]
 
 [[package]]

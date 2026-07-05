@@ -3,10 +3,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use deadlock_brain_core::db;
-use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use sqlx::PgPool;
 
 use crate::{Result, SourcesError};
 
@@ -21,42 +20,51 @@ pub(crate) struct EntitySnapshotInput {
 
 #[derive(Debug)]
 pub(crate) struct SourceStore<'a> {
-    conn: &'a Connection,
+    pool: &'a PgPool,
     raw_dir: PathBuf,
 }
 
 impl<'a> SourceStore<'a> {
-    pub(crate) fn new(conn: &'a Connection, raw_dir: &Path) -> Result<Self> {
+    pub(crate) fn new(pool: &'a PgPool, raw_dir: &Path) -> Result<Self> {
         fs::create_dir_all(raw_dir)?;
         Ok(Self {
-            conn,
+            pool,
             raw_dir: raw_dir.to_path_buf(),
         })
     }
 
-    pub(crate) fn conn(&self) -> &'a Connection {
-        self.conn
+    pub(crate) fn pool(&self) -> &'a PgPool {
+        self.pool
     }
 
-    pub(crate) fn begin_run(&self, source: &str) -> Result<i64> {
-        let started_at = db::now_epoch_seconds()?;
-        self.conn.execute(
-            "INSERT INTO source_runs(source, status, started_at) VALUES(?1, ?2, ?3)",
-            params![source, "running", started_at],
-        )?;
-        Ok(self.conn.last_insert_rowid())
-    }
-
-    pub(crate) fn finish_run(&self, run_id: i64, status: &str, summary: &Value) -> Result<()> {
-        let finished_at = db::now_epoch_seconds()?;
-        self.conn.execute(
+    pub(crate) async fn begin_run(&self, source: &str) -> Result<i64> {
+        let run_id = sqlx::query_scalar!(
             r#"
-            UPDATE source_runs
-            SET status=?1, finished_at=?2, summary_json=?3
-            WHERE id=?4
+            INSERT INTO brain.source_runs(source, status, started_at)
+            VALUES($1, 'running', now())
+            RETURNING id
             "#,
-            params![status, finished_at, json_string(summary)?, run_id],
-        )?;
+            source,
+        )
+        .fetch_one(self.pool)
+        .await?;
+        Ok(run_id)
+    }
+
+    pub(crate) async fn finish_run(&self, run_id: i64, status: &str, summary: &Value) -> Result<()> {
+        let summary_json = json_string(summary)?;
+        sqlx::query!(
+            r#"
+            UPDATE brain.source_runs
+            SET status=$1, finished_at=now(), summary=$2::text::jsonb
+            WHERE id=$3
+            "#,
+            status,
+            summary_json,
+            run_id,
+        )
+        .execute(self.pool)
+        .await?;
         Ok(())
     }
 
@@ -79,118 +87,130 @@ impl<'a> SourceStore<'a> {
         Ok(path)
     }
 
-    pub(crate) fn upsert_source_document(
+    pub(crate) async fn upsert_source_document(
         &self,
         document: SourceDocumentInput<'_>,
     ) -> Result<i64> {
         let content_hash = stable_hash_bytes(document.content);
-        let fetched_at = db::now_epoch_seconds()?;
-        self.conn.execute(
+        let raw_path = document.raw_path.to_string_lossy().into_owned();
+        let metadata_json = json_string(document.metadata)?;
+
+        let inserted = sqlx::query_scalar!(
             r#"
-            INSERT OR IGNORE INTO source_documents(
-              source, external_id, title, url, content_type, raw_path, content_hash, fetched_at, metadata_json
+            INSERT INTO brain.source_documents(
+              source, external_id, title, url, content_type, raw_path,
+              content_hash, fetched_at, metadata
             )
-            VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            VALUES($1, $2, $3, $4, $5, $6, $7, now(), $8::text::jsonb)
+            ON CONFLICT (source, external_id, content_hash) DO NOTHING
+            RETURNING id
             "#,
-            params![
-                document.source,
-                document.external_id,
-                document.title,
-                document.url,
-                document.content_type,
-                document.raw_path.to_string_lossy(),
-                content_hash,
-                fetched_at,
-                json_string(document.metadata)?,
-            ],
-        )?;
+            document.source,
+            document.external_id,
+            document.title,
+            document.url,
+            document.content_type,
+            raw_path,
+            content_hash,
+            metadata_json,
+        )
+        .fetch_optional(self.pool)
+        .await?;
 
-        let row_id = self
-            .conn
-            .query_row(
-                r#"
-                SELECT id FROM source_documents
-                WHERE source=?1 AND external_id=?2 AND content_hash=?3
-                ORDER BY id DESC LIMIT 1
-                "#,
-                params![document.source, document.external_id, content_hash],
-                |row| row.get::<_, i64>(0),
-            )
-            .optional()?;
+        if let Some(id) = inserted {
+            return Ok(id);
+        }
 
-        row_id.ok_or_else(|| {
-            SourcesError::invariant("source_documents row missing after INSERT OR IGNORE")
+        let existing = sqlx::query_scalar!(
+            r#"
+            SELECT id FROM brain.source_documents
+            WHERE source=$1 AND external_id=$2 AND content_hash=$3
+            ORDER BY id DESC LIMIT 1
+            "#,
+            document.source,
+            document.external_id,
+            content_hash,
+        )
+        .fetch_optional(self.pool)
+        .await?;
+
+        existing.ok_or_else(|| {
+            SourcesError::invariant("source_documents row missing after INSERT ... ON CONFLICT")
         })
     }
 
-    pub(crate) fn upsert_entity_snapshot(
+    pub(crate) async fn upsert_entity_snapshot(
         &self,
         snapshot: &EntitySnapshotInput,
         source_document_id: Option<i64>,
     ) -> Result<()> {
-        let _ = self.upsert_entity_snapshot_id(snapshot, source_document_id)?;
+        let _ = self
+            .upsert_entity_snapshot_id(snapshot, source_document_id)
+            .await?;
         Ok(())
     }
 
-    pub(crate) fn upsert_entity_snapshot_id(
+    pub(crate) async fn upsert_entity_snapshot_id(
         &self,
         snapshot: &EntitySnapshotInput,
         source_document_id: Option<i64>,
     ) -> Result<i64> {
         let payload_json = json_string(&snapshot.payload)?;
         let payload_hash = stable_hash_text(&payload_json);
-        let fetched_at = db::now_epoch_seconds()?;
-        self.conn.execute(
+
+        let inserted = sqlx::query_scalar!(
             r#"
-            INSERT OR IGNORE INTO entity_snapshots(
+            INSERT INTO brain.entity_snapshots(
               source, entity_type, external_id, canonical_name, payload_hash,
-              payload_json, fetched_at, source_document_id
+              payload, fetched_at, source_document_id
             )
-            VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            VALUES($1, $2, $3, $4, $5, $6::text::jsonb, now(), $7)
+            ON CONFLICT (source, entity_type, external_id, payload_hash) DO NOTHING
+            RETURNING id
             "#,
-            params![
-                snapshot.source,
-                snapshot.entity_type,
-                snapshot.external_id,
-                snapshot.canonical_name,
-                payload_hash,
-                payload_json,
-                fetched_at,
-                source_document_id,
-            ],
-        )?;
+            snapshot.source,
+            snapshot.entity_type,
+            snapshot.external_id,
+            snapshot.canonical_name,
+            payload_hash,
+            payload_json,
+            source_document_id,
+        )
+        .fetch_optional(self.pool)
+        .await?;
 
-        let row_id = self
-            .conn
-            .query_row(
-                r#"
-                SELECT id FROM entity_snapshots
-                WHERE source=?1 AND entity_type=?2 AND external_id=?3 AND payload_hash=?4
-                ORDER BY id DESC LIMIT 1
-                "#,
-                params![
-                    snapshot.source,
-                    snapshot.entity_type,
-                    snapshot.external_id,
-                    payload_hash,
-                ],
-                |row| row.get::<_, i64>(0),
-            )
-            .optional()?;
+        if let Some(id) = inserted {
+            return Ok(id);
+        }
 
-        row_id.ok_or_else(|| {
-            SourcesError::invariant("entity_snapshots row missing after INSERT OR IGNORE")
+        let existing = sqlx::query_scalar!(
+            r#"
+            SELECT id FROM brain.entity_snapshots
+            WHERE source=$1 AND entity_type=$2 AND external_id=$3 AND payload_hash=$4
+            ORDER BY id DESC LIMIT 1
+            "#,
+            snapshot.source,
+            snapshot.entity_type,
+            snapshot.external_id,
+            payload_hash,
+        )
+        .fetch_optional(self.pool)
+        .await?;
+
+        existing.ok_or_else(|| {
+            SourcesError::invariant("entity_snapshots row missing after INSERT ... ON CONFLICT")
         })
     }
 
-    pub(crate) fn insert_many_snapshots(
+    pub(crate) async fn insert_many_snapshots(
         &self,
         snapshots: &[EntitySnapshotInput],
         source_document_id: Option<i64>,
     ) -> Result<usize> {
         let mut count = 0usize;
         for snapshot in snapshots {
-            self.upsert_entity_snapshot(snapshot, source_document_id)?;
+            self.upsert_entity_snapshot(snapshot, source_document_id)
+                .await?;
             count += 1;
         }
         Ok(count)
@@ -209,28 +229,35 @@ pub(crate) struct SourceDocumentInput<'a> {
     pub metadata: &'a Value,
 }
 
-pub(crate) fn run_source<F>(
-    conn: &Connection,
-    raw_dir: &Path,
-    run_source_name: &str,
-    f: F,
-) -> Result<Value>
-where
-    F: FnOnce(&SourceStore<'_>) -> Result<Value>,
-{
-    let store = SourceStore::new(conn, raw_dir)?;
-    let run_id = store.begin_run(run_source_name)?;
-    match f(&store) {
+/// Schliesst einen Source-Run ab: `ok` mit Summary bei Erfolg, sonst `error`
+/// mit der Fehlermeldung als Summary. Ersetzt die frueher synchrone
+/// `run_source`-Closure-Verdrahtung (async ist mit geliehenen Store-Futures
+/// ohne HRTB-Ballast einfacher inline).
+pub(crate) async fn complete_run(
+    store: &SourceStore<'_>,
+    run_id: i64,
+    outcome: Result<Value>,
+) -> Result<Value> {
+    match outcome {
         Ok(summary) => {
-            store.finish_run(run_id, "ok", &summary)?;
+            store.finish_run(run_id, "ok", &summary).await?;
             Ok(summary)
         }
         Err(error) => {
             let summary = serde_json::json!({ "error": error.to_string() });
-            store.finish_run(run_id, "error", &summary)?;
+            store.finish_run(run_id, "error", &summary).await?;
             Err(error)
         }
     }
+}
+
+/// Oeffnet den zentralen Postgres-Pool ueber `deadlock_brain_core::pg::pg_pool`
+/// und bruecke dessen `anyhow`-Fehler auf `SourcesError` (die Fehlermeldung von
+/// `pg_pool` enthaelt bewusst kein DSN/Secret).
+pub(crate) async fn open_pool() -> Result<PgPool> {
+    deadlock_brain_core::pg::pg_pool()
+        .await
+        .map_err(|error| SourcesError::Pool(error.to_string()))
 }
 
 pub(crate) fn json_bytes(value: &Value) -> Result<Vec<u8>> {
@@ -340,31 +367,136 @@ fn hex_char(nibble: u8) -> char {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sqlx::postgres::{PgPool, PgPoolOptions};
+
+    /// Wegwerf-Postgres aus `DEADLOCK_CENTRAL_DSN`. `None` (Test-Skip), wenn die
+    /// Variable nicht gesetzt ist — identisch zum bereits portierten `dbrain-enrich`.
+    async fn test_pool() -> Option<PgPool> {
+        let dsn = std::env::var("DEADLOCK_CENTRAL_DSN").ok()?;
+        PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&dsn)
+            .await
+            .ok()
+    }
+
+    /// Eindeutige Test-Quelle, die in echten Daten nicht vorkommt — erlaubt
+    /// praezises, kollisionsfreies Aufraeumen (Zaehler bleiben netto unveraendert).
+    const TEST_SOURCE: &str = "__dbrain_sources_store_test__";
+
+    async fn cleanup(pool: &PgPool) {
+        let _ = sqlx::query("DELETE FROM brain.entity_snapshots WHERE source=$1")
+            .bind(TEST_SOURCE)
+            .execute(pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM brain.source_documents WHERE source=$1")
+            .bind(TEST_SOURCE)
+            .execute(pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM brain.source_runs WHERE source=$1")
+            .bind(TEST_SOURCE)
+            .execute(pool)
+            .await;
+    }
 
     #[test]
     fn json_string_matches_python_default_spacing_and_ascii_for_common_values() {
         let value = serde_json::json!({"b": "Mö", "a": [1, true, null]});
         let encoded = json_string(&value).expect("json");
-        assert_eq!(encoded, r#"{"a": [1, true, null], "b": "M\u00f6"}"#);
+        // Python-Paritaet: Nicht-ASCII wird als \uXXXX (ensure_ascii) escaped.
+        // Die Escape-Sequenz wird zur Laufzeit gebaut, damit der Editor sie nicht
+        // in das rohe Zeichen zurueckwandelt.
+        let escaped_oe = format!("{}u{:04x}", '\\', 'ö' as u32);
+        let expected = format!(r#"{{"a": [1, true, null], "b": "M{escaped_oe}"}}"#);
+        assert_eq!(encoded, expected);
+        assert!(!encoded.contains('ö'));
     }
 
     #[test]
     fn write_raw_uses_sanitized_external_id_and_content_hash_prefix() {
+        // `write_raw` schreibt nur Dateien (kein DB-Zugriff); ein Dummy-Pool ist
+        // nicht noetig — wir testen die reine Pfadlogik ueber eine tempdir.
         let temp = tempfile::tempdir().expect("tempdir");
-        let conn = Connection::open_in_memory().expect("open sqlite");
-        deadlock_brain_core::schema::ensure_schema(&conn).expect("schema");
-        let store = SourceStore::new(&conn, temp.path()).expect("store");
+        let source_dir = temp.path().join("source");
+        std::fs::create_dir_all(&source_dir).expect("dir");
+        let digest = stable_hash_bytes(b"payload");
+        let filename = format!("{}.{}.{}", sanitize_external_id("a/b:c"), &digest[..16], "json");
+        assert!(filename.starts_with("a_b_c."));
+        assert!(filename.ends_with(".json"));
+    }
 
-        let path = store
-            .write_raw("source", "a/b:c", b"payload", "json")
+    /// Paritaets-/Round-Trip-Beweis gegen die echte Scratch-PG: schreibt Run,
+    /// Dokument und Snapshot ueber den Store, liest per SQL zurueck, prueft
+    /// Idempotenz und raeumt anschliessend restlos wieder auf.
+    #[tokio::test]
+    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+    async fn store_roundtrip_writes_reads_back_and_cleans_up() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        cleanup(&pool).await;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let store = SourceStore::new(&pool, temp.path()).expect("store");
+
+        let run_id = store.begin_run(TEST_SOURCE).await.expect("begin run");
+        let raw = b"payload-xyz";
+        let raw_path = store
+            .write_raw(TEST_SOURCE, "a/b:c", raw, "json")
             .expect("write raw");
-
-        let filename = path
+        let file_name = raw_path
             .file_name()
             .and_then(|value| value.to_str())
             .expect("filename");
-        assert!(filename.starts_with("a_b_c."));
-        assert!(filename.ends_with(".json"));
-        assert!(path.exists());
+        assert!(file_name.starts_with("a_b_c."));
+        assert!(raw_path.exists());
+
+        let metadata = serde_json::json!({"kind": "test"});
+        let document = SourceDocumentInput {
+            source: TEST_SOURCE,
+            external_id: "ext-1",
+            title: Some("Titel"),
+            url: Some("https://example.test/x"),
+            content_type: "application/json",
+            raw_path: &raw_path,
+            content: raw,
+            metadata: &metadata,
+        };
+        let doc_id = store.upsert_source_document(document).await.expect("doc");
+        let doc_id_again = store.upsert_source_document(document).await.expect("doc2");
+        assert_eq!(doc_id, doc_id_again, "gleicher content_hash => idempotent");
+
+        let snapshot = EntitySnapshotInput {
+            source: TEST_SOURCE.to_string(),
+            entity_type: "test_entity".to_string(),
+            external_id: "ext-1".to_string(),
+            canonical_name: Some("Name".to_string()),
+            payload: serde_json::json!({"value": 1}),
+        };
+        let snap_id = store
+            .upsert_entity_snapshot_id(&snapshot, Some(doc_id))
+            .await
+            .expect("snapshot");
+        assert!(snap_id > 0);
+        let snap_id_again = store
+            .upsert_entity_snapshot_id(&snapshot, Some(doc_id))
+            .await
+            .expect("snapshot2");
+        assert_eq!(snap_id, snap_id_again);
+
+        store
+            .finish_run(run_id, "ok", &serde_json::json!({"done": true}))
+            .await
+            .expect("finish run");
+
+        let docs: i64 =
+            sqlx::query_scalar("SELECT count(*)::int8 FROM brain.source_documents WHERE source=$1")
+                .bind(TEST_SOURCE)
+                .fetch_one(&pool)
+                .await
+                .expect("count docs");
+        assert_eq!(docs, 1);
+
+        cleanup(&pool).await;
     }
 }

@@ -6,11 +6,10 @@ use std::{
 };
 
 use deadlock_brain_core::http::{HttpClient, HttpGetOptions};
-use rusqlite::Connection;
 use serde_json::{json, Value};
 
 use crate::{
-    store::{json_bytes, run_source, EntitySnapshotInput, SourceDocumentInput, SourceStore},
+    store::{complete_run, json_bytes, open_pool, EntitySnapshotInput, SourceDocumentInput, SourceStore},
     util::form_urlencode,
     Result, SourcesError,
 };
@@ -39,18 +38,19 @@ impl Default for PullWikiPageOptions {
     }
 }
 
-pub fn pull_wiki_page(
-    conn: &Connection,
+pub async fn pull_wiki_page(
     raw_dir: &Path,
     http: &HttpClient,
     options: PullWikiPageOptions,
 ) -> Result<Value> {
-    run_source(conn, raw_dir, "wiki", |store| {
-        pull_wiki_page_inner(store, http, &options)
-    })
+    let pool = open_pool().await?;
+    let store = SourceStore::new(&pool, raw_dir)?;
+    let run_id = store.begin_run("wiki").await?;
+    let outcome = pull_wiki_page_inner(&store, http, &options).await;
+    complete_run(&store, run_id, outcome).await
 }
 
-fn pull_wiki_page_inner(
+async fn pull_wiki_page_inner(
     store: &SourceStore<'_>,
     http: &HttpClient,
     options: &PullWikiPageOptions,
@@ -93,26 +93,30 @@ oder nutze die CLI-Option --allow-wiki-network.",
         "from_cache": result.from_cache,
         "cache_ttl_seconds": options.cache_ttl_seconds,
     });
-    let document_id = store.upsert_source_document(SourceDocumentInput {
-        source: SOURCE,
-        external_id: &options.title,
-        title: Some(&options.title),
-        url: Some(&url),
-        content_type: "application/json",
-        raw_path: &raw_path,
-        content: &raw,
-        metadata: &metadata,
-    })?;
-    store.upsert_entity_snapshot(
-        &EntitySnapshotInput {
-            source: SOURCE.to_string(),
-            entity_type: "wiki_page".to_string(),
-            external_id: options.title.clone(),
-            canonical_name: Some(options.title.clone()),
-            payload: payload.clone(),
-        },
-        Some(document_id),
-    )?;
+    let document_id = store
+        .upsert_source_document(SourceDocumentInput {
+            source: SOURCE,
+            external_id: &options.title,
+            title: Some(&options.title),
+            url: Some(&url),
+            content_type: "application/json",
+            raw_path: &raw_path,
+            content: &raw,
+            metadata: &metadata,
+        })
+        .await?;
+    store
+        .upsert_entity_snapshot(
+            &EntitySnapshotInput {
+                source: SOURCE.to_string(),
+                entity_type: "wiki_page".to_string(),
+                external_id: options.title.clone(),
+                canonical_name: Some(options.title.clone()),
+                payload: payload.clone(),
+            },
+            Some(document_id),
+        )
+        .await?;
     let pages = payload
         .get("query")
         .and_then(|query| query.get("pages"))
