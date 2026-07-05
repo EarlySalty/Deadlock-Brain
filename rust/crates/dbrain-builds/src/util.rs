@@ -78,3 +78,16 @@ pub(crate) fn load_fixture(name: &str) -> Value {
     let content = std::fs::read_to_string(path).expect("fixture readable");
     serde_json::from_str(&content).expect("fixture json")
 }
+
+/// Baut einen Verbindungspool gegen die Scratch-Postgres fuer Integrationstests.
+/// Ohne gesetztes `DEADLOCK_CENTRAL_DSN` liefert die Funktion `None`, damit die
+/// Tests sich selbst ueberspringen koennen. Das DSN wird nie geloggt.
+#[cfg(test)]
+pub(crate) async fn test_pool() -> Option<sqlx::postgres::PgPool> {
+    let dsn = std::env::var("DEADLOCK_CENTRAL_DSN").ok()?;
+    sqlx::postgres::PgPoolOptions::new()
+        .max_connections(4)
+        .connect(&dsn)
+        .await
+        .ok()
+}

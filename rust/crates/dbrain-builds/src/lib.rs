@@ -3,14 +3,13 @@
 //! Deterministische Build-Engine aus Deadlock-API-Daten.
 
 use anyhow::Result;
-use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
+use sqlx::PgPool;
 
 mod api;
 pub mod classify;
 mod engine;
 mod error;
-pub mod schema;
 mod sync;
 mod util;
 
@@ -67,10 +66,10 @@ pub struct ItemDossier {
     pub confidence: String,
 }
 
-pub fn build_context(
-    conn: &Connection,
+pub async fn build_context(
+    pool: &PgPool,
     hero_query: &str,
     playstyle: Option<&str>,
 ) -> Result<BuildContext> {
-    engine::build_context(conn, hero_query, playstyle)
+    engine::build_context(pool, hero_query, playstyle).await
 }

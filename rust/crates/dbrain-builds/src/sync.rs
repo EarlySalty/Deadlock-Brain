@@ -5,18 +5,17 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
-use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use serde_json::Value;
+use sqlx::PgPool;
 
 use crate::{
     api::DeadlockApiClient,
     classify::{classify_item, ClassifiedItem},
     error::BuildEngineError,
-    schema,
     util::{
-        json_string, now_epoch_seconds, value_as_i64, value_f64, value_i64, value_string, winrate,
-        BRACKET_BADGE_80, PATCH_TAG_CURRENT,
+        json_string, value_as_i64, value_f64, value_i64, value_string, winrate, BRACKET_BADGE_80,
+        PATCH_TAG_CURRENT,
     },
 };
 
@@ -68,22 +67,21 @@ pub struct HeroBuildDataSyncSummary {
     pub synergy_rows: usize,
 }
 
-pub fn sync_build_data(
-    conn: &Connection,
+pub async fn sync_build_data(
+    pool: &PgPool,
     options: BuildDataSyncOptions,
 ) -> Result<BuildDataSyncSummary> {
-    schema::ensure_schema(conn)?;
     let api = DeadlockApiClient::new(&options.user_agent)?;
 
     let items = api.items()?;
-    let item_catalog_rows = upsert_item_catalog(conn, &items)?;
+    let item_catalog_rows = upsert_item_catalog(pool, &items).await?;
     let heroes = api.heroes()?;
-    let hero_catalog_rows = upsert_hero_catalog(conn, &heroes)?;
-    let hero_ids = resolve_sync_hero_ids(conn, &options.hero)?;
+    let hero_catalog_rows = upsert_hero_catalog(pool, &heroes).await?;
+    let hero_ids = resolve_sync_hero_ids(pool, &options.hero).await?;
 
     let mut hero_summaries = Vec::new();
     for hero_id in hero_ids {
-        let summary = sync_one_hero(conn, &api, hero_id, &options)?;
+        let summary = sync_one_hero(pool, &api, hero_id, &options).await?;
         hero_summaries.push(summary);
     }
 
@@ -94,13 +92,13 @@ pub fn sync_build_data(
     })
 }
 
-fn sync_one_hero(
-    conn: &Connection,
+async fn sync_one_hero(
+    pool: &PgPool,
     api: &DeadlockApiClient,
     hero_id: i64,
     options: &BuildDataSyncOptions,
 ) -> Result<HeroBuildDataSyncSummary> {
-    let hero_name = hero_name(conn, hero_id)?;
+    let hero_name = hero_name(pool, hero_id).await?;
     let prevalence_payload = api.build_item_stats(hero_id)?;
     analytics_pause(options);
     let item_stats_payload = api.item_stats(hero_id, options.min_average_badge)?;
@@ -114,7 +112,7 @@ fn sync_one_hero(
         .ok_or(BuildEngineError::MissingHeroStats(hero_id))?;
     let prevalence = parse_prevalence(&prevalence_payload)?;
     let item_stats = parse_item_stats(&item_stats_payload)?;
-    let catalog_ids = item_catalog_ids(conn)?;
+    let catalog_ids = item_catalog_ids(pool).await?;
     let lift_ids = lift_candidate_ids(
         &prevalence,
         &item_stats,
@@ -133,13 +131,14 @@ fn sync_one_hero(
     }
 
     let item_stat_rows = upsert_hero_item_stats(
-        conn,
+        pool,
         hero_id,
         &prevalence,
         &item_stats,
         &catalog_ids,
         &lift_map,
-    )?;
+    )
+    .await?;
 
     let ability_payload = api.ability_order_stats(
         hero_id,
@@ -147,17 +146,18 @@ fn sync_one_hero(
         options.min_ability_matches,
     )?;
     analytics_pause(options);
-    let ability_order_rows = upsert_ability_order(conn, hero_id, &ability_payload)?;
+    let ability_order_rows = upsert_ability_order(pool, hero_id, &ability_payload).await?;
 
     let synergy_payload = api.item_permutation_stats(hero_id)?;
     analytics_pause(options);
     let synergy_rows = upsert_synergies(
-        conn,
+        pool,
         hero_id,
         &synergy_payload,
         &catalog_ids,
         options.synergy_limit,
-    )?;
+    )
+    .await?;
 
     Ok(HeroBuildDataSyncSummary {
         hero_id,
@@ -169,9 +169,7 @@ fn sync_one_hero(
     })
 }
 
-pub(crate) fn upsert_item_catalog(conn: &Connection, payload: &Value) -> Result<usize> {
-    schema::ensure_schema(conn)?;
-    let now = now_epoch_seconds()?;
+pub(crate) async fn upsert_item_catalog(pool: &PgPool, payload: &Value) -> Result<usize> {
     let items = payload
         .as_array()
         .ok_or_else(|| anyhow!("Item-Katalog ist kein JSON-Array"))?;
@@ -202,41 +200,38 @@ pub(crate) fn upsert_item_catalog(conn: &Connection, payload: &Value) -> Result<
             damage_axis,
         } = classify_item(item);
 
-        conn.execute(
+        sqlx::query!(
             r#"
-            INSERT INTO item_catalog(
-              item_id, name, slot_type, tier, defense_kind_json, damage_axis, properties_json, updated_at
+            INSERT INTO brain.item_catalog(
+              item_id, name, slot_type, tier, defense_kind, damage_axis, properties, updated_at
             )
-            VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            VALUES($1, $2, $3, $4, $5::text::jsonb, $6, $7::text::jsonb, now())
             ON CONFLICT(item_id) DO UPDATE SET
               name=excluded.name,
               slot_type=excluded.slot_type,
               tier=excluded.tier,
-              defense_kind_json=excluded.defense_kind_json,
+              defense_kind=excluded.defense_kind,
               damage_axis=excluded.damage_axis,
-              properties_json=excluded.properties_json,
+              properties=excluded.properties,
               updated_at=excluded.updated_at
             "#,
-            params![
-                item_id,
-                name,
-                slot_type,
-                tier,
-                json_string(&defense_kind)?,
-                damage_axis,
-                json_string(&properties)?,
-                now,
-            ],
-        )?;
+            item_id,
+            name,
+            slot_type,
+            tier,
+            json_string(&defense_kind)?,
+            damage_axis,
+            json_string(&properties)?,
+        )
+        .execute(pool)
+        .await?;
         count += 1;
     }
 
     Ok(count)
 }
 
-pub(crate) fn upsert_hero_catalog(conn: &Connection, payload: &Value) -> Result<usize> {
-    schema::ensure_schema(conn)?;
-    let now = now_epoch_seconds()?;
+pub(crate) async fn upsert_hero_catalog(pool: &PgPool, payload: &Value) -> Result<usize> {
     let heroes = payload
         .as_array()
         .ok_or_else(|| anyhow!("Hero-Katalog ist kein JSON-Array"))?;
@@ -251,26 +246,25 @@ pub(crate) fn upsert_hero_catalog(conn: &Connection, payload: &Value) -> Result<
         };
         let base_health = base_health(hero).unwrap_or(0);
         let archetype = derive_archetype(base_health);
-        conn.execute(
+        sqlx::query!(
             r#"
-            INSERT INTO hero_catalog(hero_id, name, base_health, archetype, stats_json, updated_at)
-            VALUES(?1, ?2, ?3, ?4, ?5, ?6)
+            INSERT INTO brain.hero_catalog(hero_id, name, base_health, archetype, stats, updated_at)
+            VALUES($1, $2, $3, $4, $5::text::jsonb, now())
             ON CONFLICT(hero_id) DO UPDATE SET
               name=excluded.name,
               base_health=excluded.base_health,
               archetype=excluded.archetype,
-              stats_json=excluded.stats_json,
+              stats=excluded.stats,
               updated_at=excluded.updated_at
             "#,
-            params![
-                hero_id,
-                name,
-                base_health,
-                archetype,
-                json_string(hero)?,
-                now,
-            ],
-        )?;
+            hero_id,
+            name,
+            base_health,
+            archetype,
+            json_string(hero)?,
+        )
+        .execute(pool)
+        .await?;
         count += 1;
     }
 
@@ -296,39 +290,39 @@ fn derive_archetype(base_health: i64) -> &'static str {
     }
 }
 
-fn resolve_sync_hero_ids(conn: &Connection, hero: &str) -> Result<Vec<i64>> {
+async fn resolve_sync_hero_ids(pool: &PgPool, hero: &str) -> Result<Vec<i64>> {
     if hero.trim().eq_ignore_ascii_case("all") {
-        let mut statement = conn.prepare("SELECT hero_id FROM hero_catalog ORDER BY hero_id")?;
-        let ids = statement
-            .query_map([], |row| row.get::<_, i64>(0))?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let ids = sqlx::query_scalar!("SELECT hero_id FROM brain.hero_catalog ORDER BY hero_id")
+            .fetch_all(pool)
+            .await?;
         return Ok(ids);
     }
 
     if let Ok(hero_id) = hero.trim().parse::<i64>() {
-        let exists: Option<i64> = conn
-            .query_row(
-                "SELECT hero_id FROM hero_catalog WHERE hero_id=?1",
-                [hero_id],
-                |row| row.get(0),
-            )
-            .optional()?;
+        let exists: Option<i64> = sqlx::query_scalar!(
+            "SELECT hero_id FROM brain.hero_catalog WHERE hero_id=$1",
+            hero_id,
+        )
+        .fetch_optional(pool)
+        .await?;
         return exists
             .map(|id| vec![id])
             .ok_or_else(|| BuildEngineError::HeroNotFound(hero.to_string()).into());
     }
 
-    crate::engine::resolve_hero_id(conn, hero).map(|id| vec![id])
+    crate::engine::resolve_hero_id(pool, hero)
+        .await
+        .map(|id| vec![id])
 }
 
-fn hero_name(conn: &Connection, hero_id: i64) -> Result<String> {
-    conn.query_row(
-        "SELECT name FROM hero_catalog WHERE hero_id=?1",
-        [hero_id],
-        |row| row.get(0),
+async fn hero_name(pool: &PgPool, hero_id: i64) -> Result<String> {
+    let name: Option<String> = sqlx::query_scalar!(
+        "SELECT name FROM brain.hero_catalog WHERE hero_id=$1",
+        hero_id,
     )
-    .optional()?
-    .ok_or_else(|| BuildEngineError::HeroNotFound(hero_id.to_string()).into())
+    .fetch_optional(pool)
+    .await?;
+    name.ok_or_else(|| BuildEngineError::HeroNotFound(hero_id.to_string()).into())
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -411,12 +405,11 @@ fn parse_item_stats(payload: &Value) -> Result<BTreeMap<i64, ItemStatLine>> {
     Ok(map)
 }
 
-fn item_catalog_ids(conn: &Connection) -> Result<BTreeSet<i64>> {
-    let mut statement = conn.prepare("SELECT item_id FROM item_catalog")?;
-    let ids = statement
-        .query_map([], |row| row.get::<_, i64>(0))?
-        .collect::<std::result::Result<BTreeSet<_>, _>>()?;
-    Ok(ids)
+async fn item_catalog_ids(pool: &PgPool) -> Result<BTreeSet<i64>> {
+    let ids = sqlx::query_scalar!("SELECT item_id FROM brain.item_catalog")
+        .fetch_all(pool)
+        .await?;
+    Ok(ids.into_iter().collect())
 }
 
 fn lift_candidate_ids(
@@ -455,15 +448,14 @@ fn lift_candidate_ids(
         .collect()
 }
 
-fn upsert_hero_item_stats(
-    conn: &Connection,
+async fn upsert_hero_item_stats(
+    pool: &PgPool,
     hero_id: i64,
     prevalence: &BTreeMap<i64, i64>,
     item_stats: &BTreeMap<i64, ItemStatLine>,
     catalog_ids: &BTreeSet<i64>,
     lift_map: &HashMap<i64, f64>,
 ) -> Result<usize> {
-    let now = now_epoch_seconds()?;
     let mut ids = BTreeSet::new();
     ids.extend(prevalence.keys().copied());
     ids.extend(item_stats.keys().copied());
@@ -480,13 +472,13 @@ fn upsert_hero_item_stats(
             players: 0,
             avg_buy_time_relative: None,
         });
-        conn.execute(
+        sqlx::query!(
             r#"
-            INSERT INTO hero_item_stats(
+            INSERT INTO brain.hero_item_stats(
               hero_id, item_id, bracket, prevalence_builds, wins, losses, matches, players,
               avg_buy_time_relative, lift_pp, patch_tag, updated_at
             )
-            VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+            VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())
             ON CONFLICT(hero_id, item_id, bracket, patch_tag) DO UPDATE SET
               prevalence_builds=excluded.prevalence_builds,
               wins=excluded.wins,
@@ -497,28 +489,27 @@ fn upsert_hero_item_stats(
               lift_pp=excluded.lift_pp,
               updated_at=excluded.updated_at
             "#,
-            params![
-                hero_id,
-                item_id,
-                BRACKET_BADGE_80,
-                prevalence.get(&item_id).copied().unwrap_or(0),
-                line.wins,
-                line.losses,
-                line.matches,
-                line.players,
-                line.avg_buy_time_relative,
-                lift_map.get(&item_id).copied(),
-                PATCH_TAG_CURRENT,
-                now,
-            ],
-        )?;
+            hero_id,
+            item_id,
+            BRACKET_BADGE_80,
+            prevalence.get(&item_id).copied().unwrap_or(0),
+            line.wins,
+            line.losses,
+            line.matches,
+            line.players,
+            line.avg_buy_time_relative,
+            lift_map.get(&item_id).copied(),
+            PATCH_TAG_CURRENT,
+        )
+        .execute(pool)
+        .await?;
         count += 1;
     }
 
     Ok(count)
 }
 
-fn upsert_ability_order(conn: &Connection, hero_id: i64, payload: &Value) -> Result<usize> {
+async fn upsert_ability_order(pool: &PgPool, hero_id: i64, payload: &Value) -> Result<usize> {
     let Some(best) = payload.as_array().and_then(|rows| {
         rows.iter()
             .max_by_key(|row| value_i64(row, "matches").unwrap_or(0))
@@ -534,38 +525,36 @@ fn upsert_ability_order(conn: &Connection, hero_id: i64, payload: &Value) -> Res
         return Ok(0);
     }
 
-    let now = now_epoch_seconds()?;
-    conn.execute(
+    sqlx::query!(
         r#"
-        INSERT INTO hero_ability_orders(
-          hero_id, bracket, abilities_json, wins, losses, matches, players, patch_tag, updated_at
+        INSERT INTO brain.hero_ability_orders(
+          hero_id, bracket, abilities, wins, losses, matches, players, patch_tag, updated_at
         )
-        VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+        VALUES($1, $2, $3::text::jsonb, $4, $5, $6, $7, $8, now())
         ON CONFLICT(hero_id, bracket, patch_tag) DO UPDATE SET
-          abilities_json=excluded.abilities_json,
+          abilities=excluded.abilities,
           wins=excluded.wins,
           losses=excluded.losses,
           matches=excluded.matches,
           players=excluded.players,
           updated_at=excluded.updated_at
         "#,
-        params![
-            hero_id,
-            BRACKET_BADGE_80,
-            json_string(&abilities)?,
-            value_i64(best, "wins").unwrap_or(0),
-            value_i64(best, "losses").unwrap_or(0),
-            value_i64(best, "matches").unwrap_or(0),
-            value_i64(best, "players").unwrap_or(0),
-            PATCH_TAG_CURRENT,
-            now,
-        ],
-    )?;
+        hero_id,
+        BRACKET_BADGE_80,
+        json_string(&abilities)?,
+        value_i64(best, "wins").unwrap_or(0),
+        value_i64(best, "losses").unwrap_or(0),
+        value_i64(best, "matches").unwrap_or(0),
+        value_i64(best, "players").unwrap_or(0),
+        PATCH_TAG_CURRENT,
+    )
+    .execute(pool)
+    .await?;
     Ok(1)
 }
 
-fn upsert_synergies(
-    conn: &Connection,
+async fn upsert_synergies(
+    pool: &PgPool,
     hero_id: i64,
     payload: &Value,
     catalog_ids: &BTreeSet<i64>,
@@ -574,7 +563,6 @@ fn upsert_synergies(
     let Some(rows) = payload.as_array() else {
         return Ok(0);
     };
-    let now = now_epoch_seconds()?;
     let mut count = 0usize;
     for row in rows.iter().take(limit) {
         let Some(item_ids) = row.get("item_ids").and_then(Value::as_array) else {
@@ -593,29 +581,28 @@ fn upsert_synergies(
             continue;
         }
         for (item_id, with_item_id) in [(first, second), (second, first)] {
-            conn.execute(
+            sqlx::query!(
                 r#"
-                INSERT INTO hero_item_synergies(
+                INSERT INTO brain.hero_item_synergies(
                   hero_id, item_id, with_item_id, wins, losses, matches, patch_tag, updated_at
                 )
-                VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                VALUES($1, $2, $3, $4, $5, $6, $7, now())
                 ON CONFLICT(hero_id, item_id, with_item_id, patch_tag) DO UPDATE SET
                   wins=excluded.wins,
                   losses=excluded.losses,
                   matches=excluded.matches,
                   updated_at=excluded.updated_at
                 "#,
-                params![
-                    hero_id,
-                    item_id,
-                    with_item_id,
-                    value_i64(row, "wins").unwrap_or(0),
-                    value_i64(row, "losses").unwrap_or(0),
-                    value_i64(row, "matches").unwrap_or(0),
-                    PATCH_TAG_CURRENT,
-                    now,
-                ],
-            )?;
+                hero_id,
+                item_id,
+                with_item_id,
+                value_i64(row, "wins").unwrap_or(0),
+                value_i64(row, "losses").unwrap_or(0),
+                value_i64(row, "matches").unwrap_or(0),
+                PATCH_TAG_CURRENT,
+            )
+            .execute(pool)
+            .await?;
             count += 1;
         }
     }
@@ -629,76 +616,126 @@ fn analytics_pause(options: &BuildDataSyncOptions) {
 }
 
 #[cfg(test)]
-pub(crate) fn sync_fixture_payloads(conn: &Connection) -> Result<()> {
-    schema::ensure_schema(conn)?;
-    upsert_item_catalog(
-        conn,
-        &crate::util::load_fixture("mo_item_catalog_subset.json"),
-    )?;
-    upsert_hero_catalog(conn, &crate::util::load_fixture("mo_hero_catalog.json"))?;
-    let prevalence = parse_prevalence(&crate::util::load_fixture("mo_build_item_stats.json"))?;
-    let item_stats = parse_item_stats(&crate::util::load_fixture("mo_item_stats.json"))?;
-    let catalog_ids = item_catalog_ids(conn)?;
-    upsert_hero_item_stats(
-        conn,
-        18,
-        &prevalence,
-        &item_stats,
-        &catalog_ids,
-        &HashMap::new(),
-    )?;
-    upsert_ability_order(
-        conn,
-        18,
-        &crate::util::load_fixture("mo_ability_order_stats.json"),
-    )?;
-    upsert_synergies(
-        conn,
-        18,
-        &crate::util::load_fixture("mo_item_permutation_stats.json"),
-        &catalog_ids,
-        200,
-    )?;
-    Ok(())
-}
-
-#[cfg(test)]
 mod tests {
-    use rusqlite::Connection;
-
     use super::*;
+    use serde_json::json;
 
-    #[test]
-    fn fixtures_sync_into_expected_tables() {
-        let conn = Connection::open_in_memory().expect("open sqlite");
-        sync_fixture_payloads(&conn).expect("sync fixtures");
+    // Schreib-/Lese-Roundtrip gegen die Scratch-Postgres. Synthetische Hoch-IDs,
+    // die nicht mit echten Daten kollidieren, plus Aufraeumen am Anfang und Ende.
+    const TEST_HERO_ID: i64 = 990018;
+    const TEST_ITEM_ID: i64 = 990001;
 
-        let items: i64 = conn
-            .query_row("SELECT COUNT(*) FROM item_catalog", [], |row| row.get(0))
-            .expect("count items");
-        let stats: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM hero_item_stats WHERE hero_id=18",
-                [],
-                |row| row.get(0),
-            )
-            .expect("count stats");
-        assert!(items > 10);
-        assert!(stats > 10);
+    async fn cleanup(pool: &PgPool) {
+        // Reihenfolge wegen Fremdschluesseln: erst abhaengige Tabellen, dann Kataloge.
+        for sql in [
+            "DELETE FROM brain.hero_item_stats WHERE hero_id=$1",
+            "DELETE FROM brain.hero_ability_orders WHERE hero_id=$1",
+            "DELETE FROM brain.hero_item_synergies WHERE hero_id=$1",
+            "DELETE FROM brain.hero_catalog WHERE hero_id=$1",
+        ] {
+            sqlx::query(sql)
+                .bind(TEST_HERO_ID)
+                .execute(pool)
+                .await
+                .expect("cleanup hero");
+        }
+        sqlx::query("DELETE FROM brain.item_catalog WHERE item_id=$1")
+            .bind(TEST_ITEM_ID)
+            .execute(pool)
+            .await
+            .expect("cleanup item");
     }
 
-    #[test]
-    fn mo_catalog_derives_tank_archetype() {
-        let conn = Connection::open_in_memory().expect("open sqlite");
-        upsert_hero_catalog(&conn, &crate::util::load_fixture("mo_hero_catalog.json"))
+    #[tokio::test]
+    #[ignore = "benoetigt Scratch-Postgres via DEADLOCK_CENTRAL_DSN"]
+    async fn sync_upsert_roundtrip_writes_and_reads_back() {
+        let Some(pool) = crate::util::test_pool().await else {
+            eprintln!("DEADLOCK_CENTRAL_DSN nicht gesetzt; Test uebersprungen.");
+            return;
+        };
+        cleanup(&pool).await;
+
+        // Item-Katalog (API-Shape: type=upgrade, item_slot_type in {weapon,vitality,spirit}).
+        let items = json!([{
+            "id": TEST_ITEM_ID,
+            "type": "upgrade",
+            "name": "Roundtrip Testitem",
+            "item_slot_type": "spirit",
+            "item_tier": 2,
+            "properties": {}
+        }]);
+        let item_rows = upsert_item_catalog(&pool, &items)
+            .await
+            .expect("upsert items");
+        assert_eq!(item_rows, 1);
+
+        // Hero-Katalog (API-Shape mit starting_stats.max_health.value=900 -> archetype "tank").
+        let heroes = json!([{
+            "id": TEST_HERO_ID,
+            "name": "Roundtrip Testheld",
+            "starting_stats": {"max_health": {"value": 900}}
+        }]);
+        let hero_rows = upsert_hero_catalog(&pool, &heroes)
+            .await
             .expect("upsert heroes");
-        let archetype: String = conn
-            .query_row(
-                "SELECT archetype FROM hero_catalog WHERE hero_id=18",
-                [],
-                |row| row.get(0),
-            )
-            .expect("archetype");
+        assert_eq!(hero_rows, 1);
+
+        // Hero-Item-Stats-Schreibpfad.
+        let mut prevalence = BTreeMap::new();
+        prevalence.insert(TEST_ITEM_ID, 42_i64);
+        let mut item_stats = BTreeMap::new();
+        item_stats.insert(
+            TEST_ITEM_ID,
+            ItemStatLine {
+                wins: 700,
+                losses: 300,
+                matches: 1000,
+                players: 1200,
+                avg_buy_time_relative: Some(25.0),
+            },
+        );
+        let mut catalog_ids = BTreeSet::new();
+        catalog_ids.insert(TEST_ITEM_ID);
+        let mut lift_map = HashMap::new();
+        lift_map.insert(TEST_ITEM_ID, 3.5_f64);
+        let stat_rows = upsert_hero_item_stats(
+            &pool,
+            TEST_HERO_ID,
+            &prevalence,
+            &item_stats,
+            &catalog_ids,
+            &lift_map,
+        )
+        .await
+        .expect("upsert stats");
+        assert_eq!(stat_rows, 1);
+
+        // Lesepfad: zurueckgelesene Werte muessen den geschriebenen entsprechen.
+        let read: (i64, i64, i64, Option<f64>, Option<f64>) = sqlx::query_as(
+            "SELECT prevalence_builds, wins, matches, avg_buy_time_relative, lift_pp \
+             FROM brain.hero_item_stats \
+             WHERE hero_id=$1 AND item_id=$2 AND bracket='badge80' AND patch_tag='current'",
+        )
+        .bind(TEST_HERO_ID)
+        .bind(TEST_ITEM_ID)
+        .fetch_one(&pool)
+        .await
+        .expect("read back stats");
+        assert_eq!(read.0, 42);
+        assert_eq!(read.1, 700);
+        assert_eq!(read.2, 1000);
+        assert_eq!(read.3, Some(25.0));
+        assert_eq!(read.4, Some(3.5));
+
+        // Archetyp-Ableitung wurde persistiert (900 base_health -> "tank").
+        let archetype: String =
+            sqlx::query_scalar("SELECT archetype FROM brain.hero_catalog WHERE hero_id=$1")
+                .bind(TEST_HERO_ID)
+                .fetch_one(&pool)
+                .await
+                .expect("read archetype");
         assert_eq!(archetype, "tank");
+
+        cleanup(&pool).await;
     }
 }
