@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    INSERT INTO brain.meta_trend_notes (\n                        entity_name, trend_direction, winrate_delta, context,\n                        result_text, status, created_at, updated_at\n                    ) VALUES ($1, $2, $3, $4::text::jsonb, $5, $6, now(), now())\n                    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Float8",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f3d93072ea391c13b087bc34305aff0d0820d7f981e3caa5130dd00b92d9f2f4"
+}

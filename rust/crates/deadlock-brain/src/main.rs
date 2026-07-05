@@ -996,7 +996,7 @@ async fn run(cli: Cli) -> Result<()> {
         Commands::RefreshSheet => run_refresh_sheet(&conn, &settings),
         Commands::Normalize { target } => run_normalize(&conn, target),
         Commands::Parse { target } => run_parse(&conn, target),
-        Commands::Enrich { target } => run_enrich(&conn, &settings, target),
+        Commands::Enrich { target } => run_enrich(&conn, &settings, target).await,
         Commands::Entities(_) => {
             unreachable!("PG-Entities werden vor SQLite-Einrichtung ausgefuehrt.")
         }
@@ -1402,10 +1402,13 @@ fn run_parse(conn: &Connection, target: ParseCommands) -> Result<()> {
     }
 }
 
-fn run_enrich(conn: &Connection, settings: &Settings, target: EnrichCommands) -> Result<()> {
+async fn run_enrich(conn: &Connection, settings: &Settings, target: EnrichCommands) -> Result<()> {
     match target {
         EnrichCommands::PatchEvents(args) => {
-            print_json(&dbrain_enrich::build_patch_event_enrichments(conn, args.rebuild)?)
+            let pool = deadlock_brain_core::pg::pg_pool().await?;
+            print_json(
+                &dbrain_enrich::build_patch_event_enrichments(&pool, args.rebuild).await?,
+            )
         }
         EnrichCommands::Lineage(args) => {
             print_json(&dbrain_normalize::enrich_lineage_with_conn(conn, args.rebuild)?)
@@ -1414,23 +1417,29 @@ fn run_enrich(conn: &Connection, settings: &Settings, target: EnrichCommands) ->
             print_json(&dbrain_normalize::enrich_legacy_entities_with_conn(conn, args.rebuild)?)
         }
         EnrichCommands::PatchImpact(args) => {
-            print_json(&run_patch_impact(conn, settings, args)?)
+            print_json(&run_patch_impact(conn, settings, args).await?)
         }
         EnrichCommands::MetaTrends => {
             let config = minimax_config(settings, None, None, None, None);
-            print_json(&dbrain_enrich::run_meta_trend_analysis(conn, &config)?)
+            let pool = deadlock_brain_core::pg::pg_pool().await?;
+            print_json(&dbrain_enrich::run_meta_trend_analysis(&pool, &config).await?)
         }
     }
 }
 
-fn run_patch_impact(conn: &Connection, settings: &Settings, args: PatchImpactArgs) -> Result<Value> {
+async fn run_patch_impact(
+    conn: &Connection,
+    settings: &Settings,
+    args: PatchImpactArgs,
+) -> Result<Value> {
     let config = minimax_config(settings, None, None, None, None);
+    let pool = deadlock_brain_core::pg::pg_pool().await?;
     if args.dry_run {
         let Some(hero) = args.hero.as_deref() else {
             return Err(anyhow!("Fuer --dry-run muss --hero angegeben werden."));
         };
         let entity_type = entity_type_for_name(conn, hero)?;
-        let context = dbrain_enrich::build_patch_impact_context(conn, hero, &entity_type)?;
+        let context = dbrain_enrich::build_patch_impact_context(&pool, hero, &entity_type).await?;
         let request_info = dbrain_enrich::build_patch_impact_request(&context, &config)?;
         return Ok(json!({
             "dry_run": true,
@@ -1440,26 +1449,25 @@ fn run_patch_impact(conn: &Connection, settings: &Settings, args: PatchImpactArg
     }
     if let Some(hero) = args.hero.as_deref() {
         let entity_type = entity_type_for_name(conn, hero)?;
-        let context = dbrain_enrich::build_patch_impact_context(conn, hero, &entity_type)?;
+        let context = dbrain_enrich::build_patch_impact_context(&pool, hero, &entity_type).await?;
         let request_info = dbrain_enrich::build_patch_impact_request(&context, &config)?;
         let client = MiniMaxClient::new(config.clone())?;
         let response = client.chat(&request_info.request)?;
         let result_text = extract_minimax_text(&response);
         dbrain_enrich::save_patch_impact_note(
-            conn,
+            &pool,
             &context,
             &request_info.prompt_text,
             Some(&result_text),
             &config.model,
             "analysis_ready",
-        )?;
+        )
+        .await?;
         Ok(json!({"processed": 1, "success": 1, "failed": 0, "hero": hero}))
     } else {
-        Ok(serde_json::to_value(dbrain_enrich::run_patch_impact_batch(
-            conn,
-            &config,
-            args.limit,
-        )?)?)
+        Ok(serde_json::to_value(
+            dbrain_enrich::run_patch_impact_batch(&pool, &config, args.limit).await?,
+        )?)
     }
 }
 

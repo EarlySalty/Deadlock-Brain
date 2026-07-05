@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM brain.patch_event_enrichments",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "efc02a1bcfc619cfc6b7e100d65fe5d743e8ba321ad84f990ccf01453d657957"
+}

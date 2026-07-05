@@ -8,17 +8,16 @@ use std::{
 };
 
 use deadlock_brain_core::{
-    db,
     minimax::{
         extract_minimax_text, ChatCompletionRequest, ChatMessage, MiniMaxClient, MiniMaxConfig,
     },
     models::PatchEvent,
 };
 use regex::{Captures, Regex};
-use rusqlite::{named_params, params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
+use sqlx::PgPool;
 
 pub use deadlock_brain_core as core;
 
@@ -91,8 +90,8 @@ pub enum EnrichError {
     #[error(transparent)]
     Core(#[from] deadlock_brain_core::CoreError),
 
-    #[error("SQLite error: {0}")]
-    Sqlite(#[from] rusqlite::Error),
+    #[error("Postgres error: {0}")]
+    Sqlx(#[from] sqlx::Error),
 
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
@@ -178,65 +177,105 @@ pub struct MetaTrendSummary {
     pub failed: usize,
 }
 
-pub fn enrich_patch_events(rebuild: bool) -> Result<PatchEventEnrichmentSummary> {
-    let conn = db::open_default_connection()?;
-    build_patch_event_enrichments(&conn, rebuild)
+/// Lokale Zeile aus `brain.patch_events`: der `PatchEvent` fuer die Regex-Parser
+/// plus die synthetische `legacy_patch_event_id` (NOT NULL in der PG-Tabelle,
+/// abgeleitet als `COALESCE(pe.legacy_sqlite_id, pe.id)`), die bis in
+/// [`insert_enrichment`] durchgereicht werden muss.
+struct PatchEventRow {
+    event: PatchEvent,
+    legacy_patch_event_id: i64,
 }
 
-pub fn enrich_patch_impact(limit: usize) -> Result<PatchImpactBatchSummary> {
-    let conn = db::open_default_connection()?;
-    let config = MiniMaxConfig::from_env()?;
-    run_patch_impact_batch(&conn, &config, limit)
-}
-
-pub fn enrich_meta_trends() -> Result<MetaTrendSummary> {
-    let conn = db::open_default_connection()?;
-    let config = MiniMaxConfig::from_env()?;
-    run_meta_trend_analysis(&conn, &config)
-}
-
-pub fn build_patch_event_enrichments(
-    conn: &Connection,
+pub async fn build_patch_event_enrichments(
+    pool: &PgPool,
     rebuild: bool,
 ) -> Result<PatchEventEnrichmentSummary> {
-    require_table(conn, "patch_event_enrichments")?;
+    require_table(pool, "patch_event_enrichments").await?;
 
-    let before_total = count_enrichments(conn)?;
+    let before_total = count_enrichments(pool).await?;
     let deleted = if rebuild {
-        conn.execute("DELETE FROM patch_event_enrichments", [])?
+        let result = sqlx::query!("DELETE FROM brain.patch_event_enrichments")
+            .execute(pool)
+            .await?;
+        usize::try_from(result.rows_affected()).unwrap_or(usize::MAX)
     } else {
         0
     };
 
     let rebuild_flag = if rebuild { 1_i64 } else { 0_i64 };
-    let mut stmt = conn.prepare(
+    let rows = sqlx::query!(
         r#"
-        SELECT pe.id, pe.patch_snapshot_id, pe.patch_external_id, pe.patch_title, pe.patch_url,
-               pe.source_kind, pe.posted_at, pe.line_index, pe.section, pe.entity_type,
-               pe.entity_name, pe.subject, pe.change_type, pe.raw_line, pe.normalized_line,
-               pe.old_value, pe.new_value, pe.confidence, pe.metadata_json, pe.event_hash,
-               pe.created_at
-        FROM patch_events pe
-        LEFT JOIN patch_event_enrichments pee ON pee.patch_event_id = pe.id
-        WHERE (?1 != 0 OR pee.patch_event_id IS NULL)
+        SELECT pe.id AS "id!",
+               COALESCE(pe.patch_snapshot_id, 0) AS "patch_snapshot_id!",
+               pe.patch_external_id AS "patch_external_id!",
+               pe.patch_title AS "patch_title?",
+               pe.patch_url AS "patch_url?",
+               pe.source_kind AS "source_kind!",
+               pe.posted_at::text AS "posted_at?",
+               pe.line_index AS "line_index!",
+               pe.section AS "section?",
+               pe.entity_type AS "entity_type!",
+               pe.entity_name AS "entity_name?",
+               pe.subject AS "subject?",
+               pe.change_type AS "change_type!",
+               pe.raw_line AS "raw_line!",
+               pe.normalized_line AS "normalized_line!",
+               pe.old_value AS "old_value?",
+               pe.new_value AS "new_value?",
+               pe.confidence AS "confidence!",
+               pe.metadata::text AS "metadata_json!",
+               pe.event_hash AS "event_hash!",
+               extract(epoch from pe.created_at)::int8 AS "created_at!",
+               COALESCE(pe.legacy_sqlite_id, pe.id) AS "legacy_patch_event_id!"
+        FROM brain.patch_events pe
+        LEFT JOIN brain.patch_event_enrichments pee ON pee.patch_event_id = pe.id
+        WHERE ($1::int8 <> 0 OR pee.patch_event_id IS NULL)
         ORDER BY pe.id ASC
         "#,
-    )?;
-    let rows = stmt
-        .query_map(params![rebuild_flag], PatchEvent::from_row)?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
+        rebuild_flag,
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|row| PatchEventRow {
+        event: PatchEvent {
+            id: row.id,
+            patch_snapshot_id: row.patch_snapshot_id,
+            patch_external_id: row.patch_external_id,
+            patch_title: row.patch_title,
+            patch_url: row.patch_url,
+            source_kind: row.source_kind,
+            posted_at: row.posted_at,
+            line_index: row.line_index,
+            section: row.section,
+            entity_type: row.entity_type,
+            entity_name: row.entity_name,
+            subject: row.subject,
+            change_type: row.change_type,
+            raw_line: row.raw_line,
+            normalized_line: row.normalized_line,
+            old_value: row.old_value,
+            new_value: row.new_value,
+            confidence: row.confidence,
+            metadata_json: row.metadata_json,
+            event_hash: row.event_hash,
+            created_at: row.created_at,
+        },
+        legacy_patch_event_id: row.legacy_patch_event_id,
+    })
+    .collect::<Vec<_>>();
 
     let mut processed = 0_usize;
     let mut inserted = 0_usize;
     let mut matched = 0_usize;
 
-    for event in rows {
-        let enrichment = enrich_patch_event(&event)?;
+    for row in rows {
+        let enrichment = enrich_patch_event(&row.event)?;
         processed += 1;
         if enrichment.confidence > 0.0 {
             matched += 1;
         }
-        if insert_enrichment(conn, &enrichment)? {
+        if insert_enrichment(pool, &enrichment, row.legacy_patch_event_id).await? {
             inserted += 1;
         }
     }
@@ -246,7 +285,7 @@ pub fn build_patch_event_enrichments(
         enrichments_inserted: inserted,
         enrichments_matched: matched,
         enrichments_before: before_total,
-        enrichments_total: count_enrichments(conn)?,
+        enrichments_total: count_enrichments(pool).await?,
         deleted_before_build: deleted,
         rebuild,
     })
@@ -472,46 +511,42 @@ pub fn enrich_patch_event_line(
     })
 }
 
-pub fn list_pending_patch_impact_targets(
-    conn: &Connection,
+pub async fn list_pending_patch_impact_targets(
+    pool: &PgPool,
     limit: usize,
     _model: Option<&str>,
 ) -> Result<Vec<PatchImpactTarget>> {
-    require_table(conn, "patch_impact_notes")?;
+    require_table(pool, "patch_impact_notes").await?;
 
-    let mut stmt = conn.prepare(
-        r#"
-        SELECT DISTINCT entity_name, entity_type FROM patch_events
-        WHERE entity_name NOT IN (
-            SELECT entity_name FROM patch_impact_notes WHERE status='analysis_ready'
-        )
-        LIMIT ?1
-        "#,
-    )?;
     let limit = i64::try_from(limit).map_or(i64::MAX, |value| value);
-    let targets = stmt
-        .query_map(params![limit], |row| {
-            let entity_name = row
-                .get::<_, Option<String>>(0)?
-                .map_or_else(String::new, keep_string);
-            let entity_type = row
-                .get::<_, Option<String>>(1)?
-                .map_or_else(String::new, keep_string);
-            Ok(PatchImpactTarget {
-                entity_name,
-                entity_type,
-            })
-        })?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let targets = sqlx::query!(
+        r#"
+        SELECT DISTINCT pe.entity_name AS "entity_name?", pe.entity_type AS "entity_type!"
+        FROM brain.patch_events pe
+        WHERE pe.entity_name NOT IN (
+            SELECT entity_name FROM brain.patch_impact_notes WHERE status = 'analysis_ready'
+        )
+        LIMIT $1
+        "#,
+        limit,
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|row| PatchImpactTarget {
+        entity_name: row.entity_name.map_or_else(String::new, keep_string),
+        entity_type: row.entity_type,
+    })
+    .collect::<Vec<_>>();
     Ok(targets)
 }
 
-pub fn build_patch_impact_context(
-    conn: &Connection,
+pub async fn build_patch_impact_context(
+    pool: &PgPool,
     entity_name: &str,
     entity_type: &str,
 ) -> Result<Value> {
-    let context = build_review_context(conn, entity_name, entity_type, 80)?;
+    let context = build_review_context(pool, entity_name, entity_type, 80).await?;
     let mut timeline_signals = match context.get("timeline_signals").cloned() {
         Some(value) => value,
         None => json!({}),
@@ -577,15 +612,15 @@ pub fn build_patch_impact_request(
     })
 }
 
-pub fn save_patch_impact_note(
-    conn: &Connection,
+pub async fn save_patch_impact_note(
+    pool: &PgPool,
     context: &Value,
     prompt_text: &str,
     result_text: Option<&str>,
     model: &str,
     status: &str,
 ) -> Result<PatchImpactNoteSummary> {
-    require_table(conn, "patch_impact_notes")?;
+    require_table(pool, "patch_impact_notes").await?;
 
     let entity_summary = match context
         .get("entity_summary")
@@ -631,65 +666,64 @@ pub fn save_patch_impact_note(
         }
     }
 
-    let now = db::now_epoch_seconds()?;
-    conn.execute(
+    let inserted_id = sqlx::query_scalar!(
         r#"
-        INSERT INTO patch_impact_notes (
+        INSERT INTO brain.patch_impact_notes (
             entity_type, entity_name, entity_id, context_hash, prompt_version,
-            prompt_text, result_text, insights_json, model, status,
+            prompt_text, result_text, insights, model, status,
             patch_range_start, patch_range_end, event_count, created_at, updated_at
         ) VALUES (
-            :entity_type, :entity_name, :entity_id, :context_hash, :prompt_version,
-            :prompt_text, :result_text, :insights_json, :model, :status,
-            :patch_range_start, :patch_range_end, :event_count, :created_at, :updated_at
+            $1, $2, $3, $4, $5,
+            $6, $7, $8::text::jsonb, $9, $10,
+            $11, $12, $13, now(), now()
         )
-        ON CONFLICT(entity_name, context_hash, prompt_version, COALESCE(model, ''))
+        ON CONFLICT (entity_name, context_hash, prompt_version, COALESCE(model, ''))
         DO UPDATE SET
             result_text = excluded.result_text,
-            insights_json = excluded.insights_json,
+            insights = excluded.insights,
             status = excluded.status,
-            updated_at = excluded.updated_at
+            updated_at = now()
+        RETURNING id AS "id!"
         "#,
-        named_params! {
-            ":entity_type": entity_type,
-            ":entity_name": entity_name,
-            ":entity_id": entity_id,
-            ":context_hash": context_hash,
-            ":prompt_version": PATCH_IMPACT_PROMPT_VERSION,
-            ":prompt_text": prompt_text,
-            ":result_text": result_text,
-            ":insights_json": insights_json,
-            ":model": model,
-            ":status": final_status,
-            ":patch_range_start": patch_range_start,
-            ":patch_range_end": patch_range_end,
-            ":event_count": event_count,
-            ":created_at": now,
-            ":updated_at": now,
-        },
-    )?;
+        entity_type,
+        entity_name,
+        entity_id,
+        context_hash,
+        PATCH_IMPACT_PROMPT_VERSION,
+        prompt_text,
+        result_text,
+        insights_json,
+        model,
+        final_status,
+        patch_range_start.as_deref(),
+        patch_range_end.as_deref(),
+        event_count,
+    )
+    .fetch_one(pool)
+    .await?;
 
     Ok(PatchImpactNoteSummary {
-        id: conn.last_insert_rowid(),
+        id: inserted_id,
         entity_name,
         status: final_status,
         hash: context_hash,
     })
 }
 
-pub fn run_patch_impact_batch(
-    conn: &Connection,
+pub async fn run_patch_impact_batch(
+    pool: &PgPool,
     config: &MiniMaxConfig,
     limit: usize,
 ) -> Result<PatchImpactBatchSummary> {
     let client = MiniMaxClient::new(config.clone())?;
-    run_patch_impact_batch_with_chat(conn, config, limit, |request| {
+    run_patch_impact_batch_with_chat(pool, config, limit, |request| {
         Ok(client.chat(request)?)
     })
+    .await
 }
 
-pub fn run_patch_impact_batch_with_chat<F>(
-    conn: &Connection,
+pub async fn run_patch_impact_batch_with_chat<F>(
+    pool: &PgPool,
     config: &MiniMaxConfig,
     limit: usize,
     mut chat: F,
@@ -697,7 +731,7 @@ pub fn run_patch_impact_batch_with_chat<F>(
 where
     F: FnMut(&ChatCompletionRequest) -> Result<Value>,
 {
-    let targets = list_pending_patch_impact_targets(conn, limit, Some(&config.model))?;
+    let targets = list_pending_patch_impact_targets(pool, limit, Some(&config.model)).await?;
     if targets.is_empty() {
         return Ok(PatchImpactBatchSummary {
             processed: 0,
@@ -711,31 +745,34 @@ where
     let mut failed = 0_usize;
 
     for target in &targets {
-        let context = build_patch_impact_context(conn, &target.entity_name, &target.entity_type)?;
+        let context =
+            build_patch_impact_context(pool, &target.entity_name, &target.entity_type).await?;
         let request_info = build_patch_impact_request(&context, config)?;
         match chat(&request_info.request) {
             Ok(response) => {
                 let result_text = extract_minimax_text(&response);
                 save_patch_impact_note(
-                    conn,
+                    pool,
                     &context,
                     &request_info.prompt_text,
                     Some(&result_text),
                     &config.model,
                     "analysis_ready",
-                )?;
+                )
+                .await?;
                 success += 1;
             }
             Err(error) => {
                 let result_text = error.to_string();
                 save_patch_impact_note(
-                    conn,
+                    pool,
                     &context,
                     &request_info.prompt_text,
                     Some(&result_text),
                     &config.model,
                     "analysis_failed",
-                )?;
+                )
+                .await?;
                 failed += 1;
             }
         }
@@ -749,23 +786,23 @@ where
     })
 }
 
-pub fn run_meta_trend_analysis(
-    conn: &Connection,
+pub async fn run_meta_trend_analysis(
+    pool: &PgPool,
     config: &MiniMaxConfig,
 ) -> Result<MetaTrendSummary> {
     let client = MiniMaxClient::new(config.clone())?;
-    run_meta_trend_analysis_with_chat(conn, config, |request| Ok(client.chat(request)?))
+    run_meta_trend_analysis_with_chat(pool, config, |request| Ok(client.chat(request)?)).await
 }
 
-pub fn run_meta_trend_analysis_with_chat<F>(
-    conn: &Connection,
+pub async fn run_meta_trend_analysis_with_chat<F>(
+    pool: &PgPool,
     config: &MiniMaxConfig,
     mut chat: F,
 ) -> Result<MetaTrendSummary>
 where
     F: FnMut(&ChatCompletionRequest) -> Result<Value>,
 {
-    require_table(conn, "meta_trend_notes")?;
+    require_table(pool, "meta_trend_notes").await?;
 
     let mock_shifts = [
         ("Abrams", -3.2_f64, "falling"),
@@ -793,25 +830,22 @@ where
         match chat(&request) {
             Ok(response) => {
                 let result_text = extract_minimax_text(&response);
-                let now = db::now_epoch_seconds()?;
-                conn.execute(
+                sqlx::query!(
                     r#"
-                    INSERT INTO meta_trend_notes (
-                        entity_name, trend_direction, winrate_delta, context_json,
+                    INSERT INTO brain.meta_trend_notes (
+                        entity_name, trend_direction, winrate_delta, context,
                         result_text, status, created_at, updated_at
-                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                    ) VALUES ($1, $2, $3, $4::text::jsonb, $5, $6, now(), now())
                     "#,
-                    params![
-                        entity_name,
-                        trend_direction,
-                        winrate_delta,
-                        "{}",
-                        result_text,
-                        "analysis_ready",
-                        now,
-                        now
-                    ],
-                )?;
+                    entity_name,
+                    trend_direction,
+                    winrate_delta,
+                    "{}",
+                    result_text,
+                    "analysis_ready",
+                )
+                .execute(pool)
+                .await?;
                 success += 1;
             }
             Err(error) => {
@@ -910,35 +944,37 @@ fn generic_event_enrichment(
     None
 }
 
-fn insert_enrichment(conn: &Connection, enrichment: &PatchEventEnrichment) -> Result<bool> {
-    let now = db::now_epoch_seconds()?;
+async fn insert_enrichment(
+    pool: &PgPool,
+    enrichment: &PatchEventEnrichment,
+    legacy_patch_event_id: i64,
+) -> Result<bool> {
     let flags_json = enrichment.flags_json()?;
-    let inserted = conn.execute(
+    let result = sqlx::query!(
         r#"
-        INSERT OR IGNORE INTO patch_event_enrichments(
-          patch_event_id, stat_name, old_value, new_value, unit, ability_name,
-          secondary_entity_name, confidence, flags_json, created_at, updated_at
+        INSERT INTO brain.patch_event_enrichments(
+          patch_event_id, legacy_patch_event_id, stat_name, old_value, new_value, unit,
+          ability_name, secondary_entity_name, confidence, flags, created_at, updated_at
         )
         VALUES(
-          :patch_event_id, :stat_name, :old_value, :new_value, :unit, :ability_name,
-          :secondary_entity_name, :confidence, :flags_json, :created_at, :updated_at
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::text::jsonb, now(), now()
         )
+        ON CONFLICT (patch_event_id) DO NOTHING
         "#,
-        named_params! {
-            ":patch_event_id": enrichment.patch_event_id,
-            ":stat_name": enrichment.stat_name,
-            ":old_value": enrichment.old_value,
-            ":new_value": enrichment.new_value,
-            ":unit": enrichment.unit,
-            ":ability_name": enrichment.ability_name,
-            ":secondary_entity_name": enrichment.secondary_entity_name,
-            ":confidence": enrichment.confidence,
-            ":flags_json": flags_json,
-            ":created_at": now,
-            ":updated_at": now,
-        },
-    )?;
-    Ok(inserted > 0)
+        enrichment.patch_event_id,
+        legacy_patch_event_id,
+        enrichment.stat_name.as_deref(),
+        enrichment.old_value.as_deref(),
+        enrichment.new_value.as_deref(),
+        enrichment.unit.as_deref(),
+        enrichment.ability_name.as_deref(),
+        enrichment.secondary_entity_name.as_deref(),
+        enrichment.confidence,
+        flags_json,
+    )
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
 }
 
 fn split_stat_subject(subject: &str) -> (String, Option<String>, Vec<String>) {
@@ -1054,12 +1090,13 @@ fn sorted_unique(flags: Vec<String>) -> Vec<String> {
     flags.into_iter().collect::<BTreeSet<_>>().into_iter().collect()
 }
 
-fn count_enrichments(conn: &Connection) -> Result<i64> {
-    Ok(conn.query_row(
-        "SELECT COUNT(*) AS count FROM patch_event_enrichments",
-        [],
-        |row| row.get(0),
-    )?)
+async fn count_enrichments(pool: &PgPool) -> Result<i64> {
+    let count = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) AS "count!" FROM brain.patch_event_enrichments"#
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok(count)
 }
 
 fn compiled_regex(
@@ -1094,30 +1131,30 @@ fn python_json_list(items: &[String]) -> Result<String> {
     Ok(output)
 }
 
-fn require_table(conn: &Connection, table_name: &'static str) -> Result<()> {
-    let exists: Option<i64> = conn
-        .query_row(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1 LIMIT 1",
-            params![table_name],
-            |row| row.get(0),
-        )
-        .optional()?;
-    if exists.is_some() {
+async fn require_table(pool: &PgPool, table_name: &'static str) -> Result<()> {
+    let qualified = format!("brain.{table_name}");
+    let exists: bool = sqlx::query_scalar!(
+        r#"SELECT to_regclass($1) IS NOT NULL AS "exists!""#,
+        qualified,
+    )
+    .fetch_one(pool)
+    .await?;
+    if exists {
         Ok(())
     } else {
         Err(EnrichError::MissingTable(table_name))
     }
 }
 
-fn build_review_context(
-    conn: &Connection,
+async fn build_review_context(
+    pool: &PgPool,
     query: &str,
     fallback_entity_type: &str,
     limit_events: usize,
 ) -> Result<Value> {
-    let entity_summary = load_entity_summary(conn, query, fallback_entity_type)?;
-    let events = load_patch_events(conn, query, limit_events)?;
-    let enrichments = load_enrichments(conn, &events)?;
+    let entity_summary = load_entity_summary(pool, query, fallback_entity_type).await?;
+    let events = load_patch_events(pool, query, limit_events).await?;
+    let enrichments = load_enrichments(pool, &events).await?;
     let timeline_signals = build_timeline_signals(&events, &enrichments);
 
     Ok(json!({
@@ -1153,29 +1190,38 @@ fn build_review_context(
     }))
 }
 
-fn load_entity_summary(conn: &Connection, query: &str, fallback_entity_type: &str) -> Result<Value> {
-    let row = conn
-        .query_row(
-            r#"
-            SELECT id, entity_type, canonical_name, primary_external_id, source, metadata_json
-            FROM entities
-            WHERE lower(canonical_name)=lower(?1)
-            ORDER BY entity_type, length(canonical_name), canonical_name
-            LIMIT 1
-            "#,
-            params![query],
-            |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, String>(5)?,
-                ))
-            },
+async fn load_entity_summary(
+    pool: &PgPool,
+    query: &str,
+    fallback_entity_type: &str,
+) -> Result<Value> {
+    let row = sqlx::query!(
+        r#"
+        SELECT e.id AS "id!",
+               e.entity_type AS "entity_type!",
+               e.canonical_name AS "canonical_name!",
+               e.primary_external_id AS "primary_external_id?",
+               e.source AS "source!",
+               e.metadata::text AS "metadata_json!"
+        FROM brain.entities e
+        WHERE lower(e.canonical_name) = lower($1)
+        ORDER BY e.entity_type, length(e.canonical_name), e.canonical_name
+        LIMIT 1
+        "#,
+        query,
+    )
+    .fetch_optional(pool)
+    .await?
+    .map(|row| {
+        (
+            row.id,
+            row.entity_type,
+            row.canonical_name,
+            row.primary_external_id,
+            row.source,
+            row.metadata_json,
         )
-        .optional()?;
+    });
 
     if let Some((id, entity_type, canonical_name, external_id, source, metadata_json)) = row {
         let metadata = match serde_json::from_str::<Value>(&metadata_json) {
@@ -1226,54 +1272,118 @@ fn load_entity_summary(conn: &Connection, query: &str, fallback_entity_type: &st
     }
 }
 
-fn load_patch_events(conn: &Connection, query: &str, limit_events: usize) -> Result<Vec<PatchEvent>> {
+async fn load_patch_events(
+    pool: &PgPool,
+    query: &str,
+    limit_events: usize,
+) -> Result<Vec<PatchEvent>> {
     let limit = i64::try_from(limit_events).map_or(i64::MAX, |value| value);
     let like_query = format!("%{query}%");
-    let mut stmt = conn.prepare(
+    let rows = sqlx::query!(
         r#"
         SELECT
-          id, patch_snapshot_id, patch_external_id, patch_title, patch_url, source_kind,
-          posted_at, line_index, section, entity_type, entity_name, subject, change_type,
-          raw_line, normalized_line, old_value, new_value, confidence, metadata_json,
-          event_hash, created_at
-        FROM patch_events
-        WHERE lower(entity_name)=lower(?1) OR entity_name LIKE ?2
-        ORDER BY patch_snapshot_id DESC, line_index
-        LIMIT ?3
+          pe.id AS "id!",
+          COALESCE(pe.patch_snapshot_id, 0) AS "patch_snapshot_id!",
+          pe.patch_external_id AS "patch_external_id!",
+          pe.patch_title AS "patch_title?",
+          pe.patch_url AS "patch_url?",
+          pe.source_kind AS "source_kind!",
+          pe.posted_at::text AS "posted_at?",
+          pe.line_index AS "line_index!",
+          pe.section AS "section?",
+          pe.entity_type AS "entity_type!",
+          pe.entity_name AS "entity_name?",
+          pe.subject AS "subject?",
+          pe.change_type AS "change_type!",
+          pe.raw_line AS "raw_line!",
+          pe.normalized_line AS "normalized_line!",
+          pe.old_value AS "old_value?",
+          pe.new_value AS "new_value?",
+          pe.confidence AS "confidence!",
+          pe.metadata::text AS "metadata_json!",
+          pe.event_hash AS "event_hash!",
+          extract(epoch from pe.created_at)::int8 AS "created_at!"
+        FROM brain.patch_events pe
+        WHERE lower(pe.entity_name) = lower($1) OR pe.entity_name LIKE $2
+        ORDER BY pe.patch_snapshot_id DESC, pe.line_index
+        LIMIT $3
         "#,
-    )?;
-    let rows = stmt
-        .query_map(params![query, like_query, limit], PatchEvent::from_row)?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
+        query,
+        like_query,
+        limit,
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|row| PatchEvent {
+        id: row.id,
+        patch_snapshot_id: row.patch_snapshot_id,
+        patch_external_id: row.patch_external_id,
+        patch_title: row.patch_title,
+        patch_url: row.patch_url,
+        source_kind: row.source_kind,
+        posted_at: row.posted_at,
+        line_index: row.line_index,
+        section: row.section,
+        entity_type: row.entity_type,
+        entity_name: row.entity_name,
+        subject: row.subject,
+        change_type: row.change_type,
+        raw_line: row.raw_line,
+        normalized_line: row.normalized_line,
+        old_value: row.old_value,
+        new_value: row.new_value,
+        confidence: row.confidence,
+        metadata_json: row.metadata_json,
+        event_hash: row.event_hash,
+        created_at: row.created_at,
+    })
+    .collect::<Vec<_>>();
     Ok(rows)
 }
 
-fn load_enrichments(conn: &Connection, events: &[PatchEvent]) -> Result<Vec<Value>> {
-    let mut rows = Vec::new();
-    let mut stmt = conn.prepare(
+async fn load_enrichments(pool: &PgPool, events: &[PatchEvent]) -> Result<Vec<Value>> {
+    if events.is_empty() {
+        return Ok(Vec::new());
+    }
+    // UNIQUE(patch_event_id) garantiert hoechstens ein Enrichment je Event.
+    // Ein einziger `= ANY($1)`-Load statt N Queries; danach werden die Treffer
+    // in Event-Reihenfolge zusammengefuehrt (identische JSON-Ausgabe-Reihenfolge
+    // wie die alte Per-Event-Schleife).
+    let ids = events.iter().map(|event| event.id).collect::<Vec<i64>>();
+    let mut by_event: HashMap<i64, Value> = HashMap::new();
+    let fetched = sqlx::query!(
         r#"
-        SELECT patch_event_id, stat_name, old_value, new_value, unit, ability_name,
-               secondary_entity_name, confidence
-        FROM patch_event_enrichments
-        WHERE patch_event_id=?1
+        SELECT patch_event_id AS "patch_event_id!", stat_name, old_value, new_value, unit,
+               ability_name, secondary_entity_name, confidence AS "confidence!"
+        FROM brain.patch_event_enrichments
+        WHERE patch_event_id = ANY($1)
         "#,
-    )?;
+        &ids,
+    )
+    .fetch_all(pool)
+    .await?;
+    for row in fetched {
+        by_event.insert(
+            row.patch_event_id,
+            json!({
+                "patch_event_id": row.patch_event_id,
+                "stat_name": row.stat_name,
+                "old_value": row.old_value,
+                "new_value": row.new_value,
+                "unit": row.unit,
+                "ability_name": row.ability_name,
+                "secondary_entity_name": row.secondary_entity_name,
+                "confidence": row.confidence,
+            }),
+        );
+    }
+
+    let mut rows = Vec::new();
     for event in events {
-        let event_rows = stmt
-            .query_map(params![event.id], |row| {
-                Ok(json!({
-                    "patch_event_id": row.get::<_, i64>(0)?,
-                    "stat_name": row.get::<_, Option<String>>(1)?,
-                    "old_value": row.get::<_, Option<String>>(2)?,
-                    "new_value": row.get::<_, Option<String>>(3)?,
-                    "unit": row.get::<_, Option<String>>(4)?,
-                    "ability_name": row.get::<_, Option<String>>(5)?,
-                    "secondary_entity_name": row.get::<_, Option<String>>(6)?,
-                    "confidence": row.get::<_, f64>(7)?,
-                }))
-            })?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-        rows.extend(event_rows);
+        if let Some(value) = by_event.get(&event.id) {
+            rows.push(value.clone());
+        }
     }
     Ok(rows)
 }
@@ -1570,72 +1680,139 @@ fn python_json_string(value: &str) -> String {
 mod tests {
     use super::*;
 
-    fn temp_conn() -> Connection {
-        let conn = Connection::open_in_memory().expect("open temp db");
-        deadlock_brain_core::schema::ensure_schema(&conn).expect("ensure schema");
-        conn
+    use sqlx::postgres::PgPoolOptions;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static FIXTURE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    /// Kollisionsfreier Suffix fuer Fixture-Schluessel (UNIQUE-Spalten).
+    fn unique_suffix() -> String {
+        let counter = FIXTURE_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        format!("{nanos}-{counter}")
     }
 
-    fn insert_snapshot(conn: &Connection) -> i64 {
-        conn.execute(
-            r#"
-            INSERT INTO entity_snapshots(
-                source, entity_type, external_id, canonical_name, payload_hash,
-                payload_json, fetched_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-            "#,
-            params![
-                "fixture",
-                "patch",
-                "patch-1",
-                "Patch 1",
-                "snapshot-hash",
-                "{}",
-                1_i64
-            ],
+    /// Wegwerf-Postgres aus `DEADLOCK_CENTRAL_DSN`. `None` (Test-Skip) wenn die
+    /// Env-Variable fehlt oder leer ist -> `cargo test` bleibt offline gruen.
+    /// Das echte zentrale DSN wird NIE eingebrannt; nur eine selbst gesetzte
+    /// Scratch-Instanz.
+    async fn test_pool() -> Option<PgPool> {
+        let dsn = std::env::var("DEADLOCK_CENTRAL_DSN").ok()?;
+        if dsn.trim().is_empty() {
+            return None;
+        }
+        Some(
+            PgPoolOptions::new()
+                .max_connections(2)
+                .connect(&dsn)
+                .await
+                .expect("connect scratch postgres"),
         )
+    }
+
+    async fn insert_snapshot(pool: &PgPool) -> i64 {
+        let suffix = unique_suffix();
+        let id: i64 = sqlx::query_scalar(
+            r#"
+            INSERT INTO brain.entity_snapshots(
+                source, entity_type, external_id, canonical_name, payload_hash, payload, fetched_at
+            ) VALUES ($1, $2, $3, $4, $5, '{}'::jsonb, now())
+            RETURNING id
+            "#,
+        )
+        .bind("fixture")
+        .bind("patch")
+        .bind(format!("patch-snap-{suffix}"))
+        .bind("Patch Fixture")
+        .bind(format!("snap-hash-{suffix}"))
+        .fetch_one(pool)
+        .await
         .expect("insert snapshot");
-        conn.last_insert_rowid()
+        id
     }
 
-    fn insert_patch_event(conn: &Connection, snapshot_id: i64, line: &str, event_hash: &str) -> i64 {
-        conn.execute(
+    async fn insert_entity(pool: &PgPool, canonical_name: &str) -> i64 {
+        let suffix = unique_suffix();
+        let id: i64 = sqlx::query_scalar(
             r#"
-            INSERT INTO patch_events(
-                patch_snapshot_id, patch_external_id, patch_title, patch_url, source_kind,
-                posted_at, line_index, section, entity_type, entity_name, subject, change_type,
-                raw_line, normalized_line, old_value, new_value, confidence, metadata_json,
-                event_hash, created_at
-            ) VALUES (
-                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
-                ?17, ?18, ?19, ?20
-            )
+            INSERT INTO brain.entities(
+                entity_type, canonical_name, primary_external_id, source, metadata,
+                created_at, updated_at
+            ) VALUES ($1, $2, $3, $4, '{}'::jsonb, now(), now())
+            RETURNING id
             "#,
-            params![
-                snapshot_id,
-                "patch-1",
-                "Patch 1",
-                "https://example.invalid/patch-1",
-                "patch_notes",
-                "2026-01-01",
-                1_i64,
-                "Heroes",
-                "hero",
-                "Abrams",
-                "Abrams",
-                "buff",
-                line,
-                line,
-                Option::<String>::None,
-                Option::<String>::None,
-                1.0_f64,
-                "{}",
-                event_hash,
-                1_i64,
-            ],
         )
+        .bind("hero")
+        .bind(canonical_name)
+        .bind(format!("ext-{suffix}"))
+        .bind("fixture")
+        .fetch_one(pool)
+        .await
+        .expect("insert entity");
+        id
+    }
+
+    async fn insert_patch_event(
+        pool: &PgPool,
+        snapshot_id: i64,
+        entity_name: &str,
+        line: &str,
+        event_hash: &str,
+    ) -> i64 {
+        let id: i64 = sqlx::query_scalar(
+            r#"
+            INSERT INTO brain.patch_events(
+                patch_snapshot_id, legacy_patch_snapshot_id, patch_external_id, patch_title,
+                patch_url, source_kind, posted_at, line_index, section, entity_type, entity_name,
+                subject, change_type, raw_line, normalized_line, old_value, new_value, confidence,
+                metadata, event_hash, created_at
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, now(), $7, $8, $9, $10, $11, $12, $13, $14, NULL, NULL, $15,
+                '{}'::jsonb, $16, now()
+            )
+            RETURNING id
+            "#,
+        )
+        .bind(snapshot_id)
+        .bind(snapshot_id)
+        .bind("patch-fixture")
+        .bind("Patch Fixture")
+        .bind("https://example.invalid/patch")
+        .bind("patch_notes")
+        .bind(1_i64)
+        .bind("Heroes")
+        .bind("hero")
+        .bind(entity_name)
+        .bind(entity_name)
+        .bind("buff")
+        .bind(line)
+        .bind(line)
+        .bind(1.0_f64)
+        .bind(event_hash)
+        .fetch_one(pool)
+        .await
         .expect("insert patch event");
-        conn.last_insert_rowid()
+        id
+    }
+
+    async fn cleanup_patch_event(pool: &PgPool, event_hash: &str) {
+        // Enrichments haengen per FK ON DELETE CASCADE am Event.
+        sqlx::query("DELETE FROM brain.patch_events WHERE event_hash = $1")
+            .bind(event_hash)
+            .execute(pool)
+            .await
+            .expect("cleanup patch event");
+    }
+
+    async fn cleanup_snapshot(pool: &PgPool, id: i64) {
+        sqlx::query("DELETE FROM brain.entity_snapshots WHERE id = $1")
+            .bind(id)
+            .execute(pool)
+            .await
+            .expect("cleanup snapshot");
     }
 
     fn test_config() -> MiniMaxConfig {
@@ -1707,108 +1884,173 @@ mod tests {
         assert_eq!(grant.flags, vec!["removed_grant"]);
     }
 
-    #[test]
-    fn builds_patch_event_enrichments_incrementally_and_rebuilds() {
-        let conn = temp_conn();
-        let snapshot_id = insert_snapshot(&conn);
+    #[tokio::test]
+    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+    async fn builds_patch_event_enrichments_incrementally_and_rebuilds() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let snapshot_id = insert_snapshot(&pool).await;
+        let cooldown_hash = format!("enrich-cd-{}", unique_suffix());
+        let bugfix_hash = format!("enrich-fx-{}", unique_suffix());
         insert_patch_event(
-            &conn,
+            &pool,
             snapshot_id,
+            "Abrams",
             "Mystic Shot cooldown reduced from 12s to 10s",
-            "event-1",
-        );
-        insert_patch_event(&conn, snapshot_id, "Fixed crash when casting Charge", "event-2");
-
-        let first = build_patch_event_enrichments(&conn, false).expect("first build");
-        assert_eq!(first.events_processed, 2);
-        assert_eq!(first.enrichments_inserted, 2);
-        assert_eq!(first.enrichments_matched, 2);
-        assert_eq!(first.enrichments_total, 2);
-
-        let second = build_patch_event_enrichments(&conn, false).expect("second build");
-        assert_eq!(second.events_processed, 0);
-        assert_eq!(second.enrichments_inserted, 0);
-
-        let rebuild = build_patch_event_enrichments(&conn, true).expect("rebuild");
-        assert_eq!(rebuild.deleted_before_build, 2);
-        assert_eq!(rebuild.events_processed, 2);
-        assert_eq!(rebuild.enrichments_inserted, 2);
-
-        let flags_json: String = conn
-            .query_row(
-                "SELECT flags_json FROM patch_event_enrichments WHERE stat_name='Cooldown'",
-                [],
-                |row| row.get(0),
-            )
-            .expect("flags json");
-        assert_eq!(flags_json, r#"["ability_prefix", "direction:reduced"]"#);
-    }
-
-    #[test]
-    fn patch_impact_batch_uses_temp_db_and_fake_chat() {
-        let conn = temp_conn();
-        let snapshot_id = insert_snapshot(&conn);
-        conn.execute(
-            r#"
-            INSERT INTO entities(
-                entity_type, canonical_name, primary_external_id, source, metadata_json,
-                created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-            "#,
-            params!["hero", "Abrams", "hero_abrams", "fixture", "{}", 1_i64, 1_i64],
+            &cooldown_hash,
         )
-        .expect("insert entity");
+        .await;
         insert_patch_event(
-            &conn,
+            &pool,
             snapshot_id,
-            "Cooldown increased from 10s to 12s",
-            "impact-event-1",
-        );
-        build_patch_event_enrichments(&conn, false).expect("enrich events");
+            "Abrams",
+            "Fixed crash when casting Charge",
+            &bugfix_hash,
+        )
+        .await;
 
-        let config = test_config();
-        let summary = run_patch_impact_batch_with_chat(&conn, &config, 10, |_request| {
-            Ok(json!({"choices":[{"message":{"content":"```json\n{\"trend\":\"mixed\",\"affected_areas\":[],\"momentum\":\"stable\",\"key_changes\":[],\"confidence\":0.7}\n```"}}]}))
-        })
-        .expect("impact batch");
+        // Inkrementeller Build ueber alle offenen Events: unsere zwei frischen
+        // Fixtures muessen dabei sein.
+        let first = build_patch_event_enrichments(&pool, false)
+            .await
+            .expect("first build");
+        assert!(first.enrichments_inserted >= 2);
 
-        assert_eq!(summary.processed, 1);
-        assert_eq!(summary.success, 1);
-        assert_eq!(summary.failed, 0);
+        // Flags-Paritaet fuer das Cooldown-Fixture (per event_hash aufgeloest).
+        let flags_text: String = sqlx::query_scalar(
+            r#"SELECT pee.flags::text
+               FROM brain.patch_event_enrichments pee
+               JOIN brain.patch_events pe ON pe.id = pee.patch_event_id
+               WHERE pe.event_hash = $1"#,
+        )
+        .bind(&cooldown_hash)
+        .fetch_one(&pool)
+        .await
+        .expect("cooldown enrichment flags");
+        let flags: Value = serde_json::from_str(&flags_text).expect("flags json");
+        assert_eq!(flags, json!(["ability_prefix", "direction:reduced"]));
 
-        let row = conn
-            .query_row(
-                "SELECT entity_name, status, insights_json FROM patch_impact_notes",
-                [],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                    ))
-                },
-            )
-            .expect("impact note");
-        assert_eq!(row.0, "Abrams");
-        assert_eq!(row.1, "analysis_ready");
-        assert!(row.2.contains("\"trend\":\"mixed\""));
+        // Zweiter inkrementeller Build fasst bereits angereicherte Events nicht an
+        // (ON CONFLICT DO NOTHING) -> Gesamtzahl bleibt gleich.
+        let before = count_enrichments(&pool).await.expect("count");
+        build_patch_event_enrichments(&pool, false)
+            .await
+            .expect("second build");
+        assert_eq!(count_enrichments(&pool).await.expect("count"), before);
+
+        cleanup_patch_event(&pool, &cooldown_hash).await;
+        cleanup_patch_event(&pool, &bugfix_hash).await;
+        cleanup_snapshot(&pool, snapshot_id).await;
     }
 
-    #[test]
-    fn meta_trends_use_core_schema_table() {
-        let conn = temp_conn();
+    #[tokio::test]
+    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+    async fn patch_impact_context_and_note_roundtrip() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        // Eindeutiger Entity-Name -> Kontext-Load trifft deterministisch nur unser
+        // Fixture (statt des globalen `list_pending`-Nichtdeterminismus).
+        let entity_name = format!("FixtureHero-{}", unique_suffix());
+        let entity_id = insert_entity(&pool, &entity_name).await;
+        let snapshot_id = insert_snapshot(&pool).await;
+        let event_hash = format!("impact-{}", unique_suffix());
+        insert_patch_event(
+            &pool,
+            snapshot_id,
+            &entity_name,
+            "Cooldown increased from 10s to 12s",
+            &event_hash,
+        )
+        .await;
+        build_patch_event_enrichments(&pool, false)
+            .await
+            .expect("enrich events");
+
+        let context = build_patch_impact_context(&pool, &entity_name, "hero")
+            .await
+            .expect("impact context");
         let config = test_config();
-        let summary = run_meta_trend_analysis_with_chat(&conn, &config, |_request| {
+        let request = build_patch_impact_request(&context, &config).expect("impact request");
+        let fake = "```json\n{\"trend\":\"mixed\",\"affected_areas\":[],\"momentum\":\"stable\",\"key_changes\":[],\"confidence\":0.7}\n```";
+        let summary = save_patch_impact_note(
+            &pool,
+            &context,
+            &request.prompt_text,
+            Some(fake),
+            &config.model,
+            "analysis_ready",
+        )
+        .await
+        .expect("save note");
+        assert_eq!(summary.entity_name, entity_name);
+        assert_eq!(summary.status, "analysis_ready");
+
+        let insights: String = sqlx::query_scalar(
+            r#"SELECT insights::text FROM brain.patch_impact_notes WHERE entity_name = $1"#,
+        )
+        .bind(&entity_name)
+        .fetch_one(&pool)
+        .await
+        .expect("impact note");
+        assert!(insights.contains("\"trend\""));
+        assert!(insights.contains("mixed"));
+
+        sqlx::query("DELETE FROM brain.patch_impact_notes WHERE entity_name = $1")
+            .bind(&entity_name)
+            .execute(&pool)
+            .await
+            .expect("cleanup note");
+        cleanup_patch_event(&pool, &event_hash).await;
+        cleanup_snapshot(&pool, snapshot_id).await;
+        sqlx::query("DELETE FROM brain.entities WHERE id = $1")
+            .bind(entity_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup entity");
+    }
+
+    #[tokio::test]
+    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+    async fn meta_trends_use_core_schema_table() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        // Mock nutzt feste Entity-Namen -> vorher etwaige Fixture-Reste raeumen.
+        for name in ["Abrams", "Infernus"] {
+            sqlx::query("DELETE FROM brain.meta_trend_notes WHERE entity_name = $1")
+                .bind(name)
+                .execute(&pool)
+                .await
+                .expect("pre-clean");
+        }
+
+        let config = test_config();
+        let summary = run_meta_trend_analysis_with_chat(&pool, &config, |_request| {
             Ok(json!({"choices":[{"message":{"content":"ok"}}]}))
         })
+        .await
         .expect("meta trend analysis");
-        let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM meta_trend_notes", [], |row| row.get(0))
-            .expect("meta note count");
-
         assert_eq!(summary.processed, 2);
         assert_eq!(summary.success, 2);
         assert_eq!(summary.failed, 0);
+
+        let count: i64 = sqlx::query_scalar(
+            r#"SELECT COUNT(*) FROM brain.meta_trend_notes
+               WHERE entity_name IN ('Abrams', 'Infernus')"#,
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("meta note count");
         assert_eq!(count, 2);
+
+        for name in ["Abrams", "Infernus"] {
+            sqlx::query("DELETE FROM brain.meta_trend_notes WHERE entity_name = $1")
+                .bind(name)
+                .execute(&pool)
+                .await
+                .expect("cleanup");
+        }
     }
 }

@@ -1,0 +1,144 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n          pe.id AS \"id!\",\n          COALESCE(pe.patch_snapshot_id, 0) AS \"patch_snapshot_id!\",\n          pe.patch_external_id AS \"patch_external_id!\",\n          pe.patch_title AS \"patch_title?\",\n          pe.patch_url AS \"patch_url?\",\n          pe.source_kind AS \"source_kind!\",\n          pe.posted_at::text AS \"posted_at?\",\n          pe.line_index AS \"line_index!\",\n          pe.section AS \"section?\",\n          pe.entity_type AS \"entity_type!\",\n          pe.entity_name AS \"entity_name?\",\n          pe.subject AS \"subject?\",\n          pe.change_type AS \"change_type!\",\n          pe.raw_line AS \"raw_line!\",\n          pe.normalized_line AS \"normalized_line!\",\n          pe.old_value AS \"old_value?\",\n          pe.new_value AS \"new_value?\",\n          pe.confidence AS \"confidence!\",\n          pe.metadata::text AS \"metadata_json!\",\n          pe.event_hash AS \"event_hash!\",\n          extract(epoch from pe.created_at)::int8 AS \"created_at!\"\n        FROM brain.patch_events pe\n        WHERE lower(pe.entity_name) = lower($1) OR pe.entity_name LIKE $2\n        ORDER BY pe.patch_snapshot_id DESC, pe.line_index\n        LIMIT $3\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "patch_snapshot_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "patch_external_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "patch_title?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "patch_url?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "source_kind!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "posted_at?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "line_index!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "section?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "entity_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "entity_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "subject?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "change_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "raw_line!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "normalized_line!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 15,
+        "name": "old_value?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 16,
+        "name": "new_value?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 17,
+        "name": "confidence!",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 18,
+        "name": "metadata_json!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 19,
+        "name": "event_hash!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 20,
+        "name": "created_at!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      false,
+      true,
+      true,
+      false,
+      null,
+      false,
+      true,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      null,
+      false,
+      null
+    ]
+  },
+  "hash": "3beabaff0f056dbb5c04fc6f28895783d5c0d1fd7184207d0afa1d8ae101d4bf"
+}

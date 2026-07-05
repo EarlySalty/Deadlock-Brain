@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT e.id AS \"id!\",\n               e.entity_type AS \"entity_type!\",\n               e.canonical_name AS \"canonical_name!\",\n               e.primary_external_id AS \"primary_external_id?\",\n               e.source AS \"source!\",\n               e.metadata::text AS \"metadata_json!\"\n        FROM brain.entities e\n        WHERE lower(e.canonical_name) = lower($1)\n        ORDER BY e.entity_type, length(e.canonical_name), e.canonical_name\n        LIMIT 1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "entity_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "canonical_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "primary_external_id?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "source!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "metadata_json!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      null
+    ]
+  },
+  "hash": "4e3ead72a667d3c9b5df1724760194045ec636efb24a50c9ac4177bb44076134"
+}
