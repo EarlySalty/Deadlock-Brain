@@ -734,8 +734,10 @@ fn ask_build_context(conn: &Connection, query: &str, plan: &QueryPlan) -> Result
         .map_err(|err| RetrievalError::Invalid(format!("build narration prompt failed: {err}")))?;
     let narration = build_narration::narrate_build(&build_context)
         .map_err(|err| RetrievalError::Invalid(format!("build narration failed: {err}")))?;
-    let validation = build_narration::validate_narration(&narration, &build_context);
-    let result_text = validation.text.clone();
+    let known_item_names = load_known_item_names(conn)?;
+    let validation =
+        build_narration::validate_narration(&narration, &build_context, &known_item_names);
+    let result_text = narration.clone();
 
     Ok(json!({
         "query": query,
@@ -761,6 +763,20 @@ fn load_build_context(
 ) -> Result<BuildContext> {
     dbrain_builds::build_context(conn, hero_query, playstyle)
         .map_err(|err| RetrievalError::Invalid(format!("build context failed: {err}")))
+}
+
+fn load_known_item_names(conn: &Connection) -> Result<BTreeSet<String>> {
+    let mut statement = conn.prepare("SELECT name FROM item_catalog")?;
+    let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+    let mut names = BTreeSet::new();
+    for row in rows {
+        let name = row?;
+        let trimmed = name.trim();
+        if !trimmed.is_empty() {
+            names.insert(trimmed.to_string());
+        }
+    }
+    Ok(names)
 }
 
 pub fn is_build_engine_intent(plan: &QueryPlan) -> bool {

@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{anyhow, Context};
 use serde::{Deserialize, Serialize};
@@ -69,16 +69,30 @@ pub fn build_narration_user_prompt(ctx: &BuildContext) -> anyhow::Result<String>
     ))
 }
 
-pub fn validate_narration(text: &str, ctx: &BuildContext) -> ValidationResult {
-    let allowed_items = collect_item_names(ctx);
-    let ignored_terms = collect_ignored_terms(ctx);
-    let violations = detect_item_like_violations(text, &allowed_items, &ignored_terms)
-        .into_iter()
-        .map(|term| ValidationViolation { term })
+pub fn validate_narration(
+    text: &str,
+    ctx: &BuildContext,
+    known_item_names: &BTreeSet<String>,
+) -> ValidationResult {
+    let allowed_items = normalized_names(collect_item_names(ctx).iter().map(String::as_str));
+    let known_items = canonical_names_by_normalized_key(known_item_names);
+    let normalized_text = text.to_ascii_lowercase();
+    let allowed_ranges = allowed_items
+        .iter()
+        .flat_map(|item_name| phrase_match_ranges(&normalized_text, item_name))
         .collect::<Vec<_>>();
-    let cleaned = remove_violation_terms(text, &violations);
+    let violations = known_items
+        .into_iter()
+        .filter(|(normalized_name, _)| !allowed_items.contains(normalized_name))
+        .filter(|(normalized_name, _)| {
+            phrase_match_ranges(&normalized_text, normalized_name)
+                .into_iter()
+                .any(|range| !range_is_covered_by_allowed_item(range, &allowed_ranges))
+        })
+        .map(|(_, term)| ValidationViolation { term })
+        .collect::<Vec<_>>();
     ValidationResult {
-        text: cleaned,
+        text: text.to_string(),
         violations,
     }
 }
@@ -93,220 +107,51 @@ fn collect_item_names(ctx: &BuildContext) -> BTreeSet<String> {
         .collect()
 }
 
-fn collect_ignored_terms(ctx: &BuildContext) -> BTreeSet<String> {
-    let mut terms = BTreeSet::new();
-    push_nonempty(&mut terms, &ctx.hero_name);
-    push_nonempty(&mut terms, &ctx.hero_archetype);
-    push_nonempty(&mut terms, &ctx.primary_path.label);
-    if let Some(playstyle) = &ctx.playstyle {
-        push_nonempty(&mut terms, playstyle);
-    }
-    for path in &ctx.alternative_paths {
-        push_nonempty(&mut terms, &path.label);
-    }
-    for phase in &ctx.primary_path.phases {
-        push_nonempty(&mut terms, &phase.phase);
-        for item in &phase.items {
-            push_nonempty(&mut terms, &item.buy_phase);
-            for synergy in &item.synergy_with {
-                push_nonempty(&mut terms, synergy);
-            }
-        }
-    }
-    terms
-}
-
-fn push_nonempty(terms: &mut BTreeSet<String>, value: &str) {
-    let trimmed = value.trim();
-    if !trimmed.is_empty() {
-        terms.insert(trimmed.to_string());
-    }
-}
-
-fn detect_item_like_violations(
-    text: &str,
-    allowed_items: &BTreeSet<String>,
-    ignored_terms: &BTreeSet<String>,
-) -> BTreeSet<String> {
-    title_case_candidates(text)
-        .into_iter()
-        .filter(|candidate| candidate_is_violation(candidate, allowed_items, ignored_terms))
+fn normalized_names<'a>(names: impl Iterator<Item = &'a str>) -> BTreeSet<String> {
+    names
+        .map(normalize_item_name)
+        .filter(|name| !name.is_empty())
         .collect()
 }
 
-fn candidate_is_violation(
-    candidate: &str,
-    allowed_items: &BTreeSet<String>,
-    ignored_terms: &BTreeSet<String>,
-) -> bool {
-    let candidate = candidate.trim();
-    if candidate.is_empty()
-        || allowed_items.contains(candidate)
-        || ignored_terms.contains(candidate)
-        || candidate_starts_with_stopword(candidate)
-    {
-        return false;
-    }
-    !allowed_items
+fn canonical_names_by_normalized_key(
+    known_item_names: &BTreeSet<String>,
+) -> BTreeMap<String, String> {
+    known_item_names
         .iter()
-        .chain(ignored_terms.iter())
-        .any(|term| {
-            phrase_contains_ascii(term, candidate) || phrase_contains_ascii(candidate, term)
+        .filter_map(|name| {
+            let normalized = normalize_item_name(name);
+            (!normalized.is_empty()).then(|| (normalized, name.trim().to_string()))
         })
+        .collect()
 }
 
-fn title_case_candidates(text: &str) -> BTreeSet<String> {
-    let tokens = ascii_word_tokens(text);
-    let mut candidates = BTreeSet::new();
-    let mut index = 0;
-    while index < tokens.len() {
-        if !is_title_item_token(&tokens[index].text) {
-            index += 1;
-            continue;
-        }
-        let start = index;
-        index += 1;
-        while index < tokens.len()
-            && is_title_item_token(&tokens[index].text)
-            && tokens_are_whitespace_separated(text, &tokens[index - 1], &tokens[index])
-        {
-            index += 1;
-        }
-        collect_candidate_ngrams(&tokens[start..index], &mut candidates);
+fn normalize_item_name(name: &str) -> String {
+    name.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase()
+}
+
+fn phrase_match_ranges(text: &str, phrase: &str) -> Vec<(usize, usize)> {
+    if phrase.trim().is_empty() {
+        return Vec::new();
     }
-    candidates
+    text.match_indices(phrase)
+        .filter_map(|(start, _)| {
+            let end = start + phrase.len();
+            has_ascii_boundaries(text, start, end).then_some((start, end))
+        })
+        .collect()
 }
 
-#[derive(Debug, Clone)]
-struct WordToken {
-    text: String,
-    start: usize,
-    end: usize,
-}
-
-fn collect_candidate_ngrams(tokens: &[WordToken], candidates: &mut BTreeSet<String>) {
-    const MAX_ITEM_NAME_TOKENS: usize = 5;
-    for start in 0..tokens.len() {
-        for end in (start + 2)..=tokens.len().min(start + MAX_ITEM_NAME_TOKENS) {
-            candidates.insert(
-                tokens[start..end]
-                    .iter()
-                    .map(|token| token.text.as_str())
-                    .collect::<Vec<_>>()
-                    .join(" "),
-            );
-        }
-    }
-}
-
-fn ascii_word_tokens(text: &str) -> Vec<WordToken> {
-    let mut tokens = Vec::new();
-    let mut current = String::new();
-    let mut current_start = 0;
-    for (index, character) in text.char_indices() {
-        if character.is_ascii_alphanumeric() || matches!(character, '\'' | '-') {
-            if current.is_empty() {
-                current_start = index;
-            }
-            current.push(character);
-        } else if !current.is_empty() {
-            tokens.push(WordToken {
-                text: std::mem::take(&mut current),
-                start: current_start,
-                end: index,
-            });
-        }
-    }
-    if !current.is_empty() {
-        tokens.push(WordToken {
-            text: current,
-            start: current_start,
-            end: text.len(),
-        });
-    }
-    tokens
-}
-
-fn tokens_are_whitespace_separated(text: &str, left: &WordToken, right: &WordToken) -> bool {
-    text[left.end..right.start].chars().all(char::is_whitespace)
-}
-
-fn is_title_item_token(token: &str) -> bool {
-    let mut chars = token.chars();
-    chars.next().is_some_and(|first| first.is_ascii_uppercase())
-        && chars
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '\'' | '-'))
-}
-
-fn candidate_starts_with_stopword(candidate: &str) -> bool {
-    let first = candidate.split_whitespace().next().unwrap_or_default();
-    matches!(
-        first,
-        "A" | "An"
-            | "Auf"
-            | "Build"
-            | "Buy"
-            | "Core"
-            | "Danach"
-            | "Das"
-            | "Der"
-            | "Die"
-            | "Early"
-            | "Game"
-            | "Gegen"
-            | "Guide"
-            | "Item"
-            | "Items"
-            | "Kaufe"
-            | "Late"
-            | "Mid"
-            | "Mit"
-            | "Nimm"
-            | "Ohne"
-            | "Path"
-            | "Pick"
-            | "Start"
-            | "Then"
-            | "The"
-            | "Use"
-    )
-}
-
-fn phrase_contains_ascii(haystack: &str, needle: &str) -> bool {
-    if needle.trim().is_empty() {
-        return false;
-    }
-    haystack
-        .match_indices(needle)
-        .any(|(start, _)| has_ascii_boundaries(haystack, start, start + needle.len()))
-}
-
-fn remove_violation_terms(text: &str, violations: &[ValidationViolation]) -> String {
-    let mut cleaned = text.to_string();
-    let mut terms = violations
+fn range_is_covered_by_allowed_item(
+    range: (usize, usize),
+    allowed_ranges: &[(usize, usize)],
+) -> bool {
+    allowed_ranges
         .iter()
-        .map(|violation| violation.term.as_str())
-        .collect::<Vec<_>>();
-    terms.sort_by_key(|term| std::cmp::Reverse(term.len()));
-    for term in terms {
-        cleaned = remove_phrase(&cleaned, term);
-    }
-    cleanup_removed_text(&cleaned)
-}
-
-fn remove_phrase(text: &str, phrase: &str) -> String {
-    let mut result = String::new();
-    let mut cursor = 0;
-    for (start, _) in text.match_indices(phrase) {
-        let end = start + phrase.len();
-        if !has_ascii_boundaries(text, start, end) {
-            continue;
-        }
-        result.push_str(&text[cursor..start]);
-        cursor = end;
-    }
-    result.push_str(&text[cursor..]);
-    result
+        .any(|allowed| allowed.0 <= range.0 && range.1 <= allowed.1)
 }
 
 fn has_ascii_boundaries(text: &str, start: usize, end: usize) -> bool {
@@ -321,23 +166,6 @@ fn has_ascii_boundaries(text: &str, start: usize, end: usize) -> bool {
             .next()
             .is_none_or(|character| !character.is_ascii_alphanumeric());
     start_ok && end_ok
-}
-
-fn cleanup_removed_text(text: &str) -> String {
-    text.lines()
-        .map(|line| {
-            line.split_whitespace()
-                .collect::<Vec<_>>()
-                .join(" ")
-                .replace(" ,", ",")
-                .replace(" .", ".")
-                .replace(" ;", ";")
-                .replace(" :", ":")
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .to_string()
 }
 
 #[cfg(test)]
@@ -404,25 +232,57 @@ mod tests {
         }
     }
 
+    fn known_items(names: &[&str]) -> BTreeSet<String> {
+        names.iter().map(|name| (*name).to_string()).collect()
+    }
+
     #[test]
-    fn validate_narration_removes_items_outside_context() {
+    fn validate_narration_ignores_german_prose_and_keeps_text() {
         let ctx = fixture_context();
+        let text = "Alternative Pfade\nIm Datensatz wirkt Mystic Burst stabil.\nHohe Confidence, aber Verteidigung Der Pfad bleibt vorsichtig.";
         let result = validate_narration(
-            "Seven nutzt Mystic Burst und kauft danach Phantom Strike. Improved Spirit Armor bleibt drin.",
+            text,
             &ctx,
+            &known_items(&["Mystic Burst", "Improved Spirit Armor", "Weapon Shielding"]),
         );
 
-        assert!(result.text.contains("Mystic Burst"));
-        assert!(result.text.contains("Improved Spirit Armor"));
-        assert!(!result.text.contains("Phantom Strike"));
+        assert_eq!(result.text, text);
+        assert!(result.violations.is_empty());
+    }
+
+    #[test]
+    fn validate_narration_flags_real_item_outside_context_without_changing_text() {
+        let ctx = fixture_context();
+        let text = "Seven nutzt Mystic Burst und kauft danach Weapon Shielding.";
+        let result = validate_narration(
+            text,
+            &ctx,
+            &known_items(&["Mystic Burst", "Improved Spirit Armor", "Weapon Shielding"]),
+        );
+
+        assert_eq!(result.text, text);
         assert_eq!(
             result
                 .violations
                 .iter()
                 .map(|violation| violation.term.as_str())
                 .collect::<Vec<_>>(),
-            vec!["Phantom Strike"]
+            vec!["Weapon Shielding"]
         );
+    }
+
+    #[test]
+    fn validate_narration_allows_build_item_in_text() {
+        let ctx = fixture_context();
+        let text = "Improved Spirit Armor ist im Build erlaubt.";
+        let result = validate_narration(
+            text,
+            &ctx,
+            &known_items(&["Improved Spirit Armor", "Spirit Armor"]),
+        );
+
+        assert_eq!(result.text, text);
+        assert!(result.violations.is_empty());
     }
 
     #[test]
