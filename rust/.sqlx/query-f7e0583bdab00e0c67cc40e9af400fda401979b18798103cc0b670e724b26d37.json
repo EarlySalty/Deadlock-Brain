@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n               e.entity_type    AS \"entity_type!\",\n               e.canonical_name AS \"canonical_name!\",\n               e.source         AS \"source!\",\n               a.alias          AS \"matched_alias?\"\n           FROM brain.entities e\n           LEFT JOIN brain.entity_aliases a\n             ON a.entity_id = e.id\n            AND lower(a.alias) LIKE lower($2)\n           WHERE ($1::text IS NULL OR e.entity_type = $1)\n             AND (lower(e.canonical_name) LIKE lower($2) OR a.alias IS NOT NULL)\n           ORDER BY e.entity_type, e.canonical_name, a.alias",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "entity_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "canonical_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "source!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "matched_alias?",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "f7e0583bdab00e0c67cc40e9af400fda401979b18798103cc0b670e724b26d37"
+}

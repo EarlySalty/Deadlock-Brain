@@ -837,10 +837,18 @@ fn main() {
 
 fn run_from_cli() -> Result<()> {
     let cli = Cli::parse();
-    run(cli)
+    // Ein Tokio-Runtime am Top-Level (Async-Fundament fuer den PG-Cutover).
+    // `run` ist async, damit einzelne Befehle sqlx/PgPool nutzen koennen, ohne
+    // pro Befehl einen eigenen Runtime hochzuziehen. Noch nicht umgestellte
+    // rusqlite-Befehle laufen als direkte blockierende Aufrufe innerhalb dieses
+    // async-Kontexts (fuer eine Batch-CLI ausreichend).
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    runtime.block_on(run(cli))
 }
 
-fn run(cli: Cli) -> Result<()> {
+async fn run(cli: Cli) -> Result<()> {
     let Cli { db: db_path, command } = cli;
     let mut settings = config::load_settings()?;
     if let Some(path) = db_path {
@@ -848,10 +856,14 @@ fn run(cli: Cli) -> Result<()> {
     }
     let command = match command {
         Commands::Pg { target } => {
-            return run_pg(target);
+            // `pg import-patchnote` nutzt den synchronen `postgres`-Crate, der
+            // intern selbst einen Tokio-Runtime startet. Direkt im async-Kontext
+            // aufgerufen wuerde das "runtime within a runtime" paniken -> daher
+            // auf einen Blocking-Thread auslagern.
+            return tokio::task::spawn_blocking(move || run_pg(target)).await?;
         }
         Commands::Entities(args) => {
-            return pg_entities::run(args);
+            return pg_entities::run(args).await;
         }
         other => other,
     };
