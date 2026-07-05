@@ -3,10 +3,12 @@ mod db;
 mod gemini;
 mod loop_runner;
 mod queue;
-mod schema;
 mod transcript_claims;
 mod transcripts;
 mod video_classification;
+
+#[cfg(test)]
+mod testutil;
 
 use std::{fs, path::PathBuf};
 
@@ -21,6 +23,8 @@ use serde_json::json;
     about = "Deadlock-Brain YouTube ingestion for curated feeds, transcript handling, classification, and claim storage."
 )]
 struct Cli {
+    // --db obsolet nach PG-Cutover, Phase 6 entfernt: akzeptiert-aber-ignoriert,
+    // damit der Service-Aufruf/die CLI-Signatur nicht bricht.
     #[arg(long, global = true, value_name = "PATH")]
     db: Option<PathBuf>,
     #[command(subcommand)]
@@ -133,24 +137,27 @@ enum TranscriptClaimsAction {
     },
 }
 
-fn main() {
-    if let Err(error) = run() {
+#[tokio::main]
+async fn main() {
+    if let Err(error) = run().await {
         eprintln!("{error:#}");
         std::process::exit(1);
     }
 }
 
-fn run() -> anyhow::Result<()> {
+async fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
+    // --db ist nach dem PG-Cutover wirkungslos; nur zur CLI-Kompatibilität da.
+    let _ = &cli.db;
     match cli.command {
         Commands::GeminiLogin => gemini::run_login(),
         Commands::Ingest { limit } => {
-            let conn = db::open_db(cli.db)?;
-            print_json(&loop_runner::run_ingest(&conn, limit)?)
+            let pool = db::pg_pool().await?;
+            print_json(&loop_runner::run_ingest(&pool, limit).await?)
         }
         Commands::Claims { entity, pretty } => {
-            let conn = db::open_db(cli.db)?;
-            let rows = claims::query_claims(&conn, &entity)?;
+            let pool = db::pg_pool().await?;
+            let rows = claims::query_claims(&pool, &entity).await?;
             if pretty {
                 for row in rows {
                     println!(
@@ -188,12 +195,12 @@ fn run() -> anyhow::Result<()> {
             }
         }
         Commands::FetchTranscripts { limit } => {
-            let conn = db::open_db(cli.db)?;
-            print_json(&transcripts::fetch_transcripts(&conn, limit)?)
+            let pool = db::pg_pool().await?;
+            print_json(&transcripts::fetch_transcripts(&pool, limit).await?)
         }
         Commands::ClassifyVideos { limit } => {
-            let conn = db::open_db(cli.db)?;
-            print_json(&video_classification::classify_videos(&conn, limit)?)
+            let pool = db::pg_pool().await?;
+            print_json(&video_classification::classify_videos(&pool, limit).await?)
         }
         Commands::TranscriptClaims { action } => match action {
             TranscriptClaimsAction::Prepare {
@@ -206,16 +213,17 @@ fn run() -> anyhow::Result<()> {
                 chunk_chars,
                 overlap_chars,
             } => {
-                let conn = db::open_db(cli.db)?;
+                let pool = db::pg_pool().await?;
                 if mode == transcript_claims::PrepareMode::Monster {
                     let summary = transcript_claims::prepare_monster(
-                        &conn,
+                        &pool,
                         limit,
                         order,
                         min_chars,
                         chunk_chars,
                         overlap_chars,
-                    )?;
+                    )
+                    .await?;
                     if let Some(out) = out {
                         let content = serde_json::to_string_pretty(&summary)?;
                         fs::write(&out, format!("{content}\n")).with_context(|| {
@@ -231,7 +239,8 @@ fn run() -> anyhow::Result<()> {
                     } else {
                         Some(max_chars)
                     };
-                    let summary = transcript_claims::prepare(&conn, limit, order, max_chars)?;
+                    let summary =
+                        transcript_claims::prepare(&pool, limit, order, max_chars).await?;
                     if let Some(out) = out {
                         let content = serde_json::to_string_pretty(&summary)?;
                         fs::write(&out, format!("{content}\n"))
@@ -249,9 +258,9 @@ fn run() -> anyhow::Result<()> {
                 model,
                 prompt_version,
             } => {
-                let mut conn = db::open_db(cli.db)?;
+                let pool = db::pg_pool().await?;
                 let summary = transcript_claims::ingest(
-                    &mut conn,
+                    &pool,
                     &input,
                     transcript_claims::IngestOptions {
                         write,
@@ -259,7 +268,8 @@ fn run() -> anyhow::Result<()> {
                         model,
                         prompt_version,
                     },
-                )?;
+                )
+                .await?;
                 print_json(&summary)
             }
             TranscriptClaimsAction::BackfillAttempts {
@@ -273,16 +283,17 @@ fn run() -> anyhow::Result<()> {
                 } else {
                     Some(max_chars)
                 };
-                let mut conn = db::open_db(cli.db)?;
+                let pool = db::pg_pool().await?;
                 let summary = transcript_claims::backfill_attempts(
-                    &mut conn,
+                    &pool,
                     transcript_claims::BackfillAttemptsOptions {
                         write,
                         no_backup,
                         prompt_version,
                         max_chars,
                     },
-                )?;
+                )
+                .await?;
                 print_json(&summary)
             }
             TranscriptClaimsAction::MarkOfftopic {
@@ -292,9 +303,9 @@ fn run() -> anyhow::Result<()> {
                 write,
                 no_backup,
             } => {
-                let mut conn = db::open_db(cli.db)?;
+                let pool = db::pg_pool().await?;
                 let summary = transcript_claims::mark_offtopic(
-                    &mut conn,
+                    &pool,
                     transcript_claims::MarkOfftopicOptions {
                         write,
                         no_backup,
@@ -302,7 +313,8 @@ fn run() -> anyhow::Result<()> {
                         title_contains,
                         video_ids_path: video_ids,
                     },
-                )?;
+                )
+                .await?;
                 print_json(&summary)
             }
         },

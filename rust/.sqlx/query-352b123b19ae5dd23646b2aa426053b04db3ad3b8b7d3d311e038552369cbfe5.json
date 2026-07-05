@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT v.video_id, v.title, length(t.transcript_text) AS \"char_len!\"\n        FROM brain.youtube_videos v JOIN brain.youtube_transcripts t ON t.video_id=v.video_id\n        WHERE v.metadata->>'content_type'='verbal_strategy'\n          AND length(t.transcript_text) > 0\n          AND length(t.transcript_text) > $1::bigint\n          AND NOT EXISTS (\n            SELECT 1 FROM brain.youtube_learning_claims c\n            WHERE c.video_id=v.video_id AND c.prompt_version=$2\n          )\n          AND NOT EXISTS (\n            SELECT 1 FROM brain.youtube_transcript_claim_attempts a\n            WHERE a.video_id=v.video_id AND a.prompt_version=$2\n          )\n        ORDER BY v.published_at DESC NULLS LAST, v.video_id ASC\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "video_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "char_len!",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "352b123b19ae5dd23646b2aa426053b04db3ad3b8b7d3d311e038552369cbfe5"
+}

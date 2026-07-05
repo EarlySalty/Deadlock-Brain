@@ -1,5 +1,5 @@
-use rusqlite::Connection;
 use serde::Serialize;
+use sqlx::postgres::PgPool;
 
 use crate::{claims, db, gemini, queue};
 
@@ -21,9 +21,10 @@ pub struct VideoRunSummary {
     pub error_kind: Option<String>,
 }
 
-pub fn run_ingest(conn: &Connection, limit: usize) -> anyhow::Result<IngestSummary> {
-    let discover = queue::discover_youtube_videos(conn, &db::default_feed_config_path(), 50)?;
-    let videos = queue::select_next_videos(conn, limit)?;
+pub async fn run_ingest(pool: &PgPool, limit: usize) -> anyhow::Result<IngestSummary> {
+    let discover =
+        queue::discover_youtube_videos(pool, &db::default_feed_config_path(), 50).await?;
+    let videos = queue::select_next_videos(pool, limit).await?;
     let mut summary = IngestSummary {
         discover,
         selected: videos.len(),
@@ -38,13 +39,14 @@ pub fn run_ingest(conn: &Connection, limit: usize) -> anyhow::Result<IngestSumma
             Ok(response_text) => {
                 let parsed_claims = claims::parse_model_claims(&response_text);
                 let saved =
-                    claims::save_claims(conn, &video, &parsed_claims, &prompt, &response_text)?;
+                    claims::save_claims(pool, &video, &parsed_claims, &prompt, &response_text)
+                        .await?;
                 let status = if saved > 0 {
                     "claims_ready"
                 } else {
                     "no_claims"
                 };
-                queue::mark_success(conn, &video.video_id, status)?;
+                queue::mark_success(pool, &video.video_id, status).await?;
                 summary.processed += 1;
                 summary.claims_saved += saved;
                 summary.videos.push(VideoRunSummary {
@@ -61,11 +63,12 @@ pub fn run_ingest(conn: &Connection, limit: usize) -> anyhow::Result<IngestSumma
             }
             Err(error) => {
                 queue::mark_failed(
-                    conn,
+                    pool,
                     &video.video_id,
                     &error.kind.to_string(),
                     &error.message,
-                )?;
+                )
+                .await?;
                 summary.processed += 1;
                 summary.videos.push(VideoRunSummary {
                     video_id: video.video_id,

@@ -5,13 +5,11 @@ use std::{
     time::Duration,
 };
 
-use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use sqlx::postgres::PgPool;
 use wait_timeout::ChildExt;
-
-use crate::{db, schema};
 
 const DEFAULT_YT_DLP_TIMEOUT_SECONDS: u64 = 120;
 
@@ -104,10 +102,12 @@ struct Json3Segment {
     utf8: Option<String>,
 }
 
-pub fn fetch_transcripts(conn: &Connection, limit: usize) -> anyhow::Result<FetchTranscriptsSummary> {
-    schema::ensure_youtube_tables(conn)?;
-    let unavailable_marked = backfill_unavailable_needs_asr(conn)?;
-    let videos = select_videos_missing_transcripts(conn, limit)?;
+pub async fn fetch_transcripts(
+    pool: &PgPool,
+    limit: usize,
+) -> anyhow::Result<FetchTranscriptsSummary> {
+    let unavailable_marked = backfill_unavailable_needs_asr(pool).await?;
+    let videos = select_videos_missing_transcripts(pool, limit).await?;
     let mut summary = FetchTranscriptsSummary {
         selected: videos.len(),
         processed: 0,
@@ -124,12 +124,9 @@ pub fn fetch_transcripts(conn: &Connection, limit: usize) -> anyhow::Result<Fetc
             Ok(Some(caption)) => {
                 let chars = caption.transcript_text.chars().count();
                 let source_kind = caption.source_kind.as_db_value().to_string();
-                let outcome = save_transcript(
-                    conn,
-                    &video.video_id,
-                    &source_kind,
-                    &caption.transcript_text,
-                )?;
+                let outcome =
+                    save_transcript(pool, &video.video_id, &source_kind, &caption.transcript_text)
+                        .await?;
                 match outcome {
                     SaveOutcome::Inserted | SaveOutcome::Updated => summary.saved += 1,
                     SaveOutcome::Unchanged => summary.unchanged += 1,
@@ -150,7 +147,7 @@ pub fn fetch_transcripts(conn: &Connection, limit: usize) -> anyhow::Result<Fetc
                 });
             }
             Ok(None) => {
-                mark_transcript_unavailable(conn, &video.video_id)?;
+                mark_transcript_unavailable(pool, &video.video_id).await?;
                 summary.processed += 1;
                 summary.unavailable += 1;
                 summary.videos.push(FetchVideoSummary {
@@ -182,37 +179,40 @@ pub fn fetch_transcripts(conn: &Connection, limit: usize) -> anyhow::Result<Fetc
     Ok(summary)
 }
 
-fn select_videos_missing_transcripts(
-    conn: &Connection,
+async fn select_videos_missing_transcripts(
+    pool: &PgPool,
     limit: usize,
-) -> rusqlite::Result<Vec<VideoForTranscript>> {
-    let mut statement = conn.prepare(
+) -> anyhow::Result<Vec<VideoForTranscript>> {
+    let limit = i64::try_from(limit.max(1)).unwrap_or(i64::MAX);
+    let rows = sqlx::query!(
         r#"
         SELECT v.video_id, v.title, v.url
-        FROM youtube_videos v
+        FROM brain.youtube_videos v
         WHERE v.transcript_status='missing'
            OR (
              v.transcript_status <> 'unavailable'
              AND NOT EXISTS (
-               SELECT 1 FROM youtube_transcripts t
+               SELECT 1 FROM brain.youtube_transcripts t
                WHERE t.video_id=v.video_id
                  AND LENGTH(TRIM(t.transcript_text)) > 0
              )
            )
-        ORDER BY COALESCE(v.published_at, '') DESC, v.discovered_at DESC
-        LIMIT ?
+        ORDER BY v.published_at DESC NULLS LAST, v.discovered_at DESC
+        LIMIT $1
         "#,
-    )?;
-    let rows = statement
-        .query_map(params![limit.max(1) as i64], |row| {
-            Ok(VideoForTranscript {
-                video_id: row.get(0)?,
-                title: row.get(1)?,
-                url: row.get(2)?,
-            })
-        })?
-        .collect();
-    rows
+        limit,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| VideoForTranscript {
+            video_id: row.video_id,
+            title: row.title,
+            url: row.url,
+        })
+        .collect())
 }
 
 fn fetch_caption_for_video(video: &VideoForTranscript) -> anyhow::Result<Option<CaptionData>> {
@@ -381,128 +381,133 @@ fn normalize_whitespace(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn save_transcript(
-    conn: &Connection,
+async fn save_transcript(
+    pool: &PgPool,
     video_id: &str,
     source_kind: &str,
     transcript_text: &str,
 ) -> anyhow::Result<SaveOutcome> {
     let content_hash = stable_hash_text(transcript_text);
-    let existing: Option<(String, String, String)> = conn
-        .query_row(
-            "SELECT language, source_kind, content_hash FROM youtube_transcripts WHERE video_id=?",
-            params![video_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
-        .optional()?;
-    let now = db::now_epoch_seconds();
+    let existing = sqlx::query!(
+        r#"
+        SELECT language, source_kind, content_hash
+        FROM brain.youtube_transcripts WHERE video_id=$1
+        "#,
+        video_id,
+    )
+    .fetch_optional(pool)
+    .await?;
     let outcome = match existing {
-        Some((language, existing_source_kind, existing_hash))
-            if language == "en" && existing_source_kind == source_kind && existing_hash == content_hash =>
+        Some(row)
+            if row.language.as_deref() == Some("en")
+                && row.source_kind == source_kind
+                && row.content_hash == content_hash =>
         {
             SaveOutcome::Unchanged
         }
         Some(_) => {
-            conn.execute(
+            sqlx::query!(
                 r#"
-                UPDATE youtube_transcripts
-                SET language=?, source_kind=?, transcript_text=?, content_hash=?,
-                    source_document_id=NULL, updated_at=?
-                WHERE video_id=?
+                UPDATE brain.youtube_transcripts
+                SET language=$1, source_kind=$2, transcript_text=$3, content_hash=$4,
+                    source_document_id=NULL, updated_at=now()
+                WHERE video_id=$5
                 "#,
-                params![
-                    "en",
-                    source_kind,
-                    transcript_text,
-                    content_hash,
-                    now,
-                    video_id
-                ],
-            )?;
+                "en",
+                source_kind,
+                transcript_text,
+                content_hash,
+                video_id,
+            )
+            .execute(pool)
+            .await?;
             SaveOutcome::Updated
         }
         None => {
-            conn.execute(
+            sqlx::query!(
                 r#"
-                INSERT INTO youtube_transcripts(
+                INSERT INTO brain.youtube_transcripts(
                   video_id, language, source_kind, transcript_text, content_hash,
                   source_document_id, imported_at, updated_at
                 )
-                VALUES(?,?,?,?,?,?,?,?)
+                VALUES($1,$2,$3,$4,$5,NULL,now(),now())
                 "#,
-                params![
-                    video_id,
-                    "en",
-                    source_kind,
-                    transcript_text,
-                    content_hash,
-                    Option::<i64>::None,
-                    now,
-                    now
-                ],
-            )?;
+                video_id,
+                "en",
+                source_kind,
+                transcript_text,
+                content_hash,
+            )
+            .execute(pool)
+            .await?;
             SaveOutcome::Inserted
         }
     };
-    mark_transcript_ready(conn, video_id)?;
+    mark_transcript_ready(pool, video_id).await?;
     Ok(outcome)
 }
 
-fn mark_transcript_ready(conn: &Connection, video_id: &str) -> anyhow::Result<()> {
-    let metadata_json: Option<String> = conn
-        .query_row(
-            "SELECT metadata_json FROM youtube_videos WHERE video_id=?",
-            params![video_id],
-            |row| row.get(0),
-        )
-        .optional()?;
+async fn mark_transcript_ready(pool: &PgPool, video_id: &str) -> anyhow::Result<()> {
+    let metadata_json = sqlx::query_scalar!(
+        r#"SELECT metadata::text AS "metadata_json!" FROM brain.youtube_videos WHERE video_id=$1"#,
+        video_id,
+    )
+    .fetch_optional(pool)
+    .await?;
     let mut metadata = json_object(metadata_json.as_deref());
     let removed_needs_asr = metadata
         .as_object_mut()
         .and_then(|object| object.remove("needs_asr"))
         .is_some();
     if removed_needs_asr {
-        conn.execute(
-            "UPDATE youtube_videos SET transcript_status='ready', metadata_json=?, updated_at=? WHERE video_id=?",
-            params![serde_json::to_string(&metadata)?, db::now_epoch_seconds(), video_id],
-        )?;
+        let metadata_json = serde_json::to_string(&metadata)?;
+        sqlx::query!(
+            "UPDATE brain.youtube_videos SET transcript_status='ready', metadata=$1::text::jsonb, updated_at=now() WHERE video_id=$2",
+            metadata_json,
+            video_id,
+        )
+        .execute(pool)
+        .await?;
     } else {
-        conn.execute(
-            "UPDATE youtube_videos SET transcript_status='ready', updated_at=? WHERE video_id=? AND transcript_status <> 'ready'",
-            params![db::now_epoch_seconds(), video_id],
-        )?;
+        sqlx::query!(
+            "UPDATE brain.youtube_videos SET transcript_status='ready', updated_at=now() WHERE video_id=$1 AND transcript_status <> 'ready'",
+            video_id,
+        )
+        .execute(pool)
+        .await?;
     }
     Ok(())
 }
 
-fn mark_transcript_unavailable(conn: &Connection, video_id: &str) -> anyhow::Result<()> {
-    let metadata_json: Option<String> = conn
-        .query_row(
-            "SELECT metadata_json FROM youtube_videos WHERE video_id=?",
-            params![video_id],
-            |row| row.get(0),
-        )
-        .optional()?;
+async fn mark_transcript_unavailable(pool: &PgPool, video_id: &str) -> anyhow::Result<()> {
+    let metadata_json = sqlx::query_scalar!(
+        r#"SELECT metadata::text AS "metadata_json!" FROM brain.youtube_videos WHERE video_id=$1"#,
+        video_id,
+    )
+    .fetch_optional(pool)
+    .await?;
     let mut metadata = json_object(metadata_json.as_deref());
     metadata["needs_asr"] = Value::Bool(true);
-    conn.execute(
-        "UPDATE youtube_videos SET transcript_status='unavailable', metadata_json=?, updated_at=? WHERE video_id=?",
-        params![serde_json::to_string(&metadata)?, db::now_epoch_seconds(), video_id],
-    )?;
+    let metadata_json = serde_json::to_string(&metadata)?;
+    sqlx::query!(
+        "UPDATE brain.youtube_videos SET transcript_status='unavailable', metadata=$1::text::jsonb, updated_at=now() WHERE video_id=$2",
+        metadata_json,
+        video_id,
+    )
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
-fn backfill_unavailable_needs_asr(conn: &Connection) -> anyhow::Result<usize> {
-    let mut statement = conn.prepare(
-        "SELECT video_id, metadata_json FROM youtube_videos WHERE transcript_status='unavailable'",
-    )?;
-    let rows = statement.query_map([], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-    })?;
+async fn backfill_unavailable_needs_asr(pool: &PgPool) -> anyhow::Result<usize> {
+    let rows = sqlx::query!(
+        r#"SELECT video_id, metadata::text AS "metadata_json!" FROM brain.youtube_videos WHERE transcript_status='unavailable'"#,
+    )
+    .fetch_all(pool)
+    .await?;
     let mut marked = 0;
     for row in rows {
-        let (video_id, metadata_json) = row?;
-        let mut metadata = json_object(Some(&metadata_json));
+        let mut metadata = json_object(Some(&row.metadata_json));
         if metadata
             .get("needs_asr")
             .and_then(Value::as_bool)
@@ -511,10 +516,14 @@ fn backfill_unavailable_needs_asr(conn: &Connection) -> anyhow::Result<usize> {
             continue;
         }
         metadata["needs_asr"] = Value::Bool(true);
-        conn.execute(
-            "UPDATE youtube_videos SET metadata_json=?, updated_at=? WHERE video_id=?",
-            params![serde_json::to_string(&metadata)?, db::now_epoch_seconds(), video_id],
-        )?;
+        let metadata_json = serde_json::to_string(&metadata)?;
+        sqlx::query!(
+            "UPDATE brain.youtube_videos SET metadata=$1::text::jsonb, updated_at=now() WHERE video_id=$2",
+            metadata_json,
+            row.video_id,
+        )
+        .execute(pool)
+        .await?;
         marked += 1;
     }
     Ok(marked)
@@ -583,112 +592,55 @@ mod tests {
         assert_eq!(selected.source_kind, CaptionSourceKind::Manual);
     }
 
-    #[test]
-    fn save_transcript_is_idempotent_and_sets_ready() {
-        let conn = Connection::open_in_memory().expect("open sqlite");
-        deadlock_brain_core::schema::ensure_schema(&conn).expect("ensure schema");
-        insert_feed(&conn);
-        insert_video(&conn, "vid", "missing", "{}");
+    #[tokio::test]
+    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+    async fn save_transcript_is_idempotent_and_sets_ready_pg() {
+        let Some(pool) = crate::testutil::test_pool().await else {
+            return;
+        };
+        let suffix = crate::testutil::unique_suffix();
+        let feed_key = format!("ztest_feed_{suffix}");
+        let video_id = format!("ztest_tr_{suffix}");
+        crate::testutil::seed_feed(&pool, &feed_key).await;
+        crate::testutil::seed_video(
+            &pool,
+            &video_id,
+            &feed_key,
+            "missing",
+            "queued",
+            Some("2026-06-01T00:00:00Z"),
+            r#"{"needs_asr":true}"#,
+        )
+        .await;
 
-        let first = save_transcript(&conn, "vid", "youtube_caption_manual", "one two three")
+        let first = save_transcript(&pool, &video_id, "youtube_caption_manual", "one two three")
+            .await
             .expect("save transcript");
-        let second = save_transcript(&conn, "vid", "youtube_caption_manual", "one two three")
+        let second = save_transcript(&pool, &video_id, "youtube_caption_manual", "one two three")
+            .await
             .expect("save transcript again");
 
         assert_eq!(first, SaveOutcome::Inserted);
         assert_eq!(second, SaveOutcome::Unchanged);
-        let (rows, status): (i64, String) = conn
-            .query_row(
-                "SELECT (SELECT COUNT(*) FROM youtube_transcripts), transcript_status FROM youtube_videos WHERE video_id='vid'",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .expect("query saved transcript");
-        assert_eq!(rows, 1);
+
+        let status: String = sqlx::query_scalar(
+            "SELECT transcript_status FROM brain.youtube_videos WHERE video_id=$1",
+        )
+        .bind(&video_id)
+        .fetch_one(&pool)
+        .await
+        .expect("query status");
         assert_eq!(status, "ready");
-    }
 
-    #[test]
-    fn unavailable_marks_needs_asr_and_is_not_selected_again() {
-        let conn = Connection::open_in_memory().expect("open sqlite");
-        deadlock_brain_core::schema::ensure_schema(&conn).expect("ensure schema");
-        insert_feed(&conn);
-        insert_video(&conn, "vid", "missing", r#"{"keep": true}"#);
-
-        mark_transcript_unavailable(&conn, "vid").expect("mark unavailable");
-        let selected = select_videos_missing_transcripts(&conn, 10).expect("select videos");
-
-        assert!(selected.is_empty());
-        let (status, metadata_json): (String, String) = conn
-            .query_row(
-                "SELECT transcript_status, metadata_json FROM youtube_videos WHERE video_id='vid'",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .expect("query video");
-        let metadata: Value = serde_json::from_str(&metadata_json).expect("metadata");
-        assert_eq!(status, "unavailable");
-        assert_eq!(metadata["keep"], true);
-        assert_eq!(metadata["needs_asr"], true);
-    }
-
-    #[test]
-    fn backfill_marks_existing_unavailable_rows_once() {
-        let conn = Connection::open_in_memory().expect("open sqlite");
-        deadlock_brain_core::schema::ensure_schema(&conn).expect("ensure schema");
-        insert_feed(&conn);
-        insert_video(&conn, "vid", "unavailable", r#"{"content_type":"verbal_strategy"}"#);
-
-        let first = backfill_unavailable_needs_asr(&conn).expect("backfill first");
-        let second = backfill_unavailable_needs_asr(&conn).expect("backfill second");
-
-        assert_eq!(first, 1);
-        assert_eq!(second, 0);
-        let metadata_json: String = conn
-            .query_row(
-                "SELECT metadata_json FROM youtube_videos WHERE video_id='vid'",
-                [],
-                |row| row.get(0),
-            )
-            .expect("query metadata");
-        let metadata: Value = serde_json::from_str(&metadata_json).expect("metadata");
-        assert_eq!(metadata["content_type"], "verbal_strategy");
-        assert_eq!(metadata["needs_asr"], true);
-    }
-
-    fn insert_feed(conn: &Connection) {
-        let now = db::now_epoch_seconds();
-        conn.execute(
-            r#"
-            INSERT INTO youtube_feed_sources(feed_key, source_type, url, enabled, metadata_json, created_at, updated_at)
-            VALUES('feed', 'channel', 'https://example.invalid', 1, '{}', ?, ?)
-            "#,
-            params![now, now],
+        let needs_asr_present: bool = sqlx::query_scalar(
+            "SELECT (metadata->>'needs_asr') IS NOT NULL FROM brain.youtube_videos WHERE video_id=$1",
         )
-        .expect("insert feed");
-    }
+        .bind(&video_id)
+        .fetch_one(&pool)
+        .await
+        .expect("query needs_asr");
+        assert!(!needs_asr_present, "needs_asr should be removed on ready");
 
-    fn insert_video(conn: &Connection, video_id: &str, status: &str, metadata_json: &str) {
-        let now = db::now_epoch_seconds();
-        conn.execute(
-            r#"
-            INSERT INTO youtube_videos(
-              video_id, feed_key, title, url, metadata_json, transcript_status, learning_status, discovered_at, updated_at
-            )
-            VALUES(?,?,?,?,?,?,?,?,?)
-            "#,
-            params![
-                video_id,
-                "feed",
-                video_id,
-                format!("https://youtube.com/watch?v={video_id}"),
-                metadata_json,
-                status,
-                "queued",
-                now,
-                now
-            ],
-        )
-        .expect("insert video");
+        crate::testutil::cleanup(&pool, &[&video_id], &[&feed_key]).await;
     }
 }

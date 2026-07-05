@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO brain.youtube_transcript_claim_attempts(\n          video_id, prompt_version, mode, status, claim_count, char_len,\n          note, attempted_at, updated_at\n        )\n        SELECT v.video_id, $1, 'normal', 'zero_yield', 0, length(t.transcript_text),\n               NULL, now(), now()\n        FROM brain.youtube_videos v JOIN brain.youtube_transcripts t ON t.video_id=v.video_id\n        WHERE v.metadata->>'content_type'='verbal_strategy'\n          AND length(t.transcript_text) > 0\n          AND NOT EXISTS (\n            SELECT 1 FROM brain.youtube_learning_claims c\n            WHERE c.video_id=v.video_id AND c.prompt_version=$1\n          )\n          AND NOT EXISTS (\n            SELECT 1 FROM brain.youtube_transcript_claim_attempts a\n            WHERE a.video_id=v.video_id AND a.prompt_version=$1\n          )\n          AND ($2::bigint IS NULL OR length(t.transcript_text) <= $2)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "882a95e3fb6a8ea06c35b3d3000d52128888604574923bbc4f1e624cabb91cc3"
+}

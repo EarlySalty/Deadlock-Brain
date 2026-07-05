@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE brain.youtube_feed_sources SET channel_id=$1, updated_at=now() WHERE feed_key=$2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7a46b21d6ccf2e2c64aa0a6c95fccd5954acc5f930cfc0b1af48267a1978d604"
+}

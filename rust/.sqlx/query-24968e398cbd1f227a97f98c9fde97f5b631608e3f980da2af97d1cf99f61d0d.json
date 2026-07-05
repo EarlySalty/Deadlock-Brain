@@ -1,0 +1,54 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT video_id, title, url, channel_title,\n               published_at::text AS \"published_at?\", learning_status\n        FROM brain.youtube_videos\n        WHERE learning_status IN ('queued', 'failed', 'missing_transcript')\n          AND video_id NOT IN (\n            SELECT video_id FROM brain.youtube_learning_claims\n            WHERE prompt_version=$1 AND COALESCE(model, '')=COALESCE($2, '')\n          )\n        ORDER BY published_at DESC NULLS LAST, discovered_at DESC\n        LIMIT $3\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "video_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "channel_title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "published_at?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "learning_status",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      null,
+      false
+    ]
+  },
+  "hash": "24968e398cbd1f227a97f98c9fde97f5b631608e3f980da2af97d1cf99f61d0d"
+}

@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO brain.youtube_learning_claims(\n              video_id, claim_hash, claim_index, entity_type, entity_name, claim_type,\n              claim_text, evidence_quote, timestamp_seconds, model_confidence,\n              verifier_confidence, status, model, prompt_version, prompt_text,\n              model_response_text, provider_metadata, verifier, created_at, updated_at\n            )\n            VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::text::jsonb,$18::text::jsonb,now(),now())\n            ON CONFLICT(claim_hash) DO UPDATE SET\n              claim_index=excluded.claim_index,\n              entity_type=excluded.entity_type,\n              entity_name=excluded.entity_name,\n              claim_type=excluded.claim_type,\n              claim_text=excluded.claim_text,\n              evidence_quote=excluded.evidence_quote,\n              timestamp_seconds=excluded.timestamp_seconds,\n              model_confidence=excluded.model_confidence,\n              verifier_confidence=excluded.verifier_confidence,\n              status=excluded.status,\n              model_response_text=excluded.model_response_text,\n              provider_metadata=excluded.provider_metadata,\n              verifier=excluded.verifier,\n              updated_at=now()\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Float8",
+        "Float8",
+        "Float8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bd0382730989282a962b450450df4f0063401e775662360428542b2fc2c9d823"
+}
