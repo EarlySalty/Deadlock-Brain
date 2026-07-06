@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
-use rusqlite::Connection;
+use anyhow::Result;
+use sqlx::postgres::PgPool;
 
 pub fn repo_root() -> PathBuf {
     deadlock_brain_core::db::repo_root()
@@ -10,9 +11,10 @@ pub fn default_feed_config_path() -> PathBuf {
     repo_root().join("config/youtube_feeds.json")
 }
 
-pub fn open_db(path: Option<PathBuf>) -> anyhow::Result<Connection> {
-    let conn = deadlock_brain_core::db::open_connection(path)?;
-    Ok(conn)
+/// Baut den zentralen Postgres-Pool. Ersetzt das frühere SQLite-`open_db`;
+/// nach dem PG-Cutover kommen alle Verbindungen aus [`deadlock_brain_core::pg`].
+pub async fn pg_pool() -> Result<PgPool> {
+    deadlock_brain_core::pg::pg_pool().await
 }
 
 pub fn now_epoch_seconds() -> i64 {

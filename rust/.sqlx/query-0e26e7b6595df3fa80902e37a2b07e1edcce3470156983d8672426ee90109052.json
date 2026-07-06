@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO brain.youtube_videos(\n          video_id, feed_key, channel_id, channel_title, title, url, published_at, description,\n          metadata, transcript_status, learning_status, discovered_at, updated_at\n        )\n        VALUES($1,$2,$3,$4,$5,$6,$7::text::timestamptz,$8,$9::text::jsonb,$10,$11,now(),now())\n        ON CONFLICT(video_id) DO UPDATE SET\n          feed_key=excluded.feed_key,\n          channel_id=COALESCE(excluded.channel_id, youtube_videos.channel_id),\n          channel_title=COALESCE(excluded.channel_title, youtube_videos.channel_title),\n          title=excluded.title,\n          url=excluded.url,\n          published_at=COALESCE(excluded.published_at, youtube_videos.published_at),\n          description=COALESCE(excluded.description, youtube_videos.description),\n          metadata=excluded.metadata,\n          updated_at=now()\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0e26e7b6595df3fa80902e37a2b07e1edcce3470156983d8672426ee90109052"
+}

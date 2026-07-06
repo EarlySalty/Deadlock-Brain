@@ -1,11 +1,11 @@
 use std::collections::BTreeMap;
 
-use rusqlite::{params, params_from_iter, types::Value as SqlValue, Connection};
 use serde_json::{json, Value};
+use sqlx::PgPool;
 
 use crate::util::{
-    build_hero_index, json_string, normalize_alias, parse_bool, parse_float, parse_int,
-    payload_values, row_number, title_case, value_to_string, SHEET_SOURCE,
+    bind_params, build_hero_index, json_string, normalize_alias, parse_bool, parse_float, parse_int,
+    payload_values, row_number, title_case, value_to_string, SqlParam, SHEET_SOURCE,
 };
 use crate::Result;
 
@@ -98,57 +98,49 @@ const HEROES_STATS_MAP: &[(&str, &str)] = &[
 #[derive(Debug, Clone)]
 struct SheetRow {
     id: i64,
+    legacy_snapshot_id: i64,
     canonical_name: Option<String>,
     payload_hash: String,
     payload_json: String,
 }
 
-pub fn normalize_sheet_tabs(conn: &Connection, rebuild: bool) -> Result<Value> {
+pub async fn normalize_sheet_tabs(pool: &PgPool, rebuild: bool) -> Result<Value> {
     if rebuild {
-        for table in [
-            "sheet_hero_rankings",
-            "sheet_boons_ap",
-            "sheet_raw_heroes",
-            "sheet_heroes_stats",
-            "sheet_items",
-            "sheet_shop_bonuses",
-            "sheet_tab_rows",
-        ] {
-            let sql = format!("DELETE FROM {table}");
-            let _ = conn.execute(&sql, [])?;
-        }
+        sqlx::query!("DELETE FROM brain.sheet_hero_rankings").execute(pool).await?;
+        sqlx::query!("DELETE FROM brain.sheet_boons_ap").execute(pool).await?;
+        sqlx::query!("DELETE FROM brain.sheet_raw_heroes").execute(pool).await?;
+        sqlx::query!("DELETE FROM brain.sheet_heroes_stats").execute(pool).await?;
+        sqlx::query!("DELETE FROM brain.sheet_items").execute(pool).await?;
+        sqlx::query!("DELETE FROM brain.sheet_shop_bonuses").execute(pool).await?;
+        sqlx::query!("DELETE FROM brain.sheet_tab_rows").execute(pool).await?;
     }
 
-    let hero_index = build_hero_index(conn, false)?;
+    let hero_index = build_hero_index(pool, false).await?;
     Ok(json!({
-        "sheet_hero_rankings": normalize_hero_rankings(conn, &hero_index)?,
-        "sheet_boons_ap": normalize_boons_ap(conn)?,
-        "sheet_raw_heroes": normalize_raw_heroes(conn, &hero_index)?,
-        "sheet_heroes_stats": normalize_heroes_stats(conn, &hero_index)?,
-        "sheet_items": normalize_items(conn)?,
-        "sheet_shop_bonuses": normalize_shop_bonuses(conn)?,
-        "sheet_tab_rows": normalize_freeform_tabs(conn)?,
+        "sheet_hero_rankings": normalize_hero_rankings(pool, &hero_index).await?,
+        "sheet_boons_ap": normalize_boons_ap(pool).await?,
+        "sheet_raw_heroes": normalize_raw_heroes(pool, &hero_index).await?,
+        "sheet_heroes_stats": normalize_heroes_stats(pool, &hero_index).await?,
+        "sheet_items": normalize_items(pool).await?,
+        "sheet_shop_bonuses": normalize_shop_bonuses(pool).await?,
+        "sheet_tab_rows": normalize_freeform_tabs(pool).await?,
     }))
 }
 
-fn normalize_heroes_stats(conn: &Connection, hero_index: &BTreeMapLike) -> Result<Value> {
-    let rows = load_sheet_rows(conn, Some("Heroes"), false)?;
+async fn normalize_heroes_stats(pool: &PgPool, hero_index: &HeroIndex) -> Result<Value> {
+    let rows = load_sheet_rows(pool, Some("Heroes"), false).await?;
     let mut inserted = 0_i64;
     let mut columns = vec![
         "snapshot_id",
+        "legacy_snapshot_id",
         "entity_id",
         "hero_name",
         "alt_fire_type",
         "hero_labs",
     ];
     columns.extend(HEROES_STATS_MAP.iter().map(|(_, column)| *column));
-    columns.extend(["payload_hash", "created_at", "updated_at"]);
-    let update_columns = columns
-        .iter()
-        .copied()
-        .filter(|column| *column != "snapshot_id" && *column != "created_at")
-        .collect::<Vec<_>>();
-    let sql = upsert_sql("sheet_heroes_stats", &columns, &update_columns);
+    columns.push("payload_hash");
+    let sql = upsert_sql("sheet_heroes_stats", &columns);
 
     for row in &rows {
         let Some(payload) = parse_payload(&row.payload_json) else {
@@ -161,29 +153,27 @@ fn normalize_heroes_stats(conn: &Connection, hero_index: &BTreeMapLike) -> Resul
         if hero_name.is_empty() || matches!(hero_name.to_lowercase().as_str(), "hero name" | "hero labs") {
             continue;
         }
-        let now = crate::util::now()?;
-        let mut sql_values = vec![
-            SqlValue::Integer(row.id),
-            opt_i64(hero_index.get(&normalize_alias(&hero_name)).copied()),
-            SqlValue::Text(hero_name.clone()),
-            opt_string(nonempty(value_to_string(values.get("Alt Fire Type/Dmg")))),
-            opt_string(nonempty(value_to_string(values.get("Hero Labs")))),
+        let mut params = vec![
+            SqlParam::Int(row.id),
+            SqlParam::Int(row.legacy_snapshot_id),
+            SqlParam::IntOpt(hero_index.get(&normalize_alias(&hero_name)).copied()),
+            SqlParam::Text(hero_name.clone()),
+            SqlParam::TextOpt(nonempty(value_to_string(values.get("Alt Fire Type/Dmg")))),
+            SqlParam::TextOpt(nonempty(value_to_string(values.get("Hero Labs")))),
         ];
         for (label, _) in HEROES_STATS_MAP {
-            sql_values.push(opt_f64(parse_float(&value_to_string(values.get(*label)))));
+            params.push(SqlParam::FloatOpt(parse_float(&value_to_string(values.get(*label)))));
         }
-        sql_values.push(SqlValue::Text(row.payload_hash.clone()));
-        sql_values.push(SqlValue::Integer(now));
-        sql_values.push(SqlValue::Integer(now));
-        conn.execute(&sql, params_from_iter(sql_values))?;
+        params.push(SqlParam::Text(row.payload_hash.clone()));
+        bind_params(sqlx::query(&sql), &params).execute(pool).await?;
         inserted += 1;
     }
 
     Ok(json!({"snapshots": rows.len(), "inserted": inserted}))
 }
 
-fn normalize_items(conn: &Connection) -> Result<Value> {
-    let rows = load_sheet_rows(conn, Some("raw_items_and_abilities"), false)?;
+async fn normalize_items(pool: &PgPool) -> Result<Value> {
+    let rows = load_sheet_rows(pool, Some("raw_items_and_abilities"), false).await?;
     let mut inserted = 0_i64;
     for row in &rows {
         let Some(payload) = parse_payload(&row.payload_json) else {
@@ -202,25 +192,34 @@ fn normalize_items(conn: &Connection) -> Result<Value> {
             continue;
         }
         let canonical = if game_name.is_empty() { code_name.clone() } else { game_name.clone() };
-        let now = crate::util::now()?;
-        conn.execute(
+        sqlx::query!(
             r#"
-            INSERT INTO sheet_items(snapshot_id, item_id, code_name, game_name, canonical_name, created_at, updated_at)
-            VALUES(?1,?2,?3,?4,?5,?6,?7)
-            ON CONFLICT(snapshot_id) DO UPDATE SET
-              item_id=excluded.item_id, code_name=excluded.code_name,
-              game_name=excluded.game_name, canonical_name=excluded.canonical_name,
-              updated_at=excluded.updated_at
+            INSERT INTO brain.sheet_items(
+              snapshot_id, legacy_snapshot_id, item_id, code_name, game_name, canonical_name,
+              created_at, updated_at
+            )
+            VALUES($1, $2, $3, $4, $5, $6, now(), now())
+            ON CONFLICT (snapshot_id) DO UPDATE SET
+              item_id = EXCLUDED.item_id, code_name = EXCLUDED.code_name,
+              game_name = EXCLUDED.game_name, canonical_name = EXCLUDED.canonical_name,
+              updated_at = now()
             "#,
-            params![row.id, item_id, code_name, game_name, canonical, now, now],
-        )?;
+            row.id,
+            row.legacy_snapshot_id,
+            item_id,
+            code_name,
+            game_name,
+            canonical,
+        )
+        .execute(pool)
+        .await?;
         inserted += 1;
     }
     Ok(json!({"snapshots": rows.len(), "inserted": inserted}))
 }
 
-fn normalize_shop_bonuses(conn: &Connection) -> Result<Value> {
-    let rows = load_sheet_rows(conn, Some("shopBonuses"), false)?;
+async fn normalize_shop_bonuses(pool: &PgPool) -> Result<Value> {
+    let rows = load_sheet_rows(pool, Some("shopBonuses"), false).await?;
     let mut inserted = 0_i64;
     for row in &rows {
         let Some(payload) = parse_payload(&row.payload_json) else {
@@ -229,13 +228,13 @@ fn normalize_shop_bonuses(conn: &Connection) -> Result<Value> {
         let Some(values) = payload_values(&payload) else {
             continue;
         };
-        let souls = parse_int(&first_nonempty([
+        let Some(souls_cost) = parse_int(&first_nonempty([
             value_to_string(values.get("Column 1")),
             value_to_string(values.get("Column 7")),
-        ]));
-        if souls.is_none_or(|value| value <= 0) {
+        ]))
+        .filter(|value| *value > 0) else {
             continue;
-        }
+        };
         let weapon = parse_int(&value_to_string(values.get("Weapon")));
         let spirit = parse_int(&value_to_string(values.get("Spirit")));
         let vitality = parse_int(&value_to_string(values.get("Vitality")));
@@ -243,25 +242,35 @@ fn normalize_shop_bonuses(conn: &Connection) -> Result<Value> {
             continue;
         }
         let inc_pct = parse_float(&value_to_string(values.get("inc from previous")));
-        let now = crate::util::now()?;
-        conn.execute(
+        sqlx::query!(
             r#"
-            INSERT INTO sheet_shop_bonuses(snapshot_id, souls_cost, weapon, spirit, vitality, inc_from_prev_pct, created_at, updated_at)
-            VALUES(?1,?2,?3,?4,?5,?6,?7,?8)
-            ON CONFLICT(snapshot_id) DO UPDATE SET
-              souls_cost=excluded.souls_cost, weapon=excluded.weapon,
-              spirit=excluded.spirit, vitality=excluded.vitality,
-              inc_from_prev_pct=excluded.inc_from_prev_pct, updated_at=excluded.updated_at
+            INSERT INTO brain.sheet_shop_bonuses(
+              snapshot_id, legacy_snapshot_id, souls_cost, weapon, spirit, vitality,
+              inc_from_prev_pct, created_at, updated_at
+            )
+            VALUES($1, $2, $3, $4, $5, $6, $7, now(), now())
+            ON CONFLICT (snapshot_id) DO UPDATE SET
+              souls_cost = EXCLUDED.souls_cost, weapon = EXCLUDED.weapon,
+              spirit = EXCLUDED.spirit, vitality = EXCLUDED.vitality,
+              inc_from_prev_pct = EXCLUDED.inc_from_prev_pct, updated_at = now()
             "#,
-            params![row.id, souls, weapon, spirit, vitality, inc_pct, now, now],
-        )?;
+            row.id,
+            row.legacy_snapshot_id,
+            souls_cost,
+            weapon,
+            spirit,
+            vitality,
+            inc_pct,
+        )
+        .execute(pool)
+        .await?;
         inserted += 1;
     }
     Ok(json!({"snapshots": rows.len(), "inserted": inserted}))
 }
 
-fn normalize_freeform_tabs(conn: &Connection) -> Result<Value> {
-    let rows = load_sheet_rows(conn, None, true)?;
+async fn normalize_freeform_tabs(pool: &PgPool) -> Result<Value> {
+    let rows = load_sheet_rows(pool, None, true).await?;
     let mut counts_by_tab: BTreeMap<String, i64> = BTreeMap::new();
     for row in &rows {
         let Some(payload) = parse_payload(&row.payload_json) else {
@@ -284,45 +293,41 @@ fn normalize_freeform_tabs(conn: &Connection) -> Result<Value> {
             .map(|values| json_string(&Value::Object(values.clone())))
             .transpose()?
             .unwrap_or_else(|| "{}".to_string());
-        let now = crate::util::now()?;
-        conn.execute(
+        sqlx::query!(
             r#"
-            INSERT INTO sheet_tab_rows(snapshot_id, tab_name, gid, row_number, canonical_name, row_json, created_at, updated_at)
-            VALUES(?1,?2,?3,?4,?5,?6,?7,?8)
-            ON CONFLICT(snapshot_id) DO UPDATE SET
-              tab_name=excluded.tab_name, gid=excluded.gid, row_number=excluded.row_number,
-              canonical_name=excluded.canonical_name, row_json=excluded.row_json,
-              updated_at=excluded.updated_at
+            INSERT INTO brain.sheet_tab_rows(
+              snapshot_id, legacy_snapshot_id, tab_name, gid, row_number, canonical_name,
+              row_data, created_at, updated_at
+            )
+            VALUES($1, $2, $3, $4, $5, $6, $7::text::jsonb, now(), now())
+            ON CONFLICT (snapshot_id) DO UPDATE SET
+              tab_name = EXCLUDED.tab_name, gid = EXCLUDED.gid, row_number = EXCLUDED.row_number,
+              canonical_name = EXCLUDED.canonical_name, row_data = EXCLUDED.row_data,
+              updated_at = now()
             "#,
-            params![
-                row.id,
-                tab_name,
-                gid,
-                row_number(payload.get("row_number")),
-                canonical_name,
-                row_json,
-                now,
-                now,
-            ],
-        )?;
+            row.id,
+            row.legacy_snapshot_id,
+            tab_name,
+            gid,
+            row_number(payload.get("row_number")),
+            canonical_name,
+            row_json,
+        )
+        .execute(pool)
+        .await?;
         *counts_by_tab.entry(tab_name).or_default() += 1;
     }
     let total: i64 = counts_by_tab.values().sum();
     Ok(json!({"total": total, "by_tab": counts_by_tab}))
 }
 
-fn normalize_hero_rankings(conn: &Connection, hero_index: &BTreeMapLike) -> Result<Value> {
-    let rows = load_sheet_rows(conn, Some("Hero meta ranking"), false)?;
+async fn normalize_hero_rankings(pool: &PgPool, hero_index: &HeroIndex) -> Result<Value> {
+    let rows = load_sheet_rows(pool, Some("Hero meta ranking"), false).await?;
     let mut inserted = 0_i64;
-    let mut columns = vec!["snapshot_id", "entity_id", "hero_name"];
+    let mut columns = vec!["snapshot_id", "legacy_snapshot_id", "entity_id", "hero_name"];
     columns.extend(RANKING_COLUMN_MAP.iter().map(|(_, column)| *column));
-    columns.extend(["payload_hash", "created_at", "updated_at"]);
-    let update_columns = columns
-        .iter()
-        .copied()
-        .filter(|column| *column != "snapshot_id" && *column != "created_at")
-        .collect::<Vec<_>>();
-    let sql = upsert_sql("sheet_hero_rankings", &columns, &update_columns);
+    columns.push("payload_hash");
+    let sql = upsert_sql("sheet_hero_rankings", &columns);
 
     for row in &rows {
         let Some(payload) = parse_payload(&row.payload_json) else {
@@ -338,30 +343,28 @@ fn normalize_hero_rankings(conn: &Connection, hero_index: &BTreeMapLike) -> Resu
         if hero_name.is_empty() {
             continue;
         }
-        let now = crate::util::now()?;
-        let mut sql_values = vec![
-            SqlValue::Integer(row.id),
-            opt_i64(hero_index.get(&normalize_alias(&hero_name)).copied()),
-            SqlValue::Text(hero_name.clone()),
+        let mut params = vec![
+            SqlParam::Int(row.id),
+            SqlParam::Int(row.legacy_snapshot_id),
+            SqlParam::IntOpt(hero_index.get(&normalize_alias(&hero_name)).copied()),
+            SqlParam::Text(hero_name.clone()),
         ];
         for (label, _) in RANKING_COLUMN_MAP {
             let title = title_case(label);
-            sql_values.push(opt_f64(parse_float(&first_nonempty([
+            params.push(SqlParam::FloatOpt(parse_float(&first_nonempty([
                 value_to_string(values.get(*label)),
                 value_to_string(values.get(title.as_str())),
             ]))));
         }
-        sql_values.push(SqlValue::Text(row.payload_hash.clone()));
-        sql_values.push(SqlValue::Integer(now));
-        sql_values.push(SqlValue::Integer(now));
-        conn.execute(&sql, params_from_iter(sql_values))?;
+        params.push(SqlParam::Text(row.payload_hash.clone()));
+        bind_params(sqlx::query(&sql), &params).execute(pool).await?;
         inserted += 1;
     }
     Ok(json!({"snapshots": rows.len(), "inserted": inserted}))
 }
 
-fn normalize_boons_ap(conn: &Connection) -> Result<Value> {
-    let rows = load_sheet_rows(conn, Some("Boons/AP"), false)?;
+async fn normalize_boons_ap(pool: &PgPool) -> Result<Value> {
+    let rows = load_sheet_rows(pool, Some("Boons/AP"), false).await?;
     let mut inserted = 0_i64;
     for row in &rows {
         let Some(payload) = parse_payload(&row.payload_json) else {
@@ -370,41 +373,51 @@ fn normalize_boons_ap(conn: &Connection) -> Result<Value> {
         let Some(values) = payload_values(&payload) else {
             continue;
         };
-        let souls = parse_int(&value_to_string(values.get("Souls")));
-        if souls.is_none_or(|value| value <= 0) {
+        let Some(souls) = parse_int(&value_to_string(values.get("Souls"))).filter(|value| *value > 0)
+        else {
             continue;
-        }
+        };
         let boons = parse_int(&value_to_string(values.get("Boons")));
         let ap = parse_int(&value_to_string(values.get("AP")));
         let note = nonempty(value_to_string(values.get("Column 4")));
-        let now = crate::util::now()?;
-        conn.execute(
+        sqlx::query!(
             r#"
-            INSERT INTO sheet_boons_ap(snapshot_id, souls, boons, ap, note, created_at, updated_at)
-            VALUES(?1,?2,?3,?4,?5,?6,?7)
-            ON CONFLICT(snapshot_id) DO UPDATE SET
-              souls=excluded.souls, boons=excluded.boons, ap=excluded.ap,
-              note=excluded.note, updated_at=excluded.updated_at
+            INSERT INTO brain.sheet_boons_ap(
+              snapshot_id, legacy_snapshot_id, souls, boons, ap, note, created_at, updated_at
+            )
+            VALUES($1, $2, $3, $4, $5, $6, now(), now())
+            ON CONFLICT (snapshot_id) DO UPDATE SET
+              souls = EXCLUDED.souls, boons = EXCLUDED.boons, ap = EXCLUDED.ap,
+              note = EXCLUDED.note, updated_at = now()
             "#,
-            params![row.id, souls, boons, ap, note, now, now],
-        )?;
+            row.id,
+            row.legacy_snapshot_id,
+            souls,
+            boons,
+            ap,
+            note,
+        )
+        .execute(pool)
+        .await?;
         inserted += 1;
     }
     Ok(json!({"snapshots": rows.len(), "inserted": inserted}))
 }
 
-fn normalize_raw_heroes(conn: &Connection, hero_index: &BTreeMapLike) -> Result<Value> {
-    let rows = load_sheet_rows(conn, Some("raw_hero_data"), false)?;
+async fn normalize_raw_heroes(pool: &PgPool, hero_index: &HeroIndex) -> Result<Value> {
+    let rows = load_sheet_rows(pool, Some("raw_hero_data"), false).await?;
     let mut inserted = 0_i64;
-    let mut columns = vec!["snapshot_id", "entity_id", "hero_name", "hero_id", "disabled"];
+    let mut columns = vec![
+        "snapshot_id",
+        "legacy_snapshot_id",
+        "entity_id",
+        "hero_name",
+        "hero_id",
+        "disabled",
+    ];
     columns.extend(RAW_HERO_COLUMN_MAP.iter().map(|(_, column)| *column));
-    columns.extend(["payload_hash", "created_at", "updated_at"]);
-    let update_columns = columns
-        .iter()
-        .copied()
-        .filter(|column| *column != "snapshot_id" && *column != "created_at")
-        .collect::<Vec<_>>();
-    let sql = upsert_sql("sheet_raw_heroes", &columns, &update_columns);
+    columns.push("payload_hash");
+    let sql = upsert_sql("sheet_raw_heroes", &columns);
 
     for row in &rows {
         let Some(payload) = parse_payload(&row.payload_json) else {
@@ -417,51 +430,53 @@ fn normalize_raw_heroes(conn: &Connection, hero_index: &BTreeMapLike) -> Result<
         if hero_name.is_empty() {
             continue;
         }
-        let now = crate::util::now()?;
-        let mut sql_values = vec![
-            SqlValue::Integer(row.id),
-            opt_i64(hero_index.get(&normalize_alias(&hero_name)).copied()),
-            SqlValue::Text(hero_name.clone()),
-            opt_i64(parse_int(&value_to_string(values.get("id")))),
-            SqlValue::Integer(if parse_bool(&first_nonempty([
-                value_to_string(values.get("disabled")),
-                "FALSE".to_string(),
-            ])) { 1 } else { 0 }),
+        let disabled = parse_bool(&first_nonempty([
+            value_to_string(values.get("disabled")),
+            "FALSE".to_string(),
+        ]));
+        let mut params = vec![
+            SqlParam::Int(row.id),
+            SqlParam::Int(row.legacy_snapshot_id),
+            SqlParam::IntOpt(hero_index.get(&normalize_alias(&hero_name)).copied()),
+            SqlParam::Text(hero_name.clone()),
+            SqlParam::IntOpt(parse_int(&value_to_string(values.get("id")))),
+            SqlParam::Int(if disabled { 1 } else { 0 }),
         ];
         for (label, _) in RAW_HERO_COLUMN_MAP {
-            sql_values.push(opt_f64(parse_float(&value_to_string(values.get(*label)))));
+            params.push(SqlParam::FloatOpt(parse_float(&value_to_string(values.get(*label)))));
         }
-        sql_values.push(SqlValue::Text(row.payload_hash.clone()));
-        sql_values.push(SqlValue::Integer(now));
-        sql_values.push(SqlValue::Integer(now));
-        conn.execute(&sql, params_from_iter(sql_values))?;
+        params.push(SqlParam::Text(row.payload_hash.clone()));
+        bind_params(sqlx::query(&sql), &params).execute(pool).await?;
         inserted += 1;
     }
     Ok(json!({"snapshots": rows.len(), "inserted": inserted}))
 }
 
-type BTreeMapLike = std::collections::HashMap<String, i64>;
+type HeroIndex = std::collections::HashMap<String, i64>;
 
-fn load_sheet_rows(conn: &Connection, sheet: Option<&str>, freeform: bool) -> Result<Vec<SheetRow>> {
-    let mut stmt = conn.prepare(
+async fn load_sheet_rows(pool: &PgPool, sheet: Option<&str>, freeform: bool) -> Result<Vec<SheetRow>> {
+    let rows = sqlx::query!(
         r#"
-        SELECT id, canonical_name, payload_hash, payload_json
-        FROM entity_snapshots
-        WHERE source=?1
+        SELECT id AS "id!", COALESCE(legacy_sqlite_id, id) AS "legacy_snapshot_id!",
+               canonical_name AS "canonical_name?", payload_hash AS "payload_hash!",
+               payload::text AS "payload_json!"
+        FROM brain.entity_snapshots
+        WHERE source = $1
         ORDER BY id
         "#,
-    )?;
-    let rows = stmt.query_map([SHEET_SOURCE], |row| {
-        Ok(SheetRow {
-            id: row.get("id")?,
-            canonical_name: row.get("canonical_name")?,
-            payload_hash: row.get("payload_hash")?,
-            payload_json: row.get("payload_json")?,
-        })
-    })?;
+        SHEET_SOURCE,
+    )
+    .fetch_all(pool)
+    .await?;
     let mut out = Vec::new();
     for row in rows {
-        let row = row?;
+        let row = SheetRow {
+            id: row.id,
+            legacy_snapshot_id: row.legacy_snapshot_id,
+            canonical_name: row.canonical_name,
+            payload_hash: row.payload_hash,
+            payload_json: row.payload_json,
+        };
         let Some(payload) = parse_payload(&row.payload_json) else {
             continue;
         };
@@ -482,34 +497,29 @@ fn parse_payload(payload_json: &str) -> Option<Value> {
     serde_json::from_str::<Value>(payload_json).ok().filter(Value::is_object)
 }
 
-fn upsert_sql(table: &str, columns: &[&str], update_columns: &[&str]) -> String {
-    let placeholders = (1..=columns.len())
-        .map(|index| format!("?{index}"))
+/// Baut das Upsert-SQL fuer die Sheet-Tabellen mit fester Konflikt-Spalte
+/// `snapshot_id`. Die Spaltenliste stammt aus compile-festen Konstanten-Maps,
+/// wird aber zur Laufzeit zusammengesetzt (variable Statistik-Spalten), daher
+/// `sqlx::query` + [`bind_params`] statt der `query!`-Makro-Form.
+fn upsert_sql(table: &str, bound_columns: &[&str]) -> String {
+    let placeholders = (1..=bound_columns.len())
+        .map(|index| format!("${index}"))
         .collect::<Vec<_>>()
-        .join(",");
-    let update_set = update_columns
+        .join(", ");
+    let mut update_set = bound_columns
         .iter()
-        .map(|column| format!("{column}=excluded.{column}"))
-        .collect::<Vec<_>>()
-        .join(",");
+        .filter(|column| **column != "snapshot_id")
+        .map(|column| format!("{column} = EXCLUDED.{column}"))
+        .collect::<Vec<_>>();
+    update_set.push("updated_at = now()".to_string());
     format!(
-        "INSERT INTO {table}({}) VALUES({}) ON CONFLICT(snapshot_id) DO UPDATE SET {}",
-        columns.join(","),
+        "INSERT INTO brain.{table}({}, created_at, updated_at) \
+         VALUES({}, now(), now()) \
+         ON CONFLICT (snapshot_id) DO UPDATE SET {}",
+        bound_columns.join(", "),
         placeholders,
-        update_set,
+        update_set.join(", "),
     )
-}
-
-fn opt_i64(value: Option<i64>) -> SqlValue {
-    value.map(SqlValue::Integer).unwrap_or(SqlValue::Null)
-}
-
-fn opt_f64(value: Option<f64>) -> SqlValue {
-    value.map(SqlValue::Real).unwrap_or(SqlValue::Null)
-}
-
-fn opt_string(value: Option<String>) -> SqlValue {
-    value.map(SqlValue::Text).unwrap_or(SqlValue::Null)
 }
 
 fn nonempty(value: String) -> Option<String> {

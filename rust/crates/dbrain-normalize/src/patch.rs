@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, HashMap};
 
 use regex::Regex;
-use rusqlite::{params, Connection};
 use serde_json::{json, Value};
+use sqlx::PgPool;
 
 use crate::util::{
     clean_subject, clear_patch_events, normalize_key, normalize_scan_text, object_json_string,
@@ -89,6 +89,7 @@ impl EntityIndex {
 #[derive(Debug)]
 struct PatchSnapshot {
     id: i64,
+    legacy_snapshot_id: i64,
     external_id: String,
     payload_json: String,
 }
@@ -96,6 +97,7 @@ struct PatchSnapshot {
 #[derive(Debug)]
 struct PatchEventInsert {
     patch_snapshot_id: i64,
+    legacy_patch_snapshot_id: i64,
     patch_external_id: String,
     patch_title: Option<String>,
     patch_url: Option<String>,
@@ -116,11 +118,11 @@ struct PatchEventInsert {
     event_hash: String,
 }
 
-pub fn parse_patchnotes(conn: &Connection, rebuild: bool) -> Result<Value> {
-    let before_total = table_count(conn, "patch_events")?;
-    let deleted = if rebuild { clear_patch_events(conn)? } else { 0 };
-    let index = build_entity_index(conn)?;
-    let rows = load_patch_snapshots(conn)?;
+pub async fn parse_patchnotes(pool: &PgPool, rebuild: bool) -> Result<Value> {
+    let before_total = table_count(pool, "patch_events").await?;
+    let deleted = if rebuild { clear_patch_events(pool).await? } else { 0 };
+    let index = build_entity_index(pool).await?;
+    let rows = load_patch_snapshots(pool).await?;
 
     let mut inserted = 0_i64;
     let mut parsed_patches = 0_i64;
@@ -129,12 +131,18 @@ pub fn parse_patchnotes(conn: &Connection, rebuild: bool) -> Result<Value> {
 
     for row in rows {
         let payload: Value = serde_json::from_str(&row.payload_json)?;
-        let (events, skipped) = parse_patchnote_snapshot(row.id, &row.external_id, &payload, &index)?;
+        let (events, skipped) = parse_patchnote_snapshot(
+            row.id,
+            row.legacy_snapshot_id,
+            &row.external_id,
+            &payload,
+            &index,
+        )?;
         skipped_lines += skipped;
         let source_kind = classify_source_kind(optional_string(&payload, "url").as_deref());
         *source_kinds.entry(source_kind).or_default() += 1;
         for event in events {
-            if insert_patch_event(conn, &event)? {
+            if insert_patch_event(pool, &event).await? {
                 inserted += 1;
             }
         }
@@ -144,7 +152,7 @@ pub fn parse_patchnotes(conn: &Connection, rebuild: bool) -> Result<Value> {
     Ok(json!({
         "patches": parsed_patches,
         "events_inserted": inserted,
-        "events_total": table_count(conn, "patch_events")?,
+        "events_total": table_count(pool, "patch_events").await?,
         "events_before": before_total,
         "skipped_lines": skipped_lines,
         "deleted_before_parse": deleted,
@@ -152,31 +160,34 @@ pub fn parse_patchnotes(conn: &Connection, rebuild: bool) -> Result<Value> {
     }))
 }
 
-fn load_patch_snapshots(conn: &Connection) -> Result<Vec<PatchSnapshot>> {
-    let mut stmt = conn.prepare(
+async fn load_patch_snapshots(pool: &PgPool) -> Result<Vec<PatchSnapshot>> {
+    let rows = sqlx::query!(
         r#"
-        SELECT id, external_id, payload_json
-        FROM entity_snapshots
-        WHERE entity_type='patchnote'
+        SELECT id AS "id!",
+               COALESCE(legacy_sqlite_id, id) AS "legacy_snapshot_id!",
+               external_id AS "external_id!",
+               payload::text AS "payload_json!"
+        FROM brain.entity_snapshots
+        WHERE entity_type = 'patchnote'
         ORDER BY id ASC
         "#,
-    )?;
-    let rows = stmt.query_map([], |row| {
-        Ok(PatchSnapshot {
-            id: row.get("id")?,
-            external_id: row.get("external_id")?,
-            payload_json: row.get("payload_json")?,
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| PatchSnapshot {
+            id: row.id,
+            legacy_snapshot_id: row.legacy_snapshot_id,
+            external_id: row.external_id,
+            payload_json: row.payload_json,
         })
-    })?;
-    let mut snapshots = Vec::new();
-    for row in rows {
-        snapshots.push(row?);
-    }
-    Ok(snapshots)
+        .collect())
 }
 
 fn parse_patchnote_snapshot(
     snapshot_id: i64,
+    legacy_snapshot_id: i64,
     external_id: &str,
     payload: &Value,
     index: &EntityIndex,
@@ -264,7 +275,7 @@ fn parse_patchnote_snapshot(
         metadata.insert("line_subject".to_string(), event_subject.clone().map_or(Value::Null, Value::String));
         metadata.insert("original_bullet".to_string(), json!(bullet_body));
         let event_hash = stable_hash_text(&[
-            snapshot_id.to_string(),
+            legacy_snapshot_id.to_string(),
             line_index.to_string(),
             section.clone().unwrap_or_default(),
             entity_type.clone(),
@@ -274,6 +285,7 @@ fn parse_patchnote_snapshot(
 
         events.push(PatchEventInsert {
             patch_snapshot_id: snapshot_id,
+            legacy_patch_snapshot_id: legacy_snapshot_id,
             patch_external_id: external_id.to_string(),
             patch_title: title.clone(),
             patch_url: url.clone(),
@@ -343,31 +355,27 @@ fn is_inline_bullet_start(ch: char) -> bool {
     ch.is_ascii_uppercase() || ch.is_ascii_digit() || ch == '"' || ch == '\''
 }
 
-fn build_entity_index(conn: &Connection) -> Result<EntityIndex> {
-    if let Some(index) = build_entity_index_from_entities(conn)? {
+async fn build_entity_index(pool: &PgPool) -> Result<EntityIndex> {
+    if let Some(index) = build_entity_index_from_entities(pool).await? {
         return Ok(index);
     }
 
     let mut index = EntityIndex::default();
-    let mut stmt = conn.prepare(
+    let rows = sqlx::query!(
         r#"
-        SELECT entity_type, canonical_name, payload_json
-        FROM entity_snapshots
+        SELECT entity_type AS "entity_type!",
+               canonical_name AS "canonical_name?",
+               payload::text AS "payload_json!"
+        FROM brain.entity_snapshots
         WHERE entity_type IN ('hero', 'item_or_ability', 'hero_stats_sheet')
         "#,
-    )?;
-    let rows = stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, String>("entity_type")?,
-            row.get::<_, Option<String>>("canonical_name")?,
-            row.get::<_, String>("payload_json")?,
-        ))
-    })?;
+    )
+    .fetch_all(pool)
+    .await?;
     for row in rows {
-        let (entity_type, canonical_name, payload_json) = row?;
-        let payload = serde_json::from_str::<Value>(&payload_json).unwrap_or(Value::Null);
+        let payload = serde_json::from_str::<Value>(&row.payload_json).unwrap_or(Value::Null);
         let mut names = Vec::new();
-        if let Some(canonical_name) = canonical_name {
+        if let Some(canonical_name) = row.canonical_name {
             names.push(canonical_name);
         }
         if let Some(object) = payload.as_object() {
@@ -387,7 +395,7 @@ fn build_entity_index(conn: &Connection) -> Result<EntityIndex> {
             if key.is_empty() || key.chars().all(|ch| ch.is_ascii_digit()) {
                 continue;
             }
-            if entity_type == "hero" || entity_type == "hero_stats_sheet" {
+            if row.entity_type == "hero" || row.entity_type == "hero_stats_sheet" {
                 index.hero_names.entry(key).or_insert_with(|| clean_subject(Some(&name)));
             } else {
                 index.item_names.entry(key).or_insert_with(|| clean_subject(Some(&name)));
@@ -397,34 +405,30 @@ fn build_entity_index(conn: &Connection) -> Result<EntityIndex> {
     Ok(index)
 }
 
-pub(crate) fn build_entity_index_from_entities(conn: &Connection) -> Result<Option<EntityIndex>> {
-    let mut stmt = conn.prepare(
+pub(crate) async fn build_entity_index_from_entities(pool: &PgPool) -> Result<Option<EntityIndex>> {
+    let rows = sqlx::query!(
         r#"
-        SELECT e.entity_type, e.canonical_name, a.alias
-        FROM entities e
-        LEFT JOIN entity_aliases a ON a.entity_id=e.id
+        SELECT e.entity_type AS "entity_type!",
+               e.canonical_name AS "canonical_name!",
+               a.alias AS "alias?"
+        FROM brain.entities e
+        LEFT JOIN brain.entity_aliases a ON a.entity_id = e.id
         WHERE e.entity_type IN (
           'hero', 'hero_internal', 'item', 'item_special',
           'ability', 'ability_internal', 'weapon_or_internal'
         )
         "#,
-    )?;
-    let rows = stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, String>("entity_type")?,
-            row.get::<_, String>("canonical_name")?,
-            row.get::<_, Option<String>>("alias")?,
-        ))
-    })?;
+    )
+    .fetch_all(pool)
+    .await?;
 
     let mut index = EntityIndex::default();
     let mut seen_any = false;
     for row in rows {
-        let (entity_type, canonical_name, alias) = row?;
         seen_any = true;
-        let canonical = clean_subject(Some(&canonical_name));
+        let canonical = clean_subject(Some(&row.canonical_name));
         let mut names = vec![canonical.clone()];
-        if let Some(alias) = alias {
+        if let Some(alias) = row.alias {
             names.push(alias);
         }
         for name in names {
@@ -432,7 +436,7 @@ pub(crate) fn build_entity_index_from_entities(conn: &Connection) -> Result<Opti
             if key.is_empty() || key.chars().all(|ch| ch.is_ascii_digit()) {
                 continue;
             }
-            match entity_type.as_str() {
+            match row.entity_type.as_str() {
                 "hero" => {
                     index.hero_names.entry(key).or_insert_with(|| canonical.clone());
                 }
@@ -705,43 +709,48 @@ fn truncate(value: &str, limit: usize) -> String {
     value.chars().take(limit).collect()
 }
 
-fn insert_patch_event(conn: &Connection, event: &PatchEventInsert) -> Result<bool> {
-    let now = crate::util::now()?;
+async fn insert_patch_event(pool: &PgPool, event: &PatchEventInsert) -> Result<bool> {
     let metadata_json = object_json_string(event.metadata.clone())?;
-    let changed = conn.execute(
+    let result = sqlx::query!(
         r#"
-        INSERT OR IGNORE INTO patch_events(
-          patch_snapshot_id, patch_external_id, patch_title, patch_url,
+        INSERT INTO brain.patch_events(
+          patch_snapshot_id, legacy_patch_snapshot_id, patch_external_id, patch_title, patch_url,
           source_kind, posted_at, line_index, section, entity_type,
           entity_name, subject, change_type, raw_line, normalized_line,
-          old_value, new_value, confidence, metadata_json, event_hash, created_at
+          old_value, new_value, confidence, metadata, event_hash, created_at
         )
-        VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)
+        VALUES(
+          $1, $2, $3, $4, $5,
+          $6, CASE WHEN $7 ~ '^-?[0-9]+$' THEN to_timestamp($7::double precision) ELSE $7::text::timestamptz END, $8, $9, $10,
+          $11, $12, $13, $14, $15,
+          $16, $17, $18, $19::text::jsonb, $20, now()
+        )
+        ON CONFLICT (event_hash) DO NOTHING
         "#,
-        params![
-            event.patch_snapshot_id,
-            event.patch_external_id,
-            event.patch_title,
-            event.patch_url,
-            event.source_kind,
-            event.posted_at,
-            event.line_index,
-            event.section,
-            event.entity_type,
-            event.entity_name,
-            event.subject,
-            event.change_type,
-            event.raw_line,
-            event.normalized_line,
-            event.old_value,
-            event.new_value,
-            event.confidence,
-            metadata_json,
-            event.event_hash,
-            now,
-        ],
-    )?;
-    Ok(changed > 0)
+        event.patch_snapshot_id,
+        event.legacy_patch_snapshot_id,
+        event.patch_external_id,
+        event.patch_title,
+        event.patch_url,
+        event.source_kind,
+        event.posted_at,
+        event.line_index,
+        event.section,
+        event.entity_type,
+        event.entity_name,
+        event.subject,
+        event.change_type,
+        event.raw_line,
+        event.normalized_line,
+        event.old_value,
+        event.new_value,
+        event.confidence,
+        metadata_json,
+        event.event_hash,
+    )
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
 }
 
 fn optional_string(payload: &Value, key: &str) -> Option<String> {

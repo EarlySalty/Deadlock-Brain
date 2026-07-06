@@ -1,0 +1,50 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id AS \"id!\", subject AS \"subject!\", section AS \"section?\",\n               entity_type AS \"entity_type!\", entity_name AS \"entity_name?\",\n               confidence AS \"confidence!\"\n        FROM brain.patch_events\n        WHERE entity_type = 'general'\n          AND subject IS NOT NULL\n          AND TRIM(subject) <> ''\n        ORDER BY id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "subject!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "section?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "entity_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "entity_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "confidence!",
+        "type_info": "Float8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "9426b42cc47efc6e03ed88f2403466aca4359db1d961e467f84bc50e739038eb"
+}

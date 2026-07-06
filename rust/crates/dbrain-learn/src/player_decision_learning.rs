@@ -1,11 +1,11 @@
-use std::{collections::BTreeMap, thread, time::Duration};
+use std::{thread, time::Duration};
 
 use deadlock_brain_core::minimax::{
     extract_minimax_text, minimax_usage_summary, ChatCompletionRequest, ChatMessage, MiniMaxClient,
     MiniMaxConfig,
 };
-use rusqlite::Connection;
 use serde_json::{json, Map, Value};
+use sqlx::PgPool;
 
 use crate::{
     build_optimizer::{
@@ -13,10 +13,9 @@ use crate::{
         key_item_properties, specific_item_purpose,
     },
     util::{
-        as_array, clamp_i64, compact_json, ensure_schema, extract_insights, get, get_any,
-        get_string, int_or_zero, json_loads, now_epoch_seconds, numeric_value,
-        prompt_text_from_request, query_json_rows, query_one_json, stable_hash_text,
-        value_to_non_empty_string, value_to_string,
+        as_array, clamp_i64, compact_json, execute_sql, extract_insights, get, get_any, get_string,
+        int_or_zero, json_loads, numeric_value, prompt_text_from_request, query_json_rows,
+        query_one_json, stable_hash_text, value_to_non_empty_string, value_to_string, SqlParam,
     },
     LearnError, Result,
 };
@@ -41,8 +40,8 @@ pub struct PlayerAnalyzeNextOptions {
     pub delay_seconds: f64,
 }
 
-pub fn player_list_matches(
-    conn: &Connection,
+pub async fn player_list_matches(
+    pool: &PgPool,
     account_id: Option<&str>,
     limit: i64,
 ) -> Result<Vec<Value>> {
@@ -50,27 +49,31 @@ pub fn player_list_matches(
     let rows = if let Some(account_id) = account_id.filter(|value| !value.trim().is_empty()) {
         let like = format!("{account_id}:%");
         query_json_rows(
-            conn,
+            pool,
             r#"
-            SELECT external_id, canonical_name, payload_json, fetched_at
-            FROM entity_snapshots
+            SELECT external_id, canonical_name, payload::text AS payload_json,
+                   extract(epoch from fetched_at)::int8 AS fetched_at
+            FROM brain.entity_snapshots
             WHERE source='statlocker' AND entity_type='statlocker_player_match'
-              AND external_id LIKE ?1
-            ORDER BY fetched_at DESC, id DESC LIMIT ?2
+              AND external_id LIKE $1
+            ORDER BY fetched_at DESC, id DESC LIMIT $2
             "#,
-            &[&like, &bounded_limit],
-        )?
+            &[SqlParam::Text(like), SqlParam::Int(bounded_limit)],
+        )
+        .await?
     } else {
         query_json_rows(
-            conn,
+            pool,
             r#"
-            SELECT external_id, canonical_name, payload_json, fetched_at
-            FROM entity_snapshots
+            SELECT external_id, canonical_name, payload::text AS payload_json,
+                   extract(epoch from fetched_at)::int8 AS fetched_at
+            FROM brain.entity_snapshots
             WHERE source='statlocker' AND entity_type='statlocker_player_match'
-            ORDER BY fetched_at DESC, id DESC LIMIT ?1
+            ORDER BY fetched_at DESC, id DESC LIMIT $1
             "#,
-            &[&bounded_limit],
-        )?
+            &[SqlParam::Int(bounded_limit)],
+        )
+        .await?
     };
     Ok(rows
         .into_iter()
@@ -90,12 +93,12 @@ pub fn player_list_matches(
         .collect())
 }
 
-pub fn player_match_context(conn: &Connection, account_id: &str, match_id: &str) -> Result<Value> {
-    build_player_match_decision_context(conn, account_id, match_id)
+pub async fn player_match_context(pool: &PgPool, account_id: &str, match_id: &str) -> Result<Value> {
+    build_player_match_decision_context(pool, account_id, match_id).await
 }
 
-pub fn build_player_match_decision_context(
-    conn: &Connection,
+pub async fn build_player_match_decision_context(
+    pool: &PgPool,
     account_id: &str,
     match_id: &str,
 ) -> Result<Value> {
@@ -108,31 +111,32 @@ pub fn build_player_match_decision_context(
     }
 
     let player_match =
-        latest_snapshot_payload(conn, "statlocker_player_match", &format!("{safe_account_id}:{safe_match_id}"))?;
+        latest_snapshot_payload(pool, "statlocker_player_match", &format!("{safe_account_id}:{safe_match_id}")).await?;
     if player_match.is_null() || player_match.as_object().map(Map::is_empty).unwrap_or(true) {
         return Err(LearnError::InvalidInput(format!(
             "Kein Statlocker Player-Match fuer {safe_account_id}:{safe_match_id} gefunden."
         )));
     }
-    let profile = latest_snapshot_payload(conn, "statlocker_player_profile", safe_account_id)?;
-    let match_detail = latest_snapshot_payload(conn, "statlocker_match_detail", safe_match_id)?;
-    let deadlock_api_match = latest_deadlock_api_match_metadata(conn, safe_match_id)?;
+    let profile = latest_snapshot_payload(pool, "statlocker_player_profile", safe_account_id).await?;
+    let match_detail = latest_snapshot_payload(pool, "statlocker_match_detail", safe_match_id).await?;
+    let deadlock_api_match = latest_deadlock_api_match_metadata(pool, safe_match_id).await?;
 
     let hero_id = hero_id_from_payload(&player_match)
         .or_else(|| hero_id_from_match_detail(&match_detail, safe_account_id))
         .or_else(|| hero_id_from_deadlock_api_match(&deadlock_api_match, safe_account_id));
-    let hero_name = hero_name_from_id(conn, hero_id.as_deref())?;
+    let hero_name = hero_name_from_id(pool, hero_id.as_deref()).await?;
     let build_analysis = if let Some(hero_id) = hero_id.as_deref() {
         latest_snapshot_payload(
-            conn,
+            pool,
             "statlocker_player_build_analysis",
             &format!("{safe_account_id}:{hero_id}"),
-        )?
+        )
+        .await?
     } else {
         json!({})
     };
     let deterministic_context = if let Some(hero_name) = hero_name.as_deref() {
-        match build_hero_build_context(conn, hero_name, &[], 60) {
+        match build_hero_build_context(pool, hero_name, &[], 60).await {
             Ok(context) => context,
             Err(error) => json!({"error": error.to_string(), "hero_name": hero_name}),
         }
@@ -150,7 +154,7 @@ pub fn build_player_match_decision_context(
         "player_profile": compact_profile(&profile),
         "player_match": compact_match_row(&player_match),
         "match_detail": compact_match_detail(&match_detail, safe_account_id),
-        "deadlock_api_match": compact_deadlock_api_match(conn, &deadlock_api_match, safe_account_id)?,
+        "deadlock_api_match": compact_deadlock_api_match(pool, &deadlock_api_match, safe_account_id).await?,
         "player_build_analysis": compact_json(&build_analysis, 4, 25),
         "deterministic_build_brain": compact_hero_context(&deterministic_context),
         "learning_goal": {
@@ -217,24 +221,26 @@ Keine erfundenen Zahlen, keine ungekennzeichneten Vermutungen.",
     })
 }
 
-pub fn player_analyze_match(conn: &Connection, options: PlayerAnalyzeMatchOptions) -> Result<Value> {
+pub async fn player_analyze_match(pool: &PgPool, options: PlayerAnalyzeMatchOptions) -> Result<Value> {
     run_single_player_match_analysis(
-        conn,
+        pool,
         &options.account_id,
         &options.match_id,
         &options.config,
         options.dry_run,
         options.include_request,
     )
+    .await
 }
 
-pub fn player_analyze_next(conn: &Connection, options: PlayerAnalyzeNextOptions) -> Result<Value> {
+pub async fn player_analyze_next(pool: &PgPool, options: PlayerAnalyzeNextOptions) -> Result<Value> {
     let targets = list_pending_player_match_decision_targets(
-        conn,
+        pool,
         options.account_id.as_deref(),
         options.limit,
         Some(&options.config.model),
-    )?;
+    )
+    .await?;
     if !options.dry_run && !options.config.api_key_present() {
         return Err(LearnError::InvalidInput(
             "MiniMax API key fehlt. Setze MINIMAX_API_KEY oder MINIMAX_TOKEN_PLAN_KEY.".to_string(),
@@ -245,13 +251,15 @@ pub fn player_analyze_next(conn: &Connection, options: PlayerAnalyzeNextOptions)
         let account_id = get_string(target, "account_id").unwrap_or_default();
         let match_id = get_string(target, "match_id").unwrap_or_default();
         match run_single_player_match_analysis(
-            conn,
+            pool,
             &account_id,
             &match_id,
             &options.config,
             options.dry_run,
             false,
-        ) {
+        )
+        .await
+        {
             Ok(result) => {
                 let note = get(&result, "note").cloned().unwrap_or_else(|| json!({}));
                 results.push(json!({
@@ -294,58 +302,70 @@ pub fn player_analyze_next(conn: &Connection, options: PlayerAnalyzeNextOptions)
     }))
 }
 
-pub(crate) fn list_pending_player_match_decision_targets(
-    conn: &Connection,
+pub(crate) async fn list_pending_player_match_decision_targets(
+    pool: &PgPool,
     account_id: Option<&str>,
     limit: i64,
     model: Option<&str>,
 ) -> Result<Vec<Value>> {
-    ensure_schema(conn)?;
     let bounded_limit = clamp_i64(limit, 1, 100);
     let rows = if let Some(account_id) = account_id.filter(|value| !value.trim().is_empty()) {
         let like = format!("{account_id}:%");
         query_json_rows(
-            conn,
+            pool,
             r#"
-            SELECT pm.external_id, pm.payload_json, pm.fetched_at
-            FROM entity_snapshots pm
+            SELECT pm.external_id, pm.payload::text AS payload_json,
+                   extract(epoch from pm.fetched_at)::int8 AS fetched_at
+            FROM brain.entity_snapshots pm
             WHERE pm.source='statlocker'
               AND pm.entity_type='statlocker_player_match'
               AND NOT EXISTS (
                 SELECT 1
-                FROM player_match_decision_notes n
-                WHERE n.account_id = substr(pm.external_id, 1, instr(pm.external_id, ':') - 1)
-                  AND n.match_id = substr(pm.external_id, instr(pm.external_id, ':') + 1)
+                FROM brain.player_match_decision_notes n
+                WHERE n.account_id = substr(pm.external_id, 1, position(':' in pm.external_id) - 1)
+                  AND n.match_id = substr(pm.external_id, position(':' in pm.external_id) + 1)
                   AND n.status = 'analysis_ready'
-                  AND n.prompt_version = ?1
-                  AND COALESCE(n.model, '') = COALESCE(?2, '')
+                  AND n.prompt_version = $1
+                  AND COALESCE(n.model, '') = COALESCE($2, '')
               )
-              AND pm.external_id LIKE ?3
-            ORDER BY pm.fetched_at DESC, pm.id DESC LIMIT ?4
+              AND pm.external_id LIKE $3
+            ORDER BY pm.fetched_at DESC, pm.id DESC LIMIT $4
             "#,
-            &[&PLAYER_DECISION_PROMPT_VERSION, &model, &like, &bounded_limit],
-        )?
+            &[
+                SqlParam::Text(PLAYER_DECISION_PROMPT_VERSION.to_string()),
+                SqlParam::TextOpt(model.map(str::to_string)),
+                SqlParam::Text(like),
+                SqlParam::Int(bounded_limit),
+            ],
+        )
+        .await?
     } else {
         query_json_rows(
-            conn,
+            pool,
             r#"
-            SELECT pm.external_id, pm.payload_json, pm.fetched_at
-            FROM entity_snapshots pm
+            SELECT pm.external_id, pm.payload::text AS payload_json,
+                   extract(epoch from pm.fetched_at)::int8 AS fetched_at
+            FROM brain.entity_snapshots pm
             WHERE pm.source='statlocker'
               AND pm.entity_type='statlocker_player_match'
               AND NOT EXISTS (
                 SELECT 1
-                FROM player_match_decision_notes n
-                WHERE n.account_id = substr(pm.external_id, 1, instr(pm.external_id, ':') - 1)
-                  AND n.match_id = substr(pm.external_id, instr(pm.external_id, ':') + 1)
+                FROM brain.player_match_decision_notes n
+                WHERE n.account_id = substr(pm.external_id, 1, position(':' in pm.external_id) - 1)
+                  AND n.match_id = substr(pm.external_id, position(':' in pm.external_id) + 1)
                   AND n.status = 'analysis_ready'
-                  AND n.prompt_version = ?1
-                  AND COALESCE(n.model, '') = COALESCE(?2, '')
+                  AND n.prompt_version = $1
+                  AND COALESCE(n.model, '') = COALESCE($2, '')
               )
-            ORDER BY pm.fetched_at DESC, pm.id DESC LIMIT ?3
+            ORDER BY pm.fetched_at DESC, pm.id DESC LIMIT $3
             "#,
-            &[&PLAYER_DECISION_PROMPT_VERSION, &model, &bounded_limit],
-        )?
+            &[
+                SqlParam::Text(PLAYER_DECISION_PROMPT_VERSION.to_string()),
+                SqlParam::TextOpt(model.map(str::to_string)),
+                SqlParam::Int(bounded_limit),
+            ],
+        )
+        .await?
     };
     let mut targets = Vec::new();
     for row in rows {
@@ -373,27 +393,28 @@ pub(crate) fn list_pending_player_match_decision_targets(
     Ok(targets)
 }
 
-fn run_single_player_match_analysis(
-    conn: &Connection,
+async fn run_single_player_match_analysis(
+    pool: &PgPool,
     account_id: &str,
     match_id: &str,
     config: &MiniMaxConfig,
     dry_run: bool,
     include_request: bool,
 ) -> Result<Value> {
-    let context = build_player_match_decision_context(conn, account_id, match_id)?;
+    let context = build_player_match_decision_context(pool, account_id, match_id).await?;
     let request = build_minimax_player_match_decision_request(&context, config)?;
     let prompt_text = prompt_text_from_request(&request);
     let endpoint = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
     if dry_run {
         let note = save_player_match_decision_note(
-            conn,
+            pool,
             &context,
             &prompt_text,
             None,
             Some(&config.model),
             "context_ready",
-        )?;
+        )
+        .await?;
         let mut result = json!({
             "dry_run": true,
             "account_id": account_id,
@@ -420,13 +441,14 @@ fn run_single_player_match_analysis(
         return Err(LearnError::EmptyMiniMaxResponse);
     }
     let note = save_player_match_decision_note(
-        conn,
+        pool,
         &context,
         &prompt_text,
         Some(&result_text),
         Some(&config.model),
         "analysis_ready",
-    )?;
+    )
+    .await?;
     Ok(json!({
         "account_id": account_id,
         "match_id": match_id,
@@ -440,104 +462,110 @@ fn run_single_player_match_analysis(
     }))
 }
 
-fn save_player_match_decision_note(
-    conn: &Connection,
+async fn save_player_match_decision_note(
+    pool: &PgPool,
     context: &Value,
     prompt_text: &str,
     result_text: Option<&str>,
     model: Option<&str>,
     status: &str,
 ) -> Result<Value> {
-    ensure_schema(conn)?;
     let context_json = serde_json::to_string(context)?;
     let context_hash = stable_hash_text(&context_json);
-    let now = now_epoch_seconds()?;
     let hero_id = get(context, "hero_id").map(value_to_string).filter(|value| !value.is_empty());
     let hero_name = get_string(context, "hero_name");
     let insights_json = serde_json::to_string(&extract_insights(result_text.unwrap_or("")))?;
     let account_id = get_string(context, "account_id").unwrap_or_default();
     let match_id = get_string(context, "match_id").unwrap_or_default();
-    conn.execute(
+    execute_sql(
+        pool,
         r#"
-        INSERT INTO player_match_decision_notes(
+        INSERT INTO brain.player_match_decision_notes(
           account_id, match_id, hero_id, hero_name, context_hash, prompt_version,
-          prompt_text, result_text, insights_json, model, status, created_at, updated_at
+          prompt_text, result_text, insights, model, status, created_at, updated_at
         )
-        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
-        ON CONFLICT DO UPDATE SET
+        VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9::text::jsonb, $10, $11, now(), now())
+        ON CONFLICT (account_id, match_id, context_hash, prompt_version, COALESCE(model, ''), status)
+        DO UPDATE SET
           prompt_text=excluded.prompt_text,
           result_text=excluded.result_text,
-          insights_json=excluded.insights_json,
+          insights=excluded.insights,
           hero_id=excluded.hero_id,
           hero_name=excluded.hero_name,
           updated_at=excluded.updated_at
         "#,
-        (
-            account_id.as_str(),
-            match_id.as_str(),
-            hero_id.as_deref(),
-            hero_name.as_deref(),
-            context_hash.as_str(),
-            PLAYER_DECISION_PROMPT_VERSION,
-            prompt_text,
-            result_text,
-            insights_json.as_str(),
-            model,
-            status,
-            now,
-            now,
-        ),
-    )?;
+        &[
+            SqlParam::Text(account_id.clone()),
+            SqlParam::Text(match_id.clone()),
+            SqlParam::TextOpt(hero_id),
+            SqlParam::TextOpt(hero_name),
+            SqlParam::Text(context_hash.clone()),
+            SqlParam::Text(PLAYER_DECISION_PROMPT_VERSION.to_string()),
+            SqlParam::Text(prompt_text.to_string()),
+            SqlParam::TextOpt(result_text.map(str::to_string)),
+            SqlParam::Text(insights_json),
+            SqlParam::TextOpt(model.map(str::to_string)),
+            SqlParam::Text(status.to_string()),
+        ],
+    )
+    .await?;
     Ok(query_one_json(
-        conn,
+        pool,
         r#"
-        SELECT id, account_id, match_id, hero_id, hero_name, model, status, updated_at
-        FROM player_match_decision_notes
-        WHERE account_id=?1 AND match_id=?2 AND context_hash=?3 AND prompt_version=?4
-          AND COALESCE(model, '')=COALESCE(?5, '') AND status=?6
+        SELECT id, account_id, match_id, hero_id, hero_name, model, status,
+               extract(epoch from updated_at)::int8 AS updated_at
+        FROM brain.player_match_decision_notes
+        WHERE account_id=$1 AND match_id=$2 AND context_hash=$3 AND prompt_version=$4
+          AND COALESCE(model, '')=COALESCE($5, '') AND status=$6
         ORDER BY id DESC LIMIT 1
         "#,
         &[
-            &account_id,
-            &match_id,
-            &context_hash,
-            &PLAYER_DECISION_PROMPT_VERSION,
-            &model,
-            &status,
+            SqlParam::Text(account_id),
+            SqlParam::Text(match_id),
+            SqlParam::Text(context_hash.clone()),
+            SqlParam::Text(PLAYER_DECISION_PROMPT_VERSION.to_string()),
+            SqlParam::TextOpt(model.map(str::to_string)),
+            SqlParam::Text(status.to_string()),
         ],
-    )?
+    )
+    .await?
     .unwrap_or_else(|| json!({"context_hash": context_hash, "status": status})))
 }
 
-fn latest_snapshot_payload(conn: &Connection, entity_type: &str, external_id: &str) -> Result<Value> {
+async fn latest_snapshot_payload(pool: &PgPool, entity_type: &str, external_id: &str) -> Result<Value> {
     let row = query_one_json(
-        conn,
+        pool,
         r#"
-        SELECT payload_json
-        FROM entity_snapshots
-        WHERE source='statlocker' AND entity_type=?1 AND external_id=?2
+        SELECT payload::text AS payload_json
+        FROM brain.entity_snapshots
+        WHERE source='statlocker' AND entity_type=$1 AND external_id=$2
         ORDER BY fetched_at DESC, id DESC
         LIMIT 1
         "#,
-        &[&entity_type, &external_id],
-    )?;
+        &[
+            SqlParam::Text(entity_type.to_string()),
+            SqlParam::Text(external_id.to_string()),
+        ],
+    )
+    .await?;
     Ok(row
         .and_then(|row| get(&row, "payload_json").and_then(Value::as_str).map(|raw| json_loads(Some(raw), json!({}))))
         .unwrap_or_else(|| json!({})))
 }
 
-fn latest_deadlock_api_match_metadata(conn: &Connection, match_id: &str) -> Result<Value> {
+async fn latest_deadlock_api_match_metadata(pool: &PgPool, match_id: &str) -> Result<Value> {
     let row = query_one_json(
-        conn,
+        pool,
         r#"
-        SELECT payload_json
-        FROM entity_snapshots
-        WHERE source='deadlock_api' AND entity_type='deadlock_api_match_metadata' AND external_id=?1
+        SELECT payload::text AS payload_json
+        FROM brain.entity_snapshots
+        WHERE source='deadlock_api' AND entity_type='deadlock_api_match_metadata' AND external_id=$1
         ORDER BY fetched_at DESC, id DESC
         LIMIT 1
         "#,
-        &[&match_id],
-    )?;
+        &[SqlParam::Text(match_id.to_string())],
+    )
+    .await?;
     Ok(row
         .and_then(|row| get(&row, "payload_json").and_then(Value::as_str).map(|raw| json_loads(Some(raw), json!({}))))
         .unwrap_or_else(|| json!({})))
@@ -550,7 +578,7 @@ fn hero_id_from_deadlock_api_match(payload: &Value, account_id: &str) -> Option<
         .filter(|value| !value.trim().is_empty())
 }
 
-fn compact_deadlock_api_match(conn: &Connection, payload: &Value, account_id: &str) -> Result<Value> {
+async fn compact_deadlock_api_match(pool: &PgPool, payload: &Value, account_id: &str) -> Result<Value> {
     if !payload.is_object() {
         return Ok(json!({}));
     }
@@ -558,7 +586,7 @@ fn compact_deadlock_api_match(conn: &Connection, payload: &Value, account_id: &s
     let players = get(payload, "players").and_then(as_array).cloned().unwrap_or_default();
     let mut team_roster = Vec::new();
     for row in &players {
-        team_roster.push(compact_deadlock_api_player_roster_row(conn, row)?);
+        team_roster.push(compact_deadlock_api_player_roster_row(pool, row).await?);
     }
     let mut compact = json!({
         "evidence_layer": "actual_match_facts_from_deadlock_api",
@@ -581,8 +609,9 @@ fn compact_deadlock_api_match(conn: &Connection, payload: &Value, account_id: &s
         ],
     });
     if player.is_object() && !player.as_object().map(Map::is_empty).unwrap_or(true) {
+        let compact_player = compact_deadlock_api_player(pool, &player, payload).await?;
         if let Some(object) = compact.as_object_mut() {
-            object.insert("player".to_string(), compact_deadlock_api_player(conn, &player, payload)?);
+            object.insert("player".to_string(), compact_player);
         }
     }
     Ok(compact_json(&compact, 6, 80))
@@ -598,7 +627,7 @@ fn deadlock_api_player(payload: &Value, account_id: &str) -> Value {
     json!({})
 }
 
-fn compact_deadlock_api_player_roster_row(conn: &Connection, row: &Value) -> Result<Value> {
+async fn compact_deadlock_api_player_roster_row(pool: &PgPool, row: &Value) -> Result<Value> {
     let hero_id = get_any(row, &["hero_id", "heroId"]).map(value_to_string);
     Ok(json!({
         "account_id": get_any(row, &["account_id", "accountId"]).cloned().unwrap_or(Value::Null),
@@ -606,7 +635,7 @@ fn compact_deadlock_api_player_roster_row(conn: &Connection, row: &Value) -> Res
         "player_slot": get_any(row, &["player_slot", "playerSlot"]).cloned().unwrap_or(Value::Null),
         "assigned_lane": get_any(row, &["assigned_lane", "assignedLane"]).cloned().unwrap_or(Value::Null),
         "hero_id": hero_id,
-        "hero_name": hero_name_from_id(conn, hero_id.as_deref())?,
+        "hero_name": hero_name_from_id(pool, hero_id.as_deref()).await?,
         "kills": get(row, "kills").cloned().unwrap_or(Value::Null),
         "deaths": get(row, "deaths").cloned().unwrap_or(Value::Null),
         "assists": get(row, "assists").cloned().unwrap_or(Value::Null),
@@ -614,8 +643,8 @@ fn compact_deadlock_api_player_roster_row(conn: &Connection, row: &Value) -> Res
     }))
 }
 
-fn compact_deadlock_api_player(
-    conn: &Connection,
+async fn compact_deadlock_api_player(
+    pool: &PgPool,
     player: &Value,
     match_payload: &Value,
 ) -> Result<Value> {
@@ -623,7 +652,7 @@ fn compact_deadlock_api_player(
     let raw_events = get(player, "items").and_then(as_array).cloned().unwrap_or_default();
     let mut all_events = Vec::new();
     for item in raw_events {
-        all_events.push(compact_actual_item_event(conn, &item)?);
+        all_events.push(compact_actual_item_event(pool, &item).await?);
     }
     let mut item_timeline = all_events
         .iter()
@@ -644,10 +673,14 @@ fn compact_deadlock_api_player(
             .partial_cmp(&numeric_value(get(right, "game_time_s")))
             .unwrap_or(std::cmp::Ordering::Equal)
     });
+    let hero_name = hero_name_from_id(pool, hero_id.as_deref()).await?;
+    let enemy = enemy_heroes(pool, match_payload, get(player, "team")).await?;
+    let ally = ally_heroes(pool, match_payload, get(player, "team"), get_any(player, &["account_id", "accountId"])).await?;
+    let death_details = compact_death_details(pool, get_any(player, &["death_details", "deathDetails"]), match_payload).await?;
     Ok(json!({
         "account_id": get_any(player, &["account_id", "accountId"]).cloned().unwrap_or(Value::Null),
         "hero_id": hero_id,
-        "hero_name": hero_name_from_id(conn, hero_id.as_deref())?,
+        "hero_name": hero_name,
         "team": get(player, "team").cloned().unwrap_or(Value::Null),
         "player_slot": get_any(player, &["player_slot", "playerSlot"]).cloned().unwrap_or(Value::Null),
         "assigned_lane": get_any(player, &["assigned_lane", "assignedLane"]).cloned().unwrap_or(Value::Null),
@@ -657,29 +690,30 @@ fn compact_deadlock_api_player(
             "assists": get(player, "assists").cloned().unwrap_or(Value::Null),
             "net_worth": get_any(player, &["net_worth", "netWorth"]).cloned().unwrap_or(Value::Null),
         },
-        "enemy_heroes": enemy_heroes(conn, match_payload, get(player, "team"))?,
-        "ally_heroes": ally_heroes(conn, match_payload, get(player, "team"), get_any(player, &["account_id", "accountId"]))?,
+        "enemy_heroes": enemy,
+        "ally_heroes": ally,
         "actual_item_timeline": item_timeline,
         "ability_or_non_shop_events": ability_events.into_iter().take(30).collect::<Vec<_>>(),
         "shop_bonus_actual_spend_by_slot_approx": shop_bonus_progress(&item_timeline),
         "stat_checkpoints": stat_checkpoints(get(player, "stats")),
-        "death_details": compact_death_details(conn, get_any(player, &["death_details", "deathDetails"]), match_payload)?,
+        "death_details": death_details,
         "objective_events": compact_objectives(get(match_payload, "objectives")),
     }))
 }
 
-fn compact_actual_item_event(conn: &Connection, row: &Value) -> Result<Value> {
+async fn compact_actual_item_event(pool: &PgPool, row: &Value) -> Result<Value> {
     let item_id = get_any(row, &["item_id", "itemId"]).map(value_to_string);
     let upgrade_id = get_any(row, &["upgrade_id", "upgradeId"]).map(value_to_string);
     let imbued_id = get_any(row, &["imbued_ability_id", "imbuedAbilityId"]).map(value_to_string);
-    let payload = asset_payload_by_id(conn, item_id.as_deref())?.unwrap_or_else(|| json!({}));
-    let upgrade_payload = asset_payload_by_id(conn, upgrade_id.as_deref())?.unwrap_or_else(|| json!({}));
+    let payload = asset_payload_by_id(pool, item_id.as_deref()).await?.unwrap_or_else(|| json!({}));
+    let upgrade_payload = asset_payload_by_id(pool, upgrade_id.as_deref()).await?.unwrap_or_else(|| json!({}));
     let item = item_mechanics(&payload, item_id.as_deref());
     let upgrade = if upgrade_payload.is_object() && !upgrade_payload.as_object().map(Map::is_empty).unwrap_or(true) {
         item_mechanics(&upgrade_payload, upgrade_id.as_deref())
     } else {
         json!({})
     };
+    let imbued_ability_name = ability_name_from_id(pool, imbued_id.as_deref()).await?;
     let mut event = json!({
         "evidence": "deadlock_api_match_metadata.players.items",
         "game_time_s": get_any(row, &["game_time_s", "gameTimeS"]).cloned().unwrap_or(Value::Null),
@@ -696,7 +730,7 @@ fn compact_actual_item_event(conn: &Connection, row: &Value) -> Result<Value> {
         "upgrade_id": upgrade_id,
         "upgrade_name": get(&upgrade, "name").cloned().unwrap_or(Value::Null),
         "imbued_ability_id": imbued_id,
-        "imbued_ability_name": ability_name_from_id(conn, imbued_id.as_deref())?,
+        "imbued_ability_name": imbued_ability_name,
         "sold_time_s": get_any(row, &["sold_time_s", "soldTimeS"]).cloned().unwrap_or(Value::Null),
         "flags": get(row, "flags").cloned().unwrap_or(Value::Null),
     });
@@ -727,8 +761,9 @@ fn item_mechanics(payload: &Value, item_id: Option<&str>) -> Value {
     })
 }
 
-fn ability_name_from_id(conn: &Connection, ability_id: Option<&str>) -> Result<Option<String>> {
-    Ok(asset_payload_by_id(conn, ability_id)?
+async fn ability_name_from_id(pool: &PgPool, ability_id: Option<&str>) -> Result<Option<String>> {
+    Ok(asset_payload_by_id(pool, ability_id)
+        .await?
         .and_then(|payload| get_string(&payload, "name")))
 }
 
@@ -741,7 +776,7 @@ fn is_public_shop_item_event(event: &Value) -> bool {
 fn shop_bonus_progress(item_timeline: &[Value]) -> Value {
     let mut gross_spend_by_slot: Map<String, Value> = Map::new();
     let mut purchases_by_slot: Map<String, Value> = Map::new();
-    let mut running: BTreeMap<String, i64> = BTreeMap::new();
+    let mut running: std::collections::BTreeMap<String, i64> = std::collections::BTreeMap::new();
     let mut first_4800_gross = Map::new();
     for event in item_timeline {
         let slot = get_string(event, "slot").unwrap_or_default();
@@ -845,18 +880,18 @@ fn shop_current_value_progress(item_timeline: &[Value]) -> Value {
     })
 }
 
-fn enemy_heroes(conn: &Connection, match_payload: &Value, team: Option<&Value>) -> Result<Value> {
+async fn enemy_heroes(pool: &PgPool, match_payload: &Value, team: Option<&Value>) -> Result<Value> {
     let mut rows = Vec::new();
     for row in get(match_payload, "players").and_then(as_array).into_iter().flatten() {
         if get(row, "team") != team {
-            rows.push(compact_deadlock_api_player_roster_row(conn, row)?);
+            rows.push(compact_deadlock_api_player_roster_row(pool, row).await?);
         }
     }
     Ok(Value::Array(rows))
 }
 
-fn ally_heroes(
-    conn: &Connection,
+async fn ally_heroes(
+    pool: &PgPool,
     match_payload: &Value,
     team: Option<&Value>,
     account_id: Option<&Value>,
@@ -870,7 +905,7 @@ fn ally_heroes(
                 .unwrap_or_default()
                 != account_text
         {
-            rows.push(compact_deadlock_api_player_roster_row(conn, row)?);
+            rows.push(compact_deadlock_api_player_roster_row(pool, row).await?);
         }
     }
     Ok(Value::Array(rows))
@@ -921,8 +956,8 @@ fn stat_checkpoints(stats: Option<&Value>) -> Value {
     )
 }
 
-fn compact_death_details(
-    conn: &Connection,
+async fn compact_death_details(
+    pool: &PgPool,
     death_details: Option<&Value>,
     match_payload: &Value,
 ) -> Result<Value> {
@@ -939,10 +974,11 @@ fn compact_death_details(
             .as_ref()
             .and_then(|slot| players_by_slot.get(slot));
         let killer_hero_id = killer.and_then(|killer| get_any(killer, &["hero_id", "heroId"])).map(value_to_string);
+        let killer_hero_name = hero_name_from_id(pool, killer_hero_id.as_deref()).await?;
         result.push(json!({
             "game_time_s": get_any(row, &["game_time_s", "gameTimeS"]).cloned().unwrap_or(Value::Null),
             "killer_player_slot": killer_slot,
-            "killer_hero_name": hero_name_from_id(conn, killer_hero_id.as_deref())?,
+            "killer_hero_name": killer_hero_name,
             "time_to_kill_s": get_any(row, &["time_to_kill_s", "timeToKillS"]).cloned().unwrap_or(Value::Null),
             "damage_taken": get_any(row, &["damage_taken", "damageTaken"]).cloned().unwrap_or(Value::Null),
             "raw": compact_json(row, 2, 8),

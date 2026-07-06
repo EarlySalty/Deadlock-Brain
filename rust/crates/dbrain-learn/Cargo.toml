@@ -10,10 +10,10 @@ path = "src/lib.rs"
 [dependencies]
 deadlock-brain-core = { path = "../deadlock-brain-core" }
 regex.workspace = true
-rusqlite.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+sqlx = { workspace = true }
 thiserror.workspace = true
 
 [dev-dependencies]
-tempfile.workspace = true
+tokio = { workspace = true, features = ["macros"] }

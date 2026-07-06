@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO brain.entity_lineage(\n          patch_event_id, legacy_patch_event_id, relation_type, source_entity_type, source_name,\n          source_name_norm, target_entity_type, target_name, target_name_norm, owner_entity_type,\n          owner_name, owner_name_norm, confidence, metadata, created_at, updated_at\n        )\n        VALUES(\n          $1, $2, $3, $4, $5,\n          $6, $7, $8, $9, $10,\n          $11, $12, $13, $14::text::jsonb, now(), now()\n        )\n        ON CONFLICT DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Float8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "26a36c7d5f02eff7318c9c4f99c0800143ac04e5544db3791ca4e61b098be420"
+}

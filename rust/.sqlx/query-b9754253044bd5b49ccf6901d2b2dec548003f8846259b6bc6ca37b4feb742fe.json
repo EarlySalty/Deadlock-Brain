@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM brain.sheet_hero_rankings",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "b9754253044bd5b49ccf6901d2b2dec548003f8846259b6bc6ca37b4feb742fe"
+}

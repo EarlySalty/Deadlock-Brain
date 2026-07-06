@@ -9,12 +9,14 @@ path = "src/lib.rs"
 
 [dependencies]
 deadlock-brain-core = { path = "../deadlock-brain-core" }
+dbrain-builds = { path = "../dbrain-builds" }
+chrono = { workspace = true }
 regex.workspace = true
-rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+sqlx = { workspace = true, features = ["json", "chrono"] }
 thiserror.workspace = true
 
 [dev-dependencies]
-tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

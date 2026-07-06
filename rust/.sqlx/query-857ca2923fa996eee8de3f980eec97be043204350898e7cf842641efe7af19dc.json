@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO brain.youtube_learning_claims(\n          video_id, claim_hash, claim_index, entity_type, entity_name, claim_type,\n          claim_text, evidence_quote, timestamp_seconds, model_confidence,\n          verifier_confidence, status, model, prompt_version, prompt_text,\n          model_response_text, provider_metadata, verifier, created_at, updated_at\n        )\n        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'{}'::jsonb,$17::text::jsonb,now(),now())\n        ON CONFLICT(claim_hash) DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Float8",
+        "Float8",
+        "Float8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "857ca2923fa996eee8de3f980eec97be043204350898e7cf842641efe7af19dc"
+}

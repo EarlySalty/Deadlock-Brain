@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT DISTINCT pe.entity_name AS \"entity_name?\", pe.entity_type AS \"entity_type!\"\n        FROM brain.patch_events pe\n        WHERE pe.entity_name NOT IN (\n            SELECT entity_name FROM brain.patch_impact_notes WHERE status = 'analysis_ready'\n        )\n        LIMIT $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "entity_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "entity_type!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "4879f35009d8768b0034e8bdefd5e25bd7559806d5957112027fd5f60136b11b"
+}

@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO brain.entities(\n          entity_type, canonical_name, primary_external_id, source,\n          first_snapshot_id, metadata, created_at, updated_at\n        )\n        VALUES($1, $2, $3, $4, $5, $6::text::jsonb, now(), now())\n        ON CONFLICT (entity_type, canonical_name) DO UPDATE SET\n          primary_external_id = COALESCE(EXCLUDED.primary_external_id, entities.primary_external_id),\n          first_snapshot_id = COALESCE(entities.first_snapshot_id, EXCLUDED.first_snapshot_id),\n          metadata = EXCLUDED.metadata,\n          updated_at = EXCLUDED.updated_at\n        RETURNING id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "46e573ccbe2b5c60e5b7b8e65d10d626f46aa98f43c9bebf105427fb94af2394"
+}

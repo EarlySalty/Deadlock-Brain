@@ -5,8 +5,11 @@ pub enum SourcesError {
     #[error(transparent)]
     Core(#[from] deadlock_brain_core::CoreError),
 
-    #[error("SQLite error: {0}")]
-    Sqlite(#[from] rusqlite::Error),
+    #[error("Postgres error: {0}")]
+    Sqlx(#[from] sqlx::Error),
+
+    #[error("Postgres-Pool: {0}")]
+    Pool(String),
 
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),

@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashSet};
 
-use rusqlite::{params, Connection};
 use serde_json::{json, Value};
+use sqlx::PgPool;
 
 use crate::util::{json_string, normalize_alias, table_count, table_exists};
 use crate::Result;
@@ -41,17 +41,20 @@ struct LegacyEntry {
     samples: Vec<Value>,
 }
 
-pub fn enrich_legacy_entities(conn: &Connection, rebuild: bool) -> Result<Value> {
-    let before_total = table_count(conn, "legacy_entities")?;
+pub async fn enrich_legacy_entities(pool: &PgPool, rebuild: bool) -> Result<Value> {
+    let before_total = table_count(pool, "legacy_entities").await?;
     let deleted = if rebuild {
-        conn.execute("DELETE FROM legacy_entities", [])? as i64
+        sqlx::query!("DELETE FROM brain.legacy_entities")
+            .execute(pool)
+            .await?
+            .rows_affected() as i64
     } else {
         0
     };
 
-    let known = known_names(conn)?;
+    let known = known_names(pool).await?;
     let mut grouped: BTreeMap<(String, String), LegacyEntry> = BTreeMap::new();
-    for row in load_patch_entity_rows(conn)? {
+    for row in load_patch_entity_rows(pool).await? {
         let entity_type = row.entity_type.clone();
         let name = clean_name(&row.entity_name);
         let name_norm = normalize_alias(&name);
@@ -98,7 +101,7 @@ pub fn enrich_legacy_entities(conn: &Connection, rebuild: bool) -> Result<Value>
         if entry.confidence < 0.5 {
             entry.status = "suspect_parser_subject".to_string();
         }
-        if insert_legacy(conn, &entry)? {
+        if insert_legacy(pool, &entry).await? {
             inserted += 1;
             *by_type.entry(entry.legacy_type.clone()).or_default() += 1;
         }
@@ -107,56 +110,53 @@ pub fn enrich_legacy_entities(conn: &Connection, rebuild: bool) -> Result<Value>
     Ok(json!({
         "legacy_inserted": inserted,
         "legacy_before": before_total,
-        "legacy_total": table_count(conn, "legacy_entities")?,
+        "legacy_total": table_count(pool, "legacy_entities").await?,
         "deleted_before_build": deleted,
         "by_type": by_type,
         "rebuild": rebuild,
     }))
 }
 
-fn known_names(conn: &Connection) -> Result<HashSet<(String, String)>> {
+async fn known_names(pool: &PgPool) -> Result<HashSet<(String, String)>> {
     let mut known = HashSet::new();
-    if table_exists(conn, "entities")? {
-        let mut stmt = conn.prepare("SELECT entity_type, canonical_name FROM entities")?;
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?;
+    if table_exists(pool, "entities").await? {
+        let rows = sqlx::query!(
+            r#"SELECT entity_type AS "entity_type!", canonical_name AS "canonical_name!"
+               FROM brain.entities"#,
+        )
+        .fetch_all(pool)
+        .await?;
         for row in rows {
-            let (entity_type, canonical_name) = row?;
-            known.insert((entity_type, normalize_alias(&canonical_name)));
+            known.insert((row.entity_type, normalize_alias(&row.canonical_name)));
         }
     }
-    if table_exists(conn, "entity_aliases")? {
-        let mut stmt = conn.prepare(
+    if table_exists(pool, "entity_aliases").await? {
+        let rows = sqlx::query!(
             r#"
-            SELECT e.entity_type, a.alias_norm
-            FROM entity_aliases a
-            JOIN entities e ON e.id=a.entity_id
+            SELECT e.entity_type AS "entity_type!", a.alias_norm AS "alias_norm!"
+            FROM brain.entity_aliases a
+            JOIN brain.entities e ON e.id = a.entity_id
             "#,
-        )?;
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?;
+        )
+        .fetch_all(pool)
+        .await?;
         for row in rows {
-            known.insert(row?);
+            known.insert((row.entity_type, row.alias_norm));
         }
     }
-    if table_exists(conn, "entity_lineage")? {
-        let mut stmt = conn.prepare(
-            "SELECT source_entity_type, source_name_norm, target_entity_type, target_name_norm FROM entity_lineage",
-        )?;
-        let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, Option<String>>(0)?,
-                row.get::<_, Option<String>>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, Option<String>>(3)?,
-            ))
-        })?;
+    if table_exists(pool, "entity_lineage").await? {
+        let rows = sqlx::query!(
+            r#"
+            SELECT source_entity_type AS "source_entity_type?", source_name_norm AS "source_name_norm?",
+                   target_entity_type AS "target_entity_type?", target_name_norm AS "target_name_norm?"
+            FROM brain.entity_lineage
+            "#,
+        )
+        .fetch_all(pool)
+        .await?;
         for row in rows {
-            let (source_type, source_norm, target_type, target_norm) = row?;
-            add_known_lineage_name(&mut known, source_type, source_norm);
-            add_known_lineage_name(&mut known, target_type, target_norm);
+            add_known_lineage_name(&mut known, row.source_entity_type, row.source_name_norm);
+            add_known_lineage_name(&mut known, row.target_entity_type, row.target_name_norm);
         }
     }
     Ok(known)
@@ -179,78 +179,80 @@ fn add_known_lineage_name(
     }
 }
 
-fn load_patch_entity_rows(conn: &Connection) -> Result<Vec<PatchEntityRow>> {
-    let mut stmt = conn.prepare(
+async fn load_patch_entity_rows(pool: &PgPool) -> Result<Vec<PatchEntityRow>> {
+    let rows = sqlx::query!(
         r#"
-        SELECT id, patch_title, patch_url, posted_at, entity_type, entity_name, raw_line, normalized_line
-        FROM patch_events
+        SELECT id AS "id!", patch_title AS "patch_title?", patch_url AS "patch_url?",
+               posted_at::text AS "posted_at?", entity_type AS "entity_type!",
+               entity_name AS "entity_name!", raw_line AS "raw_line!",
+               normalized_line AS "normalized_line!"
+        FROM brain.patch_events
         WHERE entity_type <> 'general'
           AND entity_name IS NOT NULL
           AND TRIM(entity_name) <> ''
         ORDER BY id ASC
         "#,
-    )?;
-    let rows = stmt.query_map([], |row| {
-        Ok(PatchEntityRow {
-            id: row.get("id")?,
-            patch_title: row.get("patch_title")?,
-            patch_url: row.get("patch_url")?,
-            posted_at: row.get("posted_at")?,
-            entity_type: row.get("entity_type")?,
-            entity_name: row.get("entity_name")?,
-            raw_line: row.get("raw_line")?,
-            normalized_line: row.get("normalized_line")?,
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| PatchEntityRow {
+            id: row.id,
+            patch_title: row.patch_title,
+            patch_url: row.patch_url,
+            posted_at: row.posted_at,
+            entity_type: row.entity_type,
+            entity_name: row.entity_name,
+            raw_line: row.raw_line,
+            normalized_line: row.normalized_line,
         })
-    })?;
-    let mut out = Vec::new();
-    for row in rows {
-        out.push(row?);
-    }
-    Ok(out)
+        .collect())
 }
 
-fn insert_legacy(conn: &Connection, entry: &LegacyEntry) -> Result<bool> {
-    let now = crate::util::now()?;
+async fn insert_legacy(pool: &PgPool, entry: &LegacyEntry) -> Result<bool> {
     let samples_json = json_string(&Value::Array(entry.samples.clone()))?;
-    let changed = conn.execute(
+    let result = sqlx::query!(
         r#"
-        INSERT INTO legacy_entities(
+        INSERT INTO brain.legacy_entities(
           legacy_type, canonical_name, name_norm, observed_entity_type,
           first_patch_event_id, last_patch_event_id, first_seen_at, last_seen_at,
-          event_count, confidence, status, samples_json, created_at, updated_at
+          event_count, confidence, status, samples, created_at, updated_at
         )
-        VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)
-        ON CONFLICT(legacy_type, name_norm) DO UPDATE SET
-          canonical_name=excluded.canonical_name,
-          observed_entity_type=excluded.observed_entity_type,
-          first_patch_event_id=excluded.first_patch_event_id,
-          last_patch_event_id=excluded.last_patch_event_id,
-          first_seen_at=excluded.first_seen_at,
-          last_seen_at=excluded.last_seen_at,
-          event_count=excluded.event_count,
-          confidence=excluded.confidence,
-          status=excluded.status,
-          samples_json=excluded.samples_json,
-          updated_at=excluded.updated_at
+        VALUES(
+          $1, $2, $3, $4,
+          $5, $6, CASE WHEN $7 ~ '^-?[0-9]+$' THEN to_timestamp($7::double precision) ELSE $7::text::timestamptz END, CASE WHEN $8 ~ '^-?[0-9]+$' THEN to_timestamp($8::double precision) ELSE $8::text::timestamptz END,
+          $9, $10, $11, $12::text::jsonb, now(), now()
+        )
+        ON CONFLICT (legacy_type, name_norm) DO UPDATE SET
+          canonical_name = EXCLUDED.canonical_name,
+          observed_entity_type = EXCLUDED.observed_entity_type,
+          first_patch_event_id = EXCLUDED.first_patch_event_id,
+          last_patch_event_id = EXCLUDED.last_patch_event_id,
+          first_seen_at = EXCLUDED.first_seen_at,
+          last_seen_at = EXCLUDED.last_seen_at,
+          event_count = EXCLUDED.event_count,
+          confidence = EXCLUDED.confidence,
+          status = EXCLUDED.status,
+          samples = EXCLUDED.samples,
+          updated_at = EXCLUDED.updated_at
         "#,
-        params![
-            entry.legacy_type,
-            entry.canonical_name,
-            entry.name_norm,
-            entry.observed_entity_type,
-            entry.first_patch_event_id,
-            entry.last_patch_event_id,
-            entry.first_seen_at,
-            entry.last_seen_at,
-            entry.event_count,
-            entry.confidence,
-            entry.status,
-            samples_json,
-            now,
-            now,
-        ],
-    )?;
-    Ok(changed > 0)
+        entry.legacy_type,
+        entry.canonical_name,
+        entry.name_norm,
+        entry.observed_entity_type,
+        entry.first_patch_event_id,
+        entry.last_patch_event_id,
+        entry.first_seen_at,
+        entry.last_seen_at,
+        entry.event_count,
+        entry.confidence,
+        entry.status,
+        samples_json,
+    )
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
 }
 
 fn legacy_type(entity_type: &str) -> String {

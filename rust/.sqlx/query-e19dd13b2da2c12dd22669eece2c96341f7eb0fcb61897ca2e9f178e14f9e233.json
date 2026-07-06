@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE brain.patch_events\n                SET entity_type = $1, entity_name = $2, confidence = $3\n                WHERE id = $4\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Float8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e19dd13b2da2c12dd22669eece2c96341f7eb0fcb61897ca2e9f178e14f9e233"
+}

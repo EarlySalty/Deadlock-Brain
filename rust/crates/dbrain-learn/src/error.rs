@@ -1,12 +1,10 @@
-use std::path::PathBuf;
-
 #[derive(Debug, thiserror::Error)]
 pub enum LearnError {
     #[error(transparent)]
     Core(#[from] deadlock_brain_core::CoreError),
 
-    #[error("SQLite error: {0}")]
-    Sqlite(#[from] rusqlite::Error),
+    #[error("Postgres error: {0}")]
+    Sqlx(#[from] sqlx::Error),
 
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
@@ -19,9 +17,6 @@ pub enum LearnError {
 
     #[error("MiniMax response did not include message content.")]
     EmptyMiniMaxResponse,
-
-    #[error("steam db not found: {0}")]
-    SteamDbNotFound(PathBuf),
 }
 
 pub type Result<T> = std::result::Result<T, LearnError>;

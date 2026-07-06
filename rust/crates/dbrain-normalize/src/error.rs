@@ -5,8 +5,8 @@ pub enum NormalizeError {
     #[error("Core error: {0}")]
     Core(#[from] deadlock_brain_core::CoreError),
 
-    #[error("SQLite error: {0}")]
-    Sqlite(#[from] rusqlite::Error),
+    #[error("Postgres error: {0}")]
+    Sqlx(#[from] sqlx::Error),
 
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
@@ -16,6 +16,9 @@ pub enum NormalizeError {
 
     #[error("missing row after upsert: {0}")]
     MissingRow(&'static str),
+
+    #[error("refused unlisted table identifier: {0}")]
+    InvalidTable(String),
 }
 
 pub type Result<T> = std::result::Result<T, NormalizeError>;

@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT a.entity_id AS \"entity_id!\", a.alias AS \"alias!\"\n        FROM brain.entity_aliases a\n        JOIN brain.entities e ON e.id = a.entity_id\n        WHERE e.entity_type = 'hero'\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "entity_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "alias!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "bc1211927374da688f0fe7f86275d240f1f55310aeef1227f6628f22c2625196"
+}
