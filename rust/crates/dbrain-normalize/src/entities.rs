@@ -1,11 +1,11 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
+use sqlx::PgPool;
 
 use crate::util::{
-    get_required_id, normalize_alias, object_json_string, optional_value_to_string, parse_int,
-    value_bool, value_to_string, value_truthy, ASSETS_SOURCE,
+    normalize_alias, object_json_string, optional_value_to_string, parse_int, value_bool,
+    value_to_string, value_truthy, ASSETS_SOURCE,
 };
 use crate::Result;
 
@@ -53,16 +53,22 @@ struct AssetContext {
     internal_ability_names_by_class: HashMap<String, String>,
 }
 
-pub fn normalize_entities(conn: &Connection, rebuild: bool) -> Result<Value> {
+pub async fn normalize_entities(pool: &PgPool, rebuild: bool) -> Result<Value> {
     let deleted = if rebuild {
-        let aliases = conn.execute("DELETE FROM entity_aliases", [])? as i64;
-        let entities = conn.execute("DELETE FROM entities", [])? as i64;
+        let aliases = sqlx::query!("DELETE FROM brain.entity_aliases")
+            .execute(pool)
+            .await?
+            .rows_affected() as i64;
+        let entities = sqlx::query!("DELETE FROM brain.entities")
+            .execute(pool)
+            .await?
+            .rows_affected() as i64;
         json!({"aliases": aliases, "entities": entities})
     } else {
         json!({"aliases": 0, "entities": 0})
     };
 
-    let candidates = collect_asset_candidates(conn)?;
+    let candidates = collect_asset_candidates(pool).await?;
     let mut inserted = 0_i64;
     let mut aliases = 0_i64;
     let mut skipped = 0_i64;
@@ -73,7 +79,7 @@ pub fn normalize_entities(conn: &Connection, rebuild: bool) -> Result<Value> {
             skipped += 1;
             continue;
         }
-        let entity_id = upsert_entity(conn, &candidate)?;
+        let entity_id = upsert_entity(pool, &candidate).await?;
         inserted += 1;
         *by_type.entry(candidate.entity_type.clone()).or_default() += 1;
 
@@ -84,7 +90,7 @@ pub fn normalize_entities(conn: &Connection, rebuild: bool) -> Result<Value> {
             if alias_norm.is_empty() {
                 continue;
             }
-            if upsert_entity_alias(conn, &candidate, entity_id, &alias, &alias_norm, &alias_kind)? {
+            if upsert_entity_alias(pool, &candidate, entity_id, &alias, &alias_norm, &alias_kind).await? {
                 aliases += 1;
             }
         }
@@ -99,8 +105,8 @@ pub fn normalize_entities(conn: &Connection, rebuild: bool) -> Result<Value> {
     }))
 }
 
-fn collect_asset_candidates(conn: &Connection) -> Result<HashMap<(String, String), EntityCandidate>> {
-    let rows = load_asset_rows(conn)?;
+async fn collect_asset_candidates(pool: &PgPool) -> Result<HashMap<(String, String), EntityCandidate>> {
+    let rows = load_asset_rows(pool).await?;
     let context = build_asset_context(&rows);
     let mut candidates: HashMap<(String, String), EntityCandidate> = HashMap::new();
     let mut class_index: HashMap<(String, String), (String, String)> = HashMap::new();
@@ -159,14 +165,15 @@ fn collect_asset_candidates(conn: &Connection) -> Result<HashMap<(String, String
     Ok(candidates)
 }
 
-fn load_asset_rows(conn: &Connection) -> Result<Vec<SnapshotRow>> {
-    let mut stmt = conn.prepare(
+async fn load_asset_rows(pool: &PgPool) -> Result<Vec<SnapshotRow>> {
+    let rows = sqlx::query!(
         r#"
-        SELECT es.id, es.entity_type, es.external_id, es.canonical_name,
-               es.payload_json, sd.external_id AS document_kind
-        FROM entity_snapshots es
-        LEFT JOIN source_documents sd ON sd.id=es.source_document_id
-        WHERE es.source=?1
+        SELECT es.id AS "id!", es.entity_type AS "entity_type!", es.external_id AS "external_id!",
+               es.canonical_name AS "canonical_name?", es.payload::text AS "payload_json!",
+               sd.external_id AS "document_kind?"
+        FROM brain.entity_snapshots es
+        LEFT JOIN brain.source_documents sd ON sd.id = es.source_document_id
+        WHERE es.source = $1
         ORDER BY
           CASE sd.external_id
             WHEN 'heroes' THEN 0
@@ -177,22 +184,21 @@ fn load_asset_rows(conn: &Connection) -> Result<Vec<SnapshotRow>> {
           END,
           es.id
         "#,
-    )?;
-    let rows = stmt.query_map([ASSETS_SOURCE], |row| {
-        Ok(SnapshotRow {
-            id: row.get("id")?,
-            entity_type: row.get("entity_type")?,
-            external_id: row.get("external_id")?,
-            canonical_name: row.get("canonical_name")?,
-            payload_json: row.get("payload_json")?,
-            document_kind: row.get("document_kind")?,
+        ASSETS_SOURCE,
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| SnapshotRow {
+            id: row.id,
+            entity_type: row.entity_type,
+            external_id: row.external_id,
+            canonical_name: row.canonical_name,
+            payload_json: row.payload_json,
+            document_kind: row.document_kind,
         })
-    })?;
-    let mut out = Vec::new();
-    for row in rows {
-        out.push(row?);
-    }
-    Ok(out)
+        .collect())
 }
 
 fn build_asset_context(rows: &[SnapshotRow]) -> AssetContext {
@@ -518,70 +524,60 @@ fn string_array_set(value: Option<&Value>) -> HashSet<String> {
         .unwrap_or_default()
 }
 
-fn upsert_entity(conn: &Connection, candidate: &EntityCandidate) -> Result<i64> {
-    let now = crate::util::now()?;
+async fn upsert_entity(pool: &PgPool, candidate: &EntityCandidate) -> Result<i64> {
     let metadata_json = object_json_string(candidate.metadata.clone())?;
-    conn.execute(
+    let id = sqlx::query_scalar!(
         r#"
-        INSERT INTO entities(
+        INSERT INTO brain.entities(
           entity_type, canonical_name, primary_external_id, source,
-          first_snapshot_id, metadata_json, created_at, updated_at
+          first_snapshot_id, metadata, created_at, updated_at
         )
-        VALUES(?1,?2,?3,?4,?5,?6,?7,?8)
-        ON CONFLICT(entity_type, canonical_name) DO UPDATE SET
-          primary_external_id=COALESCE(excluded.primary_external_id, entities.primary_external_id),
-          first_snapshot_id=COALESCE(entities.first_snapshot_id, excluded.first_snapshot_id),
-          metadata_json=excluded.metadata_json,
-          updated_at=excluded.updated_at
+        VALUES($1, $2, $3, $4, $5, $6::text::jsonb, now(), now())
+        ON CONFLICT (entity_type, canonical_name) DO UPDATE SET
+          primary_external_id = COALESCE(EXCLUDED.primary_external_id, entities.primary_external_id),
+          first_snapshot_id = COALESCE(entities.first_snapshot_id, EXCLUDED.first_snapshot_id),
+          metadata = EXCLUDED.metadata,
+          updated_at = EXCLUDED.updated_at
+        RETURNING id
         "#,
-        params![
-            candidate.entity_type,
-            candidate.canonical_name,
-            candidate.external_id,
-            candidate.source,
-            candidate.snapshot_id,
-            metadata_json,
-            now,
-            now,
-        ],
-    )?;
-    let id = conn
-        .query_row(
-            "SELECT id FROM entities WHERE entity_type=?1 AND canonical_name=?2",
-            params![candidate.entity_type, candidate.canonical_name],
-            |row| row.get(0),
-        )
-        .optional()?;
-    get_required_id(id, "entities")
+        candidate.entity_type,
+        candidate.canonical_name,
+        candidate.external_id,
+        candidate.source,
+        candidate.snapshot_id,
+        metadata_json,
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok(id)
 }
 
-fn upsert_entity_alias(
-    conn: &Connection,
+async fn upsert_entity_alias(
+    pool: &PgPool,
     candidate: &EntityCandidate,
     entity_id: i64,
     alias: &str,
     alias_norm: &str,
     alias_kind: &str,
 ) -> Result<bool> {
-    let now = crate::util::now()?;
-    let changed = conn.execute(
+    let result = sqlx::query!(
         r#"
-        INSERT OR IGNORE INTO entity_aliases(
+        INSERT INTO brain.entity_aliases(
           entity_id, alias, alias_norm, alias_kind, source,
           external_id, snapshot_id, created_at
         )
-        VALUES(?1,?2,?3,?4,?5,?6,?7,?8)
+        VALUES($1, $2, $3, $4, $5, $6, $7, now())
+        ON CONFLICT (entity_id, alias_norm, alias_kind) DO NOTHING
         "#,
-        params![
-            entity_id,
-            alias,
-            alias_norm,
-            alias_kind,
-            candidate.source,
-            candidate.external_id,
-            candidate.snapshot_id,
-            now,
-        ],
-    )?;
-    Ok(changed > 0)
+        entity_id,
+        alias,
+        alias_norm,
+        alias_kind,
+        candidate.source,
+        candidate.external_id,
+        candidate.snapshot_id,
+    )
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
 }

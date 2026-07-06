@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT v.video_id, v.title, v.url\n        FROM brain.youtube_videos v\n        WHERE v.transcript_status='missing'\n           OR (\n             v.transcript_status <> 'unavailable'\n             AND NOT EXISTS (\n               SELECT 1 FROM brain.youtube_transcripts t\n               WHERE t.video_id=v.video_id\n                 AND LENGTH(TRIM(t.transcript_text)) > 0\n             )\n           )\n        ORDER BY v.published_at DESC NULLS LAST, v.discovered_at DESC\n        LIMIT $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "video_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "url",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "d6fcc336a5040ac8242875fe25bf3f02c895d479dd3d0da358f7aeb00de3ffe4"
+}

@@ -1,0 +1,100 @@
+[
+  {
+    "id": 18,
+    "name": "Mo & Krill",
+    "starting_stats": {
+      "max_move_speed": {
+        "value": 8.0,
+        "display_stat_name": "EMaxMoveSpeed"
+      },
+      "sprint_speed": {
+        "value": 1.6,
+        "display_stat_name": "ESprintSpeed"
+      },
+      "crouch_speed": {
+        "value": 4.75,
+        "display_stat_name": "ECrouchSpeed"
+      },
+      "move_acceleration": {
+        "value": 4.0,
+        "display_stat_name": "EMoveAcceleration"
+      },
+      "light_melee_damage": {
+        "value": 50.0,
+        "display_stat_name": "ELightMeleeDamage"
+      },
+      "heavy_melee_damage": {
+        "value": 116,
+        "display_stat_name": "EHeavyMeleeDamage"
+      },
+      "max_health": {
+        "value": 930,
+        "display_stat_name": "EMaxHealth"
+      },
+      "weapon_power": {
+        "value": 0,
+        "display_stat_name": "EWeaponPower"
+      },
+      "reload_speed": {
+        "value": 1,
+        "display_stat_name": "EReloadSpeed"
+      },
+      "weapon_power_scale": {
+        "value": 1,
+        "display_stat_name": "EWeaponPowerScale"
+      },
+      "proc_build_up_rate_scale": {
+        "value": 1,
+        "display_stat_name": "EProcBuildUpRateScale"
+      },
+      "stamina": {
+        "value": 3,
+        "display_stat_name": "EStamina"
+      },
+      "base_health_regen": {
+        "value": 1.0,
+        "display_stat_name": "EBaseHealthRegen"
+      },
+      "stamina_regen_per_second": {
+        "value": 0.222222,
+        "display_stat_name": "EStaminaRegenPerSecond"
+      },
+      "ability_resource_max": {
+        "value": 0,
+        "display_stat_name": "EAbilityResourceMax"
+      },
+      "ability_resource_regen_per_second": {
+        "value": 0,
+        "display_stat_name": "EAbilityResourceRegenPerSecond"
+      },
+      "crit_damage_received_scale": {
+        "value": 0.8,
+        "display_stat_name": "ECritDamageReceivedScale"
+      },
+      "tech_duration": {
+        "value": 1,
+        "display_stat_name": "ETechDuration"
+      },
+      "tech_range": {
+        "value": 1,
+        "display_stat_name": "ETechRange"
+      },
+      "ground_dash_distance_in_meters": {
+        "value": 10.0,
+        "display_stat_name": "EGroundDashDistanceInMeters"
+      },
+      "ground_dash_duration": {
+        "value": 0.7,
+        "display_stat_name": "EGroundDashDuration"
+      },
+      "air_dash_distance_in_meters": {
+        "value": 8.0,
+        "display_stat_name": "EAirDashDistanceInMeters"
+      },
+      "air_dash_duration": {
+        "value": 0.49,
+        "display_stat_name": "EAirDashDuration"
+      }
+    }
+  }
+]

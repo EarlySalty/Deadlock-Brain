@@ -1,11 +1,11 @@
 use std::{collections::BTreeSet, path::Path, thread, time::Duration};
 
 use deadlock_brain_core::http::{HttpClient, HttpGetOptions};
-use rusqlite::{params, Connection};
 use serde_json::{json, Map, Value};
+use sqlx::PgPool;
 
 use crate::{
-    store::{json_bytes, run_source, EntitySnapshotInput, SourceDocumentInput, SourceStore},
+    store::{complete_run, json_bytes, open_pool, EntitySnapshotInput, SourceDocumentInput, SourceStore},
     util::{form_urlencode, python_or_string, quote_path, value_to_python_string},
     Result, SourcesError,
 };
@@ -59,18 +59,19 @@ impl Default for PullStatlockerOptions {
     }
 }
 
-pub fn pull_statlocker(
-    conn: &Connection,
+pub async fn pull_statlocker(
     raw_dir: &Path,
     http: &HttpClient,
     options: PullStatlockerOptions,
 ) -> Result<Value> {
-    run_source(conn, raw_dir, "statlocker", |store| {
-        pull_statlocker_inner(store, http, &options)
-    })
+    let pool = open_pool().await?;
+    let store = SourceStore::new(&pool, raw_dir)?;
+    let run_id = store.begin_run("statlocker").await?;
+    let outcome = pull_statlocker_inner(&store, http, &options).await;
+    complete_run(&store, run_id, outcome).await
 }
 
-fn pull_statlocker_inner(
+async fn pull_statlocker_inner(
     store: &SourceStore<'_>,
     http: &HttpClient,
     options: &PullStatlockerOptions,
@@ -91,7 +92,7 @@ fn pull_statlocker_inner(
 
     if contains_kind(&selected, "wpa-patches") || contains_kind(&selected, "wpa-items") {
         let (patches_summary, latest) =
-            pull_wpa_patches(store, http, options.cache_ttl_seconds)?;
+            pull_wpa_patches(store, http, options.cache_ttl_seconds).await?;
         total_snapshots += snapshots_from_summary(&patches_summary);
         endpoints.insert("wpa-patches".to_string(), patches_summary);
         if latest_patch.as_ref().map(|value| value.is_empty()).unwrap_or(true) {
@@ -112,7 +113,8 @@ fn pull_statlocker_inner(
             options.min_sample_size,
             &options.rank,
             options.cache_ttl_seconds,
-        )?;
+        )
+        .await?;
         total_snapshots += snapshots_from_summary(&items_summary);
         endpoints.insert("wpa-items".to_string(), items_summary);
     }
@@ -124,7 +126,8 @@ fn pull_statlocker_inner(
             options.leaderboard_page,
             options.leaderboard_page_size,
             options.cache_ttl_seconds,
-        )?;
+        )
+        .await?;
         total_snapshots += snapshots_from_summary(&leaderboard_summary);
         endpoints.insert("leaderboard".to_string(), leaderboard_summary);
     }
@@ -136,7 +139,7 @@ fn pull_statlocker_inner(
             ));
         };
         let profile_summary =
-            pull_player_profile(store, http, account_id, options.cache_ttl_seconds)?;
+            pull_player_profile(store, http, account_id, options.cache_ttl_seconds).await?;
         total_snapshots += snapshots_from_summary(&profile_summary);
         endpoints.insert("player-profile".to_string(), profile_summary);
     }
@@ -154,7 +157,8 @@ fn pull_statlocker_inner(
             options.matches_per_player,
             options.game_mode.as_deref(),
             options.cache_ttl_seconds,
-        )?;
+        )
+        .await?;
         total_snapshots += snapshots_from_summary(&matches.summary);
         endpoints.insert("player-matches".to_string(), without_match_rows(&matches.summary));
         if options.include_match_details {
@@ -164,7 +168,8 @@ fn pull_statlocker_inner(
                 &matches.match_rows,
                 options.cache_ttl_seconds,
                 options.delay_seconds,
-            )?;
+            )
+            .await?;
             total_snapshots += snapshots_from_summary(&details_summary);
             endpoints.insert("match-detail".to_string(), details_summary);
         }
@@ -175,7 +180,8 @@ fn pull_statlocker_inner(
                 &matches.match_rows,
                 options.cache_ttl_seconds,
                 options.delay_seconds,
-            )?;
+            )
+            .await?;
             total_snapshots += snapshots_from_summary(&build_summary);
             endpoints.insert("player-build-analysis".to_string(), build_summary);
         }
@@ -188,7 +194,7 @@ fn pull_statlocker_inner(
             ));
         };
         let detail_summary =
-            pull_match_detail(store, http, match_id, options.cache_ttl_seconds)?;
+            pull_match_detail(store, http, match_id, options.cache_ttl_seconds).await?;
         total_snapshots += snapshots_from_summary(&detail_summary);
         endpoints.insert("match-detail".to_string(), detail_summary);
     }
@@ -205,17 +211,14 @@ fn pull_statlocker_inner(
         let account_id = options.account_id.as_deref().unwrap_or_default();
         let hero_id = options.hero_id.as_deref().unwrap_or_default();
         let build_summary =
-            pull_player_build_analysis(store, http, account_id, hero_id, options.cache_ttl_seconds)?;
+            pull_player_build_analysis(store, http, account_id, hero_id, options.cache_ttl_seconds)
+                .await?;
         total_snapshots += snapshots_from_summary(&build_summary);
         endpoints.insert("player-build-analysis".to_string(), build_summary);
     }
 
     if contains_kind(&selected, "leaderboard-player-matches") {
-        let player_summary = pull_leaderboard_player_matches(
-            store,
-            http,
-            options,
-        )?;
+        let player_summary = pull_leaderboard_player_matches(store, http, options).await?;
         total_snapshots += snapshots_from_summary(&player_summary);
         endpoints.insert("leaderboard-player-matches".to_string(), player_summary);
     }
@@ -248,7 +251,7 @@ fn pull_statlocker_inner(
     }))
 }
 
-fn pull_wpa_patches(
+async fn pull_wpa_patches(
     store: &SourceStore<'_>,
     http: &HttpClient,
     cache_ttl_seconds: u64,
@@ -264,16 +267,18 @@ fn pull_wpa_patches(
     let raw = json_bytes(&payload)?;
     let raw_path = store.write_raw(SOURCE, "wpa-patches", &raw, "json")?;
     let metadata = json!({ "cache_ttl_seconds": cache_ttl_seconds });
-    let document_id = store.upsert_source_document(SourceDocumentInput {
-        source: SOURCE,
-        external_id: "wpa-patches",
-        title: Some("Statlocker WPA patches"),
-        url: Some(&url),
-        content_type: "application/json",
-        raw_path: &raw_path,
-        content: &raw,
-        metadata: &metadata,
-    })?;
+    let document_id = store
+        .upsert_source_document(SourceDocumentInput {
+            source: SOURCE,
+            external_id: "wpa-patches",
+            title: Some("Statlocker WPA patches"),
+            url: Some(&url),
+            content_type: "application/json",
+            raw_path: &raw_path,
+            content: &raw,
+            metadata: &metadata,
+        })
+        .await?;
 
     let mut snapshots = Vec::new();
     let mut latest_patch = None;
@@ -300,7 +305,9 @@ fn pull_wpa_patches(
             payload: with_source_metadata(row, json!({ "source_url": &url })),
         });
     }
-    let count = store.insert_many_snapshots(&snapshots, Some(document_id))?;
+    let count = store
+        .insert_many_snapshots(&snapshots, Some(document_id))
+        .await?;
     Ok((
         json!({
             "url": url,
@@ -312,7 +319,7 @@ fn pull_wpa_patches(
     ))
 }
 
-fn pull_wpa_items(
+async fn pull_wpa_items(
     store: &SourceStore<'_>,
     http: &HttpClient,
     patch: &str,
@@ -352,16 +359,18 @@ fn pull_wpa_items(
         "min_sample_size": min_sample_size,
         "rank": rank,
     });
-    let document_id = store.upsert_source_document(SourceDocumentInput {
-        source: SOURCE,
-        external_id: &external_id,
-        title: Some(&title),
-        url: Some(&url),
-        content_type: "application/json",
-        raw_path: &raw_path,
-        content: &raw,
-        metadata: &metadata,
-    })?;
+    let document_id = store
+        .upsert_source_document(SourceDocumentInput {
+            source: SOURCE,
+            external_id: &external_id,
+            title: Some(&title),
+            url: Some(&url),
+            content_type: "application/json",
+            raw_path: &raw_path,
+            content: &raw,
+            metadata: &metadata,
+        })
+        .await?;
 
     let items = payload
         .get("items")
@@ -398,7 +407,9 @@ fn pull_wpa_items(
             ),
         });
     }
-    let count = store.insert_many_snapshots(&snapshots, Some(document_id))?;
+    let count = store
+        .insert_many_snapshots(&snapshots, Some(document_id))
+        .await?;
     Ok(json!({
         "url": url,
         "patch": patch,
@@ -408,7 +419,7 @@ fn pull_wpa_items(
     }))
 }
 
-fn pull_leaderboard(
+async fn pull_leaderboard(
     store: &SourceStore<'_>,
     http: &HttpClient,
     page: u64,
@@ -434,16 +445,18 @@ fn pull_leaderboard(
     let raw_path = store.write_raw(SOURCE, &external_id, &raw, "json")?;
     let title = format!("Statlocker leaderboard page {safe_page}");
     let metadata = json!({ "page": safe_page, "page_size": safe_page_size, "version": 2 });
-    let document_id = store.upsert_source_document(SourceDocumentInput {
-        source: SOURCE,
-        external_id: &external_id,
-        title: Some(&title),
-        url: Some(&url),
-        content_type: "application/json",
-        raw_path: &raw_path,
-        content: &raw,
-        metadata: &metadata,
-    })?;
+    let document_id = store
+        .upsert_source_document(SourceDocumentInput {
+            source: SOURCE,
+            external_id: &external_id,
+            title: Some(&title),
+            url: Some(&url),
+            content_type: "application/json",
+            raw_path: &raw_path,
+            content: &raw,
+            metadata: &metadata,
+        })
+        .await?;
 
     let rows = payload
         .get("data")
@@ -475,7 +488,9 @@ fn pull_leaderboard(
             ),
         });
     }
-    let count = store.insert_many_snapshots(&snapshots, Some(document_id))?;
+    let count = store
+        .insert_many_snapshots(&snapshots, Some(document_id))
+        .await?;
     Ok(json!({
         "url": url,
         "page": payload.get("page").cloned().unwrap_or(json!(safe_page)),
@@ -485,7 +500,7 @@ fn pull_leaderboard(
     }))
 }
 
-fn pull_player_profile(
+async fn pull_player_profile(
     store: &SourceStore<'_>,
     http: &HttpClient,
     account_id: &str,
@@ -509,7 +524,8 @@ fn pull_player_profile(
         &url,
         &payload,
         &json!({ "account_id": &safe_account_id, "cache_ttl_seconds": cache_ttl_seconds }),
-    )?;
+    )
+    .await?;
     let profile_name = first_string(
         &payload,
         &["name", "personaName", "personaname", "steamName", "displayName"],
@@ -525,11 +541,13 @@ fn pull_player_profile(
             json!({ "source_url": &url, "account_id": &safe_account_id }),
         ),
     }];
-    let count = store.insert_many_snapshots(&snapshots, Some(document_id))?;
+    let count = store
+        .insert_many_snapshots(&snapshots, Some(document_id))
+        .await?;
     Ok(json!({ "url": url, "account_id": safe_account_id, "snapshots": count }))
 }
 
-fn pull_player_matches(
+async fn pull_player_matches(
     store: &SourceStore<'_>,
     http: &HttpClient,
     account_id: &str,
@@ -570,7 +588,8 @@ fn pull_player_matches(
         &url,
         &payload,
         &json!({ "account_id": &safe_account_id, "limit": safe_limit, "game_mode": game_mode }),
-    )?;
+    )
+    .await?;
 
     let mut snapshots = Vec::new();
     let mut match_rows = Vec::new();
@@ -604,7 +623,9 @@ fn pull_player_matches(
             payload: row_payload,
         });
     }
-    let count = store.insert_many_snapshots(&snapshots, Some(document_id))?;
+    let count = store
+        .insert_many_snapshots(&snapshots, Some(document_id))
+        .await?;
     let match_row_values = match_rows
         .iter()
         .map(MatchRow::to_value)
@@ -621,7 +642,7 @@ fn pull_player_matches(
     })
 }
 
-fn pull_match_detail(
+async fn pull_match_detail(
     store: &SourceStore<'_>,
     http: &HttpClient,
     match_id: &str,
@@ -642,7 +663,8 @@ fn pull_match_detail(
         &url,
         &payload,
         &json!({ "match_id": &safe_match_id, "cache_ttl_seconds": cache_ttl_seconds }),
-    )?;
+    )
+    .await?;
     let snapshots = [EntitySnapshotInput {
         source: SOURCE.to_string(),
         entity_type: "statlocker_match_detail".to_string(),
@@ -653,11 +675,13 @@ fn pull_match_detail(
             json!({ "source_url": &url, "match_id": &safe_match_id }),
         ),
     }];
-    let count = store.insert_many_snapshots(&snapshots, Some(document_id))?;
+    let count = store
+        .insert_many_snapshots(&snapshots, Some(document_id))
+        .await?;
     Ok(json!({ "url": url, "match_id": safe_match_id, "snapshots": count }))
 }
 
-fn pull_player_build_analysis(
+async fn pull_player_build_analysis(
     store: &SourceStore<'_>,
     http: &HttpClient,
     account_id: &str,
@@ -688,7 +712,8 @@ fn pull_player_build_analysis(
             "hero_id": &safe_hero_id,
             "cache_ttl_seconds": cache_ttl_seconds,
         }),
-    )?;
+    )
+    .await?;
     let snapshots = [EntitySnapshotInput {
         source: SOURCE.to_string(),
         entity_type: "statlocker_player_build_analysis".to_string(),
@@ -703,7 +728,9 @@ fn pull_player_build_analysis(
             }),
         ),
     }];
-    let count = store.insert_many_snapshots(&snapshots, Some(document_id))?;
+    let count = store
+        .insert_many_snapshots(&snapshots, Some(document_id))
+        .await?;
     Ok(json!({
         "url": url,
         "account_id": safe_account_id,
@@ -712,12 +739,12 @@ fn pull_player_build_analysis(
     }))
 }
 
-fn pull_leaderboard_player_matches(
+async fn pull_leaderboard_player_matches(
     store: &SourceStore<'_>,
     http: &HttpClient,
     options: &PullStatlockerOptions,
 ) -> Result<Value> {
-    let players = latest_leaderboard_accounts(store.conn(), options.players_from_leaderboard)?;
+    let players = latest_leaderboard_accounts(store.pool(), options.players_from_leaderboard).await?;
     let mut snapshots = 0usize;
     let mut results = Vec::new();
     for (index, player) in players.iter().enumerate() {
@@ -735,7 +762,7 @@ fn pull_leaderboard_player_matches(
                 .unwrap_or(Value::Null),
         );
         let profile_summary =
-            pull_player_profile(store, http, &player.account_id, options.cache_ttl_seconds)?;
+            pull_player_profile(store, http, &player.account_id, options.cache_ttl_seconds).await?;
         snapshots += snapshots_from_summary(&profile_summary);
         player_result.insert("profile".to_string(), profile_summary);
         sleep_delay(options.delay_seconds);
@@ -746,7 +773,8 @@ fn pull_leaderboard_player_matches(
             options.matches_per_player,
             options.game_mode.as_deref(),
             options.cache_ttl_seconds,
-        )?;
+        )
+        .await?;
         snapshots += snapshots_from_summary(&matches.summary);
         player_result.insert("matches".to_string(), without_match_rows(&matches.summary));
         if options.include_match_details {
@@ -757,7 +785,8 @@ fn pull_leaderboard_player_matches(
                 &matches.match_rows,
                 options.cache_ttl_seconds,
                 options.delay_seconds,
-            )?;
+            )
+            .await?;
             snapshots += snapshots_from_summary(&details_summary);
             player_result.insert("match_details".to_string(), details_summary);
         }
@@ -769,7 +798,8 @@ fn pull_leaderboard_player_matches(
                 &matches.match_rows,
                 options.cache_ttl_seconds,
                 options.delay_seconds,
-            )?;
+            )
+            .await?;
             snapshots += snapshots_from_summary(&build_summary);
             player_result.insert("build_analysis".to_string(), build_summary);
         }
@@ -788,7 +818,7 @@ fn pull_leaderboard_player_matches(
     }))
 }
 
-fn pull_match_details_for_rows(
+async fn pull_match_details_for_rows(
     store: &SourceStore<'_>,
     http: &HttpClient,
     rows: &[MatchRow],
@@ -799,7 +829,7 @@ fn pull_match_details_for_rows(
     let mut snapshots = 0usize;
     let mut pulled = Vec::new();
     for (index, match_id) in match_ids.iter().enumerate() {
-        let detail = pull_match_detail(store, http, match_id, cache_ttl_seconds)?;
+        let detail = pull_match_detail(store, http, match_id, cache_ttl_seconds).await?;
         snapshots += snapshots_from_summary(&detail);
         pulled.push(json!({ "match_id": match_id, "snapshots": detail.get("snapshots").cloned().unwrap_or(Value::Null) }));
         if index + 1 < match_ids.len() {
@@ -809,7 +839,7 @@ fn pull_match_details_for_rows(
     Ok(json!({ "matches": pulled.len(), "snapshots": snapshots, "pulled": pulled }))
 }
 
-fn pull_build_analysis_for_rows(
+async fn pull_build_analysis_for_rows(
     store: &SourceStore<'_>,
     http: &HttpClient,
     rows: &[MatchRow],
@@ -830,7 +860,7 @@ fn pull_build_analysis_for_rows(
     let mut pulled = Vec::new();
     for (index, (account_id, hero_id)) in pairs.iter().enumerate() {
         let build =
-            pull_player_build_analysis(store, http, account_id, hero_id, cache_ttl_seconds)?;
+            pull_player_build_analysis(store, http, account_id, hero_id, cache_ttl_seconds).await?;
         snapshots += snapshots_from_summary(&build);
         pulled.push(json!({
             "account_id": account_id,
@@ -866,7 +896,7 @@ fn get_statlocker_json(
     Ok(serde_json::from_str(&result.text())?)
 }
 
-fn store_json_document(
+async fn store_json_document(
     store: &SourceStore<'_>,
     external_id: &str,
     title: &str,
@@ -876,42 +906,59 @@ fn store_json_document(
 ) -> Result<i64> {
     let raw = json_bytes(payload)?;
     let raw_path = store.write_raw(SOURCE, external_id, &raw, "json")?;
-    store.upsert_source_document(SourceDocumentInput {
-        source: SOURCE,
-        external_id,
-        title: Some(title),
-        url: Some(url),
-        content_type: "application/json",
-        raw_path: &raw_path,
-        content: &raw,
-        metadata,
-    })
+    store
+        .upsert_source_document(SourceDocumentInput {
+            source: SOURCE,
+            external_id,
+            title: Some(title),
+            url: Some(url),
+            content_type: "application/json",
+            raw_path: &raw_path,
+            content: &raw,
+            metadata,
+        })
+        .await
 }
 
-fn latest_leaderboard_accounts(conn: &Connection, limit: u64) -> Result<Vec<LeaderboardPlayer>> {
+/// Neueste Leaderboard-Spieler je `external_id` aus `brain.entity_snapshots`.
+/// PG-Port des frueheren SQLite-`json_extract`-Reads: `DISTINCT ON` waehlt pro
+/// Spieler den juengsten Snapshot; die Sortierung nach Rang/Seite toleriert
+/// nicht-numerische Werte (regex-Guard) statt an einem CAST zu scheitern.
+async fn latest_leaderboard_accounts(
+    pool: &PgPool,
+    limit: u64,
+) -> Result<Vec<LeaderboardPlayer>> {
     let safe_limit = limit.clamp(1, 50) as i64;
-    let mut statement = conn.prepare(
+    let players = sqlx::query!(
         r#"
-        SELECT external_id, canonical_name, payload_json, MAX(fetched_at) AS latest_fetched_at
-        FROM entity_snapshots
-        WHERE source=?1 AND entity_type='statlocker_leaderboard_player'
-        GROUP BY external_id
-        ORDER BY CAST(json_extract(payload_json, '$.rank') AS INTEGER) ASC,
-                 CAST(json_extract(payload_json, '$.leaderboard_page') AS INTEGER) ASC,
-                 latest_fetched_at DESC
-        LIMIT ?2
+        SELECT latest.external_id AS "external_id!",
+               latest.canonical_name AS "canonical_name?"
+        FROM (
+            SELECT DISTINCT ON (external_id)
+                   external_id, canonical_name, payload, fetched_at
+            FROM brain.entity_snapshots
+            WHERE source = $1 AND entity_type = 'statlocker_leaderboard_player'
+            ORDER BY external_id, fetched_at DESC
+        ) latest
+        ORDER BY
+            CASE WHEN latest.payload->>'rank' ~ '^-?[0-9]+$'
+                 THEN (latest.payload->>'rank')::int ELSE 2147483647 END ASC,
+            CASE WHEN latest.payload->>'leaderboard_page' ~ '^-?[0-9]+$'
+                 THEN (latest.payload->>'leaderboard_page')::int ELSE 2147483647 END ASC,
+            latest.fetched_at DESC
+        LIMIT $2
         "#,
-    )?;
-    let rows = statement.query_map(params![SOURCE, safe_limit], |row| {
-        Ok(LeaderboardPlayer {
-            account_id: row.get(0)?,
-            name: row.get(1)?,
-        })
-    })?;
-    let mut players = Vec::new();
-    for row in rows {
-        players.push(row?);
-    }
+        SOURCE,
+        safe_limit,
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|row| LeaderboardPlayer {
+        account_id: row.external_id,
+        name: row.canonical_name,
+    })
+    .collect();
     Ok(players)
 }
 
@@ -1119,159 +1166,55 @@ struct LeaderboardPlayer {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-
-    use deadlock_brain_core::{http::HttpClient, schema};
-
     use super::*;
-    use crate::store::stable_hash_bytes;
+
+    // Pure-Logic-Ports: die frueheren End-to-End-Tests schrieben mit
+    // realer `statlocker`-Quelle in `entity_snapshots`/`source_documents`.
+    // Gegen die geteilte Scratch-PG mit echten Daten waere das destruktiv und
+    // wuerde Zaehler veraendern. Die DB-Schreibpfade decken `store.rs`
+    // (Round-Trip) und die compile-geprueften `query!` in dieser Datei ab; hier
+    // bleibt die reine Ableitungs-/Normalisierungslogik.
 
     #[test]
-    fn pull_statlocker_default_endpoints_from_cache() {
-        let temp = tempfile::tempdir().expect("tempdir");
-        let raw_dir = temp.path().join("raw");
-        let cache_dir = temp.path().join("cache");
-        let conn = Connection::open_in_memory().expect("open sqlite");
-        schema::ensure_schema(&conn).expect("schema");
-        let http = HttpClient::new("test-agent", &cache_dir).expect("http");
-
-        write_http_cache(
-            &cache_dir,
-            &format!("{BASE_URL}/api/info/wpa-patches"),
-            br#"[{"minorPatchId": "129989"}]"#,
-        );
-        write_http_cache(
-            &cache_dir,
-            &format!("{BASE_URL}/api/info/wpa-filtered-items?{}", default_wpa_items_query()),
-            br#"{"items": [{"item": "Mystic Reach"}]}"#,
-        );
-        write_http_cache(
-            &cache_dir,
-            &format!("{BASE_URL}/api/leaderboard/get-pp-rankings/?page=1&pageSize=100&version=2"),
-            br#"{"data": [{"accountId": "acct1", "name": "Player", "rank": 1}], "page": 1, "totalCount": 1}"#,
-        );
-
-        let summary = pull_statlocker(
-            &conn,
-            &raw_dir,
-            &http,
-            PullStatlockerOptions {
-                delay_seconds: 0.0,
-                ..PullStatlockerOptions::default()
-            },
-        )
-        .expect("pull statlocker");
-
-        assert_eq!(summary["snapshots"], json!(3));
-        assert_eq!(summary["endpoints"]["wpa-patches"]["latest_patch"], json!("patch_129989"));
-        let documents: i64 = conn
-            .query_row("SELECT COUNT(*) FROM source_documents", [], |row| row.get(0))
-            .expect("documents");
-        assert_eq!(documents, 3);
+    fn normalize_patch_prefixes_only_when_needed() {
+        assert_eq!(normalize_patch("129989"), "patch_129989");
+        assert_eq!(normalize_patch("patch_5"), "patch_5");
+        assert_eq!(normalize_patch("   "), "");
     }
 
     #[test]
-    fn leaderboard_player_matches_can_pull_profile_matches_details_and_builds() {
-        let temp = tempfile::tempdir().expect("tempdir");
-        let raw_dir = temp.path().join("raw");
-        let cache_dir = temp.path().join("cache");
-        let conn = Connection::open_in_memory().expect("open sqlite");
-        schema::ensure_schema(&conn).expect("schema");
-        seed_leaderboard_player(&conn);
-        let http = HttpClient::new("test-agent", &cache_dir).expect("http");
-
-        write_http_cache(
-            &cache_dir,
-            &format!("{BASE_URL}/api/profile/steam-profile/acct1"),
-            br#"{"name": "Player"}"#,
-        );
-        write_http_cache(
-            &cache_dir,
-            &format!("{BASE_URL}/api/profile/data/matches/acct1/concise?offset=0&limit=1"),
-            br#"[{"matchId": "m1", "heroId": "h1"}]"#,
-        );
-        write_http_cache(
-            &cache_dir,
-            &format!("{BASE_URL}/api/match/m1"),
-            br#"{"id": "m1"}"#,
-        );
-        write_http_cache(
-            &cache_dir,
-            &format!("{BASE_URL}/api/info/player-build-analysis/acct1/h1"),
-            br#"{"ok": true}"#,
-        );
-
-        let summary = pull_statlocker(
-            &conn,
-            &raw_dir,
-            &http,
-            PullStatlockerOptions {
-                kinds: vec!["leaderboard-player-matches".to_string()],
-                players_from_leaderboard: 1,
-                matches_per_player: 1,
-                include_match_details: true,
-                include_build_analysis: true,
-                game_mode: Some("all".to_string()),
-                delay_seconds: 0.0,
-                ..PullStatlockerOptions::default()
-            },
-        )
-        .expect("pull leaderboard player matches");
-
-        let endpoint = &summary["endpoints"]["leaderboard-player-matches"];
-        assert_eq!(endpoint["snapshots"], json!(4));
-        assert_eq!(endpoint["players_selected"], json!(1));
-        assert_eq!(endpoint["players"][0]["match_details"]["matches"], json!(1));
-        assert_eq!(endpoint["players"][0]["build_analysis"]["pairs"], json!(1));
+    fn normalize_hero_handles_all_and_separators() {
+        assert_eq!(normalize_hero("All"), "all");
+        assert_eq!(normalize_hero(""), "all");
+        assert_eq!(normalize_hero("Grey Talon"), "Grey_Talon");
+        assert_eq!(normalize_hero("Mo & Krill"), "Mo_and_Krill");
     }
 
-    fn default_wpa_items_query() -> String {
-        form_urlencode(&[
-            ("hero", "all".to_string()),
-            ("tier", "all".to_string()),
-            ("rank", DEFAULT_RANKS.to_string()),
-            ("category", "all".to_string()),
-            ("gameState", "all".to_string()),
-            ("purchaseTime", "all".to_string()),
-            ("teamComp", "Average Comp".to_string()),
-            ("buildType", "all".to_string()),
-            ("patch", "patch_129989".to_string()),
-            ("minSampleSize", "500".to_string()),
-            ("searchTerm", String::new()),
-            ("sortBy", "wpa".to_string()),
-        ])
+    #[test]
+    fn game_mode_value_maps_known_modes() {
+        assert_eq!(game_mode_value(Some("all")), None);
+        assert_eq!(game_mode_value(None), None);
+        assert_eq!(game_mode_value(Some("ranked")), Some("1".to_string()));
+        assert_eq!(game_mode_value(Some("brawl")), Some("4".to_string()));
+        assert_eq!(game_mode_value(Some("custom")), Some("custom".to_string()));
     }
 
-    fn seed_leaderboard_player(conn: &Connection) {
-        conn.execute(
-            r#"
-            INSERT INTO entity_snapshots(
-              source, entity_type, external_id, canonical_name, payload_hash,
-              payload_json, fetched_at, source_document_id
-            )
-            VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL)
-            "#,
-            params![
-                SOURCE,
-                "statlocker_leaderboard_player",
-                "acct1",
-                "Player",
-                "hash",
-                r#"{"rank": 1}"#,
-                1_i64,
-            ],
-        )
-        .expect("seed leaderboard");
+    #[test]
+    fn extract_rows_reads_arrays_and_keyed_objects() {
+        assert_eq!(extract_rows(&json!([{"a": 1}])).len(), 1);
+        assert_eq!(
+            extract_rows(&json!({"matchHistory": [{"a": 1}, {"b": 2}]})).len(),
+            2
+        );
+        assert!(extract_rows(&json!({"nope": 1})).is_empty());
     }
 
-    fn write_http_cache(cache_dir: &Path, url: &str, content: &[u8]) {
-        fs::create_dir_all(cache_dir).expect("cache dir");
-        let path = cache_dir.join(format!("{}.bin", stable_hash_bytes(url.as_bytes())));
-        fs::write(&path, content).expect("cache body");
-        fs::write(
-            path.with_extension("bin.json"),
-            br#"{"url":"fixture","content_type":"application/json","fetched_at":0}"#,
-        )
-        .expect("cache metadata");
+    #[test]
+    fn match_and_hero_id_from_payload_prefer_direct_keys() {
+        let row = json!({"matchId": "m1", "heroId": "h1"});
+        assert_eq!(match_id_from_payload(&row).as_deref(), Some("m1"));
+        assert_eq!(hero_id_from_payload(&row).as_deref(), Some("h1"));
+        let meta = json!({"_deadlock_brain": {"match_id": "m9"}});
+        assert_eq!(match_id_from_payload(&meta).as_deref(), Some("m9"));
     }
 }

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE brain.source_runs\n            SET status=$1, finished_at=now(), summary=$2::text::jsonb\n            WHERE id=$3\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "70581591053add652af98d9f3c1644bb5feb3b4f73513c631884c9f783e5067d"
+}

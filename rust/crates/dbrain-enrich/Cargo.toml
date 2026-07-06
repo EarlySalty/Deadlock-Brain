@@ -11,8 +11,11 @@ path = "src/lib.rs"
 deadlock-brain-core = { path = "../deadlock-brain-core" }
 hex = { workspace = true }
 regex = { workspace = true }
-rusqlite = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
+sqlx = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros"] }

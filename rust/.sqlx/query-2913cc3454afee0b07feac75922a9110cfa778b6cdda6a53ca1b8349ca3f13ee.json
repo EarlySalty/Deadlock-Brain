@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO brain.legacy_entities(\n          legacy_type, canonical_name, name_norm, observed_entity_type,\n          first_patch_event_id, last_patch_event_id, first_seen_at, last_seen_at,\n          event_count, confidence, status, samples, created_at, updated_at\n        )\n        VALUES(\n          $1, $2, $3, $4,\n          $5, $6, CASE WHEN $7 ~ '^-?[0-9]+$' THEN to_timestamp($7::double precision) ELSE $7::text::timestamptz END, CASE WHEN $8 ~ '^-?[0-9]+$' THEN to_timestamp($8::double precision) ELSE $8::text::timestamptz END,\n          $9, $10, $11, $12::text::jsonb, now(), now()\n        )\n        ON CONFLICT (legacy_type, name_norm) DO UPDATE SET\n          canonical_name = EXCLUDED.canonical_name,\n          observed_entity_type = EXCLUDED.observed_entity_type,\n          first_patch_event_id = EXCLUDED.first_patch_event_id,\n          last_patch_event_id = EXCLUDED.last_patch_event_id,\n          first_seen_at = EXCLUDED.first_seen_at,\n          last_seen_at = EXCLUDED.last_seen_at,\n          event_count = EXCLUDED.event_count,\n          confidence = EXCLUDED.confidence,\n          status = EXCLUDED.status,\n          samples = EXCLUDED.samples,\n          updated_at = EXCLUDED.updated_at\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8",
+        "Text",
+        "Text",
+        "Int8",
+        "Float8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2913cc3454afee0b07feac75922a9110cfa778b6cdda6a53ca1b8349ca3f13ee"
+}

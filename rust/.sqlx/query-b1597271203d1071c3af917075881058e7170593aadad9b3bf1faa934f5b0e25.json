@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id AS \"id!\", COALESCE(legacy_sqlite_id, id) AS \"legacy_snapshot_id!\",\n               canonical_name AS \"canonical_name?\", payload_hash AS \"payload_hash!\",\n               payload::text AS \"payload_json!\"\n        FROM brain.entity_snapshots\n        WHERE source = $1\n        ORDER BY id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "legacy_snapshot_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "canonical_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "payload_hash!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "payload_json!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      true,
+      false,
+      null
+    ]
+  },
+  "hash": "b1597271203d1071c3af917075881058e7170593aadad9b3bf1faa934f5b0e25"
+}

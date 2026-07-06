@@ -3,11 +3,11 @@ use std::{fmt, path::Path, thread, time::Duration};
 use regex::Regex;
 use reqwest::{blocking::Client, StatusCode};
 use roxmltree::Node;
-use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sqlx::postgres::PgPool;
 
-use crate::{claims, db, schema};
+use crate::{claims, db};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Video {
@@ -98,12 +98,11 @@ impl fmt::Display for FetchFailure {
 
 impl std::error::Error for FetchFailure {}
 
-pub fn discover_youtube_videos(
-    conn: &Connection,
+pub async fn discover_youtube_videos(
+    pool: &PgPool,
     config_path: &Path,
     max_videos_per_feed: usize,
 ) -> anyhow::Result<DiscoverSummary> {
-    schema::ensure_youtube_tables(conn)?;
     let feeds = load_feed_config(config_path)?;
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(30))
@@ -120,13 +119,15 @@ pub fn discover_youtube_videos(
     for feed in feeds {
         let feed_key = feed_key(&feed);
         if let Err(error) = discover_feed(
-            conn,
+            pool,
             &client,
             &feed,
             &feed_key,
             max_videos_per_feed,
             &mut summary,
-        ) {
+        )
+        .await
+        {
             summary.errors.push(DiscoverError {
                 feed: feed_key,
                 error: error.to_string(),
@@ -137,15 +138,15 @@ pub fn discover_youtube_videos(
     Ok(summary)
 }
 
-fn discover_feed(
-    conn: &Connection,
+async fn discover_feed(
+    pool: &PgPool,
     client: &Client,
     feed: &Feed,
     feed_key: &str,
     max_videos_per_feed: usize,
     summary: &mut DiscoverSummary,
 ) -> anyhow::Result<()> {
-    upsert_feed_source(conn, feed_key, feed)?;
+    upsert_feed_source(pool, feed_key, feed).await?;
     let (rss_url, xml) = if feed.source_type == "playlist" {
         let playlist_id = feed
             .playlist_id
@@ -156,20 +157,22 @@ fn discover_feed(
         let xml = fetch_text_with_retries(client, &rss_url)?;
         (rss_url, xml)
     } else {
-        let mut channel_id = feed
-            .channel_id
-            .clone()
-            .or_else(|| stored_channel_id(conn, feed_key).ok().flatten())
-            .map(Ok)
-            .unwrap_or_else(|| resolve_channel_id(client, feed))?;
-        set_feed_channel_id(conn, feed_key, &channel_id)?;
+        let stored = match &feed.channel_id {
+            Some(id) => Some(id.clone()),
+            None => stored_channel_id(pool, feed_key).await.ok().flatten(),
+        };
+        let mut channel_id = match stored {
+            Some(id) => id,
+            None => resolve_channel_id(client, feed)?,
+        };
+        set_feed_channel_id(pool, feed_key, &channel_id).await?;
         let mut rss_url = channel_rss_url(&channel_id);
         match fetch_text_with_retries(client, &rss_url) {
             Ok(xml) => (rss_url, xml),
             Err(error) if error.is_server_error() => match resolve_channel_id(client, feed) {
                 Ok(refreshed_channel_id) if refreshed_channel_id != channel_id => {
                     channel_id = refreshed_channel_id;
-                    set_feed_channel_id(conn, feed_key, &channel_id)?;
+                    set_feed_channel_id(pool, feed_key, &channel_id).await?;
                     rss_url = channel_rss_url(&channel_id);
                     let xml = fetch_text_with_retries(client, &rss_url)?;
                     (rss_url, xml)
@@ -185,7 +188,7 @@ fn discover_feed(
 
     let videos = parse_atom_videos(&xml, feed_key)?;
     for video in videos.into_iter().take(max_videos_per_feed.max(1)) {
-        match upsert_video(conn, &video, &rss_url)? {
+        match upsert_video(pool, &video, &rss_url).await? {
             UpsertAction::Inserted => summary.inserted += 1,
             UpsertAction::Updated => summary.updated += 1,
         }
@@ -362,64 +365,66 @@ fn query_param(url: &str, name: &str) -> Option<String> {
     None
 }
 
-fn upsert_feed_source(conn: &Connection, feed_key: &str, feed: &Feed) -> rusqlite::Result<()> {
-    let now = db::now_epoch_seconds();
-    conn.execute(
+async fn upsert_feed_source(pool: &PgPool, feed_key: &str, feed: &Feed) -> anyhow::Result<()> {
+    let metadata_json = serde_json::to_string(&json!({
+        "type": feed.source_type,
+        "url": feed.url,
+        "handle": feed.handle,
+        "playlist_id": feed.playlist_id,
+        "channel_id": feed.channel_id,
+    }))
+    .unwrap_or_else(|_| "{}".to_string());
+    sqlx::query!(
         r#"
-        INSERT INTO youtube_feed_sources(
-          feed_key, source_type, url, handle, playlist_id, channel_id, enabled, metadata_json, created_at, updated_at
+        INSERT INTO brain.youtube_feed_sources(
+          feed_key, source_type, url, handle, playlist_id, channel_id, enabled, metadata, created_at, updated_at
         )
-        VALUES(?,?,?,?,?,?,?,?,?,?)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8::text::jsonb,now(),now())
         ON CONFLICT(feed_key) DO UPDATE SET
           source_type=excluded.source_type,
           url=excluded.url,
           handle=excluded.handle,
           playlist_id=excluded.playlist_id,
           channel_id=COALESCE(youtube_feed_sources.channel_id, excluded.channel_id),
-          metadata_json=excluded.metadata_json,
-          updated_at=excluded.updated_at
+          metadata=excluded.metadata,
+          updated_at=now()
         "#,
-        params![
-            feed_key,
-            feed.source_type,
-            feed.url,
-            feed.handle,
-            feed.playlist_id,
-            feed.channel_id,
-            1_i64,
-            serde_json::to_string(&json!({
-                "type": feed.source_type,
-                "url": feed.url,
-                "handle": feed.handle,
-                "playlist_id": feed.playlist_id,
-                "channel_id": feed.channel_id,
-            }))
-            .unwrap_or_else(|_| "{}".to_string()),
-            now,
-            now
-        ],
-    )?;
+        feed_key,
+        feed.source_type,
+        feed.url,
+        feed.handle.as_deref(),
+        feed.playlist_id.as_deref(),
+        feed.channel_id.as_deref(),
+        1_i64,
+        metadata_json,
+    )
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
-fn stored_channel_id(conn: &Connection, feed_key: &str) -> rusqlite::Result<Option<String>> {
-    conn.query_row(
-        "SELECT channel_id FROM youtube_feed_sources WHERE feed_key=?",
-        params![feed_key],
-        |row| row.get(0),
+async fn stored_channel_id(pool: &PgPool, feed_key: &str) -> anyhow::Result<Option<String>> {
+    let row = sqlx::query_scalar!(
+        "SELECT channel_id FROM brain.youtube_feed_sources WHERE feed_key=$1",
+        feed_key,
     )
-    .optional()
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.flatten())
 }
 
-fn set_feed_channel_id(
-    conn: &Connection,
+async fn set_feed_channel_id(
+    pool: &PgPool,
     feed_key: &str,
     channel_id: &str,
-) -> rusqlite::Result<()> {
-    conn.execute(
-        "UPDATE youtube_feed_sources SET channel_id=?, updated_at=? WHERE feed_key=?",
-        params![channel_id, db::now_epoch_seconds(), feed_key],
-    )?;
+) -> anyhow::Result<()> {
+    sqlx::query!(
+        "UPDATE brain.youtube_feed_sources SET channel_id=$1, updated_at=now() WHERE feed_key=$2",
+        channel_id,
+        feed_key,
+    )
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
@@ -493,27 +498,25 @@ enum UpsertAction {
     Updated,
 }
 
-fn upsert_video(
-    conn: &Connection,
+async fn upsert_video(
+    pool: &PgPool,
     video: &AtomVideo,
     rss_url: &str,
 ) -> anyhow::Result<UpsertAction> {
-    let existed = conn
-        .query_row(
-            "SELECT 1 FROM youtube_videos WHERE video_id=?",
-            params![video.video_id],
-            |_| Ok(()),
-        )
-        .optional()?
-        .is_some();
-    let now = db::now_epoch_seconds();
-    conn.execute(
+    let existed = sqlx::query_scalar!(
+        r#"SELECT EXISTS(SELECT 1 FROM brain.youtube_videos WHERE video_id=$1) AS "exists!""#,
+        video.video_id,
+    )
+    .fetch_one(pool)
+    .await?;
+    let metadata_json = serde_json::to_string(&json!({ "rss_url": rss_url }))?;
+    sqlx::query!(
         r#"
-        INSERT INTO youtube_videos(
+        INSERT INTO brain.youtube_videos(
           video_id, feed_key, channel_id, channel_title, title, url, published_at, description,
-          metadata_json, transcript_status, learning_status, discovered_at, updated_at
+          metadata, transcript_status, learning_status, discovered_at, updated_at
         )
-        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+        VALUES($1,$2,$3,$4,$5,$6,$7::text::timestamptz,$8,$9::text::jsonb,$10,$11,now(),now())
         ON CONFLICT(video_id) DO UPDATE SET
           feed_key=excluded.feed_key,
           channel_id=COALESCE(excluded.channel_id, youtube_videos.channel_id),
@@ -522,25 +525,23 @@ fn upsert_video(
           url=excluded.url,
           published_at=COALESCE(excluded.published_at, youtube_videos.published_at),
           description=COALESCE(excluded.description, youtube_videos.description),
-          metadata_json=excluded.metadata_json,
-          updated_at=excluded.updated_at
+          metadata=excluded.metadata,
+          updated_at=now()
         "#,
-        params![
-            video.video_id,
-            video.feed_key,
-            video.channel_id,
-            video.channel_title,
-            video.title,
-            video.url,
-            video.published_at,
-            video.description,
-            serde_json::to_string(&json!({ "rss_url": rss_url }))?,
-            "missing",
-            "queued",
-            now,
-            now
-        ],
-    )?;
+        video.video_id,
+        video.feed_key,
+        video.channel_id.as_deref(),
+        video.channel_title.as_deref(),
+        video.title,
+        video.url,
+        video.published_at.as_deref(),
+        video.description.as_deref(),
+        metadata_json,
+        "missing",
+        "queued",
+    )
+    .execute(pool)
+    .await?;
     Ok(if existed {
         UpsertAction::Updated
     } else {
@@ -548,65 +549,67 @@ fn upsert_video(
     })
 }
 
-pub fn select_next_videos(conn: &Connection, limit: usize) -> rusqlite::Result<Vec<Video>> {
-    let mut statement = conn.prepare(
+pub async fn select_next_videos(pool: &PgPool, limit: usize) -> anyhow::Result<Vec<Video>> {
+    let limit = i64::try_from(limit.max(1)).unwrap_or(i64::MAX);
+    let rows = sqlx::query!(
         r#"
-        SELECT video_id, title, url, channel_title, published_at, learning_status
-        FROM youtube_videos
+        SELECT video_id, title, url, channel_title,
+               published_at::text AS "published_at?", learning_status
+        FROM brain.youtube_videos
         WHERE learning_status IN ('queued', 'failed', 'missing_transcript')
           AND video_id NOT IN (
-            SELECT video_id FROM youtube_learning_claims
-            WHERE prompt_version=? AND COALESCE(model, '')=COALESCE(?, '')
+            SELECT video_id FROM brain.youtube_learning_claims
+            WHERE prompt_version=$1 AND COALESCE(model, '')=COALESCE($2, '')
           )
-        ORDER BY COALESCE(published_at, '') DESC, discovered_at DESC
-        LIMIT ?
+        ORDER BY published_at DESC NULLS LAST, discovered_at DESC
+        LIMIT $3
         "#,
-    )?;
-    let videos = statement
-        .query_map(
-            params![claims::PROMPT_VERSION, claims::MODEL, limit.max(1) as i64],
-            |row| {
-                Ok(Video {
-                    video_id: row.get(0)?,
-                    title: row.get(1)?,
-                    url: row.get(2)?,
-                    channel_title: row.get(3)?,
-                    published_at: row.get(4)?,
-                    learning_status: row.get(5)?,
-                })
-            },
-        )?
-        .collect();
-    videos
+        claims::PROMPT_VERSION,
+        claims::MODEL,
+        limit,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| Video {
+            video_id: row.video_id,
+            title: row.title,
+            url: row.url,
+            channel_title: row.channel_title,
+            published_at: row.published_at,
+            learning_status: row.learning_status,
+        })
+        .collect())
 }
 
-pub fn mark_failed(
-    conn: &Connection,
+pub async fn mark_failed(
+    pool: &PgPool,
     video_id: &str,
     kind: &str,
     message: &str,
 ) -> anyhow::Result<()> {
-    update_status_with_metadata(conn, video_id, "failed", kind, message)
+    update_status_with_metadata(pool, video_id, "failed", kind, message).await
 }
 
-pub fn mark_success(conn: &Connection, video_id: &str, status: &str) -> anyhow::Result<()> {
-    update_status_with_metadata(conn, video_id, status, "ok", "")
+pub async fn mark_success(pool: &PgPool, video_id: &str, status: &str) -> anyhow::Result<()> {
+    update_status_with_metadata(pool, video_id, status, "ok", "").await
 }
 
-fn update_status_with_metadata(
-    conn: &Connection,
+async fn update_status_with_metadata(
+    pool: &PgPool,
     video_id: &str,
     status: &str,
     kind: &str,
     message: &str,
 ) -> anyhow::Result<()> {
-    let current: Option<String> = conn
-        .query_row(
-            "SELECT metadata_json FROM youtube_videos WHERE video_id=?",
-            params![video_id],
-            |row| row.get(0),
-        )
-        .optional()?;
+    let current = sqlx::query_scalar!(
+        r#"SELECT metadata::text AS "metadata_json!" FROM brain.youtube_videos WHERE video_id=$1"#,
+        video_id,
+    )
+    .fetch_optional(pool)
+    .await?;
     let mut metadata: Value = current
         .as_deref()
         .and_then(|raw| serde_json::from_str(raw).ok())
@@ -622,15 +625,15 @@ fn update_status_with_metadata(
         "model": claims::MODEL,
         "prompt_version": claims::PROMPT_VERSION,
     });
-    conn.execute(
-        "UPDATE youtube_videos SET learning_status=?, metadata_json=?, updated_at=? WHERE video_id=?",
-        params![
-            status,
-            serde_json::to_string(&metadata)?,
-            db::now_epoch_seconds(),
-            video_id
-        ],
-    )?;
+    let metadata_json = serde_json::to_string(&metadata)?;
+    sqlx::query!(
+        "UPDATE brain.youtube_videos SET learning_status=$1, metadata=$2::text::jsonb, updated_at=now() WHERE video_id=$3",
+        status,
+        metadata_json,
+        video_id,
+    )
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
@@ -638,114 +641,93 @@ fn update_status_with_metadata(
 mod tests {
     use super::*;
 
-    #[test]
-    fn queue_status_transitions_and_dedupe_work() {
-        let conn = Connection::open_in_memory().expect("open sqlite");
-        schema::ensure_youtube_tables(&conn).expect("ensure schema");
-        insert_feed(&conn);
-        insert_video(&conn, "queued-video", "queued", 10);
-        insert_video(&conn, "failed-video", "failed", 20);
-        insert_video(&conn, "missing-video", "missing_transcript", 30);
-        insert_video(&conn, "done-video", "claims_ready", 40);
-        insert_claim_marker(&conn, "queued-video");
+    #[tokio::test]
+    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+    async fn select_next_videos_and_mark_status_round_trip_pg() {
+        let Some(pool) = crate::testutil::test_pool().await else {
+            return;
+        };
+        let suffix = crate::testutil::unique_suffix();
+        let feed_key = format!("ztest_feed_{suffix}");
+        let success_id = format!("ztest_ok_{suffix}");
+        let failed_id = format!("ztest_fail_{suffix}");
+        crate::testutil::seed_feed(&pool, &feed_key).await;
+        crate::testutil::seed_video(
+            &pool,
+            &success_id,
+            &feed_key,
+            "missing",
+            "queued",
+            Some("2999-01-01T00:00:00Z"),
+            "{}",
+        )
+        .await;
+        crate::testutil::seed_video(
+            &pool,
+            &failed_id,
+            &feed_key,
+            "missing",
+            "queued",
+            Some("2999-01-02T00:00:00Z"),
+            "{}",
+        )
+        .await;
 
-        let selected = select_next_videos(&conn, 10).expect("select");
-        let ids: Vec<_> = selected
-            .iter()
-            .map(|video| video.video_id.as_str())
-            .collect();
-        assert_eq!(ids, vec!["missing-video", "failed-video"]);
+        let selected = select_next_videos(&pool, 500_000).await.expect("select");
+        assert!(selected.iter().any(|video| video.video_id == success_id));
+        assert!(selected.iter().any(|video| video.video_id == failed_id));
 
-        mark_success(&conn, "failed-video", "no_claims").expect("status");
-        let selected = select_next_videos(&conn, 10).expect("select");
-        let ids: Vec<_> = selected
-            .iter()
-            .map(|video| video.video_id.as_str())
-            .collect();
-        assert_eq!(ids, vec!["missing-video"]);
+        mark_success(&pool, &success_id, "claims_ready")
+            .await
+            .expect("mark success");
+        mark_failed(&pool, &failed_id, "timeout", "response timeout")
+            .await
+            .expect("mark failed");
 
-        mark_failed(&conn, "done-video", "timeout", "response timeout").expect("failed status");
-        let (status, metadata_json): (String, String) = conn
-            .query_row(
-                "SELECT learning_status, metadata_json FROM youtube_videos WHERE video_id='done-video'",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+        let after = select_next_videos(&pool, 500_000).await.expect("select 2");
+        assert!(
+            !after.iter().any(|video| video.video_id == success_id),
+            "claims_ready video must not be selectable"
+        );
+        assert!(
+            after.iter().any(|video| video.video_id == failed_id),
+            "failed video must remain selectable"
+        );
+
+        let (status, metadata_text): (String, String) = {
+            let row = sqlx::query(
+                "SELECT learning_status, metadata::text AS metadata_text FROM brain.youtube_videos WHERE video_id=$1",
             )
-            .expect("status metadata");
-        let metadata: Value = serde_json::from_str(&metadata_json).expect("metadata json");
+            .bind(&failed_id)
+            .fetch_one(&pool)
+            .await
+            .expect("failed row");
+            use sqlx::Row;
+            (row.get("learning_status"), row.get("metadata_text"))
+        };
+        let metadata: serde_json::Value =
+            serde_json::from_str(&metadata_text).expect("metadata json");
         assert_eq!(status, "failed");
         assert_eq!(metadata["gemini_ingest"]["status"], "failed");
         assert_eq!(metadata["gemini_ingest"]["kind"], "timeout");
         assert_eq!(metadata["gemini_ingest"]["model"], claims::MODEL);
-    }
 
-    fn insert_feed(conn: &Connection) {
-        let now = db::now_epoch_seconds();
-        conn.execute(
-            r#"
-            INSERT INTO youtube_feed_sources(feed_key, source_type, url, enabled, metadata_json, created_at, updated_at)
-            VALUES('feed', 'channel', 'https://example.invalid', 1, '{}', ?, ?)
-            "#,
-            params![now, now],
+        crate::testutil::insert_claim_marker(
+            &pool,
+            &failed_id,
+            claims::PROMPT_VERSION,
+            claims::MODEL,
+            &format!("ztest-hash-{suffix}"),
         )
-        .expect("insert feed");
-    }
+        .await;
+        let after_claim = select_next_videos(&pool, 500_000)
+            .await
+            .expect("select 3");
+        assert!(
+            !after_claim.iter().any(|video| video.video_id == failed_id),
+            "video with matching claim must be excluded"
+        );
 
-    fn insert_video(conn: &Connection, video_id: &str, status: &str, discovered_at: i64) {
-        let now = db::now_epoch_seconds();
-        conn.execute(
-            r#"
-            INSERT INTO youtube_videos(
-              video_id, feed_key, title, url, metadata_json, transcript_status, learning_status, discovered_at, updated_at
-            )
-            VALUES(?,?,?,?,?,?,?,?,?)
-            "#,
-            params![
-                video_id,
-                "feed",
-                video_id,
-                format!("https://youtube.com/watch?v={video_id}"),
-                "{}",
-                "missing",
-                status,
-                discovered_at,
-                now
-            ],
-        )
-        .expect("insert video");
-    }
-
-    fn insert_claim_marker(conn: &Connection, video_id: &str) {
-        let now = db::now_epoch_seconds();
-        conn.execute(
-            r#"
-            INSERT INTO youtube_learning_claims(
-              video_id, claim_hash, claim_index, claim_type, claim_text, evidence_quote,
-              model_confidence, verifier_confidence, status, model, prompt_version, prompt_text,
-              model_response_text, provider_metadata_json, verifier_json, created_at, updated_at
-            )
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            "#,
-            params![
-                video_id,
-                format!("hash-{video_id}"),
-                0_i64,
-                "build",
-                "claim",
-                "",
-                0.5_f64,
-                0.0_f64,
-                "accepted",
-                claims::MODEL,
-                claims::PROMPT_VERSION,
-                "prompt",
-                "{}",
-                "{}",
-                "{}",
-                now,
-                now
-            ],
-        )
-        .expect("insert claim");
+        crate::testutil::cleanup(&pool, &[&success_id, &failed_id], &[&feed_key]).await;
     }
 }

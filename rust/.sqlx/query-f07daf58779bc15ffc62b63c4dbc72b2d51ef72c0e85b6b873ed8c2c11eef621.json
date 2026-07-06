@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT metadata::text AS \"metadata_json!\" FROM brain.youtube_videos WHERE video_id=$1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "metadata_json!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "f07daf58779bc15ffc62b63c4dbc72b2d51ef72c0e85b6b873ed8c2c11eef621"
+}

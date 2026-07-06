@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT entity_type AS \"entity_type!\",\n               canonical_name AS \"canonical_name?\",\n               payload::text AS \"payload_json!\"\n        FROM brain.entity_snapshots\n        WHERE entity_type IN ('hero', 'item_or_ability', 'hero_stats_sheet')\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "entity_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "canonical_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "payload_json!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "d1f9a50dab030e835cd118caa9042c1f7a39632a0bf9982f3c8aa2f35e1d984e"
+}

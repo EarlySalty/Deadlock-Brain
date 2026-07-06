@@ -1,14 +1,14 @@
-use rusqlite::Connection;
 use serde_json::{json, Value};
+use sqlx::PgPool;
 
 use crate::{build_optimizer::build_hero_build_context, Result};
 
-pub fn build_match_coaching_context(
-    conn: &Connection,
+pub async fn build_match_coaching_context(
+    pool: &PgPool,
     match_id: &str,
     query: &str,
 ) -> Result<Value> {
-    let base_context = match build_hero_build_context(conn, query, &[], 20) {
+    let base_context = match build_hero_build_context(pool, query, &[], 20).await {
         Ok(context) => context,
         Err(error) => json!({"error": error.to_string(), "query": query}),
     };

@@ -1,11 +1,10 @@
 use std::{path::Path, time::Duration};
 
 use deadlock_brain_core::http::{HttpClient, HttpGetOptions};
-use rusqlite::Connection;
 use serde_json::{json, Value};
 
 use crate::{
-    store::{json_bytes, run_source, EntitySnapshotInput, SourceDocumentInput, SourceStore},
+    store::{complete_run, json_bytes, open_pool, EntitySnapshotInput, SourceDocumentInput, SourceStore},
     util::{form_urlencode, python_or_string},
     Result, SourcesError,
 };
@@ -42,18 +41,19 @@ impl Default for PullMatchMetadataOptions {
     }
 }
 
-pub fn pull_match_metadata(
-    conn: &Connection,
+pub async fn pull_match_metadata(
     raw_dir: &Path,
     http: &HttpClient,
     options: PullMatchMetadataOptions,
 ) -> Result<Value> {
-    run_source(conn, raw_dir, "deadlock-api", |store| {
-        pull_match_metadata_inner(store, http, &options)
-    })
+    let pool = open_pool().await?;
+    let store = SourceStore::new(&pool, raw_dir)?;
+    let run_id = store.begin_run("deadlock-api").await?;
+    let outcome = pull_match_metadata_inner(&store, http, &options).await;
+    complete_run(&store, run_id, outcome).await
 }
 
-fn pull_match_metadata_inner(
+async fn pull_match_metadata_inner(
     store: &SourceStore<'_>,
     http: &HttpClient,
     options: &PullMatchMetadataOptions,
@@ -105,16 +105,18 @@ fn pull_match_metadata_inner(
         "include_player_death_details": options.include_player_death_details,
         "include_objectives": options.include_objectives,
     });
-    let document_id = store.upsert_source_document(SourceDocumentInput {
-        source: SOURCE,
-        external_id: &external_id,
-        title: Some(&title),
-        url: Some(&url),
-        content_type: "application/json",
-        raw_path: &raw_path,
-        content: &raw,
-        metadata: &metadata,
-    })?;
+    let document_id = store
+        .upsert_source_document(SourceDocumentInput {
+            source: SOURCE,
+            external_id: &external_id,
+            title: Some(&title),
+            url: Some(&url),
+            content_type: "application/json",
+            raw_path: &raw_path,
+            content: &raw,
+            metadata: &metadata,
+        })
+        .await?;
 
     let mut snapshots = Vec::new();
     for row in &rows {
@@ -137,7 +139,9 @@ fn pull_match_metadata_inner(
             payload: with_source_metadata(row, json!({ "source_url": url, "match_id": match_id })),
         });
     }
-    let count = store.insert_many_snapshots(&snapshots, Some(document_id))?;
+    let count = store
+        .insert_many_snapshots(&snapshots, Some(document_id))
+        .await?;
     Ok(json!({
         "url": url,
         "matches": rows.len(),

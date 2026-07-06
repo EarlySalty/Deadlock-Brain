@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE brain.youtube_videos SET transcript_status='ready', updated_at=now() WHERE video_id=$1 AND transcript_status <> 'ready'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c9a191b4ffe7eef1555f6fe80a48525eb54e0a9c446f7928102cf6db8bd586ca"
+}

@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO brain.entities(\n              entity_type, canonical_name, primary_external_id, source,\n              first_snapshot_id, metadata, created_at, updated_at\n            )\n            VALUES($1,$2,$3,$4,$5,$6::text::jsonb,now(),now())\n            RETURNING id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "25bb5d0fad5e1f53b91ad171a71efadb65125c79aec293460419db54e9a7e23e"
+}

@@ -1,12 +1,20 @@
 # Changelog
 
-## #27 — Patch2-Forumformat und patch_-IDs im PG-Import stabilisiert
+## #28 — Patch2-Forumformat und patch_-IDs im PG-Import stabilisiert
 
 Problem: `patch_2` lag im Forum als kompakte Einzeile mit eckigen Abschnittsmarkern und `*`-Bullets vor (`[ General ] * ... [ Heroes ] * ... [ Items ] * ...`). Der direkte PG-Import hat dieses Format nicht aufgespalten, daher kam nur ein Event heraus. Gleichzeitig materialisierte der Import fuer `changelog_posts.id=2` die falsche `patch_external_id` `2` statt `patch_2`.
 
 Änderung: Der Parser zerlegt kompakte Forum-Einzeiler mit eckigen Abschnittsmarkern jetzt abschnittsweise auch fuer `*`-Bullets und behaelt die bestehende `-`-Logik bei. Zusaetzlich normalisiert der PG-Import numerische Patch-IDs auf `patch_<id>`, schreibt diese Kennung konsistent in Event-Metadaten und bereinigt beim Reimport kompatibel auch fruehere importer-eigene Legacy-IDs wie `2`.
 
 Aktuelles Verhalten: `patch_2` wird granular aus `General`, `Heroes` und `Items` importiert; neue PG-Events und daraus materialisierte Knowledge-Events tragen konsistent `patch_2`, ohne bestehende URL-basierte oder nicht-numerische Historien-IDs umzubiegen.
+
+## #27 — Patchnotes aus der zentralen PG direkt einspielen
+
+Der Brain hat bisher keinen gefestigten Weg gehabt, einen einzelnen Patch aus `patchnotes.changelog_posts` direkt in die zentrale Wissenspipeline zu schreiben. Dadurch war der Patchnote-Worker auf Zwischen-Schritte angewiesen und es gab kein sauberes, idempotentes Handling pro Datensatz.
+
+Jetzt gibt es den neuen Befehl `deadlock-brain pg import-patchnote`, der genau einen Patch-ID-Datensatz aus `patchnotes.changelog_posts` liest, `brain.source_documents`, `brain.entity_snapshots`, `brain.patch_events` schreibt und daraus passende `brain.knowledge_events` materialisiert. Der Lauf nutzt bestehende `entity`/`entity_aliases`-Zuordnung für den Line-Parser, nutzt `source_kind` nach URL (`steam|forum|other`), berechnet stabile `event_hash`-Werte inkl. Patch-ID und Zeilenindex und ist über `ON CONFLICT` je Lauf deduplizierend.
+
+Der neue Pfad benötigt keine SQLite-Write-Pfade mehr, nutzt `DEADLOCK_CENTRAL_DSN` als zentrale Quelle und kann optional mit `--dry-run` prüfen, ohne DB-Schreibzugriffe durchzuführen.
 
 ## #26 — Patch4 nutzt den offiziellen Steam-Announcement-Body
 

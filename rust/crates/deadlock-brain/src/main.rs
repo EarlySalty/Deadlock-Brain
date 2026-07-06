@@ -2,6 +2,7 @@
 #![allow(dead_code)]
 
 use std::{
+    collections::BTreeSet,
     fs,
     io::{self, Read},
     path::PathBuf,
@@ -11,23 +12,19 @@ use std::{
 use anyhow::{anyhow, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use deadlock_brain_core::{
+    build_narration,
     config::{self, Settings},
-    db,
     http::HttpClient,
     minimax::{extract_minimax_text, MiniMaxClient, MiniMaxConfig},
 };
-use rusqlite::{
-    params, params_from_iter,
-    types::{Value as SqlValue, ValueRef},
-    Connection, OptionalExtension,
-};
 use serde::Serialize;
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
+use sqlx::PgPool;
 
-mod pg_export;
+mod pg_entities;
+mod pg_patchnotes;
 mod pg_insights;
 mod pg_steam_news;
-mod pg_patchnotes;
 
 #[derive(Debug, Parser)]
 #[command(name = "deadlock-brain")]
@@ -56,8 +53,14 @@ enum Commands {
     Lineage(LineageArgs),
     #[command(about = "Zeigt alte/entfernte Entities aus Patchnotes.")]
     Legacy(LegacyArgs),
+    #[command(about = "Sucht Entities nach Typ/Name in der zentralen Postgres (brain.entities + brain.entity_aliases).")]
+    Entities(EntitiesArgs),
     #[command(about = "Erzeugt einen erklaerbaren Hero-Build-Vorschlag aus API-/Sheet-/Patchdaten.")]
     Build(BuildArgs),
+    #[command(name = "build-context")]
+    BuildContext(BuildContextArgs),
+    #[command(name = "build-eval")]
+    BuildEval(BuildEvalArgs),
     #[command(about = "Zeigt strukturierte Item-Daten aus der Deadlock Assets API.")]
     Item(ItemArgs),
     #[command(about = "Importiert und analysiert Build-Trainingsdaten.")]
@@ -102,7 +105,7 @@ enum Commands {
         #[command(subcommand)]
         target: EnrichCommands,
     },
-    #[command(name = "pg", about = "Synchronisiert Brain-Wissen in die zentrale Postgres-DB.")]
+    #[command(name = "pg", about = "Synchronisiert Daten direkt in die zentrale Postgres-DB.")]
     Pg {
         #[command(subcommand)]
         target: PgCommands,
@@ -118,6 +121,14 @@ enum Commands {
 struct PrettyArgs {
     #[arg(long, help = "Kompakter menschenlesbarer Output statt JSON.")]
     pretty: bool,
+}
+
+#[derive(Debug, Args)]
+struct EntitiesArgs {
+    #[arg(long = "type", value_name = "TYPE", help = "Optionaler Entity-Typ-Filter (z.B. hero, item, ability).")]
+    entity_type: Option<String>,
+    #[arg(long, value_name = "QUERY", help = "Suchbegriff (Teilstring in canonical_name oder Alias).")]
+    query: String,
 }
 
 #[derive(Debug, Args)]
@@ -197,6 +208,20 @@ struct BuildArgs {
     limit_events: usize,
     #[arg(long, help = "Kompakter menschenlesbarer Output statt JSON.")]
     pretty: bool,
+}
+
+#[derive(Debug, Args)]
+struct BuildContextArgs {
+    hero: String,
+    #[arg(long, value_enum)]
+    playstyle: Option<BuildPlaystyle>,
+}
+
+#[derive(Debug, Args)]
+struct BuildEvalArgs {
+    hero: String,
+    #[arg(long, value_enum)]
+    playstyle: Option<BuildPlaystyle>,
 }
 
 #[derive(Debug, Args)]
@@ -575,6 +600,8 @@ enum PullCommands {
     Assets(PullAssetsArgs),
     #[command(name = "deadlock-data", about = "Zieht trusted deadlock-data aus GitHub.")]
     DeadlockData(PullDeadlockDataArgs),
+    #[command(name = "build-data")]
+    BuildData(PullBuildDataArgs),
     #[command(about = "Importiert bestehende Patchnotes aus der zentralen Bot-DB.")]
     Patchnotes(PullPatchnotesArgs),
     #[command(about = "Zieht oeffentliche Threads aus dem Deadlock-Forum anhand der Sitemap.")]
@@ -610,6 +637,12 @@ struct PullDeadlockDataArgs {
     repo_dir: Option<PathBuf>,
     #[arg(long = "no-git-update", help = "Nutze vorhandenen Cache ohne git pull.")]
     no_git_update: bool,
+}
+
+#[derive(Debug, Args)]
+struct PullBuildDataArgs {
+    #[arg(long)]
+    hero: String,
 }
 
 #[derive(Debug, Args)]
@@ -692,6 +725,23 @@ enum GameMode {
     All,
     Standard,
     Brawl,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum BuildPlaystyle {
+    Weapon,
+    Spirit,
+    Tank,
+}
+
+impl BuildPlaystyle {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Weapon => "weapon",
+            Self::Spirit => "spirit",
+            Self::Tank => "tank",
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -794,8 +844,6 @@ struct PatchImpactArgs {
 
 #[derive(Debug, Subcommand)]
 enum PgCommands {
-    #[command(about = "Exportiert die lokale Brain-SQLite in das zentrale brain.* Postgres-Schema.")]
-    Export(PgExportArgs),
     #[command(name = "import-steam-news", about = "Importiert offizielle Steam-News-Patches direkt nach brain.* in Postgres.")]
     ImportSteamNews(PgSteamNewsArgs),
     #[command(name = "import-patchnote", about = "Importiert exakt einen Patchnote-Eintrag direkt nach brain.* in Postgres.")]
@@ -806,14 +854,6 @@ enum PgCommands {
 enum InsightCommands {
     #[command(name = "import-json", about = "Importiert ein Insight-JSON-Array nach brain.insight_records.")]
     ImportJson(InsightImportJsonArgs),
-}
-
-#[derive(Debug, Args)]
-struct PgExportArgs {
-    #[arg(long = "dsn-env", default_value = "DEADLOCK_CENTRAL_DSN")]
-    dsn_env: String,
-    #[arg(long = "dry-run", help = "Nur lokale Zaehler ermitteln; keine PG-Verbindung, keine Schreibzugriffe.")]
-    dry_run: bool,
 }
 
 #[derive(Debug, Args)]
@@ -865,55 +905,62 @@ fn main() {
 
 fn run_from_cli() -> Result<()> {
     let cli = Cli::parse();
-    run(cli)
+    // Ein Tokio-Runtime am Top-Level nach dem PG-Cutover: `run` ist async und
+    // teilt sich einen `PgPool` fuer alle Befehle, statt pro Befehl einen eigenen
+    // Runtime oder eine eigene Verbindung hochzuziehen. Der synchrone
+    // `pg import-patchnote`-Pfad wird bewusst auf einen Blocking-Thread ausgelagert.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    runtime.block_on(run(cli))
 }
 
-fn run(cli: Cli) -> Result<()> {
+async fn run(cli: Cli) -> Result<()> {
     let Cli { db: db_path, command } = cli;
     let mut settings = config::load_settings()?;
     if let Some(path) = db_path {
+        // --db/SQLite obsolet nach PG-Cutover, Entfernung in Phase 6.
         settings.db_path = path;
     }
     let command = match command {
-        Commands::Pg {
-            target: PgCommands::ImportSteamNews(args),
-        } => {
-            fs::create_dir_all(&settings.cache_dir)?;
-            let http = http_client(&settings)?;
-            return print_json(&pg_steam_news::import_steam_news(
-                &http,
-                &pg_steam_news::ImportSteamNewsOptions {
-                    dsn_env: args.dsn_env,
-                    appid: args.appid,
-                    start_date: args.start_date,
-                    count: args.count,
-                    cache_ttl_seconds: args.cache_ttl_seconds,
-                    include_non_official: args.include_non_official,
-                    gids: args.gids,
-                    dry_run: args.dry_run,
-                },
-            )?);
+        Commands::Pg { target } => {
+            // Alle `pg`-Befehle nutzen synchrone Crates (`postgres` bzw. der
+            // blocking-HttpClient), die intern teils selbst einen Tokio-Runtime
+            // starten. Direkt im async-Kontext aufgerufen wuerde das
+            // "runtime within a runtime" paniken -> daher komplett auf einen
+            // Blocking-Thread auslagern. HttpClient/Settings werden dort OWNED
+            // gebaut, damit die Closure `Send + 'static` bleibt.
+            let settings = settings.clone();
+            return tokio::task::spawn_blocking(move || {
+                fs::create_dir_all(&settings.cache_dir)?;
+                let http = http_client(&settings)?;
+                run_pg(&http, target)
+            })
+            .await?;
         }
-        Commands::Pg {
-            target: PgCommands::ImportPatchnote(args),
-        } => {
-            fs::create_dir_all(&settings.cache_dir)?;
-            let http = http_client(&settings)?;
-            return run_pg_patchnote(&http, args);
+        Commands::Insights { target } => {
+            // `insights import-json` schreibt ueber den synchronen `postgres`-Crate
+            // und muss daher ebenfalls vom async-Runtime entkoppelt laufen.
+            return tokio::task::spawn_blocking(move || run_insights(target)).await?;
+        }
+        Commands::Entities(args) => {
+            return pg_entities::run(args).await;
         }
         other => other,
     };
     prepare_dirs(&settings)?;
-    let conn = db::open_connection(Some(settings.db_path.clone()))?;
+    // Ein PgPool fuer die gesamte Befehlsausfuehrung (DSN aus DEADLOCK_CENTRAL_DSN).
+    let pool = deadlock_brain_core::pg::pg_pool().await?;
 
     match command {
-        Commands::Status => print_status(&conn, &settings),
+        Commands::Status => print_status(&pool, &settings).await,
         Commands::Context(args) => {
             let result = dbrain_retrieval::build_entity_context(
-                &conn,
+                &pool,
                 &args.query,
                 usize_to_i64(args.limit_events),
-            )?;
+            )
+            .await?;
             if args.pretty {
                 print_context(&result);
                 Ok(())
@@ -923,11 +970,12 @@ fn run(cli: Cli) -> Result<()> {
         }
         Commands::Timeline(args) => {
             let result = dbrain_retrieval::build_entity_timeline(
-                &conn,
+                &pool,
                 &args.query,
                 usize_to_i64(args.limit_events),
                 !args.descending,
-            )?;
+            )
+            .await?;
             if args.pretty {
                 print_timeline(&result);
                 Ok(())
@@ -937,10 +985,11 @@ fn run(cli: Cli) -> Result<()> {
         }
         Commands::Review(args) => {
             let result = dbrain_retrieval::build_review_context(
-                &conn,
+                &pool,
                 &args.query,
                 usize_to_i64(args.limit_events),
-            )?;
+            )
+            .await?;
             if args.prompt_only {
                 println!("{}", str_value(get(&result, "prompt_de")).unwrap_or_default());
                 Ok(())
@@ -953,14 +1002,15 @@ fn run(cli: Cli) -> Result<()> {
         }
         Commands::AskContext(args) => {
             let result = dbrain_retrieval::ask_context(
-                &conn,
+                &pool,
                 &args.query,
                 &dbrain_retrieval::AskContextOptions {
                     limit_events: usize_to_i64(args.limit_events),
                     include_unverified: args.include_unverified,
                     max_claims: args.max_claims,
                 },
-            )?;
+            )
+            .await?;
             if args.prompt_only {
                 println!("{}", str_value(get(&result, "prompt")).unwrap_or_default());
                 Ok(())
@@ -969,7 +1019,7 @@ fn run(cli: Cli) -> Result<()> {
             }
         }
         Commands::Quality(args) => {
-            let result = dbrain_retrieval::run_quality_checks(&conn)?;
+            let result = dbrain_retrieval::run_quality_checks(&pool).await?;
             if args.pretty {
                 print_quality_report(&result);
                 Ok(())
@@ -978,7 +1028,7 @@ fn run(cli: Cli) -> Result<()> {
             }
         }
         Commands::Lineage(args) => {
-            let rows = load_lineage(&conn, args.query.as_deref(), args.limit)?;
+            let rows = load_lineage(&pool, args.query.as_deref(), args.limit).await?;
             if args.pretty {
                 print_lineage(&rows, args.query.as_deref());
                 Ok(())
@@ -987,7 +1037,7 @@ fn run(cli: Cli) -> Result<()> {
             }
         }
         Commands::Legacy(args) => {
-            let rows = load_legacy(&conn, args.query.as_deref(), args.limit)?;
+            let rows = load_legacy(&pool, args.query.as_deref(), args.limit).await?;
             if args.pretty {
                 print_legacy(&rows, args.query.as_deref());
                 Ok(())
@@ -997,11 +1047,12 @@ fn run(cli: Cli) -> Result<()> {
         }
         Commands::Build(args) => {
             let result = dbrain_learn::build_hero_build_context(
-                &conn,
+                &pool,
                 &args.query,
                 &[],
                 args.limit_events,
-            )?;
+            )
+            .await?;
             if args.pretty {
                 print_build_context(&result);
                 Ok(())
@@ -1009,8 +1060,14 @@ fn run(cli: Cli) -> Result<()> {
                 print_json(&result)
             }
         }
+        Commands::BuildContext(args) => {
+            let playstyle = args.playstyle.map(BuildPlaystyle::as_str);
+            let result = dbrain_builds::build_context(&pool, &args.hero, playstyle).await?;
+            print_json(&result)
+        }
+        Commands::BuildEval(args) => run_build_eval(&pool, &settings, args).await,
         Commands::Item(args) => {
-            let result = dbrain_retrieval::build_item_context(&conn, &args.query)?;
+            let result = dbrain_retrieval::build_item_context(&pool, &args.query).await?;
             if args.pretty {
                 print_item_context(&result);
                 Ok(())
@@ -1018,31 +1075,43 @@ fn run(cli: Cli) -> Result<()> {
                 print_json(&result)
             }
         }
-        Commands::Learn { target } => run_learn(&conn, &settings, target),
-        Commands::Player { target } => run_player(&conn, &settings, target),
+        Commands::Learn { target } => run_learn(&settings, target).await,
+        Commands::Player { target } => run_player(&settings, target).await,
         Commands::Youtube { target } => print_json(&youtube_deferral(&target)),
-        Commands::Analysis { target } => run_analysis(&conn, &settings, target),
-        Commands::Pull { source } => run_pull(&conn, &settings, source),
-        Commands::RefreshSheet => run_refresh_sheet(&conn, &settings),
-        Commands::Normalize { target } => run_normalize(&conn, target),
-        Commands::Parse { target } => run_parse(&conn, target),
-        Commands::Enrich { target } => run_enrich(&conn, &settings, target),
-        Commands::Pg { target } => run_pg(&conn, target),
-        Commands::Insights { target } => run_insights(target),
+        Commands::Analysis { target } => run_analysis(&pool, &settings, target).await,
+        Commands::Pull { source } => run_pull(&pool, &settings, source).await,
+        Commands::RefreshSheet => run_refresh_sheet(&pool, &settings).await,
+        Commands::Normalize { target } => run_normalize(&pool, target).await,
+        Commands::Parse { target } => run_parse(&pool, target).await,
+        Commands::Enrich { target } => run_enrich(&pool, &settings, target).await,
+        Commands::Entities(_) => {
+            unreachable!("PG-Entities werden vor SQLite-Einrichtung ausgefuehrt.")
+        }
+        Commands::Pg { target: _ } => {
+            unreachable!("PG-Commands werden vor SQLite-Einrichtung ausgefuehrt.")
+        }
+        Commands::Insights { target: _ } => {
+            unreachable!("PG-Insights werden vor SQLite-Einrichtung ausgefuehrt.")
+        }
     }
 }
 
-fn run_pg(conn: &Connection, target: PgCommands) -> Result<()> {
+fn run_pg(http: &HttpClient, target: PgCommands) -> Result<()> {
     match target {
-        PgCommands::Export(args) => print_json(&pg_export::export_to_postgres(
-            conn,
-            &pg_export::PgExportOptions {
+        PgCommands::ImportSteamNews(args) => print_json(&pg_steam_news::import_steam_news(
+            http,
+            &pg_steam_news::ImportSteamNewsOptions {
                 dsn_env: args.dsn_env,
+                appid: args.appid,
+                start_date: args.start_date,
+                count: args.count,
+                cache_ttl_seconds: args.cache_ttl_seconds,
+                include_non_official: args.include_non_official,
+                gids: args.gids,
                 dry_run: args.dry_run,
             },
         )?),
-        PgCommands::ImportSteamNews(_) => unreachable!("PG-Steam-News wird vor SQLite-Open behandelt"),
-        PgCommands::ImportPatchnote(_) => unreachable!("PG-Import-Patchnote wird vor SQLite-Open behandelt"),
+        PgCommands::ImportPatchnote(args) => run_pg_patchnote(http, args),
     }
 }
 
@@ -1081,18 +1150,61 @@ fn read_json_input(path: Option<&PathBuf>) -> Result<String> {
     Ok(raw)
 }
 
-fn run_learn(conn: &Connection, settings: &Settings, target: LearnCommands) -> Result<()> {
+async fn run_build_eval(pool: &PgPool, settings: &Settings, args: BuildEvalArgs) -> Result<()> {
+    let playstyle = args.playstyle.map(BuildPlaystyle::as_str);
+    let build_context = dbrain_builds::build_context(pool, &args.hero, playstyle).await?;
+    let config = MiniMaxConfig::from_settings(settings);
+    if !config.api_key_present() {
+        return print_json(&json!({
+            "build_context": build_context,
+            "notice": "MiniMax environment is not configured; skipping narration."
+        }));
+    }
+
+    let client = MiniMaxClient::new(config)?;
+    let request = build_narration::build_narration_request(&build_context, client.config())?;
+    let response = client.chat(&request)?;
+    let narration = extract_minimax_text(&response);
+    let known_item_names = load_known_item_names(pool).await?;
+    let validation =
+        build_narration::validate_narration(&narration, &build_context, &known_item_names);
+    print_json(&json!({
+        "build_context": build_context,
+        "narration": narration,
+        "validation": validation
+    }))
+}
+
+async fn load_known_item_names(pool: &PgPool) -> Result<BTreeSet<String>> {
+    let names = sqlx::query_scalar::<_, String>(
+        "SELECT name FROM brain.item_catalog WHERE name IS NOT NULL AND name <> ''",
+    )
+    .fetch_all(pool)
+    .await?;
+    let mut set = BTreeSet::new();
+    for name in names {
+        let trimmed = name.trim();
+        if !trimmed.is_empty() {
+            set.insert(trimmed.to_string());
+        }
+    }
+    Ok(set)
+}
+
+async fn run_learn(settings: &Settings, target: LearnCommands) -> Result<()> {
+    let pool = deadlock_brain_core::pg::pg_pool().await?;
     match target {
         LearnCommands::ImportSteamBuilds(args) => {
             let result = dbrain_learn::learn_import_steam_builds(
-                conn,
+                &pool,
                 dbrain_learn::LearnImportSteamBuildsOptions {
                     steam_db_path: Some(args.db_path.unwrap_or_else(|| settings.central_deadlock_db_path.clone())),
                     hero: args.hero,
                     language: args.language,
                     limit_per_hero: usize_to_i64(args.limit_per_hero),
                 },
-            )?;
+            )
+            .await?;
             if args.pretty {
                 print_learn_result("import-steam-builds", &result);
                 Ok(())
@@ -1102,10 +1214,11 @@ fn run_learn(conn: &Connection, settings: &Settings, target: LearnCommands) -> R
         }
         LearnCommands::ListBuilds(args) => {
             let result = Value::Array(dbrain_learn::learn_list_builds(
-                conn,
+                &pool,
                 args.hero.as_deref(),
                 usize_to_i64(args.limit),
-            )?);
+            )
+            .await?);
             if args.pretty {
                 print_learn_result("list-builds", &result);
                 Ok(())
@@ -1122,14 +1235,15 @@ fn run_learn(conn: &Connection, settings: &Settings, target: LearnCommands) -> R
                 args.top_p,
             );
             let result = dbrain_learn::learn_analyze_build(
-                conn,
+                &pool,
                 dbrain_learn::LearnAnalyzeBuildOptions {
                     build_id: args.build_id,
                     config,
                     dry_run: args.dry_run,
                     include_request: true,
                 },
-            )?;
+            )
+            .await?;
             if args.pretty {
                 print_learn_result("analyze-build", &result);
                 Ok(())
@@ -1146,7 +1260,7 @@ fn run_learn(conn: &Connection, settings: &Settings, target: LearnCommands) -> R
                 args.top_p,
             );
             let result = dbrain_learn::learn_analyze_next(
-                conn,
+                &pool,
                 dbrain_learn::LearnAnalyzeNextOptions {
                     hero: args.hero,
                     limit: usize_to_i64(args.limit),
@@ -1154,7 +1268,8 @@ fn run_learn(conn: &Connection, settings: &Settings, target: LearnCommands) -> R
                     dry_run: args.dry_run,
                     delay_seconds: args.delay_seconds,
                 },
-            )?;
+            )
+            .await?;
             if args.pretty {
                 print_learn_result("analyze-next", &result);
                 Ok(())
@@ -1165,14 +1280,16 @@ fn run_learn(conn: &Connection, settings: &Settings, target: LearnCommands) -> R
     }
 }
 
-fn run_player(conn: &Connection, settings: &Settings, target: PlayerCommands) -> Result<()> {
+async fn run_player(settings: &Settings, target: PlayerCommands) -> Result<()> {
+    let pool = deadlock_brain_core::pg::pg_pool().await?;
     match target {
         PlayerCommands::ListMatches(args) => {
             let result = Value::Array(dbrain_learn::player_list_matches(
-                conn,
+                &pool,
                 args.account_id.as_deref(),
                 usize_to_i64(args.limit),
-            )?);
+            )
+            .await?);
             if args.pretty {
                 print_player_result("list-matches", &result);
                 Ok(())
@@ -1181,7 +1298,7 @@ fn run_player(conn: &Connection, settings: &Settings, target: PlayerCommands) ->
             }
         }
         PlayerCommands::MatchContext(args) => {
-            let result = dbrain_learn::player_match_context(conn, &args.account_id, &args.match_id)?;
+            let result = dbrain_learn::player_match_context(&pool, &args.account_id, &args.match_id).await?;
             if args.pretty {
                 print_player_result("match-context", &result);
                 Ok(())
@@ -1198,7 +1315,7 @@ fn run_player(conn: &Connection, settings: &Settings, target: PlayerCommands) ->
                 args.top_p,
             );
             let result = dbrain_learn::player_analyze_match(
-                conn,
+                &pool,
                 dbrain_learn::PlayerAnalyzeMatchOptions {
                     account_id: args.account_id,
                     match_id: args.match_id,
@@ -1206,7 +1323,8 @@ fn run_player(conn: &Connection, settings: &Settings, target: PlayerCommands) ->
                     dry_run: args.dry_run,
                     include_request: true,
                 },
-            )?;
+            )
+            .await?;
             if args.pretty {
                 print_player_result("analyze-match", &result);
                 Ok(())
@@ -1223,7 +1341,7 @@ fn run_player(conn: &Connection, settings: &Settings, target: PlayerCommands) ->
                 args.top_p,
             );
             let result = dbrain_learn::player_analyze_next(
-                conn,
+                &pool,
                 dbrain_learn::PlayerAnalyzeNextOptions {
                     account_id: args.account_id,
                     limit: usize_to_i64(args.limit),
@@ -1231,7 +1349,8 @@ fn run_player(conn: &Connection, settings: &Settings, target: PlayerCommands) ->
                     dry_run: args.dry_run,
                     delay_seconds: args.delay_seconds,
                 },
-            )?;
+            )
+            .await?;
             if args.pretty {
                 print_player_result("analyze-next", &result);
                 Ok(())
@@ -1242,17 +1361,18 @@ fn run_player(conn: &Connection, settings: &Settings, target: PlayerCommands) ->
     }
 }
 
-fn run_analysis(conn: &Connection, settings: &Settings, target: AnalysisCommands) -> Result<()> {
+async fn run_analysis(pool: &PgPool, settings: &Settings, target: AnalysisCommands) -> Result<()> {
     match target {
         AnalysisCommands::SaveReview(args) => {
             let result = dbrain_retrieval::analysis_save_review_for_query(
-                conn,
+                pool,
                 &args.query,
                 usize_to_i64(args.limit_events),
                 args.result_text.as_deref(),
                 args.model.as_deref(),
                 args.confidence,
-            )?;
+            )
+            .await?;
             if args.pretty {
                 print_analysis_result("save-review", &result);
                 Ok(())
@@ -1269,14 +1389,15 @@ fn run_analysis(conn: &Connection, settings: &Settings, target: AnalysisCommands
                 args.top_p,
             );
             let result = dbrain_retrieval::analysis_run_minimax(
-                conn,
+                pool,
                 &args.query,
                 dbrain_retrieval::AnalysisRunMinimaxOptions {
                     limit_events: usize_to_i64(args.limit_events),
                     config,
                     dry_run: args.dry_run,
                 },
-            )?;
+            )
+            .await?;
             if args.pretty {
                 print_analysis_result("run-minimax", &result);
                 Ok(())
@@ -1286,10 +1407,11 @@ fn run_analysis(conn: &Connection, settings: &Settings, target: AnalysisCommands
         }
         AnalysisCommands::List(args) => {
             let result = dbrain_retrieval::analysis_list(
-                conn,
+                pool,
                 args.query.as_deref(),
                 usize_to_i64(args.limit),
-            )?;
+            )
+            .await?;
             if args.pretty {
                 print_analysis_result("list", &result);
                 Ok(())
@@ -1300,16 +1422,16 @@ fn run_analysis(conn: &Connection, settings: &Settings, target: AnalysisCommands
     }
 }
 
-fn run_pull(conn: &Connection, settings: &Settings, source: PullCommands) -> Result<()> {
+async fn run_pull(pool: &PgPool, settings: &Settings, source: PullCommands) -> Result<()> {
     let http = http_client(settings)?;
     match source {
         PullCommands::Assets(args) => {
             let result = dbrain_sources::pull_assets(
-                conn,
                 &settings.raw_dir,
                 &http,
                 dbrain_sources::PullAssetsOptions { kinds: args.kind },
-            )?;
+            )
+            .await?;
             print_json(&result)
         }
         PullCommands::DeadlockData(args) => {
@@ -1317,33 +1439,40 @@ fn run_pull(conn: &Connection, settings: &Settings, source: PullCommands) -> Res
                 .repo_dir
                 .unwrap_or_else(|| settings.data_dir.join("external/deadlock-data"));
             let pull = dbrain_sources::pull_deadlock_data(
-                conn,
                 &settings.raw_dir,
                 dbrain_sources::PullDeadlockDataOptions {
                     repo_dir,
                     update_repo: !args.no_git_update,
                 },
-            )?;
-            let patch_events = dbrain_normalize::parse_patchnotes_with_conn(conn, false)?;
+            )
+            .await?;
+            let patch_events = dbrain_normalize::parse_patchnotes(pool, false).await?;
             print_json(&json!({
                 "pull": pull,
                 "patch_events": patch_events,
             }))
         }
-        PullCommands::Patchnotes(args) => {
-            let central_db_path = args.db_path.unwrap_or_else(|| settings.central_deadlock_db_path.clone());
+        PullCommands::BuildData(args) => {
+            let result = dbrain_builds::sync_build_data(
+                pool,
+                dbrain_builds::BuildDataSyncOptions::new(args.hero, settings.user_agent.clone()),
+            )
+            .await?;
+            print_json(&result)
+        }
+        PullCommands::Patchnotes(_) => {
+            // Patchnotes werden seit dem PG-Cutover direkt aus der zentralen
+            // Postgres (`patchnotes`-Schema) gelesen; das alte `--db-path` (SQLite)
+            // ist obsolet und wird in Phase 6 aus der CLI entfernt.
             let result = dbrain_sources::pull_patchnotes(
-                conn,
                 &settings.raw_dir,
-                dbrain_sources::PullPatchnotesOptions {
-                    central_db_path: &central_db_path,
-                },
-            )?;
+                dbrain_sources::PullPatchnotesOptions,
+            )
+            .await?;
             print_json(&result)
         }
         PullCommands::Forum(args) => {
             let result = dbrain_sources::pull_forum(
-                conn,
                 &settings.raw_dir,
                 &http,
                 dbrain_sources::PullForumOptions {
@@ -1353,12 +1482,12 @@ fn run_pull(conn: &Connection, settings: &Settings, source: PullCommands) -> Res
                     cache_ttl_seconds: args.cache_ttl_seconds,
                     refresh_existing: args.refresh_existing,
                 },
-            )?;
+            )
+            .await?;
             print_json(&result)
         }
         PullCommands::Statlocker(args) => {
             let result = dbrain_sources::pull_statlocker(
-                conn,
                 &settings.raw_dir,
                 &http,
                 dbrain_sources::PullStatlockerOptions {
@@ -1380,26 +1509,27 @@ fn run_pull(conn: &Connection, settings: &Settings, source: PullCommands) -> Res
                     delay_seconds: args.delay_seconds,
                     cache_ttl_seconds: args.cache_ttl_seconds,
                 },
-            )?;
+            )
+            .await?;
             print_json(&result)
         }
     }
 }
 
-fn run_refresh_sheet(conn: &Connection, settings: &Settings) -> Result<()> {
+async fn run_refresh_sheet(pool: &PgPool, settings: &Settings) -> Result<()> {
     let http = http_client(settings)?;
     let pull_wrapper = dbrain_sources::refresh_sheet(
-        conn,
         &settings.raw_dir,
         &http,
         dbrain_sources::RefreshSheetOptions {
             sheet_id: settings.sheet_id.clone(),
             gid: settings.sheet_gid.clone(),
         },
-    )?;
+    )
+    .await?;
     let pull = get(&pull_wrapper, "pull").cloned().unwrap_or(pull_wrapper);
-    let stats = dbrain_normalize::normalize_sheet_stats_with_conn(conn, true)?;
-    let tabs = dbrain_normalize::normalize_sheet_tabs_with_conn(conn, true)?;
+    let stats = dbrain_normalize::normalize_sheet_stats(pool, true).await?;
+    let tabs = dbrain_normalize::normalize_sheet_tabs(pool, true).await?;
     print_json(&json!({
         "pull": pull,
         "normalize_sheet_stats": stats,
@@ -1407,63 +1537,69 @@ fn run_refresh_sheet(conn: &Connection, settings: &Settings) -> Result<()> {
     }))
 }
 
-fn run_normalize(conn: &Connection, target: NormalizeCommands) -> Result<()> {
+async fn run_normalize(pool: &PgPool, target: NormalizeCommands) -> Result<()> {
     match target {
         NormalizeCommands::Entities(args) => {
-            print_json(&dbrain_normalize::normalize_entities_with_conn(conn, args.rebuild)?)
+            print_json(&dbrain_normalize::normalize_entities(pool, args.rebuild).await?)
         }
         NormalizeCommands::SheetStats(args) => {
-            print_json(&dbrain_normalize::normalize_sheet_stats_with_conn(conn, args.rebuild)?)
+            print_json(&dbrain_normalize::normalize_sheet_stats(pool, args.rebuild).await?)
         }
         NormalizeCommands::SheetTabs(args) => {
-            print_json(&dbrain_normalize::normalize_sheet_tabs_with_conn(conn, args.rebuild)?)
+            print_json(&dbrain_normalize::normalize_sheet_tabs(pool, args.rebuild).await?)
         }
         NormalizeCommands::ResolveGaps(args) => {
-            print_json(&dbrain_normalize::resolve_gaps_with_conn(conn, args.dry_run)?)
+            print_json(&dbrain_normalize::resolve_gaps(pool, args.dry_run).await?)
         }
     }
 }
 
-fn run_parse(conn: &Connection, target: ParseCommands) -> Result<()> {
+async fn run_parse(pool: &PgPool, target: ParseCommands) -> Result<()> {
     match target {
         ParseCommands::Patchnotes(args) => {
-            print_json(&dbrain_normalize::parse_patchnotes_with_conn(conn, args.rebuild)?)
+            print_json(&dbrain_normalize::parse_patchnotes(pool, args.rebuild).await?)
         }
         ParseCommands::ForumClaims(args) => {
-            print_json(&dbrain_normalize::parse_forum_claims_with_conn(conn, args.rebuild)?)
+            print_json(&dbrain_normalize::parse_forum_claims(pool, args.rebuild).await?)
         }
     }
 }
 
-fn run_enrich(conn: &Connection, settings: &Settings, target: EnrichCommands) -> Result<()> {
+async fn run_enrich(pool: &PgPool, settings: &Settings, target: EnrichCommands) -> Result<()> {
     match target {
         EnrichCommands::PatchEvents(args) => {
-            print_json(&dbrain_enrich::build_patch_event_enrichments(conn, args.rebuild)?)
+            print_json(
+                &dbrain_enrich::build_patch_event_enrichments(pool, args.rebuild).await?,
+            )
         }
         EnrichCommands::Lineage(args) => {
-            print_json(&dbrain_normalize::enrich_lineage_with_conn(conn, args.rebuild)?)
+            print_json(&dbrain_normalize::enrich_lineage(pool, args.rebuild).await?)
         }
         EnrichCommands::LegacyEntities(args) => {
-            print_json(&dbrain_normalize::enrich_legacy_entities_with_conn(conn, args.rebuild)?)
+            print_json(&dbrain_normalize::enrich_legacy_entities(pool, args.rebuild).await?)
         }
         EnrichCommands::PatchImpact(args) => {
-            print_json(&run_patch_impact(conn, settings, args)?)
+            print_json(&run_patch_impact(pool, settings, args).await?)
         }
         EnrichCommands::MetaTrends => {
             let config = minimax_config(settings, None, None, None, None);
-            print_json(&dbrain_enrich::run_meta_trend_analysis(conn, &config)?)
+            print_json(&dbrain_enrich::run_meta_trend_analysis(pool, &config).await?)
         }
     }
 }
 
-fn run_patch_impact(conn: &Connection, settings: &Settings, args: PatchImpactArgs) -> Result<Value> {
+async fn run_patch_impact(
+    pool: &PgPool,
+    settings: &Settings,
+    args: PatchImpactArgs,
+) -> Result<Value> {
     let config = minimax_config(settings, None, None, None, None);
     if args.dry_run {
         let Some(hero) = args.hero.as_deref() else {
             return Err(anyhow!("Fuer --dry-run muss --hero angegeben werden."));
         };
-        let entity_type = entity_type_for_name(conn, hero)?;
-        let context = dbrain_enrich::build_patch_impact_context(conn, hero, &entity_type)?;
+        let entity_type = entity_type_for_name(pool, hero).await?;
+        let context = dbrain_enrich::build_patch_impact_context(pool, hero, &entity_type).await?;
         let request_info = dbrain_enrich::build_patch_impact_request(&context, &config)?;
         return Ok(json!({
             "dry_run": true,
@@ -1472,39 +1608,37 @@ fn run_patch_impact(conn: &Connection, settings: &Settings, args: PatchImpactArg
         }));
     }
     if let Some(hero) = args.hero.as_deref() {
-        let entity_type = entity_type_for_name(conn, hero)?;
-        let context = dbrain_enrich::build_patch_impact_context(conn, hero, &entity_type)?;
+        let entity_type = entity_type_for_name(pool, hero).await?;
+        let context = dbrain_enrich::build_patch_impact_context(pool, hero, &entity_type).await?;
         let request_info = dbrain_enrich::build_patch_impact_request(&context, &config)?;
         let client = MiniMaxClient::new(config.clone())?;
         let response = client.chat(&request_info.request)?;
         let result_text = extract_minimax_text(&response);
         dbrain_enrich::save_patch_impact_note(
-            conn,
+            pool,
             &context,
             &request_info.prompt_text,
             Some(&result_text),
             &config.model,
             "analysis_ready",
-        )?;
+        )
+        .await?;
         Ok(json!({"processed": 1, "success": 1, "failed": 0, "hero": hero}))
     } else {
-        Ok(serde_json::to_value(dbrain_enrich::run_patch_impact_batch(
-            conn,
-            &config,
-            args.limit,
-        )?)?)
+        Ok(serde_json::to_value(
+            dbrain_enrich::run_patch_impact_batch(pool, &config, args.limit).await?,
+        )?)
     }
 }
 
-fn entity_type_for_name(conn: &Connection, name: &str) -> Result<String> {
-    Ok(conn
-        .query_row(
-            "SELECT entity_type FROM entities WHERE canonical_name = ?1 LIMIT 1",
-            params![name],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?
-        .unwrap_or_else(|| "hero".to_string()))
+async fn entity_type_for_name(pool: &PgPool, name: &str) -> Result<String> {
+    let value = sqlx::query_scalar::<_, String>(
+        "SELECT entity_type FROM brain.entities WHERE canonical_name = $1 LIMIT 1",
+    )
+    .bind(name)
+    .fetch_optional(pool)
+    .await?;
+    Ok(value.unwrap_or_else(|| "hero".to_string()))
 }
 
 fn youtube_deferral(target: &YoutubeCommands) -> Value {
@@ -1583,8 +1717,8 @@ fn print_json<T: Serialize + ?Sized>(value: &T) -> Result<()> {
     Ok(())
 }
 
-fn print_status(conn: &Connection, settings: &Settings) -> Result<()> {
-    let status = dbrain_retrieval::status(conn)?;
+async fn print_status(pool: &PgPool, settings: &Settings) -> Result<()> {
+    let status = dbrain_retrieval::status(pool).await?;
     println!("Project: {}", settings.project_root.display());
     println!("DB:      {}", settings.db_path.display());
     println!("Raw:     {}", settings.raw_dir.display());
@@ -1657,139 +1791,80 @@ where
     }
 }
 
-fn load_lineage(conn: &Connection, query: Option<&str>, limit: usize) -> Result<Vec<Value>> {
-    if !table_exists(conn, "entity_lineage")? {
-        return Ok(Vec::new());
-    }
+async fn load_lineage(pool: &PgPool, query: Option<&str>, limit: usize) -> Result<Vec<Value>> {
     let max_rows = bounded_limit(limit);
-    let mut rows = if let Some(query) = query.filter(|value| !value.trim().is_empty()) {
+    let rows = if let Some(query) = query.filter(|value| !value.trim().is_empty()) {
         let norm = dbrain_normalize::normalize_alias(query);
-        query_json_rows(
-            conn,
+        sqlx::query_scalar::<_, Value>(
             r#"
-            SELECT *
-            FROM entity_lineage
-            WHERE source_name_norm = ?
-               OR target_name_norm = ?
-               OR owner_name_norm = ?
-            ORDER BY confidence DESC, id ASC
-            LIMIT ?
+            SELECT to_jsonb(t) FROM (
+                SELECT *
+                FROM brain.entity_lineage
+                WHERE source_name_norm = $1
+                   OR target_name_norm = $1
+                   OR owner_name_norm = $1
+                ORDER BY confidence DESC, id ASC
+                LIMIT $2
+            ) AS t
             "#,
-            vec![
-                SqlValue::Text(norm.clone()),
-                SqlValue::Text(norm.clone()),
-                SqlValue::Text(norm),
-                SqlValue::Integer(max_rows),
-            ],
-        )?
-    } else {
-        query_json_rows(
-            conn,
-            r#"
-            SELECT *
-            FROM entity_lineage
-            ORDER BY patch_event_id DESC, id DESC
-            LIMIT ?
-            "#,
-            vec![SqlValue::Integer(max_rows)],
-        )?
-    };
-    for row in &mut rows {
-        decode_json_field(row, "metadata_json", "metadata", json!({}));
-    }
-    Ok(rows)
-}
-
-fn load_legacy(conn: &Connection, query: Option<&str>, limit: usize) -> Result<Vec<Value>> {
-    if !table_exists(conn, "legacy_entities")? {
-        return Ok(Vec::new());
-    }
-    let max_rows = bounded_limit(limit);
-    let mut rows = if let Some(query) = query.filter(|value| !value.trim().is_empty()) {
-        query_json_rows(
-            conn,
-            r#"
-            SELECT *
-            FROM legacy_entities
-            WHERE canonical_name LIKE ? OR name_norm LIKE ?
-            ORDER BY confidence DESC, event_count DESC, canonical_name LIMIT ?
-            "#,
-            vec![
-                SqlValue::Text(format!("%{query}%")),
-                SqlValue::Text(format!("%{}%", query.to_lowercase())),
-                SqlValue::Integer(max_rows),
-            ],
-        )?
-    } else {
-        query_json_rows(
-            conn,
-            r#"
-            SELECT *
-            FROM legacy_entities
-            ORDER BY confidence DESC, event_count DESC, canonical_name LIMIT ?
-            "#,
-            vec![SqlValue::Integer(max_rows)],
-        )?
-    };
-    for row in &mut rows {
-        decode_json_field(row, "samples_json", "samples", json!([]));
-    }
-    Ok(rows)
-}
-
-fn table_exists(conn: &Connection, table: &str) -> Result<bool> {
-    Ok(conn
-        .query_row(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1 LIMIT 1",
-            params![table],
-            |_| Ok(()),
         )
-        .optional()?
-        .is_some())
-}
-
-fn query_json_rows(conn: &Connection, sql: &str, params: Vec<SqlValue>) -> Result<Vec<Value>> {
-    let mut stmt = conn.prepare(sql)?;
-    let columns = stmt
-        .column_names()
-        .iter()
-        .map(|name| (*name).to_string())
-        .collect::<Vec<_>>();
-    let mapped = stmt.query_map(params_from_iter(params.iter()), |row| {
-        let mut object = Map::new();
-        for (index, name) in columns.iter().enumerate() {
-            object.insert(name.clone(), sqlite_value(row.get_ref(index)?));
-        }
-        Ok(Value::Object(object))
-    })?;
-    let mut rows = Vec::new();
-    for row in mapped {
-        rows.push(row?);
-    }
+        .bind(norm)
+        .bind(max_rows)
+        .fetch_all(pool)
+        .await?
+    } else {
+        sqlx::query_scalar::<_, Value>(
+            r#"
+            SELECT to_jsonb(t) FROM (
+                SELECT *
+                FROM brain.entity_lineage
+                ORDER BY patch_event_id DESC, id DESC
+                LIMIT $1
+            ) AS t
+            "#,
+        )
+        .bind(max_rows)
+        .fetch_all(pool)
+        .await?
+    };
     Ok(rows)
 }
 
-fn sqlite_value(value: ValueRef<'_>) -> Value {
-    match value {
-        ValueRef::Null => Value::Null,
-        ValueRef::Integer(value) => json!(value),
-        ValueRef::Real(value) => json!(value),
-        ValueRef::Text(value) => Value::String(String::from_utf8_lossy(value).into_owned()),
-        ValueRef::Blob(value) => Value::String(String::from_utf8_lossy(value).into_owned()),
-    }
-}
-
-fn decode_json_field(row: &mut Value, field: &str, target: &str, fallback: Value) {
-    let Some(object) = row.as_object_mut() else {
-        return;
+async fn load_legacy(pool: &PgPool, query: Option<&str>, limit: usize) -> Result<Vec<Value>> {
+    let max_rows = bounded_limit(limit);
+    let rows = if let Some(query) = query.filter(|value| !value.trim().is_empty()) {
+        sqlx::query_scalar::<_, Value>(
+            r#"
+            SELECT to_jsonb(t) FROM (
+                SELECT *
+                FROM brain.legacy_entities
+                WHERE canonical_name ILIKE $1 OR name_norm LIKE $2
+                ORDER BY confidence DESC, event_count DESC, canonical_name
+                LIMIT $3
+            ) AS t
+            "#,
+        )
+        .bind(format!("%{query}%"))
+        .bind(format!("%{}%", query.to_lowercase()))
+        .bind(max_rows)
+        .fetch_all(pool)
+        .await?
+    } else {
+        sqlx::query_scalar::<_, Value>(
+            r#"
+            SELECT to_jsonb(t) FROM (
+                SELECT *
+                FROM brain.legacy_entities
+                ORDER BY confidence DESC, event_count DESC, canonical_name
+                LIMIT $1
+            ) AS t
+            "#,
+        )
+        .bind(max_rows)
+        .fetch_all(pool)
+        .await?
     };
-    let raw = object.remove(field);
-    let parsed = raw
-        .as_ref()
-        .and_then(Value::as_str)
-        .and_then(|text| serde_json::from_str::<Value>(text).ok())
-        .unwrap_or(fallback);
-    object.insert(target.to_string(), parsed);
+    Ok(rows)
 }
 
 fn print_context(ctx: &Value) {

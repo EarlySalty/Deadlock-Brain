@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id FROM brain.entity_snapshots\n            WHERE source=$1 AND entity_type=$2 AND external_id=$3 AND payload_hash=$4\n            ORDER BY id DESC LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "11630f04a01850fa1523892e5c014c93f92c57c42a3ac2855e5fe0ccffe14ff7"
+}

@@ -17,3 +17,9 @@ rust/target/
 
 # Codex-Worker-Arbeitslog (nicht versionieren)
 WORKFLOW.md
+
+# DB-Backups nie committen (sqlite3.bak-* matcht *.sqlite3-* nicht)
+data/*.sqlite3.bak*
+data/*.bak-*
+# Backup-Verzeichnis (SQLite-Snapshots, alte Binaries, PG-Dumps) — nie versionieren
+data/backups/

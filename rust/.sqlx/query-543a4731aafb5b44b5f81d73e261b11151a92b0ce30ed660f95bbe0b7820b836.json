@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT summary::text AS \"summary!\"\n        FROM brain.source_runs\n        WHERE source=$1 AND status='ok'\n        ORDER BY id DESC\n        LIMIT 1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "summary!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "543a4731aafb5b44b5f81d73e261b11151a92b0ce30ed660f95bbe0b7820b836"
+}

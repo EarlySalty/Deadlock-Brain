@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO brain.entity_aliases(\n          entity_id, alias, alias_norm, alias_kind, source,\n          external_id, snapshot_id, created_at\n        )\n        VALUES($1,$2,$3,$4,$5,$6,$7,now())\n        ON CONFLICT (entity_id, alias_norm, alias_kind) DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1903a070e1e8801b669df70acc34c95956ab5f1200b48c8d5ad9db817e9ebdb7"
+}

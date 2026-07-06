@@ -11,13 +11,14 @@ path = "src/lib.rs"
 deadlock-brain-core = { path = "../deadlock-brain-core" }
 regex.workspace = true
 roxmltree.workspace = true
-rusqlite.workspace = true
 scraper.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+sqlx.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
 dbrain-normalize = { path = "../dbrain-normalize" }
 tempfile.workspace = true
+tokio = { workspace = true, features = ["macros"] }

@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO brain.youtube_transcript_claim_attempts(\n          video_id, prompt_version, mode, status, claim_count, char_len,\n          note, attempted_at, updated_at\n        )\n        VALUES($1, $2, $3, $4, $5, $6, NULL, now(), now())\n        ON CONFLICT(video_id, prompt_version) DO UPDATE SET\n          status=excluded.status,\n          claim_count=excluded.claim_count,\n          mode=excluded.mode,\n          char_len=excluded.char_len,\n          updated_at=now()\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a5529b1f1b0b62d00dd29b6c9cffca79aa75b4ba8f17124b5661f268a92eef28"
+}

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
-use rusqlite::{params, Connection};
 use serde_json::{json, Value};
+use sqlx::{PgPool, Row};
 
 use crate::{
     util::{json_string, normalize_scan_text, stable_hash_text},
@@ -13,6 +13,7 @@ const FORUM_SOURCE: &str = "playdeadlock_forum";
 #[derive(Debug)]
 struct ForumPost {
     snapshot_id: i64,
+    legacy_post_id: i64,
     thread_id: String,
     post_id: String,
     thread_title: Option<String>,
@@ -42,13 +43,15 @@ struct ClaimCandidate {
     evidence_quote: String,
 }
 
-pub fn parse_forum_claims(conn: &Connection, rebuild: bool) -> Result<Value> {
+pub async fn parse_forum_claims(pool: &PgPool, rebuild: bool) -> Result<Value> {
     if rebuild {
-        conn.execute("DELETE FROM forum_claims", [])?;
+        sqlx::query("DELETE FROM brain.forum_claims")
+            .execute(pool)
+            .await?;
     }
 
-    let entity_aliases = load_entity_aliases(conn)?;
-    let posts = load_forum_posts(conn)?;
+    let entity_aliases = load_entity_aliases(pool).await?;
+    let posts = load_forum_posts(pool).await?;
     let mut posts_seen = 0usize;
     let mut inserted = 0usize;
     let mut skipped_duplicates = 0usize;
@@ -94,47 +97,47 @@ pub fn parse_forum_claims(conn: &Connection, rebuild: bool) -> Result<Value> {
                 "{FORUM_SOURCE}|{}|{}|{}|{}",
                 post.post_id, claim_index, candidate.claim_type, candidate.claim_text
             ));
-            let now = crate::util::now()?;
-            let changed = conn.execute(
+            let result = sqlx::query(
                 r#"
-                INSERT OR IGNORE INTO forum_claims(
+                INSERT INTO brain.forum_claims(
                   post_snapshot_id, thread_id, post_id, thread_title, source_url,
                   posted_at, author, author_role, claim_hash, claim_index,
                   claim_type, entity_type, entity_name, claim_text, evidence_quote,
                   source_trust, validity_status, currentness, confidence,
-                  safety_labels_json, source_references_json, metadata_json,
+                  safety_labels, source_references, metadata,
+                  legacy_post_snapshot_id,
                   created_at, updated_at
                 )
-                VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24)
+                VALUES($1,$2,$3,$4,$5,$6::timestamptz,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20::text::jsonb,$21::text::jsonb,$22::text::jsonb,$23,now(),now())
+                ON CONFLICT (claim_hash) DO NOTHING
                 "#,
-                params![
-                    post.snapshot_id,
-                    post.thread_id,
-                    post.post_id,
-                    post.thread_title,
-                    source_url,
-                    post.posted_at,
-                    post.author,
-                    post.author_role,
-                    claim_hash,
-                    claim_index as i64,
-                    candidate.claim_type,
-                    entity_type,
-                    entity_name,
-                    candidate.claim_text,
-                    candidate.evidence_quote,
-                    candidate.source_trust,
-                    candidate.validity_status,
-                    candidate.currentness,
-                    candidate.confidence,
-                    json_string(&json!(candidate.safety_labels))?,
-                    json_string(&source_references)?,
-                    json_string(&metadata)?,
-                    now,
-                    now,
-                ],
-            )?;
-            if changed > 0 {
+            )
+            .bind(post.snapshot_id)
+            .bind(&post.thread_id)
+            .bind(&post.post_id)
+            .bind(post.thread_title.as_deref())
+            .bind(&source_url)
+            .bind(post.posted_at.as_deref())
+            .bind(post.author.as_deref())
+            .bind(post.author_role.as_deref())
+            .bind(&claim_hash)
+            .bind(claim_index as i64)
+            .bind(candidate.claim_type)
+            .bind(entity_type)
+            .bind(entity_name)
+            .bind(&candidate.claim_text)
+            .bind(&candidate.evidence_quote)
+            .bind(candidate.source_trust)
+            .bind(candidate.validity_status)
+            .bind(candidate.currentness)
+            .bind(candidate.confidence)
+            .bind(json_string(&json!(candidate.safety_labels))?)
+            .bind(json_string(&source_references)?)
+            .bind(json_string(&metadata)?)
+            .bind(post.legacy_post_id)
+            .execute(pool)
+            .await?;
+            if result.rows_affected() > 0 {
                 inserted += 1;
                 *by_type.entry(candidate.claim_type.to_string()).or_default() += 1;
                 *by_validity
@@ -146,9 +149,9 @@ pub fn parse_forum_claims(conn: &Connection, rebuild: bool) -> Result<Value> {
         }
     }
 
-    let total_claims: i64 = conn.query_row("SELECT COUNT(*) FROM forum_claims", [], |row| {
-        row.get(0)
-    })?;
+    let total_claims: i64 = sqlx::query_scalar("SELECT COUNT(*)::int8 FROM brain.forum_claims")
+        .fetch_one(pool)
+        .await?;
 
     Ok(json!({
         "source": FORUM_SOURCE,
@@ -163,25 +166,28 @@ pub fn parse_forum_claims(conn: &Connection, rebuild: bool) -> Result<Value> {
     }))
 }
 
-fn load_forum_posts(conn: &Connection) -> Result<Vec<ForumPost>> {
-    let mut stmt = conn.prepare(
+async fn load_forum_posts(pool: &PgPool) -> Result<Vec<ForumPost>> {
+    let rows = sqlx::query(
         r#"
-        SELECT id, payload_json
-        FROM entity_snapshots
-        WHERE source=?1 AND entity_type='forum_post'
+        SELECT id, COALESCE(legacy_sqlite_id, id) AS legacy_post_id, payload::text AS payload_json
+        FROM brain.entity_snapshots
+        WHERE source=$1 AND entity_type='forum_post'
         ORDER BY CAST(external_id AS INTEGER), id
         "#,
-    )?;
-    let rows = stmt.query_map(params![FORUM_SOURCE], |row| {
-        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-    })?;
+    )
+    .bind(FORUM_SOURCE)
+    .fetch_all(pool)
+    .await?;
 
     let mut posts = Vec::new();
     for row in rows {
-        let (snapshot_id, payload_json) = row?;
+        let snapshot_id: i64 = row.try_get("id")?;
+        let legacy_post_id: i64 = row.try_get("legacy_post_id")?;
+        let payload_json: String = row.try_get("payload_json")?;
         let payload: Value = serde_json::from_str(&payload_json)?;
         posts.push(ForumPost {
             snapshot_id,
+            legacy_post_id,
             thread_id: value_string(payload.get("thread_id")).unwrap_or_default(),
             post_id: value_string(payload.get("post_id")).unwrap_or_default(),
             thread_title: value_string(payload.get("thread_title")),
@@ -196,26 +202,26 @@ fn load_forum_posts(conn: &Connection) -> Result<Vec<ForumPost>> {
     Ok(posts)
 }
 
-fn load_entity_aliases(conn: &Connection) -> Result<Vec<EntityHit>> {
-    let mut stmt = conn.prepare(
+async fn load_entity_aliases(pool: &PgPool) -> Result<Vec<EntityHit>> {
+    let rows = sqlx::query(
         r#"
         SELECT e.entity_type, e.canonical_name, a.alias_norm
-        FROM entity_aliases a
-        JOIN entities e ON e.id=a.entity_id
+        FROM brain.entity_aliases a
+        JOIN brain.entities e ON e.id=a.entity_id
         WHERE length(a.alias_norm) >= 3
         ORDER BY length(a.alias_norm) DESC
         "#,
-    )?;
-    let rows = stmt.query_map([], |row| {
-        Ok(EntityHit {
-            entity_type: row.get(0)?,
-            canonical_name: row.get(1)?,
-            alias: row.get(2)?,
-        })
-    })?;
+    )
+    .fetch_all(pool)
+    .await?;
+
     let mut aliases = Vec::new();
     for row in rows {
-        let alias = row?;
+        let alias = EntityHit {
+            entity_type: row.try_get("entity_type")?,
+            canonical_name: row.try_get("canonical_name")?,
+            alias: row.try_get("alias_norm")?,
+        };
         if is_useful_alias(&alias.alias) {
             aliases.push(alias);
         }

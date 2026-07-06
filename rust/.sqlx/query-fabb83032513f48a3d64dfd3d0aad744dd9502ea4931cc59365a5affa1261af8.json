@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO brain.patch_events(\n          patch_snapshot_id, legacy_patch_snapshot_id, patch_external_id, patch_title, patch_url,\n          source_kind, posted_at, line_index, section, entity_type,\n          entity_name, subject, change_type, raw_line, normalized_line,\n          old_value, new_value, confidence, metadata, event_hash, created_at\n        )\n        VALUES(\n          $1, $2, $3, $4, $5,\n          $6, CASE WHEN $7 ~ '^-?[0-9]+$' THEN to_timestamp($7::double precision) ELSE $7::text::timestamptz END, $8, $9, $10,\n          $11, $12, $13, $14, $15,\n          $16, $17, $18, $19::text::jsonb, $20, now()\n        )\n        ON CONFLICT (event_hash) DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Float8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fabb83032513f48a3d64dfd3d0aad744dd9502ea4931cc59365a5affa1261af8"
+}

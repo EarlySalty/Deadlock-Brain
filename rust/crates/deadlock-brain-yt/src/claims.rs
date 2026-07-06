@@ -1,10 +1,10 @@
 use regex::Regex;
-use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use sqlx::postgres::PgPool;
 
-use crate::{db, queue::Video};
+use crate::queue::Video;
 
 pub const MODEL: &str = "gemini-web";
 pub const PROMPT_VERSION: &str = "youtube_claims_de_v2";
@@ -104,14 +104,13 @@ fn parse_claim(value: &Value) -> Option<Claim> {
     })
 }
 
-pub fn save_claims(
-    conn: &Connection,
+pub async fn save_claims(
+    pool: &PgPool,
     video: &Video,
     claims: &[Claim],
     prompt_text: &str,
     model_response_text: &str,
 ) -> anyhow::Result<usize> {
-    let now = db::now_epoch_seconds();
     let mut saved = 0;
     for (index, claim) in claims.iter().enumerate() {
         let claim_hash = stable_hash_text(&serde_json::to_string(&json!({
@@ -124,15 +123,16 @@ pub fn save_claims(
             "patch_context": &claim.patch_context,
             "verifier": "not_run",
         }))?;
-        conn.execute(
+        let provider_metadata_json = serde_json::to_string(&json!({ "worker": "gemini_browser" }))?;
+        sqlx::query!(
             r#"
-            INSERT INTO youtube_learning_claims(
+            INSERT INTO brain.youtube_learning_claims(
               video_id, claim_hash, claim_index, entity_type, entity_name, claim_type,
               claim_text, evidence_quote, timestamp_seconds, model_confidence,
               verifier_confidence, status, model, prompt_version, prompt_text,
-              model_response_text, provider_metadata_json, verifier_json, created_at, updated_at
+              model_response_text, provider_metadata, verifier, created_at, updated_at
             )
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::text::jsonb,$18::text::jsonb,now(),now())
             ON CONFLICT(claim_hash) DO UPDATE SET
               claim_index=excluded.claim_index,
               entity_type=excluded.entity_type,
@@ -145,66 +145,69 @@ pub fn save_claims(
               verifier_confidence=excluded.verifier_confidence,
               status=excluded.status,
               model_response_text=excluded.model_response_text,
-              provider_metadata_json=excluded.provider_metadata_json,
-              verifier_json=excluded.verifier_json,
-              updated_at=excluded.updated_at
+              provider_metadata=excluded.provider_metadata,
+              verifier=excluded.verifier,
+              updated_at=now()
             "#,
-            params![
-                video.video_id,
-                claim_hash,
-                index as i64,
-                Option::<String>::None,
-                claim.entity,
-                claim.claim_type,
-                claim.assertion,
-                "",
-                Option::<f64>::None,
-                claim.confidence,
-                0.0_f64,
-                "unverified",
-                MODEL,
-                PROMPT_VERSION,
-                prompt_text,
-                model_response_text,
-                serde_json::to_string(&json!({ "worker": "gemini_browser" }))?,
-                verifier_json,
-                now,
-                now
-            ],
-        )?;
+            video.video_id,
+            claim_hash,
+            index as i64,
+            Option::<String>::None,
+            claim.entity,
+            claim.claim_type,
+            claim.assertion,
+            "",
+            Option::<f64>::None,
+            claim.confidence,
+            0.0_f64,
+            "unverified",
+            MODEL,
+            PROMPT_VERSION,
+            prompt_text,
+            model_response_text,
+            provider_metadata_json,
+            verifier_json,
+        )
+        .execute(pool)
+        .await?;
         saved += 1;
     }
     Ok(saved)
 }
 
-pub fn query_claims(conn: &Connection, entity: &str) -> rusqlite::Result<Vec<ClaimRow>> {
-    let mut statement = conn.prepare(
+pub async fn query_claims(pool: &PgPool, entity: &str) -> anyhow::Result<Vec<ClaimRow>> {
+    let rows = sqlx::query!(
         r#"
-        SELECT c.entity_name, c.claim_type, c.claim_text, c.model_confidence,
-               v.channel_title, v.published_at, v.title, v.url
-        FROM youtube_learning_claims c
-        JOIN youtube_videos v ON v.video_id=c.video_id
-        WHERE lower(c.entity_name)=lower(?)
-          AND c.prompt_version=?
-          AND COALESCE(c.model, '')=COALESCE(?, '')
-        ORDER BY COALESCE(v.published_at, '') DESC, c.created_at DESC
+        SELECT c.entity_name AS "entity!", c.claim_type, c.claim_text,
+               c.model_confidence, v.channel_title,
+               v.published_at::text AS "published_at?", v.title, v.url
+        FROM brain.youtube_learning_claims c
+        JOIN brain.youtube_videos v ON v.video_id=c.video_id
+        WHERE lower(c.entity_name)=lower($1)
+          AND c.prompt_version=$2
+          AND COALESCE(c.model, '')=COALESCE($3, '')
+        ORDER BY v.published_at DESC NULLS LAST, c.created_at DESC
         "#,
-    )?;
-    let rows = statement
-        .query_map(params![entity, PROMPT_VERSION, MODEL], |row| {
-            Ok(ClaimRow {
-                entity: row.get(0)?,
-                claim_type: row.get(1)?,
-                assertion: row.get(2)?,
-                confidence: row.get(3)?,
-                source_channel: row.get(4)?,
-                published_at: row.get(5)?,
-                video_title: row.get(6)?,
-                url: row.get(7)?,
-            })
-        })?
-        .collect();
-    rows
+        entity,
+        PROMPT_VERSION,
+        MODEL,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| ClaimRow {
+            entity: row.entity,
+            claim_type: row.claim_type,
+            assertion: row.claim_text,
+            confidence: row.model_confidence,
+            source_channel: row.channel_title,
+            published_at: row.published_at,
+            video_title: row.title,
+            url: row.url,
+        })
+        .collect())
 }
 
 #[derive(Debug, Serialize)]
@@ -289,5 +292,29 @@ mod tests {
         assert!(parse_model_claims("kein json").is_empty());
         assert!(parse_model_claims(r#"{"claims":"nope"}"#).is_empty());
         assert!(parse_model_claims(r#"{"claims":[{"entity":"x"}]}"#).is_empty());
+    }
+
+    #[tokio::test]
+    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+    async fn query_claims_returns_rows_for_known_entity_parity() {
+        let Some(pool) = crate::testutil::test_pool().await else {
+            return;
+        };
+        // Paritäts-Beweis gegen den Scratch-Snapshot (11941 Claims gesamt).
+        let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM brain.youtube_learning_claims")
+            .fetch_one(&pool)
+            .await
+            .expect("total count");
+        assert_eq!(
+            total, 11941,
+            "youtube_learning_claims Gesamtzahl (Scratch-Snapshot)"
+        );
+
+        // query_claims filtert prompt_version=youtube_claims_de_v2 + model=gemini-web.
+        let walker = query_claims(&pool, "Walker").await.expect("query walker");
+        assert_eq!(walker.len(), 7, "gemini-web/v2 Claims für Entity 'Walker'");
+        assert!(walker
+            .iter()
+            .all(|row| row.entity.eq_ignore_ascii_case("Walker")));
     }
 }

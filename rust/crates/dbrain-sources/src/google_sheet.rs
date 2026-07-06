@@ -2,11 +2,10 @@ use std::{path::Path, time::Duration};
 
 use deadlock_brain_core::http::{HttpClient, HttpGetOptions};
 use regex::Regex;
-use rusqlite::Connection;
 use serde_json::{json, Map, Value};
 
 use crate::{
-    store::{run_source, EntitySnapshotInput, SourceDocumentInput, SourceStore},
+    store::{complete_run, open_pool, EntitySnapshotInput, SourceDocumentInput, SourceStore},
     Result,
 };
 
@@ -34,39 +33,42 @@ pub fn sheet_pubhtml_url(sheet_id: &str) -> String {
     format!("https://docs.google.com/spreadsheets/d/{sheet_id}/pubhtml")
 }
 
-pub fn pull_sheet(
-    conn: &Connection,
+pub async fn pull_sheet(
     raw_dir: &Path,
     http: &HttpClient,
     options: PullSheetOptions,
 ) -> Result<Value> {
-    run_source(conn, raw_dir, "sheet", |store| {
-        pull_sheet_inner(store, http, &options)
-    })
+    let pool = open_pool().await?;
+    let store = SourceStore::new(&pool, raw_dir)?;
+    let run_id = store.begin_run("sheet").await?;
+    let outcome = pull_sheet_inner(&store, http, &options).await;
+    complete_run(&store, run_id, outcome).await
 }
 
-pub fn refresh_sheet(
-    conn: &Connection,
+pub async fn refresh_sheet(
     raw_dir: &Path,
     http: &HttpClient,
     options: RefreshSheetOptions,
 ) -> Result<Value> {
-    run_source(conn, raw_dir, "refresh_sheet", |store| {
-        let pull = pull_sheet_inner(
-            store,
-            http,
-            &PullSheetOptions {
-                sheet_id: options.sheet_id.clone(),
-                gid: Some(options.gid.clone()),
-                all_tabs: true,
-                cache_ttl_seconds: 0,
-            },
-        )?;
-        Ok(json!({ "pull": pull }))
-    })
+    let pool = open_pool().await?;
+    let store = SourceStore::new(&pool, raw_dir)?;
+    let run_id = store.begin_run("refresh_sheet").await?;
+    let outcome = pull_sheet_inner(
+        &store,
+        http,
+        &PullSheetOptions {
+            sheet_id: options.sheet_id.clone(),
+            gid: Some(options.gid.clone()),
+            all_tabs: true,
+            cache_ttl_seconds: 0,
+        },
+    )
+    .await
+    .map(|pull| json!({ "pull": pull }));
+    complete_run(&store, run_id, outcome).await
 }
 
-pub(crate) fn pull_sheet_inner(
+pub(crate) async fn pull_sheet_inner(
     store: &SourceStore<'_>,
     http: &HttpClient,
     options: &PullSheetOptions,
@@ -91,13 +93,10 @@ pub(crate) fn pull_sheet_inner(
 
     let mut summaries = Vec::new();
     for tab in &tabs {
-        summaries.push(pull_single_sheet(
-            store,
-            http,
-            &options.sheet_id,
-            tab,
-            options.cache_ttl_seconds,
-        )?);
+        summaries.push(
+            pull_single_sheet(store, http, &options.sheet_id, tab, options.cache_ttl_seconds)
+                .await?,
+        );
     }
 
     let rows: i64 = summaries
@@ -189,7 +188,7 @@ pub struct SheetTab {
     pub gid: String,
 }
 
-fn pull_single_sheet(
+async fn pull_single_sheet(
     store: &SourceStore<'_>,
     http: &HttpClient,
     sheet_id: &str,
@@ -216,16 +215,18 @@ fn pull_single_sheet(
         "sheet_name": sheet_name,
         "from_cache": result.from_cache,
     });
-    let document_id = store.upsert_source_document(SourceDocumentInput {
-        source: SOURCE,
-        external_id: &external_id,
-        title: Some(&title),
-        url: Some(&url),
-        content_type: "text/csv",
-        raw_path: &raw_path,
-        content: &result.content,
-        metadata: &metadata,
-    })?;
+    let document_id = store
+        .upsert_source_document(SourceDocumentInput {
+            source: SOURCE,
+            external_id: &external_id,
+            title: Some(&title),
+            url: Some(&url),
+            content_type: "text/csv",
+            raw_path: &raw_path,
+            content: &result.content,
+            metadata: &metadata,
+        })
+        .await?;
 
     let rows = parse_csv_rows(&result.text());
     let header_index = find_header_row(&rows);
@@ -285,7 +286,9 @@ fn pull_single_sheet(
         }
     }
 
-    let count = store.insert_many_snapshots(&snapshots, Some(document_id))?;
+    let count = store
+        .insert_many_snapshots(&snapshots, Some(document_id))
+        .await?;
     let hero_snapshot_count = snapshots
         .iter()
         .filter(|snapshot| snapshot.entity_type == "hero_stats_sheet")
@@ -499,47 +502,39 @@ fn decode_js_string(value: &str) -> String {
 mod tests {
     use std::fs;
 
-    use deadlock_brain_core::{http::HttpClient, schema};
+    use deadlock_brain_core::http::HttpClient;
 
     use super::*;
     use crate::store::stable_hash_bytes;
 
+    /// Pure-Logic-Port: CSV-Parsing + Snapshot-Ableitung haengen nicht an der DB.
+    /// Der Store-Schreibpfad von `pull_sheet` ist in `store.rs` (Round-Trip)
+    /// abgedeckt.
     #[test]
-    fn pull_sheet_reads_cached_csv_and_creates_generic_hero_and_item_snapshots() {
-        let temp = tempfile::tempdir().expect("tempdir");
-        let raw_dir = temp.path().join("raw");
-        let cache_dir = temp.path().join("cache");
-        let conn = Connection::open_in_memory().expect("open sqlite");
-        schema::ensure_schema(&conn).expect("schema");
-        let http = HttpClient::new("test-agent", &cache_dir).expect("http");
-        let url = sheet_csv_url("sheet123", "0");
-        write_http_cache(
-            &cache_dir,
-            &url,
-            b"Hero Name,Game Name,disabled\nInfernus,,false\n,Healing Rite,\n",
-            "text/csv",
+    fn csv_parsing_and_record_derivation_from_sheet() {
+        let rows =
+            parse_csv_rows("Hero Name,Game Name,disabled\nInfernus,,false\n,Healing Rite,\n");
+        assert_eq!(rows.len(), 3);
+        let header = find_header_row(&rows).expect("header");
+        assert_eq!(header, 0);
+
+        let headers = rows[0]
+            .iter()
+            .map(|value| value.trim().to_string())
+            .collect::<Vec<_>>();
+        let hero_record = row_to_record(&headers, &rows[1]);
+        assert_eq!(
+            hero_name_from_record(&hero_record).as_deref(),
+            Some("Infernus")
         );
+        assert_eq!(item_name_from_record(&hero_record), None);
 
-        let summary = pull_sheet(
-            &conn,
-            &raw_dir,
-            &http,
-            PullSheetOptions {
-                sheet_id: "sheet123".to_string(),
-                gid: Some("0".to_string()),
-                all_tabs: false,
-                cache_ttl_seconds: 1800,
-            },
-        )
-        .expect("pull sheet");
-
-        assert_eq!(summary["rows"], json!(3));
-        assert_eq!(summary["hero_snapshots"], json!(1));
-        assert_eq!(summary["item_snapshots"], json!(1));
-        let snapshots: i64 = conn
-            .query_row("SELECT COUNT(*) FROM entity_snapshots", [], |row| row.get(0))
-            .expect("snapshot count");
-        assert_eq!(snapshots, 4);
+        let item_record = row_to_record(&headers, &rows[2]);
+        assert_eq!(hero_name_from_record(&item_record), None);
+        assert_eq!(
+            item_name_from_record(&item_record).as_deref(),
+            Some("Healing Rite")
+        );
     }
 
     #[test]

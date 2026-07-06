@@ -1,16 +1,35 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use rusqlite::{Connection, OptionalExtension};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
+use sqlx::PgPool;
 
-use crate::{Result, NormalizeError};
+use crate::{NormalizeError, Result};
 
 pub const ASSETS_SOURCE: &str = "deadlock_assets_api";
 pub const SHEET_SOURCE: &str = "deadlock_stats_sheet";
 
-pub fn now() -> Result<i64> {
-    Ok(deadlock_brain_core::db::now_epoch_seconds()?)
+/// Tabellen im `brain`-Schema, deren Namen die dynamischen Helfer
+/// ([`table_count`]/[`delete_all`]) interpolieren duerfen. Fremde/dynamische
+/// Bezeichner werden abgewiesen, damit kein ungeprueftes `format!` in SQL landet.
+const MUTABLE_TABLES: &[&str] = &[
+    "patch_events",
+    "entity_lineage",
+    "legacy_entities",
+    "patch_event_enrichments",
+    "entities",
+    "entity_aliases",
+];
+
+/// Quotet einen whitelisteten Tabellennamen zum voll qualifizierten
+/// `brain.<name>`. Nicht gelistete Namen sind ein Fehler (kein rohes `format!`
+/// von Fremdinput in SQL).
+fn qualified_table(table: &str) -> Result<String> {
+    if MUTABLE_TABLES.contains(&table) {
+        Ok(format!("brain.{table}"))
+    } else {
+        Err(NormalizeError::InvalidTable(table.to_string()))
+    }
 }
 
 pub fn normalize_alias(value: &str) -> String {
@@ -167,74 +186,98 @@ pub fn title_case(value: &str) -> String {
     out
 }
 
-pub fn table_count(conn: &Connection, table: &str) -> Result<i64> {
-    let sql = format!("SELECT COUNT(*) FROM {table}");
-    Ok(conn.query_row(&sql, [], |row| row.get(0))?)
+/// Bind-Parameter fuer die wenigen echt dynamischen Laufzeit-Upserts
+/// ([`crate::sheet_tabs`]): dort variiert die Spaltenliste (Statistik-Maps),
+/// also wird das SQL zur Laufzeit gebaut und ueber `sqlx::query` gebunden.
+/// Der `Option`-Typ traegt die Spaltentypinfo mit, damit NULLs korrekt an
+/// bigint- bzw. double-Spalten gehen.
+#[derive(Debug, Clone)]
+pub(crate) enum SqlParam {
+    Int(i64),
+    IntOpt(Option<i64>),
+    FloatOpt(Option<f64>),
+    Text(String),
+    TextOpt(Option<String>),
 }
 
-pub fn table_exists(conn: &Connection, table: &str) -> Result<bool> {
-    Ok(conn
-        .query_row(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1",
-            [table],
-            |_| Ok(()),
-        )
-        .optional()?
-        .is_some())
+pub(crate) fn bind_params<'q>(
+    mut query: sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments>,
+    params: &'q [SqlParam],
+) -> sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments> {
+    for param in params {
+        query = match param {
+            SqlParam::Int(value) => query.bind(*value),
+            SqlParam::IntOpt(value) => query.bind(*value),
+            SqlParam::FloatOpt(value) => query.bind(*value),
+            SqlParam::Text(value) => query.bind(value.as_str()),
+            SqlParam::TextOpt(value) => query.bind(value.as_deref()),
+        };
+    }
+    query
 }
 
-pub fn delete_all(conn: &Connection, table: &'static str) -> Result<i64> {
-    let sql = format!("DELETE FROM {table}");
-    let count = conn.execute(&sql, [])?;
-    Ok(count as i64)
+pub async fn table_count(pool: &PgPool, table: &str) -> Result<i64> {
+    let sql = format!("SELECT COUNT(*) FROM {}", qualified_table(table)?);
+    Ok(sqlx::query_scalar::<_, i64>(&sql).fetch_one(pool).await?)
 }
 
-pub fn clear_patch_events(conn: &Connection) -> Result<i64> {
+pub async fn table_exists(pool: &PgPool, table: &str) -> Result<bool> {
+    let qualified = format!("brain.{table}");
+    let present: bool = sqlx::query_scalar("SELECT to_regclass($1) IS NOT NULL")
+        .bind(qualified)
+        .fetch_one(pool)
+        .await?;
+    Ok(present)
+}
+
+pub async fn delete_all(pool: &PgPool, table: &str) -> Result<i64> {
+    let sql = format!("DELETE FROM {}", qualified_table(table)?);
+    let result = sqlx::query(&sql).execute(pool).await?;
+    Ok(result.rows_affected() as i64)
+}
+
+pub async fn clear_patch_events(pool: &PgPool) -> Result<i64> {
     for table in ["legacy_entities", "entity_lineage", "patch_event_enrichments"] {
-        if table_exists(conn, table)? {
-            let _ = delete_all(conn, table)?;
+        if table_exists(pool, table).await? {
+            let _ = delete_all(pool, table).await?;
         }
     }
-    delete_all(conn, "patch_events")
+    delete_all(pool, "patch_events").await
 }
 
-pub fn build_hero_index(conn: &Connection, skip_internal_aliases: bool) -> Result<HashMap<String, i64>> {
+pub async fn build_hero_index(
+    pool: &PgPool,
+    skip_internal_aliases: bool,
+) -> Result<HashMap<String, i64>> {
     let mut candidates: HashMap<String, HashSet<i64>> = HashMap::new();
-    let mut entity_stmt = conn.prepare(
-        "SELECT id, canonical_name FROM entities WHERE entity_type='hero'",
-    )?;
-    let entity_rows = entity_stmt.query_map([], |row| {
-        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-    })?;
+    let entity_rows = sqlx::query!(
+        r#"SELECT id AS "id!", canonical_name AS "canonical_name!"
+           FROM brain.entities WHERE entity_type = 'hero'"#,
+    )
+    .fetch_all(pool)
+    .await?;
     for row in entity_rows {
-        let (entity_id, canonical_name) = row?;
-        add_index_candidate(&mut candidates, &normalize_alias(&canonical_name), entity_id);
+        add_index_candidate(&mut candidates, &normalize_alias(&row.canonical_name), row.id);
     }
 
-    let mut alias_stmt = conn.prepare(
+    let alias_rows = sqlx::query!(
         r#"
-        SELECT entity_id, alias, alias_norm, alias_kind
-        FROM entity_aliases
-        WHERE entity_id IN (SELECT id FROM entities WHERE entity_type='hero')
+        SELECT a.entity_id AS "entity_id!", a.alias AS "alias!",
+               a.alias_norm AS "alias_norm!", a.alias_kind AS "alias_kind!"
+        FROM brain.entity_aliases a
+        WHERE a.entity_id IN (SELECT id FROM brain.entities WHERE entity_type = 'hero')
         "#,
-    )?;
-    let alias_rows = alias_stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, i64>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-            row.get::<_, String>(3)?,
-        ))
-    })?;
+    )
+    .fetch_all(pool)
+    .await?;
     for row in alias_rows {
-        let (entity_id, alias, alias_norm, alias_kind) = row?;
-        if alias_kind != "canonical" && alias_kind != "snapshot_name" {
+        if row.alias_kind != "canonical" && row.alias_kind != "snapshot_name" {
             continue;
         }
-        if skip_internal_aliases && looks_like_internal_hero_alias(&alias) {
+        if skip_internal_aliases && looks_like_internal_hero_alias(&row.alias) {
             continue;
         }
-        add_index_candidate(&mut candidates, &alias_norm, entity_id);
+        add_index_candidate(&mut candidates, &row.alias_norm, row.entity_id);
     }
 
     Ok(candidates
@@ -249,7 +292,11 @@ pub fn build_hero_index(conn: &Connection, skip_internal_aliases: bool) -> Resul
         .collect())
 }
 
-pub fn add_index_candidate(candidates: &mut HashMap<String, HashSet<i64>>, alias_norm: &str, entity_id: i64) {
+fn add_index_candidate(
+    candidates: &mut HashMap<String, HashSet<i64>>,
+    alias_norm: &str,
+    entity_id: i64,
+) {
     if !alias_norm.is_empty() {
         candidates.entry(alias_norm.to_string()).or_default().insert(entity_id);
     }
@@ -258,8 +305,4 @@ pub fn add_index_candidate(candidates: &mut HashMap<String, HashSet<i64>>, alias
 fn looks_like_internal_hero_alias(value: &str) -> bool {
     let lowered = value.trim().to_lowercase();
     lowered.starts_with("hero_") || lowered.starts_with("hero ")
-}
-
-pub fn get_required_id(row: Option<i64>, label: &'static str) -> Result<i64> {
-    row.ok_or(NormalizeError::MissingRow(label))
 }

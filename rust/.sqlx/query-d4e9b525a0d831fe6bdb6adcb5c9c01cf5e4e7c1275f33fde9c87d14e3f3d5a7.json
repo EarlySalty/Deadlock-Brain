@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT COUNT(*) AS \"cnt!\"\n        FROM brain.youtube_videos v JOIN brain.youtube_transcripts t ON t.video_id=v.video_id\n        WHERE v.metadata->>'content_type'='verbal_strategy'\n          AND length(t.transcript_text) > 0\n          AND NOT EXISTS (\n            SELECT 1 FROM brain.youtube_learning_claims c\n            WHERE c.video_id=v.video_id AND c.prompt_version=$1\n          )\n          AND NOT EXISTS (\n            SELECT 1 FROM brain.youtube_transcript_claim_attempts a\n            WHERE a.video_id=v.video_id AND a.prompt_version=$1\n          )\n          AND ($2::bigint IS NULL OR length(t.transcript_text) <= $2)\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "cnt!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "d4e9b525a0d831fe6bdb6adcb5c9c01cf5e4e7c1275f33fde9c87d14e3f3d5a7"
+}

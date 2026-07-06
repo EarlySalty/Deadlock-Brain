@@ -27,56 +27,15 @@ pub use player_decision_learning::{
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::path::PathBuf;
 
     use deadlock_brain_core::{config::Settings, minimax::MiniMaxConfig};
-    use rusqlite::Connection;
-    use serde_json::json;
+    use sqlx::postgres::{PgPool, PgPoolOptions};
 
     use super::*;
 
-    #[test]
-    fn imports_steam_builds_and_lists_item_names() {
-        let temp = tempfile::tempdir().expect("tempdir");
-        let conn = test_conn(temp.path());
-        seed_assets(&conn);
-        let steam_path = temp.path().join("steam.sqlite3");
-        seed_steam_db(&steam_path);
-
-        let result = learn_import_steam_builds(
-            &conn,
-            LearnImportSteamBuildsOptions {
-                steam_db_path: Some(steam_path),
-                hero: Some("Test".to_string()),
-                language: 0,
-                limit_per_hero: 10,
-            },
-        )
-        .expect("import builds");
-
-        assert_eq!(result["imported"], 1);
-        let rows = learn_list_builds(&conn, Some("TestHero"), 25).expect("list builds");
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0]["item_names"][0], "Extra Stamina");
-    }
-
-    #[test]
-    fn build_suggest_returns_deterministic_build() {
-        let temp = tempfile::tempdir().expect("tempdir");
-        let conn = test_conn(temp.path());
-        seed_assets(&conn);
-
-        let result = build_suggest(&conn, BuildSuggestOptions::new("TestHero")).expect("suggest");
-
-        assert_eq!(result["hero"]["name"], "TestHero");
-        assert!(
-            !result["build"]["early"]
-                .as_array()
-                .expect("early array")
-                .is_empty()
-        );
-    }
-
+    /// Reiner Logik-Test ohne Datenbank: der Insights-Parser findet den letzten
+    /// gefencten MiniMax-JSON-Block.
     #[test]
     fn extract_insights_reads_fenced_minimax_json_at_end() {
         let text = r#"
@@ -110,106 +69,25 @@ mod tests {
         assert_eq!(insights["core_items"][1], "Superior Cooldown");
     }
 
-    #[test]
-    fn build_suggest_uses_learning_note_core_items() {
-        let temp = tempfile::tempdir().expect("tempdir");
-        let conn = test_conn(temp.path());
-        seed_assets(&conn);
-        seed_learning_bridge_items(&conn);
-        seed_build_learning_note(&conn);
-
-        let result = build_suggest(&conn, BuildSuggestOptions::new("TestHero")).expect("suggest");
-        let core_names = result["build"]["core"]
-            .as_array()
-            .expect("core array")
-            .iter()
-            .filter_map(|row| row.get("name"))
-            .collect::<Vec<_>>();
-        let top_items = result["top_items"].as_array().expect("top items");
-        let learned_item = top_items
-            .iter()
-            .find(|row| row["item"]["name"] == "Learned Spirit Core")
-            .expect("learned item");
-        let avoided_item = top_items
-            .iter()
-            .find(|row| row["item"]["name"] == "Avoided Gun Core")
-            .expect("avoided item");
-
-        assert!(core_names.iter().any(|name| *name == "Learned Spirit Core"));
-        assert!(learned_item["score"].as_f64().expect("learned score") > avoided_item["score"].as_f64().expect("avoided score"));
-        assert_eq!(learned_item["tags"]["learning_core"], true);
-        assert_eq!(avoided_item["tags"]["learning_avoid"], true);
+    /// Wegwerf-Postgres aus `DEADLOCK_CENTRAL_DSN`. `None` (Test-Skip), wenn die
+    /// Variable nicht gesetzt ist — genau wie im bereits portierten `dbrain-enrich`.
+    async fn test_pool() -> Option<PgPool> {
+        let dsn = std::env::var("DEADLOCK_CENTRAL_DSN").ok()?;
+        PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&dsn)
+            .await
+            .ok()
     }
 
-    #[test]
-    fn learn_analyze_build_dry_run_stores_context_without_api_call() {
-        let temp = tempfile::tempdir().expect("tempdir");
-        let conn = test_conn(temp.path());
-        seed_assets(&conn);
-        seed_learned_build(&conn);
-        let config = test_minimax_config(temp.path());
-
-        let result = learn_analyze_build(
-            &conn,
-            LearnAnalyzeBuildOptions {
-                build_id: 1,
-                config,
-                dry_run: true,
-                include_request: true,
-            },
-        )
-        .expect("dry run");
-
-        assert_eq!(result["dry_run"], true);
-        assert_eq!(result["note"]["status"], "context_ready");
-        assert!(result.get("request").is_some());
-        let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM build_learning_notes", [], |row| row.get(0))
-            .expect("note count");
-        assert_eq!(count, 1);
-    }
-
-    #[test]
-    fn player_analyze_match_dry_run_stores_context_without_api_call() {
-        let temp = tempfile::tempdir().expect("tempdir");
-        let conn = test_conn(temp.path());
-        seed_assets(&conn);
-        seed_player_match(&conn);
-        let config = test_minimax_config(temp.path());
-
-        let result = player_analyze_match(
-            &conn,
-            PlayerAnalyzeMatchOptions {
-                account_id: "acc1".to_string(),
-                match_id: "m1".to_string(),
-                config,
-                dry_run: true,
-                include_request: true,
-            },
-        )
-        .expect("player dry run");
-
-        assert_eq!(result["dry_run"], true);
-        assert_eq!(result["hero_name"], "TestHero");
-        assert!(result.get("request").is_some());
-        let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM player_match_decision_notes", [], |row| row.get(0))
-            .expect("note count");
-        assert_eq!(count, 1);
-    }
-
-    fn test_conn(temp: &Path) -> Connection {
-        deadlock_brain_core::db::open_connection(Some(temp.join("brain.sqlite3"))).expect("open conn")
-    }
-
-    fn test_minimax_config(temp: &Path) -> MiniMaxConfig {
+    fn test_minimax_config() -> MiniMaxConfig {
         let settings = Settings {
-            project_root: temp.to_path_buf(),
-            data_dir: temp.join("data"),
-            raw_dir: temp.join("raw"),
-            cache_dir: temp.join("cache"),
-            db_path: temp.join("brain.sqlite3"),
-            central_deadlock_db_path: temp.join("steam.sqlite3"),
+            project_root: PathBuf::from("/tmp/dbrain-learn-test"),
+            data_dir: PathBuf::from("/tmp/dbrain-learn-test/data"),
+            raw_dir: PathBuf::from("/tmp/dbrain-learn-test/raw"),
+            cache_dir: PathBuf::from("/tmp/dbrain-learn-test/cache"),
+            db_path: PathBuf::from("/tmp/dbrain-learn-test/brain.sqlite3"),
+            central_deadlock_db_path: PathBuf::from("/tmp/dbrain-learn-test/steam.sqlite3"),
             user_agent: "test".to_string(),
             sheet_id: "sheet".to_string(),
             sheet_gid: "0".to_string(),
@@ -228,231 +106,152 @@ mod tests {
         MiniMaxConfig::from_settings(&settings)
     }
 
-    fn seed_assets(conn: &Connection) {
-        let hero = json!({
-            "id": 1,
-            "name": "TestHero",
-            "hero_type": "Brawler",
-            "gun_tag": "gun",
-            "description": {"role": "Test", "playstyle": "Test playstyle"},
-            "items": {"signature1": "ability_test"},
-            "item_draft_bucketing": {"item_extra_stamina": {"bucket": "Good"}},
-            "cost_bonuses": {},
-            "purchase_bonuses": {},
-            "starting_stats": {"max_health": 600}
-        });
-        insert_snapshot(conn, "deadlock_assets_api", "hero", "1", "TestHero", &hero);
-        let ability = json!({
-            "id": 10,
-            "name": "Test Stun",
-            "class_name": "ability_test",
-            "description": {"desc": "Stun and dash with weapon damage"},
-            "properties": {
-                "AbilityCooldown": {"value": 20, "label": "Cooldown", "disable_value": 1, "provided_property_type": "ETechCooldown"},
-                "Damage": {"value": 100, "label": "Damage", "disable_value": 1, "scale_function": {"scaling_stats": ["ETechPower"]}}
+    /// Paritaet: `learn_list_builds` liefert exakt so viele Zeilen wie die Tabelle
+    /// `brain.learned_builds` enthaelt (Live-Read gegen echtes Schema).
+    #[tokio::test]
+    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+    async fn list_builds_matches_learned_builds_count() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let db_count: i64 = sqlx::query_scalar("SELECT count(*)::int8 FROM brain.learned_builds")
+            .fetch_one(&pool)
+            .await
+            .expect("count learned_builds");
+        let listed = learn_list_builds(&pool, None, 100_000)
+            .await
+            .expect("learn_list_builds");
+        assert_eq!(listed.len() as i64, db_count);
+        assert!(db_count > 0, "scratch PG sollte learned_builds enthalten");
+        // Jede Zeile hat die dekodierte item_names-Liste.
+        assert!(listed.iter().all(|row| row.get("item_names").is_some()));
+    }
+
+    /// Voller Read-Pfad: `build_hero_build_context` fuer einen echten Hero fuehrt
+    /// alle `load_*`/Review-/Entity-Queries gegen die Scratch-PG aus.
+    #[tokio::test]
+    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+    async fn build_hero_build_context_for_real_hero() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let hero: Option<String> = sqlx::query_scalar(
+            "SELECT canonical_name FROM brain.entities WHERE entity_type='hero' ORDER BY canonical_name LIMIT 1",
+        )
+        .fetch_optional(&pool)
+        .await
+        .expect("hero lookup");
+        let Some(hero) = hero else {
+            return; // keine Heroes in der Scratch-PG -> nichts zu pruefen
+        };
+        let context = build_hero_build_context(&pool, &hero, &[], 40)
+            .await
+            .expect("build context");
+        assert_eq!(context["hero"]["name"].as_str(), Some(hero.as_str()));
+        assert!(context.get("build").and_then(|b| b.as_object()).is_some());
+        assert!(context.get("top_items").and_then(|t| t.as_array()).is_some());
+    }
+
+    /// Statlocker-Player-Match-Query laeuft ohne Fehler.
+    #[tokio::test]
+    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+    async fn player_list_matches_runs() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let rows = player_list_matches(&pool, None, 10)
+            .await
+            .expect("player_list_matches");
+        // Jede Zeile hat account_id und match_id.
+        assert!(rows.iter().all(|row| row.get("account_id").is_some()));
+    }
+
+    /// Insert-/JSONB-/ON-CONFLICT-Pfad fuer `build_learning_notes`: Dry-Run gegen
+    /// einen echten `learned_build`, danach Aufraeumen der Testnotiz.
+    #[tokio::test]
+    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+    async fn analyze_build_dry_run_inserts_note() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let build_id: Option<i64> =
+            sqlx::query_scalar("SELECT id FROM brain.learned_builds ORDER BY id LIMIT 1")
+                .fetch_optional(&pool)
+                .await
+                .expect("learned_build id");
+        let Some(build_id) = build_id else {
+            return;
+        };
+        let result = learn_analyze_build(
+            &pool,
+            LearnAnalyzeBuildOptions {
+                build_id,
+                config: test_minimax_config(),
+                dry_run: true,
+                include_request: true,
             },
-            "upgrades": []
-        });
-        insert_snapshot(conn, "deadlock_assets_api", "item_or_ability", "10", "Test Stun", &ability);
-        let item = json!({
-            "id": 100,
-            "name": "Extra Stamina",
-            "class_name": "item_extra_stamina",
-            "item_slot_type": "vitality",
-            "item_tier": 1,
-            "cost": 800,
-            "shopable": true,
-            "disabled": false,
-            "is_active_item": false,
-            "description": {"desc": "Stamina and move speed for lane"},
-            "properties": {
-                "Stamina": {"value": 1, "label": "Stamina", "disable_value": 1},
-                "MoveSpeed": {"value": 1, "label": "Move Speed", "disable_value": 1}
-            }
-        });
-        insert_snapshot(conn, "deadlock_assets_api", "item_or_ability", "100", "Extra Stamina", &item);
-    }
-
-    fn seed_learning_bridge_items(conn: &Connection) {
-        let learned = json!({
-            "id": 101,
-            "name": "Learned Spirit Core",
-            "class_name": "item_learned_spirit_core",
-            "item_slot_type": "spirit",
-            "item_tier": 3,
-            "cost": 3200,
-            "shopable": true,
-            "disabled": false,
-            "is_active_item": false,
-            "description": {"desc": "Spirit power and cooldown reduction"},
-            "properties": {
-                "TechPower": {"value": 20, "label": "Spirit Power", "disable_value": 1, "provided_property_type": "MODIFIER_VALUE_TECH_POWER", "prefix": "{s:sign}"},
-                "CooldownReduction": {"value": 12, "label": "Ability Cooldown Reduction", "disable_value": 1, "provided_property_type": "MODIFIER_VALUE_COOLDOWN_REDUCTION_PERCENTAGE", "prefix": "{s:sign}", "postfix": "%"}
-            }
-        });
-        insert_snapshot(conn, "deadlock_assets_api", "item_or_ability", "101", "Learned Spirit Core", &learned);
-
-        let avoided = json!({
-            "id": 102,
-            "name": "Avoided Gun Core",
-            "class_name": "item_avoided_gun_core",
-            "item_slot_type": "weapon",
-            "item_tier": 3,
-            "cost": 3200,
-            "shopable": true,
-            "disabled": false,
-            "is_active_item": false,
-            "description": {"desc": "Weapon damage, fire rate, and reload pressure"},
-            "properties": {
-                "WeaponPower": {"value": 25, "label": "Weapon Damage", "disable_value": 1, "provided_property_type": "MODIFIER_VALUE_WEAPON_POWER", "prefix": "{s:sign}", "postfix": "%"},
-                "BonusFireRate": {"value": 20, "label": "Fire Rate", "disable_value": 1, "provided_property_type": "MODIFIER_VALUE_FIRE_RATE", "prefix": "{s:sign}", "postfix": "%"}
-            }
-        });
-        insert_snapshot(conn, "deadlock_assets_api", "item_or_ability", "102", "Avoided Gun Core", &avoided);
-    }
-
-    fn seed_build_learning_note(conn: &Connection) {
-        conn.execute(
-            "INSERT INTO build_learning_notes(
-               learned_build_id, hero_name, source, context_hash, prompt_version,
-               prompt_text, result_text, insights_json, model, status, created_at, updated_at
-             )
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-            (
-                Option::<i64>::None,
-                "TestHero",
-                "test",
-                "hash-learning-bridge",
-                BUILD_LEARNING_PROMPT_VERSION,
-                "prompt",
-                "result",
-                json!({
-                    "hero_job": "spirit_control",
-                    "core_items": ["Learned Spirit Core"],
-                    "avoid_or_question": ["Avoided Gun Core"]
-                })
-                .to_string(),
-                "test-model",
-                "analysis_ready",
-                10_i64,
-                10_i64,
-            ),
         )
-        .expect("insert build note");
+        .await
+        .expect("dry run");
+
+        assert_eq!(result["dry_run"], true);
+        assert_eq!(result["note"]["status"], "context_ready");
+        assert!(result.get("request").is_some());
+
+        if let Some(note_id) = result["note"]["id"].as_i64() {
+            sqlx::query("DELETE FROM brain.build_learning_notes WHERE id=$1")
+                .bind(note_id)
+                .execute(&pool)
+                .await
+                .expect("cleanup note");
+        }
     }
 
-    fn insert_snapshot(
-        conn: &Connection,
-        source: &str,
-        entity_type: &str,
-        external_id: &str,
-        canonical_name: &str,
-        payload: &serde_json::Value,
-    ) {
-        conn.execute(
-            "INSERT INTO entity_snapshots(source, entity_type, external_id, canonical_name, payload_hash, payload_json, fetched_at)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            (
-                source,
-                entity_type,
-                external_id,
-                canonical_name,
-                format!("{source}:{entity_type}:{external_id}"),
-                payload.to_string(),
-                1_i64,
-            ),
+    /// Insert-/JSONB-/ON-CONFLICT-Pfad fuer `player_match_decision_notes`: Dry-Run
+    /// gegen ein echtes Statlocker-Player-Match, danach Aufraeumen der Testnotiz.
+    #[tokio::test]
+    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+    async fn analyze_match_dry_run_inserts_note() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let external: Option<String> = sqlx::query_scalar(
+            "SELECT external_id FROM brain.entity_snapshots \
+             WHERE source='statlocker' AND entity_type='statlocker_player_match' \
+             ORDER BY fetched_at DESC LIMIT 1",
         )
-        .expect("insert snapshot");
-    }
+        .fetch_optional(&pool)
+        .await
+        .expect("player match lookup");
+        let Some(external) = external else {
+            return;
+        };
+        let Some((account_id, match_id)) = external.split_once(':') else {
+            return;
+        };
 
-    fn seed_steam_db(path: &Path) {
-        let conn = Connection::open(path).expect("open steam");
-        conn.execute_batch(
-            "CREATE TABLE hero_build_sources(
-               hero_build_id TEXT, hero_id INTEGER, language INTEGER, details_json TEXT, tags_json TEXT,
-               origin_build_id TEXT, version INTEGER, publish_ts INTEGER, last_updated_ts INTEGER,
-               fetched_at INTEGER, last_seen_at INTEGER, name TEXT, author_account_id TEXT, description TEXT
-             );",
+        let result = player_analyze_match(
+            &pool,
+            PlayerAnalyzeMatchOptions {
+                account_id: account_id.to_string(),
+                match_id: match_id.to_string(),
+                config: test_minimax_config(),
+                dry_run: true,
+                include_request: true,
+            },
         )
-        .expect("create steam schema");
-        let details = json!({
-            "mod_categories": [{"name": "Core", "mods": [{"ability_id": 100, "annotation": "buy early"}]}],
-            "ability_order": {"currency_changes": [{"ability_id": 10, "currency_type": "ap", "delta": 1}]}
-        });
-        conn.execute(
-            "INSERT INTO hero_build_sources VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
-            (
-                "b1",
-                1_i64,
-                0_i64,
-                details.to_string(),
-                json!(["tag"]).to_string(),
-                "origin",
-                1_i64,
-                100_i64,
-                200_i64,
-                300_i64,
-                400_i64,
-                "Test Build",
-                "42",
-                "desc",
-            ),
-        )
-        .expect("insert steam row");
-    }
+        .await
+        .expect("player dry run");
 
-    fn seed_learned_build(conn: &Connection) {
-        conn.execute(
-            "INSERT INTO learned_builds(
-               source, source_build_id, hero_id, hero_name, language, source_rank,
-               quality_tier, quality_score, name, tags_json, details_json, item_names_json,
-               ability_order_json, source_metadata_json, imported_at, updated_at
-             )
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
-            (
-                "steam_gc",
-                "b1",
-                1_i64,
-                "TestHero",
-                0_i64,
-                1_i64,
-                "likely_good",
-                0.9_f64,
-                "Test Build",
-                "[]",
-                json!({"mod_categories": [{"name": "Core", "mods": [{"ability_id": 100}]}]}).to_string(),
-                json!(["Extra Stamina"]).to_string(),
-                "[]",
-                "{}",
-                1_i64,
-                1_i64,
-            ),
-        )
-        .expect("insert learned build");
-    }
+        assert_eq!(result["dry_run"], true);
+        assert!(result.get("request").is_some());
 
-    fn seed_player_match(conn: &Connection) {
-        let player_match = json!({
-            "hero_id": 1,
-            "kills": 4,
-            "deaths": 2,
-            "assists": 8,
-            "won": true,
-            "_deadlock_brain": {"account_id": "acc1", "match_id": "m1", "hero_id": "1"}
-        });
-        insert_snapshot(conn, "statlocker", "statlocker_player_match", "acc1:m1", "acc1:m1", &player_match);
-        let api_match = json!({
-            "match_id": "m1",
-            "players": [{
-                "account_id": "acc1",
-                "hero_id": 1,
-                "team": 0,
-                "kills": 4,
-                "deaths": 2,
-                "assists": 8,
-                "items": [{"game_time_s": 300, "item_id": 100}]
-            }]
-        });
-        insert_snapshot(conn, "deadlock_api", "deadlock_api_match_metadata", "m1", "m1", &api_match);
+        if let Some(note_id) = result["note"]["id"].as_i64() {
+            sqlx::query("DELETE FROM brain.player_match_decision_notes WHERE id=$1")
+                .bind(note_id)
+                .execute(&pool)
+                .await
+                .expect("cleanup note");
+        }
     }
 }

@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT length(transcript_text) AS \"len!\" FROM brain.youtube_transcripts WHERE video_id=$1 LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "len!",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "fab405582145bdcd51fc77c056447151c2f8673817e5c0e2044a72e21a8ed51b"
+}

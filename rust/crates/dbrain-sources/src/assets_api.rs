@@ -1,11 +1,10 @@
 use std::{path::Path, time::Duration};
 
 use deadlock_brain_core::http::{HttpClient, HttpGetOptions};
-use rusqlite::Connection;
 use serde_json::{json, Map, Value};
 
 use crate::{
-    store::{json_bytes, run_source, EntitySnapshotInput, SourceDocumentInput, SourceStore},
+    store::{complete_run, json_bytes, open_pool, EntitySnapshotInput, SourceDocumentInput, SourceStore},
     util::{python_or_string, value_to_python_string},
     Result, SourcesError,
 };
@@ -29,18 +28,19 @@ pub struct PullAssetsOptions {
     pub kinds: Vec<String>,
 }
 
-pub fn pull_assets(
-    conn: &Connection,
+pub async fn pull_assets(
     raw_dir: &Path,
     http: &HttpClient,
     options: PullAssetsOptions,
 ) -> Result<Value> {
-    run_source(conn, raw_dir, "assets", |store| {
-        pull_assets_inner(store, http, &options)
-    })
+    let pool = open_pool().await?;
+    let store = SourceStore::new(&pool, raw_dir)?;
+    let run_id = store.begin_run("assets").await?;
+    let outcome = pull_assets_inner(&store, http, &options).await;
+    complete_run(&store, run_id, outcome).await
 }
 
-pub(crate) fn pull_assets_inner(
+pub(crate) async fn pull_assets_inner(
     store: &SourceStore<'_>,
     http: &HttpClient,
     options: &PullAssetsOptions,
@@ -74,19 +74,23 @@ pub(crate) fn pull_assets_inner(
         let raw_path = store.write_raw(SOURCE, &kind, &raw, "json")?;
         let title = format!("Deadlock Assets API {kind}");
         let metadata = json!({ "endpoint": endpoint });
-        let document_id = store.upsert_source_document(SourceDocumentInput {
-            source: SOURCE,
-            external_id: &kind,
-            title: Some(&title),
-            url: Some(&url),
-            content_type: "application/json",
-            raw_path: &raw_path,
-            content: &raw,
-            metadata: &metadata,
-        })?;
+        let document_id = store
+            .upsert_source_document(SourceDocumentInput {
+                source: SOURCE,
+                external_id: &kind,
+                title: Some(&title),
+                url: Some(&url),
+                content_type: "application/json",
+                raw_path: &raw_path,
+                content: &raw,
+                metadata: &metadata,
+            })
+            .await?;
 
         let snapshots = snapshots_for(&kind, &payload);
-        let count = store.insert_many_snapshots(&snapshots, Some(document_id))?;
+        let count = store
+            .insert_many_snapshots(&snapshots, Some(document_id))
+            .await?;
         endpoints_summary.insert(
             kind,
             json!({
@@ -163,65 +167,35 @@ fn snapshots_for(kind: &str, payload: &Value) -> Vec<EntitySnapshotInput> {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-
-    use deadlock_brain_core::{http::HttpClient, schema};
-
     use super::*;
-    use crate::store::stable_hash_bytes;
 
+    /// Pure-Logic-Port: die Snapshot-Ableitung aus einem Assets-Payload haengt
+    /// nicht an der DB. Der DB-Schreibpfad (`pull_assets` -> Store) ist in
+    /// `store.rs` als PG-Integration abgedeckt.
     #[test]
-    fn pull_assets_uses_cache_and_inserts_document_snapshot_and_run() {
-        let temp = tempfile::tempdir().expect("tempdir");
-        let db_path = temp.path().join("brain.sqlite3");
-        let raw_dir = temp.path().join("raw");
-        let cache_dir = temp.path().join("cache");
-        let conn = Connection::open(db_path).expect("open sqlite");
-        schema::ensure_schema(&conn).expect("schema");
-        let http = HttpClient::new("test-agent", &cache_dir).expect("http");
-        let url = format!("{BASE_URL}/v2/items");
-        write_http_cache(
-            &cache_dir,
-            &url,
-            br#"[{"id": 7, "name": "Mystic Reach"}, {"class_name": "item_cold"}]"#,
-        );
-
-        let summary = pull_assets(
-            &conn,
-            &raw_dir,
-            &http,
-            PullAssetsOptions {
-                kinds: vec!["items".to_string()],
-            },
-        )
-        .expect("pull assets");
-
-        assert_eq!(summary["snapshots"], json!(2));
-        let documents: i64 = conn
-            .query_row("SELECT COUNT(*) FROM source_documents", [], |row| row.get(0))
-            .expect("document count");
-        let snapshots: i64 = conn
-            .query_row("SELECT COUNT(*) FROM entity_snapshots", [], |row| row.get(0))
-            .expect("snapshot count");
-        let runs: i64 = conn
-            .query_row("SELECT COUNT(*) FROM source_runs WHERE source='assets' AND status='ok'", [], |row| {
-                row.get(0)
-            })
-            .expect("run count");
-
-        assert_eq!(documents, 1);
-        assert_eq!(snapshots, 2);
-        assert_eq!(runs, 1);
+    fn snapshots_for_items_derives_external_ids_and_names() {
+        let payload = serde_json::json!([
+            {"id": 7, "name": "Mystic Reach"},
+            {"class_name": "item_cold"},
+            {"nothing": true }
+        ]);
+        let snapshots = snapshots_for("items", &payload);
+        assert_eq!(snapshots.len(), 3);
+        assert!(snapshots
+            .iter()
+            .all(|snapshot| snapshot.entity_type == "item_or_ability"));
+        assert_eq!(snapshots[0].external_id, "7");
+        assert_eq!(snapshots[0].canonical_name.as_deref(), Some("Mystic Reach"));
+        assert_eq!(snapshots[1].external_id, "item_cold");
+        // Ohne id/class_name/name faellt der External-Key auf den Index zurueck.
+        assert_eq!(snapshots[2].external_id, "2");
     }
 
-    fn write_http_cache(cache_dir: &Path, url: &str, content: &[u8]) {
-        fs::create_dir_all(cache_dir).expect("cache dir");
-        let path = cache_dir.join(format!("{}.bin", stable_hash_bytes(url.as_bytes())));
-        fs::write(&path, content).expect("cache body");
-        fs::write(
-            path.with_extension("bin.json"),
-            br#"{"url":"fixture","content_type":"application/json","fetched_at":0}"#,
-        )
-        .expect("cache metadata");
+    #[test]
+    fn snapshots_for_maps_kind_to_entity_type() {
+        let payload = serde_json::json!([{"id": 1, "name": "Abrams"}]);
+        assert_eq!(snapshots_for("heroes", &payload)[0].entity_type, "hero");
+        assert_eq!(snapshots_for("ranks", &payload)[0].entity_type, "rank");
+        assert!(snapshots_for("items", &serde_json::json!({})).is_empty());
     }
 }

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE brain.youtube_videos SET transcript_status='unavailable', metadata=$1::text::jsonb, updated_at=now() WHERE video_id=$2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0d52ce1c728d38fc2b9605ea6bd014b36e1894d86de49b4c7622fc71a1b3acc6"
+}

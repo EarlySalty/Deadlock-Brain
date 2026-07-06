@@ -1,0 +1,66 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT c.entity_name AS \"entity!\", c.claim_type, c.claim_text,\n               c.model_confidence, v.channel_title,\n               v.published_at::text AS \"published_at?\", v.title, v.url\n        FROM brain.youtube_learning_claims c\n        JOIN brain.youtube_videos v ON v.video_id=c.video_id\n        WHERE lower(c.entity_name)=lower($1)\n          AND c.prompt_version=$2\n          AND COALESCE(c.model, '')=COALESCE($3, '')\n        ORDER BY v.published_at DESC NULLS LAST, c.created_at DESC\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "entity!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "claim_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "claim_text",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "model_confidence",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 4,
+        "name": "channel_title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "published_at?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "url",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false,
+      true,
+      null,
+      false,
+      false
+    ]
+  },
+  "hash": "1e63785eefb3732614b5b451e91e368efa85b340b02872ba32d076bd89fede0c"
+}
