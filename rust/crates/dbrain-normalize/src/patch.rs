@@ -198,6 +198,7 @@ fn parse_patchnote_snapshot(
     let title = optional_string(payload, "title");
     let url = optional_string(payload, "url");
     let posted_at = optional_string(payload, "posted_at");
+    let patch_external_id = normalize_patch_external_id(external_id);
     let source_kind = classify_source_kind(url.as_deref());
     let mut section: Option<String> = None;
     let mut current_group: Option<String> = None;
@@ -286,7 +287,7 @@ fn parse_patchnote_snapshot(
         events.push(PatchEventInsert {
             patch_snapshot_id: snapshot_id,
             legacy_patch_snapshot_id: legacy_snapshot_id,
-            patch_external_id: external_id.to_string(),
+            patch_external_id: patch_external_id.clone(),
             patch_title: title.clone(),
             patch_url: url.clone(),
             source_kind: source_kind.clone(),
@@ -313,6 +314,13 @@ fn parse_patchnote_snapshot(
 fn iter_patch_lines(content: &str) -> Vec<(i64, String)> {
     let mut lines = Vec::new();
     let mut virtual_index = 0_i64;
+    if let Some(compact_lines) = expand_compact_square_section_lines(content) {
+        for raw_line in compact_lines {
+            virtual_index += 1;
+            lines.push((virtual_index, raw_line));
+        }
+        return lines;
+    }
     for raw_line in content.lines() {
         for part in expand_inline_bullets(raw_line) {
             virtual_index += 1;
@@ -484,6 +492,88 @@ fn classify_source_kind(url: Option<&str>) -> String {
     } else {
         "other".to_string()
     }
+}
+
+fn normalize_patch_external_id(external_id: &str) -> String {
+    let trimmed = external_id.trim();
+    if !trimmed.is_empty() && trimmed.chars().all(|ch| ch.is_ascii_digit()) {
+        format!("patch_{trimmed}")
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn expand_compact_square_section_lines(content: &str) -> Option<Vec<String>> {
+    let trimmed = content.trim();
+    if trimmed.is_empty() || trimmed.contains('\n') || !trimmed.starts_with('[') {
+        return None;
+    }
+
+    let mut markers = Vec::new();
+    let mut search_from = 0usize;
+    while let Some(marker) = find_square_section_marker(trimmed, search_from) {
+        search_from = marker.1;
+        markers.push(marker);
+    }
+    if markers.is_empty() {
+        return None;
+    }
+
+    let mut lines = Vec::new();
+    let mut saw_event = false;
+    for (idx, (_, section_end, section)) in markers.iter().enumerate() {
+        let body_end = markers.get(idx + 1).map_or(trimmed.len(), |next| next.0);
+        let body = trimmed[*section_end..body_end].trim();
+        lines.push(section.clone());
+        for bullet in split_compact_square_section_bullets(body) {
+            lines.push(format!("- {bullet}"));
+            saw_event = true;
+        }
+    }
+
+    if saw_event {
+        Some(lines)
+    } else {
+        None
+    }
+}
+
+fn find_square_section_marker(content: &str, start: usize) -> Option<(usize, usize, String)> {
+    let search_from = start;
+    let open_rel = content[search_from..].find('[')?;
+    let open = search_from + open_rel;
+    let close_rel = content[open..].find(']')?;
+    let close = open + close_rel;
+    let section = detect_section(content[open + 1..close].trim())?;
+    Some((open, close + 1, section))
+}
+
+fn split_compact_square_section_bullets(body: &str) -> Vec<String> {
+    let trimmed = body.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+
+    for (marker, prefix) in [('*', "* "), ('-', "- ")] {
+        if let Some(rest) = trimmed.strip_prefix(prefix) {
+            return split_compact_square_section_bullets_with_marker(rest, marker);
+        }
+        let delimiter = format!(" {marker} ");
+        if trimmed.contains(&delimiter) {
+            return split_compact_square_section_bullets_with_marker(trimmed, marker);
+        }
+    }
+
+    vec![trimmed.to_string()]
+}
+
+fn split_compact_square_section_bullets_with_marker(body: &str, marker: char) -> Vec<String> {
+    let delimiter = format!(" {marker} ");
+    body.split(&delimiter)
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(ToString::to_string)
+        .collect()
 }
 
 fn detect_section(line: &str) -> Option<String> {

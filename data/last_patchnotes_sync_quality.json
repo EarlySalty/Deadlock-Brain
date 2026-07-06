@@ -1,0 +1,948 @@
+{
+  "checks": [
+    {
+      "check": "required_tables",
+      "message": "Required normalized tables are present.",
+      "rows": 0,
+      "samples": [],
+      "severity": "ok"
+    },
+    {
+      "check": "entity_counts",
+      "details": {
+        "asset_snapshots": 2132,
+        "entity_counts": {
+          "ability": 184,
+          "ability_internal": 168,
+          "hero": 38,
+          "hero_internal": 23,
+          "item": 156,
+          "item_special": 17,
+          "weapon_or_internal": 319
+        }
+      },
+      "message": "Entity counts look plausible.",
+      "rows": 0,
+      "samples": [],
+      "severity": "ok"
+    },
+    {
+      "check": "alias_collisions",
+      "message": "Alias collisions found across multiple entities.",
+      "rows": 115,
+      "samples": [
+        {
+          "alias_norm": "1015591692",
+          "aliases": "1015591692",
+          "entities": 2,
+          "targets": "ability:Melee,weapon_or_internal:ability_melee_viper"
+        },
+        {
+          "alias_norm": "11664367",
+          "aliases": "11664367",
+          "entities": 2,
+          "targets": "weapon_or_internal:citadel_ability_melee_shiv,ability:Melee"
+        },
+        {
+          "alias_norm": "1184405291",
+          "aliases": "1184405291",
+          "entities": 2,
+          "targets": "ability:Melee,weapon_or_internal:ability_melee_drifter"
+        },
+        {
+          "alias_norm": "1192327851",
+          "aliases": "1192327851",
+          "entities": 2,
+          "targets": "ability:Melee,weapon_or_internal:citadel_ability_melee_wraith"
+        },
+        {
+          "alias_norm": "1208692244",
+          "aliases": "1208692244",
+          "entities": 2,
+          "targets": "weapon_or_internal:citadel_ability_melee_thumper,ability_internal:citadel_ability_melee_thumper"
+        },
+        {
+          "alias_norm": "1224118768",
+          "aliases": "1224118768",
+          "entities": 2,
+          "targets": "ability:Melee,weapon_or_internal:ability_melee_fencer"
+        },
+        {
+          "alias_norm": "1274698030",
+          "aliases": "1274698030",
+          "entities": 2,
+          "targets": "ability_internal:ability_melee_skyrunner,weapon_or_internal:ability_melee_skyrunner"
+        },
+        {
+          "alias_norm": "1318429798",
+          "aliases": "1318429798",
+          "entities": 2,
+          "targets": "weapon_or_internal:ability_melee_boho,ability_internal:ability_melee_boho"
+        },
+        {
+          "alias_norm": "1372322902",
+          "aliases": "1372322902",
+          "entities": 2,
+          "targets": "weapon_or_internal:ability_melee_vampirebat,ability:Melee"
+        },
+        {
+          "alias_norm": "1388731643",
+          "aliases": "1388731643",
+          "entities": 2,
+          "targets": "ability_internal:ability_melee_fortuna,weapon_or_internal:ability_melee_fortuna"
+        },
+        {
+          "alias_norm": "1400683724",
+          "aliases": "1400683724",
+          "entities": 2,
+          "targets": "ability:Melee,weapon_or_internal:ability_melee_digger"
+        },
+        {
+          "alias_norm": "1619999260",
+          "aliases": "1619999260",
+          "entities": 2,
+          "targets": "ability:Melee,weapon_or_internal:citadel_ability_melee_hornet"
+        },
+        {
+          "alias_norm": "1759542823",
+          "aliases": "1759542823",
+          "entities": 2,
+          "targets": "ability_internal:ability_melee_bomber,weapon_or_internal:ability_melee_bomber"
+        },
+        {
+          "alias_norm": "17949280",
+          "aliases": "17949280",
+          "entities": 2,
+          "targets": "weapon_or_internal:ability_melee_shieldguy,ability_internal:ability_melee_shieldguy"
+        },
+        {
+          "alias_norm": "2067539397",
+          "aliases": "2067539397",
+          "entities": 2,
+          "targets": "ability_internal:ability_melee_vandal,weapon_or_internal:ability_melee_vandal"
+        },
+        {
+          "alias_norm": "2247993425",
+          "aliases": "2247993425",
+          "entities": 2,
+          "targets": "ability:Melee,weapon_or_internal:ability_melee_familiar"
+        },
+        {
+          "alias_norm": "2362587754",
+          "aliases": "2362587754",
+          "entities": 2,
+          "targets": "weapon_or_internal:ability_melee_werewolf,ability:Melee"
+        },
+        {
+          "alias_norm": "2372182196",
+          "aliases": "2372182196",
+          "entities": 2,
+          "targets": "weapon_or_internal:citadel_ability_melee_gigawatt,ability:Melee"
+        },
+        {
+          "alias_norm": "2373292985",
+          "aliases": "2373292985",
+          "entities": 2,
+          "targets": "ability:Melee,weapon_or_internal:citadel_ability_melee_bebop"
+        },
+        {
+          "alias_norm": "2500675101",
+          "aliases": "2500675101",
+          "entities": 2,
+          "targets": "ability:Melee,weapon_or_internal:ability_melee_ghost"
+        }
+      ],
+      "severity": "warning"
+    },
+    {
+      "check": "patch_events_unknown_entities",
+      "message": "Patch event entity references resolve to normalized entities or aliases.",
+      "rows": 0,
+      "samples": [],
+      "severity": "ok"
+    },
+    {
+      "check": "missing_enrichment_table",
+      "message": "patch_event_enrichments table is present.",
+      "rows": 0,
+      "samples": [],
+      "severity": "ok"
+    },
+    {
+      "check": "lineage_table",
+      "message": "entity_lineage is populated.",
+      "rows": 635,
+      "samples": [
+        {
+          "count": 26,
+          "relation_type": "rename"
+        },
+        {
+          "count": 18,
+          "relation_type": "replaced_by"
+        },
+        {
+          "count": 591,
+          "relation_type": "rework"
+        }
+      ],
+      "severity": "ok"
+    },
+    {
+      "check": "legacy_entities_table",
+      "details": {
+        "suspect_parser_subjects": 6
+      },
+      "message": "legacy_entities has suspect parser subjects.",
+      "rows": 59,
+      "samples": [
+        {
+          "canonical_name": "Added new T1 Spirit Item",
+          "confidence": 0.25,
+          "event_count": 2,
+          "legacy_type": "legacy_item",
+          "status": "suspect_parser_subject"
+        },
+        {
+          "canonical_name": "Fixed the following Enhanced Items not maintaining their stats from components",
+          "confidence": 0.2,
+          "event_count": 1,
+          "legacy_type": "legacy_item",
+          "status": "suspect_parser_subject"
+        },
+        {
+          "canonical_name": "Improved the following Enhanced Items",
+          "confidence": 0.25,
+          "event_count": 3,
+          "legacy_type": "legacy_item",
+          "status": "suspect_parser_subject"
+        },
+        {
+          "canonical_name": "Removed global 40% healing reduction (balance note",
+          "confidence": 0.25,
+          "event_count": 2,
+          "legacy_type": "legacy_item",
+          "status": "suspect_parser_subject"
+        },
+        {
+          "canonical_name": "The following abilities have -15% radius in Street Brawl",
+          "confidence": 0.25,
+          "event_count": 1,
+          "legacy_type": "legacy_item",
+          "status": "suspect_parser_subject"
+        },
+        {
+          "canonical_name": "Trooper Spawn Rate from",
+          "confidence": 0.25,
+          "event_count": 2,
+          "legacy_type": "legacy_item",
+          "status": "suspect_parser_subject"
+        }
+      ],
+      "severity": "warning"
+    },
+    {
+      "check": "low_confidence_unparsed_enrichments",
+      "details": {
+        "confidence_threshold": 0.5
+      },
+      "message": "Low-confidence or unparsed patch event enrichments found.",
+      "rows": 1908,
+      "samples": [
+        {
+          "confidence": 0.0,
+          "entity_name": "Jump",
+          "entity_type": "ability",
+          "flags_json": "[\"unparsed\"]",
+          "normalized_line": "Getting damaged during the initial launch window (0.6s) after using a Jump Pad will cause you to be stunned (similar to ziplines having an initial knockoff period). When you are stunned, you will lose control and continue towards the landing destination. The stun will wear off 0.2s after landing, and then a 30% slow for 2s will apply. Damage over time does not trigger this (same damage rules as ziplines).",
+          "patch_event_id": 84266,
+          "patch_external_id": "https://forums.playdeadlock.com/threads/10-24-2025-update.87198/"
+        },
+        {
+          "confidence": 0.0,
+          "entity_name": "Ethereal Shift",
+          "entity_type": "item",
+          "flags_json": "[\"unparsed\"]",
+          "normalized_line": "Can no longer target an ethereal shifted ally with things like Rescue Beam, Viscous Cube, etc",
+          "patch_event_id": 84288,
+          "patch_external_id": "https://forums.playdeadlock.com/threads/10-24-2025-update.87198/"
+        },
+        {
+          "confidence": 0.0,
+          "entity_name": "Calico",
+          "entity_type": "hero",
+          "flags_json": "[\"unparsed\"]",
+          "normalized_line": "Ava no longer replenishes stamina on usage",
+          "patch_event_id": 84294,
+          "patch_external_id": "https://forums.playdeadlock.com/threads/10-24-2025-update.87198/"
+        },
+        {
+          "confidence": 0.0,
+          "entity_name": null,
+          "entity_type": "general",
+          "flags_json": "[\"unparsed\"]",
+          "normalized_line": "Rejuv only heals the person hitting the crystal",
+          "patch_event_id": 84321,
+          "patch_external_id": "https://forums.playdeadlock.com/threads/09-04-2025-update.80693/"
+        },
+        {
+          "confidence": 0.0,
+          "entity_name": "Vindicta",
+          "entity_type": "hero",
+          "flags_json": "[\"unparsed\"]",
+          "normalized_line": "Stake no longer has a smaller tether range than capture range (6m to 9m, no longer pulls you)",
+          "patch_event_id": 84391,
+          "patch_external_id": "https://forums.playdeadlock.com/threads/09-04-2025-update.80693/"
+        },
+        {
+          "confidence": 0.0,
+          "entity_name": null,
+          "entity_type": "general",
+          "flags_json": "[\"unparsed\"]",
+          "normalized_line": "Improved lighting in Mid Boss area",
+          "patch_event_id": 84477,
+          "patch_external_id": "https://forums.playdeadlock.com/threads/05-27-2025-update.66453/"
+        },
+        {
+          "confidence": 0.0,
+          "entity_name": "Fleetfoot",
+          "entity_type": "item",
+          "flags_json": "[\"unparsed\"]",
+          "normalized_line": "While active, you gain +40% Slow Resistance",
+          "patch_event_id": 84484,
+          "patch_external_id": "https://forums.playdeadlock.com/threads/05-27-2025-update.66453/"
+        },
+        {
+          "confidence": 0.0,
+          "entity_name": "Decay",
+          "entity_type": "item",
+          "flags_json": "[\"unparsed\"]",
+          "normalized_line": "Damage no longer procs item effects (like Affliction)",
+          "patch_event_id": 84514,
+          "patch_external_id": "https://forums.playdeadlock.com/threads/05-27-2025-update.66453/"
+        },
+        {
+          "confidence": 0.0,
+          "entity_name": "Abrams",
+          "entity_type": "hero",
+          "flags_json": "[\"unparsed\"]",
+          "normalized_line": "Various network related fixed for Shoulder Charge",
+          "patch_event_id": 84522,
+          "patch_external_id": "https://forums.playdeadlock.com/threads/05-27-2025-update.66453/"
+        },
+        {
+          "confidence": 0.0,
+          "entity_name": "Abrams",
+          "entity_type": "hero",
+          "flags_json": "[\"unparsed\"]",
+          "normalized_line": "Shoulder Charge T3 changed to -18s Cooldown",
+          "patch_event_id": 84525,
+          "patch_external_id": "https://forums.playdeadlock.com/threads/05-27-2025-update.66453/"
+        },
+        {
+          "confidence": 0.0,
+          "entity_name": null,
+          "entity_type": "general",
+          "flags_json": "[\"unparsed\"]",
+          "normalized_line": "Weapon tree investment bonus increased by 6-12% (from 6/8/12/18/26/36/52/68/78/88% to 7/9/13/20/29/40/58/72/83/93)",
+          "patch_event_id": 84565,
+          "patch_external_id": "https://forums.playdeadlock.com/threads/05-11-2025-update.64113/"
+        },
+        {
+          "confidence": 0.0,
+          "entity_name": null,
+          "entity_type": "general",
+          "flags_json": "[\"unparsed\"]",
+          "normalized_line": "Removed the outer lanes teleporters",
+          "patch_event_id": 84604,
+          "patch_external_id": "https://forums.playdeadlock.com/threads/04-04-2025-update.60284/"
+        },
+        {
+          "confidence": 0.0,
+          "entity_name": null,
+          "entity_type": "general",
+          "flags_json": "[\"unparsed\"]",
+          "normalized_line": "Sprint increased by +0.5 for all heroes",
+          "patch_event_id": 84605,
+          "patch_external_id": "https://forums.playdeadlock.com/threads/04-04-2025-update.60284/"
+        },
+        {
+          "confidence": 0.0,
+          "entity_name": null,
+          "entity_type": "general",
+          "flags_json": "[\"unparsed\"]",
+          "normalized_line": "Fix an edge case where a player can claim the Rejuv but also get parried",
+          "patch_event_id": 84608,
+          "patch_external_id": "https://forums.playdeadlock.com/threads/04-04-2025-update.60284/"
+        },
+        {
+          "confidence": 0.0,
+          "entity_name": null,
+          "entity_type": "general",
+          "flags_json": "[\"unparsed\"]",
+          "normalized_line": "Improved Camera positions while character is backed up against walls",
+          "patch_event_id": 84617,
+          "patch_external_id": "https://forums.playdeadlock.com/threads/04-04-2025-update.60284/"
+        },
+        {
+          "confidence": 0.0,
+          "entity_name": null,
+          "entity_type": "general",
+          "flags_json": "[\"unparsed\"]",
+          "normalized_line": "When attaching to a zipline, movement direction can override the travel direction",
+          "patch_event_id": 84618,
+          "patch_external_id": "https://forums.playdeadlock.com/threads/04-04-2025-update.60284/"
+        },
+        {
+          "confidence": 0.0,
+          "entity_name": "Jump",
+          "entity_type": "ability",
+          "flags_json": "[\"unparsed\"]",
+          "normalized_line": "When holding \"Jump/Mantle\" after attaching to a rope, continue to move up the rope",
+          "patch_event_id": 84619,
+          "patch_external_id": "https://forums.playdeadlock.com/threads/04-04-2025-update.60284/"
+        },
+        {
+          "confidence": 0.0,
+          "entity_name": null,
+          "entity_type": "general",
+          "flags_json": "[\"unparsed\"]",
+          "normalized_line": "Sprint increased by +0.5 for all heroes",
+          "patch_event_id": 84634,
+          "patch_external_id": "https://forums.playdeadlock.com/threads/03-19-2025-update.59098/"
+        },
+        {
+          "confidence": 0.0,
+          "entity_name": null,
+          "entity_type": "general",
+          "flags_json": "[\"unparsed\"]",
+          "normalized_line": "Increased horizontal soul orb movement a bit",
+          "patch_event_id": 84640,
+          "patch_external_id": "https://forums.playdeadlock.com/threads/03-13-2025-update.58592/"
+        },
+        {
+          "confidence": 0.0,
+          "entity_name": null,
+          "entity_type": "general",
+          "flags_json": "[\"unparsed\"]",
+          "normalized_line": "Soul Orb spawn delay increased a bit and added some variability",
+          "patch_event_id": 84641,
+          "patch_external_id": "https://forums.playdeadlock.com/threads/03-13-2025-update.58592/"
+        }
+      ],
+      "severity": "warning"
+    },
+    {
+      "check": "sheet_profiles_without_entity",
+      "message": "Sheet profiles without normalized hero entity found.",
+      "rows": 96,
+      "samples": [
+        {
+          "external_id": "hero_boho",
+          "hero_name": "Boho",
+          "id": 94885,
+          "row_number": null,
+          "snapshot_id": 560858,
+          "source": "deadlock_data"
+        },
+        {
+          "external_id": "hero_boho",
+          "hero_name": "Boho",
+          "id": 94948,
+          "row_number": null,
+          "snapshot_id": 562933,
+          "source": "deadlock_data"
+        },
+        {
+          "external_id": "hero_boho",
+          "hero_name": "Boho",
+          "id": 95008,
+          "row_number": null,
+          "snapshot_id": 568823,
+          "source": "deadlock_data"
+        },
+        {
+          "external_id": "hero_boho",
+          "hero_name": "Boho",
+          "id": 95068,
+          "row_number": null,
+          "snapshot_id": 571009,
+          "source": "deadlock_data"
+        },
+        {
+          "external_id": "hero_bomber",
+          "hero_name": "Bomber",
+          "id": 94886,
+          "row_number": null,
+          "snapshot_id": 560859,
+          "source": "deadlock_data"
+        },
+        {
+          "external_id": "hero_bomber",
+          "hero_name": "Bomber",
+          "id": 94949,
+          "row_number": null,
+          "snapshot_id": 562934,
+          "source": "deadlock_data"
+        },
+        {
+          "external_id": "hero_bomber",
+          "hero_name": "Bomber",
+          "id": 95009,
+          "row_number": null,
+          "snapshot_id": 568824,
+          "source": "deadlock_data"
+        },
+        {
+          "external_id": "hero_bomber",
+          "hero_name": "Bomber",
+          "id": 95069,
+          "row_number": null,
+          "snapshot_id": 571010,
+          "source": "deadlock_data"
+        },
+        {
+          "external_id": "hero_cadence",
+          "hero_name": "Cadence",
+          "id": 94888,
+          "row_number": null,
+          "snapshot_id": 560861,
+          "source": "deadlock_data"
+        },
+        {
+          "external_id": "hero_cadence",
+          "hero_name": "Cadence",
+          "id": 94951,
+          "row_number": null,
+          "snapshot_id": 562936,
+          "source": "deadlock_data"
+        },
+        {
+          "external_id": "hero_cadence",
+          "hero_name": "Cadence",
+          "id": 95011,
+          "row_number": null,
+          "snapshot_id": 568826,
+          "source": "deadlock_data"
+        },
+        {
+          "external_id": "hero_cadence",
+          "hero_name": "Cadence",
+          "id": 95071,
+          "row_number": null,
+          "snapshot_id": 571012,
+          "source": "deadlock_data"
+        },
+        {
+          "external_id": "491256401:doorman",
+          "hero_name": "Doorman",
+          "id": 94638,
+          "row_number": 24,
+          "snapshot_id": 2845,
+          "source": "deadlock_stats_sheet"
+        },
+        {
+          "external_id": "hero_druid",
+          "hero_name": "Druid",
+          "id": 94892,
+          "row_number": null,
+          "snapshot_id": 560865,
+          "source": "deadlock_data"
+        },
+        {
+          "external_id": "1057880283:error:_request_failed_for_https://assets.deadlock-api.com_returned_code_500._truncated_server_response:_{\"error\":\"internal_server_error:_building_heroes:_asset_fetch_error:_object_store_error:_object_at_location_assets-api-res/versions/6522/localizati..._(use_mutehttpexceptions_option_to_examine_full_response)",
+          "hero_name": "ERROR: Request failed for https://assets.deadlock-api.com returned code 500. Truncated server response: {\"error\":\"Internal server error: building heroes: Asset fetch error: object store error: Object at location assets-api-res/versions/6522/localizati... (use muteHttpExceptions option to examine full response)",
+          "id": 94841,
+          "row_number": 2,
+          "snapshot_id": 323304,
+          "source": "deadlock_stats_sheet"
+        },
+        {
+          "external_id": "1057880283:error:_request_failed_for_https://assets.deadlock-api.com_returned_code_500._truncated_server_response:_{\"error\":\"internal_server_error:_building_heroes:_asset_fetch_error:_object_store_error:_object_at_location_assets-api-res/versions/6524/localizati..._(use_mutehttpexceptions_option_to_examine_full_response)",
+          "hero_name": "ERROR: Request failed for https://assets.deadlock-api.com returned code 500. Truncated server response: {\"error\":\"Internal server error: building heroes: Asset fetch error: object store error: Object at location assets-api-res/versions/6524/localizati... (use muteHttpExceptions option to examine full response)",
+          "id": 94842,
+          "row_number": 2,
+          "snapshot_id": 323989,
+          "source": "deadlock_stats_sheet"
+        },
+        {
+          "external_id": "hero_slork",
+          "hero_name": "Fathom",
+          "id": 94924,
+          "row_number": null,
+          "snapshot_id": 560897,
+          "source": "deadlock_data"
+        },
+        {
+          "external_id": "hero_slork",
+          "hero_name": "Fathom",
+          "id": 94985,
+          "row_number": null,
+          "snapshot_id": 562970,
+          "source": "deadlock_data"
+        },
+        {
+          "external_id": "hero_slork",
+          "hero_name": "Fathom",
+          "id": 95045,
+          "row_number": null,
+          "snapshot_id": 568860,
+          "source": "deadlock_data"
+        },
+        {
+          "external_id": "hero_slork",
+          "hero_name": "Fathom",
+          "id": 95105,
+          "row_number": null,
+          "snapshot_id": 571046,
+          "source": "deadlock_data"
+        }
+      ],
+      "severity": "warning"
+    },
+    {
+      "check": "general_events_with_known_entity_names",
+      "message": "General patch events mention known local API entities and may be misclassified.",
+      "rows": 735,
+      "samples": [
+        {
+          "id": 84289,
+          "matches": [
+            {
+              "entity_name": "Curse",
+              "entity_type": "legacy",
+              "matched_name": "Curse"
+            }
+          ],
+          "normalized_line": "Cooldown reduced from 50s to 45s",
+          "patch_external_id": "https://forums.playdeadlock.com/threads/10-24-2025-update.87198/",
+          "raw_line": "* Curse: Cooldown reduced from 50s to 45s",
+          "section": null
+        },
+        {
+          "id": 84297,
+          "matches": [
+            {
+              "entity_name": "Call Bell",
+              "entity_type": "ability",
+              "matched_name": "Call Bell"
+            }
+          ],
+          "normalized_line": "Call Bell explosion damage spirit scaling increased from 1.5 to 1.7",
+          "patch_external_id": "https://forums.playdeadlock.com/threads/10-24-2025-update.87198/",
+          "raw_line": "* Doorman: Call Bell explosion damage spirit scaling increased from 1.5 to 1.7",
+          "section": null
+        },
+        {
+          "id": 84338,
+          "matches": [
+            {
+              "entity_name": "Call Bell",
+              "entity_type": "ability",
+              "matched_name": "Call Bell"
+            }
+          ],
+          "normalized_line": "Call Bell explosion damage reduced from 70 to 60",
+          "patch_external_id": "https://forums.playdeadlock.com/threads/09-04-2025-update.80693/",
+          "raw_line": "- Doorman: Call Bell explosion damage reduced from 70 to 60",
+          "section": null
+        },
+        {
+          "id": 84339,
+          "matches": [
+            {
+              "entity_name": "Call Bell",
+              "entity_type": "ability",
+              "matched_name": "Call Bell"
+            }
+          ],
+          "normalized_line": "Call Bell explosion damage spirit scaling increased from 1.4 to 1.5",
+          "patch_external_id": "https://forums.playdeadlock.com/threads/09-04-2025-update.80693/",
+          "raw_line": "- Doorman: Call Bell explosion damage spirit scaling increased from 1.4 to 1.5",
+          "section": null
+        },
+        {
+          "id": 84340,
+          "matches": [
+            {
+              "entity_name": "Hotel Guest",
+              "entity_type": "ability",
+              "matched_name": "Hotel Guest"
+            }
+          ],
+          "normalized_line": "Hotel Guest now teleports the target back to the beginning of the hotel if they fall into the void.",
+          "patch_external_id": "https://forums.playdeadlock.com/threads/09-04-2025-update.80693/",
+          "raw_line": "- Doorman: Hotel Guest now teleports the target back to the beginning of the hotel if they fall into the void.",
+          "section": null
+        },
+        {
+          "id": 84416,
+          "matches": [
+            {
+              "entity_name": "Backstabber",
+              "entity_type": "item",
+              "matched_name": "Backstabber"
+            },
+            {
+              "entity_name": "Backstabber",
+              "entity_type": "legacy_hero",
+              "matched_name": "Backstabber"
+            }
+          ],
+          "normalized_line": "Cooldown increased from 4s to 5s",
+          "patch_external_id": "https://forums.playdeadlock.com/threads/09-04-2025-update.80693/",
+          "raw_line": "- Backstabber: Cooldown increased from 4s to 5s",
+          "section": null
+        },
+        {
+          "id": 84417,
+          "matches": [
+            {
+              "entity_name": "Backstabber",
+              "entity_type": "item",
+              "matched_name": "Backstabber"
+            },
+            {
+              "entity_name": "Backstabber",
+              "entity_type": "legacy_hero",
+              "matched_name": "Backstabber"
+            }
+          ],
+          "normalized_line": "Damage per second reduced from 20 to 17",
+          "patch_external_id": "https://forums.playdeadlock.com/threads/09-04-2025-update.80693/",
+          "raw_line": "- Backstabber: Damage per second reduced from 20 to 17",
+          "section": null
+        },
+        {
+          "id": 84576,
+          "matches": [
+            {
+              "entity_name": "Arctic Beam",
+              "entity_type": "ability",
+              "matched_name": "Arctic Beam"
+            },
+            {
+              "entity_name": "Kelvin",
+              "entity_type": "hero",
+              "matched_name": "Kelvin"
+            }
+          ],
+          "normalized_line": "Arctic Beam DPS reduced from 60 to 50",
+          "patch_external_id": "https://forums.playdeadlock.com/threads/05-11-2025-update.64113/",
+          "raw_line": "- Kelvin Beam: Arctic Beam DPS reduced from 60 to 50",
+          "section": null
+        },
+        {
+          "id": 84645,
+          "matches": [
+            {
+              "entity_name": "Golden Statue",
+              "entity_type": "legacy_item",
+              "matched_name": "Golden Statue"
+            }
+          ],
+          "normalized_line": "Golden Statue Buffs adjustments",
+          "patch_external_id": "https://forums.playdeadlock.com/threads/03-13-2025-update.58592/",
+          "raw_line": "- Golden Statue Buffs adjustments",
+          "section": null
+        },
+        {
+          "id": 84680,
+          "matches": [
+            {
+              "entity_name": "Ammo Scavenger",
+              "entity_type": "legacy_item",
+              "matched_name": "Ammo Scavenger"
+            }
+          ],
+          "normalized_line": "Max Stacks reduced from 20 to 18",
+          "patch_external_id": "https://forums.playdeadlock.com/threads/02-11-2025-update.55677/",
+          "raw_line": "- Ammo Scavenger: Max Stacks reduced from 20 to 18",
+          "section": null
+        },
+        {
+          "id": 84681,
+          "matches": [
+            {
+              "entity_name": "Ammo Scavenger",
+              "entity_type": "legacy_item",
+              "matched_name": "Ammo Scavenger"
+            }
+          ],
+          "normalized_line": "No longer grants +40 health",
+          "patch_external_id": "https://forums.playdeadlock.com/threads/02-11-2025-update.55677/",
+          "raw_line": "- Ammo Scavenger: No longer grants +40 health",
+          "section": null
+        },
+        {
+          "id": 84742,
+          "matches": [
+            {
+              "entity_name": "Ammo Scavenger",
+              "entity_type": "legacy_item",
+              "matched_name": "Ammo Scavenger"
+            }
+          ],
+          "normalized_line": "Ammo reduced from 15% to 10%",
+          "patch_external_id": "https://forums.playdeadlock.com/threads/01-27-2025-update.54590/",
+          "raw_line": "- Ammo Scavenger: Ammo reduced from 15% to 10%",
+          "section": null
+        },
+        {
+          "id": 84745,
+          "matches": [
+            {
+              "entity_name": "Spellslinger",
+              "entity_type": "item",
+              "matched_name": "Spellslinger"
+            }
+          ],
+          "normalized_line": "Amp per headshot increased from 4% to 6%",
+          "patch_external_id": "https://forums.playdeadlock.com/threads/01-27-2025-update.54590/",
+          "raw_line": "- Spellslinger Headshots: Amp per headshot increased from 4% to 6%",
+          "section": null
+        },
+        {
+          "id": 84746,
+          "matches": [
+            {
+              "entity_name": "Spellslinger",
+              "entity_type": "item",
+              "matched_name": "Spellslinger"
+            }
+          ],
+          "normalized_line": "Max Stacks reduced from 12 to 10",
+          "patch_external_id": "https://forums.playdeadlock.com/threads/01-27-2025-update.54590/",
+          "raw_line": "- Spellslinger Headshots: Max Stacks reduced from 12 to 10",
+          "section": null
+        },
+        {
+          "id": 84778,
+          "matches": [
+            {
+              "entity_name": "Rabbit Hex",
+              "entity_type": "ability",
+              "matched_name": "Rabbit Hex"
+            },
+            {
+              "entity_name": "Sinclair",
+              "entity_type": "hero",
+              "matched_name": "Sinclair"
+            }
+          ],
+          "normalized_line": "Rabbit Hex movespeed increased from 25% to 35%",
+          "patch_external_id": "https://forums.playdeadlock.com/threads/01-19-2025-update.53961/",
+          "raw_line": "- The Magnificent Sinclair: Rabbit Hex movespeed increased from 25% to 35%",
+          "section": null
+        },
+        {
+          "id": 84779,
+          "matches": [
+            {
+              "entity_name": "Unstoppable",
+              "entity_type": "item",
+              "matched_name": "Unstoppable"
+            },
+            {
+              "entity_name": "Rabbit Hex",
+              "entity_type": "ability",
+              "matched_name": "Rabbit Hex"
+            },
+            {
+              "entity_name": "Sinclair",
+              "entity_type": "hero",
+              "matched_name": "Sinclair"
+            }
+          ],
+          "normalized_line": "Rabbit Hex can no longer be applied to Unstoppable",
+          "patch_external_id": "https://forums.playdeadlock.com/threads/01-19-2025-update.53961/",
+          "raw_line": "- The Magnificent Sinclair: Rabbit Hex can no longer be applied to Unstoppable",
+          "section": null
+        },
+        {
+          "id": 84780,
+          "matches": [
+            {
+              "entity_name": "Reactive Barrier",
+              "entity_type": "item",
+              "matched_name": "Reactive Barrier"
+            },
+            {
+              "entity_name": "Rabbit Hex",
+              "entity_type": "ability",
+              "matched_name": "Rabbit Hex"
+            },
+            {
+              "entity_name": "Sinclair",
+              "entity_type": "hero",
+              "matched_name": "Sinclair"
+            }
+          ],
+          "normalized_line": "Rabbit Hex now triggers Reactive Barrier",
+          "patch_external_id": "https://forums.playdeadlock.com/threads/01-19-2025-update.53961/",
+          "raw_line": "- The Magnificent Sinclair: Rabbit Hex now triggers Reactive Barrier",
+          "section": null
+        },
+        {
+          "id": 84781,
+          "matches": [
+            {
+              "entity_name": "Debuff Reducer",
+              "entity_type": "item",
+              "matched_name": "Debuff Reducer"
+            },
+            {
+              "entity_name": "Sinclair",
+              "entity_type": "hero",
+              "matched_name": "Sinclair"
+            }
+          ],
+          "normalized_line": "Fixed Debuff Reducer not working on Rabbit",
+          "patch_external_id": "https://forums.playdeadlock.com/threads/01-19-2025-update.53961/",
+          "raw_line": "- The Magnificent Sinclair: Fixed Debuff Reducer not working on Rabbit",
+          "section": null
+        },
+        {
+          "id": 84782,
+          "matches": [
+            {
+              "entity_name": "Sinclair",
+              "entity_type": "hero",
+              "matched_name": "Sinclair"
+            }
+          ],
+          "normalized_line": "Teleporting now drops the Urn",
+          "patch_external_id": "https://forums.playdeadlock.com/threads/01-19-2025-update.53961/",
+          "raw_line": "- The Magnificent Sinclair: Teleporting now drops the Urn",
+          "section": null
+        },
+        {
+          "id": 84783,
+          "matches": [
+            {
+              "entity_name": "Vexing Bolt",
+              "entity_type": "ability",
+              "matched_name": "Vexing Bolt"
+            },
+            {
+              "entity_name": "Sinclair",
+              "entity_type": "hero",
+              "matched_name": "Sinclair"
+            }
+          ],
+          "normalized_line": "Vexing Bolt base damage reduced from 120 to 110",
+          "patch_external_id": "https://forums.playdeadlock.com/threads/01-19-2025-update.53961/",
+          "raw_line": "- The Magnificent Sinclair: Vexing Bolt base damage reduced from 120 to 110",
+          "section": null
+        }
+      ],
+      "severity": "warning"
+    }
+  ],
+  "ok": false,
+  "summary": {
+    "checks": 10,
+    "errors": 0,
+    "warnings": 5
+  }
+}
