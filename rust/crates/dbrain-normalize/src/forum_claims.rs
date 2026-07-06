@@ -13,6 +13,7 @@ const FORUM_SOURCE: &str = "playdeadlock_forum";
 #[derive(Debug)]
 struct ForumPost {
     snapshot_id: i64,
+    legacy_post_id: i64,
     thread_id: String,
     post_id: String,
     thread_title: Option<String>,
@@ -96,7 +97,6 @@ pub async fn parse_forum_claims(pool: &PgPool, rebuild: bool) -> Result<Value> {
                 "{FORUM_SOURCE}|{}|{}|{}|{}",
                 post.post_id, claim_index, candidate.claim_type, candidate.claim_text
             ));
-            let now = crate::util::now()?;
             let result = sqlx::query(
                 r#"
                 INSERT INTO brain.forum_claims(
@@ -104,10 +104,11 @@ pub async fn parse_forum_claims(pool: &PgPool, rebuild: bool) -> Result<Value> {
                   posted_at, author, author_role, claim_hash, claim_index,
                   claim_type, entity_type, entity_name, claim_text, evidence_quote,
                   source_trust, validity_status, currentness, confidence,
-                  safety_labels_json, source_references_json, metadata_json,
+                  safety_labels, source_references, metadata,
+                  legacy_post_snapshot_id,
                   created_at, updated_at
                 )
-                VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+                VALUES($1,$2,$3,$4,$5,$6::timestamptz,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20::text::jsonb,$21::text::jsonb,$22::text::jsonb,$23,now(),now())
                 ON CONFLICT (claim_hash) DO NOTHING
                 "#,
             )
@@ -133,8 +134,7 @@ pub async fn parse_forum_claims(pool: &PgPool, rebuild: bool) -> Result<Value> {
             .bind(json_string(&json!(candidate.safety_labels))?)
             .bind(json_string(&source_references)?)
             .bind(json_string(&metadata)?)
-            .bind(now)
-            .bind(now)
+            .bind(post.legacy_post_id)
             .execute(pool)
             .await?;
             if result.rows_affected() > 0 {
@@ -169,7 +169,7 @@ pub async fn parse_forum_claims(pool: &PgPool, rebuild: bool) -> Result<Value> {
 async fn load_forum_posts(pool: &PgPool) -> Result<Vec<ForumPost>> {
     let rows = sqlx::query(
         r#"
-        SELECT id, payload::text AS payload_json
+        SELECT id, COALESCE(legacy_sqlite_id, id) AS legacy_post_id, payload::text AS payload_json
         FROM brain.entity_snapshots
         WHERE source=$1 AND entity_type='forum_post'
         ORDER BY CAST(external_id AS INTEGER), id
@@ -182,10 +182,12 @@ async fn load_forum_posts(pool: &PgPool) -> Result<Vec<ForumPost>> {
     let mut posts = Vec::new();
     for row in rows {
         let snapshot_id: i64 = row.try_get("id")?;
+        let legacy_post_id: i64 = row.try_get("legacy_post_id")?;
         let payload_json: String = row.try_get("payload_json")?;
         let payload: Value = serde_json::from_str(&payload_json)?;
         posts.push(ForumPost {
             snapshot_id,
+            legacy_post_id,
             thread_id: value_string(payload.get("thread_id")).unwrap_or_default(),
             post_id: value_string(payload.get("post_id")).unwrap_or_default(),
             thread_title: value_string(payload.get("thread_title")),

@@ -9,17 +9,6 @@ use crate::{NormalizeError, Result};
 pub const ASSETS_SOURCE: &str = "deadlock_assets_api";
 pub const SHEET_SOURCE: &str = "deadlock_stats_sheet";
 
-/// Unix-Epoch in Sekunden. Frueher `deadlock_brain_core::db::now_epoch_seconds`
-/// (rusqlite-Zeitpfad); nach dem PG-Cutover lokal ueber `SystemTime` bestimmt,
-/// damit `dbrain-normalize` ohne rusqlite/Connection auskommt. Wird von
-/// [`crate::forum_claims`] fuer `created_at`/`updated_at` genutzt.
-pub fn now() -> Result<i64> {
-    Ok(std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_secs() as i64)
-        .unwrap_or(0))
-}
-
 /// Tabellen im `brain`-Schema, deren Namen die dynamischen Helfer
 /// ([`table_count`]/[`delete_all`]) interpolieren duerfen. Fremde/dynamische
 /// Bezeichner werden abgewiesen, damit kein ungeprueftes `format!` in SQL landet.
