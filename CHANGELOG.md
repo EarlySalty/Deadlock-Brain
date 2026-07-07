@@ -1,5 +1,13 @@
 # Changelog
 
+## #30 — Brain-Timer laden Infisical wie der Patchnotes-Sync
+
+Problem: Die neuen Rust-Timer fuer Sheet-Sync und YouTube-Lernen nutzten noch den alten Infisical-Configpfad und konnten dadurch im systemd-Start keine Secrets laden.
+
+Änderung: Beide Timer verwenden denselben Config- und Token-Ladeweg wie der bereits umgestellte Patchnotes-Sync und brechen frueh ab, wenn die zentrale Postgres-Verbindung nicht gesetzt ist.
+
+Aktuelles Verhalten: Sheet-Sync und YouTube-Lernen starten ueber systemd direkt in die Rust-Binaries und laden ihre Secrets ueber den produktiven Infisical-Pfad.
+
 ## #29 — Brain läuft ohne lokale SQLite-Brücke
 
 Problem: Teile der Brain-Automation liefen noch über alte Python-Aufrufe, lokale SQLite-Kompatibilität und wirkungslose Übergangsflags. Dadurch war nicht eindeutig, welcher Pfad wirklich produktiv schreibt.

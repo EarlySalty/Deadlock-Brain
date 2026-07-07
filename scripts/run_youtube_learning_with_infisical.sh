@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONFIG_FILE="${INFISICAL_CONFIG_FILE:-/home/naniadm/.config/deadlock-bots/infisical.env}"
+CONFIG_FILE="${INFISICAL_CONFIG_FILE:-/home/naniadm/.config/deadlock-bots/infisical.conf}"
 LOAD_INFISICAL="${LOAD_INFISICAL:-1}"
 INFISICAL_RETRY_DELAY="${INFISICAL_RETRY_DELAY:-5}"
 INFISICAL_MAX_ATTEMPTS="${INFISICAL_MAX_ATTEMPTS:-0}"
@@ -39,6 +39,17 @@ if [[ "$LOAD_INFISICAL" == "1" || "$LOAD_INFISICAL" == "true" ]]; then
   source "$CONFIG_FILE"
   set +a
 
+  if [[ -z "${INFISICAL_SERVICE_TOKEN:-}" ]]; then
+    for token_file in "${CREDENTIALS_DIRECTORY:-/nonexistent}/infisical-token" \
+                      "${INFISICAL_TOKEN_FILE:-/home/naniadm/.config/infisical-tokens/infisical-token-bots}"; do
+      if [[ -f "$token_file" ]]; then
+        INFISICAL_SERVICE_TOKEN="$(<"$token_file")"
+        export INFISICAL_SERVICE_TOKEN
+        break
+      fi
+    done
+  fi
+
   attempt=0
   while true; do
     if INFISICAL_EXPORT="$("$PYTHON_BIN" scripts/export_infisical_env.py --format shell)"; then
@@ -55,6 +66,11 @@ if [[ "$LOAD_INFISICAL" == "1" || "$LOAD_INFISICAL" == "true" ]]; then
     echo "Infisical not ready for Deadlock Brain YouTube learning, retrying in ${INFISICAL_RETRY_DELAY}s (attempt $attempt)." >&2
     sleep "$INFISICAL_RETRY_DELAY"
   done
+fi
+
+if [[ -z "${DEADLOCK_CENTRAL_DSN:-}" ]]; then
+  echo "DEADLOCK_CENTRAL_DSN is not set." >&2
+  exit 1
 fi
 
 ARGS=(
