@@ -18,8 +18,6 @@ pub struct Settings {
     pub data_dir: PathBuf,
     pub raw_dir: PathBuf,
     pub cache_dir: PathBuf,
-    pub db_path: PathBuf,
-    pub central_deadlock_db_path: PathBuf,
     pub user_agent: String,
     pub sheet_id: String,
     pub sheet_gid: String,
@@ -44,8 +42,6 @@ impl fmt::Debug for Settings {
             .field("data_dir", &self.data_dir)
             .field("raw_dir", &self.raw_dir)
             .field("cache_dir", &self.cache_dir)
-            .field("db_path", &self.db_path)
-            .field("central_deadlock_db_path", &self.central_deadlock_db_path)
             .field("user_agent", &self.user_agent)
             .field("sheet_id", &self.sheet_id)
             .field("sheet_gid", &self.sheet_gid)
@@ -91,26 +87,13 @@ pub fn default_data_dir() -> PathBuf {
     repo_root().join("data")
 }
 
-pub fn default_db_path() -> PathBuf {
-    path_env("DEADLOCK_BRAIN_DB_PATH", default_data_dir().join("deadlock_brain.sqlite3"))
-}
-
 pub fn load_settings() -> Result<Settings> {
     let project_root = repo_root();
     let dotenv = DotEnv::load(&project_root.join(".env"))?;
-    let data_dir = path_setting(&dotenv, "DEADLOCK_BRAIN_DATA_DIR", project_root.join("data"));
-    let db_path = path_setting(
+    let data_dir = path_setting(
         &dotenv,
-        "DEADLOCK_BRAIN_DB_PATH",
-        data_dir.join("deadlock_brain.sqlite3"),
-    );
-    let central_deadlock_db_path = path_setting(
-        &dotenv,
-        "DEADLOCK_DB_PATH",
-        project_root
-            .parent()
-            .map(|parent| parent.join("Deadlock-Bots/data/deadlock.sqlite3"))
-            .unwrap_or_else(|| PathBuf::from("Deadlock-Bots/data/deadlock.sqlite3")),
+        "DEADLOCK_BRAIN_DATA_DIR",
+        project_root.join("data"),
     );
     let minimax_token_plan_key = setting(&dotenv, "MINIMAX_TOKEN_PLAN_KEY");
     let minimax_api_key = setting(&dotenv, "MINIMAX_API_KEY")
@@ -137,14 +120,16 @@ pub fn load_settings() -> Result<Settings> {
         raw_dir: data_dir.join("raw"),
         cache_dir: data_dir.join("cache"),
         data_dir,
-        db_path,
-        central_deadlock_db_path,
         user_agent: string_setting(&dotenv, "DEADLOCK_BRAIN_USER_AGENT", DEFAULT_USER_AGENT),
         sheet_id: string_setting(&dotenv, "DEADLOCK_STATS_SHEET_ID", DEFAULT_SHEET_ID),
         sheet_gid: string_setting(&dotenv, "DEADLOCK_STATS_SHEET_GID", "0"),
         wiki_enabled: bool_setting(&dotenv, "DEADLOCK_BRAIN_WIKI_ENABLED", false),
         wiki_min_delay_seconds: f64_setting(&dotenv, "DEADLOCK_BRAIN_WIKI_MIN_DELAY_SECONDS", 5.0)?,
-        wiki_cache_ttl_seconds: u64_setting(&dotenv, "DEADLOCK_BRAIN_WIKI_CACHE_TTL_SECONDS", 604_800)?,
+        wiki_cache_ttl_seconds: u64_setting(
+            &dotenv,
+            "DEADLOCK_BRAIN_WIKI_CACHE_TTL_SECONDS",
+            604_800,
+        )?,
         minimax_api_key,
         minimax_base_url: string_setting(&dotenv, minimax_base_url_env, default_minimax_base_url)
             .trim_end_matches('/')
@@ -182,7 +167,12 @@ fn string_setting(dotenv: &DotEnv, name: &'static str, default: &str) -> String 
 
 fn bool_setting(dotenv: &DotEnv, name: &'static str, default: bool) -> bool {
     setting(dotenv, name)
-        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
         .unwrap_or(default)
 }
 
@@ -234,7 +224,11 @@ impl DotEnv {
             if key.is_empty() {
                 continue;
             }
-            let value = value.trim().trim_matches('"').trim_matches('\'').to_string();
+            let value = value
+                .trim()
+                .trim_matches('"')
+                .trim_matches('\'')
+                .to_string();
             values.insert(key.to_string(), value);
         }
         Ok(Self { values })

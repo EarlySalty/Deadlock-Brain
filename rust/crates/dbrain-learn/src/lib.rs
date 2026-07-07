@@ -16,7 +16,7 @@ pub use build_learning::{
     learn_analyze_next, learn_import_steam_builds, learn_list_builds, LearnAnalyzeBuildOptions,
     LearnAnalyzeNextOptions, LearnImportSteamBuildsOptions, BUILD_LEARNING_PROMPT_VERSION,
 };
-pub use build_optimizer::{build_suggest, build_hero_build_context, BuildSuggestOptions};
+pub use build_optimizer::{build_hero_build_context, build_suggest, BuildSuggestOptions};
 pub use error::{LearnError, Result};
 pub use match_coaching::build_match_coaching_context;
 pub use player_decision_learning::{
@@ -86,8 +86,6 @@ mod tests {
             data_dir: PathBuf::from("/tmp/dbrain-learn-test/data"),
             raw_dir: PathBuf::from("/tmp/dbrain-learn-test/raw"),
             cache_dir: PathBuf::from("/tmp/dbrain-learn-test/cache"),
-            db_path: PathBuf::from("/tmp/dbrain-learn-test/brain.sqlite3"),
-            central_deadlock_db_path: PathBuf::from("/tmp/dbrain-learn-test/steam.sqlite3"),
             user_agent: "test".to_string(),
             sheet_id: "sheet".to_string(),
             sheet_gid: "0".to_string(),
@@ -149,7 +147,10 @@ mod tests {
             .expect("build context");
         assert_eq!(context["hero"]["name"].as_str(), Some(hero.as_str()));
         assert!(context.get("build").and_then(|b| b.as_object()).is_some());
-        assert!(context.get("top_items").and_then(|t| t.as_array()).is_some());
+        assert!(context
+            .get("top_items")
+            .and_then(|t| t.as_array())
+            .is_some());
     }
 
     /// Statlocker-Player-Match-Query laeuft ohne Fehler.

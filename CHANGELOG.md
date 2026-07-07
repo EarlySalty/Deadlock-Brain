@@ -1,5 +1,13 @@
 # Changelog
 
+## #29 — Brain läuft ohne lokale SQLite-Brücke
+
+Problem: Teile der Brain-Automation liefen noch über alte Python-Aufrufe, lokale SQLite-Kompatibilität und wirkungslose Übergangsflags. Dadurch war nicht eindeutig, welcher Pfad wirklich produktiv schreibt.
+
+Änderung: Die Brain-Laufzeit nutzt durchgehend die zentrale Postgres und Rust-Binaries. Alte lokale Datenbankpfade, SQLite-Schemaerzeugung, Migrations-Einwegtooling und Python-Brain-Aufrufe in Betriebsskripten wurden entfernt; Sheet- und YouTube-Timer rufen direkt Rust auf.
+
+Aktuelles Verhalten: Brain-Kommandos, Sheet-Sync, YouTube-Lernen, Build-Learning und Smoke-Checks laufen Rust-nativ gegen die zentrale Postgres. Lokale Dateien dienen nur noch als Rohdaten- und Cache-Ablage.
+
 ## #28 — Patch2-Forumformat und patch_-IDs im PG-Import stabilisiert
 
 Problem: `patch_2` lag im Forum als kompakte Einzeile mit eckigen Abschnittsmarkern und `*`-Bullets vor (`[ General ] * ... [ Heroes ] * ... [ Items ] * ...`). Der direkte PG-Import hat dieses Format nicht aufgespalten, daher kam nur ein Event heraus. Gleichzeitig materialisierte der Import fuer `changelog_posts.id=2` die falsche `patch_external_id` `2` statt `patch_2`.

@@ -7,9 +7,9 @@ explained by `entity_lineage`.
 ## CLI
 
 ```bash
-PYTHONPATH=src python3 -m deadlock_brain.cli enrich legacy-entities --rebuild
-PYTHONPATH=src python3 -m deadlock_brain.cli legacy --pretty
-PYTHONPATH=src python3 -m deadlock_brain.cli timeline "Runed Gauntlet" --pretty
+./rust/target/release/deadlock-brain enrich legacy-entities --rebuild
+./rust/target/release/deadlock-brain legacy --pretty
+./rust/target/release/deadlock-brain timeline "Runed Gauntlet" --pretty
 ```
 
 The builder creates `legacy_entities` with:

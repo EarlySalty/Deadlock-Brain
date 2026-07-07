@@ -7,8 +7,8 @@ layer that prevents model-only guesses.
 ## CLI
 
 ```bash
-PYTHONPATH=src python3 -m deadlock_brain.cli item Refresher --pretty
-PYTHONPATH=src python3 -m deadlock_brain.cli build "Mo & Krill" --pretty
+./rust/target/release/deadlock-brain item Refresher --pretty
+./rust/target/release/deadlock-brain build "Mo & Krill" --pretty
 ```
 
 ## Inputs

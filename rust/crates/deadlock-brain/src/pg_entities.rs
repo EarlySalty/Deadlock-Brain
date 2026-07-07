@@ -1,10 +1,9 @@
 //! PG-gestuetzter `entities`-Lesebefehl.
 //!
 //! Liest `brain.entities` + `brain.entity_aliases` aus der zentralen Postgres.
-//! Seit dem PG-Cutover laufen alle Binary-Befehle async ueber `PgPool`; die alte
-//! SQLite-Verbindung (`db::open_connection`) wird erst in Phase 6 entfernt.
+//! Seit dem PG-Cutover laufen alle Binary-Befehle async ueber `PgPool`.
 //!
-//! Suchsemantik (identisch zur SQLite-Referenz fuers Paritaets-Diffing):
+//! Suchsemantik:
 //! Ein Entity passt, wenn `canonical_name` ODER einer seiner Aliase den `--query`
 //! als case-insensitiven Teilstring enthaelt; `--type` filtert zusaetzlich exakt
 //! auf `entity_type`.
@@ -99,7 +98,12 @@ async fn search_entities(args: &EntitiesArgs) -> Result<Value> {
     }))
 }
 
-fn entity_json(entity_type: String, canonical_name: String, source: String, aliases: Vec<String>) -> Value {
+fn entity_json(
+    entity_type: String,
+    canonical_name: String,
+    source: String,
+    aliases: Vec<String>,
+) -> Value {
     json!({
         "entity_type": entity_type,
         "canonical_name": canonical_name,

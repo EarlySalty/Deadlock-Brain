@@ -6,11 +6,11 @@ It treats popular Steam/GC builds as weak labels, not as truth.
 ## Commands
 
 ```bash
-PYTHONPATH=src python3 -m deadlock_brain.cli learn import-steam-builds --pretty --limit-per-hero 10
-PYTHONPATH=src python3 -m deadlock_brain.cli learn list-builds --hero Haze --pretty
-PYTHONPATH=src python3 -m deadlock_brain.cli learn analyze-build 28 --dry-run --pretty
-PYTHONPATH=src python3 -m deadlock_brain.cli learn analyze-next --dry-run --pretty --limit 3
-infisical run -- PYTHONPATH=src python3 -m deadlock_brain.cli learn analyze-build 28 --pretty
+./rust/target/release/deadlock-brain learn import-steam-builds --pretty --limit-per-hero 10
+./rust/target/release/deadlock-brain learn list-builds --hero Haze --pretty
+./rust/target/release/deadlock-brain learn analyze-build 28 --dry-run --pretty
+./rust/target/release/deadlock-brain learn analyze-next --dry-run --pretty --limit 3
+infisical run -- ./rust/target/release/deadlock-brain learn analyze-build 28 --pretty
 ```
 
 For normal repeated runs use the wrapper:

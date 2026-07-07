@@ -11,7 +11,7 @@ Scope: `deadlock-brain-yt transcript-claims` owns only the deterministic data pl
 5. For historical zero-yield leftovers, run `deadlock-brain-yt transcript-claims backfill-attempts --write`.
 6. For oversized off-topic VODs, run `deadlock-brain-yt transcript-claims mark-offtopic` before Monster extraction.
 
-Dry-run is the default for ingest. Omit `--write` to compute the summary without inserts or backup.
+Dry-run is the default for ingest. Omit `--write` to compute the summary without inserts.
 Dry-run is also the default for `backfill-attempts`.
 
 ## Prepare Output
@@ -136,7 +136,7 @@ Unknown verdicts are collected in `errors` and skipped.
 - `--title-contains <STR>` can be repeated and matches case-insensitive substrings on title.
 - `--video-ids <PATH>` reads one `video_id` per line.
 
-Dry-run is the default. With `--write`, the ingest backup helper is reused unless `--no-backup` is set.
+Dry-run is the default. With `--write`, attempts are recorded in Postgres.
 
 ## Idempotency
 
@@ -150,15 +150,9 @@ The pipe order and empty-string fallback for missing `evidence_quote` must not c
 
 ## Backup
 
-When `ingest --write` is used without `--no-backup`, the binary copies the opened SQLite main DB file before the first insert. The backup path is:
-
-```text
-<dbpath>.bak-<YYYY-MM-DD>-transcript-claims-scale
-```
-
-If that file already exists, a `-HHMMSS` suffix is added, with an extra numeric suffix if needed to avoid overwrite. The summary returns the backup path.
-
-The DB runs in WAL mode, so before copying, `ingest` forces `PRAGMA wal_checkpoint(TRUNCATE)` to flush committed pages into the main file; if a checkpoint cannot fully truncate (busy), the non-empty `-wal`/`-shm` sidecars are copied alongside the backup. This makes the copied file self-consistent.
+`ingest --write` writes directly to the central Postgres `brain` schema. The old
+local file backup path is gone; rollback is handled at the database/backups
+layer.
 
 ## Status (Stand 2026-06-27)
 

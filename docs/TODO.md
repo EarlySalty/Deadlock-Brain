@@ -38,8 +38,8 @@ Bündel. Details: [brain-qa-roadmap.md](brain-qa-roadmap.md),
   GLM-Claims mussten per manuellem UPDATE auf `glm-5.2` relabelt werden. Flag = automatisch korrekt.
 - [ ] **GLM-Kampagnen-Artefakte in `~/.cache/` sind nicht repo-durable.** `glm_pipeline.py`,
   `driver.py`, `bundle.py`, `split_prepare.py` ggf. nach `scripts/` migrieren + Runbook in `docs/`.
-- [ ] **`data/*.sqlite3.bak-*`-Backups sind untracked und sammeln sich an.** Gitignore-Eintrag
-  setzen + alte Backups aufräumen (Disk-Hygiene).
+- [x] **Lokale SQLite-Backups aus dem Betriebspfad entfernt.** Runtime nutzt zentrale Postgres;
+  Rollback bleibt Backup-/DB-Aufgabe.
 - [ ] **Vollautonome In-Rust-Extraktion** (optional): GLM/OpenAI-Client in `core` + Timer, damit die
   Kampagne ohne externen Orchestrator läuft (pay-per-use Key statt Abo-Auth).
 

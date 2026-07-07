@@ -6,10 +6,10 @@ It does not call a model.
 ## CLI
 
 ```bash
-PYTHONPATH=src python3 -m deadlock_brain.cli analysis save-review Stalker --pretty
-PYTHONPATH=src python3 -m deadlock_brain.cli analysis run-minimax Stalker --dry-run --pretty
-infisical run -- PYTHONPATH=src python3 -m deadlock_brain.cli analysis run-minimax Stalker --pretty
-PYTHONPATH=src python3 -m deadlock_brain.cli analysis list --pretty
+./rust/target/release/deadlock-brain analysis save-review Stalker --pretty
+./rust/target/release/deadlock-brain analysis run-minimax Stalker --dry-run --pretty
+infisical run -- ./rust/target/release/deadlock-brain analysis run-minimax Stalker --pretty
+./rust/target/release/deadlock-brain analysis list --pretty
 ```
 
 `analysis save-review` builds the same deterministic review context as

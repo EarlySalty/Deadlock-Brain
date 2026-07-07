@@ -24,6 +24,14 @@ pub struct VideoRunSummary {
 pub async fn run_ingest(pool: &PgPool, limit: usize) -> anyhow::Result<IngestSummary> {
     let discover =
         queue::discover_youtube_videos(pool, &db::default_feed_config_path(), 50).await?;
+    run_ingest_after_discover(pool, limit, discover).await
+}
+
+pub async fn run_ingest_after_discover(
+    pool: &PgPool,
+    limit: usize,
+    discover: queue::DiscoverSummary,
+) -> anyhow::Result<IngestSummary> {
     let videos = queue::select_next_videos(pool, limit).await?;
     let mut summary = IngestSummary {
         discover,

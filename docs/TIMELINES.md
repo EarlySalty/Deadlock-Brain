@@ -1,27 +1,12 @@
 # Timelines
 
-`deadlock_brain.timeline` builds deterministic entity timelines from existing
-SQLite tables. It does not change the CLI and does not call AI services or
-external APIs.
+`deadlock-brain timeline` builds deterministic entity timelines from the central
+Postgres `brain` schema. It does not call AI services or external APIs.
 
 ## API
 
-```python
-from deadlock_brain.timeline import build_entity_timeline
-
-timeline = build_entity_timeline(conn, "Mystic Shot", limit_events=2000)
-```
-
-Signature:
-
-```python
-build_entity_timeline(
-    conn: sqlite3.Connection,
-    query: str,
-    *,
-    limit_events: int = 2000,
-    ascending: bool = True,
-) -> dict[str, Any]
+```bash
+./rust/target/release/deadlock-brain timeline "Mystic Shot" --limit-events 2000
 ```
 
 The returned dictionary contains:

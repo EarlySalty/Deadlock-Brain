@@ -23,10 +23,6 @@ use serde_json::json;
     about = "Deadlock-Brain YouTube ingestion for curated feeds, transcript handling, classification, and claim storage."
 )]
 struct Cli {
-    // --db obsolet nach PG-Cutover, Phase 6 entfernt: akzeptiert-aber-ignoriert,
-    // damit der Service-Aufruf/die CLI-Signatur nicht bricht.
-    #[arg(long, global = true, value_name = "PATH")]
-    db: Option<PathBuf>,
     #[command(subcommand)]
     command: Commands,
 }
@@ -54,6 +50,18 @@ enum Commands {
     ClassifyVideos {
         #[arg(long, default_value_t = 20)]
         limit: usize,
+    },
+    AutoLearn {
+        #[arg(long, default_value = "config/youtube_feeds.json")]
+        config: PathBuf,
+        #[arg(long = "discover-limit", default_value_t = 50)]
+        discover_limit: usize,
+        #[arg(long = "transcript-fetch-limit", default_value_t = 20)]
+        transcript_fetch_limit: usize,
+        #[arg(long = "analyze-limit", default_value_t = 5)]
+        analyze_limit: usize,
+        #[arg(long = "no-fetch-transcripts")]
+        no_fetch_transcripts: bool,
     },
     #[command(about = "Prepare or ingest transcript claim batches")]
     TranscriptClaims {
@@ -99,8 +107,6 @@ enum TranscriptClaimsAction {
         input: PathBuf,
         #[arg(long)]
         write: bool,
-        #[arg(long)]
-        no_backup: bool,
         #[arg(long, default_value = "claude")]
         model: String,
         #[arg(long, default_value = "youtube_claims_de_transcript_v1")]
@@ -119,8 +125,6 @@ enum TranscriptClaimsAction {
         prompt_version: String,
         #[arg(long)]
         write: bool,
-        #[arg(long)]
-        no_backup: bool,
     },
     #[command(about = "Mark monster transcript claim candidates as off-topic")]
     MarkOfftopic {
@@ -132,8 +136,6 @@ enum TranscriptClaimsAction {
         prompt_version: String,
         #[arg(long)]
         write: bool,
-        #[arg(long)]
-        no_backup: bool,
     },
 }
 
@@ -147,8 +149,6 @@ async fn main() {
 
 async fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    // --db ist nach dem PG-Cutover wirkungslos; nur zur CLI-Kompatibilität da.
-    let _ = &cli.db;
     match cli.command {
         Commands::GeminiLogin => gemini::run_login(),
         Commands::Ingest { limit } => {
@@ -202,6 +202,30 @@ async fn run() -> anyhow::Result<()> {
             let pool = db::pg_pool().await?;
             print_json(&video_classification::classify_videos(&pool, limit).await?)
         }
+        Commands::AutoLearn {
+            config,
+            discover_limit,
+            transcript_fetch_limit,
+            analyze_limit,
+            no_fetch_transcripts,
+        } => {
+            let pool = db::pg_pool().await?;
+            let discover = queue::discover_youtube_videos(&pool, &config, discover_limit).await?;
+            let transcripts = if no_fetch_transcripts {
+                None
+            } else {
+                Some(transcripts::fetch_transcripts(&pool, transcript_fetch_limit).await?)
+            };
+            let classification =
+                video_classification::classify_videos(&pool, transcript_fetch_limit).await?;
+            let ingest =
+                loop_runner::run_ingest_after_discover(&pool, analyze_limit, discover).await?;
+            print_json(&json!({
+                "transcripts": transcripts,
+                "classification": classification,
+                "ingest": ingest,
+            }))
+        }
         Commands::TranscriptClaims { action } => match action {
             TranscriptClaimsAction::Prepare {
                 limit,
@@ -254,7 +278,6 @@ async fn run() -> anyhow::Result<()> {
             TranscriptClaimsAction::Ingest {
                 input,
                 write,
-                no_backup,
                 model,
                 prompt_version,
             } => {
@@ -264,7 +287,6 @@ async fn run() -> anyhow::Result<()> {
                     &input,
                     transcript_claims::IngestOptions {
                         write,
-                        no_backup,
                         model,
                         prompt_version,
                     },
@@ -276,7 +298,6 @@ async fn run() -> anyhow::Result<()> {
                 max_chars,
                 prompt_version,
                 write,
-                no_backup,
             } => {
                 let max_chars = if max_chars == 0 {
                     None
@@ -288,7 +309,6 @@ async fn run() -> anyhow::Result<()> {
                     &pool,
                     transcript_claims::BackfillAttemptsOptions {
                         write,
-                        no_backup,
                         prompt_version,
                         max_chars,
                     },
@@ -301,14 +321,12 @@ async fn run() -> anyhow::Result<()> {
                 video_ids,
                 prompt_version,
                 write,
-                no_backup,
             } => {
                 let pool = db::pg_pool().await?;
                 let summary = transcript_claims::mark_offtopic(
                     &pool,
                     transcript_claims::MarkOfftopicOptions {
                         write,
-                        no_backup,
                         prompt_version,
                         title_contains,
                         video_ids_path: video_ids,

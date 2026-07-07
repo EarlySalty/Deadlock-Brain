@@ -1,10 +1,10 @@
 # Review Context
 
-`deadlock_brain.review_context.build_review_context(conn, query, limit_events=80)`
-ist eine reine Kontextaufbereitung fuer Analyse- und Review-Antworten.
+`deadlock-brain review <query>` ist eine reine Kontextaufbereitung fuer Analyse-
+und Review-Antworten.
 
-Die Funktion ruft keine OpenAI-/API-Dienste auf und aendert keine CLI. Sie nutzt
-`retrieval.build_entity_context` als Eingang und verdichtet dessen Daten zu:
+Der Befehl ruft keine OpenAI-/API-Dienste auf. Er liest aus der zentralen
+Postgres und verdichtet die Brain-Daten zu:
 
 - `entity_summary`: kanonischer Match, Entity-Typ, Aliase und Metadaten-Hints
 - `current_stat_hints`: aktuelle Sheet-Werte fuer Heroes, mit kompakter Auswahl
@@ -18,16 +18,9 @@ Englisch zu behalten und Bewertung sowie Unsicherheiten auf Deutsch zu erklaeren
 
 Beispiel:
 
-```python
-import sqlite3
-
-from deadlock_brain.review_context import build_review_context
-
-conn = sqlite3.connect("data/deadlock_brain.sqlite3")
-conn.row_factory = sqlite3.Row
-
-context = build_review_context(conn, "Shiv", limit_events=80)
+```bash
+./rust/target/release/deadlock-brain review Shiv --limit-events 80
 ```
 
-Das Ergebnis ist ein normales `dict` und kann spaeter direkt serialisiert oder in
-einen Modellaufruf gegeben werden.
+Das Ergebnis ist JSON und kann direkt serialisiert oder in einen Modellaufruf
+gegeben werden.

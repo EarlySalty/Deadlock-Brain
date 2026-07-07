@@ -155,12 +155,11 @@ impl HttpClient {
                     message: error.to_string(),
                 }
             })?;
-            let header_value = HeaderValue::from_str(value).map_err(|error| {
-                CoreError::InvalidHeader {
+            let header_value =
+                HeaderValue::from_str(value).map_err(|error| CoreError::InvalidHeader {
                     name: name.clone(),
                     message: error.to_string(),
-                }
-            })?;
+                })?;
             request = request.header(header_name, header_value);
         }
 
@@ -215,7 +214,7 @@ impl HttpClient {
             serde_json::to_vec_pretty(&CacheMetadata {
                 url: result.url.clone(),
                 content_type: result.content_type.clone(),
-                fetched_at: crate::db::now_epoch_seconds()?,
+                fetched_at: crate::now_epoch_seconds()?,
             })?,
         )?;
         Ok(())

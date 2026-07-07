@@ -10,7 +10,7 @@ Patch-Reviews bauen.
 
 - Deadlock Assets API: Heroes, Items und Raw-Daten von `assets.deadlock-api.com`
 - Google Sheet: Hero-Stats/Scaling/DPS-Daten als CSV-Export
-- Bestehende Patchnotes-DB: `changelog_posts` aus der zentralen Deadlock SQLite-DB
+- Patchnotes: `patchnotes.changelog_posts` aus der zentralen Postgres
 - Deadlock Wiki: bewusst vorsichtig, standardmaessig nicht als Bulk-Crawler
 - Statlocker: optionale WPA-/Leaderboard-Meta-Signale, nicht in Bulk-Pulls
 
@@ -18,42 +18,38 @@ Patch-Reviews bauen.
 
 ```bash
 cd /home/naniadm/Documents/Deadlock-Brain
-python3 -m venv .venv
-. .venv/bin/activate
-pip install -e .
-deadlock-brain status
-deadlock-brain pull assets
-deadlock-brain pull sheet
-deadlock-brain pull patchnotes
-deadlock-brain pull forum --limit 100
-deadlock-brain parse forum-claims --rebuild
-deadlock-brain pull statlocker --kind wpa-items --patch patch_129989 --hero "Mo & Krill" --min-sample-size 50
-deadlock-brain normalize entities --rebuild
-deadlock-brain parse patchnotes --rebuild
-deadlock-brain enrich patch-events --rebuild
-deadlock-brain enrich lineage --rebuild
-deadlock-brain enrich legacy-entities --rebuild
-deadlock-brain normalize sheet-stats --rebuild
-deadlock-brain context Shiv --pretty
-deadlock-brain timeline Indomitable --descending --pretty
-deadlock-brain review Indomitable --pretty
-deadlock-brain quality --pretty
-deadlock-brain lineage Stalker --pretty
-deadlock-brain legacy --pretty
-deadlock-brain item Refresher --pretty
-deadlock-brain build "Mo & Krill" --pretty
-deadlock-brain analysis save-review Stalker --pretty
-deadlock-brain analysis run-minimax Indomitable --dry-run --pretty
-deadlock-brain entities --type item --query Indomitable
-deadlock-brain events --entity "Trophy Collector"
+cargo build --release --manifest-path rust/Cargo.toml --workspace
+./rust/target/release/deadlock-brain status
+./rust/target/release/deadlock-brain pull assets
+./rust/target/release/deadlock-brain pull patchnotes
+./rust/target/release/deadlock-brain refresh-sheet
+./rust/target/release/deadlock-brain pull forum --limit 100
+./rust/target/release/deadlock-brain parse forum-claims --rebuild
+./rust/target/release/deadlock-brain pull statlocker --kind wpa-items --patch patch_129989 --hero "Mo & Krill" --min-sample-size 50
+./rust/target/release/deadlock-brain parse patchnotes --rebuild
+./rust/target/release/deadlock-brain enrich patch-events --rebuild
+./rust/target/release/deadlock-brain enrich lineage --rebuild
+./rust/target/release/deadlock-brain enrich legacy-entities --rebuild
+./rust/target/release/deadlock-brain context Shiv --pretty
+./rust/target/release/deadlock-brain timeline Indomitable --descending --pretty
+./rust/target/release/deadlock-brain review Indomitable --pretty
+./rust/target/release/deadlock-brain quality --pretty
+./rust/target/release/deadlock-brain lineage Stalker --pretty
+./rust/target/release/deadlock-brain legacy --pretty
+./rust/target/release/deadlock-brain item Refresher --pretty
+./rust/target/release/deadlock-brain build "Mo & Krill" --pretty
+./rust/target/release/deadlock-brain analysis save-review Stalker --pretty
+./rust/target/release/deadlock-brain analysis run-minimax Indomitable --dry-run --pretty
+./rust/target/release/deadlock-brain entities --type item --query Indomitable
+./rust/target/release/deadlock-brain-yt auto-learn --analyze-limit 5
 ```
 
-Ohne Installation geht es auch:
+Kurzer Read-only-Check:
 
 ```bash
 cd /home/naniadm/Documents/Deadlock-Brain
-PYTHONPATH=src python3 -m deadlock_brain.cli status
-PYTHONPATH=src python3 -m deadlock_brain.cli pull assets
+./rust/target/release/deadlock-brain status
+./rust/target/release/deadlock-brain pull assets
 ```
 
 ## Forum schonend importieren
@@ -110,10 +106,10 @@ Statlocker wird bewusst nicht in `pull all` gezogen. Einzelne WPA-/Leaderboard-
 Requests koennen gezielt importiert werden:
 
 ```bash
-PYTHONPATH=src python3 -m deadlock_brain.cli pull statlocker --kind wpa-patches
-PYTHONPATH=src python3 -m deadlock_brain.cli pull statlocker --kind wpa-items --patch patch_129989 --hero "Mo & Krill" --min-sample-size 50
-PYTHONPATH=src python3 -m deadlock_brain.cli pull statlocker --kind leaderboard --leaderboard-page-size 100
-PYTHONPATH=src python3 -m deadlock_brain.cli pull statlocker --kind leaderboard-player-matches --players-from-leaderboard 3 --matches-per-player 4
+./rust/target/release/deadlock-brain pull statlocker --kind wpa-patches
+./rust/target/release/deadlock-brain pull statlocker --kind wpa-items --patch patch_129989 --hero "Mo & Krill" --min-sample-size 50
+./rust/target/release/deadlock-brain pull statlocker --kind leaderboard --leaderboard-page-size 100
+./rust/target/release/deadlock-brain pull statlocker --kind leaderboard-player-matches --players-from-leaderboard 3 --matches-per-player 4
 ```
 
 Der Build-Optimizer nutzt `statlocker_wpa_item` als schwaches Meta-Signal:
@@ -125,12 +121,12 @@ Matches, einzelne Matchdetails und Player-Build-Analysis speichern. Das ist
 bewusst limitiert, damit kein Bulk-Crawl entsteht:
 
 ```bash
-PYTHONPATH=src python3 -m deadlock_brain.cli pull statlocker --kind leaderboard-player-matches --players-from-leaderboard 2 --matches-per-player 3 --include-match-details --include-build-analysis
-PYTHONPATH=src python3 -m deadlock_brain.cli player list-matches --pretty --limit 10
-PYTHONPATH=src python3 -m deadlock_brain.cli player analyze-match <account_id> <match_id> --dry-run --pretty
-PYTHONPATH=src python3 -m deadlock_brain.cli player analyze-next --dry-run --pretty --limit 3
+./rust/target/release/deadlock-brain pull statlocker --kind leaderboard-player-matches --players-from-leaderboard 2 --matches-per-player 3 --include-match-details --include-build-analysis
+./rust/target/release/deadlock-brain player list-matches --pretty --limit 10
+./rust/target/release/deadlock-brain player analyze-match <account_id> <match_id> --dry-run --pretty
+./rust/target/release/deadlock-brain player analyze-next --dry-run --pretty --limit 3
 DRY_RUN=1 PLAYERS_FROM_LEADERBOARD=2 MATCHES_PER_PLAYER=2 ./scripts/run_player_match_learning.sh
-infisical run -- PYTHONPATH=src python3 -m deadlock_brain.cli player analyze-match <account_id> <match_id> --pretty
+infisical run -- ./rust/target/release/deadlock-brain player analyze-match <account_id> <match_id> --pretty
 infisical run -- ./scripts/run_player_match_learning.sh
 ```
 
@@ -151,23 +147,21 @@ ist nur der technische API-Ceiling. Als Haenge-Schutz gibt es
 
 ## Datenablage
 
-- `data/deadlock_brain.sqlite3`: lokale Staging-DB
+- Zentrale Postgres: fachliche Brain-Tabellen im Schema `brain`
 - `data/raw/`: Rohdaten je Quelle
 - `data/cache/`: HTTP-/Wiki-Cache
 
-Die Staging-DB ist absichtlich noch generisch. Sie speichert Source Documents und
-Entity Snapshots. Der Patchnotes-Parser erzeugt daraus strukturierte
-`patch_events`. Die Entity-Normalisierung erzeugt daraus zusaetzlich
-kanonische `entities` und `entity_aliases`. Weitere deterministische
-Verarbeitungsschritte bauen `patch_event_enrichments`, `hero_stat_profiles` und
-`hero_stat_values`.
+Postgres speichert Source Documents, Entity Snapshots, strukturierte
+`patch_events`, kanonische `entities`/`entity_aliases` und abgeleitete Schichten
+wie `patch_event_enrichments`, `hero_stat_profiles` und `hero_stat_values`.
+Lokale Dateien bleiben nur Rohdaten- und Cache-Ablage.
 
 ## Patch-Events
 
 ```bash
-PYTHONPATH=src python3 -m deadlock_brain.cli parse patchnotes --rebuild
-PYTHONPATH=src python3 -m deadlock_brain.cli events --entity Indomitable
-PYTHONPATH=src python3 -m deadlock_brain.cli events --entity Shiv --source-kind steam
+./rust/target/release/deadlock-brain parse patchnotes --rebuild
+./rust/target/release/deadlock-brain events --entity Indomitable
+./rust/target/release/deadlock-brain events --entity Shiv --source-kind steam
 ```
 
 Forum-Posts und Steam-Announcements werden gleichwertig verarbeitet. Die URL wird
@@ -179,13 +173,13 @@ genauere Event-Typen wie `item` und `ability`.
 ## Enrichment, Sheet-Stats und Kontext
 
 ```bash
-PYTHONPATH=src python3 -m deadlock_brain.cli enrich patch-events --rebuild
-PYTHONPATH=src python3 -m deadlock_brain.cli enrich lineage --rebuild
-PYTHONPATH=src python3 -m deadlock_brain.cli enrich legacy-entities --rebuild
-PYTHONPATH=src python3 -m deadlock_brain.cli normalize sheet-stats --rebuild
-PYTHONPATH=src python3 -m deadlock_brain.cli context Indomitable --pretty
-PYTHONPATH=src python3 -m deadlock_brain.cli context Shiv --limit-events 8
-PYTHONPATH=src python3 -m deadlock_brain.cli lineage Stalker --pretty
+./rust/target/release/deadlock-brain enrich patch-events --rebuild
+./rust/target/release/deadlock-brain enrich lineage --rebuild
+./rust/target/release/deadlock-brain enrich legacy-entities --rebuild
+./rust/target/release/deadlock-brain normalize sheet-stats --rebuild
+./rust/target/release/deadlock-brain context Indomitable --pretty
+./rust/target/release/deadlock-brain context Shiv --limit-events 8
+./rust/target/release/deadlock-brain lineage Stalker --pretty
 ```
 
 `enrich patch-events` zerlegt Patchzeilen weiter in Stat-Namen, alte/neue Werte,
@@ -208,22 +202,22 @@ Subjekte werden markiert statt blind als echte Entity behandelt.
 ## Timelines, Reviews und Qualitaet
 
 ```bash
-PYTHONPATH=src python3 -m deadlock_brain.cli timeline Shiv --descending --pretty
-PYTHONPATH=src python3 -m deadlock_brain.cli review Indomitable --limit-events 80
-PYTHONPATH=src python3 -m deadlock_brain.cli review Indomitable --prompt-only
-PYTHONPATH=src python3 -m deadlock_brain.cli item Refresher --pretty
-PYTHONPATH=src python3 -m deadlock_brain.cli build "Mo & Krill" --pretty
-PYTHONPATH=src python3 -m deadlock_brain.cli analysis save-review Indomitable --pretty
-PYTHONPATH=src python3 -m deadlock_brain.cli analysis run-minimax Indomitable --dry-run --pretty
-PYTHONPATH=src python3 -m deadlock_brain.cli analysis list --pretty
-PYTHONPATH=src python3 -m deadlock_brain.cli learn import-steam-builds --pretty
-PYTHONPATH=src python3 -m deadlock_brain.cli learn list-builds --hero Haze --pretty
-PYTHONPATH=src python3 -m deadlock_brain.cli learn analyze-build 28 --dry-run --pretty
-PYTHONPATH=src python3 -m deadlock_brain.cli learn analyze-next --dry-run --pretty --limit 3
-PYTHONPATH=src python3 -m deadlock_brain.cli player list-matches --pretty --limit 10
-PYTHONPATH=src python3 -m deadlock_brain.cli player analyze-match <account_id> <match_id> --dry-run --pretty
-PYTHONPATH=src python3 -m deadlock_brain.cli player analyze-next --dry-run --pretty --limit 3
-PYTHONPATH=src python3 -m deadlock_brain.cli quality --pretty
+./rust/target/release/deadlock-brain timeline Shiv --descending --pretty
+./rust/target/release/deadlock-brain review Indomitable --limit-events 80
+./rust/target/release/deadlock-brain review Indomitable --prompt-only
+./rust/target/release/deadlock-brain item Refresher --pretty
+./rust/target/release/deadlock-brain build "Mo & Krill" --pretty
+./rust/target/release/deadlock-brain analysis save-review Indomitable --pretty
+./rust/target/release/deadlock-brain analysis run-minimax Indomitable --dry-run --pretty
+./rust/target/release/deadlock-brain analysis list --pretty
+./rust/target/release/deadlock-brain learn import-steam-builds --pretty
+./rust/target/release/deadlock-brain learn list-builds --hero Haze --pretty
+./rust/target/release/deadlock-brain learn analyze-build 28 --dry-run --pretty
+./rust/target/release/deadlock-brain learn analyze-next --dry-run --pretty --limit 3
+./rust/target/release/deadlock-brain player list-matches --pretty --limit 10
+./rust/target/release/deadlock-brain player analyze-match <account_id> <match_id> --dry-run --pretty
+./rust/target/release/deadlock-brain player analyze-next --dry-run --pretty --limit 3
+./rust/target/release/deadlock-brain quality --pretty
 ```
 
 `timeline` gruppiert Patch-Events nach Patch und haengt pro Zeile eine
@@ -294,8 +288,8 @@ Automatisch geht es z.B. per cron in der Umgebung, die
 ```
 
 ```bash
-PYTHONPATH=src python3 -m deadlock_brain.cli analysis run-minimax Indomitable --dry-run --pretty
-infisical run -- PYTHONPATH=src python3 -m deadlock_brain.cli analysis run-minimax Indomitable --pretty
+./rust/target/release/deadlock-brain analysis run-minimax Indomitable --dry-run --pretty
+infisical run -- ./rust/target/release/deadlock-brain analysis run-minimax Indomitable --pretty
 ```
 
 `quality` prueft lokale API-/Patch-/Sheet-Daten auf Alias-Kollisionen, fehlende
@@ -315,8 +309,8 @@ Ausgaben fuer `context`, `timeline`, `review`, `lineage`, `legacy`, `item`,
 ## Entity-Normalisierung
 
 ```bash
-PYTHONPATH=src python3 -m deadlock_brain.cli normalize entities --rebuild
-PYTHONPATH=src python3 -m deadlock_brain.cli entities --type item --query Indomitable
+./rust/target/release/deadlock-brain normalize entities --rebuild
+./rust/target/release/deadlock-brain entities --type item --query Indomitable
 ```
 
 Die Normalisierung liest die bestehenden `entity_snapshots` der
