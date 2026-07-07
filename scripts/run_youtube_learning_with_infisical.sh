@@ -13,8 +13,15 @@ ANALYZE_LIMIT="${YOUTUBE_ANALYZE_LIMIT:-5}"
 TRANSCRIPT_FETCH_LIMIT="${YOUTUBE_TRANSCRIPT_FETCH_LIMIT:-20}"
 FETCH_TRANSCRIPTS="${YOUTUBE_FETCH_TRANSCRIPTS:-1}"
 YOUTUBE_BIN="${DEADLOCK_BRAIN_YT_BIN:-$ROOT_DIR/rust/target/release/deadlock-brain-yt}"
+ENABLE_YOUTUBE_SYNC="${DEADLOCK_BRAIN_ENABLE_YOUTUBE_SYNC:-0}"
 
 cd "$ROOT_DIR"
+
+# ponytail: pause at the wrapper; remove this once YouTube learning no longer uses the Python/Gemini worker.
+if [[ "$ENABLE_YOUTUBE_SYNC" != "1" && "$ENABLE_YOUTUBE_SYNC" != "true" ]]; then
+  echo "Deadlock Brain YouTube learning is disabled."
+  exit 0
+fi
 
 PYTHON_BIN="${DEADLOCK_BRAIN_PYTHON:-python3}"
 if [[ -x "$ROOT_DIR/.venv/bin/python" ]]; then

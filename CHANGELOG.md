@@ -1,5 +1,13 @@
 # Changelog
 
+## #31 — YouTube-Lernen bleibt bis zum Rust-Pfad pausiert
+
+Problem: Der YouTube-Lernjob startete zwar ueber das Rust-Binary, nutzte intern aber noch den Python/Gemini-Browser-Worker und war damit kein sauber Rust-nativer Lauf.
+
+Änderung: Der systemd-Wrapper beendet YouTube-Lernen standardmaessig als No-op, bevor Secrets, Gemini oder der Python-Worker geladen werden. Ein manueller Opt-in bleibt ueber eine explizite Umgebungsvariable moeglich.
+
+Aktuelles Verhalten: Sheet-Sync und die sonstigen Brain-Pfade laufen weiter Rust-nativ gegen Postgres; YouTube-Lernen ist bewusst pausiert und startet nicht automatisch.
+
 ## #30 — Brain-Timer laden Infisical wie der Patchnotes-Sync
 
 Problem: Die neuen Rust-Timer fuer Sheet-Sync und YouTube-Lernen nutzten noch den alten Infisical-Configpfad und konnten dadurch im systemd-Start keine Secrets laden.

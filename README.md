@@ -41,8 +41,10 @@ cargo build --release --manifest-path rust/Cargo.toml --workspace
 ./rust/target/release/deadlock-brain analysis save-review Stalker --pretty
 ./rust/target/release/deadlock-brain analysis run-minimax Indomitable --dry-run --pretty
 ./rust/target/release/deadlock-brain entities --type item --query Indomitable
-./rust/target/release/deadlock-brain-yt auto-learn --analyze-limit 5
 ```
+
+YouTube-Lernen ist pausiert, bis dieser Pfad ohne Python/Gemini-Worker Rust-nativ
+laeuft.
 
 Kurzer Read-only-Check:
 
