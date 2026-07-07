@@ -4,7 +4,7 @@ use anyhow::Result;
 use sqlx::postgres::PgPool;
 
 pub fn repo_root() -> PathBuf {
-    deadlock_brain_core::db::repo_root()
+    deadlock_brain_core::config::repo_root()
 }
 
 pub fn default_feed_config_path() -> PathBuf {
@@ -18,5 +18,5 @@ pub async fn pg_pool() -> Result<PgPool> {
 }
 
 pub fn now_epoch_seconds() -> i64 {
-    deadlock_brain_core::db::now_epoch_seconds().unwrap_or(0)
+    deadlock_brain_core::now_epoch_seconds().unwrap_or(0)
 }

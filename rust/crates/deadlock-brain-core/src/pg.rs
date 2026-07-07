@@ -1,9 +1,4 @@
-//! sqlx `PgPool`-Fundament fuer den schrittweisen Postgres-Cutover (Phase-2-Tracer).
-//!
-//! Liegt bewusst NEBEN dem bestehenden rusqlite-`db`-Modul, nicht an seiner Stelle.
-//! Aktuell nutzt nur der `entities`-Lesebefehl diesen async Pfad; alle uebrigen
-//! Befehle laufen weiter ueber rusqlite (`db::open_connection`). Das ist das
-//! Async-Fundament, auf dem die spaeteren Cutover-Phasen aufsetzen.
+//! sqlx `PgPool`-Fundament fuer das zentrale Postgres-Brain.
 
 use anyhow::{anyhow, Result};
 use sqlx::postgres::{PgPool, PgPoolOptions};

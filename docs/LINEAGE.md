@@ -27,9 +27,9 @@ metadata.
 ## CLI
 
 ```bash
-PYTHONPATH=src python3 -m deadlock_brain.cli enrich lineage --rebuild
-PYTHONPATH=src python3 -m deadlock_brain.cli lineage Stalker --pretty
-PYTHONPATH=src python3 -m deadlock_brain.cli timeline Stalker --descending --pretty
+./rust/target/release/deadlock-brain enrich lineage --rebuild
+./rust/target/release/deadlock-brain lineage Stalker --pretty
+./rust/target/release/deadlock-brain timeline Stalker --descending --pretty
 ```
 
 `context`, `timeline`, and `review` use lineage names as extra lookup names.

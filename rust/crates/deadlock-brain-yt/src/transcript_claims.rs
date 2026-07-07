@@ -123,10 +123,6 @@ pub struct TranscriptChunk {
 #[derive(Debug)]
 pub struct IngestOptions {
     pub write: bool,
-    /// Nach dem PG-Cutover wirkungslos: das SQLite-Datei-Backup entfällt, die
-    /// zentrale Postgres wird zentral gesichert. Flag bleibt für CLI-Stabilität.
-    #[allow(dead_code)]
-    pub no_backup: bool,
     pub model: String,
     pub prompt_version: String,
 }
@@ -134,7 +130,6 @@ pub struct IngestOptions {
 #[derive(Debug, Serialize)]
 pub struct IngestSummary {
     pub dry_run: bool,
-    pub backup_path: Option<String>,
     pub inserted: usize,
     pub skipped_existing: usize,
     pub attempts_recorded: usize,
@@ -146,9 +141,6 @@ pub struct IngestSummary {
 #[derive(Debug)]
 pub struct BackfillAttemptsOptions {
     pub write: bool,
-    /// Wirkungslos nach PG-Cutover (siehe [`IngestOptions::no_backup`]).
-    #[allow(dead_code)]
-    pub no_backup: bool,
     pub prompt_version: String,
     pub max_chars: Option<usize>,
 }
@@ -158,15 +150,11 @@ pub struct BackfillAttemptsSummary {
     pub dry_run: bool,
     pub would_mark: usize,
     pub marked: usize,
-    pub backup_path: Option<String>,
 }
 
 #[derive(Debug)]
 pub struct MarkOfftopicOptions {
     pub write: bool,
-    /// Wirkungslos nach PG-Cutover (siehe [`IngestOptions::no_backup`]).
-    #[allow(dead_code)]
-    pub no_backup: bool,
     pub prompt_version: String,
     pub title_contains: Vec<String>,
     pub video_ids_path: Option<PathBuf>,
@@ -178,7 +166,6 @@ pub struct MarkOfftopicSummary {
     pub would_mark: usize,
     pub marked: usize,
     pub matched_titles: Vec<MarkOfftopicTitleMatch>,
-    pub backup_path: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -386,8 +373,6 @@ pub async fn ingest(
     let mut tx = pool.begin().await?;
     let mut summary = IngestSummary {
         dry_run: !options.write,
-        // SQLite-Datei-Backup nach PG-Cutover entfernt (zentrale Sicherung).
-        backup_path: None,
         inserted: 0,
         skipped_existing: 0,
         attempts_recorded: 0,
@@ -424,9 +409,15 @@ pub async fn ingest(
                 .or_insert(0);
             let claim_index = *next_claim_index;
             if options.write {
-                let inserted =
-                    insert_claim(&mut *tx, &video.video_id, &claim_hash, claim_index, &claim, &options)
-                        .await?;
+                let inserted = insert_claim(
+                    &mut *tx,
+                    &video.video_id,
+                    &claim_hash,
+                    claim_index,
+                    &claim,
+                    &options,
+                )
+                .await?;
                 if inserted == 0 {
                     summary.skipped_existing += 1;
                     continue;
@@ -475,7 +466,6 @@ pub async fn backfill_attempts(
         dry_run: !options.write,
         would_mark,
         marked: 0,
-        backup_path: None,
     };
 
     if options.write && would_mark > 0 {
@@ -518,7 +508,6 @@ pub async fn mark_offtopic(
                 matched_by_video_ids: candidate.matched_by_video_ids,
             })
             .collect(),
-        backup_path: None,
     };
 
     if options.write && !matched_candidates.is_empty() {
@@ -992,11 +981,10 @@ fn usize_to_i64(value: usize, name: &str) -> anyhow::Result<i64> {
 }
 
 async fn count_claims(executor: impl sqlx::PgExecutor<'_>) -> anyhow::Result<usize> {
-    let count = sqlx::query_scalar!(
-        r#"SELECT COUNT(*) AS "cnt!" FROM brain.youtube_learning_claims"#
-    )
-    .fetch_one(executor)
-    .await?;
+    let count =
+        sqlx::query_scalar!(r#"SELECT COUNT(*) AS "cnt!" FROM brain.youtube_learning_claims"#)
+            .fetch_one(executor)
+            .await?;
     usize::try_from(count).context("claim count is negative or too large")
 }
 
@@ -1135,7 +1123,6 @@ mod tests {
             input.path(),
             IngestOptions {
                 write: true,
-                no_backup: true,
                 model: "claude-test".to_string(),
                 prompt_version: PROMPT_VERSION.to_string(),
             },
@@ -1147,7 +1134,6 @@ mod tests {
             input.path(),
             IngestOptions {
                 write: true,
-                no_backup: true,
                 model: "claude-test".to_string(),
                 prompt_version: PROMPT_VERSION.to_string(),
             },

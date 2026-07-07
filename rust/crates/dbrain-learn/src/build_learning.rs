@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, path::PathBuf, thread, time::Duration};
+use std::{collections::BTreeMap, thread, time::Duration};
 
 use deadlock_brain_core::minimax::{
     extract_minimax_text, minimax_usage_summary, ChatCompletionRequest, ChatMessage, MiniMaxClient,
@@ -21,7 +21,6 @@ pub const BUILD_LEARNING_PROMPT_VERSION: &str = "build_learning_de_v1";
 
 #[derive(Debug, Clone)]
 pub struct LearnImportSteamBuildsOptions {
-    pub steam_db_path: Option<PathBuf>,
     pub hero: Option<String>,
     pub language: i64,
     pub limit_per_hero: i64,
@@ -30,7 +29,6 @@ pub struct LearnImportSteamBuildsOptions {
 impl Default for LearnImportSteamBuildsOptions {
     fn default() -> Self {
         Self {
-            steam_db_path: None,
             hero: None,
             language: 0,
             limit_per_hero: 10,
@@ -61,16 +59,9 @@ pub async fn learn_import_steam_builds(
 ) -> Result<Value> {
     // Der Steam-GC-Build-Quelltisch `hero_build_sources` gehoert dem Steam-Bot
     // und liegt in der zentralen Postgres (search_path). Er ist kein `brain.*`-Objekt.
-    let steam_db_path = match options.steam_db_path {
-        Some(path) => path.to_string_lossy().to_string(),
-        None => deadlock_brain_core::config::load_settings()?
-            .central_deadlock_db_path
-            .to_string_lossy()
-            .to_string(),
-    };
     if !steam_source_available(pool).await? {
         return Ok(json!({
-            "steam_db_path": steam_db_path,
+            "source": "central_postgres.hero_build_sources",
             "imported": 0,
             "updated": 0,
             "skipped": 0,
@@ -120,7 +111,11 @@ pub async fn learn_import_steam_builds(
             ],
         )
         .await?;
-        let tags_value = if tags.is_array() { tags.clone() } else { json!([]) };
+        let tags_value = if tags.is_array() {
+            tags.clone()
+        } else {
+            json!([])
+        };
         let tags_json = serde_json::to_string(&tags_value)?;
         let item_names_json = serde_json::to_string(&item_names)?;
         let ability_order_json = serde_json::to_string(&ability_order)?;
@@ -143,7 +138,9 @@ pub async fn learn_import_steam_builds(
             .filter(|value| !value.is_null())
             .map(value_to_string)
             .filter(|value| !value.is_empty());
-        let description = get(row, "description").and_then(Value::as_str).map(str::to_string);
+        let description = get(row, "description")
+            .and_then(Value::as_str)
+            .map(str::to_string);
         execute_sql(
             pool,
             r#"
@@ -202,7 +199,7 @@ pub async fn learn_import_steam_builds(
         }
     }
     Ok(json!({
-        "steam_db_path": steam_db_path,
+        "source": "central_postgres.hero_build_sources",
         "language": options.language,
         "limit_per_hero": options.limit_per_hero,
         "rows_seen": rows.len(),
@@ -264,7 +261,10 @@ pub async fn learn_list_builds(
     Ok(rows
         .into_iter()
         .map(|mut row| {
-            let items = json_loads(get(&row, "item_names_json").and_then(Value::as_str), json!([]));
+            let items = json_loads(
+                get(&row, "item_names_json").and_then(Value::as_str),
+                json!([]),
+            );
             if let Some(object) = row.as_object_mut() {
                 object.insert("item_names".to_string(), items);
             }
@@ -337,7 +337,10 @@ pub(crate) async fn list_pending_build_learning_targets(
     Ok(rows
         .into_iter()
         .map(|mut row| {
-            let items = json_loads(get(&row, "item_names_json").and_then(Value::as_str), json!([]));
+            let items = json_loads(
+                get(&row, "item_names_json").and_then(Value::as_str),
+                json!([]),
+            );
             if let Some(object) = row.as_object_mut() {
                 object.insert("item_names".to_string(), items);
             }
@@ -372,8 +375,14 @@ pub async fn build_learning_context(pool: &PgPool, learned_build_id: i64) -> Res
     let mut build = row.clone();
     let tags = json_loads(get(&row, "tags_json").and_then(Value::as_str), json!([]));
     let details = json_loads(get(&row, "details_json").and_then(Value::as_str), json!({}));
-    let item_names = json_loads(get(&row, "item_names_json").and_then(Value::as_str), json!([]));
-    let ability_order = json_loads(get(&row, "ability_order_json").and_then(Value::as_str), json!([]));
+    let item_names = json_loads(
+        get(&row, "item_names_json").and_then(Value::as_str),
+        json!([]),
+    );
+    let ability_order = json_loads(
+        get(&row, "ability_order_json").and_then(Value::as_str),
+        json!([]),
+    );
     let source_metadata = json_loads(
         get(&row, "source_metadata_json").and_then(Value::as_str),
         json!({}),
@@ -452,7 +461,10 @@ Du arbeitest datenbasiert, markierst Unsicherheit und verwandelst einzelne Build
     })
 }
 
-pub async fn learn_analyze_build(pool: &PgPool, options: LearnAnalyzeBuildOptions) -> Result<Value> {
+pub async fn learn_analyze_build(
+    pool: &PgPool,
+    options: LearnAnalyzeBuildOptions,
+) -> Result<Value> {
     run_single_build_learning_analysis(
         pool,
         options.build_id,
@@ -760,7 +772,8 @@ async fn hero_id_name_map(pool: &PgPool) -> Result<BTreeMap<i64, String>> {
         let hero_id = int_or_none(get(&payload, "id"));
         let name = get_string(&payload, "name").unwrap_or_default();
         if let Some(hero_id) = hero_id {
-            if !name.is_empty() && get(&payload, "disabled").and_then(Value::as_bool) != Some(true) {
+            if !name.is_empty() && get(&payload, "disabled").and_then(Value::as_bool) != Some(true)
+            {
                 result.insert(hero_id, name);
             }
         }
@@ -800,7 +813,11 @@ fn extract_item_names(details: &Value, item_map: &BTreeMap<i64, String>) -> Vec<
         .into_iter()
         .flatten()
     {
-        for item in get(category, "mods").and_then(Value::as_array).into_iter().flatten() {
+        for item in get(category, "mods")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
             let ability_id = int_or_none(get_any(item, &["ability_id", "abilityId"]));
             if let Some(name) = ability_id.and_then(|id| item_map.get(&id)) {
                 if !names.contains(name) {
@@ -842,7 +859,11 @@ fn extract_item_categories(details: &Value, item_map: &BTreeMap<i64, String>) ->
         .flatten()
     {
         let mut mods = Vec::new();
-        for item in get(category, "mods").and_then(Value::as_array).into_iter().flatten() {
+        for item in get(category, "mods")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
             let ability_id = int_or_none(get_any(item, &["ability_id", "abilityId"]));
             let item_name = ability_id.and_then(|id| item_map.get(&id).cloned());
             if let Some(item_name) = item_name {
@@ -900,7 +921,10 @@ async fn sibling_build_summaries(pool: &PgPool, hero_name: &str, exclude_id: i64
     Ok(Value::Array(
         rows.into_iter()
             .map(|mut row| {
-                let item_names = json_loads(get(&row, "item_names_json").and_then(Value::as_str), json!([]));
+                let item_names = json_loads(
+                    get(&row, "item_names_json").and_then(Value::as_str),
+                    json!([]),
+                );
                 if let Some(object) = row.as_object_mut() {
                     object.insert("item_names".to_string(), item_names);
                 }
@@ -911,9 +935,15 @@ async fn sibling_build_summaries(pool: &PgPool, hero_name: &str, exclude_id: i64
 }
 
 fn compact_learning_context(context: &Value) -> Value {
-    let hero_context = get(context, "hero_context").cloned().unwrap_or_else(|| json!({}));
-    let hero = get(&hero_context, "hero").cloned().unwrap_or_else(|| json!({}));
-    let build = get(&hero_context, "build").cloned().unwrap_or_else(|| json!({}));
+    let hero_context = get(context, "hero_context")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let hero = get(&hero_context, "hero")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let build = get(&hero_context, "build")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     json!({
         "build": compact_build_for_model(get(context, "build")),
         "nearby_top_builds": get(context, "nearby_top_builds").cloned().unwrap_or(Value::Null),
@@ -962,7 +992,10 @@ fn compact_build_for_model(build: Option<&Value>) -> Value {
     ];
     let mut object = Map::new();
     for key in keys {
-        object.insert(key.to_string(), get(build, key).cloned().unwrap_or(Value::Null));
+        object.insert(
+            key.to_string(),
+            get(build, key).cloned().unwrap_or(Value::Null),
+        );
     }
     Value::Object(object)
 }

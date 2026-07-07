@@ -48,9 +48,9 @@ SQLX_OFFLINE=true cargo clippy --workspace --all-targets
 docker rm -f dbrain-sqlx-scratch
 ```
 
-Danach `rust/.sqlx/` mitcommitten. Für einen Funktionstest mit echten Daten die
-Migrations-Daten via `dbrain-pg-migrate --sqlite <SQLite-Kopie>` (mit
-`DEADLOCK_CENTRAL_DSN` auf die Wegwerf-PG) laden — nie gegen die Live-DB.
+Danach `rust/.sqlx/` mitcommitten. Für einen Funktionstest mit echten Daten
+einen frischen Dump der zentralen Postgres in die Wegwerf-PG einspielen — nie
+gegen die Live-DB testen.
 
 ## Hinweise
 

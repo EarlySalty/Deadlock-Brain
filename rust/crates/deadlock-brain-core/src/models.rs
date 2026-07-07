@@ -1,4 +1,3 @@
-use rusqlite::Row;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -15,23 +14,6 @@ pub struct SourceDocument {
     pub metadata_json: String,
 }
 
-impl SourceDocument {
-    pub fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
-        Ok(Self {
-            id: row.get("id")?,
-            source: row.get("source")?,
-            external_id: row.get("external_id")?,
-            title: row.get("title")?,
-            url: row.get("url")?,
-            content_type: row.get("content_type")?,
-            raw_path: row.get("raw_path")?,
-            content_hash: row.get("content_hash")?,
-            fetched_at: row.get("fetched_at")?,
-            metadata_json: row.get("metadata_json")?,
-        })
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SourceRun {
     pub id: i64,
@@ -40,19 +22,6 @@ pub struct SourceRun {
     pub started_at: i64,
     pub finished_at: Option<i64>,
     pub summary_json: String,
-}
-
-impl SourceRun {
-    pub fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
-        Ok(Self {
-            id: row.get("id")?,
-            source: row.get("source")?,
-            status: row.get("status")?,
-            started_at: row.get("started_at")?,
-            finished_at: row.get("finished_at")?,
-            summary_json: row.get("summary_json")?,
-        })
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -80,34 +49,6 @@ pub struct PatchEvent {
     pub created_at: i64,
 }
 
-impl PatchEvent {
-    pub fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
-        Ok(Self {
-            id: row.get("id")?,
-            patch_snapshot_id: row.get("patch_snapshot_id")?,
-            patch_external_id: row.get("patch_external_id")?,
-            patch_title: row.get("patch_title")?,
-            patch_url: row.get("patch_url")?,
-            source_kind: row.get("source_kind")?,
-            posted_at: row.get("posted_at")?,
-            line_index: row.get("line_index")?,
-            section: row.get("section")?,
-            entity_type: row.get("entity_type")?,
-            entity_name: row.get("entity_name")?,
-            subject: row.get("subject")?,
-            change_type: row.get("change_type")?,
-            raw_line: row.get("raw_line")?,
-            normalized_line: row.get("normalized_line")?,
-            old_value: row.get("old_value")?,
-            new_value: row.get("new_value")?,
-            confidence: row.get("confidence")?,
-            metadata_json: row.get("metadata_json")?,
-            event_hash: row.get("event_hash")?,
-            created_at: row.get("created_at")?,
-        })
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Entity {
     pub id: i64,
@@ -121,22 +62,6 @@ pub struct Entity {
     pub updated_at: i64,
 }
 
-impl Entity {
-    pub fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
-        Ok(Self {
-            id: row.get("id")?,
-            entity_type: row.get("entity_type")?,
-            canonical_name: row.get("canonical_name")?,
-            primary_external_id: row.get("primary_external_id")?,
-            source: row.get("source")?,
-            first_snapshot_id: row.get("first_snapshot_id")?,
-            metadata_json: row.get("metadata_json")?,
-            created_at: row.get("created_at")?,
-            updated_at: row.get("updated_at")?,
-        })
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EntityAlias {
     pub id: i64,
@@ -148,20 +73,4 @@ pub struct EntityAlias {
     pub external_id: Option<String>,
     pub snapshot_id: Option<i64>,
     pub created_at: i64,
-}
-
-impl EntityAlias {
-    pub fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
-        Ok(Self {
-            id: row.get("id")?,
-            entity_id: row.get("entity_id")?,
-            alias: row.get("alias")?,
-            alias_norm: row.get("alias_norm")?,
-            alias_kind: row.get("alias_kind")?,
-            source: row.get("source")?,
-            external_id: row.get("external_id")?,
-            snapshot_id: row.get("snapshot_id")?,
-            created_at: row.get("created_at")?,
-        })
-    }
 }

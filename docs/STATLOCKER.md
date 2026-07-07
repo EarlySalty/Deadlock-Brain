@@ -6,16 +6,16 @@ Statlocker is an optional source for public meta signals. It is not included in
 ## Commands
 
 ```bash
-PYTHONPATH=src python3 -m deadlock_brain.cli pull statlocker --kind wpa-patches
-PYTHONPATH=src python3 -m deadlock_brain.cli pull statlocker --kind wpa-items --patch patch_129989 --hero "Mo & Krill" --min-sample-size 50
-PYTHONPATH=src python3 -m deadlock_brain.cli pull statlocker --kind leaderboard --leaderboard-page-size 100
-PYTHONPATH=src python3 -m deadlock_brain.cli pull statlocker --kind leaderboard-player-matches --players-from-leaderboard 3 --matches-per-player 4
-PYTHONPATH=src python3 -m deadlock_brain.cli pull statlocker --kind leaderboard-player-matches --players-from-leaderboard 2 --matches-per-player 3 --include-match-details --include-build-analysis
-PYTHONPATH=src python3 -m deadlock_brain.cli player list-matches --pretty --limit 10
-PYTHONPATH=src python3 -m deadlock_brain.cli player analyze-match <account_id> <match_id> --dry-run --pretty
-PYTHONPATH=src python3 -m deadlock_brain.cli player analyze-next --dry-run --pretty --limit 3
+./rust/target/release/deadlock-brain pull statlocker --kind wpa-patches
+./rust/target/release/deadlock-brain pull statlocker --kind wpa-items --patch patch_129989 --hero "Mo & Krill" --min-sample-size 50
+./rust/target/release/deadlock-brain pull statlocker --kind leaderboard --leaderboard-page-size 100
+./rust/target/release/deadlock-brain pull statlocker --kind leaderboard-player-matches --players-from-leaderboard 3 --matches-per-player 4
+./rust/target/release/deadlock-brain pull statlocker --kind leaderboard-player-matches --players-from-leaderboard 2 --matches-per-player 3 --include-match-details --include-build-analysis
+./rust/target/release/deadlock-brain player list-matches --pretty --limit 10
+./rust/target/release/deadlock-brain player analyze-match <account_id> <match_id> --dry-run --pretty
+./rust/target/release/deadlock-brain player analyze-next --dry-run --pretty --limit 3
 DRY_RUN=1 PLAYERS_FROM_LEADERBOARD=2 MATCHES_PER_PLAYER=2 ./scripts/run_player_match_learning.sh
-infisical run -- PYTHONPATH=src python3 -m deadlock_brain.cli player analyze-match <account_id> <match_id> --pretty
+infisical run -- ./rust/target/release/deadlock-brain player analyze-match <account_id> <match_id> --pretty
 infisical run -- ./scripts/run_player_match_learning.sh
 ```
 

@@ -2,13 +2,15 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-export PYTHONPATH="${PYTHONPATH:-}:$PWD/src"
 
-python3 -m deadlock_brain.cli pull assets
-python3 -m deadlock_brain.cli pull patchnotes
-python3 -m deadlock_brain.cli refresh-sheet
-python3 -m deadlock_brain.cli normalize entities
-python3 -m deadlock_brain.cli normalize sheet-stats
-python3 -m deadlock_brain.cli normalize sheet-tabs
-python3 -m deadlock_brain.cli status
+BRAIN_BIN="${DEADLOCK_BRAIN_BIN:-$PWD/rust/target/release/deadlock-brain}"
 
+if [[ ! -x "$BRAIN_BIN" ]]; then
+  echo "deadlock-brain release binary missing: $BRAIN_BIN" >&2
+  exit 1
+fi
+
+"$BRAIN_BIN" pull assets
+"$BRAIN_BIN" pull patchnotes
+"$BRAIN_BIN" refresh-sheet
+"$BRAIN_BIN" status

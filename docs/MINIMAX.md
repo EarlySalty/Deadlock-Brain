@@ -7,8 +7,8 @@ stores the answer in `analysis_notes`.
 ## Commands
 
 ```bash
-PYTHONPATH=src python3 -m deadlock_brain.cli analysis run-minimax Indomitable --dry-run --pretty
-infisical run -- PYTHONPATH=src python3 -m deadlock_brain.cli analysis run-minimax Indomitable --pretty
+./rust/target/release/deadlock-brain analysis run-minimax Indomitable --dry-run --pretty
+infisical run -- ./rust/target/release/deadlock-brain analysis run-minimax Indomitable --pretty
 ```
 
 The dry-run command does not call MiniMax. The real command expects

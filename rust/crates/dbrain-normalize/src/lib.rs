@@ -2,10 +2,8 @@
 
 //! Normalisierungs-Crate fuer Entities, Patchnotes, Sheet-Stats und Sheet-Tabs.
 //!
-//! Postgres-Cutover: alle Schreib-/Lesepfade laufen ueber `sqlx`/[`PgPool`]
-//! (async) gegen das `brain`-Schema. Die frueheren rusqlite-`_with_conn`-Wrapper
-//! sind zu poolbasierten `async fn` zusammengefallen (eine Verbindungsquelle);
-//! ihre Aufrufer in `main.rs` werden zentral im Retrieval-Schritt nachgezogen.
+//! Alle Schreib-/Lesepfade laufen ueber `sqlx`/[`PgPool`] (async) gegen das
+//! `brain`-Schema.
 
 mod entities;
 mod error;

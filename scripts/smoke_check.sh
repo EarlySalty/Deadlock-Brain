@@ -4,25 +4,28 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 export PYTHONDONTWRITEBYTECODE=1
-export PYTHONPATH=src
 TMP_DIR="${TMPDIR:-/tmp}/deadlock_brain_smoke_${USER:-user}_$$"
 mkdir -p "$TMP_DIR"
+BRAIN_BIN="${DEADLOCK_BRAIN_BIN:-$PWD/rust/target/release/deadlock-brain}"
 
-python3 -m py_compile $(find src -name '*.py')
+if [[ ! -x "$BRAIN_BIN" ]]; then
+  echo "deadlock-brain release binary missing: $BRAIN_BIN" >&2
+  exit 1
+fi
 
-python3 -m deadlock_brain.cli status >"$TMP_DIR/status.txt"
-python3 -m deadlock_brain.cli context Stalker --limit-events 5 >"$TMP_DIR/context.json"
-python3 -m deadlock_brain.cli timeline Backstabber --limit-events 20 >"$TMP_DIR/timeline.json"
-python3 -m deadlock_brain.cli review Indomitable --limit-events 20 >"$TMP_DIR/review.json"
-python3 -m deadlock_brain.cli lineage Stalker >"$TMP_DIR/lineage.json"
-python3 -m deadlock_brain.cli legacy --limit 20 >"$TMP_DIR/legacy.json"
-python3 -m deadlock_brain.cli item Refresher >"$TMP_DIR/item_refresher.json"
-python3 -m deadlock_brain.cli build "Mo & Krill" >"$TMP_DIR/build_mo_krill.json"
-python3 -m deadlock_brain.cli analysis save-review Stalker >"$TMP_DIR/analysis_save.json"
-python3 -m deadlock_brain.cli analysis run-minimax Stalker --dry-run >"$TMP_DIR/minimax_dry_run.json"
-python3 -m deadlock_brain.cli analysis list --limit 5 >"$TMP_DIR/analysis_list.json"
-python3 -m deadlock_brain.cli player list-matches --limit 5 >"$TMP_DIR/player_matches.json"
-python3 -m deadlock_brain.cli quality >"$TMP_DIR/quality.json"
+"$BRAIN_BIN" status >"$TMP_DIR/status.txt"
+"$BRAIN_BIN" context Stalker --limit-events 5 >"$TMP_DIR/context.json"
+"$BRAIN_BIN" timeline Backstabber --limit-events 20 >"$TMP_DIR/timeline.json"
+"$BRAIN_BIN" review Indomitable --limit-events 20 >"$TMP_DIR/review.json"
+"$BRAIN_BIN" lineage Stalker >"$TMP_DIR/lineage.json"
+"$BRAIN_BIN" legacy --limit 20 >"$TMP_DIR/legacy.json"
+"$BRAIN_BIN" item Refresher >"$TMP_DIR/item_refresher.json"
+"$BRAIN_BIN" build "Mo & Krill" >"$TMP_DIR/build_mo_krill.json"
+"$BRAIN_BIN" analysis save-review Stalker >"$TMP_DIR/analysis_save.json"
+"$BRAIN_BIN" analysis run-minimax Stalker --dry-run >"$TMP_DIR/minimax_dry_run.json"
+"$BRAIN_BIN" analysis list --limit 5 >"$TMP_DIR/analysis_list.json"
+"$BRAIN_BIN" player list-matches --limit 5 >"$TMP_DIR/player_matches.json"
+"$BRAIN_BIN" quality >"$TMP_DIR/quality.json"
 
 python3 -m json.tool "$TMP_DIR/context.json" >/dev/null
 python3 -m json.tool "$TMP_DIR/timeline.json" >/dev/null
