@@ -163,4 +163,4 @@ layer.
 
 ## Orchestrierung (wie die LLM-Stufe heute läuft)
 
-`prepare`/`ingest` sind die deterministische Daten-Ebene; die Extraktion+Verifikation dazwischen läuft als Claude-Workflow (deutsche `claim_text` + abgeleitete-Mechanik-Verifikation, NIE MiniMax). Pro Welle: `prepare`/Selektion → Workflow (Extract→Verify, schreibt `verified_<id>.json` pro Video) → `verified_*.json` zu einem Array bündeln → `ingest --write`. Eine vollautonome In-Rust-Variante (Rust ruft GPT direkt) wäre ein Folgeschritt; dafür fehlt im Core noch ein OpenAI/Anthropic-Client (nur MiniMax vorhanden).
+`prepare`/`ingest` sind die deterministische Daten-Ebene; die Extraktion+Verifikation dazwischen läuft als Claude-Workflow (deutsche `claim_text` + abgeleitete-Mechanik-Verifikation, nicht ueber das Brain-Textmodell). Pro Welle: `prepare`/Selektion → Workflow (Extract→Verify, schreibt `verified_<id>.json` pro Video) → `verified_*.json` zu einem Array bündeln → `ingest --write`. Eine vollautonome In-Rust-Variante (Rust ruft GPT direkt) wäre ein Folgeschritt; dafür fehlt im Core noch ein OpenAI/Anthropic-Client.

@@ -260,7 +260,7 @@ pub enum RetrievalError {
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 
-    #[error("MiniMax response did not include message content.")]
+    #[error("Fireworks response did not include message content.")]
     EmptyMiniMaxResponse,
 
     #[error("{0}")]

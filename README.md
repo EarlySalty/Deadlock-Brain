@@ -39,7 +39,7 @@ cargo build --release --manifest-path rust/Cargo.toml --workspace
 ./rust/target/release/deadlock-brain item Refresher --pretty
 ./rust/target/release/deadlock-brain build "Mo & Krill" --pretty
 ./rust/target/release/deadlock-brain analysis save-review Stalker --pretty
-./rust/target/release/deadlock-brain analysis run-minimax Indomitable --dry-run --pretty
+./rust/target/release/deadlock-brain analysis run-fireworks Indomitable --dry-run --pretty
 ./rust/target/release/deadlock-brain entities --type item --query Indomitable
 ```
 
@@ -132,7 +132,7 @@ infisical run -- ./rust/target/release/deadlock-brain player analyze-match <acco
 infisical run -- ./scripts/run_player_match_learning.sh
 ```
 
-`player analyze-match` baut einen MiniMax-Kontext fuer ein konkretes
+`player analyze-match` baut einen Modell-Kontext fuer ein konkretes
 Player-Match: Hero-Aufgabe, Item-Timing, Standard-Core vs. Adaptation,
 Game-State-Hinweise, Risiken und wiederverwendbare Coaching-Regeln.
 `player analyze-next` arbeitet die naechsten importierten Player-Matches als
@@ -140,10 +140,10 @@ Queue ab. `scripts/run_player_match_learning.sh` zieht vorher vorsichtig neue
 Statlocker-Samples und startet danach diese Queue.
 Das Script nutzt denselben Infisical-Zugriff wie `Deadlock-Bots`: Config aus
 `/home/naniadm/.config/deadlock-bots/infisical.env` sourcen, Secrets per
-Infisical-HTTP-API exportieren und dann MiniMax mit `MINIMAX_TOKEN_PLAN_KEY`
-ueber den token-plan Endpoint ausfuehren. Ein lokales `infisical` Binary ist
+Infisical-HTTP-API exportieren und dann Fireworks mit `FIREWORKS_API_KEY`
+ausfuehren. Ein lokales `infisical` Binary ist
 dafuer nicht noetig.
-Das Script setzt keine niedrige Output-Grenze; `MINIMAX_MAX_COMPLETION_TOKENS`
+Das Script setzt keine niedrige Output-Grenze; `FIREWORKS_MAX_TOKENS`
 ist nur der technische API-Ceiling. Als Haenge-Schutz gibt es
 `ANALYSIS_TIMEOUT_SECONDS` (Default 600 Sekunden pro Aufgabe, `0` deaktiviert).
 
@@ -210,7 +210,7 @@ Subjekte werden markiert statt blind als echte Entity behandelt.
 ./rust/target/release/deadlock-brain item Refresher --pretty
 ./rust/target/release/deadlock-brain build "Mo & Krill" --pretty
 ./rust/target/release/deadlock-brain analysis save-review Indomitable --pretty
-./rust/target/release/deadlock-brain analysis run-minimax Indomitable --dry-run --pretty
+./rust/target/release/deadlock-brain analysis run-fireworks Indomitable --dry-run --pretty
 ./rust/target/release/deadlock-brain analysis list --pretty
 ./rust/target/release/deadlock-brain learn import-steam-builds --pretty
 ./rust/target/release/deadlock-brain learn list-builds --hero Haze --pretty
@@ -249,21 +249,21 @@ Kandidaten-Plan, keine finale Copy-Paste-Buyorder.
 `analysis_notes`, inklusive Kontext-Hash, Prompt-Version, Quellen und optionalem
 fertigem Analyse-Text.
 
-`analysis run-minimax` baut aus dem Review-Kontext einen MiniMax-Request,
+`analysis run-fireworks` baut aus dem Review-Kontext einen Fireworks-Request,
 ruft das OpenAI-kompatible Chat-Completions-Endpoint auf und speichert die
 Antwort wieder in `analysis_notes`. `--dry-run` zeigt nur den Request-Aufbau
-ohne Netzwerkaufruf. Der Token wird aus `MINIMAX_API_KEY` oder
-`MINIMAX_TOKEN_PLAN_KEY` gelesen und nie ausgegeben.
+ohne Netzwerkaufruf. Der Token wird aus `FIREWORK_API_KEY` oder
+`FIREWORKS_API_KEY` gelesen und nie ausgegeben.
 
 `learn import-steam-builds` importiert vorhandene Steam/GC-Hero-Builds aus der
 zentralen Bot-DB in `learned_builds`. Top-Rank-Builds werden als schwache
 positive Trainingslabels gespeichert. `learn analyze-build` baut daraus einen
-MiniMax-Analyseauftrag, damit das Brain lernt, warum ein Build gut,
+Fireworks-Analyseauftrag, damit das Brain lernt, warum ein Build gut,
 situativ oder fragwuerdig ist. `learn analyze-next` nimmt automatisch die
-naechsten noch nicht mit MiniMax analysierten Builds.
+naechsten noch nicht mit Fireworks analysierten Builds.
 
 `player analyze-match` ist die Match-Entscheidungs-Schicht dazu. Es nutzt
-Statlocker-Player-Matches als beobachtete Samples und speichert MiniMax-Notizen
+Statlocker-Player-Matches als beobachtete Samples und speichert Fireworks-Notizen
 in `player_match_decision_notes`, damit das Brain nicht nur Build-Listen lernt,
 sondern auch Timing, Adaption und Match-Kontext.
 
@@ -280,18 +280,18 @@ HERO=Haze LIMIT=2 infisical run -- ./scripts/run_build_learning.sh
 
 `scripts/run_build_learning.sh` synchronisiert zuerst Steam/GC-Builds aus der
 Bot-DB und startet danach den Analyse-Queue-Lauf. `DRY_RUN=1` speichert nur den
-Kontext ohne MiniMax-Aufruf.
+Kontext ohne Fireworks-Aufruf.
 
 Automatisch geht es z.B. per cron in der Umgebung, die
-`MINIMAX_TOKEN_PLAN_KEY` aus Infisical bereitstellt:
+`FIREWORKS_API_KEY` aus Infisical bereitstellt:
 
 ```cron
 0 */2 * * * cd /home/naniadm/Documents/Deadlock-Brain && infisical run -- ./scripts/run_build_learning.sh >> /home/naniadm/Documents/Deadlock-Brain/data/build_learning.log 2>&1
 ```
 
 ```bash
-./rust/target/release/deadlock-brain analysis run-minimax Indomitable --dry-run --pretty
-infisical run -- ./rust/target/release/deadlock-brain analysis run-minimax Indomitable --pretty
+./rust/target/release/deadlock-brain analysis run-fireworks Indomitable --dry-run --pretty
+infisical run -- ./rust/target/release/deadlock-brain analysis run-fireworks Indomitable --pretty
 ```
 
 `quality` prueft lokale API-/Patch-/Sheet-Daten auf Alias-Kollisionen, fehlende

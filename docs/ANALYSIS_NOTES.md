@@ -7,8 +7,8 @@ It does not call a model.
 
 ```bash
 ./rust/target/release/deadlock-brain analysis save-review Stalker --pretty
-./rust/target/release/deadlock-brain analysis run-minimax Stalker --dry-run --pretty
-infisical run -- ./rust/target/release/deadlock-brain analysis run-minimax Stalker --pretty
+./rust/target/release/deadlock-brain analysis run-fireworks Stalker --dry-run --pretty
+infisical run -- ./rust/target/release/deadlock-brain analysis run-fireworks Stalker --pretty
 ./rust/target/release/deadlock-brain analysis list --pretty
 ```
 
@@ -29,21 +29,21 @@ infisical run -- ./rust/target/release/deadlock-brain analysis run-minimax Stalk
 This gives later model calls an audit trail: for every generated analysis we can
 see exactly which data and prompt version were used.
 
-## MiniMax
+## Fireworks
 
-`analysis run-minimax` builds the review context, sends it to MiniMax through
+`analysis run-fireworks` builds the review context, sends it to DeepSeek through Fireworks'
 the OpenAI-compatible `/chat/completions` API, strips hidden thinking blocks from
 the model text, and stores the generated analysis as an `analysis_ready` note.
 
 The adapter reads configuration from environment variables:
 
-- `MINIMAX_API_KEY` or `MINIMAX_TOKEN_PLAN_KEY`
-- `MINIMAX_BASE_URL`, default `https://api.minimax.io/v1`
-- `MINIMAX_MODEL`, default `MiniMax-M3`
-- `MINIMAX_TIMEOUT_SECONDS`
-- `MINIMAX_MAX_COMPLETION_TOKENS`
-- `MINIMAX_TEMPERATURE`
-- `MINIMAX_TOP_P`
+- `FIREWORK_API_KEY` or `FIREWORKS_API_KEY`
+- `FIREWORK_BASE_URL` or `FIREWORKS_BASE_URL`, default `https://api.fireworks.ai/inference/v1`
+- `FIREWORK_MODEL` or `FIREWORKS_MODEL`, default `accounts/fireworks/models/deepseek-v4-flash`
+- `FIREWORKS_TIMEOUT_SECONDS`
+- `FIREWORKS_MAX_TOKENS`
+- `FIREWORKS_TEMPERATURE`
+- `FIREWORKS_TOP_P`
 
 `--dry-run` never calls the API. It is meant for request inspection and smoke
 tests, and only reports whether an API key is present.

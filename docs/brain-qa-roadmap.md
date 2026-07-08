@@ -15,7 +15,7 @@ Das Brain ist heute eine exzellente **Wissens-Aufbereitungs-Maschine**, aber noc
 
 Die Inventur ist eindeutig: **es fehlt der letzte Meter zwischen „Kontext bauen" und „Frage beantworten".** Konkret:
 
-1. **Kein allgemeiner `ask "<Frage>"`-Befehl**, der Frage → Intent → Retrieval → Trust-Gewichtung → LLM-Antwort → Quellen automatisch verbindet. Nur `analysis run-minimax` macht aus Kontext eine Antwort — und das ausschließlich für den Review-Kontext, nicht für freie Fragen.
+1. **Kein allgemeiner `ask "<Frage>"`-Befehl**, der Frage → Intent → Retrieval → Trust-Gewichtung → LLM-Antwort → Quellen automatisch verbindet. Nur `analysis run-fireworks` macht aus Kontext eine Antwort — und das ausschließlich für den Review-Kontext, nicht für freie Fragen.
 2. **Intent-Erkennung ist ein grober String-Matcher** (`analyze_query`): findet bekannte Hero-/Item-Namen, fällt sonst auf einen Default zurück; nicht mit den Retrieval-Pipelines verdrahtet.
 3. **Creator-Claims hängen in der Luft.** 1.087 Claims (mit Status + Verifier-Verdikten in `verifier_json`) sind NICHT in den Review-/Context-Pfad eingebunden. Kein Join, keine Gewichtung nach Trust/Status/Datum.
 4. **Kein systematisches Trust-Modell.** `deadlock-data` ist als trusted markiert, aber das Retrieval gewichtet trusted Ground-Truth nicht konsequent gegen Sheet/Statlocker/Creator-Claims. Keine automatische Konfliktlösung (aktueller Snapshot vs. Patch-Historie vs. Claim).
@@ -25,7 +25,7 @@ Die Inventur ist eindeutig: **es fehlt der letzte Meter zwischen „Kontext baue
 
 ### SP-A — Der `ask`-Befehl (das Rückgrat, größter Hebel)
 Ein einziger Befehl `ask "<Frage>"`, der die schon vorhandenen Teile verkettet:
-Frage → verbesserte Intent-Erkennung → passenden Assembler wählen (`context`/`timeline`/`build`/Item) → Kontext + Quellen → Modell (GPT/Claude für Genauigkeit, MiniMax erst nachgelagert) → belegte Antwort mit Quellenangabe.
+Frage → verbesserte Intent-Erkennung → passenden Assembler wählen (`context`/`timeline`/`build`/Item) → Kontext + Quellen → Modell → belegte Antwort mit Quellenangabe.
 **Reuse:** `build_entity_context`, `build_entity_timeline`, `build_review_context`, `prompt_de`, `source_references`, der Modell-Client. **Neu:** nur die Intent→Assembler-Verdrahtung + ein Antwort-Generator mit „belegt vs. wahrscheinlich". Das allein schaltet die Mehrheit der typischen Fragen frei (siehe Q&A-Lückenliste der Inventur).
 
 ### SP-B — Trust-gewichtetes Retrieval + Creator-Claims einbinden

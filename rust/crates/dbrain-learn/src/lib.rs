@@ -35,7 +35,7 @@ mod tests {
     use super::*;
 
     /// Reiner Logik-Test ohne Datenbank: der Insights-Parser findet den letzten
-    /// gefencten MiniMax-JSON-Block.
+    /// gefencten Modell-JSON-Block.
     #[test]
     fn extract_insights_reads_fenced_minimax_json_at_end() {
         let text = r#"

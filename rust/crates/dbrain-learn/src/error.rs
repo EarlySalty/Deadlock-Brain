@@ -15,7 +15,7 @@ pub enum LearnError {
     #[error("{0}")]
     InvalidInput(String),
 
-    #[error("MiniMax response did not include message content.")]
+    #[error("Fireworks response did not include message content.")]
     EmptyMiniMaxResponse,
 }
 

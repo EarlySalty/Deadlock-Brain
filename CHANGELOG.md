@@ -1,5 +1,13 @@
 # Changelog
 
+## #32 — Brain nutzt Fireworks statt Minimax
+
+Problem: Die Brain-Analysepfade verwendeten noch Minimax, waehrend die Discord-Bots bereits DeepSeek ueber Fireworks nutzen.
+
+Änderung: Die Modellaufrufe laufen jetzt ueber Fireworks mit DeepSeek V4 Flash und lesen die Fireworks-Secret-Namen. Der alte Analysebefehl bleibt als Alias erhalten, der sichtbare Befehl heisst jetzt Fireworks.
+
+Aktuelles Verhalten: Review-, Build- und Player-Analysen senden ihre Chat-Completions an Fireworks. Dry-Runs zeigen den Fireworks-Endpunkt und geben weiterhin keine Secrets aus.
+
 ## #31 — YouTube-Lernen bleibt bis zum Rust-Pfad pausiert
 
 Problem: Der YouTube-Lernjob startete zwar ueber das Rust-Binary, nutzte intern aber noch den Python/Gemini-Browser-Worker und war damit kein sauber Rust-nativer Lauf.
