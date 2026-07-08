@@ -10,6 +10,7 @@ mod api;
 pub mod classify;
 mod engine;
 mod error;
+pub mod spec;
 mod sync;
 mod util;
 

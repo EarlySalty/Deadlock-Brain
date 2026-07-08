@@ -4,7 +4,7 @@
 use std::{
     collections::BTreeSet,
     fs,
-    io::{self, Read},
+    io::{self, ErrorKind, Read},
     path::PathBuf,
     process,
 };
@@ -15,7 +15,9 @@ use deadlock_brain_core::{
     build_narration,
     config::{self, Settings},
     http::HttpClient,
-    minimax::{extract_minimax_text, MiniMaxClient, MiniMaxConfig},
+    minimax::{
+        extract_minimax_text, ChatCompletionRequest, ChatMessage, MiniMaxClient, MiniMaxConfig,
+    },
 };
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -66,6 +68,11 @@ enum Commands {
     BuildContext(BuildContextArgs),
     #[command(name = "build-eval")]
     BuildEval(BuildEvalArgs),
+    #[command(
+        name = "build-spec",
+        about = "Synthesize publishable build payload JSON from corpus and live data."
+    )]
+    BuildSpec(BuildSpecArgs),
     #[command(about = "Zeigt strukturierte Item-Daten aus der Deadlock Assets API.")]
     Item(ItemArgs),
     #[command(about = "Importiert und analysiert Build-Trainingsdaten.")]
@@ -238,6 +245,17 @@ struct BuildEvalArgs {
     hero: String,
     #[arg(long, value_enum)]
     playstyle: Option<BuildPlaystyle>,
+}
+
+#[derive(Debug, Args)]
+struct BuildSpecArgs {
+    hero: String,
+    #[arg(
+        long = "corpus-dir",
+        value_name = "PATH",
+        default_value = dbrain_builds::spec::DEFAULT_CORPUS_DIR
+    )]
+    corpus_dir: PathBuf,
 }
 
 #[derive(Debug, Args)]
@@ -1026,6 +1044,7 @@ async fn run(cli: Cli) -> Result<()> {
             print_json(&result)
         }
         Commands::BuildEval(args) => run_build_eval(&pool, &settings, args).await,
+        Commands::BuildSpec(args) => run_build_spec(&pool, &settings, args).await,
         Commands::Item(args) => {
             let result = dbrain_retrieval::build_item_context(&pool, &args.query).await?;
             if args.pretty {
@@ -1132,6 +1151,75 @@ async fn run_build_eval(pool: &PgPool, settings: &Settings, args: BuildEvalArgs)
         "narration": narration,
         "validation": validation
     }))
+}
+
+async fn run_build_spec(pool: &PgPool, settings: &Settings, args: BuildSpecArgs) -> Result<()> {
+    let build_context = dbrain_builds::build_context(pool, &args.hero, None).await?;
+    let corpus =
+        dbrain_builds::spec::load_corpus_build_by_hero_id(&args.corpus_dir, build_context.hero_id)?;
+    let understanding_path = args
+        .corpus_dir
+        .join("understanding")
+        .join(format!("{}.md", corpus.hero));
+    let mut warnings = Vec::new();
+    let (understanding, understanding_found) = match fs::read_to_string(&understanding_path) {
+        Ok(text) => (Some(text), true),
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            warnings.push(format!(
+                "understanding missing: {}",
+                understanding_path.display()
+            ));
+            (None, false)
+        }
+        Err(error) => return Err(error.into()),
+    };
+
+    let known_item_names = load_known_item_names(pool).await?;
+    let candidates =
+        dbrain_builds::spec::build_candidate_set(&build_context, &corpus, &known_item_names);
+    let client = MiniMaxClient::from_settings(settings)?;
+    if !client.config().api_key_present() {
+        return Err(anyhow!("MINIMAX_API_KEY fehlt; build-spec braucht das LLM"));
+    }
+
+    let request = ChatCompletionRequest::new(
+        vec![
+            ChatMessage::system(dbrain_builds::spec::BUILD_SPEC_SYSTEM_PROMPT),
+            ChatMessage::user(dbrain_builds::spec::build_spec_user_prompt(
+                &build_context.hero_name,
+                understanding.as_deref(),
+                &candidates.items,
+                &build_context,
+            )),
+        ],
+        client.config(),
+    );
+    let response = client.chat(&request)?;
+    let llm_text = extract_minimax_text(&response);
+    let llm_spec = dbrain_builds::spec::parse_llm_spec_text(&llm_text)?;
+    let ability_order = dbrain_builds::spec::ability_order_from_corpus(&corpus);
+    let skill_order_found = ability_order.is_some();
+    if !skill_order_found {
+        warnings.push("skill_order missing in corpus build".to_string());
+    }
+
+    let mut assembled = dbrain_builds::spec::assemble_payload(
+        build_context.hero_id,
+        llm_spec,
+        &candidates.name_to_id,
+        ability_order.as_deref(),
+    );
+    warnings.append(&mut assembled.warnings);
+    eprintln!(
+        "build-spec: item_count={} understanding_found={} skill_order_found={}",
+        candidates.items.len(),
+        understanding_found,
+        skill_order_found
+    );
+    for warning in warnings {
+        eprintln!("warning: {warning}");
+    }
+    print_json(&assembled.payload)
 }
 
 async fn load_known_item_names(pool: &PgPool) -> Result<BTreeSet<String>> {
