@@ -8,9 +8,8 @@ use crate::{CoreError, Result};
 
 pub const DEFAULT_USER_AGENT: &str = "DeadlockBrain/0.1 contact=admin@earlysalty.com";
 pub const DEFAULT_SHEET_ID: &str = "1fj9XMQmVUY0FY4cbozvB18PMBnpbdsaMFTZRLa74VRY";
-pub const DEFAULT_MINIMAX_MODEL: &str = "MiniMax-M3";
-pub const DEFAULT_MINIMAX_OPENAI_BASE_URL: &str = "https://api.minimax.io/v1";
-pub const DEFAULT_MINIMAX_TOKEN_PLAN_BASE_URL: &str = "https://api.minimax.io/anthropic/v1";
+pub const DEFAULT_FIREWORKS_MODEL: &str = "accounts/fireworks/models/deepseek-v4-flash";
+pub const DEFAULT_FIREWORKS_BASE_URL: &str = "https://api.fireworks.ai/inference/v1";
 
 #[derive(Clone)]
 pub struct Settings {
@@ -95,25 +94,15 @@ pub fn load_settings() -> Result<Settings> {
         "DEADLOCK_BRAIN_DATA_DIR",
         project_root.join("data"),
     );
-    let minimax_token_plan_key = setting(&dotenv, "MINIMAX_TOKEN_PLAN_KEY");
-    let minimax_api_key = setting(&dotenv, "MINIMAX_API_KEY")
-        .or_else(|| minimax_token_plan_key.clone())
+    let fireworks_api_key = setting(&dotenv, "FIREWORK_API_KEY")
+        .or_else(|| setting(&dotenv, "FIREWORKS_API_KEY"))
         .filter(|value| !value.trim().is_empty());
-    let minimax_use_token_plan = minimax_token_plan_key
-        .as_ref()
-        .zip(minimax_api_key.as_ref())
-        .map(|(token_key, api_key)| token_key == api_key)
-        .unwrap_or(false);
-    let default_minimax_base_url = if minimax_use_token_plan {
-        DEFAULT_MINIMAX_TOKEN_PLAN_BASE_URL
-    } else {
-        DEFAULT_MINIMAX_OPENAI_BASE_URL
-    };
-    let minimax_base_url_env = if minimax_use_token_plan {
-        "MINIMAX_TOKEN_PLAN_BASE_URL"
-    } else {
-        "MINIMAX_BASE_URL"
-    };
+    let fireworks_base_url = setting(&dotenv, "FIREWORK_BASE_URL")
+        .or_else(|| setting(&dotenv, "FIREWORKS_BASE_URL"))
+        .unwrap_or_else(|| DEFAULT_FIREWORKS_BASE_URL.to_string());
+    let fireworks_model = setting(&dotenv, "FIREWORK_MODEL")
+        .or_else(|| setting(&dotenv, "FIREWORKS_MODEL"))
+        .unwrap_or_else(|| DEFAULT_FIREWORKS_MODEL.to_string());
 
     Ok(Settings {
         project_root,
@@ -130,20 +119,14 @@ pub fn load_settings() -> Result<Settings> {
             "DEADLOCK_BRAIN_WIKI_CACHE_TTL_SECONDS",
             604_800,
         )?,
-        minimax_api_key,
-        minimax_base_url: string_setting(&dotenv, minimax_base_url_env, default_minimax_base_url)
-            .trim_end_matches('/')
-            .to_string(),
-        minimax_model: string_setting(&dotenv, "MINIMAX_MODEL", DEFAULT_MINIMAX_MODEL),
-        minimax_timeout_seconds: u64_setting(&dotenv, "MINIMAX_TIMEOUT_SECONDS", 300)?,
-        minimax_max_completion_tokens: u64_setting(
-            &dotenv,
-            "MINIMAX_MAX_COMPLETION_TOKENS",
-            16_000,
-        )?,
-        minimax_temperature: f64_setting(&dotenv, "MINIMAX_TEMPERATURE", 0.2)?,
-        minimax_top_p: f64_setting(&dotenv, "MINIMAX_TOP_P", 0.9)?,
-        minimax_use_token_plan,
+        minimax_api_key: fireworks_api_key,
+        minimax_base_url: fireworks_base_url.trim_end_matches('/').to_string(),
+        minimax_model: fireworks_model,
+        minimax_timeout_seconds: u64_setting(&dotenv, "FIREWORKS_TIMEOUT_SECONDS", 300)?,
+        minimax_max_completion_tokens: u64_setting(&dotenv, "FIREWORKS_MAX_TOKENS", 16_000)?,
+        minimax_temperature: f64_setting(&dotenv, "FIREWORKS_TEMPERATURE", 0.2)?,
+        minimax_top_p: f64_setting(&dotenv, "FIREWORKS_TOP_P", 0.9)?,
+        minimax_use_token_plan: false,
     })
 }
 

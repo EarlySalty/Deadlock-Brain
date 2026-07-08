@@ -64,7 +64,7 @@ impl MiniMaxConfig {
         self.api_key
             .as_deref()
             .filter(|value| !value.trim().is_empty())
-            .ok_or(CoreError::MissingMiniMaxApiKey)
+            .ok_or(CoreError::MissingFireworksApiKey)
     }
 }
 
@@ -94,6 +94,7 @@ impl ChatMessage {
 pub struct ChatCompletionRequest {
     pub model: String,
     pub messages: Vec<ChatMessage>,
+    #[serde(rename = "max_tokens")]
     pub max_completion_tokens: u64,
     pub temperature: f64,
     pub top_p: f64,
@@ -145,11 +146,7 @@ impl MiniMaxClient {
     }
 
     pub fn chat_value(&self, request_payload: &Value) -> Result<Value> {
-        if self.config.use_token_plan {
-            self.call_token_plan(request_payload)
-        } else {
-            self.call_openai_compatible(request_payload)
-        }
+        self.call_openai_compatible(request_payload)
     }
 
     fn call_openai_compatible(&self, request_payload: &Value) -> Result<Value> {
@@ -163,37 +160,7 @@ impl MiniMaxClient {
             .bearer_auth(self.config.api_key()?)
             .json(request_payload)
             .send()?;
-        parse_response(response, "openai_compatible")
-    }
-
-    fn call_token_plan(&self, request_payload: &Value) -> Result<Value> {
-        let url = format!("{}/messages", self.config.base_url.trim_end_matches('/'));
-        let (system_prompt, user_text) =
-            messages_to_anthropic_parts(request_payload.get("messages"));
-        let body = json!({
-            "model": request_payload
-                .get("model")
-                .and_then(Value::as_str)
-                .unwrap_or(&self.config.model),
-            "system": system_prompt,
-            "messages": [{"role": "user", "content": [{"type": "text", "text": user_text}]}],
-            "max_tokens": request_payload
-                .get("max_completion_tokens")
-                .and_then(Value::as_u64)
-                .unwrap_or(self.config.max_completion_tokens),
-            "temperature": request_payload
-                .get("temperature")
-                .and_then(Value::as_f64)
-                .unwrap_or(self.config.temperature),
-        });
-        let response = self
-            .client
-            .post(&url)
-            .header("x-api-key", self.config.api_key()?)
-            .header("anthropic-version", "2023-06-01")
-            .json(&body)
-            .send()?;
-        parse_response(response, "token_plan")
+        parse_response(response, "fireworks_openai_compatible")
     }
 }
 
@@ -264,7 +231,8 @@ pub fn minimax_usage_summary(response: &Value) -> Value {
         "input_sensitive": response.get("input_sensitive").cloned().unwrap_or(Value::Null),
         "output_sensitive": response.get("output_sensitive").cloned().unwrap_or(Value::Null),
         "base_resp": response.get("base_resp").cloned().unwrap_or(Value::Null),
-        "mode": response.get("_minimax_mode").cloned().unwrap_or_else(|| json!("openai_compatible")),
+        "provider": response.get("_provider").cloned().unwrap_or_else(|| json!("fireworks")),
+        "mode": response.get("_minimax_mode").cloned().unwrap_or_else(|| json!("fireworks_openai_compatible")),
     })
 }
 
@@ -292,65 +260,17 @@ fn parse_response(response: reqwest::blocking::Response, mode: &str) -> Result<V
     if !status.is_success() {
         return Err(CoreError::HttpStatus {
             status,
-            url: "MiniMax".to_string(),
+            url: "Fireworks".to_string(),
             body: body.chars().take(1000).collect(),
         });
     }
     let mut value: Value = serde_json::from_str(&body)?;
     if let Some(object) = value.as_object_mut() {
         object.insert("_http_status".to_string(), json!(status.as_u16()));
+        object.insert("_provider".to_string(), json!("fireworks"));
         object.insert("_minimax_mode".to_string(), json!(mode));
     }
     Ok(value)
-}
-
-fn messages_to_anthropic_parts(messages: Option<&Value>) -> (String, String) {
-    let Some(messages) = messages.and_then(Value::as_array) else {
-        return (String::new(), String::new());
-    };
-    let mut system_parts = Vec::new();
-    let mut user_parts = Vec::new();
-    for message in messages {
-        let role = message
-            .get("role")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let content = stringify_message_content(message.get("content"));
-        if content.is_empty() {
-            continue;
-        }
-        if role == "system" {
-            system_parts.push(content);
-        } else {
-            user_parts.push(content);
-        }
-    }
-    (system_parts.join("\n\n"), user_parts.join("\n\n"))
-}
-
-fn stringify_message_content(content: Option<&Value>) -> String {
-    match content {
-        Some(Value::String(value)) => value.clone(),
-        Some(Value::Array(items)) => items
-            .iter()
-            .filter_map(|item| match item {
-                Value::String(value) => Some(value.clone()),
-                Value::Object(object)
-                    if object.get("type").and_then(Value::as_str) == Some("text") =>
-                {
-                    object
-                        .get("text")
-                        .and_then(Value::as_str)
-                        .map(ToOwned::to_owned)
-                }
-                _ => None,
-            })
-            .filter(|value| !value.is_empty())
-            .collect::<Vec<_>>()
-            .join("\n"),
-        Some(value) => value.to_string(),
-        None => String::new(),
-    }
 }
 
 #[cfg(test)]
@@ -366,5 +286,26 @@ mod tests {
     fn extracts_openai_compatible_text() {
         let value = json!({"choices":[{"message":{"content":"<think>x</think>Antwort"}}]});
         assert_eq!(extract_minimax_text(&value), "Antwort");
+    }
+
+    #[test]
+    fn serializes_fireworks_token_field() {
+        let config = MiniMaxConfig {
+            api_key: Some("redacted".to_string()),
+            base_url: "http://localhost".to_string(),
+            model: "accounts/fireworks/models/deepseek-v4-flash".to_string(),
+            timeout_seconds: 1,
+            max_completion_tokens: 123,
+            temperature: 0.2,
+            top_p: 0.9,
+            use_token_plan: false,
+        };
+        let value = serde_json::to_value(ChatCompletionRequest::new(
+            vec![ChatMessage::user("hi")],
+            &config,
+        ))
+        .unwrap();
+        assert_eq!(value.get("max_tokens").and_then(Value::as_u64), Some(123));
+        assert!(value.get("max_completion_tokens").is_none());
     }
 }

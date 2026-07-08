@@ -1818,7 +1818,7 @@ mod tests {
     fn test_config() -> MiniMaxConfig {
         let mut settings = deadlock_brain_core::config::load_settings().expect("settings");
         settings.minimax_api_key = None;
-        settings.minimax_model = "MiniMax-M3".to_string();
+        settings.minimax_model = "accounts/fireworks/models/deepseek-v4-flash".to_string();
         MiniMaxConfig::from_settings(&settings)
     }
 

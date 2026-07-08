@@ -259,7 +259,7 @@ enum LearnCommands {
     ListBuilds(ListBuildsArgs),
     #[command(
         name = "analyze-build",
-        about = "Laesst MiniMax einen importierten Build als Trainingsbeispiel analysieren."
+        about = "Laesst Fireworks/DeepSeek einen importierten Build als Trainingsbeispiel analysieren."
     )]
     AnalyzeBuild(AnalyzeBuildArgs),
     #[command(
@@ -344,12 +344,12 @@ enum PlayerCommands {
     ListMatches(PlayerListMatchesArgs),
     #[command(
         name = "match-context",
-        about = "Baut einen MiniMax-tauglichen Player-Match-Kontext ohne Modellaufruf."
+        about = "Baut einen modell-tauglichen Player-Match-Kontext ohne Aufruf."
     )]
     MatchContext(PlayerMatchContextArgs),
     #[command(
         name = "analyze-match",
-        about = "Laesst MiniMax ein Player-Match als Entscheidungsbeispiel analysieren."
+        about = "Laesst Fireworks/DeepSeek ein Player-Match als Entscheidungsbeispiel analysieren."
     )]
     AnalyzeMatch(PlayerAnalyzeMatchArgs),
     #[command(
@@ -425,8 +425,9 @@ enum AnalysisCommands {
     )]
     SaveReview(AnalysisSaveReviewArgs),
     #[command(
-        name = "run-minimax",
-        about = "Ruft MiniMax fuer einen Review-Kontext auf und speichert das Ergebnis."
+        name = "run-fireworks",
+        alias = "run-minimax",
+        about = "Ruft Fireworks/DeepSeek fuer einen Review-Kontext auf und speichert das Ergebnis."
     )]
     RunMinimax(AnalysisRunMinimaxArgs),
     #[command(name = "list", about = "Listet gespeicherte Analyse-Notizen.")]
@@ -465,7 +466,7 @@ struct AnalysisRunMinimaxArgs {
     top_p: Option<f64>,
     #[arg(
         long = "dry-run",
-        help = "Baut nur den MiniMax-Request ohne API-Aufruf."
+        help = "Baut nur den Fireworks-Request ohne API-Aufruf."
     )]
     dry_run: bool,
     #[arg(long)]
@@ -1115,7 +1116,7 @@ async fn run_build_eval(pool: &PgPool, settings: &Settings, args: BuildEvalArgs)
     if !config.api_key_present() {
         return print_json(&json!({
             "build_context": build_context,
-            "notice": "MiniMax environment is not configured; skipping narration."
+            "notice": "Fireworks environment is not configured; skipping narration."
         }));
     }
 
@@ -1361,7 +1362,7 @@ async fn run_analysis(pool: &PgPool, settings: &Settings, target: AnalysisComman
             )
             .await?;
             if args.pretty {
-                print_analysis_result("run-minimax", &result);
+                print_analysis_result("run-fireworks", &result);
                 Ok(())
             } else {
                 print_json(&result)
@@ -2320,14 +2321,14 @@ fn print_analysis_result(target: &str, result: &Value) {
                 display_value(get(result, "context_hash"))
             );
         }
-        "run-minimax" => {
+        "run-fireworks" | "run-minimax" => {
             if bool_value(get(result, "dry_run")) {
                 let messages = get(result, "request")
                     .and_then(|request| get(request, "messages"))
                     .and_then(Value::as_array)
                     .map(Vec::len)
                     .unwrap_or(0);
-                println!("MiniMax dry-run: {}", display_value(get(result, "model")));
+                println!("Fireworks dry-run: {}", display_value(get(result, "model")));
                 println!("Endpoint: {}", display_value(get(result, "endpoint")));
                 println!(
                     "API key present: {}",
@@ -2342,7 +2343,7 @@ fn print_analysis_result(target: &str, result: &Value) {
             }
             let note = get(result, "note").unwrap_or(&Value::Null);
             println!(
-                "MiniMax analysis: note={} model={}",
+                "Fireworks analysis: note={} model={}",
                 display_value(get(note, "id")),
                 display_value(get(result, "model"))
             );

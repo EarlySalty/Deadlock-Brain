@@ -37,14 +37,14 @@ pub struct ValidationViolation {
 }
 
 pub fn narrate_build(ctx: &BuildContext) -> anyhow::Result<String> {
-    let client = MiniMaxClient::from_env().context("load MiniMax client from environment")?;
+    let client = MiniMaxClient::from_env().context("load Fireworks client from environment")?;
     let request = build_narration_request(ctx, client.config())?;
     let response = client
         .chat(&request)
-        .context("call MiniMax build narration")?;
+        .context("call Fireworks build narration")?;
     let text = extract_minimax_text(&response);
     if text.trim().is_empty() {
-        return Err(anyhow!("empty MiniMax response"));
+        return Err(anyhow!("empty Fireworks response"));
     }
     Ok(text)
 }

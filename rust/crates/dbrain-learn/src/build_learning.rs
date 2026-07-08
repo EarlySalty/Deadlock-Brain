@@ -485,7 +485,7 @@ pub async fn learn_analyze_next(pool: &PgPool, options: LearnAnalyzeNextOptions)
     .await?;
     if !options.dry_run && !options.config.api_key_present() {
         return Err(LearnError::InvalidInput(
-            "MiniMax API key fehlt. Setze MINIMAX_API_KEY oder MINIMAX_TOKEN_PLAN_KEY.".to_string(),
+            "Fireworks API key fehlt. Setze FIREWORK_API_KEY oder FIREWORKS_API_KEY.".to_string(),
         ));
     }
     let mut results = Vec::new();

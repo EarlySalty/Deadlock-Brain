@@ -69,9 +69,6 @@ def _as_env_map(items: list[dict[str, object]]) -> dict[str, str]:
         value = item.get("secretValue")
         env_map[key] = "" if value is None else str(value)
 
-    if env_map.get("MINIMAX_TOKEN_PLAN_KEY") and not env_map.get("MINIMAX_API_KEY"):
-        env_map["MINIMAX_API_KEY"] = env_map["MINIMAX_TOKEN_PLAN_KEY"]
-
     return env_map
 
 

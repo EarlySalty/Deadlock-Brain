@@ -38,27 +38,26 @@ the deterministic hero understanding, shop economy and item mechanics still
 remain the primary decision layer.
 
 The player commands add a second learning lane. Leaderboard players are used as
-observed high-skill samples, then MiniMax can turn one account/match into
+observed high-skill samples, then Fireworks can turn one account/match into
 reusable notes about item timing, standard core, adaptation and coaching rules.
 This is still evidence, not truth: keep limits small, pull details only when
 needed, and mark missing timestamps or team-comp data as uncertainty.
 
 `scripts/run_player_match_learning.sh` is the cautious automation entrypoint.
 Defaults are deliberately small: 3 leaderboard players, 3 matches each, match
-details and build analysis enabled, then up to 5 MiniMax analyses. Set
-`DRY_RUN=1` to store only contexts without calling MiniMax.
+details and build analysis enabled, then up to 5 Fireworks analyses. Set
+`DRY_RUN=1` to store only contexts without calling Fireworks.
 
 The automation does not require the `infisical` CLI. It follows the
 Deadlock-Bots pattern: source
 `/home/naniadm/.config/deadlock-bots/infisical.env`, call the Infisical HTTP API
 with `scripts/export_infisical_env.py`, then inject the returned secrets into
-the process environment. `MINIMAX_TOKEN_PLAN_KEY` is mirrored to
-`MINIMAX_API_KEY` for compatibility, but the Brain uses the token-plan endpoint
-when that key is present.
+the process environment. The Brain uses `FIREWORK_API_KEY` or `FIREWORKS_API_KEY`
+for DeepSeek via Fireworks.
 
-The automation protects against hanging MiniMax calls with
+The automation protects against hanging Fireworks calls with
 `ANALYSIS_TIMEOUT_SECONDS` (default 600 seconds per task, `0` disables it). Output tokens
-are not used as a cost brake; `MINIMAX_MAX_COMPLETION_TOKENS` is only the
+are not used as a cost brake; `FIREWORKS_MAX_TOKENS` is only the
 technical ceiling required by the API.
 
 ## Notes

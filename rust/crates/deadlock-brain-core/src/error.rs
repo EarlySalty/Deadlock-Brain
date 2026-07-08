@@ -40,8 +40,8 @@ pub enum CoreError {
         body: String,
     },
 
-    #[error("MiniMax API-Key fehlt. Setze MINIMAX_API_KEY oder MINIMAX_TOKEN_PLAN_KEY.")]
-    MissingMiniMaxApiKey,
+    #[error("Fireworks API-Key fehlt. Setze FIREWORK_API_KEY oder FIREWORKS_API_KEY.")]
+    MissingFireworksApiKey,
 }
 
 impl CoreError {
