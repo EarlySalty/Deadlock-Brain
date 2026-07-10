@@ -272,7 +272,7 @@ pub(crate) async fn ensure_patch_changes_view(pool: &PgPool) -> Result<()> {
         r#"
         SELECT to_regclass('brain.patch_events') IS NOT NULL
            AND to_regclass('brain.patch_event_enrichments') IS NOT NULL
-           AND to_regclass('patchnotes.deadlock_changelogs') IS NOT NULL
+           AND to_regclass('patchnotes.changelog_posts') IS NOT NULL
         "#,
     )
     .fetch_one(pool)
@@ -290,7 +290,7 @@ WITH patch_catalog AS (
         lower(regexp_replace(trim(title), '\s+', ' ', 'g')) AS patch_title_key,
         url AS patch_url,
         min(posted_at)::date AS patch_date
-    FROM patchnotes.deadlock_changelogs
+    FROM patchnotes.changelog_posts
     WHERE title IS NOT NULL OR url IS NOT NULL
     GROUP BY 1, 2
 ), raw_base AS (
