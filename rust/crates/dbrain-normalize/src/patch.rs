@@ -197,7 +197,8 @@ fn parse_patchnote_snapshot(
         .unwrap_or_default();
     let title = optional_string(payload, "title");
     let url = optional_string(payload, "url");
-    let posted_at = optional_string(payload, "posted_at");
+    let posted_at =
+        optional_string(payload, "posted_at").or_else(|| title_date_rfc3339(title.as_deref()));
     let patch_external_id = normalize_patch_external_id(external_id);
     let source_kind = classify_source_kind(url.as_deref());
     let mut section: Option<String> = None;
@@ -747,11 +748,12 @@ fn classify_change_type(text: &str) -> String {
     } else if lower.contains("removed") || lower.contains("no longer") {
         "removed"
     } else if lower.contains("reworked")
-        || lower.contains("changed from")
         || lower.contains("rescaled")
         || lower.contains("moved from")
     {
         "rework"
+    } else if let Some(change_type) = numeric_change_type(text) {
+        change_type
     } else if lower.contains("reduced") || lower.contains("decreased") || lower.contains("slower") {
         if mentions_positive_stat(&lower) { "nerf" } else { "buff" }
     } else if lower.contains("increased") || lower.contains("faster") || lower.contains("improved") {
@@ -764,6 +766,54 @@ fn classify_change_type(text: &str) -> String {
         "changed"
     }
     .to_string()
+}
+
+fn numeric_change_type(text: &str) -> Option<&'static str> {
+    let (old_value, new_value) = extract_old_new(text).ok()?;
+    numeric_change_type_from_values(old_value.as_deref()?, new_value.as_deref()?)
+}
+
+fn numeric_change_type_from_values(old_value: &str, new_value: &str) -> Option<&'static str> {
+    let old_number = parse_numeric_value(old_value)?;
+    let new_number = parse_numeric_value(new_value)?;
+    if new_number > old_number {
+        Some("buff")
+    } else if new_number < old_number {
+        Some("nerf")
+    } else {
+        None
+    }
+}
+
+fn parse_numeric_value(value: &str) -> Option<f64> {
+    let value = value.trim().trim_matches('"').trim();
+    let mut end = 0;
+    let mut seen_digit = false;
+    let mut seen_dot = false;
+    for (index, ch) in value.char_indices() {
+        if index == 0 && matches!(ch, '+' | '-') {
+            end = ch.len_utf8();
+        } else if ch.is_ascii_digit() {
+            seen_digit = true;
+            end = index + ch.len_utf8();
+        } else if ch == '.' && !seen_dot {
+            seen_dot = true;
+            end = index + ch.len_utf8();
+        } else {
+            break;
+        }
+    }
+    if !seen_digit {
+        return None;
+    }
+    let suffix = value[end..].trim();
+    if !suffix
+        .chars()
+        .all(|ch| ch.is_ascii_alphabetic() || matches!(ch, '%' | '/'))
+    {
+        return None;
+    }
+    value[..end].parse().ok()
 }
 
 fn mentions_positive_stat(lower: &str) -> bool {
@@ -797,6 +847,31 @@ fn normalize_patch_line(text: &str) -> String {
 
 fn truncate(value: &str, limit: usize) -> String {
     value.chars().take(limit).collect()
+}
+
+fn title_date_rfc3339(title: Option<&str>) -> Option<String> {
+    title
+        .and_then(extract_mm_dd_yyyy)
+        .map(|(month, day, year)| format!("{year:04}-{month:02}-{day:02}T00:00:00+00:00"))
+}
+
+fn extract_mm_dd_yyyy(value: &str) -> Option<(u32, u32, u32)> {
+    for bytes in value.as_bytes().windows(10) {
+        if bytes[2] == b'-'
+            && bytes[5] == b'-'
+            && bytes[..2].iter().all(u8::is_ascii_digit)
+            && bytes[3..5].iter().all(u8::is_ascii_digit)
+            && bytes[6..].iter().all(u8::is_ascii_digit)
+        {
+            let month = std::str::from_utf8(&bytes[..2]).ok()?.parse().ok()?;
+            let day = std::str::from_utf8(&bytes[3..5]).ok()?.parse().ok()?;
+            let year = std::str::from_utf8(&bytes[6..]).ok()?.parse().ok()?;
+            if (1..=12).contains(&month) && (1..=31).contains(&day) {
+                return Some((month, day, year));
+            }
+        }
+    }
+    None
 }
 
 async fn insert_patch_event(pool: &PgPool, event: &PatchEventInsert) -> Result<bool> {
@@ -853,5 +928,42 @@ fn optional_value_to_string(value: Option<&Value>) -> Option<String> {
         None
     } else {
         Some(text)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hero_index(name: &str) -> EntityIndex {
+        let mut index = EntityIndex::default();
+        index
+            .hero_names
+            .insert(normalize_key(name), name.to_string());
+        index
+    }
+
+    #[test]
+    fn classify_numeric_decrease_as_nerf_without_stat_words() {
+        assert_eq!(classify_change_type("reduced from 1.2 to 1.05"), "nerf");
+    }
+
+    #[test]
+    fn parse_patchnote_snapshot_uses_title_date_when_posted_at_missing() {
+        let payload = json!({
+            "title": "07-09-2026 Update",
+            "url": "https://forums.playdeadlock.com/threads/07-09-2026-update.1/",
+            "raw_content": "- Holliday: increased from 1 to 2"
+        });
+        let (events, skipped) =
+            parse_patchnote_snapshot(1, 1, "patch_1", &payload, &hero_index("Holliday"))
+                .expect("parse snapshot");
+
+        assert_eq!(skipped, 0);
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0].posted_at.as_deref(),
+            Some("2026-07-09T00:00:00+00:00")
+        );
     }
 }

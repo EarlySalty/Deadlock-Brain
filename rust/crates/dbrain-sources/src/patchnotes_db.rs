@@ -63,7 +63,8 @@ async fn pull_patchnotes_inner(store: &SourceStore<'_>) -> Result<Value> {
         let id: i64 = row.try_get("id")?;
         let title: Option<String> = row.try_get("title")?;
         let url: Option<String> = row.try_get("url")?;
-        let posted_at: Option<String> = row.try_get("posted_at")?;
+        let posted_at_raw: Option<String> = row.try_get("posted_at")?;
+        let posted_at = posted_at_or_title_date(posted_at_raw.as_deref(), title.as_deref());
         let raw_content: String = row.try_get("raw_content")?;
         let translated_content: Option<String> = row.try_get("translated_content")?;
 
@@ -129,6 +130,39 @@ fn increment_counter(counters: &mut Map<String, Value>, key: &str) {
     counters.insert(key.to_string(), json!(next));
 }
 
+fn posted_at_or_title_date(posted_at: Option<&str>, title: Option<&str>) -> Option<String> {
+    posted_at
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .or_else(|| title_date_rfc3339(title))
+}
+
+fn title_date_rfc3339(title: Option<&str>) -> Option<String> {
+    title
+        .and_then(extract_mm_dd_yyyy)
+        .map(|(month, day, year)| format!("{year:04}-{month:02}-{day:02}T00:00:00+00:00"))
+}
+
+fn extract_mm_dd_yyyy(value: &str) -> Option<(u32, u32, u32)> {
+    for bytes in value.as_bytes().windows(10) {
+        if bytes[2] == b'-'
+            && bytes[5] == b'-'
+            && bytes[..2].iter().all(u8::is_ascii_digit)
+            && bytes[3..5].iter().all(u8::is_ascii_digit)
+            && bytes[6..].iter().all(u8::is_ascii_digit)
+        {
+            let month = std::str::from_utf8(&bytes[..2]).ok()?.parse().ok()?;
+            let day = std::str::from_utf8(&bytes[3..5]).ok()?.parse().ok()?;
+            let year = std::str::from_utf8(&bytes[6..]).ok()?.parse().ok()?;
+            if (1..=12).contains(&month) && (1..=31).contains(&day) {
+                return Some((month, day, year));
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,6 +179,22 @@ mod tests {
         );
         assert_eq!(classify_source_kind(Some("https://example.com")), "other");
         assert_eq!(classify_source_kind(None), "other");
+    }
+
+    #[test]
+    fn posted_at_falls_back_to_patch_title_date() {
+        assert_eq!(
+            posted_at_or_title_date(None, Some("07-09-2026 Update")).as_deref(),
+            Some("2026-07-09T00:00:00+00:00")
+        );
+        assert_eq!(
+            posted_at_or_title_date(
+                Some("2026-07-09 19:42:11+00"),
+                Some("07-09-2026 Update")
+            )
+            .as_deref(),
+            Some("2026-07-09 19:42:11+00")
+        );
     }
 
     /// PG-Integration nur, wenn die Changelog-Quelle im `patchnotes`-Schema
