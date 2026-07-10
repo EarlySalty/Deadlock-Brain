@@ -6,11 +6,11 @@
 //! HTTP/Fireworks, Postgres und gemeinsame Datenmodelle. Feature-Logik lebt in den
 //! nachgelagerten `dbrain-*`-Crates.
 
+pub mod ai;
 pub mod build_narration;
 pub mod config;
 pub mod error;
 pub mod http;
-pub mod minimax;
 pub mod models;
 pub mod pg;
 

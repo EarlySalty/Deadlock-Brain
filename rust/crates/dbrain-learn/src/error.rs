@@ -16,7 +16,7 @@ pub enum LearnError {
     InvalidInput(String),
 
     #[error("Fireworks response did not include message content.")]
-    EmptyMiniMaxResponse,
+    EmptyAiResponse,
 }
 
 pub type Result<T> = std::result::Result<T, LearnError>;

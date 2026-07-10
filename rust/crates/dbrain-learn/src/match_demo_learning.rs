@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use deadlock_brain_core::minimax::{
-    extract_minimax_text, minimax_usage_summary, ChatCompletionRequest, ChatMessage, MiniMaxClient,
-    MiniMaxConfig,
+use deadlock_brain_core::ai::{
+    extract_ai_text, ai_usage_summary, ChatCompletionRequest, ChatMessage, AiClient,
+    AiConfig,
 };
 use serde_json::{json, Map, Value};
 use sqlx::PgPool;
@@ -63,7 +63,7 @@ const DEMO_EVIDENCE_QUERY_VERSION: &str = "mo_full_report_v1";
 pub struct DemoAnalyzeMatchOptions {
     pub account_id: String,
     pub match_id: String,
-    pub config: MiniMaxConfig,
+    pub config: AiConfig,
     pub dry_run: bool,
     pub include_request: bool,
 }
@@ -133,16 +133,16 @@ pub async fn demo_analyze_match(pool: &PgPool, options: DemoAnalyzeMatchOptions)
     let config = options.config.clone();
     let model_request = request.clone();
     let response = tokio::task::spawn_blocking(move || {
-        let client = MiniMaxClient::new(config)?;
+        let client = AiClient::new(config)?;
         client.chat(&model_request)
     })
     .await
     .map_err(|error| {
         LearnError::InvalidInput(format!("Fireworks-Worker abgebrochen: {error}"))
     })??;
-    let raw_report = extract_minimax_text(&response);
+    let raw_report = extract_ai_text(&response);
     if raw_report.trim().is_empty() {
-        return Err(LearnError::EmptyMiniMaxResponse);
+        return Err(LearnError::EmptyAiResponse);
     }
     let report = parse_and_validate_model_report(
         &raw_report,
@@ -173,7 +173,7 @@ pub async fn demo_analyze_match(pool: &PgPool, options: DemoAnalyzeMatchOptions)
         "note": note,
         "report": report,
         "rendered_report": rendered_report,
-        "provider_metadata": minimax_usage_summary(&response)
+        "provider_metadata": ai_usage_summary(&response)
     });
     if options.include_request {
         let result = result.as_object_mut().ok_or_else(|| {
@@ -949,7 +949,7 @@ fn deterministic_report_metadata(
 
 fn build_demo_report_request(
     context: &Value,
-    config: &MiniMaxConfig,
+    config: &AiConfig,
 ) -> Result<ChatCompletionRequest> {
     let report_shape = json!({
         "metadata": context.get("report_metadata").cloned().unwrap_or(Value::Null),
@@ -1858,7 +1858,7 @@ fn invalid<T>(message: impl Into<String>) -> Result<T> {
 mod tests {
     use std::{collections::BTreeSet, path::PathBuf};
 
-    use deadlock_brain_core::{config::Settings, minimax::MiniMaxConfig};
+    use deadlock_brain_core::{config::Settings, ai::AiConfig};
     use serde_json::{json, Value};
 
     use super::{
@@ -1995,8 +1995,8 @@ mod tests {
         ids.into_iter().collect()
     }
 
-    fn model_config() -> MiniMaxConfig {
-        MiniMaxConfig::from_settings(&Settings {
+    fn model_config() -> AiConfig {
+        AiConfig::from_settings(&Settings {
             project_root: PathBuf::from("/tmp/demo-report-test"),
             data_dir: PathBuf::from("/tmp/demo-report-test/data"),
             raw_dir: PathBuf::from("/tmp/demo-report-test/raw"),
@@ -2007,14 +2007,14 @@ mod tests {
             wiki_enabled: false,
             wiki_min_delay_seconds: 0.0,
             wiki_cache_ttl_seconds: 0,
-            minimax_api_key: None,
-            minimax_base_url: "http://127.0.0.1:9".to_string(),
-            minimax_model: "test-model".to_string(),
-            minimax_timeout_seconds: 1,
-            minimax_max_completion_tokens: 512,
-            minimax_temperature: 0.2,
-            minimax_top_p: 0.9,
-            minimax_use_token_plan: false,
+            ai_api_key: None,
+            ai_base_url: "http://127.0.0.1:9".to_string(),
+            ai_model: "test-model".to_string(),
+            ai_timeout_seconds: 1,
+            ai_max_completion_tokens: 512,
+            ai_temperature: 0.2,
+            ai_top_p: 0.9,
+            ai_use_token_plan: false,
         })
     }
 

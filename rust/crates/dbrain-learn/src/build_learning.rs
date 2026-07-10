@@ -1,8 +1,8 @@
 use std::{collections::BTreeMap, thread, time::Duration};
 
-use deadlock_brain_core::minimax::{
-    extract_minimax_text, minimax_usage_summary, ChatCompletionRequest, ChatMessage, MiniMaxClient,
-    MiniMaxConfig,
+use deadlock_brain_core::ai::{
+    extract_ai_text, ai_usage_summary, ChatCompletionRequest, ChatMessage, AiClient,
+    AiConfig,
 };
 use serde_json::{json, Map, Value};
 use sqlx::PgPool;
@@ -39,7 +39,7 @@ impl Default for LearnImportSteamBuildsOptions {
 #[derive(Debug, Clone)]
 pub struct LearnAnalyzeBuildOptions {
     pub build_id: i64,
-    pub config: MiniMaxConfig,
+    pub config: AiConfig,
     pub dry_run: bool,
     pub include_request: bool,
 }
@@ -48,7 +48,7 @@ pub struct LearnAnalyzeBuildOptions {
 pub struct LearnAnalyzeNextOptions {
     pub hero: Option<String>,
     pub limit: i64,
-    pub config: MiniMaxConfig,
+    pub config: AiConfig,
     pub dry_run: bool,
     pub delay_seconds: f64,
 }
@@ -424,9 +424,9 @@ pub async fn build_learning_context(pool: &PgPool, learned_build_id: i64) -> Res
     }))
 }
 
-pub fn build_minimax_build_learning_request(
+pub fn build_ai_build_learning_request(
     context: &Value,
-    config: &MiniMaxConfig,
+    config: &AiConfig,
 ) -> Result<ChatCompletionRequest> {
     let compact = compact_learning_context(context);
     let prompt = format!(
@@ -553,12 +553,12 @@ pub async fn learn_analyze_next(pool: &PgPool, options: LearnAnalyzeNextOptions)
 async fn run_single_build_learning_analysis(
     pool: &PgPool,
     build_id: i64,
-    config: &MiniMaxConfig,
+    config: &AiConfig,
     dry_run: bool,
     include_request: bool,
 ) -> Result<Value> {
     let context = build_learning_context(pool, build_id).await?;
-    let request = build_minimax_build_learning_request(&context, config)?;
+    let request = build_ai_build_learning_request(&context, config)?;
     let prompt_text = prompt_text_from_request(&request);
     let endpoint = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
     if dry_run {
@@ -588,11 +588,11 @@ async fn run_single_build_learning_analysis(
         return Ok(result);
     }
 
-    let client = MiniMaxClient::new(config.clone())?;
+    let client = AiClient::new(config.clone())?;
     let response = client.chat(&request)?;
-    let result_text = extract_minimax_text(&response);
+    let result_text = extract_ai_text(&response);
     if result_text.is_empty() {
-        return Err(LearnError::EmptyMiniMaxResponse);
+        return Err(LearnError::EmptyAiResponse);
     }
     let note = save_build_learning_note(
         pool,
@@ -610,7 +610,7 @@ async fn run_single_build_learning_analysis(
         "endpoint": endpoint,
         "note": note,
         "result_text": result_text,
-        "provider_metadata": minimax_usage_summary(&response),
+        "provider_metadata": ai_usage_summary(&response),
     }))
 }
 

@@ -13,7 +13,7 @@ mod player_decision_learning;
 mod util;
 
 pub use build_learning::{
-    build_learning_context, build_minimax_build_learning_request, learn_analyze_build,
+    build_learning_context, build_ai_build_learning_request, learn_analyze_build,
     learn_analyze_next, learn_import_steam_builds, learn_list_builds, LearnAnalyzeBuildOptions,
     LearnAnalyzeNextOptions, LearnImportSteamBuildsOptions, BUILD_LEARNING_PROMPT_VERSION,
 };
@@ -26,7 +26,7 @@ pub use match_demo_learning::{
     DEMO_REPORT_PROMPT_VERSION,
 };
 pub use player_decision_learning::{
-    build_minimax_player_match_decision_request, build_player_match_decision_context,
+    build_ai_player_match_decision_request, build_player_match_decision_context,
     player_analyze_match, player_analyze_next, player_list_matches, player_match_context,
     PlayerAnalyzeMatchOptions, PlayerAnalyzeNextOptions, PLAYER_DECISION_PROMPT_VERSION,
 };
@@ -35,7 +35,7 @@ pub use player_decision_learning::{
 mod tests {
     use std::path::PathBuf;
 
-    use deadlock_brain_core::{config::Settings, minimax::MiniMaxConfig};
+    use deadlock_brain_core::{config::Settings, ai::AiConfig};
     use sqlx::postgres::{PgPool, PgPoolOptions};
 
     use super::*;
@@ -43,7 +43,7 @@ mod tests {
     /// Reiner Logik-Test ohne Datenbank: der Insights-Parser findet den letzten
     /// gefencten Modell-JSON-Block.
     #[test]
-    fn extract_insights_reads_fenced_minimax_json_at_end() {
+    fn extract_insights_reads_fenced_ai_json_at_end() {
         let text = r#"
         # Analyse
 
@@ -86,7 +86,7 @@ mod tests {
             .ok()
     }
 
-    fn test_minimax_config() -> MiniMaxConfig {
+    fn test_ai_config() -> AiConfig {
         let settings = Settings {
             project_root: PathBuf::from("/tmp/dbrain-learn-test"),
             data_dir: PathBuf::from("/tmp/dbrain-learn-test/data"),
@@ -98,16 +98,16 @@ mod tests {
             wiki_enabled: false,
             wiki_min_delay_seconds: 0.0,
             wiki_cache_ttl_seconds: 0,
-            minimax_api_key: None,
-            minimax_base_url: "http://127.0.0.1:9".to_string(),
-            minimax_model: "test-model".to_string(),
-            minimax_timeout_seconds: 1,
-            minimax_max_completion_tokens: 256,
-            minimax_temperature: 0.2,
-            minimax_top_p: 0.9,
-            minimax_use_token_plan: false,
+            ai_api_key: None,
+            ai_base_url: "http://127.0.0.1:9".to_string(),
+            ai_model: "test-model".to_string(),
+            ai_timeout_seconds: 1,
+            ai_max_completion_tokens: 256,
+            ai_temperature: 0.2,
+            ai_top_p: 0.9,
+            ai_use_token_plan: false,
         };
-        MiniMaxConfig::from_settings(&settings)
+        AiConfig::from_settings(&settings)
     }
 
     /// Paritaet: `learn_list_builds` liefert exakt so viele Zeilen wie die Tabelle
@@ -193,7 +193,7 @@ mod tests {
             &pool,
             LearnAnalyzeBuildOptions {
                 build_id,
-                config: test_minimax_config(),
+                config: test_ai_config(),
                 dry_run: true,
                 include_request: true,
             },
@@ -242,7 +242,7 @@ mod tests {
             PlayerAnalyzeMatchOptions {
                 account_id: account_id.to_string(),
                 match_id: match_id.to_string(),
-                config: test_minimax_config(),
+                config: test_ai_config(),
                 dry_run: true,
                 include_request: true,
             },

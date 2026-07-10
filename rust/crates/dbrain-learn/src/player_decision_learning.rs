@@ -1,8 +1,8 @@
 use std::{thread, time::Duration};
 
-use deadlock_brain_core::minimax::{
-    extract_minimax_text, minimax_usage_summary, ChatCompletionRequest, ChatMessage, MiniMaxClient,
-    MiniMaxConfig,
+use deadlock_brain_core::ai::{
+    extract_ai_text, ai_usage_summary, ChatCompletionRequest, ChatMessage, AiClient,
+    AiConfig,
 };
 use serde_json::{json, Map, Value};
 use sqlx::PgPool;
@@ -26,7 +26,7 @@ pub const PLAYER_DECISION_PROMPT_VERSION: &str = "player_match_decision_de_v2";
 pub struct PlayerAnalyzeMatchOptions {
     pub account_id: String,
     pub match_id: String,
-    pub config: MiniMaxConfig,
+    pub config: AiConfig,
     pub dry_run: bool,
     pub include_request: bool,
 }
@@ -35,7 +35,7 @@ pub struct PlayerAnalyzeMatchOptions {
 pub struct PlayerAnalyzeNextOptions {
     pub account_id: Option<String>,
     pub limit: i64,
-    pub config: MiniMaxConfig,
+    pub config: AiConfig,
     pub dry_run: bool,
     pub delay_seconds: f64,
 }
@@ -174,9 +174,9 @@ pub async fn build_player_match_decision_context(
     }))
 }
 
-pub fn build_minimax_player_match_decision_request(
+pub fn build_ai_player_match_decision_request(
     context: &Value,
-    config: &MiniMaxConfig,
+    config: &AiConfig,
 ) -> Result<ChatCompletionRequest> {
     let compact = compact_json(context, 6, 40);
     let prompt = format!(
@@ -397,12 +397,12 @@ async fn run_single_player_match_analysis(
     pool: &PgPool,
     account_id: &str,
     match_id: &str,
-    config: &MiniMaxConfig,
+    config: &AiConfig,
     dry_run: bool,
     include_request: bool,
 ) -> Result<Value> {
     let context = build_player_match_decision_context(pool, account_id, match_id).await?;
-    let request = build_minimax_player_match_decision_request(&context, config)?;
+    let request = build_ai_player_match_decision_request(&context, config)?;
     let prompt_text = prompt_text_from_request(&request);
     let endpoint = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
     if dry_run {
@@ -434,11 +434,11 @@ async fn run_single_player_match_analysis(
         return Ok(result);
     }
 
-    let client = MiniMaxClient::new(config.clone())?;
+    let client = AiClient::new(config.clone())?;
     let response = client.chat(&request)?;
-    let result_text = extract_minimax_text(&response);
+    let result_text = extract_ai_text(&response);
     if result_text.is_empty() {
-        return Err(LearnError::EmptyMiniMaxResponse);
+        return Err(LearnError::EmptyAiResponse);
     }
     let note = save_player_match_decision_note(
         pool,
@@ -458,7 +458,7 @@ async fn run_single_player_match_analysis(
         "endpoint": endpoint,
         "note": note,
         "result_text": result_text,
-        "provider_metadata": minimax_usage_summary(&response),
+        "provider_metadata": ai_usage_summary(&response),
     }))
 }
 
