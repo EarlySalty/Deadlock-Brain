@@ -371,6 +371,11 @@ enum PlayerCommands {
     )]
     AnalyzeMatch(PlayerAnalyzeMatchArgs),
     #[command(
+        name = "analyze-demo-match",
+        about = "Erstellt einen evidenzgebundenen Vollreport aus gespeicherter Demo-Evidenz."
+    )]
+    AnalyzeDemoMatch(PlayerAnalyzeDemoMatchArgs),
+    #[command(
         name = "analyze-next",
         about = "Analysiert automatisch die naechsten offenen Player-Matches."
     )]
@@ -407,6 +412,24 @@ struct PlayerMatchContextArgs {
 
 #[derive(Debug, Args)]
 struct PlayerAnalyzeMatchArgs {
+    account_id: String,
+    match_id: String,
+    #[arg(long)]
+    model: Option<String>,
+    #[arg(long = "max-completion-tokens")]
+    max_completion_tokens: Option<u64>,
+    #[arg(long)]
+    temperature: Option<f64>,
+    #[arg(long = "top-p")]
+    top_p: Option<f64>,
+    #[arg(long = "dry-run")]
+    dry_run: bool,
+    #[arg(long)]
+    pretty: bool,
+}
+
+#[derive(Debug, Args)]
+struct PlayerAnalyzeDemoMatchArgs {
     account_id: String,
     match_id: String,
     #[arg(long)]
@@ -1415,6 +1438,39 @@ async fn run_player(settings: &Settings, target: PlayerCommands) -> Result<()> {
             .await?;
             if args.pretty {
                 print_player_result("analyze-match", &result);
+                Ok(())
+            } else {
+                print_json(&result)
+            }
+        }
+        PlayerCommands::AnalyzeDemoMatch(args) => {
+            let config = minimax_config(
+                settings,
+                args.model,
+                args.max_completion_tokens,
+                args.temperature,
+                args.top_p,
+            );
+            let result = dbrain_learn::demo_analyze_match(
+                &pool,
+                dbrain_learn::DemoAnalyzeMatchOptions {
+                    account_id: args.account_id,
+                    match_id: args.match_id,
+                    config,
+                    dry_run: args.dry_run,
+                    include_request: false,
+                },
+            )
+            .await?;
+            if args.pretty {
+                if let Some(report) = get(&result, "rendered_report").and_then(Value::as_str) {
+                    println!("{report}");
+                } else {
+                    println!(
+                        "Demo-Report-Kontext bereit: {} Evidenzbelege, kein Modellaufruf.",
+                        display_or(get(&result, "evidence_count"), "0")
+                    );
+                }
                 Ok(())
             } else {
                 print_json(&result)
@@ -3039,6 +3095,31 @@ mod tests {
         assert_eq!(args.steam_id64, 76561198242034120);
         assert_eq!(args.poll_interval_seconds, 5);
         assert_eq!(args.timeout_seconds, 900);
+        assert!(args.pretty);
+    }
+
+    #[test]
+    fn parses_player_analyze_demo_match_flags() {
+        let cli = Cli::try_parse_from([
+            "deadlock-brain",
+            "player",
+            "analyze-demo-match",
+            "281768392",
+            "92685682",
+            "--dry-run",
+            "--pretty",
+        ])
+        .expect("parse cli");
+
+        let Commands::Player {
+            target: PlayerCommands::AnalyzeDemoMatch(args),
+        } = cli.command
+        else {
+            panic!("expected player analyze-demo-match");
+        };
+        assert_eq!(args.account_id, "281768392");
+        assert_eq!(args.match_id, "92685682");
+        assert!(args.dry_run);
         assert!(args.pretty);
     }
 

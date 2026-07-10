@@ -4,9 +4,9 @@
 
 Problem: Statische Matchdaten reichen nicht aus, um Entscheidungen, Kampfverlaeufe und unterschiedliche Spielstile verlaesslich zu lernen.
 
-Änderung: Der Brain katalogisiert Mo-&-Krill-Matches eines Spielers und speichert fuer abrufbare Demos versionierte Zustands-, Kampf-, Kauf- und Objective-Evidenz mit eindeutigen Belegen.
+Änderung: Der Brain katalogisiert Mo-&-Krill-Matches eines Spielers, speichert fuer abrufbare Demos versionierte Zustands-, Kampf-, Kauf- und Objective-Evidenz und verdichtet sie zu einem pruefbaren Vollreport-Kontext. Reportentscheidungen muessen getrennte Beobachtung, Interpretation und Bewertung sowie echte Evidenz-IDs enthalten.
 
-Aktuelles Verhalten: Der erste echte Match-Tracer ist importiert; fehlende oder unvollstaendige Demos brechen sichtbar ab und erzeugen keinen fertigen Evidenz-Snapshot. Die Daten bleiben Rohbelege und werden noch nicht als aktives Wissen oder Build-Empfehlung uebernommen.
+Aktuelles Verhalten: Der erste echte Match-Tracer ist importiert; fehlende oder unvollstaendige Demos brechen sichtbar ab und erzeugen keinen fertigen Evidenz-Snapshot. Erzeugte Reports bleiben `calibration_pending` und werden noch nicht als aktives Wissen oder Build-Empfehlung uebernommen.
 
 ## #32 — Brain nutzt Fireworks statt Minimax
 
