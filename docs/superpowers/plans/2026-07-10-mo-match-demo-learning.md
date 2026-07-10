@@ -215,11 +215,12 @@ Expected: compile failures for the missing demo functions.
 
 Use NDJSON and exactly three named queries:
 
-1. `player_state`: target controller and Mo pawn deltas, including tick, entity index, Steam ID, pawn handle, lane, hero ID, health, level, net worth, K/D/A, last hits, coarse cell position, and ability/item vectors.
+1. `player_state`: target controller and Mo pawn state, including tick, entity index, Steam ID, pawn handle, lane, hero ID, health, level, net worth, K/D/A, last hits, coarse cell position, and ability/item vectors. Use `ROW_NUMBER() OVER (PARTITION BY CAST(tick / 1800 AS BIGINT) ORDER BY tick DESC)` and retain rank 1, producing one periodic state row per 30-second bucket instead of every repeated entity update.
 2. `target_combat`: Damage, HeroKilled, AbilityInterrupted, ImportantAbilityUsed, and StaminaConsumed rows involving the target pawn.
 3. `economy_objectives`: item purchases, ability upgrades, currency changes, objective masks, boss kills, game-over, and team rewards.
 
 Every camel-case demo column is double quoted. Numeric union columns are explicitly cast to `BIGINT` or `DOUBLE`; missing union fields use typed `CAST(NULL AS ...)` expressions.
+The sampling rule applies only to periodic controller/pawn state. Purchases, ability upgrades, target combat, kills, damage, and objective events remain unsampled.
 
 - [ ] **Step 4: Implement submit, poll, download, and storage**
 
@@ -236,6 +237,7 @@ On HTTP 404/no demo, return a visible unavailable error and create no evidence s
 - [ ] **Step 5: Add `player fetch-demo`**
 
 Arguments: `<account_id> <match_id>`, defaults `--hero-id 18`, `--steam-id64 76561198242034120`, `--poll-interval-seconds 5`, `--timeout-seconds 900`, and optional `--pretty`.
+Before submitting demo jobs, call the existing `pull_match_metadata` path for the same match with `account_ids=[account_id]`, `hero_ids=[hero_id]`, and all player/item/stat/objective detail flags enabled. This provides the target player slot, exact item timeline, roster, and outcome without spending another demo-query job.
 
 - [ ] **Step 6: Run focused checks**
 
