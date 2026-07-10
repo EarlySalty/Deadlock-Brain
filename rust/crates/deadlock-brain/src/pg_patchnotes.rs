@@ -1345,6 +1345,91 @@ fn insert_patch_events(
     for event in &patch.events {
         let posted_at_text = patch.posted_at.map(|value| value.to_rfc3339());
         let metadata = json_text(&event.metadata)?;
+        let dedup_title = canonical_patch_title_value(patch.title.as_deref(), patch.row_id);
+        let dedup_old = event.old_value.as_deref().unwrap_or("").trim().to_string();
+        let dedup_new = event.new_value.as_deref().unwrap_or("").trim().to_string();
+        let dedup_line = strip_entity_prefix(&event.normalized_line, event.entity_name.as_deref());
+        let params: &[&(dyn ToSql + Sync)] = &[
+            &snapshot_id as &(dyn ToSql + Sync),
+            &legacy_patch_snapshot_id as &(dyn ToSql + Sync),
+            &patch.patch_external_id as &(dyn ToSql + Sync),
+            &patch.title as &(dyn ToSql + Sync),
+            &patch.url as &(dyn ToSql + Sync),
+            &patch.source_kind as &(dyn ToSql + Sync),
+            &posted_at_text as &(dyn ToSql + Sync),
+            &event.line_index as &(dyn ToSql + Sync),
+            &event.section as &(dyn ToSql + Sync),
+            &event.entity_type as &(dyn ToSql + Sync),
+            &event.entity_name as &(dyn ToSql + Sync),
+            &event.subject as &(dyn ToSql + Sync),
+            &event.change_type as &(dyn ToSql + Sync),
+            &event.raw_line as &(dyn ToSql + Sync),
+            &event.normalized_line as &(dyn ToSql + Sync),
+            &event.old_value as &(dyn ToSql + Sync),
+            &event.new_value as &(dyn ToSql + Sync),
+            &event.confidence as &(dyn ToSql + Sync),
+            &metadata as &(dyn ToSql + Sync),
+            &event.event_hash as &(dyn ToSql + Sync),
+            &dedup_title as &(dyn ToSql + Sync),
+            &dedup_old as &(dyn ToSql + Sync),
+            &dedup_new as &(dyn ToSql + Sync),
+            &dedup_line as &(dyn ToSql + Sync),
+        ];
+        let updated = tx.execute(
+            r#"
+            WITH candidate AS (
+                SELECT pe.id
+                FROM brain.patch_events pe
+                WHERE lower(regexp_replace(TRIM(BOTH FROM coalesce(pe.patch_title, '')), '\s+', ' ', 'g')) = $21
+                  AND pe.entity_type = $10
+                  AND coalesce(pe.entity_name, '') = coalesce($11::text, '')
+                  AND coalesce(NULLIF(TRIM(BOTH FROM pe.old_value), ''), '') = $22
+                  AND coalesce(NULLIF(TRIM(BOTH FROM pe.new_value), ''), '') = $23
+                  AND CASE
+                      WHEN pe.entity_name IS NOT NULL
+                           AND lower(left(TRIM(BOTH FROM pe.normalized_line), length(pe.entity_name) + 1)) = lower(pe.entity_name || ':')
+                          THEN TRIM(BOTH FROM substr(TRIM(BOTH FROM pe.normalized_line), length(pe.entity_name) + 2))
+                      ELSE TRIM(BOTH FROM pe.normalized_line)
+                  END = $24
+                ORDER BY pe.confidence DESC NULLS LAST,
+                         EXISTS (
+                             SELECT 1
+                             FROM brain.patch_event_enrichments pee
+                             WHERE pee.patch_event_id = pe.id
+                         ) DESC,
+                         pe.id ASC
+                LIMIT 1
+            )
+            UPDATE brain.patch_events pe
+            SET patch_snapshot_id = $1,
+                legacy_patch_snapshot_id = $2,
+                patch_external_id = $3,
+                patch_title = $4,
+                patch_url = $5,
+                source_kind = $6,
+                posted_at = $7::text::timestamptz,
+                line_index = $8,
+                section = $9,
+                entity_type = $10,
+                entity_name = $11,
+                subject = $12,
+                change_type = $13,
+                raw_line = $14,
+                normalized_line = $15,
+                old_value = $16,
+                new_value = $17,
+                confidence = $18,
+                metadata = $19::text::jsonb,
+                created_at = now()
+            FROM candidate
+            WHERE pe.id = candidate.id
+            "#,
+            params,
+        )?;
+        if updated > 0 {
+            changed += 1;
+            continue;
+        }
         tx.execute(
             r#"
             INSERT INTO brain.patch_events(
@@ -1377,28 +1462,7 @@ fn insert_patch_events(
                 metadata = EXCLUDED.metadata,
                 created_at = EXCLUDED.created_at
             "#,
-            &[
-                &snapshot_id as &(dyn ToSql + Sync),
-                &legacy_patch_snapshot_id as &(dyn ToSql + Sync),
-                &patch.patch_external_id as &(dyn ToSql + Sync),
-                &patch.title as &(dyn ToSql + Sync),
-                &patch.url as &(dyn ToSql + Sync),
-                &patch.source_kind as &(dyn ToSql + Sync),
-                &posted_at_text as &(dyn ToSql + Sync),
-                &event.line_index as &(dyn ToSql + Sync),
-                &event.section as &(dyn ToSql + Sync),
-                &event.entity_type as &(dyn ToSql + Sync),
-                &event.entity_name as &(dyn ToSql + Sync),
-                &event.subject as &(dyn ToSql + Sync),
-                &event.change_type as &(dyn ToSql + Sync),
-                &event.raw_line as &(dyn ToSql + Sync),
-                &event.normalized_line as &(dyn ToSql + Sync),
-                &event.old_value as &(dyn ToSql + Sync),
-                &event.new_value as &(dyn ToSql + Sync),
-                &event.confidence as &(dyn ToSql + Sync),
-                &metadata as &(dyn ToSql + Sync),
-                &event.event_hash as &(dyn ToSql + Sync),
-            ],
+            &params[..20],
         )?;
         changed += 1;
     }
@@ -1969,12 +2033,15 @@ fn patch_event_content_hash(
 }
 
 fn canonical_patch_title(row: &PatchnoteRow) -> String {
-    row.title
-        .as_deref()
+    canonical_patch_title_value(row.title.as_deref(), row.id)
+}
+
+fn canonical_patch_title_value(title: Option<&str>, fallback_id: i64) -> String {
+    title
         .map(str::trim)
         .filter(|title| !title.is_empty())
         .map(|title| title.split_whitespace().collect::<Vec<_>>().join(" "))
-        .unwrap_or_else(|| format!("Patchnotes {}", row.id))
+        .unwrap_or_else(|| format!("Patchnotes {}", fallback_id))
         .to_lowercase()
 }
 
