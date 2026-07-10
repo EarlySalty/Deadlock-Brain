@@ -18,7 +18,10 @@ mod store;
 mod util;
 
 pub use assets_api::{pull_assets, PullAssetsOptions};
-pub use deadlock_api::{pull_match_metadata, PullMatchMetadataOptions};
+pub use deadlock_api::{
+    pull_match_metadata, pull_player_match_history, PullMatchMetadataOptions,
+    PullPlayerMatchHistoryOptions,
+};
 pub use deadlock_data::{pull_deadlock_data, PullDeadlockDataOptions};
 pub use error::{Result, SourcesError};
 pub use forum::{pull_forum, PullForumOptions};

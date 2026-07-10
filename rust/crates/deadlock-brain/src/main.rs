@@ -80,7 +80,7 @@ enum Commands {
         #[command(subcommand)]
         target: LearnCommands,
     },
-    #[command(about = "Analysiert Statlocker-Player-Matches als Entscheidungs-Training.")]
+    #[command(about = "Importiert und analysiert Player-Matches als Entscheidungs-Training.")]
     Player {
         #[command(subcommand)]
         target: PlayerCommands,
@@ -375,6 +375,11 @@ enum PlayerCommands {
         about = "Analysiert automatisch die naechsten offenen Player-Matches."
     )]
     AnalyzeNext(PlayerAnalyzeNextArgs),
+    #[command(
+        name = "sync-matches",
+        about = "Synchronisiert die Match-History eines Spielers aus der Deadlock API."
+    )]
+    SyncMatches(PlayerSyncMatchesArgs),
 }
 
 #[derive(Debug, Args)]
@@ -431,6 +436,17 @@ struct PlayerAnalyzeNextArgs {
     dry_run: bool,
     #[arg(long = "delay-seconds", default_value_t = 2.0)]
     delay_seconds: f64,
+    #[arg(long)]
+    pretty: bool,
+}
+
+#[derive(Debug, Args)]
+struct PlayerSyncMatchesArgs {
+    account_id: String,
+    #[arg(long = "hero-id", default_value_t = 18)]
+    hero_id: u32,
+    #[arg(long = "cache-ttl-seconds", default_value_t = 21_600)]
+    cache_ttl_seconds: u64,
     #[arg(long)]
     pretty: bool,
 }
@@ -1404,6 +1420,29 @@ async fn run_player(settings: &Settings, target: PlayerCommands) -> Result<()> {
             .await?;
             if args.pretty {
                 print_player_result("analyze-next", &result);
+                Ok(())
+            } else {
+                print_json(&result)
+            }
+        }
+        PlayerCommands::SyncMatches(args) => {
+            let http = http_client(settings)?;
+            let result = dbrain_sources::pull_player_match_history(
+                &settings.raw_dir,
+                &http,
+                dbrain_sources::PullPlayerMatchHistoryOptions {
+                    account_id: args.account_id,
+                    hero_id: Some(args.hero_id),
+                    cache_ttl_seconds: args.cache_ttl_seconds,
+                },
+            )
+            .await?;
+            if args.pretty {
+                println!(
+                    "Deadlock-API-Matches synchronisiert: {} gefunden, {} fuer den Hero gespeichert.",
+                    display_or(get(&result, "api_rows"), "0"),
+                    display_or(get(&result, "stored_rows"), "0")
+                );
                 Ok(())
             } else {
                 print_json(&result)
@@ -2766,6 +2805,36 @@ fn request_message_count(result: &Value) -> usize {
         .and_then(Value::as_array)
         .map(Vec::len)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_player_sync_matches_defaults_hero_to_mo() {
+        let cli = Cli::try_parse_from([
+            "deadlock-brain",
+            "player",
+            "sync-matches",
+            "123",
+            "--cache-ttl-seconds",
+            "9",
+            "--pretty",
+        ])
+        .expect("parse cli");
+
+        let Commands::Player {
+            target: PlayerCommands::SyncMatches(args),
+        } = cli.command
+        else {
+            panic!("expected player sync-matches");
+        };
+        assert_eq!(args.account_id, "123");
+        assert_eq!(args.hero_id, 18);
+        assert_eq!(args.cache_ttl_seconds, 9);
+        assert!(args.pretty);
+    }
 }
 
 fn format_prop_value(prop: &Value) -> String {
