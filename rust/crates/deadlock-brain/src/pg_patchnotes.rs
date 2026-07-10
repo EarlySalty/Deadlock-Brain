@@ -261,7 +261,7 @@ fn load_patchnote(client: &mut Client, patch_id: i64) -> Result<PatchnoteRow> {
 }
 
 fn resolve_patch_source(http: &HttpClient, row: &PatchnoteRow) -> Result<PatchSourceResolution> {
-    let posted_at = parse_posted_at(row.posted_at.as_deref())?;
+    let posted_at = row_posted_at(row)?;
     let candidates = collect_steam_links(row);
     let source_kind = classify_source_kind(row.url.as_deref());
     let should_search_steam = source_kind == "forum" || (source_kind == "steam" && !candidates.is_empty());
@@ -497,7 +497,7 @@ fn prepare_patch(
     resolved: &PatchSourceResolution,
     index: &EntityIndex,
 ) -> Result<PreparedPatch> {
-    let posted_at = parse_posted_at(row.posted_at.as_deref())?;
+    let posted_at = row_posted_at(row)?;
     let posted_at_text = posted_at.map(|value| value.to_rfc3339());
 
     let source_external_id = match resolved.source_url.as_deref().map(str::trim) {
@@ -1032,7 +1032,7 @@ fn parse_bullet_event(context: &EventParseContext<'_>) -> Option<PreparedEvent> 
         ("general".to_string(), None, 0.52)
     };
     let (old_value, new_value) = extract_old_new(&normalized_line);
-    let change_type = classify_change_type(&normalized_line);
+    let change_type = dbrain_normalize::classify_change_type(&normalized_line);
     let metadata = json!({
         "importer": IMPORTER,
         "patch_id": context.row.id,
@@ -1959,40 +1959,6 @@ fn legacy_compatible_patch_external_ids(patch_external_id: &str) -> Vec<String> 
     ids
 }
 
-fn classify_change_type(text: &str) -> String {
-    let lower = text.to_ascii_lowercase();
-    if lower.contains("renamed") || lower.contains("retitled") {
-        "rename"
-    } else if lower.contains("reworked") || lower.contains("rework") || lower.contains("redesigned")
-    {
-        "rework"
-    } else if lower.contains("removed") || lower.contains("no longer") {
-        "removed"
-    } else if lower.contains("fixed") || lower.contains("fix ") || lower.starts_with("fix") {
-        "fix"
-    } else if lower.contains("added") || lower.contains("new ") || lower.starts_with("new") {
-        "added"
-    } else if lower.contains("increased")
-        || lower.contains("improved")
-        || lower.contains("higher")
-        || lower.contains("more ")
-    {
-        "buff"
-    } else if lower.contains("reduced")
-        || lower.contains("decreased")
-        || lower.contains("lower")
-        || lower.contains("less ")
-        || lower.contains("slower")
-    {
-        "nerf"
-    } else if lower.contains(" from ") && lower.contains(" to ") {
-        "balance_delta"
-    } else {
-        "mechanic_change"
-    }
-    .to_string()
-}
-
 fn extract_old_new(line: &str) -> (Option<String>, Option<String>) {
     let lower = line.to_ascii_lowercase();
     let Some(from_pos) = lower.find(" from ") else {
@@ -2020,6 +1986,33 @@ fn trim_value(value: &str) -> String {
         .chars()
         .take(80)
         .collect::<String>()
+}
+
+fn row_posted_at(row: &PatchnoteRow) -> Result<Option<DateTime<Utc>>> {
+    Ok(parse_posted_at(row.posted_at.as_deref())?.or_else(|| title_date(row.title.as_deref())))
+}
+
+fn title_date(title: Option<&str>) -> Option<DateTime<Utc>> {
+    let (month, day, year) = title.and_then(extract_mm_dd_yyyy)?;
+    let date = NaiveDate::from_ymd_opt(year as i32, month, day)?;
+    Some(Utc.from_utc_datetime(&date.and_hms_opt(0, 0, 0)?))
+}
+
+fn extract_mm_dd_yyyy(value: &str) -> Option<(u32, u32, u32)> {
+    for bytes in value.as_bytes().windows(10) {
+        if bytes[2] == b'-'
+            && bytes[5] == b'-'
+            && bytes[..2].iter().all(u8::is_ascii_digit)
+            && bytes[3..5].iter().all(u8::is_ascii_digit)
+            && bytes[6..].iter().all(u8::is_ascii_digit)
+        {
+            let month = std::str::from_utf8(&bytes[..2]).ok()?.parse().ok()?;
+            let day = std::str::from_utf8(&bytes[3..5]).ok()?.parse().ok()?;
+            let year = std::str::from_utf8(&bytes[6..]).ok()?.parse().ok()?;
+            return Some((month, day, year));
+        }
+    }
+    None
 }
 
 fn json_text(value: &Value) -> Result<String> {
@@ -2381,6 +2374,94 @@ mod tests {
                 &prepared.events[0].entity_type,
                 &prepared.events[0].normalized_line
             )
+        );
+    }
+
+    #[test]
+    fn prepare_patch_uses_title_date_when_posted_at_missing() {
+        let row = PatchnoteRow {
+            id: 17,
+            title: Some("07-09-2026 Update".to_string()),
+            url: Some(
+                "https://forums.playdeadlock.com/threads/07-09-2026-update.1/".to_string(),
+            ),
+            posted_at: None,
+            raw_content: Some("- Aegis: increased health from 10 to 11".to_string()),
+            translated_content: None,
+        };
+        let mut index = EntityIndex::default();
+        index.insert("item", "Aegis", "Aegis");
+        let index = index.finish();
+
+        let prepared =
+            prepare_patch(&row, &PatchSourceResolution::from_row(&row), &index).expect("prepare");
+
+        assert_eq!(
+            prepared
+                .posted_at
+                .map(|value| value.to_rfc3339())
+                .as_deref(),
+            Some("2026-07-09T00:00:00+00:00")
+        );
+        assert_eq!(
+            prepared.events[0].metadata["source_posted_at"],
+            json!("2026-07-09T00:00:00+00:00")
+        );
+    }
+
+    #[test]
+    fn classify_numeric_increase_as_buff_even_with_reduced_word() {
+        assert_eq!(
+            dbrain_normalize::classify_change_type("reduced from 1.05 to 1.2"),
+            "buff"
+        );
+    }
+
+    #[test]
+    fn prepare_patch_classifies_numeric_stat_polarity() {
+        let row = PatchnoteRow {
+            id: 18,
+            title: Some("Patch 18".to_string()),
+            url: Some("https://steamcommunity.com/nachrichten/18".to_string()),
+            posted_at: Some(posted_at("2026-07-10")),
+            raw_content: Some(
+                [
+                    "- Abrams: cooldown increased from 7 to 7.5",
+                    "- Abrams: damage reduced from 90 to 80",
+                    "- Abrams: cooldown reduced from 10 to 8",
+                ]
+                .join("\n"),
+            ),
+            translated_content: None,
+        };
+        let mut index = EntityIndex::default();
+        index.insert("hero", "Abrams", "Abrams");
+        let index = index.finish();
+
+        let prepared =
+            prepare_patch(&row, &PatchSourceResolution::from_row(&row), &index).expect("prepare");
+        let change_types = prepared
+            .events
+            .iter()
+            .map(|event| event.change_type.as_str())
+            .collect::<Vec<_>>();
+        for event in &prepared.events {
+            println!("{} => {}", event.normalized_line, event.change_type);
+        }
+        let shared_change_types = [
+            "Abrams: cooldown increased from 7 to 7.5",
+            "Abrams: damage reduced from 90 to 80",
+            "Abrams: cooldown reduced from 10 to 8",
+        ]
+        .map(dbrain_normalize::classify_change_type);
+
+        assert_eq!(change_types, vec!["nerf", "nerf", "buff"]);
+        assert_eq!(
+            change_types,
+            shared_change_types
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
         );
     }
 

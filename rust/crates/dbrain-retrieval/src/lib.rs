@@ -488,7 +488,11 @@ pub async fn build_entity_context(pool: &PgPool, query: &str, limit_events: i64)
         "sheet_stats": load_sheet_stats(pool, &query, best_match.as_ref(), &aliases).await?,
         "fallback": {
             "used": fallback_used,
-            "strategy": if fallback_used { JsonValue::String("patch_events.entity_name LIKE".to_string()) } else { JsonValue::Null },
+            "strategy": if fallback_used {
+                JsonValue::String("patch_events.entity_name exact/lineage".to_string())
+            } else {
+                JsonValue::Null
+            },
         },
     }))
 }
@@ -571,7 +575,11 @@ pub async fn build_entity_timeline(
         },
         "fallback": {
             "used": best_match.is_none(),
-            "strategy": if best_match.is_none() { JsonValue::String("patch_events.entity_name LIKE".to_string()) } else { JsonValue::Null },
+            "strategy": if best_match.is_none() {
+                JsonValue::String("patch_events.entity_name exact/lineage".to_string())
+            } else {
+                JsonValue::Null
+            },
         },
     }))
 }
@@ -1550,11 +1558,23 @@ async fn load_patch_events(
         if names.is_empty() {
             return Ok(Vec::new());
         }
+        let entity_types = patch_event_entity_types(best_match);
+        let name_count = names.len();
         params.extend(names.into_iter().map(SqlValue::Text));
-        format!("lower(entity_name) IN ({})", placeholders(params.len()))
+        if entity_types.is_empty() {
+            format!("lower(entity_name) IN ({})", placeholders(name_count))
+        } else {
+            let type_count = entity_types.len();
+            params.extend(entity_types.into_iter().map(SqlValue::Text));
+            format!(
+                "lower(entity_name) IN ({}) AND entity_type IN ({})",
+                placeholders(name_count),
+                placeholders(type_count)
+            )
+        }
     } else if lineage_names.is_empty() {
-        params.push(SqlValue::Text(format!("%{query}%")));
-        "entity_name LIKE ?".to_string()
+        params.push(SqlValue::Text(query.to_lowercase()));
+        "lower(entity_name)=?".to_string()
     } else {
         let names = lineage_names
             .iter()
@@ -1563,9 +1583,9 @@ async fn load_patch_events(
             .into_iter()
             .collect::<Vec<_>>();
         params.extend(names.iter().cloned().map(SqlValue::Text));
-        params.push(SqlValue::Text(format!("%{query}%")));
+        params.push(SqlValue::Text(query.to_lowercase()));
         format!(
-            "(lower(entity_name) IN ({}) OR entity_name LIKE ?)",
+            "(lower(entity_name) IN ({}) OR lower(entity_name)=?)",
             placeholders(names.len())
         )
     };
@@ -1622,6 +1642,18 @@ async fn load_patch_events(
         rows.truncate(limit as usize);
     }
     Ok(rows)
+}
+
+fn patch_event_entity_types(best_match: &JsonMap<String, JsonValue>) -> Vec<String> {
+    match value_to_string(best_match.get("entity_type")).as_str() {
+        "hero" | "hero_internal" => vec!["hero".to_string(), "hero_internal".to_string()],
+        "item" | "item_special" => vec!["item".to_string(), "item_special".to_string()],
+        "ability" | "ability_internal" => {
+            vec!["ability".to_string(), "ability_internal".to_string()]
+        }
+        "" => Vec::new(),
+        entity_type => vec![entity_type.to_string()],
+    }
 }
 
 fn event_lookup_names(
@@ -5980,6 +6012,49 @@ mod tests {
             .get("best_match")
             .map(|value| !value.is_null())
             .unwrap_or(false));
+    }
+
+    #[tokio::test]
+    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+    async fn timeline_patch_events_keep_best_match_entity_type() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let hollow_rows: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM brain.patch_events WHERE entity_type='item' AND entity_name='Hollow Point'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("hollow point fixture count");
+        assert!(hollow_rows > 0, "fixture must contain Hollow Point item rows");
+
+        let mut best_match = JsonMap::new();
+        best_match.insert("entity_type".to_string(), json!("hero"));
+        best_match.insert("canonical_name".to_string(), json!("Holliday"));
+        let lineage_names = vec!["Hollow Point".to_string()];
+        let events = load_patch_events(
+            &pool,
+            "Holliday",
+            Some(&best_match),
+            &[],
+            &lineage_names,
+            2_000,
+            PatchEventMode::Timeline { ascending: true },
+        )
+        .await
+        .expect("patch events");
+
+        assert!(!events.is_empty(), "expected Holliday patch events");
+        assert!(
+            events
+                .iter()
+                .all(|event| value_to_string(event.get("entity_type")) == "hero"),
+            "hero lookup must not return item patch_events: {:?}",
+            events
+                .iter()
+                .filter(|event| value_to_string(event.get("entity_type")) != "hero")
+                .collect::<Vec<_>>()
+        );
     }
 
     #[tokio::test]

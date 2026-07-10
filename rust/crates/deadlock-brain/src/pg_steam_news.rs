@@ -539,7 +539,7 @@ fn parse_bullet_event(
         ("general".to_string(), None, 0.52)
     };
     let (old_value, new_value) = extract_old_new(&normalized_line);
-    let change_type = classify_change_type(&normalized_line);
+    let change_type = dbrain_normalize::classify_change_type(&normalized_line);
     let metadata = json!({
         "importer": IMPORTER,
         "steam_gid": context.item.gid,
@@ -597,40 +597,6 @@ fn split_subject(line: &str) -> (Option<String>, Option<String>) {
         return (None, Some(line.to_string()));
     }
     (Some(subject.to_string()), Some(remainder.to_string()))
-}
-
-fn classify_change_type(line: &str) -> String {
-    let lower = line.to_ascii_lowercase();
-    if lower.contains("renamed") || lower.contains("retitled") {
-        "rename"
-    } else if lower.contains("reworked") || lower.contains("rework") || lower.contains("redesigned")
-    {
-        "rework"
-    } else if lower.contains("removed") || lower.contains("no longer") {
-        "removed"
-    } else if lower.contains("fixed") || lower.contains("fix ") || lower.starts_with("fix") {
-        "fix"
-    } else if lower.contains("added") || lower.contains("new ") || lower.starts_with("new") {
-        "added"
-    } else if lower.contains("increased")
-        || lower.contains("improved")
-        || lower.contains("higher")
-        || lower.contains("more ")
-    {
-        "buff"
-    } else if lower.contains("reduced")
-        || lower.contains("decreased")
-        || lower.contains("lower")
-        || lower.contains("less ")
-        || lower.contains("slower")
-    {
-        "nerf"
-    } else if lower.contains(" from ") && lower.contains(" to ") {
-        "balance_delta"
-    } else {
-        "mechanic_change"
-    }
-    .to_string()
 }
 
 fn extract_old_new(line: &str) -> (Option<String>, Option<String>) {
