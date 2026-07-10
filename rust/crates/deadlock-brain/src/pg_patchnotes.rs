@@ -1047,16 +1047,13 @@ fn parse_bullet_event(context: &EventParseContext<'_>) -> Option<PreparedEvent> 
         "url": context.source_url.or(context.row.url.as_deref()),
         "changelog_url": context.row.url,
     });
-    let event_hash = stable_hash(
-        format!(
-            "patchnotes|{}|{}|{}|{}|{}",
-            context.row.id,
-            context.line_index,
-            context.section.unwrap_or_default(),
-            entity_type,
-            normalized_line
-        )
-        .as_bytes(),
+    let event_hash = patch_event_content_hash(
+        context.row,
+        &entity_type,
+        entity_name.as_deref(),
+        old_value.as_deref(),
+        new_value.as_deref(),
+        strip_entity_prefix(&normalized_line, entity_name.as_deref()).as_ref(),
     );
 
     Some(PreparedEvent {
@@ -1949,6 +1946,52 @@ fn canonical_patch_external_id(patch_id: i64) -> String {
     format!("patch_{patch_id}")
 }
 
+fn patch_event_content_hash(
+    row: &PatchnoteRow,
+    entity_type: &str,
+    entity_name: Option<&str>,
+    old_value: Option<&str>,
+    new_value: Option<&str>,
+    normalized_line: &str,
+) -> String {
+    stable_hash(
+        format!(
+            "patchnotes:v2|{}|{}|{}|{}|{}|{}",
+            canonical_patch_title(row),
+            entity_type,
+            entity_name.unwrap_or_default(),
+            old_value.unwrap_or_default().trim(),
+            new_value.unwrap_or_default().trim(),
+            normalized_line.trim()
+        )
+        .as_bytes(),
+    )
+}
+
+fn canonical_patch_title(row: &PatchnoteRow) -> String {
+    row.title
+        .as_deref()
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+        .map(|title| title.split_whitespace().collect::<Vec<_>>().join(" "))
+        .unwrap_or_else(|| format!("Patchnotes {}", row.id))
+        .to_lowercase()
+}
+
+fn strip_entity_prefix(line: &str, entity_name: Option<&str>) -> String {
+    let line = line.trim();
+    let Some(entity_name) = entity_name.map(str::trim).filter(|value| !value.is_empty()) else {
+        return line.to_string();
+    };
+    let Some(rest) = line.get(entity_name.len()..) else {
+        return line.to_string();
+    };
+    if rest.starts_with(':') && line[..entity_name.len()].eq_ignore_ascii_case(entity_name) {
+        return rest[1..].trim().to_string();
+    }
+    line.to_string()
+}
+
 fn legacy_compatible_patch_external_ids(patch_external_id: &str) -> Vec<String> {
     let mut ids = vec![patch_external_id.to_string()];
     if let Some(legacy) = patch_external_id.strip_prefix("patch_") {
@@ -2175,7 +2218,7 @@ mod tests {
             ),
             &items,
         )
-            .expect("found item");
+        .expect("found item");
 
         assert_eq!(item.gid, "1799088287841594");
         assert_eq!(item.title, "Shop Rework Update");
@@ -2368,13 +2411,53 @@ mod tests {
         assert_eq!(
             prepared.events[0].event_hash,
             build_event_hash(
-                17,
-                1,
-                "",
+                &row,
                 &prepared.events[0].entity_type,
+                prepared.events[0].entity_name.as_deref(),
+                prepared.events[0].old_value.as_deref(),
+                prepared.events[0].new_value.as_deref(),
                 &prepared.events[0].normalized_line
             )
         );
+    }
+
+    #[test]
+    fn event_hash_deduplicates_repost_and_prefixed_lines() {
+        let mut index = EntityIndex::default();
+        index.insert("hero", "Holliday", "Holliday");
+        index.insert("hero", "Holliday", "Powder Keg");
+        let index = index.finish();
+        let original = PatchnoteRow {
+            id: 17,
+            title: Some("Patch 17".to_string()),
+            url: Some("https://forums.playdeadlock.com/threads/patch-17.17/".to_string()),
+            posted_at: Some(posted_at("2026-06-30")),
+            raw_content: Some("- Powder Keg spirit scaling reduced from 1.6 to 1.4".to_string()),
+            translated_content: None,
+        };
+        let repost = PatchnoteRow {
+            id: 99,
+            title: Some("  Patch   17  ".to_string()),
+            url: Some("https://steamcommunity.com/app/1422450/event/99".to_string()),
+            posted_at: Some(posted_at("2026-06-30")),
+            raw_content: Some(
+                "- Holliday: Powder Keg spirit scaling reduced from 1.6 to 1.4".to_string(),
+            ),
+            translated_content: None,
+        };
+
+        let original = prepare_patch(
+            &original,
+            &PatchSourceResolution::from_row(&original),
+            &index,
+        )
+        .expect("original");
+        let repost = prepare_patch(&repost, &PatchSourceResolution::from_row(&repost), &index)
+            .expect("repost");
+
+        assert_eq!(original.events.len(), 1);
+        assert_eq!(repost.events.len(), 1);
+        assert_eq!(original.events[0].event_hash, repost.events[0].event_hash);
     }
 
     #[test]
@@ -2646,20 +2729,22 @@ mod tests {
         assert_eq!(
             prepared.events[0].event_hash,
             build_event_hash(
-                17,
-                1,
-                "",
+                &row,
                 &prepared.events[0].entity_type,
+                prepared.events[0].entity_name.as_deref(),
+                prepared.events[0].old_value.as_deref(),
+                prepared.events[0].new_value.as_deref(),
                 &prepared.events[0].normalized_line
             )
         );
         assert_eq!(
             prepared.events[1].event_hash,
             build_event_hash(
-                17,
-                2,
-                "",
+                &row,
                 &prepared.events[1].entity_type,
+                prepared.events[1].entity_name.as_deref(),
+                prepared.events[1].old_value.as_deref(),
+                prepared.events[1].new_value.as_deref(),
                 &prepared.events[1].normalized_line
             )
         );
@@ -2683,18 +2768,20 @@ mod tests {
     }
 
     fn build_event_hash(
-        patch_id: i64,
-        line_index: i64,
-        section: &str,
+        row: &PatchnoteRow,
         entity_type: &str,
+        entity_name: Option<&str>,
+        old_value: Option<&str>,
+        new_value: Option<&str>,
         normalized_line: &str,
     ) -> String {
-        stable_hash(
-            format!(
-                "patchnotes|{patch_id}|{line_index}|{}|{entity_type}|{normalized_line}",
-                section
-            )
-            .as_bytes(),
+        patch_event_content_hash(
+            row,
+            entity_type,
+            entity_name,
+            old_value,
+            new_value,
+            strip_entity_prefix(normalized_line, entity_name).as_ref(),
         )
     }
 
