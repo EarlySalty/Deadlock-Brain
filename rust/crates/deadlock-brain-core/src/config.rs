@@ -23,14 +23,14 @@ pub struct Settings {
     pub wiki_enabled: bool,
     pub wiki_min_delay_seconds: f64,
     pub wiki_cache_ttl_seconds: u64,
-    pub minimax_api_key: Option<String>,
-    pub minimax_base_url: String,
-    pub minimax_model: String,
-    pub minimax_timeout_seconds: u64,
-    pub minimax_max_completion_tokens: u64,
-    pub minimax_temperature: f64,
-    pub minimax_top_p: f64,
-    pub minimax_use_token_plan: bool,
+    pub ai_api_key: Option<String>,
+    pub ai_base_url: String,
+    pub ai_model: String,
+    pub ai_timeout_seconds: u64,
+    pub ai_max_completion_tokens: u64,
+    pub ai_temperature: f64,
+    pub ai_top_p: f64,
+    pub ai_use_token_plan: bool,
 }
 
 impl fmt::Debug for Settings {
@@ -48,19 +48,19 @@ impl fmt::Debug for Settings {
             .field("wiki_min_delay_seconds", &self.wiki_min_delay_seconds)
             .field("wiki_cache_ttl_seconds", &self.wiki_cache_ttl_seconds)
             .field(
-                "minimax_api_key",
-                &self.minimax_api_key.as_ref().map(|_| "<redacted>"),
+                "ai_api_key",
+                &self.ai_api_key.as_ref().map(|_| "<redacted>"),
             )
-            .field("minimax_base_url", &self.minimax_base_url)
-            .field("minimax_model", &self.minimax_model)
-            .field("minimax_timeout_seconds", &self.minimax_timeout_seconds)
+            .field("ai_base_url", &self.ai_base_url)
+            .field("ai_model", &self.ai_model)
+            .field("ai_timeout_seconds", &self.ai_timeout_seconds)
             .field(
-                "minimax_max_completion_tokens",
-                &self.minimax_max_completion_tokens,
+                "ai_max_completion_tokens",
+                &self.ai_max_completion_tokens,
             )
-            .field("minimax_temperature", &self.minimax_temperature)
-            .field("minimax_top_p", &self.minimax_top_p)
-            .field("minimax_use_token_plan", &self.minimax_use_token_plan)
+            .field("ai_temperature", &self.ai_temperature)
+            .field("ai_top_p", &self.ai_top_p)
+            .field("ai_use_token_plan", &self.ai_use_token_plan)
             .finish()
     }
 }
@@ -119,14 +119,14 @@ pub fn load_settings() -> Result<Settings> {
             "DEADLOCK_BRAIN_WIKI_CACHE_TTL_SECONDS",
             604_800,
         )?,
-        minimax_api_key: fireworks_api_key,
-        minimax_base_url: fireworks_base_url.trim_end_matches('/').to_string(),
-        minimax_model: fireworks_model,
-        minimax_timeout_seconds: u64_setting(&dotenv, "FIREWORKS_TIMEOUT_SECONDS", 300)?,
-        minimax_max_completion_tokens: u64_setting(&dotenv, "FIREWORKS_MAX_TOKENS", 16_000)?,
-        minimax_temperature: f64_setting(&dotenv, "FIREWORKS_TEMPERATURE", 0.2)?,
-        minimax_top_p: f64_setting(&dotenv, "FIREWORKS_TOP_P", 0.9)?,
-        minimax_use_token_plan: false,
+        ai_api_key: fireworks_api_key,
+        ai_base_url: fireworks_base_url.trim_end_matches('/').to_string(),
+        ai_model: fireworks_model,
+        ai_timeout_seconds: u64_setting(&dotenv, "FIREWORKS_TIMEOUT_SECONDS", 300)?,
+        ai_max_completion_tokens: u64_setting(&dotenv, "FIREWORKS_MAX_TOKENS", 16_000)?,
+        ai_temperature: f64_setting(&dotenv, "FIREWORKS_TEMPERATURE", 0.2)?,
+        ai_top_p: f64_setting(&dotenv, "FIREWORKS_TOP_P", 0.9)?,
+        ai_use_token_plan: false,
     })
 }
 

@@ -261,7 +261,7 @@ pub enum RetrievalError {
     Json(#[from] serde_json::Error),
 
     #[error("Fireworks response did not include message content.")]
-    EmptyMiniMaxResponse,
+    EmptyAiResponse,
 
     #[error("{0}")]
     Invalid(String),
@@ -281,9 +281,9 @@ pub struct QueryPlan {
 }
 
 #[derive(Debug, Clone)]
-pub struct AnalysisRunMinimaxOptions {
+pub struct AnalysisRunAiOptions {
     pub limit_events: i64,
-    pub config: core::minimax::MiniMaxConfig,
+    pub config: core::ai::AiConfig,
     pub dry_run: bool,
 }
 
@@ -901,10 +901,10 @@ pub async fn analysis_save_review_for_query(
     ).await
 }
 
-pub async fn analysis_run_minimax(
+pub async fn analysis_run_ai(
     pool: &PgPool,
     query: &str,
-    options: AnalysisRunMinimaxOptions,
+    options: AnalysisRunAiOptions,
 ) -> Result<JsonValue> {
     let review_context = build_review_context(pool, query, options.limit_events).await?;
     let prompt = review_context
@@ -912,7 +912,7 @@ pub async fn analysis_run_minimax(
         .and_then(JsonValue::as_str)
         .unwrap_or_default();
     let compact_context = compact_context_for_model(&review_context);
-    let request = core::minimax::build_review_request(prompt, &compact_context, &options.config);
+    let request = core::ai::build_review_request(prompt, &compact_context, &options.config);
     let endpoint = format!("{}/chat/completions", options.config.base_url.trim_end_matches('/'));
     let request_value = serde_json::to_value(&request)?;
 
@@ -928,13 +928,13 @@ pub async fn analysis_run_minimax(
         }));
     }
 
-    let client = core::minimax::MiniMaxClient::new(options.config.clone())?;
+    let client = core::ai::AiClient::new(options.config.clone())?;
     let response = client.chat(&request)?;
-    let result_text = core::minimax::extract_minimax_text(&response);
+    let result_text = core::ai::extract_ai_text(&response);
     if result_text.is_empty() {
-        return Err(RetrievalError::EmptyMiniMaxResponse);
+        return Err(RetrievalError::EmptyAiResponse);
     }
-    let provider_metadata = core::minimax::minimax_usage_summary(&response);
+    let provider_metadata = core::ai::ai_usage_summary(&response);
     let note = save_review_analysis_note(
         pool,
         &review_context,

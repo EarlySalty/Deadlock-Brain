@@ -7,7 +7,7 @@ use crate::{config::Settings, CoreError, Result};
 pub const DEFAULT_SYSTEM_PROMPT: &str = "Du bist ein Deadlock-Analyseassistent fuer einen deutschen Discord. Nutze ausschliesslich den bereitgestellten Kontext. Behalte Namen von Items, Heroes, Abilities, Stats und Quellen exakt auf Englisch. Schreibe die Analyse auf Deutsch. Markiere Unsicherheiten und fehlende Daten klar. Erfinde keine Winrates, Pickrates oder Patchdetails.";
 
 #[derive(Clone)]
-pub struct MiniMaxConfig {
+pub struct AiConfig {
     api_key: Option<String>,
     pub base_url: String,
     pub model: String,
@@ -18,10 +18,10 @@ pub struct MiniMaxConfig {
     pub use_token_plan: bool,
 }
 
-impl std::fmt::Debug for MiniMaxConfig {
+impl std::fmt::Debug for AiConfig {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
-            .debug_struct("MiniMaxConfig")
+            .debug_struct("AiConfig")
             .field("api_key", &self.api_key.as_ref().map(|_| "<redacted>"))
             .field("base_url", &self.base_url)
             .field("model", &self.model)
@@ -34,7 +34,7 @@ impl std::fmt::Debug for MiniMaxConfig {
     }
 }
 
-impl MiniMaxConfig {
+impl AiConfig {
     pub fn from_env() -> Result<Self> {
         let settings = crate::config::load_settings()?;
         Ok(Self::from_settings(&settings))
@@ -42,14 +42,14 @@ impl MiniMaxConfig {
 
     pub fn from_settings(settings: &Settings) -> Self {
         Self {
-            api_key: settings.minimax_api_key.clone(),
-            base_url: settings.minimax_base_url.clone(),
-            model: settings.minimax_model.clone(),
-            timeout_seconds: settings.minimax_timeout_seconds,
-            max_completion_tokens: settings.minimax_max_completion_tokens,
-            temperature: settings.minimax_temperature,
-            top_p: settings.minimax_top_p,
-            use_token_plan: settings.minimax_use_token_plan,
+            api_key: settings.ai_api_key.clone(),
+            base_url: settings.ai_base_url.clone(),
+            model: settings.ai_model.clone(),
+            timeout_seconds: settings.ai_timeout_seconds,
+            max_completion_tokens: settings.ai_max_completion_tokens,
+            temperature: settings.ai_temperature,
+            top_p: settings.ai_top_p,
+            use_token_plan: settings.ai_use_token_plan,
         }
     }
 
@@ -102,7 +102,7 @@ pub struct ChatCompletionRequest {
 }
 
 impl ChatCompletionRequest {
-    pub fn new(messages: Vec<ChatMessage>, config: &MiniMaxConfig) -> Self {
+    pub fn new(messages: Vec<ChatMessage>, config: &AiConfig) -> Self {
         Self {
             model: config.model.clone(),
             messages,
@@ -115,13 +115,13 @@ impl ChatCompletionRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct MiniMaxClient {
+pub struct AiClient {
     client: Client,
-    config: MiniMaxConfig,
+    config: AiConfig,
 }
 
-impl MiniMaxClient {
-    pub fn new(config: MiniMaxConfig) -> Result<Self> {
+impl AiClient {
+    pub fn new(config: AiConfig) -> Result<Self> {
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(config.timeout_seconds))
             .user_agent("DeadlockBrain/0.1")
@@ -130,14 +130,14 @@ impl MiniMaxClient {
     }
 
     pub fn from_settings(settings: &Settings) -> Result<Self> {
-        Self::new(MiniMaxConfig::from_settings(settings))
+        Self::new(AiConfig::from_settings(settings))
     }
 
     pub fn from_env() -> Result<Self> {
-        Self::new(MiniMaxConfig::from_env()?)
+        Self::new(AiConfig::from_env()?)
     }
 
-    pub fn config(&self) -> &MiniMaxConfig {
+    pub fn config(&self) -> &AiConfig {
         &self.config
     }
 
@@ -167,7 +167,7 @@ impl MiniMaxClient {
 pub fn build_review_request(
     prompt_de: &str,
     compact_context: &Value,
-    config: &MiniMaxConfig,
+    config: &AiConfig,
 ) -> ChatCompletionRequest {
     let user_content = format!(
         "{prompt_de}\n\nErstelle die Antwort mit dieser Struktur:\n1. Kurzfazit\n2. Patch-Verlauf und relevante Reworks/Renames\n3. Aktuelle Einordnung anhand der Daten\n4. Build-/Gameplay-Implikationen\n5. Unsicherheiten / offene Punkte\n\nReview-Kontext als JSON:\n{}",
@@ -182,7 +182,7 @@ pub fn build_review_request(
     )
 }
 
-pub fn extract_minimax_text(response: &Value) -> String {
+pub fn extract_ai_text(response: &Value) -> String {
     if let Some(items) = response.get("content").and_then(Value::as_array) {
         let fragments = items
             .iter()
@@ -218,7 +218,7 @@ pub fn extract_minimax_text(response: &Value) -> String {
         .to_string()
 }
 
-pub fn minimax_usage_summary(response: &Value) -> Value {
+pub fn ai_usage_summary(response: &Value) -> Value {
     json!({
         "id": response.get("id").cloned().unwrap_or(Value::Null),
         "model": response.get("model").cloned().unwrap_or(Value::Null),
@@ -232,7 +232,7 @@ pub fn minimax_usage_summary(response: &Value) -> Value {
         "output_sensitive": response.get("output_sensitive").cloned().unwrap_or(Value::Null),
         "base_resp": response.get("base_resp").cloned().unwrap_or(Value::Null),
         "provider": response.get("_provider").cloned().unwrap_or_else(|| json!("fireworks")),
-        "mode": response.get("_minimax_mode").cloned().unwrap_or_else(|| json!("fireworks_openai_compatible")),
+        "mode": response.get("_ai_mode").cloned().unwrap_or_else(|| json!("fireworks_openai_compatible")),
     })
 }
 
@@ -268,7 +268,7 @@ fn parse_response(response: reqwest::blocking::Response, mode: &str) -> Result<V
     if let Some(object) = value.as_object_mut() {
         object.insert("_http_status".to_string(), json!(status.as_u16()));
         object.insert("_provider".to_string(), json!("fireworks"));
-        object.insert("_minimax_mode".to_string(), json!(mode));
+        object.insert("_ai_mode".to_string(), json!(mode));
     }
     Ok(value)
 }
@@ -285,12 +285,12 @@ mod tests {
     #[test]
     fn extracts_openai_compatible_text() {
         let value = json!({"choices":[{"message":{"content":"<think>x</think>Antwort"}}]});
-        assert_eq!(extract_minimax_text(&value), "Antwort");
+        assert_eq!(extract_ai_text(&value), "Antwort");
     }
 
     #[test]
     fn serializes_fireworks_token_field() {
-        let config = MiniMaxConfig {
+        let config = AiConfig {
             api_key: Some("redacted".to_string()),
             base_url: "http://localhost".to_string(),
             model: "accounts/fireworks/models/deepseek-v4-flash".to_string(),

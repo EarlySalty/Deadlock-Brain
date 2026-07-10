@@ -456,7 +456,7 @@ pub(crate) fn statlocker_key(value: &str) -> String {
         .collect()
 }
 
-pub(crate) fn prompt_text_from_request(request: &deadlock_brain_core::minimax::ChatCompletionRequest) -> String {
+pub(crate) fn prompt_text_from_request(request: &deadlock_brain_core::ai::ChatCompletionRequest) -> String {
     request
         .messages
         .iter()

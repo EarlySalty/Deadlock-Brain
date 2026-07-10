@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 
 pub use dbrain_builds::{BuildContext, BuildPath, BuildPathSummary, BuildPhase, ItemDossier};
 
-use crate::minimax::{
-    extract_minimax_text, ChatCompletionRequest, ChatMessage, MiniMaxClient, MiniMaxConfig,
+use crate::ai::{
+    extract_ai_text, ChatCompletionRequest, ChatMessage, AiClient, AiConfig,
 };
 
 pub const BUILD_NARRATION_SYSTEM_PROMPT: &str = "Du bist ein Deadlock-Build-Coach für einen deutschen Discord. Dir wird ein Build vorgelegt, der bereits aus echten High-MMR-Spieldaten berechnet wurde: Pfade, Phasen und pro Item harte Fakten (slot_type, tier, defense_kind, damage_axis, prevalence_builds, winrate, lift_pp, sample_matches, confidence, buy_phase, synergy_with) sowie zum Helden archetype und hero_base_health.
@@ -37,12 +37,12 @@ pub struct ValidationViolation {
 }
 
 pub fn narrate_build(ctx: &BuildContext) -> anyhow::Result<String> {
-    let client = MiniMaxClient::from_env().context("load Fireworks client from environment")?;
+    let client = AiClient::from_env().context("load Fireworks client from environment")?;
     let request = build_narration_request(ctx, client.config())?;
     let response = client
         .chat(&request)
         .context("call Fireworks build narration")?;
-    let text = extract_minimax_text(&response);
+    let text = extract_ai_text(&response);
     if text.trim().is_empty() {
         return Err(anyhow!("empty Fireworks response"));
     }
@@ -51,7 +51,7 @@ pub fn narrate_build(ctx: &BuildContext) -> anyhow::Result<String> {
 
 pub fn build_narration_request(
     ctx: &BuildContext,
-    config: &MiniMaxConfig,
+    config: &AiConfig,
 ) -> anyhow::Result<ChatCompletionRequest> {
     Ok(ChatCompletionRequest::new(
         vec![

@@ -8,8 +8,8 @@ use std::{
 };
 
 use deadlock_brain_core::{
-    minimax::{
-        extract_minimax_text, ChatCompletionRequest, ChatMessage, MiniMaxClient, MiniMaxConfig,
+    ai::{
+        extract_ai_text, ChatCompletionRequest, ChatMessage, AiClient, AiConfig,
     },
     models::PatchEvent,
 };
@@ -586,7 +586,7 @@ pub async fn build_patch_impact_context(
 
 pub fn build_patch_impact_request(
     context: &Value,
-    config: &MiniMaxConfig,
+    config: &AiConfig,
 ) -> Result<PatchImpactRequest> {
     let entity_name = context
         .get("entity_summary")
@@ -712,10 +712,10 @@ pub async fn save_patch_impact_note(
 
 pub async fn run_patch_impact_batch(
     pool: &PgPool,
-    config: &MiniMaxConfig,
+    config: &AiConfig,
     limit: usize,
 ) -> Result<PatchImpactBatchSummary> {
-    let client = MiniMaxClient::new(config.clone())?;
+    let client = AiClient::new(config.clone())?;
     run_patch_impact_batch_with_chat(pool, config, limit, |request| {
         Ok(client.chat(request)?)
     })
@@ -724,7 +724,7 @@ pub async fn run_patch_impact_batch(
 
 pub async fn run_patch_impact_batch_with_chat<F>(
     pool: &PgPool,
-    config: &MiniMaxConfig,
+    config: &AiConfig,
     limit: usize,
     mut chat: F,
 ) -> Result<PatchImpactBatchSummary>
@@ -750,7 +750,7 @@ where
         let request_info = build_patch_impact_request(&context, config)?;
         match chat(&request_info.request) {
             Ok(response) => {
-                let result_text = extract_minimax_text(&response);
+                let result_text = extract_ai_text(&response);
                 save_patch_impact_note(
                     pool,
                     &context,
@@ -788,15 +788,15 @@ where
 
 pub async fn run_meta_trend_analysis(
     pool: &PgPool,
-    config: &MiniMaxConfig,
+    config: &AiConfig,
 ) -> Result<MetaTrendSummary> {
-    let client = MiniMaxClient::new(config.clone())?;
+    let client = AiClient::new(config.clone())?;
     run_meta_trend_analysis_with_chat(pool, config, |request| Ok(client.chat(request)?)).await
 }
 
 pub async fn run_meta_trend_analysis_with_chat<F>(
     pool: &PgPool,
-    config: &MiniMaxConfig,
+    config: &AiConfig,
     mut chat: F,
 ) -> Result<MetaTrendSummary>
 where
@@ -829,7 +829,7 @@ where
 
         match chat(&request) {
             Ok(response) => {
-                let result_text = extract_minimax_text(&response);
+                let result_text = extract_ai_text(&response);
                 sqlx::query!(
                     r#"
                     INSERT INTO brain.meta_trend_notes (
@@ -1815,11 +1815,11 @@ mod tests {
             .expect("cleanup snapshot");
     }
 
-    fn test_config() -> MiniMaxConfig {
+    fn test_config() -> AiConfig {
         let mut settings = deadlock_brain_core::config::load_settings().expect("settings");
-        settings.minimax_api_key = None;
-        settings.minimax_model = "accounts/fireworks/models/deepseek-v4-flash".to_string();
-        MiniMaxConfig::from_settings(&settings)
+        settings.ai_api_key = None;
+        settings.ai_model = "accounts/fireworks/models/deepseek-v4-flash".to_string();
+        AiConfig::from_settings(&settings)
     }
 
     #[test]

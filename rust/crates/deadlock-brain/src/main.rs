@@ -12,12 +12,10 @@ use std::{
 use anyhow::{anyhow, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use deadlock_brain_core::{
+    ai::{extract_ai_text, AiClient, AiConfig, ChatCompletionRequest, ChatMessage},
     build_narration,
     config::{self, Settings},
     http::HttpClient,
-    minimax::{
-        extract_minimax_text, ChatCompletionRequest, ChatMessage, MiniMaxClient, MiniMaxConfig,
-    },
 };
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -530,10 +528,10 @@ enum AnalysisCommands {
     SaveReview(AnalysisSaveReviewArgs),
     #[command(
         name = "run-fireworks",
-        alias = "run-minimax",
+        alias = "run-ai",
         about = "Ruft Fireworks/DeepSeek fuer einen Review-Kontext auf und speichert das Ergebnis."
     )]
-    RunMinimax(AnalysisRunMinimaxArgs),
+    RunAi(AnalysisRunAiArgs),
     #[command(name = "list", about = "Listet gespeicherte Analyse-Notizen.")]
     List(AnalysisListArgs),
 }
@@ -555,7 +553,7 @@ struct AnalysisSaveReviewArgs {
 }
 
 #[derive(Debug, Args)]
-struct AnalysisRunMinimaxArgs {
+struct AnalysisRunAiArgs {
     #[arg(help = "Hero, Item, Ability oder Alias.")]
     query: String,
     #[arg(long = "limit-events", default_value_t = 80)]
@@ -1217,7 +1215,7 @@ fn read_json_input(path: Option<&PathBuf>) -> Result<String> {
 async fn run_build_eval(pool: &PgPool, settings: &Settings, args: BuildEvalArgs) -> Result<()> {
     let playstyle = args.playstyle.map(BuildPlaystyle::as_str);
     let build_context = dbrain_builds::build_context(pool, &args.hero, playstyle).await?;
-    let config = MiniMaxConfig::from_settings(settings);
+    let config = AiConfig::from_settings(settings);
     if !config.api_key_present() {
         return print_json(&json!({
             "build_context": build_context,
@@ -1225,10 +1223,10 @@ async fn run_build_eval(pool: &PgPool, settings: &Settings, args: BuildEvalArgs)
         }));
     }
 
-    let client = MiniMaxClient::new(config)?;
+    let client = AiClient::new(config)?;
     let request = build_narration::build_narration_request(&build_context, client.config())?;
     let response = client.chat(&request)?;
-    let narration = extract_minimax_text(&response);
+    let narration = extract_ai_text(&response);
     let known_item_names = load_known_item_names(pool).await?;
     let validation =
         build_narration::validate_narration(&narration, &build_context, &known_item_names);
@@ -1263,9 +1261,11 @@ async fn run_build_spec(pool: &PgPool, settings: &Settings, args: BuildSpecArgs)
     let known_item_names = load_known_item_names(pool).await?;
     let candidates =
         dbrain_builds::spec::build_candidate_set(&build_context, &corpus, &known_item_names);
-    let client = MiniMaxClient::from_settings(settings)?;
+    let client = AiClient::from_settings(settings)?;
     if !client.config().api_key_present() {
-        return Err(anyhow!("MINIMAX_API_KEY fehlt; build-spec braucht das LLM"));
+        return Err(anyhow!(
+            "Fireworks API-Key fehlt. Setze FIREWORK_API_KEY oder FIREWORKS_API_KEY; build-spec braucht das LLM."
+        ));
     }
 
     let request = ChatCompletionRequest::new(
@@ -1281,7 +1281,7 @@ async fn run_build_spec(pool: &PgPool, settings: &Settings, args: BuildSpecArgs)
         client.config(),
     );
     let response = client.chat(&request)?;
-    let llm_text = extract_minimax_text(&response);
+    let llm_text = extract_ai_text(&response);
     let llm_spec = dbrain_builds::spec::parse_llm_spec_text(&llm_text)?;
     let ability_order = dbrain_builds::spec::ability_order_from_corpus(&corpus);
     let skill_order_found = ability_order.is_some();
@@ -1361,7 +1361,7 @@ async fn run_learn(settings: &Settings, target: LearnCommands) -> Result<()> {
             }
         }
         LearnCommands::AnalyzeBuild(args) => {
-            let config = minimax_config(
+            let config = ai_config(
                 settings,
                 args.model,
                 args.max_completion_tokens,
@@ -1386,7 +1386,7 @@ async fn run_learn(settings: &Settings, target: LearnCommands) -> Result<()> {
             }
         }
         LearnCommands::AnalyzeNext(args) => {
-            let config = minimax_config(
+            let config = ai_config(
                 settings,
                 args.model,
                 args.max_completion_tokens,
@@ -1444,7 +1444,7 @@ async fn run_player(settings: &Settings, target: PlayerCommands) -> Result<()> {
             }
         }
         PlayerCommands::AnalyzeMatch(args) => {
-            let config = minimax_config(
+            let config = ai_config(
                 settings,
                 args.model,
                 args.max_completion_tokens,
@@ -1470,7 +1470,7 @@ async fn run_player(settings: &Settings, target: PlayerCommands) -> Result<()> {
             }
         }
         PlayerCommands::AnalyzeDemoMatch(args) => {
-            let config = minimax_config(
+            let config = ai_config(
                 settings,
                 args.model,
                 args.max_completion_tokens,
@@ -1547,7 +1547,7 @@ async fn run_player(settings: &Settings, target: PlayerCommands) -> Result<()> {
             }
         }
         PlayerCommands::AnalyzeNext(args) => {
-            let config = minimax_config(
+            let config = ai_config(
                 settings,
                 args.model,
                 args.max_completion_tokens,
@@ -1684,18 +1684,18 @@ async fn run_analysis(pool: &PgPool, settings: &Settings, target: AnalysisComman
                 print_json(&result)
             }
         }
-        AnalysisCommands::RunMinimax(args) => {
-            let config = minimax_config(
+        AnalysisCommands::RunAi(args) => {
+            let config = ai_config(
                 settings,
                 args.model,
                 args.max_completion_tokens,
                 args.temperature,
                 args.top_p,
             );
-            let result = dbrain_retrieval::analysis_run_minimax(
+            let result = dbrain_retrieval::analysis_run_ai(
                 pool,
                 &args.query,
-                dbrain_retrieval::AnalysisRunMinimaxOptions {
+                dbrain_retrieval::AnalysisRunAiOptions {
                     limit_events: usize_to_i64(args.limit_events),
                     config,
                     dry_run: args.dry_run,
@@ -1885,7 +1885,7 @@ async fn run_enrich(pool: &PgPool, settings: &Settings, target: EnrichCommands) 
             print_json(&run_patch_impact(pool, settings, args).await?)
         }
         EnrichCommands::MetaTrends => {
-            let config = minimax_config(settings, None, None, None, None);
+            let config = ai_config(settings, None, None, None, None);
             print_json(&dbrain_enrich::run_meta_trend_analysis(pool, &config).await?)
         }
     }
@@ -1896,7 +1896,7 @@ async fn run_patch_impact(
     settings: &Settings,
     args: PatchImpactArgs,
 ) -> Result<Value> {
-    let config = minimax_config(settings, None, None, None, None);
+    let config = ai_config(settings, None, None, None, None);
     if args.dry_run {
         let Some(hero) = args.hero.as_deref() else {
             return Err(anyhow!("Fuer --dry-run muss --hero angegeben werden."));
@@ -1914,9 +1914,9 @@ async fn run_patch_impact(
         let entity_type = entity_type_for_name(pool, hero).await?;
         let context = dbrain_enrich::build_patch_impact_context(pool, hero, &entity_type).await?;
         let request_info = dbrain_enrich::build_patch_impact_request(&context, &config)?;
-        let client = MiniMaxClient::new(config.clone())?;
+        let client = AiClient::new(config.clone())?;
         let response = client.chat(&request_info.request)?;
-        let result_text = extract_minimax_text(&response);
+        let result_text = extract_ai_text(&response);
         dbrain_enrich::save_patch_impact_note(
             pool,
             &context,
@@ -1959,14 +1959,14 @@ async fn http_client_async(user_agent: String, cache_dir: PathBuf) -> Result<Htt
     Ok(tokio::task::spawn_blocking(move || HttpClient::new(user_agent, cache_dir)).await??)
 }
 
-fn minimax_config(
+fn ai_config(
     settings: &Settings,
     model: Option<String>,
     max_completion_tokens: Option<u64>,
     temperature: Option<f64>,
     top_p: Option<f64>,
-) -> MiniMaxConfig {
-    let mut config = MiniMaxConfig::from_settings(settings);
+) -> AiConfig {
+    let mut config = AiConfig::from_settings(settings);
     if let Some(model) = model {
         config.model = model;
     }
@@ -2666,7 +2666,7 @@ fn print_analysis_result(target: &str, result: &Value) {
                 display_value(get(result, "context_hash"))
             );
         }
-        "run-fireworks" | "run-minimax" => {
+        "run-fireworks" | "run-ai" => {
             if bool_value(get(result, "dry_run")) {
                 let messages = get(result, "request")
                     .and_then(|request| get(request, "messages"))
