@@ -1,7 +1,7 @@
 use std::{path::Path, time::Duration};
 
 use deadlock_brain_core::http::{HttpClient, HttpGetOptions};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 use crate::{
     store::{
@@ -195,7 +195,7 @@ async fn pull_player_match_history_inner(
     let url = format!("{BASE_URL}/v1/players/{account_id}/match-history");
     let payload = get_deadlock_api_json(http, &url, options.cache_ttl_seconds)?;
     let rows = match_history_rows(&payload)?;
-    let filtered = filter_match_history(rows, options.hero_id);
+    let filtered = filter_match_history(rows, options.hero_id)?;
     let external_id = format!("player-match-history:{account_id}");
     let raw = json_bytes(&payload)?;
     let raw_path = store.write_raw(SOURCE, &external_id, &raw, "json")?;
@@ -219,19 +219,8 @@ async fn pull_player_match_history_inner(
         .await?;
 
     let mut snapshots = Vec::new();
-    for row in &filtered {
-        let Value::Object(object) = row else {
-            continue;
-        };
-        let match_id = python_or_string(object.get("match_id"))
-            .or_else(|| python_or_string(object.get("matchId")))
-            .unwrap_or_default()
-            .trim()
-            .to_string();
-        if match_id.is_empty() {
-            continue;
-        }
-        let hero_id = history_hero_id(row);
+    for (index, row) in filtered.iter().enumerate() {
+        let (_, hero_id, match_id) = match_history_fields(row, index)?;
         snapshots.push(EntitySnapshotInput {
             source: SOURCE.to_string(),
             entity_type: "deadlock_api_player_match".to_string(),
@@ -306,15 +295,38 @@ fn match_history_rows(payload: &Value) -> Result<&[Value]> {
     })
 }
 
-fn filter_match_history(rows: &[Value], hero_id: Option<u32>) -> Vec<Value> {
-    rows.iter()
-        .filter(|row| hero_id.is_none_or(|expected| history_hero_id(row) == Some(expected)))
-        .cloned()
-        .collect()
+fn filter_match_history(rows: &[Value], hero_id: Option<u32>) -> Result<Vec<Value>> {
+    let mut filtered = Vec::new();
+    for (index, row) in rows.iter().enumerate() {
+        let (_, row_hero_id, _) = match_history_fields(row, index)?;
+        if hero_id.is_none_or(|expected| row_hero_id == expected) {
+            filtered.push(row.clone());
+        }
+    }
+    Ok(filtered)
 }
 
-fn history_hero_id(row: &Value) -> Option<u32> {
-    let object = row.as_object()?;
+fn match_history_fields(row: &Value, index: usize) -> Result<(&Map<String, Value>, u32, String)> {
+    let row_number = index + 1;
+    let object = row.as_object().ok_or_else(|| {
+        SourcesError::invalid_input(format!(
+            "Deadlock API match-history Zeile {row_number} ist kein JSON-Objekt."
+        ))
+    })?;
+    let hero_id = history_hero_id(object).ok_or_else(|| {
+        SourcesError::invalid_input(format!(
+            "Deadlock API match-history Zeile {row_number} hat keine gueltige hero_id."
+        ))
+    })?;
+    let match_id = history_match_id(object).ok_or_else(|| {
+        SourcesError::invalid_input(format!(
+            "Deadlock API match-history Zeile {row_number} hat keine nicht-leere match_id."
+        ))
+    })?;
+    Ok((object, hero_id, match_id))
+}
+
+fn history_hero_id(object: &Map<String, Value>) -> Option<u32> {
     for key in ["hero_id", "heroId", "player_hero_id", "playerHeroId"] {
         let Some(value) = object.get(key) else {
             continue;
@@ -330,6 +342,13 @@ fn history_hero_id(row: &Value) -> Option<u32> {
         }
     }
     None
+}
+
+fn history_match_id(object: &Map<String, Value>) -> Option<String> {
+    python_or_string(object.get("match_id"))
+        .or_else(|| python_or_string(object.get("matchId")))
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 fn with_source_metadata(payload: &Value, metadata: Value) -> Value {
@@ -372,7 +391,8 @@ mod tests {
             }
         ]);
 
-        let filtered = filter_match_history(match_history_rows(&payload).unwrap(), Some(18));
+        let filtered =
+            filter_match_history(match_history_rows(&payload).unwrap(), Some(18)).unwrap();
 
         assert_eq!(filtered.len(), 2);
         assert_eq!(filtered[0]["match_id"], json!(111));
@@ -383,6 +403,51 @@ mod tests {
         assert_eq!(filtered[1]["match_result"], json!("lost"));
         assert_eq!(filtered[1]["start_time"], json!(1700000600));
         assert_eq!(filtered[1]["team_abandoned"], json!(true));
+    }
+
+    #[test]
+    fn rejects_non_object_match_history_row() {
+        let payload = json!([
+            {
+                "match_id": 111,
+                "hero_id": 18
+            },
+            "not an object"
+        ]);
+
+        let error =
+            filter_match_history(match_history_rows(&payload).unwrap(), Some(18)).unwrap_err();
+
+        assert!(error.to_string().contains("Zeile 2"));
+        assert!(error.to_string().contains("JSON-Objekt"));
+    }
+
+    #[test]
+    fn rejects_match_history_row_without_valid_hero_id() {
+        for payload in [
+            json!([{ "match_id": 111 }]),
+            json!([{ "match_id": 111, "hero_id": "   " }]),
+            json!([{ "match_id": 111, "hero_id": -1 }]),
+        ] {
+            let error =
+                filter_match_history(match_history_rows(&payload).unwrap(), Some(18)).unwrap_err();
+
+            assert!(error.to_string().contains("hero_id"));
+        }
+    }
+
+    #[test]
+    fn rejects_match_history_row_without_non_empty_match_id() {
+        for payload in [
+            json!([{ "hero_id": 18 }]),
+            json!([{ "match_id": "", "hero_id": 18 }]),
+            json!([{ "match_id": "   ", "hero_id": 18 }]),
+        ] {
+            let error =
+                filter_match_history(match_history_rows(&payload).unwrap(), Some(18)).unwrap_err();
+
+            assert!(error.to_string().contains("match_id"));
+        }
     }
 
     #[test]
