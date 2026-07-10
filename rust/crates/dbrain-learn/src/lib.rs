@@ -8,6 +8,7 @@ mod build_learning;
 mod build_optimizer;
 mod error;
 mod match_coaching;
+mod match_demo_learning;
 mod player_decision_learning;
 mod util;
 
@@ -19,6 +20,11 @@ pub use build_learning::{
 pub use build_optimizer::{build_hero_build_context, build_suggest, BuildSuggestOptions};
 pub use error::{LearnError, Result};
 pub use match_coaching::build_match_coaching_context;
+pub use match_demo_learning::{
+    demo_analyze_match, demo_calibration_status, render_demo_report, save_demo_report_review,
+    validate_demo_report, validate_demo_report_review, DemoAnalyzeMatchOptions,
+    DEMO_REPORT_PROMPT_VERSION,
+};
 pub use player_decision_learning::{
     build_minimax_player_match_decision_request, build_player_match_decision_context,
     player_analyze_match, player_analyze_next, player_list_matches, player_match_context,

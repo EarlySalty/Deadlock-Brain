@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Deadlock Brain: Match-Demo-Lernen</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f5f6f7;
+      --surface: #ffffff;
+      --text: #202326;
+      --muted: #626970;
+      --line: #d8dcdf;
+      --accent: #9b7412;
+      --ok: #176b45;
+      --warn: #9a4d16;
+      --code: #17191b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 16px/1.55 system-ui, sans-serif;
+      letter-spacing: 0;
+    }
+    main { width: min(920px, calc(100% - 32px)); margin: 40px auto 72px; }
+    header { border-bottom: 3px solid var(--accent); padding-bottom: 20px; }
+    h1 { margin: 0 0 8px; font-size: clamp(2rem, 6vw, 3rem); line-height: 1.05; }
+    h2 { margin: 40px 0 12px; font-size: 1.45rem; }
+    h3 { margin: 24px 0 8px; font-size: 1.05rem; }
+    p, li { max-width: 78ch; }
+    .meta { color: var(--muted); margin: 0; }
+    .status {
+      margin-top: 20px;
+      border-left: 4px solid var(--warn);
+      background: var(--surface);
+      padding: 14px 16px;
+    }
+    code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+    pre {
+      overflow-x: auto;
+      border: 1px solid #33383d;
+      background: var(--code);
+      color: #f2f4f5;
+      padding: 16px;
+      border-radius: 6px;
+      font-size: 0.9rem;
+    }
+    table { width: 100%; border-collapse: collapse; background: var(--surface); }
+    th, td { border: 1px solid var(--line); padding: 10px 12px; text-align: left; vertical-align: top; }
+    th { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
+    .ok { color: var(--ok); font-weight: 700; }
+    .warn { color: var(--warn); font-weight: 700; }
+    a { color: #17659b; }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #181a1c;
+        --surface: #222529;
+        --text: #eef0f1;
+        --muted: #adb3b8;
+        --line: #44494e;
+        --accent: #d7ab3d;
+        --ok: #75d3a4;
+        --warn: #eea369;
+      }
+      a { color: #80c7f2; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Match-Demo-Lernen</h1>
+    <p class="meta">Mo &amp; Krill Pilot · Stand 10. Juli 2026 · Prompt <code>mo_full_report_de_v2</code></p>
+    <p class="meta">Zentrale interne SSOT: <code>Deadlock-Docs/internal/deadlock-brain/match-demo-learning.md</code></p>
+    <div class="status"><strong>Status:</strong> Reports bleiben <code>calibration_pending</code>. Es wird noch kein aktives Wissen, kein Build und keine Coaching-Regel übernommen.</div>
+  </header>
+
+  <section>
+    <h2>Standardablauf</h2>
+    <p>Der Pilot katalogisiert alle verfügbaren Mo-&amp;-Krill-Matches des Referenzspielers. Siege und Niederlagen bleiben enthalten; die Auswahl ist nicht auf den aktuellen Patch begrenzt.</p>
+    <pre><code>./rust/target/release/deadlock-brain player sync-matches 281768392 --hero-id 18 --pretty
+./rust/target/release/deadlock-brain player fetch-demo 281768392 &lt;MATCH_ID&gt; --hero-id 18 --steam-id64 76561198242034120 --pretty
+./rust/target/release/deadlock-brain player analyze-demo-match 281768392 &lt;MATCH_ID&gt; --pretty</code></pre>
+    <p><code>fetch-demo</code> lädt zuerst vollständige Match-Metadaten und danach drei Demo-Queries: Player-State, zielspielerbezogene Combat-Ereignisse und Economy/Objectives. Ein fertiger Evidenz-Snapshot entsteht nur, wenn alle drei Queries erfolgreich sind.</p>
+
+    <h3>Dry-Run</h3>
+    <pre><code>./rust/target/release/deadlock-brain player analyze-demo-match 281768392 &lt;MATCH_ID&gt; --dry-run --pretty</code></pre>
+    <p>Der Dry-Run baut und persistiert nur den Kontext mit Status <code>context_ready</code>. Es gibt keinen Fireworks-Aufruf und keinen fertigen Report.</p>
+  </section>
+
+  <section>
+    <h2>Reportvertrag</h2>
+    <table>
+      <thead><tr><th>Bereich</th><th>Vertrag</th></tr></thead>
+      <tbody>
+        <tr><td>Matchkopf</td><td>Match, Spieler, Hero, Patch, Ergebnis, Dauer und Lane kommen deterministisch aus Quellen und dürfen vom Modell nicht geändert werden.</td></tr>
+        <tr><td>Entscheidungen</td><td>Beobachtung, Aktion, Wirkung, Interpretation, Bewertung und Alternative sind getrennt. Jede Entscheidung trägt bekannte Evidenz-IDs.</td></tr>
+        <tr><td>Combat</td><td>Rohereignisse bleiben erhalten. Aggregierte Fight-Fenster erhalten eine eigene <code>fight_window:*</code>-ID mit allen Rohbelegen darunter.</td></tr>
+        <tr><td>Abdeckung</td><td>Mindestens 2 Economy-, 3 Combat-, 2 Macro-Entscheidungen sowie starke Entscheidung, Fehler und Wendepunkt. Insgesamt mindestens 7 unterschiedliche Kernentscheidungen.</td></tr>
+        <tr><td>Wissensstatus</td><td class="warn">Formal gültig bedeutet nicht fachlich bestätigt. Bis zum Gate bleibt der Report isoliert.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Menschliches Review</h2>
+    <p>Entscheidungs-IDs stehen im Markdown als <code>D1</code>, <code>D2</code> usw. Das Review wird aus einer Datei gelesen; freies Shell-JSON wird nicht akzeptiert.</p>
+    <pre><code>{
+  "reviewed_decision_ids": ["D1", "D2", "D3", "D4", "D5", "D6", "D7"],
+  "corrections": [
+    {
+      "decision_id": "D1",
+      "label": "unbelegt",
+      "comment": "Der Beleg zeigt das behauptete Ereignis nicht.",
+      "replacement": "Nur die beobachtbare Zustandsänderung beschreiben."
+    }
+  ]
+}</code></pre>
+    <p><code>reviewed_decision_ids</code> muss alle kanonischen IDs des Reports enthalten; nur <code>corrections</code> darf eine Teilmenge sein. Erlaubte Labels: <code>falsch</code>, <code>unbelegt</code>, <code>Kontext fehlt</code> und <code>wichtige Entscheidung uebersehen</code>. Die angegebene Note-ID wählt den geprüften Report; gespeichert werden zusätzlich dessen Context- und Report-Hash.</p>
+    <pre><code>./rust/target/release/deadlock-brain player review-demo-report &lt;NOTE_ID&gt; --file review.json --pretty
+./rust/target/release/deadlock-brain player demo-calibration-status 281768392 --pretty</code></pre>
+  </section>
+
+  <section>
+    <h2>Kalibrierungstor</h2>
+    <ul>
+      <li>Mindestens fünf unterschiedliche Reports müssen geprüft sein.</li>
+      <li>Die letzten drei Reports dürfen keinen kritischen Fehler enthalten.</li>
+      <li>Die Korrekturquote jedes dieser drei Reports muss strikt unter 10 Prozent liegen.</li>
+      <li><code>falsch</code>, <code>unbelegt</code> und <code>wichtige Entscheidung uebersehen</code> sind immer kritisch. <code>Kontext fehlt</code> ist kritisch, wenn eine Ersetzung die Entscheidung ändert.</li>
+    </ul>
+    <p class="ok">Nur das Gate berechnet den Kalibrierungsstatus. Eine Modell-Selbsteinschätzung kann ihn nicht öffnen.</p>
+  </section>
+
+  <section>
+    <h2>API-Limits und Fehler</h2>
+    <p>Die Deadlock API veröffentlicht Limits endpointabhängig und signalisiert Überschreitungen mit HTTP 429; für den Demo-Query-Endpunkt ist keine feste öffentliche Quote dokumentiert. Der Pilot startet deshalb genau drei Query-Jobs pro Match nacheinander, pollt standardmäßig alle 5 Sekunden und wartet pro Job höchstens 900 Sekunden.</p>
+    <p>Ein Poll-GET hat genau einen inneren HTTP-Versuch. 429, Server- und Transportfehler werden in der Poll-Schleife wiederholt; Anfragezeit, Backoff und Poll-Pause bleiben innerhalb der Gesamtdeadline. Ergebnisdaten werden nur direkt per HTTPS von <code>demo-extracts.deadlock-api.com</code> geladen; Redirects oder andere Origins werden abgelehnt. Ein Demo-Submit wird nicht blind wiederholt, weil ein POST trotz verlorener Antwort bereits einen Job erzeugt haben kann. Fehler bleiben sichtbar, und ein unvollständiger Lauf erzeugt keinen fertigen Evidenz-Snapshot. Quelle: <a href="https://api.deadlock-api.com/docs">Deadlock API Reference</a>.</p>
+  </section>
+
+  <section>
+    <h2>Steam-Fallback</h2>
+    <p>Fehlt eine Demo in der API, bleibt das Match offen und das nächste verfügbare Match kann analysiert werden. Der direkte Game-/Steam-Download ist bewusst vertagt, bis mehrere API-Reports den Evidenz- und Reviewvertrag bestanden haben. Dadurch wird nicht gleichzeitig ein zweiter Demo-Parser debuggt, während der fachliche Reportvertrag noch kalibriert wird.</p>
+  </section>
+
+  <section>
+    <h2>Erster Live-Tracer</h2>
+    <p>Match <code>92685682</code> lieferte 4.472 Rohbelege und 36 abgeleitete Fight-Fenster. Der erste <code>v1</code>-Report war zu dünn und enthielt falsche Itemwirkungen. <code>v2</code> löst Items aus der Assets API auf und besteht die formalen Gates, enthält aber weiterhin prüfpflichtige Aussagen, etwa eine unbelegte Spielerbeteiligung an einem globalen Boss-Ereignis. Das ist ein Kalibrierungsbefund, keine Wissensfreigabe.</p>
+  </section>
+</main>
+</body>
+</html>
