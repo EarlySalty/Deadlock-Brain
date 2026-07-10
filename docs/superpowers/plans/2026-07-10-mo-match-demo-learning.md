@@ -14,7 +14,7 @@
 - Ignore unrelated migration and cutover documents; implement only this plan.
 - Account ID is `281768392`, SteamID64 is `76561198242034120`, and Mo & Krill hero ID is `18`.
 - Catalog every returned Mo & Krill match without result or patch filtering.
-- Every report fact must cite an evidence ID; interpretation and evaluation are separate fields.
+- Every analyzed decision must cite an evidence ID; deterministic match-header fields retain their source metadata. Interpretation and evaluation are separate fields.
 - Store reports as `calibration_pending`; do not write active Brain rules, builds, or coaching knowledge.
 - TDD for every non-trivial branch. No new crate or third-party dependency.
 - After each task: focused tests, `cargo fmt --all -- --check`, own diff review, commit with the required co-author trailer, and push.
