@@ -6,7 +6,7 @@ use std::{
 };
 
 use reqwest::{
-    blocking::Client,
+    blocking::{Client, RequestBuilder},
     header::{HeaderName, HeaderValue, CONTENT_TYPE},
     StatusCode,
 };
@@ -105,7 +105,7 @@ impl HttpClient {
             }
         }
 
-        let result = self.fetch_with_retry(url, &options)?;
+        let result = self.fetch_with_retry(url, &options, || self.client.get(url))?;
         self.write_cache(&result)?;
         Ok(result)
     }
@@ -114,13 +114,33 @@ impl HttpClient {
         self.get(url, options)?.json()
     }
 
-    fn fetch_with_retry(&self, url: &str, options: &HttpGetOptions) -> Result<HttpResult> {
+    pub fn post_json<T: Serialize>(
+        &self,
+        url: &str,
+        body: &T,
+        options: HttpGetOptions,
+    ) -> Result<HttpResult> {
+        let body = serde_json::to_vec(body)?;
+        self.fetch_with_retry(url, &options, || {
+            self.client
+                .post(url)
+                .header(CONTENT_TYPE, "application/json")
+                .body(body.clone())
+        })
+    }
+
+    fn fetch_with_retry(
+        &self,
+        url: &str,
+        options: &HttpGetOptions,
+        build_request: impl Fn() -> RequestBuilder,
+    ) -> Result<HttpResult> {
         let attempts = options.retry.attempts.max(1);
         let mut last_server_status = None;
         let mut last_server_body = String::new();
 
         for attempt in 1..=attempts {
-            match self.fetch_once(url, options) {
+            match self.fetch_once(url, options, build_request()) {
                 Ok(result) => return Ok(result),
                 Err(CoreError::HttpStatus { status, body, .. }) if should_retry_status(status) => {
                     last_server_status = Some(status);
@@ -146,8 +166,13 @@ impl HttpClient {
         })
     }
 
-    fn fetch_once(&self, url: &str, options: &HttpGetOptions) -> Result<HttpResult> {
-        let mut request = self.client.get(url).timeout(options.timeout);
+    fn fetch_once(
+        &self,
+        url: &str,
+        options: &HttpGetOptions,
+        request: RequestBuilder,
+    ) -> Result<HttpResult> {
+        let mut request = request.timeout(options.timeout);
         for (name, value) in &options.headers {
             let header_name = HeaderName::from_bytes(name.as_bytes()).map_err(|error| {
                 CoreError::InvalidHeader {
@@ -243,4 +268,93 @@ fn should_retry_status(status: StatusCode) -> bool {
 
 fn truncate_for_error(value: &str) -> String {
     value.chars().take(1000).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        thread,
+    };
+
+    #[test]
+    fn post_json_sends_body_and_reads_response() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/query", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let (headers, body) = read_request(&mut stream);
+
+            assert!(headers.starts_with("POST /query HTTP/1.1\r\n"));
+            assert_eq!(body, br#"{"match_id":92242282,"format":"ndjson"}"#.to_vec());
+
+            let response_body = br#"{"status":"queued"}"#;
+            write!(
+                stream,
+                "HTTP/1.1 202 Accepted\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                response_body.len()
+            )
+            .unwrap();
+            stream.write_all(response_body).unwrap();
+        });
+
+        let cache_dir = tempfile::tempdir().unwrap();
+        let client = HttpClient::new("deadlock-brain-core-test", cache_dir.path()).unwrap();
+        let body = QueryBody {
+            match_id: 92242282,
+            format: "ndjson",
+        };
+
+        let result = client
+            .post_json(&url, &body, HttpGetOptions::default())
+            .unwrap();
+
+        assert_eq!(
+            result.json::<serde_json::Value>().unwrap()["status"],
+            "queued"
+        );
+        server.join().unwrap();
+    }
+
+    #[derive(serde::Serialize)]
+    struct QueryBody<'a> {
+        match_id: u64,
+        format: &'a str,
+    }
+
+    fn read_request(stream: &mut std::net::TcpStream) -> (String, Vec<u8>) {
+        let mut request = Vec::new();
+        let mut buffer = [0_u8; 512];
+        let header_end = loop {
+            let read = stream.read(&mut buffer).unwrap();
+            assert!(read > 0);
+            request.extend_from_slice(&buffer[..read]);
+            if let Some(index) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+                break index + 4;
+            }
+        };
+
+        let headers = String::from_utf8(request[..header_end].to_vec()).unwrap();
+        let content_length = headers
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("content-length")
+                    .then(|| value.trim().parse::<usize>().unwrap())
+            })
+            .unwrap();
+
+        while request.len() < header_end + content_length {
+            let read = stream.read(&mut buffer).unwrap();
+            assert!(read > 0);
+            request.extend_from_slice(&buffer[..read]);
+        }
+
+        (
+            headers,
+            request[header_end..header_end + content_length].to_vec(),
+        )
+    }
 }
