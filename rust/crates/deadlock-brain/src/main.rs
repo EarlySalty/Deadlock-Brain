@@ -380,6 +380,11 @@ enum PlayerCommands {
         about = "Synchronisiert die Match-History eines Spielers aus der Deadlock API."
     )]
     SyncMatches(PlayerSyncMatchesArgs),
+    #[command(
+        name = "fetch-demo",
+        about = "Laedt versionierte Match-Evidenz aus einer Deadlock-Demo."
+    )]
+    FetchDemo(PlayerFetchDemoArgs),
 }
 
 #[derive(Debug, Args)]
@@ -447,6 +452,22 @@ struct PlayerSyncMatchesArgs {
     hero_id: u32,
     #[arg(long = "cache-ttl-seconds", default_value_t = 21_600)]
     cache_ttl_seconds: u64,
+    #[arg(long)]
+    pretty: bool,
+}
+
+#[derive(Debug, Args)]
+struct PlayerFetchDemoArgs {
+    account_id: String,
+    match_id: String,
+    #[arg(long = "hero-id", default_value_t = 18)]
+    hero_id: u32,
+    #[arg(long = "steam-id64", default_value_t = 76561198242034120)]
+    steam_id64: u64,
+    #[arg(long = "poll-interval-seconds", default_value_t = 5)]
+    poll_interval_seconds: u64,
+    #[arg(long = "timeout-seconds", default_value_t = 900)]
+    timeout_seconds: u64,
     #[arg(long)]
     pretty: bool,
 }
@@ -1425,8 +1446,40 @@ async fn run_player(settings: &Settings, target: PlayerCommands) -> Result<()> {
                 print_json(&result)
             }
         }
+        PlayerCommands::FetchDemo(args) => {
+            let http =
+                http_client_async(settings.user_agent.clone(), settings.cache_dir.clone()).await?;
+            let metadata = dbrain_sources::pull_match_metadata(
+                &settings.raw_dir,
+                &http,
+                fetch_demo_match_metadata_options(&args),
+            )
+            .await?;
+            let evidence = dbrain_sources::pull_demo_evidence(
+                &settings.raw_dir,
+                &http,
+                fetch_demo_evidence_options(&args, &metadata)?,
+            )
+            .await?;
+            let result = json!({
+                "metadata": metadata,
+                "demo_evidence": evidence,
+            });
+            if args.pretty {
+                println!(
+                    "Demo-Evidenz geladen: Match {}, {} Zeilen aus {} Queries.",
+                    display_value(get(&evidence, "match_id")),
+                    display_or(get(&evidence, "rows"), "0"),
+                    array_len(get(&evidence, "queries"))
+                );
+                Ok(())
+            } else {
+                print_json(&result)
+            }
+        }
         PlayerCommands::SyncMatches(args) => {
-            let http = http_client(settings)?;
+            let http =
+                http_client_async(settings.user_agent.clone(), settings.cache_dir.clone()).await?;
             let result = dbrain_sources::pull_player_match_history(
                 &settings.raw_dir,
                 &http,
@@ -1449,6 +1502,41 @@ async fn run_player(settings: &Settings, target: PlayerCommands) -> Result<()> {
             }
         }
     }
+}
+
+fn fetch_demo_match_metadata_options(
+    args: &PlayerFetchDemoArgs,
+) -> dbrain_sources::PullMatchMetadataOptions {
+    dbrain_sources::PullMatchMetadataOptions {
+        match_ids: vec![args.match_id.clone()],
+        account_ids: vec![args.account_id.clone()],
+        hero_ids: vec![args.hero_id.to_string()],
+        include_player_items: true,
+        include_player_info: true,
+        include_player_stats: true,
+        include_player_death_details: true,
+        include_objectives: true,
+        cache_ttl_seconds: 0,
+    }
+}
+
+fn fetch_demo_evidence_options(
+    args: &PlayerFetchDemoArgs,
+    metadata: &Value,
+) -> Result<dbrain_sources::PullDemoEvidenceOptions> {
+    let player_slot = get(metadata, "target_player_slot")
+        .and_then(Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok())
+        .ok_or_else(|| anyhow!("Match-Metadaten enthalten keinen gueltigen Zielspieler-Slot."))?;
+    Ok(dbrain_sources::PullDemoEvidenceOptions {
+        account_id: args.account_id.clone(),
+        match_id: args.match_id.clone(),
+        hero_id: args.hero_id,
+        steam_id64: args.steam_id64,
+        player_slot,
+        poll_interval_seconds: args.poll_interval_seconds,
+        timeout_seconds: args.timeout_seconds,
+    })
 }
 
 async fn run_analysis(pool: &PgPool, settings: &Settings, target: AnalysisCommands) -> Result<()> {
@@ -1513,7 +1601,7 @@ async fn run_analysis(pool: &PgPool, settings: &Settings, target: AnalysisComman
 }
 
 async fn run_pull(pool: &PgPool, settings: &Settings, source: PullCommands) -> Result<()> {
-    let http = http_client(settings)?;
+    let http = http_client_async(settings.user_agent.clone(), settings.cache_dir.clone()).await?;
     match source {
         PullCommands::Assets(args) => {
             let result = dbrain_sources::pull_assets(
@@ -1606,7 +1694,7 @@ async fn run_pull(pool: &PgPool, settings: &Settings, source: PullCommands) -> R
 }
 
 async fn run_refresh_sheet(pool: &PgPool, settings: &Settings) -> Result<()> {
-    let http = http_client(settings)?;
+    let http = http_client_async(settings.user_agent.clone(), settings.cache_dir.clone()).await?;
     let pull_wrapper = dbrain_sources::refresh_sheet(
         &settings.raw_dir,
         &http,
@@ -1739,6 +1827,10 @@ fn prepare_dirs(settings: &Settings) -> Result<()> {
 
 fn http_client(settings: &Settings) -> Result<HttpClient> {
     HttpClient::new(settings.user_agent.clone(), settings.cache_dir.clone()).map_err(Into::into)
+}
+
+async fn http_client_async(user_agent: String, cache_dir: PathBuf) -> Result<HttpClient> {
+    Ok(tokio::task::spawn_blocking(move || HttpClient::new(user_agent, cache_dir)).await??)
 }
 
 fn minimax_config(
@@ -2807,36 +2899,6 @@ fn request_message_count(result: &Value) -> usize {
         .unwrap_or(0)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_player_sync_matches_defaults_hero_to_mo() {
-        let cli = Cli::try_parse_from([
-            "deadlock-brain",
-            "player",
-            "sync-matches",
-            "123",
-            "--cache-ttl-seconds",
-            "9",
-            "--pretty",
-        ])
-        .expect("parse cli");
-
-        let Commands::Player {
-            target: PlayerCommands::SyncMatches(args),
-        } = cli.command
-        else {
-            panic!("expected player sync-matches");
-        };
-        assert_eq!(args.account_id, "123");
-        assert_eq!(args.hero_id, 18);
-        assert_eq!(args.cache_ttl_seconds, 9);
-        assert!(args.pretty);
-    }
-}
-
 fn format_prop_value(prop: &Value) -> String {
     let prefix = str_value(get(prop, "prefix")).unwrap_or_default();
     let value = get(prop, "value")
@@ -2921,5 +2983,140 @@ fn capitalize(value: &str) -> String {
     match chars.next() {
         Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
         None => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_player_sync_matches_defaults_hero_to_mo() {
+        let cli = Cli::try_parse_from([
+            "deadlock-brain",
+            "player",
+            "sync-matches",
+            "123",
+            "--cache-ttl-seconds",
+            "9",
+            "--pretty",
+        ])
+        .expect("parse cli");
+
+        let Commands::Player {
+            target: PlayerCommands::SyncMatches(args),
+        } = cli.command
+        else {
+            panic!("expected player sync-matches");
+        };
+        assert_eq!(args.account_id, "123");
+        assert_eq!(args.hero_id, 18);
+        assert_eq!(args.cache_ttl_seconds, 9);
+        assert!(args.pretty);
+    }
+
+    #[test]
+    fn parses_player_fetch_demo_defaults_to_mo_evidence_options() {
+        let cli = Cli::try_parse_from([
+            "deadlock-brain",
+            "player",
+            "fetch-demo",
+            "123",
+            "92685682",
+            "--pretty",
+        ])
+        .expect("parse cli");
+
+        let Commands::Player {
+            target: PlayerCommands::FetchDemo(args),
+        } = cli.command
+        else {
+            panic!("expected player fetch-demo");
+        };
+        assert_eq!(args.account_id, "123");
+        assert_eq!(args.match_id, "92685682");
+        assert_eq!(args.hero_id, 18);
+        assert_eq!(args.steam_id64, 76561198242034120);
+        assert_eq!(args.poll_interval_seconds, 5);
+        assert_eq!(args.timeout_seconds, 900);
+        assert!(args.pretty);
+    }
+
+    #[test]
+    fn player_fetch_demo_metadata_options_are_exact_and_detailed() {
+        let args = PlayerFetchDemoArgs {
+            account_id: "123".to_string(),
+            match_id: "92685682".to_string(),
+            hero_id: 18,
+            steam_id64: 76561198242034120,
+            poll_interval_seconds: 5,
+            timeout_seconds: 900,
+            pretty: false,
+        };
+
+        let options = fetch_demo_match_metadata_options(&args);
+
+        assert_eq!(options.match_ids, ["92685682"]);
+        assert_eq!(options.account_ids, ["123"]);
+        assert_eq!(options.hero_ids, ["18"]);
+        assert!(options.include_player_items);
+        assert!(options.include_player_info);
+        assert!(options.include_player_stats);
+        assert!(options.include_player_death_details);
+        assert!(options.include_objectives);
+    }
+
+    #[test]
+    fn player_fetch_demo_passes_the_metadata_player_slot_to_demo_queries() {
+        let args = PlayerFetchDemoArgs {
+            account_id: "281768392".to_string(),
+            match_id: "92685682".to_string(),
+            hero_id: 18,
+            steam_id64: 76561198242034120,
+            poll_interval_seconds: 5,
+            timeout_seconds: 900,
+            pretty: false,
+        };
+
+        let options =
+            fetch_demo_evidence_options(&args, &json!({ "target_player_slot": 8 })).unwrap();
+
+        assert_eq!(options.player_slot, 8);
+    }
+
+    #[test]
+    fn blocking_http_client_is_built_off_the_async_runtime_thread() {
+        use std::{io::Write, net::TcpListener, thread};
+
+        let cache_dir =
+            std::env::temp_dir().join(format!("deadlock-brain-http-client-test-{}", process::id()));
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+        let url = format!("http://{}/health", listener.local_addr().expect("address"));
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut request = [0_u8; 1024];
+            let bytes_read = stream.read(&mut request).expect("read request");
+            assert!(bytes_read > 0);
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+                .expect("write response");
+        });
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+
+        runtime.block_on(async {
+            let client = http_client_async("deadlock-brain-test".to_string(), cache_dir.clone())
+                .await
+                .expect("blocking http client");
+            let response = client
+                .get(&url, deadlock_brain_core::http::HttpGetOptions::default())
+                .expect("GET inside async command");
+            assert_eq!(response.text(), "ok");
+            drop(client);
+        });
+        server.join().expect("server thread");
+        fs::remove_dir_all(cache_dir).expect("remove cache dir");
     }
 }

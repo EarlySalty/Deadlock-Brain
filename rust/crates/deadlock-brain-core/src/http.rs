@@ -105,7 +105,8 @@ impl HttpClient {
             }
         }
 
-        let result = self.fetch_with_retry(url, &options, || self.client.get(url))?;
+        let result =
+            run_on_http_thread(|| self.fetch_with_retry(url, &options, || self.client.get(url)))?;
         self.write_cache(&result)?;
         Ok(result)
     }
@@ -121,11 +122,13 @@ impl HttpClient {
         options: HttpGetOptions,
     ) -> Result<HttpResult> {
         let body = serde_json::to_vec(body)?;
-        self.fetch_with_retry(url, &options, || {
-            self.client
-                .post(url)
-                .header(CONTENT_TYPE, "application/json")
-                .body(body.clone())
+        run_on_http_thread(|| {
+            self.fetch_with_retry(url, &options, || {
+                self.client
+                    .post(url)
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(body.clone())
+            })
         })
     }
 
@@ -249,6 +252,16 @@ impl HttpClient {
         let digest = hex::encode(Sha256::digest(url.as_bytes()));
         self.cache_dir.join(format!("{digest}.bin"))
     }
+}
+
+fn run_on_http_thread<T>(operation: impl FnOnce() -> Result<T> + Send) -> Result<T>
+where
+    T: Send,
+{
+    thread::scope(|scope| match scope.spawn(operation).join() {
+        Ok(result) => result,
+        Err(panic) => std::panic::resume_unwind(panic),
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

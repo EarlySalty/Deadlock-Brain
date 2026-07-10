@@ -19,8 +19,9 @@ mod util;
 
 pub use assets_api::{pull_assets, PullAssetsOptions};
 pub use deadlock_api::{
-    pull_match_metadata, pull_player_match_history, PullMatchMetadataOptions,
-    PullPlayerMatchHistoryOptions,
+    pull_demo_evidence, pull_match_metadata, pull_player_match_history, DemoJobState,
+    DemoJobStatus, DemoQuery, PullDemoEvidenceOptions, PullMatchMetadataOptions,
+    PullPlayerMatchHistoryOptions, DEMO_QUERY_VERSION,
 };
 pub use deadlock_data::{pull_deadlock_data, PullDeadlockDataOptions};
 pub use error::{Result, SourcesError};

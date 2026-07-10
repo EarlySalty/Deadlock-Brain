@@ -1,6 +1,13 @@
-use std::{path::Path, time::Duration};
+use std::{
+    path::Path,
+    thread,
+    time::{Duration, Instant},
+};
 
-use deadlock_brain_core::http::{HttpClient, HttpGetOptions};
+use deadlock_brain_core::{
+    http::{HttpClient, HttpGetOptions, RetryPolicy},
+    CoreError,
+};
 use serde_json::{json, Map, Value};
 
 use crate::{
@@ -13,6 +20,8 @@ use crate::{
 
 pub const SOURCE: &str = "deadlock_api";
 pub const BASE_URL: &str = "https://api.deadlock-api.com";
+pub const DEMO_QUERY_VERSION: &str = "mo_full_report_v1";
+const STEAM_ID64_ACCOUNT_BASE: u64 = 76_561_197_960_265_728;
 
 #[derive(Debug, Clone)]
 pub struct PullMatchMetadataOptions {
@@ -32,6 +41,38 @@ pub struct PullPlayerMatchHistoryOptions {
     pub account_id: String,
     pub hero_id: Option<u32>,
     pub cache_ttl_seconds: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DemoJobState {
+    Queued,
+    Running,
+    Done,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DemoJobStatus {
+    pub state: DemoJobState,
+    pub result_url: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DemoQuery {
+    pub name: &'static str,
+    pub sql: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct PullDemoEvidenceOptions {
+    pub account_id: String,
+    pub match_id: String,
+    pub hero_id: u32,
+    pub steam_id64: u64,
+    pub player_slot: u32,
+    pub poll_interval_seconds: u64,
+    pub timeout_seconds: u64,
 }
 
 impl Default for PullMatchMetadataOptions {
@@ -84,6 +125,18 @@ pub async fn pull_player_match_history(
     complete_run(&store, run_id, outcome).await
 }
 
+pub async fn pull_demo_evidence(
+    raw_dir: &Path,
+    http: &HttpClient,
+    options: PullDemoEvidenceOptions,
+) -> Result<Value> {
+    let pool = open_pool().await?;
+    let store = SourceStore::new(&pool, raw_dir)?;
+    let run_id = store.begin_run("deadlock-api").await?;
+    let outcome = pull_demo_evidence_inner(&store, http, &options).await;
+    complete_run(&store, run_id, outcome).await
+}
+
 async fn pull_match_metadata_inner(
     store: &SourceStore<'_>,
     http: &HttpClient,
@@ -128,6 +181,17 @@ async fn pull_match_metadata_inner(
     let url = format!("{BASE_URL}/v1/matches/metadata?{}", form_urlencode(&params));
     let payload = get_deadlock_api_json(http, &url, options.cache_ttl_seconds)?;
     let rows = payload.as_array().cloned().unwrap_or_default();
+    let target_player_slot =
+        if safe_match_ids.len() == 1 && safe_account_ids.len() == 1 && safe_hero_ids.len() == 1 {
+            metadata_player_slot(
+                &rows,
+                &safe_match_ids[0],
+                &safe_account_ids[0],
+                &safe_hero_ids[0],
+            )?
+        } else {
+            None
+        };
     let external_id = format!("match-metadata:{}", safe_match_ids.join(","));
     let raw = json_bytes(&payload)?;
     let raw_path = store.write_raw(SOURCE, &external_id, &raw, "json")?;
@@ -183,6 +247,120 @@ async fn pull_match_metadata_inner(
         "url": url,
         "matches": rows.len(),
         "snapshots": count,
+        "target_player_slot": target_player_slot,
+    }))
+}
+
+async fn pull_demo_evidence_inner(
+    store: &SourceStore<'_>,
+    http: &HttpClient,
+    options: &PullDemoEvidenceOptions,
+) -> Result<Value> {
+    let account_id = safe_numeric_id(&options.account_id, "account_id")?;
+    validate_demo_identity(&account_id, options.steam_id64)?;
+    let match_id = safe_numeric_id(&options.match_id, "match_id")?;
+    let match_id_number = parse_u64_id(&match_id, "match_id")?;
+    if options.timeout_seconds == 0 {
+        return Err(SourcesError::invalid_input(
+            "timeout_seconds muss groesser als 0 sein.",
+        ));
+    }
+
+    let mut all_rows = Vec::new();
+    let mut query_summaries = Vec::new();
+    let mut source_document_ids = Vec::new();
+    for query in demo_query_bundle(options.hero_id, options.steam_id64, options.player_slot) {
+        let job_id = submit_demo_query(http, match_id_number, &query.sql)?;
+        let status = poll_demo_query(
+            http,
+            &job_id,
+            options.poll_interval_seconds.max(1),
+            options.timeout_seconds,
+        )?;
+        let result_url = status.result_url.ok_or_else(|| {
+            SourcesError::invalid_input(format!(
+                "Deadlock API Demo-Job {job_id} ist done ohne result_url."
+            ))
+        })?;
+        let ndjson = download_demo_result(http, &result_url)?;
+        let raw_path = store.write_raw(
+            SOURCE,
+            &format!(
+                "demo-evidence:{account_id}:{match_id}:{DEMO_QUERY_VERSION}:{}",
+                query.name
+            ),
+            ndjson.as_bytes(),
+            "ndjson",
+        )?;
+        let metadata = json!({
+            "account_id": account_id,
+            "match_id": match_id,
+            "hero_id": options.hero_id,
+            "steam_id64": options.steam_id64,
+            "query_name": query.name,
+            "query_version": DEMO_QUERY_VERSION,
+            "job_id": job_id,
+            "result_url": result_url,
+        });
+        let title = format!("Deadlock API demo evidence {match_id} {}", query.name);
+        let document_id = store
+            .upsert_source_document(SourceDocumentInput {
+                source: SOURCE,
+                external_id: &format!(
+                    "demo-evidence:{account_id}:{match_id}:{DEMO_QUERY_VERSION}:{}",
+                    query.name
+                ),
+                title: Some(&title),
+                url: Some(&result_url),
+                content_type: "application/x-ndjson",
+                raw_path: &raw_path,
+                content: ndjson.as_bytes(),
+                metadata: &metadata,
+            })
+            .await?;
+        source_document_ids.push(document_id);
+
+        let rows = normalize_demo_rows(query.name, &ndjson, &match_id)?;
+        validate_demo_query_rows(query.name, &rows)?;
+        query_summaries.push(json!({
+            "name": query.name,
+            "job_id": job_id,
+            "result_url": result_url,
+            "rows": rows.len(),
+        }));
+        all_rows.extend(rows);
+    }
+
+    let external_id = format!("{account_id}:{match_id}:{DEMO_QUERY_VERSION}");
+    let snapshot = EntitySnapshotInput {
+        source: SOURCE.to_string(),
+        entity_type: "deadlock_api_demo_evidence".to_string(),
+        external_id: external_id.clone(),
+        canonical_name: Some(match_id.clone()),
+        payload: json!({
+            "account_id": account_id,
+            "match_id": match_id,
+            "hero_id": options.hero_id,
+            "steam_id64": options.steam_id64,
+            "query_version": DEMO_QUERY_VERSION,
+            "queries": query_summaries,
+            "source_document_ids": source_document_ids,
+            "rows": all_rows,
+        }),
+    };
+    store
+        .upsert_entity_snapshot(&snapshot, source_document_ids.first().copied())
+        .await?;
+
+    Ok(json!({
+        "account_id": account_id,
+        "match_id": match_id,
+        "hero_id": options.hero_id,
+        "steam_id64": options.steam_id64,
+        "query_version": DEMO_QUERY_VERSION,
+        "queries": query_summaries,
+        "rows": all_rows.len(),
+        "snapshot_external_id": external_id,
     }))
 }
 
@@ -249,6 +427,592 @@ async fn pull_player_match_history_inner(
     }))
 }
 
+fn submit_demo_query(http: &HttpClient, match_id: u64, sql: &str) -> Result<String> {
+    let url = format!("{BASE_URL}/v1/matches/demo/query");
+    let body = json!({
+        "match_id": match_id,
+        "query": sql,
+        "format": "ndjson",
+    });
+    let result = demo_post_json(http, &url, &body)?;
+    let payload: Value = serde_json::from_str(&result)?;
+    text_field(&payload, &["job_id", "id"])
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| SourcesError::invalid_input("Deadlock API Demo-Submit ohne job_id."))
+}
+
+fn poll_demo_query(
+    http: &HttpClient,
+    job_id: &str,
+    poll_interval_seconds: u64,
+    timeout_seconds: u64,
+) -> Result<DemoJobStatus> {
+    let started = Instant::now();
+    let url = format!("{BASE_URL}/v1/matches/demo/query/{job_id}");
+    loop {
+        let raw = demo_get_text(http, &url, Duration::from_secs(60), "application/json")?;
+        let status = parse_demo_job_status(&raw)?;
+        match status.state {
+            DemoJobState::Done => return Ok(status),
+            DemoJobState::Failed => {
+                return Err(SourcesError::invalid_input(format!(
+                    "Deadlock API Demo-Job {job_id} fehlgeschlagen: {}",
+                    status
+                        .error
+                        .unwrap_or_else(|| "ohne Fehlertext".to_string())
+                )));
+            }
+            DemoJobState::Queued | DemoJobState::Running => {
+                if started.elapsed() >= Duration::from_secs(timeout_seconds) {
+                    return Err(SourcesError::invalid_input(format!(
+                        "Deadlock API Demo-Job {job_id} Timeout nach {timeout_seconds}s."
+                    )));
+                }
+                thread::sleep(Duration::from_secs(poll_interval_seconds));
+            }
+        }
+    }
+}
+
+fn download_demo_result(http: &HttpClient, result_url: &str) -> Result<String> {
+    demo_get_text(
+        http,
+        result_url,
+        Duration::from_secs(180),
+        "application/x-ndjson",
+    )
+}
+
+fn parse_demo_job_status(raw: &str) -> Result<DemoJobStatus> {
+    let payload: Value = serde_json::from_str(raw)?;
+    let status = text_field(&payload, &["status", "state"])
+        .ok_or_else(|| SourcesError::invalid_input("Deadlock API Demo-Status ohne status."))?;
+    let state = match status.trim().to_ascii_lowercase().as_str() {
+        "queued" => DemoJobState::Queued,
+        "running" => DemoJobState::Running,
+        "done" => DemoJobState::Done,
+        "failed" => DemoJobState::Failed,
+        other => {
+            return Err(SourcesError::invalid_input(format!(
+                "Unbekannter Deadlock API Demo-Status: {other}."
+            )));
+        }
+    };
+    Ok(DemoJobStatus {
+        state,
+        result_url: text_field(&payload, &["result_url", "resultUrl", "url"]),
+        error: text_field(&payload, &["error", "message"]),
+    })
+}
+
+fn normalize_demo_rows(query_name: &str, raw: &str, match_id: &str) -> Result<Vec<Value>> {
+    let mut rows = Vec::new();
+    for (line_index, line) in raw.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let mut row = serde_json::from_str::<Value>(line).map_err(|error| {
+            SourcesError::invalid_input(format!(
+                "Deadlock API Demo-NDJSON {query_name} Zeile {} ist ungueltig: {error}",
+                line_index + 1
+            ))
+        })?;
+        let object = row.as_object_mut().ok_or_else(|| {
+            SourcesError::invalid_input(format!(
+                "Deadlock API Demo-NDJSON {query_name} Zeile {} ist kein JSON-Objekt.",
+                line_index + 1
+            ))
+        })?;
+        let evidence_index = rows.len() + 1;
+        object.insert(
+            "evidence_id".to_string(),
+            json!(format!("{query_name}:{match_id}:{evidence_index:06}")),
+        );
+        object.insert("query_name".to_string(), json!(query_name));
+        object.insert("query_version".to_string(), json!(DEMO_QUERY_VERSION));
+        object.insert("match_id".to_string(), json!(match_id));
+        rows.push(row);
+    }
+    Ok(rows)
+}
+
+fn validate_demo_query_rows(query_name: &str, rows: &[Value]) -> Result<()> {
+    if query_name == "player_state" && rows.is_empty() {
+        return Err(SourcesError::invalid_input(
+            "Deadlock API Demo-Query player_state lieferte keine Zielspieler-Daten.",
+        ));
+    }
+    Ok(())
+}
+
+fn demo_query_bundle(hero_id: u32, steam_id64: u64, player_slot: u32) -> Vec<DemoQuery> {
+    vec![
+        DemoQuery {
+            name: "player_state",
+            sql: player_state_query(hero_id, steam_id64),
+        },
+        DemoQuery {
+            name: "target_combat",
+            sql: target_combat_query(hero_id, steam_id64),
+        },
+        DemoQuery {
+            name: "economy_objectives",
+            sql: economy_objectives_query(hero_id, steam_id64, player_slot),
+        },
+    ]
+}
+
+fn player_state_query(hero_id: u32, steam_id64: u64) -> String {
+    format!(
+        r#"
+WITH sampled AS (
+  SELECT
+    tick AS sample_tick,
+    entity_index,
+    "m_steamID" AS steam_id,
+    "m_hHeroPawn" AS hero_pawn,
+    "m_nAssignedLane" AS assigned_lane,
+    "m_PlayerDataGlobal__m_nHeroID" AS hero_id,
+    "m_PlayerDataGlobal__m_iHealth" AS health,
+    "m_PlayerDataGlobal__m_iHealthMax" AS health_max,
+    "m_PlayerDataGlobal__m_iLevel" AS level,
+    "m_PlayerDataGlobal__m_iGoldNetWorth" AS net_worth,
+    "m_PlayerDataGlobal__m_iPlayerKills" AS kills,
+    "m_PlayerDataGlobal__m_iPlayerAssists" AS assists,
+    "m_PlayerDataGlobal__m_iDeaths" AS deaths,
+    "m_PlayerDataGlobal__m_iLastHits" AS last_hits,
+    "m_PlayerDataGlobal__m_iDenies" AS denies,
+    "m_PlayerDataGlobal__m_iHeroDamage" AS hero_damage,
+    "m_PlayerDataGlobal__m_iObjectiveDamage" AS objective_damage,
+    "m_PlayerDataGlobal__m_vecUpgrades" AS upgrades,
+    "m_PlayerDataGlobal__m_tHeldItem" AS held_item,
+    "m_PlayerDataGlobal__m_vecAbilityUpgradeState__m_ItemID" AS ability_upgrade_item_ids,
+    "m_PlayerDataGlobal__m_vecAbilityUpgradeState__m_nUpgradeInfo" AS ability_upgrade_info,
+    ROW_NUMBER() OVER (
+      PARTITION BY CAST(tick / 1800 AS BIGINT)
+      ORDER BY tick DESC
+    ) AS sample_rank
+  FROM CCitadelPlayerController
+  WHERE entity_index IN (
+    SELECT entity_index
+    FROM CCitadelPlayerController
+    WHERE "m_steamID" = {steam_id64}
+      AND "m_PlayerDataGlobal__m_nHeroID" = {hero_id}
+  )
+)
+SELECT
+  CAST('player_state' AS VARCHAR) AS evidence_kind,
+  CAST(sampled.sample_tick AS BIGINT) AS tick,
+  CAST(sampled.entity_index AS BIGINT) AS controller_entity_index,
+  CAST(sampled.steam_id AS BIGINT) AS steam_id,
+  CAST(sampled.hero_pawn AS BIGINT) AS hero_pawn,
+  CAST(sampled.hero_pawn AS BIGINT) % 16384 AS pawn_entity_index,
+  CAST(sampled.assigned_lane AS BIGINT) AS assigned_lane,
+  CAST(sampled.hero_id AS BIGINT) AS hero_id,
+  CAST(sampled.health AS BIGINT) AS health,
+  CAST(sampled.health_max AS BIGINT) AS health_max,
+  CAST(sampled.level AS BIGINT) AS level,
+  CAST(sampled.net_worth AS BIGINT) AS net_worth,
+  CAST(sampled.kills AS BIGINT) AS kills,
+  CAST(sampled.assists AS BIGINT) AS assists,
+  CAST(sampled.deaths AS BIGINT) AS deaths,
+  CAST(sampled.last_hits AS BIGINT) AS last_hits,
+  CAST(sampled.denies AS BIGINT) AS denies,
+  CAST(sampled.hero_damage AS BIGINT) AS hero_damage,
+  CAST(sampled.objective_damage AS BIGINT) AS objective_damage,
+  sampled.upgrades,
+  sampled.held_item,
+  sampled.ability_upgrade_item_ids,
+  sampled.ability_upgrade_info,
+  CAST(pawn."m_iHealth" AS BIGINT) AS pawn_health,
+  CAST(pawn."m_iMaxHealth" AS BIGINT) AS pawn_health_max,
+  CAST(pawn."m_nLevel" AS BIGINT) AS pawn_level,
+  CAST(pawn."CBodyComponent__m_cellX" AS BIGINT) AS cell_x,
+  CAST(pawn."CBodyComponent__m_cellY" AS BIGINT) AS cell_y,
+  CAST(pawn."CBodyComponent__m_cellZ" AS BIGINT) AS cell_z,
+  pawn."m_CCitadelAbilityComponent__m_vecAbilities" AS pawn_abilities,
+  pawn."m_vecFullSellPriceItems" AS pawn_full_sell_items,
+  pawn."m_vecFullSellPriceAbilityUpgrades__m_strAbilityUpgrade" AS pawn_full_sell_ability_upgrades
+FROM sampled
+LEFT JOIN CCitadelPlayerPawn pawn
+  ON pawn.tick = sampled.sample_tick
+ AND pawn.entity_index = CAST(sampled.hero_pawn AS BIGINT) % 16384
+WHERE sampled.sample_rank = 1
+ORDER BY sampled.sample_tick
+"#
+    )
+}
+
+fn target_combat_query(hero_id: u32, steam_id64: u64) -> String {
+    format!(
+        r#"
+WITH target_pawns AS (
+  SELECT CAST("m_hHeroPawn" AS BIGINT) % 16384 AS pawn_entity_index
+  FROM CCitadelPlayerController
+  WHERE "m_steamID" = {steam_id64}
+    AND "m_PlayerDataGlobal__m_nHeroID" = {hero_id}
+)
+SELECT
+  CAST('DamageEvent' AS VARCHAR) AS event_type,
+  CAST(tick AS BIGINT) AS tick,
+  CAST(entindex_attacker AS BIGINT) AS attacker_entity,
+  CAST(entindex_victim AS BIGINT) AS victim_entity,
+  CAST(entindex_inflictor AS BIGINT) AS inflictor_entity,
+  CAST(entindex_ability AS BIGINT) AS ability_entity,
+  CAST(ability_id AS BIGINT) AS ability_id,
+  CAST(NULL AS VARCHAR) AS ability_name,
+  CAST(damage AS DOUBLE) AS damage,
+  CAST(pre_damage AS DOUBLE) AS pre_damage,
+  CAST(health_lost AS DOUBLE) AS health_lost,
+  CAST(victim_health_new AS DOUBLE) AS victim_health_new,
+  CAST(NULL AS DOUBLE) AS stamina_before,
+  CAST(NULL AS DOUBLE) AS stamina_after,
+  CAST(NULL AS DOUBLE) AS stamina_drained,
+  CAST(NULL AS BIGINT) AS hero_id_interrupter
+FROM DamageEvent
+WHERE entindex_attacker IN (SELECT pawn_entity_index FROM target_pawns)
+   OR entindex_victim IN (SELECT pawn_entity_index FROM target_pawns)
+UNION ALL
+SELECT
+  CAST('HeroKilledEvent' AS VARCHAR) AS event_type,
+  CAST(tick AS BIGINT) AS tick,
+  CAST(entindex_attacker AS BIGINT) AS attacker_entity,
+  CAST(entindex_victim AS BIGINT) AS victim_entity,
+  CAST(entindex_inflictor AS BIGINT) AS inflictor_entity,
+  CAST(NULL AS BIGINT) AS ability_entity,
+  CAST(NULL AS BIGINT) AS ability_id,
+  CAST(NULL AS VARCHAR) AS ability_name,
+  CAST(NULL AS DOUBLE) AS damage,
+  CAST(NULL AS DOUBLE) AS pre_damage,
+  CAST(NULL AS DOUBLE) AS health_lost,
+  CAST(NULL AS DOUBLE) AS victim_health_new,
+  CAST(NULL AS DOUBLE) AS stamina_before,
+  CAST(NULL AS DOUBLE) AS stamina_after,
+  CAST(NULL AS DOUBLE) AS stamina_drained,
+  CAST(NULL AS BIGINT) AS hero_id_interrupter
+FROM HeroKilledEvent
+WHERE entindex_attacker IN (SELECT pawn_entity_index FROM target_pawns)
+   OR entindex_victim IN (SELECT pawn_entity_index FROM target_pawns)
+UNION ALL
+SELECT
+  CAST('AbilityInterruptedEvent' AS VARCHAR) AS event_type,
+  CAST(tick AS BIGINT) AS tick,
+  CAST(entindex_interrupter AS BIGINT) AS attacker_entity,
+  CAST(entindex_victim AS BIGINT) AS victim_entity,
+  CAST(NULL AS BIGINT) AS inflictor_entity,
+  CAST(NULL AS BIGINT) AS ability_entity,
+  CAST(ability_id_interrupted AS BIGINT) AS ability_id,
+  CAST(NULL AS VARCHAR) AS ability_name,
+  CAST(NULL AS DOUBLE) AS damage,
+  CAST(NULL AS DOUBLE) AS pre_damage,
+  CAST(NULL AS DOUBLE) AS health_lost,
+  CAST(NULL AS DOUBLE) AS victim_health_new,
+  CAST(NULL AS DOUBLE) AS stamina_before,
+  CAST(NULL AS DOUBLE) AS stamina_after,
+  CAST(NULL AS DOUBLE) AS stamina_drained,
+  CAST(hero_id_interrupter AS BIGINT) AS hero_id_interrupter
+FROM AbilityInterruptedEvent
+WHERE entindex_interrupter IN (SELECT pawn_entity_index FROM target_pawns)
+   OR entindex_victim IN (SELECT pawn_entity_index FROM target_pawns)
+UNION ALL
+SELECT
+  CAST('ImportantAbilityUsedEvent' AS VARCHAR) AS event_type,
+  CAST(tick AS BIGINT) AS tick,
+  CAST(caster AS BIGINT) AS attacker_entity,
+  CAST(NULL AS BIGINT) AS victim_entity,
+  CAST(NULL AS BIGINT) AS inflictor_entity,
+  CAST(player AS BIGINT) AS ability_entity,
+  CAST(NULL AS BIGINT) AS ability_id,
+  CAST(ability_name AS VARCHAR) AS ability_name,
+  CAST(NULL AS DOUBLE) AS damage,
+  CAST(NULL AS DOUBLE) AS pre_damage,
+  CAST(NULL AS DOUBLE) AS health_lost,
+  CAST(NULL AS DOUBLE) AS victim_health_new,
+  CAST(NULL AS DOUBLE) AS stamina_before,
+  CAST(NULL AS DOUBLE) AS stamina_after,
+  CAST(NULL AS DOUBLE) AS stamina_drained,
+  CAST(NULL AS BIGINT) AS hero_id_interrupter
+FROM ImportantAbilityUsedEvent
+WHERE caster IN (SELECT pawn_entity_index FROM target_pawns)
+   OR player IN (SELECT pawn_entity_index FROM target_pawns)
+UNION ALL
+SELECT
+  CAST('StaminaConsumedEvent' AS VARCHAR) AS event_type,
+  CAST(tick AS BIGINT) AS tick,
+  CAST(NULL AS BIGINT) AS attacker_entity,
+  CAST(entindex_target AS BIGINT) AS victim_entity,
+  CAST(NULL AS BIGINT) AS inflictor_entity,
+  CAST(NULL AS BIGINT) AS ability_entity,
+  CAST(NULL AS BIGINT) AS ability_id,
+  CAST(NULL AS VARCHAR) AS ability_name,
+  CAST(NULL AS DOUBLE) AS damage,
+  CAST(NULL AS DOUBLE) AS pre_damage,
+  CAST(NULL AS DOUBLE) AS health_lost,
+  CAST(NULL AS DOUBLE) AS victim_health_new,
+  CAST(stamina_before AS DOUBLE) AS stamina_before,
+  CAST(stamina_after AS DOUBLE) AS stamina_after,
+  CAST(drained AS DOUBLE) AS stamina_drained,
+  CAST(NULL AS BIGINT) AS hero_id_interrupter
+FROM StaminaConsumedEvent
+WHERE entindex_target IN (SELECT pawn_entity_index FROM target_pawns)
+ORDER BY tick
+"#
+    )
+}
+
+fn economy_objectives_query(hero_id: u32, steam_id64: u64, player_slot: u32) -> String {
+    format!(
+        r#"
+WITH target AS (
+  SELECT CAST("m_hHeroPawn" AS BIGINT) % 16384 AS pawn_entity_index
+  FROM CCitadelPlayerController
+  WHERE "m_steamID" = {steam_id64}
+    AND "m_PlayerDataGlobal__m_nHeroID" = {hero_id}
+)
+SELECT
+  CAST('ItemPurchaseNotificationEvent' AS VARCHAR) AS event_type,
+  CAST(tick AS BIGINT) AS tick,
+  CAST(userid AS BIGINT) AS user_id,
+  CAST(NULL AS BIGINT) AS player_slot,
+  CAST(ability_id AS BIGINT) AS ability_id,
+  CAST(NULL AS BIGINT) AS ability_change,
+  CAST(sell AS BOOLEAN) AS sell,
+  CAST(quickbuy AS BOOLEAN) AS quickbuy,
+  CAST(NULL AS BIGINT) AS currency_type,
+  CAST(NULL AS BIGINT) AS currency_source,
+  CAST(NULL AS BIGINT) AS currency_delta,
+  CAST(NULL AS BIGINT) AS currency_new_value,
+  CAST(NULL AS BIGINT) AS objective_mask_team0,
+  CAST(NULL AS BIGINT) AS objective_mask_team1,
+  CAST(NULL AS BIGINT) AS xp,
+  CAST(NULL AS BIGINT) AS gold,
+  CAST(NULL AS BIGINT) AS winner,
+  CAST(NULL AS BIGINT) AS winning_team,
+  CAST(NULL AS BIGINT) AS objective_team,
+  CAST(NULL AS BIGINT) AS objective_mask_change,
+  CAST(NULL AS BIGINT) AS entity_killed,
+  CAST(NULL AS BIGINT) AS entity_killer,
+  CAST(NULL AS DOUBLE) AS gametime
+FROM ItemPurchaseNotificationEvent
+WHERE userid = {player_slot}
+UNION ALL
+SELECT
+  CAST('AbilitiesChangedEvent' AS VARCHAR) AS event_type,
+  CAST(tick AS BIGINT) AS tick,
+  CAST(NULL AS BIGINT) AS user_id,
+  CAST(purchaser_player_slot AS BIGINT) AS player_slot,
+  CAST(ability_id AS BIGINT) AS ability_id,
+  CAST(change AS BIGINT) AS ability_change,
+  CAST(NULL AS BOOLEAN) AS sell,
+  CAST(NULL AS BOOLEAN) AS quickbuy,
+  CAST(NULL AS BIGINT) AS currency_type,
+  CAST(NULL AS BIGINT) AS currency_source,
+  CAST(NULL AS BIGINT) AS currency_delta,
+  CAST(NULL AS BIGINT) AS currency_new_value,
+  CAST(NULL AS BIGINT) AS objective_mask_team0,
+  CAST(NULL AS BIGINT) AS objective_mask_team1,
+  CAST(NULL AS BIGINT) AS xp,
+  CAST(NULL AS BIGINT) AS gold,
+  CAST(NULL AS BIGINT) AS winner,
+  CAST(NULL AS BIGINT) AS winning_team,
+  CAST(NULL AS BIGINT) AS objective_team,
+  CAST(NULL AS BIGINT) AS objective_mask_change,
+  CAST(NULL AS BIGINT) AS entity_killed,
+  CAST(NULL AS BIGINT) AS entity_killer,
+  CAST(NULL AS DOUBLE) AS gametime
+FROM AbilitiesChangedEvent
+WHERE purchaser_player_slot = {player_slot}
+UNION ALL
+SELECT
+  CAST('CurrencyChangedEvent' AS VARCHAR) AS event_type,
+  CAST(tick AS BIGINT) AS tick,
+  CAST(userid AS BIGINT) AS user_id,
+  CAST(NULL AS BIGINT) AS player_slot,
+  CAST(ability_id AS BIGINT) AS ability_id,
+  CAST(NULL AS BIGINT) AS ability_change,
+  CAST(NULL AS BOOLEAN) AS sell,
+  CAST(NULL AS BOOLEAN) AS quickbuy,
+  CAST(currency_type AS BIGINT) AS currency_type,
+  CAST(currency_source AS BIGINT) AS currency_source,
+  CAST(delta AS BIGINT) AS currency_delta,
+  CAST(new_value AS BIGINT) AS currency_new_value,
+  CAST(NULL AS BIGINT) AS objective_mask_team0,
+  CAST(NULL AS BIGINT) AS objective_mask_team1,
+  CAST(NULL AS BIGINT) AS xp,
+  CAST(NULL AS BIGINT) AS gold,
+  CAST(NULL AS BIGINT) AS winner,
+  CAST(NULL AS BIGINT) AS winning_team,
+  CAST(NULL AS BIGINT) AS objective_team,
+  CAST(NULL AS BIGINT) AS objective_mask_change,
+  CAST(NULL AS BIGINT) AS entity_killed,
+  CAST(NULL AS BIGINT) AS entity_killer,
+  CAST(NULL AS DOUBLE) AS gametime
+FROM CurrencyChangedEvent
+WHERE userid = {player_slot}
+   OR entindex_victim IN (SELECT pawn_entity_index FROM target)
+UNION ALL
+SELECT
+  CAST('ObjectiveMaskEvent' AS VARCHAR) AS event_type,
+  CAST(tick AS BIGINT) AS tick,
+  CAST(NULL AS BIGINT) AS user_id,
+  CAST(NULL AS BIGINT) AS player_slot,
+  CAST(NULL AS BIGINT) AS ability_id,
+  CAST(NULL AS BIGINT) AS ability_change,
+  CAST(NULL AS BOOLEAN) AS sell,
+  CAST(NULL AS BOOLEAN) AS quickbuy,
+  CAST(NULL AS BIGINT) AS currency_type,
+  CAST(NULL AS BIGINT) AS currency_source,
+  CAST(NULL AS BIGINT) AS currency_delta,
+  CAST(NULL AS BIGINT) AS currency_new_value,
+  CAST(objective_mask_team0 AS BIGINT) AS objective_mask_team0,
+  CAST(objective_mask_team1 AS BIGINT) AS objective_mask_team1,
+  CAST(NULL AS BIGINT) AS xp,
+  CAST(NULL AS BIGINT) AS gold,
+  CAST(NULL AS BIGINT) AS winner,
+  CAST(NULL AS BIGINT) AS winning_team,
+  CAST(NULL AS BIGINT) AS objective_team,
+  CAST(NULL AS BIGINT) AS objective_mask_change,
+  CAST(NULL AS BIGINT) AS entity_killed,
+  CAST(NULL AS BIGINT) AS entity_killer,
+  CAST(NULL AS DOUBLE) AS gametime
+FROM ObjectiveMaskEvent
+UNION ALL
+SELECT
+  CAST('BossKilledEvent' AS VARCHAR) AS event_type,
+  CAST(tick AS BIGINT) AS tick,
+  CAST(NULL AS BIGINT) AS user_id,
+  CAST(NULL AS BIGINT) AS player_slot,
+  CAST(NULL AS BIGINT) AS ability_id,
+  CAST(NULL AS BIGINT) AS ability_change,
+  CAST(NULL AS BOOLEAN) AS sell,
+  CAST(NULL AS BOOLEAN) AS quickbuy,
+  CAST(NULL AS BIGINT) AS currency_type,
+  CAST(NULL AS BIGINT) AS currency_source,
+  CAST(NULL AS BIGINT) AS currency_delta,
+  CAST(NULL AS BIGINT) AS currency_new_value,
+  CAST(NULL AS BIGINT) AS objective_mask_team0,
+  CAST(NULL AS BIGINT) AS objective_mask_team1,
+  CAST(NULL AS BIGINT) AS xp,
+  CAST(NULL AS BIGINT) AS gold,
+  CAST(NULL AS BIGINT) AS winner,
+  CAST(NULL AS BIGINT) AS winning_team,
+  CAST(objective_team AS BIGINT) AS objective_team,
+  CAST(objective_mask_change AS BIGINT) AS objective_mask_change,
+  CAST(entity_killed AS BIGINT) AS entity_killed,
+  CAST(entity_killer AS BIGINT) AS entity_killer,
+  CAST(gametime AS DOUBLE) AS gametime
+FROM BossKilledEvent
+UNION ALL
+SELECT
+  CAST('GameOverEvent' AS VARCHAR) AS event_type,
+  CAST(tick AS BIGINT) AS tick,
+  CAST(NULL AS BIGINT) AS user_id,
+  CAST(NULL AS BIGINT) AS player_slot,
+  CAST(NULL AS BIGINT) AS ability_id,
+  CAST(NULL AS BIGINT) AS ability_change,
+  CAST(NULL AS BOOLEAN) AS sell,
+  CAST(NULL AS BOOLEAN) AS quickbuy,
+  CAST(NULL AS BIGINT) AS currency_type,
+  CAST(NULL AS BIGINT) AS currency_source,
+  CAST(NULL AS BIGINT) AS currency_delta,
+  CAST(NULL AS BIGINT) AS currency_new_value,
+  CAST(NULL AS BIGINT) AS objective_mask_team0,
+  CAST(NULL AS BIGINT) AS objective_mask_team1,
+  CAST(NULL AS BIGINT) AS xp,
+  CAST(NULL AS BIGINT) AS gold,
+  CAST(NULL AS BIGINT) AS winner,
+  CAST(winning_team AS BIGINT) AS winning_team,
+  CAST(NULL AS BIGINT) AS objective_team,
+  CAST(NULL AS BIGINT) AS objective_mask_change,
+  CAST(NULL AS BIGINT) AS entity_killed,
+  CAST(NULL AS BIGINT) AS entity_killer,
+  CAST(NULL AS DOUBLE) AS gametime
+FROM GameOverEvent
+UNION ALL
+SELECT
+  CAST('TeamRewardsEvent' AS VARCHAR) AS event_type,
+  CAST(tick AS BIGINT) AS tick,
+  CAST(NULL AS BIGINT) AS user_id,
+  CAST(NULL AS BIGINT) AS player_slot,
+  CAST(NULL AS BIGINT) AS ability_id,
+  CAST(NULL AS BIGINT) AS ability_change,
+  CAST(NULL AS BOOLEAN) AS sell,
+  CAST(NULL AS BOOLEAN) AS quickbuy,
+  CAST(NULL AS BIGINT) AS currency_type,
+  CAST(NULL AS BIGINT) AS currency_source,
+  CAST(NULL AS BIGINT) AS currency_delta,
+  CAST(NULL AS BIGINT) AS currency_new_value,
+  CAST(NULL AS BIGINT) AS objective_mask_team0,
+  CAST(NULL AS BIGINT) AS objective_mask_team1,
+  CAST(xp AS BIGINT) AS xp,
+  CAST(gold AS BIGINT) AS gold,
+  CAST(winner AS BIGINT) AS winner,
+  CAST(NULL AS BIGINT) AS winning_team,
+  CAST(NULL AS BIGINT) AS objective_team,
+  CAST(NULL AS BIGINT) AS objective_mask_change,
+  CAST(NULL AS BIGINT) AS entity_killed,
+  CAST(NULL AS BIGINT) AS entity_killer,
+  CAST(NULL AS DOUBLE) AS gametime
+FROM TeamRewardsEvent
+ORDER BY tick
+"#
+    )
+}
+
+fn demo_post_json(http: &HttpClient, url: &str, body: &Value) -> Result<String> {
+    match http.post_json(
+        url,
+        body,
+        HttpGetOptions {
+            timeout: Duration::from_secs(60),
+            headers: demo_headers("application/json"),
+            retry: RetryPolicy {
+                attempts: 1,
+                backoff: Duration::from_millis(0),
+            },
+            ..HttpGetOptions::default()
+        },
+    ) {
+        Ok(result) => Ok(result.text()),
+        Err(CoreError::HttpStatus { status, .. }) if status.as_u16() == 404 => Err(
+            SourcesError::invalid_input("Deadlock API Demo ist nicht verfuegbar."),
+        ),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn demo_get_text(
+    http: &HttpClient,
+    url: &str,
+    timeout: Duration,
+    accept: &'static str,
+) -> Result<String> {
+    match http.get(
+        url,
+        HttpGetOptions {
+            timeout,
+            headers: demo_headers(accept),
+            ..HttpGetOptions::default()
+        },
+    ) {
+        Ok(result) => Ok(result.text()),
+        Err(CoreError::HttpStatus { status, .. }) if status.as_u16() == 404 => Err(
+            SourcesError::invalid_input("Deadlock API Demo ist nicht verfuegbar."),
+        ),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn demo_headers(accept: &'static str) -> Vec<(String, String)> {
+    vec![
+        ("Accept".to_string(), accept.to_string()),
+        (
+            "Referer".to_string(),
+            "https://deadlock-api.com/".to_string(),
+        ),
+    ]
+}
+
 fn get_deadlock_api_json(http: &HttpClient, url: &str, cache_ttl_seconds: u64) -> Result<Value> {
     let result = http.get(
         url,
@@ -287,6 +1051,86 @@ fn safe_numeric_id(value: &str, name: &str) -> Result<String> {
         )));
     }
     Ok(trimmed.to_string())
+}
+
+fn parse_u64_id(value: &str, name: &str) -> Result<u64> {
+    value.parse::<u64>().map_err(|error| {
+        SourcesError::invalid_input(format!("{name} ist keine gueltige u64-ID: {error}"))
+    })
+}
+
+fn validate_demo_identity(account_id: &str, steam_id64: u64) -> Result<()> {
+    let account_id = parse_u64_id(account_id, "account_id")?;
+    let expected = STEAM_ID64_ACCOUNT_BASE
+        .checked_add(account_id)
+        .ok_or_else(|| SourcesError::invalid_input("account_id ist zu gross fuer steam_id64."))?;
+    if steam_id64 != expected {
+        return Err(SourcesError::invalid_input(
+            "account_id und steam_id64 gehoeren nicht zum selben Spieler.",
+        ));
+    }
+    Ok(())
+}
+
+fn text_field(value: &Value, keys: &[&str]) -> Option<String> {
+    let object = value.as_object()?;
+    for key in keys {
+        let Some(raw) = object.get(*key) else {
+            continue;
+        };
+        let text = match raw {
+            Value::String(text) => text.trim().to_string(),
+            Value::Null => continue,
+            other => other.to_string(),
+        };
+        if !text.is_empty() {
+            return Some(text);
+        }
+    }
+    None
+}
+
+fn metadata_player_slot(
+    rows: &[Value],
+    match_id: &str,
+    account_id: &str,
+    hero_id: &str,
+) -> Result<Option<u32>> {
+    for row in rows {
+        let Some(object) = row.as_object() else {
+            continue;
+        };
+        if python_or_string(object.get("match_id")).as_deref() != Some(match_id) {
+            continue;
+        }
+        let Some(players) = object.get("players").and_then(Value::as_array) else {
+            continue;
+        };
+        for player in players {
+            let Some(player) = player.as_object() else {
+                continue;
+            };
+            if python_or_string(player.get("account_id")).as_deref() != Some(account_id)
+                || python_or_string(player.get("hero_id")).as_deref() != Some(hero_id)
+            {
+                continue;
+            }
+            let slot = python_or_string(player.get("player_slot"))
+                .ok_or_else(|| {
+                    SourcesError::invalid_input(
+                        "Deadlock API Zielspieler-Metadaten ohne player_slot.",
+                    )
+                })?
+                .parse::<u32>()
+                .map_err(|error| {
+                    SourcesError::invalid_input(format!(
+                        "Deadlock API player_slot ist ungueltig: {error}"
+                    ))
+                })?;
+            return Ok(Some(slot));
+        }
+    }
+    Ok(None)
 }
 
 fn match_history_rows(payload: &Value) -> Result<&[Value]> {
@@ -457,5 +1301,162 @@ mod tests {
         assert!(error
             .to_string()
             .contains("match-history ist kein JSON-Array"));
+    }
+
+    #[test]
+    fn demo_parse_job_status_accepts_done_with_result_url() {
+        let status =
+            parse_demo_job_status(r#"{"status":"done","result_url":"https://x/result.ndjson"}"#)
+                .unwrap();
+
+        assert_eq!(status.state, DemoJobState::Done);
+        assert_eq!(
+            status.result_url.as_deref(),
+            Some("https://x/result.ndjson")
+        );
+        assert_eq!(status.error, None);
+    }
+
+    #[test]
+    fn demo_parse_job_status_preserves_failed_error() {
+        let status =
+            parse_demo_job_status(r#"{"status":"failed","error":"demo unavailable"}"#).unwrap();
+
+        assert_eq!(status.state, DemoJobState::Failed);
+        assert_eq!(status.error.as_deref(), Some("demo unavailable"));
+    }
+
+    #[test]
+    fn demo_normalize_rows_adds_versioned_evidence_id() {
+        let rows = normalize_demo_rows("combat", "{\"tick\":10}\n", "92242282").unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["evidence_id"], "combat:92242282:000001");
+        assert_eq!(rows[0]["query_name"], "combat");
+        assert_eq!(rows[0]["query_version"], DEMO_QUERY_VERSION);
+        assert_eq!(rows[0]["match_id"], "92242282");
+        assert_eq!(rows[0]["tick"], 10);
+    }
+
+    #[test]
+    fn demo_normalize_rows_rejects_malformed_ndjson_line() {
+        let error = normalize_demo_rows("combat", "{\"tick\":10}\nnot-json\n", "92242282")
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("NDJSON"));
+        assert!(error.contains("Zeile 2"));
+    }
+
+    #[test]
+    fn demo_query_bundle_has_three_quoted_queries() {
+        let queries = demo_query_bundle(18, 76561198242034120, 8);
+
+        assert_eq!(queries.len(), 3);
+        assert_eq!(queries[0].name, "player_state");
+        assert_eq!(queries[1].name, "target_combat");
+        assert_eq!(queries[2].name, "economy_objectives");
+        assert!(queries.iter().all(|query| query.sql.contains('"')));
+        assert!(queries
+            .iter()
+            .all(|query| query.sql.contains("76561198242034120")));
+        assert!(queries.iter().all(|query| query.sql.contains("18")));
+        assert!(queries[0].sql.contains("ROW_NUMBER() OVER"));
+        assert!(queries[0]
+            .sql
+            .contains("PARTITION BY CAST(tick / 1800 AS BIGINT)"));
+        assert!(!queries[1].sql.contains("ROW_NUMBER() OVER"));
+        assert!(!queries[2].sql.contains("ROW_NUMBER() OVER"));
+    }
+
+    #[test]
+    fn demo_player_state_uses_an_unambiguous_join_tick() {
+        let state = demo_query_bundle(18, 76561198242034120, 8)
+            .into_iter()
+            .find(|query| query.name == "player_state")
+            .expect("player state query");
+
+        assert!(state.sql.contains("tick AS sample_tick"));
+        assert!(state.sql.contains("pawn.tick = sampled.sample_tick"));
+        assert!(!state.sql.contains("sampled.tick"));
+    }
+
+    #[test]
+    fn demo_target_queries_use_source2_14_bit_pawn_entity_index() {
+        let queries = demo_query_bundle(18, 76561198242034120, 8);
+
+        let combat = queries
+            .iter()
+            .find(|query| query.name == "target_combat")
+            .expect("target combat query");
+        assert!(combat
+            .sql
+            .contains("CAST(\"m_hHeroPawn\" AS BIGINT) % 16384"));
+        assert!(!combat.sql.contains("% 32768"));
+
+        let state = queries
+            .iter()
+            .find(|query| query.name == "player_state")
+            .expect("player state query");
+        assert!(state
+            .sql
+            .contains("CAST(sampled.hero_pawn AS BIGINT) % 16384"));
+    }
+
+    #[test]
+    fn demo_economy_query_filters_user_events_by_lobby_player_slot() {
+        let queries = demo_query_bundle(18, 76561198242034120, 8);
+        let economy = queries
+            .iter()
+            .find(|query| query.name == "economy_objectives")
+            .expect("economy objectives query");
+
+        assert_eq!(economy.sql.matches("userid = 8").count(), 2);
+        assert!(!economy.sql.contains("userid = 281768392"));
+    }
+
+    #[test]
+    fn demo_economy_query_uses_the_metadata_player_slot_literal() {
+        let economy = economy_objectives_query(18, 76561198242034120, 8);
+
+        assert!(economy.contains("WHERE userid = 8"));
+        assert!(economy.contains("WHERE purchaser_player_slot = 8"));
+        assert!(!economy.contains("m_unLobbyPlayerSlot"));
+    }
+
+    #[test]
+    fn demo_metadata_resolves_the_target_player_slot() {
+        let rows = vec![json!({
+            "match_id": 92685682,
+            "players": [{
+                "account_id": 281768392,
+                "hero_id": 18,
+                "player_slot": 8
+            }]
+        })];
+
+        assert_eq!(
+            metadata_player_slot(&rows, "92685682", "281768392", "18").unwrap(),
+            Some(8)
+        );
+    }
+
+    #[test]
+    fn demo_identity_rejects_mismatched_account_and_steam_ids() {
+        let error = validate_demo_identity("123", 76561198242034120)
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("account_id und steam_id64"));
+    }
+
+    #[test]
+    fn demo_player_state_must_not_be_empty() {
+        let error = validate_demo_query_rows("player_state", &[])
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("player_state"));
+        assert!(validate_demo_query_rows("target_combat", &[]).is_ok());
     }
 }

@@ -1,5 +1,13 @@
 # Changelog
 
+## #33 — Echte Match-Demos als Lernquelle
+
+Problem: Statische Matchdaten reichen nicht aus, um Entscheidungen, Kampfverlaeufe und unterschiedliche Spielstile verlaesslich zu lernen.
+
+Änderung: Der Brain katalogisiert Mo-&-Krill-Matches eines Spielers und speichert fuer abrufbare Demos versionierte Zustands-, Kampf-, Kauf- und Objective-Evidenz mit eindeutigen Belegen.
+
+Aktuelles Verhalten: Der erste echte Match-Tracer ist importiert; die Daten bleiben Rohbelege und werden noch nicht als aktives Wissen oder Build-Empfehlung uebernommen.
+
 ## #32 — Brain nutzt Fireworks statt Minimax
 
 Problem: Die Brain-Analysepfade verwendeten noch Minimax, waehrend die Discord-Bots bereits DeepSeek ueber Fireworks nutzen.

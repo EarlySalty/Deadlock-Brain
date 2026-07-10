@@ -178,6 +178,7 @@ pub struct PullDemoEvidenceOptions {
     pub match_id: String,
     pub hero_id: u32,
     pub steam_id64: u64,
+    pub player_slot: u32,
     pub poll_interval_seconds: u64,
     pub timeout_seconds: u64,
 }
@@ -221,6 +222,7 @@ Use NDJSON and exactly three named queries:
 
 Every camel-case demo column is double quoted. Numeric union columns are explicitly cast to `BIGINT` or `DOUBLE`; missing union fields use typed `CAST(NULL AS ...)` expressions.
 The sampling rule applies only to periodic controller/pawn state. Purchases, ability upgrades, target combat, kills, damage, and objective events remain unsampled.
+Use the target `player_slot` returned by match metadata as a numeric literal for purchase, upgrade, and currency filters. Do not decode `CCitadelPlayerController.m_unLobbyPlayerSlot`; the live demo schema exposes it as binary and DataFusion cannot cast it to `BIGINT`.
 
 - [ ] **Step 4: Implement submit, poll, download, and storage**
 
@@ -237,7 +239,7 @@ On HTTP 404/no demo, return a visible unavailable error and create no evidence s
 - [ ] **Step 5: Add `player fetch-demo`**
 
 Arguments: `<account_id> <match_id>`, defaults `--hero-id 18`, `--steam-id64 76561198242034120`, `--poll-interval-seconds 5`, `--timeout-seconds 900`, and optional `--pretty`.
-Before submitting demo jobs, call the existing `pull_match_metadata` path for the same match with `account_ids=[account_id]`, `hero_ids=[hero_id]`, and all player/item/stat/objective detail flags enabled. This provides the target player slot, exact item timeline, roster, and outcome without spending another demo-query job.
+Before submitting demo jobs, call the existing `pull_match_metadata` path for the same match with `account_ids=[account_id]`, `hero_ids=[hero_id]`, and all player/item/stat/objective detail flags enabled. Resolve the target player slot from that response and pass it into `PullDemoEvidenceOptions`. This also provides the exact item timeline, roster, and outcome without spending another demo-query job.
 
 - [ ] **Step 6: Run focused checks**
 
