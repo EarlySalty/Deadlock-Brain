@@ -282,6 +282,25 @@ pub fn validate_demo_report(report: &Value, evidence_ids: &BTreeSet<String>) -> 
 pub fn render_demo_report(report: &Value) -> Result<String>;
 ```
 
+The validated report JSON has exactly these top-level sections: `metadata`, `phases`, `economy_build`, `combat`, `macro`, `strong_decisions`, `mistakes`, `turning_points`, `hypotheses`, and `data_gaps`. `phases` always contains `lane`, `transition`, `midgame`, and `late_game`; each phase has `reached` and `decisions`. The three topical sections each contain `decisions`. Every decision uses:
+
+```json
+{
+  "tick": 12345,
+  "time_seconds": 205.75,
+  "observed_state": "...",
+  "action": "...",
+  "effects": "...",
+  "interpreted_intent": "...",
+  "evaluation": "...",
+  "alternative": "...",
+  "confidence": 0.8,
+  "evidence_ids": ["target_combat:92685682:000001"]
+}
+```
+
+Each hypothesis has `claim`, `confidence`, non-empty valid `evidence_ids`, and `validation_needed`. `data_gaps` and `metadata.data_gaps` are string arrays. `metadata` carries the deterministic match header and patch provenance; model output may not replace those fields with inferred values.
+
 - [ ] **Step 1: Write failing validator and renderer tests**
 
 Use one minimal valid report with metadata, all phase keys, one decision, one hypothesis, and one data gap. The decision must contain `observed_state`, `action`, `effects`, `interpreted_intent`, `evaluation`, `alternative`, `confidence`, and `evidence_ids`.
