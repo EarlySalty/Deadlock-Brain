@@ -288,6 +288,9 @@ mod tests {
             let (headers, body) = read_request(&mut stream);
 
             assert!(headers.starts_with("POST /query HTTP/1.1\r\n"));
+            assert!(headers
+                .lines()
+                .any(|line| line.eq_ignore_ascii_case("content-type: application/json")));
             assert_eq!(body, br#"{"match_id":92242282,"format":"ndjson"}"#.to_vec());
 
             let response_body = br#"{"status":"queued"}"#;
