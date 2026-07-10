@@ -2,11 +2,48 @@
 
 BEGIN;
 
-CREATE TEMP TABLE _ingest_change_type_candidates ON COMMIT DROP AS
-WITH numeric_events AS (
+CREATE TEMP TABLE _ingest_change_type_recomputed ON COMMIT DROP AS
+WITH
+-- Sync with rust/crates/dbrain-normalize/src/patch.rs POSITIVE_STATS.
+positive_stats(stat) AS (
+    VALUES
+        ('damage'),
+        ('dps'),
+        ('health'),
+        ('regen'),
+        ('resistance'),
+        ('resist'),
+        ('range'),
+        ('radius'),
+        ('speed'),
+        ('sprint'),
+        ('fire rate'),
+        ('spirit power'),
+        ('lifesteal'),
+        ('duration'),
+        ('stamina'),
+        ('ammo'),
+        ('barrier'),
+        ('heal'),
+        ('healing'),
+        ('scaling'),
+        ('souls'),
+        ('bounty')
+),
+-- Sync with rust/crates/dbrain-normalize/src/patch.rs NEGATIVE_STATS.
+negative_stats(stat) AS (
+    VALUES
+        ('cooldown'),
+        ('recharge'),
+        ('delay'),
+        ('cost'),
+        ('falloff')
+),
+numeric_events AS (
     SELECT
         id,
         change_type AS old_change_type,
+        lower(coalesce(normalized_line, raw_line, '')) AS lower_line,
         regexp_replace(old_value, '[^0-9.+-]', '', 'g')::numeric AS old_number,
         regexp_replace(new_value, '[^0-9.+-]', '', 'g')::numeric AS new_number
     FROM brain.patch_events
@@ -14,29 +51,55 @@ WITH numeric_events AS (
       AND old_value ~ '^\s*"?[+-]?(?:\d+(?:\.\d+)?|\.\d+)\s*[[:alpha:]%/]*"?\s*$'
       AND new_value ~ '^\s*"?[+-]?(?:\d+(?:\.\d+)?|\.\d+)\s*[[:alpha:]%/]*"?\s*$'
 ),
-candidates AS (
+classified AS (
+    SELECT
+        numeric_events.*,
+        EXISTS (
+            SELECT 1
+            FROM positive_stats
+            WHERE lower_line LIKE '%' || stat || '%'
+        ) AS mentions_positive_stat,
+        EXISTS (
+            SELECT 1
+            FROM negative_stats
+            WHERE lower_line LIKE '%' || stat || '%'
+        ) AS mentions_negative_stat
+    FROM numeric_events
+),
+recomputed AS (
     SELECT
         id,
         old_change_type,
+        old_number,
+        new_number,
         CASE
-            WHEN new_number > old_number THEN 'buff'
-            WHEN new_number < old_number THEN 'nerf'
+            WHEN new_number > old_number
+                THEN CASE WHEN mentions_negative_stat AND NOT mentions_positive_stat THEN 'nerf' ELSE 'buff' END
+            WHEN new_number < old_number
+                THEN CASE WHEN mentions_negative_stat AND NOT mentions_positive_stat THEN 'buff' ELSE 'nerf' END
         END AS new_change_type
-    FROM numeric_events
+    FROM classified
     WHERE old_number <> new_number
-      AND (
-          (old_change_type = 'buff' AND new_number < old_number)
-          OR (old_change_type = 'nerf' AND new_number > old_number)
-      )
 )
 SELECT id, old_change_type, new_change_type
-FROM candidates
+FROM recomputed
 WHERE new_change_type IS NOT NULL;
+
+CREATE TEMP TABLE _ingest_change_type_candidates ON COMMIT DROP AS
+SELECT id, old_change_type, new_change_type
+FROM _ingest_change_type_recomputed
+WHERE old_change_type <> new_change_type;
 
 CREATE TEMP TABLE _ingest_change_type_counts(metric text, detail text, value bigint) ON COMMIT DROP;
 
 INSERT INTO _ingest_change_type_counts(metric, detail, value)
-SELECT 'change_type_before_candidates', old_change_type || '->' || new_change_type, count(*)
+SELECT 'change_type_recomputed_before', old_change_type || '->' || new_change_type, count(*)
+FROM _ingest_change_type_recomputed
+WHERE new_change_type IS NOT NULL
+GROUP BY old_change_type, new_change_type;
+
+INSERT INTO _ingest_change_type_counts(metric, detail, value)
+SELECT 'change_type_update_candidates_before', old_change_type || '->' || new_change_type, count(*)
 FROM _ingest_change_type_candidates
 GROUP BY old_change_type, new_change_type;
 
@@ -66,7 +129,7 @@ BEGIN
     END IF;
 
     SELECT count(*) INTO remaining
-    FROM _ingest_change_type_candidates c
+    FROM _ingest_change_type_recomputed c
     JOIN brain.patch_events pe ON pe.id = c.id
     WHERE pe.change_type <> c.new_change_type;
 

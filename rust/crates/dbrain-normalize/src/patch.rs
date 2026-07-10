@@ -770,16 +770,22 @@ fn classify_change_type(text: &str) -> String {
 
 fn numeric_change_type(text: &str) -> Option<&'static str> {
     let (old_value, new_value) = extract_old_new(text).ok()?;
-    numeric_change_type_from_values(old_value.as_deref()?, new_value.as_deref()?)
+    numeric_change_type_from_values(text, old_value.as_deref()?, new_value.as_deref()?)
 }
 
-fn numeric_change_type_from_values(old_value: &str, new_value: &str) -> Option<&'static str> {
+fn numeric_change_type_from_values(
+    text: &str,
+    old_value: &str,
+    new_value: &str,
+) -> Option<&'static str> {
     let old_number = parse_numeric_value(old_value)?;
     let new_number = parse_numeric_value(new_value)?;
+    let lower = text.to_lowercase();
+    let negative_polarity = mentions_negative_stat(&lower) && !mentions_positive_stat(&lower);
     if new_number > old_number {
-        Some("buff")
+        Some(if negative_polarity { "nerf" } else { "buff" })
     } else if new_number < old_number {
-        Some("nerf")
+        Some(if negative_polarity { "buff" } else { "nerf" })
     } else {
         None
     }
@@ -836,6 +842,18 @@ fn extract_old_new(text: &str) -> Result<(Option<String>, Option<String>)> {
     if let Some(captures) = from_to.captures(text) {
         let old_value = captures.get(1).map(|value| truncate(value.as_str().trim(), 160));
         let new_value = captures.get(2).map(|value| truncate(value.as_str().trim(), 160));
+        return Ok((old_value, new_value));
+    }
+    let action_to = Regex::new(
+        r"(?i)\b(?:increased|decreased|reduced|raised|lowered)\s+([+-]?(?:\d+(?:\.\d+)?|\.\d+)\s*[[:alpha:]%/]*)\s+to\s+([+-]?(?:\d+(?:\.\d+)?|\.\d+)\s*[[:alpha:]%/]*)(?:[.;,)]|$)",
+    )?;
+    if let Some(captures) = action_to.captures(text) {
+        let old_value = captures
+            .get(1)
+            .map(|value| truncate(value.as_str().trim(), 160));
+        let new_value = captures
+            .get(2)
+            .map(|value| truncate(value.as_str().trim(), 160));
         return Ok((old_value, new_value));
     }
     Ok((None, None))
@@ -946,6 +964,22 @@ mod tests {
     #[test]
     fn classify_numeric_decrease_as_nerf_without_stat_words() {
         assert_eq!(classify_change_type("reduced from 1.2 to 1.05"), "nerf");
+    }
+
+    #[test]
+    fn classify_numeric_change_uses_stat_polarity() {
+        let cases = [
+            ("cooldown reduced from 10s to 8s", "buff"),
+            ("cost increased from 3 to 4", "nerf"),
+            ("damage reduced from 90 to 80", "nerf"),
+            ("spirit scaling reduced from 1.2 to 1.05", "nerf"),
+            ("spirits caling reduced from 1.2 to 1.05", "nerf"),
+            ("delay increased 7 to 7.5", "nerf"),
+        ];
+
+        for (line, expected) in cases {
+            assert_eq!(classify_change_type(line), expected, "{line}");
+        }
     }
 
     #[test]
