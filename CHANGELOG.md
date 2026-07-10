@@ -6,7 +6,7 @@ Problem: Statische Matchdaten reichen nicht aus, um Entscheidungen, Kampfverlaeu
 
 Änderung: Der Brain katalogisiert Mo-&-Krill-Matches eines Spielers und speichert fuer abrufbare Demos versionierte Zustands-, Kampf-, Kauf- und Objective-Evidenz mit eindeutigen Belegen.
 
-Aktuelles Verhalten: Der erste echte Match-Tracer ist importiert; die Daten bleiben Rohbelege und werden noch nicht als aktives Wissen oder Build-Empfehlung uebernommen.
+Aktuelles Verhalten: Der erste echte Match-Tracer ist importiert; fehlende oder unvollstaendige Demos brechen sichtbar ab und erzeugen keinen fertigen Evidenz-Snapshot. Die Daten bleiben Rohbelege und werden noch nicht als aktives Wissen oder Build-Empfehlung uebernommen.
 
 ## #32 — Brain nutzt Fireworks statt Minimax
 
