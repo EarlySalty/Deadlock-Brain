@@ -528,7 +528,7 @@ enum AnalysisCommands {
     SaveReview(AnalysisSaveReviewArgs),
     #[command(
         name = "run-fireworks",
-        alias = "run-ai",
+        aliases = ["run-minimax", "run-ai"],
         about = "Ruft Fireworks/DeepSeek fuer einen Review-Kontext auf und speichert das Ergebnis."
     )]
     RunAi(AnalysisRunAiArgs),
@@ -2666,7 +2666,7 @@ fn print_analysis_result(target: &str, result: &Value) {
                 display_value(get(result, "context_hash"))
             );
         }
-        "run-fireworks" | "run-ai" => {
+        "run-fireworks" | "run-minimax" | "run-ai" => {
             if bool_value(get(result, "dry_run")) {
                 let messages = get(result, "request")
                     .and_then(|request| get(request, "messages"))
@@ -3115,6 +3115,29 @@ fn capitalize(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::CommandFactory;
+
+    #[test]
+    fn analysis_run_ai_accepts_public_command_names() {
+        for command_name in ["run-fireworks", "run-minimax", "run-ai"] {
+            let cli =
+                Cli::try_parse_from(["deadlock-brain", "analysis", command_name, "Lady Geist"])
+                    .expect("parse analysis run command");
+
+            let Commands::Analysis {
+                target: AnalysisCommands::RunAi(args),
+            } = cli.command
+            else {
+                panic!("expected analysis run ai for {command_name}");
+            };
+            assert_eq!(args.query, "Lady Geist");
+        }
+    }
+
+    #[test]
+    fn clap_command_definition_is_valid() {
+        Cli::command().debug_assert();
+    }
 
     #[test]
     fn parses_player_sync_matches_defaults_hero_to_mo() {
