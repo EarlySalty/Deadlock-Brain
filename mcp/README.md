@@ -8,7 +8,8 @@ Zweck: `dl-brain` stellt die zentrale Postgres-Patch-Historie aus `brain.patch_c
 - `patch_search(text: str, limit: int = 50)`
 - `list_patches(limit: int = 100)`
 - `entity_summary(entity: str)`
-- `brain_sql(query: str, limit: int = 200)`
+
+Eine generische SQL-Luke ist bewusst entfernt; falls sie spaeter noetig wird, dann mit eigener read-only-DB-Rolle.
 
 ## Registrierung
 

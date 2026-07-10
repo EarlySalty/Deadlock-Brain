@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shlex
 import subprocess
 from datetime import date
@@ -16,7 +15,6 @@ from mcp.server import FastMCP
 
 SECRET_LOADER = Path("/home/naniadm/Documents/Infisical/export_claude_secret.py")
 SECRET_NAME = "DEADLOCK_CENTRAL_DSN"
-READ_ONLY_ERROR = "nur read-only SELECT erlaubt"
 COLUMNS = """
     patch_title,
     patch_date,
@@ -289,36 +287,6 @@ def entity_summary(entity: str) -> dict[str, Any]:
     """
     rows = _query_rows(sql, variables)
     return rows[0]
-
-
-def _read_only_sql(query: str) -> str:
-    sql = _require_text(query, "query")
-    if sql.endswith(";"):
-        sql = sql[:-1].strip()
-    if ";" in sql:
-        raise ValueError(READ_ONLY_ERROR)
-    if not re.match(r"(?is)^(select|with)\b", sql):
-        raise ValueError(READ_ONLY_ERROR)
-    if re.search(r"(?is)\b(insert|update|delete|drop|alter|create|grant|truncate|copy)\b", sql):
-        raise ValueError(READ_ONLY_ERROR)
-    return sql
-
-
-@mcp.tool(
-    name="brain_sql",
-    description=(
-        "Read-only SQL-Escape-Hatch fuer brain.patch_changes-nahe Abfragen. "
-        "Erlaubt nur SELECT/WITH ohne Schreib-/DDL-Tokens und erzwingt ein aeusseres LIMIT."
-    ),
-)
-def brain_sql(query: str, limit: int = 200) -> list[dict[str, Any]]:
-    """Fuehrt eine strikt read-only SELECT/WITH-Abfrage mit hartem aeusserem LIMIT aus."""
-    sql = f"""
-        SELECT *
-        FROM ({_read_only_sql(query)}) AS brain_sql_result
-        LIMIT :limit
-    """
-    return _query_rows(sql, {"limit": _limit(limit, 200, 200)})
 
 
 if __name__ == "__main__":

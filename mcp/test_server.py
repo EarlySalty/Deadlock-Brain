@@ -36,29 +36,6 @@ def test_patch_history_uses_exact_entity_match():
     assert variables["entity"] == "Holliday"
 
 
-def test_brain_sql_rejects_drop_without_db_call():
-    server = load_server()
-    called = False
-    original = server._query_rows
-    try:
-        def fake_query_rows(sql, variables):
-            nonlocal called
-            called = True
-            return []
-
-        server._query_rows = fake_query_rows
-        try:
-            server.brain_sql("DROP TABLE brain.patch_events")
-        except ValueError as exc:
-            assert "nur read-only SELECT erlaubt" in str(exc)
-        else:
-            raise AssertionError("DROP wurde nicht abgelehnt")
-    finally:
-        server._query_rows = original
-
-    assert called is False
-
-
 def test_postgres_uri_dsn_is_passed_via_libpq_environment():
     server = load_server()
     env = server._psql_env(
@@ -125,7 +102,6 @@ def test_live_contract_if_deadlock_central_dsn_is_present():
 
 if __name__ == "__main__":
     test_patch_history_uses_exact_entity_match()
-    test_brain_sql_rejects_drop_without_db_call()
     test_postgres_uri_dsn_is_passed_via_libpq_environment()
     test_query_rows_sends_sql_via_stdin_for_psql_variables()
     test_live_contract_if_deadlock_central_dsn_is_present()
