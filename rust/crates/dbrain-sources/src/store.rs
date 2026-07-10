@@ -79,10 +79,7 @@ impl<'a> SourceStore<'a> {
         Ok(path)
     }
 
-    pub(crate) fn upsert_source_document(
-        &self,
-        document: SourceDocumentInput<'_>,
-    ) -> Result<i64> {
+    pub(crate) fn upsert_source_document(&self, document: SourceDocumentInput<'_>) -> Result<i64> {
         let content_hash = stable_hash_bytes(document.content);
         let fetched_at = db::now_epoch_seconds()?;
         self.conn.execute(

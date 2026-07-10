@@ -70,8 +70,14 @@ fn pull_match_metadata_inner(
             "include_player_items",
             options.include_player_items.to_string(),
         ),
-        ("include_player_info", options.include_player_info.to_string()),
-        ("include_player_stats", options.include_player_stats.to_string()),
+        (
+            "include_player_info",
+            options.include_player_info.to_string(),
+        ),
+        (
+            "include_player_stats",
+            options.include_player_stats.to_string(),
+        ),
         (
             "include_player_death_details",
             options.include_player_death_details.to_string(),
@@ -153,7 +159,10 @@ fn get_deadlock_api_json(http: &HttpClient, url: &str, cache_ttl_seconds: u64) -
             timeout: Duration::from_secs(60),
             headers: vec![
                 ("Accept".to_string(), "application/json".to_string()),
-                ("Referer".to_string(), "https://deadlock-api.com/".to_string()),
+                (
+                    "Referer".to_string(),
+                    "https://deadlock-api.com/".to_string(),
+                ),
             ],
             ..HttpGetOptions::default()
         },

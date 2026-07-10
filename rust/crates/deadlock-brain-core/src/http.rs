@@ -155,12 +155,11 @@ impl HttpClient {
                     message: error.to_string(),
                 }
             })?;
-            let header_value = HeaderValue::from_str(value).map_err(|error| {
-                CoreError::InvalidHeader {
+            let header_value =
+                HeaderValue::from_str(value).map_err(|error| CoreError::InvalidHeader {
                     name: name.clone(),
                     message: error.to_string(),
-                }
-            })?;
+                })?;
             request = request.header(header_name, header_value);
         }
 

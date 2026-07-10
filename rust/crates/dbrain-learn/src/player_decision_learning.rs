@@ -107,8 +107,11 @@ pub fn build_player_match_decision_context(
         ));
     }
 
-    let player_match =
-        latest_snapshot_payload(conn, "statlocker_player_match", &format!("{safe_account_id}:{safe_match_id}"))?;
+    let player_match = latest_snapshot_payload(
+        conn,
+        "statlocker_player_match",
+        &format!("{safe_account_id}:{safe_match_id}"),
+    )?;
     if player_match.is_null() || player_match.as_object().map(Map::is_empty).unwrap_or(true) {
         return Err(LearnError::InvalidInput(format!(
             "Kein Statlocker Player-Match fuer {safe_account_id}:{safe_match_id} gefunden."
@@ -217,7 +220,10 @@ Keine erfundenen Zahlen, keine ungekennzeichneten Vermutungen.",
     })
 }
 
-pub fn player_analyze_match(conn: &Connection, options: PlayerAnalyzeMatchOptions) -> Result<Value> {
+pub fn player_analyze_match(
+    conn: &Connection,
+    options: PlayerAnalyzeMatchOptions,
+) -> Result<Value> {
     run_single_player_match_analysis(
         conn,
         &options.account_id,
@@ -323,7 +329,12 @@ pub(crate) fn list_pending_player_match_decision_targets(
               AND pm.external_id LIKE ?3
             ORDER BY pm.fetched_at DESC, pm.id DESC LIMIT ?4
             "#,
-            &[&PLAYER_DECISION_PROMPT_VERSION, &model, &like, &bounded_limit],
+            &[
+                &PLAYER_DECISION_PROMPT_VERSION,
+                &model,
+                &like,
+                &bounded_limit,
+            ],
         )?
     } else {
         query_json_rows(
@@ -350,7 +361,9 @@ pub(crate) fn list_pending_player_match_decision_targets(
     let mut targets = Vec::new();
     for row in rows {
         let payload = json_loads(get(&row, "payload_json").and_then(Value::as_str), json!({}));
-        let source = get(&payload, "_deadlock_brain").cloned().unwrap_or_else(|| json!({}));
+        let source = get(&payload, "_deadlock_brain")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
         let external = get_string(&row, "external_id").unwrap_or_default();
         let (account, match_id) = split_external_match_id(&external);
         let account_id_value = get_string(&source, "account_id").unwrap_or(account);
@@ -452,7 +465,9 @@ fn save_player_match_decision_note(
     let context_json = serde_json::to_string(context)?;
     let context_hash = stable_hash_text(&context_json);
     let now = now_epoch_seconds()?;
-    let hero_id = get(context, "hero_id").map(value_to_string).filter(|value| !value.is_empty());
+    let hero_id = get(context, "hero_id")
+        .map(value_to_string)
+        .filter(|value| !value.is_empty());
     let hero_name = get_string(context, "hero_name");
     let insights_json = serde_json::to_string(&extract_insights(result_text.unwrap_or("")))?;
     let account_id = get_string(context, "account_id").unwrap_or_default();
@@ -509,7 +524,11 @@ fn save_player_match_decision_note(
     .unwrap_or_else(|| json!({"context_hash": context_hash, "status": status})))
 }
 
-fn latest_snapshot_payload(conn: &Connection, entity_type: &str, external_id: &str) -> Result<Value> {
+fn latest_snapshot_payload(
+    conn: &Connection,
+    entity_type: &str,
+    external_id: &str,
+) -> Result<Value> {
     let row = query_one_json(
         conn,
         r#"
@@ -522,7 +541,11 @@ fn latest_snapshot_payload(conn: &Connection, entity_type: &str, external_id: &s
         &[&entity_type, &external_id],
     )?;
     Ok(row
-        .and_then(|row| get(&row, "payload_json").and_then(Value::as_str).map(|raw| json_loads(Some(raw), json!({}))))
+        .and_then(|row| {
+            get(&row, "payload_json")
+                .and_then(Value::as_str)
+                .map(|raw| json_loads(Some(raw), json!({})))
+        })
         .unwrap_or_else(|| json!({})))
 }
 
@@ -539,7 +562,11 @@ fn latest_deadlock_api_match_metadata(conn: &Connection, match_id: &str) -> Resu
         &[&match_id],
     )?;
     Ok(row
-        .and_then(|row| get(&row, "payload_json").and_then(Value::as_str).map(|raw| json_loads(Some(raw), json!({}))))
+        .and_then(|row| {
+            get(&row, "payload_json")
+                .and_then(Value::as_str)
+                .map(|raw| json_loads(Some(raw), json!({})))
+        })
         .unwrap_or_else(|| json!({})))
 }
 
@@ -550,12 +577,19 @@ fn hero_id_from_deadlock_api_match(payload: &Value, account_id: &str) -> Option<
         .filter(|value| !value.trim().is_empty())
 }
 
-fn compact_deadlock_api_match(conn: &Connection, payload: &Value, account_id: &str) -> Result<Value> {
+fn compact_deadlock_api_match(
+    conn: &Connection,
+    payload: &Value,
+    account_id: &str,
+) -> Result<Value> {
     if !payload.is_object() {
         return Ok(json!({}));
     }
     let player = deadlock_api_player(payload, account_id);
-    let players = get(payload, "players").and_then(as_array).cloned().unwrap_or_default();
+    let players = get(payload, "players")
+        .and_then(as_array)
+        .cloned()
+        .unwrap_or_default();
     let mut team_roster = Vec::new();
     for row in &players {
         team_roster.push(compact_deadlock_api_player_roster_row(conn, row)?);
@@ -582,14 +616,21 @@ fn compact_deadlock_api_match(conn: &Connection, payload: &Value, account_id: &s
     });
     if player.is_object() && !player.as_object().map(Map::is_empty).unwrap_or(true) {
         if let Some(object) = compact.as_object_mut() {
-            object.insert("player".to_string(), compact_deadlock_api_player(conn, &player, payload)?);
+            object.insert(
+                "player".to_string(),
+                compact_deadlock_api_player(conn, &player, payload)?,
+            );
         }
     }
     Ok(compact_json(&compact, 6, 80))
 }
 
 fn deadlock_api_player(payload: &Value, account_id: &str) -> Value {
-    for row in get(payload, "players").and_then(as_array).into_iter().flatten() {
+    for row in get(payload, "players")
+        .and_then(as_array)
+        .into_iter()
+        .flatten()
+    {
         let row_account = get_any(row, &["account_id", "accountId"]).map(value_to_string);
         if row_account.as_deref() == Some(account_id) {
             return row.clone();
@@ -620,7 +661,10 @@ fn compact_deadlock_api_player(
     match_payload: &Value,
 ) -> Result<Value> {
     let hero_id = get_any(player, &["hero_id", "heroId"]).map(value_to_string);
-    let raw_events = get(player, "items").and_then(as_array).cloned().unwrap_or_default();
+    let raw_events = get(player, "items")
+        .and_then(as_array)
+        .cloned()
+        .unwrap_or_default();
     let mut all_events = Vec::new();
     for item in raw_events {
         all_events.push(compact_actual_item_event(conn, &item)?);
@@ -673,9 +717,15 @@ fn compact_actual_item_event(conn: &Connection, row: &Value) -> Result<Value> {
     let upgrade_id = get_any(row, &["upgrade_id", "upgradeId"]).map(value_to_string);
     let imbued_id = get_any(row, &["imbued_ability_id", "imbuedAbilityId"]).map(value_to_string);
     let payload = asset_payload_by_id(conn, item_id.as_deref())?.unwrap_or_else(|| json!({}));
-    let upgrade_payload = asset_payload_by_id(conn, upgrade_id.as_deref())?.unwrap_or_else(|| json!({}));
+    let upgrade_payload =
+        asset_payload_by_id(conn, upgrade_id.as_deref())?.unwrap_or_else(|| json!({}));
     let item = item_mechanics(&payload, item_id.as_deref());
-    let upgrade = if upgrade_payload.is_object() && !upgrade_payload.as_object().map(Map::is_empty).unwrap_or(true) {
+    let upgrade = if upgrade_payload.is_object()
+        && !upgrade_payload
+            .as_object()
+            .map(Map::is_empty)
+            .unwrap_or(true)
+    {
         item_mechanics(&upgrade_payload, upgrade_id.as_deref())
     } else {
         json!({})
@@ -728,8 +778,7 @@ fn item_mechanics(payload: &Value, item_id: Option<&str>) -> Value {
 }
 
 fn ability_name_from_id(conn: &Connection, ability_id: Option<&str>) -> Result<Option<String>> {
-    Ok(asset_payload_by_id(conn, ability_id)?
-        .and_then(|payload| get_string(&payload, "name")))
+    Ok(asset_payload_by_id(conn, ability_id)?.and_then(|payload| get_string(&payload, "name")))
 }
 
 fn is_public_shop_item_event(event: &Value) -> bool {
@@ -767,7 +816,10 @@ fn shop_bonus_progress(item_timeline: &[Value]) -> Value {
             rows.push(purchase);
         }
         if !first_4800_gross.contains_key(&slot) && current >= 4800 {
-            first_4800_gross.insert(slot, get(event, "game_time_s").cloned().unwrap_or(Value::Null));
+            first_4800_gross.insert(
+                slot,
+                get(event, "game_time_s").cloned().unwrap_or(Value::Null),
+            );
         }
     }
     let current_value = shop_current_value_progress(item_timeline);
@@ -822,12 +874,18 @@ fn shop_current_value_progress(item_timeline: &[Value]) -> Value {
     let mut compact_events = Vec::new();
     for event in events {
         let slot = get_string(&event, "slot").unwrap_or_default();
-        let current = (current_by_slot.get(&slot).and_then(Value::as_i64).unwrap_or(0)
+        let current = (current_by_slot
+            .get(&slot)
+            .and_then(Value::as_i64)
+            .unwrap_or(0)
             + int_or_zero(get(&event, "delta")))
         .max(0);
         current_by_slot.insert(slot.clone(), json!(current));
         if !first_4800.contains_key(&slot) && current >= 4800 {
-            first_4800.insert(slot.clone(), get(&event, "time_s").cloned().unwrap_or(Value::Null));
+            first_4800.insert(
+                slot.clone(),
+                get(&event, "time_s").cloned().unwrap_or(Value::Null),
+            );
         }
         compact_events.push(json!({
             "time_s": get(&event, "time_s").cloned().unwrap_or(Value::Null),
@@ -847,7 +905,11 @@ fn shop_current_value_progress(item_timeline: &[Value]) -> Value {
 
 fn enemy_heroes(conn: &Connection, match_payload: &Value, team: Option<&Value>) -> Result<Value> {
     let mut rows = Vec::new();
-    for row in get(match_payload, "players").and_then(as_array).into_iter().flatten() {
+    for row in get(match_payload, "players")
+        .and_then(as_array)
+        .into_iter()
+        .flatten()
+    {
         if get(row, "team") != team {
             rows.push(compact_deadlock_api_player_roster_row(conn, row)?);
         }
@@ -863,7 +925,11 @@ fn ally_heroes(
 ) -> Result<Value> {
     let mut rows = Vec::new();
     let account_text = account_id.map(value_to_string).unwrap_or_default();
-    for row in get(match_payload, "players").and_then(as_array).into_iter().flatten() {
+    for row in get(match_payload, "players")
+        .and_then(as_array)
+        .into_iter()
+        .flatten()
+    {
         if get(row, "team") == team
             && get_any(row, &["account_id", "accountId"])
                 .map(value_to_string)
@@ -882,7 +948,13 @@ fn stat_checkpoints(stats: Option<&Value>) -> Value {
         return json!([]);
     }
     let last = rows.len().saturating_sub(1);
-    let mut indexes = vec![0, rows.len() / 4, rows.len() / 2, (rows.len() * 3) / 4, last];
+    let mut indexes = vec![
+        0,
+        rows.len() / 4,
+        rows.len() / 2,
+        (rows.len() * 3) / 4,
+        last,
+    ];
     indexes.sort_unstable();
     indexes.dedup();
     let keys = [
@@ -926,19 +998,34 @@ fn compact_death_details(
     death_details: Option<&Value>,
     match_payload: &Value,
 ) -> Result<Value> {
-    let death_rows = death_details.and_then(as_array).cloned().unwrap_or_default();
+    let death_rows = death_details
+        .and_then(as_array)
+        .cloned()
+        .unwrap_or_default();
     let mut players_by_slot: Map<String, Value> = Map::new();
-    for row in get(match_payload, "players").and_then(as_array).into_iter().flatten() {
-        let slot = get_any(row, &["player_slot", "playerSlot"]).map(value_to_string).unwrap_or_default();
+    for row in get(match_payload, "players")
+        .and_then(as_array)
+        .into_iter()
+        .flatten()
+    {
+        let slot = get_any(row, &["player_slot", "playerSlot"])
+            .map(value_to_string)
+            .unwrap_or_default();
         players_by_slot.insert(slot, row.clone());
     }
     let mut result = Vec::new();
     for row in death_rows.iter().take(12) {
-        let killer_slot = get_any(row, &["killer_player_slot", "killerPlayerSlot", "killer_slot"]).map(value_to_string);
+        let killer_slot = get_any(
+            row,
+            &["killer_player_slot", "killerPlayerSlot", "killer_slot"],
+        )
+        .map(value_to_string);
         let killer = killer_slot
             .as_ref()
             .and_then(|slot| players_by_slot.get(slot));
-        let killer_hero_id = killer.and_then(|killer| get_any(killer, &["hero_id", "heroId"])).map(value_to_string);
+        let killer_hero_id = killer
+            .and_then(|killer| get_any(killer, &["hero_id", "heroId"]))
+            .map(value_to_string);
         result.push(json!({
             "game_time_s": get_any(row, &["game_time_s", "gameTimeS"]).cloned().unwrap_or(Value::Null),
             "killer_player_slot": killer_slot,
@@ -983,7 +1070,13 @@ fn compact_objectives(objectives: Option<&Value>) -> Value {
 }
 
 fn hero_id_from_payload(payload: &Value) -> Option<String> {
-    for key in ["hero_id", "heroId", "player_hero_id", "playerHeroId", "hero"] {
+    for key in [
+        "hero_id",
+        "heroId",
+        "player_hero_id",
+        "playerHeroId",
+        "hero",
+    ] {
         if let Some(value) = get(payload, key).and_then(value_to_non_empty_string) {
             return Some(value);
         }
@@ -995,7 +1088,8 @@ fn hero_id_from_payload(payload: &Value) -> Option<String> {
 
 fn hero_id_from_match_detail(payload: &Value, account_id: &str) -> Option<String> {
     for row in walk_dicts(payload) {
-        let row_account = get_any(row, &["accountId", "account_id", "playerAccountId"]).map(value_to_string);
+        let row_account =
+            get_any(row, &["accountId", "account_id", "playerAccountId"]).map(value_to_string);
         if row_account.as_deref() != Some(account_id) {
             continue;
         }

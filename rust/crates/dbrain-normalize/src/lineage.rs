@@ -69,7 +69,9 @@ pub fn enrich_lineage(conn: &Connection, rebuild: bool) -> Result<Value> {
         for candidate in candidates {
             if insert_lineage(conn, &candidate)? {
                 inserted += 1;
-                *by_relation.entry(candidate.relation_type.clone()).or_default() += 1;
+                *by_relation
+                    .entry(candidate.relation_type.clone())
+                    .or_default() += 1;
             }
         }
     }
@@ -104,56 +106,74 @@ pub fn extract_lineage_candidates(event: &LineageEvent) -> Vec<LineageCandidate>
             .or(event.subject.as_deref())
             .unwrap_or_default(),
     );
-    let entity_name = if entity_name.is_empty() { None } else { Some(entity_name) };
+    let entity_name = if entity_name.is_empty() {
+        None
+    } else {
+        Some(entity_name)
+    };
     let owner_type = if entity_type.as_deref() == Some("hero") {
         entity_type.clone()
     } else {
         None
     };
-    let owner_name = if owner_type.is_some() { entity_name.clone() } else { None };
+    let owner_name = if owner_type.is_some() {
+        entity_name.clone()
+    } else {
+        None
+    };
     let mut candidates = Vec::new();
 
     if let Some(new_name) = renamed_to(&text) {
         if let Some(entity_name) = entity_name.clone() {
-            candidates.push(candidate(event, CandidateInput {
-                relation_type: "rename",
-                source_type: entity_type.clone(),
-                source_name: entity_name,
-                target_type: entity_type.clone(),
-                target_name: Some(clean_name(&new_name)),
-                owner_type: None,
-                owner_name: None,
-                confidence: 0.95,
-            }));
+            candidates.push(candidate(
+                event,
+                CandidateInput {
+                    relation_type: "rename",
+                    source_type: entity_type.clone(),
+                    source_name: entity_name,
+                    target_type: entity_type.clone(),
+                    target_name: Some(clean_name(&new_name)),
+                    owner_type: None,
+                    owner_name: None,
+                    confidence: 0.95,
+                },
+            ));
             return candidates;
         }
     }
 
-    if let Some((old_name, new_name)) = renamed_x_to_y(&text).or_else(|| renamed_old_to_new(&text)) {
-        candidates.push(candidate(event, CandidateInput {
-            relation_type: "rename",
-            source_type: scoped_child_type(entity_type.as_deref()),
-            source_name: clean_name(&old_name),
-            target_type: scoped_child_type(entity_type.as_deref()),
-            target_name: Some(clean_name(&new_name)),
-            owner_type: owner_type.clone(),
-            owner_name: owner_name.clone(),
-            confidence: 0.9,
-        }));
+    if let Some((old_name, new_name)) = renamed_x_to_y(&text).or_else(|| renamed_old_to_new(&text))
+    {
+        candidates.push(candidate(
+            event,
+            CandidateInput {
+                relation_type: "rename",
+                source_type: scoped_child_type(entity_type.as_deref()),
+                source_name: clean_name(&old_name),
+                target_type: scoped_child_type(entity_type.as_deref()),
+                target_name: Some(clean_name(&new_name)),
+                owner_type: owner_type.clone(),
+                owner_name: owner_name.clone(),
+                confidence: 0.9,
+            },
+        ));
         return valid_candidates(candidates);
     }
 
     if let Some((old_name, new_name)) = replaced_with(&text) {
-        candidates.push(candidate(event, CandidateInput {
-            relation_type: "replaced_by",
-            source_type: entity_type.clone(),
-            source_name: clean_name(&old_name),
-            target_type: entity_type.clone(),
-            target_name: Some(clean_name(&new_name)),
-            owner_type: None,
-            owner_name: None,
-            confidence: 0.75,
-        }));
+        candidates.push(candidate(
+            event,
+            CandidateInput {
+                relation_type: "replaced_by",
+                source_type: entity_type.clone(),
+                source_name: clean_name(&old_name),
+                target_type: entity_type.clone(),
+                target_name: Some(clean_name(&new_name)),
+                owner_type: None,
+                owner_name: None,
+                confidence: 0.75,
+            },
+        ));
     }
 
     if is_rework_event(event, &text) {
@@ -163,16 +183,23 @@ pub fn extract_lineage_candidates(event: &LineageEvent) -> Vec<LineageCandidate>
         }
         if let Some(reworked_name) = reworked_name {
             let keep_owner = owner_name.as_deref() != Some(reworked_name.as_str());
-            candidates.push(candidate(event, CandidateInput {
-                relation_type: "rework",
-                source_type: entity_type.clone(),
-                source_name: reworked_name.clone(),
-                target_type: entity_type,
-                target_name: Some(reworked_name),
-                owner_type: if keep_owner { owner_type } else { None },
-                owner_name: if keep_owner { owner_name } else { None },
-                confidence: if text.to_lowercase().contains("reworked") { 0.72 } else { 0.65 },
-            }));
+            candidates.push(candidate(
+                event,
+                CandidateInput {
+                    relation_type: "rework",
+                    source_type: entity_type.clone(),
+                    source_name: reworked_name.clone(),
+                    target_type: entity_type,
+                    target_name: Some(reworked_name),
+                    owner_type: if keep_owner { owner_type } else { None },
+                    owner_name: if keep_owner { owner_name } else { None },
+                    confidence: if text.to_lowercase().contains("reworked") {
+                        0.72
+                    } else {
+                        0.65
+                    },
+                },
+            ));
         }
     }
 
@@ -217,13 +244,30 @@ fn load_events(conn: &Connection) -> Result<Vec<LineageEvent>> {
 
 fn candidate(event: &LineageEvent, input: CandidateInput) -> LineageCandidate {
     let mut metadata = BTreeMap::new();
-    metadata.insert("patch_title".to_string(), option_json(event.patch_title.clone()));
-    metadata.insert("patch_url".to_string(), option_json(event.patch_url.clone()));
-    metadata.insert("posted_at".to_string(), option_json(event.posted_at.clone()));
-    metadata.insert("source_kind".to_string(), option_json(event.source_kind.clone()));
+    metadata.insert(
+        "patch_title".to_string(),
+        option_json(event.patch_title.clone()),
+    );
+    metadata.insert(
+        "patch_url".to_string(),
+        option_json(event.patch_url.clone()),
+    );
+    metadata.insert(
+        "posted_at".to_string(),
+        option_json(event.posted_at.clone()),
+    );
+    metadata.insert(
+        "source_kind".to_string(),
+        option_json(event.source_kind.clone()),
+    );
     metadata.insert(
         "line".to_string(),
-        option_json(event.normalized_line.clone().or_else(|| event.raw_line.clone())),
+        option_json(
+            event
+                .normalized_line
+                .clone()
+                .or_else(|| event.raw_line.clone()),
+        ),
     );
     let target_name_norm = input
         .target_name
@@ -299,7 +343,10 @@ fn valid_candidate(candidate: &LineageCandidate) -> bool {
     if !target.is_empty() && target.len() > LINEAGE_NAME_LIMIT {
         return false;
     }
-    !matches!(source.to_lowercase().as_str(), "it" | "this" | "the item" | "the ability")
+    !matches!(
+        source.to_lowercase().as_str(),
+        "it" | "this" | "the item" | "the ability"
+    )
 }
 
 fn lineage_entity_type(value: Option<&str>) -> Option<String> {
@@ -381,7 +428,10 @@ fn renamed_old_to_new(text: &str) -> Option<(String, String)> {
     let old_start = "renamed ".len();
     let old_end = old_start + index;
     let new_start = old_end + " to ".len();
-    Some((text[old_start..old_end].trim().to_string(), sentence_tail(&text[new_start..])))
+    Some((
+        text[old_start..old_end].trim().to_string(),
+        sentence_tail(&text[new_start..]),
+    ))
 }
 
 fn replaced_with(text: &str) -> Option<(String, String)> {
@@ -391,7 +441,10 @@ fn replaced_with(text: &str) -> Option<(String, String)> {
     let old_start = "replaced ".len();
     let old_end = old_start + index;
     let new_start = old_end + " with ".len();
-    Some((text[old_start..old_end].trim().to_string(), sentence_tail(&text[new_start..])))
+    Some((
+        text[old_start..old_end].trim().to_string(),
+        sentence_tail(&text[new_start..]),
+    ))
 }
 
 fn reworked_name_from_text(text: &str) -> Option<String> {

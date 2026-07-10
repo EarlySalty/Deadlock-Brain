@@ -90,11 +90,14 @@ fn pull_statlocker_inner(
     let mut latest_patch = options.patch.clone();
 
     if contains_kind(&selected, "wpa-patches") || contains_kind(&selected, "wpa-items") {
-        let (patches_summary, latest) =
-            pull_wpa_patches(store, http, options.cache_ttl_seconds)?;
+        let (patches_summary, latest) = pull_wpa_patches(store, http, options.cache_ttl_seconds)?;
         total_snapshots += snapshots_from_summary(&patches_summary);
         endpoints.insert("wpa-patches".to_string(), patches_summary);
-        if latest_patch.as_ref().map(|value| value.is_empty()).unwrap_or(true) {
+        if latest_patch
+            .as_ref()
+            .map(|value| value.is_empty())
+            .unwrap_or(true)
+        {
             latest_patch = latest;
         }
     }
@@ -102,7 +105,9 @@ fn pull_statlocker_inner(
     if contains_kind(&selected, "wpa-items") {
         let patch = latest_patch.as_deref().unwrap_or_default();
         if patch.is_empty() {
-            return Err(SourcesError::invalid_input("Kein Statlocker WPA-Patch gefunden."));
+            return Err(SourcesError::invalid_input(
+                "Kein Statlocker WPA-Patch gefunden.",
+            ));
         }
         let items_summary = pull_wpa_items(
             store,
@@ -156,7 +161,10 @@ fn pull_statlocker_inner(
             options.cache_ttl_seconds,
         )?;
         total_snapshots += snapshots_from_summary(&matches.summary);
-        endpoints.insert("player-matches".to_string(), without_match_rows(&matches.summary));
+        endpoints.insert(
+            "player-matches".to_string(),
+            without_match_rows(&matches.summary),
+        );
         if options.include_match_details {
             let details_summary = pull_match_details_for_rows(
                 store,
@@ -187,16 +195,14 @@ fn pull_statlocker_inner(
                 "--match-id ist fuer match-detail erforderlich.",
             ));
         };
-        let detail_summary =
-            pull_match_detail(store, http, match_id, options.cache_ttl_seconds)?;
+        let detail_summary = pull_match_detail(store, http, match_id, options.cache_ttl_seconds)?;
         total_snapshots += snapshots_from_summary(&detail_summary);
         endpoints.insert("match-detail".to_string(), detail_summary);
     }
 
     if contains_kind(&selected, "player-build-analysis") {
-        let missing_account_or_hero =
-            truthy_option(options.account_id.as_deref()).is_none()
-                || truthy_option(options.hero_id.as_deref()).is_none();
+        let missing_account_or_hero = truthy_option(options.account_id.as_deref()).is_none()
+            || truthy_option(options.hero_id.as_deref()).is_none();
         if missing_account_or_hero {
             return Err(SourcesError::invalid_input(
                 "--account-id und --hero-id sind fuer player-build-analysis erforderlich.",
@@ -204,18 +210,19 @@ fn pull_statlocker_inner(
         }
         let account_id = options.account_id.as_deref().unwrap_or_default();
         let hero_id = options.hero_id.as_deref().unwrap_or_default();
-        let build_summary =
-            pull_player_build_analysis(store, http, account_id, hero_id, options.cache_ttl_seconds)?;
+        let build_summary = pull_player_build_analysis(
+            store,
+            http,
+            account_id,
+            hero_id,
+            options.cache_ttl_seconds,
+        )?;
         total_snapshots += snapshots_from_summary(&build_summary);
         endpoints.insert("player-build-analysis".to_string(), build_summary);
     }
 
     if contains_kind(&selected, "leaderboard-player-matches") {
-        let player_summary = pull_leaderboard_player_matches(
-            store,
-            http,
-            options,
-        )?;
+        let player_summary = pull_leaderboard_player_matches(store, http, options)?;
         total_snapshots += snapshots_from_summary(&player_summary);
         endpoints.insert("leaderboard-player-matches".to_string(), player_summary);
     }
@@ -340,7 +347,8 @@ fn pull_wpa_items(
         "{BASE_URL}/api/info/wpa-filtered-items?{}",
         form_urlencode(&params)
     );
-    let referer = format!("{BASE_URL}/vision/wpa?min={min_sample_size}&mode=items-heroes&patch={patch}");
+    let referer =
+        format!("{BASE_URL}/vision/wpa?min={min_sample_size}&mode=items-heroes&patch={patch}");
     let payload = get_statlocker_json(http, &url, &referer, cache_ttl_seconds)?;
     let raw = json_bytes(&payload)?;
     let external_id = format!("wpa-items:{patch}:{hero}:min{min_sample_size}:rank{rank}");
@@ -512,7 +520,13 @@ fn pull_player_profile(
     )?;
     let profile_name = first_string(
         &payload,
-        &["name", "personaName", "personaname", "steamName", "displayName"],
+        &[
+            "name",
+            "personaName",
+            "personaname",
+            "steamName",
+            "displayName",
+        ],
     )
     .unwrap_or_else(|| safe_account_id.clone());
     let snapshots = [EntitySnapshotInput {
@@ -959,7 +973,13 @@ fn match_id_from_payload(payload: &Value) -> Option<String> {
 
 fn hero_id_from_payload(payload: &Value) -> Option<String> {
     let object = payload.as_object()?;
-    for key in ["hero_id", "heroId", "player_hero_id", "playerHeroId", "hero"] {
+    for key in [
+        "hero_id",
+        "heroId",
+        "player_hero_id",
+        "playerHeroId",
+        "hero",
+    ] {
         if let Some(value) = object.get(key) {
             let raw = value_to_python_string(value).trim().to_string();
             if !raw.is_empty() && !value.is_null() {
@@ -1142,7 +1162,10 @@ mod tests {
         );
         write_http_cache(
             &cache_dir,
-            &format!("{BASE_URL}/api/info/wpa-filtered-items?{}", default_wpa_items_query()),
+            &format!(
+                "{BASE_URL}/api/info/wpa-filtered-items?{}",
+                default_wpa_items_query()
+            ),
             br#"{"items": [{"item": "Mystic Reach"}]}"#,
         );
         write_http_cache(
@@ -1163,9 +1186,14 @@ mod tests {
         .expect("pull statlocker");
 
         assert_eq!(summary["snapshots"], json!(3));
-        assert_eq!(summary["endpoints"]["wpa-patches"]["latest_patch"], json!("patch_129989"));
+        assert_eq!(
+            summary["endpoints"]["wpa-patches"]["latest_patch"],
+            json!("patch_129989")
+        );
         let documents: i64 = conn
-            .query_row("SELECT COUNT(*) FROM source_documents", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM source_documents", [], |row| {
+                row.get(0)
+            })
             .expect("documents");
         assert_eq!(documents, 3);
     }

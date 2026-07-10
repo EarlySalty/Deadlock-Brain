@@ -4,7 +4,7 @@ use rusqlite::{Connection, OptionalExtension};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
-use crate::{Result, NormalizeError};
+use crate::{NormalizeError, Result};
 
 pub const ASSETS_SOURCE: &str = "deadlock_assets_api";
 pub const SHEET_SOURCE: &str = "deadlock_stats_sheet";
@@ -34,11 +34,15 @@ pub fn clean_subject(value: Option<&str>) -> String {
     if let Some(stripped) = cleaned.strip_suffix("**") {
         cleaned = stripped;
     }
-    cleaned.trim_matches(|ch: char| ch == ' ' || ch == ':' || ch == '-' || ch == '\t').to_string()
+    cleaned
+        .trim_matches(|ch: char| ch == ' ' || ch == ':' || ch == '-' || ch == '\t')
+        .to_string()
 }
 
 pub fn normalize_key(value: &str) -> String {
-    let cleaned = clean_subject(Some(value)).to_lowercase().replace('&', " and ");
+    let cleaned = clean_subject(Some(value))
+        .to_lowercase()
+        .replace('&', " and ");
     let mut out = String::new();
     let mut last_space = true;
     for ch in cleaned.chars() {
@@ -104,12 +108,10 @@ pub fn value_bool(value: Option<&Value>) -> Option<bool> {
 pub fn value_truthy(value: Option<&Value>) -> bool {
     match value {
         Some(Value::Bool(flag)) => *flag,
-        Some(Value::Number(number)) => {
-            number.as_i64().map_or_else(
-                || number.as_f64().is_some_and(|value| value != 0.0),
-                |value| value != 0,
-            )
-        }
+        Some(Value::Number(number)) => number.as_i64().map_or_else(
+            || number.as_f64().is_some_and(|value| value != 0.0),
+            |value| value != 0,
+        ),
         Some(Value::String(text)) => !text.is_empty(),
         Some(Value::Array(values)) => !values.is_empty(),
         Some(Value::Object(values)) => !values.is_empty(),
@@ -190,7 +192,11 @@ pub fn delete_all(conn: &Connection, table: &'static str) -> Result<i64> {
 }
 
 pub fn clear_patch_events(conn: &Connection) -> Result<i64> {
-    for table in ["legacy_entities", "entity_lineage", "patch_event_enrichments"] {
+    for table in [
+        "legacy_entities",
+        "entity_lineage",
+        "patch_event_enrichments",
+    ] {
         if table_exists(conn, table)? {
             let _ = delete_all(conn, table)?;
         }
@@ -198,17 +204,23 @@ pub fn clear_patch_events(conn: &Connection) -> Result<i64> {
     delete_all(conn, "patch_events")
 }
 
-pub fn build_hero_index(conn: &Connection, skip_internal_aliases: bool) -> Result<HashMap<String, i64>> {
+pub fn build_hero_index(
+    conn: &Connection,
+    skip_internal_aliases: bool,
+) -> Result<HashMap<String, i64>> {
     let mut candidates: HashMap<String, HashSet<i64>> = HashMap::new();
-    let mut entity_stmt = conn.prepare(
-        "SELECT id, canonical_name FROM entities WHERE entity_type='hero'",
-    )?;
+    let mut entity_stmt =
+        conn.prepare("SELECT id, canonical_name FROM entities WHERE entity_type='hero'")?;
     let entity_rows = entity_stmt.query_map([], |row| {
         Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
     })?;
     for row in entity_rows {
         let (entity_id, canonical_name) = row?;
-        add_index_candidate(&mut candidates, &normalize_alias(&canonical_name), entity_id);
+        add_index_candidate(
+            &mut candidates,
+            &normalize_alias(&canonical_name),
+            entity_id,
+        );
     }
 
     let mut alias_stmt = conn.prepare(
@@ -249,9 +261,16 @@ pub fn build_hero_index(conn: &Connection, skip_internal_aliases: bool) -> Resul
         .collect())
 }
 
-pub fn add_index_candidate(candidates: &mut HashMap<String, HashSet<i64>>, alias_norm: &str, entity_id: i64) {
+pub fn add_index_candidate(
+    candidates: &mut HashMap<String, HashSet<i64>>,
+    alias_norm: &str,
+    entity_id: i64,
+) {
     if !alias_norm.is_empty() {
-        candidates.entry(alias_norm.to_string()).or_default().insert(entity_id);
+        candidates
+            .entry(alias_norm.to_string())
+            .or_default()
+            .insert(entity_id);
     }
 }
 

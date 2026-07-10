@@ -21,21 +21,8 @@ const VISUAL_KEYWORDS: &[&str] = &[
 ];
 
 const VERBAL_KEYWORDS: &[&str] = &[
-    "build",
-    "items",
-    "item",
-    "lane",
-    "laning",
-    "matchup",
-    "counter",
-    "souls",
-    "macro",
-    "guide",
-    "tips",
-    "rank",
-    "strategy",
-    "meta",
-    "economy",
+    "build", "items", "item", "lane", "laning", "matchup", "counter", "souls", "macro", "guide",
+    "tips", "rank", "strategy", "meta", "economy",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -198,7 +185,8 @@ fn update_video_metadata(
     video: &VideoForClassification,
     content_type: ContentType,
 ) -> anyhow::Result<bool> {
-    let mut metadata = serde_json::from_str::<Value>(&video.metadata_json).unwrap_or_else(|_| json!({}));
+    let mut metadata =
+        serde_json::from_str::<Value>(&video.metadata_json).unwrap_or_else(|_| json!({}));
     if !metadata.is_object() {
         metadata = json!({});
     }

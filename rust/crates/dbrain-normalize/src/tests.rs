@@ -324,7 +324,9 @@ fn parses_forum_claims_as_historical_quarantine_with_source_links() {
     assert_eq!(rows.len(), 2);
     assert!(rows.iter().all(|row| row.4 == "historical_quarantine"));
     assert!(rows.iter().all(|row| row.2.contains("/post-")));
-    assert!(rows.iter().all(|row| row.5.contains("forums.playdeadlock.com")));
+    assert!(rows
+        .iter()
+        .all(|row| row.5.contains("forums.playdeadlock.com")));
     assert!(rows.iter().any(|row| row.1.as_deref() == Some("Haze")));
     assert!(rows
         .iter()

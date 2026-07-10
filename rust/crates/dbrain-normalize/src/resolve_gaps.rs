@@ -94,8 +94,7 @@ fn resolve_patch_events(
     let mut samples = Vec::new();
     for row in rows {
         let row = row?;
-        let Some(resolved) =
-            true_index_match(entity_index, &row.subject, row.section.as_deref())
+        let Some(resolved) = true_index_match(entity_index, &row.subject, row.section.as_deref())
         else {
             continue;
         };
@@ -267,9 +266,8 @@ fn backfill_table(
     hero_index: &HashMap<String, i64>,
     dry_run: bool,
 ) -> Result<(i64, Vec<Value>)> {
-    let select_sql = format!(
-        "SELECT id, hero_name FROM {table} WHERE entity_id IS NULL ORDER BY id"
-    );
+    let select_sql =
+        format!("SELECT id, hero_name FROM {table} WHERE entity_id IS NULL ORDER BY id");
     let mut stmt = conn.prepare(&select_sql)?;
     let rows = stmt.query_map([], |row| {
         Ok(HeroNameRow {
@@ -278,9 +276,7 @@ fn backfill_table(
         })
     })?;
 
-    let update_sql = format!(
-        "UPDATE {table} SET entity_id=?1 WHERE id=?2 AND entity_id IS NULL"
-    );
+    let update_sql = format!("UPDATE {table} SET entity_id=?1 WHERE id=?2 AND entity_id IS NULL");
     let mut changed = 0_i64;
     let mut samples = Vec::new();
     for row in rows {
@@ -403,11 +399,13 @@ fn updated_claim_verifier(raw: &str) -> Result<Value> {
 
 fn build_unique_hero_index(conn: &Connection) -> Result<HashMap<String, i64>> {
     let mut candidates: HashMap<String, HashSet<i64>> = HashMap::new();
-    let mut entity_stmt = conn.prepare(
-        "SELECT id, canonical_name FROM entities WHERE entity_type='hero'",
-    )?;
+    let mut entity_stmt =
+        conn.prepare("SELECT id, canonical_name FROM entities WHERE entity_type='hero'")?;
     let entity_rows = entity_stmt.query_map([], |row| {
-        Ok((row.get::<_, i64>("id")?, row.get::<_, String>("canonical_name")?))
+        Ok((
+            row.get::<_, i64>("id")?,
+            row.get::<_, String>("canonical_name")?,
+        ))
     })?;
     for row in entity_rows {
         let (entity_id, canonical_name) = row?;
@@ -423,7 +421,10 @@ fn build_unique_hero_index(conn: &Connection) -> Result<HashMap<String, i64>> {
         "#,
     )?;
     let alias_rows = alias_stmt.query_map([], |row| {
-        Ok((row.get::<_, i64>("entity_id")?, row.get::<_, String>("alias")?))
+        Ok((
+            row.get::<_, i64>("entity_id")?,
+            row.get::<_, String>("alias")?,
+        ))
     })?;
     for row in alias_rows {
         let (entity_id, alias) = row?;
@@ -442,11 +443,7 @@ fn build_unique_hero_index(conn: &Connection) -> Result<HashMap<String, i64>> {
         .collect())
 }
 
-fn add_hero_candidate(
-    candidates: &mut HashMap<String, HashSet<i64>>,
-    name: &str,
-    entity_id: i64,
-) {
+fn add_hero_candidate(candidates: &mut HashMap<String, HashSet<i64>>, name: &str, entity_id: i64) {
     let key = normalize_alias(name);
     if !key.is_empty() {
         candidates.entry(key).or_default().insert(entity_id);

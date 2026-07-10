@@ -141,8 +141,8 @@ fn increment_counter(counters: &mut Map<String, Value>, key: &str) {
 
 #[cfg(test)]
 mod tests {
-    use rusqlite::params;
     use deadlock_brain_core::schema;
+    use rusqlite::params;
 
     use super::*;
 
@@ -168,10 +168,14 @@ mod tests {
         assert_eq!(summary["source_kinds"]["steam"], json!(1));
         assert_eq!(summary["source_kinds"]["forum"], json!(1));
         let documents: i64 = conn
-            .query_row("SELECT COUNT(*) FROM source_documents", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM source_documents", [], |row| {
+                row.get(0)
+            })
             .expect("documents");
         let snapshots: i64 = conn
-            .query_row("SELECT COUNT(*) FROM entity_snapshots", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM entity_snapshots", [], |row| {
+                row.get(0)
+            })
             .expect("snapshots");
         assert_eq!(documents, 2);
         assert_eq!(snapshots, 2);

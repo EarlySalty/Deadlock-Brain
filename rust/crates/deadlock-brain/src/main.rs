@@ -26,13 +26,18 @@ use serde_json::{json, Map, Value};
 
 mod pg_export;
 mod pg_insights;
-mod pg_steam_news;
 mod pg_patchnotes;
+mod pg_steam_news;
 
 #[derive(Debug, Parser)]
 #[command(name = "deadlock-brain")]
 struct Cli {
-    #[arg(long, global = true, value_name = "PATH", help = "Pfad zur Brain-SQLite-DB (Standard: data/deadlock_brain.sqlite3).")]
+    #[arg(
+        long,
+        global = true,
+        value_name = "PATH",
+        help = "Pfad zur Brain-SQLite-DB (Standard: data/deadlock_brain.sqlite3)."
+    )]
     db: Option<PathBuf>,
     #[command(subcommand)]
     command: Commands,
@@ -48,7 +53,10 @@ enum Commands {
     Timeline(TimelineArgs),
     #[command(about = "Baut einen KI-tauglichen Review-Kontext ohne Modellaufruf.")]
     Review(ReviewArgs),
-    #[command(name = "ask-context", about = "Baut ein vertrauenssortiertes Wissens-Buendel plus LLM-Prompt zu einer beliebigen Deadlock-Frage.")]
+    #[command(
+        name = "ask-context",
+        about = "Baut ein vertrauenssortiertes Wissens-Buendel plus LLM-Prompt zu einer beliebigen Deadlock-Frage."
+    )]
     AskContext(AskContextArgs),
     #[command(about = "Fuehrt lokale Datenqualitaetschecks aus.")]
     Quality(PrettyArgs),
@@ -56,7 +64,9 @@ enum Commands {
     Lineage(LineageArgs),
     #[command(about = "Zeigt alte/entfernte Entities aus Patchnotes.")]
     Legacy(LegacyArgs),
-    #[command(about = "Erzeugt einen erklaerbaren Hero-Build-Vorschlag aus API-/Sheet-/Patchdaten.")]
+    #[command(
+        about = "Erzeugt einen erklaerbaren Hero-Build-Vorschlag aus API-/Sheet-/Patchdaten."
+    )]
     Build(BuildArgs),
     #[command(about = "Zeigt strukturierte Item-Daten aus der Deadlock Assets API.")]
     Item(ItemArgs),
@@ -85,7 +95,9 @@ enum Commands {
         #[command(subcommand)]
         source: PullCommands,
     },
-    #[command(about = "Zieht alle Sheet-Tabs frisch und normalisiert Hero-Stats und Tab-Tabellen.")]
+    #[command(
+        about = "Zieht alle Sheet-Tabs frisch und normalisiert Hero-Stats und Tab-Tabellen."
+    )]
     RefreshSheet,
     #[command(about = "Erzeugt normalisierte Daten aus Snapshots.")]
     Normalize {
@@ -102,7 +114,10 @@ enum Commands {
         #[command(subcommand)]
         target: EnrichCommands,
     },
-    #[command(name = "pg", about = "Synchronisiert Brain-Wissen in die zentrale Postgres-DB.")]
+    #[command(
+        name = "pg",
+        about = "Synchronisiert Brain-Wissen in die zentrale Postgres-DB."
+    )]
     Pg {
         #[command(subcommand)]
         target: PgCommands,
@@ -150,7 +165,10 @@ struct ReviewArgs {
     limit_events: usize,
     #[arg(long, help = "Kompakter menschenlesbarer Output statt JSON.")]
     pretty: bool,
-    #[arg(long = "prompt-only", help = "Nur den deutschen Prompt-Entwurf ausgeben.")]
+    #[arg(
+        long = "prompt-only",
+        help = "Nur den deutschen Prompt-Entwurf ausgeben."
+    )]
     prompt_only: bool,
 }
 
@@ -209,23 +227,39 @@ struct ItemArgs {
 
 #[derive(Debug, Subcommand)]
 enum LearnCommands {
-    #[command(name = "import-steam-builds", about = "Importiert GC/Steam Hero-Builds aus der Steam-Bot-DB.")]
+    #[command(
+        name = "import-steam-builds",
+        about = "Importiert GC/Steam Hero-Builds aus der Steam-Bot-DB."
+    )]
     ImportSteamBuilds(ImportSteamBuildsArgs),
     #[command(name = "list-builds", about = "Listet importierte Trainings-Builds.")]
     ListBuilds(ListBuildsArgs),
-    #[command(name = "analyze-build", about = "Laesst MiniMax einen importierten Build als Trainingsbeispiel analysieren.")]
+    #[command(
+        name = "analyze-build",
+        about = "Laesst MiniMax einen importierten Build als Trainingsbeispiel analysieren."
+    )]
     AnalyzeBuild(AnalyzeBuildArgs),
-    #[command(name = "analyze-next", about = "Analysiert automatisch die naechsten noch offenen Trainings-Builds.")]
+    #[command(
+        name = "analyze-next",
+        about = "Analysiert automatisch die naechsten noch offenen Trainings-Builds."
+    )]
     AnalyzeNext(AnalyzeNextBuildsArgs),
 }
 
 #[derive(Debug, Args)]
 struct ImportSteamBuildsArgs {
-    #[arg(long = "db-path", help = "Pfad zur Steam-Bot SQLite DB mit hero_build_sources.")]
+    #[arg(
+        long = "db-path",
+        help = "Pfad zur Steam-Bot SQLite DB mit hero_build_sources."
+    )]
     db_path: Option<PathBuf>,
     #[arg(long, help = "Optional nur ein Hero.")]
     hero: Option<String>,
-    #[arg(long, default_value_t = 0, help = "Steam Build-Sprache, default Englisch=0.")]
+    #[arg(
+        long,
+        default_value_t = 0,
+        help = "Steam Build-Sprache, default Englisch=0."
+    )]
     language: i64,
     #[arg(long = "limit-per-hero", default_value_t = 10)]
     limit_per_hero: usize,
@@ -285,13 +319,25 @@ struct AnalyzeNextBuildsArgs {
 
 #[derive(Debug, Subcommand)]
 enum PlayerCommands {
-    #[command(name = "list-matches", about = "Listet importierte Statlocker Player-Matches.")]
+    #[command(
+        name = "list-matches",
+        about = "Listet importierte Statlocker Player-Matches."
+    )]
     ListMatches(PlayerListMatchesArgs),
-    #[command(name = "match-context", about = "Baut einen MiniMax-tauglichen Player-Match-Kontext ohne Modellaufruf.")]
+    #[command(
+        name = "match-context",
+        about = "Baut einen MiniMax-tauglichen Player-Match-Kontext ohne Modellaufruf."
+    )]
     MatchContext(PlayerMatchContextArgs),
-    #[command(name = "analyze-match", about = "Laesst MiniMax ein Player-Match als Entscheidungsbeispiel analysieren.")]
+    #[command(
+        name = "analyze-match",
+        about = "Laesst MiniMax ein Player-Match als Entscheidungsbeispiel analysieren."
+    )]
     AnalyzeMatch(PlayerAnalyzeMatchArgs),
-    #[command(name = "analyze-next", about = "Analysiert automatisch die naechsten offenen Player-Matches.")]
+    #[command(
+        name = "analyze-next",
+        about = "Analysiert automatisch die naechsten offenen Player-Matches."
+    )]
     AnalyzeNext(PlayerAnalyzeNextArgs),
 }
 
@@ -357,15 +403,30 @@ struct PlayerAnalyzeNextArgs {
 enum YoutubeCommands {
     #[command(about = "Holt alle Videos aus der festen YouTube-Feedliste in die Queue.")]
     Discover(YoutubeDiscoverArgs),
-    #[command(name = "import-transcripts", about = "Importiert lokale YouTube-Transkripte fuer die Queue.")]
+    #[command(
+        name = "import-transcripts",
+        about = "Importiert lokale YouTube-Transkripte fuer die Queue."
+    )]
     ImportTranscripts(YoutubeImportTranscriptsArgs),
-    #[command(name = "fetch-transcripts", about = "Holt fehlende Untertitel/Auto-Captions mit yt-dlp.")]
+    #[command(
+        name = "fetch-transcripts",
+        about = "Holt fehlende Untertitel/Auto-Captions mit yt-dlp."
+    )]
     FetchTranscripts(YoutubeFetchTranscriptsArgs),
-    #[command(name = "transcribe-local", about = "Laedt Audio und transkribiert fehlende Videos lokal mit faster-whisper.")]
+    #[command(
+        name = "transcribe-local",
+        about = "Laedt Audio und transkribiert fehlende Videos lokal mit faster-whisper."
+    )]
     TranscribeLocal(YoutubeTranscribeLocalArgs),
-    #[command(name = "analyze-next", about = "Laesst MiniMax die naechsten Videos bewerten und prueft Claims lokal.")]
+    #[command(
+        name = "analyze-next",
+        about = "Laesst MiniMax die naechsten Videos bewerten und prueft Claims lokal."
+    )]
     AnalyzeNext(YoutubeAnalyzeNextArgs),
-    #[command(name = "auto-learn", about = "Discover -> Transcript-Import -> MiniMax -> lokale Claim-Pruefung.")]
+    #[command(
+        name = "auto-learn",
+        about = "Discover -> Transcript-Import -> MiniMax -> lokale Claim-Pruefung."
+    )]
     AutoLearn(YoutubeAutoLearnArgs),
     #[command(about = "Listet YouTube-Videos in der Lernqueue.")]
     Queue(YoutubeQueueArgs),
@@ -515,9 +576,15 @@ enum Order {
 
 #[derive(Debug, Subcommand)]
 enum AnalysisCommands {
-    #[command(name = "save-review", about = "Speichert einen Review-Kontext ohne Modellaufruf.")]
+    #[command(
+        name = "save-review",
+        about = "Speichert einen Review-Kontext ohne Modellaufruf."
+    )]
     SaveReview(AnalysisSaveReviewArgs),
-    #[command(name = "run-minimax", about = "Ruft MiniMax fuer einen Review-Kontext auf und speichert das Ergebnis.")]
+    #[command(
+        name = "run-minimax",
+        about = "Ruft MiniMax fuer einen Review-Kontext auf und speichert das Ergebnis."
+    )]
     RunMinimax(AnalysisRunMinimaxArgs),
     #[command(name = "list", about = "Listet gespeicherte Analyse-Notizen.")]
     List(AnalysisListArgs),
@@ -553,7 +620,10 @@ struct AnalysisRunMinimaxArgs {
     temperature: Option<f64>,
     #[arg(long = "top-p")]
     top_p: Option<f64>,
-    #[arg(long = "dry-run", help = "Baut nur den MiniMax-Request ohne API-Aufruf.")]
+    #[arg(
+        long = "dry-run",
+        help = "Baut nur den MiniMax-Request ohne API-Aufruf."
+    )]
     dry_run: bool,
     #[arg(long)]
     pretty: bool,
@@ -573,7 +643,10 @@ struct AnalysisListArgs {
 enum PullCommands {
     #[command(about = "Zieht Deadlock Assets API Daten.")]
     Assets(PullAssetsArgs),
-    #[command(name = "deadlock-data", about = "Zieht trusted deadlock-data aus GitHub.")]
+    #[command(
+        name = "deadlock-data",
+        about = "Zieht trusted deadlock-data aus GitHub."
+    )]
     DeadlockData(PullDeadlockDataArgs),
     #[command(about = "Importiert bestehende Patchnotes aus der zentralen Bot-DB.")]
     Patchnotes(PullPatchnotesArgs),
@@ -606,9 +679,15 @@ struct PullAssetsArgs {
 
 #[derive(Debug, Args)]
 struct PullDeadlockDataArgs {
-    #[arg(long = "repo-dir", help = "Lokaler Cache. Standard: data/external/deadlock-data.")]
+    #[arg(
+        long = "repo-dir",
+        help = "Lokaler Cache. Standard: data/external/deadlock-data."
+    )]
     repo_dir: Option<PathBuf>,
-    #[arg(long = "no-git-update", help = "Nutze vorhandenen Cache ohne git pull.")]
+    #[arg(
+        long = "no-git-update",
+        help = "Nutze vorhandenen Cache ohne git pull."
+    )]
     no_git_update: bool,
 }
 
@@ -625,13 +704,20 @@ struct PullForumArgs {
         default_value = "https://forums.playdeadlock.com/sitemap.xml"
     )]
     sitemap_url: String,
-    #[arg(long, default_value_t = 25, help = "0 bedeutet ohne Limit; fuer Backfills besser kleine Wellen nutzen.")]
+    #[arg(
+        long,
+        default_value_t = 25,
+        help = "0 bedeutet ohne Limit; fuer Backfills besser kleine Wellen nutzen."
+    )]
     limit: usize,
     #[arg(long = "delay-seconds", default_value_t = 1.0)]
     delay_seconds: f64,
     #[arg(long = "cache-ttl-seconds", default_value_t = 86_400)]
     cache_ttl_seconds: u64,
-    #[arg(long = "refresh-existing", help = "Bereits gespeicherte Thread-IDs erneut abrufen.")]
+    #[arg(
+        long = "refresh-existing",
+        help = "Bereits gespeicherte Thread-IDs erneut abrufen."
+    )]
     refresh_existing: bool,
 }
 
@@ -653,9 +739,16 @@ struct PullStatlockerArgs {
         help = "Mehrfach nutzbar. Default: wpa-patches, wpa-items, leaderboard."
     )]
     kind: Vec<String>,
-    #[arg(long, help = "z.B. patch_129989 oder 129989. Default: neuester Statlocker-WPA-Patch.")]
+    #[arg(
+        long,
+        help = "z.B. patch_129989 oder 129989. Default: neuester Statlocker-WPA-Patch."
+    )]
     patch: Option<String>,
-    #[arg(long, default_value = "all", help = "all oder Hero-Name, z.B. Mo & Krill.")]
+    #[arg(
+        long,
+        default_value = "all",
+        help = "all oder Hero-Name, z.B. Mo & Krill."
+    )]
     hero: String,
     #[arg(long = "min-sample-size", default_value_t = 500)]
     min_sample_size: u64,
@@ -665,7 +758,10 @@ struct PullStatlockerArgs {
     leaderboard_page: u64,
     #[arg(long = "leaderboard-page-size", default_value_t = 100)]
     leaderboard_page_size: u64,
-    #[arg(long = "account-id", help = "Statlocker/Steam accountId fuer Player-Endpunkte.")]
+    #[arg(
+        long = "account-id",
+        help = "Statlocker/Steam accountId fuer Player-Endpunkte."
+    )]
     account_id: Option<String>,
     #[arg(long = "match-id", help = "Match-ID fuer Matchdetail-Endpunkt.")]
     match_id: Option<String>,
@@ -698,11 +794,20 @@ enum GameMode {
 enum NormalizeCommands {
     #[command(about = "Baut entities und entity_aliases.")]
     Entities(NormalizeEntitiesArgs),
-    #[command(name = "sheet-stats", about = "Baut normalisierte Hero-Stats aus dem Google Sheet.")]
+    #[command(
+        name = "sheet-stats",
+        about = "Baut normalisierte Hero-Stats aus dem Google Sheet."
+    )]
     SheetStats(NormalizeSheetStatsArgs),
-    #[command(name = "sheet-tabs", about = "Baut normalisierte Tabellen fuer Hero-Rankings, Boons/AP und Raw-Heroes.")]
+    #[command(
+        name = "sheet-tabs",
+        about = "Baut normalisierte Tabellen fuer Hero-Rankings, Boons/AP und Raw-Heroes."
+    )]
     SheetTabs(NormalizeSheetTabsArgs),
-    #[command(name = "resolve-gaps", about = "Loest offene Entity-Luecken konservativ neu auf.")]
+    #[command(
+        name = "resolve-gaps",
+        about = "Loest offene Entity-Luecken konservativ neu auf."
+    )]
     ResolveGaps(ResolveGapsArgs),
 }
 
@@ -726,7 +831,10 @@ struct NormalizeSheetTabsArgs {
 
 #[derive(Debug, Args)]
 struct ResolveGapsArgs {
-    #[arg(long = "dry-run", help = "Nur Report erzeugen, keine DB-Aenderungen schreiben.")]
+    #[arg(
+        long = "dry-run",
+        help = "Nur Report erzeugen, keine DB-Aenderungen schreiben."
+    )]
     dry_run: bool,
 }
 
@@ -734,7 +842,10 @@ struct ResolveGapsArgs {
 enum ParseCommands {
     #[command(about = "Parst Patchnotes zu patch_events.")]
     Patchnotes(ParsePatchnotesArgs),
-    #[command(name = "forum-claims", about = "Parst Forum-Posts zu historischen, quarantined Claims.")]
+    #[command(
+        name = "forum-claims",
+        about = "Parst Forum-Posts zu historischen, quarantined Claims."
+    )]
     ForumClaims(ParseForumClaimsArgs),
 }
 
@@ -756,9 +867,15 @@ enum EnrichCommands {
     PatchEvents(EnrichPatchEventsArgs),
     #[command(about = "Baut Rename-/Rework-Lineage aus patch_events.")]
     Lineage(EnrichLineageArgs),
-    #[command(name = "legacy-entities", about = "Baut alte/entfernte Entities aus patch_events.")]
+    #[command(
+        name = "legacy-entities",
+        about = "Baut alte/entfernte Entities aus patch_events."
+    )]
     LegacyEntities(EnrichLegacyEntitiesArgs),
-    #[command(name = "patch-impact", about = "Analysiert die Patch-Entwicklung von Entities.")]
+    #[command(
+        name = "patch-impact",
+        about = "Analysiert die Patch-Entwicklung von Entities."
+    )]
     PatchImpact(PatchImpactArgs),
     #[command(name = "meta-trends", about = "Analysiert aktuelle Meta-Trends.")]
     MetaTrends,
@@ -786,25 +903,43 @@ struct EnrichLegacyEntitiesArgs {
 struct PatchImpactArgs {
     #[arg(long, help = "Optional: Beschraenken auf diesen Hero.")]
     hero: Option<String>,
-    #[arg(long, default_value_t = 10, help = "Anzahl der abzuarbeitenden Entities.")]
+    #[arg(
+        long,
+        default_value_t = 10,
+        help = "Anzahl der abzuarbeitenden Entities."
+    )]
     limit: usize,
-    #[arg(long = "dry-run", help = "Nur Prompt/Request bauen (benoetigt --hero), kein Modellaufruf.")]
+    #[arg(
+        long = "dry-run",
+        help = "Nur Prompt/Request bauen (benoetigt --hero), kein Modellaufruf."
+    )]
     dry_run: bool,
 }
 
 #[derive(Debug, Subcommand)]
 enum PgCommands {
-    #[command(about = "Exportiert die lokale Brain-SQLite in das zentrale brain.* Postgres-Schema.")]
+    #[command(
+        about = "Exportiert die lokale Brain-SQLite in das zentrale brain.* Postgres-Schema."
+    )]
     Export(PgExportArgs),
-    #[command(name = "import-steam-news", about = "Importiert offizielle Steam-News-Patches direkt nach brain.* in Postgres.")]
+    #[command(
+        name = "import-steam-news",
+        about = "Importiert offizielle Steam-News-Patches direkt nach brain.* in Postgres."
+    )]
     ImportSteamNews(PgSteamNewsArgs),
-    #[command(name = "import-patchnote", about = "Importiert exakt einen Patchnote-Eintrag direkt nach brain.* in Postgres.")]
+    #[command(
+        name = "import-patchnote",
+        about = "Importiert exakt einen Patchnote-Eintrag direkt nach brain.* in Postgres."
+    )]
     ImportPatchnote(PgImportPatchnoteArgs),
 }
 
 #[derive(Debug, Subcommand)]
 enum InsightCommands {
-    #[command(name = "import-json", about = "Importiert ein Insight-JSON-Array nach brain.insight_records.")]
+    #[command(
+        name = "import-json",
+        about = "Importiert ein Insight-JSON-Array nach brain.insight_records."
+    )]
     ImportJson(InsightImportJsonArgs),
 }
 
@@ -812,7 +947,10 @@ enum InsightCommands {
 struct PgExportArgs {
     #[arg(long = "dsn-env", default_value = "DEADLOCK_CENTRAL_DSN")]
     dsn_env: String,
-    #[arg(long = "dry-run", help = "Nur lokale Zaehler ermitteln; keine PG-Verbindung, keine Schreibzugriffe.")]
+    #[arg(
+        long = "dry-run",
+        help = "Nur lokale Zaehler ermitteln; keine PG-Verbindung, keine Schreibzugriffe."
+    )]
     dry_run: bool,
 }
 
@@ -828,11 +966,17 @@ struct PgSteamNewsArgs {
     count: u32,
     #[arg(long = "cache-ttl-seconds", default_value_t = 900)]
     cache_ttl_seconds: u64,
-    #[arg(long = "include-non-official", help = "Auch externe Steam-News-Feeds importieren; Standard ist nur steam_community_announcements.")]
+    #[arg(
+        long = "include-non-official",
+        help = "Auch externe Steam-News-Feeds importieren; Standard ist nur steam_community_announcements."
+    )]
     include_non_official: bool,
     #[arg(long = "gid", action = clap::ArgAction::Append, help = "Optional auf einzelne Steam-News-GIDs begrenzen.")]
     gids: Vec<String>,
-    #[arg(long = "dry-run", help = "Nur Steam-News holen/parsen, keine PG-Verbindung, keine Schreibzugriffe.")]
+    #[arg(
+        long = "dry-run",
+        help = "Nur Steam-News holen/parsen, keine PG-Verbindung, keine Schreibzugriffe."
+    )]
     dry_run: bool,
 }
 
@@ -842,17 +986,27 @@ struct PgImportPatchnoteArgs {
     patch_id: i64,
     #[arg(long = "dsn-env", default_value = "DEADLOCK_CENTRAL_DSN")]
     dsn_env: String,
-    #[arg(long = "dry-run", help = "Nur Datensatz lesen/parsen; keine Schreibzugriffe in brain-Tabellen.")]
+    #[arg(
+        long = "dry-run",
+        help = "Nur Datensatz lesen/parsen; keine Schreibzugriffe in brain-Tabellen."
+    )]
     dry_run: bool,
 }
 
 #[derive(Debug, Args)]
 struct InsightImportJsonArgs {
-    #[arg(long = "file", value_name = "PATH", help = "JSON-Datei; ohne Datei wird stdin gelesen.")]
+    #[arg(
+        long = "file",
+        value_name = "PATH",
+        help = "JSON-Datei; ohne Datei wird stdin gelesen."
+    )]
     file: Option<PathBuf>,
     #[arg(long = "dsn-env", default_value = "DEADLOCK_CENTRAL_DSN")]
     dsn_env: String,
-    #[arg(long = "dry-run", help = "Nur validieren und zaehlen, keine PG-Schreibzugriffe.")]
+    #[arg(
+        long = "dry-run",
+        help = "Nur validieren und zaehlen, keine PG-Schreibzugriffe."
+    )]
     dry_run: bool,
 }
 
@@ -869,7 +1023,10 @@ fn run_from_cli() -> Result<()> {
 }
 
 fn run(cli: Cli) -> Result<()> {
-    let Cli { db: db_path, command } = cli;
+    let Cli {
+        db: db_path,
+        command,
+    } = cli;
     let mut settings = config::load_settings()?;
     if let Some(path) = db_path {
         settings.db_path = path;
@@ -938,7 +1095,10 @@ fn run(cli: Cli) -> Result<()> {
                 usize_to_i64(args.limit_events),
             )?;
             if args.prompt_only {
-                println!("{}", str_value(get(&result, "prompt_de")).unwrap_or_default());
+                println!(
+                    "{}",
+                    str_value(get(&result, "prompt_de")).unwrap_or_default()
+                );
                 Ok(())
             } else if args.pretty {
                 print_review_context(&result);
@@ -992,12 +1152,8 @@ fn run(cli: Cli) -> Result<()> {
             }
         }
         Commands::Build(args) => {
-            let result = dbrain_learn::build_hero_build_context(
-                &conn,
-                &args.query,
-                &[],
-                args.limit_events,
-            )?;
+            let result =
+                dbrain_learn::build_hero_build_context(&conn, &args.query, &[], args.limit_events)?;
             if args.pretty {
                 print_build_context(&result);
                 Ok(())
@@ -1037,8 +1193,12 @@ fn run_pg(conn: &Connection, target: PgCommands) -> Result<()> {
                 dry_run: args.dry_run,
             },
         )?),
-        PgCommands::ImportSteamNews(_) => unreachable!("PG-Steam-News wird vor SQLite-Open behandelt"),
-        PgCommands::ImportPatchnote(_) => unreachable!("PG-Import-Patchnote wird vor SQLite-Open behandelt"),
+        PgCommands::ImportSteamNews(_) => {
+            unreachable!("PG-Steam-News wird vor SQLite-Open behandelt")
+        }
+        PgCommands::ImportPatchnote(_) => {
+            unreachable!("PG-Import-Patchnote wird vor SQLite-Open behandelt")
+        }
     }
 }
 
@@ -1082,7 +1242,10 @@ fn run_learn(conn: &Connection, settings: &Settings, target: LearnCommands) -> R
             let result = dbrain_learn::learn_import_steam_builds(
                 conn,
                 dbrain_learn::LearnImportSteamBuildsOptions {
-                    steam_db_path: Some(args.db_path.unwrap_or_else(|| settings.central_deadlock_db_path.clone())),
+                    steam_db_path: Some(
+                        args.db_path
+                            .unwrap_or_else(|| settings.central_deadlock_db_path.clone()),
+                    ),
                     hero: args.hero,
                     language: args.language,
                     limit_per_hero: usize_to_i64(args.limit_per_hero),
@@ -1176,7 +1339,8 @@ fn run_player(conn: &Connection, settings: &Settings, target: PlayerCommands) ->
             }
         }
         PlayerCommands::MatchContext(args) => {
-            let result = dbrain_learn::player_match_context(conn, &args.account_id, &args.match_id)?;
+            let result =
+                dbrain_learn::player_match_context(conn, &args.account_id, &args.match_id)?;
             if args.pretty {
                 print_player_result("match-context", &result);
                 Ok(())
@@ -1326,7 +1490,9 @@ fn run_pull(conn: &Connection, settings: &Settings, source: PullCommands) -> Res
             }))
         }
         PullCommands::Patchnotes(args) => {
-            let central_db_path = args.db_path.unwrap_or_else(|| settings.central_deadlock_db_path.clone());
+            let central_db_path = args
+                .db_path
+                .unwrap_or_else(|| settings.central_deadlock_db_path.clone());
             let result = dbrain_sources::pull_patchnotes(
                 conn,
                 &settings.raw_dir,
@@ -1404,46 +1570,45 @@ fn run_refresh_sheet(conn: &Connection, settings: &Settings) -> Result<()> {
 
 fn run_normalize(conn: &Connection, target: NormalizeCommands) -> Result<()> {
     match target {
-        NormalizeCommands::Entities(args) => {
-            print_json(&dbrain_normalize::normalize_entities_with_conn(conn, args.rebuild)?)
-        }
-        NormalizeCommands::SheetStats(args) => {
-            print_json(&dbrain_normalize::normalize_sheet_stats_with_conn(conn, args.rebuild)?)
-        }
-        NormalizeCommands::SheetTabs(args) => {
-            print_json(&dbrain_normalize::normalize_sheet_tabs_with_conn(conn, args.rebuild)?)
-        }
-        NormalizeCommands::ResolveGaps(args) => {
-            print_json(&dbrain_normalize::resolve_gaps_with_conn(conn, args.dry_run)?)
-        }
+        NormalizeCommands::Entities(args) => print_json(
+            &dbrain_normalize::normalize_entities_with_conn(conn, args.rebuild)?,
+        ),
+        NormalizeCommands::SheetStats(args) => print_json(
+            &dbrain_normalize::normalize_sheet_stats_with_conn(conn, args.rebuild)?,
+        ),
+        NormalizeCommands::SheetTabs(args) => print_json(
+            &dbrain_normalize::normalize_sheet_tabs_with_conn(conn, args.rebuild)?,
+        ),
+        NormalizeCommands::ResolveGaps(args) => print_json(
+            &dbrain_normalize::resolve_gaps_with_conn(conn, args.dry_run)?,
+        ),
     }
 }
 
 fn run_parse(conn: &Connection, target: ParseCommands) -> Result<()> {
     match target {
-        ParseCommands::Patchnotes(args) => {
-            print_json(&dbrain_normalize::parse_patchnotes_with_conn(conn, args.rebuild)?)
-        }
-        ParseCommands::ForumClaims(args) => {
-            print_json(&dbrain_normalize::parse_forum_claims_with_conn(conn, args.rebuild)?)
-        }
+        ParseCommands::Patchnotes(args) => print_json(
+            &dbrain_normalize::parse_patchnotes_with_conn(conn, args.rebuild)?,
+        ),
+        ParseCommands::ForumClaims(args) => print_json(
+            &dbrain_normalize::parse_forum_claims_with_conn(conn, args.rebuild)?,
+        ),
     }
 }
 
 fn run_enrich(conn: &Connection, settings: &Settings, target: EnrichCommands) -> Result<()> {
     match target {
-        EnrichCommands::PatchEvents(args) => {
-            print_json(&dbrain_enrich::build_patch_event_enrichments(conn, args.rebuild)?)
-        }
-        EnrichCommands::Lineage(args) => {
-            print_json(&dbrain_normalize::enrich_lineage_with_conn(conn, args.rebuild)?)
-        }
-        EnrichCommands::LegacyEntities(args) => {
-            print_json(&dbrain_normalize::enrich_legacy_entities_with_conn(conn, args.rebuild)?)
-        }
-        EnrichCommands::PatchImpact(args) => {
-            print_json(&run_patch_impact(conn, settings, args)?)
-        }
+        EnrichCommands::PatchEvents(args) => print_json(
+            &dbrain_enrich::build_patch_event_enrichments(conn, args.rebuild)?,
+        ),
+        EnrichCommands::Lineage(args) => print_json(&dbrain_normalize::enrich_lineage_with_conn(
+            conn,
+            args.rebuild,
+        )?),
+        EnrichCommands::LegacyEntities(args) => print_json(
+            &dbrain_normalize::enrich_legacy_entities_with_conn(conn, args.rebuild)?,
+        ),
+        EnrichCommands::PatchImpact(args) => print_json(&run_patch_impact(conn, settings, args)?),
         EnrichCommands::MetaTrends => {
             let config = minimax_config(settings, None, None, None, None);
             print_json(&dbrain_enrich::run_meta_trend_analysis(conn, &config)?)
@@ -1451,7 +1616,11 @@ fn run_enrich(conn: &Connection, settings: &Settings, target: EnrichCommands) ->
     }
 }
 
-fn run_patch_impact(conn: &Connection, settings: &Settings, args: PatchImpactArgs) -> Result<Value> {
+fn run_patch_impact(
+    conn: &Connection,
+    settings: &Settings,
+    args: PatchImpactArgs,
+) -> Result<Value> {
     let config = minimax_config(settings, None, None, None, None);
     if args.dry_run {
         let Some(hero) = args.hero.as_deref() else {
@@ -1483,11 +1652,9 @@ fn run_patch_impact(conn: &Connection, settings: &Settings, args: PatchImpactArg
         )?;
         Ok(json!({"processed": 1, "success": 1, "failed": 0, "hero": hero}))
     } else {
-        Ok(serde_json::to_value(dbrain_enrich::run_patch_impact_batch(
-            conn,
-            &config,
-            args.limit,
-        )?)?)
+        Ok(serde_json::to_value(
+            dbrain_enrich::run_patch_impact_batch(conn, &config, args.limit)?,
+        )?)
     }
 }
 
@@ -1800,11 +1967,22 @@ fn print_context(ctx: &Value) {
     }
     println!("Aliases: {}", array_len(get(ctx, "aliases")));
     let sheet = get(ctx, "sheet_stats").unwrap_or(&Value::Null);
-    println!("Sheet stats: {}", if bool_value(get(sheet, "available")) { "yes" } else { "no" });
+    println!(
+        "Sheet stats: {}",
+        if bool_value(get(sheet, "available")) {
+            "yes"
+        } else {
+            "no"
+        }
+    );
     let enrichments = get(ctx, "enrichments").unwrap_or(&Value::Null);
     println!(
         "Enrichments: {} / {} rows",
-        if bool_value(get(enrichments, "available")) { "yes" } else { "no" },
+        if bool_value(get(enrichments, "available")) {
+            "yes"
+        } else {
+            "no"
+        },
         array_len(get(enrichments, "rows"))
     );
     println!("Patch events: {}", array_len(get(ctx, "patch_events")));
@@ -1837,7 +2015,10 @@ fn print_timeline(timeline: &Value) {
             display_value(get(best_match, "primary_external_id"))
         );
     } else {
-        println!("Timeline: {} (fallback)", display_value(get(timeline, "query")));
+        println!(
+            "Timeline: {} (fallback)",
+            display_value(get(timeline, "query"))
+        );
     }
     println!(
         "Patches: {} / Events: {}",
@@ -1886,11 +2067,22 @@ fn print_review_context(review_context: &Value) {
         .unwrap_or_default();
     let entity_type = str_value(get(summary, "entity_type")).unwrap_or("unknown");
     println!("Review context: {entity_type} / {name}");
-    println!("Matched: {}", if bool_value(get(summary, "matched")) { "yes" } else { "no" });
+    println!(
+        "Matched: {}",
+        if bool_value(get(summary, "matched")) {
+            "yes"
+        } else {
+            "no"
+        }
+    );
     let timeline = get(review_context, "timeline_signals").unwrap_or(&Value::Null);
     println!("Events: {}", display_or(get(timeline, "event_count"), "0"));
     let latest = get(timeline, "latest_patch").unwrap_or(&Value::Null);
-    if latest.as_object().map(|object| !object.is_empty()).unwrap_or(false) {
+    if latest
+        .as_object()
+        .map(|object| !object.is_empty())
+        .unwrap_or(false)
+    {
         println!(
             "Latest patch: {} / {}",
             str_value(get(latest, "posted_at")).unwrap_or("unknown-date"),
@@ -1900,7 +2092,11 @@ fn print_review_context(review_context: &Value) {
     let stats = get(review_context, "current_stat_hints").unwrap_or(&Value::Null);
     println!(
         "Sheet stats: {} / {} hints",
-        if bool_value(get(stats, "available")) { "yes" } else { "no" },
+        if bool_value(get(stats, "available")) {
+            "yes"
+        } else {
+            "no"
+        },
         array_len(get(stats, "hints"))
     );
     if let Some(questions) = get(review_context, "open_questions").and_then(Value::as_array) {
@@ -1959,8 +2155,12 @@ fn print_lineage(rows: &[Value], query: Option<&str>) {
         let target = str_value(get(row, "target_name"));
         let owner = str_value(get(row, "owner_name"));
         let metadata = get(row, "metadata").unwrap_or(&Value::Null);
-        let owner_text = owner.map(|value| format!(" / owner={value}")).unwrap_or_default();
-        let target_text = target.map(|value| format!(" -> {value}")).unwrap_or_default();
+        let owner_text = owner
+            .map(|value| format!(" / owner={value}"))
+            .unwrap_or_default();
+        let target_text = target
+            .map(|value| format!(" -> {value}"))
+            .unwrap_or_default();
         println!("- {relation}: {source}{target_text}{owner_text}");
         println!(
             "  {} / {}",
@@ -2015,14 +2215,25 @@ fn print_build_context(ctx: &Value) {
         println!("Playstyle: {playstyle}");
     }
     let gameplan = get(hero, "inferred_gameplan").unwrap_or(&Value::Null);
-    if gameplan.as_object().map(|object| !object.is_empty()).unwrap_or(false) {
-        println!("Understood gameplan: {}", display_value(get(gameplan, "summary")));
+    if gameplan
+        .as_object()
+        .map(|object| !object.is_empty())
+        .unwrap_or(false)
+    {
+        println!(
+            "Understood gameplan: {}",
+            display_value(get(gameplan, "summary"))
+        );
         let needs = join_array(get(gameplan, "needs"), usize::MAX);
         if !needs.is_empty() {
             println!("Needs: {needs}");
         }
         let damage_profile = get(gameplan, "damage_profile").unwrap_or(&Value::Null);
-        if damage_profile.as_object().map(|object| !object.is_empty()).unwrap_or(false) {
+        if damage_profile
+            .as_object()
+            .map(|object| !object.is_empty())
+            .unwrap_or(false)
+        {
             println!(
                 "Damage profile: {} (ability_damage={}, spirit_scaling={}, weapon_hooks={})",
                 display_value(get(damage_profile, "damage_plan")),
@@ -2046,7 +2257,13 @@ fn print_build_context(ctx: &Value) {
                             properties
                                 .iter()
                                 .take(4)
-                                .map(|prop| format!("{}: {}", display_value(get(prop, "label")), format_prop_value(prop)))
+                                .map(|prop| {
+                                    format!(
+                                        "{}: {}",
+                                        display_value(get(prop, "label")),
+                                        format_prop_value(prop)
+                                    )
+                                })
                                 .collect::<Vec<_>>()
                         })
                         .unwrap_or_default();
@@ -2071,7 +2288,11 @@ fn print_build_context(ctx: &Value) {
         display_value(get(economy, "important_shop_spike"))
     );
     let wiki_rules = get(economy, "wiki_rules").unwrap_or(&Value::Null);
-    if wiki_rules.as_object().map(|object| !object.is_empty()).unwrap_or(false) {
+    if wiki_rules
+        .as_object()
+        .map(|object| !object.is_empty())
+        .unwrap_or(false)
+    {
         let tiers = join_array(get(wiki_rules, "item_tiers"), usize::MAX);
         println!(
             "Shop rules: tiers={}; active limit={}; bonus cap={}",
@@ -2093,7 +2314,9 @@ fn print_build_context(ctx: &Value) {
         if !signals.is_empty() {
             println!("Statlocker WPA signals:");
             for signal in signals.iter().take(8) {
-                let wpa = get(signal, "cost_relative_wpa").filter(|value| !value.is_null()).or_else(|| get(signal, "wpa"));
+                let wpa = get(signal, "cost_relative_wpa")
+                    .filter(|value| !value.is_null())
+                    .or_else(|| get(signal, "wpa"));
                 println!(
                     "- {}: wpa={} n={} time={}",
                     display_value(get(signal, "item")),
@@ -2156,7 +2379,11 @@ fn print_build_context(ctx: &Value) {
                 "- {}: spend={} / reached={} / {}",
                 str_value(get(target, "label")).unwrap_or(slot),
                 display_value(get(target, "spend")),
-                if bool_value(get(target, "target_reached")) { "yes" } else { "no" },
+                if bool_value(get(target, "target_reached")) {
+                    "yes"
+                } else {
+                    "no"
+                },
                 route_names
             );
         }
@@ -2190,21 +2417,30 @@ fn print_item_context(ctx: &Value) {
     );
     println!(
         "Active: {} / activation={}",
-        if bool_value(get(ctx, "is_active")) { "yes" } else { "no" },
+        if bool_value(get(ctx, "is_active")) {
+            "yes"
+        } else {
+            "no"
+        },
         display_value(get(ctx, "activation"))
     );
     let archetypes = join_array(get(ctx, "archetypes"), usize::MAX);
     if !archetypes.is_empty() {
         println!("Archetypes: {archetypes}");
     }
-    if let Some(description) = str_value(get(ctx, "description")).filter(|value| !value.is_empty()) {
+    if let Some(description) = str_value(get(ctx, "description")).filter(|value| !value.is_empty())
+    {
         println!("Desc: {description}");
     }
     if let Some(properties) = get(ctx, "properties").and_then(Value::as_array) {
         if !properties.is_empty() {
             println!("Properties:");
             for prop in properties.iter().take(20) {
-                println!("- {}: {}", display_value(get(prop, "label")), format_prop_value(prop));
+                println!(
+                    "- {}: {}",
+                    display_value(get(prop, "label")),
+                    format_prop_value(prop)
+                );
                 let scales = join_array(get(prop, "scales_with"), usize::MAX);
                 if !scales.is_empty() {
                     println!("  scales: {scales}");
@@ -2228,7 +2464,10 @@ fn print_analysis_result(target: &str, result: &Value) {
                 display_value(get(result, "entity_type")),
                 display_value(get(result, "entity_name"))
             );
-            println!("Context hash: {}", display_value(get(result, "context_hash")));
+            println!(
+                "Context hash: {}",
+                display_value(get(result, "context_hash"))
+            );
         }
         "run-minimax" => {
             if bool_value(get(result, "dry_run")) {
@@ -2239,7 +2478,14 @@ fn print_analysis_result(target: &str, result: &Value) {
                     .unwrap_or(0);
                 println!("MiniMax dry-run: {}", display_value(get(result, "model")));
                 println!("Endpoint: {}", display_value(get(result, "endpoint")));
-                println!("API key present: {}", if bool_value(get(result, "api_key_present")) { "yes" } else { "no" });
+                println!(
+                    "API key present: {}",
+                    if bool_value(get(result, "api_key_present")) {
+                        "yes"
+                    } else {
+                        "no"
+                    }
+                );
                 println!("Messages: {messages}");
                 return;
             }
@@ -2277,7 +2523,10 @@ fn print_analysis_result(target: &str, result: &Value) {
 fn print_learn_result(target: &str, result: &Value) {
     match target {
         "import-steam-builds" => {
-            println!("Steam build import: {}", display_value(get(result, "steam_db_path")));
+            println!(
+                "Steam build import: {}",
+                display_value(get(result, "steam_db_path"))
+            );
             println!(
                 "rows={} imported={} updated={} skipped={}",
                 display_or(get(result, "rows_seen"), "0"),
@@ -2317,10 +2566,21 @@ fn print_learn_result(target: &str, result: &Value) {
                     display_value(get(result, "model"))
                 );
                 println!("Endpoint: {}", display_value(get(result, "endpoint")));
-                println!("API key present: {}", if bool_value(get(result, "api_key_present")) { "yes" } else { "no" });
+                println!(
+                    "API key present: {}",
+                    if bool_value(get(result, "api_key_present")) {
+                        "yes"
+                    } else {
+                        "no"
+                    }
+                );
                 println!("Messages: {messages}");
                 let note = get(result, "note").unwrap_or(&Value::Null);
-                if note.as_object().map(|object| !object.is_empty()).unwrap_or(false) {
+                if note
+                    .as_object()
+                    .map(|object| !object.is_empty())
+                    .unwrap_or(false)
+                {
                     println!(
                         "Stored context note: {} / {}",
                         display_value(get(note, "id")),
@@ -2342,8 +2602,22 @@ fn print_learn_result(target: &str, result: &Value) {
                 display_or(get(result, "pending_selected"), "0"),
                 display_value(get(result, "model"))
             );
-            println!("Dry run: {}", if bool_value(get(result, "dry_run")) { "yes" } else { "no" });
-            println!("API key present: {}", if bool_value(get(result, "api_key_present")) { "yes" } else { "no" });
+            println!(
+                "Dry run: {}",
+                if bool_value(get(result, "dry_run")) {
+                    "yes"
+                } else {
+                    "no"
+                }
+            );
+            println!(
+                "API key present: {}",
+                if bool_value(get(result, "api_key_present")) {
+                    "yes"
+                } else {
+                    "no"
+                }
+            );
             if let Some(rows) = get(result, "results").and_then(Value::as_array) {
                 for row in rows {
                     println!(
@@ -2355,7 +2629,9 @@ fn print_learn_result(target: &str, result: &Value) {
                         str_value(get(row, "note_id")).unwrap_or("-"),
                         display_value(get(row, "name"))
                     );
-                    if let Some(error) = str_value(get(row, "error")).filter(|value| !value.is_empty()) {
+                    if let Some(error) =
+                        str_value(get(row, "error")).filter(|value| !value.is_empty())
+                    {
                         println!("  error: {error}");
                     }
                 }
@@ -2408,7 +2684,14 @@ fn print_player_result(target: &str, result: &Value) {
                 .unwrap_or_else(|| "-".to_string());
             println!("Match row keys: {keys}");
             let detail = get(result, "match_detail").and_then(Value::as_object);
-            println!("Match detail: {}", if detail.is_some_and(|object| !object.is_empty()) { "yes" } else { "no" });
+            println!(
+                "Match detail: {}",
+                if detail.is_some_and(|object| !object.is_empty()) {
+                    "yes"
+                } else {
+                    "no"
+                }
+            );
             let api_match = get(result, "deadlock_api_match").unwrap_or(&Value::Null);
             let actual_items = get(api_match, "player")
                 .and_then(|player| get(player, "actual_item_timeline"))
@@ -2417,7 +2700,11 @@ fn print_player_result(target: &str, result: &Value) {
                 .unwrap_or(0);
             println!(
                 "Deadlock API match: {}",
-                if api_match.as_object().map(|object| !object.is_empty()).unwrap_or(false) {
+                if api_match
+                    .as_object()
+                    .map(|object| !object.is_empty())
+                    .unwrap_or(false)
+                {
                     "yes"
                 } else {
                     "no"
@@ -2450,10 +2737,21 @@ fn print_player_result(target: &str, result: &Value) {
                     display_or(get(result, "hero_id"), "-")
                 );
                 println!("Endpoint: {}", display_value(get(result, "endpoint")));
-                println!("API key present: {}", if bool_value(get(result, "api_key_present")) { "yes" } else { "no" });
+                println!(
+                    "API key present: {}",
+                    if bool_value(get(result, "api_key_present")) {
+                        "yes"
+                    } else {
+                        "no"
+                    }
+                );
                 println!("Messages: {}", request_message_count(result));
                 let note = get(result, "note").unwrap_or(&Value::Null);
-                if note.as_object().map(|object| !object.is_empty()).unwrap_or(false) {
+                if note
+                    .as_object()
+                    .map(|object| !object.is_empty())
+                    .unwrap_or(false)
+                {
                     println!(
                         "Stored context note: {} / {}",
                         display_value(get(note, "id")),
@@ -2481,8 +2779,22 @@ fn print_player_result(target: &str, result: &Value) {
                 display_or(get(result, "pending_selected"), "0"),
                 display_value(get(result, "model"))
             );
-            println!("Dry run: {}", if bool_value(get(result, "dry_run")) { "yes" } else { "no" });
-            println!("API key present: {}", if bool_value(get(result, "api_key_present")) { "yes" } else { "no" });
+            println!(
+                "Dry run: {}",
+                if bool_value(get(result, "dry_run")) {
+                    "yes"
+                } else {
+                    "no"
+                }
+            );
+            println!(
+                "API key present: {}",
+                if bool_value(get(result, "api_key_present")) {
+                    "yes"
+                } else {
+                    "no"
+                }
+            );
             if let Some(rows) = get(result, "results").and_then(Value::as_array) {
                 for row in rows {
                     let hero = get(row, "hero_name")
@@ -2496,7 +2808,9 @@ fn print_player_result(target: &str, result: &Value) {
                         display_value(get(row, "status")),
                         display_or(get(row, "note_id"), "-")
                     );
-                    if let Some(error) = str_value(get(row, "error")).filter(|value| !value.is_empty()) {
+                    if let Some(error) =
+                        str_value(get(row, "error")).filter(|value| !value.is_empty())
+                    {
                         println!("  error: {error}");
                     }
                 }
@@ -2520,7 +2834,9 @@ fn format_prop_value(prop: &Value) -> String {
         .filter(|value| !value.is_null())
         .map(|value| display_value(Some(value)))
         .unwrap_or_default();
-    let mut postfix = str_value(get(prop, "postfix")).unwrap_or_default().to_string();
+    let mut postfix = str_value(get(prop, "postfix"))
+        .unwrap_or_default()
+        .to_string();
     if !postfix.is_empty() && value.ends_with(postfix.trim()) {
         postfix.clear();
     }
@@ -2533,7 +2849,11 @@ fn render_sign_token(prefix: &str, value: &str, postfix: &str) -> String {
     if !rendered_prefix.contains("{s:sign}") && !rendered_postfix.contains("{s:sign}") {
         return format!("{rendered_prefix}{value}{rendered_postfix}");
     }
-    let sign = if value.trim_start().starts_with('-') { "-" } else { "+" };
+    let sign = if value.trim_start().starts_with('-') {
+        "-"
+    } else {
+        "+"
+    };
     let unsigned_value = value.trim_start_matches(['+', '-']);
     rendered_prefix = rendered_prefix.replace("{s:sign}", sign);
     rendered_postfix = rendered_postfix.replace("{s:sign}", sign);

@@ -153,7 +153,10 @@ impl MiniMaxClient {
     }
 
     fn call_openai_compatible(&self, request_payload: &Value) -> Result<Value> {
-        let url = format!("{}/chat/completions", self.config.base_url.trim_end_matches('/'));
+        let url = format!(
+            "{}/chat/completions",
+            self.config.base_url.trim_end_matches('/')
+        );
         let response = self
             .client
             .post(&url)
@@ -165,7 +168,8 @@ impl MiniMaxClient {
 
     fn call_token_plan(&self, request_payload: &Value) -> Result<Value> {
         let url = format!("{}/messages", self.config.base_url.trim_end_matches('/'));
-        let (system_prompt, user_text) = messages_to_anthropic_parts(request_payload.get("messages"));
+        let (system_prompt, user_text) =
+            messages_to_anthropic_parts(request_payload.get("messages"));
         let body = json!({
             "model": request_payload
                 .get("model")
@@ -307,7 +311,10 @@ fn messages_to_anthropic_parts(messages: Option<&Value>) -> (String, String) {
     let mut system_parts = Vec::new();
     let mut user_parts = Vec::new();
     for message in messages {
-        let role = message.get("role").and_then(Value::as_str).unwrap_or_default();
+        let role = message
+            .get("role")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         let content = stringify_message_content(message.get("content"));
         if content.is_empty() {
             continue;
@@ -328,10 +335,14 @@ fn stringify_message_content(content: Option<&Value>) -> String {
             .iter()
             .filter_map(|item| match item {
                 Value::String(value) => Some(value.clone()),
-                Value::Object(object) if object.get("type").and_then(Value::as_str) == Some("text") => object
-                    .get("text")
-                    .and_then(Value::as_str)
-                    .map(ToOwned::to_owned),
+                Value::Object(object)
+                    if object.get("type").and_then(Value::as_str) == Some("text") =>
+                {
+                    object
+                        .get("text")
+                        .and_then(Value::as_str)
+                        .map(ToOwned::to_owned)
+                }
                 _ => None,
             })
             .filter(|value| !value.is_empty())

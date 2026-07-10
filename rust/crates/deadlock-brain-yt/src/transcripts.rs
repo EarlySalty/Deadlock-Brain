@@ -104,7 +104,10 @@ struct Json3Segment {
     utf8: Option<String>,
 }
 
-pub fn fetch_transcripts(conn: &Connection, limit: usize) -> anyhow::Result<FetchTranscriptsSummary> {
+pub fn fetch_transcripts(
+    conn: &Connection,
+    limit: usize,
+) -> anyhow::Result<FetchTranscriptsSummary> {
     schema::ensure_youtube_tables(conn)?;
     let unavailable_marked = backfill_unavailable_needs_asr(conn)?;
     let videos = select_videos_missing_transcripts(conn, limit)?;
@@ -217,9 +220,7 @@ fn select_videos_missing_transcripts(
 
 fn fetch_caption_for_video(video: &VideoForTranscript) -> anyhow::Result<Option<CaptionData>> {
     let temp_dir = tempfile::tempdir()?;
-    let output_template = temp_dir
-        .path()
-        .join(format!("{}.%(ext)s", video.video_id));
+    let output_template = temp_dir.path().join(format!("{}.%(ext)s", video.video_id));
     let mut child = Command::new(yt_dlp_bin())
         .arg("--no-update")
         .arg("--no-warnings")
@@ -398,7 +399,9 @@ fn save_transcript(
     let now = db::now_epoch_seconds();
     let outcome = match existing {
         Some((language, existing_source_kind, existing_hash))
-            if language == "en" && existing_source_kind == source_kind && existing_hash == content_hash =>
+            if language == "en"
+                && existing_source_kind == source_kind
+                && existing_hash == content_hash =>
         {
             SaveOutcome::Unchanged
         }
@@ -513,7 +516,11 @@ fn backfill_unavailable_needs_asr(conn: &Connection) -> anyhow::Result<usize> {
         metadata["needs_asr"] = Value::Bool(true);
         conn.execute(
             "UPDATE youtube_videos SET metadata_json=?, updated_at=? WHERE video_id=?",
-            params![serde_json::to_string(&metadata)?, db::now_epoch_seconds(), video_id],
+            params![
+                serde_json::to_string(&metadata)?,
+                db::now_epoch_seconds(),
+                video_id
+            ],
         )?;
         marked += 1;
     }
@@ -637,7 +644,12 @@ mod tests {
         let conn = Connection::open_in_memory().expect("open sqlite");
         deadlock_brain_core::schema::ensure_schema(&conn).expect("ensure schema");
         insert_feed(&conn);
-        insert_video(&conn, "vid", "unavailable", r#"{"content_type":"verbal_strategy"}"#);
+        insert_video(
+            &conn,
+            "vid",
+            "unavailable",
+            r#"{"content_type":"verbal_strategy"}"#,
+        );
 
         let first = backfill_unavailable_needs_asr(&conn).expect("backfill first");
         let second = backfill_unavailable_needs_asr(&conn).expect("backfill second");

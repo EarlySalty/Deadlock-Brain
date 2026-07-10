@@ -5,11 +5,11 @@ use serde_json::{json, Map, Value};
 
 use crate::{
     util::{
-        as_array, as_object, bool_value, clean_html_text, clamp_usize,
-        decode_json_fields, dedupe_strings, get, get_any, get_any_string, get_string, int_or_none,
-        int_or_zero, json_loads, numeric_value, query_json_rows, query_one_json,
-        sorted_counts, statlocker_key, statlocker_hero_name, table_exists,
-        value_to_non_empty_string, value_to_string,
+        as_array, as_object, bool_value, clamp_usize, clean_html_text, decode_json_fields,
+        dedupe_strings, get, get_any, get_any_string, get_string, int_or_none, int_or_zero,
+        json_loads, numeric_value, query_json_rows, query_one_json, sorted_counts,
+        statlocker_hero_name, statlocker_key, table_exists, value_to_non_empty_string,
+        value_to_string,
     },
     LearnError, Result,
 };
@@ -252,7 +252,9 @@ pub fn build_hero_build_context(
     });
 
     let build = build_recommendation(&hero_payload, &scored_items, &hero_needs);
-    let timeline = get(&review_context, "timeline_signals").cloned().unwrap_or_else(|| json!({}));
+    let timeline = get(&review_context, "timeline_signals")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     let review_signals = json!({
         "change_type_counts": get(&timeline, "change_type_counts").cloned().unwrap_or(Value::Null),
         "ability_mentions": get(&timeline, "ability_mentions").cloned().unwrap_or(Value::Null),
@@ -329,7 +331,9 @@ fn build_recommendation(
         .collect();
     let situational_pool: Vec<Value> = scored_items
         .iter()
-        .filter(|item| tag(item, "situational") || tag(item, "counter_item") || tag(item, "pure_defense"))
+        .filter(|item| {
+            tag(item, "situational") || tag(item, "counter_item") || tag(item, "pure_defense")
+        })
         .cloned()
         .collect();
 
@@ -354,11 +358,7 @@ fn build_recommendation(
     })
 }
 
-fn score_item(
-    hero_payload: &Value,
-    item_payload: &Value,
-    support: &ScoreSupport<'_>,
-) -> Value {
+fn score_item(hero_payload: &Value, item_payload: &Value, support: &ScoreSupport<'_>) -> Value {
     let item = item_summary(item_payload);
     let archetypes = string_set(get(&item, "archetypes"));
     let bucket = hero_item_bucket(hero_payload, item_payload);
@@ -371,14 +371,22 @@ fn score_item(
     }
 
     let name = get_string(&item, "name").unwrap_or_default();
-    let learning_core = learning_signal_for_item(&support.learning_signals.core_items, &name).cloned();
-    let learning_avoid = learning_signal_for_item(&support.learning_signals.avoid_items, &name).cloned();
+    let learning_core =
+        learning_signal_for_item(&support.learning_signals.core_items, &name).cloned();
+    let learning_avoid =
+        learning_signal_for_item(&support.learning_signals.avoid_items, &name).cloned();
     let learned_frequency = learned_item_frequency(support.learned_item_profile, &name);
     let passive_generalist_without_quality_signal = is_passive_economy_generalist(&item)
-        && learned_frequency.map(|(frequency, _)| frequency < 0.34).unwrap_or(true);
+        && learned_frequency
+            .map(|(frequency, _)| frequency < 0.34)
+            .unwrap_or(true);
 
-    if let Some(signal) = learning_core.as_ref().filter(|_| !passive_generalist_without_quality_signal) {
-        let bonus = LEARNING_CORE_ITEM_BONUS + (signal.count.saturating_sub(1) as f64 * LEARNING_CORE_ITEM_COUNT_BONUS);
+    if let Some(signal) = learning_core
+        .as_ref()
+        .filter(|_| !passive_generalist_without_quality_signal)
+    {
+        let bonus = LEARNING_CORE_ITEM_BONUS
+            + (signal.count.saturating_sub(1) as f64 * LEARNING_CORE_ITEM_COUNT_BONUS);
         score += bonus.min(LEARNING_CORE_ITEM_BONUS + 28.0);
         tags.insert("learning_core".to_string(), json!(true));
         tags.insert("learning_core_count".to_string(), json!(signal.count));
@@ -387,13 +395,16 @@ fn score_item(
         tags.insert("learning_core_suppressed".to_string(), json!(true));
     }
     if let Some(signal) = learning_avoid.as_ref() {
-        score -= LEARNING_AVOID_ITEM_MALUS + (signal.count.saturating_sub(1) as f64 * 4.0).min(16.0);
+        score -=
+            LEARNING_AVOID_ITEM_MALUS + (signal.count.saturating_sub(1) as f64 * 4.0).min(16.0);
         tags.insert("learning_avoid".to_string(), json!(true));
         tags.insert("questionable_core".to_string(), json!(true));
         tags.insert("learning_avoid_count".to_string(), json!(signal.count));
         warnings.push("Build-Analyse stuft dieses Item als fraglich ein".to_string());
     }
-    if let Some((frequency, count)) = learned_frequency.filter(|(frequency, _)| *frequency >= LEARNED_BUILD_FREQUENCY_THRESHOLD) {
+    if let Some((frequency, count)) =
+        learned_frequency.filter(|(frequency, _)| *frequency >= LEARNED_BUILD_FREQUENCY_THRESHOLD)
+    {
         score += LEARNED_BUILD_FREQUENCY_BONUS * frequency;
         tags.insert("learned_quality_frequency".to_string(), json!(true));
         tags.insert("learned_quality_count".to_string(), json!(count));
@@ -430,7 +441,8 @@ fn score_item(
         } else if cost >= 6400 {
             score -= 10.0;
             tags.insert("late_only".to_string(), json!(true));
-            warnings.push("teuer; nur kaufen, wenn der Effekt wirklich der Gameplan ist".to_string());
+            warnings
+                .push("teuer; nur kaufen, wenn der Effekt wirklich der Gameplan ist".to_string());
         }
     }
 
@@ -441,7 +453,9 @@ fn score_item(
             tags.insert("counter_item".to_string(), json!(true));
             reasons.push("ESSENTIELLER COUNTER: Reduziert Infernus' DoT stark.".to_string());
         }
-        if support.vs_heroes.iter().any(|hero| hero == "Abrams") && matches!(name.as_str(), "Healbane" | "Toxic Bullets") {
+        if support.vs_heroes.iter().any(|hero| hero == "Abrams")
+            && matches!(name.as_str(), "Healbane" | "Toxic Bullets")
+        {
             score += 30.0;
             tags.insert("counter_item".to_string(), json!(true));
             reasons.push("ESSENTIELLER COUNTER: Stoppt Abrams' Heal.".to_string());
@@ -472,7 +486,8 @@ fn score_item(
         }
     }
 
-    let (property_score, property_reasons, property_tags) = score_properties(&item, support.hero_needs);
+    let (property_score, property_reasons, property_tags) =
+        score_properties(&item, support.hero_needs);
     score += property_score;
     reasons.extend(property_reasons.into_iter().take(4));
     tags.extend(property_tags);
@@ -484,8 +499,14 @@ fn score_item(
     warnings.extend(archetype_warnings);
     tags.extend(archetype_tags);
 
-    let description = get_string(&item, "description").unwrap_or_default().to_lowercase();
-    if bool_value(get(&item, "is_active")) && ENGAGE_ACTIVE_HINTS.iter().any(|hint| description.contains(hint)) {
+    let description = get_string(&item, "description")
+        .unwrap_or_default()
+        .to_lowercase();
+    if bool_value(get(&item, "is_active"))
+        && ENGAGE_ACTIVE_HINTS
+            .iter()
+            .any(|hint| description.contains(hint))
+    {
         score += 14.0;
         tags.insert("counter_item".to_string(), json!(true));
         reasons.push("Active gibt Engage/CC/Counterplay statt nur Stats".to_string());
@@ -493,13 +514,17 @@ fn score_item(
     if bool_value(get(&item, "is_active")) && description.contains("reset the cooldown") {
         score -= 34.0;
         tags.insert("questionable_core".to_string(), json!(true));
-        warnings.push("Cooldown-Reset ist teuer und braucht einen klaren Hero-spezifischen Gameplan".to_string());
+        warnings.push(
+            "Cooldown-Reset ist teuer und braucht einen klaren Hero-spezifischen Gameplan"
+                .to_string(),
+        );
     }
 
     if passive_generalist_without_quality_signal {
         score -= PASSIVE_ECONOMY_GENERALIST_MALUS;
         tags.insert("questionable_core".to_string(), json!(true));
-        warnings.push("Economy-Generalist ohne Rueckhalt in echten Builds: nur situativ".to_string());
+        warnings
+            .push("Economy-Generalist ohne Rueckhalt in echten Builds: nur situativ".to_string());
     }
 
     if name == "Refresher" {
@@ -558,7 +583,11 @@ fn score_properties(item: &Value, hero_needs: &Value) -> (f64, Vec<String>, Map<
     let mut reasons = Vec::new();
     let mut tags = Map::new();
     let priority_scaling_stats = string_set(get(hero_needs, "priority_scaling_stats"));
-    for prop in get(item, "properties").and_then(as_array).into_iter().flatten() {
+    for prop in get(item, "properties")
+        .and_then(as_array)
+        .into_iter()
+        .flatten()
+    {
         let label_blob = ["name", "label", "provided_property_type"]
             .iter()
             .filter_map(|key| get(prop, key))
@@ -580,82 +609,205 @@ fn score_properties(item: &Value, hero_needs: &Value) -> (f64, Vec<String>, Map<
             reasons.push("matched konkrete Ability-Scaling-Stats".to_string());
         }
     }
-    if reasons.iter().any(|reason| reason.to_lowercase().contains("mobility")) {
+    if reasons
+        .iter()
+        .any(|reason| reason.to_lowercase().contains("mobility"))
+    {
         tags.insert("mobility".to_string(), json!(true));
     }
-    if reasons.iter().any(|reason| reason.to_lowercase().contains("cooldown")) {
+    if reasons
+        .iter()
+        .any(|reason| reason.to_lowercase().contains("cooldown"))
+    {
         tags.insert("cooldown".to_string(), json!(true));
     }
     (score.min(36.0), dedupe_strings(reasons), tags)
 }
 
-fn property_hint_score(prop: &Value, label_blob: &str, hero_needs: &Value) -> Option<(String, f64)> {
+fn property_hint_score(
+    prop: &Value,
+    label_blob: &str,
+    hero_needs: &Value,
+) -> Option<(String, f64)> {
     if is_non_scoring_stat_property(prop) {
         return None;
     }
     let needs = string_set(get(hero_needs, "needs"));
     if is_cooldown_reduction_property(prop, label_blob) {
-        return Some(("Cooldown-Reduktion: haeufigere Casts der zentralen Abilities".to_string(), if needs.contains("cooldown_reliability") { 16.0 } else { 5.0 }));
+        return Some((
+            "Cooldown-Reduktion: haeufigere Casts der zentralen Abilities".to_string(),
+            if needs.contains("cooldown_reliability") {
+                16.0
+            } else {
+                5.0
+            },
+        ));
     }
     if is_spirit_resist_shred_property(prop, label_blob) {
-        return Some(("Spirit-Resist-Shred verstaerkt den gesamten Spirit-Schaden".to_string(), if needs.contains("spirit_damage") { 15.0 } else { 4.0 }));
+        return Some((
+            "Spirit-Resist-Shred verstaerkt den gesamten Spirit-Schaden".to_string(),
+            if needs.contains("spirit_damage") {
+                15.0
+            } else {
+                4.0
+            },
+        ));
     }
     if is_spirit_amp_property(label_blob) {
-        return Some(("Spirit-Amp skaliert den Spirit-Schaden hoch".to_string(), if needs.contains("spirit_damage") { 13.0 } else { 4.0 }));
+        return Some((
+            "Spirit-Amp skaliert den Spirit-Schaden hoch".to_string(),
+            if needs.contains("spirit_damage") {
+                13.0
+            } else {
+                4.0
+            },
+        ));
     }
     if label_blob.contains("duration") {
-        return Some(("Duration/value uptime".to_string(), if needs.contains("ability_uptime") { 9.0 } else { 3.0 }));
+        return Some((
+            "Duration/value uptime".to_string(),
+            if needs.contains("ability_uptime") {
+                9.0
+            } else {
+                3.0
+            },
+        ));
     }
     if label_blob.contains("range") {
-        return Some(("Engage/ability reach".to_string(), if needs.contains("engage_reach") { 8.0 } else { 3.0 }));
+        return Some((
+            "Engage/ability reach".to_string(),
+            if needs.contains("engage_reach") {
+                8.0
+            } else {
+                3.0
+            },
+        ));
     }
     if label_blob.contains("radius") {
         return Some((
             "AoE reliability".to_string(),
-            if needs.contains("engage_reach") || needs.contains("ability_uptime") { 7.0 } else { 3.0 },
+            if needs.contains("engage_reach") || needs.contains("ability_uptime") {
+                7.0
+            } else {
+                3.0
+            },
         ));
     }
-    if label_blob.contains("techpower") || label_blob.contains("spirit power") || label_blob.contains("tech power") {
-        return Some(("Spirit Power".to_string(), if needs.contains("spirit_damage") { 10.0 } else { 1.0 }));
+    if label_blob.contains("techpower")
+        || label_blob.contains("spirit power")
+        || label_blob.contains("tech power")
+    {
+        return Some((
+            "Spirit Power".to_string(),
+            if needs.contains("spirit_damage") {
+                10.0
+            } else {
+                1.0
+            },
+        ));
     }
     if label_blob.contains("health") {
-        return Some(("Frontline durability".to_string(), if needs.contains("frontline_survival") { 9.0 } else { 3.0 }));
+        return Some((
+            "Frontline durability".to_string(),
+            if needs.contains("frontline_survival") {
+                9.0
+            } else {
+                3.0
+            },
+        ));
     }
     if label_blob.contains("resist") || label_blob.contains("armor") {
-        return Some(("Frontline durability".to_string(), if needs.contains("frontline_survival") { 8.0 } else { 3.0 }));
+        return Some((
+            "Frontline durability".to_string(),
+            if needs.contains("frontline_survival") {
+                8.0
+            } else {
+                3.0
+            },
+        ));
     }
     if label_blob.contains("move speed") {
-        return Some(("Engage mobility".to_string(), if needs.contains("engage_reach") { 11.0 } else { 7.0 }));
+        return Some((
+            "Engage mobility".to_string(),
+            if needs.contains("engage_reach") {
+                11.0
+            } else {
+                7.0
+            },
+        ));
     }
     if label_blob.contains("sprint") {
-        return Some(("Map/engage mobility".to_string(), if needs.contains("engage_reach") { 9.0 } else { 5.0 }));
+        return Some((
+            "Map/engage mobility".to_string(),
+            if needs.contains("engage_reach") {
+                9.0
+            } else {
+                5.0
+            },
+        ));
     }
     if label_blob.contains("stamina") {
         return Some((
             "Chase/escape economy".to_string(),
-            if needs.contains("engage_reach") || needs.contains("weapon_damage") { 8.0 } else { 4.0 },
+            if needs.contains("engage_reach") || needs.contains("weapon_damage") {
+                8.0
+            } else {
+                4.0
+            },
         ));
     }
     if label_blob.contains("lifesteal") {
         return Some((
             "Fight sustain".to_string(),
-            if needs.contains("frontline_survival") || needs.contains("weapon_damage") { 7.0 } else { 2.0 },
+            if needs.contains("frontline_survival") || needs.contains("weapon_damage") {
+                7.0
+            } else {
+                2.0
+            },
         ));
     }
     if label_blob.contains("healing") {
         return Some((
             "Fight sustain".to_string(),
-            if needs.contains("frontline_survival") || needs.contains("team_support") { 6.0 } else { 2.0 },
+            if needs.contains("frontline_survival") || needs.contains("team_support") {
+                6.0
+            } else {
+                2.0
+            },
         ));
     }
     if label_blob.contains("weapon damage") {
-        return Some(("Weapon scaling".to_string(), if needs.contains("weapon_damage") { 8.0 } else { 2.0 }));
+        return Some((
+            "Weapon scaling".to_string(),
+            if needs.contains("weapon_damage") {
+                8.0
+            } else {
+                2.0
+            },
+        ));
     }
     if label_blob.contains("fire rate") {
-        return Some(("Weapon scaling".to_string(), if needs.contains("weapon_damage") { 8.0 } else { 2.0 }));
+        return Some((
+            "Weapon scaling".to_string(),
+            if needs.contains("weapon_damage") {
+                8.0
+            } else {
+                2.0
+            },
+        ));
     }
-    if label_blob.contains("bullet") && !label_blob.contains("resist") && !label_blob.contains("armor") {
-        return Some(("Weapon pressure".to_string(), if needs.contains("weapon_damage") { 6.0 } else { 2.0 }));
+    if label_blob.contains("bullet")
+        && !label_blob.contains("resist")
+        && !label_blob.contains("armor")
+    {
+        return Some((
+            "Weapon pressure".to_string(),
+            if needs.contains("weapon_damage") {
+                6.0
+            } else {
+                2.0
+            },
+        ));
     }
     None
 }
@@ -673,7 +825,9 @@ fn hero_need_bonus(item: &Value, hero_needs: &Value) -> (f64, Vec<String>) {
         .collect::<Vec<_>>()
         .join(" ")
         .to_lowercase();
-    let description = get_string(item, "description").unwrap_or_default().to_lowercase();
+    let description = get_string(item, "description")
+        .unwrap_or_default()
+        .to_lowercase();
     let needs = string_set(get(hero_needs, "needs"));
     let mut score: f64 = 0.0;
     let mut reasons = Vec::new();
@@ -730,7 +884,10 @@ fn hero_need_bonus(item: &Value, hero_needs: &Value) -> (f64, Vec<String>) {
     (score, reasons)
 }
 
-fn score_archetypes(item: &Value, hero_needs: &Value) -> (f64, Vec<String>, Map<String, Value>, Vec<String>) {
+fn score_archetypes(
+    item: &Value,
+    hero_needs: &Value,
+) -> (f64, Vec<String>, Map<String, Value>, Vec<String>) {
     let archetypes = string_set(get(item, "archetypes"));
     let needs = string_set(get(hero_needs, "needs"));
     let mut score: f64 = 0.0;
@@ -754,11 +911,19 @@ fn score_archetypes(item: &Value, hero_needs: &Value) -> (f64, Vec<String>, Map<
         score += 7.0;
         reasons.push("Orb-Secure: hilft Souls in der Lane wirklich zu sichern".to_string());
     }
-    if archetypes.contains("duel") && ["weapon_damage", "frontline_survival"].iter().any(|need| needs.contains(*need)) {
+    if archetypes.contains("duel")
+        && ["weapon_damage", "frontline_survival"]
+            .iter()
+            .any(|need| needs.contains(*need))
+    {
         score += 8.0;
         reasons.push("Duel-Item: verbessert direkte 1v1-/Trade-Fenster".to_string());
     }
-    if archetypes.contains("burst") && ["spirit_damage", "weapon_damage"].iter().any(|need| needs.contains(*need)) {
+    if archetypes.contains("burst")
+        && ["spirit_damage", "weapon_damage"]
+            .iter()
+            .any(|need| needs.contains(*need))
+    {
         score += 7.0;
         reasons.push("Burst: verstaerkt kurze Kill-Fenster".to_string());
     }
@@ -770,7 +935,11 @@ fn score_archetypes(item: &Value, hero_needs: &Value) -> (f64, Vec<String>, Map<
         score += 5.0;
         reasons.push("Escape/Reposition: senkt Risiko nach Engage oder Trade".to_string());
     }
-    if archetypes.contains("teamfight_engage") && ["engage_reach", "ability_uptime"].iter().any(|need| needs.contains(*need)) {
+    if archetypes.contains("teamfight_engage")
+        && ["engage_reach", "ability_uptime"]
+            .iter()
+            .any(|need| needs.contains(*need))
+    {
         score += 9.0;
         reasons.push("Teamfight-Engage: macht zentrale Fight-Eröffnung verlaesslicher".to_string());
     }
@@ -813,7 +982,8 @@ fn score_archetypes(item: &Value, hero_needs: &Value) -> (f64, Vec<String>, Map<
     }
     if archetypes.contains("luxury") {
         tags.insert("late_only".to_string(), json!(true));
-        warnings.push("Luxury/T4: erst nach Core-Plan und Shop-Bonus-Route rechtfertigen".to_string());
+        warnings
+            .push("Luxury/T4: erst nach Core-Plan und Shop-Bonus-Route rechtfertigen".to_string());
     }
     if archetypes.contains("active_burden") {
         warnings.push("Active-Slot beachten; maximal vier Active Items".to_string());
@@ -822,8 +992,12 @@ fn score_archetypes(item: &Value, hero_needs: &Value) -> (f64, Vec<String>, Map<
 }
 
 fn patch_synergy_bonus(item: &Value, review_context: &Value) -> (f64, Vec<String>) {
-    let timeline = get(review_context, "timeline_signals").cloned().unwrap_or_else(|| json!({}));
-    let ability_mentions = get(&timeline, "ability_mentions").cloned().unwrap_or_else(|| json!({}));
+    let timeline = get(review_context, "timeline_signals")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let ability_mentions = get(&timeline, "ability_mentions")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     let top_abilities: BTreeSet<String> = ability_mentions
         .as_object()
         .into_iter()
@@ -844,7 +1018,10 @@ fn patch_synergy_bonus(item: &Value, review_context: &Value) -> (f64, Vec<String
             .iter()
             .any(|word| property_blob.contains(word))
     {
-        (6.0, vec!["passt zu oft gepatchten/zentralen Ability-Signalen".to_string()])
+        (
+            6.0,
+            vec!["passt zu oft gepatchten/zentralen Ability-Signalen".to_string()],
+        )
     } else {
         (0.0, Vec::new())
     }
@@ -866,7 +1043,11 @@ fn statlocker_wpa_bonus(
     let cost_relative = get(signal, "costRelativeWpa")
         .map(|value| numeric_value(Some(value)))
         .unwrap_or(wpa);
-    let value = if cost_relative != 0.0 { cost_relative } else { wpa };
+    let value = if cost_relative != 0.0 {
+        cost_relative
+    } else {
+        wpa
+    };
     let mut score = 0.0;
     let mut reasons = Vec::new();
     let mut warnings = Vec::new();
@@ -900,8 +1081,12 @@ fn statlocker_wpa_bonus(
 }
 
 fn economy_summary(hero_payload: &Value) -> Value {
-    let cost_bonuses = get(hero_payload, "cost_bonuses").cloned().unwrap_or_else(|| json!({}));
-    let purchase_bonuses = get(hero_payload, "purchase_bonuses").cloned().unwrap_or_else(|| json!({}));
+    let cost_bonuses = get(hero_payload, "cost_bonuses")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let purchase_bonuses = get(hero_payload, "purchase_bonuses")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     json!({
         "wiki_rules": {
             "souls_are_currency_and_xp": true,
@@ -947,7 +1132,9 @@ fn hero_summary(
     abilities: &[Value],
     hero_needs: &Value,
 ) -> Value {
-    let desc = get(hero_payload, "description").cloned().unwrap_or_else(|| json!({}));
+    let desc = get(hero_payload, "description")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     json!({
         "name": get(hero_payload, "name").cloned().unwrap_or(Value::Null),
         "hero_type": get(hero_payload, "hero_type").cloned().unwrap_or(Value::Null),
@@ -967,7 +1154,9 @@ fn hero_summary(
 }
 
 pub(crate) fn item_summary(payload: &Value) -> Value {
-    let desc = get(payload, "description").cloned().unwrap_or_else(|| json!({}));
+    let desc = get(payload, "description")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     let description = if desc.is_object() {
         clean_html_text(&get_string(&desc, "desc").unwrap_or_default())
     } else {
@@ -994,7 +1183,10 @@ pub(crate) fn item_summary(payload: &Value) -> Value {
 }
 
 fn classify_item_archetypes(item: &Value) -> Vec<String> {
-    let props = get(item, "properties").and_then(as_array).cloned().unwrap_or_default();
+    let props = get(item, "properties")
+        .and_then(as_array)
+        .cloned()
+        .unwrap_or_default();
     let blob = [
         get_string(item, "name").unwrap_or_default(),
         get_string(item, "description").unwrap_or_default(),
@@ -1020,28 +1212,295 @@ fn classify_item_archetypes(item: &Value) -> Vec<String> {
     if bool_value(get(item, "is_active")) {
         archetypes.insert("active_burden".to_string());
     }
-    add_if_any(&mut archetypes, &blob, "lane_farm", &["npc", "nonplayer", "non-player", "trooper", "bonus souls", "souls", "creep"]);
-    add_if_any(&mut archetypes, &blob, "waveclear", &["npc damage", "trooper", "non-player", "nonplayer", "creep", "chain", "ricochet"]);
-    add_if_any(&mut archetypes, &blob, "orb_secure", &["bonus souls", "secure", "claim", "confirm", "last hit", "orb"]);
-    add_if_any(&mut archetypes, &blob, "lane_trade", &["close range", "weapon damage", "fire rate", "max ammo", "reload", "bonus damage", "current health damage", "bullet lifesteal", "out of combat regen"]);
-    add_if_any(&mut archetypes, &blob, "duel", &["close range", "bullet lifesteal", "melee", "duel", "weapon damage", "fire rate", "slow resist"]);
-    add_if_any(&mut archetypes, &blob, "burst", &["burst", "bonus damage", "damage amp", "amplification", "current health damage", "execute", "crit"]);
-    add_if_any(&mut archetypes, &blob, "sustained_dps", &["fire rate", "weapon damage", "max ammo", "reload", "bullet procs", "ricochet", "sustained"]);
-    add_if_any(&mut archetypes, &blob, "kill_setup", &["slow", "stun", "silence", "disarm", "root", "immobil", "knock", "teleport", "dash distance", "gravity"]);
-    add_if_any(&mut archetypes, &blob, "escape", &["teleport", "dash", "move speed", "sprint speed", "stamina", "escape", "barrier"]);
-    add_if_any(&mut archetypes, &blob, "teamfight_engage", &["stun", "silence", "disarm", "knock", "hex", "curse", "area", "nearby enemies", "radius"]);
-    add_if_any(&mut archetypes, &blob, "counter", &["debuff", "cleanse", "dispel", "unstoppable", "immune", "barrier", "shield", "return fire", "healing reduction", "metal skin"]);
+    add_if_any(
+        &mut archetypes,
+        &blob,
+        "lane_farm",
+        &[
+            "npc",
+            "nonplayer",
+            "non-player",
+            "trooper",
+            "bonus souls",
+            "souls",
+            "creep",
+        ],
+    );
+    add_if_any(
+        &mut archetypes,
+        &blob,
+        "waveclear",
+        &[
+            "npc damage",
+            "trooper",
+            "non-player",
+            "nonplayer",
+            "creep",
+            "chain",
+            "ricochet",
+        ],
+    );
+    add_if_any(
+        &mut archetypes,
+        &blob,
+        "orb_secure",
+        &[
+            "bonus souls",
+            "secure",
+            "claim",
+            "confirm",
+            "last hit",
+            "orb",
+        ],
+    );
+    add_if_any(
+        &mut archetypes,
+        &blob,
+        "lane_trade",
+        &[
+            "close range",
+            "weapon damage",
+            "fire rate",
+            "max ammo",
+            "reload",
+            "bonus damage",
+            "current health damage",
+            "bullet lifesteal",
+            "out of combat regen",
+        ],
+    );
+    add_if_any(
+        &mut archetypes,
+        &blob,
+        "duel",
+        &[
+            "close range",
+            "bullet lifesteal",
+            "melee",
+            "duel",
+            "weapon damage",
+            "fire rate",
+            "slow resist",
+        ],
+    );
+    add_if_any(
+        &mut archetypes,
+        &blob,
+        "burst",
+        &[
+            "burst",
+            "bonus damage",
+            "damage amp",
+            "amplification",
+            "current health damage",
+            "execute",
+            "crit",
+        ],
+    );
+    add_if_any(
+        &mut archetypes,
+        &blob,
+        "sustained_dps",
+        &[
+            "fire rate",
+            "weapon damage",
+            "max ammo",
+            "reload",
+            "bullet procs",
+            "ricochet",
+            "sustained",
+        ],
+    );
+    add_if_any(
+        &mut archetypes,
+        &blob,
+        "kill_setup",
+        &[
+            "slow",
+            "stun",
+            "silence",
+            "disarm",
+            "root",
+            "immobil",
+            "knock",
+            "teleport",
+            "dash distance",
+            "gravity",
+        ],
+    );
+    add_if_any(
+        &mut archetypes,
+        &blob,
+        "escape",
+        &[
+            "teleport",
+            "dash",
+            "move speed",
+            "sprint speed",
+            "stamina",
+            "escape",
+            "barrier",
+        ],
+    );
+    add_if_any(
+        &mut archetypes,
+        &blob,
+        "teamfight_engage",
+        &[
+            "stun",
+            "silence",
+            "disarm",
+            "knock",
+            "hex",
+            "curse",
+            "area",
+            "nearby enemies",
+            "radius",
+        ],
+    );
+    add_if_any(
+        &mut archetypes,
+        &blob,
+        "counter",
+        &[
+            "debuff",
+            "cleanse",
+            "dispel",
+            "unstoppable",
+            "immune",
+            "barrier",
+            "shield",
+            "return fire",
+            "healing reduction",
+            "metal skin",
+        ],
+    );
     if bool_value(get(item, "is_active")) {
-        add_if_any(&mut archetypes, &blob, "defensive_active", &["immune", "unstoppable", "metal skin", "negative status", "status effects", "bullet resist", "debuff resist", "barrier", "shield"]);
+        add_if_any(
+            &mut archetypes,
+            &blob,
+            "defensive_active",
+            &[
+                "immune",
+                "unstoppable",
+                "metal skin",
+                "negative status",
+                "status effects",
+                "bullet resist",
+                "debuff resist",
+                "barrier",
+                "shield",
+            ],
+        );
     }
-    add_if_any(&mut archetypes, &blob, "defensive_proc", &["reactive barrier", "gain a barrier", "when you are stunned", "when you are chained", "when you are immobilized", "when you are slept", "when you are silenced"]);
-    add_if_any(&mut archetypes, &blob, "anti_heal", &["healing reduction", "anti-heal", "healbane"]);
-    add_if_any(&mut archetypes, &blob, "anti_carry", &["disarm", "return fire", "metal skin", "bullet resist", "weapon damage reduction", "fire rate slow"]);
-    add_if_any(&mut archetypes, &blob, "save", &["rescue", "barrier", "shield", "cleanse", "dispel", "heal yourself and nearby allies"]);
-    add_if_any(&mut archetypes, &blob, "core_scaling", &["stack", "escalat", "amp", "cooldown", "duration", "ability range", "radius", "spirit power", "techpower", "charges", "ricochet", "bullet procs", "max weapon damage"]);
-    add_if_any(&mut archetypes, &blob, "support", &["nearby allies", "friendly", "ally", "aura", "rescue", "heal yourself and nearby allies", "healing output"]);
-    add_if_any(&mut archetypes, &blob, "objective_damage", &["guardian", "walker", "patron", "mid boss", "midboss", "objective", "non-player", "nonplayer", "npc damage"]);
-    add_if_any(&mut archetypes, &blob, "splitpush", &["split push", "splitpush", "lane pressure", "trooper", "wave"]);
+    add_if_any(
+        &mut archetypes,
+        &blob,
+        "defensive_proc",
+        &[
+            "reactive barrier",
+            "gain a barrier",
+            "when you are stunned",
+            "when you are chained",
+            "when you are immobilized",
+            "when you are slept",
+            "when you are silenced",
+        ],
+    );
+    add_if_any(
+        &mut archetypes,
+        &blob,
+        "anti_heal",
+        &["healing reduction", "anti-heal", "healbane"],
+    );
+    add_if_any(
+        &mut archetypes,
+        &blob,
+        "anti_carry",
+        &[
+            "disarm",
+            "return fire",
+            "metal skin",
+            "bullet resist",
+            "weapon damage reduction",
+            "fire rate slow",
+        ],
+    );
+    add_if_any(
+        &mut archetypes,
+        &blob,
+        "save",
+        &[
+            "rescue",
+            "barrier",
+            "shield",
+            "cleanse",
+            "dispel",
+            "heal yourself and nearby allies",
+        ],
+    );
+    add_if_any(
+        &mut archetypes,
+        &blob,
+        "core_scaling",
+        &[
+            "stack",
+            "escalat",
+            "amp",
+            "cooldown",
+            "duration",
+            "ability range",
+            "radius",
+            "spirit power",
+            "techpower",
+            "charges",
+            "ricochet",
+            "bullet procs",
+            "max weapon damage",
+        ],
+    );
+    add_if_any(
+        &mut archetypes,
+        &blob,
+        "support",
+        &[
+            "nearby allies",
+            "friendly",
+            "ally",
+            "aura",
+            "rescue",
+            "heal yourself and nearby allies",
+            "healing output",
+        ],
+    );
+    add_if_any(
+        &mut archetypes,
+        &blob,
+        "objective_damage",
+        &[
+            "guardian",
+            "walker",
+            "patron",
+            "mid boss",
+            "midboss",
+            "objective",
+            "non-player",
+            "nonplayer",
+            "npc damage",
+        ],
+    );
+    add_if_any(
+        &mut archetypes,
+        &blob,
+        "splitpush",
+        &[
+            "split push",
+            "splitpush",
+            "lane pressure",
+            "trooper",
+            "wave",
+        ],
+    );
     archetypes.into_iter().collect()
 }
 
@@ -1121,7 +1580,9 @@ fn load_public_items(conn: &Connection) -> Result<Vec<Value>> {
 }
 
 fn load_hero_abilities(conn: &Connection, hero_payload: &Value) -> Result<Vec<Value>> {
-    let hero_items = get(hero_payload, "items").cloned().unwrap_or_else(|| json!({}));
+    let hero_items = get(hero_payload, "items")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     let mut ability_classes = Vec::new();
     for key in ["signature1", "signature2", "signature3", "signature4"] {
         if let Some(value) = get_string(&hero_items, key) {
@@ -1154,7 +1615,9 @@ fn load_hero_abilities(conn: &Connection, hero_payload: &Value) -> Result<Vec<Va
 
 fn ability_summary(payload: &Value) -> Value {
     let props = compact_properties(get(payload, "properties"));
-    let desc = get(payload, "description").cloned().unwrap_or_else(|| json!({}));
+    let desc = get(payload, "description")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     let text = ["desc", "quip", "t1_desc", "t2_desc", "t3_desc"]
         .iter()
         .filter_map(|key| get(&desc, key))
@@ -1177,8 +1640,12 @@ fn ability_summary(payload: &Value) -> Value {
 }
 
 fn infer_hero_needs(hero_payload: &Value, abilities: &[Value]) -> Value {
-    let role = get_string(hero_payload, "hero_type").unwrap_or_default().to_lowercase();
-    let gun_tag = get_string(hero_payload, "gun_tag").unwrap_or_default().to_lowercase();
+    let role = get_string(hero_payload, "hero_type")
+        .unwrap_or_default()
+        .to_lowercase();
+    let gun_tag = get_string(hero_payload, "gun_tag")
+        .unwrap_or_default()
+        .to_lowercase();
     let mut ability_tags_set = BTreeSet::new();
     let mut scaling_stats_set = BTreeSet::new();
     for ability in abilities {
@@ -1196,7 +1663,15 @@ fn infer_hero_needs(hero_payload: &Value, abilities: &[Value]) -> Value {
     if ability_tags.iter().any(|tag| {
         matches!(
             tag.as_str(),
-            "engage" | "pick" | "disarm" | "knockup" | "stun" | "silence" | "immobilize" | "sleep" | "tether"
+            "engage"
+                | "pick"
+                | "disarm"
+                | "knockup"
+                | "stun"
+                | "silence"
+                | "immobilize"
+                | "sleep"
+                | "tether"
         )
     }) {
         needs.insert("engage_reach".to_string());
@@ -1217,7 +1692,10 @@ fn infer_hero_needs(hero_payload: &Value, abilities: &[Value]) -> Value {
     if matches!(damage_plan.as_str(), "weapon" | "hybrid") {
         needs.insert("weapon_damage".to_string());
     }
-    if ability_tags.iter().any(|tag| matches!(tag.as_str(), "self_heal" | "health_stacking")) {
+    if ability_tags
+        .iter()
+        .any(|tag| matches!(tag.as_str(), "self_heal" | "health_stacking"))
+    {
         needs.insert("frontline_survival".to_string());
     }
     if ability_tags.iter().any(|tag| tag == "support_team") {
@@ -1242,24 +1720,66 @@ fn infer_ability_role_tags(text: &str, props: &Value) -> Vec<String> {
     let mut tags = BTreeSet::new();
     let checks: &[(&str, &[&str])] = &[
         ("self_heal", &["heal yourself", "heal", "lifesteal"]),
-        ("engage", &["burrow", "moving faster", "teleport", "jump out"]),
+        (
+            "engage",
+            &["burrow", "moving faster", "teleport", "jump out"],
+        ),
         ("knockup", &["knockup", "knock up"]),
         ("disarm", &["disarm"]),
         ("silence", &["silence", "silenced"]),
         ("stun", &["stun", "stunning", "stunned"]),
-        ("immobilize", &["immobilize", "immobilized", "root", "rooted"]),
+        (
+            "immobilize",
+            &["immobilize", "immobilized", "root", "rooted"],
+        ),
         ("sleep", &["sleep", "drowsy"]),
         ("tether", &["tether", "binds", "binding"]),
         ("bleed", &["bleed"]),
         ("burn", &["burn", "burning"]),
         ("slow", &["slow", "dash distance"]),
-        ("pick", &["hold the target", "stunning", "stun", "sleep", "immobilized"]),
-        ("health_stacking", &["permanently gain max health", "bonus max health"]),
+        (
+            "pick",
+            &[
+                "hold the target",
+                "stunning",
+                "stun",
+                "sleep",
+                "immobilized",
+            ],
+        ),
+        (
+            "health_stacking",
+            &["permanently gain max health", "bonus max health"],
+        ),
         ("channel", &["channel"]),
         ("damage_amp", &["damage to them", "+15% damage"]),
-        ("support_team", &["ally", "allies", "friendly", "teammate", "nearby allies", "heal an ally", "targeted ally"]),
-        ("weapon_scaling", &["weapon damage", "bullet damage", "fire rate", "ammo", "reload", "headshot"]),
-        ("mobility", &["dash", "leap", "fly", "jump", "sprint", "move speed"]),
+        (
+            "support_team",
+            &[
+                "ally",
+                "allies",
+                "friendly",
+                "teammate",
+                "nearby allies",
+                "heal an ally",
+                "targeted ally",
+            ],
+        ),
+        (
+            "weapon_scaling",
+            &[
+                "weapon damage",
+                "bullet damage",
+                "fire rate",
+                "ammo",
+                "reload",
+                "headshot",
+            ],
+        ),
+        (
+            "mobility",
+            &["dash", "leap", "fly", "jump", "sprint", "move speed"],
+        ),
         ("burst", &["burst", "explode", "detonate", "nuke"]),
     ];
     for (tag, needles) in checks {
@@ -1268,7 +1788,9 @@ fn infer_ability_role_tags(text: &str, props: &Value) -> Vec<String> {
         }
     }
     for prop in props.as_array().into_iter().flatten() {
-        let label = get_any_string(prop, &["label", "name"]).unwrap_or_default().to_lowercase();
+        let label = get_any_string(prop, &["label", "name"])
+            .unwrap_or_default()
+            .to_lowercase();
         if label.contains("cooldown") && !is_non_scoring_stat_property(prop) {
             tags.insert("cooldown_bound".to_string());
         }
@@ -1279,7 +1801,9 @@ fn infer_ability_role_tags(text: &str, props: &Value) -> Vec<String> {
             && (["weapon damage", "fire rate", "ammo", "reload", "headshot"]
                 .iter()
                 .any(|word| label.contains(word))
-                || (label.contains("bullet") && !label.contains("resist") && !label.contains("armor")))
+                || (label.contains("bullet")
+                    && !label.contains("resist")
+                    && !label.contains("armor")))
         {
             tags.insert("weapon_scaling".to_string());
         }
@@ -1312,7 +1836,11 @@ fn key_ability_properties(props: &Value) -> Value {
             .as_array()
             .into_iter()
             .flatten()
-            .filter(|prop| get_string(prop, "name").map(|name| important_names.contains(name.as_str())).unwrap_or(false))
+            .filter(|prop| {
+                get_string(prop, "name")
+                    .map(|name| important_names.contains(name.as_str()))
+                    .unwrap_or(false)
+            })
             .take(14)
             .cloned()
             .collect(),
@@ -1338,7 +1866,9 @@ fn ability_damage_profile(props: &Value) -> Value {
     let mut survival_sources = 0;
     for prop in props.as_array().into_iter().flatten() {
         let name = get_string(prop, "name").unwrap_or_default();
-        let label = get_any_string(prop, &["label", "name"]).unwrap_or_default().to_lowercase();
+        let label = get_any_string(prop, &["label", "name"])
+            .unwrap_or_default()
+            .to_lowercase();
         let scales = string_set(get(prop, "scales_with"));
         if damage_property_name(&name) && numeric_value(get(prop, "value")) > 0.0 {
             damage_sources += 1;
@@ -1348,8 +1878,8 @@ fn ability_damage_profile(props: &Value) -> Value {
         }
         if meaningful_property_value(prop)
             && ["weapon damage", "fire rate", "ammo", "reload", "headshot"]
-            .iter()
-            .any(|word| label.contains(word))
+                .iter()
+                .any(|word| label.contains(word))
         {
             weapon_stat_sources += 1;
         }
@@ -1376,14 +1906,22 @@ fn ability_damage_profile(props: &Value) -> Value {
     })
 }
 
-fn hero_damage_profile(abilities: &[Value], ability_tags: &[String], role: &str, gun_tag: &str) -> Value {
+fn hero_damage_profile(
+    abilities: &[Value],
+    ability_tags: &[String],
+    role: &str,
+    gun_tag: &str,
+) -> Value {
     let mut ability_damage_sources = 0;
     let mut spirit_scaling_damage_sources = 0;
     let mut weapon_stat_sources = 0;
     for ability in abilities {
-        let profile = get(ability, "damage_profile").cloned().unwrap_or_else(|| json!({}));
+        let profile = get(ability, "damage_profile")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
         ability_damage_sources += int_or_zero(get(&profile, "damage_sources"));
-        spirit_scaling_damage_sources += int_or_zero(get(&profile, "spirit_scaling_damage_sources"));
+        spirit_scaling_damage_sources +=
+            int_or_zero(get(&profile, "spirit_scaling_damage_sources"));
         weapon_stat_sources += int_or_zero(get(&profile, "weapon_stat_sources"));
     }
     if ability_tags.iter().any(|tag| tag == "weapon_scaling") {
@@ -1392,7 +1930,8 @@ fn hero_damage_profile(abilities: &[Value], ability_tags: &[String], role: &str,
     if gun_tag.contains("rapid") || role.contains("gun") || role.contains("assassin") {
         weapon_stat_sources += 1;
     }
-    let spirit_signal = spirit_scaling_damage_sources + if ability_damage_sources >= 3 { 1 } else { 0 };
+    let spirit_signal =
+        spirit_scaling_damage_sources + if ability_damage_sources >= 3 { 1 } else { 0 };
     let damage_plan = if weapon_stat_sources >= 3 && weapon_stat_sources > spirit_signal {
         "weapon"
     } else if spirit_signal >= 3 && spirit_signal > weapon_stat_sources {
@@ -1470,17 +2009,28 @@ fn compact_ability_upgrades(upgrades: Option<&Value>) -> Value {
     )
 }
 
-fn gameplan_summary(hero_payload: &Value, ability_tags: &[String], damage_profile: &Value) -> String {
+fn gameplan_summary(
+    hero_payload: &Value,
+    ability_tags: &[String],
+    damage_profile: &Value,
+) -> String {
     if get_string(damage_profile, "damage_plan").as_deref() == Some("spirit") {
         return "Spirit-dominanter Plan: Ability-Schaden ueber Spirit-Skalierung, Cooldown-Reduktion und Resist-Shred maximieren".to_string();
     }
-    if ability_tags.iter().any(|tag| tag == "pick") && ability_tags.iter().any(|tag| tag == "engage") {
+    if ability_tags.iter().any(|tag| tag == "pick")
+        && ability_tags.iter().any(|tag| tag == "engage")
+    {
         return "Engage-/Pick-Hero: Reichweitenfenster erzwingen, Control landen und Team-Follow-up auf ein priorisiertes Ziel ermoeglichen.".to_string();
     }
-    if ability_tags.iter().any(|tag| tag == "weapon_scaling") && ability_tags.iter().any(|tag| tag == "mobility") {
+    if ability_tags.iter().any(|tag| tag == "weapon_scaling")
+        && ability_tags.iter().any(|tag| tag == "mobility")
+    {
         return "Mobile Weapon- oder Hybrid-Damage-Rolle: Farm/Positioning halten und Items kaufen, die Waffenfenster verlaengern oder sicherer machen.".to_string();
     }
-    if ability_tags.iter().any(|tag| tag == "self_heal" || tag == "frontline_survival") {
+    if ability_tags
+        .iter()
+        .any(|tag| tag == "self_heal" || tag == "frontline_survival")
+    {
         return "Brawler/Sustain-Rolle: Trades und laengere Fights ueberleben, aber defensive Kaeufe muessen weiter Impact erzeugen.".to_string();
     }
     get(hero_payload, "description")
@@ -1497,7 +2047,11 @@ fn lane_priorities() -> Vec<&'static str> {
     ]
 }
 
-fn build_implications(needs: &[String], scaling_stats: &[String], damage_profile: &Value) -> Vec<String> {
+fn build_implications(
+    needs: &[String],
+    scaling_stats: &[String],
+    damage_profile: &Value,
+) -> Vec<String> {
     let needs_set: BTreeSet<&str> = needs.iter().map(String::as_str).collect();
     let mut implications = Vec::new();
     implications.push(format!(
@@ -1511,10 +2065,15 @@ fn build_implications(needs: &[String], scaling_stats: &[String], damage_profile
         implications.push("Range/Mobility ist wertvoll, wenn sie zentrale Control- oder Damage-Fenster erreichbar macht.".to_string());
     }
     if needs_set.contains("cooldown_reliability") {
-        implications.push("Cooldown-Items sind nur gut, wenn sie echte zweite Engage-/Control-Fenster schaffen.".to_string());
+        implications.push(
+            "Cooldown-Items sind nur gut, wenn sie echte zweite Engage-/Control-Fenster schaffen."
+                .to_string(),
+        );
     }
     if needs_set.contains("spirit_damage") {
-        implications.push("Spirit Power hat Wert, weil mehrere Abilities mit ETechPower skalieren.".to_string());
+        implications.push(
+            "Spirit Power hat Wert, weil mehrere Abilities mit ETechPower skalieren.".to_string(),
+        );
     }
     if needs_set.contains("weapon_damage") {
         implications.push("Weapon-Kaeufe brauchen entweder starke Gun-Skalierung, Orb-/Lane-Kontrolle oder ein klares Damage-Fenster.".to_string());
@@ -1563,8 +2122,16 @@ fn hero_decision_framework() -> Vec<&'static str> {
     ]
 }
 
-pub(crate) fn load_entity_payload(conn: &Connection, query: &str, entity_type: &str) -> Result<Option<Value>> {
-    let wanted_snapshot_type = if entity_type == "hero" { "hero" } else { "item_or_ability" };
+pub(crate) fn load_entity_payload(
+    conn: &Connection,
+    query: &str,
+    entity_type: &str,
+) -> Result<Option<Value>> {
+    let wanted_snapshot_type = if entity_type == "hero" {
+        "hero"
+    } else {
+        "item_or_ability"
+    };
     let lower = query.to_lowercase();
     let like = format!("%{query}%");
     let row = query_one_json(
@@ -1588,7 +2155,11 @@ pub(crate) fn load_entity_payload(conn: &Connection, query: &str, entity_type: &
         &[&wanted_snapshot_type, &lower, &like],
     )?;
     Ok(row
-        .and_then(|item| get(&item, "payload_json").and_then(Value::as_str).map(|raw| json_loads(Some(raw), json!({}))))
+        .and_then(|item| {
+            get(&item, "payload_json")
+                .and_then(Value::as_str)
+                .map(|raw| json_loads(Some(raw), json!({})))
+        })
         .filter(Value::is_object))
 }
 
@@ -1634,7 +2205,10 @@ fn load_wiki_summary(conn: &Connection, title: &str) -> Result<Option<Value>> {
     })))
 }
 
-fn load_statlocker_wpa_signals(conn: &Connection, hero_name: &str) -> Result<BTreeMap<String, Value>> {
+fn load_statlocker_wpa_signals(
+    conn: &Connection,
+    hero_name: &str,
+) -> Result<BTreeMap<String, Value>> {
     let hero_key = statlocker_key(hero_name);
     let hero_web_key = statlocker_key(&statlocker_hero_name(hero_name));
     let rows = query_json_rows(
@@ -1720,7 +2294,10 @@ fn load_build_learning_signals(conn: &Connection, hero_name: &str) -> Result<Bui
     Ok(signals)
 }
 
-fn load_learned_build_item_profile(conn: &Connection, hero_name: &str) -> Result<LearnedBuildItemProfile> {
+fn load_learned_build_item_profile(
+    conn: &Connection,
+    hero_name: &str,
+) -> Result<LearnedBuildItemProfile> {
     if !table_exists(conn, "learned_builds")? {
         return Ok(LearnedBuildItemProfile::default());
     }
@@ -1738,7 +2315,10 @@ fn load_learned_build_item_profile(conn: &Connection, hero_name: &str) -> Result
     )?;
     let mut profile = LearnedBuildItemProfile::default();
     for row in rows {
-        let items = json_loads(get(&row, "item_names_json").and_then(Value::as_str), json!([]));
+        let items = json_loads(
+            get(&row, "item_names_json").and_then(Value::as_str),
+            json!([]),
+        );
         let mut seen = BTreeSet::new();
         for item in insight_string_values(Some(&items)) {
             let candidate = learning_item_candidate_name(&item);
@@ -1788,15 +2368,33 @@ fn apply_learned_item_profile(hero_needs: &mut Value, profile: &LearnedBuildItem
         add_need(hero_needs, "ability_uptime");
     }
     if let Some(object) = hero_needs.as_object_mut() {
-        if let Some(damage_profile) = object.get_mut("damage_profile").and_then(Value::as_object_mut) {
-            damage_profile.insert("learned_spirit_item_hits".to_string(), json!(profile.spirit_item_hits));
-            damage_profile.insert("learned_weapon_item_hits".to_string(), json!(profile.weapon_item_hits));
-            damage_profile.insert("learned_spirit_dominant".to_string(), json!(spirit_dominant));
-            damage_profile.insert("learned_weapon_dominant".to_string(), json!(weapon_dominant));
+        if let Some(damage_profile) = object
+            .get_mut("damage_profile")
+            .and_then(Value::as_object_mut)
+        {
+            damage_profile.insert(
+                "learned_spirit_item_hits".to_string(),
+                json!(profile.spirit_item_hits),
+            );
+            damage_profile.insert(
+                "learned_weapon_item_hits".to_string(),
+                json!(profile.weapon_item_hits),
+            );
+            damage_profile.insert(
+                "learned_spirit_dominant".to_string(),
+                json!(spirit_dominant),
+            );
+            damage_profile.insert(
+                "learned_weapon_dominant".to_string(),
+                json!(weapon_dominant),
+            );
             if spirit_dominant && !weapon_dominant {
                 damage_profile.insert("damage_plan".to_string(), json!("spirit"));
                 let current = int_or_zero(damage_profile.get("spirit_scaling_damage_sources"));
-                damage_profile.insert("spirit_scaling_damage_sources".to_string(), json!(current.max(3)));
+                damage_profile.insert(
+                    "spirit_scaling_damage_sources".to_string(),
+                    json!(current.max(3)),
+                );
             } else if weapon_dominant && !spirit_dominant {
                 damage_profile.insert("damage_plan".to_string(), json!("weapon"));
             } else if spirit_dominant && weapon_dominant {
@@ -1833,7 +2431,12 @@ fn compact_learning_map(values: &BTreeMap<String, ItemLearningSignal>, limit: us
         right
             .count
             .cmp(&left.count)
-            .then_with(|| right.weight.partial_cmp(&left.weight).unwrap_or(std::cmp::Ordering::Equal))
+            .then_with(|| {
+                right
+                    .weight
+                    .partial_cmp(&left.weight)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
             .then_with(|| left.display_name.cmp(&right.display_name))
     });
     Value::Array(
@@ -1847,8 +2450,14 @@ fn compact_learning_map(values: &BTreeMap<String, ItemLearningSignal>, limit: us
 fn insight_string_values(value: Option<&Value>) -> Vec<String> {
     match value {
         Some(Value::String(text)) => vec![text.trim().to_string()],
-        Some(Value::Array(items)) => items.iter().flat_map(|item| insight_string_values(Some(item))).collect(),
-        Some(Value::Object(object)) => object.values().flat_map(|item| insight_string_values(Some(item))).collect(),
+        Some(Value::Array(items)) => items
+            .iter()
+            .flat_map(|item| insight_string_values(Some(item)))
+            .collect(),
+        Some(Value::Object(object)) => object
+            .values()
+            .flat_map(|item| insight_string_values(Some(item)))
+            .collect(),
         Some(Value::Number(_)) | Some(Value::Bool(_)) | Some(Value::Null) | None => Vec::new(),
     }
     .into_iter()
@@ -1856,7 +2465,11 @@ fn insight_string_values(value: Option<&Value>) -> Vec<String> {
     .collect()
 }
 
-fn record_learning_signal(values: &mut BTreeMap<String, ItemLearningSignal>, raw_name: &str, weight: f64) {
+fn record_learning_signal(
+    values: &mut BTreeMap<String, ItemLearningSignal>,
+    raw_name: &str,
+    weight: f64,
+) {
     let display_name = learning_item_candidate_name(raw_name);
     let key = normalized_item_key(&display_name);
     if key.is_empty() {
@@ -1875,7 +2488,10 @@ fn learning_item_candidate_name(raw_name: &str) -> String {
     let mut candidate = raw_name
         .trim()
         .trim_matches(|character: char| {
-            matches!(character, '-' | '*' | '"' | '\'' | '`' | '[' | ']' | '{' | '}')
+            matches!(
+                character,
+                '-' | '*' | '"' | '\'' | '`' | '[' | ']' | '{' | '}'
+            )
         })
         .trim()
         .to_string();
@@ -1898,14 +2514,22 @@ fn learning_signal_for_item<'a>(
     values.get(&normalized_item_key(item_name))
 }
 
-fn learned_item_frequency(profile: &LearnedBuildItemProfile, item_name: &str) -> Option<(f64, i64)> {
+fn learned_item_frequency(
+    profile: &LearnedBuildItemProfile,
+    item_name: &str,
+) -> Option<(f64, i64)> {
     if profile.total_builds <= 0 {
         return None;
     }
     profile
         .item_counts
         .get(&normalized_item_key(item_name))
-        .map(|entry| (entry.count as f64 / profile.total_builds as f64, entry.count))
+        .map(|entry| {
+            (
+                entry.count as f64 / profile.total_builds as f64,
+                entry.count,
+            )
+        })
 }
 
 fn learned_profile_spirit_dominant(profile: &LearnedBuildItemProfile) -> bool {
@@ -1929,7 +2553,9 @@ fn add_need(hero_needs: &mut Value, need: &str) {
     let Some(object) = hero_needs.as_object_mut() else {
         return;
     };
-    let needs = object.entry("needs".to_string()).or_insert_with(|| json!([]));
+    let needs = object
+        .entry("needs".to_string())
+        .or_insert_with(|| json!([]));
     let Some(items) = needs.as_array_mut() else {
         return;
     };
@@ -1957,7 +2583,9 @@ fn refresh_priority_scaling_stats(hero_needs: &mut Value) {
         .flatten()
         .filter_map(value_to_non_empty_string)
         .collect::<Vec<_>>();
-    let damage_profile = get(hero_needs, "damage_profile").cloned().unwrap_or_else(|| json!({}));
+    let damage_profile = get(hero_needs, "damage_profile")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     let priority = priority_scaling_stats(&needs, &damage_profile);
     if let Some(object) = hero_needs.as_object_mut() {
         object.insert("priority_scaling_stats".to_string(), json!(priority));
@@ -1993,7 +2621,9 @@ fn compact_statlocker_signals(signals: &BTreeMap<String, Value>, limit: usize) -
 }
 
 fn hero_item_bucket(hero_payload: &Value, item_payload: &Value) -> String {
-    let buckets = get(hero_payload, "item_draft_bucketing").cloned().unwrap_or_else(|| json!({}));
+    let buckets = get(hero_payload, "item_draft_bucketing")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     let class_name = get_string(item_payload, "class_name").unwrap_or_default();
     get(&buckets, &class_name)
         .and_then(|meta| get_string(meta, "bucket"))
@@ -2075,11 +2705,21 @@ fn rejected_expensive_items(items: &[Value]) -> Value {
         }
     }
     rows.sort_by(|left, right| {
-        let left_refresher = if get_string(left, "name").as_deref() == Some("Refresher") { 0 } else { 1 };
-        let right_refresher = if get_string(right, "name").as_deref() == Some("Refresher") { 0 } else { 1 };
-        left_refresher
-            .cmp(&right_refresher)
-            .then_with(|| numeric_value(get(left, "score")).partial_cmp(&numeric_value(get(right, "score"))).unwrap_or(std::cmp::Ordering::Equal))
+        let left_refresher = if get_string(left, "name").as_deref() == Some("Refresher") {
+            0
+        } else {
+            1
+        };
+        let right_refresher = if get_string(right, "name").as_deref() == Some("Refresher") {
+            0
+        } else {
+            1
+        };
+        left_refresher.cmp(&right_refresher).then_with(|| {
+            numeric_value(get(left, "score"))
+                .partial_cmp(&numeric_value(get(right, "score")))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
     });
     Value::Array(rows.into_iter().take(12).collect())
 }
@@ -2089,7 +2729,11 @@ fn is_pure_defense(item: &Value) -> bool {
         .and_then(as_array)
         .into_iter()
         .flatten()
-        .map(|prop| get_any_string(prop, &["label", "name"]).unwrap_or_default().to_lowercase())
+        .map(|prop| {
+            get_any_string(prop, &["label", "name"])
+                .unwrap_or_default()
+                .to_lowercase()
+        })
         .collect::<Vec<_>>();
     if labels.is_empty() {
         return false;
@@ -2100,7 +2744,13 @@ fn is_pure_defense(item: &Value) -> bool {
         .count();
     let offensive = labels
         .iter()
-        .filter(|label| ["damage", "cooldown", "duration", "range", "radius", "slow", "fire"].iter().any(|hint| label.contains(hint)))
+        .filter(|label| {
+            [
+                "damage", "cooldown", "duration", "range", "radius", "slow", "fire",
+            ]
+            .iter()
+            .any(|hint| label.contains(hint))
+        })
         .count();
     defensive >= 2 && offensive == 0 && !bool_value(get(item, "is_active"))
 }
@@ -2295,7 +2945,10 @@ fn find_best_entity_match(conn: &Connection, query: &str) -> Result<Option<Value
         if let Some(mut row) = rows.into_iter().next() {
             if int_or_zero(get(&row, "score")) >= 100 {
                 if let Some(object) = row.as_object_mut() {
-                    let metadata = json_loads(object.get("metadata_json").and_then(Value::as_str), json!({}));
+                    let metadata = json_loads(
+                        object.get("metadata_json").and_then(Value::as_str),
+                        json!({}),
+                    );
                     object.remove("metadata_json");
                     object.insert("metadata".to_string(), metadata);
                     let alias_kinds = object
@@ -2392,7 +3045,10 @@ fn load_patch_events(
         }
         for alias in aliases {
             let kind = get_string(alias, "alias_kind").unwrap_or_default();
-            if matches!(kind.as_str(), "canonical" | "snapshot_name" | "class_name_short") {
+            if matches!(
+                kind.as_str(),
+                "canonical" | "snapshot_name" | "class_name_short"
+            ) {
                 if let Some(alias_value) = get_string(alias, "alias") {
                     names.insert(alias_value.to_lowercase());
                 }
@@ -2430,7 +3086,10 @@ fn load_patch_events(
     };
     for row in &mut rows {
         if let Some(object) = row.as_object_mut() {
-            let metadata = json_loads(object.get("metadata_json").and_then(Value::as_str), json!({}));
+            let metadata = json_loads(
+                object.get("metadata_json").and_then(Value::as_str),
+                json!({}),
+            );
             object.remove("metadata_json");
             object.insert("metadata".to_string(), metadata);
         }
@@ -2444,10 +3103,12 @@ fn load_enrichments(conn: &Connection, event_ids: &[i64]) -> Result<Vec<Value>> 
     if event_ids.is_empty() || !table_exists(conn, "patch_event_enrichments")? {
         return Ok(Vec::new());
     }
-    let placeholders = (0..event_ids.len()).map(|_| "?").collect::<Vec<_>>().join(",");
-    let sql = format!(
-        "SELECT * FROM patch_event_enrichments WHERE patch_event_id IN ({placeholders})"
-    );
+    let placeholders = (0..event_ids.len())
+        .map(|_| "?")
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql =
+        format!("SELECT * FROM patch_event_enrichments WHERE patch_event_id IN ({placeholders})");
     let mut stmt = conn.prepare(&sql)?;
     let iter = stmt.query_map(params_from_iter(event_ids.iter()), |row| {
         crate::util::row_to_json(row).map(|value| decode_json_fields(&value))
@@ -2468,22 +3129,34 @@ fn build_current_stat_hints(
     }
     for alias in aliases {
         let kind = get_string(alias, "alias_kind").unwrap_or_default();
-        if matches!(kind.as_str(), "canonical" | "snapshot_name" | "class_name_short") {
-            if let Some(value) = get_string(alias, "alias").filter(|value| !value.chars().all(|character| character.is_ascii_digit())) {
+        if matches!(
+            kind.as_str(),
+            "canonical" | "snapshot_name" | "class_name_short"
+        ) {
+            if let Some(value) = get_string(alias, "alias")
+                .filter(|value| !value.chars().all(|character| character.is_ascii_digit()))
+            {
                 names.insert(value);
             }
         }
     }
-    let lowered = names.iter().map(|name| name.to_lowercase()).collect::<Vec<_>>();
+    let lowered = names
+        .iter()
+        .map(|name| name.to_lowercase())
+        .collect::<Vec<_>>();
     let mut profile = Value::Null;
     let mut value_rows = Vec::new();
     if !lowered.is_empty() && table_exists(conn, "hero_stat_profiles")? {
-        let placeholders = (0..lowered.len()).map(|_| "?").collect::<Vec<_>>().join(",");
+        let placeholders = (0..lowered.len())
+            .map(|_| "?")
+            .collect::<Vec<_>>()
+            .join(",");
         let sql = format!(
             "SELECT hero_name, source, external_id, snapshot_id, row_number, id FROM hero_stat_profiles WHERE lower(hero_name) IN ({placeholders}) ORDER BY updated_at DESC LIMIT 1"
         );
         let mut stmt = conn.prepare(&sql)?;
-        let mut rows = stmt.query_map(params_from_iter(lowered.iter()), crate::util::row_to_json)?;
+        let mut rows =
+            stmt.query_map(params_from_iter(lowered.iter()), crate::util::row_to_json)?;
         if let Some(row) = rows.next() {
             profile = row?;
         }
@@ -2527,7 +3200,10 @@ fn build_entity_summary(query: &str, best_match: Option<&Value>, aliases: &[Valu
         let kind = get_string(alias, "alias_kind").unwrap_or_default();
         let value = get_string(alias, "alias").unwrap_or_default();
         if !value.is_empty()
-            && matches!(kind.as_str(), "canonical" | "snapshot_name" | "class_name_short")
+            && matches!(
+                kind.as_str(),
+                "canonical" | "snapshot_name" | "class_name_short"
+            )
             && !human_aliases.contains(&value)
         {
             human_aliases.push(value);
@@ -2562,7 +3238,9 @@ fn build_entity_summary(query: &str, best_match: Option<&Value>, aliases: &[Valu
 fn build_timeline_signals(events: &[Value], enrichments: &[Value]) -> Value {
     let mut enrichments_by_event: BTreeMap<i64, Vec<&Value>> = BTreeMap::new();
     for enrichment in enrichments {
-        if let Some(id) = int_or_none(get(enrichment, "patch_event_id").or_else(|| get(enrichment, "event_id"))) {
+        if let Some(id) =
+            int_or_none(get(enrichment, "patch_event_id").or_else(|| get(enrichment, "event_id")))
+        {
             enrichments_by_event.entry(id).or_default().push(enrichment);
         }
     }
@@ -2576,8 +3254,14 @@ fn build_timeline_signals(events: &[Value], enrichments: &[Value]) -> Value {
     let mut low_confidence_events = 0;
     for event in events {
         let event_id = int_or_none(get(event, "id")).unwrap_or_default();
-        let event_enrichments = enrichments_by_event.get(&event_id).cloned().unwrap_or_default();
-        if event_enrichments.iter().any(|enrichment| numeric_value(get(enrichment, "confidence")) < 0.5) {
+        let event_enrichments = enrichments_by_event
+            .get(&event_id)
+            .cloned()
+            .unwrap_or_default();
+        if event_enrichments
+            .iter()
+            .any(|enrichment| numeric_value(get(enrichment, "confidence")) < 0.5)
+        {
             low_confidence_events += 1;
         }
         recent_events.push(compact_event(event, &event_enrichments));
@@ -2586,7 +3270,8 @@ fn build_timeline_signals(events: &[Value], enrichments: &[Value]) -> Value {
                 *ability_mentions.entry(ability).or_default() += 1;
             }
             if get(enrichment, "stat_name").is_some()
-                && (get(enrichment, "old_value").is_some() || get(enrichment, "new_value").is_some())
+                && (get(enrichment, "old_value").is_some()
+                    || get(enrichment, "new_value").is_some())
             {
                 stat_changes.push(compact_stat_change(event, enrichment));
             }
@@ -2622,36 +3307,53 @@ fn build_open_questions(
 ) -> Vec<&'static str> {
     let mut questions = Vec::new();
     if !bool_value(get(entity_summary, "matched")) {
-        questions.push("Entity konnte nicht kanonisch gematcht werden; Patch-Treffer sind nur Fallback-Suche.");
+        questions.push(
+            "Entity konnte nicht kanonisch gematcht werden; Patch-Treffer sind nur Fallback-Suche.",
+        );
     }
     if fallback_used {
-        questions.push("Retrieval nutzt Fallback-Matching; Namen und Aliase vor einer Review-Aussage pruefen.");
+        questions.push(
+            "Retrieval nutzt Fallback-Matching; Namen und Aliase vor einer Review-Aussage pruefen.",
+        );
     }
     if int_or_zero(get(timeline_signals, "event_count")) == 0 {
-        questions.push("Keine Patch-Events gefunden; Trend- oder Balance-Aussagen waeren spekulativ.");
+        questions
+            .push("Keine Patch-Events gefunden; Trend- oder Balance-Aussagen waeren spekulativ.");
     }
     if !enrichments_available {
-        questions.push("Patch-Event-Enrichments fehlen; Stat-Aenderungen sind nur aus Rohzeilen ableitbar.");
+        questions.push(
+            "Patch-Event-Enrichments fehlen; Stat-Aenderungen sind nur aus Rohzeilen ableitbar.",
+        );
     } else if int_or_zero(get(timeline_signals, "low_confidence_event_count")) != 0 {
         questions.push("Ein Teil der Patchzeilen ist unstrukturiert oder low-confidence; Rohzeilen gegenlesen.");
     }
     if get_string(entity_summary, "entity_type").as_deref() == Some("hero")
-        && get(current_stat_hints, "hints").and_then(as_array).map(Vec::is_empty).unwrap_or(true)
+        && get(current_stat_hints, "hints")
+            .and_then(as_array)
+            .map(Vec::is_empty)
+            .unwrap_or(true)
     {
         questions.push("Keine aktuellen Sheet-Stat-Hints fuer den Hero gefunden.");
     }
     if int_or_zero(get(current_stat_hints, "omitted_hint_count")) != 0 {
-        questions.push("Sheet-Stats wurden gekuerzt; fuer Detailanalyse ggf. Rohkontext nachladen.");
+        questions
+            .push("Sheet-Stats wurden gekuerzt; fuer Detailanalyse ggf. Rohkontext nachladen.");
     }
     if int_or_zero(get(timeline_signals, "omitted_recent_event_count")) != 0
         || int_or_zero(get(timeline_signals, "omitted_stat_change_count")) != 0
     {
-        questions.push("Timeline wurde gekuerzt; fuer historische Vollanalyse hoeheres limit_events nutzen.");
+        questions.push(
+            "Timeline wurde gekuerzt; fuer historische Vollanalyse hoeheres limit_events nutzen.",
+        );
     }
     questions
 }
 
-fn build_source_references(best_match: Option<&Value>, events: &[Value], current_stat_hints: &Value) -> Value {
+fn build_source_references(
+    best_match: Option<&Value>,
+    events: &[Value],
+    current_stat_hints: &Value,
+) -> Value {
     let mut references = Vec::new();
     if let Some(best_match) = best_match {
         references.push(json!({
@@ -2725,11 +3427,28 @@ fn compact_enrichment(enrichment: &Value) -> Value {
 fn compact_stat_change(event: &Value, enrichment: &Value) -> Value {
     let mut compact = compact_enrichment(enrichment);
     if let Some(object) = compact.as_object_mut() {
-        object.insert("patch_event_id".to_string(), get(event, "id").cloned().unwrap_or(Value::Null));
-        object.insert("posted_at".to_string(), get(event, "posted_at").cloned().unwrap_or(Value::Null));
-        object.insert("patch_title".to_string(), get(event, "patch_title").cloned().unwrap_or(Value::Null));
-        object.insert("change_type".to_string(), get(event, "change_type").cloned().unwrap_or(Value::Null));
-        object.insert("line".to_string(), get_any(event, &["normalized_line", "raw_line"]).cloned().unwrap_or(Value::Null));
+        object.insert(
+            "patch_event_id".to_string(),
+            get(event, "id").cloned().unwrap_or(Value::Null),
+        );
+        object.insert(
+            "posted_at".to_string(),
+            get(event, "posted_at").cloned().unwrap_or(Value::Null),
+        );
+        object.insert(
+            "patch_title".to_string(),
+            get(event, "patch_title").cloned().unwrap_or(Value::Null),
+        );
+        object.insert(
+            "change_type".to_string(),
+            get(event, "change_type").cloned().unwrap_or(Value::Null),
+        );
+        object.insert(
+            "line".to_string(),
+            get_any(event, &["normalized_line", "raw_line"])
+                .cloned()
+                .unwrap_or(Value::Null),
+        );
     }
     compact
 }
@@ -2790,7 +3509,10 @@ fn merged_sheet_stat_hints(value_rows: &[Value]) -> Vec<Value> {
     ordered
 }
 
-pub(crate) fn hero_name_from_id(conn: &Connection, hero_id: Option<&str>) -> Result<Option<String>> {
+pub(crate) fn hero_name_from_id(
+    conn: &Connection,
+    hero_id: Option<&str>,
+) -> Result<Option<String>> {
     let Some(hero_id) = hero_id.filter(|value| !value.trim().is_empty()) else {
         return Ok(None);
     };
@@ -2834,7 +3556,10 @@ pub(crate) fn hero_name_from_id(conn: &Connection, hero_id: Option<&str>) -> Res
     }))
 }
 
-pub(crate) fn asset_payload_by_id(conn: &Connection, asset_id: Option<&str>) -> Result<Option<Value>> {
+pub(crate) fn asset_payload_by_id(
+    conn: &Connection,
+    asset_id: Option<&str>,
+) -> Result<Option<Value>> {
     let Some(asset_id) = asset_id.filter(|value| !value.trim().is_empty()) else {
         return Ok(None);
     };
@@ -2869,7 +3594,11 @@ pub(crate) fn asset_payload_by_id(conn: &Connection, asset_id: Option<&str>) -> 
         .ok()
         .flatten()
     });
-    Ok(row.and_then(|row| get(&row, "payload_json").and_then(Value::as_str).map(|raw| json_loads(Some(raw), json!({})))))
+    Ok(row.and_then(|row| {
+        get(&row, "payload_json")
+            .and_then(Value::as_str)
+            .map(|raw| json_loads(Some(raw), json!({})))
+    }))
 }
 
 pub(crate) fn specific_item_purpose(item: &Value) -> Option<&'static str> {
@@ -2911,7 +3640,11 @@ pub(crate) fn key_item_properties(properties: Option<&Value>) -> Value {
         .filter(|row| bool_value(get(row, "important")) || bool_value(get(row, "elevated")))
         .cloned()
         .collect::<Vec<_>>();
-    let selected = if important.is_empty() { rows } else { important };
+    let selected = if important.is_empty() {
+        rows
+    } else {
+        important
+    };
     Value::Array(selected.into_iter().take(10).collect())
 }
 
@@ -2937,7 +3670,8 @@ fn is_property_sentinel(name: &str, prop: &Value) -> bool {
     let label = get_any_string(prop, &["label", "postvalue_label"]).unwrap_or_default();
     let blob = format!("{name} {label}").to_lowercase();
     let value = numeric_value(get(prop, "value"));
-    if value >= 9999.0 && (blob.contains("channel duration") || blob.contains("abilitychanneltime")) {
+    if value >= 9999.0 && (blob.contains("channel duration") || blob.contains("abilitychanneltime"))
+    {
         return true;
     }
     name == "ChannelMoveSpeed" && value <= -1.0
@@ -2964,7 +3698,9 @@ fn is_non_scoring_stat_property(prop: &Value) -> bool {
 
 fn is_cooldown_reduction_property(prop: &Value, label_blob: &str) -> bool {
     let name = get_string(prop, "name").unwrap_or_default().to_lowercase();
-    let provided = get_string(prop, "provided_property_type").unwrap_or_default().to_lowercase();
+    let provided = get_string(prop, "provided_property_type")
+        .unwrap_or_default()
+        .to_lowercase();
     meaningful_property_value(prop)
         && (name.contains("cooldownreduction")
             || provided.contains("cooldown_reduction")
@@ -2973,12 +3709,15 @@ fn is_cooldown_reduction_property(prop: &Value, label_blob: &str) -> bool {
 }
 
 fn is_spirit_resist_shred_property(prop: &Value, label_blob: &str) -> bool {
-    let provided = get_string(prop, "provided_property_type").unwrap_or_default().to_lowercase();
+    let provided = get_string(prop, "provided_property_type")
+        .unwrap_or_default()
+        .to_lowercase();
     let value = numeric_value(get(prop, "value"));
     meaningful_property_value(prop)
         && (provided.contains("tech_armor_damage_resist_reduction")
             || label_blob.contains("spirit resist on spirit damage")
-            || (label_blob.contains("spirit resist") && (label_blob.contains("reduction") || value < 0.0)))
+            || (label_blob.contains("spirit resist")
+                && (label_blob.contains("reduction") || value < 0.0)))
 }
 
 fn is_spirit_amp_property(label_blob: &str) -> bool {
@@ -3017,7 +3756,9 @@ fn is_passive_economy_generalist(item: &Value) -> bool {
     if name == "Trophy Collector" {
         return true;
     }
-    let description = get_string(item, "description").unwrap_or_default().to_lowercase();
+    let description = get_string(item, "description")
+        .unwrap_or_default()
+        .to_lowercase();
     description.contains("passive soul generation") || description.contains("souls per minute")
 }
 
@@ -3096,7 +3837,13 @@ fn normalize_alias(value: &str) -> String {
     value
         .to_lowercase()
         .chars()
-        .map(|character| if character.is_alphanumeric() { character } else { ' ' })
+        .map(|character| {
+            if character.is_alphanumeric() {
+                character
+            } else {
+                ' '
+            }
+        })
         .collect::<String>()
         .split_whitespace()
         .collect::<Vec<_>>()

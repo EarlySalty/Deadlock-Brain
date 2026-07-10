@@ -11,8 +11,8 @@ use crate::{
     build_optimizer::build_hero_build_context,
     util::{
         clamp_i64, ensure_schema, extract_insights, get, get_any, get_string, int_or_none,
-        int_or_zero, json_loads, now_epoch_seconds, prompt_text_from_request,
-        query_json_rows, query_one_json, stable_hash_text, table_exists, value_to_string,
+        int_or_zero, json_loads, now_epoch_seconds, prompt_text_from_request, query_json_rows,
+        query_one_json, stable_hash_text, table_exists, value_to_string,
     },
     LearnError, Result,
 };
@@ -123,7 +123,11 @@ pub fn learn_import_steam_builds(
             "SELECT id FROM learned_builds WHERE source=?1 AND source_build_id=?2",
             &[&"steam_gc", &source_build_id],
         )?;
-        let tags_value = if tags.is_array() { tags.clone() } else { json!([]) };
+        let tags_value = if tags.is_array() {
+            tags.clone()
+        } else {
+            json!([])
+        };
         let tags_json = serde_json::to_string(&tags_value)?;
         let item_names_json = serde_json::to_string(&item_names)?;
         let ability_order_json = serde_json::to_string(&ability_order)?;
@@ -146,7 +150,9 @@ pub fn learn_import_steam_builds(
             .filter(|value| !value.is_null())
             .map(value_to_string)
             .filter(|value| !value.is_empty());
-        let description = get(row, "description").and_then(Value::as_str).map(str::to_string);
+        let description = get(row, "description")
+            .and_then(Value::as_str)
+            .map(str::to_string);
         conn.execute(
             r#"
             INSERT INTO learned_builds(
@@ -244,7 +250,10 @@ pub fn learn_list_builds(conn: &Connection, hero: Option<&str>, limit: i64) -> R
     Ok(rows
         .into_iter()
         .map(|mut row| {
-            let items = json_loads(get(&row, "item_names_json").and_then(Value::as_str), json!([]));
+            let items = json_loads(
+                get(&row, "item_names_json").and_then(Value::as_str),
+                json!([]),
+            );
             if let Some(object) = row.as_object_mut() {
                 object.insert("item_names".to_string(), items);
             }
@@ -281,7 +290,12 @@ pub(crate) fn list_pending_build_learning_targets(
             ORDER BY lb.quality_score DESC, lb.source_rank ASC, lb.updated_at DESC, lb.id ASC
             LIMIT ?4
             "#,
-            &[&BUILD_LEARNING_PROMPT_VERSION, &model, &like, &bounded_limit],
+            &[
+                &BUILD_LEARNING_PROMPT_VERSION,
+                &model,
+                &like,
+                &bounded_limit,
+            ],
         )?
     } else {
         query_json_rows(
@@ -307,7 +321,10 @@ pub(crate) fn list_pending_build_learning_targets(
     Ok(rows
         .into_iter()
         .map(|mut row| {
-            let items = json_loads(get(&row, "item_names_json").and_then(Value::as_str), json!([]));
+            let items = json_loads(
+                get(&row, "item_names_json").and_then(Value::as_str),
+                json!([]),
+            );
             if let Some(object) = row.as_object_mut() {
                 object.insert("item_names".to_string(), items);
             }
@@ -331,8 +348,14 @@ pub fn build_learning_context(conn: &Connection, learned_build_id: i64) -> Resul
     let mut build = row.clone();
     let tags = json_loads(get(&row, "tags_json").and_then(Value::as_str), json!([]));
     let details = json_loads(get(&row, "details_json").and_then(Value::as_str), json!({}));
-    let item_names = json_loads(get(&row, "item_names_json").and_then(Value::as_str), json!([]));
-    let ability_order = json_loads(get(&row, "ability_order_json").and_then(Value::as_str), json!([]));
+    let item_names = json_loads(
+        get(&row, "item_names_json").and_then(Value::as_str),
+        json!([]),
+    );
+    let ability_order = json_loads(
+        get(&row, "ability_order_json").and_then(Value::as_str),
+        json!([]),
+    );
     let source_metadata = json_loads(
         get(&row, "source_metadata_json").and_then(Value::as_str),
         json!({}),
@@ -662,7 +685,10 @@ fn load_steam_build_rows(
             &[&language, &bounded_limit],
         )?);
     }
-    let placeholders = (0..hero_ids.len()).map(|_| "?").collect::<Vec<_>>().join(",");
+    let placeholders = (0..hero_ids.len())
+        .map(|_| "?")
+        .collect::<Vec<_>>()
+        .join(",");
     let sql = format!(
         r#"
         SELECT *
@@ -706,7 +732,8 @@ fn hero_id_name_map(conn: &Connection) -> Result<BTreeMap<i64, String>> {
         let hero_id = int_or_none(get(&payload, "id"));
         let name = get_string(&payload, "name").unwrap_or_default();
         if let Some(hero_id) = hero_id {
-            if !name.is_empty() && get(&payload, "disabled").and_then(Value::as_bool) != Some(true) {
+            if !name.is_empty() && get(&payload, "disabled").and_then(Value::as_bool) != Some(true)
+            {
                 result.insert(hero_id, name);
             }
         }
@@ -745,7 +772,11 @@ fn extract_item_names(details: &Value, item_map: &BTreeMap<i64, String>) -> Vec<
         .into_iter()
         .flatten()
     {
-        for item in get(category, "mods").and_then(Value::as_array).into_iter().flatten() {
+        for item in get(category, "mods")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
             let ability_id = int_or_none(get_any(item, &["ability_id", "abilityId"]));
             if let Some(name) = ability_id.and_then(|id| item_map.get(&id)) {
                 if !names.contains(name) {
@@ -787,7 +818,11 @@ fn extract_item_categories(details: &Value, item_map: &BTreeMap<i64, String>) ->
         .flatten()
     {
         let mut mods = Vec::new();
-        for item in get(category, "mods").and_then(Value::as_array).into_iter().flatten() {
+        for item in get(category, "mods")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
             let ability_id = int_or_none(get_any(item, &["ability_id", "abilityId"]));
             let item_name = ability_id.and_then(|id| item_map.get(&id).cloned());
             if let Some(item_name) = item_name {
@@ -840,7 +875,10 @@ fn sibling_build_summaries(conn: &Connection, hero_name: &str, exclude_id: i64) 
     Ok(Value::Array(
         rows.into_iter()
             .map(|mut row| {
-                let item_names = json_loads(get(&row, "item_names_json").and_then(Value::as_str), json!([]));
+                let item_names = json_loads(
+                    get(&row, "item_names_json").and_then(Value::as_str),
+                    json!([]),
+                );
                 if let Some(object) = row.as_object_mut() {
                     object.insert("item_names".to_string(), item_names);
                 }
@@ -851,9 +889,15 @@ fn sibling_build_summaries(conn: &Connection, hero_name: &str, exclude_id: i64) 
 }
 
 fn compact_learning_context(context: &Value) -> Value {
-    let hero_context = get(context, "hero_context").cloned().unwrap_or_else(|| json!({}));
-    let hero = get(&hero_context, "hero").cloned().unwrap_or_else(|| json!({}));
-    let build = get(&hero_context, "build").cloned().unwrap_or_else(|| json!({}));
+    let hero_context = get(context, "hero_context")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let hero = get(&hero_context, "hero")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let build = get(&hero_context, "build")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     json!({
         "build": compact_build_for_model(get(context, "build")),
         "nearby_top_builds": get(context, "nearby_top_builds").cloned().unwrap_or(Value::Null),
@@ -902,7 +946,10 @@ fn compact_build_for_model(build: Option<&Value>) -> Value {
     ];
     let mut object = Map::new();
     for key in keys {
-        object.insert(key.to_string(), get(build, key).cloned().unwrap_or(Value::Null));
+        object.insert(
+            key.to_string(),
+            get(build, key).cloned().unwrap_or(Value::Null),
+        );
     }
     Value::Object(object)
 }

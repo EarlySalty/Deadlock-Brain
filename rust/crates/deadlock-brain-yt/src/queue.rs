@@ -242,7 +242,9 @@ fn fetch_text_with_retries(client: &Client, url: &str) -> Result<String, FetchFa
         if !should_retry || attempt == FEED_FETCH_ATTEMPTS {
             break;
         }
-        thread::sleep(Duration::from_millis(FEED_FETCH_BACKOFF_MS * attempt as u64));
+        thread::sleep(Duration::from_millis(
+            FEED_FETCH_BACKOFF_MS * attempt as u64,
+        ));
     }
 
     Err(FetchFailure {

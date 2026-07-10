@@ -59,8 +59,9 @@ pub(crate) fn pull_assets_inner(
     let mut endpoints_summary = Map::new();
     let mut total_snapshots = 0usize;
     for kind in selected {
-        let endpoint = endpoint_path(&kind)
-            .ok_or_else(|| SourcesError::invalid_input(format!("Unbekannter Assets-Endpoint: {kind}")))?;
+        let endpoint = endpoint_path(&kind).ok_or_else(|| {
+            SourcesError::invalid_input(format!("Unbekannter Assets-Endpoint: {kind}"))
+        })?;
         let url = format!("{BASE_URL}{endpoint}");
         let payload = http.get_json::<Value>(
             &url,
@@ -198,15 +199,21 @@ mod tests {
 
         assert_eq!(summary["snapshots"], json!(2));
         let documents: i64 = conn
-            .query_row("SELECT COUNT(*) FROM source_documents", [], |row| row.get(0))
-            .expect("document count");
-        let snapshots: i64 = conn
-            .query_row("SELECT COUNT(*) FROM entity_snapshots", [], |row| row.get(0))
-            .expect("snapshot count");
-        let runs: i64 = conn
-            .query_row("SELECT COUNT(*) FROM source_runs WHERE source='assets' AND status='ok'", [], |row| {
+            .query_row("SELECT COUNT(*) FROM source_documents", [], |row| {
                 row.get(0)
             })
+            .expect("document count");
+        let snapshots: i64 = conn
+            .query_row("SELECT COUNT(*) FROM entity_snapshots", [], |row| {
+                row.get(0)
+            })
+            .expect("snapshot count");
+        let runs: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM source_runs WHERE source='assets' AND status='ok'",
+                [],
+                |row| row.get(0),
+            )
             .expect("run count");
 
         assert_eq!(documents, 1);

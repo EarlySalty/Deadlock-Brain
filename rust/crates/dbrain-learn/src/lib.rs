@@ -16,7 +16,7 @@ pub use build_learning::{
     learn_analyze_next, learn_import_steam_builds, learn_list_builds, LearnAnalyzeBuildOptions,
     LearnAnalyzeNextOptions, LearnImportSteamBuildsOptions, BUILD_LEARNING_PROMPT_VERSION,
 };
-pub use build_optimizer::{build_suggest, build_hero_build_context, BuildSuggestOptions};
+pub use build_optimizer::{build_hero_build_context, build_suggest, BuildSuggestOptions};
 pub use error::{LearnError, Result};
 pub use match_coaching::build_match_coaching_context;
 pub use player_decision_learning::{
@@ -69,12 +69,10 @@ mod tests {
         let result = build_suggest(&conn, BuildSuggestOptions::new("TestHero")).expect("suggest");
 
         assert_eq!(result["hero"]["name"], "TestHero");
-        assert!(
-            !result["build"]["early"]
-                .as_array()
-                .expect("early array")
-                .is_empty()
-        );
+        assert!(!result["build"]["early"]
+            .as_array()
+            .expect("early array")
+            .is_empty());
     }
 
     #[test]
@@ -136,7 +134,10 @@ mod tests {
             .expect("avoided item");
 
         assert!(core_names.iter().any(|name| *name == "Learned Spirit Core"));
-        assert!(learned_item["score"].as_f64().expect("learned score") > avoided_item["score"].as_f64().expect("avoided score"));
+        assert!(
+            learned_item["score"].as_f64().expect("learned score")
+                > avoided_item["score"].as_f64().expect("avoided score")
+        );
         assert_eq!(learned_item["tags"]["learning_core"], true);
         assert_eq!(avoided_item["tags"]["learning_avoid"], true);
     }
@@ -164,7 +165,9 @@ mod tests {
         assert_eq!(result["note"]["status"], "context_ready");
         assert!(result.get("request").is_some());
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM build_learning_notes", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM build_learning_notes", [], |row| {
+                row.get(0)
+            })
             .expect("note count");
         assert_eq!(count, 1);
     }
@@ -193,13 +196,18 @@ mod tests {
         assert_eq!(result["hero_name"], "TestHero");
         assert!(result.get("request").is_some());
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM player_match_decision_notes", [], |row| row.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM player_match_decision_notes",
+                [],
+                |row| row.get(0),
+            )
             .expect("note count");
         assert_eq!(count, 1);
     }
 
     fn test_conn(temp: &Path) -> Connection {
-        deadlock_brain_core::db::open_connection(Some(temp.join("brain.sqlite3"))).expect("open conn")
+        deadlock_brain_core::db::open_connection(Some(temp.join("brain.sqlite3")))
+            .expect("open conn")
     }
 
     fn test_minimax_config(temp: &Path) -> MiniMaxConfig {
@@ -253,7 +261,14 @@ mod tests {
             },
             "upgrades": []
         });
-        insert_snapshot(conn, "deadlock_assets_api", "item_or_ability", "10", "Test Stun", &ability);
+        insert_snapshot(
+            conn,
+            "deadlock_assets_api",
+            "item_or_ability",
+            "10",
+            "Test Stun",
+            &ability,
+        );
         let item = json!({
             "id": 100,
             "name": "Extra Stamina",
@@ -270,7 +285,14 @@ mod tests {
                 "MoveSpeed": {"value": 1, "label": "Move Speed", "disable_value": 1}
             }
         });
-        insert_snapshot(conn, "deadlock_assets_api", "item_or_ability", "100", "Extra Stamina", &item);
+        insert_snapshot(
+            conn,
+            "deadlock_assets_api",
+            "item_or_ability",
+            "100",
+            "Extra Stamina",
+            &item,
+        );
     }
 
     fn seed_learning_bridge_items(conn: &Connection) {
@@ -290,7 +312,14 @@ mod tests {
                 "CooldownReduction": {"value": 12, "label": "Ability Cooldown Reduction", "disable_value": 1, "provided_property_type": "MODIFIER_VALUE_COOLDOWN_REDUCTION_PERCENTAGE", "prefix": "{s:sign}", "postfix": "%"}
             }
         });
-        insert_snapshot(conn, "deadlock_assets_api", "item_or_ability", "101", "Learned Spirit Core", &learned);
+        insert_snapshot(
+            conn,
+            "deadlock_assets_api",
+            "item_or_ability",
+            "101",
+            "Learned Spirit Core",
+            &learned,
+        );
 
         let avoided = json!({
             "id": 102,
@@ -308,7 +337,14 @@ mod tests {
                 "BonusFireRate": {"value": 20, "label": "Fire Rate", "disable_value": 1, "provided_property_type": "MODIFIER_VALUE_FIRE_RATE", "prefix": "{s:sign}", "postfix": "%"}
             }
         });
-        insert_snapshot(conn, "deadlock_assets_api", "item_or_ability", "102", "Avoided Gun Core", &avoided);
+        insert_snapshot(
+            conn,
+            "deadlock_assets_api",
+            "item_or_ability",
+            "102",
+            "Avoided Gun Core",
+            &avoided,
+        );
     }
 
     fn seed_build_learning_note(conn: &Connection) {
@@ -420,7 +456,8 @@ mod tests {
                 0.9_f64,
                 "Test Build",
                 "[]",
-                json!({"mod_categories": [{"name": "Core", "mods": [{"ability_id": 100}]}]}).to_string(),
+                json!({"mod_categories": [{"name": "Core", "mods": [{"ability_id": 100}]}]})
+                    .to_string(),
                 json!(["Extra Stamina"]).to_string(),
                 "[]",
                 "{}",
@@ -440,7 +477,14 @@ mod tests {
             "won": true,
             "_deadlock_brain": {"account_id": "acc1", "match_id": "m1", "hero_id": "1"}
         });
-        insert_snapshot(conn, "statlocker", "statlocker_player_match", "acc1:m1", "acc1:m1", &player_match);
+        insert_snapshot(
+            conn,
+            "statlocker",
+            "statlocker_player_match",
+            "acc1:m1",
+            "acc1:m1",
+            &player_match,
+        );
         let api_match = json!({
             "match_id": "m1",
             "players": [{
@@ -453,6 +497,13 @@ mod tests {
                 "items": [{"game_time_s": 300, "item_id": 100}]
             }]
         });
-        insert_snapshot(conn, "deadlock_api", "deadlock_api_match_metadata", "m1", "m1", &api_match);
+        insert_snapshot(
+            conn,
+            "deadlock_api",
+            "deadlock_api_match_metadata",
+            "m1",
+            "m1",
+            &api_match,
+        );
     }
 }

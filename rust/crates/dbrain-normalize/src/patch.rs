@@ -49,7 +49,11 @@ pub(crate) struct EntityIndex {
 }
 
 impl EntityIndex {
-    pub(crate) fn canonical(&self, name: &str, section: Option<&str>) -> (String, Option<String>, f64) {
+    pub(crate) fn canonical(
+        &self,
+        name: &str,
+        section: Option<&str>,
+    ) -> (String, Option<String>, f64) {
         let cleaned = clean_subject(Some(name));
         let key = normalize_key(&cleaned);
         if key.is_empty() {
@@ -118,7 +122,11 @@ struct PatchEventInsert {
 
 pub fn parse_patchnotes(conn: &Connection, rebuild: bool) -> Result<Value> {
     let before_total = table_count(conn, "patch_events")?;
-    let deleted = if rebuild { clear_patch_events(conn)? } else { 0 };
+    let deleted = if rebuild {
+        clear_patch_events(conn)?
+    } else {
+        0
+    };
     let index = build_entity_index(conn)?;
     let rows = load_patch_snapshots(conn)?;
 
@@ -129,7 +137,8 @@ pub fn parse_patchnotes(conn: &Connection, rebuild: bool) -> Result<Value> {
 
     for row in rows {
         let payload: Value = serde_json::from_str(&row.payload_json)?;
-        let (events, skipped) = parse_patchnote_snapshot(row.id, &row.external_id, &payload, &index)?;
+        let (events, skipped) =
+            parse_patchnote_snapshot(row.id, &row.external_id, &payload, &index)?;
         skipped_lines += skipped;
         let source_kind = classify_source_kind(optional_string(&payload, "url").as_deref());
         *source_kinds.entry(source_kind).or_default() += 1;
@@ -211,7 +220,8 @@ fn parse_patchnote_snapshot(
 
         let Some(bullet_body) = bullet_body_from_line(line) else {
             if let Some(maybe_group) = standalone_group_name(line) {
-                let (entity_type, canonical, confidence) = index.canonical(&maybe_group, section.as_deref());
+                let (entity_type, canonical, confidence) =
+                    index.canonical(&maybe_group, section.as_deref());
                 current_group = canonical.or(Some(maybe_group));
                 current_group_type = Some(entity_type);
                 current_group_confidence = confidence;
@@ -222,34 +232,44 @@ fn parse_patchnote_snapshot(
         };
 
         let (subject, mut body) = split_subject(&bullet_body);
-        let (entity_type, entity_name, confidence, event_subject) = if let Some(subject_text) = subject {
-            let (entity_type, entity_name, confidence) = index.canonical(&subject_text, section.as_deref());
-            if looks_like_group_heading(&body) {
-                current_group = entity_name.clone().or(Some(clean_subject(Some(&subject_text))));
-                current_group_type = Some(entity_type.clone());
-                current_group_confidence = confidence;
-                body = clean_subject(Some(&body));
-            } else if entity_type != "general" {
-                current_group = entity_name.clone();
-            }
-            (entity_type, entity_name, confidence, Some(subject_text))
-        } else if let Some(group) = current_group.clone() {
-            (
-                current_group_type.clone().unwrap_or_else(|| "general".to_string()),
-                Some(group.clone()),
-                current_group_confidence.max(0.7),
-                Some(group),
-            )
-        } else if let Some((entity_type, entity_name, confidence)) = infer_entities_from_line(&bullet_body, index).into_iter().next() {
-            (
-                entity_type,
-                Some(entity_name.clone()),
-                confidence,
-                Some(entity_name),
-            )
-        } else {
-            ("general".to_string(), None, 0.45, None)
-        };
+        let (entity_type, entity_name, confidence, event_subject) =
+            if let Some(subject_text) = subject {
+                let (entity_type, entity_name, confidence) =
+                    index.canonical(&subject_text, section.as_deref());
+                if looks_like_group_heading(&body) {
+                    current_group = entity_name
+                        .clone()
+                        .or(Some(clean_subject(Some(&subject_text))));
+                    current_group_type = Some(entity_type.clone());
+                    current_group_confidence = confidence;
+                    body = clean_subject(Some(&body));
+                } else if entity_type != "general" {
+                    current_group = entity_name.clone();
+                }
+                (entity_type, entity_name, confidence, Some(subject_text))
+            } else if let Some(group) = current_group.clone() {
+                (
+                    current_group_type
+                        .clone()
+                        .unwrap_or_else(|| "general".to_string()),
+                    Some(group.clone()),
+                    current_group_confidence.max(0.7),
+                    Some(group),
+                )
+            } else if let Some((entity_type, entity_name, confidence)) =
+                infer_entities_from_line(&bullet_body, index)
+                    .into_iter()
+                    .next()
+            {
+                (
+                    entity_type,
+                    Some(entity_name.clone()),
+                    confidence,
+                    Some(entity_name),
+                )
+            } else {
+                ("general".to_string(), None, 0.45, None)
+            };
 
         let normalized_line = normalize_patch_line(&body);
         if normalized_line.is_empty() {
@@ -259,18 +279,28 @@ fn parse_patchnote_snapshot(
         let change_type = classify_change_type(&normalized_line);
         let (old_value, new_value) = extract_old_new(&normalized_line)?;
         let mut metadata = BTreeMap::new();
-        let source_language = if optional_string(payload, "raw_content").is_some() { "en" } else { "de" };
+        let source_language = if optional_string(payload, "raw_content").is_some() {
+            "en"
+        } else {
+            "de"
+        };
         metadata.insert("source_language".to_string(), json!(source_language));
-        metadata.insert("line_subject".to_string(), event_subject.clone().map_or(Value::Null, Value::String));
+        metadata.insert(
+            "line_subject".to_string(),
+            event_subject.clone().map_or(Value::Null, Value::String),
+        );
         metadata.insert("original_bullet".to_string(), json!(bullet_body));
-        let event_hash = stable_hash_text(&[
-            snapshot_id.to_string(),
-            line_index.to_string(),
-            section.clone().unwrap_or_default(),
-            entity_type.clone(),
-            entity_name.clone().unwrap_or_default(),
-            normalized_line.clone(),
-        ].join("|"));
+        let event_hash = stable_hash_text(
+            &[
+                snapshot_id.to_string(),
+                line_index.to_string(),
+                section.clone().unwrap_or_default(),
+                entity_type.clone(),
+                entity_name.clone().unwrap_or_default(),
+                normalized_line.clone(),
+            ]
+            .join("|"),
+        );
 
         events.push(PatchEventInsert {
             patch_snapshot_id: snapshot_id,
@@ -388,9 +418,15 @@ fn build_entity_index(conn: &Connection) -> Result<EntityIndex> {
                 continue;
             }
             if entity_type == "hero" || entity_type == "hero_stats_sheet" {
-                index.hero_names.entry(key).or_insert_with(|| clean_subject(Some(&name)));
+                index
+                    .hero_names
+                    .entry(key)
+                    .or_insert_with(|| clean_subject(Some(&name)));
             } else {
-                index.item_names.entry(key).or_insert_with(|| clean_subject(Some(&name)));
+                index
+                    .item_names
+                    .entry(key)
+                    .or_insert_with(|| clean_subject(Some(&name)));
             }
         }
     }
@@ -434,27 +470,48 @@ pub(crate) fn build_entity_index_from_entities(conn: &Connection) -> Result<Opti
             }
             match entity_type.as_str() {
                 "hero" => {
-                    index.hero_names.entry(key).or_insert_with(|| canonical.clone());
+                    index
+                        .hero_names
+                        .entry(key)
+                        .or_insert_with(|| canonical.clone());
                 }
                 "hero_internal" => {
-                    index.hero_internal_names.entry(key).or_insert_with(|| canonical.clone());
+                    index
+                        .hero_internal_names
+                        .entry(key)
+                        .or_insert_with(|| canonical.clone());
                 }
                 "item" => {
-                    index.item_names.entry(key).or_insert_with(|| canonical.clone());
+                    index
+                        .item_names
+                        .entry(key)
+                        .or_insert_with(|| canonical.clone());
                 }
                 "item_special" => {
-                    index.special_item_names.entry(key).or_insert_with(|| canonical.clone());
+                    index
+                        .special_item_names
+                        .entry(key)
+                        .or_insert_with(|| canonical.clone());
                 }
                 "ability" => {
-                    index.ability_names.entry(key).or_insert_with(|| canonical.clone());
+                    index
+                        .ability_names
+                        .entry(key)
+                        .or_insert_with(|| canonical.clone());
                 }
                 "ability_internal" => {
                     if !GENERIC_INTERNAL_KEYS.contains(&key.as_str()) {
-                        index.internal_ability_names.entry(key).or_insert_with(|| canonical.clone());
+                        index
+                            .internal_ability_names
+                            .entry(key)
+                            .or_insert_with(|| canonical.clone());
                     }
                 }
                 "weapon_or_internal" if !GENERIC_INTERNAL_KEYS.contains(&key.as_str()) => {
-                    index.internal_names.entry(key).or_insert_with(|| canonical.clone());
+                    index
+                        .internal_names
+                        .entry(key)
+                        .or_insert_with(|| canonical.clone());
                 }
                 _ => {}
             }
@@ -487,7 +544,11 @@ fn detect_section(line: &str) -> Option<String> {
     if cleaned.to_lowercase().starts_with("deadlock patch notes") {
         return None;
     }
-    let mut text = cleaned.trim_start_matches('#').trim().trim_end_matches(':').trim();
+    let mut text = cleaned
+        .trim_start_matches('#')
+        .trim()
+        .trim_end_matches(':')
+        .trim();
     if let Some(stripped) = text.strip_prefix('[') {
         text = stripped.trim();
         if let Some(stripped) = text.strip_suffix(']') {
@@ -497,7 +558,11 @@ fn detect_section(line: &str) -> Option<String> {
     if text.len() < 2 || text.len() > 60 {
         return None;
     }
-    if !text.chars().next().is_some_and(|ch| ch.is_ascii_alphabetic()) {
+    if !text
+        .chars()
+        .next()
+        .is_some_and(|ch| ch.is_ascii_alphabetic())
+    {
         return None;
     }
     if !text
@@ -522,7 +587,10 @@ fn detect_section(line: &str) -> Option<String> {
 
 fn bullet_body_from_line(line: &str) -> Option<String> {
     let trimmed = line.trim();
-    if let Some(rest) = trimmed.strip_prefix('-').or_else(|| trimmed.strip_prefix('*')) {
+    if let Some(rest) = trimmed
+        .strip_prefix('-')
+        .or_else(|| trimmed.strip_prefix('*'))
+    {
         if rest.chars().next().is_some_and(char::is_whitespace) {
             return Some(rest.trim().to_string());
         }
@@ -577,9 +645,17 @@ fn looks_like_group_heading(text: &str) -> bool {
     let cleaned = text.trim().trim_end_matches(':');
     !cleaned.is_empty()
         && cleaned.len() < 50
-        && !["from", "to", "increased", "reduced", "fixed", "now", "no longer"]
-            .iter()
-            .any(|word| cleaned.to_lowercase().contains(word))
+        && ![
+            "from",
+            "to",
+            "increased",
+            "reduced",
+            "fixed",
+            "now",
+            "no longer",
+        ]
+        .iter()
+        .any(|word| cleaned.to_lowercase().contains(word))
 }
 
 fn infer_entities_from_line(text: &str, index: &EntityIndex) -> Vec<(String, String, f64)> {
@@ -659,8 +735,13 @@ fn classify_change_type(text: &str) -> String {
     {
         "rework"
     } else if lower.contains("reduced") || lower.contains("decreased") || lower.contains("slower") {
-        if mentions_positive_stat(&lower) { "nerf" } else { "buff" }
-    } else if lower.contains("increased") || lower.contains("faster") || lower.contains("improved") {
+        if mentions_positive_stat(&lower) {
+            "nerf"
+        } else {
+            "buff"
+        }
+    } else if lower.contains("increased") || lower.contains("faster") || lower.contains("improved")
+    {
         if mentions_positive_stat(&lower) || !mentions_negative_stat(&lower) {
             "buff"
         } else {
@@ -684,21 +765,32 @@ fn extract_old_new(text: &str) -> Result<(Option<String>, Option<String>)> {
     let quoted = Regex::new(r#"(?i)from\s+"([^"]+)"\s+to\s+"([^"]+)""#)?;
     if let Some(captures) = quoted.captures(text) {
         return Ok((
-            captures.get(1).map(|value| value.as_str().trim().to_string()),
-            captures.get(2).map(|value| value.as_str().trim().to_string()),
+            captures
+                .get(1)
+                .map(|value| value.as_str().trim().to_string()),
+            captures
+                .get(2)
+                .map(|value| value.as_str().trim().to_string()),
         ));
     }
     let from_to = Regex::new(r"(?i)\bfrom\s+(.+?)\s+to\s+(.+?)(?:[.;,)]|$)")?;
     if let Some(captures) = from_to.captures(text) {
-        let old_value = captures.get(1).map(|value| truncate(value.as_str().trim(), 160));
-        let new_value = captures.get(2).map(|value| truncate(value.as_str().trim(), 160));
+        let old_value = captures
+            .get(1)
+            .map(|value| truncate(value.as_str().trim(), 160));
+        let new_value = captures
+            .get(2)
+            .map(|value| truncate(value.as_str().trim(), 160));
         return Ok((old_value, new_value));
     }
     Ok((None, None))
 }
 
 fn normalize_patch_line(text: &str) -> String {
-    clean_subject(Some(text)).split_whitespace().collect::<Vec<_>>().join(" ")
+    clean_subject(Some(text))
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn truncate(value: &str, limit: usize) -> String {

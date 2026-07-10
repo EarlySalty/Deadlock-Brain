@@ -158,7 +158,9 @@ fn normalize_heroes_stats(conn: &Connection, hero_index: &BTreeMapLike) -> Resul
             continue;
         };
         let hero_name = value_to_string(values.get("Hero Name")).trim().to_string();
-        if hero_name.is_empty() || matches!(hero_name.to_lowercase().as_str(), "hero name" | "hero labs") {
+        if hero_name.is_empty()
+            || matches!(hero_name.to_lowercase().as_str(), "hero name" | "hero labs")
+        {
             continue;
         }
         let now = crate::util::now()?;
@@ -201,7 +203,11 @@ fn normalize_items(conn: &Connection) -> Result<Value> {
         if code_name.is_empty() && game_name.is_empty() {
             continue;
         }
-        let canonical = if game_name.is_empty() { code_name.clone() } else { game_name.clone() };
+        let canonical = if game_name.is_empty() {
+            code_name.clone()
+        } else {
+            game_name.clone()
+        };
         let now = crate::util::now()?;
         conn.execute(
             r#"
@@ -267,7 +273,9 @@ fn normalize_freeform_tabs(conn: &Connection) -> Result<Value> {
         let Some(payload) = parse_payload(&row.payload_json) else {
             continue;
         };
-        let tab_name = value_to_string(payload.get("sheet_name")).trim().to_string();
+        let tab_name = value_to_string(payload.get("sheet_name"))
+            .trim()
+            .to_string();
         if tab_name.is_empty() {
             continue;
         }
@@ -396,7 +404,13 @@ fn normalize_boons_ap(conn: &Connection) -> Result<Value> {
 fn normalize_raw_heroes(conn: &Connection, hero_index: &BTreeMapLike) -> Result<Value> {
     let rows = load_sheet_rows(conn, Some("raw_hero_data"), false)?;
     let mut inserted = 0_i64;
-    let mut columns = vec!["snapshot_id", "entity_id", "hero_name", "hero_id", "disabled"];
+    let mut columns = vec![
+        "snapshot_id",
+        "entity_id",
+        "hero_name",
+        "hero_id",
+        "disabled",
+    ];
     columns.extend(RAW_HERO_COLUMN_MAP.iter().map(|(_, column)| *column));
     columns.extend(["payload_hash", "created_at", "updated_at"]);
     let update_columns = columns
@@ -423,10 +437,16 @@ fn normalize_raw_heroes(conn: &Connection, hero_index: &BTreeMapLike) -> Result<
             opt_i64(hero_index.get(&normalize_alias(&hero_name)).copied()),
             SqlValue::Text(hero_name.clone()),
             opt_i64(parse_int(&value_to_string(values.get("id")))),
-            SqlValue::Integer(if parse_bool(&first_nonempty([
-                value_to_string(values.get("disabled")),
-                "FALSE".to_string(),
-            ])) { 1 } else { 0 }),
+            SqlValue::Integer(
+                if parse_bool(&first_nonempty([
+                    value_to_string(values.get("disabled")),
+                    "FALSE".to_string(),
+                ])) {
+                    1
+                } else {
+                    0
+                },
+            ),
         ];
         for (label, _) in RAW_HERO_COLUMN_MAP {
             sql_values.push(opt_f64(parse_float(&value_to_string(values.get(*label)))));
@@ -442,7 +462,11 @@ fn normalize_raw_heroes(conn: &Connection, hero_index: &BTreeMapLike) -> Result<
 
 type BTreeMapLike = std::collections::HashMap<String, i64>;
 
-fn load_sheet_rows(conn: &Connection, sheet: Option<&str>, freeform: bool) -> Result<Vec<SheetRow>> {
+fn load_sheet_rows(
+    conn: &Connection,
+    sheet: Option<&str>,
+    freeform: bool,
+) -> Result<Vec<SheetRow>> {
     let mut stmt = conn.prepare(
         r#"
         SELECT id, canonical_name, payload_hash, payload_json
@@ -465,7 +489,9 @@ fn load_sheet_rows(conn: &Connection, sheet: Option<&str>, freeform: bool) -> Re
         let Some(payload) = parse_payload(&row.payload_json) else {
             continue;
         };
-        let name = value_to_string(payload.get("sheet_name")).trim().to_string();
+        let name = value_to_string(payload.get("sheet_name"))
+            .trim()
+            .to_string();
         let include = if freeform {
             !name.is_empty() && !DEDICATED_TABS.contains(&name.as_str())
         } else {
@@ -479,7 +505,9 @@ fn load_sheet_rows(conn: &Connection, sheet: Option<&str>, freeform: bool) -> Re
 }
 
 fn parse_payload(payload_json: &str) -> Option<Value> {
-    serde_json::from_str::<Value>(payload_json).ok().filter(Value::is_object)
+    serde_json::from_str::<Value>(payload_json)
+        .ok()
+        .filter(Value::is_object)
 }
 
 fn upsert_sql(table: &str, columns: &[&str], update_columns: &[&str]) -> String {
