@@ -21,7 +21,8 @@ pub use build_optimizer::{build_hero_build_context, build_suggest, BuildSuggestO
 pub use error::{LearnError, Result};
 pub use match_coaching::build_match_coaching_context;
 pub use match_demo_learning::{
-    demo_analyze_match, render_demo_report, validate_demo_report, DemoAnalyzeMatchOptions,
+    demo_analyze_match, demo_calibration_status, render_demo_report, save_demo_report_review,
+    validate_demo_report, validate_demo_report_review, DemoAnalyzeMatchOptions,
     DEMO_REPORT_PROMPT_VERSION,
 };
 pub use player_decision_learning::{

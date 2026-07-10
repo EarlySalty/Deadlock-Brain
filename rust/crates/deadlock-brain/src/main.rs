@@ -376,6 +376,16 @@ enum PlayerCommands {
     )]
     AnalyzeDemoMatch(PlayerAnalyzeDemoMatchArgs),
     #[command(
+        name = "review-demo-report",
+        about = "Speichert ein menschliches Review fuer einen Demo-Vollreport."
+    )]
+    ReviewDemoReport(PlayerReviewDemoReportArgs),
+    #[command(
+        name = "demo-calibration-status",
+        about = "Zeigt den Review- und Kalibrierungsstand eines Spielers."
+    )]
+    DemoCalibrationStatus(PlayerDemoCalibrationStatusArgs),
+    #[command(
         name = "analyze-next",
         about = "Analysiert automatisch die naechsten offenen Player-Matches."
     )]
@@ -442,6 +452,22 @@ struct PlayerAnalyzeDemoMatchArgs {
     top_p: Option<f64>,
     #[arg(long = "dry-run")]
     dry_run: bool,
+    #[arg(long)]
+    pretty: bool,
+}
+
+#[derive(Debug, Args)]
+struct PlayerReviewDemoReportArgs {
+    note_id: i64,
+    #[arg(long)]
+    file: PathBuf,
+    #[arg(long)]
+    pretty: bool,
+}
+
+#[derive(Debug, Args)]
+struct PlayerDemoCalibrationStatusArgs {
+    account_id: String,
     #[arg(long)]
     pretty: bool,
 }
@@ -1471,6 +1497,50 @@ async fn run_player(settings: &Settings, target: PlayerCommands) -> Result<()> {
                         display_or(get(&result, "evidence_count"), "0")
                     );
                 }
+                Ok(())
+            } else {
+                print_json(&result)
+            }
+        }
+        PlayerCommands::ReviewDemoReport(args) => {
+            let review_text = fs::read_to_string(&args.file).map_err(|error| {
+                anyhow!(
+                    "Review-Datei {} konnte nicht gelesen werden: {error}",
+                    args.file.display()
+                )
+            })?;
+            let review: Value = serde_json::from_str(&review_text).map_err(|error| {
+                anyhow!(
+                    "Review-Datei {} enthaelt kein gueltiges JSON: {error}",
+                    args.file.display()
+                )
+            })?;
+            let result =
+                dbrain_learn::save_demo_report_review(&pool, args.note_id, &review).await?;
+            if args.pretty {
+                println!(
+                    "Demo-Review gespeichert: Snapshot {}, {} Korrekturen bei {} geprueften Entscheidungen, kritisch: {}.",
+                    display_value(get(&result, "snapshot_id")),
+                    display_or(get(&result["payload"], "correction_count"), "0"),
+                    display_or(get(&result["payload"], "reviewed_decision_count"), "0"),
+                    display_or(get(&result["payload"], "critical_error"), "false")
+                );
+                Ok(())
+            } else {
+                print_json(&result)
+            }
+        }
+        PlayerCommands::DemoCalibrationStatus(args) => {
+            let result = dbrain_learn::demo_calibration_status(&pool, &args.account_id).await?;
+            if args.pretty {
+                println!(
+                    "Demo-Kalibrierung: bestanden: {}, Reports: {}/{}, saubere letzte Reports: {}/{}.",
+                    display_or(get(&result, "passed"), "false"),
+                    display_or(get(&result, "reviewed_report_count"), "0"),
+                    display_or(get(&result, "minimum_reviewed_reports"), "5"),
+                    display_or(get(&result, "qualifying_recent_reports"), "0"),
+                    display_or(get(&result, "required_clean_recent_reports"), "3")
+                );
                 Ok(())
             } else {
                 print_json(&result)
@@ -3120,6 +3190,51 @@ mod tests {
         assert_eq!(args.account_id, "281768392");
         assert_eq!(args.match_id, "92685682");
         assert!(args.dry_run);
+        assert!(args.pretty);
+    }
+
+    #[test]
+    fn parses_player_review_demo_report_file() {
+        let cli = Cli::try_parse_from([
+            "deadlock-brain",
+            "player",
+            "review-demo-report",
+            "5",
+            "--file",
+            "/tmp/mo-review.json",
+            "--pretty",
+        ])
+        .expect("parse cli");
+
+        let Commands::Player {
+            target: PlayerCommands::ReviewDemoReport(args),
+        } = cli.command
+        else {
+            panic!("expected player review-demo-report");
+        };
+        assert_eq!(args.note_id, 5);
+        assert_eq!(args.file, PathBuf::from("/tmp/mo-review.json"));
+        assert!(args.pretty);
+    }
+
+    #[test]
+    fn parses_player_demo_calibration_status() {
+        let cli = Cli::try_parse_from([
+            "deadlock-brain",
+            "player",
+            "demo-calibration-status",
+            "281768392",
+            "--pretty",
+        ])
+        .expect("parse cli");
+
+        let Commands::Player {
+            target: PlayerCommands::DemoCalibrationStatus(args),
+        } = cli.command
+        else {
+            panic!("expected player demo-calibration-status");
+        };
+        assert_eq!(args.account_id, "281768392");
         assert!(args.pretty);
     }
 

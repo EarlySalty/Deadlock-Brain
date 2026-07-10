@@ -22,6 +22,7 @@ pub const BASE_URL: &str = "https://api.deadlock-api.com";
 pub const DEMO_QUERY_VERSION: &str = "mo_full_report_v1";
 const STEAM_ID64_ACCOUNT_BASE: u64 = 76_561_197_960_265_728;
 const DEMO_QUERY_COUNT: usize = 3;
+const DEMO_RESULT_ORIGIN: &str = "https://demo-extracts.deadlock-api.com";
 
 #[derive(Debug, Clone)]
 pub struct PullMatchMetadataOptions {
@@ -460,9 +461,65 @@ async fn poll_demo_query_url(
     poll_interval_seconds: u64,
     timeout_seconds: u64,
 ) -> Result<DemoJobStatus> {
+    poll_demo_query_url_with_durations(
+        http,
+        job_id,
+        url,
+        Duration::from_secs(poll_interval_seconds),
+        Duration::from_secs(timeout_seconds),
+    )
+    .await
+}
+
+async fn poll_demo_query_url_with_durations(
+    http: &HttpClient,
+    job_id: &str,
+    url: &str,
+    poll_interval: Duration,
+    timeout: Duration,
+) -> Result<DemoJobStatus> {
     let started = Instant::now();
     loop {
-        let raw = demo_get_text(http, url, Duration::from_secs(60), "application/json")?;
+        let Some(remaining) = timeout.checked_sub(started.elapsed()) else {
+            return Err(demo_poll_timeout_error(job_id, timeout));
+        };
+        if remaining.is_zero() {
+            return Err(demo_poll_timeout_error(job_id, timeout));
+        }
+        let request_timeout = remaining.min(Duration::from_secs(60));
+        let raw = match http.get(
+            url,
+            HttpGetOptions {
+                timeout: request_timeout,
+                headers: demo_headers("application/json"),
+                retry: RetryPolicy {
+                    attempts: 1,
+                    backoff: Duration::ZERO,
+                },
+                ..HttpGetOptions::default()
+            },
+        ) {
+            Ok(result) => result.text(),
+            Err(CoreError::HttpStatus { status, .. }) if status.as_u16() == 404 => {
+                return Err(SourcesError::invalid_input(
+                    "Deadlock API Demo ist nicht verfuegbar.",
+                ));
+            }
+            Err(error) if retryable_demo_poll_error(&error) => {
+                let Some(remaining) = timeout.checked_sub(started.elapsed()) else {
+                    return Err(demo_poll_timeout_error(job_id, timeout));
+                };
+                if remaining.is_zero() {
+                    return Err(demo_poll_timeout_error(job_id, timeout));
+                }
+                wait_for_demo_poll(Duration::from_millis(600).min(remaining)).await;
+                continue;
+            }
+            Err(_) if started.elapsed() >= timeout => {
+                return Err(demo_poll_timeout_error(job_id, timeout));
+            }
+            Err(error) => return Err(error.into()),
+        };
         let status = parse_demo_job_status(&raw)?;
         match status.state {
             DemoJobState::Done => return Ok(status),
@@ -475,15 +532,29 @@ async fn poll_demo_query_url(
                 )));
             }
             DemoJobState::Queued | DemoJobState::Running => {
-                if started.elapsed() >= Duration::from_secs(timeout_seconds) {
-                    return Err(SourcesError::invalid_input(format!(
-                        "Deadlock API Demo-Job {job_id} Timeout nach {timeout_seconds}s."
-                    )));
+                let Some(remaining) = timeout.checked_sub(started.elapsed()) else {
+                    return Err(demo_poll_timeout_error(job_id, timeout));
+                };
+                if remaining.is_zero() {
+                    return Err(demo_poll_timeout_error(job_id, timeout));
                 }
-                wait_for_demo_poll(Duration::from_secs(poll_interval_seconds)).await;
+                wait_for_demo_poll(poll_interval.max(Duration::from_millis(1)).min(remaining))
+                    .await;
             }
         }
     }
+}
+
+fn demo_poll_timeout_error(job_id: &str, timeout: Duration) -> SourcesError {
+    SourcesError::invalid_input(format!(
+        "Deadlock API Demo-Job {job_id} Timeout nach {:.3}s.",
+        timeout.as_secs_f64()
+    ))
+}
+
+fn retryable_demo_poll_error(error: &CoreError) -> bool {
+    matches!(error, CoreError::Reqwest(_))
+        || matches!(error, CoreError::HttpStatus { status, .. } if status.is_server_error() || status.as_u16() == 429)
 }
 
 async fn wait_for_demo_poll(duration: Duration) {
@@ -491,12 +562,33 @@ async fn wait_for_demo_poll(duration: Duration) {
 }
 
 fn download_demo_result(http: &HttpClient, result_url: &str) -> Result<String> {
-    demo_get_text(
-        http,
+    validate_demo_result_url(result_url)?;
+    match http.get_no_redirect(
         result_url,
-        Duration::from_secs(180),
-        "application/x-ndjson",
-    )
+        HttpGetOptions {
+            timeout: Duration::from_secs(180),
+            headers: demo_headers("application/x-ndjson"),
+            ..HttpGetOptions::default()
+        },
+    ) {
+        Ok(result) => Ok(result.text()),
+        Err(CoreError::HttpStatus { status, .. }) if status.as_u16() == 404 => Err(
+            SourcesError::invalid_input("Deadlock API Demo ist nicht verfuegbar."),
+        ),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn validate_demo_result_url(result_url: &str) -> Result<()> {
+    let path = result_url.strip_prefix(DEMO_RESULT_ORIGIN).ok_or_else(|| {
+        SourcesError::invalid_input("Deadlock API Demo lieferte eine nicht erlaubte result_url.")
+    })?;
+    if !path.starts_with('/') {
+        return Err(SourcesError::invalid_input(
+            "Deadlock API Demo lieferte eine nicht erlaubte result_url.",
+        ));
+    }
+    Ok(())
 }
 
 fn parse_demo_job_status(raw: &str) -> Result<DemoJobStatus> {
@@ -1008,28 +1100,6 @@ fn demo_post_json(http: &HttpClient, url: &str, body: &Value) -> Result<String> 
     }
 }
 
-fn demo_get_text(
-    http: &HttpClient,
-    url: &str,
-    timeout: Duration,
-    accept: &'static str,
-) -> Result<String> {
-    match http.get(
-        url,
-        HttpGetOptions {
-            timeout,
-            headers: demo_headers(accept),
-            ..HttpGetOptions::default()
-        },
-    ) {
-        Ok(result) => Ok(result.text()),
-        Err(CoreError::HttpStatus { status, .. }) if status.as_u16() == 404 => Err(
-            SourcesError::invalid_input("Deadlock API Demo ist nicht verfuegbar."),
-        ),
-        Err(error) => Err(error.into()),
-    }
-}
-
 fn demo_headers(accept: &'static str) -> Vec<(String, String)> {
     vec![
         ("Accept".to_string(), accept.to_string()),
@@ -1354,6 +1424,22 @@ mod tests {
     }
 
     #[test]
+    fn demo_result_url_allows_only_the_extract_origin() {
+        assert!(validate_demo_result_url(
+            "https://demo-extracts.deadlock-api.com/jobs/123/result.ndjson"
+        )
+        .is_ok());
+        for untrusted in [
+            "http://demo-extracts.deadlock-api.com/jobs/123",
+            "https://demo-extracts.deadlock-api.com.evil.test/jobs/123",
+            "https://demo-extracts.deadlock-api.com@127.0.0.1/private",
+            "http://127.0.0.1:8080/private",
+        ] {
+            assert!(validate_demo_result_url(untrusted).is_err(), "{untrusted}");
+        }
+    }
+
+    #[test]
     fn demo_normalize_rows_adds_versioned_evidence_id() {
         let rows = normalize_demo_rows("combat", "{\"tick\":10}\n", "92242282").unwrap();
 
@@ -1524,7 +1610,18 @@ mod tests {
         let cache = tempfile::tempdir().unwrap();
         let http = HttpClient::new("demo-test", cache.path()).unwrap();
 
-        let error = demo_get_text(&http, &url, Duration::from_secs(1), "application/json")
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let error = runtime
+            .block_on(poll_demo_query_url_with_durations(
+                &http,
+                "missing-job",
+                &url,
+                Duration::from_secs(1),
+                Duration::from_secs(1),
+            ))
             .unwrap_err()
             .to_string();
         server.join().unwrap();
@@ -1570,13 +1667,84 @@ mod tests {
             .to_string();
         failed_server.join().unwrap();
         assert!(failed.contains("demo gone"));
+    }
 
-        let (running_url, running_server) = status_server(r#"{"status":"running"}"#);
+    #[test]
+    fn demo_poll_total_timeout_caps_the_next_sleep() {
+        use std::{io::Write, net::TcpListener, thread};
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/status", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 1024];
+            let bytes_read = std::io::Read::read(&mut stream, &mut request).unwrap();
+            assert!(bytes_read > 0);
+            let body = r#"{"status":"running"}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        });
+        let cache = tempfile::tempdir().unwrap();
+        let http = HttpClient::new("demo-test", cache.path()).unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let started = Instant::now();
+
         let timeout = runtime
-            .block_on(poll_demo_query_url(&http, "slow-job", &running_url, 1, 0))
+            .block_on(poll_demo_query_url_with_durations(
+                &http,
+                "slow-job",
+                &url,
+                Duration::from_secs(5),
+                Duration::from_millis(30),
+            ))
             .unwrap_err()
             .to_string();
-        running_server.join().unwrap();
+
+        server.join().unwrap();
         assert!(timeout.contains("Timeout"));
+        assert!(started.elapsed() < Duration::from_millis(500));
+    }
+
+    #[test]
+    fn demo_poll_total_timeout_caps_the_status_request() {
+        use std::{net::TcpListener, thread};
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/status", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            let (_stream, _) = listener.accept().unwrap();
+            thread::sleep(Duration::from_millis(250));
+        });
+        let cache = tempfile::tempdir().unwrap();
+        let http = HttpClient::new("demo-test", cache.path()).unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let started = Instant::now();
+
+        let timeout = runtime
+            .block_on(poll_demo_query_url_with_durations(
+                &http,
+                "slow-request",
+                &url,
+                Duration::from_secs(5),
+                Duration::from_millis(30),
+            ))
+            .unwrap_err()
+            .to_string();
+        let elapsed = started.elapsed();
+
+        server.join().unwrap();
+        assert!(timeout.contains("Timeout"));
+        assert!(elapsed < Duration::from_millis(150));
     }
 }

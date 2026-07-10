@@ -1,5 +1,13 @@
 # Changelog
 
+## #34 — Demo-Reports werden vor dem Lernen kalibriert
+
+Problem: Frühere Matchanalysen konnten dünne oder unbelegte Aussagen liefern und trotzdem wie fertiges Lernmaterial wirken.
+
+Änderung: Vollreports nutzen echte Demo-Evidenz, aufgelöste Itemdaten und prüfbare Entscheidungs-IDs. Menschliche Korrekturen werden versioniert gespeichert; ein festes Gate bewertet kritische Fehler und Korrekturquote.
+
+Aktuelles Verhalten: Der erste Mo-&-Krill-Report ist sichtbar prüfbar, bleibt aber `calibration_pending`. Erst nach mindestens fünf Reviews und drei aufeinanderfolgenden sauberen Reports kann die Kalibrierung bestehen; aktives Wissen wird weiterhin nicht erzeugt.
+
 ## #33 — Echte Match-Demos als Lernquelle
 
 Problem: Statische Matchdaten reichen nicht aus, um Entscheidungen, Kampfverlaeufe und unterschiedliche Spielstile verlaesslich zu lernen.

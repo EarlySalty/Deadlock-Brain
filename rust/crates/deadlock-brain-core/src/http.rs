@@ -70,6 +70,7 @@ impl HttpResult {
 #[derive(Debug, Clone)]
 pub struct HttpClient {
     client: Client,
+    no_redirect_client: Client,
     user_agent: String,
     cache_dir: PathBuf,
 }
@@ -83,8 +84,14 @@ impl HttpClient {
             .user_agent(user_agent.clone())
             .timeout(Duration::from_secs(30))
             .build()?;
+        let no_redirect_client = Client::builder()
+            .user_agent(user_agent.clone())
+            .timeout(Duration::from_secs(30))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()?;
         Ok(Self {
             client,
+            no_redirect_client,
             user_agent,
             cache_dir,
         })
@@ -113,6 +120,12 @@ impl HttpClient {
 
     pub fn get_json<T: DeserializeOwned>(&self, url: &str, options: HttpGetOptions) -> Result<T> {
         self.get(url, options)?.json()
+    }
+
+    pub fn get_no_redirect(&self, url: &str, options: HttpGetOptions) -> Result<HttpResult> {
+        run_on_http_thread(|| {
+            self.fetch_with_retry(url, &options, || self.no_redirect_client.get(url))
+        })
     }
 
     pub fn post_json<T: Serialize>(
@@ -276,7 +289,7 @@ fn metadata_path(cache_path: &Path) -> PathBuf {
 }
 
 fn should_retry_status(status: StatusCode) -> bool {
-    status.is_server_error()
+    status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS
 }
 
 fn truncate_for_error(value: &str) -> String {
@@ -332,6 +345,39 @@ mod tests {
             "queued"
         );
         server.join().unwrap();
+    }
+
+    #[test]
+    fn rate_limits_are_retryable_server_responses() {
+        assert!(should_retry_status(StatusCode::TOO_MANY_REQUESTS));
+    }
+
+    #[test]
+    fn no_redirect_get_returns_the_redirect_response() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/result", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 1024];
+            assert!(stream.read(&mut request).unwrap() > 0);
+            write!(
+                stream,
+                "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:9/private\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            )
+            .unwrap();
+        });
+        let cache_dir = tempfile::tempdir().unwrap();
+        let client = HttpClient::new("deadlock-brain-core-test", cache_dir.path()).unwrap();
+
+        let error = client
+            .get_no_redirect(&url, HttpGetOptions::default())
+            .unwrap_err();
+
+        server.join().unwrap();
+        assert!(matches!(
+            error,
+            CoreError::HttpStatus { status, .. } if status == StatusCode::FOUND
+        ));
     }
 
     #[derive(serde::Serialize)]
