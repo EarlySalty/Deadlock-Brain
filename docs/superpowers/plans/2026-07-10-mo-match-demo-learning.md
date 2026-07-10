@@ -296,6 +296,8 @@ Expected: compile failure because the module does not exist.
 
 Load the latest snapshots by exact external ID. Resolve the active patch as the newest distinct `patch_events.posted_at` not later than the match start; mark it `derived_from_patch_timeline`, and use explicit `unknown` when no patch exists. Include compact match metadata, all normalized evidence rows, static Mo mechanics, and prior human correction rules. Never label aggregate build data as exact match evidence.
 
+Do not send thousands of raw damage rows directly to the model. Sort `target_combat` rows and cluster consecutive rows into fight windows when the gap is at most `900` ticks (15 seconds at the demo's 60-tick rate). For each window include start/end tick, damage dealt/taken, kills/deaths, interrupted/important abilities, stamina events, involved entity IDs, ability IDs, and every underlying evidence ID. Keep all purchases, upgrades, objectives, and the 30-second state timeline uncollapsed. Raw rows remain stored in the evidence snapshot.
+
 - [ ] **Step 4: Build a JSON-only Fireworks request**
 
 The system message requires German prose while preserving English game names. The user prompt includes the exact report shape and says every factual, interpretive, or evaluative decision field must cite existing evidence IDs; unsupported claims belong in `data_gaps`, not the report body.
