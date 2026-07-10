@@ -739,24 +739,43 @@ fn push_inferred_entities(
     }
 }
 
-fn classify_change_type(text: &str) -> String {
+pub fn classify_change_type(text: &str) -> String {
     let lower = text.to_lowercase();
-    if lower.contains("fixed") || lower.contains("bug") || lower.contains("crash") {
+    if lower.contains("renamed") || lower.contains("retitled") {
+        "rename"
+    } else if lower.contains("fixed")
+        || lower.contains("fix ")
+        || lower.starts_with("fix")
+        || lower.contains("bug")
+        || lower.contains("crash")
+    {
         "bugfix"
-    } else if lower.contains("added") || lower.contains("new item") || lower.contains("new hero") {
+    } else if lower.contains("added") || lower.contains("new ") || lower.starts_with("new") {
         "added"
     } else if lower.contains("removed") || lower.contains("no longer") {
         "removed"
     } else if lower.contains("reworked")
+        || lower.contains("rework")
         || lower.contains("rescaled")
+        || lower.contains("redesigned")
         || lower.contains("moved from")
     {
         "rework"
     } else if let Some(change_type) = numeric_change_type(text) {
         change_type
-    } else if lower.contains("reduced") || lower.contains("decreased") || lower.contains("slower") {
+    } else if lower.contains("reduced")
+        || lower.contains("decreased")
+        || lower.contains("lower")
+        || lower.contains("less ")
+        || lower.contains("slower")
+    {
         if mentions_positive_stat(&lower) { "nerf" } else { "buff" }
-    } else if lower.contains("increased") || lower.contains("faster") || lower.contains("improved") {
+    } else if lower.contains("increased")
+        || lower.contains("faster")
+        || lower.contains("improved")
+        || lower.contains("higher")
+        || lower.contains("more ")
+    {
         if mentions_positive_stat(&lower) || !mentions_negative_stat(&lower) {
             "buff"
         } else {
@@ -838,7 +857,7 @@ fn extract_old_new(text: &str) -> Result<(Option<String>, Option<String>)> {
             captures.get(2).map(|value| value.as_str().trim().to_string()),
         ));
     }
-    let from_to = Regex::new(r"(?i)\bfrom\s+(.+?)\s+to\s+(.+?)(?:[.;,)]|$)")?;
+    let from_to = Regex::new(r"(?i)\bfrom\s+(.+?)\s+to\s+(.+?)(?:[;,)]|\.?$)")?;
     if let Some(captures) = from_to.captures(text) {
         let old_value = captures.get(1).map(|value| truncate(value.as_str().trim(), 160));
         let new_value = captures.get(2).map(|value| truncate(value.as_str().trim(), 160));
@@ -971,10 +990,27 @@ mod tests {
         let cases = [
             ("cooldown reduced from 10s to 8s", "buff"),
             ("cost increased from 3 to 4", "nerf"),
+            ("reduced from 1.05 to 1.2", "buff"),
             ("damage reduced from 90 to 80", "nerf"),
             ("spirit scaling reduced from 1.2 to 1.05", "nerf"),
             ("spirits caling reduced from 1.2 to 1.05", "nerf"),
             ("delay increased 7 to 7.5", "nerf"),
+        ];
+
+        for (line, expected) in cases {
+            assert_eq!(classify_change_type(line), expected, "{line}");
+        }
+    }
+
+    #[test]
+    fn keeps_importer_text_heuristics() {
+        let cases = [
+            ("King of the Hill renamed to Unstable Rift", "rename"),
+            ("Ability redesigned around burst damage", "rework"),
+            ("Fix tooltip crash", "bugfix"),
+            ("New teleporters added to outer lanes", "added"),
+            ("higher damage falloff", "buff"),
+            ("lower cooldown on Shield", "buff"),
         ];
 
         for (line, expected) in cases {

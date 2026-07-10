@@ -1032,7 +1032,7 @@ fn parse_bullet_event(context: &EventParseContext<'_>) -> Option<PreparedEvent> 
         ("general".to_string(), None, 0.52)
     };
     let (old_value, new_value) = extract_old_new(&normalized_line);
-    let change_type = classify_change_type(&normalized_line);
+    let change_type = dbrain_normalize::classify_change_type(&normalized_line);
     let metadata = json!({
         "importer": IMPORTER,
         "patch_id": context.row.id,
@@ -1959,90 +1959,6 @@ fn legacy_compatible_patch_external_ids(patch_external_id: &str) -> Vec<String> 
     ids
 }
 
-fn classify_change_type(text: &str) -> String {
-    let lower = text.to_ascii_lowercase();
-    if lower.contains("renamed") || lower.contains("retitled") {
-        "rename"
-    } else if lower.contains("reworked") || lower.contains("rework") || lower.contains("redesigned")
-    {
-        "rework"
-    } else if lower.contains("removed") || lower.contains("no longer") {
-        "removed"
-    } else if lower.contains("fixed") || lower.contains("fix ") || lower.starts_with("fix") {
-        "fix"
-    } else if lower.contains("added") || lower.contains("new ") || lower.starts_with("new") {
-        "added"
-    } else if let Some(change_type) = numeric_change_type(text) {
-        change_type
-    } else if lower.contains("increased")
-        || lower.contains("improved")
-        || lower.contains("higher")
-        || lower.contains("more ")
-    {
-        "buff"
-    } else if lower.contains("reduced")
-        || lower.contains("decreased")
-        || lower.contains("lower")
-        || lower.contains("less ")
-        || lower.contains("slower")
-    {
-        "nerf"
-    } else if lower.contains(" from ") && lower.contains(" to ") {
-        "balance_delta"
-    } else {
-        "mechanic_change"
-    }
-    .to_string()
-}
-
-fn numeric_change_type(text: &str) -> Option<&'static str> {
-    let (old_value, new_value) = extract_old_new(text);
-    numeric_change_type_from_values(old_value.as_deref()?, new_value.as_deref()?)
-}
-
-fn numeric_change_type_from_values(old_value: &str, new_value: &str) -> Option<&'static str> {
-    let old_number = parse_numeric_value(old_value)?;
-    let new_number = parse_numeric_value(new_value)?;
-    if new_number > old_number {
-        Some("buff")
-    } else if new_number < old_number {
-        Some("nerf")
-    } else {
-        None
-    }
-}
-
-fn parse_numeric_value(value: &str) -> Option<f64> {
-    let value = value.trim().trim_matches('"').trim();
-    let mut end = 0;
-    let mut seen_digit = false;
-    let mut seen_dot = false;
-    for (index, ch) in value.char_indices() {
-        if index == 0 && matches!(ch, '+' | '-') {
-            end = ch.len_utf8();
-        } else if ch.is_ascii_digit() {
-            seen_digit = true;
-            end = index + ch.len_utf8();
-        } else if ch == '.' && !seen_dot {
-            seen_dot = true;
-            end = index + ch.len_utf8();
-        } else {
-            break;
-        }
-    }
-    if !seen_digit {
-        return None;
-    }
-    let suffix = value[end..].trim();
-    if !suffix
-        .chars()
-        .all(|ch| ch.is_ascii_alphabetic() || matches!(ch, '%' | '/'))
-    {
-        return None;
-    }
-    value[..end].parse().ok()
-}
-
 fn extract_old_new(line: &str) -> (Option<String>, Option<String>) {
     let lower = line.to_ascii_lowercase();
     let Some(from_pos) = lower.find(" from ") else {
@@ -2495,7 +2411,58 @@ mod tests {
 
     #[test]
     fn classify_numeric_increase_as_buff_even_with_reduced_word() {
-        assert_eq!(classify_change_type("reduced from 1.05 to 1.2"), "buff");
+        assert_eq!(
+            dbrain_normalize::classify_change_type("reduced from 1.05 to 1.2"),
+            "buff"
+        );
+    }
+
+    #[test]
+    fn prepare_patch_classifies_numeric_stat_polarity() {
+        let row = PatchnoteRow {
+            id: 18,
+            title: Some("Patch 18".to_string()),
+            url: Some("https://steamcommunity.com/nachrichten/18".to_string()),
+            posted_at: Some(posted_at("2026-07-10")),
+            raw_content: Some(
+                [
+                    "- Abrams: cooldown increased from 7 to 7.5",
+                    "- Abrams: damage reduced from 90 to 80",
+                    "- Abrams: cooldown reduced from 10 to 8",
+                ]
+                .join("\n"),
+            ),
+            translated_content: None,
+        };
+        let mut index = EntityIndex::default();
+        index.insert("hero", "Abrams", "Abrams");
+        let index = index.finish();
+
+        let prepared =
+            prepare_patch(&row, &PatchSourceResolution::from_row(&row), &index).expect("prepare");
+        let change_types = prepared
+            .events
+            .iter()
+            .map(|event| event.change_type.as_str())
+            .collect::<Vec<_>>();
+        for event in &prepared.events {
+            println!("{} => {}", event.normalized_line, event.change_type);
+        }
+        let shared_change_types = [
+            "Abrams: cooldown increased from 7 to 7.5",
+            "Abrams: damage reduced from 90 to 80",
+            "Abrams: cooldown reduced from 10 to 8",
+        ]
+        .map(dbrain_normalize::classify_change_type);
+
+        assert_eq!(change_types, vec!["nerf", "nerf", "buff"]);
+        assert_eq!(
+            change_types,
+            shared_change_types
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
