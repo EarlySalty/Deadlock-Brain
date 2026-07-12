@@ -1034,7 +1034,40 @@ fn should_use_patch_overview_context(
     entity_match: &AskEntityClaimMatch,
     intent: &str,
 ) -> bool {
-    intent == "patch_changes" && !entity_match.matched && plan.entities.is_empty()
+    if entity_match.matched || !plan.entities.is_empty() {
+        return false;
+    }
+    if intent == "patch_changes" {
+        return true;
+    }
+    if intent != "meta_question" {
+        return false;
+    }
+
+    let terms = intent_query_terms(&plan.raw_query);
+    !query_patch_title_patterns(&plan.raw_query).is_empty()
+        || terms.iter().any(|term| {
+            matches!(
+                term.as_str(),
+                "aktuell"
+                    | "aktuelle"
+                    | "aktuellen"
+                    | "aktueller"
+                    | "aktuelles"
+                    | "neu"
+                    | "neue"
+                    | "neuen"
+                    | "neuer"
+                    | "neues"
+                    | "neueste"
+                    | "neuesten"
+                    | "letzte"
+                    | "letzten"
+                    | "letzter"
+                    | "letztes"
+                    | "zuletzt"
+            )
+        })
 }
 
 fn apply_current_patch_overrides(item: JsonValue, timeline_signals: &JsonValue) -> JsonValue {
@@ -7048,6 +7081,37 @@ mod tests {
         assert!(!prompt.contains("db_value"));
         assert!(!prompt.contains("status"));
         assert!(prompt.contains("Lash Counters"));
+    }
+
+    #[test]
+    fn patch_overview_routing_accepts_patch_related_meta_question_from_classifier() {
+        for (query, expected) in [
+            ("Was ist die neue Meta?", true),
+            ("Was war die Meta am 2026-07-10?", true),
+            ("Welche Helden sind in der Meta?", false),
+        ] {
+            let intent = classify_ask_intent(&query.to_lowercase(), false, "");
+            let plan = QueryPlan {
+                entities: Vec::new(),
+                threats: Vec::new(),
+                intent: intent.clone(),
+                fetch: Vec::new(),
+                filters: JsonValue::Null,
+                raw_query: query.to_string(),
+                language: "de".to_string(),
+            };
+
+            assert_eq!(intent, "meta_question");
+            assert_eq!(
+                should_use_patch_overview_context(
+                    &plan,
+                    &AskEntityClaimMatch::default(),
+                    &intent
+                ),
+                expected,
+                "{query}"
+            );
+        }
     }
 
     #[test]
