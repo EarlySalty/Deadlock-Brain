@@ -150,6 +150,7 @@ const DEADLOCK_QUERY_TERMS: &[&str] = &[
     "build",
     "hero",
     "patch",
+    "meta",
     "farm",
     "jungle",
     "breakable",
@@ -6517,7 +6518,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
-    async fn ask_context_patch_meta_question_includes_patch_overview_in_rendered_prompt() {
+    async fn ask_context_changelog_meta_question_includes_patch_overview_in_rendered_prompt() {
         let Some(pool) = test_pool().await else {
             return;
         };
@@ -6526,17 +6527,15 @@ mod tests {
             include_unverified: false,
             max_claims: 12,
         };
-        let bundle = ask_context(
-            &pool,
-            "Was hat der letzte Patch an der Meta veraendert?",
-            &opts,
-        )
-        .await
-        .expect("ask context");
+        let bundle = ask_context(&pool, "Was ist die neue Meta?", &opts)
+            .await
+            .expect("ask context");
 
         assert_eq!(
-            bundle.get("intent").and_then(JsonValue::as_str),
-            Some("patch_changes")
+            bundle
+                .pointer("/retrieval_meta/out_of_domain")
+                .and_then(JsonValue::as_bool),
+            Some(false)
         );
         assert!(
             bundle
@@ -6553,6 +6552,29 @@ mod tests {
             prompt.contains("\"patch_overview\"")
                 && prompt.contains("\"counts_by_entity_type_change\""),
             "rendered prompt omitted ground_truth.patch_overview"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+    async fn ask_context_keeps_unrelated_question_out_of_domain() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let opts = AskContextOptions {
+            limit_events: 40,
+            include_unverified: false,
+            max_claims: 12,
+        };
+        let bundle = ask_context(&pool, "Wie wird das Wetter morgen?", &opts)
+            .await
+            .expect("ask context");
+
+        assert_eq!(
+            bundle
+                .pointer("/retrieval_meta/out_of_domain")
+                .and_then(JsonValue::as_bool),
+            Some(true)
         );
     }
 
