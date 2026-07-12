@@ -50,13 +50,14 @@ Die Fakten unten sind nach Vertrauensgrad geordnet. Halte dich strikt an diese R
 
 Regeln:
 - Nenne konkrete Zahlenwerte nur, wenn sie in ground_truth oder verified belegt sind.
+- Wenn ground_truth.item.current_patch_overrides vorhanden ist, gelten diese neuesten Patchwerte vor aelteren Werten aus der Item-Karte.
 - Zitiere bei Creator-Wissen die Quelle (Video-Titel), sofern vorhanden.
 - Beziehe dich auf den aktuellen Patch-Stand und markiere erkennbar veraltete Aussagen als solche.
 - Antworte auf Deutsch, präzise und ohne Floskeln.
 
 FAKTEN (JSON, vertrauenssortiert):
 {{ordered_context_json}}"#;
-const ASK_TRUST_LEGEND: &str = "Vertrauensstufen: 'ground_truth' = gesicherte Spieldaten (höchste Priorität). 'creator_knowledge.verified' = gegen die Spieldaten geprüfte Creator-Aussagen. 'creator_knowledge.flagged' = nur teilweise oder unbestätigt, nur mit Vorbehalt nutzen. 'creator_knowledge.unverified' = ungeprüft (nicht gegen Spieldaten abgeglichen), nur als möglicher Hinweis, keine Zahlen darauf stützen. 'creator_knowledge.refuted' = nachweislich falsch, nicht verwenden. Bei Widerspruch gilt immer ground_truth.";
+const ASK_TRUST_LEGEND: &str = "Vertrauensstufen: 'ground_truth' = gesicherte Spieldaten (höchste Priorität). Neueste patch_overview- und item.current_patch_overrides-Werte haben Vorrang vor älteren Item-Kartenwerten. 'creator_knowledge.verified' = gegen die Spieldaten geprüfte Creator-Aussagen. 'creator_knowledge.flagged' = nur teilweise oder unbestätigt, nur mit Vorbehalt nutzen. 'creator_knowledge.unverified' = ungeprüft (nicht gegen Spieldaten abgeglichen), nur als möglicher Hinweis, keine Zahlen darauf stützen. 'creator_knowledge.refuted' = nachweislich falsch, nicht verwenden. Bei Widerspruch gilt immer ground_truth.";
 const ASK_OOD_NOTICE: &str = "HINWEIS: Diese Frage scheint sich nicht auf Deadlock zu beziehen — es wurden keine gesicherten Spieldaten und keine geprüften Creator-Aussagen dazu gefunden. Wenn die Frage tatsächlich nichts mit Deadlock zu tun hat, weise freundlich darauf hin, dass du auf Deadlock-Wissen spezialisiert bist und dazu keine belegten Fakten vorliegen. Falls sie doch Deadlock betrifft, bitte um eine konkretere Formulierung (Held, Item, Fähigkeit oder Mechanik). Erfinde nichts.";
 const ASK_BUILD_INTENT_TERMS: &[&str] = &[
     "build",
@@ -644,6 +645,293 @@ pub async fn build_review_context(pool: &PgPool, query: &str, limit_events: i64)
     }))
 }
 
+async fn build_patch_review_context(
+    pool: &PgPool,
+    query: &str,
+    limit_events: i64,
+) -> Result<JsonValue> {
+    let events = load_patch_overview_events(
+        pool,
+        query,
+        clamp_i64(limit_events, 1, MAX_TIMELINE_EVENTS),
+    )
+    .await?;
+    let event_ids = events
+        .iter()
+        .filter_map(|event| event.get("id").and_then(JsonValue::as_i64))
+        .collect::<Vec<_>>();
+    let enrichments = load_enrichments_by_event_id(pool, &event_ids).await?;
+    let enrichment_rows = enrichments.values().cloned().collect::<Vec<_>>();
+    let timeline_signals = build_timeline_signals(&events, &enrichment_rows);
+
+    Ok(json!({
+        "query": query,
+        "context_kind": "patch_overview",
+        "entity_summary": JsonValue::Null,
+        "lineage": JsonValue::Null,
+        "current_stat_hints": JsonValue::Null,
+        "timeline_signals": timeline_signals,
+        "patch_overview": build_patch_overview_signals(&events, &enrichments),
+        "open_questions": [],
+        "source_references": patch_source_references(&events),
+        "prompt_de": "Du bist ein Deadlock-Analyseassistent. Nutze ausschliesslich den bereitgestellten Patch-Kontext und kennzeichne Meta-Folgen als Einschaetzung, wenn sie aus Balance-Aenderungen abgeleitet sind.",
+        "retrieval_meta": {
+            "route": "patch_overview",
+            "limit_events_requested": limit_events,
+            "events_loaded": events.len(),
+            "enrichments_loaded": enrichment_rows.len(),
+        },
+    }))
+}
+
+async fn load_patch_overview_events(
+    pool: &PgPool,
+    query: &str,
+    limit: i64,
+) -> Result<Vec<JsonMap<String, JsonValue>>> {
+    if !table_exists(pool, "patch_events").await? {
+        return Ok(Vec::new());
+    }
+    let patterns = query_patch_title_patterns(query);
+    let rows = query_patch_overview_events(pool, &patterns, limit).await?;
+    if rows.is_empty() && !patterns.is_empty() {
+        return query_patch_overview_events(pool, &[], limit).await;
+    }
+    Ok(rows)
+}
+
+async fn query_patch_overview_events(
+    pool: &PgPool,
+    patterns: &[String],
+    limit: i64,
+) -> Result<Vec<JsonMap<String, JsonValue>>> {
+    let mut params = patterns
+        .iter()
+        .cloned()
+        .map(SqlValue::Text)
+        .collect::<Vec<_>>();
+    let title_filter = if patterns.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "WHERE {}",
+            patterns
+                .iter()
+                .map(|_| "patch_title ILIKE ?")
+                .collect::<Vec<_>>()
+                .join(" OR ")
+        )
+    };
+    params.push(SqlValue::Integer(limit));
+    let sql = format!(
+        r#"
+        SELECT
+          id, patch_snapshot_id, patch_external_id, patch_title, patch_url,
+          source_kind, posted_at, line_index, section, entity_type, entity_name,
+          subject, change_type, raw_line, normalized_line, old_value, new_value,
+          confidence, metadata::text AS metadata_json, event_hash, created_at
+        FROM brain.patch_events
+        WHERE patch_snapshot_id = (
+          SELECT patch_snapshot_id
+          FROM brain.patch_events
+          {title_filter}
+          GROUP BY patch_snapshot_id
+          ORDER BY MAX(COALESCE(posted_at::text, '')) DESC, patch_snapshot_id DESC
+          LIMIT 1
+        )
+        ORDER BY line_index ASC
+        LIMIT ?
+        "#
+    );
+    let mut rows = fetch_all(pool, &sql, params).await?;
+    for row in &mut rows {
+        let metadata = loads_json_object(row.remove("metadata_json").as_ref());
+        row.insert("metadata".to_string(), JsonValue::Object(metadata));
+    }
+    Ok(rows)
+}
+
+fn query_patch_title_patterns(query: &str) -> Vec<String> {
+    let mut patterns = BTreeSet::new();
+    if let Ok(ymd) = Regex::new(r"\b(20\d{2})[-./](\d{1,2})[-./](\d{1,2})\b") {
+        for capture in ymd.captures_iter(query) {
+            let year = capture.get(1).map(|value| value.as_str()).unwrap_or_default();
+            let month = capture.get(2).and_then(|value| value.as_str().parse::<u32>().ok());
+            let day = capture.get(3).and_then(|value| value.as_str().parse::<u32>().ok());
+            if let (Some(month), Some(day)) = (month, day) {
+                patterns.insert(format!("%{year}-{month:02}-{day:02}%"));
+                patterns.insert(format!("%{month:02}-{day:02}-{year}%"));
+            }
+        }
+    }
+    if let Ok(mdy) = Regex::new(r"\b(\d{1,2})[-./](\d{1,2})[-./](20\d{2})\b") {
+        for capture in mdy.captures_iter(query) {
+            let first = capture.get(1).and_then(|value| value.as_str().parse::<u32>().ok());
+            let second = capture.get(2).and_then(|value| value.as_str().parse::<u32>().ok());
+            let year = capture.get(3).map(|value| value.as_str()).unwrap_or_default();
+            if let (Some(first), Some(second)) = (first, second) {
+                patterns.insert(format!("%{first:02}-{second:02}-{year}%"));
+                patterns.insert(format!("%{year}-{first:02}-{second:02}%"));
+                patterns.insert(format!("%{second:02}-{first:02}-{year}%"));
+                patterns.insert(format!("%{year}-{second:02}-{first:02}%"));
+            }
+        }
+    }
+    patterns.into_iter().collect()
+}
+
+#[derive(Default)]
+struct PatchEntityOverview {
+    entity_type: String,
+    entity: String,
+    total: i64,
+    buffs: i64,
+    nerfs: i64,
+    changed: i64,
+    reworks: i64,
+    score: i64,
+    sample_lines: Vec<String>,
+}
+
+fn build_patch_overview_signals(
+    events: &[JsonMap<String, JsonValue>],
+    enrichments: &BTreeMap<i64, JsonMap<String, JsonValue>>,
+) -> JsonValue {
+    let mut by_entity: BTreeMap<(String, String), PatchEntityOverview> = BTreeMap::new();
+    let mut by_type_change: BTreeMap<String, i64> = BTreeMap::new();
+    let mut item_changes = Vec::new();
+    let mut objective_changes = Vec::new();
+
+    for event in events {
+        let entity_type = value_to_nonempty_string(event.get("entity_type"))
+            .unwrap_or_else(|| "unknown".to_string());
+        let entity = value_to_nonempty_string(event.get("entity_name"))
+            .or_else(|| value_to_nonempty_string(event.get("subject")))
+            .or_else(|| value_to_nonempty_string(event.get("section")))
+            .unwrap_or_else(|| "General".to_string());
+        let change_type = value_to_nonempty_string(event.get("change_type"))
+            .unwrap_or_else(|| "unknown".to_string());
+        *by_type_change
+            .entry(format!("{entity_type}:{change_type}"))
+            .or_insert(0) += 1;
+
+        let entry = by_entity
+            .entry((entity_type.clone(), entity.clone()))
+            .or_insert_with(|| PatchEntityOverview {
+                entity_type: entity_type.clone(),
+                entity: entity.clone(),
+                ..PatchEntityOverview::default()
+            });
+        entry.total += 1;
+        match change_type.as_str() {
+            "buff" => {
+                entry.buffs += 1;
+                entry.score += 1;
+            }
+            "nerf" => {
+                entry.nerfs += 1;
+                entry.score -= 1;
+            }
+            "rework" => entry.reworks += 1,
+            _ => entry.changed += 1,
+        }
+        if entry.sample_lines.len() < 4 {
+            if let Some(line) = value_to_nonempty_string(
+                event.get("normalized_line").or_else(|| event.get("raw_line")),
+            ) {
+                entry.sample_lines.push(line);
+            }
+        }
+
+        let event_enrichments = event
+            .get("id")
+            .and_then(JsonValue::as_i64)
+            .and_then(|id| enrichments.get(&id).cloned())
+            .map(|enrichment| vec![enrichment])
+            .unwrap_or_else(|| vec![JsonMap::new()]);
+        if matches!(entity_type.as_str(), "item" | "ability") {
+            item_changes.push(compact_event(event, &event_enrichments));
+        } else if entity_type == "general" && objective_changes.len() < 18 {
+            objective_changes.push(compact_event(event, &event_enrichments));
+        }
+    }
+
+    let mut summaries = by_entity.into_values().collect::<Vec<_>>();
+    summaries.sort_by(|left, right| {
+        right
+            .total
+            .cmp(&left.total)
+            .then_with(|| right.score.cmp(&left.score))
+            .then_with(|| left.entity.cmp(&right.entity))
+    });
+    let top_entities = summaries
+        .iter()
+        .take(24)
+        .map(patch_entity_overview_json)
+        .collect::<Vec<_>>();
+    let mut hero_movers = summaries
+        .iter()
+        .filter(|entry| entry.entity_type == "hero" && entry.score != 0)
+        .collect::<Vec<_>>();
+    hero_movers.sort_by(|left, right| {
+        right
+            .score
+            .abs()
+            .cmp(&left.score.abs())
+            .then_with(|| right.total.cmp(&left.total))
+            .then_with(|| left.entity.cmp(&right.entity))
+    });
+
+    json!({
+        "latest_patch": latest_patch(events),
+        "event_count": events.len(),
+        "counts_by_entity_type_change": by_type_change.into_iter().map(|(bucket, count)| json!({"bucket": bucket, "count": count})).collect::<Vec<_>>(),
+        "top_entities": top_entities,
+        "hero_movers_rough": hero_movers.into_iter().take(18).map(patch_entity_overview_json).collect::<Vec<_>>(),
+        "item_and_ability_changes": item_changes,
+        "objective_and_economy_changes": objective_changes,
+        "interpretation_note": "hero_movers_rough ist nur eine Zaehllogik aus Buff/Nerf/Rework-Zeilen; echte Meta-Folgen muessen als Einschaetzung formuliert werden.",
+    })
+}
+
+fn patch_entity_overview_json(entry: &PatchEntityOverview) -> JsonValue {
+    json!({
+        "entity_type": entry.entity_type,
+        "entity": entry.entity,
+        "total": entry.total,
+        "buffs": entry.buffs,
+        "nerfs": entry.nerfs,
+        "changed": entry.changed,
+        "reworks": entry.reworks,
+        "rough_score": entry.score,
+        "sample_lines": entry.sample_lines,
+    })
+}
+
+fn patch_source_references(events: &[JsonMap<String, JsonValue>]) -> Vec<JsonValue> {
+    let mut references = Vec::new();
+    let mut seen = HashSet::new();
+    for event in events {
+        append_reference(
+            &mut references,
+            &mut seen,
+            json!({
+                "kind": "patch_event",
+                "source": event.get("source_kind").cloned().unwrap_or(JsonValue::Null),
+                "label": event.get("patch_title").cloned().unwrap_or(JsonValue::Null),
+                "url": event.get("patch_url").cloned().unwrap_or(JsonValue::Null),
+                "posted_at": event.get("posted_at").cloned().unwrap_or(JsonValue::Null),
+                "patch_event_id": event.get("id").cloned().unwrap_or(JsonValue::Null),
+                "line_index": event.get("line_index").cloned().unwrap_or(JsonValue::Null),
+            }),
+        );
+        if references.len() >= 40 {
+            break;
+        }
+    }
+    references
+}
+
 pub async fn ask_context(pool: &PgPool, query: &str, opts: &AskContextOptions) -> Result<JsonValue> {
     let plan = analyze_query(pool, query).await?;
     if is_build_engine_intent(&plan) {
@@ -659,6 +947,8 @@ pub async fn ask_context(pool: &PgPool, query: &str, opts: &AskContextOptions) -
     let context_query = resolved_plan_entity_name(&plan).unwrap_or_else(|| query.trim().to_string());
     let base = if out_of_domain {
         JsonValue::Object(JsonMap::new())
+    } else if should_use_patch_overview_context(&plan, &entity_match, &intent) {
+        build_patch_review_context(pool, query, opts.limit_events).await?
     } else {
         build_review_context(pool, &context_query, opts.limit_events).await?
     };
@@ -677,8 +967,13 @@ pub async fn ask_context(pool: &PgPool, query: &str, opts: &AskContextOptions) -
 
     let entity = base.get("entity_summary").cloned().unwrap_or(JsonValue::Null);
     let item_ground_truth = ask_item_ground_truth(pool, &entity).await?;
+    let item_ground_truth = apply_current_patch_overrides(
+        item_ground_truth,
+        base.get("timeline_signals").unwrap_or(&JsonValue::Null),
+    );
     let ground_truth = json!({
         "stats": base.get("current_stat_hints").cloned().unwrap_or(JsonValue::Null),
+        "patch_overview": base.get("patch_overview").cloned().unwrap_or(JsonValue::Null),
         "timeline": base.get("timeline_signals").cloned().unwrap_or(JsonValue::Null),
         "lineage": base.get("lineage").cloned().unwrap_or(JsonValue::Null),
         "item": item_ground_truth,
@@ -732,6 +1027,97 @@ pub async fn ask_context(pool: &PgPool, query: &str, opts: &AskContextOptions) -
     let prompt = render_ask_prompt(&JsonValue::Object(result.clone()))?;
     result.insert("prompt".to_string(), JsonValue::String(prompt));
     Ok(JsonValue::Object(result))
+}
+
+fn should_use_patch_overview_context(
+    plan: &QueryPlan,
+    entity_match: &AskEntityClaimMatch,
+    intent: &str,
+) -> bool {
+    intent == "patch_changes" && !entity_match.matched && plan.entities.is_empty()
+}
+
+fn apply_current_patch_overrides(item: JsonValue, timeline_signals: &JsonValue) -> JsonValue {
+    let mut item = item;
+    let Some(item_object) = item.as_object_mut() else {
+        return item;
+    };
+    let latest_patch = timeline_signals
+        .get("latest_patch")
+        .and_then(JsonValue::as_object)
+        .cloned()
+        .unwrap_or_default();
+    if latest_patch.is_empty() {
+        return item;
+    }
+    let latest_title = value_to_nonempty_string(latest_patch.get("patch_title"));
+    let latest_posted_at = value_to_nonempty_string(latest_patch.get("posted_at"));
+    let Some(stat_changes) = timeline_signals
+        .get("stat_changes")
+        .and_then(JsonValue::as_array)
+    else {
+        return item;
+    };
+    let updates = stat_changes
+        .iter()
+        .filter(|change| {
+            patch_change_matches_latest(
+                change,
+                latest_title.as_deref(),
+                latest_posted_at.as_deref(),
+            )
+        })
+        .take(16)
+        .filter_map(compact_patch_override)
+        .collect::<Vec<_>>();
+    if updates.is_empty() {
+        return item;
+    }
+    item_object.insert(
+        "current_patch_overrides".to_string(),
+        json!({
+            "source": latest_patch,
+            "priority": "Diese neuesten Patchwerte ueberstimmen aeltere Werte aus der statischen Item-Karte.",
+            "updates": updates,
+        }),
+    );
+    item
+}
+
+fn patch_change_matches_latest(
+    change: &JsonValue,
+    latest_title: Option<&str>,
+    latest_posted_at: Option<&str>,
+) -> bool {
+    let change_title = value_to_nonempty_string(change.get("patch_title"));
+    let change_posted_at = value_to_nonempty_string(change.get("posted_at"));
+    latest_title
+        .zip(change_title.as_deref())
+        .is_some_and(|(left, right)| left == right)
+        && latest_posted_at
+            .zip(change_posted_at.as_deref())
+            .is_some_and(|(left, right)| left == right)
+}
+
+fn compact_patch_override(change: &JsonValue) -> Option<JsonValue> {
+    let object = change.as_object()?;
+    let mut compact = JsonMap::new();
+    for key in [
+        "stat_name",
+        "old_value",
+        "new_value",
+        "unit",
+        "change_type",
+        "line",
+        "patch_title",
+        "posted_at",
+        "confidence",
+    ] {
+        if let Some(value) = object.get(key).filter(|value| !value.is_null()) {
+            compact.insert(key.to_string(), value.clone());
+        }
+    }
+    (!compact.is_empty()).then_some(JsonValue::Object(compact))
 }
 
 async fn ask_build_context(pool: &PgPool, query: &str, plan: &QueryPlan) -> Result<JsonValue> {
@@ -6662,6 +7048,114 @@ mod tests {
         assert!(!prompt.contains("db_value"));
         assert!(!prompt.contains("status"));
         assert!(prompt.contains("Lash Counters"));
+    }
+
+    #[test]
+    fn patch_overview_routing_requires_broad_patch_question() {
+        let mut plan = QueryPlan {
+            entities: Vec::new(),
+            threats: Vec::new(),
+            intent: "patch_changes".to_string(),
+            fetch: Vec::new(),
+            filters: JsonValue::Null,
+            raw_query: "Was ist die neue Meta?".to_string(),
+            language: "de".to_string(),
+        };
+        let mut entity_match = AskEntityClaimMatch::default();
+
+        assert!(should_use_patch_overview_context(
+            &plan,
+            &entity_match,
+            "patch_changes"
+        ));
+        plan.entities.push(json!({"name": "Seven"}));
+        assert!(!should_use_patch_overview_context(
+            &plan,
+            &entity_match,
+            "patch_changes"
+        ));
+        plan.entities.clear();
+        entity_match.matched = true;
+        assert!(!should_use_patch_overview_context(
+            &plan,
+            &entity_match,
+            "patch_changes"
+        ));
+    }
+
+    #[test]
+    fn patch_overview_aggregates_meta_signals() {
+        let event = |value: JsonValue| value.as_object().cloned().expect("object");
+        let events = vec![
+            event(json!({
+                "id": 1,
+                "entity_type": "hero",
+                "entity_name": "Seven",
+                "change_type": "buff",
+                "normalized_line": "Seven damage increased",
+                "patch_title": "Patch 2026-06-30",
+                "posted_at": "2026-06-30"
+            })),
+            event(json!({
+                "id": 2,
+                "entity_type": "item",
+                "entity_name": "Mystic Shot",
+                "change_type": "nerf",
+                "normalized_line": "Mystic Shot damage reduced",
+                "patch_title": "Patch 2026-06-30",
+                "posted_at": "2026-06-30"
+            })),
+            event(json!({
+                "id": 3,
+                "entity_type": "general",
+                "entity_name": "Economy",
+                "change_type": "changed",
+                "normalized_line": "Soul sharing changed",
+                "patch_title": "Patch 2026-06-30",
+                "posted_at": "2026-06-30"
+            })),
+        ];
+
+        let overview = build_patch_overview_signals(&events, &BTreeMap::new());
+
+        assert_eq!(overview["event_count"], 3);
+        assert_eq!(overview["hero_movers_rough"][0]["entity"], "Seven");
+        assert_eq!(overview["hero_movers_rough"][0]["rough_score"], 1);
+        assert_eq!(overview["item_and_ability_changes"].as_array().map(Vec::len), Some(1));
+        assert_eq!(overview["objective_and_economy_changes"].as_array().map(Vec::len), Some(1));
+    }
+
+    #[test]
+    fn current_patch_overrides_ignore_older_changes() {
+        let item = json!({"name": "Mystic Shot", "damage": 10});
+        let timeline = json!({
+            "latest_patch": {"patch_title": "Patch 2026-06-30", "posted_at": "2026-06-30"},
+            "stat_changes": [
+                {
+                    "stat_name": "damage",
+                    "old_value": "10",
+                    "new_value": "12",
+                    "patch_title": "Patch 2026-06-30",
+                    "posted_at": "2026-06-30"
+                },
+                {
+                    "stat_name": "damage",
+                    "old_value": "8",
+                    "new_value": "10",
+                    "patch_title": "Patch 2026-06-01",
+                    "posted_at": "2026-06-01"
+                }
+            ]
+        });
+
+        let item = apply_current_patch_overrides(item, &timeline);
+        let updates = item["current_patch_overrides"]["updates"]
+            .as_array()
+            .expect("updates");
+
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0]["old_value"], "10");
+        assert_eq!(updates[0]["new_value"], "12");
     }
 
 
