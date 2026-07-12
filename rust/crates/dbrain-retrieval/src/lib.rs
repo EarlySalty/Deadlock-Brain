@@ -4256,7 +4256,7 @@ fn ordered_ask_context_for_prompt(bundle: &JsonValue) -> JsonValue {
 fn prompt_ground_truth(bundle: &JsonValue) -> Option<JsonValue> {
     let ground_truth = bundle.get("ground_truth")?.as_object()?;
     let mut compact = JsonMap::new();
-    for key in ["stats", "lineage", "item"] {
+    for key in ["stats", "lineage", "item", "patch_overview"] {
         if let Some(value) = ground_truth.get(key).filter(|value| prompt_value_available(value)) {
             compact.insert(key.to_string(), value.clone());
         }
@@ -6513,6 +6513,47 @@ mod tests {
         assert!(bundle.get("intent").is_some());
         assert!(bundle.get("ground_truth").is_some());
         assert!(bundle.get("creator_knowledge").is_some());
+    }
+
+    #[tokio::test]
+    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+    async fn ask_context_patch_meta_question_includes_patch_overview_in_rendered_prompt() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let opts = AskContextOptions {
+            limit_events: 80,
+            include_unverified: false,
+            max_claims: 12,
+        };
+        let bundle = ask_context(
+            &pool,
+            "Was hat der letzte Patch an der Meta veraendert?",
+            &opts,
+        )
+        .await
+        .expect("ask context");
+
+        assert_eq!(
+            bundle.get("intent").and_then(JsonValue::as_str),
+            Some("patch_changes")
+        );
+        assert!(
+            bundle
+                .pointer("/ground_truth/patch_overview/event_count")
+                .and_then(JsonValue::as_u64)
+                .is_some_and(|count| count > 0),
+            "expected routed patch_overview content"
+        );
+        let prompt = bundle
+            .get("prompt")
+            .and_then(JsonValue::as_str)
+            .expect("rendered prompt");
+        assert!(
+            prompt.contains("\"patch_overview\"")
+                && prompt.contains("\"counts_by_entity_type_change\""),
+            "rendered prompt omitted ground_truth.patch_overview"
+        );
     }
 
     #[tokio::test]
