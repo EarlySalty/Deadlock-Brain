@@ -5,7 +5,7 @@
 1. Tests fuer Wiki-Suche und Prompt-Integration ergaenzen.
 2. Neues Modul `dbrain_retrieval::game_wiki` bauen:
    - Dateistruktur schreiben.
-   - Pages aus `brain.entity_snapshots` erzeugen.
+   - Vollstaendige Wiki-Eintraege aus `brain.entity_snapshots` erzeugen.
    - Lokale Markdown-Suche fuer Query-Kontext anbieten.
 3. `AskContextOptions` um `game_wiki_dir` erweitern und `ask_context` mit `ground_truth.game_knowledge` verdrahten.
 4. CLI-Command `deadlock-brain wiki rebuild` einbauen.

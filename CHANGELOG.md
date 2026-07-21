@@ -4,9 +4,9 @@
 
 Problem: Der Brain musste viele Wiki-/Spieldaten bei Fragen immer wieder aus Rohdaten zusammensuchen. Dadurch fehlte eine dauerhaft gepflegte Wissensschicht nach dem LLM-Wiki-Prinzip.
 
-Änderung: Es gibt jetzt ein versioniertes `game-wiki/` mit Schema, Index, Log und 1.904 vollständigen Seiten aus `deadlock_data` plus den vorhandenen Wiki-Seiten. Jede Seite behält Provenienz und die komplette JSON-Payload. Der neue Befehl `deadlock-brain wiki rebuild` erzeugt das Wiki aus der zentralen Postgres neu.
+Änderung: Es gibt jetzt ein versioniertes `game-wiki/` mit Schema, Index, Log und 1.904 vollständigen Einträgen aus `deadlock_data` plus den vorhandenen Wiki-Seiten. Jeder Eintrag behält Provenienz und die komplette JSON-Payload. Der neue Befehl `deadlock-brain wiki rebuild` erzeugt das Wiki aus der zentralen Postgres neu.
 
-Aktuelles Verhalten: `ask-context` durchsucht das lokale Wiki automatisch und legt passende vollständige Wiki-Seiten in `ground_truth.game_knowledge`, sodass der Discord-Brain mehr gesichertes Deadlock-Wissen im Prompt hat.
+Aktuelles Verhalten: `ask-context` durchsucht das lokale Wiki automatisch und legt passende vollständige Wiki-Einträge in `ground_truth.game_knowledge`, sodass der Discord-Brain mehr gesichertes Deadlock-Wissen im Prompt hat.
 
 ## #34 — Demo-Reports werden vor dem Lernen kalibriert
 

@@ -57,10 +57,15 @@ pub async fn rebuild_game_wiki(pool: &PgPool, root: &Path) -> Result<JsonValue> 
 
     let generated_at = Utc::now();
     let mut summaries = Vec::new();
-    let mut used_paths = HashSet::new();
+    let mut used_anchors = HashSet::new();
+    let mut shards = BTreeMap::<String, Vec<String>>::new();
     for row in rows {
-        let summary = write_snapshot_page(root, &row, generated_at, &mut used_paths)?;
+        let (summary, entry) = render_snapshot_entry(&row, generated_at, &mut used_anchors)?;
+        shards.entry(shard_path(&row)).or_default().push(entry);
         summaries.push(summary);
+    }
+    for (relative_path, entries) in &shards {
+        write_shard_page(root, relative_path, entries, generated_at)?;
     }
     summaries.sort_by(|left, right| {
         left.source
@@ -83,7 +88,8 @@ pub async fn rebuild_game_wiki(pool: &PgPool, root: &Path) -> Result<JsonValue> 
         "root": root,
         "sources": WIKI_SOURCES,
         "entity_types": WIKI_ENTITY_TYPES,
-        "pages_written": summaries.len(),
+        "entries_written": summaries.len(),
+        "files_written": shards.len(),
         "counts": counts,
         "index": root.join("index.md"),
         "log": root.join("log.md"),
@@ -113,28 +119,30 @@ pub fn search_game_wiki(
 
     let mut matches = Vec::new();
     for path in files {
-        let content = fs::read_to_string(&path)?;
-        let title = page_title(&content).unwrap_or_else(|| {
-            path.file_stem()
-                .and_then(|value| value.to_str())
-                .unwrap_or("unknown")
-                .replace('-', " ")
-        });
-        let score = score_page(&path, &title, &content, &query_terms);
-        if score <= 0 {
-            continue;
-        }
         let relative_path = path
             .strip_prefix(&root)
             .unwrap_or(path.as_path())
             .to_string_lossy()
             .replace('\\', "/");
-        matches.push(ScoredPage {
-            score,
-            title,
-            path: relative_path,
-            content,
-        });
+        let content = fs::read_to_string(&path)?;
+        for entry in split_search_entries(&content) {
+            let title = page_title(entry).unwrap_or_else(|| {
+                path.file_stem()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or("unknown")
+                    .replace('-', " ")
+            });
+            let score = score_page(&path, &title, entry, &query_terms);
+            if score <= 0 {
+                continue;
+            }
+            matches.push(ScoredPage {
+                score,
+                title,
+                path: entry_path(&relative_path, entry),
+                content: entry.to_string(),
+            });
+        }
     }
     matches.sort_by(|left, right| {
         right
@@ -274,55 +282,33 @@ async fn load_latest_snapshots(pool: &PgPool) -> Result<Vec<SnapshotRow>> {
     Ok(snapshots)
 }
 
-fn write_snapshot_page(
-    root: &Path,
+fn render_snapshot_entry(
     row: &SnapshotRow,
     generated_at: DateTime<Utc>,
-    used_paths: &mut HashSet<String>,
-) -> Result<PageSummary> {
+    used_anchors: &mut HashSet<String>,
+) -> Result<(PageSummary, String)> {
     let title = snapshot_title(row);
     let summary = snapshot_summary(row, &title);
-    let source_dir = safe_segment(&row.source);
-    let type_dir = safe_segment(&row.entity_type);
-    let slug = nonempty_slug(&title, &row.external_id);
-    let mut relative_path = format!("pages/{source_dir}/{type_dir}/{slug}.md");
-    if !used_paths.insert(relative_path.clone()) {
+    let mut anchor = nonempty_slug(&title, &row.external_id);
+    let shard = shard_path(row);
+    let anchor_key = format!("{shard}#{anchor}");
+    if !used_anchors.insert(anchor_key) {
         let suffix = stable_hash(&format!(
             "{}:{}:{}:{}",
             row.source, row.entity_type, row.external_id, row.id
         ));
-        relative_path = format!("pages/{source_dir}/{type_dir}/{slug}-{}.md", &suffix[..8]);
-        used_paths.insert(relative_path.clone());
+        anchor = format!("{anchor}-{}", &suffix[..8]);
+        used_anchors.insert(format!("{shard}#{anchor}"));
     }
-    let page_path = root.join(&relative_path);
-    if let Some(parent) = page_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
     let payload_json = serde_json::to_string_pretty(&row.payload)?;
     let fence = code_fence_for(&payload_json);
     let source_raw_path = portable_raw_path(row.source_raw_path.as_deref());
-    let content = format!(
-        r#"---
-title: {title_yaml}
-entity_type: {entity_type_yaml}
-source: {source_yaml}
-external_id: {external_id_yaml}
-canonical_name: {canonical_name_yaml}
-snapshot_id: {snapshot_id}
-source_document_id: {source_document_id}
-payload_hash: {payload_hash_yaml}
-source_content_hash: {source_content_hash_yaml}
-source_url: {source_url_yaml}
-source_raw_path: {source_raw_path_yaml}
-fetched_at: {fetched_at_yaml}
-generated_at: {generated_at_yaml}
-tags: ["deadlock", "game-knowledge", {entity_tag}]
----
+    let entry = format!(
+        r#"<!-- game-wiki-entry source={source_yaml} entity_type={entity_type_yaml} external_id={external_id_yaml} title={title_yaml} -->
 
-# {title}
+## {title}
 
-## Kurzueberblick
+### Kurzueberblick
 
 - Typ: `{entity_type}`
 - Quelle: `{source}`
@@ -331,7 +317,17 @@ tags: ["deadlock", "game-knowledge", {entity_tag}]
 - Source-Dokument: `{source_document}`
 - Kurzinfo: {summary}
 
-## Vollstaendige Payload
+### Provenienz
+
+- Canonical Name: `{canonical_name}`
+- Payload Hash: `{payload_hash}`
+- Source Content Hash: `{source_content_hash}`
+- Source URL: `{source_url}`
+- Source Raw Path: `{source_raw_path}`
+- Fetched At: `{fetched_at}`
+- Generated At: `{generated_at}`
+
+### Vollstaendige Payload
 
 {fence}json
 {payload_json}
@@ -341,41 +337,79 @@ tags: ["deadlock", "game-knowledge", {entity_tag}]
         entity_type_yaml = yaml_string(&row.entity_type),
         source_yaml = yaml_string(&row.source),
         external_id_yaml = yaml_string(&row.external_id),
-        canonical_name_yaml = yaml_optional(row.canonical_name.as_deref()),
         snapshot_id = row.id,
-        source_document_id = row
-            .source_document_id
-            .map(|value| value.to_string())
-            .unwrap_or_else(|| "null".to_string()),
-        payload_hash_yaml = yaml_string(&row.payload_hash),
-        source_content_hash_yaml = yaml_optional(row.source_content_hash.as_deref()),
-        source_url_yaml = yaml_optional(row.source_url.as_deref()),
-        source_raw_path_yaml = yaml_optional(source_raw_path.as_deref()),
-        fetched_at_yaml = yaml_optional(row.fetched_at.map(|value| value.to_rfc3339()).as_deref()),
-        generated_at_yaml = yaml_string(&generated_at.to_rfc3339()),
-        entity_tag = yaml_string(&row.entity_type),
-        entity_type = row.entity_type,
-        source = row.source,
-        external_id = row.external_id,
+        entity_type = row.entity_type.as_str(),
+        source = row.source.as_str(),
+        external_id = row.external_id.as_str(),
         source_document = row
             .source_document_id
             .map(|id| id.to_string())
             .unwrap_or_else(|| "nicht verknuepft".to_string()),
+        canonical_name = row.canonical_name.as_deref().unwrap_or("null"),
+        payload_hash = row.payload_hash.as_str(),
+        source_content_hash = row.source_content_hash.as_deref().unwrap_or("null"),
+        source_url = row.source_url.as_deref().unwrap_or("null"),
+        source_raw_path = source_raw_path.as_deref().unwrap_or("null"),
+        fetched_at = row
+            .fetched_at
+            .map(|value| value.to_rfc3339())
+            .unwrap_or_else(|| "null".to_string()),
+        generated_at = generated_at.to_rfc3339(),
         summary = summary,
         payload_json = payload_json,
         fence = fence,
     );
-    fs::write(&page_path, content)?;
 
-    Ok(PageSummary {
+    Ok((PageSummary {
         source: row.source.clone(),
         entity_type: row.entity_type.clone(),
         title,
-        path: relative_path,
+        path: format!("{shard}#{anchor}"),
         external_id: row.external_id.clone(),
         snapshot_id: row.id,
         summary,
-    })
+    }, entry))
+}
+
+fn write_shard_page(
+    root: &Path,
+    relative_path: &str,
+    entries: &[String],
+    generated_at: DateTime<Utc>,
+) -> Result<()> {
+    let page_path = root.join(relative_path);
+    if let Some(parent) = page_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let title = page_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("unknown")
+        .replace('-', " ");
+    let mut content = format!(
+        "---\ntitle: {}\ngenerated_at: {}\nentries: {}\n---\n\n# {}\n\n",
+        yaml_string(&title),
+        yaml_string(&generated_at.to_rfc3339()),
+        entries.len(),
+        title
+    );
+    for entry in entries {
+        content.push_str(entry);
+        if !content.ends_with('\n') {
+            content.push('\n');
+        }
+        content.push('\n');
+    }
+    fs::write(page_path, content)?;
+    Ok(())
+}
+
+fn shard_path(row: &SnapshotRow) -> String {
+    format!(
+        "pages/{}/{}.md",
+        safe_segment(&row.source),
+        safe_segment(&row.entity_type)
+    )
 }
 
 fn write_schema(root: &Path) -> Result<()> {
@@ -388,14 +422,14 @@ Diese Wiki-Schicht folgt dem LLM-Wiki-Muster fuer Deadlock-Brain.
 ## Schichten
 
 - Raw Sources: `brain.source_documents` und `brain.entity_snapshots`. Diese Daten sind die Quelle der Wahrheit und werden hier nicht editiert.
-- Wiki: Markdown unter `game-wiki/pages/`. Diese Seiten werden durch `deadlock-brain wiki rebuild` erzeugt und duerfen vom Agenten gepflegt werden.
+- Wiki: Markdown unter `game-wiki/pages/`. Diese Corpus-Shards werden durch `deadlock-brain wiki rebuild` erzeugt und duerfen vom Agenten gepflegt werden.
 - Schema: diese Datei. Aendere sie nur, wenn sich Struktur oder Arbeitsweise bewusst aendern.
 
 ## Regeln
 
 - Fakten duerfen nur aus der Payload oder aus verlinkten Source-Metadaten stammen.
-- Jede Seite muss Provenienz im Frontmatter behalten.
-- Die vollstaendige JSON-Payload bleibt auf der Seite erhalten.
+- Jeder Eintrag muss Provenienz behalten.
+- Die vollstaendige JSON-Payload bleibt im Eintrag erhalten.
 - `index.md` ist der Inhaltskatalog.
 - `log.md` ist append-only.
 - Bei Widerspruch gewinnt die neueste `deadlock_data`-Payload gegen aeltere Wiki- oder Creator-Aussagen.
@@ -403,8 +437,8 @@ Diese Wiki-Schicht folgt dem LLM-Wiki-Muster fuer Deadlock-Brain.
 ## Query-Workflow
 
 1. `index.md` oder die lokale Wiki-Suche lesen.
-2. Relevante Seiten vollstaendig lesen.
-3. Antwort nur aus Ground-Truth, verifizierten Creator-Claims und den gelesenen Wiki-Seiten synthetisieren.
+2. Relevante Eintraege vollstaendig lesen.
+3. Antwort nur aus Ground-Truth, verifizierten Creator-Claims und den gelesenen Wiki-Eintraegen synthetisieren.
 4. Unsichere oder fehlende Fakten offen markieren.
 "#,
     )?;
@@ -422,7 +456,7 @@ fn write_index(root: &Path, summaries: &[PageSummary], generated_at: DateTime<Ut
     let mut out = String::new();
     out.push_str("# Game Wiki Index\n\n");
     out.push_str(&format!(
-        "- Generated at: `{}`\n- Pages: `{}`\n- Sources: `{}`\n\n",
+        "- Generated at: `{}`\n- Entries: `{}`\n- Sources: `{}`\n\n",
         generated_at.to_rfc3339(),
         summaries.len(),
         WIKI_SOURCES.join(", ")
@@ -450,7 +484,7 @@ fn append_log(root: &Path, summaries: &[PageSummary], generated_at: DateTime<Utc
     let mut file = OpenOptions::new().append(true).open(&log_path)?;
     writeln!(
         file,
-        "## [{}] rebuild | deadlock-data snapshots\n\n- Pages written: `{}`\n- Sources: `{}`\n",
+        "## [{}] rebuild | deadlock-data snapshots\n\n- Entries written: `{}`\n- Sources: `{}`\n",
         generated_at.format("%Y-%m-%d %H:%M:%SZ"),
         summaries.len(),
         WIKI_SOURCES.join(", ")
@@ -479,6 +513,32 @@ fn collect_markdown_files(root: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn split_search_entries(content: &str) -> Vec<&str> {
+    const MARKER: &str = "<!-- game-wiki-entry ";
+    let starts = content
+        .match_indices(MARKER)
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    if starts.is_empty() {
+        return vec![content];
+    }
+    let mut entries = Vec::with_capacity(starts.len());
+    for (idx, start) in starts.iter().enumerate() {
+        let end = starts
+            .get(idx + 1)
+            .copied()
+            .unwrap_or_else(|| content.len());
+        entries.push(content[*start..end].trim());
+    }
+    entries
+}
+
+fn entry_path(relative_path: &str, entry: &str) -> String {
+    page_title(entry)
+        .map(|title| format!("{relative_path}#{}", slugify(&title)))
+        .unwrap_or_else(|| relative_path.to_string())
 }
 
 fn ranked_terms(query: &str, entity: &JsonValue) -> Vec<String> {
@@ -565,6 +625,9 @@ fn page_title(content: &str) -> Option<String> {
         if let Some(title) = line.strip_prefix("# ") {
             return Some(title.trim().to_string());
         }
+        if let Some(title) = line.strip_prefix("## ") {
+            return Some(title.trim().to_string());
+        }
     }
     None
 }
@@ -625,10 +688,6 @@ fn one_line(value: &str, max_chars: usize) -> String {
 
 fn yaml_string(value: &str) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
-}
-
-fn yaml_optional(value: Option<&str>) -> String {
-    value.map(yaml_string).unwrap_or_else(|| "null".to_string())
 }
 
 fn safe_segment(value: &str) -> String {
@@ -732,6 +791,40 @@ mod tests {
         assert!(
             content.contains(full_tail),
             "matching pages must be returned complete"
+        );
+    }
+
+    #[test]
+    fn search_game_wiki_extracts_complete_matching_shard_entry() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let pages = tmp.path().join("pages/deadlock-data");
+        fs::create_dir_all(&pages).expect("pages");
+        let full_tail = "TAIL_TOKEN_FULL_SHARD_ENTRY_STAYS_VISIBLE";
+        fs::write(
+            pages.join("ability.md"),
+            format!(
+                "# ability\n\n<!-- game-wiki-entry title=\"Kinetic Carbine\" -->\n\n## Kinetic Carbine\n\n```json\n{{\"details\":\"{}\"}}\n```\n\n<!-- game-wiki-entry title=\"Other Ability\" -->\n\n## Other Ability\n\nOTHER_ENTRY_TOKEN\n",
+                "x".repeat(2048) + full_tail
+            ),
+        )
+        .expect("write shard");
+
+        let result = search_game_wiki(
+            Some(tmp.path()),
+            "Wie funktioniert Kinetic Carbine?",
+            &JsonValue::Null,
+            3,
+        )
+        .expect("search");
+
+        let content = result
+            .pointer("/matches/0/content")
+            .and_then(JsonValue::as_str)
+            .expect("first match content");
+        assert!(content.contains(full_tail));
+        assert!(
+            !content.contains("OTHER_ENTRY_TOKEN"),
+            "search should include the full matching entry, not the whole shard"
         );
     }
 }

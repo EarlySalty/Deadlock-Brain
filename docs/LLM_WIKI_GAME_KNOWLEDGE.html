@@ -16,9 +16,9 @@
   <h2>Struktur</h2>
   <ul>
     <li><code>game-wiki/AGENTS.md</code>: Schema und Wartungsregeln.</li>
-    <li><code>game-wiki/index.md</code>: Katalog aller Seiten.</li>
+    <li><code>game-wiki/index.md</code>: Katalog aller Eintraege.</li>
     <li><code>game-wiki/log.md</code>: Append-only Rebuild-Log.</li>
-    <li><code>game-wiki/pages/</code>: vollstaendige Entity-, Patch- und Source-Seiten.</li>
+    <li><code>game-wiki/pages/</code>: Corpus-Shards mit vollstaendigen Entity-, Patch- und Source-Eintraegen.</li>
   </ul>
 
   <h2>Rebuild</h2>
@@ -27,6 +27,6 @@
   <pre><code>deadlock-brain wiki rebuild --dir /tmp/game-wiki-check</code></pre>
 
   <h2>Nutzung im Brain</h2>
-  <p><code>deadlock-brain ask-context</code> durchsucht das Wiki automatisch und fuegt passende vollstaendige Seiten in <code>ground_truth.game_knowledge</code> ein. Fehlt das Wiki, bleibt der Befehl kompatibel und liefert nur die bisherigen Ground-Truth-Daten.</p>
+  <p><code>deadlock-brain ask-context</code> durchsucht das Wiki automatisch und fuegt passende vollstaendige Eintraege in <code>ground_truth.game_knowledge</code> ein. Fehlt das Wiki, bleibt der Befehl kompatibel und liefert nur die bisherigen Ground-Truth-Daten.</p>
 </body>
 </html>
