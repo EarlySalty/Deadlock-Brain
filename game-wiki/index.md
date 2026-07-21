@@ -1960,4 +1960,3 @@
 - [Status Effects](pages/deadlock-wiki/wiki-page.md#status-effects) - Status Effects aus `deadlock_wiki` / `wiki_page` mit vollstaendiger Payload. (`external_id=Status Effects`, `snapshot_id=1640`)
 - [The Curiosity Shop](pages/deadlock-wiki/wiki-page.md#the-curiosity-shop) - The Curiosity Shop aus `deadlock_wiki` / `wiki_page` mit vollstaendiger Payload. (`external_id=The Curiosity Shop`, `snapshot_id=1635`)
 - [Weapon Damage](pages/deadlock-wiki/wiki-page.md#weapon-damage) - Weapon Damage aus `deadlock_wiki` / `wiki_page` mit vollstaendiger Payload. (`external_id=Weapon Damage`, `snapshot_id=1643`)
-

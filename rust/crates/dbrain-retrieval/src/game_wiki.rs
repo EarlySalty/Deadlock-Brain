@@ -472,6 +472,9 @@ fn write_index(root: &Path, summaries: &[PageSummary], generated_at: DateTime<Ut
         }
         out.push('\n');
     }
+    while out.ends_with("\n\n") {
+        out.pop();
+    }
     fs::write(root.join("index.md"), out)?;
     Ok(())
 }
@@ -484,7 +487,7 @@ fn append_log(root: &Path, summaries: &[PageSummary], generated_at: DateTime<Utc
     let mut file = OpenOptions::new().append(true).open(&log_path)?;
     writeln!(
         file,
-        "## [{}] rebuild | deadlock-data snapshots\n\n- Entries written: `{}`\n- Sources: `{}`\n",
+        "## [{}] rebuild | deadlock-data snapshots\n\n- Entries written: `{}`\n- Sources: `{}`",
         generated_at.format("%Y-%m-%d %H:%M:%SZ"),
         summaries.len(),
         WIKI_SOURCES.join(", ")
