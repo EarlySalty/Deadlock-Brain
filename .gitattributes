@@ -1,2 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Generated LLM-Wiki corpus: keep files versioned, avoid huge review diffs.
+game-wiki/pages/** -diff
