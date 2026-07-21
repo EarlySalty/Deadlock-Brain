@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <title>Deadlock-Brain Game-Wiki</title>
+  <style>
+    body { font-family: system-ui, sans-serif; line-height: 1.5; max-width: 920px; margin: 40px auto; padding: 0 20px; color: #1f2933; }
+    code { background: #eef2f7; padding: 2px 5px; border-radius: 4px; }
+    pre { background: #101827; color: #f8fafc; padding: 14px; border-radius: 6px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>Deadlock-Brain Game-Wiki</h1>
+  <p>Das Game-Wiki ist eine lokale LLM-Wiki-Schicht fuer Deadlock-Spielwissen. Es wird aus den Postgres-Snapshots von <code>deadlock-wiki/deadlock-data</code> erzeugt und liegt als Markdown unter <code>game-wiki/</code>.</p>
+
+  <h2>Struktur</h2>
+  <ul>
+    <li><code>game-wiki/AGENTS.md</code>: Schema und Wartungsregeln.</li>
+    <li><code>game-wiki/index.md</code>: Katalog aller Seiten.</li>
+    <li><code>game-wiki/log.md</code>: Append-only Rebuild-Log.</li>
+    <li><code>game-wiki/pages/</code>: vollstaendige Entity-, Patch- und Source-Seiten.</li>
+  </ul>
+
+  <h2>Rebuild</h2>
+  <pre><code>deadlock-brain wiki rebuild</code></pre>
+  <p>Der Befehl schreibt das Wiki aus der zentralen DB neu. Optional kann ein Ziel angegeben werden:</p>
+  <pre><code>deadlock-brain wiki rebuild --dir /tmp/game-wiki-check</code></pre>
+
+  <h2>Nutzung im Brain</h2>
+  <p><code>deadlock-brain ask-context</code> durchsucht das Wiki automatisch und fuegt passende vollstaendige Seiten in <code>ground_truth.game_knowledge</code> ein. Fehlt das Wiki, bleibt der Befehl kompatibel und liefert nur die bisherigen Ground-Truth-Daten.</p>
+</body>
+</html>

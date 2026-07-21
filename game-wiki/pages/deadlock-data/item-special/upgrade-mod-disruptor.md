@@ -1,0 +1,100 @@
+---
+title: "upgrade_mod_disruptor"
+entity_type: "item_special"
+source: "deadlock_data"
+external_id: "upgrade_mod_disruptor"
+canonical_name: "upgrade_mod_disruptor"
+snapshot_id: 40128
+source_document_id: 7072
+payload_hash: "f65e52e5cc56fdc90ca33a794c2119aaecfee94e8186bbf4516cdeeffdf34db8"
+source_content_hash: "b01d3bc127fcd39965acccbb97da1891f783e723ccea23aa74a15b0187b14b65"
+source_url: "https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json"
+source_raw_path: "data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json"
+fetched_at: "2026-07-09T19:36:24.948661+00:00"
+generated_at: "2026-07-21T17:48:52.496692210+00:00"
+tags: ["deadlock", "game-knowledge", "item_special"]
+---
+
+# upgrade_mod_disruptor
+
+## Kurzueberblick
+
+- Typ: `item_special`
+- Quelle: `deadlock_data`
+- External ID: `upgrade_mod_disruptor`
+- Snapshot ID: `40128`
+- Source-Dokument: `7072`
+- Kurzinfo: upgrade_mod_disruptor aus `deadlock_data` / `item_special` mit vollstaendiger Payload.
+
+## Vollstaendige Payload
+
+````json
+{
+  "AbilityCastDelay": 0.2,
+  "AbilityCooldown": 32.0,
+  "AbilityCooldownBetweenCharge": -1.0,
+  "AbilityDuration": 5,
+  "AbilityUnitTargetLimit": 1,
+  "Activation": "Press",
+  "ChannelMoveSpeed": -1,
+  "Components": null,
+  "Cost": 6400,
+  "DPS": {
+    "Scale": {
+      "Type": "spirit",
+      "Value": 0.152334
+    },
+    "Value": 50
+  },
+  "DPSIncrease": {
+    "Scale": {
+      "Type": "spirit",
+      "Value": 0.030467
+    },
+    "Value": 10
+  },
+  "DPSMax": {
+    "Scale": {
+      "Type": "spirit",
+      "Value": 0.304668
+    },
+    "Value": 100
+  },
+  "Description": null,
+  "IsDisabled": true,
+  "IsImbue": false,
+  "Key": "upgrade_mod_disruptor",
+  "Name": null,
+  "Radius": "8m",
+  "ShopFilters": null,
+  "Slot": "Tech",
+  "StreetBrawl": false,
+  "TargetTypes": [
+    "AllEnemy"
+  ],
+  "TechResist": -18,
+  "TickRate": 0.5,
+  "Tier": 4,
+  "_deadlock_data": {
+    "commit_sha": "e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06",
+    "commit_time": "2026-07-08T15:57:33+00:00",
+    "file_path": "data/json/item-data.json",
+    "generated_by": "deadbot",
+    "repo": "deadlock-wiki/deadlock-data",
+    "repo_url": "https://github.com/deadlock-wiki/deadlock-data.git",
+    "source_origin": "deadlock-wiki/deadlock-data",
+    "source_trust": "trusted",
+    "version": {
+      "ClientVersion": "6624",
+      "ProductName": "citadel",
+      "ServerAppID": "1422460",
+      "ServerVersion": "6624",
+      "SourceRevision": "10806932",
+      "ToolsAppID": "211",
+      "VersionDate": "Jul 08 2026",
+      "VersionTime": "08:23:51",
+      "appID": "1422450"
+    }
+  }
+}
+````

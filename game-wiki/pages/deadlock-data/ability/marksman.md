@@ -1,0 +1,108 @@
+---
+title: "Marksman"
+entity_type: "ability"
+source: "deadlock_data"
+external_id: "ability_astro_rifle"
+canonical_name: "Marksman"
+snapshot_id: 39393
+source_document_id: 7070
+payload_hash: "7ad85e2ae53a30de543d2151e26b02fad814d18f15c4e5186eb506bae93e5479"
+source_content_hash: "2a14b7d15c5818dc88be1b26fa3d1edb2bfa8c532d09029ff7ebb4792f29f849"
+source_url: "https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/ability-data.json"
+source_raw_path: "data/raw/deadlock_data/data_json_ability-data.json.2a14b7d15c5818dc.json"
+fetched_at: "2026-07-09T19:36:23.212613+00:00"
+generated_at: "2026-07-21T17:48:52.496692210+00:00"
+tags: ["deadlock", "game-knowledge", "ability"]
+---
+
+# Marksman
+
+## Kurzueberblick
+
+- Typ: `ability`
+- Quelle: `deadlock_data`
+- External ID: `ability_astro_rifle`
+- Snapshot ID: `39393`
+- Source-Dokument: `7070`
+- Kurzinfo: Marksman aus `deadlock_data` / `ability` mit vollstaendiger Payload.
+
+## Vollstaendige Payload
+
+````json
+{
+  "AbilityCharges": 4,
+  "AbilityCooldown": 10.5,
+  "AbilityCooldownBetweenCharge": 2.0,
+  "AbilityUnitTargetLimit": 1,
+  "BehaviourBits": [
+    "BehaviorNoTarget",
+    "BehaviorDisplaysDamageImpact",
+    "BehaviorAllowSelfCast"
+  ],
+  "ChannelMoveSpeed": -1,
+  "Damage": {
+    "Scale": {
+      "Type": "spirit",
+      "Value": 0.438722
+    },
+    "Value": 48
+  },
+  "DamageAmplificationPerStack": 10,
+  "DebuffDuration": 15,
+  "DebuffModifier": {
+    "Class": "AstroRifleDebuff",
+    "SlowModifier": {
+      "Class": "SlowBase",
+      "Subclass": "Slow"
+    },
+    "Subclass": "AstroRifleDebuff"
+  },
+  "IsDisabled": false,
+  "Key": "ability_astro_rifle",
+  "MaxStacks": 10,
+  "Name": "Marksman",
+  "SelfModifier": {
+    "Class": "AstroRifleSelf",
+    "Subclass": "AstroRifleSelf"
+  },
+  "Upgrades": [
+    {
+      "SlowDurationPerStack": 1,
+      "SlowPercent": 15
+    },
+    {
+      "DamageAmplificationPerStack": 5
+    },
+    {
+      "Damage": {
+        "Scale": {
+          "Type": "spirit",
+          "Value": 0.584963
+        },
+        "Value": 48
+      }
+    }
+  ],
+  "_deadlock_data": {
+    "commit_sha": "e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06",
+    "commit_time": "2026-07-08T15:57:33+00:00",
+    "file_path": "data/json/ability-data.json",
+    "generated_by": "deadbot",
+    "repo": "deadlock-wiki/deadlock-data",
+    "repo_url": "https://github.com/deadlock-wiki/deadlock-data.git",
+    "source_origin": "deadlock-wiki/deadlock-data",
+    "source_trust": "trusted",
+    "version": {
+      "ClientVersion": "6624",
+      "ProductName": "citadel",
+      "ServerAppID": "1422460",
+      "ServerVersion": "6624",
+      "SourceRevision": "10806932",
+      "ToolsAppID": "211",
+      "VersionDate": "Jul 08 2026",
+      "VersionTime": "08:23:51",
+      "appID": "1422450"
+    }
+  }
+}
+````
