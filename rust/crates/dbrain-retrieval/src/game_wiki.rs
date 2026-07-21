@@ -532,7 +532,7 @@ fn split_search_entries(content: &str) -> Vec<&str> {
         let end = starts
             .get(idx + 1)
             .copied()
-            .unwrap_or_else(|| content.len());
+            .unwrap_or(content.len());
         entries.push(content[*start..end].trim());
     }
     entries
