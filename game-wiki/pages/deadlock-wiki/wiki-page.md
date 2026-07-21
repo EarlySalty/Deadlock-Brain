@@ -1,6 +1,5 @@
 ---
 title: "wiki page"
-generated_at: "2026-07-21T18:03:55.468852924+00:00"
 entries: 12
 ---
 
@@ -27,7 +26,6 @@ entries: 12
 - Source URL: `https://deadlock.wiki/api.php?action=query&format=json&prop=extracts%7Crevisions&explaintext=1&rvprop=ids%7Ctimestamp%7Ccontent&rvslots=main&titles=Ability&redirects=1`
 - Source Raw Path: `data/raw/deadlock_wiki/Ability.00a476f210a384f0.json`
 - Fetched At: `2026-05-02T14:38:52+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -88,7 +86,6 @@ entries: 12
 - Source URL: `https://deadlock.wiki/api.php?action=query&format=json&prop=extracts%7Crevisions&explaintext=1&rvprop=ids%7Ctimestamp%7Ccontent&rvslots=main&titles=Crowd+Control&redirects=1`
 - Source Raw Path: `data/raw/deadlock_wiki/Crowd_Control.6c109c2ae0031a19.json`
 - Fetched At: `2026-05-02T14:57:47+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -143,7 +140,6 @@ entries: 12
 - Source URL: `https://deadlock.wiki/api.php?action=query&format=json&prop=extracts%7Crevisions&explaintext=1&rvprop=ids%7Ctimestamp%7Ccontent&rvslots=main&titles=Damage+Resistance&redirects=1`
 - Source Raw Path: `data/raw/deadlock_wiki/Damage_Resistance.d7e459a192591c76.json`
 - Fetched At: `2026-05-02T14:57:36+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -198,7 +194,6 @@ entries: 12
 - Source URL: `https://deadlock.wiki/api.php?action=query&format=json&prop=extracts%7Crevisions&explaintext=1&rvprop=ids%7Ctimestamp%7Ccontent&rvslots=main&titles=Item&redirects=1`
 - Source Raw Path: `data/raw/deadlock_wiki/Item.31e2834f1d82e649.json`
 - Fetched At: `2026-05-02T14:38:57+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -259,7 +254,6 @@ entries: 12
 - Source URL: `https://deadlock.wiki/api.php?action=query&format=json&prop=extracts%7Crevisions&explaintext=1&rvprop=ids%7Ctimestamp%7Ccontent&rvslots=main&titles=Level&redirects=1`
 - Source Raw Path: `data/raw/deadlock_wiki/Level.b7b37cb768f3260a.json`
 - Fetched At: `2026-05-02T14:38:48+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -320,7 +314,6 @@ entries: 12
 - Source URL: `https://deadlock.wiki/api.php?action=query&format=json&prop=extracts%7Crevisions&explaintext=1&rvprop=ids%7Ctimestamp%7Ccontent&rvslots=main&titles=Mechanics&redirects=1`
 - Source Raw Path: `data/raw/deadlock_wiki/Mechanics.bfd15af08ee5a02d.json`
 - Fetched At: `2026-05-02T15:00:27+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -375,7 +368,6 @@ entries: 12
 - Source URL: `https://deadlock.wiki/api.php?action=query&format=json&prop=extracts%7Crevisions&explaintext=1&rvprop=ids%7Ctimestamp%7Ccontent&rvslots=main&titles=Mo+%26+Krill&redirects=1`
 - Source Raw Path: `data/raw/deadlock_wiki/Mo___Krill.10580c36cb1bab60.json`
 - Fetched At: `2026-05-02T14:24:46+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -430,7 +422,6 @@ entries: 12
 - Source URL: `https://deadlock.wiki/api.php?action=query&format=json&prop=extracts%7Crevisions&explaintext=1&rvprop=ids%7Ctimestamp%7Ccontent&rvslots=main&titles=Souls&redirects=1`
 - Source Raw Path: `data/raw/deadlock_wiki/Souls.f1f8e13f5e511fe6.json`
 - Fetched At: `2026-05-02T14:38:42+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -485,7 +476,6 @@ entries: 12
 - Source URL: `https://deadlock.wiki/api.php?action=query&format=json&prop=extracts%7Crevisions&explaintext=1&rvprop=ids%7Ctimestamp%7Ccontent&rvslots=main&titles=Stats&redirects=1`
 - Source Raw Path: `data/raw/deadlock_wiki/Stats.4a8999ca26d0fca0.json`
 - Fetched At: `2026-05-02T14:59:46+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -540,7 +530,6 @@ entries: 12
 - Source URL: `https://deadlock.wiki/api.php?action=query&format=json&prop=extracts%7Crevisions&explaintext=1&rvprop=ids%7Ctimestamp%7Ccontent&rvslots=main&titles=Status+Effects&redirects=1`
 - Source Raw Path: `data/raw/deadlock_wiki/Status_Effects.358a32804f7eabe4.json`
 - Fetched At: `2026-05-02T14:57:07+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -595,7 +584,6 @@ entries: 12
 - Source URL: `https://deadlock.wiki/api.php?action=query&format=json&prop=extracts%7Crevisions&explaintext=1&rvprop=ids%7Ctimestamp%7Ccontent&rvslots=main&titles=The+Curiosity+Shop&redirects=1`
 - Source Raw Path: `data/raw/deadlock_wiki/The_Curiosity_Shop.0cf22431835061c4.json`
 - Fetched At: `2026-05-02T14:38:37+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -650,7 +638,6 @@ entries: 12
 - Source URL: `https://deadlock.wiki/api.php?action=query&format=json&prop=extracts%7Crevisions&explaintext=1&rvprop=ids%7Ctimestamp%7Ccontent&rvslots=main&titles=Weapon+Damage&redirects=1`
 - Source Raw Path: `data/raw/deadlock_wiki/Weapon_Damage.ffff5c9a2cbccd21.json`
 - Fetched At: `2026-05-02T14:57:59+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 

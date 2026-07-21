@@ -1,6 +1,6 @@
 # Game Wiki Index
 
-- Generated at: `2026-07-21T18:03:55.468852924+00:00`
+- Generated at: `2026-07-21T18:17:22.262986878+00:00`
 - Entries: `1904`
 - Sources: `deadlock_data, deadlock_wiki`
 

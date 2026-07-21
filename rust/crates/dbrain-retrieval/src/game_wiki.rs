@@ -4,6 +4,7 @@ use std::{
     fs::OpenOptions,
     io::Write,
     path::{Path, PathBuf},
+    process,
 };
 
 use chrono::{DateTime, Utc};
@@ -46,27 +47,34 @@ pub fn default_game_wiki_dir() -> PathBuf {
 
 pub async fn rebuild_game_wiki(pool: &PgPool, root: &Path) -> Result<JsonValue> {
     fs::create_dir_all(root)?;
-    let pages_root = root.join("pages");
-    if pages_root.exists() {
-        fs::remove_dir_all(&pages_root)?;
-    }
-    fs::create_dir_all(&pages_root)?;
-
     let rows = load_latest_snapshots(pool).await?;
     write_schema(root)?;
 
     let generated_at = Utc::now();
+    let build_root = root.join(format!(
+        ".pages-rebuild-{}-{}",
+        process::id(),
+        generated_at.timestamp_nanos_opt().unwrap_or_default()
+    ));
+    if build_root.exists() {
+        fs::remove_dir_all(&build_root)?;
+    }
+    fs::create_dir_all(build_root.join("pages"))?;
+
     let mut summaries = Vec::new();
     let mut used_anchors = HashSet::new();
     let mut shards = BTreeMap::<String, Vec<String>>::new();
     for row in rows {
-        let (summary, entry) = render_snapshot_entry(&row, generated_at, &mut used_anchors)?;
+        let (summary, entry) = render_snapshot_entry(&row, &mut used_anchors)?;
         shards.entry(shard_path(&row)).or_default().push(entry);
         summaries.push(summary);
     }
     for (relative_path, entries) in &shards {
-        write_shard_page(root, relative_path, entries, generated_at)?;
+        write_shard_page(&build_root, relative_path, entries)?;
     }
+    replace_pages_atomically(root, &build_root.join("pages"))?;
+    let _ = fs::remove_dir_all(&build_root);
+
     summaries.sort_by(|left, right| {
         left.source
             .cmp(&right.source)
@@ -284,7 +292,6 @@ async fn load_latest_snapshots(pool: &PgPool) -> Result<Vec<SnapshotRow>> {
 
 fn render_snapshot_entry(
     row: &SnapshotRow,
-    generated_at: DateTime<Utc>,
     used_anchors: &mut HashSet<String>,
 ) -> Result<(PageSummary, String)> {
     let title = snapshot_title(row);
@@ -325,7 +332,6 @@ fn render_snapshot_entry(
 - Source URL: `{source_url}`
 - Source Raw Path: `{source_raw_path}`
 - Fetched At: `{fetched_at}`
-- Generated At: `{generated_at}`
 
 ### Vollstaendige Payload
 
@@ -354,7 +360,6 @@ fn render_snapshot_entry(
             .fetched_at
             .map(|value| value.to_rfc3339())
             .unwrap_or_else(|| "null".to_string()),
-        generated_at = generated_at.to_rfc3339(),
         summary = summary,
         payload_json = payload_json,
         fence = fence,
@@ -375,7 +380,6 @@ fn write_shard_page(
     root: &Path,
     relative_path: &str,
     entries: &[String],
-    generated_at: DateTime<Utc>,
 ) -> Result<()> {
     let page_path = root.join(relative_path);
     if let Some(parent) = page_path.parent() {
@@ -387,9 +391,8 @@ fn write_shard_page(
         .unwrap_or("unknown")
         .replace('-', " ");
     let mut content = format!(
-        "---\ntitle: {}\ngenerated_at: {}\nentries: {}\n---\n\n# {}\n\n",
+        "---\ntitle: {}\nentries: {}\n---\n\n# {}\n\n",
         yaml_string(&title),
-        yaml_string(&generated_at.to_rfc3339()),
         entries.len(),
         title
     );
@@ -410,6 +413,28 @@ fn shard_path(row: &SnapshotRow) -> String {
         safe_segment(&row.source),
         safe_segment(&row.entity_type)
     )
+}
+
+fn replace_pages_atomically(root: &Path, built_pages: &Path) -> Result<()> {
+    let live_pages = root.join("pages");
+    let backup_pages = root.join(format!(".pages-backup-{}", process::id()));
+    if backup_pages.exists() {
+        fs::remove_dir_all(&backup_pages)?;
+    }
+    let had_live_pages = live_pages.exists();
+    if had_live_pages {
+        fs::rename(&live_pages, &backup_pages)?;
+    }
+    if let Err(error) = fs::rename(built_pages, &live_pages) {
+        if had_live_pages && backup_pages.exists() {
+            let _ = fs::rename(&backup_pages, &live_pages);
+        }
+        return Err(error.into());
+    }
+    if backup_pages.exists() {
+        fs::remove_dir_all(&backup_pages)?;
+    }
+    Ok(())
 }
 
 fn write_schema(root: &Path) -> Result<()> {
@@ -828,6 +853,22 @@ mod tests {
         assert!(
             !content.contains("OTHER_ENTRY_TOKEN"),
             "search should include the full matching entry, not the whole shard"
+        );
+    }
+
+    #[test]
+    fn replace_pages_atomically_restores_old_pages_when_new_pages_missing() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let live_pages = tmp.path().join("pages");
+        fs::create_dir_all(&live_pages).expect("live pages");
+        fs::write(live_pages.join("old.md"), "old wiki").expect("old page");
+
+        let result = replace_pages_atomically(tmp.path(), &tmp.path().join("missing/pages"));
+
+        assert!(result.is_err());
+        assert_eq!(
+            fs::read_to_string(live_pages.join("old.md")).expect("old page restored"),
+            "old wiki"
         );
     }
 }

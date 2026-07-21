@@ -1,6 +1,5 @@
 ---
 title: "patchnote"
-generated_at: "2026-07-21T18:03:55.468852924+00:00"
 entries: 127
 ---
 
@@ -27,7 +26,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/01-12-2025-update.53389/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-01-12.txt.351c7d9cae0e3b97.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -71,7 +69,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/01-17-2025-update.53607/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-01-17.txt.a81db650c5452905.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -115,7 +112,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/01-19-2025-update.53961/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-01-19.txt.7cdeab5f7e1a9021.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -159,7 +155,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/12-29-2025-update.95233/post-185824`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2026-01-20.txt.f59e4c2579b5f33a.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -203,7 +198,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/01-27-2025-update.54590/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-01-27.txt.d8e034210beee045.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -247,7 +241,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/01-30-2026-update.102822/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2026-01-30.txt.06a56fb2e515e64c.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -291,7 +284,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/01-30-2026-update.102822/post-197062`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2026-02-02.txt.37cb421c63bfb5a3.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -335,7 +327,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/01-30-2026-update.102822/post-198653`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2026-02-04.txt.3403a95d5a2bb416.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -379,7 +370,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/02-11-2025-update.55677/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-02-11.txt.7fa27beebab5647e.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -423,7 +413,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/01-30-2026-update.102822/post-204182`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2026-02-12.txt.6094a380ff8a34df.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -467,7 +456,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/01-30-2026-update.102822/post-205106`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2026-02-13.txt.806eace3f2dc2f47.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -511,7 +499,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/01-30-2026-update.102822/post-207811`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2026-02-17.txt.208ff37e1b5c630a.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -555,7 +542,6 @@ entries: 127
 - Source URL: `null`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-02-20_HeroLab.txt.507e179823d6655c.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -599,7 +585,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/02-25-2025-update.56683/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-02-25.txt.99236bbb6c672cf6.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -643,7 +628,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/03-06-2026-update.114328/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2026-03-06.txt.2f2be2057788f384.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -687,7 +671,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/03-06-2026-update.114328/post-217955`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2026-03-07.txt.dc6edb00c4c2ca16.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -731,7 +714,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/03-06-2026-update.114328/post-220287`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2026-03-10.txt.317ced934bec90ea.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -775,7 +757,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/03-13-2025-update.58592/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-03-13.txt.381d7e7877c081cd.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -819,7 +800,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/03-16-2025-update.58880/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-03-16.txt.72af7c3cb64591de.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -863,7 +843,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/03-19-2025-update.59098/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-03-19.txt.fd264b0fc2bce030.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -907,7 +886,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/03-06-2026-update.114328/post-226950`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2026-03-21.txt.80da4555c8533238.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -951,7 +929,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/03-25-2026-update.121766/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2026-03-25.txt.d699f566cdf7eaad.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -995,7 +972,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/03-25-2026-update.121766/post-232903`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2026-03-30.txt.4621749e2eef6e8e.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1039,7 +1015,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/04-04-2025-update.60284/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-04-04.txt.a575321b4dc1da60.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1083,7 +1058,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/04-10-2026-update.125825/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2026-04-10.txt.9bf12e71fa114f89.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1127,7 +1101,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/04-17-2025-update.61382/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-04-17.txt.4a917e9da5ecdc7a.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1171,7 +1144,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/04-30-2026-update.129989/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2026-04-30.txt.96e6a9c322463209.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1215,7 +1187,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/04-30-2026-update.129989/post-246437`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2026-05-01.txt.993e4ae6876ef0d6.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1259,7 +1230,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/05-03-2024-update.427/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-05-03.txt.2f4e91ccf433d4c4.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1303,7 +1273,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/05-08-2025-update.63133/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-05-08.txt.4ccc7a8a39294cc4.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1347,7 +1316,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/05-10-2024-update.689/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-05-10.txt.7a978ad2fd8d7499.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1391,7 +1359,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/05-11-2025-update.64113/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-05-11.txt.f5319e24d8a204ee.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1435,7 +1402,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/05-13-2024-update.807/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-05-13.txt.3d4c4ec5b3f0de68.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1479,7 +1445,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/05-16-2024-update.902/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-05-16.txt.f4feb93321c6264f.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1523,7 +1488,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/05-19-2024-update.1033/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-05-19.txt.564196a0d0fa208f.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1567,7 +1531,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/05-19-2025-update.65381/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-05-19.txt.e4f94718ef8ffbc7.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1611,7 +1574,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/05-21-2025-update.65674/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-05-21.txt.fe6010ef959085e9.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1655,7 +1617,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/05-22-2026-update.135477/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2026-05-22.txt.35c52e3c9692031d.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1699,7 +1660,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/05-23-2024-update.1245/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-05-23.txt.87e3dda302d4a468.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1743,7 +1703,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/05-24-2024-update.1359/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-05-24.txt.a8a144acea08bd95.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1787,7 +1746,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/05-22-2026-update.135477/post-259788`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2026-05-25.txt.8892c71eddc10941.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1831,7 +1789,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/05-27-2025-update.66453/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-05-27.txt.d4e5b0b424805447.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1875,7 +1832,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/05-22-2026-update.135477/post-261657`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2026-05-28.txt.6281707de7c0a84e.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1919,7 +1875,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/05-30-2024-update.2514/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-05-30.txt.3f0a2f2af315c1da.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1963,7 +1918,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/05-22-2026-update.135477/post-263371`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2026-05-31.txt.4a00533333f153d0.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2007,7 +1961,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/06-01-2024-update.3004/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-06-01.txt.6e392110644bfefd.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2051,7 +2004,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/06-06-2024-update.4096/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-06-06.txt.7de72932dc7574a6.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2095,7 +2047,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/06-07-2024-update.4443/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-06-07.txt.accdf3f25ce3fe18.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2139,7 +2090,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/06-13-2024-update.5773/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-06-13.txt.27335b7f2253291a.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2183,7 +2133,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/06-14-2024-update.6080/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-06-14.txt.d5fd77e8e861334b.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2227,7 +2176,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/06-16-2024-update.6424/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-06-16.txt.f170dea249cbad17.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2271,7 +2219,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/06-17-2025-update.68401/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-06-17.txt.5b68619ee9998119.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2315,7 +2262,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/06-20-2024-update.7003/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-06-20.txt.1677dc743e4188f4.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2359,7 +2305,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/06-23-2024-update.7705/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-06-23.txt.c49005e8b5c98593.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2403,7 +2348,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/06-27-2024-update.8486/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-06-27.txt.a780845919cf590d.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2447,7 +2391,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/07-04-2024-update.9652/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-07-04.txt.5b847405f5573214.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2491,7 +2434,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/07-04-2025-update.70156/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-07-04.txt.ec5aa773eae24691.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2535,7 +2477,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/07-11-2024-update.10871/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-07-11.txt.ddbb7c13e7de8987.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2579,7 +2520,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/07-18-2024-update.11831/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-07-18.txt.31e4fab0ff7736ea.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2623,7 +2563,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/07-23-2024-update.12505/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-07-23.txt.a66661ab9bc5f07c.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2667,7 +2606,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/07-29-2025-update.72760/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-07-29.txt.83e44c8a67859954.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2711,7 +2649,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/08-01-2024-update.13369/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-08-01.txt.25a83f57d29c6bd4.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2755,7 +2692,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/07-29-2025-update.72760/post-139997`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-08-01.txt.9386e241537e7f76.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2799,7 +2735,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/08-06-2024-update.14283/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-08-06.txt.3c4ac359891ee6d8.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2843,7 +2778,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/07-29-2025-update.72760/post-141214`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-08-08.txt.3a49e170e3695303.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2887,7 +2821,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/08-15-2024-update.16378/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-08-15.txt.4128907f7f1dbde5.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2931,7 +2864,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/08-16-2024-update.17251/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-08-16.txt.a88e26b71609352f.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2975,7 +2907,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/08-18-2024-update.18377/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-08-18.txt.5462953e88601a0f.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3019,7 +2950,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/08-18-2025-update.75046/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-08-18.txt.02b77ae9ced3167c.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3063,7 +2993,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/08-22-2024-update.19716/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-08-22.txt.e5dcfc9d56461447.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3107,7 +3036,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/08-18-2025-update.75046/post-145970`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-08-22.txt.7dc6943c07781582.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3151,7 +3079,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/08-23-2024-update.19948/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-08-23.txt.b9ee6ebd2859bdc6.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3195,7 +3122,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/08-18-2025-update.75046/post-149166`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-08-28.txt.6bd8997f57a088c9.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3239,7 +3165,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/08-29-2024-update.22253/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-08-29.txt.bee3a92f0c8fd74a.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3283,7 +3208,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/08-18-2025-update.75046/post-149696`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-08-29.txt.89d68c48650a731f.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3327,7 +3251,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/09-01-2024-update.24093/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-09-01.txt.9e4998b2b8020f6b.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3371,7 +3294,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/09-04-2025-update.80693/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-09-04.txt.a2260412b33a8f1c.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3415,7 +3337,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/09-12-2024-update.27974/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-09-12.txt.a9240adc24a0bad7.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3459,7 +3380,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/09-14-2024-update.29586/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-09-14.txt.f824cd7ba469437f.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3503,7 +3423,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/09-17-2024-update.30413/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-09-17.txt.7720e72bbdb89d3a.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3547,7 +3466,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/09-19-2024-update.31166/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-09-19.txt.595a7765e65498b2.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3591,7 +3509,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/09-26-2024-update.33015/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-09-26.txt.c3b706aa8d14d7bc.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3635,7 +3552,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/09-27-2024-update.33816/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-09-27.txt.302a0326ad4a9c22.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3679,7 +3595,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/09-29-2024-update.34541/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-09-29.txt.9265b9632a0e8f41.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3723,7 +3638,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/10-02-2024-update.35439/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-10-02.txt.4caa1e0f8c1e4953.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3767,7 +3681,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/10-02-2025-update.84332/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-10-02.txt.d93c71aff59316fd.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3811,7 +3724,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/10-02-2025-update.84332/post-159495`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-10-03.txt.63aefe76be30c522.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3855,7 +3767,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/10-02-2025-update.84332/post-160063`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-10-05.txt.e5e328a1e0e94635.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3899,7 +3810,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/10-07-2024-update.36441/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-10-07.txt.9ae479b580eb80df.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3943,7 +3853,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/10-10-2024-update.36958/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-10-10.txt.67f36e55676db430.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3987,7 +3896,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/10-11-2024-update.37641/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-10-11.txt.36f55bb10a83c061.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4031,7 +3939,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/10-15-2024-update.38925/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-10-15.txt.0c8f13dcd89de3d0.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4075,7 +3982,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/10-18-2024-update-2.39693/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-10-18-1.txt.a334b543334aed27.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4119,7 +4025,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/10-18-2024-update.39630/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-10-18.txt.3592ec6b892fc43d.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4163,7 +4068,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/10-24-2024-update.40951/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-10-24.txt.cbbe07b17e2896c4.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4207,7 +4111,6 @@ entries: 127
 - Source URL: `null`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-10-24_HeroLab.txt.90f0436c91e4d8e2.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4251,7 +4154,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/10-24-2025-update.87198/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-10-24.txt.726f4f1911148559.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4295,7 +4197,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/10-27-2024-update.42492/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-10-27.txt.1cb98a88fbeed9ad.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4339,7 +4240,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/10-29-2024-update.42985/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-10-29.txt.0140876f49ab3c30.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4383,7 +4283,6 @@ entries: 127
 - Source URL: `null`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-10-29_HeroLab.txt.8e76b21227b7b1c1.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4427,7 +4326,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/11-01-2024-update.43705/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-11-01.txt.ba132bbd565f29dd.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4471,7 +4369,6 @@ entries: 127
 - Source URL: `null`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-11-01_HeroLab.txt.e4bef1790b45f113.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4515,7 +4412,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/11-07-2024-update.44786/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-11-07.txt.d0ac92ec7cec3a70.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4559,7 +4455,6 @@ entries: 127
 - Source URL: `null`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-11-07_HeroLab.txt.6c3d388ca210ef2a.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4603,7 +4498,6 @@ entries: 127
 - Source URL: `null`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-11-08_HeroLab.txt.ec54dcc07a5ae9ef.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4647,7 +4541,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/11-10-2024-update.45689/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-11-10.txt.15be61b3149645f9.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4691,7 +4584,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/11-13-2024-update.46391/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-11-13.txt.1bc486d75c13f30e.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4735,7 +4627,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/11-21-2024-update.47476/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-11-21.txt.53aaa05a933d202c.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4779,7 +4670,6 @@ entries: 127
 - Source URL: `null`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-11-21_HeroLab.txt.45d012215f41b479.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4823,7 +4713,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/11-21-2025-update.90383/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-11-21.txt.4113676650dd1745.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4867,7 +4756,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/11-21-2025-update.90383/post-171913`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-11-22.txt.7ded8383301d0df9.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4911,7 +4799,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/11-21-2025-update.90383/post-172057`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-11-23.txt.54b8e471293aa30a.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4955,7 +4842,6 @@ entries: 127
 - Source URL: `null`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-11-24_HeroLab.txt.6bbff4692960b607.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4999,7 +4885,6 @@ entries: 127
 - Source URL: `null`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-11-26_HeroLab.txt.943750e44bed3fc0.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -5043,7 +4928,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/11-21-2025-update.90383/post-173347`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-11-27.txt.489694bc5825fa12.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -5087,7 +4971,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/11-29-2024-update.49470/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-11-29.txt.bec3e19f8b4a1be5.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -5131,7 +5014,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/11-21-2025-update.90383/post-174987`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-12-03.txt.ae0e927614295d5e.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -5175,7 +5057,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/12-06-2024-update.50599/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-12-06.txt.d2c1067220557934.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -5219,7 +5100,6 @@ entries: 127
 - Source URL: `null`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-12-06_HeroLab.txt.cd66f02d87047a26.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -5263,7 +5143,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/12-16-2025-update.93983/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-12-16.txt.48b725e3b29c3e8f.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -5307,7 +5186,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/12-17-2024-update.52008/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-12-17.txt.54b08b30c147fcaa.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -5351,7 +5229,6 @@ entries: 127
 - Source URL: `null`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-12-17_HeroLab.txt.18f5d9df10d0ce1e.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -5395,7 +5272,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/12-16-2025-update.93983/post-178389`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-12-17.txt.24921a39dbdcd1d1.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -5439,7 +5315,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/12-21-2024-update.52206/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-12-21.txt.c9459e5360cf39b8.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -5483,7 +5358,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/12-29-2025-update.95233/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-12-29.txt.fdb1db64924b463c.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -5527,7 +5401,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/12-29-2025-update.95233/post-180763`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2025-12-30.txt.40ebc2c935d10696.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -5571,7 +5444,6 @@ entries: 127
 - Source URL: `https://forums.playdeadlock.com/threads/12-31-2024-update.52769/`
 - Source Raw Path: `data/raw/deadlock_data/data_changelogs_raw_2024-12-31.txt.fde1daefa8ff399a.txt`
 - Fetched At: `2026-06-25T00:43:51+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 

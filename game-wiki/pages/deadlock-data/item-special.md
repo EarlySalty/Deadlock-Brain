@@ -1,6 +1,5 @@
 ---
 title: "item special"
-generated_at: "2026-07-21T18:03:55.468852924+00:00"
 entries: 104
 ---
 
@@ -27,7 +26,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.600247+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -108,7 +106,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.602940+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -183,7 +180,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.605507+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -264,7 +260,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.616297+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -352,7 +347,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.655610+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -423,7 +417,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.912917+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -502,7 +495,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.881593+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -579,7 +571,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.034665+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -651,7 +642,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.805728+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -728,7 +718,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.821502+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -815,7 +804,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.131382+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -899,7 +887,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.101540+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -971,7 +958,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.051281+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1047,7 +1033,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.832024+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1119,7 +1104,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.982092+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1188,7 +1172,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.062210+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1263,7 +1246,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.079808+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1338,7 +1320,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.726684+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1424,7 +1405,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.014101+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1496,7 +1476,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.147090+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1567,7 +1546,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.167181+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1650,7 +1628,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.843805+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1721,7 +1698,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.533623+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1791,7 +1767,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.536017+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1858,7 +1833,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.538191+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1925,7 +1899,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.540403+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -1992,7 +1965,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.542506+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2059,7 +2031,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.544708+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2126,7 +2097,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.546497+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2193,7 +2163,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.556106+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2270,7 +2239,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.557884+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2347,7 +2315,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.559886+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2424,7 +2391,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.561740+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2501,7 +2467,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.563613+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2578,7 +2543,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.565390+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2655,7 +2619,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.567320+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2722,7 +2685,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.569495+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2789,7 +2751,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.571430+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2856,7 +2817,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.573540+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2923,7 +2883,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.577898+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -2990,7 +2949,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.580171+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3057,7 +3015,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.592233+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3133,7 +3090,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.597266+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3211,7 +3167,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.610619+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3292,7 +3247,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.612360+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3373,7 +3327,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.614139+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3447,7 +3400,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.620881+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3525,7 +3477,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.624940+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3597,7 +3548,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.630834+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3665,7 +3615,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.632715+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3733,7 +3682,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.639448+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3800,7 +3748,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.641168+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3875,7 +3822,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.649655+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -3943,7 +3889,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.660542+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4016,7 +3961,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.669603+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4091,7 +4035,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.671588+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4165,7 +4108,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.682962+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4236,7 +4178,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.684521+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4308,7 +4249,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.693581+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4376,7 +4316,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.695446+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4444,7 +4383,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.697478+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4512,7 +4450,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.699600+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4580,7 +4517,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.705835+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4656,7 +4592,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.745359+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4735,7 +4670,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.754351+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4806,7 +4740,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.758932+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4875,7 +4808,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.761020+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -4945,7 +4877,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.789120+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -5017,7 +4948,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.795543+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -5091,7 +5021,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.797309+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -5165,7 +5094,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.801634+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -5259,7 +5187,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.849033+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -5327,7 +5254,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.851+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -5399,7 +5325,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.857051+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -5468,7 +5393,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.866765+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -5542,7 +5466,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.903028+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -5616,7 +5539,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.910691+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -5690,7 +5612,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.948661+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -5786,7 +5707,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.962205+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -5866,7 +5786,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.987822+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -5938,7 +5857,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:24.996016+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -6011,7 +5929,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.001172+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -6101,7 +6018,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.003944+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -6173,7 +6089,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.025358+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -6242,7 +6157,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.029954+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -6310,7 +6224,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.086199+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -6379,7 +6292,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.091562+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -6451,7 +6363,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.094079+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -6519,7 +6430,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.124312+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -6589,7 +6499,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.126539+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -6673,7 +6582,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.129166+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -6762,7 +6670,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.150682+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -6832,7 +6739,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.173456+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -6901,7 +6807,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.207357+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -6979,7 +6884,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.209386+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -7051,7 +6955,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.211557+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -7120,7 +7023,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.213795+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -7192,7 +7094,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.216039+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -7264,7 +7165,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.227230+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -7331,7 +7231,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.229543+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -7398,7 +7297,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.231675+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -7465,7 +7363,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.233567+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -7532,7 +7429,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.235611+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
@@ -7599,7 +7495,6 @@ entries: 104
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/json/item-data.json`
 - Source Raw Path: `data/raw/deadlock_data/data_json_item-data.json.b01d3bc127fcd399.json`
 - Fetched At: `2026-07-09T19:36:25.237410+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 

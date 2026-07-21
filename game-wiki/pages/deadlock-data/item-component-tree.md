@@ -1,6 +1,5 @@
 ---
 title: "item component tree"
-generated_at: "2026-07-21T18:03:55.468852924+00:00"
 entries: 1
 ---
 
@@ -27,7 +26,6 @@ entries: 1
 - Source URL: `https://github.com/deadlock-wiki/deadlock-data/blob/e3fb36ebbb046e73c44a37ecb31e3e096bfc7a06/data/item-component-tree.txt`
 - Source Raw Path: `data/raw/deadlock_data/data_item-component-tree.txt.a7fdf65396f55077.txt`
 - Fetched At: `2026-07-09T19:36:25.790938+00:00`
-- Generated At: `2026-07-21T18:03:55.468852924+00:00`
 
 ### Vollstaendige Payload
 
