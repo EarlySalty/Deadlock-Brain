@@ -50,6 +50,11 @@ enum Commands {
     AskContext(AskContextArgs),
     #[command(about = "Fuehrt lokale Datenqualitaetschecks aus.")]
     Quality(PrettyArgs),
+    #[command(about = "Erzeugt und pflegt die lokale Game-Wiki-Wissensschicht.")]
+    Wiki {
+        #[command(subcommand)]
+        target: WikiCommands,
+    },
     #[command(about = "Zeigt Rename-/Rework-Beziehungen aus Patchnotes.")]
     Lineage(LineageArgs),
     #[command(about = "Zeigt alte/entfernte Entities aus Patchnotes.")]
@@ -197,8 +202,29 @@ struct AskContextArgs {
     max_claims: usize,
     #[arg(long = "prompt-only")]
     prompt_only: bool,
+    #[arg(long = "game-wiki-dir", value_name = "PATH")]
+    game_wiki_dir: Option<PathBuf>,
     #[arg(long)]
     pretty: bool,
+}
+
+#[derive(Debug, Subcommand)]
+enum WikiCommands {
+    #[command(
+        name = "rebuild",
+        about = "Erzeugt game-wiki/ aus Deadlock-Data-Snapshots neu."
+    )]
+    Rebuild(WikiRebuildArgs),
+}
+
+#[derive(Debug, Args)]
+struct WikiRebuildArgs {
+    #[arg(
+        long,
+        value_name = "PATH",
+        help = "Zielverzeichnis, default repo-root/game-wiki."
+    )]
+    dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -1074,6 +1100,7 @@ async fn run(cli: Cli) -> Result<()> {
                     limit_events: usize_to_i64(args.limit_events),
                     include_unverified: args.include_unverified,
                     max_claims: args.max_claims,
+                    game_wiki_dir: args.game_wiki_dir.clone(),
                 },
             )
             .await?;
@@ -1093,6 +1120,15 @@ async fn run(cli: Cli) -> Result<()> {
                 print_json(&result)
             }
         }
+        Commands::Wiki { target } => match target {
+            WikiCommands::Rebuild(args) => {
+                let dir = args
+                    .dir
+                    .unwrap_or_else(dbrain_retrieval::default_game_wiki_dir);
+                let result = dbrain_retrieval::rebuild_game_wiki(&pool, &dir).await?;
+                print_json(&result)
+            }
+        },
         Commands::Lineage(args) => {
             let rows = load_lineage(&pool, args.query.as_deref(), args.limit).await?;
             if args.pretty {

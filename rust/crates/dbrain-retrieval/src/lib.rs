@@ -21,6 +21,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map as JsonMap, Value as JsonValue};
 use sha2::{Digest, Sha256};
 
+mod game_wiki;
+
+pub use game_wiki::{
+    default_game_wiki_dir, rebuild_game_wiki, search_game_wiki, GAME_WIKI_DIR_ENV,
+};
+
 const ASSETS_SOURCE: &str = "deadlock_assets_api";
 const MAX_EVENTS: i64 = 500;
 const MAX_TIMELINE_EVENTS: i64 = 2000;
@@ -262,6 +268,9 @@ pub enum RetrievalError {
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+
     #[error("Fireworks response did not include message content.")]
     EmptyAiResponse,
 
@@ -294,6 +303,7 @@ pub struct AskContextOptions {
     pub limit_events: i64,
     pub include_unverified: bool,
     pub max_claims: usize,
+    pub game_wiki_dir: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -972,12 +982,18 @@ pub async fn ask_context(pool: &PgPool, query: &str, opts: &AskContextOptions) -
         item_ground_truth,
         base.get("timeline_signals").unwrap_or(&JsonValue::Null),
     );
+    let game_knowledge = if out_of_domain {
+        json!({"available": false, "reason": "out_of_domain"})
+    } else {
+        game_wiki::search_game_wiki(opts.game_wiki_dir.as_deref(), query, &entity, 3)?
+    };
     let ground_truth = json!({
         "stats": base.get("current_stat_hints").cloned().unwrap_or(JsonValue::Null),
         "patch_overview": base.get("patch_overview").cloned().unwrap_or(JsonValue::Null),
         "timeline": base.get("timeline_signals").cloned().unwrap_or(JsonValue::Null),
         "lineage": base.get("lineage").cloned().unwrap_or(JsonValue::Null),
         "item": item_ground_truth,
+        "game_knowledge": game_knowledge,
     });
     let mut creator_knowledge = JsonMap::new();
     if !out_of_domain {
@@ -4257,7 +4273,7 @@ fn ordered_ask_context_for_prompt(bundle: &JsonValue) -> JsonValue {
 fn prompt_ground_truth(bundle: &JsonValue) -> Option<JsonValue> {
     let ground_truth = bundle.get("ground_truth")?.as_object()?;
     let mut compact = JsonMap::new();
-    for key in ["stats", "lineage", "item", "patch_overview"] {
+    for key in ["stats", "lineage", "item", "patch_overview", "game_knowledge"] {
         if let Some(value) = ground_truth.get(key).filter(|value| prompt_value_available(value)) {
             compact.insert(key.to_string(), value.clone());
         }
@@ -6507,6 +6523,7 @@ mod tests {
             limit_events: 40,
             include_unverified: false,
             max_claims: 12,
+            game_wiki_dir: None,
         };
         let bundle = ask_context(&pool, &format!("{hero} matchup"), &opts)
             .await
@@ -6526,6 +6543,7 @@ mod tests {
             limit_events: 80,
             include_unverified: false,
             max_claims: 12,
+            game_wiki_dir: None,
         };
         let bundle = ask_context(&pool, "Was ist die neue Meta?", &opts)
             .await
@@ -6565,6 +6583,7 @@ mod tests {
             limit_events: 40,
             include_unverified: false,
             max_claims: 12,
+            game_wiki_dir: None,
         };
         let bundle = ask_context(&pool, "Wie wird das Wetter morgen?", &opts)
             .await
@@ -7144,6 +7163,32 @@ mod tests {
         assert!(!prompt.contains("db_value"));
         assert!(!prompt.contains("status"));
         assert!(prompt.contains("Lash Counters"));
+    }
+
+    #[test]
+    fn ask_prompt_includes_game_knowledge_ground_truth() {
+        let bundle = json!({
+            "query": "Wie funktioniert Kinetic Carbine?",
+            "intent": "mechanic",
+            "ground_truth": {
+                "game_knowledge": {
+                    "available": true,
+                    "matches": [{
+                        "title": "Kinetic Carbine",
+                        "path": "pages/ability/kinetic-carbine.md",
+                        "content": "# Kinetic Carbine\n\nFULL_WIKI_PAGE_TOKEN"
+                    }]
+                }
+            },
+            "creator_knowledge": {},
+            "sources": [],
+            "retrieval_meta": {"out_of_domain": false}
+        });
+
+        let prompt = render_ask_prompt(&bundle).expect("prompt");
+
+        assert!(prompt.contains("\"game_knowledge\""));
+        assert!(prompt.contains("FULL_WIKI_PAGE_TOKEN"));
     }
 
     #[test]
