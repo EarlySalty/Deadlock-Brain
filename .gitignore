@@ -23,3 +23,6 @@ data/*.sqlite3.bak*
 data/*.bak-*
 # Backup-Verzeichnis (SQLite-Snapshots, alte Binaries, PG-Dumps) — nie versionieren
 data/backups/
+# Laufzeitbericht des letzten Patchnotes-Syncs: der Timer schreibt ihn alle fuenf Minuten
+# neu (Zaehlerstaende, teils unsortierte Listen), das Repo war dadurch dauerhaft dirty.
+data/last_patchnotes_sync_quality.json
