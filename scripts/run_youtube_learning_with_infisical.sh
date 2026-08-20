@@ -2,6 +2,17 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DEPLOY_PREFLIGHT="${DEPLOY_PREFLIGHT:-$HOME/Documents/Admin-Scripts/deploy-preflight.sh}"
+_dp_parent_comm="$(ps -o comm= -p "$PPID" 2>/dev/null || true)"
+if [[ "$_dp_parent_comm" == "systemd" ]]; then
+  if [[ ! -x "$DEPLOY_PREFLIGHT" ]]; then
+    echo "FEHLER: deploy-preflight fehlt unter systemd-Start, breche ab: $DEPLOY_PREFLIGHT" >&2
+    exit 1
+  fi
+  DEPLOY_PREFLIGHT_SYSTEMD_PARENT=1 "$DEPLOY_PREFLIGHT" "$ROOT_DIR" main "deadlock-brain-yt"
+elif [[ -x "$DEPLOY_PREFLIGHT" ]]; then
+  "$DEPLOY_PREFLIGHT" "$ROOT_DIR" main "deadlock-brain-yt"
+fi
 CONFIG_FILE="${INFISICAL_CONFIG_FILE:-/home/naniadm/.config/deadlock-bots/infisical.conf}"
 LOAD_INFISICAL="${LOAD_INFISICAL:-1}"
 INFISICAL_RETRY_DELAY="${INFISICAL_RETRY_DELAY:-5}"
