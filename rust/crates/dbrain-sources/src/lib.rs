@@ -11,6 +11,7 @@ pub mod error;
 pub mod forum;
 pub mod google_sheet;
 pub mod patchnotes_db;
+pub mod reddit;
 pub mod statlocker;
 pub mod wiki;
 
