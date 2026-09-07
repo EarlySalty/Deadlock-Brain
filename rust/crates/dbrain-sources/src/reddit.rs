@@ -1,10 +1,42 @@
-use serde_json::Value;
+use std::{
+    path::Path,
+    thread,
+    time::{Duration, Instant},
+};
 
-use crate::{Result, SourcesError};
+use deadlock_brain_core::http::{HttpClient, HttpGetOptions};
+use serde_json::{json, Value};
+use sqlx::PgPool;
+
+use crate::{
+    store::{complete_run, open_pool, EntitySnapshotInput, SourceDocumentInput, SourceStore},
+    Result, SourcesError,
+};
 
 pub const SOURCE: &str = "reddit";
 pub const DEFAULT_SUBREDDIT: &str = "Deadlock";
 pub const REDDIT_BASE_URL: &str = "https://www.reddit.com";
+
+#[derive(Debug, Clone)]
+pub struct PullRedditOptions {
+    pub subreddits: Vec<String>,
+    pub limit: usize,
+    pub delay_seconds: f64,
+    pub cache_ttl_seconds: u64,
+    pub refresh_existing: bool,
+}
+
+impl Default for PullRedditOptions {
+    fn default() -> Self {
+        Self {
+            subreddits: vec![DEFAULT_SUBREDDIT.to_string()],
+            limit: 25,
+            delay_seconds: 2.0,
+            cache_ttl_seconds: 86_400,
+            refresh_existing: false,
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct ListingThread {
@@ -101,7 +133,7 @@ pub(crate) fn parse_listing_rss(xml: &str) -> Result<Vec<ListingThread>> {
             author_flair: None,
             permalink: permalink_url(&link),
             url: None,
-            selftext: html_to_text(&child_text(&entry, "content").unwrap_or_default()),
+            selftext: html_to_text(child_text(&entry, "content").unwrap_or_default()),
             created_utc: None,
             num_comments: 0,
             stickied: false,
@@ -163,7 +195,7 @@ pub(crate) fn parse_thread_rss(xml: &str) -> Result<Option<RssThread>> {
         comments.push(RssComment {
             comment_id,
             author: entry_author(entry),
-            content: html_to_text(&child_text(entry, "content").unwrap_or_default()),
+            content: html_to_text(child_text(entry, "content").unwrap_or_default()),
             updated: child_text(entry, "updated").map(ToString::to_string),
             permalink: Some(permalink_url(&entry_link)),
         });
@@ -175,7 +207,7 @@ pub(crate) fn parse_thread_rss(xml: &str) -> Result<Option<RssThread>> {
             .map(ToString::to_string)
             .unwrap_or_default(),
         author: entry_author(first),
-        content: html_to_text(&child_text(first, "content").unwrap_or_default()),
+        content: html_to_text(child_text(first, "content").unwrap_or_default()),
         permalink: permalink_url(&link),
         updated: child_text(first, "updated").map(ToString::to_string),
         comments,
@@ -354,6 +386,514 @@ fn non_empty(value: &str) -> Option<String> {
     } else {
         Some(trimmed.to_string())
     }
+}
+
+pub async fn pull_reddit(
+    raw_dir: &Path,
+    http: &HttpClient,
+    options: PullRedditOptions,
+) -> Result<Value> {
+    let pool = open_pool().await?;
+    let store = SourceStore::new(&pool, raw_dir)?;
+    let run_id = store.begin_run(SOURCE).await?;
+    let outcome = pull_reddit_inner(&store, http, &options).await;
+    complete_run(&store, run_id, outcome).await
+}
+
+async fn pull_reddit_inner(
+    store: &SourceStore<'_>,
+    http: &HttpClient,
+    options: &PullRedditOptions,
+) -> Result<Value> {
+    validate_options(options)?;
+    let started = Instant::now();
+    let mut threads_discovered = 0usize;
+    let mut threads_fetched = 0usize;
+    let mut threads_skipped_existing = 0usize;
+    let mut thread_snapshots = 0usize;
+    let mut comment_snapshots = 0usize;
+    let mut rss_fallback_threads = 0usize;
+    let mut failed_threads = Vec::new();
+    let mut failed_listings = Vec::new();
+    let mut first_thread_id = None;
+    let mut last_thread_id = None;
+
+    for subreddit in effective_subreddits(options) {
+        let threads = match discover_threads(store, http, options, &subreddit).await {
+            Ok(threads) => threads,
+            Err(error) => {
+                if failed_listings.len() < 25 {
+                    failed_listings.push(json!({
+                        "subreddit": subreddit,
+                        "error": error.to_string(),
+                    }));
+                }
+                continue;
+            }
+        };
+        threads_discovered += threads.len();
+        let mut fetched_in_subreddit = 0usize;
+
+        for thread in threads.iter() {
+            if options.limit > 0 && fetched_in_subreddit >= options.limit {
+                break;
+            }
+            let external_id = thread_external_id(&thread.thread_id);
+            let document_exists =
+                thread_document_exists(store.pool(), &external_id).await?;
+            if should_skip_existing(options.refresh_existing, document_exists) {
+                threads_skipped_existing += 1;
+                continue;
+            }
+
+            match fetch_and_store_thread(store, http, options, thread, &external_id).await {
+                Ok(summary) => {
+                    if first_thread_id.is_none() {
+                        first_thread_id = Some(thread.thread_id.clone());
+                    }
+                    last_thread_id = Some(thread.thread_id.clone());
+                    fetched_in_subreddit += 1;
+                    threads_fetched += 1;
+                    thread_snapshots += 1;
+                    comment_snapshots += summary.comment_count;
+                    rss_fallback_threads += summary.from_rss as usize;
+                }
+                Err(error) => {
+                    if failed_threads.len() < 25 {
+                        failed_threads.push(json!({
+                            "thread_id": thread.thread_id,
+                            "permalink": thread.permalink,
+                            "error": error.to_string(),
+                        }));
+                    }
+                    if error.to_string().contains("429") {
+                        sleep_delay(60.0);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(json!({
+        "source": SOURCE,
+        "subreddits": effective_subreddits(options),
+        "threads_discovered": threads_discovered,
+        "threads_fetched": threads_fetched,
+        "threads_skipped_existing": threads_skipped_existing,
+        "thread_snapshots": thread_snapshots,
+        "comment_snapshots": comment_snapshots,
+        "rss_fallback_threads": rss_fallback_threads,
+        "failed_threads": failed_threads,
+        "failed_listings": failed_listings,
+        "first_thread_id": first_thread_id,
+        "last_thread_id": last_thread_id,
+        "limit": options.limit,
+        "delay_seconds": options.delay_seconds,
+        "refresh_existing": options.refresh_existing,
+        "elapsed_seconds": started.elapsed().as_secs_f64(),
+    }))
+}
+
+#[derive(Debug, Clone, Copy)]
+struct StoredThreadSummary {
+    comment_count: usize,
+    from_rss: bool,
+}
+
+async fn discover_threads(
+    store: &SourceStore<'_>,
+    http: &HttpClient,
+    options: &PullRedditOptions,
+    subreddit: &str,
+) -> Result<Vec<ListingThread>> {
+    let json_url = listing_json_url(subreddit);
+    if let Ok(response) = http.get(&json_url, http_options(options, Duration::from_secs(30))) {
+        let body = response.text();
+        let threads = parse_listing(&body)?;
+        if !threads.is_empty() {
+            store_listing_document(
+                store,
+                &format!("listing:{subreddit}"),
+                &json_url,
+                "application/json",
+                "json",
+                &body,
+            )
+            .await?;
+            if !response.from_cache {
+                sleep_delay(options.delay_seconds);
+            }
+            return Ok(threads);
+        }
+    }
+
+    let rss_url = listing_rss_url(subreddit);
+    let response = http.get(&rss_url, http_options(options, Duration::from_secs(30)))?;
+    let xml = response.text();
+    let threads = parse_listing_rss(&xml)?;
+    store_listing_document(
+        store,
+        &format!("listing-rss:{subreddit}"),
+        &rss_url,
+        "application/atom+xml",
+        "xml",
+        &xml,
+    )
+    .await?;
+    if !response.from_cache {
+        sleep_delay(options.delay_seconds);
+    }
+    Ok(threads)
+}
+
+async fn store_listing_document(
+    store: &SourceStore<'_>,
+    external_id: &str,
+    url: &str,
+    content_type: &str,
+    suffix: &str,
+    body: &str,
+) -> Result<()> {
+    let raw_path = store.write_raw(SOURCE, external_id, body.as_bytes(), suffix)?;
+    let metadata = json!({ "kind": "listing" });
+    store
+        .upsert_source_document(SourceDocumentInput {
+            source: SOURCE,
+            external_id,
+            title: Some("Reddit Listing"),
+            url: Some(url),
+            content_type,
+            raw_path: &raw_path,
+            content: body.as_bytes(),
+            metadata: &metadata,
+        })
+        .await?;
+    Ok(())
+}
+
+async fn fetch_and_store_thread(
+    store: &SourceStore<'_>,
+    http: &HttpClient,
+    options: &PullRedditOptions,
+    thread: &ListingThread,
+    external_id: &str,
+) -> Result<StoredThreadSummary> {
+    match fetch_thread_json(store, http, options, thread, external_id).await {
+        Ok(summary) => Ok(summary),
+        Err(json_error) => match fetch_thread_rss(store, http, options, thread, external_id).await
+        {
+            Ok(summary) => Ok(summary),
+            Err(_) => Err(json_error),
+        },
+    }
+}
+
+async fn fetch_thread_json(
+    store: &SourceStore<'_>,
+    http: &HttpClient,
+    options: &PullRedditOptions,
+    listing_thread: &ListingThread,
+    external_id: &str,
+) -> Result<StoredThreadSummary> {
+    let url = thread_json_url(&listing_thread.subreddit, &listing_thread.thread_id);
+    let response = http.get(&url, http_options(options, Duration::from_secs(45)))?;
+    let body = response.text();
+    let parsed = parse_thread(&body)?;
+    let thread = &parsed.thread;
+    let raw_path = store.write_raw(SOURCE, external_id, body.as_bytes(), "json")?;
+    let metadata = json!({
+        "kind": "thread_json",
+        "thread_id": &thread.thread_id,
+        "subreddit": &thread.subreddit,
+        "permalink": &thread.permalink,
+        "from_cache": response.from_cache,
+        "comment_count": parsed.comments.len(),
+        "robots_policy": {
+            "writes_on_reddit": false,
+            "notes": "Es wurden nur öffentliche JSON-/RSS-Daten ohne Login abgerufen. Kommentare über kind=more wurden nicht nachgeladen."
+        }
+    });
+    let document_id = store
+        .upsert_source_document(SourceDocumentInput {
+            source: SOURCE,
+            external_id,
+            title: Some(&thread.title),
+            url: Some(&thread.permalink),
+            content_type: "application/json",
+            raw_path: &raw_path,
+            content: body.as_bytes(),
+            metadata: &metadata,
+        })
+        .await?;
+
+    let mut snapshots = Vec::with_capacity(parsed.comments.len() + 1);
+    snapshots.push(EntitySnapshotInput {
+        source: SOURCE.to_string(),
+        entity_type: "reddit_thread".to_string(),
+        external_id: thread.thread_id.clone(),
+        canonical_name: Some(thread.title.clone()),
+        payload: json!({
+            "kind": "thread",
+            "thread_id": &thread.thread_id,
+            "subreddit": &thread.subreddit,
+            "title": &thread.title,
+            "permalink": &thread.permalink,
+            "url": &thread.url,
+            "author": &thread.author,
+            "author_flair": &thread.author_flair,
+            "created_utc": thread.created_utc,
+            "posted_at": thread.created_utc.map(epoch_to_rfc3339),
+            "num_comments": thread.num_comments,
+            "stickied": thread.stickied,
+            "text": &thread.selftext,
+            "comment_count": parsed.comments.len(),
+            "comment_ids": parsed.comments.iter().map(|comment| &comment.comment_id).collect::<Vec<_>>(),
+            "from_rss": false,
+        }),
+    });
+
+    for (index, comment) in parsed.comments.iter().enumerate() {
+        snapshots.push(EntitySnapshotInput {
+            source: SOURCE.to_string(),
+            entity_type: "reddit_post".to_string(),
+            external_id: comment.comment_id.clone(),
+            canonical_name: Some(thread.title.clone()),
+            payload: json!({
+                "kind": "comment",
+                "thread_id": &thread.thread_id,
+                "thread_title": &thread.title,
+                "subreddit": &thread.subreddit,
+                "thread_permalink": &thread.permalink,
+                "post_id": &comment.comment_id,
+                "post_index": index,
+                "author": &comment.author,
+                "author_flair": &comment.author_flair,
+                "created_utc": comment.created_utc,
+                "posted_at": comment.created_utc.map(epoch_to_rfc3339),
+                "permalink": &comment.permalink,
+                "text": &comment.body,
+                "from_rss": false,
+            }),
+        });
+    }
+
+    store
+        .insert_many_snapshots(&snapshots, Some(document_id))
+        .await?;
+    if !response.from_cache {
+        sleep_delay(options.delay_seconds);
+    }
+
+    Ok(StoredThreadSummary {
+        comment_count: parsed.comments.len(),
+        from_rss: false,
+    })
+}
+
+async fn fetch_thread_rss(
+    store: &SourceStore<'_>,
+    http: &HttpClient,
+    options: &PullRedditOptions,
+    listing_thread: &ListingThread,
+    external_id: &str,
+) -> Result<StoredThreadSummary> {
+    let url = thread_rss_url(&listing_thread.subreddit, &listing_thread.thread_id);
+    let response = http.get(&url, http_options(options, Duration::from_secs(45)))?;
+    let xml = response.text();
+    let Some(parsed) = parse_thread_rss(&xml)? else {
+        return Err(SourcesError::invalid_input(
+            "Reddit-Thread-RSS enthält keine Einträge.",
+        ));
+    };
+    let raw_path = store.write_raw(SOURCE, external_id, xml.as_bytes(), "xml")?;
+    let metadata = json!({
+        "kind": "thread_rss",
+        "thread_id": &parsed.thread_id,
+        "subreddit": &parsed.subreddit,
+        "permalink": &parsed.permalink,
+        "from_cache": response.from_cache,
+        "comment_count": parsed.comments.len(),
+        "robots_policy": {
+            "writes_on_reddit": false,
+            "notes": "Es wurden nur öffentliche JSON-/RSS-Daten ohne Login abgerufen."
+        }
+    });
+    let document_id = store
+        .upsert_source_document(SourceDocumentInput {
+            source: SOURCE,
+            external_id,
+            title: Some(&parsed.title),
+            url: Some(&parsed.permalink),
+            content_type: "application/atom+xml",
+            raw_path: &raw_path,
+            content: xml.as_bytes(),
+            metadata: &metadata,
+        })
+        .await?;
+
+    let mut snapshots = Vec::with_capacity(parsed.comments.len() + 1);
+    snapshots.push(EntitySnapshotInput {
+        source: SOURCE.to_string(),
+        entity_type: "reddit_thread".to_string(),
+        external_id: parsed.thread_id.clone(),
+        canonical_name: Some(parsed.title.clone()),
+        payload: json!({
+            "kind": "thread",
+            "thread_id": &parsed.thread_id,
+            "subreddit": &parsed.subreddit,
+            "title": &parsed.title,
+            "permalink": &parsed.permalink,
+            "url": Value::Null,
+            "author": &parsed.author,
+            "author_flair": Value::Null,
+            "created_utc": Value::Null,
+            "posted_at": &parsed.updated,
+            "num_comments": parsed.comments.len(),
+            "stickied": false,
+            "text": &parsed.content,
+            "comment_count": parsed.comments.len(),
+            "comment_ids": parsed.comments.iter().map(|comment| &comment.comment_id).collect::<Vec<_>>(),
+            "from_rss": true,
+        }),
+    });
+
+    for (index, comment) in parsed.comments.iter().enumerate() {
+        snapshots.push(EntitySnapshotInput {
+            source: SOURCE.to_string(),
+            entity_type: "reddit_post".to_string(),
+            external_id: comment.comment_id.clone(),
+            canonical_name: Some(parsed.title.clone()),
+            payload: json!({
+                "kind": "comment",
+                "thread_id": &parsed.thread_id,
+                "thread_title": &parsed.title,
+                "subreddit": &parsed.subreddit,
+                "thread_permalink": &parsed.permalink,
+                "post_id": &comment.comment_id,
+                "post_index": index,
+                "author": &comment.author,
+                "author_flair": Value::Null,
+                "created_utc": Value::Null,
+                "posted_at": &comment.updated,
+                "permalink": &comment.permalink,
+                "text": &comment.content,
+                "from_rss": true,
+            }),
+        });
+    }
+
+    store
+        .insert_many_snapshots(&snapshots, Some(document_id))
+        .await?;
+    if !response.from_cache {
+        sleep_delay(options.delay_seconds);
+    }
+
+    Ok(StoredThreadSummary {
+        comment_count: parsed.comments.len(),
+        from_rss: true,
+    })
+}
+
+async fn thread_document_exists(pool: &PgPool, external_id: &str) -> Result<bool> {
+    let exists = sqlx::query_scalar::<_, i32>(
+        "SELECT 1 FROM brain.source_documents WHERE source=$1 AND external_id=$2 LIMIT 1",
+    )
+    .bind(SOURCE)
+    .bind(external_id)
+    .fetch_optional(pool)
+    .await?
+    .is_some();
+    Ok(exists)
+}
+
+fn validate_options(options: &PullRedditOptions) -> Result<()> {
+    if options.delay_seconds.is_sign_negative() {
+        return Err(SourcesError::invalid_input(
+            "delay_seconds darf nicht negativ sein.",
+        ));
+    }
+    Ok(())
+}
+
+fn should_skip_existing(refresh_existing: bool, document_exists: bool) -> bool {
+    !refresh_existing && document_exists
+}
+
+fn thread_external_id(thread_id: &str) -> String {
+    format!("thread:{thread_id}")
+}
+
+fn effective_subreddits(options: &PullRedditOptions) -> Vec<String> {
+    if options.subreddits.is_empty() {
+        vec![DEFAULT_SUBREDDIT.to_string()]
+    } else {
+        options.subreddits.clone()
+    }
+}
+
+fn listing_json_url(subreddit: &str) -> String {
+    format!("{REDDIT_BASE_URL}/r/{subreddit}/new.json?limit=100&raw_json=1")
+}
+
+fn listing_rss_url(subreddit: &str) -> String {
+    format!("{REDDIT_BASE_URL}/r/{subreddit}/new/.rss")
+}
+
+fn thread_json_url(subreddit: &str, thread_id: &str) -> String {
+    format!("{REDDIT_BASE_URL}/r/{subreddit}/comments/{thread_id}.json?raw_json=1")
+}
+
+fn thread_rss_url(subreddit: &str, thread_id: &str) -> String {
+    format!("{REDDIT_BASE_URL}/r/{subreddit}/comments/{thread_id}.rss")
+}
+
+fn http_options(options: &PullRedditOptions, timeout: Duration) -> HttpGetOptions {
+    HttpGetOptions {
+        cache_ttl_seconds: Some(options.cache_ttl_seconds),
+        timeout,
+        ..HttpGetOptions::default()
+    }
+}
+
+fn sleep_delay(seconds: f64) {
+    if seconds <= 0.0 {
+        return;
+    }
+    thread::sleep(Duration::from_secs_f64(seconds));
+}
+
+fn epoch_to_rfc3339(epoch_seconds: f64) -> String {
+    let total_seconds = epoch_seconds.floor() as i64;
+    let days = total_seconds.div_euclid(86_400);
+    let seconds_of_day = total_seconds.rem_euclid(86_400);
+    let (year, month, day) = civil_from_days(days);
+    let hour = seconds_of_day / 3_600;
+    let minute = (seconds_of_day % 3_600) / 60;
+    let second = seconds_of_day % 60;
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
+}
+
+fn civil_from_days(days: i64) -> (i64, u32, u32) {
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let day_of_era = z.rem_euclid(146_097);
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_period = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_period + 2) / 5 + 1;
+    let month = if month_period < 10 {
+        month_period + 3
+    } else {
+        month_period - 9
+    };
+    (
+        if month <= 2 { year + 1 } else { year },
+        month as u32,
+        day as u32,
+    )
 }
 
 #[cfg(test)]
@@ -614,6 +1154,91 @@ mod tests {
         assert_eq!(
             comment.permalink.as_deref(),
             Some("https://www.reddit.com/r/Deadlock/comments/1f2abc9/vyper_feels_weak_after_patch/lmroot1/")
+        );
+    }
+
+    #[test]
+    fn negative_delay_seconds_are_rejected() {
+        let options = PullRedditOptions {
+            delay_seconds: -0.5,
+            ..Default::default()
+        };
+        let error = validate_options(&options).expect_err("negative delay");
+        assert!(error.to_string().contains("negativ"));
+        assert!(validate_options(&PullRedditOptions::default()).is_ok());
+    }
+
+    #[test]
+    fn defaults_match_the_gentle_ingest_profile() {
+        let options = PullRedditOptions::default();
+        assert_eq!(options.subreddits, vec!["Deadlock".to_string()]);
+        assert_eq!(options.limit, 25);
+        assert_eq!(options.delay_seconds, 2.0);
+        assert_eq!(options.cache_ttl_seconds, 86_400);
+        assert!(!options.refresh_existing);
+    }
+
+    #[test]
+    fn skip_existing_only_applies_without_refresh() {
+        assert!(should_skip_existing(false, true));
+        assert!(!should_skip_existing(true, true));
+        assert!(!should_skip_existing(false, false));
+        assert_eq!(
+            thread_external_id("1f2abc9"),
+            "thread:1f2abc9".to_string()
+        );
+    }
+
+    #[test]
+    fn empty_subreddits_fall_back_to_deadlock() {
+        let mut options = PullRedditOptions::default();
+        assert_eq!(
+            effective_subreddits(&options),
+            vec!["Deadlock".to_string()]
+        );
+        options.subreddits = vec![
+            "DeadlockTheGame".to_string(),
+            "DeadlockMemes".to_string(),
+        ];
+        assert_eq!(
+            effective_subreddits(&options),
+            vec![
+                "DeadlockTheGame".to_string(),
+                "DeadlockMemes".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn request_urls_target_the_public_json_and_rss_endpoints() {
+        assert_eq!(
+            listing_json_url("Deadlock"),
+            "https://www.reddit.com/r/Deadlock/new.json?limit=100&raw_json=1"
+        );
+        assert_eq!(
+            listing_rss_url("Deadlock"),
+            "https://www.reddit.com/r/Deadlock/new/.rss"
+        );
+        assert_eq!(
+            thread_json_url("Deadlock", "1f2abc9"),
+            "https://www.reddit.com/r/Deadlock/comments/1f2abc9.json?raw_json=1"
+        );
+        assert_eq!(
+            thread_rss_url("Deadlock", "1f2abc9"),
+            "https://www.reddit.com/r/Deadlock/comments/1f2abc9.rss"
+        );
+    }
+
+    #[test]
+    fn created_utc_becomes_rfc3339_utc() {
+        assert_eq!(epoch_to_rfc3339(0.0), "1970-01-01T00:00:00Z");
+        assert_eq!(
+            epoch_to_rfc3339(1_000_000_000.0),
+            "2001-09-09T01:46:40Z"
+        );
+        assert_eq!(
+            epoch_to_rfc3339(1_725_700_100.9),
+            "2024-09-07T09:08:20Z"
         );
     }
 }

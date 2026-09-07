@@ -27,6 +27,7 @@ pub use deadlock_api::{
 pub use deadlock_data::{pull_deadlock_data, PullDeadlockDataOptions};
 pub use error::{Result, SourcesError};
 pub use forum::{pull_forum, PullForumOptions};
+pub use reddit::{pull_reddit, PullRedditOptions};
 pub use google_sheet::{
     discover_sheet_tabs, pull_sheet, refresh_sheet, sheet_csv_url, sheet_pubhtml_url,
     PullSheetOptions, RefreshSheetOptions, SheetTab,
