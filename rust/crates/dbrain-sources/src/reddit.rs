@@ -126,7 +126,7 @@ pub(crate) fn parse_listing_rss(xml: &str) -> Result<Vec<ListingThread>> {
             continue;
         };
         threads.push(ListingThread {
-            subreddit: DEFAULT_SUBREDDIT.to_string(),
+            subreddit: subreddit_from_permalink(&link),
             thread_id,
             title,
             author: entry_author(&entry),
@@ -175,31 +175,30 @@ pub(crate) fn parse_thread_rss(xml: &str) -> Result<Option<RssThread>> {
         .descendants()
         .filter(|node| node.has_tag_name("entry"))
         .collect::<Vec<_>>();
-    let Some(first) = entries.first() else {
-        return Ok(None);
-    };
-    let Some(link) = link_href(first) else {
-        return Ok(None);
-    };
-    let Some(thread_id) = thread_id_from_permalink(&link) else {
-        return Ok(None);
-    };
+    let mut submission: Option<(&roxmltree::Node, String, String)> = None;
     let mut comments = Vec::new();
-    for entry in entries.iter().skip(1) {
-        let Some(entry_link) = link_href(entry) else {
+    for entry in entries.iter() {
+        let Some(link) = link_href(entry) else {
             continue;
         };
-        let Some(comment_id) = last_path_segment(&entry_link) else {
+        let Some((thread_id, comment_id)) = split_reddit_permalink(&link) else {
             continue;
         };
-        comments.push(RssComment {
-            comment_id,
-            author: entry_author(entry),
-            content: html_to_text(child_text(entry, "content").unwrap_or_default()),
-            updated: child_text(entry, "updated").map(ToString::to_string),
-            permalink: Some(permalink_url(&entry_link)),
-        });
+        match comment_id {
+            Some(comment_id) => comments.push(RssComment {
+                comment_id,
+                author: entry_author(entry),
+                content: html_to_text(child_text(entry, "content").unwrap_or_default()),
+                updated: child_text(entry, "updated").map(ToString::to_string),
+                permalink: Some(permalink_url(&link)),
+            }),
+            None if submission.is_none() => submission = Some((entry, thread_id, link)),
+            None => continue,
+        }
     }
+    let Some((first, thread_id, link)) = submission else {
+        return Ok(None);
+    };
     Ok(Some(RssThread {
         subreddit: subreddit_from_permalink(&link),
         thread_id,
@@ -215,20 +214,28 @@ pub(crate) fn parse_thread_rss(xml: &str) -> Result<Option<RssThread>> {
 }
 
 pub(crate) fn thread_id_from_permalink(url: &str) -> Option<String> {
-    let path = url
+    split_reddit_permalink(url).map(|(thread_id, _)| thread_id)
+}
+
+fn split_reddit_permalink(link: &str) -> Option<(String, Option<String>)> {
+    let path = link
         .split_once("://")
         .and_then(|(_, rest)| rest.split_once('/').map(|(_, path)| path))
-        .unwrap_or(url)
+        .unwrap_or(link)
         .split(['?', '#'])
         .next()?
         .trim_end_matches('/');
-    let segments = path.split('/').collect::<Vec<_>>();
+    let segments = path
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>();
     let comments_index = segments.iter().position(|segment| *segment == "comments")?;
     let thread_id = segments.get(comments_index + 1)?;
     if thread_id.is_empty() || !thread_id.chars().all(|ch| ch.is_ascii_alphanumeric()) {
         return None;
     }
-    Some((*thread_id).to_string())
+    let comment_id = segments.get(comments_index + 3).map(ToString::to_string);
+    Some(((*thread_id).to_string(), comment_id))
 }
 
 fn listing_thread_from_data(data: &Value) -> Option<ListingThread> {
@@ -304,17 +311,6 @@ fn subreddit_from_permalink(url: &str) -> String {
         }
     }
     DEFAULT_SUBREDDIT.to_string()
-}
-
-fn last_path_segment(url: &str) -> Option<String> {
-    let path = url
-        .split_once("://")
-        .and_then(|(_, rest)| rest.split_once('/').map(|(_, path)| path))
-        .unwrap_or(url)
-        .split(['?', '#'])
-        .next()?
-        .trim_end_matches('/');
-    path.rsplit('/').next().map(ToString::to_string)
 }
 
 fn parse_json(json: &str, context: &str) -> Result<Value> {
@@ -509,21 +505,22 @@ async fn discover_threads(
     let json_url = listing_json_url(subreddit);
     if let Ok(response) = http.get(&json_url, http_options(options, Duration::from_secs(30))) {
         let body = response.text();
-        let threads = parse_listing(&body)?;
-        if !threads.is_empty() {
-            store_listing_document(
-                store,
-                &format!("listing:{subreddit}"),
-                &json_url,
-                "application/json",
-                "json",
-                &body,
-            )
-            .await?;
-            if !response.from_cache {
-                sleep_delay(options.delay_seconds);
+        if let Ok(threads) = parse_listing(&body) {
+            if !threads.is_empty() {
+                store_listing_document(
+                    store,
+                    &format!("listing:{subreddit}"),
+                    &json_url,
+                    "application/json",
+                    "json",
+                    &body,
+                )
+                .await?;
+                if !response.from_cache {
+                    sleep_delay(options.delay_seconds);
+                }
+                return Ok(threads);
             }
-            return Ok(threads);
         }
     }
 
@@ -850,7 +847,11 @@ fn thread_rss_url(subreddit: &str, thread_id: &str) -> String {
 
 fn http_options(options: &PullRedditOptions, timeout: Duration) -> HttpGetOptions {
     HttpGetOptions {
-        cache_ttl_seconds: Some(options.cache_ttl_seconds),
+        cache_ttl_seconds: Some(if options.refresh_existing {
+            0
+        } else {
+            options.cache_ttl_seconds
+        }),
         timeout,
         ..HttpGetOptions::default()
     }
@@ -1105,6 +1106,7 @@ mod tests {
         assert_eq!(threads.len(), 1);
         let thread = &threads[0];
         assert_eq!(thread.thread_id, "1f2abc9");
+        assert_eq!(thread.subreddit, "Deadlock");
         assert_eq!(thread.title, "Vyper feels weak after patch");
         assert_eq!(thread.author.as_deref(), Some("lane_goblin"));
         assert_eq!(
@@ -1112,6 +1114,65 @@ mod tests {
             "https://www.reddit.com/r/Deadlock/comments/1f2abc9/vyper_feels_weak_after_patch/"
         );
         assert_eq!(thread.selftext, "Winrate dropped hard.");
+    }
+
+    #[test]
+    fn thread_rss_without_submission_entry_is_rejected() {
+        let comments_only = r#"<?xml version="1.0" encoding="UTF-8"?>
+        <feed xmlns="http://www.w3.org/2005/Atom">
+          <entry>
+            <title>Comment by /u/yoshi</title>
+            <link href="https://www.reddit.com/r/Deadlock/comments/1f2abc9/vyper_feels_weak_after_patch/lmroot1/"/>
+            <author><name>/u/yoshi</name></author>
+            <content type="html">&lt;div class="md"&gt;&lt;p&gt;We are looking into it.&lt;/p&gt;&lt;/div&gt;</content>
+          </entry>
+        </feed>"#;
+        let parsed = parse_thread_rss(comments_only).expect("parse thread rss");
+        assert!(parsed.is_none());
+    }
+
+    #[test]
+    fn thread_rss_keeps_comments_that_precede_the_submission_entry() {
+        let comment_first = r#"<?xml version="1.0" encoding="UTF-8"?>
+        <feed xmlns="http://www.w3.org/2005/Atom">
+          <entry>
+            <title>Comment by /u/yoshi</title>
+            <link href="https://www.reddit.com/r/Deadlock/comments/1f2abc9/vyper_feels_weak_after_patch/lmroot1/"/>
+            <author><name>/u/yoshi</name></author>
+            <content type="html">&lt;div class="md"&gt;&lt;p&gt;We are looking into it.&lt;/p&gt;&lt;/div&gt;</content>
+            <updated>2024-09-07T08:40:00+00:00</updated>
+          </entry>
+          <entry>
+            <title>Vyper feels weak after patch</title>
+            <link href="https://www.reddit.com/r/Deadlock/comments/1f2abc9/vyper_feels_weak_after_patch/"/>
+            <author><name>/u/lane_goblin</name></author>
+            <content type="html">&lt;div class="md"&gt;&lt;p&gt;Winrate dropped hard.&lt;/p&gt;&lt;/div&gt;</content>
+            <updated>2024-09-07T08:26:40+00:00</updated>
+          </entry>
+        </feed>"#;
+        let parsed = parse_thread_rss(comment_first)
+            .expect("parse thread rss")
+            .expect("thread present");
+        assert_eq!(parsed.thread_id, "1f2abc9");
+        assert_eq!(parsed.author.as_deref(), Some("lane_goblin"));
+        assert_eq!(parsed.content, "Winrate dropped hard.");
+        assert_eq!(parsed.comments.len(), 1);
+        assert_eq!(parsed.comments[0].comment_id, "lmroot1");
+        assert_eq!(parsed.comments[0].author.as_deref(), Some("yoshi"));
+    }
+
+    #[test]
+    fn refresh_existing_bypasses_the_http_cache() {
+        let mut options = PullRedditOptions::default();
+        assert_eq!(
+            http_options(&options, Duration::from_secs(30)).cache_ttl_seconds,
+            Some(86_400)
+        );
+        options.refresh_existing = true;
+        assert_eq!(
+            http_options(&options, Duration::from_secs(30)).cache_ttl_seconds,
+            Some(0)
+        );
     }
 
     fn thread_rss() -> String {
