@@ -103,7 +103,8 @@ deadlock-brain pull reddit --limit 25 --delay-seconds 2
 
 Weitere Subreddits lassen sich mit `--subreddit` (mehrfach angebbar) einziehen.
 Bereits gespeicherte Thread-IDs werden standardmäßig übersprungen; mit
-`--refresh-existing` lassen sich vorhandene Threads gezielt erneut abrufen.
+`--refresh-existing` lassen sich vorhandene Threads gezielt erneut abrufen,
+wobei auch der lokale HTTP-Cache umgangen wird.
 
 Der Import schreibt nichts auf Reddit: kein Posten, Voten oder Kommentieren.
 Bei 403/429 oder Netzproblemen wird der betroffene Thread übersprungen und in

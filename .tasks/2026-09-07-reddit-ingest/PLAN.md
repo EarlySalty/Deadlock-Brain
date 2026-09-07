@@ -54,3 +54,11 @@ Stop-Regel: Workspace-weite fmt-Orgie, ungefasste Dateien.
 BLOCKING beheben, dann fertig melden mit Kritiker-Wortlaut.
 
 Nicht in diesem Slice: Merge nach main, Deploy, Live-Cron.
+
+## Status
+
+- Milestone 1 — erledigt, Commit c4b73c3. `SQLX_OFFLINE=1 cargo test -p dbrain-sources reddit::` grün (5 Parser-Tests an Listing-JSON, Thread-JSON inkl. kind=more-Skip, Atom-RSS, Permalink-Verwerfen).
+- Milestone 2 — erledigt, Commit f68a55e. 11 Tests grün: Delay-Guard, Skip-existing-Matrix, `thread:{id}`-External-ID, URL-Bau JSON/RSS, Default-Subreddit, RFC3339-Zeit. Fail-soft pro Thread, RSS-Fallback bei Listing und Thread.
+- Milestone 3 — erledigt, Commit 56177f8. Forum-Rebuild-DELETE source-scoped (`metadata->>'ingest_source'` fehlt oder playdeadlock_forum), Reddit-Rebuild löscht nur reddit; Tests auf Hash-Eingabe `reddit|`, ingest_source-Metadaten, AutoModerator-Skip, Valve-Flair.
+- Milestone 4 — erledigt, Commit 1b06efa. CLI `pull reddit` / `parse reddit-claims` verdrahtet, README-Abschnitt analog Forum. Validierung: `SQLX_OFFLINE=1 cargo test -p dbrain-sources -p dbrain-normalize -p deadlock-brain --bin deadlock-brain` grün (52/12/38), Clippy `-D warnings` auf allen drei Crates clean.
+- Milestone 5 — erledigt. Kritiker `gate_hook.py --review --base main --head HEAD`: ALLOW, keine BLOCKING-Funde, sechs NITs. Fünf NITs in derselben Runde behoben (RSS-Fallback auch bei 200 mit unlesbarem Body, Submission-/Kommentar-Klassifikation im Thread-RSS über Permalink-Segmente statt Positionsannahme, Subreddit im Listing-RSS aus dem Permalink, `--refresh-existing` umgeht den HTTP-Cache via TTL 0, Forum-`claims_total` gescoped). Verbleibender NIT: `is_developer` stützt sich auf das nutzergesetzte `author_flair_text` — das ist laut Contract wörtlich vorgeschrieben („Reddit-Unterscheidung über author_flair/user_title analog Valve-Developer“); Live-Check der Flair-Vergabe in r/Deadlock war ohne Reddit-Zugriff nicht Teil des Slices. Final: 55 (sources) / 13 (normalize) / 38 (CLI) Tests grün, Clippy `-D warnings` clean.
