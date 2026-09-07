@@ -853,6 +853,7 @@ fn http_options(options: &PullRedditOptions, timeout: Duration) -> HttpGetOption
             options.cache_ttl_seconds
         }),
         timeout,
+        allow_forbidden: true,
         ..HttpGetOptions::default()
     }
 }
@@ -1173,6 +1174,7 @@ mod tests {
             http_options(&options, Duration::from_secs(30)).cache_ttl_seconds,
             Some(0)
         );
+        assert!(http_options(&options, Duration::from_secs(30)).allow_forbidden);
     }
 
     fn thread_rss() -> String {

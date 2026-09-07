@@ -36,6 +36,7 @@ pub struct HttpGetOptions {
     pub timeout: Duration,
     pub headers: Vec<(String, String)>,
     pub retry: RetryPolicy,
+    pub allow_forbidden: bool,
 }
 
 impl Default for HttpGetOptions {
@@ -45,6 +46,7 @@ impl Default for HttpGetOptions {
             timeout: Duration::from_secs(30),
             headers: Vec::new(),
             retry: RetryPolicy::default(),
+            allow_forbidden: false,
         }
     }
 }
@@ -114,7 +116,9 @@ impl HttpClient {
 
         let result =
             run_on_http_thread(|| self.fetch_with_retry(url, &options, || self.client.get(url)))?;
-        self.write_cache(&result)?;
+        if !options.allow_forbidden {
+            self.write_cache(&result)?;
+        }
         Ok(result)
     }
 
@@ -214,6 +218,14 @@ impl HttpClient {
             .to_string();
         let content = response.bytes()?.to_vec();
         if !status.is_success() {
+            if options.allow_forbidden && status == StatusCode::FORBIDDEN {
+                return Ok(HttpResult {
+                    url: url.to_string(),
+                    content,
+                    from_cache: false,
+                    content_type,
+                });
+            }
             return Err(CoreError::HttpStatus {
                 status,
                 url: url.to_string(),
@@ -350,6 +362,39 @@ mod tests {
     #[test]
     fn rate_limits_are_retryable_server_responses() {
         assert!(should_retry_status(StatusCode::TOO_MANY_REQUESTS));
+    }
+
+    #[test]
+    fn allow_forbidden_returns_the_body_on_403() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/feed", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 1024];
+            assert!(stream.read(&mut request).unwrap() > 0);
+            let body = "<feed xmlns=\"http://www.w3.org/2005/Atom\"><title>r/Deadlock</title></feed>";
+            write!(
+                stream,
+                "HTTP/1.1 403 Forbidden\r\nContent-Type: application/atom+xml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .unwrap();
+        });
+        let cache_dir = tempfile::tempdir().unwrap();
+        let client = HttpClient::new("deadlock-brain-core-test", cache_dir.path()).unwrap();
+        let result = client
+            .get(
+                &url,
+                HttpGetOptions {
+                    allow_forbidden: true,
+                    cache_ttl_seconds: None,
+                    ..HttpGetOptions::default()
+                },
+            )
+            .unwrap();
+        server.join().unwrap();
+        assert!(result.text().contains("r/Deadlock"));
+        assert!(std::fs::read_dir(cache_dir.path()).unwrap().next().is_none());
     }
 
     #[test]

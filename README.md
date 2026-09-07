@@ -108,9 +108,11 @@ wobei auch der lokale HTTP-Cache umgangen wird.
 
 Der Import schreibt nichts auf Reddit: kein Posten, Voten oder Kommentieren.
 Bei 403/429 oder Netzproblemen wird der betroffene Thread übersprungen und in
-der Summary gezählt, der Rest läuft weiter. Antworten dem JSON-Endpunkt nicht,
-weicht der Import auf die öffentlichen RSS-Feeds aus; tiefe Kommentar-Bäume,
-die nur über `kind=more` erreichbar wären, werden nicht nachgeladen.
+der Summary gezählt, der Rest läuft weiter. Datacenter-IPs bekommen von Reddit
+oft HTTP 403; wenn der Body trotzdem JSON oder Atom ist, wird er gelesen.
+Antwortet der JSON-Endpunkt nicht, weicht der Import auf die öffentlichen
+RSS-Feeds aus; tiefe Kommentar-Bäume, die nur über `kind=more` erreichbar
+wären, werden nicht nachgeladen.
 
 Aus den gespeicherten Reddit-Posts kann danach eine historische Claim-Schicht
 gebaut werden:
