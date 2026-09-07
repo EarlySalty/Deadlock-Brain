@@ -89,6 +89,40 @@ Gültigkeitsstatus, gelten aber nicht als aktuelle Spieldaten. Alte Reports,
 Bugfix-Antworten und Exploit-Risiken bleiben dadurch nachlesbar, ohne aktuelle
 API-/Patch-/Sheet-Daten zu überschreiben oder Default-Antworten zu vergiften.
 
+## Reddit schonend importieren
+
+Öffentliche Threads aus `r/Deadlock` (oder weiteren Subreddits) können in kleinen
+Wellen importiert werden. Der Import liest nur öffentliche JSON-Endpunkte ohne
+Login, speichert die Thread-Daten als Rohquelle und legt zusätzlich
+strukturierte Thread- und Kommentar-Snapshots ab:
+
+```bash
+cd /home/naniadm/Documents/Deadlock-Brain
+deadlock-brain pull reddit --limit 25 --delay-seconds 2
+```
+
+Weitere Subreddits lassen sich mit `--subreddit` (mehrfach angebbar) einziehen.
+Bereits gespeicherte Thread-IDs werden standardmäßig übersprungen; mit
+`--refresh-existing` lassen sich vorhandene Threads gezielt erneut abrufen.
+
+Der Import schreibt nichts auf Reddit: kein Posten, Voten oder Kommentieren.
+Bei 403/429 oder Netzproblemen wird der betroffene Thread übersprungen und in
+der Summary gezählt, der Rest läuft weiter. Antworten dem JSON-Endpunkt nicht,
+weicht der Import auf die öffentlichen RSS-Feeds aus; tiefe Kommentar-Bäume,
+die nur über `kind=more` erreichbar wären, werden nicht nachgeladen.
+
+Aus den gespeicherten Reddit-Posts kann danach eine historische Claim-Schicht
+gebaut werden:
+
+```bash
+deadlock-brain parse reddit-claims --rebuild
+```
+
+Diese Claims sind wie die Forum-Claims quarantined: Jeder Claim trägt
+`ingest_source=reddit` in den Metadaten und einen konkreten Permalink, gilt
+aber nicht als aktuelle Spieldaten. Ein Rebuild löscht ausschließlich
+Reddit-Zeilen und lässt die Forum-Claims unangetastet.
+
 ## Wiki bewusst schonend nutzen
 
 Das Wiki wird nicht automatisch gecrawlt. Einzelne Seiten koennen gezielt gezogen

@@ -626,6 +626,8 @@ enum PullCommands {
     Patchnotes(PullPatchnotesArgs),
     #[command(about = "Zieht oeffentliche Threads aus dem Deadlock-Forum anhand der Sitemap.")]
     Forum(PullForumArgs),
+    #[command(about = "Zieht öffentliche Threads und Kommentare aus Reddit-Subreddits.")]
+    Reddit(PullRedditArgs),
     #[command(about = "Zieht gezielt Statlocker WPA-/Leaderboard-Daten.")]
     Statlocker(Box<PullStatlockerArgs>),
 }
@@ -688,6 +690,30 @@ struct PullForumArgs {
     )]
     limit: usize,
     #[arg(long = "delay-seconds", default_value_t = 1.0)]
+    delay_seconds: f64,
+    #[arg(long = "cache-ttl-seconds", default_value_t = 86_400)]
+    cache_ttl_seconds: u64,
+    #[arg(
+        long = "refresh-existing",
+        help = "Bereits gespeicherte Thread-IDs erneut abrufen."
+    )]
+    refresh_existing: bool,
+}
+
+#[derive(Debug, Args)]
+struct PullRedditArgs {
+    #[arg(
+        long = "subreddit",
+        help = "Mehrfach nutzbar. Default: Deadlock."
+    )]
+    subreddit: Vec<String>,
+    #[arg(
+        long,
+        default_value_t = 25,
+        help = "Limit pro Subreddit; 0 bedeutet ohne Limit."
+    )]
+    limit: usize,
+    #[arg(long = "delay-seconds", default_value_t = 2.0)]
     delay_seconds: f64,
     #[arg(long = "cache-ttl-seconds", default_value_t = 86_400)]
     cache_ttl_seconds: u64,
@@ -841,6 +867,11 @@ enum ParseCommands {
         about = "Parst Forum-Posts zu historischen, quarantined Claims."
     )]
     ForumClaims(ParseForumClaimsArgs),
+    #[command(
+        name = "reddit-claims",
+        about = "Parst Reddit-Posts zu historischen, quarantined Claims."
+    )]
+    RedditClaims(ParseRedditClaimsArgs),
 }
 
 #[derive(Debug, Args)]
@@ -852,6 +883,12 @@ struct ParsePatchnotesArgs {
 #[derive(Debug, Args)]
 struct ParseForumClaimsArgs {
     #[arg(long, help = "Loescht forum_claims vorher neu.")]
+    rebuild: bool,
+}
+
+#[derive(Debug, Args)]
+struct ParseRedditClaimsArgs {
+    #[arg(long, help = "Löscht nur Reddit-Claims (ingest_source=reddit) vorher neu.")]
     rebuild: bool,
 }
 
@@ -1825,6 +1862,21 @@ async fn run_pull(pool: &PgPool, settings: &Settings, source: PullCommands) -> R
             .await?;
             print_json(&result)
         }
+        PullCommands::Reddit(args) => {
+            let result = dbrain_sources::pull_reddit(
+                &settings.raw_dir,
+                &http,
+                dbrain_sources::PullRedditOptions {
+                    subreddits: args.subreddit,
+                    limit: args.limit,
+                    delay_seconds: args.delay_seconds,
+                    cache_ttl_seconds: args.cache_ttl_seconds,
+                    refresh_existing: args.refresh_existing,
+                },
+            )
+            .await?;
+            print_json(&result)
+        }
         PullCommands::Statlocker(args) => {
             let result = dbrain_sources::pull_statlocker(
                 &settings.raw_dir,
@@ -1902,6 +1954,9 @@ async fn run_parse(pool: &PgPool, target: ParseCommands) -> Result<()> {
         }
         ParseCommands::ForumClaims(args) => {
             print_json(&dbrain_normalize::parse_forum_claims(pool, args.rebuild).await?)
+        }
+        ParseCommands::RedditClaims(args) => {
+            print_json(&dbrain_normalize::parse_reddit_claims(pool, args.rebuild).await?)
         }
     }
 }
@@ -3173,6 +3228,56 @@ mod tests {
     #[test]
     fn clap_command_definition_is_valid() {
         Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn parses_pull_reddit_with_repeated_subreddits_and_gentle_defaults() {
+        let cli = Cli::try_parse_from([
+            "deadlock-brain",
+            "pull",
+            "reddit",
+            "--subreddit",
+            "DeadlockTheGame",
+            "--subreddit",
+            "DeadlockMemes",
+            "--limit",
+            "5",
+        ])
+        .expect("parse cli");
+
+        let Commands::Pull {
+            source: PullCommands::Reddit(args),
+        } = cli.command
+        else {
+            panic!("expected pull reddit");
+        };
+        assert_eq!(
+            args.subreddit,
+            vec!["DeadlockTheGame".to_string(), "DeadlockMemes".to_string()]
+        );
+        assert_eq!(args.limit, 5);
+        assert_eq!(args.delay_seconds, 2.0);
+        assert_eq!(args.cache_ttl_seconds, 86_400);
+        assert!(!args.refresh_existing);
+    }
+
+    #[test]
+    fn parses_parse_reddit_claims_rebuild_flag() {
+        let cli = Cli::try_parse_from([
+            "deadlock-brain",
+            "parse",
+            "reddit-claims",
+            "--rebuild",
+        ])
+        .expect("parse cli");
+
+        let Commands::Parse {
+            target: ParseCommands::RedditClaims(args),
+        } = cli.command
+        else {
+            panic!("expected parse reddit-claims");
+        };
+        assert!(args.rebuild);
     }
 
     #[test]
