@@ -10,6 +10,7 @@ use crate::{
 
 const FORUM_SOURCE: &str = "playdeadlock_forum";
 const FORUM_REBUILD_SQL: &str = "DELETE FROM brain.forum_claims WHERE metadata->>'ingest_source' = $1 OR metadata->>'ingest_source' IS NULL";
+const FORUM_COUNT_SQL: &str = "SELECT COUNT(*)::int8 FROM brain.forum_claims WHERE metadata->>'ingest_source' = $1 OR metadata->>'ingest_source' IS NULL";
 
 #[derive(Debug)]
 struct ForumPost {
@@ -151,7 +152,8 @@ pub async fn parse_forum_claims(pool: &PgPool, rebuild: bool) -> Result<Value> {
         }
     }
 
-    let total_claims: i64 = sqlx::query_scalar("SELECT COUNT(*)::int8 FROM brain.forum_claims")
+    let total_claims: i64 = sqlx::query_scalar(FORUM_COUNT_SQL)
+        .bind(FORUM_SOURCE)
         .fetch_one(pool)
         .await?;
 
@@ -470,5 +472,12 @@ mod tests {
         assert!(FORUM_REBUILD_SQL.contains("metadata->>'ingest_source' = $1"));
         assert!(FORUM_REBUILD_SQL.contains("IS NULL"));
         assert_ne!(FORUM_REBUILD_SQL.trim(), "DELETE FROM brain.forum_claims");
+    }
+
+    #[test]
+    fn claims_count_is_scoped_to_forum_rows() {
+        assert!(FORUM_COUNT_SQL.starts_with("SELECT COUNT(*)::int8 FROM brain.forum_claims WHERE"));
+        assert!(FORUM_COUNT_SQL.contains("metadata->>'ingest_source' = $1"));
+        assert!(FORUM_COUNT_SQL.contains("IS NULL"));
     }
 }
