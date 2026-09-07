@@ -11,6 +11,7 @@ mod forum_claims;
 mod legacy;
 mod lineage;
 mod patch;
+mod reddit_claims;
 mod resolve_gaps;
 mod sheet_stats;
 mod sheet_tabs;
@@ -34,6 +35,10 @@ pub async fn normalize_entities(pool: &PgPool, rebuild: bool) -> Result<Value> {
 
 pub async fn parse_forum_claims(pool: &PgPool, rebuild: bool) -> Result<Value> {
     forum_claims::parse_forum_claims(pool, rebuild).await
+}
+
+pub async fn parse_reddit_claims(pool: &PgPool, rebuild: bool) -> Result<Value> {
+    reddit_claims::parse_reddit_claims(pool, rebuild).await
 }
 
 pub async fn normalize_sheet_stats(pool: &PgPool, rebuild: bool) -> Result<Value> {

@@ -8,11 +8,13 @@ use crate::{
     Result,
 };
 
-const FORUM_SOURCE: &str = "playdeadlock_forum";
-const FORUM_REBUILD_SQL: &str = "DELETE FROM brain.forum_claims WHERE metadata->>'ingest_source' = $1 OR metadata->>'ingest_source' IS NULL";
+pub(crate) const REDDIT_SOURCE: &str = "reddit";
+const REDDIT_BASE_URL: &str = "https://www.reddit.com";
+const REDDIT_REBUILD_SQL: &str =
+    "DELETE FROM brain.forum_claims WHERE metadata->>'ingest_source' = $1";
 
 #[derive(Debug)]
-struct ForumPost {
+struct RedditPost {
     snapshot_id: i64,
     legacy_post_id: i64,
     thread_id: String,
@@ -44,17 +46,18 @@ struct ClaimCandidate {
     evidence_quote: String,
 }
 
-pub async fn parse_forum_claims(pool: &PgPool, rebuild: bool) -> Result<Value> {
+pub async fn parse_reddit_claims(pool: &PgPool, rebuild: bool) -> Result<Value> {
     if rebuild {
-        sqlx::query(FORUM_REBUILD_SQL)
-            .bind(FORUM_SOURCE)
+        sqlx::query(REDDIT_REBUILD_SQL)
+            .bind(REDDIT_SOURCE)
             .execute(pool)
             .await?;
     }
 
     let entity_aliases = load_entity_aliases(pool).await?;
-    let posts = load_forum_posts(pool).await?;
+    let posts = load_reddit_posts(pool).await?;
     let mut posts_seen = 0usize;
+    let mut posts_skipped_auto_moderator = 0usize;
     let mut inserted = 0usize;
     let mut skipped_duplicates = 0usize;
     let mut by_type = BTreeMap::<String, usize>::new();
@@ -62,6 +65,10 @@ pub async fn parse_forum_claims(pool: &PgPool, rebuild: bool) -> Result<Value> {
 
     for post in posts {
         posts_seen += 1;
+        if is_auto_moderator(post.author.as_deref().unwrap_or_default()) {
+            posts_skipped_auto_moderator += 1;
+            continue;
+        }
         let mentioned_entities = detect_entities(&entity_aliases, &post);
         let candidates = claim_candidates(&post);
         for (claim_index, candidate) in candidates.into_iter().enumerate() {
@@ -76,29 +83,20 @@ pub async fn parse_forum_claims(pool: &PgPool, rebuild: bool) -> Result<Value> {
                 })
                 .unwrap_or((None, None));
             let source_references = json!([{
-                "source": FORUM_SOURCE,
+                "source": REDDIT_SOURCE,
                 "url": source_url,
                 "thread_id": post.thread_id,
                 "post_id": post.post_id,
                 "thread_title": post.thread_title,
                 "posted_at": post.posted_at,
             }]);
-            let metadata = json!({
-                "mentioned_entities": mentioned_entities.iter().map(|entity| json!({
-                    "entity_type": entity.entity_type,
-                    "canonical_name": entity.canonical_name,
-                    "matched_alias": entity.alias,
-                })).collect::<Vec<_>>(),
-                "storage_policy": {
-                    "historical_only": true,
-                    "may_override_current_game_data": false,
-                    "default_retrieval": "excluded_until_explicitly_requested"
-                }
-            });
-            let claim_hash = stable_hash_text(&format!(
-                "{FORUM_SOURCE}|{}|{}|{}|{}",
-                post.post_id, claim_index, candidate.claim_type, candidate.claim_text
-            ));
+            let metadata = claim_metadata(&mentioned_entities);
+            let claim_hash = reddit_claim_hash(
+                &post.post_id,
+                claim_index,
+                candidate.claim_type,
+                &candidate.claim_text,
+            );
             let result = sqlx::query(
                 r#"
                 INSERT INTO brain.forum_claims(
@@ -151,13 +149,17 @@ pub async fn parse_forum_claims(pool: &PgPool, rebuild: bool) -> Result<Value> {
         }
     }
 
-    let total_claims: i64 = sqlx::query_scalar("SELECT COUNT(*)::int8 FROM brain.forum_claims")
-        .fetch_one(pool)
-        .await?;
+    let total_claims: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::int8 FROM brain.forum_claims WHERE metadata->>'ingest_source' = $1",
+    )
+    .bind(REDDIT_SOURCE)
+    .fetch_one(pool)
+    .await?;
 
     Ok(json!({
-        "source": FORUM_SOURCE,
+        "source": REDDIT_SOURCE,
         "posts_seen": posts_seen,
+        "posts_skipped_auto_moderator": posts_skipped_auto_moderator,
         "claims_inserted": inserted,
         "claims_skipped_duplicates": skipped_duplicates,
         "claims_total": total_claims,
@@ -168,16 +170,16 @@ pub async fn parse_forum_claims(pool: &PgPool, rebuild: bool) -> Result<Value> {
     }))
 }
 
-async fn load_forum_posts(pool: &PgPool) -> Result<Vec<ForumPost>> {
+async fn load_reddit_posts(pool: &PgPool) -> Result<Vec<RedditPost>> {
     let rows = sqlx::query(
         r#"
         SELECT id, COALESCE(legacy_sqlite_id, id) AS legacy_post_id, payload::text AS payload_json
         FROM brain.entity_snapshots
-        WHERE source=$1 AND entity_type='forum_post'
-        ORDER BY CAST(external_id AS INTEGER), id
+        WHERE source=$1 AND entity_type IN ('reddit_thread', 'reddit_post')
+        ORDER BY (payload->>'created_utc')::double precision NULLS LAST, id
         "#,
     )
-    .bind(FORUM_SOURCE)
+    .bind(REDDIT_SOURCE)
     .fetch_all(pool)
     .await?;
 
@@ -187,17 +189,20 @@ async fn load_forum_posts(pool: &PgPool) -> Result<Vec<ForumPost>> {
         let legacy_post_id: i64 = row.try_get("legacy_post_id")?;
         let payload_json: String = row.try_get("payload_json")?;
         let payload: Value = serde_json::from_str(&payload_json)?;
-        posts.push(ForumPost {
+        posts.push(RedditPost {
             snapshot_id,
             legacy_post_id,
             thread_id: value_string(payload.get("thread_id")).unwrap_or_default(),
-            post_id: value_string(payload.get("post_id")).unwrap_or_default(),
-            thread_title: value_string(payload.get("thread_title")),
-            thread_url: value_string(payload.get("thread_url"))
-                .or_else(|| value_string(payload.get("canonical_thread_url"))),
-            posted_at: value_string(payload.get("datetime")),
+            post_id: value_string(payload.get("post_id"))
+                .or_else(|| value_string(payload.get("thread_id")))
+                .unwrap_or_default(),
+            thread_title: value_string(payload.get("thread_title"))
+                .or_else(|| value_string(payload.get("title"))),
+            thread_url: value_string(payload.get("permalink"))
+                .or_else(|| value_string(payload.get("thread_permalink"))),
+            posted_at: value_string(payload.get("posted_at")),
             author: value_string(payload.get("author")),
-            author_role: value_string(payload.get("user_title")),
+            author_role: value_string(payload.get("author_flair")),
             text: value_string(payload.get("text")).unwrap_or_default(),
         });
     }
@@ -231,7 +236,7 @@ async fn load_entity_aliases(pool: &PgPool) -> Result<Vec<EntityHit>> {
     Ok(aliases)
 }
 
-fn detect_entities(entity_aliases: &[EntityHit], post: &ForumPost) -> Vec<EntityHit> {
+fn detect_entities(entity_aliases: &[EntityHit], post: &RedditPost) -> Vec<EntityHit> {
     let haystack = normalize_scan_text(&format!(
         "{} {}",
         post.thread_title.as_deref().unwrap_or_default(),
@@ -258,8 +263,8 @@ fn detect_entities(entity_aliases: &[EntityHit], post: &ForumPost) -> Vec<Entity
     hits
 }
 
-fn claim_candidates(post: &ForumPost) -> Vec<ClaimCandidate> {
-    let title = post.thread_title.as_deref().unwrap_or("Forum thread");
+fn claim_candidates(post: &RedditPost) -> Vec<ClaimCandidate> {
+    let title = post.thread_title.as_deref().unwrap_or("Reddit thread");
     let text = collapse_ws(&post.text);
     let evidence = truncate_chars(&text, 700);
     if evidence.is_empty() && title.trim().is_empty() {
@@ -291,7 +296,7 @@ fn claim_candidates(post: &ForumPost) -> Vec<ClaimCandidate> {
             "historical_unverified",
             0.45,
             vec!["historical_only", "not_current_fact", "exploit_risk"],
-            format!("Historical forum exploit-risk report: {title}. {evidence}"),
+            format!("Historical Reddit exploit-risk report: {title}. {evidence}"),
             evidence,
         )];
     }
@@ -319,7 +324,7 @@ fn claim_candidates(post: &ForumPost) -> Vec<ClaimCandidate> {
             "historical_unverified",
             0.5,
             vec!["historical_only", "not_current_fact"],
-            format!("Historical forum bug report: {title}. {evidence}"),
+            format!("Historical Reddit bug report: {title}. {evidence}"),
             evidence,
         )];
     }
@@ -337,11 +342,11 @@ fn claim_candidates(post: &ForumPost) -> Vec<ClaimCandidate> {
         ],
     ) {
         return vec![community_candidate(
-            "forum_feedback",
+            "reddit_feedback",
             "historical_unverified",
             0.35,
             vec!["historical_only", "not_current_fact"],
-            format!("Historical forum feedback/discussion: {title}. {evidence}"),
+            format!("Historical Reddit feedback/discussion: {title}. {evidence}"),
             evidence,
         )];
     }
@@ -368,7 +373,7 @@ fn developer_candidate(title: &str, evidence: &str) -> ClaimCandidate {
             currentness: "historical_quarantine",
             confidence: 0.85,
             safety_labels: vec!["historical_only", "not_current_fact", "developer_sourced"],
-            claim_text: format!("Developer response indicates the historical forum report was fixed or queued for a fix: {title}. {evidence}"),
+            claim_text: format!("Developer response indicates the historical Reddit report was fixed or queued for a fix: {title}. {evidence}"),
             evidence_quote: evidence.to_string(),
         };
     }
@@ -380,7 +385,7 @@ fn developer_candidate(title: &str, evidence: &str) -> ClaimCandidate {
         currentness: "historical_quarantine",
         confidence: 0.75,
         safety_labels: vec!["historical_only", "not_current_fact", "developer_sourced"],
-        claim_text: format!("Historical developer forum note: {title}. {evidence}"),
+        claim_text: format!("Historical developer Reddit note: {title}. {evidence}"),
         evidence_quote: evidence.to_string(),
     }
 }
@@ -405,18 +410,47 @@ fn community_candidate(
     }
 }
 
-fn source_url(post: &ForumPost) -> String {
-    let thread_url = post
-        .thread_url
-        .as_deref()
-        .unwrap_or("https://forums.playdeadlock.com/");
-    format!("{}/post-{}", thread_url.trim_end_matches('/'), post.post_id)
+fn source_url(post: &RedditPost) -> String {
+    post.thread_url
+        .clone()
+        .unwrap_or_else(|| format!("{REDDIT_BASE_URL}/comments/{}/", post.thread_id))
 }
 
-fn is_developer(post: &ForumPost) -> bool {
+fn claim_metadata(mentioned_entities: &[EntityHit]) -> Value {
+    json!({
+        "ingest_source": REDDIT_SOURCE,
+        "mentioned_entities": mentioned_entities.iter().map(|entity| json!({
+            "entity_type": entity.entity_type,
+            "canonical_name": entity.canonical_name,
+            "matched_alias": entity.alias,
+        })).collect::<Vec<_>>(),
+        "storage_policy": {
+            "historical_only": true,
+            "may_override_current_game_data": false,
+            "default_retrieval": "excluded_until_explicitly_requested"
+        }
+    })
+}
+
+fn reddit_claim_hash(
+    post_id: &str,
+    claim_index: usize,
+    claim_type: &str,
+    claim_text: &str,
+) -> String {
+    stable_hash_text(&format!(
+        "{REDDIT_SOURCE}|{post_id}|{claim_index}|{claim_type}|{claim_text}"
+    ))
+}
+
+fn is_auto_moderator(author: &str) -> bool {
+    author.eq_ignore_ascii_case("AutoModerator")
+}
+
+fn is_developer(post: &RedditPost) -> bool {
     let role = post.author_role.as_deref().unwrap_or_default().to_lowercase();
     let author = post.author.as_deref().unwrap_or_default().to_lowercase();
-    role.contains("valve developer") || author == "valve"
+    role.contains("valve developer") || role == "valve" || author == "valve"
 }
 
 fn has_any(blob: &str, needles: &[&str]) -> bool {
@@ -464,11 +498,88 @@ fn truncate_chars(value: &str, max_chars: usize) -> String {
 mod tests {
     use super::*;
 
+    fn test_post() -> RedditPost {
+        RedditPost {
+            snapshot_id: 1,
+            legacy_post_id: 1,
+            thread_id: "1f2abc9".to_string(),
+            post_id: "lmroot1".to_string(),
+            thread_title: Some("Crash thread".to_string()),
+            thread_url: Some(
+                "https://www.reddit.com/r/Deadlock/comments/1f2abc9/crash_thread/".to_string(),
+            ),
+            posted_at: Some("2024-09-07T09:08:20Z".to_string()),
+            author: Some("lane_goblin".to_string()),
+            author_role: None,
+            text: String::new(),
+        }
+    }
+
     #[test]
-    fn rebuild_delete_is_scoped_to_forum_rows() {
-        assert!(FORUM_REBUILD_SQL.starts_with("DELETE FROM brain.forum_claims WHERE"));
-        assert!(FORUM_REBUILD_SQL.contains("metadata->>'ingest_source' = $1"));
-        assert!(FORUM_REBUILD_SQL.contains("IS NULL"));
-        assert_ne!(FORUM_REBUILD_SQL.trim(), "DELETE FROM brain.forum_claims");
+    fn rebuild_delete_touches_only_reddit_rows() {
+        assert!(REDDIT_REBUILD_SQL.starts_with("DELETE FROM brain.forum_claims WHERE"));
+        assert!(REDDIT_REBUILD_SQL.contains("metadata->>'ingest_source' = $1"));
+        assert!(!REDDIT_REBUILD_SQL.contains("IS NULL"));
+    }
+
+    #[test]
+    fn claim_hash_input_is_reddit_scoped() {
+        assert_eq!(
+            reddit_claim_hash("1f2abc9", 2, "bug_report", "Crash on round start"),
+            stable_hash_text("reddit|1f2abc9|2|bug_report|Crash on round start")
+        );
+        assert_ne!(
+            reddit_claim_hash("1f2abc9", 2, "bug_report", "Crash on round start"),
+            stable_hash_text("playdeadlock_forum|1f2abc9|2|bug_report|Crash on round start")
+        );
+    }
+
+    #[test]
+    fn metadata_marks_ingest_source_and_quarantine_policy() {
+        let metadata = claim_metadata(&[]);
+        assert_eq!(metadata["ingest_source"], "reddit");
+        assert_eq!(metadata["storage_policy"]["historical_only"], true);
+        assert_eq!(
+            metadata["storage_policy"]["may_override_current_game_data"],
+            false
+        );
+        assert_eq!(
+            metadata["storage_policy"]["default_retrieval"],
+            "excluded_until_explicitly_requested"
+        );
+    }
+
+    #[test]
+    fn auto_moderator_is_skipped_case_insensitively() {
+        assert!(is_auto_moderator("AutoModerator"));
+        assert!(is_auto_moderator("automoderator"));
+        assert!(!is_auto_moderator("lane_goblin"));
+    }
+
+    #[test]
+    fn valve_flair_or_author_marks_developer() {
+        let mut post = test_post();
+        post.author_role = Some("Valve".to_string());
+        assert!(is_developer(&post));
+        post.author_role = Some("Valve Developer".to_string());
+        assert!(is_developer(&post));
+        post.author_role = Some("Vyper Main".to_string());
+        assert!(!is_developer(&post));
+        post.author_role = None;
+        post.author = Some("valve".to_string());
+        assert!(is_developer(&post));
+    }
+
+    #[test]
+    fn bug_report_heuristic_stays_quarantined_like_forum() {
+        let mut post = test_post();
+        post.text = "The game crashes every round since patch.".to_string();
+        let candidates = claim_candidates(&post);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].claim_type, "bug_report");
+        assert_eq!(candidates[0].currentness, "historical_quarantine");
+        assert_eq!(candidates[0].source_trust, "community_report");
+        assert_eq!(candidates[0].confidence, 0.5);
+        assert_eq!(source_url(&post), "https://www.reddit.com/r/Deadlock/comments/1f2abc9/crash_thread/");
     }
 }
