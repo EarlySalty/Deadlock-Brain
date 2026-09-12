@@ -25,13 +25,14 @@ Deadlock-Steam-Bot. Pakete in `PAKETE.md`.
 | Review C Runde 1 | 91f509cf | opus48 | keiner (lesend) | keiner | fertig, gesettelt: NACHBESSERN (7 Mängel, 1 blockierend) |
 | Fix C Runde 1 | 874ccb61 | astra | ~/.worktrees/deadlock-brain-c | feat/build-reasoner-c | fertig (631182a), gesettelt |
 | Review C Runde 2 | b2f340f4 | opus48 | keiner (lesend) | keiner | fertig, gesettelt: FREIGABE |
-| D Integration/CLI | 5164e0e2 | luna | ~/.worktrees/deadlock-brain-d | feat/build-reasoner-d (cbfbc98 = main + B(A) + C) | gestartet 2026-09-13 00:10 |
+| D Integration/CLI | 5164e0e2 | luna | ~/.worktrees/deadlock-brain-d | feat/build-reasoner-d (cbfbc98 = main + B(A) + C) | fertig (5f438d2, 7fbb128; FERTIG-D.md, REPORT-D.md im Worktree), gesettelt |
+| Review D Runde 1 | ea69f312 | opus48 | keiner (lesend) | keiner | gestartet 2026-09-13 00:50 |
 | S Steam-Bot Autoren-Scan | 231b6ae6 | luna | ~/.worktrees/steam-bot-autoren-scan | feat/autoren-scan-reaktivieren | fertig (f82c21c, FERTIG-S.md), gesettelt |
 | Review S Runde 1 | 8248611a | opus48 | keiner (lesend) | keiner | fertig, gesettelt: NACHBESSERN (5 Mängel, 2 wichtig) |
 | Fix S Runde 1 | 2884c49a | astra | ~/.worktrees/steam-bot-autoren-scan | feat/autoren-scan-reaktivieren | fertig (102ec83), gesettelt |
 | Review S Runde 2 | 574e5db6 | opus48 | keiner (lesend) | keiner | fertig, gesettelt: FREIGABE; Merge aba7636 in Steam-Bot main, Gate durch, steam-core und steam-core-2 neu gestartet 21:26, drei Autoren in watched_build_authors eingetragen |
 | Fix S Runde 2 (Live) | b144ffdc | astra | ~/.worktrees/steam-bot-autoren-scan-2 | fix/autoren-scan-live | fertig (bc08e23), gesettelt: GC-Suche braucht hero_id, Teil-Tasks je Autor und Build mit 480 s |
-| Review S Runde 3 | aab57db7 | opus48 | keiner (lesend) | keiner | gestartet 2026-09-13 00:35 |
+| Review S Runde 3 | aab57db7 | opus48 | keiner (lesend) | keiner | fertig, gesettelt: FREIGABE; Merge 508ba20, Gate durch, steam-core und steam-core-2 neu gestartet 00:18 (PIDs 1971511/1971512), Live-Beweis: Zyklus plant 13 Autoren und 72 Einheiten in 33 ms, Autoren-Scans ok mit Code 1, Build 779996 v45 in hero_build_sources |
 
 Status-Werte: geplant, gestartet, fertig, gestoppt, gebumpt. Gestoppte oder
 gestorbene Threads bleiben drin und werden nicht wieder aufgenommen.

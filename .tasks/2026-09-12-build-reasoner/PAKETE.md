@@ -63,3 +63,20 @@ Worktrees: `~/.worktrees/deadlock-brain-<paket>`, Branch
 Bei Bump-up oder Kontextverlust hier den Stand nachziehen: erledigte Pakete auf
 "fertig" plus Commit, laufende auf den aktuellen Stand. Jeder Bump-up bleibt
 auf dem bestehenden Worktree-Stand.
+
+Befunde nach dem S-Deploy (2026-09-13):
+11. Der Autoren-Scan läuft live (508ba20): je Autor 38 Helden-Suchen mit
+    Ergebniscode 1, Build 779996 (Version 45, 5 Kategorien) ist in
+    `hero_build_sources`, 1590 Builds gesamt. Nebenbefund: jeder Autoren-Scan
+    liefert dieselben 1522 Builds, der GC filtert nicht nach
+    `author_account_id`. Die Schleife je Autor ist damit 13-fach redundant
+    (rund 2,3 Minuten GC-Verkehr je Autor). Folgeauftrag S3 (klein): einmal je
+    Held suchen, Autoren clientseitig zuordnen, Status je Autor aus dem
+    Ergebnis ableiten.
+12. Paket D (5f438d2, 7fbb128): Backtest gegen den Lightbringer-Seed
+    Kern-Überdeckung 0,158, Reihenfolge-Nähe 0,435, Patch-Wechsel nicht
+    messbar. Ursache laut REPORT-D: `hero_item_stats` für den neuen echten
+    Patch-Tag fehlen (Meta-Stütze 0), Lane-Phase schließt vom Core aus,
+    Zustandsfaktor 0,6 auf Imbue-Items, Core-Cutoff 19. Review D klärt, was
+    Mangel und was Kalibrierung ist; nach dem Deploy erst Sync mit echtem
+    Patch-Tag, dann Backtest wiederholen.
