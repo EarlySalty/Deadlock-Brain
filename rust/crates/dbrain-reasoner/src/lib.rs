@@ -33,6 +33,21 @@ pub use data::{
 };
 pub use types::*;
 
+#[derive(Clone, Copy, Debug)]
+pub struct ReasonerOptions<'a> {
+    pub seed_path: Option<&'a Path>,
+    pub persist: bool,
+}
+
+impl Default for ReasonerOptions<'_> {
+    fn default() -> Self {
+        Self {
+            seed_path: None,
+            persist: true,
+        }
+    }
+}
+
 pub async fn reason_build(ctx: &ReasonerCtx, hero: &str) -> Result<BuildObject> {
     reason_build_with_seed_path(ctx, hero, None).await
 }
@@ -42,6 +57,23 @@ pub async fn reason_build_with_seed_path(
     hero: &str,
     seed_path: Option<&Path>,
 ) -> Result<BuildObject> {
+    reason_build_with_options(
+        ctx,
+        hero,
+        ReasonerOptions {
+            seed_path,
+            ..Default::default()
+        },
+    )
+    .await
+}
+
+pub async fn reason_build_with_options(
+    ctx: &ReasonerCtx,
+    hero: &str,
+    options: ReasonerOptions<'_>,
+) -> Result<BuildObject> {
+    let seed_path = options.seed_path;
     let ctx = effective_context(ctx).await?;
     let (mut hero_model, mut items, meta) = load_reasoning_inputs(&ctx, hero, seed_path).await?;
     let events = load_patch_events(&ctx, hero_model.hero_id).await?;
@@ -96,11 +128,21 @@ pub async fn reason_build_with_seed_path(
             }
         }
     }
-    persist_build(&ctx, &build, &scored).await?;
+    if options.persist {
+        persist_build(&ctx, &build, &scored).await?;
+    }
     Ok(build)
 }
 
 pub async fn reason_patch_impact(ctx: &ReasonerCtx, hero: &str) -> Result<PatchImpactReport> {
+    reason_patch_impact_with_options(ctx, hero, ReasonerOptions::default()).await
+}
+
+pub async fn reason_patch_impact_with_options(
+    ctx: &ReasonerCtx,
+    hero: &str,
+    options: ReasonerOptions<'_>,
+) -> Result<PatchImpactReport> {
     let ctx = effective_context(ctx).await?;
     let hero_model = hero::load_built_hero_model(&ctx, hero).await?;
     let events = load_patch_events(&ctx, hero_model.hero_id).await?;
@@ -163,7 +205,9 @@ pub async fn reason_patch_impact(ctx: &ReasonerCtx, hero: &str) -> Result<PatchI
         shifted_items,
         summary,
     };
-    persist_patch_impact(&ctx, &report).await?;
+    if options.persist {
+        persist_patch_impact(&ctx, &report).await?;
+    }
     Ok(report)
 }
 
@@ -176,6 +220,23 @@ pub async fn reason_backtest_with_seed_path(
     filter: BacktestFilter,
     seed_path: Option<&Path>,
 ) -> Result<BacktestReport> {
+    reason_backtest_with_options(
+        ctx,
+        filter,
+        ReasonerOptions {
+            seed_path,
+            ..Default::default()
+        },
+    )
+    .await
+}
+
+pub async fn reason_backtest_with_options(
+    ctx: &ReasonerCtx,
+    filter: BacktestFilter,
+    options: ReasonerOptions<'_>,
+) -> Result<BacktestReport> {
+    let seed_path = options.seed_path;
     let mut ctx = ctx.clone();
     if let Some(tag) = filter.patch_tag.as_ref() {
         ctx.config.patch_tag = tag.clone();
@@ -196,7 +257,7 @@ pub async fn reason_backtest_with_seed_path(
     let mut reports = Vec::new();
     for hero_model in heroes {
         let build =
-            reason_build_with_seed_path(&deterministic_ctx, &hero_model.name, seed_path).await?;
+            reason_build_with_options(&deterministic_ctx, &hero_model.name, options).await?;
         let mut authors = load_author_builds(&ctx, hero_model.hero_id).await?;
         if let Some(path) = seed_path {
             let items = load_item_models(&ctx).await?;
@@ -213,7 +274,9 @@ pub async fn reason_backtest_with_seed_path(
         ));
     }
     let report = BacktestReport { heroes: reports };
-    persist_backtest(&deterministic_ctx, &report).await?;
+    if options.persist {
+        persist_backtest(&deterministic_ctx, &report).await?;
+    }
     Ok(report)
 }
 

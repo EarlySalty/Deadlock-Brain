@@ -1,9 +1,7 @@
 use std::collections::BTreeSet;
 use std::fmt::{self, Write};
 
-use crate::{
-    AuthorBuild, BacktestMetrics, BuildObject, HeroBacktest, ReasonerCtx, ReasonerError, Result,
-};
+use crate::{AuthorBuild, BacktestMetrics, BuildObject, HeroBacktest};
 
 impl fmt::Display for crate::BacktestReport {
     fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -175,33 +173,6 @@ pub fn backtest_hero_with_build(
         per_author,
         aggregate,
     }
-}
-
-pub async fn backtest_hero(ctx: &ReasonerCtx, hero: &str) -> Result<HeroBacktest> {
-    let hero_model = crate::load_hero_model(ctx, hero).await?;
-    let authors = crate::load_author_builds(ctx, hero_model.hero_id).await?;
-    if authors.is_empty() {
-        let empty = BuildObject {
-            hero_id: hero_model.hero_id,
-            hero_name: hero_model.name.clone(),
-            patch_tag: ctx.config.patch_tag.clone(),
-            name: "empty".to_string(),
-            core: Vec::new(),
-            situations: Vec::new(),
-            ability_order: Vec::new(),
-            confidence: crate::Confidence::Low,
-            rationale: String::new(),
-        };
-        return Ok(backtest_hero_with_build(
-            hero_model.hero_id,
-            &hero_model.name,
-            &empty,
-            &[],
-        ));
-    }
-    Err(ReasonerError::Data(
-        "Backtest benötigt den von Paket B erzeugten ScoredItem-Bestand".to_string(),
-    ))
 }
 
 #[cfg(test)]

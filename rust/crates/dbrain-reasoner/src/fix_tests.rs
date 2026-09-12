@@ -3,6 +3,108 @@ use serde_json::json;
 
 pub(crate) static SCRATCH_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+async fn fix2_read_only_facade(command: &str) {
+    let Some((_guard, ctx)) = scratch_context().await else {
+        panic!("Fixrunde 2 benötigt eine isolierte Scratch-DSN");
+    };
+    let filter = BacktestFilter {
+        hero: Some("Warden".into()),
+        patch_tag: None,
+    };
+    let expected = match command {
+        "build" => serde_json::to_value(reason_build(&ctx, "Warden").await.unwrap()).unwrap(),
+        "patch-impact" => {
+            serde_json::to_value(reason_patch_impact(&ctx, "Warden").await.unwrap()).unwrap()
+        }
+        "backtest" => {
+            serde_json::to_value(reason_backtest(&ctx, filter.clone()).await.unwrap()).unwrap()
+        }
+        _ => unreachable!(),
+    };
+    sqlx::raw_sql("TRUNCATE brain.reasoner_builds, brain.reasoner_item_scores, brain.reasoner_patch_deltas, brain.reasoner_backtests; SET default_transaction_read_only=on;")
+        .execute(&ctx.pool).await.unwrap();
+    let read_only: String = sqlx::query_scalar("SHOW default_transaction_read_only")
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+    assert_eq!(read_only, "on");
+    let options = ReasonerOptions {
+        persist: false,
+        ..Default::default()
+    };
+    let (actual, default_failed) = match command {
+        "build" => (
+            serde_json::to_value(
+                reason_build_with_options(&ctx, "Warden", options)
+                    .await
+                    .unwrap(),
+            )
+            .unwrap(),
+            matches!(
+                reason_build(&ctx, "Warden").await,
+                Err(ReasonerError::Db(_))
+            ),
+        ),
+        "patch-impact" => (
+            serde_json::to_value(
+                reason_patch_impact_with_options(&ctx, "Warden", options)
+                    .await
+                    .unwrap(),
+            )
+            .unwrap(),
+            matches!(
+                reason_patch_impact(&ctx, "Warden").await,
+                Err(ReasonerError::Db(_))
+            ),
+        ),
+        "backtest" => (
+            serde_json::to_value(
+                reason_backtest_with_options(&ctx, filter.clone(), options)
+                    .await
+                    .unwrap(),
+            )
+            .unwrap(),
+            matches!(
+                reason_backtest(&ctx, filter).await,
+                Err(ReasonerError::Db(_))
+            ),
+        ),
+        _ => unreachable!(),
+    };
+    assert_eq!(actual, expected);
+    assert!(default_failed);
+    for table in [
+        "reasoner_builds",
+        "reasoner_item_scores",
+        "reasoner_patch_deltas",
+        "reasoner_backtests",
+    ] {
+        let count: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM brain.{table}"))
+            .fetch_one(&ctx.pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 0, "{table}");
+    }
+}
+
+#[tokio::test]
+#[ignore = "benötigt Wegwerf-DB reasoner_a_fix über REASONER_SCRATCH_DSN"]
+async fn fix2_build_no_persist_on_read_only_connection() {
+    fix2_read_only_facade("build").await;
+}
+
+#[tokio::test]
+#[ignore = "benötigt Wegwerf-DB reasoner_a_fix über REASONER_SCRATCH_DSN"]
+async fn fix2_patch_impact_no_persist_on_read_only_connection() {
+    fix2_read_only_facade("patch-impact").await;
+}
+
+#[tokio::test]
+#[ignore = "benötigt Wegwerf-DB reasoner_a_fix über REASONER_SCRATCH_DSN"]
+async fn fix2_backtest_no_persist_on_read_only_connection() {
+    fix2_read_only_facade("backtest").await;
+}
+
 #[tokio::test]
 #[ignore = "benötigt Wegwerf-DB reasoner_a_fix über REASONER_SCRATCH_DSN"]
 async fn fix_patch_tag_fallback_matches_sync_without_valid_patch() {

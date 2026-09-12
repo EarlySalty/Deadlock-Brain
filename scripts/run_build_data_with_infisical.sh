@@ -2,12 +2,16 @@
 set -euo pipefail
 
 ROOT_DIR="${DEADLOCK_BRAIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-CONFIG_FILE="${INFISICAL_CONFIG_FILE:-/home/naniadm/.config/deadlock-bots/infisical.conf}"
+CONFIG_FILE="${INFISICAL_CONFIG_FILE:-$HOME/.config/deadlock-bots/infisical.conf}"
 LOAD_INFISICAL="${LOAD_INFISICAL:-1}"
 INFISICAL_RETRY_DELAY="${INFISICAL_RETRY_DELAY:-5}"
 INFISICAL_MAX_ATTEMPTS="${INFISICAL_MAX_ATTEMPTS:-20}"
 BRAIN_BIN="${DEADLOCK_BRAIN_BIN:-$ROOT_DIR/rust/target/release/deadlock-brain}"
 PYTHON_BIN="${DEADLOCK_BRAIN_PYTHON:-python3}"
+
+if [[ -z "${DEADLOCK_BRAIN_PYTHON:-}" && -x "$ROOT_DIR/.venv/bin/python" ]]; then
+  PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
+fi
 
 cd "$ROOT_DIR"
 
@@ -26,7 +30,7 @@ if [[ "$LOAD_INFISICAL" == "1" || "$LOAD_INFISICAL" == "true" ]]; then
   set +a
   if [[ -z "${INFISICAL_SERVICE_TOKEN:-}" ]]; then
     for token_file in "${CREDENTIALS_DIRECTORY:-/nonexistent}/infisical-token" \
-                      "${INFISICAL_TOKEN_FILE:-/home/naniadm/.config/infisical-tokens/infisical-token-bots}"; do
+                      "${INFISICAL_TOKEN_FILE:-$HOME/.config/infisical-tokens/infisical-token-bots}"; do
       if [[ -f "$token_file" ]]; then
         INFISICAL_SERVICE_TOKEN="$(<"$token_file")"
         export INFISICAL_SERVICE_TOKEN

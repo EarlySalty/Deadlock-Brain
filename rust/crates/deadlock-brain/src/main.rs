@@ -226,9 +226,15 @@ enum WikiCommands {
 enum ReasonCommands {
     #[command(name = "build", about = "Baut einen Reasoner-Build für einen Helden.")]
     Build(ReasonBuildArgs),
-    #[command(name = "patch-impact", about = "Zeigt die Wirkung des letzten Patches.")]
+    #[command(
+        name = "patch-impact",
+        about = "Zeigt die Wirkung des letzten Patches."
+    )]
     PatchImpact(ReasonPatchImpactArgs),
-    #[command(name = "backtest", about = "Vergleicht Reasoner-Builds mit Autoren-Builds.")]
+    #[command(
+        name = "backtest",
+        about = "Vergleicht Reasoner-Builds mit Autoren-Builds."
+    )]
     Backtest(ReasonBacktestArgs),
 }
 
@@ -238,6 +244,12 @@ struct ReasonBuildArgs {
     hero: String,
     #[arg(long = "no-ai")]
     no_ai: bool,
+    #[arg(
+        long,
+        conflicts_with = "publish",
+        help = "Trockenlauf ohne Reasoner-DB-Schreibzugriffe, auch für Read-only-Verbindungen."
+    )]
+    no_persist: bool,
     #[arg(long)]
     patch: Option<String>,
     #[arg(long)]
@@ -252,6 +264,11 @@ struct ReasonBuildArgs {
 struct ReasonPatchImpactArgs {
     #[arg(help = "Heldname oder Hero-ID.")]
     hero: String,
+    #[arg(
+        long,
+        help = "Trockenlauf ohne Reasoner-DB-Schreibzugriffe, auch für Read-only-Verbindungen."
+    )]
+    no_persist: bool,
     #[arg(long)]
     patch: Option<String>,
     #[arg(long)]
@@ -260,6 +277,11 @@ struct ReasonPatchImpactArgs {
 
 #[derive(Debug, Args)]
 struct ReasonBacktestArgs {
+    #[arg(
+        long,
+        help = "Trockenlauf ohne Reasoner-DB-Schreibzugriffe, auch für Read-only-Verbindungen."
+    )]
+    no_persist: bool,
     #[arg(long)]
     hero: Option<String>,
     #[arg(long)]
@@ -755,10 +777,7 @@ struct PullForumArgs {
 
 #[derive(Debug, Args)]
 struct PullRedditArgs {
-    #[arg(
-        long = "subreddit",
-        help = "Mehrfach nutzbar. Default: Deadlock."
-    )]
+    #[arg(long = "subreddit", help = "Mehrfach nutzbar. Default: Deadlock.")]
     subreddit: Vec<String>,
     #[arg(
         long,
@@ -941,7 +960,10 @@ struct ParseForumClaimsArgs {
 
 #[derive(Debug, Args)]
 struct ParseRedditClaimsArgs {
-    #[arg(long, help = "Löscht nur Reddit-Claims (ingest_source=reddit) vorher neu.")]
+    #[arg(
+        long,
+        help = "Löscht nur Reddit-Claims (ingest_source=reddit) vorher neu."
+    )]
     rebuild: bool,
 }
 
@@ -1568,10 +1590,13 @@ async fn run_reason(pool: &PgPool, settings: &Settings, target: ReasonCommands) 
                         .join(".tasks/2026-09-12-build-reasoner/referenz"),
                 )
             });
-            let build = dbrain_reasoner::reason_build_with_seed_path(
+            let build = dbrain_reasoner::reason_build_with_options(
                 &ctx,
                 &args.hero,
-                Some(&seed_path),
+                dbrain_reasoner::ReasonerOptions {
+                    seed_path: Some(&seed_path),
+                    persist: !args.no_persist,
+                },
             )
             .await?;
             let task_id = if args.publish {
@@ -1603,7 +1628,15 @@ async fn run_reason(pool: &PgPool, settings: &Settings, target: ReasonCommands) 
                 ai: Some(AiClient::from_settings(settings)?),
                 config,
             };
-            let report = dbrain_reasoner::reason_patch_impact(&ctx, &args.hero).await?;
+            let report = dbrain_reasoner::reason_patch_impact_with_options(
+                &ctx,
+                &args.hero,
+                dbrain_reasoner::ReasonerOptions {
+                    persist: !args.no_persist,
+                    ..Default::default()
+                },
+            )
+            .await?;
             if args.json {
                 print_json(&report)
             } else {
@@ -1632,13 +1665,16 @@ async fn run_reason(pool: &PgPool, settings: &Settings, target: ReasonCommands) 
                         .join(".tasks/2026-09-12-build-reasoner/referenz"),
                 )
             });
-            let report = dbrain_reasoner::reason_backtest_with_seed_path(
+            let report = dbrain_reasoner::reason_backtest_with_options(
                 &ctx,
                 dbrain_reasoner::BacktestFilter {
                     hero: args.hero,
                     patch_tag: args.patch,
                 },
-                Some(&seed_path),
+                dbrain_reasoner::ReasonerOptions {
+                    seed_path: Some(&seed_path),
+                    persist: !args.no_persist,
+                },
             )
             .await?;
             if args.json {
@@ -3402,6 +3438,58 @@ mod tests {
     use super::*;
     use clap::CommandFactory;
 
+    fn assert_no_persist_cli(command: &str, hero: &[&str]) {
+        let mut argv = vec!["deadlock-brain", "reason", command];
+        argv.extend_from_slice(hero);
+        for no_persist in [false, true] {
+            if no_persist {
+                argv.push("--no-persist");
+            }
+            let cli = Cli::try_parse_from(&argv).unwrap();
+            let Commands::Reason { target } = cli.command else {
+                panic!("Reason-Befehl erwartet");
+            };
+            let actual = match target {
+                ReasonCommands::Build(args) => args.no_persist,
+                ReasonCommands::PatchImpact(args) => args.no_persist,
+                ReasonCommands::Backtest(args) => args.no_persist,
+            };
+            assert_eq!(actual, no_persist);
+        }
+        let help =
+            Cli::try_parse_from(["deadlock-brain", "reason", command, "--help"]).unwrap_err();
+        assert_eq!(help.kind(), clap::error::ErrorKind::DisplayHelp);
+        assert!(help.to_string().contains("--no-persist"));
+    }
+
+    #[test]
+    fn fix2_build_no_persist_cli() {
+        assert_no_persist_cli("build", &["Warden"]);
+    }
+
+    #[test]
+    fn fix2_patch_impact_no_persist_cli() {
+        assert_no_persist_cli("patch-impact", &["Warden"]);
+    }
+
+    #[test]
+    fn fix2_backtest_no_persist_cli() {
+        assert_no_persist_cli("backtest", &["--hero", "Warden"]);
+    }
+
+    #[test]
+    fn fix2_no_persist_conflicts_with_publish() {
+        let error = Cli::try_parse_from([
+            "deadlock-brain",
+            "reason",
+            "build",
+            "Warden",
+            "--no-persist",
+            "--publish",
+        ])
+        .unwrap_err();
+        assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
     #[test]
     fn analysis_run_ai_accepts_public_command_names() {
         for command_name in ["run-fireworks", "run-minimax", "run-ai"] {
@@ -3457,13 +3545,8 @@ mod tests {
 
     #[test]
     fn parses_parse_reddit_claims_rebuild_flag() {
-        let cli = Cli::try_parse_from([
-            "deadlock-brain",
-            "parse",
-            "reddit-claims",
-            "--rebuild",
-        ])
-        .expect("parse cli");
+        let cli = Cli::try_parse_from(["deadlock-brain", "parse", "reddit-claims", "--rebuild"])
+            .expect("parse cli");
 
         let Commands::Parse {
             target: ParseCommands::RedditClaims(args),
