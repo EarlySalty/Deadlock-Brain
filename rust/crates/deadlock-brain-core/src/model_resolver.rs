@@ -56,18 +56,24 @@ pub fn resolve_after_not_found(base_url: &str, api_key: &str) -> Option<String> 
         })
         .filter(|response| response.status().is_success())
         .and_then(|response| response.json::<Value>().ok())
-        .and_then(|body| {
-            body.get("data")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(|entry| entry.get("id").and_then(Value::as_str))
-                .filter(|id| is_family_model(id))
-                .max()
-                .map(str::to_string)
-        });
+        .and_then(|body| latest_family_model(&body));
     *guard = Some(model.clone().unwrap_or_default());
     model
+}
+
+fn latest_family_model(body: &Value) -> Option<String> {
+    body.get("data")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.get("id").and_then(Value::as_str))
+        .filter(|id| is_family_model(id))
+        .max_by_key(|id| {
+            let revision = id.strip_prefix(DEFAULT_FIREWORKS_MODEL).unwrap_or_default();
+            let digits = revision.trim_start_matches('-').trim_start_matches('0');
+            (!revision.is_empty(), digits.len(), digits, *id)
+        })
+        .map(str::to_string)
 }
 
 fn is_family_model(model: &str) -> bool {
@@ -85,16 +91,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn fix_numeric_revisions_ignore_width_and_leading_zeroes() {
+        for revisions in [["0731", "1015"], ["9", "1015"], ["0001015", "731"]] {
+            let body = serde_json::json!({"data": revisions.map(|revision| {
+                serde_json::json!({"id": format!("{DEFAULT_FIREWORKS_MODEL}-{revision}")})
+            })});
+            let expected = if revisions[0] == "0001015" {
+                revisions[0]
+            } else {
+                revisions[1]
+            };
+            assert_eq!(
+                latest_family_model(&body),
+                Some(format!("{DEFAULT_FIREWORKS_MODEL}-{expected}"))
+            );
+        }
+    }
+
+    #[test]
     fn selects_latest_numeric_family_revision() {
+        let body = serde_json::json!({"data": [
+            {"id": "accounts/fireworks/models/deepseek-v4-flash-0901"},
+            {"id": "accounts/fireworks/models/deepseek-v4-flash-1015"},
+            {"id": "accounts/fireworks/models/deepseek-v4-flash-lite"}
+        ]});
         assert_eq!(
-            [
-                "accounts/fireworks/models/deepseek-v4-flash-0901",
-                "accounts/fireworks/models/deepseek-v4-flash-1015",
-                "accounts/fireworks/models/deepseek-v4-flash-lite"
-            ]
-            .into_iter()
-            .filter(|model| is_family_model(model))
-            .max(),
+            latest_family_model(&body).as_deref(),
             Some("accounts/fireworks/models/deepseek-v4-flash-1015")
         );
     }

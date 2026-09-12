@@ -13,6 +13,7 @@ use crate::{
     api::DeadlockApiClient,
     classify::{classify_item, ClassifiedItem},
     error::BuildEngineError,
+    latest_patch_tag,
     util::{
         json_string, value_as_i64, value_f64, value_i64, value_string, winrate, BRACKET_BADGE_80,
     },
@@ -618,15 +619,6 @@ async fn upsert_synergies(
         }
     }
     Ok(count)
-}
-
-async fn latest_patch_tag(pool: &PgPool) -> Result<String> {
-    let tag = sqlx::query_scalar::<_, String>(
-        "SELECT COALESCE(NULLIF(to_jsonb(pe)->>'patch_external_id', ''), to_char(pe.posted_at::date, 'YYYY-MM-DD')) FROM brain.patch_events pe WHERE pe.patch_external_id IS NOT NULL OR pe.posted_at IS NOT NULL ORDER BY pe.posted_at DESC NULLS LAST, pe.id DESC LIMIT 1",
-    )
-    .fetch_optional(pool)
-    .await?;
-    Ok(tag.unwrap_or_else(|| "unknown".to_string()))
 }
 
 fn analytics_pause(options: &BuildDataSyncOptions) {

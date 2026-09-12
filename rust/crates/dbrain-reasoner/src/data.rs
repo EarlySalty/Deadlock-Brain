@@ -1102,7 +1102,7 @@ mod tests {
         assert_eq!(weapon_profile(&payload).shots_per_second, 0.0);
     }
 
-    static SCRATCH_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    use crate::fix_tests::SCRATCH_LOCK;
 
     async fn scratch_context() -> (tokio::sync::MutexGuard<'static, ()>, ReasonerCtx) {
         let guard = SCRATCH_LOCK.lock().await;

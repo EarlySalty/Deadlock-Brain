@@ -15,6 +15,9 @@ pub mod patch;
 pub mod publish;
 mod types;
 
+#[cfg(test)]
+mod fix_tests;
+
 pub use ai_roles::{
     build_critic_request, build_hero_analyst_request, build_item_analyst_request,
     build_meta_analyst_request, build_patch_analyst_request, parse_critic_response,
@@ -93,6 +96,7 @@ pub async fn reason_build_with_seed_path(
             }
         }
     }
+    persist_build(&ctx, &build, &scored).await?;
     Ok(build)
 }
 
@@ -152,13 +156,15 @@ pub async fn reason_patch_impact(ctx: &ReasonerCtx, hero: &str) -> Result<PatchI
             }
         }
     }
-    Ok(PatchImpactReport {
+    let report = PatchImpactReport {
         hero_id: hero_model.hero_id,
         hero_name: hero_model.name,
         deltas,
         shifted_items,
         summary,
-    })
+    };
+    persist_patch_impact(&ctx, &report).await?;
+    Ok(report)
 }
 
 pub async fn reason_backtest(ctx: &ReasonerCtx, filter: BacktestFilter) -> Result<BacktestReport> {
@@ -170,11 +176,12 @@ pub async fn reason_backtest_with_seed_path(
     filter: BacktestFilter,
     seed_path: Option<&Path>,
 ) -> Result<BacktestReport> {
-    let ctx = effective_context(ctx).await?;
-    let mut run_config = ctx.config.clone();
+    let mut ctx = ctx.clone();
     if let Some(tag) = filter.patch_tag.as_ref() {
-        run_config.patch_tag = tag.clone();
+        ctx.config.patch_tag = tag.clone();
     }
+    let ctx = effective_context(&ctx).await?;
+    let mut run_config = ctx.config.clone();
     let heroes = if let Some(hero) = filter.hero {
         vec![hero::load_built_hero_model(&ctx, &hero).await?]
     } else {
@@ -205,22 +212,18 @@ pub async fn reason_backtest_with_seed_path(
             &authors,
         ));
     }
-    Ok(BacktestReport { heroes: reports })
+    let report = BacktestReport { heroes: reports };
+    persist_backtest(&deterministic_ctx, &report).await?;
+    Ok(report)
 }
 
 async fn effective_context(ctx: &ReasonerCtx) -> Result<ReasonerCtx> {
     if ctx.config.patch_tag != "current" {
         return Ok(ctx.clone());
     }
-    let patch_tag = sqlx::query_scalar::<_, String>(
-        "SELECT COALESCE(NULLIF(pe.patch_external_id, ''), to_char(pe.posted_at::date, 'YYYY-MM-DD')) FROM brain.patch_events pe WHERE pe.patch_external_id IS NOT NULL OR pe.posted_at IS NOT NULL ORDER BY pe.posted_at DESC NULLS LAST, pe.id DESC LIMIT 1",
-    )
-    .fetch_optional(&ctx.pool)
-    .await
-    .map_err(ReasonerError::Db)?;
-    let Some(patch_tag) = patch_tag else {
-        return Ok(ctx.clone());
-    };
+    let patch_tag = dbrain_builds::latest_patch_tag(&ctx.pool)
+        .await
+        .map_err(ReasonerError::Db)?;
     let mut config = ctx.config.clone();
     config.patch_tag = patch_tag;
     Ok(ReasonerCtx {
@@ -228,6 +231,126 @@ async fn effective_context(ctx: &ReasonerCtx) -> Result<ReasonerCtx> {
         ai: ctx.ai.clone(),
         config,
     })
+}
+
+const UPSERT_BUILD: &str = "INSERT INTO brain.reasoner_builds (hero_id, patch_tag, hero_name, build, confidence, used_ai) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (hero_id, patch_tag) DO UPDATE SET hero_name=EXCLUDED.hero_name, build=EXCLUDED.build, confidence=EXCLUDED.confidence, used_ai=EXCLUDED.used_ai";
+
+const UPSERT_SCORE: &str = "INSERT INTO brain.reasoner_item_scores (hero_id, patch_tag, item_id, combat_value, per_slot_value, per_soul_value, purchase_bonus, condition_factor, active_value, passive_value, meta_support, total, confidence, buy_phase) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) ON CONFLICT (hero_id, patch_tag, item_id) DO UPDATE SET combat_value=EXCLUDED.combat_value, per_slot_value=EXCLUDED.per_slot_value, per_soul_value=EXCLUDED.per_soul_value, purchase_bonus=EXCLUDED.purchase_bonus, condition_factor=EXCLUDED.condition_factor, active_value=EXCLUDED.active_value, passive_value=EXCLUDED.passive_value, meta_support=EXCLUDED.meta_support, total=EXCLUDED.total, confidence=EXCLUDED.confidence, buy_phase=EXCLUDED.buy_phase";
+
+const UPSERT_DELTA: &str = "INSERT INTO brain.reasoner_patch_deltas (hero_id, patch_tag, target_kind, target_id, mechanic, sign, magnitude, note) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (hero_id, patch_tag, target_kind, target_id, mechanic) DO UPDATE SET sign=EXCLUDED.sign, magnitude=EXCLUDED.magnitude, note=EXCLUDED.note";
+
+const UPSERT_BACKTEST: &str = "INSERT INTO brain.reasoner_backtests (hero_id, patch_tag, author, core_coverage, order_proximity, switch_detected, detail) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (hero_id, patch_tag, author) DO UPDATE SET core_coverage=EXCLUDED.core_coverage, order_proximity=EXCLUDED.order_proximity, switch_detected=EXCLUDED.switch_detected, detail=EXCLUDED.detail";
+
+fn persistence_json(value: &impl serde::Serialize) -> Result<Value> {
+    serde_json::to_value(value)
+        .map_err(|error| ReasonerError::Data(format!("Reasoner-Persistenz: {error}")))
+}
+
+async fn persist_build(
+    ctx: &ReasonerCtx,
+    build: &BuildObject,
+    scored: &[ScoredItem],
+) -> Result<()> {
+    let mut tx = ctx.pool.begin().await.map_err(ReasonerError::Db)?;
+    sqlx::query(UPSERT_BUILD)
+        .bind(build.hero_id)
+        .bind(&build.patch_tag)
+        .bind(&build.hero_name)
+        .bind(persistence_json(build)?)
+        .bind(format!("{:?}", build.confidence))
+        .bind(ctx.config.use_ai && ctx.ai.is_some())
+        .execute(&mut *tx)
+        .await
+        .map_err(ReasonerError::Db)?;
+    for item in scored {
+        sqlx::query(UPSERT_SCORE)
+            .bind(build.hero_id)
+            .bind(&build.patch_tag)
+            .bind(item.item.item_id)
+            .bind(item.score.combat_value)
+            .bind(item.score.per_slot_value)
+            .bind(item.score.per_soul_value)
+            .bind(item.score.purchase_bonus_value)
+            .bind(item.score.condition_factor)
+            .bind(item.score.active_value)
+            .bind(item.score.passive_value)
+            .bind(item.score.meta_support)
+            .bind(item.score.total)
+            .bind(format!("{:?}", item.confidence))
+            .bind(format!("{:?}", item.buy_phase))
+            .execute(&mut *tx)
+            .await
+            .map_err(ReasonerError::Db)?;
+    }
+    tx.commit().await.map_err(ReasonerError::Db)
+}
+
+async fn persist_patch_impact(ctx: &ReasonerCtx, report: &PatchImpactReport) -> Result<()> {
+    let mut tx = ctx.pool.begin().await.map_err(ReasonerError::Db)?;
+    for delta in &report.deltas {
+        let (kind, id) = match delta.target {
+            DeltaTarget::Hero(id) => ("hero", id),
+            DeltaTarget::Item(id) => ("item", id),
+            DeltaTarget::Ability(id) => ("ability", id),
+        };
+        sqlx::query(UPSERT_DELTA)
+            .bind(report.hero_id)
+            .bind(&ctx.config.patch_tag)
+            .bind(kind)
+            .bind(id)
+            .bind(&delta.mechanic)
+            .bind(i16::from(delta.sign))
+            .bind(delta.magnitude)
+            .bind(&delta.note)
+            .execute(&mut *tx)
+            .await
+            .map_err(ReasonerError::Db)?;
+    }
+    tx.commit().await.map_err(ReasonerError::Db)
+}
+
+async fn persist_backtest(ctx: &ReasonerCtx, report: &BacktestReport) -> Result<()> {
+    let mut tx = ctx.pool.begin().await.map_err(ReasonerError::Db)?;
+    for hero in &report.heroes {
+        let mut authors = BTreeMap::<&str, Vec<&BacktestMetrics>>::new();
+        for (author, metrics) in &hero.per_author {
+            authors.entry(author).or_default().push(metrics);
+        }
+        if authors.is_empty() {
+            authors.insert("", vec![&hero.aggregate]);
+        }
+        for (author, comparisons) in authors {
+            let core_coverage = comparisons
+                .iter()
+                .map(|metrics| metrics.core_coverage)
+                .sum::<f64>()
+                / comparisons.len() as f64;
+            let orders = comparisons
+                .iter()
+                .filter_map(|metrics| metrics.order_proximity)
+                .collect::<Vec<_>>();
+            let switches = comparisons
+                .iter()
+                .filter_map(|metrics| metrics.switch_detected)
+                .collect::<Vec<_>>();
+            let order_proximity =
+                (!orders.is_empty()).then(|| orders.iter().sum::<f64>() / orders.len() as f64);
+            let switch_detected =
+                (!switches.is_empty()).then(|| switches.iter().any(|value| *value));
+            sqlx::query(UPSERT_BACKTEST)
+                .bind(hero.hero_id)
+                .bind(&ctx.config.patch_tag)
+                .bind(author)
+                .bind(core_coverage)
+                .bind(order_proximity)
+                .bind(switch_detected)
+                .bind(persistence_json(hero)?)
+                .execute(&mut *tx)
+                .await
+                .map_err(ReasonerError::Db)?;
+        }
+    }
+    tx.commit().await.map_err(ReasonerError::Db)
 }
 
 async fn load_reasoning_inputs(
@@ -315,17 +438,46 @@ async fn load_hero_ability_orders(
     };
     let values: Vec<Value> = serde_json::from_str(&text)
         .map_err(|error| ReasonerError::Data(format!("Skill-Order: {error}")))?;
-    let order = values
-        .iter()
-        .filter_map(|value| value.as_i64())
-        .filter(|ability_id| *ability_id > 0)
-        .map(|ability_id| AbilityStep {
-            ability_id,
-            currency_type: 0,
-            delta: 1,
-        })
-        .collect::<Vec<_>>();
+    let order = fallback_ability_order(&values)?;
     Ok([(hero_id, order)].into_iter().collect())
+}
+
+fn fallback_ability_order(values: &[Value]) -> Result<Vec<AbilityStep>> {
+    let mut levels = BTreeMap::<i64, usize>::new();
+    values
+        .iter()
+        .map(|value| {
+            let step = if value.is_object() {
+                serde_json::from_value::<AbilityStep>(value.clone())
+                    .map_err(|error| ReasonerError::Data(format!("Skill-Order: {error}")))?
+            } else {
+                let ability_id = value.as_i64().ok_or_else(|| {
+                    ReasonerError::Data("Skill-Order: ungültige Ability-ID".into())
+                })?;
+                let level = levels.get(&ability_id).copied().unwrap_or_default();
+                let (currency_type, delta) = [(2, -1), (1, -1), (1, -2), (1, -5)]
+                    .get(level)
+                    .copied()
+                    .ok_or_else(|| {
+                        ReasonerError::Data(format!(
+                            "Skill-Order: mehr als vier Schritte für Ability {ability_id}"
+                        ))
+                    })?;
+                AbilityStep {
+                    ability_id,
+                    currency_type,
+                    delta,
+                }
+            };
+            if step.ability_id <= 0 {
+                return Err(ReasonerError::Data(
+                    "Skill-Order: ungültige Ability-ID".into(),
+                ));
+            }
+            *levels.entry(step.ability_id).or_default() += 1;
+            Ok(step)
+        })
+        .collect()
 }
 
 fn enrich_build(

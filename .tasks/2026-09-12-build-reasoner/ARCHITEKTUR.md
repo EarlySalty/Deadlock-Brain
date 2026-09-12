@@ -98,8 +98,11 @@ CREATE TABLE IF NOT EXISTS brain.reasoner_item_scores (
   item_id        bigint      NOT NULL,
   combat_value      double precision NOT NULL,
   per_slot_value    double precision NOT NULL,
+  per_soul_value    double precision NOT NULL,
   purchase_bonus    double precision NOT NULL,
   condition_factor  double precision NOT NULL,
+  active_value      double precision NOT NULL,
+  passive_value     double precision NOT NULL,
   meta_support      double precision NOT NULL,
   total          double precision NOT NULL,
   confidence     text        NOT NULL,
@@ -127,16 +130,32 @@ CREATE TABLE IF NOT EXISTS brain.reasoner_backtests (
   patch_tag      text        NOT NULL,
   author         text        NOT NULL,
   core_coverage  double precision NOT NULL,
-  order_proximity double precision NOT NULL,
+  order_proximity double precision,
   switch_detected boolean,
   detail         jsonb       NOT NULL,
   created_at     timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (run_id, hero_id, author)
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS reasoner_backtests_hero_patch_author
+  ON brain.reasoner_backtests (hero_id, patch_tag, author);
 ```
 
 Das Item-Score-Table macht das Fertig-Kriterium "reproduzierbar ohne KI-Aufruf"
 pruefbar: jede Zahl im Build liegt als eigene Zeile mit ihren Komponenten vor.
+
+Fixrunde D: Alle vier Tabellen werden durch die Fassade im Central-Pool
+beschrieben, auch ohne `--publish`. Build und Item-Scores werden zusammen in
+einer Transaktion gespeichert. Upserts erhalten bestehende Patch-Stände und
+ersetzen die Werte desselben Schlüssels ohne Löschung. `created_at` und
+`run_id` bleiben beim Upsert erhalten. Die Migration ergänzt die drei
+zusätzlichen Score-Spalten auch bei bereits angelegten Tabellen; dort bleiben
+unbekannte historische Werte bis zum nächsten Build-Lauf nullable.
+Backtests speichern je Held, Patch und Autor eine Zeile. Mehrere Vergleiche
+desselben Autors werden für die Spalten gemittelt; `detail` enthält den
+vollständigen Heldenreport einschließlich aller Einzelvergleiche. Ohne
+Vergleichsbasis trägt eine Zeile mit leerem `author` den Aggregate-Report,
+`order_proximity` und `switch_detected` bleiben bei fehlender Messbarkeit NULL.
 
 ## 5. Geteilte Typen (`types.rs`, Paket A)
 
