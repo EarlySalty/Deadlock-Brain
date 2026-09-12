@@ -42,6 +42,29 @@ fn integer(value: Option<&Value>) -> i64 {
     number(value).unwrap_or_default() as i64
 }
 
+pub(crate) fn ability_id(value: &Value) -> Option<i64> {
+    ["id", "ability_id", "abilityId", "external_id", "item_id"]
+        .iter()
+        .find_map(|key| number(value.get(*key)).map(|value| value as i64))
+        .filter(|value| *value > 0)
+}
+
+pub(crate) fn ability_class_name(value: &Value) -> String {
+    ["class_name", "className"]
+        .iter()
+        .find_map(|key| value.get(*key).map(|value| string(Some(value))))
+        .unwrap_or_default()
+}
+
+fn ability_matches(value: &Value, ability: &AbilityModel) -> bool {
+    ability_id(value)
+        .map(|id| id == ability.ability_id)
+        .unwrap_or_else(|| {
+            let class_name = ability_class_name(value);
+            !class_name.is_empty() && class_name == ability.class_name
+        })
+}
+
 fn string(value: Option<&Value>) -> String {
     value
         .map(|value| {
@@ -265,9 +288,9 @@ pub(crate) fn scaling_stats(value: Option<&Value>) -> Vec<ScalingStat> {
 }
 
 fn ability_model(payload: &Value, slot: i64) -> Option<AbilityModel> {
-    let ability_id = integer(payload.get("id"));
-    let class_name = string(payload.get("class_name"));
-    if ability_id == 0 || class_name.is_empty() {
+    let ability_id = ability_id(payload).unwrap_or_default();
+    let class_name = ability_class_name(payload);
+    if class_name.is_empty() {
         return None;
     }
     let properties = payload.get("properties").and_then(Value::as_object);
@@ -424,17 +447,26 @@ fn weapon_profile(payload: &Value) -> WeaponProfile {
         names
             .iter()
             .find_map(|name| number(info.and_then(|info| info.get(*name))))
-            .unwrap_or_default()
     };
+    let shots_per_second = get(&["shots_per_second", "bullets_per_second"])
+        .or_else(|| {
+            get(&["cycle_time"])
+                .filter(|value| *value > 0.0)
+                .map(|value| 1.0 / value)
+        })
+        .unwrap_or_default();
     WeaponProfile {
-        bullet_damage: get(&["bullet_damage"]),
-        shots_per_second: get(&["shots_per_second", "bullets_per_second"]),
-        clip_size: get(&["clip_size"]),
-        reload_duration: get(&["reload_duration"]),
-        range: get(&["range"]),
-        falloff_start_range: get(&["damage_falloff_start_range", "falloff_start_range"]),
-        falloff_end_range: get(&["damage_falloff_end_range", "falloff_end_range"]),
-        sustained_dps: get(&["damage_per_second_with_reload", "damage_per_second"]),
+        bullet_damage: get(&["bullet_damage"]).unwrap_or_default(),
+        shots_per_second,
+        clip_size: get(&["clip_size"]).unwrap_or_default(),
+        reload_duration: get(&["reload_duration"]).unwrap_or_default(),
+        range: get(&["range"]).unwrap_or_default(),
+        falloff_start_range: get(&["damage_falloff_start_range", "falloff_start_range"])
+            .unwrap_or_default(),
+        falloff_end_range: get(&["damage_falloff_end_range", "falloff_end_range"])
+            .unwrap_or_default(),
+        sustained_dps: get(&["damage_per_second_with_reload", "damage_per_second"])
+            .unwrap_or_default(),
     }
 }
 
@@ -446,11 +478,12 @@ fn hero_model(payload: &Value, abilities: &[Value], stats: &[ScalingStat]) -> Re
             "Hero-Snapshot enthält keine ID oder keinen Namen".to_string(),
         ));
     }
-    let parsed_abilities = abilities
+    let mut parsed_abilities = abilities
         .iter()
         .enumerate()
         .filter_map(|(slot, payload)| ability_model(payload, (slot + 1) as i64))
         .collect::<Vec<_>>();
+    parsed_abilities.sort_by_key(|ability| (ability.ability_id <= 0, ability.slot));
     let weapon = weapon_profile(payload);
     let spirit_dps = parsed_abilities
         .iter()
@@ -664,10 +697,12 @@ pub(crate) async fn load_hero_model_with_snapshots(
         fields,
     }];
     for ability in &model.abilities {
-        let raw = abilities
-            .iter()
-            .find(|raw| integer(raw.get("id")) == ability.ability_id)
-            .unwrap();
+        let Some(raw) = abilities.iter().find(|raw| ability_matches(raw, ability)) else {
+            continue;
+        };
+        if ability.ability_id <= 0 {
+            continue;
+        }
         snapshots.push(crate::PatchSnapshot {
             target: crate::DeltaTarget::Ability(ability.ability_id),
             name: string(raw.get("name")),
@@ -1285,6 +1320,48 @@ mod tests {
         payload["weapon_info"]["shots_per_second"] = serde_json::json!("0");
         assert_eq!(base_health(&payload), 0.0);
         assert_eq!(weapon_profile(&payload).shots_per_second, 0.0);
+    }
+
+    #[test]
+    fn ability_identity_accepts_snapshot_aliases_and_class_name_without_id() {
+        let aliased = serde_json::json!({"ability_id": "123", "class_name": "alias"});
+        assert_eq!(ability_id(&aliased), Some(123));
+        assert_eq!(ability_model(&aliased, 1).unwrap().ability_id, 123);
+
+        let missing = serde_json::json!({"class_name": "class_only"});
+        assert_eq!(ability_id(&missing), None);
+        assert_eq!(ability_model(&missing, 1).unwrap().ability_id, 0);
+    }
+
+    #[test]
+    fn hero_model_prefers_numeric_ability_id_for_imbue_fallbacks() {
+        let payload = serde_json::json!({
+            "id": 1,
+            "name": "Test",
+            "weapon_info": {"bullet_damage": 10, "shots_per_second": 4, "clip_size": 20}
+        });
+        let abilities = [
+            serde_json::json!({"class_name": "class_only"}),
+            serde_json::json!({"id": 123, "class_name": "numeric"}),
+        ];
+        let hero = hero_model(&payload, &abilities, &[]).unwrap();
+        assert_eq!(hero.abilities[0].ability_id, 123);
+        assert_eq!(hero.abilities[1].ability_id, 0);
+    }
+
+    #[test]
+    fn weapon_profile_derives_shots_per_second_from_cycle_time() {
+        let payload = serde_json::json!({
+            "weapon_info": {
+                "bullet_damage": 10,
+                "clip_size": 20,
+                "cycle_time": 0.25,
+                "reload_duration": 2
+            }
+        });
+        let weapon = weapon_profile(&payload);
+        assert_eq!(weapon.shots_per_second, 4.0);
+        assert_eq!(weapon.clip_size, 20.0);
     }
 
     use crate::fix_tests::SCRATCH_LOCK;

@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use serde_json::Value;
 
-use crate::data::scaling_stats;
+use crate::data::{ability_class_name, ability_id, scaling_stats};
 use crate::mechanics;
 use crate::{DamagePlan, HeroModel, ReasonerConfig, Result, ScalingStat, ScalingStep};
 
@@ -16,17 +16,31 @@ pub fn build_hero_model(
     merged_stats.extend(stats.iter().cloned());
     dedupe_stats(&mut merged_stats);
     hero.scaling = merged_stats;
-    for ability in abilities {
-        let ability_id = integer(ability.get("id"));
-        let target_index = hero
-            .abilities
-            .iter()
-            .position(|candidate| candidate.ability_id == ability_id)
-            .ok_or_else(|| {
-                crate::ReasonerError::Data(format!(
-                    "Ability {ability_id} gehört nicht zum geladenen Helden"
-                ))
-            })?;
+    for (ability_index, ability) in abilities.iter().enumerate() {
+        let raw_id = ability_id(ability);
+        let class_name = ability_class_name(ability);
+        let target_index = hero.abilities.iter().position(|candidate| {
+            raw_id.is_some_and(|id| candidate.ability_id == id)
+                || (raw_id.is_none()
+                    && !class_name.is_empty()
+                    && candidate.class_name == class_name)
+        });
+        let target_index = target_index.ok_or_else(|| {
+            let keys = ability
+                .as_object()
+                .map(|object| object.keys().cloned().collect::<Vec<_>>().join(", "))
+                .filter(|keys| !keys.is_empty())
+                .unwrap_or_else(|| "<kein Objekt>".to_string());
+            let identity = raw_id
+                .map(|id| format!("ID {id}"))
+                .or_else(|| (!class_name.is_empty()).then(|| format!("class_name {class_name}")))
+                .unwrap_or_else(|| "keine Ability-ID".to_string());
+            crate::ReasonerError::Data(format!(
+                "Held {} Ability-Slot {} ({identity}) gehört nicht zum geladenen Helden; gefundene Schlüssel: {keys}",
+                hero.name,
+                ability_index + 1,
+            ))
+        })?;
         {
             let target = &mut hero.abilities[target_index];
             if target.scaling_step.is_none() {
@@ -198,10 +212,6 @@ fn normalize(value: &str) -> String {
         .collect()
 }
 
-fn integer(value: Option<&Value>) -> i64 {
-    number(value) as i64
-}
-
 fn number(value: Option<&Value>) -> f64 {
     value
         .and_then(|value| {
@@ -287,6 +297,23 @@ mod tests {
     }
 
     #[test]
+    fn enrichment_accepts_ability_id_alias_and_class_name_fallback() {
+        let aliased = json!({
+            "ability_id": 100,
+            "upgrades": [{"property_upgrades": [{"name": "SpiritScale", "from": 0.3, "to": 0.6}]}]
+        });
+        let enriched = build_hero_model(&loaded_hero(), &[aliased], &[]).unwrap();
+        assert_eq!(enriched.abilities[0].scaling_step.as_ref().unwrap().to, 0.6);
+
+        let class_only = json!({
+            "class_name": "ability1",
+            "upgrades": [{"property_upgrades": [{"name": "SpiritScale", "from": 0.3, "to": 0.7}]}]
+        });
+        let enriched = build_hero_model(&loaded_hero(), &[class_only], &[]).unwrap();
+        assert_eq!(enriched.abilities[0].scaling_step.as_ref().unwrap().to, 0.7);
+    }
+
+    #[test]
     fn scale_function_is_only_used_when_present() {
         let ability = json!({
             "id": 100,
@@ -332,7 +359,12 @@ mod tests {
     #[test]
     fn enrichment_rejects_unknown_identity() {
         let payload = json!({"id":999,"upgrades":[{"property_upgrades":[{"name":"SpiritScale","to":0.6225}]}]});
-        assert!(build_hero_model(&loaded_hero(), &[payload], &[]).is_err());
+        let error = build_hero_model(&loaded_hero(), &[payload], &[]).unwrap_err();
+        let text = error.to_string();
+        assert!(text.contains("Held Warden Ability-Slot 1"));
+        assert!(text.contains("ID 999"));
+        assert!(text.contains("upgrades"));
+        assert!(!text.contains("Ability 0"));
     }
 
     #[test]
