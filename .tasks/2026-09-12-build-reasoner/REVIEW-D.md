@@ -256,3 +256,63 @@ Orchestrator. Die aktualisierte Migration muss vor dem Einsatz der neuen
 Fassade im Central-Pool angewendet werden. Deployment, Timer-Aktivierung,
 Service-Neustart und frischer Sync bleiben beim Orchestrator.
 Kalibrierung, Core-Cutoff, Zustandsfaktor und Lane-Phase wurden nicht geändert.
+
+## Review Runde 2
+
+Stand: 2026-09-12. Rein lesend gegen die Mängelliste 1 bis 5, Code-Commit
+`e0e1cff`, Diff `7fbb128..HEAD`. Kein Branch, kein Code geändert.
+
+### Urteil: FREIGABE
+
+Alle fünf Mängel sind behoben. Keine neuen Befunde aus dem Fix. Persistenz,
+Schema und Upserts passen zusammen; Transaktionen und Idempotenz sind im Code
+und in den Regressionstests belegt. Tests grün, Clippy grün.
+
+### Je Mangel
+
+| Mangel | Behoben | Beleg |
+| --- | --- | --- |
+| 1 Persistenz | ja | `lib.rs:99/166/216` rufen `persist_build`/`persist_patch_impact`/`persist_backtest` in allen drei Fassaden auf, unabhängig von `--publish`. Jede Fassade läuft in einer Transaktion (`pool.begin()` … `tx.commit()`, `lib.rs:254/289/313`): Build und alle gescorten Items liegen gemeinsam in einer Transaktion, Schreibfehler erreichen über `?` den Aufrufer. Steam-Publish bleibt separat an `--publish` gebunden (Persistenz greift nicht in `enqueue_publish_task`). |
+| 1 Schema/Upserts | ja | Spalten der vier Upserts (`lib.rs:236-242`) decken sich 1:1 mit der Migration: `reasoner_item_scores` schreibt alle neun Score-Komponenten plus `confidence`/`buy_phase`; ON-CONFLICT-Ziele treffen die PKs bzw. den Unique-Index `reasoner_backtests_hero_patch_author`. `DO UPDATE SET` ohne DELETE, daher überschreibt ein zweiter Lauf statt zu verdoppeln; `run_id`/`created_at` bleiben beim Upsert erhalten. |
+| 2 Patch-Tag | ja | Genau eine Auflösung in `dbrain-builds/src/patch_tag.rs`, exportiert über `lib.rs:18`. Sync nutzt sie (`sync.rs:16/81`), die Fassade ebenfalls (`reasoner/lib.rs:224` via `effective_context`). Keine zweite Herleitung mehr; das alte inline `to_jsonb(pe)->>'patch_external_id'` im Sync ist weg. |
+| 3 Revisionswahl | ja | `model_resolver.rs:70-75` sortiert nach `(nicht-leer, digits.len(), digits, id)` mit `digits = revision.trim_start_matches('-').trim_start_matches('0')`. Numerisch statt lexikografisch, ohne Integer-Überlauf. Test `fix_numeric_revisions_ignore_width_and_leading_zeroes` deckt `0731/1015`, `9/1015`, `0001015/731` ab und läuft grün. |
+| 4 Fallback-Skill-Order | ja | `fallback_ability_order` (`lib.rs:445`): Objekte werden als `AbilityStep` mit Punkt-Typ und Delta übernommen; reine IDs bekommen je Vorkommen `[(2,-1),(1,-1),(1,-2),(1,-5)]`, also Freischalten Typ 2 und drei Upgrades Typ 1 mit Kosten 1/2/5. Mehr als vier Schritte, ungültige IDs und unvollständige Objekte liefern einen Datenfehler. Unit-Tests `fix_fallback_skill_order_*` grün. Der vom Briefing gewünschte Live-Abgleich gegen `tierlist.hero_build_sources` lief nicht (keine DSN im Review-Lauf); die Semantik deckt sich mit der dokumentierten Warden-Vorgabe. |
+| 5 order_proximity nullable | ja | Migration `2026-09-12-reasoner.sql`: Spalte `double precision` (nullable) plus `ALTER … DROP NOT NULL` für bereits angelegte Tabellen. Spec-DDL in ARCHITEKTUR nachgezogen. Test `fix_migration_retains_all_scores_and_idempotent_backtests` prüft nullable, ON-CONFLICT-Keys und das Fehlen von NOT NULL/DELETE. |
+
+### Migration, Upgrade-Pfade
+
+Auf leerem Schema: `CREATE TABLE IF NOT EXISTS` mit vollem Spaltensatz, die
+`ALTER`-Zeilen sind No-ops. Auf dem ersten Entwurf (ohne die drei Zusatzspalten,
+`order_proximity` NOT NULL): `ADD COLUMN IF NOT EXISTS` ergänzt die drei Spalten
+nullable, `DROP NOT NULL` löst die Einschränkung. Beide Wege laufen sauber. Rest:
+historische Zeilen einer schon existierenden Tabelle tragen in den drei neuen
+Spalten NULL bis zum nächsten Build-Lauf; die Upserts füllen sie beim ersten
+Schreiben. Konsistenzhinweis, kein Blocker.
+
+### Testnachweis
+
+Toolchain: System-`cargo` ist 1.75.0 und scheitert an Lockfile v4; der Lauf
+nutzt `~/.cargo/bin/cargo` (1.97.1).
+
+- `cargo test --workspace` (ohne DSN): **256 passed, 0 failed, 53 ignored**.
+  Die 53 ignorierten sind die Scratch-/Central-Schreibtests, die ohne
+  `REASONER_SCRATCH_DSN` sauber übersprungen werden (kein 0.00s-Stiller-Skip in
+  den gezählten Suites). Deckt sich mit dem Fixbericht.
+- `cargo clippy --workspace --all-targets -- -D warnings`: **grün (exit 0)**.
+- Der Lauf mit Scratch-DSN (Fixer: 83 passed) wurde im Review nicht wiederholt,
+  da im Review-Lauf keine isolierte Scratch-DB bereitstand.
+
+TESTNACHWEIS[TW-1]: 256 passed, 53 ignored | Baseline: 0 rot
+
+### Deploy-Reihenfolge (endgültig)
+
+1. Migration `scripts/migrations/2026-09-12-reasoner.sql` auf dem Central-Pool
+   ausführen (legt Tabellen an, ergänzt Score-Spalten, macht `order_proximity`
+   nullable) vor dem Einsatz der neuen Fassade.
+2. Release-Binary im eigenen Worktree bauen, systemd-Service mit dem echten
+   Checkout-Pfad installieren.
+3. Timer aktivieren.
+4. Ersten Sync über `pull build-data --hero all`, damit `hero_item_stats` unter
+   dem echten Patch-Tag liegen und `meta_support` greift.
+5. Warden-Backtest gegen Build 779996 wiederholen und die neuen Kennzahlen in
+   REPORT-D nachtragen.
