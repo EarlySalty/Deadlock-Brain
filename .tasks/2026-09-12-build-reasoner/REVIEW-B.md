@@ -207,152 +207,197 @@ Mangel 2 (scaling_step ohne Datenquelle, Angelpunkt tot). Wichtig: Mangel 3, 4, 
 
 ## Fixrunde 1
 
-Status: Bump-up offen, noch keine Fertigfreigabe. Stand 2026-09-12.
-Worktree `/home/nathanael/.worktrees/deadlock-brain-b`, Branch
-`feat/build-reasoner-b`, Intent-Thread `33a32f58-476b-4a67-99cc-8f6c1e8f7001`.
-Keine Unter-Agenten oder Unter-Threads gestartet.
+Status: umgesetzt, geprüft und auf `origin/feat/build-reasoner-b` gepusht.
+Keine offenen Bump-ups. Unabhängige Review durch den Orchestrator ausstehend.
 
-A wurde wie beauftragt zuerst gemergt. Auch der anschließend eingetroffene
-Gate-Fix `a4d1375` ist enthalten; aktueller Merge-Commit `f6f0f70`.
-Die B-Fixes liegen im Arbeitsbaum, noch ohne Fix-Commit und ohne Push,
-weil der verstärkte Echtdaten-Pflichttest weiterhin einen echten Fehler zeigt.
-`types.rs` ist unverändert. In `data.rs` steht nur die freigegebene additive
-Funktion `load_hero_abilities`, in `lib.rs` deren Export sowie die ausdrücklich
-nur temporären drei `pub mod`-Zeilen für die Prüfung.
+Worktree `/home/nathanael/.worktrees/deadlock-brain-b`, Intent-Thread
+`33a32f58-476b-4a67-99cc-8f6c1e8f7001`. Keine Unter-Threads oder Unter-Agenten.
+`main` wurde nicht verändert oder gepusht. Der Arbeitsbaum ist sauber.
 
-### Selbstprüfung je Review-Mangel
+Commits in verlangter Reihenfolge:
 
-Zeilen beziehen sich auf den aktuellen Arbeitsbaum. Die Prüfung ersetzt nicht
-die nachgelagerte unabhängige Review-Runde.
+- A zuerst gemergt, anschließend auch dessen Gate-Fix `a4d1375` nachgezogen;
+  zweiter Merge `f6f0f70`.
+- `9b88e27`: eigener Gate-Commit für die zwei Blocker und sechs Nits,
+  einschließlich der freigegebenen Ability-Felder und des Waffen-Loaders.
+- `fc5bf2f`: separater Commit für die B-Review-Fixes und ihre Regressionen.
 
-| Mangel | Datei:Zeile | Änderung und verbleibender Befund |
+Beide Fix-Commits tragen `Co-authored-by: GPT-6 <gpt-6@local>`.
+Die additive Typ-/Loader-Erweiterung wurde während dieser Fixrunde vom
+Orchestrator ausdrücklich freigegeben. Geänderte Dateien insgesamt:
+`Cargo.toml`, `rust/Cargo.lock`, `src/types.rs`, `src/data.rs`, `src/lib.rs`,
+`src/hero.rs`, `src/item.rs`, `src/mechanics.rs`, jeweils im Reasoner-Crate,
+abgesehen vom Workspace-Lockfile.
+
+### Elf Review-Mängel
+
+Dateizeilen beziehen sich auf `fc5bf2f`, Basis für `src/` ist
+`rust/crates/dbrain-reasoner/`. Die Selbstprüfung prüft die Erfüllung des
+Briefings und ersetzt keine unabhängige Review.
+
+| Nr. | Datei:Zeile | Änderung | Commit |
+|---|---|---|---|
+| 1 | `src/item.rs:104`, `src/item.rs:365` | Benannte Kern-Schwelle als Median des mechanischen Slot-Werts derselben Kostenklasse, `CORE_SCORE_QUANTILE = 0.5`. Der DSN-Test prüft alle vier Referenzen, das Waffenprofil und Willpower T3. Alle vier liegen darüber. | `fc5bf2f` |
+| 2 | `src/data.rs:599`, `src/lib.rs:13`, `src/hero.rs:57` | Öffentlicher `load_hero_abilities`, exportiert und durch `load_built_hero_model` mit Grundmodell, Stat-Zeilen und Enrichment verkettet. Skalierungsstufe hat damit einen ausführbaren Datenweg. | `fc5bf2f` |
+| 3 | `src/types.rs:154`, `src/data.rs:267`, `src/mechanics.rs:443` | Basiswirkung, Tickrate und Dauer werden transportiert. Proc-Wert verwendet Schussabstand, Item-Tickrate oder Ability-Tickrate gegen Proc-Cooldown und MaxStacks. Direkter Test für einen 7-s-Kanal mit Tick 0,1 und Cooldown 0,7 ergibt 10 Procs. | `9b88e27`, `fc5bf2f` |
+| 4 | `src/mechanics.rs:37`, `src/mechanics.rs:74`, `src/mechanics.rs:143` | Additives `condition_factor_for_hero` ersetzt die Konstanten im Scoring. Melee/Action aus Archetyp, Klassen und Rollen, ShotBound aus Magazin-/Reload-Anteil. Auch Melee-Shred in der passiven Map benötigt Melee; passives Leben bleibt erhalten. | `fc5bf2f` |
+| 5 | `src/item.rs:51` | `total = per_slot_value + meta_support + patch_support`; keine Vermischung mit Soul-Effizienz. `per_soul_value` bleibt getrennt für frühe Käufe. | `fc5bf2f` |
+| 6 | `src/mechanics.rs:10`, `src/mechanics.rs:343` | Kaufboni und Properties werden in Schaden oder effektivem Leben pro Sekunde bewertet. Spirit über Skalierung, Castzahl und gegebenenfalls Wirkungsdauer; Vitality über Basisleben/W. Keine ungefilterte Summe aller DB-Stats als Spirit-Scale. | `fc5bf2f` |
+| 7 | `src/data.rs:354`, `src/mechanics.rs:263` | Gemeinsame Cast-Formel: min(charges + W/recharge, W*uptime/channel). Anfangsladungen und Kanalbudget sind separat getestet. | `9b88e27`, `fc5bf2f` |
+| 8 | `src/mechanics.rs:161`, `src/mechanics.rs:177` | Imbue-Ziel maximiert Ability-DPS mal itemabhängigem Gewinn; Damage, Cooldown-Reduktion und Ladungen gehen ein. Test zeigt den Zielwechsel bei erschöpftem Kanalbudget. | `fc5bf2f` |
+| 9 | `src/mechanics.rs:70`, `src/item.rs:68` | Eigene Größe `hit_rate`; Gleichverteilung des Restlebens explizit als ungemessene Annahme in Evidence. 65 Prozent Schwelle ergibt darunter 0,35. | `fc5bf2f` |
+| 10 | `src/mechanics.rs:199`, `src/mechanics.rs:214` | Heldenspezifische Kaufphase anhand Soul-Kurve und frühester Skalierungsstufe, Verteidigung als Late. Fehlende Kurve/Stufe fällt sichtbar auf die Kostenheuristik zurück. | `fc5bf2f` |
+| 11 | `src/hero.rs:19` | Zuordnung über die Position der passenden Ability-ID, kein Slot als Vektorindex und kein Enumerations-Fallback. Unbekannte IDs sind ein Datenfehler. Unsortierte Liste und echter Warden-Snapshot geprüft. | `fc5bf2f` |
+
+Skalierungsstufe am echten Snapshot: Willpower, Ability-ID `2751689917`,
+Upgrade-Index 2, `CombatBarrier`, `scale_function.stat_scale = 0.8`,
+`EAddToScale`-Bonus 2.7, Ergebnis 3.5. Gewöhnlicher WeaponPowerDebuff ist
+keine Skalierungsstufe. Der Test mit den Spec-Zahlen für Life Drain prüft
+0.3225 + 0.3 = 0.6225.
+
+### Gate-Funde
+
+Alle acht Funde wurden im separaten Commit `9b88e27` behoben. Zeilen unten
+beziehen sich für die Navigation auf den finalen Stand `fc5bf2f`.
+
+| Gate | Datei:Zeile | Änderung und Nachweis |
 |---|---|---|
-| 1 | `src/item.rs:104`, `src/item.rs:362` | Benannte Kern-Schwelle `CORE_SCORE_QUANTILE = 0.5`, Median des mechanischen Slot-Werts derselben Kostenklasse. Meta beeinflusst die Schwelle nicht. Test prüft alle vier Items und protokolliert alle Ränge. Quicksilver Reload bleibt unter der Schwelle, siehe Daten-Bump-up. |
-| 2 | `src/data.rs:516`, `src/lib.rs:18`, `src/hero.rs:83` | Öffentlicher Ability-Loader und verketteter `load_built_hero_model`: Grundmodell, Ability-Payloads, Stat-Zeilen, Enrichment und konfigurierter Damage-Plan. Echtdaten belegen Willpower T3 mit 0,8 + 2,7 = 3,5. |
-| 3 | `src/mechanics.rs:461` | Scoring ruft `proc_stacks` auf, liest `item.proc_cooldown`, nutzt Schussabstand für ShotBound und vorhandene Item-TickRate für Tick-Procs. MaxStacks begrenzt die Anzahl. Ability-Tickraten können mit den eingefrorenen Typen weiterhin nicht bis ins Scoring transportiert werden. Bump-up offen. |
-| 4 | `src/mechanics.rs:37`, `src/mechanics.rs:74` | Additive Funktion `condition_factor_for_hero` im Scoring. ShotBound aus Magazin, Feuerrate und Nachladen; Melee aus Archetyp/Klasse; ActionBound aus Ability-Rollen und Klassen. Alter API-Einstieg bleibt kompatibel. Die heuristische Rotation wird als Annahme in Evidence benannt. Warden fehlt noch die echte Nachladezeit im geladenen Modell. |
-| 5 | `src/item.rs:51` | `total = per_slot_value + meta_support + patch_support`. Kein Summieren von Soul- und Slot-Effizienz. `per_soul_value` bleibt für frühe Composer-Käufe verfügbar. Regression prüft identische Slot-Scores bei achtfachem Preis. |
-| 6 | `src/mechanics.rs:10`, `src/mechanics.rs:361` | Kaufboni und Properties auf Schaden oder effektivem Leben pro Sekunde normiert. Spirit über Ability-Skalierung und Castzahl, Vitality über Basisleben und Kampffenster. Keine Summe sämtlicher numerischer DB-Stats als Spirit-Skalierung mehr. Basiswirkung der Abilities fehlt weiterhin im Typ, siehe Bump-up. |
-| 7 | `src/mechanics.rs:258` | Casts exakt als Minimum aus Anfangsladungen plus W/recharge und W*uptime/channel. Tests mit W=40, uptime=0,55, Kanal=7 und recharge=30, einschließlich Sättigung. |
-| 8 | `src/mechanics.rs:150`, `src/mechanics.rs:166` | Ziel nach Ability-Wert mal itemabhängigem Imbue-Gewinn; Cooldown und Ladungen konkurrieren mit dem Kanalbudget. Test zeigt Zielwechsel bei 50 Prozent Cooldown-Reduktion. Absolute Basiswirkung bleibt Teil des Bump-ups. |
-| 9 | `src/mechanics.rs:70`, `src/item.rs:68` | Eigene Größe `hit_rate`; Gleichverteilung des Restlebens ausdrücklich als ungemessene Annahme in Evidence. 65 Prozent Schwelle ergibt unter dieser Annahme 0,35. |
-| 10 | `src/mechanics.rs:194`, `src/mechanics.rs:209` | Additive heldenabhängige Kaufphase aus Soul-Kurve und frühester Skalierungsstufe. Annahme: Upgrade-Kosten 1/2/5, Unlock-Level 1/3/5/8; fehlende Kurve/Stufe fällt sichtbar auf Kostenheuristik zurück. Verteidigung wird Late. Dies ist eine früheste Phase, keine vollständige kumulative Kaufplanung. |
-| 11 | `src/hero.rs:19` | Zuordnung durch Position der passenden Ability-ID, kein Slot als Vektorindex und kein Enumerations-Fallback. Unbekannte IDs erzeugen einen Datenfehler. Test mit unsortierter Ability-Liste und Echtdaten bestanden. |
+| 1, blockierend | `src/data.rs:267`, `src/data.rs:362`, `src/data.rs:441`, `src/data.rs:574` | Spirit-DPS aus Basiswirkung mal Castzahl/W, nicht Cooldown/Kanal. 60 Schaden bei 30 s Cooldown ergibt 3,5 DPS im 40-s-Fenster; längerer Cooldown senkt DPS. Waffensnapshot über `items.weapon_primary`, einschließlich Nachladezeit. Echter Warden hat Waffenanteil 0,604215. |
+| 2, blockierend | `src/data.rs:242` | Objektschlüssel bleiben Zielstats, EFireRate und ERoundsPerSecond getrennt. Scale wird nur bei Spirit-Bezug als per_spirit verwendet, per_level nur aus ausdrücklichem per_level-Feld. Test korrigiert und erweitert. B verwendet denselben Parser statt einer zweiten Auswertung. |
+| 3 | `src/data.rs:946` | Tatsächliche Stat-Schlüssel geprüft. Numerische Zeilen werden dedupliziert, Null bleibt unbekannt. Nur `spirit_scaling.*` ist per_spirit; `_per_level`/`_per_boon` ist Level-/Boon-Zuwachs. Basis-HP, DPS, Ratings usw. werden nicht als Skalierungsstats ausgegeben. Echtdaten: sechs passende Stat-Zeilen. |
+| 4 | `src/data.rs:794` | Patch-Events nach ID dedupliziert, Enrichment-Auswahl durch sortierte JSON-Werte deterministisch. Scratch-Test enthält doppelte Enrichments und prüft neben der ID-Menge ausdrücklich die Zeilenzahl. |
+| 5 | `src/data.rs:158` | Fehlendes, null oder false Imbue-Flag ergibt false. Direkter Test mit diesen Fällen und true. |
+| 6 | `src/data.rs:521` | Ein benannter, fehlender Signature-Snapshot führt zu MissingSnapshot. Es wird kein verkürzter Vektor mit verschobenen Slots zurückgegeben. Scratch-Regression bestanden. |
+| 7 | `src/data.rs:1158` | Zeitstempel in Fixture mit explizitem UTC-Offset; Test setzt die Verbindung auf Pacific/Honolulu und prüft dieselben Unix-Zeitwerte. |
+| 8 | `Cargo.toml:11`, `rust/Cargo.lock` | Die vier ungenutzten direkten Abhängigkeiten anyhow, dbrain-builds, dbrain-learn und dbrain-retrieval entfernt; Lockfile entsprechend aktualisiert. |
 
-Weitere aus dem Echtdatenlauf abgeleitete Korrekturen: EAddToScale addiert den
-Bonus auf `properties.<name>.scale_function.stat_scale`; gewöhnlicher
-WeaponPowerDebuff wird nicht mehr als Skalierungsstufe erkannt. Doppelte
-Properties in aktiver und passiver Map zählen einmal. Bullet-Speed, MaxStacks
-und rohe AbilityCooldown-Werte erzeugen keinen direkten Schaden. Instant Reload
-zählt gesparte Nachladezeit statt pauschal 100 Prozent mehr Waffen-DPS.
+AbilityModel hat drei additive, mit Serde-Defaults kompatible Felder:
+`base_effect` als Schaden je vollständiger Aktivierung, `tick_rate` in Sekunden,
+`duration` in Sekunden. Für PulseDPS wird die Basiswirkung mit der Dauer
+multipliziert, DamagePerTick berücksichtigt Tickzahl. Das bereits vorhandene
+`HeroModel.weapon.reload_duration` wird vollständig gefüllt; ein zweites,
+widersprüchliches Reload-Feld auf HeroModel-Ebene wurde nicht eingeführt.
 
-### Testnachweise
+### Tests und Rot-Gegenproben
 
-Alle Läufe nutzen die Debug-Toolchain unter `/home/nathanael/.cargo/bin`.
-Die drei B-Module waren für sämtliche Paket-Prüfungen temporär öffentlich
-in `lib.rs` eingebunden.
-
-| Stand | Ohne DSN | Mit Echtdaten-DSN und isoliertem Scratch-DSN |
+| Stand | Ohne DSN | Mit DSN und Scratch-DB |
 |---|---|---|
-| Anfang nach erstem A-Merge | 20 bestanden, 0 fehlgeschlagen, 6 ignoriert | Zwei echte Warden-Tests bestanden; zunächst vier Fehler wegen fehlender Scratch-Konfiguration |
-| Vergleichsbaseline nach A-Gate-Fix, unveränderter B-Code aus 68dc58c | 24 bestanden, 0 fehlgeschlagen, 6 ignoriert | 30 bestanden, 0 fehlgeschlagen, 0 ignoriert |
-| Aktueller Fixstand | 44 bestanden, 0 fehlgeschlagen, 6 ignoriert | 49 bestanden, 1 fehlgeschlagen, 0 ignoriert |
+| B-Baseline nach erstem A-Merge | 20 bestanden, 0 fehlgeschlagen, 6 ignoriert | Zwei Warden-Tests grün, zunächst vier fehlende Scratch-Konfigurationen |
+| Vergleichsbaseline nach A-Gate-Fix a4d1375, alter B-Code | 24 bestanden, 0 fehlgeschlagen, 6 ignoriert | 30 bestanden, 0 fehlgeschlagen, 0 ignoriert |
+| Separater Gate-Auftrag, Baseline ohne temporäre B-Module | 11 bestanden, 0 fehlgeschlagen, 5 ignoriert | Vorbestehende integrierte Baseline siehe vorige Zeile |
+| Gate-Commit 9b88e27 ohne temporäre B-Module | 14 bestanden, 0 fehlgeschlagen, 6 ignoriert | 20 bestanden, 0 fehlgeschlagen, 0 ignoriert |
+| Endstand mit temporär eingebundenen B-Modulen | 53 bestanden, 0 fehlgeschlagen, 7 ignoriert | 60 bestanden, 0 fehlgeschlagen, 0 ignoriert |
 
-Der eine echte Fehler ist ausschließlich Quicksilver Reload unter der
-Kern-Schwelle. Kein Skip ohne DSN im verstärkten B-Pflichttest.
-Die Scratch-Instanz wurde separat unter `/tmp/reasoner-b-pg` auf Port 55439
-mit Datenbank `reasoner_a_fix` gestartet. Nur dort liefen die schreibenden
-A-Tests. Der Echtdatenzugang lief mit `default_transaction_read_only=on`;
-der B-Pflichttest erzwingt dies zusätzlich beim Verbindungsaufbau.
-
-Rot-Gegenproben für alle 20 neuen Tests:
-
-- Erste elf Regressionen vor den Implementierungsänderungen: 20 bestanden,
-  11 fehlgeschlagen, 6 ignoriert.
-- Gegner-Debuff/Selbstkosten-Test vor der Korrektur: 38 bestanden,
-  1 fehlgeschlagen, 6 ignoriert.
-- Reload-Regression und erweiterter Property-Test vor der Korrektur:
-  42 bestanden, 2 fehlgeschlagen, 6 ignoriert.
-- Temporäre Rücknahmen von Rotations-, Imbue-, Phasen-, Doppelzählungs-,
-  Tick-, Total- und Skalierungsfix: 36 bestanden, 8 fehlgeschlagen,
-  6 ignoriert. Diese Mutationen wurden anschließend vollständig entfernt.
-
-Formatter auf den drei eigenen B-Dateien und
+`cargo fmt -p dbrain-reasoner -- --check` und
 `cargo clippy -p dbrain-reasoner --all-targets -- -D warnings` sind grün.
-Es gibt keine Code-Kommentare in den drei B-Dateien. Kein externer KI-Aufruf;
-A enthält einen lokalen HTTP-Fixture-Test für den Kritiker.
+Toolchain über `/home/nathanael/.cargo/bin`, Debug-Build, kein Release.
+Die sieben ignorierten Tests sind fünf Scratch-Tests und zwei Echtdaten-Tests;
+beim DSN-Lauf wurden alle ausgeführt. Kein externer KI-Aufruf, A enthält nur
+einen lokalen HTTP-Fixture-Test für den Kritiker.
 
-Prüflogs liegen unter `/tmp/reasoner-b-red.log`,
-`/tmp/reasoner-b-red2.log`, `/tmp/reasoner-b-red3.log`,
-`/tmp/reasoner-b-mutants.log`, `/tmp/reasoner-b-baseline-final-a.log`,
-`/tmp/reasoner-b-baseline-final-a-dsn.log`, `/tmp/reasoner-b-live2.log`.
+Die drei `pub mod`-Zeilen für B waren entsprechend dem Briefing nur zur
+Paket-Prüfung eingebunden und sind nicht im Commit. Der einzige B-Diff in
+`lib.rs` ist der freigegebene Loader-Export. Formatter, Git-Diff-Check und
+Arbeitsbaum sind auch nach Entfernen der temporären Zeilen sauber.
 
-### Warden-Zahlen des aktuellen, noch unvollständigen Modells
+Rot-Nachweise:
 
-W=40 s, Kanalanteil=0,55, Meta leer, Patch-Deltas leer.
-Score ist `per_slot_value`; in diesem Lauf ist `total` identisch.
-Diese Zahlen sind ein Fehlernachweis, noch keine fachliche Freigabe des Builds.
+- Erste elf B-Regressionen gegen die alte Implementierung: 20 grün, 11 rot,
+  6 ignoriert.
+- Gezielte Rücknahme von Rotation, Imbue-Gewinn, Phasen, Doppelzählung,
+  Tick-Verdrahtung, Total-Mischung und Skalierungs-Erkennung: 36 grün,
+  8 rot, 6 ignoriert. Mutationen danach vollständig entfernt.
+- Gegner-Debuff/Selbstkosten: 38 grün, 1 rot; Reload/Property-Einheiten:
+  42 grün, 2 rot.
+- Gate-Funde vor Korrektur: 12 grün, 5 rot, 1 gefilterter Echtdaten-Test.
+- Gate-Gegenprobe für Basiswirkung, Imbue-null und nicht-UTC-Fixture:
+  16 grün, 4 rot, 1 gefilterter Echtdaten-Test. Originaldatei anschließend
+  wiederhergestellt, Git-Diff leer.
+- Neue Ability-Tick-Verdrahtung und nicht-zirkulärer Damage-Plan: 47 grün,
+  2 rot, 7 ignoriert vor Implementierung.
+- PulseDPS-Dauer: gezielter Test 0 grün, 1 rot vor Korrektur.
+- Aktive Dauer/Cooldown und passiver Melee-Shred: 50 grün, 2 rot vor Korrektur.
+- Max-HP-Entzug: gezielter Test 0 grün, 1 rot vor Korrektur.
 
-| Referenz-Item | Score | Kern-Schwelle gleicher Kostenklasse | Ergebnis |
+Alle zuvor ungetesteten Formeln haben direkte Zahlentests: property_effect/
+property_value, ability_dps/Casts, aktive und passive Werte sowie sämtliche
+heldenabhängigen Condition-Zweige. Die weiteren Regressionen prüfen auch
+Kern-Schwelle, Reload-Zeitgewinn, Identitätszuordnung und Enrichment.
+
+Echtdaten nur lesend: `default_transaction_read_only=on` über Verbindungsoptionen
+und zusätzlich im B-Pflichttest erzwungen. Schreibende A-Tests liefen nur in der
+eigenen lokalen Instanz `/tmp/reasoner-b-pg`, Port 55439, Datenbank
+`reasoner_a_fix`. Keine Migration und kein Schreibzugriff auf Produktionsdaten.
+
+### Warden-Echtdatenlauf
+
+251 geladene Items, vier Referenz-Items, sechs Skalierungsstat-Zeilen,
+416 deduplizierte Patch-Zeilen, drei Autoren-Builds. Scoring hier ohne Meta
+und ohne Patch-Deltas, W=40 s, Kanalanteil=0,55. `total` entspricht deshalb
+`per_slot_value`. Schwelle: Median der gleichen Kostenklasse, vor dem ersten
+Scoring-Lauf festgelegt und danach unverändert.
+
+Waffenprofil aus `citadel_weapon_warden_set`: Bullet damage 17,34,
+shots_per_second 3,809524, Magazin 17, Reload 2,914 s. Damage-Plan:
+38,652068 Waffen-DPS, 25,318627 Spirit-DPS, Waffenanteil 60,421523 Prozent,
+Primärachse Weapon.
+
+| Referenz-Item | Score | Kern-Schwelle | Ergebnis |
 |---|---:|---:|---|
-| Veil Walker | 11,867174 | 10,577337 | darüber |
-| Mercurial Magnum | 53,035390 | 15,218273 | darüber |
-| Siphon Bullets | 35,918983 | 15,218273 | darüber |
-| Quicksilver Reload | 9,918407 | 10,735000 | darunter |
+| Veil Walker | 13,853285 | 13,433479 | darüber |
+| Mercurial Magnum | 50,246984 | 18,928813 | darüber |
+| Siphon Bullets | 28,149679 | 18,928813 | darüber |
+| Quicksilver Reload | 23,825812 | 12,280908 | darüber |
 
-| Gruppe | Item | Score |
+| Ranggruppe | Item | Score |
 |---|---|---:|
-| Top 1 | Express Shot | 128,860088 |
-| Top 2 | Spirit Burn | 103,856031 |
-| Top 3 | Lucky Shot | 101,467107 |
-| Top 4 | Frenzy | 89,569428 |
-| Top 5 | Juggernaut | 88,854534 |
-| Bottom 5 | Extra Stamina | 1,411637 |
-| Bottom 4 | Extra Charge | 1,124294 |
-| Bottom 3 | Mystic Expansion | 1,122370 |
-| Bottom 2 | Golden Goose Egg | -4,734296 |
-| Bottom 1 | Trophy Collector | -6,671390 |
+| Top 1 | Spirit Burn | 104,139994 |
+| Top 2 | Juggernaut | 73,451349 |
+| Top 3 | Express Shot | 72,665889 |
+| Top 4 | Frenzy | 65,451358 |
+| Top 5 | Mystic Conduit | 61,962848 |
+| Bottom 5 | Healing Rite | 1,408750 |
+| Bottom 4 | Inhibitor | 0,348141 |
+| Bottom 3 | Spirit Sap | -1,558071 |
+| Bottom 2 | Trophy Collector | -2,187810 |
+| Bottom 1 | Golden Goose Egg | -3,480256 |
 
-### Bump-up und konkrete Fortsetzung
+Zwischenzeitliche Pflichtfehler wurden nicht durch Schwellenänderung beseitigt:
+Quicksilver Reload lag ohne Nachladezeit bei 9,918 unter 10,735. Behoben durch
+das echte Waffenprofil und Bewertung gesparter Reload-Zeit statt pauschal
+100 Prozent zusätzlicher Waffen-DPS. Nach korrekter Dauerbewertung der
+Spirit-Alternativen lag Siphon Bullets bei 18,004 unter 18,455. Dessen
+verifizierter Effekttext beschreibt Max-HP-Entzug, bisher zählte nur eine
+Seite. Nun zählen Zielverlust und eigener Lebensgewinn in derselben Einheit.
+Veil Walker und Mercurial Magnum lagen in den Pflichtläufen über der Schwelle.
+Keine Gewichte wurden auf das Referenzergebnis eingestellt.
 
-[Bump-up] Paket B: Grund: Der erlaubte Loader-Zugriff liefert nur die vier
-Signature-Abilities. Wardens Hero-Payload enthält kein `weapon_info`; seine
-Stat-Zeilen enthalten Basiswaffenschaden, Feuerrate und Magazin, aber keine
-Nachladezeit. Die echte Waffenquelle ist der Snapshot `item_or_ability` mit
-`class_name = citadel_weapon_warden_set`, referenziert durch
-`hero.items.weapon_primary`. Er enthält `reload_duration = 2.914`,
-`bullet_damage = 17.34`, `shots_per_second = 3.8095238095238098`,
-`clip_size = 17`, `damage_per_second_with_reload = 38.6520684455517`.
-Aktuell ist `reload_duration` im HeroModel weiterhin 0. Ohne diese Daten
-bekommt Quicksilver Reload keinen rechnerischen Reload-Gewinn.
+### Annahmen und Integration durch C/D
 
-Zusätzlich fehlen in AbilityModel Basiswirkung, Tickrate und Wirkungsdauer.
-Die vorhandene Ability-Skalierung allein ist kein absoluter Schadenswert.
-Damit sind der derzeitige Spirit-DPS-Wert und der Waffenanteil nur ein
-unzureichendes Modell; die grünen ersten Referenzscores sind kein Ersatz
-für den vollständigen Datenweg.
-
-Erledigt: freigegebener Loader, mechanische Fixes und Regressionen, DSN-Zugang,
-komplette Testläufe samt echtem negativem Pflichtnachweis, Schwelle unverändert.
-Worktree: `/home/nathanael/.worktrees/deadlock-brain-b`.
-Offen: Freigabe zur additiven Erweiterung von `types.rs` und der dazugehörigen
-Loader-Pfade in `data.rs`, alternativ verbindliche Übergabe dieser
-Datenkorrekturen an A/D. Konkrete Änderung: Waffensnapshot über
-`hero.items.weapon_primary` auflösen, vorhandenes WeaponProfile vollständig
-füllen; AbilityModel um transportierte Basiswirkung/Tickrate/Dauer ergänzen,
-vorhandene `scale_function`-Werte übernehmen und damit die bereits angebundene
-Proc-/Kampffensterrechnung speisen. Danach Schwellenlauf unverändert wiederholen,
-Formatter/Clippy/Tests abschließen, temporäre Modulzeilen entfernen, nur B-Dateien
-und freigegebene Ergänzungen mit Modell-Trailer committen und ausschließlich
-`feat/build-reasoner-b` pushen. Der aktuelle rote Pflichtlauf wird nicht gepusht.
+- `hit_rate` bleibt ohne Telemetrie eine ausdrücklich genannte Gleichverteilung
+  des Restlebens. Die Rotation wird aus Archetyp, Ability-Klasse und Rollen
+  abgeleitet, nicht als beobachtete Spielrotation ausgegeben.
+- Kaufphase ist die früheste modellierte Phase. Annahmen: Upgrade-Kosten 1/2/5,
+  Ability-Unlocks auf Level 1/3/5/8; die vollständige kumulative Kaufplanung
+  bleibt Aufgabe des Composers. Soul- und Slot-Effizienz sind getrennt.
+- Max-HP-Entzug ist Bruttowirkung der Procs im Fenster: angenommene Ziel-HP gleich
+  Hero-Basisleben, Zielverlust plus eigener Gewinn, ohne Rückgabe bei Debuff-Ende.
+  Diese Grenze steht explizit in der Item-Evidence. Die Tabelle ist mechanische
+  Einzelitem-Bewertung, kein bereits getesteter vollständiger Composer-Build.
+- C/D bindet `hero`, `item`, `mechanics` öffentlich ein und verwendet
+  `hero::load_built_hero_model(ctx, name)` oder dieselbe Loader-Verkettung.
+  Bestehende Rust-Struct-Literale für AbilityModel müssen die drei neuen Felder
+  setzen; ältere JSONs bleiben durch Serde-Defaults lesbar.
+- C hat `order_proximity` zu Option<f64> geändert. Dieses Feld wurde hier nicht
+  angefasst; C ist nicht eigenmächtig in B gemergt worden. Die durch C tatsächlich
+  benötigte Abhängigkeit dbrain-builds muss bei dessen Modul-Integration wieder
+  als verwendete Abhängigkeit aufgenommen werden. Der Gate-Commit entfernt nur
+  die im A-Stand ungenutzten direkten Abhängigkeiten.
+- Bericht und genaue Score-Ausgaben: `/tmp/reasoner-b-final-unit.log`,
+  `/tmp/reasoner-b-final-dsn.log`, Gate-Nachweise unter
+  `/tmp/reasoner-b-gate-baseline.log`, `/tmp/reasoner-b-gate-dsn.log`,
+  `/tmp/reasoner-b-gate-red.log`, `/tmp/reasoner-b-gate-counterprobe.log`.
 
 Secret-Hinweis: Ein früher fehlgeschlagener psql-Aufruf hat einen Teil des DSN
 in seiner Tool-Fehlerausgabe gezeigt. Folgende Verbindungsfehler wurden
-abgeschirmt. Keine DSN-Werte stehen in diesem Bericht oder im Diff.
-
-Vor der Übergabe wurden die drei temporären Modulzeilen wieder entfernt und
-die eigene Scratch-Postgres gestoppt. Für weitere B-Paket-Tests erneut
-`pub mod hero; pub mod item; pub mod mechanics;` temporär ergänzen und die
-bestehende Scratch-Instanz mit `pg_ctl -D /tmp/reasoner-b-pg -l
-/tmp/reasoner-b-pg.log -o '-k /tmp/reasoner-b-pg-socket -p 55439 -h 127.0.0.1'
-start` starten. Der Quellstand einschließlich aller Fixes bleibt erhalten.
+abgeschirmt. Kein DSN-Wert steht in diesem Bericht oder im Code-Diff.

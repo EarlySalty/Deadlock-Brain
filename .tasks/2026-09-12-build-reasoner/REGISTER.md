@@ -19,7 +19,8 @@ Deadlock-Steam-Bot. Pakete in `PAKETE.md`.
 | Fix A Runde 2 (Gate) | 1938193f | astra | ~/.worktrees/deadlock-brain-a | feat/build-reasoner-a | fertig (a4d1375), gesettelt; zweiter Gate-Lauf BLOCK (spirit_dps, scaling_stats), diese Funde trägt Fix B auf dem B-Branch, A wird über B integriert |
 | B Kern | 953fd289 | luna | ~/.worktrees/deadlock-brain-b | feat/build-reasoner-b (ab 3bef602) | fertig (68dc58c, FERTIG-B.md), gesettelt |
 | Review B Runde 1 | f3a5efae | opus48 | keiner (lesend) | keiner | fertig, gesettelt: NACHBESSERN (11 Mängel, 2 blockierend) |
-| Fix B Runde 1 | b5ce4903 | astra | ~/.worktrees/deadlock-brain-b | feat/build-reasoner-b (enthält A a4d1375) | Bump-up 23:20 beantwortet: additive Typ-Erweiterung frei, plus Gate-Funde A |
+| Fix B Runde 1 | b5ce4903 | astra | ~/.worktrees/deadlock-brain-b | feat/build-reasoner-b (enthält A a4d1375) | fertig (9b88e27 Gate-Funde, fc5bf2f B-Mängel), gesettelt; Warden 4 Referenz-Items über Kern-Schwelle |
+| Review B Runde 2 | 7aff1c05 | opus48 | keiner (lesend) | keiner | gestartet 2026-09-12 23:55 |
 | C Zusammensetzung | fe6a88bb | luna | ~/.worktrees/deadlock-brain-c | feat/build-reasoner-c (ab 3bef602) | fertig (1e23609, FERTIG-C.md), gesettelt |
 | Review C Runde 1 | 91f509cf | opus48 | keiner (lesend) | keiner | fertig, gesettelt: NACHBESSERN (7 Mängel, 1 blockierend) |
 | Fix C Runde 1 | 874ccb61 | astra | ~/.worktrees/deadlock-brain-c | feat/build-reasoner-c | fertig (631182a), gesettelt |
@@ -28,7 +29,8 @@ Deadlock-Steam-Bot. Pakete in `PAKETE.md`.
 | S Steam-Bot Autoren-Scan | 231b6ae6 | luna | ~/.worktrees/steam-bot-autoren-scan | feat/autoren-scan-reaktivieren | fertig (f82c21c, FERTIG-S.md), gesettelt |
 | Review S Runde 1 | 8248611a | opus48 | keiner (lesend) | keiner | fertig, gesettelt: NACHBESSERN (5 Mängel, 2 wichtig) |
 | Fix S Runde 1 | 2884c49a | astra | ~/.worktrees/steam-bot-autoren-scan | feat/autoren-scan-reaktivieren | fertig (102ec83), gesettelt |
-| Review S Runde 2 | 574e5db6 | opus48 | keiner (lesend) | keiner | gestartet 2026-09-12 23:25 |
+| Review S Runde 2 | 574e5db6 | opus48 | keiner (lesend) | keiner | fertig, gesettelt: FREIGABE; Merge aba7636 in Steam-Bot main, Gate durch, steam-core und steam-core-2 neu gestartet 21:26, drei Autoren in watched_build_authors eingetragen |
+| Fix S Runde 2 (Live) | b144ffdc | astra | ~/.worktrees/steam-bot-autoren-scan-2 | fix/autoren-scan-live | gestartet 2026-09-12 23:57: GC Response code 0 je Autor, Zyklus über 600 s stale |
 
 Status-Werte: geplant, gestartet, fertig, gestoppt, gebumpt. Gestoppte oder
 gestorbene Threads bleiben drin und werden nicht wieder aufgenommen.

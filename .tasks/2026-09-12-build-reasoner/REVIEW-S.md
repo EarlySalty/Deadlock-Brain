@@ -251,3 +251,100 @@ bleiben bei der Merge-Schleuse beziehungsweise dem Delegator.
 
 Push: `origin/feat/autoren-scan-reaktivieren` auf `102ec83fe91548e79963be9aa93dc5d7baee3c66` bestätigt.
 Es wurde ausschließlich der eigene Feature-Branch gepusht, niemals `main`.
+
+## Review Runde 2
+
+Stand: 2026-09-12. Lesend gegen Commit `102ec83` (Diff `f82c21c..HEAD`),
+Intent-Thread `33a32f58-476b-4a67-99cc-8f6c1e8f7001`. Nur die fünf Mängel aus
+Runde 1, plus Abgleich von SQL-Vorschlag und Live-Proof gegen den Code.
+
+### Urteil: FREIGABE
+
+Alle fünf Mängel sind im Code behoben oder begründet belassen, durch neue
+Tests abgedeckt und ohne schädliche Nebenwirkung. SQL-Vorschlag und Live-Proof
+passen zum Code. Der einzige verbleibende offene Punkt ist naturgemäß der echte
+GC-Scan, der erst nach dem Deploy läuft; die Regressionstests nutzen simulierte
+GC-Antworten gegen echtes PostgreSQL.
+
+### Abgleich der fünf Mängel
+
+1. **Behoben.** Neue `update_watched_author_status`
+   (`steam-persistence/src/builds.rs:857`, Db-Wrapper `:1224`) schreibt
+   `last_checked_at = now()`, `last_checked_status`, `last_checked_message`. Der
+   Aufruf steht pro Autor in `discovery.rs:203` nach der GC-Antwort; der Status
+   ist `ok`, `partial` oder `error`, die Meldung enthält Build-, Helden-, Neu-,
+   Update- und Fehlerzahlen plus Fehlerdetails. Die drei Spalten existieren real:
+   der SQLx-Cache `query-c23a021a....json` (Params `Int8, Text, Text`) wurde
+   gegen die migrierte DB erzeugt, kein Handedit. Abgedeckt durch
+   `discovery_records_ok_and_preserves_collab_author`,
+   `discovery_empty_response_is_partial_and_visible` und
+   `discovery_gc_errors_are_recorded_and_other_authors_continue`.
+2. **Behoben.** Der gespeicherte Autor kommt aus dem GC-Build
+   (`gc_build_to_source`), nicht aus dem beobachteten Suchaccount; keine
+   Normalisierung. Test `discovery_records_ok_and_preserves_collab_author`:
+   Suche unter `13446690`, GC liefert Build `779996` mit Autor `1650097169`,
+   gespeichert wird `1650097169`, Version 31. Der SQL-Vorschlag
+   (`REVIEW-S.md:236` und `FERTIG-S.md:78`) enthält jetzt alle drei Accounts
+   inklusive `1650097169`; der Live-Proof (`FERTIG-S.md:136`) verlangt Build
+   `779996`, Held `25`, GC-Autor `1650097169`, Version mindestens `31`, und die
+   v1-Kopie `782057` genügt ausdrücklich nicht.
+3. **Behoben.** `DiscoveryStats::into_task_result` (`discovery.rs:59`) liefert
+   bei `authors_checked == 0 && !errors.is_empty()` einen `TaskFailure` mit
+   Daten. Der Runner (`task/runner.rs:352-363`) setzt darauf `status = FAILED`
+   und `result = {"ok":false,"data":...,"error":...}`, sodass die Python-Seite
+   die Fehlerdaten weiter auswerten kann. Im Zyklus wickelt
+   `finish_catalog_cycle` (`catalog.rs`) den Discovery-Fehler in einen
+   `TaskFailure`, hält aber das Maintenance-Ergebnis im `data`-Objekt. Leerläufe
+   ohne aktive Autoren bleiben Erfolg. Tests
+   `discovery_total_outage_fails_tasks_with_details` und
+   `discovery_no_active_authors_succeeds_without_gc`.
+4. **Behoben.** `builds.rs:287` nutzt
+   `COALESCE(NULLIF(EXCLUDED.author_account_id, 0), tierlist.hero_build_sources.author_account_id)`;
+   `0` oder fehlende GC-ID überschreiben keinen bekannten Autor, eine echte neue
+   ID aktualisiert weiter. Test
+   `discovery_missing_author_never_erases_known_author` deckt `None`, `Some(0)`
+   und einen echten Wechsel ab.
+5. **Geprüft und begründet belassen.** Beide `DISCOVER_*`-Handler bleiben
+   gemeinsame Einstiegspunkte in dieselbe Discovery. Der Fixer belegt die
+   Enqueuer-Prüfung (Rust/Python/JS/TS unter `~/repos`, gruppierte Abfrage auf
+   `steam.steam_tasks` ohne Zeilen für beide Typen; nur `BUILD_CATALOG_CYCLE`
+   wird vom Tages-Scheduler eingeplant). Runde 1 verlangte nur die Prüfung, keine
+   Trennung. Damit kein Doppellauf pro Tag.
+
+### Nebenwirkungen des Fixes
+
+Keine schädlichen. Ein zusätzlicher DB-Schreibvorgang pro Autor (Status-Update),
+keine neue GC-Last, keine neue Poll-Schleife; Watchdog- und Supervisor-Pfad
+liegen nicht im Diff. Zwei benigne Verhaltensänderungen: ein GC-Ergebnis ohne
+`hero_build` wird jetzt als Fehler gezählt (vorher stiller `continue`), und ein
+Fehlschlag des Status-Updates selbst steht im Task-Ergebnis
+(`discovery_status_write_failure_is_visible`). Beide erhöhen die Sichtbarkeit,
+kein Regressionsrisiko.
+
+### Eigene Testläufe (Reviewer, gegen `102ec83`)
+
+Befehle wörtlich wie im Briefing, Ausgabe je in Datei, Exit geprüft:
+
+```
+SQLX_OFFLINE=true cargo test -p steam-core -p steam-persistence --manifest-path rust/Cargo.toml
+central_test_db.sh cargo test ... -p steam-core --features testing -- task::handlers::builds::catalog::tests --include-ignored
+```
+
+TESTNACHWEIS[TW-1]: Offline 174 passed, 0 ignored | Baseline: 0 rot
+TESTNACHWEIS[TW-1]: Docker-Katalog 26 passed, 0 ignored (235 filtered) | Baseline: 18 rot-frei vor Fix, jetzt 26
+
+Beide Endstände decken sich mit dem Fixbericht (Offline 174, Katalog 18 auf 26).
+
+### Deploy-Reihenfolge
+
+1. Merge `feat/autoren-scan-reaktivieren` nach `main` durch die Merge-Schleuse.
+2. `cargo build --release` für `steam-core`.
+3. Service-Neustart `steam-core`.
+4. SQL auf Prod: `watched_build_authors` um `13446690` (Lightbringer),
+   `34634349` (Situation) und `1650097169` (Kollab) ergänzen (INSERT aus
+   `FERTIG-S.md:78`, kein Migrationsschritt).
+5. Live-Proof: `BUILD_CATALOG_CYCLE` anstoßen, dann prüfen, dass Build `779996`
+   für Held `25` unter Autor `1650097169` in Version mindestens `31` mit frischem
+   `last_seen_at` in `tierlist.hero_build_sources` steht, und dass alle drei
+   Autoren in `watched_build_authors` einen frischen `last_checked_at` mit
+   Statusmeldung tragen (Abfragen in `FERTIG-S.md:136` und `:158`).

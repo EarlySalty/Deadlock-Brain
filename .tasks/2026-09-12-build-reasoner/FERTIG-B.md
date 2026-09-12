@@ -83,3 +83,18 @@ sind implementiert und lokal mit 20 Tests grün geprüft. Worktree:
 `/home/nathanael/.worktrees/deadlock-brain-b` Offen: öffentliche
 IO-freie Learn-Schnittstelle, echter Warden-Scoring-Lauf, Integration durch C
 und CLI/DB-Weg durch D.
+
+## Fixrunde 1 abgeschlossen
+
+Stand `fc5bf2f`, davor eigener Gate-Commit `9b88e27`; beide auf
+`origin/feat/build-reasoner-b` gepusht. Alle elf B-Mängel sowie zwei Gate-Blocker
+und sechs Gate-Nits bearbeitet. Freigegebene additive Ability-Felder und echter
+Waffen-Loader enthalten. 53 Tests ohne DSN bestanden, sieben ignoriert; mit
+Echtdaten und isolierter Scratch-DB 60 bestanden, keiner ignoriert.
+Formatter und strenges Clippy grün. Alle vier Warden-Referenzen über der
+unveränderten Kern-Schwelle, Waffenanteil 60,421523 Prozent.
+
+Die vollständige Fertigmeldung mit Datei:Zeile je Mangel, Gate-Funden,
+Rot-Gegenproben, Score-Tabellen und Integrationshinweisen steht in
+`REVIEW-B.md`, Abschnitt `Fixrunde 1`. Dieser Nachtrag ersetzt die früheren
+Aussagen über fehlenden DSN-Zugang und ungeprüfte Warden-Zahlen.
