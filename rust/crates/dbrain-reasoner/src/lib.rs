@@ -10,6 +10,7 @@ pub use ai_roles::{
     run_patch_analyst, CriticResponse, HeroAnalystResponse, ItemAnalystResponse,
     MetaAnalystResponse, PatchAnalystResponse,
 };
+pub use data::load_hero_abilities;
 pub use data::{
     load_author_builds, load_claims, load_hero_model, load_hero_stat_values, load_item_models,
     load_meta_rows, load_patch_events, load_synergies,

@@ -167,9 +167,15 @@ fn classify_condition(payload: &Value, is_active: bool) -> ConditionKind {
         .and_then(|value| number(value.as_object().and_then(|value| value.get("value"))))
         .unwrap_or_default();
     if is_active {
+        let values = property_values(payload.get("properties"));
+        let duration = values
+            .get("AbilityDuration")
+            .copied()
+            .unwrap_or(1.0)
+            .max(0.0);
         return ConditionKind::ActiveCooldown {
             uptime: if cooldown > 0.0 {
-                1.0 / cooldown.max(1.0)
+                (duration / cooldown).clamp(0.0, 1.0)
             } else {
                 1.0
             },
@@ -233,7 +239,7 @@ fn ability_roles(payload: &Value) -> Vec<AbilityRole> {
     roles
 }
 
-fn scaling_stats(value: Option<&Value>) -> Vec<ScalingStat> {
+pub(crate) fn scaling_stats(value: Option<&Value>) -> Vec<ScalingStat> {
     value
         .and_then(Value::as_object)
         .map(|object| {
@@ -588,6 +594,11 @@ pub async fn load_hero_model(ctx: &ReasonerCtx, hero: &str) -> Result<HeroModel>
     let abilities = ability_snapshots(&ctx.pool, &payload).await?;
     let stats = load_hero_stat_values(ctx, integer(payload.get("id"))).await?;
     hero_model(&payload, &abilities, &stats)
+}
+
+pub async fn load_hero_abilities(ctx: &ReasonerCtx, hero: &str) -> Result<Vec<Value>> {
+    let payload = snapshot(&ctx.pool, "hero", hero).await?;
+    ability_snapshots(&ctx.pool, &payload).await
 }
 
 pub async fn load_item_models(ctx: &ReasonerCtx) -> Result<Vec<ItemModel>> {
@@ -993,6 +1004,18 @@ mod tests {
         assert!(!is_imbue_marker(Some(&serde_json::json!(null))));
         assert!(!is_imbue_marker(Some(&serde_json::json!(false))));
         assert!(is_imbue_marker(Some(&serde_json::json!(true))));
+    }
+
+    #[test]
+    fn active_condition_uses_duration_over_cooldown() {
+        let payload = serde_json::json!({"properties":{"AbilityDuration":{"value":7},"AbilityCooldown":{"value":30}}});
+        assert_eq!(
+            classify_condition(&payload, true),
+            ConditionKind::ActiveCooldown {
+                uptime: 7.0 / 30.0,
+                cooldown: 30.0
+            }
+        );
     }
 
     #[test]

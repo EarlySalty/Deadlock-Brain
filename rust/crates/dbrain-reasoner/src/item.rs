@@ -39,16 +39,16 @@ pub fn score_item(
             sources: Vec::new(),
         };
     }
-    let condition_factor = mechanics::condition_factor(item, cfg);
+    let condition_factor = mechanics::condition_factor_for_hero(item, hero, cfg);
     let active_value = mechanics::active_value(item, hero, cfg);
     let passive_value = mechanics::passive_value(item, hero, cfg);
     let combat_value = mechanics::combat_window_value(item, hero, cfg);
-    let purchase_bonus_value = mechanics::purchase_bonus_value(item, hero);
+    let purchase_bonus_value = mechanics::purchase_bonus_value_with_config(item, hero, cfg);
     let per_slot_value = mechanics::per_slot_value(combat_value, purchase_bonus_value);
     let per_soul_value = mechanics::per_soul_value(combat_value, item.cost);
     let meta_support = meta_value(item.item_id, meta);
     let patch_support = patch_value(item, hero, deltas);
-    let total = per_slot_value + per_soul_value * 100.0 + meta_support + patch_support;
+    let total = per_slot_value + meta_support + patch_support;
     let confidence = if meta.sample_ok.contains(&item.item_id) {
         Confidence::High
     } else {
@@ -58,8 +58,17 @@ pub fn score_item(
     if combat_value > 0.0 {
         sources.push(crate::Evidence {
             kind: crate::EvidenceKind::Mechanic,
-            detail: "Kampffenster und Bedingungsfaktor".to_string(),
+            detail: format!("Kampffenster {} s, Kanalanteil {}; Slot-Wert in Schaden oder effektivem Leben pro Sekunde. total nutzt den Slot-Wert; frühe Käufe nutzen per_soul_value.",cfg.combat_window_seconds,cfg.channel_uptime),
         });
+    }
+    if matches!(item.condition, crate::ConditionKind::StateBound { .. }) {
+        sources.push(crate::Evidence { kind:crate::EvidenceKind::Mechanic, detail:"Annahme für hit_rate: gleichverteiltes Restleben zwischen 0 und 100 Prozent, keine gemessene Trefferquote.".into() });
+    }
+    sources.push(crate::Evidence { kind:crate::EvidenceKind::Mechanic,detail:"Annahmen zur Rotation: Melee aus Archetyp oder Ability-Klasse, Dash aus Mobility-Rolle. Kaufphase mit frühester Skalierungsstufe: Upgrade-Kosten 1/2/5, Ability-Unlocks auf Level 1/3/5/8; sonst Kosten-Fallback.".into() });
+    if item.properties.contains_key("HealthStealPctHero")
+        || item.passive_properties.contains_key("HealthStealPctHero")
+    {
+        sources.push(crate::Evidence { kind:crate::EvidenceKind::Mechanic, detail:"Max-HP-Entzug zählt Verlust am Ziel und eigenen Lebensgewinn. Annahme: Ziel hat das Basisleben des Helden; keine Gegnerdaten vorhanden. Bewertung als Bruttowirkung der Procs im Fenster, ohne Rückgabe nach Debuff-Ende.".into() });
     }
     if meta_support != 0.0 {
         sources.push(crate::Evidence {
@@ -87,9 +96,33 @@ pub fn score_item(
             total,
         },
         confidence,
-        buy_phase: mechanics::buy_phase(item),
+        buy_phase: mechanics::buy_phase_for_hero(item, hero),
         sources,
     }
+}
+
+pub const CORE_SCORE_QUANTILE: f64 = 0.5;
+
+pub fn core_score_threshold(scored: &[ScoredItem], cost: i64) -> Option<f64> {
+    let mut values = scored
+        .iter()
+        .filter(|item| item.item.cost == cost && item.item.shopable && !item.item.disabled)
+        .map(|item| item.score.per_slot_value)
+        .filter(|value| value.is_finite())
+        .collect::<Vec<_>>();
+    values.sort_by(f64::total_cmp);
+    if values.is_empty() {
+        return None;
+    }
+    let position = (values.len() - 1) as f64 * CORE_SCORE_QUANTILE;
+    let lower = position.floor() as usize;
+    let upper = position.ceil() as usize;
+    Some(values[lower] + (values[upper] - values[lower]) * position.fract())
+}
+
+pub fn above_core_threshold(item: &ScoredItem, scored: &[ScoredItem]) -> bool {
+    core_score_threshold(scored, item.item.cost)
+        .is_some_and(|threshold| item.score.per_slot_value > threshold)
 }
 
 pub fn score_items(
@@ -194,6 +227,9 @@ mod tests {
                 cooldown: 0.0,
                 scaling_step: None,
                 damage_type: DamageType::Weapon,
+                base_effect: 0.0,
+                tick_rate: None,
+                duration: None,
             }],
             damage_plan: DamagePlan {
                 weapon_dps: 40.0,
@@ -202,6 +238,59 @@ mod tests {
                 primary_axis: DamageType::Weapon,
             },
         }
+    }
+
+    #[test]
+    fn total_ranks_slots_independently_of_soul_efficiency() {
+        let item = ItemModel {
+            item_id: 1,
+            name: "fixture".into(),
+            slot: crate::SlotType::Weapon,
+            tier: 2,
+            cost: 800,
+            is_active: false,
+            shopable: true,
+            disabled: false,
+            damage_axis: DamageType::Weapon,
+            defense_kind: vec![],
+            properties: [("WeaponDamage".into(), 10.0)].into_iter().collect(),
+            passive_properties: Default::default(),
+            condition: ConditionKind::None,
+            proc_cooldown: None,
+            imbueable: false,
+        };
+        let expensive = ItemModel {
+            item_id: 2,
+            cost: 6400,
+            ..item.clone()
+        };
+        let meta = MetaIndex {
+            by_item: Default::default(),
+            sample_ok: Default::default(),
+        };
+        let cfg = ReasonerConfig::default();
+        let cheap = score_item(&item, &hero(), &meta, &[], &cfg);
+        let costly = score_item(&expensive, &hero(), &meta, &[], &cfg);
+        assert_eq!(cheap.score.total, costly.score.total);
+        assert_eq!(
+            cheap.score.per_soul_value,
+            8.0 * costly.score.per_soul_value
+        );
+        assert_eq!(cheap.score.total, cheap.score.per_slot_value);
+        let mut disabled = expensive.clone();
+        disabled.disabled = true;
+        assert_eq!(
+            score_items(&hero(), &[item, disabled], &meta, &[], &cfg).len(),
+            1
+        );
+        let values = [10.0, 20.0, 30.0, 40.0].map(|value| {
+            let mut scored = cheap.clone();
+            scored.score.per_slot_value = value;
+            scored
+        });
+        assert_eq!(core_score_threshold(&values, 800), Some(25.0));
+        assert!(!above_core_threshold(&values[1], &values));
+        assert!(above_core_threshold(&values[2], &values));
     }
 
     #[test]
@@ -274,26 +363,59 @@ mod tests {
     #[tokio::test]
     #[ignore = "benötigt echten Postgres-Snapshot über DEADLOCK_CENTRAL_DSN"]
     async fn scores_warden_reference_items_from_real_snapshot() {
-        let Ok(dsn) = std::env::var("DEADLOCK_CENTRAL_DSN") else {
-            return;
-        };
+        let dsn = std::env::var("DEADLOCK_CENTRAL_DSN").expect("DEADLOCK_CENTRAL_DSN fehlt");
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(2)
+            .after_connect(|connection, _| {
+                Box::pin(async move {
+                    sqlx::query("SET default_transaction_read_only = on")
+                        .execute(connection)
+                        .await?;
+                    Ok(())
+                })
+            })
             .connect(&dsn)
             .await
-            .unwrap();
+            .unwrap_or_else(|_| panic!("Verbindung für Warden-Echtdatenlauf fehlgeschlagen"));
         let ctx = crate::ReasonerCtx {
             pool,
             ai: None,
             config: ReasonerConfig::default(),
         };
-        let hero = crate::data::load_hero_model(&ctx, "Warden").await.unwrap();
+        let hero = crate::hero::load_built_hero_model(&ctx, "Warden")
+            .await
+            .unwrap();
+        assert!(
+            hero.damage_plan.weapon_share > 0.6,
+            "{:?}",
+            hero.damage_plan
+        );
+        let willpower = hero
+            .abilities
+            .iter()
+            .find(|ability| ability.class_name == "ability_warden_high_alert")
+            .unwrap();
+        let step = willpower
+            .scaling_step
+            .as_ref()
+            .expect("Willpower-Skalierungsstufe fehlt");
+        assert_eq!(step.upgrade_index, 2);
+        assert_eq!((step.from, step.to), (0.8, 3.5));
         let items = crate::data::load_item_models(&ctx).await.unwrap();
         let meta = MetaIndex {
             by_item: BTreeMap::new(),
             sample_ok: std::collections::BTreeSet::new(),
         };
         let scored = score_items(&hero, &items, &meta, &[], &ctx.config);
+        println!("WARDEN_MODEL {}", serde_json::to_string(&hero).unwrap());
+        for (rank, item) in scored.iter().enumerate() {
+            println!(
+                "WARDEN_SCORE {} {}",
+                rank + 1,
+                serde_json::to_string(item).unwrap()
+            );
+        }
+        let mut below = Vec::new();
         for name in [
             "Veil Walker",
             "Mercurial Magnum",
@@ -304,7 +426,16 @@ mod tests {
                 .iter()
                 .find(|item| item.item.name == name)
                 .unwrap_or_else(|| panic!("{name}"));
-            assert!(score.score.total > 0.0, "{name}: {}", score.score.total);
+            let threshold =
+                core_score_threshold(&scored, score.item.cost).expect("Kern-Schwelle fehlt");
+            println!(
+                "WARDEN_REFERENCE {name}: score={} threshold={threshold}",
+                score.score.per_slot_value
+            );
+            if !above_core_threshold(score, &scored) {
+                below.push(name);
+            }
         }
+        assert!(below.is_empty(), "Unter der Kern-Schwelle: {below:?}");
     }
 }
