@@ -316,3 +316,64 @@ TESTNACHWEIS[TW-1]: 256 passed, 53 ignored | Baseline: 0 rot
    dem echten Patch-Tag liegen und `meta_support` greift.
 5. Warden-Backtest gegen Build 779996 wiederholen und die neuen Kennzahlen in
    REPORT-D nachtragen.
+
+## Fixrunde 2 (Merge-Kritiker)
+
+Stand: 2026-09-12. Auftrag vollständig aus `FIX2-BRIEFING-D.md` umgesetzt.
+Intent-Thread: `33a32f58-476b-4a67-99cc-8f6c1e8f7001`.
+Keine Unter-Threads oder Unter-Agenten.
+
+Ausgangsstand: `54252b042a1ddcbc08d0ab5e19ab04ec895589a6`.
+Fix-Commit: `419c7ff97379cbc78df59bc084b5eac3369b0830`, erfolgreich nach
+`origin/feat/build-reasoner-d` gepusht. Kein Amend, Merge oder Push nach `main`.
+Die folgenden Zeilen beziehen sich auf diesen Commit im Worktree
+`/home/nathanael/.worktrees/deadlock-brain-d`.
+
+| Fund | Datei:Zeile | Änderung | Commit |
+| --- | --- | --- | --- |
+| 1, blockierende Read-only-Aussage | `docs/BUILD_REASONER.md:32`, `:35`, `:50` | Falsche Zusicherung ersetzt. Abschnitt „Was der Reasoner schreibt“ ordnet alle vier Tabellen den Befehlen zu und nennt die zusätzlichen Build-/Score-Zeilen beim Backtest. Nur `--publish` erreicht den Steam-Bot. | `419c7ff` |
+| 2, toter Backtest-Pfad | `rust/crates/dbrain-reasoner/src/backtest.rs:178` | Unbenutzte öffentliche `backtest_hero` samt ausschließlich dort benötigten Imports entfernt; an ihrer früheren Position folgt jetzt direkt das Testmodul. `backtest_hero_with_build` bleibt der verwendete Vergleichspfad. | `419c7ff` |
+| 3, Persistenz und Read-only-Zugänge | `rust/crates/dbrain-reasoner/src/lib.rs:37`, `:131`, `:208`, `:260`, `:277`; `rust/crates/deadlock-brain/src/main.rs:252`, `:271`, `:284`, `:1593`, `:1631`, `:1668`; `docs/BUILD_REASONER.md:43`, `:53` | Alle drei CLI-Befehle erhalten `--no-persist` samt Hilfe. Neue Options-Fassaden schalten die Writes ab, einschließlich interner Backtest-Builds. Bestehende Fassaden bleiben kompatibel und speichern standardmäßig. `--no-persist` kollidiert mit `--publish`. Doku und Deploy-Hinweis nennen DB-Fehler ohne Schreibrechte und den erforderlichen Schalter. | `419c7ff` |
+| 4, fest verdrahtete Deploy-Pfade | `scripts/run_build_data_with_infisical.sh:5`, `:12`, `:33`; `service/systemd/deadlock-brain-build-data.service:8`; `docs/BUILD_REASONER.md:60` | Shell-Fallbacks verwenden `$HOME`, die User-Unit `%h/repos/Deadlock-Brain` und `%h/.config/...`. Infisical-Verfahren und Repo-venv nach Sheet-Sync-Muster, explizite Python-Vorgabe hat Vorrang. Kein `naniadm`-Pfad in Wrapper oder Unit. User-Unit-Ablage und Drop-in-Anpassung für andere Checkout-Pfade dokumentiert. | `419c7ff` |
+
+### Testzahlen und Rot-Gegenproben
+
+| Prüfung | Ergebnis |
+| --- | --- |
+| Baseline `cargo test --workspace`, ohne DSN | 256 bestanden, 0 fehlgeschlagen, 53 ignoriert |
+| Neue CLI-Tests vor Implementierung | 0 bestanden, 4 fehlgeschlagen |
+| Neue Fassadentests mit zunächst noch unbedingter Persistenz | 0 bestanden, 3 fehlgeschlagen; alle mit PostgreSQL `25006`, INSERT in Read-only-Transaktion |
+| Neue CLI-Tests nach Implementierung | 4 bestanden, 0 fehlgeschlagen |
+| Neue Read-only-Fassadentests nach Implementierung | 3 bestanden, 0 fehlgeschlagen |
+| Sämtliche `fix_tests::` mit isolierter Scratch-DSN, `--include-ignored` | 11 bestanden, 0 fehlgeschlagen, 0 ignoriert |
+| Endstand `cargo test --workspace`, ohne DSN | 260 bestanden, 0 fehlgeschlagen, 56 ignoriert |
+| `cargo clippy -p dbrain-reasoner -p deadlock-brain --all-targets -- -D warnings` | grün, Exit 0 |
+| `cargo build -p deadlock-brain` | Debug-Build grün, Exit 0 |
+| `cargo fmt` auf eigene Crate-Wurzeln mit `skip_children=true`, `rustfmt` auf eigene Module; jeweilige Checks | grün |
+| `systemd-analyze --user verify` für Service und Timer | grün, Exit 0 |
+| `bash -n`, Wrapper mit Mock-Binary, fehlende Konfiguration | Syntax gültig; exakte Argumente `pull build-data --hero all`; fehlende Konfiguration beendet den Lauf mit Fehler |
+| Debug-CLI `reason build --no-ai --no-persist` und `reason backtest --no-persist` auf Read-only-Scratch-DSN | beide Exit 0, JSON geliefert |
+
+Neue Regressionen: `rust/crates/dbrain-reasoner/src/fix_tests.rs:6` und
+`rust/crates/deadlock-brain/src/main.rs:3441`. Die drei Fassadentests vergleichen
+mit den Ergebnissen des normalen Schreibmodus, erzwingen anschließend
+`default_transaction_read_only=on`, prüfen unveränderte Ergebnisse mit
+`persist=false`, DB-Fehler der bisherigen Standardfassaden und null Zeilen in
+allen vier Reasoner-Tabellen. CLI-Tests prüfen Standardwert, gesetzten Schalter,
+Hilfe für jeden Befehl und den Konflikt mit Publish.
+
+Alle DB-Schreibtests liefen auf einer eigens gestarteten lokalen
+PostgreSQL-Instanz unter `/tmp/reasoner-d-fix2-pg.dmTFyD/`, ausschließlich über
+Unix-Socket und mit dem geprüften Datenbanknamen `reasoner_a_fix`.
+Die Instanz wurde anschließend gestoppt. Keine Central-Verbindung, kein
+Central-Schreibzugriff, keine geladenen Produktions-Secrets, kein KI-Aufruf.
+Toolchain über `/home/nathanael/.cargo/bin`, kein Release-Build.
+
+Die vorhandene Sheet-Sync-Unit und ihr Wrapper-Drop-in wurden gelesen;
+auch sie enthalten noch alte `naniadm`-Pfade. Übernommen wurde ihr
+Infisical-Verfahren mit den im Briefing verbindlichen Nutzerpfaden.
+`systemd-analyze` prüft die noch nicht installierte Unit mit Bash als
+ausführbarem Programm; das Repo-Skript liegt bis zum Merge nur im Worktree.
+Deployment, Timer-Aktivierung und Produktiv-Sync wurden nicht ausgeführt.
+Unabhängige Freigabe bleibt beim Orchestrator. Dieser Anhang wurde wie
+beauftragt ausschließlich im Hauptordner ergänzt.
