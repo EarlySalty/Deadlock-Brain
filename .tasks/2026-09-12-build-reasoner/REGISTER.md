@@ -21,7 +21,8 @@ Deadlock-Steam-Bot. Pakete in `PAKETE.md`.
 | C Zusammensetzung | fe6a88bb | luna | ~/.worktrees/deadlock-brain-c | feat/build-reasoner-c (ab 3bef602) | fertig (1e23609, FERTIG-C.md), gesettelt |
 | Review C Runde 1 | 91f509cf | opus48 | keiner (lesend) | keiner | gestartet 2026-09-12 21:45 |
 | D Integration/CLI | folgt | luna | ~/.worktrees/deadlock-brain-d | feat/build-reasoner-d | wartet auf B und C |
-| S Steam-Bot Autoren-Scan | 231b6ae6 | luna | ~/.worktrees/steam-bot-autoren-scan | feat/autoren-scan-reaktivieren | gestartet 2026-09-12 20:20 |
+| S Steam-Bot Autoren-Scan | 231b6ae6 | luna | ~/.worktrees/steam-bot-autoren-scan | feat/autoren-scan-reaktivieren | fertig (f82c21c, FERTIG-S.md), gesettelt |
+| Review S Runde 1 | 8248611a | opus48 | keiner (lesend) | keiner | gestartet 2026-09-12 22:15 |
 
 Status-Werte: geplant, gestartet, fertig, gestoppt, gebumpt. Gestoppte oder
 gestorbene Threads bleiben drin und werden nicht wieder aufgenommen.
@@ -40,7 +41,8 @@ gestorbene Threads bleiben drin und werden nicht wieder aufgenommen.
 | Review B | f3a5efae | opus48 | läuft | keiner | REVIEW-BRIEFING-B.md gesendet |
 | C Zusammensetzung | fe6a88bb | luna | fertig, gesettelt | ~/.worktrees/deadlock-brain-c | 1e23609, Reasoner 15/0/1 mit temporärer lib.rs |
 | Review C | 91f509cf | opus48 | läuft | keiner | REVIEW-BRIEFING-C.md gesendet |
-| S Autoren-Scan | 231b6ae6 | luna | läuft | ~/.worktrees/steam-bot-autoren-scan | Briefing gesendet |
+| S Autoren-Scan | 231b6ae6 | luna | fertig, gesettelt | ~/.worktrees/steam-bot-autoren-scan | f82c21c, Ursache Scheduler plus No-op-Handler, 174 und 18 Tests grün, Autoren-IDs Lightbringer 13446690, Situation 34634349, Build 779996 |
+| Review S | 8248611a | opus48 | läuft | keiner | REVIEW-BRIEFING-S.md gesendet |
 
 Akte liegt auf main: 7a6aec4 (Auftrag, Briefings), 29bb842 (Design, Pakete,
 Warden-Referenz), e7f86c2 (Vorcheck, Briefings B, C, S). Hintergrund:
