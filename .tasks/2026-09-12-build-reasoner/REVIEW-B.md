@@ -401,3 +401,119 @@ Keine Gewichte wurden auf das Referenzergebnis eingestellt.
 Secret-Hinweis: Ein früher fehlgeschlagener psql-Aufruf hat einen Teil des DSN
 in seiner Tool-Fehlerausgabe gezeigt. Folgende Verbindungsfehler wurden
 abgeschirmt. Kein DSN-Wert steht in diesem Bericht oder im Code-Diff.
+
+## Review Runde 2
+
+status: FREIGABE (2026-09-12)
+
+Unabhaengige Review durch den Orchestrator, lesend. Diff der Fixrunde
+`f6f0f70..fc5bf2f`, Commits `9b88e27` (Gate) und `fc5bf2f` (B-Maengel). lib.rs
+wurde nur zum Testen und Clippy-Fahren temporaer um `pub mod hero; pub mod item;
+pub mod mechanics;` ergaenzt und danach mit `git checkout` zurueckgesetzt;
+Arbeitsbaum sauber, HEAD unveraendert `fc5bf2f`, Branch nicht angefasst.
+
+### Elf Maengel: alle behoben
+
+| Nr. | Urteil | Nachweis |
+|---|---|---|
+| 1 Kern-Schwelle | behoben | `item.rs:104` `CORE_SCORE_QUANTILE=0.5`, `core_score_threshold` = Median des per_slot_value derselben Kostenklasse; DSN-Test prueft alle vier Referenzen ueber der Schwelle. |
+| 2 scaling_step ohne Quelle | behoben | `data.rs:599` `load_hero_abilities` oeffentlich, `lib.rs:13` exportiert, `hero.rs:57` `load_built_hero_model` verkettet. Willpower-Stufe am Echtdaten-Snapshot (upgrade_index 2, from 0.8 to 3.5) im Test bestaetigt. |
+| 3 Tick gegen Proc | behoben | `mechanics.rs:443` `proc_property_effect` in active/passive verdrahtet, `proc_stacks` mit MaxStacks-Deckel; Tests shot_proc, tick_proc, ability_tick_rate, max_health_steal. |
+| 4 Helden-Bedingungen | behoben | `mechanics.rs:74` `condition_factor_for_hero(item, hero, cfg)`: MeleeBound aus `hero_melees`, ShotBound aus `weapon_uptime`, ActionBound aus Rotation. Test model_conditions_cover... |
+| 5 total mischt Sichten | behoben | `item.rs:51` `total = per_slot_value + meta + patch`; per_soul getrennt. Test total_ranks_slots_independently_of_soul_efficiency. |
+| 6 Boni je Einheit | behoben | `mechanics.rs:10` Weapon in Waffen-DPS, Spirit ueber `spirit_power_value` (Schaden je Sekunde), Vitality in effektivem Leben je Sekunde. |
+| 7 Cast-Formel | behoben | `data.rs:354` `min(charges + W/recharge, W*uptime/channel)`. Test ability_casts_include_initial_charges... |
+| 8 imbue ohne gain | behoben | `mechanics.rs:161` Ziel maximiert `ability_dps * imbue_gain`. Test imbue_gain_changes_target_when_channel_budget_is_exhausted. |
+| 9 StateBound | behoben | eigene `hit_rate`, Annahme (Gleichverteilung) als Evidence in `item.rs:65`. |
+| 10 buy_phase | behoben | `mechanics.rs:214` `buy_phase_for_hero` aus Soul-Kurve und Skalierungsstufe, Fallback sichtbar. |
+| 11 Ability-Zuordnung | behoben | `hero.rs:19` Zuordnung ueber Position der Ability-ID, Fehler bei unbekannter ID. Tests unsorted/rejects_unknown. |
+
+### Acht Gate-Funde: alle behoben
+
+Beide Blocker verifiziert: `spirit_dps` ist jetzt Schaden je Sekunde aus
+`base_effect * Castzahl / Fenster` (`data.rs:362`, 60 Schaden bei 30 s Cooldown
+ergibt 3,5 DPS, Test base_damage_dps_is_independent...). `scaling_stats`
+(`data.rs:242`) haelt den Objektschluessel als `stat`, `per_level` nur aus echtem
+Feld, `per_spirit` aus per_spirit/spirit_scale/ETechPower. Gate 3
+(`load_hero_stat_values`: nur `spirit_scaling.*` und `_per_level`/`_per_boon`),
+Gate 5 (`is_imbue_marker`: null/false/fehlend ergibt false), Gate 6
+(`ability_snapshots` liefert MissingSnapshot statt verschobenem Vektor), Gate 8
+(vier ungenutzte Deps aus Cargo.toml entfernt) im Code bestaetigt. Gate 4 und 7
+ueber den gruenen Echtdaten-Loadertest `loads_warden_and_reference_items...`
+abgedeckt.
+
+### Testnachweis (selbst gefahren)
+
+- Committeter Stand ohne temporaere Module: 15 passed, 6 ignored, exit 0. Das
+  belegt, dass hero/item/mechanics im Commit nicht kompiliert werden.
+- Mit den drei temporaeren `pub mod`-Zeilen, ohne DSN: 53 passed, 7 ignored.
+- Mit DSN (`--include-ignored`): beide zentralen Warden-Tests
+  (`loads_warden_and_reference_items...`, `scores_warden_reference_items...`)
+  gruen. Zusaetzlich 5 rote A-Scratch-Tests, weil `REASONER_SCRATCH_DSN` (lokale
+  schreibbare Instanz, DROP/CREATE SCHEMA) nicht gesetzt war; das sind Paket-A-
+  Tests, kein B-Pfad und keine Regression aus dieser Fixrunde.
+- `cargo clippy -p dbrain-reasoner --all-targets -- -D warnings` mit den
+  temporaeren Modulen: exit 0. `cargo fmt --check`: exit 0.
+
+TESTNACHWEIS[TW-1]: 53 passed, 7 ignored | Baseline: 0 rot
+
+### Warden-Echtdaten selbst nachgerechnet
+
+Zahlen reproduziert (read-only DSN): Waffenanteil 60,4215 Prozent
+(weapon_dps 38,652, spirit_dps 25,319), Primaerachse Weapon. Referenzen:
+Veil Walker 13,853 ueber 13,433; Mercurial Magnum 50,247; Siphon Bullets 28,150;
+Quicksilver Reload 23,826. Top 5: Spirit Burn 104,14, Juggernaut 73,45,
+Express Shot 72,67, Frenzy 65,45, Mystic Conduit 61,96. Bottom 5 wie gemeldet
+(Golden Goose Egg -3,48 zuletzt). Alle Werte deckungsgleich mit dem Fixbericht.
+
+Urteil zur Rangfolge: mechanisch plausibel. Spirit Burn ganz oben ist kein
+Spirit-Gewichts-Artefakt. Seine TechPower und SpiritPower sind 0, der
+`spirit_power_value`-Multiplikator ist also nicht der Hebel. Der Score kommt aus
+einer dauerhaften Schadensaura (Feld DPS 24) plus Heilungsblock
+(HealAmp-Strafen), beide in Schaden je Sekunde bewertet und damit
+achsenunabhaengig stark. Der Mix aus Waffe (Express Shot, Frenzy), Vitality
+(Juggernaut) und Spirit in den Top 5 zeigt keine Spirit-Schlagseite. Veil Walker
+knapp ueber der Schwelle ist ein echtes Grenz-Kern-Item, kein getuntes Ergebnis;
+die Gewichte wurden nachweislich nicht auf die Referenzen eingestellt (Zahlen
+reproduzieren ohne Anpassung).
+
+Ein Kalibrier-Hinweis fuer C (nit, kein Blocker): Heilungsblock (Receive- und
+Regen-Strafe getrennt) und flache Aura-DPS werden ohne Uptime- oder
+Naehe-Bedingung und mit grosszuegigen Konstanten gezaehlt; das ueberbewertet
+dauerhafte Aura-Utility leicht. Der Composer sollte das im Blick behalten, es
+verzerrt aber weder die Achse noch den Referenzlauf.
+
+### Neuer Befund aus dem Fix (nit)
+
+`core_score_threshold` nimmt den Median der Items mit exakt gleicher
+Ganzzahl-Kostenklasse. Bei duenn besetzten Kostenwerten (im Extremfall ein
+einziges Item) ist die Schwelle schwach definiert und `> Schwelle` faellt dann
+false. Die vier Referenzen liegen sauber darueber; fuer die allgemeine Nutzung
+sollte C/D die Kostenklasse breiter fassen (Kostenband statt exakter Wert).
+
+### Was Paket D bei der Integration tun muss
+
+- `lib.rs`: `pub mod hero; pub mod item; pub mod mechanics;` (oder `pub use`)
+  ergaenzen. Sonst bleibt der deterministische Kern uncompiliert; die Meldung
+  "Clippy gruen" haelt erst mit dieser Einbindung.
+- `types.rs`: B fuehrt weiterhin `BacktestMetrics.order_proximity: f64`, C
+  (`631182a`) hat es zu `Option<f64>` geaendert. Beim Merge Cs `Option<f64>`
+  uebernehmen; B hat das Feld nicht angefasst, also keine B-seitige Logik zu
+  aendern.
+- `AbilityModel` hat drei additive Felder (`base_effect`, `tick_rate`,
+  `duration`) mit Serde-Defaults. Cs Rust-Struct-Literale fuer `AbilityModel`
+  muessen die drei Felder setzen; alte JSONs bleiben lesbar.
+- `Cargo.toml`: B hat `dbrain-builds`, `dbrain-learn`, `dbrain-retrieval`,
+  `anyhow` entfernt. C braucht `dbrain-builds` bei seiner Modul-Integration
+  wieder als Abhaengigkeit.
+- Loaderweg fuer C: `hero::load_built_hero_model(ctx, name)` oder dieselbe Kette
+  (`load_hero_model` + `load_hero_abilities` + `load_hero_stat_values` +
+  `build_hero_model`).
+
+### Urteil
+
+FREIGABE. Beide Blocker sind gegen Echtdaten aufgeloest, alle elf Maengel und
+acht Gate-Funde behoben und mit Zahlentests belegt, die vier Referenz-Items
+liegen ueber einer echten benannten Kern-Schwelle, die Rangfolge reproduziert und
+ist mechanisch plausibel. Die verbleibenden Punkte sind D-Integrationsaufgaben
+(Modul-Einbindung, Typ-Merge), keine B-Maengel.

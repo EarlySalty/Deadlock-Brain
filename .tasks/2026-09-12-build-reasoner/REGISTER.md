@@ -20,12 +20,12 @@ Deadlock-Steam-Bot. Pakete in `PAKETE.md`.
 | B Kern | 953fd289 | luna | ~/.worktrees/deadlock-brain-b | feat/build-reasoner-b (ab 3bef602) | fertig (68dc58c, FERTIG-B.md), gesettelt |
 | Review B Runde 1 | f3a5efae | opus48 | keiner (lesend) | keiner | fertig, gesettelt: NACHBESSERN (11 Mängel, 2 blockierend) |
 | Fix B Runde 1 | b5ce4903 | astra | ~/.worktrees/deadlock-brain-b | feat/build-reasoner-b (enthält A a4d1375) | fertig (9b88e27 Gate-Funde, fc5bf2f B-Mängel), gesettelt; Warden 4 Referenz-Items über Kern-Schwelle |
-| Review B Runde 2 | 7aff1c05 | opus48 | keiner (lesend) | keiner | gestartet 2026-09-12 23:55 |
+| Review B Runde 2 | 7aff1c05 | opus48 | keiner (lesend) | keiner | fertig, gesettelt: FREIGABE |
 | C Zusammensetzung | fe6a88bb | luna | ~/.worktrees/deadlock-brain-c | feat/build-reasoner-c (ab 3bef602) | fertig (1e23609, FERTIG-C.md), gesettelt |
 | Review C Runde 1 | 91f509cf | opus48 | keiner (lesend) | keiner | fertig, gesettelt: NACHBESSERN (7 Mängel, 1 blockierend) |
 | Fix C Runde 1 | 874ccb61 | astra | ~/.worktrees/deadlock-brain-c | feat/build-reasoner-c | fertig (631182a), gesettelt |
 | Review C Runde 2 | b2f340f4 | opus48 | keiner (lesend) | keiner | fertig, gesettelt: FREIGABE |
-| D Integration/CLI | folgt | luna | ~/.worktrees/deadlock-brain-d | feat/build-reasoner-d | wartet auf B und C |
+| D Integration/CLI | 5164e0e2 | luna | ~/.worktrees/deadlock-brain-d | feat/build-reasoner-d (cbfbc98 = main + B(A) + C) | gestartet 2026-09-13 00:10 |
 | S Steam-Bot Autoren-Scan | 231b6ae6 | luna | ~/.worktrees/steam-bot-autoren-scan | feat/autoren-scan-reaktivieren | fertig (f82c21c, FERTIG-S.md), gesettelt |
 | Review S Runde 1 | 8248611a | opus48 | keiner (lesend) | keiner | fertig, gesettelt: NACHBESSERN (5 Mängel, 2 wichtig) |
 | Fix S Runde 1 | 2884c49a | astra | ~/.worktrees/steam-bot-autoren-scan | feat/autoren-scan-reaktivieren | fertig (102ec83), gesettelt |
