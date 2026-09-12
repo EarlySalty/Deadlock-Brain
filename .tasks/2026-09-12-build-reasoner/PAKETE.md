@@ -100,3 +100,15 @@ Befund nach Paket E (2026-09-13 00:35):
     Slot-Wert. Paket F (mittel, nach E-Merge): Kern als Einkaufskurve nach
     Kostenband, Layout aus echten Autoren-Builds abgeleitet, Tier 1 und 2 nach
     per_soul_value, Backtest über mehrere Helden. Briefing `BRIEFING-F.md`.
+
+Befund nach Paket F (2026-09-13 01:30):
+15. Paket F (5676a74, FERTIG-F.md) leitet das Kern-Layout aus 1587
+    Autoren-Builds ab und füllt den Kern bandweise. Warden-Kern schrumpft
+    dadurch auf 8 Items (Bandziele 0/1/2/5 summiert, Median der Gesamtgröße
+    aber 10,5, Referenz 19); Seed-Überdeckung 0,375 bei kleinerem Nenner,
+    mittlere Autoren-Überdeckung 0,114. Review F klärt Rundung und faire
+    Kennzahl. Nebenbefund: der Loader scheitert bei Lady Geist, Infernus und
+    weiteren Helden ("Ability 0 gehört nicht zum geladenen Helden",
+    unvollständiges Waffenprofil); der Reasoner läuft damit nur für einen Teil
+    der 38 Helden. Folgepaket G (Loader-Robustheit über alle Helden) nach der
+    Ursache aus REVIEW-F.md.
