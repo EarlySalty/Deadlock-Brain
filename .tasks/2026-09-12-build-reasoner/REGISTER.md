@@ -30,6 +30,8 @@ Deadlock-Steam-Bot. Pakete in `PAKETE.md`.
 | Fix D Runde 1 | 70330d8c | astra | ~/.worktrees/deadlock-brain-d | feat/build-reasoner-d | fertig (e0e1cff, 54252b0), gesettelt; 256 Tests ohne DSN, 83 Reasoner-Tests mit DSN |
 | Review D Runde 2 | af784bec | opus48 | keiner (lesend) | keiner | fertig, gesettelt: FREIGABE; Merge-Kritiker BLOCK (Doku behauptet Read-only, tote backtest_hero, naniadm-Pfade im Timer) |
 | Fix D Runde 2 (Gate) | 866fe09f | astra | ~/.worktrees/deadlock-brain-d | feat/build-reasoner-d | fertig (419c7ff), gesettelt; Merge 4689b80 nach main, Gate durch, Migration angewendet, Timer deadlock-brain-build-data aktiv (03:30), Worktrees und Branches A bis D gelöscht |
+| E Patch-Delta Live-Fix | 6baaad1c | astra | ~/.worktrees/deadlock-brain-e | fix/build-reasoner-patch-delta | fertig 2026-09-13 00:16 (4434a52, 2993780, FERTIG-E.md): 0 Deltas angewendet, Kern 19 positiv, Optional 12, Spirit-Feuerrate im Scoring; 273 Tests ohne DSN, 101 Reasoner mit DSN |
+| Review E Runde 1 | 7eccc7c8 | opus48 | keiner (lesend) | keiner | läuft seit 2026-09-13 00:20, REVIEW-BRIEFING-E.md |
 | S Steam-Bot Autoren-Scan | 231b6ae6 | luna | ~/.worktrees/steam-bot-autoren-scan | feat/autoren-scan-reaktivieren | fertig (f82c21c, FERTIG-S.md), gesettelt |
 | Review S Runde 1 | 8248611a | opus48 | keiner (lesend) | keiner | fertig, gesettelt: NACHBESSERN (5 Mängel, 2 wichtig) |
 | Fix S Runde 1 | 2884c49a | astra | ~/.worktrees/steam-bot-autoren-scan | feat/autoren-scan-reaktivieren | fertig (102ec83), gesettelt |
