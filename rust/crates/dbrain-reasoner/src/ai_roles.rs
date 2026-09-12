@@ -106,14 +106,15 @@ fn parse_json<T: for<'de> Deserialize<'de>>(text: &str) -> Result<T> {
         .map_err(|error| ReasonerError::Ai(format!("ungültiges Rollen-JSON: {error}")))
 }
 
-fn call<T: for<'de> Deserialize<'de>>(
+fn call<T>(
     client: &AiClient,
     request: ChatCompletionRequest,
+    parse: fn(&str) -> Result<T>,
 ) -> Result<T> {
     let response = client
         .chat_value(&request_value(&request)?)
         .map_err(|error| ReasonerError::Ai(error.to_string()))?;
-    parse_json(&extract_ai_text(&response))
+    parse(&extract_ai_text(&response))
 }
 
 pub fn build_hero_analyst_request(
@@ -205,11 +206,15 @@ pub fn run_hero_analyst(
     damage_plan: &DamagePlan,
 ) -> Result<HeroAnalystResponse> {
     let request = build_hero_analyst_request(hero, damage_plan, client.config());
-    call(client, request)
+    call(client, request, parse_hero_analyst_response)
 }
 
 pub fn run_item_analyst(client: &AiClient, items: &[ScoredItem]) -> Result<ItemAnalystResponse> {
-    call(client, build_item_analyst_request(items, client.config()))
+    call(
+        client,
+        build_item_analyst_request(items, client.config()),
+        parse_item_analyst_response,
+    )
 }
 
 pub fn run_patch_analyst(
@@ -220,20 +225,107 @@ pub fn run_patch_analyst(
     call(
         client,
         build_patch_analyst_request(deltas, raw_events, client.config()),
+        parse_patch_analyst_response,
     )
 }
 
 pub fn run_meta_analyst(client: &AiClient, meta: &MetaIndex) -> Result<MetaAnalystResponse> {
-    call(client, build_meta_analyst_request(meta, client.config()))
+    call(
+        client,
+        build_meta_analyst_request(meta, client.config()),
+        parse_meta_analyst_response,
+    )
 }
 
 pub fn run_critic(client: &AiClient, build: &BuildObject) -> Result<CriticResponse> {
-    call(client, build_critic_request(build, client.config()))
+    call(
+        client,
+        build_critic_request(build, client.config()),
+        parse_critic_response,
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::net::TcpListener;
+    use std::time::Duration;
+
+    #[test]
+    fn run_critic_validates_verdict_over_http() {
+        let build = BuildObject {
+            hero_id: 25,
+            hero_name: "Warden".to_string(),
+            patch_tag: "test".to_string(),
+            name: "Test build".to_string(),
+            core: Vec::new(),
+            situations: Vec::new(),
+            ability_order: Vec::new(),
+            confidence: crate::Confidence::Low,
+            rationale: String::new(),
+        };
+        for verdict in ["pass", "recompose", "maybe"] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let mut settings = test_settings();
+            settings.ai_base_url = format!("http://{}", listener.local_addr().unwrap());
+            settings.ai_api_key = Some("test-key".to_string());
+            let client = AiClient::from_settings(&settings).unwrap();
+            let server = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                stream
+                    .set_write_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut reader = BufReader::new(&mut stream);
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                assert_eq!(line, "POST /chat/completions HTTP/1.1\r\n");
+                let mut length = None;
+                loop {
+                    line.clear();
+                    assert!(reader.read_line(&mut line).unwrap() > 0);
+                    if line == "\r\n" {
+                        break;
+                    }
+                    if let Some((name, value)) = line.split_once(':') {
+                        if name.eq_ignore_ascii_case("content-length") {
+                            length = Some(value.trim().parse::<usize>().unwrap());
+                        }
+                    }
+                }
+                let mut body = vec![0; length.unwrap()];
+                reader.read_exact(&mut body).unwrap();
+                let request: Value = serde_json::from_slice(&body).unwrap();
+                assert!(request["messages"][1]["content"]
+                    .as_str()
+                    .unwrap()
+                    .contains("Rolle Kritiker"));
+                let response = json!({"choices": [{"message": {"content":
+                    json!({"verdict": verdict, "issues": ["fixture issue"]}).to_string()
+                }}]})
+                .to_string();
+                write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response).unwrap();
+            });
+            let result = run_critic(&client, &build);
+            server.join().unwrap();
+            if verdict == "maybe" {
+                assert!(
+                    matches!(result, Err(ReasonerError::Ai(message)) if message.contains("verdict"))
+                );
+            } else {
+                assert_eq!(
+                    result.unwrap(),
+                    CriticResponse {
+                        verdict: verdict.to_string(),
+                        issues: vec!["fixture issue".to_string()],
+                    }
+                );
+            }
+        }
+    }
 
     #[test]
     fn parses_fenced_hero_fixture() {
@@ -267,9 +359,8 @@ mod tests {
         assert!(error.to_string().contains("verdict"));
     }
 
-    #[test]
-    fn request_disables_reasoning_without_hard_coding_a_model() {
-        let settings = deadlock_brain_core::config::Settings {
+    fn test_settings() -> deadlock_brain_core::config::Settings {
+        deadlock_brain_core::config::Settings {
             project_root: "/tmp/reasoner-test".into(),
             data_dir: "/tmp/reasoner-test/data".into(),
             raw_dir: "/tmp/reasoner-test/raw".into(),
@@ -288,8 +379,12 @@ mod tests {
             ai_temperature: 0.2,
             ai_top_p: 0.9,
             ai_use_token_plan: false,
-        };
-        let config = deadlock_brain_core::ai::AiConfig::from_settings(&settings);
+        }
+    }
+
+    #[test]
+    fn request_disables_reasoning_without_hard_coding_a_model() {
+        let config = deadlock_brain_core::ai::AiConfig::from_settings(&test_settings());
         let request = build_meta_analyst_request(
             &MetaIndex {
                 by_item: Default::default(),

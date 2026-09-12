@@ -23,7 +23,7 @@ fn parse_json(text: String, context: &str) -> Result<Value> {
         .map_err(|error| ReasonerError::Data(format!("{context}: ungültiges JSON: {error}")))
 }
 
-fn number(value: Option<&Value>) -> f64 {
+fn number(value: Option<&Value>) -> Option<f64> {
     value
         .and_then(|value| {
             value
@@ -35,11 +35,11 @@ fn number(value: Option<&Value>) -> f64 {
                         .and_then(|value| value.trim_end_matches('%').parse().ok())
                 })
         })
-        .unwrap_or_default()
+        .filter(|value| value.is_finite())
 }
 
 fn integer(value: Option<&Value>) -> i64 {
-    number(value) as i64
+    number(value).unwrap_or_default() as i64
 }
 
 fn string(value: Option<&Value>) -> String {
@@ -64,12 +64,7 @@ fn property_values(value: Option<&Value>) -> BTreeMap<String, f64> {
                 .as_object()
                 .and_then(|object| object.get("value"))
                 .unwrap_or(property);
-            let value = number(Some(raw));
-            if value == 0.0 && !raw.is_number() && raw.as_str().is_none() {
-                None
-            } else {
-                Some((name.clone(), value))
-            }
+            number(Some(raw)).map(|value| (name.clone(), value))
         })
         .collect()
 }
@@ -94,7 +89,7 @@ fn passive_property_values(value: Option<&Value>) -> BTreeMap<String, f64> {
             let raw = object
                 .and_then(|object| object.get("value"))
                 .unwrap_or(property);
-            Some((name.clone(), number(Some(raw))))
+            number(Some(raw)).map(|value| (name.clone(), value))
         })
         .collect()
 }
@@ -144,7 +139,7 @@ fn description_text(payload: &Value) -> String {
     texts.join(" ")
 }
 
-fn card_number(card: Option<&Value>, path: &[&str]) -> f64 {
+fn card_number(card: Option<&Value>, path: &[&str]) -> Option<f64> {
     let mut value = card;
     for key in path {
         value = value.and_then(|value| value.get(*key));
@@ -165,7 +160,7 @@ fn classify_condition(payload: &Value, is_active: bool) -> ConditionKind {
     let properties = payload.get("properties").and_then(Value::as_object);
     let cooldown = properties
         .and_then(|properties| properties.get("AbilityCooldown"))
-        .map(|value| number(value.as_object().and_then(|value| value.get("value"))))
+        .and_then(|value| number(value.as_object().and_then(|value| value.get("value"))))
         .unwrap_or_default();
     if is_active {
         return ConditionKind::ActiveCooldown {
@@ -242,14 +237,16 @@ fn scaling_stats(value: Option<&Value>) -> Vec<ScalingStat> {
                 .iter()
                 .map(|(_stat, value)| ScalingStat {
                     stat: string(value.get("scaling_stat").or_else(|| value.get("stat"))),
-                    per_level: number(value.get("scale")),
-                    per_spirit: value
-                        .get("per_spirit")
-                        .or_else(|| value.get("spirit_scale"))
-                        .map(|value| number(Some(value)))
+                    per_level: number(value.get("scale")).unwrap_or_default(),
+                    per_spirit: number(value.get("per_spirit"))
+                        .or_else(|| number(value.get("spirit_scale")))
                         .or_else(|| {
                             let stat_name = string(value.get("scaling_stat"));
-                            (!stat_name.is_empty()).then(|| number(value.get("scale")))
+                            if stat_name.is_empty() {
+                                None
+                            } else {
+                                number(value.get("scale"))
+                            }
                         }),
                 })
                 .map(|mut stat| {
@@ -273,7 +270,7 @@ fn ability_model(payload: &Value, slot: i64) -> Option<AbilityModel> {
     let property_number = |name: &str| {
         properties
             .and_then(|properties| properties.get(name))
-            .map(|value| number(value.as_object().and_then(|value| value.get("value"))))
+            .and_then(|value| number(value.as_object().and_then(|value| value.get("value"))))
             .unwrap_or_default()
     };
     Some(AbilityModel {
@@ -312,7 +309,7 @@ fn tier_bonuses(value: Option<&Value>) -> Vec<TierBonus> {
                 .iter()
                 .map(|value| TierBonus {
                     tier: integer(value.get("tier")),
-                    value: number(value.get("value")),
+                    value: number(value.get("value")).unwrap_or_default(),
                     value_type: string(value.get("value_type")),
                 })
                 .collect()
@@ -354,8 +351,8 @@ fn base_health(payload: &Value) -> f64 {
         .get("starting_stats")
         .and_then(Value::as_object)
         .and_then(|stats| stats.get("max_health"))
-        .map(|value| number(value.as_object().and_then(|value| value.get("value"))))
-        .or_else(|| payload.get("base_health").map(|value| number(Some(value))))
+        .and_then(|value| number(value.as_object().and_then(|value| value.get("value"))))
+        .or_else(|| number(payload.get("base_health")))
         .unwrap_or_default()
 }
 
@@ -364,10 +361,7 @@ fn weapon_profile(payload: &Value) -> WeaponProfile {
     let get = |names: &[&str]| {
         names
             .iter()
-            .find_map(|name| {
-                info.and_then(|info| info.get(*name))
-                    .map(|value| number(Some(value)))
-            })
+            .find_map(|name| number(info.and_then(|info| info.get(*name))))
             .unwrap_or_default()
     };
     WeaponProfile {
@@ -617,14 +611,13 @@ pub async fn load_item_models(ctx: &ReasonerCtx) -> Result<Vec<ItemModel>> {
             .map(|(_, value)| *value)
             .filter(|value| *value > 0.0)
             .or_else(|| {
-                let value = card_number(item_card, &["Info2", "Cooldown"]);
-                (value > 0.0).then_some(value)
+                card_number(item_card, &["Info2", "Cooldown"]).filter(|value| *value > 0.0)
             });
         let cost = integer(payload.get("cost"));
         let cost = if cost > 0 {
             cost
         } else {
-            card_number(item_card, &["Cost"]) as i64
+            card_number(item_card, &["Cost"]).unwrap_or_default() as i64
         };
         let is_active = payload
             .get("is_active_item")
@@ -901,6 +894,57 @@ pub async fn load_synergies(ctx: &ReasonerCtx, hero_id: i64) -> Result<Vec<Value
 mod tests {
     use super::*;
     use sqlx::postgres::PgPoolOptions;
+
+    #[test]
+    fn numeric_properties_keep_zero_and_skip_invalid_values() {
+        let properties = serde_json::json!({
+            "passive_zero": {"value": "0"},
+            "passive_percent": {"value": "4%"},
+            "passive_number": 2.5,
+            "passive_invalid": {"value": "unknown"},
+            "passive_missing": {"tooltip_section": "passive"},
+            "passive_null": null,
+            "passive_nan": "NaN",
+            "passive_infinite": "inf"
+        });
+        let expected = BTreeMap::from([
+            ("passive_zero".to_string(), 0.0),
+            ("passive_percent".to_string(), 4.0),
+            ("passive_number".to_string(), 2.5),
+        ]);
+        assert_eq!(property_values(Some(&properties)), expected);
+        assert_eq!(passive_property_values(Some(&properties)), expected);
+    }
+
+    #[test]
+    fn scaling_preserves_unknown_and_zero_values() {
+        for value in [serde_json::json!(null), serde_json::json!("unknown")] {
+            let payload = serde_json::json!({"test": {"stat": "damage", "per_spirit": value}});
+            assert_eq!(scaling_stats(Some(&payload))[0].per_spirit, None);
+        }
+        let missing = serde_json::json!({"test": {"scaling_stat": "damage"}});
+        assert_eq!(scaling_stats(Some(&missing))[0].per_spirit, None);
+        let zero =
+            serde_json::json!({"test": {"scaling_stat": "damage", "per_spirit": "0", "scale": 2}});
+        assert_eq!(scaling_stats(Some(&zero))[0].per_spirit, Some(0.0));
+        let fallback = serde_json::json!({"test": {"scaling_stat": "damage", "per_spirit": "unknown", "spirit_scale": "3", "scale": 2}});
+        assert_eq!(scaling_stats(Some(&fallback))[0].per_spirit, Some(3.0));
+    }
+
+    #[test]
+    fn invalid_numbers_allow_snapshot_fallbacks() {
+        let mut payload = serde_json::json!({
+            "starting_stats": {"max_health": {"value": "unknown"}},
+            "base_health": 650,
+            "weapon_info": {"shots_per_second": null, "bullets_per_second": "4"}
+        });
+        assert_eq!(base_health(&payload), 650.0);
+        assert_eq!(weapon_profile(&payload).shots_per_second, 4.0);
+        payload["starting_stats"]["max_health"]["value"] = serde_json::json!(0);
+        payload["weapon_info"]["shots_per_second"] = serde_json::json!("0");
+        assert_eq!(base_health(&payload), 0.0);
+        assert_eq!(weapon_profile(&payload).shots_per_second, 0.0);
+    }
 
     static SCRATCH_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
