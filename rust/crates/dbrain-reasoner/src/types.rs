@@ -311,6 +311,32 @@ pub struct PatchDelta {
     pub sign: i8,
     pub magnitude: f64,
     pub note: String,
+    #[serde(default)]
+    pub application: Option<PatchApplication>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PatchApplication {
+    pub field: String,
+    pub snapshot_value: f64,
+    pub fetched_at: f64,
+    pub posted_at: f64,
+    pub source: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct PatchSnapshot {
+    pub target: DeltaTarget,
+    pub name: String,
+    pub fields: BTreeMap<String, SnapshotField>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SnapshotField {
+    pub value: f64,
+    pub fetched_at: Option<f64>,
+    pub source: String,
+    pub label: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

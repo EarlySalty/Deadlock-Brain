@@ -3,6 +3,174 @@ use serde_json::json;
 
 pub(crate) static SCRATCH_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+#[tokio::test]
+#[ignore = "benötigt Wegwerf-DB reasoner_a_fix über REASONER_SCRATCH_DSN"]
+async fn fix_e_loader_keeps_exact_field_dates_and_current_hero_scaling() {
+    let Some((_guard, ctx)) = scratch_context().await else {
+        panic!("Scratch-DSN fehlt")
+    };
+    sqlx::raw_sql("UPDATE brain.entity_snapshots SET fetched_at=to_timestamp(100),payload=payload || '{\"scaling_stats\":{\"EFireRate\":{\"scaling_stat\":\"ETechPower\",\"scale\":0.25},\"ERoundsPerSecond\":{\"scaling_stat\":\"ETechPower\",\"scale\":0.01}}}'::jsonb WHERE entity_type='hero';
+        UPDATE brain.entity_snapshots SET fetched_at=to_timestamp(120),payload=payload || '{\"class_name\":\"fixture_item\",\"properties\":{\"WeaponDamage\":{\"value\":20}}}'::jsonb WHERE id=2;
+        INSERT INTO brain.entity_snapshots VALUES (3,'deadlock_data','item_card','Fixture Item','fixture_item','{\"Key\":\"fixture_item\",\"Info2\":{\"Cooldown\":10}}',to_timestamp(200));
+        CREATE TABLE brain.hero_stat_profiles (id bigint,entity_id bigint);
+        CREATE TABLE brain.hero_stat_values (profile_id bigint,entity_id bigint,stat_key text,numeric_value float8);
+        INSERT INTO brain.hero_stat_profiles VALUES (1,25);
+        INSERT INTO brain.hero_stat_values VALUES (1,25,'spirit_scaling.EFireRate',999);")
+        .execute(&ctx.pool).await.unwrap();
+    let (hero, hero_snapshots) = data::load_hero_model_with_snapshots(&ctx, "Warden")
+        .await
+        .unwrap();
+    assert_eq!(hero.scaling.len(), 2);
+    assert_eq!(hero.scaling[0].per_spirit, Some(0.25));
+    assert_eq!(
+        hero_snapshots[0].fields["scaling.EFireRate"].fetched_at,
+        Some(100.0)
+    );
+    let (items, snapshots) = data::load_item_models_with_snapshots(&ctx).await.unwrap();
+    assert_eq!(items[0].proc_cooldown, Some(10.0));
+    assert_eq!(
+        snapshots[0].fields["properties.WeaponDamage"].fetched_at,
+        Some(120.0)
+    );
+    assert_eq!(snapshots[0].fields["proc_cooldown"].fetched_at, Some(200.0));
+    assert_eq!(
+        snapshots[0].fields["proc_cooldown"].source,
+        "deadlock_data/item_card"
+    );
+}
+
+#[tokio::test]
+#[ignore = "benötigt lesenden Central-Pool über DEADLOCK_CENTRAL_DSN"]
+async fn fix_e_live_warden_evidence() {
+    let dsn = std::env::var("DEADLOCK_CENTRAL_DSN").expect("Central-DSN fehlt");
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(2)
+        .after_connect(|connection, _| {
+            Box::pin(async move {
+                sqlx::query("SET default_transaction_read_only=on")
+                    .execute(connection)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect(&dsn)
+        .await
+        .expect("Central-Verbindung fehlgeschlagen");
+    let read_only: String = sqlx::query_scalar("SHOW default_transaction_read_only")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(read_only, "on");
+    let ctx = effective_context(&ReasonerCtx {
+        pool,
+        ai: None,
+        config: ReasonerConfig {
+            use_ai: false,
+            ..Default::default()
+        },
+    })
+    .await
+    .unwrap();
+    let seed = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../.tasks/2026-09-12-build-reasoner/referenz");
+    let (mut hero, mut items, meta, snapshots) = load_reasoning_inputs(&ctx, "Warden", Some(&seed))
+        .await
+        .unwrap();
+    assert_eq!(
+        hero.scaling
+            .iter()
+            .find(|stat| stat.stat == "EFireRate")
+            .unwrap()
+            .per_spirit,
+        Some(0.25)
+    );
+    assert_eq!(
+        hero.scaling
+            .iter()
+            .find(|stat| stat.stat == "ERoundsPerSecond")
+            .unwrap()
+            .per_spirit,
+        Some(0.01)
+    );
+    let before = item::score_items(&hero, &items, &meta.index, &[], &ctx.config);
+    let events = data::load_patch_events_for_snapshots(&ctx, 25, &snapshots)
+        .await
+        .unwrap();
+    let mut deltas = patch::compute_patch_delta_with_snapshots(&hero, &events, &snapshots);
+    patch::apply_scored_patch_delta(&mut hero, &mut items, &mut deltas, &meta.index, &ctx.config);
+    let mut after = item::score_items(&hero, &items, &meta.index, &[], &ctx.config);
+    finish_scores(&mut after);
+    let build = reason_build_with_options(
+        &ctx,
+        "Warden",
+        ReasonerOptions {
+            seed_path: Some(&seed),
+            persist: false,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(build.core.iter().all(|entry| after
+        .iter()
+        .find(|item| item.item.item_id == entry.item_id)
+        .unwrap()
+        .score
+        .total
+        > 0.0));
+    assert!(build
+        .situations
+        .iter()
+        .find(|block| block.label == "Optional")
+        .is_none_or(|block| block.items.len() <= 12));
+    let mut without_scaling = hero.clone();
+    without_scaling
+        .scaling
+        .retain(|stat| stat.stat != "EFireRate" && stat.stat != "ERoundsPerSecond");
+    let mut table = Vec::new();
+    let empty_meta = MetaIndex {
+        by_item: Default::default(),
+        sample_ok: Default::default(),
+    };
+    for scored in &after {
+        let base = before
+            .iter()
+            .find(|item| item.item.item_id == scored.item.item_id)
+            .unwrap();
+        let old = item::score_item(
+            &scored.item,
+            &without_scaling,
+            &meta.index,
+            &[],
+            &ctx.config,
+        );
+        let fire = item::spirit_fire_rate_value(&scored.item, &hero, &ctx.config);
+        let baseline = item::score_item(
+            &scored.item,
+            &without_scaling,
+            &empty_meta,
+            &[],
+            &ctx.config,
+        );
+        assert!((scored.score.total - old.score.total - fire.weapon_dps_in_score).abs() < 1e-9);
+        if ["Mercurial Magnum", "Boundless Spirit", "Improved Spirit"]
+            .contains(&scored.item.name.as_str())
+        {
+            assert!(fire.rounds_per_second > 0.0 && fire.weapon_dps_in_score > 0.0);
+        }
+        assert!(scored.score.total > 0.0 || scored.confidence != Confidence::High);
+        table.push(json!({"name":scored.item.name,"item_id":scored.item.item_id,"rank":table.len()+1,"core":build.core.iter().any(|entry| entry.item_id==scored.item.item_id),"phase":scored.buy_phase,"confidence":scored.confidence,"total":scored.score.total,"without_patch":base.score.total,"without_fire_rate":old.score.total,"review_b_baseline":baseline.score.total,"meta_support":scored.score.meta_support,"spirit_fire_rate":fire}));
+    }
+    let seeds = meta::load_seed_builds(&seed, &items).unwrap();
+    let row: Value = sqlx::query_scalar("SELECT to_jsonb(hbs) FROM tierlist.hero_build_sources hbs WHERE hero_id=25 AND hero_build_id=779996 ORDER BY version DESC LIMIT 1").fetch_one(&ctx.pool).await.unwrap();
+    let reference = data::author_build(&row);
+    let comparisons = seeds.iter().map(|author| json!({"source":"Seed","author":author.author,"metrics":backtest::backtest_metrics(&build,author),"jaccard":backtest::core_jaccard(&build,author)}))
+        .chain(std::iter::once(json!({"source":"Build 779996","version":reference.version,"metrics":backtest::backtest_metrics(&build,&reference),"jaccard":backtest::core_jaccard(&build,&reference)}))).collect::<Vec<_>>();
+    println!(
+        "FIX_E_EVIDENCE={}",
+        json!({"read_only":read_only,"damage_plan":hero.damage_plan,"weapon":hero.weapon,"scaling":hero.scaling,"events":events.len(),"deltas":deltas.len(),"applied":deltas.iter().filter(|delta|delta.application.is_some()).collect::<Vec<_>>(),"table":table,"comparisons":comparisons,"build_779996_version":reference.version})
+    );
+}
+
 async fn fix2_read_only_facade(command: &str) {
     let Some((_guard, ctx)) = scratch_context().await else {
         panic!("Fixrunde 2 benötigt eine isolierte Scratch-DSN");
@@ -217,13 +385,17 @@ async fn fix_facade_build_persists_scores_and_keeps_patch_history() {
         .await
         .unwrap();
     assert!(!used_ai);
-    let (mut hero, mut items, meta) =
+    let (mut hero, mut items, meta, snapshots) =
         load_reasoning_inputs(&effective_context(&ctx).await.unwrap(), "Warden", None)
             .await
             .unwrap();
-    let deltas = patch::compute_patch_delta(&hero, &load_patch_events(&ctx, 25).await.unwrap());
-    patch::apply_patch_delta(&mut hero, &mut items, &deltas);
-    let scored = item::score_items(&hero, &items, &meta.index, &deltas, &ctx.config);
+    let events = data::load_patch_events_for_snapshots(&ctx, 25, &snapshots)
+        .await
+        .unwrap();
+    let mut deltas = patch::compute_patch_delta_with_snapshots(&hero, &events, &snapshots);
+    patch::apply_scored_patch_delta(&mut hero, &mut items, &mut deltas, &meta.index, &ctx.config);
+    let mut scored = item::score_items(&hero, &items, &meta.index, &[], &ctx.config);
+    finish_scores(&mut scored);
     assert!(!scored.is_empty());
     let rows = sqlx::query("SELECT * FROM brain.reasoner_item_scores ORDER BY item_id")
         .fetch_all(&ctx.pool)

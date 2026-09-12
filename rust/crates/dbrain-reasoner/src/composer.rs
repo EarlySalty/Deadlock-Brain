@@ -74,27 +74,11 @@ fn is_counter(item: &ScoredItem) -> bool {
     .any(|needle| name.contains(needle))
 }
 
-fn patched_score(item: &ScoredItem, deltas: &[PatchDelta]) -> f64 {
-    item.score.total
-        + deltas
-            .iter()
-            .filter_map(|delta| match delta.target {
-                crate::DeltaTarget::Item(item_id) if item_id == item.item.item_id => {
-                    Some(delta.sign as f64 * delta.magnitude)
-                }
-                _ => None,
-            })
-            .sum::<f64>()
-}
-
-fn item_order<'a>(
-    scored: &'a [ScoredItem],
-    deltas: &[PatchDelta],
-    blocked: &[String],
-) -> Vec<&'a ScoredItem> {
+fn item_order<'a>(scored: &'a [ScoredItem], blocked: &[String]) -> Vec<&'a ScoredItem> {
     let mut items = scored
         .iter()
         .filter(|item| item.item.shopable && !item.item.disabled)
+        .filter(|item| item.score.total.is_finite())
         .filter(|item| {
             let id = item.item.item_id.to_string();
             !blocked.iter().any(|issue| {
@@ -104,8 +88,10 @@ fn item_order<'a>(
         })
         .collect::<Vec<_>>();
     items.sort_by(|left, right| {
-        patched_score(right, deltas)
-            .partial_cmp(&patched_score(left, deltas))
+        right
+            .score
+            .total
+            .partial_cmp(&left.score.total)
             .unwrap_or(Ordering::Equal)
             .then_with(|| right.item.tier.cmp(&left.item.tier))
             .then_with(|| left.item.item_id.cmp(&right.item.item_id))
@@ -132,7 +118,11 @@ fn build_item(item: &ScoredItem, hero: &HeroModel, sources: Vec<Evidence>) -> Bu
         tier: item.item.tier,
         buy_phase: item.buy_phase.clone(),
         why: String::new(),
-        confidence: item.confidence.clone(),
+        confidence: if item.score.total <= 0.0 {
+            Confidence::Low
+        } else {
+            item.confidence.clone()
+        },
         imbue_target,
         sell_priority: match item.buy_phase {
             BuyPhase::Lane => Some(if item.item.tier <= 1 { 1 } else { 2 }),
@@ -195,7 +185,7 @@ pub fn compose_build_with_blocklist(
     _cfg: &ReasonerConfig,
     blocked: &[String],
 ) -> BuildObject {
-    let ordered = item_order(scored, deltas, blocked);
+    let ordered = item_order(scored, blocked);
     let mut core = Vec::new();
     let mut can_buy = Vec::new();
     let mut tryhard = Vec::new();
@@ -213,13 +203,14 @@ pub fn compose_build_with_blocklist(
             optional.push(build_item(item, hero, patch_sources(item, deltas)));
         } else if is_counter(item) {
             counters.push(build_item(item, hero, patch_sources(item, deltas)));
-        } else if core.len() < 19 {
+        } else if core.len() < 19 && item.score.total > 0.0 {
             core.push(build_item(item, hero, patch_sources(item, deltas)));
         } else {
             optional.push(build_item(item, hero, patch_sources(item, deltas)));
         }
     }
     can_buy.truncate(6);
+    optional.truncate(12);
     let mut situations = Vec::new();
     if !can_buy.is_empty() {
         situations.push(SituationBlock {
@@ -278,6 +269,58 @@ pub fn compose_build_with_blocklist(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn fix_e_nonpositive_scores_never_enter_core_or_keep_high_confidence() {
+        let scored = vec![
+            item(1, "Zero", 0.0, false, &[]),
+            item(2, "Negative", -2.0, false, &[]),
+        ];
+        let build = compose_build(&hero(), &scored, &[], &ReasonerConfig::default());
+        assert!(build.core.is_empty());
+        assert!(build
+            .situations
+            .iter()
+            .flat_map(|block| &block.items)
+            .all(|item| item.confidence != Confidence::High));
+    }
+
+    #[test]
+    fn fix_e_optional_keeps_only_twelve_highest_scores() {
+        let scored = (1..=60)
+            .map(|id| item(id, &format!("Item {id}"), id as f64, false, &[]))
+            .collect::<Vec<_>>();
+        let build = compose_build(&hero(), &scored, &[], &ReasonerConfig::default());
+        let optional = build
+            .situations
+            .iter()
+            .find(|block| block.label == "Optional")
+            .unwrap();
+        assert_eq!(optional.items.len(), 12);
+        assert_eq!(
+            optional
+                .items
+                .iter()
+                .map(|item| item.item_id)
+                .collect::<Vec<_>>(),
+            (30..=41).rev().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn fix_e_composer_does_not_apply_deltas_to_scores_again() {
+        let scored = vec![
+            item(1, "First", 10.0, false, &[]),
+            item(2, "Second", 9.0, false, &[]),
+        ];
+        let deltas = crate::patch::compute_patch_delta(
+            &hero(),
+            &[
+                serde_json::json!({"item_id":2,"change_type":"buff","old_value":1,"new_value":100,"raw_line":"Damage increased from 1 to 100"}),
+            ],
+        );
+        let build = compose_build(&hero(), &scored, &deltas, &ReasonerConfig::default());
+        assert_eq!(build.core[0].item_id, 1);
+    }
     use super::*;
     use crate::{
         BuyPhase, DamagePlan, DamageType, ItemModel, ItemScore, PurchaseBonuses, SlotType,

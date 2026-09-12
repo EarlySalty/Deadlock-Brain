@@ -75,11 +75,20 @@ pub async fn reason_build_with_options(
 ) -> Result<BuildObject> {
     let seed_path = options.seed_path;
     let ctx = effective_context(ctx).await?;
-    let (mut hero_model, mut items, meta) = load_reasoning_inputs(&ctx, hero, seed_path).await?;
-    let events = load_patch_events(&ctx, hero_model.hero_id).await?;
-    let deltas = patch::compute_patch_delta(&hero_model, &events);
-    patch::apply_patch_delta(&mut hero_model, &mut items, &deltas);
-    let scored = item::score_items(&hero_model, &items, &meta.index, &deltas, &ctx.config);
+    let (mut hero_model, mut items, meta, snapshots) =
+        load_reasoning_inputs(&ctx, hero, seed_path).await?;
+    let events =
+        data::load_patch_events_for_snapshots(&ctx, hero_model.hero_id, &snapshots).await?;
+    let mut deltas = patch::compute_patch_delta_with_snapshots(&hero_model, &events, &snapshots);
+    patch::apply_scored_patch_delta(
+        &mut hero_model,
+        &mut items,
+        &mut deltas,
+        &meta.index,
+        &ctx.config,
+    );
+    let mut scored = item::score_items(&hero_model, &items, &meta.index, &[], &ctx.config);
+    finish_scores(&mut scored);
     let mut build = composer::compose_build_with_sources(
         &hero_model,
         &scored,
@@ -144,18 +153,26 @@ pub async fn reason_patch_impact_with_options(
     options: ReasonerOptions<'_>,
 ) -> Result<PatchImpactReport> {
     let ctx = effective_context(ctx).await?;
-    let hero_model = hero::load_built_hero_model(&ctx, hero).await?;
-    let events = load_patch_events(&ctx, hero_model.hero_id).await?;
-    let deltas = patch::compute_patch_delta(&hero_model, &events);
+    let (hero_model, mut snapshots) = data::load_hero_model_with_snapshots(&ctx, hero).await?;
+    let (before_items, item_snapshots) = data::load_item_models_with_snapshots(&ctx).await?;
+    snapshots.extend(item_snapshots);
+    let events =
+        data::load_patch_events_for_snapshots(&ctx, hero_model.hero_id, &snapshots).await?;
+    let mut deltas = patch::compute_patch_delta_with_snapshots(&hero_model, &events, &snapshots);
     let mut patched_hero = hero_model.clone();
-    let before_items = load_item_models(&ctx).await?;
     let mut after_items = before_items.clone();
-    patch::apply_patch_delta(&mut patched_hero, &mut after_items, &deltas);
     let rows = load_meta_rows(&ctx, hero_model.hero_id).await?;
     let claims = load_claims(&ctx, hero_model.hero_id).await?;
     let meta = meta::build_meta_index(&rows, &[], &claims, &ctx.config);
+    patch::apply_scored_patch_delta(
+        &mut patched_hero,
+        &mut after_items,
+        &mut deltas,
+        &meta,
+        &ctx.config,
+    );
     let before = item::score_items(&hero_model, &before_items, &meta, &[], &ctx.config);
-    let after = item::score_items(&patched_hero, &after_items, &meta, &deltas, &ctx.config);
+    let after = item::score_items(&patched_hero, &after_items, &meta, &[], &ctx.config);
     let before_by_id = before
         .iter()
         .map(|item| (item.item.item_id, item.score.total))
@@ -180,8 +197,16 @@ pub async fn reason_patch_impact_with_options(
     });
     shifted_items.truncate(20);
     let mut summary = format!(
-        "{} Patch-Deltas, {} Items verschoben",
+        "{} deduplizierte Patch-Belege, {} angewendet, {} nicht anwendbar, {} Items verschoben",
         deltas.len(),
+        deltas
+            .iter()
+            .filter(|delta| delta.application.is_some())
+            .count(),
+        deltas
+            .iter()
+            .filter(|delta| delta.application.is_none())
+            .count(),
         shifted_items.len()
     );
     if ctx.config.use_ai {
@@ -244,7 +269,7 @@ pub async fn reason_backtest_with_options(
     let ctx = effective_context(&ctx).await?;
     let mut run_config = ctx.config.clone();
     let heroes = if let Some(hero) = filter.hero {
-        vec![hero::load_built_hero_model(&ctx, &hero).await?]
+        vec![load_hero_model(&ctx, &hero).await?]
     } else {
         load_all_hero_models(&ctx).await?
     };
@@ -420,9 +445,15 @@ async fn load_reasoning_inputs(
     ctx: &ReasonerCtx,
     hero: &str,
     seed_path: Option<&Path>,
-) -> Result<(HeroModel, Vec<ItemModel>, meta::MetaIndexWithSources)> {
-    let hero_model = hero::load_built_hero_model(ctx, hero).await?;
-    let items = load_item_models(ctx).await?;
+) -> Result<(
+    HeroModel,
+    Vec<ItemModel>,
+    meta::MetaIndexWithSources,
+    Vec<PatchSnapshot>,
+)> {
+    let (hero_model, mut snapshots) = data::load_hero_model_with_snapshots(ctx, hero).await?;
+    let (items, item_snapshots) = data::load_item_models_with_snapshots(ctx).await?;
+    snapshots.extend(item_snapshots);
     let items = items
         .iter()
         .map(item::build_item_model)
@@ -445,7 +476,16 @@ async fn load_reasoning_inputs(
             author_builds,
             hero_ability_orders,
         },
+        snapshots,
     ))
+}
+
+fn finish_scores(scored: &mut [ScoredItem]) {
+    for item in scored {
+        if !item.score.total.is_finite() || item.score.total <= 0.0 {
+            item.confidence = Confidence::Low;
+        }
+    }
 }
 
 async fn load_all_hero_models(ctx: &ReasonerCtx) -> Result<Vec<HeroModel>> {
@@ -456,7 +496,7 @@ async fn load_all_hero_models(ctx: &ReasonerCtx) -> Result<Vec<HeroModel>> {
     let mut heroes = Vec::new();
     for row in rows {
         let name: String = row.try_get("name").map_err(ReasonerError::Db)?;
-        heroes.push(hero::load_built_hero_model(ctx, &name).await?);
+        heroes.push(load_hero_model(ctx, &name).await?);
     }
     Ok(heroes)
 }

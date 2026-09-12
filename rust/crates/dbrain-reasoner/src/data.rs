@@ -503,7 +503,7 @@ fn hero_model(payload: &Value, abilities: &[Value], stats: &[ScalingStat]) -> Re
 async fn snapshot(pool: &PgPool, entity_type: &str, name: &str) -> Result<Value> {
     let pattern = format!("%{}%", name.replace('%', ""));
     let row = sqlx::query(
-        "SELECT payload::text AS payload_json FROM brain.entity_snapshots WHERE source='deadlock_assets_api' AND entity_type=$1 AND (lower(canonical_name)=lower($2) OR lower(payload->>'name')=lower($2) OR canonical_name ILIKE $3) ORDER BY (lower(canonical_name)=lower($2)) DESC NULLS LAST, (lower(payload->>'name')=lower($2)) DESC NULLS LAST, fetched_at DESC, id DESC LIMIT 1",
+        "SELECT (payload || jsonb_build_object('_snapshot_fetched_at', extract(epoch FROM fetched_at)))::text AS payload_json FROM brain.entity_snapshots WHERE source='deadlock_assets_api' AND entity_type=$1 AND (lower(canonical_name)=lower($2) OR lower(payload->>'name')=lower($2) OR canonical_name ILIKE $3) ORDER BY (lower(canonical_name)=lower($2)) DESC NULLS LAST, (lower(payload->>'name')=lower($2)) DESC NULLS LAST, fetched_at DESC, id DESC LIMIT 1",
     )
     .bind(entity_type)
     .bind(name)
@@ -532,7 +532,7 @@ async fn ability_snapshots(pool: &PgPool, hero: &Value) -> Result<Vec<Value>> {
         .collect::<Vec<_>>();
     let mut abilities = Vec::new();
     for name in names {
-        let row = sqlx::query("SELECT payload::text AS payload_json FROM brain.entity_snapshots WHERE source='deadlock_assets_api' AND entity_type='item_or_ability' AND payload->>'class_name'=$1 ORDER BY fetched_at DESC, id DESC LIMIT 1")
+        let row = sqlx::query("SELECT (payload || jsonb_build_object('_snapshot_fetched_at', extract(epoch FROM fetched_at)))::text AS payload_json FROM brain.entity_snapshots WHERE source='deadlock_assets_api' AND entity_type='item_or_ability' AND payload->>'class_name'=$1 ORDER BY fetched_at DESC, id DESC LIMIT 1")
             .bind(name)
             .fetch_optional(pool)
             .await
@@ -572,18 +572,29 @@ async fn hero_name(pool: &PgPool, hero_id: i64) -> Result<String> {
 }
 
 pub async fn load_hero_model(ctx: &ReasonerCtx, hero: &str) -> Result<HeroModel> {
+    Ok(load_hero_model_with_snapshots(ctx, hero).await?.0)
+}
+
+pub(crate) async fn load_hero_model_with_snapshots(
+    ctx: &ReasonerCtx,
+    hero: &str,
+) -> Result<(HeroModel, Vec<crate::PatchSnapshot>)> {
     let mut payload = snapshot(&ctx.pool, "hero", hero).await?;
+    let mut weapon_fetched_at = number(payload.get("_snapshot_fetched_at"));
+    let mut weapon_source = "deadlock_assets_api/hero";
     if payload.get("weapon_info").is_none_or(Value::is_null) {
         if let Some(name) = payload
             .pointer("/items/weapon_primary")
             .and_then(Value::as_str)
         {
-            let weapon: Option<String> = sqlx::query_scalar("SELECT payload::text FROM brain.entity_snapshots WHERE source='deadlock_assets_api' AND entity_type='item_or_ability' AND payload->>'class_name'=$1 ORDER BY fetched_at DESC,id DESC LIMIT 1")
+            let weapon: Option<String> = sqlx::query_scalar("SELECT (payload || jsonb_build_object('_snapshot_fetched_at', extract(epoch FROM fetched_at)))::text FROM brain.entity_snapshots WHERE source='deadlock_assets_api' AND entity_type='item_or_ability' AND payload->>'class_name'=$1 ORDER BY fetched_at DESC,id DESC LIMIT 1")
                 .bind(name).fetch_optional(&ctx.pool).await.map_err(ReasonerError::Db)?;
             let weapon = parse_json(
                 weapon.ok_or_else(|| ReasonerError::MissingSnapshot("Primärwaffe".into()))?,
                 "Primärwaffe",
             )?;
+            weapon_fetched_at = number(weapon.get("_snapshot_fetched_at"));
+            weapon_source = "deadlock_assets_api/item_or_ability";
             payload["weapon_info"] = weapon
                 .get("weapon_info")
                 .filter(|value| value.is_object())
@@ -592,8 +603,86 @@ pub async fn load_hero_model(ctx: &ReasonerCtx, hero: &str) -> Result<HeroModel>
         }
     }
     let abilities = ability_snapshots(&ctx.pool, &payload).await?;
-    let stats = load_hero_stat_values(ctx, integer(payload.get("id"))).await?;
-    hero_model(&payload, &abilities, &stats)
+    let loaded = hero_model(&payload, &abilities, &[])?;
+    let mut model = crate::hero::build_hero_model(&loaded, &abilities, &[])?;
+    model.damage_plan = crate::hero::damage_plan(&model, &ctx.config);
+    let mut fields = BTreeMap::new();
+    for (field, label, value) in [
+        (
+            "weapon.bullet_damage",
+            "Bullet Damage",
+            model.weapon.bullet_damage,
+        ),
+        (
+            "weapon.shots_per_second",
+            "Fire Rate",
+            model.weapon.shots_per_second,
+        ),
+        (
+            "weapon.reload_duration",
+            "Reload Duration",
+            model.weapon.reload_duration,
+        ),
+        ("weapon.clip_size", "Ammo", model.weapon.clip_size),
+        ("weapon.range", "Range", model.weapon.range),
+    ] {
+        fields.insert(
+            field.into(),
+            crate::SnapshotField {
+                value,
+                fetched_at: weapon_fetched_at,
+                source: weapon_source.into(),
+                label: label.into(),
+            },
+        );
+    }
+    fields.insert(
+        "base_health".into(),
+        crate::SnapshotField {
+            value: model.base_health,
+            fetched_at: number(payload.get("_snapshot_fetched_at")),
+            source: "deadlock_assets_api/hero".into(),
+            label: "Base Health".into(),
+        },
+    );
+    for stat in &model.scaling {
+        if let Some(value) = stat.per_spirit {
+            fields.insert(
+                format!("scaling.{}", stat.stat),
+                crate::SnapshotField {
+                    value,
+                    fetched_at: number(payload.get("_snapshot_fetched_at")),
+                    source: "deadlock_assets_api/hero".into(),
+                    label: format!("{} spirit scaling", stat.stat),
+                },
+            );
+        }
+    }
+    let mut snapshots = vec![crate::PatchSnapshot {
+        target: crate::DeltaTarget::Hero(model.hero_id),
+        name: model.name.clone(),
+        fields,
+    }];
+    for ability in &model.abilities {
+        let raw = abilities
+            .iter()
+            .find(|raw| integer(raw.get("id")) == ability.ability_id)
+            .unwrap();
+        snapshots.push(crate::PatchSnapshot {
+            target: crate::DeltaTarget::Ability(ability.ability_id),
+            name: string(raw.get("name")),
+            fields: BTreeMap::from([(
+                "cooldown".into(),
+                crate::SnapshotField {
+                    value: ability.cooldown,
+                    fetched_at: number(raw.get("_snapshot_fetched_at")),
+                    source: "deadlock_assets_api/item_or_ability".into(),
+                    label: "Cooldown".into(),
+                },
+            )]),
+        });
+    }
+    Ok((model, snapshots))
 }
 
 pub async fn load_hero_abilities(ctx: &ReasonerCtx, hero: &str) -> Result<Vec<Value>> {
@@ -602,6 +691,12 @@ pub async fn load_hero_abilities(ctx: &ReasonerCtx, hero: &str) -> Result<Vec<Va
 }
 
 pub async fn load_item_models(ctx: &ReasonerCtx) -> Result<Vec<ItemModel>> {
+    Ok(load_item_models_with_snapshots(ctx).await?.0)
+}
+
+pub(crate) async fn load_item_models_with_snapshots(
+    ctx: &ReasonerCtx,
+) -> Result<(Vec<ItemModel>, Vec<crate::PatchSnapshot>)> {
     let catalog_rows = sqlx::query(
         "SELECT item_id, name, slot_type, tier, defense_kind::text AS defense_kind_json, damage_axis FROM brain.item_catalog ORDER BY item_id",
     )
@@ -632,11 +727,11 @@ pub async fn load_item_models(ctx: &ReasonerCtx) -> Result<Vec<ItemModel>> {
             ),
         );
     }
-    let rows = sqlx::query("SELECT payload::text AS payload_json FROM brain.entity_snapshots WHERE source='deadlock_assets_api' AND entity_type='item_or_ability' ORDER BY fetched_at DESC, id DESC")
+    let rows = sqlx::query("SELECT (payload || jsonb_build_object('_snapshot_fetched_at', extract(epoch FROM fetched_at)))::text AS payload_json FROM brain.entity_snapshots WHERE source='deadlock_assets_api' AND entity_type='item_or_ability' ORDER BY fetched_at DESC, id DESC")
         .fetch_all(&ctx.pool)
         .await
         .map_err(ReasonerError::Db)?;
-    let card_rows = sqlx::query("SELECT external_id, canonical_name, payload::text AS payload_json FROM brain.entity_snapshots WHERE source='deadlock_data' AND entity_type='item_card' ORDER BY fetched_at DESC, id DESC")
+    let card_rows = sqlx::query("SELECT external_id, canonical_name, (payload || jsonb_build_object('_snapshot_fetched_at', extract(epoch FROM fetched_at)))::text AS payload_json FROM brain.entity_snapshots WHERE source='deadlock_data' AND entity_type='item_card' ORDER BY fetched_at DESC, id DESC")
         .fetch_all(&ctx.pool)
         .await
         .map_err(ReasonerError::Db)?;
@@ -666,6 +761,7 @@ pub async fn load_item_models(ctx: &ReasonerCtx) -> Result<Vec<ItemModel>> {
     }
     let mut seen = BTreeSet::new();
     let mut items = Vec::new();
+    let mut snapshots = Vec::new();
     for row in rows {
         let text = row
             .try_get::<String, _>("payload_json")
@@ -693,14 +789,14 @@ pub async fn load_item_models(ctx: &ReasonerCtx) -> Result<Vec<ItemModel>> {
         }
         let properties = property_values(payload.get("properties"));
         let passive_properties = passive_property_values(payload.get("properties"));
-        let proc_cooldown = properties
+        let asset_proc_cooldown = properties
             .iter()
             .find(|(name, _)| name.to_ascii_lowercase().contains("proccooldown"))
             .map(|(_, value)| *value)
-            .filter(|value| *value > 0.0)
-            .or_else(|| {
-                card_number(item_card, &["Info2", "Cooldown"]).filter(|value| *value > 0.0)
-            });
+            .filter(|value| *value > 0.0);
+        let proc_cooldown = asset_proc_cooldown.or_else(|| {
+            card_number(item_card, &["Info2", "Cooldown"]).filter(|value| *value > 0.0)
+        });
         let cost = integer(payload.get("cost"));
         let cost = if cost > 0 {
             cost
@@ -727,7 +823,7 @@ pub async fn load_item_models(ctx: &ReasonerCtx) -> Result<Vec<ItemModel>> {
                     .and_then(Value::as_bool)
             })
             .unwrap_or(false);
-        items.push(ItemModel {
+        let model = ItemModel {
             item_id,
             name: if catalog_name.is_empty() {
                 string(payload.get("name"))
@@ -758,9 +854,46 @@ pub async fn load_item_models(ctx: &ReasonerCtx) -> Result<Vec<ItemModel>> {
                 || description_text(&merged_payload)
                     .to_ascii_lowercase()
                     .contains("imbued"),
+        };
+        let mut fields = BTreeMap::new();
+        for (name, value) in &model.properties {
+            fields.insert(
+                format!("properties.{name}"),
+                crate::SnapshotField {
+                    value: *value,
+                    fetched_at: number(payload.get("_snapshot_fetched_at")),
+                    source: "deadlock_assets_api/item_or_ability".into(),
+                    label: string(
+                        payload
+                            .get("properties")
+                            .and_then(|props| props.get(name))
+                            .and_then(|prop| prop.get("label")),
+                    ),
+                },
+            );
+        }
+        if let Some(value) = model
+            .proc_cooldown
+            .filter(|_| asset_proc_cooldown.is_none())
+        {
+            fields.insert(
+                "proc_cooldown".into(),
+                crate::SnapshotField {
+                    value,
+                    fetched_at: item_card.and_then(|raw| number(raw.get("_snapshot_fetched_at"))),
+                    source: "deadlock_data/item_card".into(),
+                    label: "Proc Cooldown".into(),
+                },
+            );
+        }
+        snapshots.push(crate::PatchSnapshot {
+            target: crate::DeltaTarget::Item(item_id),
+            name: model.name.clone(),
+            fields,
         });
+        items.push(model);
     }
-    Ok(items)
+    Ok((items, snapshots))
 }
 
 pub async fn load_meta_rows(ctx: &ReasonerCtx, hero_id: i64) -> Result<Vec<MetaRow>> {
@@ -792,6 +925,14 @@ pub async fn load_meta_rows(ctx: &ReasonerCtx, hero_id: i64) -> Result<Vec<MetaR
 }
 
 pub async fn load_patch_events(ctx: &ReasonerCtx, hero_id: i64) -> Result<Vec<Value>> {
+    load_patch_events_for_snapshots(ctx, hero_id, &[]).await
+}
+
+pub(crate) async fn load_patch_events_for_snapshots(
+    ctx: &ReasonerCtx,
+    hero_id: i64,
+    snapshots: &[crate::PatchSnapshot],
+) -> Result<Vec<Value>> {
     let mut names = sqlx::query_scalar::<_, String>(
         "SELECT lower(e.canonical_name) FROM brain.entities e WHERE e.entity_type='hero' AND e.primary_external_id=$1 UNION SELECT lower(a.alias) FROM brain.entities e JOIN brain.entity_aliases a ON a.entity_id=e.id WHERE e.entity_type='hero' AND e.primary_external_id=$1 AND a.alias_kind IN ('canonical', 'snapshot_name', 'class_name_short')",
     )
@@ -802,7 +943,13 @@ pub async fn load_patch_events(ctx: &ReasonerCtx, hero_id: i64) -> Result<Vec<Va
     if names.is_empty() {
         names.push(hero_name(&ctx.pool, hero_id).await?.to_lowercase());
     }
-    let rows = sqlx::query("SELECT (to_jsonb(pe) || jsonb_build_object('enrichment', COALESCE(to_jsonb(pee), '{}'::jsonb)))::text AS row_json FROM brain.patch_events pe LEFT JOIN brain.patch_event_enrichments pee ON pee.patch_event_id=pe.id WHERE lower(pe.entity_name)=ANY($1) OR lower(pee.secondary_entity_name)=ANY($1) ORDER BY pe.posted_at DESC NULLS LAST, pe.id DESC, to_jsonb(pee)::text")
+    names.extend(
+        snapshots
+            .iter()
+            .map(|snapshot| snapshot.name.to_lowercase())
+            .filter(|name| !name.is_empty()),
+    );
+    let rows = sqlx::query("SELECT (to_jsonb(pe) || jsonb_build_object('posted_at_epoch', extract(epoch FROM pe.posted_at), 'enrichment', COALESCE(to_jsonb(pee), '{}'::jsonb)))::text AS row_json FROM brain.patch_events pe LEFT JOIN brain.patch_event_enrichments pee ON pee.patch_event_id=pe.id WHERE lower(pe.entity_name)=ANY($1) OR lower(pee.secondary_entity_name)=ANY($1) ORDER BY pe.posted_at DESC NULLS LAST, pe.id DESC, to_jsonb(pee)::text")
         .bind(names)
         .fetch_all(&ctx.pool)
         .await
@@ -881,7 +1028,7 @@ fn ids_from_details(details: &Value) -> (Vec<i64>, Vec<i64>) {
     (core, order)
 }
 
-fn author_build(value: &Value) -> AuthorBuild {
+pub(crate) fn author_build(value: &Value) -> AuthorBuild {
     let details = value.get("details").unwrap_or(value);
     let (core_item_ids, buy_order) = ids_from_details(details);
     AuthorBuild {
