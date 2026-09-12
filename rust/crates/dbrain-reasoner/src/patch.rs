@@ -314,8 +314,12 @@ pub fn apply_patch_delta(hero: &mut HeroModel, items: &mut [ItemModel], deltas: 
             _ => {}
         }
     }
-    hero.weapon.sustained_dps = if hero.weapon.sustained_dps > 0.0 {
-        hero.weapon.sustained_dps
+    hero.weapon.sustained_dps = if hero.weapon.shots_per_second <= 0.0 {
+        0.0
+    } else if hero.weapon.clip_size > 0.0 {
+        hero.weapon.bullet_damage * hero.weapon.clip_size
+            / (hero.weapon.clip_size / hero.weapon.shots_per_second
+                + hero.weapon.reload_duration.max(0.0))
     } else {
         hero.weapon.bullet_damage * hero.weapon.shots_per_second
     };
@@ -395,6 +399,43 @@ mod tests {
         assert_eq!(deltas[1].mechanic, "bullet_damage");
         assert_eq!(deltas[1].sign, -1);
         assert!((deltas[1].magnitude - 0.06).abs() < 0.0001);
+    }
+
+    #[test]
+    fn weapon_buffs_recompute_warden_damage_plan() {
+        for (mechanic, sign, magnitude, expected) in [
+            ("bullet_damage", 1, 2.0, 20.0),
+            ("fire_rate", 1, 1.0, 300.0 / 13.0),
+            ("reload", -1, 1.0, 200.0 / 11.0),
+        ] {
+            let mut hero = hero();
+            hero.weapon.sustained_dps = 200.0 / 12.0;
+            hero.damage_plan = DamagePlan {
+                weapon_dps: 200.0 / 12.0,
+                spirit_dps: 12.0,
+                weapon_share: 25.0 / 43.0,
+                primary_axis: DamageType::Hybrid,
+            };
+            apply_patch_delta(
+                &mut hero,
+                &mut [],
+                &[PatchDelta {
+                    target: DeltaTarget::Hero(25),
+                    mechanic: mechanic.to_string(),
+                    sign,
+                    magnitude,
+                    note: String::new(),
+                }],
+            );
+            assert!(
+                (hero.weapon.sustained_dps - expected).abs() < 1e-10,
+                "{mechanic}: {} != {expected}",
+                hero.weapon.sustained_dps
+            );
+            assert_eq!(hero.damage_plan.weapon_dps, hero.weapon.sustained_dps);
+            assert!((hero.damage_plan.weapon_share - expected / (expected + 12.0)).abs() < 1e-10);
+            assert_eq!(hero.damage_plan.primary_axis, DamageType::Weapon);
+        }
     }
 
     #[test]

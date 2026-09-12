@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 
 use crate::{
-    BuildItem, BuildObject, Confidence, DamageType, Evidence, EvidenceKind, HeroModel, PatchDelta,
+    BuildItem, BuildObject, BuyPhase, Confidence, Evidence, EvidenceKind, HeroModel, PatchDelta,
     ReasonerConfig, ScoredItem, SituationBlock, SituationKind,
 };
 
@@ -17,48 +17,47 @@ fn lower(value: &str) -> String {
     value.to_ascii_lowercase()
 }
 
-fn has_defense(item: &ScoredItem) -> bool {
-    item.item.defense_kind.iter().any(|kind| {
-        let kind = lower(kind);
-        ["shield", "resist", "barrier", "armor", "defense"]
-            .iter()
-            .any(|needle| kind.contains(needle))
-    })
-}
-
 fn is_shield(item: &ScoredItem) -> bool {
     let name = lower(&item.item.name);
-    name.contains("shield")
-        || name.contains("reactive barrier")
-        || item
-            .item
-            .defense_kind
-            .iter()
-            .any(|kind| lower(kind).contains("shield"))
+    name.contains("shield") || name.contains("reactive barrier")
 }
 
 fn is_can_buy_one(item: &ScoredItem) -> bool {
     let name = lower(&item.item.name);
-    item.item.is_active
-        && (has_defense(item)
-            || [
-                "metal skin",
-                "dispel magic",
-                "counterspell",
-                "vampiric burst",
-                "spirit resilience",
-                "bullet resilience",
-            ]
-            .iter()
-            .any(|needle| name.contains(needle)))
+    [
+        "metal skin",
+        "dispel magic",
+        "counterspell",
+        "vampiric burst",
+        "spirit resilience",
+        "bullet resilience",
+    ]
+    .iter()
+    .any(|needle| name.contains(needle))
 }
 
 fn is_tryhard(item: &ScoredItem) -> bool {
     let name = lower(&item.item.name);
     name.contains("slowing hex")
-        || (item.item.is_active
-            && matches!(item.item.damage_axis, DamageType::Spirit)
-            && !has_defense(item))
+}
+
+fn is_optional(item: &ScoredItem) -> bool {
+    let name = lower(&item.item.name);
+    [
+        "healing booster",
+        "silencer",
+        "spellslinger",
+        "toxic bullets",
+        "split shot",
+        "ricochet",
+        "armor piercing rounds",
+        "crippling headshot",
+        "spellbreaker",
+        "plated armor",
+        "inhibitor",
+    ]
+    .iter()
+    .any(|needle| name.contains(needle))
 }
 
 fn is_counter(item: &ScoredItem) -> bool {
@@ -135,7 +134,10 @@ fn build_item(item: &ScoredItem, hero: &HeroModel, sources: Vec<Evidence>) -> Bu
         why: String::new(),
         confidence: item.confidence.clone(),
         imbue_target,
-        sell_priority: None,
+        sell_priority: match item.buy_phase {
+            BuyPhase::Lane => Some(if item.item.tier <= 1 { 1 } else { 2 }),
+            BuyPhase::Core | BuyPhase::Late => None,
+        },
         sources,
     }
 }
@@ -171,6 +173,21 @@ pub fn compose_build(
     compose_build_with_blocklist(hero, scored, deltas, cfg, &[])
 }
 
+pub fn compose_build_with_sources(
+    hero: &HeroModel,
+    scored: &[ScoredItem],
+    deltas: &[PatchDelta],
+    cfg: &ReasonerConfig,
+    blocked: &[String],
+    meta: &crate::meta::MetaIndexWithSources,
+) -> BuildObject {
+    let mut build = compose_build_with_blocklist(hero, scored, deltas, cfg, blocked);
+    let (order, source) = meta.ability_order(hero.hero_id);
+    build.ability_order = order;
+    build.rationale = source.detail;
+    build
+}
+
 pub fn compose_build_with_blocklist(
     hero: &HeroModel,
     scored: &[ScoredItem],
@@ -186,12 +203,14 @@ pub fn compose_build_with_blocklist(
     let mut counters = Vec::new();
     let mut optional = Vec::new();
     for item in ordered {
-        if is_can_buy_one(item) {
-            can_buy.push(build_item(item, hero, patch_sources(item, deltas)));
-        } else if is_shield(item) {
+        if is_shield(item) {
             shields.push(build_item(item, hero, patch_sources(item, deltas)));
+        } else if is_can_buy_one(item) {
+            can_buy.push(build_item(item, hero, patch_sources(item, deltas)));
         } else if is_tryhard(item) {
             tryhard.push(build_item(item, hero, patch_sources(item, deltas)));
+        } else if is_optional(item) {
+            optional.push(build_item(item, hero, patch_sources(item, deltas)));
         } else if is_counter(item) {
             counters.push(build_item(item, hero, patch_sources(item, deltas)));
         } else if core.len() < 19 {
@@ -253,7 +272,7 @@ pub fn compose_build_with_blocklist(
         situations,
         ability_order: Vec::new(),
         confidence: confidence(&all_items),
-        rationale: String::new(),
+        rationale: "Skill-Order: keine Quelle".to_string(),
     }
 }
 
@@ -261,7 +280,8 @@ pub fn compose_build_with_blocklist(
 mod tests {
     use super::*;
     use crate::{
-        BuyPhase, DamagePlan, ItemModel, ItemScore, PurchaseBonuses, SlotType, WeaponProfile,
+        BuyPhase, DamagePlan, DamageType, ItemModel, ItemScore, PurchaseBonuses, SlotType,
+        WeaponProfile,
     };
     use std::collections::BTreeMap;
 
@@ -335,6 +355,183 @@ mod tests {
                 detail: "fixture".to_string(),
             }],
         }
+    }
+
+    #[test]
+    fn sells_lane_items_before_early_items_and_keeps_core() {
+        let mut lane = item(1, "Lane", 3.0, false, &[]);
+        lane.buy_phase = BuyPhase::Lane;
+        lane.item.tier = 1;
+        let mut early = item(2, "Early", 2.0, false, &[]);
+        early.buy_phase = BuyPhase::Lane;
+        let mut core = item(3, "Core", 1.0, false, &[]);
+        core.item.tier = 1;
+        let build = compose_build(
+            &hero(),
+            &[lane, early, core],
+            &[],
+            &ReasonerConfig::default(),
+        );
+        let payload = crate::publish::publish_task_payload(&build);
+        assert_eq!(payload["mod_categories"][0]["mods"][0]["sell_priority"], 1);
+        assert_eq!(payload["mod_categories"][0]["mods"][1]["sell_priority"], 2);
+        assert!(payload["mod_categories"][0]["mods"][2]
+            .get("sell_priority")
+            .is_none());
+    }
+
+    #[test]
+    fn assigns_all_warden_seed_items_to_five_reference_blocks() {
+        let seed: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../.tasks/2026-09-12-build-reasoner/referenz/lightbringer-warden.json"
+        ))
+        .unwrap();
+        let blocks = seed["bloecke"].as_array().unwrap();
+        let mut scored = Vec::new();
+        for block in blocks {
+            for entry in block["items"].as_array().unwrap() {
+                let name = entry["name"].as_str().unwrap();
+                let defense = match name {
+                    "Spirit Resilience" | "Bullet Resilience" | "Metal Skin"
+                    | "Reactive Barrier" | "Witchmail" | "Plated Armor" => vec!["resist"],
+                    "Veil Walker" | "Spirit Shielding" | "Weapon Shielding" => vec!["shield"],
+                    _ => vec![],
+                };
+                let mut candidate = item(
+                    scored.len() as i64 + 1,
+                    name,
+                    100.0 - scored.len() as f64,
+                    entry["active"].as_bool().unwrap_or(false) || name == "Reactive Barrier",
+                    &defense,
+                );
+                candidate.item.tier = entry["tier"].as_i64().unwrap();
+                if name == "Blood Tribute" {
+                    candidate.item.damage_axis = DamageType::Spirit;
+                }
+                scored.push(candidate);
+            }
+        }
+        let build = compose_build(&hero(), &scored, &[], &ReasonerConfig::default());
+        assert_eq!(build.situations.len(), 4);
+        let actual = std::iter::once(("Core Items", &build.core)).chain(
+            build
+                .situations
+                .iter()
+                .map(|block| (block.label.as_str(), &block.items)),
+        );
+        for ((label, items), expected) in actual.zip(blocks) {
+            assert_eq!(label, expected["name"].as_str().unwrap());
+            assert_eq!(
+                items
+                    .iter()
+                    .map(|item| item.name.as_str())
+                    .collect::<Vec<_>>(),
+                expected["items"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|item| item["name"].as_str().unwrap())
+                    .collect::<Vec<_>>(),
+                "{label}"
+            );
+        }
+        assert_eq!(
+            scored.len(),
+            build.core.len()
+                + build
+                    .situations
+                    .iter()
+                    .map(|block| block.items.len())
+                    .sum::<usize>()
+        );
+    }
+
+    #[test]
+    fn ability_sources_and_sell_priorities_survive_publish_roundtrip() {
+        use crate::meta::{AuthorBuildSource, MetaIndexWithSources};
+        use crate::{AbilityStep, MetaIndex};
+        let steps = |id| {
+            vec![AbilityStep {
+                ability_id: id,
+                currency_type: 2,
+                delta: -1,
+            }]
+        };
+        let source = |hero_id, weight, author: &str, id| AuthorBuildSource {
+            hero_id,
+            weight,
+            author: author.to_string(),
+            details: serde_json::json!({"abilityOrder":{"currencyChanges":[
+                {"abilityId":id,"currencyType":2,"delta":-1},
+                {"abilityId":id,"currencyType":1,"delta":-2}
+            ]}}),
+        };
+        let mut meta = MetaIndexWithSources {
+            index: MetaIndex {
+                by_item: BTreeMap::new(),
+                sample_ok: Default::default(),
+            },
+            author_builds: vec![
+                source(25, 1.0, "Lower", 100),
+                source(25, 3.0, "Best", 101),
+                source(99, 9.0, "Other hero", 999),
+            ],
+            hero_ability_orders: BTreeMap::from([(25, steps(102))]),
+        };
+        let mut lane = item(1, "Lane", 1.0, false, &[]);
+        lane.buy_phase = BuyPhase::Lane;
+        lane.item.tier = 1;
+        let compose = |meta: &MetaIndexWithSources| {
+            compose_build_with_sources(
+                &hero(),
+                std::slice::from_ref(&lane),
+                &[],
+                &ReasonerConfig::default(),
+                &[],
+                meta,
+            )
+        };
+        let build = compose(&meta);
+        let restored_build: BuildObject =
+            serde_json::from_value(serde_json::to_value(&build).unwrap()).unwrap();
+        let payload = crate::publish::publish_task_payload(&restored_build);
+        let restored: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&payload).unwrap()).unwrap();
+        assert_eq!(payload["ability_order"][0]["ability_id"], 101);
+        assert_eq!(payload["ability_order"][1]["delta"], -2);
+        assert_eq!(restored["mod_categories"][0]["mods"][0]["sell_priority"], 1);
+        assert_eq!(restored["ability_order"].as_array().unwrap().len(), 2);
+        assert!(restored["description"].as_str().unwrap().contains("Best"));
+        meta.author_builds.reverse();
+        assert_eq!(compose(&meta).ability_order, build.ability_order);
+        meta.author_builds
+            .push(source(25, f64::NAN, "Invalid weight", 998));
+        assert_eq!(compose(&meta).ability_order, build.ability_order);
+        meta.author_builds.retain(|source| source.hero_id != 25);
+        let mut malformed = source(25, 5.0, "Incomplete", 103);
+        malformed.details["abilityOrder"]["currencyChanges"][1]
+            .as_object_mut()
+            .unwrap()
+            .remove("delta");
+        meta.author_builds.push(malformed);
+        let fallback = compose(&meta);
+        assert_eq!(fallback.ability_order, steps(102));
+        assert!(fallback.rationale.contains("brain.hero_ability_orders"));
+        meta.hero_ability_orders.clear();
+        let missing = compose(&meta);
+        assert!(missing.ability_order.is_empty());
+        assert!(missing.rationale.contains("keine Quelle"));
+        meta.author_builds.push(AuthorBuildSource {
+            hero_id: 25,
+            author: "Snake case".to_string(),
+            weight: 1.0,
+            details: serde_json::json!({"ability_order": [
+                {"ability_id":"104", "currency_type":"2", "delta":"-1"}
+            ]}),
+        });
+        assert_eq!(compose(&meta).ability_order, steps(104));
+        let default_build = compose_build(&hero(), &[], &[], &ReasonerConfig::default());
+        assert!(default_build.rationale.contains("keine Quelle"));
     }
 
     #[test]

@@ -8,6 +8,101 @@ use serde_json::Value;
 
 use crate::{AuthorBuild, MetaIndex, MetaRow, MetaSupport, ReasonerConfig, ReasonerError, Result};
 
+#[derive(Debug, Clone)]
+pub struct AuthorBuildSource {
+    pub hero_id: i64,
+    pub author: String,
+    pub weight: f64,
+    pub details: Value,
+}
+
+#[derive(Debug, Clone)]
+pub struct MetaIndexWithSources {
+    pub index: MetaIndex,
+    pub author_builds: Vec<AuthorBuildSource>,
+    pub hero_ability_orders: BTreeMap<i64, Vec<crate::AbilityStep>>,
+}
+
+impl MetaIndexWithSources {
+    pub fn ability_order(&self, hero_id: i64) -> (Vec<crate::AbilityStep>, crate::Evidence) {
+        let mut authors = self
+            .author_builds
+            .iter()
+            .filter(|source| source.hero_id == hero_id && source.weight.is_finite())
+            .collect::<Vec<_>>();
+        authors.sort_by(|left, right| {
+            right
+                .weight
+                .total_cmp(&left.weight)
+                .then_with(|| left.author.cmp(&right.author))
+                .then_with(|| left.details.to_string().cmp(&right.details.to_string()))
+        });
+        for source in authors {
+            if let Some(order) = author_ability_order(&source.details) {
+                return (
+                    order,
+                    crate::Evidence {
+                        kind: crate::EvidenceKind::Author,
+                        detail: format!(
+                            "Skill-Order: Autoren-Build {} (Gewicht {})",
+                            source.author, source.weight
+                        ),
+                    },
+                );
+            }
+        }
+        if let Some(order) = self
+            .hero_ability_orders
+            .get(&hero_id)
+            .filter(|order| !order.is_empty())
+        {
+            return (
+                order.clone(),
+                crate::Evidence {
+                    kind: crate::EvidenceKind::Meta,
+                    detail: "Skill-Order: brain.hero_ability_orders".to_string(),
+                },
+            );
+        }
+        (
+            Vec::new(),
+            crate::Evidence {
+                kind: crate::EvidenceKind::Author,
+                detail: "Skill-Order: keine Quelle".to_string(),
+            },
+        )
+    }
+}
+
+fn author_ability_order(details: &Value) -> Option<Vec<crate::AbilityStep>> {
+    let order = details
+        .get("abilityOrder")
+        .or_else(|| details.get("ability_order"))?;
+    let changes = order
+        .get("currencyChanges")
+        .or_else(|| order.get("currency_changes"))
+        .unwrap_or(order)
+        .as_array()?;
+    let steps = changes
+        .iter()
+        .map(|change| {
+            let integer = |camel: &str, snake: &str| {
+                let value = change.get(camel).or_else(|| change.get(snake))?;
+                value.as_i64().or_else(|| value.as_str()?.parse().ok())
+            };
+            let ability_id = integer("abilityId", "ability_id")?;
+            (ability_id > 0).then(|| {
+                Some(crate::AbilityStep {
+                    ability_id,
+                    currency_type: integer("currencyType", "currency_type")?,
+                    delta: integer("delta", "delta")?,
+                })
+            })?
+        })
+        .collect::<Option<Vec<_>>>()?;
+    (!steps.is_empty()).then_some(steps)
+}
+
 fn item_ids(value: &Value, output: &mut BTreeSet<i64>) {
     match value {
         Value::Array(values) => values.iter().for_each(|value| item_ids(value, output)),
@@ -81,7 +176,7 @@ pub fn build_meta_index(
         }
         let damp = if sample { 1.0 } else { 0.5 };
         let prevalence = if max_prevalence > 0.0 {
-            prevalence_raw as f64 / max_prevalence
+            (prevalence_raw as f64 / max_prevalence).min(1.0)
         } else {
             0.0
         };
@@ -264,6 +359,32 @@ mod tests {
         assert_eq!(index.by_item[&2].winrate_pp, Some(50.0));
         assert_eq!(index.by_item[&2].lift_pp, Some(4.0));
         assert_eq!(index.by_item[&2].prevalence, 0.01);
+    }
+
+    #[test]
+    fn caps_grouped_prevalence_before_sample_damping() {
+        let row = MetaRow {
+            item_id: 42,
+            patch_tag: "current".to_string(),
+            prevalence_builds: 10,
+            wins: 5,
+            losses: 5,
+            matches: 10,
+            avg_buy_time_relative: None,
+            lift_pp: None,
+        };
+        let rows = [row.clone(), row];
+        let mut config = cfg();
+        config.min_matches = 10;
+        assert_eq!(
+            build_meta_index(&rows, &[], &[], &config).by_item[&42].prevalence,
+            1.0
+        );
+        config.min_matches = 100;
+        assert_eq!(
+            build_meta_index(&rows, &[], &[], &config).by_item[&42].prevalence,
+            0.5
+        );
     }
 
     #[test]

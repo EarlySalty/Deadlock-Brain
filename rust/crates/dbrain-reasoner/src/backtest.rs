@@ -1,8 +1,34 @@
 use std::collections::BTreeSet;
+use std::fmt::{self, Write};
 
 use crate::{
     AuthorBuild, BacktestMetrics, BuildObject, HeroBacktest, ReasonerCtx, ReasonerError, Result,
 };
+
+impl fmt::Display for crate::BacktestReport {
+    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for hero in &self.heroes {
+            for (author, metrics) in hero
+                .per_author
+                .iter()
+                .map(|(author, metrics)| (author.as_str(), metrics))
+                .chain(std::iter::once(("Gesamt", &hero.aggregate)))
+            {
+                write!(
+                    output,
+                    "{} | {author} | Kern: {:.4} | Reihenfolge: ",
+                    hero.hero_name, metrics.core_coverage
+                )?;
+                match metrics.order_proximity {
+                    Some(value) => write!(output, "{value:.4}")?,
+                    None => output.write_str("nicht messbar")?,
+                }
+                output.write_char('\n')?;
+            }
+        }
+        Ok(())
+    }
+}
 
 fn unique(values: impl Iterator<Item = i64>) -> BTreeSet<i64> {
     values.filter(|value| *value != 0).collect()
@@ -48,7 +74,7 @@ pub fn backtest_metrics(build: &BuildObject, author: &AuthorBuild) -> BacktestMe
         .collect::<Vec<_>>();
     let order_proximity = if common.is_empty() || reasoner_order.len() < 2 || author_order.len() < 2
     {
-        1.0
+        None
     } else {
         let denominator = (common.len() as f64).max(1.0);
         let distance = common
@@ -68,7 +94,7 @@ pub fn backtest_metrics(build: &BuildObject, author: &AuthorBuild) -> BacktestMe
             })
             .sum::<f64>()
             / denominator;
-        distance.min(1.0)
+        Some(distance.min(1.0))
     };
     BacktestMetrics {
         core_coverage: coverage,
@@ -123,7 +149,7 @@ pub fn backtest_hero_with_build(
     let aggregate = if per_author.is_empty() {
         BacktestMetrics {
             core_coverage: 0.0,
-            order_proximity: 1.0,
+            order_proximity: None,
             switch_detected: None,
         }
     } else {
@@ -133,11 +159,13 @@ pub fn backtest_hero_with_build(
                 .map(|(_, metrics)| metrics.core_coverage)
                 .sum::<f64>()
                 / per_author.len() as f64,
-            order_proximity: per_author
-                .iter()
-                .map(|(_, metrics)| metrics.order_proximity)
-                .sum::<f64>()
-                / per_author.len() as f64,
+            order_proximity: {
+                let values = per_author
+                    .iter()
+                    .filter_map(|(_, metrics)| metrics.order_proximity);
+                let count = values.clone().count();
+                (count > 0).then(|| values.sum::<f64>() / count as f64)
+            },
             switch_detected: None,
         }
     };
@@ -234,11 +262,62 @@ mod tests {
     fn measures_warden_seed_core_and_order() {
         let metrics = backtest_metrics(&build(&[1, 2, 3]), &author(&[2, 3, 4], &[1, 2, 3]));
         assert!((metrics.core_coverage - 2.0 / 3.0).abs() < 0.0001);
-        assert_eq!(metrics.order_proximity, 0.0);
+        assert_eq!(metrics.order_proximity, Some(0.0));
         assert!(
             (core_jaccard(&build(&[1, 2, 3]), &author(&[2, 3, 4], &[1, 2, 3])) - 0.5).abs()
                 < 0.0001
         );
+    }
+
+    #[test]
+    fn unmeasurable_orders_are_null_and_excluded_from_aggregate() {
+        for (reasoner, order) in [
+            (vec![], vec![1, 2]),
+            (vec![1, 2], vec![]),
+            (vec![1], vec![1, 2]),
+            (vec![1, 2], vec![1]),
+            (vec![1, 2], vec![3, 4]),
+        ] {
+            let metrics = backtest_metrics(&build(&reasoner), &author(&order, &order));
+            assert!(serde_json::to_value(metrics).unwrap()["order_proximity"].is_null());
+        }
+        let build = build(&[1, 2]);
+        let report = backtest_hero_with_build(
+            25,
+            "Warden",
+            &build,
+            &[
+                author(&[1, 2], &[1, 2]),
+                author(&[1, 2], &[2, 1]),
+                author(&[3, 4], &[3, 4]),
+            ],
+        );
+        assert_eq!(
+            serde_json::to_value(report.aggregate).unwrap()["order_proximity"],
+            0.5
+        );
+        for authors in [vec![], vec![author(&[], &[])]] {
+            let report = backtest_hero_with_build(25, "Warden", &build, &authors);
+            assert!(serde_json::to_value(report.aggregate).unwrap()["order_proximity"].is_null());
+        }
+    }
+
+    #[test]
+    fn report_labels_missing_measurements_and_preserves_measured_values() {
+        let report = crate::BacktestReport {
+            heroes: vec![backtest_hero_with_build(
+                25,
+                "Warden",
+                &build(&[1, 2]),
+                &[author(&[1, 2], &[1, 2]), author(&[], &[])],
+            )],
+        };
+        let text = report.to_string();
+        assert!(text.contains("Reihenfolge: nicht messbar"));
+        assert!(text.contains("Warden | Gesamt | Kern: 0.5000 | Reihenfolge: 0.0000"));
+        let restored: crate::BacktestReport =
+            serde_json::from_value(serde_json::to_value(&report).unwrap()).unwrap();
+        assert_eq!(restored, report);
     }
 
     #[test]
