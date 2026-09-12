@@ -35,7 +35,8 @@ Deadlock-Steam-Bot. Pakete in `PAKETE.md`.
 | F Kern nach Kostenband | 24566da5 | luna | ~/.worktrees/deadlock-brain-f | feat/build-reasoner-f | gestartet 2026-09-13 00:45 ab 80417b9, BRIEFING-F.md |
 | S3 Autoren-Scan je Held | bf285ae9 | luna | ~/.worktrees/steam-bot-autoren-je-held | fix/autoren-scan-je-held | fertig, gesettelt (0cd59bf, FERTIG-S3.md): 1 Helden-Block statt 13 Autoren-Tasks, 174 Offline und 36 DB-Tests |
 | Review S3 Runde 1 | 78a50c70 | opus48 | keiner (lesend) | keiner | fertig, gesettelt: NACHBESSERN (1 blockierend: GC-Fehler kippt alle Autoren; 1 wichtig: Block 2 überschreibt Status; 3 Nits) |
-| Fix S3 Runde 1 | b3253b8a | fixer (astra) | ~/.worktrees/steam-bot-autoren-je-held | fix/autoren-scan-je-held | läuft seit 2026-09-13 00:55, FIX-BRIEFING-S3.md |
+| Fix S3 Runde 1 | b3253b8a | astra | ~/.worktrees/steam-bot-autoren-je-held | fix/autoren-scan-je-held | fertig, gesettelt (ffc34fa): Heldenfehler isoliert, Abbruch nach 3 Fehlern, Zyklusstatus geschützt; 191 Offline, 40 DB-Tests |
+| Review S3 Runde 2 | 4a109199 | review_2_4 | keiner (lesend) | keiner | läuft seit 2026-09-13 01:05, REVIEW2-BRIEFING-S3.md |
 | S Steam-Bot Autoren-Scan | 231b6ae6 | luna | ~/.worktrees/steam-bot-autoren-scan | feat/autoren-scan-reaktivieren | fertig (f82c21c, FERTIG-S.md), gesettelt |
 | Review S Runde 1 | 8248611a | opus48 | keiner (lesend) | keiner | fertig, gesettelt: NACHBESSERN (5 Mängel, 2 wichtig) |
 | Fix S Runde 1 | 2884c49a | astra | ~/.worktrees/steam-bot-autoren-scan | feat/autoren-scan-reaktivieren | fertig (102ec83), gesettelt |

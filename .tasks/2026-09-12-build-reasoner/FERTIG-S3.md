@@ -39,8 +39,8 @@ Orchestrator nach dem Merge.
 ## Task-Zahl
 
 Vorher: 13 Discovery-Tasks je Zyklus für die 13 beobachteten Autoren.
-Nachher: `ceil(aktive Helden / 100)` Discovery-Tasks; beim live bekannten
-Bestand von 38 Helden also 1 Task statt 13. Maintenance-Tasks bleiben
+Nachher: `ceil(Heldenzahl / 100)` Discovery-Tasks für alle bekannten Helden;
+beim live bekannten Bestand von 38 Helden also 1 Task statt 13. Maintenance-Tasks bleiben
 unverändert.
 
 ## Tests und Selbstprüfung

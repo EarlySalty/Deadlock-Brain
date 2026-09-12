@@ -125,3 +125,83 @@ TESTNACHWEIS[TW-1]: 191 passed, 0 ignored | Baseline: 0 rot (offline)
 NACHBESSERN wegen Mangel 1 (blockierend, Abnahmebedingung verletzt und
 Produktionsrobustheit). Mangel 2 im selben Zug beheben, sonst kippt der
 Blockmechanismus, sobald er mehr als einen Block erzeugt. Nits nach Ermessen.
+
+## Fixrunde 1
+
+Abgeschlossen am 13.09.2026, alle fünf Mängel bearbeitet. Code-Commit
+`ffc34faa491d8e1f14ef54d33b5fe8f94f67f3f4` auf
+`fix/autoren-scan-je-held`, aufbauend auf `0cd59bf`, nach `origin`
+gepusht. Keine Unter-Threads. Das ursprüngliche Review-Urteil bleibt als
+Historie erhalten; die erneute unabhängige Abnahme liegt beim Orchestrator.
+
+Die Rust-Pfade unten sind relativ zu
+`rust/crates/steam-core/src/task/handlers/builds/` im beauftragten Worktree.
+
+| Mangel | Datei:Zeile | Änderung und Nachweis |
+| --- | --- | --- |
+| 1, blockierend | `discovery.rs:20`, `discovery.rs:337`, `discovery.rs:446` | Einzelne Timeouts und Response-Codes ungleich 1 werden erfasst, danach folgt der nächste Held. `MAX_CONSECUTIVE_HERO_FAILURES = 3` begrenzt aufeinanderfolgende Fehler; Erfolg setzt den Zähler zurück. Beim Abbruch erhalten alle Autoren `partial` mit exakt „Scan abgebrochen nach 3 Helden-Fehlern“, der Task schlägt sichtbar fehl. Scanfehler fließen nicht in Autorenfehler ein. Tests: `catalog.rs:1533`, `catalog.rs:1574`, `catalog.rs:1610`. Commit `ffc34fa`. |
+| 2, wichtig | `discovery.rs:77`, `discovery.rs:484`, `catalog.rs:105` | Ein Task für alle Helden, solange Heldenzahl × 3,6 s + 60 s unter 480 s liegt; sonst höchstens 100 Helden je Block. Alle Payloads tragen denselben DB-Zeitpunkt `cycle_started_at`, der letzte Block `is_last_block: true`. Frühere Blöcke schreiben nur Autoren mit Treffern beziehungsweise eigenen Persistenzfehlern. Der letzte Block setzt fehlende Treffer atomar nur bei `last_checked_at IS NULL` oder vor Zyklusstart auf `partial`. Bereits offene Discovery-Blöcke desselben Botkontos verhindern doppelte Planung trotz unterschiedlicher Zeitstempel. Tests: `catalog.rs:1249`, `catalog.rs:1276`, `catalog.rs:1637` sowie vorhandener Zyklus-Deduplizierungstest. Commit `ffc34fa`. |
+| 3, Nit | `discovery.rs:446`, `discovery.rs:477` | `error_count` wird unmittelbar aus der Anzahl eigener Fehlermeldungen abgeleitet; nur diese Meldungen werden angehängt. Blockfehler bleiben im Task-Ergebnis. Der Test für isolierte GC-Fehler prüft ausdrücklich „0 errors“ ohne angehängte GC-Meldung; der bestehende Persistenzfehlertest bleibt grün. Commit `ffc34fa`. |
+| 4, Nit | `discovery.rs:300`, `discovery.rs:337`, `discovery.rs:529` | `response_codes` ist eine sortierte Zählung je Response-Code statt einer Liste je Held. Commit `ffc34fa`. |
+| 5, Nit | `FERTIG-S3.md:42` | Wording auf „alle bekannten Helden“ korrigiert. Diese Dokumentationskorrektur und der vorliegende Anhang liegen im Brain-Taskordner, außerhalb des Steam-Code-Commits; kein Push auf Brain/main. |
+
+Bei 38 bekannten Helden bleibt es bei genau einem Discovery-Task
+(rechnerisch 196,8 s einschließlich Reserve). Auch 101 und 116 Helden
+passen jeweils in einen Task; 117 Helden ergeben zwei Blöcke mit 100 und
+17 Helden. Das bestehende Ausführungsbudget von 420 s zuzüglich Reserve
+bleibt erhalten. Leerer Heldenkatalog und Budgetablauf bleiben sichtbare
+Abbrüche mit `partial` statt pauschalen Autorenfehlern. Alte Payloads ohne
+Zyklusfelder bleiben verarbeitbar.
+
+### Tests, Rot-Gegenprobe und Selbstprüfung
+
+| Prüfung | Baseline `0cd59bf` | Endstand `ffc34fa` |
+| --- | --- | --- |
+| Offline-Tests `steam-core --features testing` | 191 bestanden, 0 logische Fehler | 191 bestanden, 0 fehlgeschlagen |
+| Katalogtests mit zentraler Test-DB | 36 bestanden, 0 fehlgeschlagen | 40 bestanden, 0 fehlgeschlagen |
+| Rot-Gegenprobe mit den neuen Erwartungen vor dem Codefix | 30 bestanden, 10 fehlgeschlagen | Alle 10 zuvor roten Fälle bestanden |
+
+Alle vier neuen Tests waren in der Rot-Gegenprobe einzeln rot:
+`discovery_aborts_after_three_consecutive_hero_failures`,
+`discovery_success_resets_consecutive_hero_failures`,
+`discovery_keeps_all_heroes_in_one_task_when_they_fit_the_budget` und
+`discovery_last_block_preserves_earlier_hits_and_finalizes_only_unchecked_authors`.
+Der Zweiblocktest prüft außerdem, dass ein früherer Treffer unverändert
+`ok` bleibt und ein Status mit Zeitstempel genau am Zyklusstart erhalten
+bleibt.
+
+Der ungefilterte Lauf ohne `CENTRAL_TEST_DSN` lieferte in der Baseline
+191 bestandene und 80 DB-Fehler, im Endstand 191 bestandene und 84 DB-Fehler.
+Sämtliche DB-Fehler waren „CENTRAL_TEST_DSN muss gesetzt sein“. Der
+anschließende Offline-Lauf mit genau diesen 84 DB-Tests per `--skip`
+ausgenommen war grün: 191 bestanden, 0 fehlgeschlagen, 84 gefiltert.
+
+Die DB-Läufe nutzten ausschließlich den wegwerfbaren Testcontainer mit
+Migrationen über `Deadlock-Bots/rust/scripts/central_test_db.sh` und den
+vorhandenen Docker-Shim. Befehl:
+
+```bash
+export PATH=/tmp/steam-scrim-dockershim:/home/nathanael/.cargo/bin:$PATH
+/home/nathanael/repos/Deadlock-Bots/rust/scripts/central_test_db.sh cargo test --manifest-path /home/nathanael/.worktrees/steam-bot-autoren-je-held/rust/Cargo.toml -p steam-core --features testing task::handlers::builds::catalog::tests
+```
+
+`cargo check -p steam-core --features testing`, `rustfmt --check` nur auf
+den beiden geänderten Dateien und `git diff --check` sind grün.
+`cargo clippy -p steam-core --all-targets --features testing -- -D warnings`
+meldet ausschließlich den bekannten Baseline-Hänger
+`gc_health.rs:45` (`RateLimitOutcome::cooldown`, `dead_code`), Exit 101.
+Keine neue Clippy-Diagnose.
+
+Prüflogs: `/tmp/steam-s3-fix1-baseline-db.log`,
+`/tmp/steam-s3-fix1-red-db.log`, `/tmp/steam-s3-fix1-final-db.log`,
+`/tmp/steam-s3-fix1-baseline-offline.log`,
+`/tmp/steam-s3-fix1-final-offline.log`,
+`/tmp/steam-s3-fix1-offline-filtered.log`,
+`/tmp/steam-s3-fix1-check.log` und
+`/tmp/steam-s3-fix1-final-clippy.log`.
+
+Selbstprüfung abgeschlossen: Codeänderungen ausschließlich in
+`discovery.rs` und `catalog.rs`, keine neuen Code-Kommentare, keine
+Änderungen an Lanes, Runner oder Proto und keine Schreibzugriffe auf
+Produktivdaten. Kein Merge oder Deployment; der Live-Nachweis bleibt wie
+beauftragt beim Orchestrator.
