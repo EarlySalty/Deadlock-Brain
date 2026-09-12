@@ -1,0 +1,4101 @@
+{
+  "warden": {
+    "build": {
+      "core": [
+        {
+          "item_id": 690458959,
+          "name": "Express Shot",
+          "tier": 3,
+          "buy_phase": "Lane"
+        },
+        {
+          "item_id": 2356412290,
+          "name": "Titanic Magazine",
+          "tier": 2,
+          "buy_phase": "Lane"
+        },
+        {
+          "item_id": 1932939246,
+          "name": "Alchemical Fire",
+          "tier": 3,
+          "buy_phase": "Lane"
+        },
+        {
+          "item_id": 343572757,
+          "name": "Spirit Burn",
+          "tier": 4,
+          "buy_phase": "Mid"
+        },
+        {
+          "item_id": 3577481646,
+          "name": "Mystic Reverb",
+          "tier": 4,
+          "buy_phase": "Mid"
+        },
+        {
+          "item_id": 1396247347,
+          "name": "Lucky Shot",
+          "tier": 4,
+          "buy_phase": "Mid"
+        },
+        {
+          "item_id": 3919289022,
+          "name": "Mercurial Magnum",
+          "tier": 4,
+          "buy_phase": "Mid"
+        },
+        {
+          "item_id": 1250307611,
+          "name": "Juggernaut",
+          "tier": 4,
+          "buy_phase": "Late"
+        },
+        {
+          "item_id": 339443430,
+          "name": "Frenzy",
+          "tier": 4,
+          "buy_phase": "Late"
+        },
+        {
+          "item_id": 2820116164,
+          "name": "Diviner's Kevlar",
+          "tier": 4,
+          "buy_phase": "Late"
+        },
+        {
+          "item_id": 2463960640,
+          "name": "Escalating Resilience",
+          "tier": 3,
+          "buy_phase": "Late"
+        }
+      ],
+      "situations": [
+        {
+          "label": "Can buy 1",
+          "kind": {
+            "CanBuyN": 1
+          },
+          "items": [
+            {
+              "item_id": 1414025773,
+              "name": "Counterspell",
+              "tier": 3
+            },
+            {
+              "item_id": 1055679805,
+              "name": "Vampiric Burst",
+              "tier": 4
+            },
+            {
+              "item_id": 3140772621,
+              "name": "Bullet Resilience",
+              "tier": 3
+            },
+            {
+              "item_id": 2163598980,
+              "name": "Spirit Resilience",
+              "tier": 3
+            },
+            {
+              "item_id": 1378931225,
+              "name": "Metal Skin",
+              "tier": 3
+            },
+            {
+              "item_id": 3731635960,
+              "name": "Dispel Magic",
+              "tier": 3
+            }
+          ]
+        },
+        {
+          "label": "Tryhard",
+          "kind": "Tryhard",
+          "items": [
+            {
+              "item_id": 1813726886,
+              "name": "Slowing Hex",
+              "tier": 2
+            }
+          ]
+        },
+        {
+          "label": "Shields",
+          "kind": "Shields",
+          "items": [
+            {
+              "item_id": 805079544,
+              "name": "Weapon Shielding",
+              "tier": 2
+            },
+            {
+              "item_id": 112198670,
+              "name": "Spirit Shielding",
+              "tier": 2
+            },
+            {
+              "item_id": 1644605047,
+              "name": "Reactive Barrier",
+              "tier": 2
+            }
+          ]
+        },
+        {
+          "label": "Optional",
+          "kind": "Optional",
+          "items": [
+            {
+              "item_id": 4050602737,
+              "name": "Mystic Conduit",
+              "tier": 5
+            },
+            {
+              "item_id": 2068250483,
+              "name": "Frostbite Charm",
+              "tier": 5
+            },
+            {
+              "item_id": 4204808176,
+              "name": "Rebuttal",
+              "tier": 1
+            },
+            {
+              "item_id": 1132564516,
+              "name": "Prism Blast",
+              "tier": 5
+            },
+            {
+              "item_id": 424779525,
+              "name": "Omnicharge Signet",
+              "tier": 5
+            },
+            {
+              "item_id": 1558545403,
+              "name": "Unstable Concoction",
+              "tier": 5
+            },
+            {
+              "item_id": 3884003354,
+              "name": "Crippling Headshot",
+              "tier": 4
+            },
+            {
+              "item_id": 2480592370,
+              "name": "Ricochet",
+              "tier": 4
+            },
+            {
+              "item_id": 2519598785,
+              "name": "Boundless Spirit",
+              "tier": 4
+            },
+            {
+              "item_id": 1427630806,
+              "name": "Healing Tempo",
+              "tier": 4
+            },
+            {
+              "item_id": 3361811174,
+              "name": "Cheat Death",
+              "tier": 4
+            },
+            {
+              "item_id": 365620721,
+              "name": "Glass Cannon",
+              "tier": 4
+            }
+          ]
+        }
+      ]
+    },
+    "comparisons": [
+      {
+        "core": [
+          {
+            "item_id": 343572757,
+            "name": "Spirit Burn",
+            "tier": 4
+          },
+          {
+            "item_id": 1250307611,
+            "name": "Juggernaut",
+            "tier": 4
+          },
+          {
+            "item_id": 690458959,
+            "name": "Express Shot",
+            "tier": 3
+          },
+          {
+            "item_id": 339443430,
+            "name": "Frenzy",
+            "tier": 4
+          },
+          {
+            "item_id": 4050602737,
+            "name": "Mystic Conduit",
+            "tier": 5
+          },
+          {
+            "item_id": 2068250483,
+            "name": "Frostbite Charm",
+            "tier": 5
+          },
+          {
+            "item_id": 3577481646,
+            "name": "Mystic Reverb",
+            "tier": 4
+          },
+          {
+            "item_id": 4204808176,
+            "name": "Rebuttal",
+            "tier": 1
+          },
+          {
+            "item_id": 1396247347,
+            "name": "Lucky Shot",
+            "tier": 4
+          },
+          {
+            "item_id": 3919289022,
+            "name": "Mercurial Magnum",
+            "tier": 4
+          },
+          {
+            "item_id": 1132564516,
+            "name": "Prism Blast",
+            "tier": 5
+          },
+          {
+            "item_id": 2820116164,
+            "name": "Diviner's Kevlar",
+            "tier": 4
+          },
+          {
+            "item_id": 424779525,
+            "name": "Omnicharge Signet",
+            "tier": 5
+          },
+          {
+            "item_id": 2356412290,
+            "name": "Titanic Magazine",
+            "tier": 2
+          },
+          {
+            "item_id": 1558545403,
+            "name": "Unstable Concoction",
+            "tier": 5
+          },
+          {
+            "item_id": 2463960640,
+            "name": "Escalating Resilience",
+            "tier": 3
+          },
+          {
+            "item_id": 2519598785,
+            "name": "Boundless Spirit",
+            "tier": 4
+          },
+          {
+            "item_id": 1427630806,
+            "name": "Healing Tempo",
+            "tier": 4
+          },
+          {
+            "item_id": 3361811174,
+            "name": "Cheat Death",
+            "tier": 4
+          }
+        ],
+        "reference_core": {
+          "core_coverage": 0.21052631578947367,
+          "core_jaccard": 0.11764705882352941,
+          "order_proximity": 0.3620801033591731,
+          "reference_recall": 0.21052631578947367,
+          "switch_detected": null
+        },
+        "reference_loader": {
+          "core_coverage": 0.21052631578947367,
+          "core_jaccard": 0.09302325581395349,
+          "order_proximity": 0.3620801033591731,
+          "reference_recall": 0.14285714285714285,
+          "switch_detected": null
+        },
+        "seed": {
+          "core_coverage": 0.21052631578947367,
+          "core_jaccard": 0.11764705882352941,
+          "order_proximity": 0.15032051282051279,
+          "reference_recall": 0.21052631578947367,
+          "switch_detected": null
+        },
+        "stage": "E"
+      },
+      {
+        "core": [
+          {
+            "item_id": 690458959,
+            "name": "Express Shot",
+            "tier": 3
+          },
+          {
+            "item_id": 2356412290,
+            "name": "Titanic Magazine",
+            "tier": 2
+          },
+          {
+            "item_id": 343572757,
+            "name": "Spirit Burn",
+            "tier": 4
+          },
+          {
+            "item_id": 3577481646,
+            "name": "Mystic Reverb",
+            "tier": 4
+          },
+          {
+            "item_id": 3919289022,
+            "name": "Mercurial Magnum",
+            "tier": 4
+          },
+          {
+            "item_id": 1250307611,
+            "name": "Juggernaut",
+            "tier": 4
+          },
+          {
+            "item_id": 339443430,
+            "name": "Frenzy",
+            "tier": 4
+          },
+          {
+            "item_id": 2463960640,
+            "name": "Escalating Resilience",
+            "tier": 3
+          }
+        ],
+        "reference_core": {
+          "core_coverage": 0.375,
+          "core_jaccard": 0.125,
+          "order_proximity": 0.21757933325695955,
+          "reference_recall": 0.15789473684210525,
+          "switch_detected": null
+        },
+        "reference_loader": {
+          "core_coverage": 0.375,
+          "core_jaccard": 0.09090909090909091,
+          "order_proximity": 0.21757933325695955,
+          "reference_recall": 0.10714285714285714,
+          "switch_detected": null
+        },
+        "seed": {
+          "core_coverage": 0.375,
+          "core_jaccard": 0.125,
+          "order_proximity": 0.18501326259946946,
+          "reference_recall": 0.15789473684210525,
+          "switch_detected": null
+        },
+        "stage": "F vor Fix"
+      },
+      {
+        "core": [
+          {
+            "item_id": 690458959,
+            "name": "Express Shot",
+            "tier": 3
+          },
+          {
+            "item_id": 2356412290,
+            "name": "Titanic Magazine",
+            "tier": 2
+          },
+          {
+            "item_id": 1932939246,
+            "name": "Alchemical Fire",
+            "tier": 3
+          },
+          {
+            "item_id": 343572757,
+            "name": "Spirit Burn",
+            "tier": 4
+          },
+          {
+            "item_id": 3577481646,
+            "name": "Mystic Reverb",
+            "tier": 4
+          },
+          {
+            "item_id": 1396247347,
+            "name": "Lucky Shot",
+            "tier": 4
+          },
+          {
+            "item_id": 3919289022,
+            "name": "Mercurial Magnum",
+            "tier": 4
+          },
+          {
+            "item_id": 1250307611,
+            "name": "Juggernaut",
+            "tier": 4
+          },
+          {
+            "item_id": 339443430,
+            "name": "Frenzy",
+            "tier": 4
+          },
+          {
+            "item_id": 2820116164,
+            "name": "Diviner's Kevlar",
+            "tier": 4
+          },
+          {
+            "item_id": 2463960640,
+            "name": "Escalating Resilience",
+            "tier": 3
+          }
+        ],
+        "reference_core": {
+          "core_coverage": 0.2727272727272727,
+          "core_jaccard": 0.1111111111111111,
+          "order_proximity": 0.23774916943521598,
+          "reference_recall": 0.15789473684210525,
+          "switch_detected": null
+        },
+        "reference_loader": {
+          "core_coverage": 0.2727272727272727,
+          "core_jaccard": 0.08333333333333333,
+          "order_proximity": 0.23774916943521598,
+          "reference_recall": 0.10714285714285714,
+          "switch_detected": null
+        },
+        "seed": {
+          "core_coverage": 0.2727272727272727,
+          "core_jaccard": 0.1111111111111111,
+          "order_proximity": 0.14197716346153846,
+          "reference_recall": 0.15789473684210525,
+          "switch_detected": null
+        },
+        "stage": "F Fixrunde 1"
+      }
+    ],
+    "items": [
+      {
+        "disabled": false,
+        "id": 343572757,
+        "name": "Spirit Burn",
+        "per_soul": 0.015298491866916569,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 4,
+        "total": 105.30445888757006
+      },
+      {
+        "disabled": false,
+        "id": 1250307611,
+        "name": "Juggernaut",
+        "per_soul": 0.011162320203221837,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 4,
+        "total": 73.95134930061975
+      },
+      {
+        "disabled": false,
+        "id": 690458959,
+        "name": "Express Shot",
+        "per_soul": 0.021137849931161082,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 3,
+        "total": 72.66675140769853
+      },
+      {
+        "disabled": false,
+        "id": 339443430,
+        "name": "Frenzy",
+        "per_soul": 0.009139685248956168,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 4,
+        "total": 65.95135791351879
+      },
+      {
+        "disabled": false,
+        "id": 4050602737,
+        "name": "Mystic Conduit",
+        "per_soul": 0.005673859564033079,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 5,
+        "total": 65.32160241237578
+      },
+      {
+        "disabled": false,
+        "id": 2068250483,
+        "name": "Frostbite Charm",
+        "per_soul": 0.005120868110340446,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 5,
+        "total": 59.86961608911615
+      },
+      {
+        "disabled": false,
+        "id": 3577481646,
+        "name": "Mystic Reverb",
+        "per_soul": 0.00762639078835986,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 4,
+        "total": 55.85670354393554
+      },
+      {
+        "disabled": false,
+        "id": 4204808176,
+        "name": "Rebuttal",
+        "per_soul": 0.06643626251340945,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 1,
+        "total": 55.057760010727556
+      },
+      {
+        "disabled": false,
+        "id": 1396247347,
+        "name": "Lucky Shot",
+        "per_soul": 0.007142926164800311,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 4,
+        "total": 53.1720997749213
+      },
+      {
+        "disabled": false,
+        "id": 3919289022,
+        "name": "Mercurial Magnum",
+        "per_soul": 0.006919397036601196,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 4,
+        "total": 51.82077685959113
+      },
+      {
+        "disabled": false,
+        "id": 1132564516,
+        "name": "Prism Blast",
+        "per_soul": 0.004050405040504051,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 5,
+        "total": 49.16605585382203
+      },
+      {
+        "disabled": false,
+        "id": 2820116164,
+        "name": "Diviner's Kevlar",
+        "per_soul": 0.007282104812558532,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 4,
+        "total": 49.11797080037461
+      },
+      {
+        "disabled": false,
+        "id": 424779525,
+        "name": "Omnicharge Signet",
+        "per_soul": 0.003975422052009123,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 5,
+        "total": 48.416300951861245
+      },
+      {
+        "disabled": false,
+        "id": 2356412290,
+        "name": "Titanic Magazine",
+        "per_soul": 0.027539598767455584,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 2,
+        "total": 47.65552350357307
+      },
+      {
+        "disabled": false,
+        "id": 1558545403,
+        "name": "Unstable Concoction",
+        "per_soul": 0.003421884327413382,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 5,
+        "total": 42.841613380231884
+      },
+      {
+        "disabled": false,
+        "id": 2463960640,
+        "name": "Escalating Resilience",
+        "per_soul": 0.010224535364269816,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 3,
+        "total": 38.24328206358513
+      },
+      {
+        "disabled": false,
+        "id": 3884003354,
+        "name": "Crippling Headshot",
+        "per_soul": 0.00462735884517346,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 4,
+        "total": 37.07246892930945
+      },
+      {
+        "disabled": false,
+        "id": 2480592370,
+        "name": "Ricochet",
+        "per_soul": 0.004588098051323625,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 4,
+        "total": 36.8211998486705
+      },
+      {
+        "disabled": false,
+        "id": 2519598785,
+        "name": "Boundless Spirit",
+        "per_soul": 0.0045758656090859945,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 4,
+        "total": 36.78113084227859
+      },
+      {
+        "disabled": false,
+        "id": 1427630806,
+        "name": "Healing Tempo",
+        "per_soul": 0.005304411656281689,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 4,
+        "total": 36.46073460020281
+      },
+      {
+        "disabled": false,
+        "id": 3361811174,
+        "name": "Cheat Death",
+        "per_soul": 0.005226220354192618,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 4,
+        "total": 35.77891525846689
+      },
+      {
+        "disabled": false,
+        "id": 365620721,
+        "name": "Glass Cannon",
+        "per_soul": 0.0044227194931939625,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 4,
+        "total": 35.76277707664067
+      },
+      {
+        "disabled": false,
+        "id": 865846625,
+        "name": "Leech",
+        "per_soul": 0.0049427395437741635,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 4,
+        "total": 34.14603308015465
+      },
+      {
+        "disabled": false,
+        "id": 2226497419,
+        "name": "Spiritual Overflow",
+        "per_soul": 0.003971162799866673,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 4,
+        "total": 32.87281423934601
+      },
+      {
+        "disabled": false,
+        "id": 1736094134,
+        "name": "Seraphim Wings",
+        "per_soul": 0.0030385391480324507,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 5,
+        "total": 32.596102941176476
+      },
+      {
+        "disabled": false,
+        "id": 1955841979,
+        "name": "Spellbreaker",
+        "per_soul": 0.004500004205517109,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 4,
+        "total": 31.312526915309494
+      },
+      {
+        "disabled": false,
+        "id": 1932939246,
+        "name": "Alchemical Fire",
+        "per_soul": 0.00807946738682848,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 3,
+        "total": 30.981767756631754
+      },
+      {
+        "disabled": false,
+        "id": 2566692615,
+        "name": "Healing Booster",
+        "per_soul": 0.017515625,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 2,
+        "total": 30.134999999999998
+      },
+      {
+        "disabled": false,
+        "id": 1282141666,
+        "name": "Siphon Bullets",
+        "per_soul": 0.004083934228622328,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 4,
+        "total": 28.649679063182898
+      },
+      {
+        "disabled": false,
+        "id": 1825399334,
+        "name": "Electric Slippers",
+        "per_soul": 0.0025693810448375854,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 5,
+        "total": 27.904991067331018
+      },
+      {
+        "disabled": false,
+        "id": 381961617,
+        "name": "Active Reload",
+        "per_soul": 0.015359332926754808,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 2,
+        "total": 27.88353732000602
+      },
+      {
+        "disabled": false,
+        "id": 3791587546,
+        "name": "Weighted Shots",
+        "per_soul": 0.006843273636053815,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 3,
+        "total": 27.42324453329393
+      },
+      {
+        "disabled": false,
+        "id": 1292979587,
+        "name": "Surge of Power",
+        "per_soul": 0.0066087850915724725,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 3,
+        "total": 27.068241328950148
+      },
+      {
+        "disabled": false,
+        "id": 2603935618,
+        "name": "Healbane",
+        "per_soul": 0.01547371764746118,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 2,
+        "total": 26.867948235937888
+      },
+      {
+        "disabled": false,
+        "id": 2678489038,
+        "name": "Hollow Point",
+        "per_soul": 0.006326727763016798,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 3,
+        "total": 25.51724401584148
+      },
+      {
+        "disabled": false,
+        "id": 805079544,
+        "name": "Weapon Shielding",
+        "per_soul": 0.014567107700124567,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 2,
+        "total": 25.417372320199306
+      },
+      {
+        "disabled": false,
+        "id": 84321454,
+        "name": "Quicksilver Reload",
+        "per_soul": 0.01279461697625968,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 2,
+        "total": 24.76683539795338
+      },
+      {
+        "disabled": false,
+        "id": 915014646,
+        "name": "Transcendent Cooldown",
+        "per_soul": 0.002603017769607843,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 4,
+        "total": 24.20297511962815
+      },
+      {
+        "disabled": false,
+        "id": 951866250,
+        "name": "Indomitable",
+        "per_soul": 0.003372780481226451,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 4,
+        "total": 24.098295079849287
+      },
+      {
+        "disabled": false,
+        "id": 3491236900,
+        "name": "Plated Armor",
+        "per_soul": 0.003326899961963373,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 4,
+        "total": 23.804659756565588
+      },
+      {
+        "disabled": false,
+        "id": 709540378,
+        "name": "Cultist Sacrifice",
+        "per_soul": 0.005659191515999256,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 3,
+        "total": 23.634181749119342
+      },
+      {
+        "disabled": false,
+        "id": 3269957497,
+        "name": "Infinite Rounds",
+        "per_soul": 0.0013529576913634458,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 5,
+        "total": 22.418314729094828
+      },
+      {
+        "disabled": false,
+        "id": 112198670,
+        "name": "Spirit Shielding",
+        "per_soul": 0.012668658088235293,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 2,
+        "total": 22.37985294117647
+      },
+      {
+        "disabled": false,
+        "id": 1009965641,
+        "name": "Monster Rounds",
+        "per_soul": 0.02540754277846981,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 1,
+        "total": 22.372116960597918
+      },
+      {
+        "disabled": false,
+        "id": 3190916303,
+        "name": "Spirit Snatch",
+        "per_soul": 0.005083851041666667,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 3,
+        "total": 21.68931509931292
+      },
+      {
+        "disabled": false,
+        "id": 1925087134,
+        "name": "Suppressor",
+        "per_soul": 0.010730234724581652,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 2,
+        "total": 21.39890260987903
+      },
+      {
+        "disabled": false,
+        "id": 787198704,
+        "name": "Rapid Recharge",
+        "per_soul": 0.0047472426470588245,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 3,
+        "total": 20.611305506506472
+      },
+      {
+        "disabled": false,
+        "id": 1414025773,
+        "name": "Counterspell",
+        "per_soul": 0.005694848122619116,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 3,
+        "total": 20.534763992381173
+      },
+      {
+        "disabled": false,
+        "id": 3028234315,
+        "name": "Witchmail",
+        "per_soul": 0.002783551956630047,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 4,
+        "total": 20.3272325224323
+      },
+      {
+        "disabled": false,
+        "id": 1047818222,
+        "name": "Debuff Reducer",
+        "per_soul": 0.011401671233833139,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 2,
+        "total": 20.315723608285595
+      },
+      {
+        "disabled": false,
+        "id": 493591231,
+        "name": "Lightning Scroll",
+        "per_soul": 0.0019807005480599765,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 4,
+        "total": 20.220144901721802
+      },
+      {
+        "disabled": false,
+        "id": 395944548,
+        "name": "Torment Pulse",
+        "per_soul": 0.00457491414417993,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 3,
+        "total": 20.17485127628639
+      },
+      {
+        "disabled": false,
+        "id": 2447176615,
+        "name": "Enduring Speed",
+        "per_soul": 0.011245421233833139,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 2,
+        "total": 20.102673974133022
+      },
+      {
+        "disabled": false,
+        "id": 3568217437,
+        "name": "Haunting Shot",
+        "per_soul": 0.0010958464686704552,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 5,
+        "total": 19.847344582712772
+      },
+      {
+        "disabled": false,
+        "id": 1055679805,
+        "name": "Vampiric Burst",
+        "per_soul": 0.0027060094570588865,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 4,
+        "total": 19.830960525176874
+      },
+      {
+        "disabled": false,
+        "id": 1763073141,
+        "name": "Recharging Rush",
+        "per_soul": 0.010426950333540942,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 2,
+        "total": 19.775286009309646
+      },
+      {
+        "disabled": false,
+        "id": 3977876567,
+        "name": "Kinetic Dash",
+        "per_soul": 0.00938773532014917,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 2,
+        "total": 18.61254198788281
+      },
+      {
+        "disabled": false,
+        "id": 3140772621,
+        "name": "Bullet Resilience",
+        "per_soul": 0.004961750536533847,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 3,
+        "total": 18.18885171690831
+      },
+      {
+        "disabled": false,
+        "id": 1150006784,
+        "name": "Arcane Surge",
+        "per_soul": 0.008666082299159801,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 2,
+        "total": 18.14350242559908
+      },
+      {
+        "disabled": false,
+        "id": 2163598980,
+        "name": "Spirit Resilience",
+        "per_soul": 0.004888556985294118,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 3,
+        "total": 17.95463235294118
+      },
+      {
+        "disabled": false,
+        "id": 2095565695,
+        "name": "Point Blank",
+        "per_soul": 0.003982577976999692,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 3,
+        "total": 17.910676417013917
+      },
+      {
+        "disabled": false,
+        "id": 3949773228,
+        "name": "Nullification Burst",
+        "per_soul": 0.0015299749336616431,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 5,
+        "total": 17.51196936168277
+      },
+      {
+        "disabled": false,
+        "id": 7409189,
+        "name": "Improved Spirit",
+        "per_soul": 0.008201265714159071,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 2,
+        "total": 17.401515355686897
+      },
+      {
+        "disabled": false,
+        "id": 1548066885,
+        "name": "Extended Magazine",
+        "per_soul": 0.018359732511637056,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 1,
+        "total": 16.733868747131712
+      },
+      {
+        "disabled": false,
+        "id": 2064029594,
+        "name": "Opening Rounds",
+        "per_soul": 0.007546051194026021,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 2,
+        "total": 15.665847386085769
+      },
+      {
+        "disabled": false,
+        "id": 98582110,
+        "name": "Stalker",
+        "per_soul": 0.0077772077142188424,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 2,
+        "total": 15.536733094467902
+      },
+      {
+        "disabled": false,
+        "id": 800008313,
+        "name": "Crushing Fists",
+        "per_soul": 0.0013055333889234904,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 4,
+        "total": 15.413648739370993
+      },
+      {
+        "disabled": false,
+        "id": 1409190604,
+        "name": "Fury Trance",
+        "per_soul": 0.004093096765606005,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 3,
+        "total": 15.348405138932359
+      },
+      {
+        "disabled": false,
+        "id": 1235347618,
+        "name": "Battle Vest",
+        "per_soul": 0.00821756088966105,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 2,
+        "total": 15.25809742345768
+      },
+      {
+        "disabled": false,
+        "id": 2739107182,
+        "name": "Burst Fire",
+        "per_soul": 0.003069021524608354,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 3,
+        "total": 15.187830888453465
+      },
+      {
+        "disabled": false,
+        "id": 2108215830,
+        "name": "Heroic Aura",
+        "per_soul": 0.003052634951097549,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 3,
+        "total": 15.133553347766485
+      },
+      {
+        "disabled": false,
+        "id": 3005970438,
+        "name": "Escalating Exposure",
+        "per_soul": 0.0011731606705182073,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 4,
+        "total": 15.05188968545448
+      },
+      {
+        "disabled": false,
+        "id": 499683006,
+        "name": "Bullet Lifesteal",
+        "per_soul": 0.00805332160830142,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 2,
+        "total": 14.995314573282272
+      },
+      {
+        "disabled": false,
+        "id": 3261353684,
+        "name": "Superior Cooldown",
+        "per_soul": 0.002832414215686274,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 3,
+        "total": 14.983854526114314
+      },
+      {
+        "disabled": false,
+        "id": 865958998,
+        "name": "Veil Walker",
+        "per_soul": 0.003959415323724449,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 3,
+        "total": 14.981379035918236
+      },
+      {
+        "disabled": false,
+        "id": 2417568017,
+        "name": "Scourge",
+        "per_soul": 0.0011555564803436863,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 4,
+        "total": 14.939222868337547
+      },
+      {
+        "disabled": false,
+        "id": 3361075077,
+        "name": "Return Fire",
+        "per_soul": 0.007945141698476337,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 2,
+        "total": 14.822226717562138
+      },
+      {
+        "disabled": false,
+        "id": 3523480953,
+        "name": "Cloak of Opportunity",
+        "per_soul": 0.0012501250125012502,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 5,
+        "total": 14.713750000000001
+      },
+      {
+        "disabled": false,
+        "id": 2481177645,
+        "name": "Hunter's Aura",
+        "per_soul": 0.00301516144924419,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 3,
+        "total": 14.691291340635395
+      },
+      {
+        "disabled": false,
+        "id": 1342610602,
+        "name": "Close Quarters",
+        "per_soul": 0.015992673974133023,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 1,
+        "total": 14.680981511509819
+      },
+      {
+        "disabled": false,
+        "id": 2407781327,
+        "name": "Colossus",
+        "per_soul": 0.0018917865541215435,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 4,
+        "total": 14.619933946377877
+      },
+      {
+        "disabled": false,
+        "id": 3144988365,
+        "name": "Decay",
+        "per_soul": 0.00277191528785511,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 3,
+        "total": 14.505590570474501
+      },
+      {
+        "disabled": false,
+        "id": 3696726732,
+        "name": "Toxic Bullets",
+        "per_soul": 0.0027355375681005554,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 3,
+        "total": 14.278489115843499
+      },
+      {
+        "disabled": false,
+        "id": 3585132399,
+        "name": "Fortitude",
+        "per_soul": 0.00364140625,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 3,
+        "total": 13.96375
+      },
+      {
+        "disabled": false,
+        "id": 64550694,
+        "name": "Runed Gauntlets",
+        "per_soul": 0.0005064231913387417,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 5,
+        "total": 13.95370123267297
+      },
+      {
+        "disabled": false,
+        "id": 2947183272,
+        "name": "Radiant Regeneration",
+        "per_soul": 0.0025,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 3,
+        "total": 13.920129035918237
+      },
+      {
+        "disabled": false,
+        "id": 3970837787,
+        "name": "Enchanter's Emblem",
+        "per_soul": 0.0073039927438908825,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 2,
+        "total": 13.796388390225411
+      },
+      {
+        "disabled": false,
+        "id": 4075861416,
+        "name": "Spirit Rend",
+        "per_soul": 0.0026182621590111494,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 3,
+        "total": 13.616655672515952
+      },
+      {
+        "disabled": false,
+        "id": 3403085434,
+        "name": "Fleetfoot",
+        "per_soul": 0.005903618471109189,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 2,
+        "total": 13.037955029418839
+      },
+      {
+        "disabled": false,
+        "id": 1102081447,
+        "name": "Mystic Slow",
+        "per_soul": 0.005579052192239906,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 2,
+        "total": 12.97858208073415
+      },
+      {
+        "disabled": false,
+        "id": 1798666702,
+        "name": "Shadow Weave",
+        "per_soul": 0.0024617039372072705,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 3,
+        "total": 12.903716895757992
+      },
+      {
+        "disabled": false,
+        "id": 2121044373,
+        "name": "Tankbuster",
+        "per_soul": 0.0020546875,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 3,
+        "total": 12.43058974851852
+      },
+      {
+        "disabled": false,
+        "id": 393974127,
+        "name": "Slowing Bullets",
+        "per_soul": 0.005321225403004506,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 2,
+        "total": 12.106126120451346
+      },
+      {
+        "disabled": false,
+        "id": 1414319208,
+        "name": "Berserker",
+        "per_soul": 0.0019038017111387925,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 3,
+        "total": 11.616934373565858
+      },
+      {
+        "disabled": false,
+        "id": 2800629741,
+        "name": "Magic Carpet",
+        "per_soul": 0.0006275147732583264,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 4,
+        "total": 11.467814507716493
+      },
+      {
+        "disabled": false,
+        "id": 2407033488,
+        "name": "Intensifying Magazine",
+        "per_soul": 0.004831508555693962,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 2,
+        "total": 11.322579164754476
+      },
+      {
+        "disabled": false,
+        "id": 4104549924,
+        "name": "Swift Striker",
+        "per_soul": 0.004831508555693962,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 2,
+        "total": 11.322579164754476
+      },
+      {
+        "disabled": false,
+        "id": 1644605047,
+        "name": "Reactive Barrier",
+        "per_soul": 0.005703125,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 2,
+        "total": 11.235
+      },
+      {
+        "disabled": false,
+        "id": 2971868509,
+        "name": "Bullet Resist Shredder",
+        "per_soul": 0.004092028699477805,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 2,
+        "total": 10.842694155102379
+      },
+      {
+        "disabled": false,
+        "id": 1252627263,
+        "name": "Lifestrike",
+        "per_soul": 0.0026679687499999998,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 3,
+        "total": 10.349267638036808
+      },
+      {
+        "disabled": false,
+        "id": 4053935515,
+        "name": "Headhunter",
+        "per_soul": 0.001439172870429477,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 3,
+        "total": 10.130122083296047
+      },
+      {
+        "disabled": false,
+        "id": 1152158042,
+        "name": "Vortex Web",
+        "per_soul": 0.00038077795176507203,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 4,
+        "total": 9.728146348133158
+      },
+      {
+        "disabled": false,
+        "id": 876563814,
+        "name": "Spirit Lifesteal",
+        "per_soul": 0.004639219872392494,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 2,
+        "total": 9.53275179582799
+      },
+      {
+        "disabled": false,
+        "id": 1770441818,
+        "name": "Weakening Headshot",
+        "per_soul": 0.0037076321574865765,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 2,
+        "total": 9.47807370502932
+      },
+      {
+        "disabled": false,
+        "id": 673001892,
+        "name": "Armor Piercing Rounds",
+        "per_soul": 0.0002922877642484147,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 4,
+        "total": 9.32801401138916
+      },
+      {
+        "disabled": false,
+        "id": 2221211450,
+        "name": "Spellslinger",
+        "per_soul": 0.0002581956339069588,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 4,
+        "total": 9.109824377203841
+      },
+      {
+        "disabled": false,
+        "id": 2152872419,
+        "name": "Sharpshooter",
+        "per_soul": 0.0012078771389234905,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 3,
+        "total": 9.016337384651237
+      },
+      {
+        "disabled": false,
+        "id": 2717651715,
+        "name": "Superior Duration",
+        "per_soul": 0.0009663017111387925,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 3,
+        "total": 9.012294511562372
+      },
+      {
+        "disabled": false,
+        "id": 380806748,
+        "name": "Compress Cooldown",
+        "per_soul": 0.002848345588235294,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 2,
+        "total": 8.852801177114362
+      },
+      {
+        "disabled": false,
+        "id": 1113837674,
+        "name": "Silencer",
+        "per_soul": 0.00018953374949162878,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 4,
+        "total": 8.67038831694573
+      },
+      {
+        "disabled": false,
+        "id": 2054088113,
+        "name": "Mystical Piano",
+        "per_soul": 0.0,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 5,
+        "total": 8.666055853822032
+      },
+      {
+        "disabled": false,
+        "id": 4121584236,
+        "name": "Shrink Ray",
+        "per_soul": 0.0,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 5,
+        "total": 8.666055853822032
+      },
+      {
+        "disabled": false,
+        "id": 2142980412,
+        "name": "Focus Lens",
+        "per_soul": 0.00022558863433037277,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 4,
+        "total": 8.504085980421475
+      },
+      {
+        "disabled": false,
+        "id": 1193964439,
+        "name": "Greater Expansion",
+        "per_soul": 0.0007912071078431373,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 3,
+        "total": 8.451991781016275
+      },
+      {
+        "disabled": false,
+        "id": 2533252781,
+        "name": "Ethereal Shift",
+        "per_soul": 0.00012830385532591415,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 4,
+        "total": 8.364806068223803
+      },
+      {
+        "disabled": false,
+        "id": 710436191,
+        "name": "Capacitor",
+        "per_soul": 0.00016796875,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 4,
+        "total": 8.13524808707047
+      },
+      {
+        "disabled": false,
+        "id": 968099481,
+        "name": "Extra Spirit",
+        "per_soul": 0.006775161294897795,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 1,
+        "total": 8.084585463608772
+      },
+      {
+        "disabled": false,
+        "id": 2081037738,
+        "name": "Mystic Vulnerability",
+        "per_soul": 0.00253186274509804,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 2,
+        "total": 7.9863533196229834
+      },
+      {
+        "disabled": false,
+        "id": 2922054143,
+        "name": "Rusted Barrel",
+        "per_soul": 0.006625323194617454,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 1,
+        "total": 7.8974037501156
+      },
+      {
+        "disabled": false,
+        "id": 1439347412,
+        "name": "Mystic Regeneration",
+        "per_soul": 0.0065625,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 1,
+        "total": 7.657568822655662
+      },
+      {
+        "disabled": false,
+        "id": 2061878743,
+        "name": "Disarming Hex",
+        "per_soul": 0.0005727347229720178,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 3,
+        "total": 7.592022375973658
+      },
+      {
+        "disabled": false,
+        "id": 677738769,
+        "name": "Refresher",
+        "per_soul": 0.0,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 4,
+        "total": 7.543661394137954
+      },
+      {
+        "disabled": false,
+        "id": 630839635,
+        "name": "Echo Shard",
+        "per_soul": 0.0,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 4,
+        "total": 7.260584597468365
+      },
+      {
+        "disabled": false,
+        "id": 3812615317,
+        "name": "Arctic Blast",
+        "per_soul": 0.0,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 4,
+        "total": 7.1601661049179715
+      },
+      {
+        "disabled": false,
+        "id": 3633614685,
+        "name": "Extra Health",
+        "per_soul": 0.0065625,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 1,
+        "total": 7.1587499999999995
+      },
+      {
+        "disabled": false,
+        "id": 334300056,
+        "name": "Stamina Mastery",
+        "per_soul": 0.001424172794117647,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 3,
+        "total": 6.801970357672722
+      },
+      {
+        "disabled": false,
+        "id": 1813726886,
+        "name": "Slowing Hex",
+        "per_soul": 0.0015548433030407106,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 2,
+        "total": 6.783197520803029
+      },
+      {
+        "disabled": false,
+        "id": 2617435668,
+        "name": "Cursed Relic",
+        "per_soul": -0.0001476596318634441,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 4,
+        "total": 6.598639750211912
+      },
+      {
+        "disabled": false,
+        "id": 619484391,
+        "name": "Silence Wave",
+        "per_soul": 0.00023929884453781515,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 3,
+        "total": 6.405031891555163
+      },
+      {
+        "disabled": false,
+        "id": 395867183,
+        "name": "Mystic Shot",
+        "per_soul": 0.0018131640812777774,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 2,
+        "total": 6.194665889124163
+      },
+      {
+        "disabled": false,
+        "id": 811521119,
+        "name": "Tesla Bullets",
+        "per_soul": 0.0002578125,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 3,
+        "total": 5.960402844751987
+      },
+      {
+        "disabled": false,
+        "id": 1378931225,
+        "name": "Metal Skin",
+        "per_soul": 0.0011349210542169678,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 3,
+        "total": 5.942997373494297
+      },
+      {
+        "disabled": false,
+        "id": 2829638276,
+        "name": "Extra Regen",
+        "per_soul": 0.005,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 1,
+        "total": 5.9087499999999995
+      },
+      {
+        "disabled": false,
+        "id": 1254091416,
+        "name": "Knockdown",
+        "per_soul": 0.0,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 3,
+        "total": 5.865046217582328
+      },
+      {
+        "disabled": false,
+        "id": 668299740,
+        "name": "Rapid Rounds",
+        "per_soul": 0.004348357700124566,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 1,
+        "total": 5.524768897921721
+      },
+      {
+        "disabled": false,
+        "id": 1998374645,
+        "name": "Mystic Burst",
+        "per_soul": 0.00375,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 1,
+        "total": 5.402941265400537
+      },
+      {
+        "disabled": false,
+        "id": 1144549437,
+        "name": "Spirit Shredder Bullets",
+        "per_soul": 0.00126593137254902,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 2,
+        "total": 5.333692314060908
+      },
+      {
+        "disabled": false,
+        "id": 3294954488,
+        "name": "Ballistic Enchantment",
+        "per_soul": 0.0,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 3,
+        "total": 5.265382532101873
+      },
+      {
+        "disabled": false,
+        "id": 3077079169,
+        "name": "High-Velocity Rounds",
+        "per_soul": 0.00386520684455517,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 1,
+        "total": 5.138248213466204
+      },
+      {
+        "disabled": false,
+        "id": 4139877411,
+        "name": "Extra Stamina",
+        "per_soul": 0.0037977941176470594,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 1,
+        "total": 4.946985294117647
+      },
+      {
+        "disabled": false,
+        "id": 1797283378,
+        "name": "Infuser",
+        "per_soul": 0.0003720432384712615,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 4,
+        "total": 4.812266763417483
+      },
+      {
+        "disabled": false,
+        "id": 465043967,
+        "name": "Spirit Strike",
+        "per_soul": 0.0031488970588235293,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 1,
+        "total": 4.689416151424989
+      },
+      {
+        "disabled": false,
+        "id": 1976391348,
+        "name": "Cold Front",
+        "per_soul": 0.0003919117647058824,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 2,
+        "total": 4.536009399407527
+      },
+      {
+        "disabled": false,
+        "id": 2951612397,
+        "name": "Duration Extender",
+        "per_soul": 0.0,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 2,
+        "total": 4.295448235937892
+      },
+      {
+        "disabled": false,
+        "id": 3357231760,
+        "name": "Unstoppable",
+        "per_soul": 0.00027382085119200943,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 4,
+        "total": 4.26495344762886
+      },
+      {
+        "disabled": false,
+        "id": 3862866912,
+        "name": "Restorative Shot",
+        "per_soul": 0.0030770803101566576,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 1,
+        "total": 4.25028987816028
+      },
+      {
+        "disabled": false,
+        "id": 3776945997,
+        "name": "Extra Charge",
+        "per_soul": 0.002531862745098039,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 1,
+        "total": 4.195098516395516
+      },
+      {
+        "disabled": false,
+        "id": 1437614329,
+        "name": "Melee Lifesteal",
+        "per_soul": 0.003125,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 1,
+        "total": 4.00978527607362
+      },
+      {
+        "disabled": false,
+        "id": 3399065363,
+        "name": "Sprint Boots",
+        "per_soul": 0.0025,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 1,
+        "total": 3.90875
+      },
+      {
+        "disabled": false,
+        "id": 26002154,
+        "name": "Melee Charge",
+        "per_soul": 0.000390625,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 2,
+        "total": 3.717683113680946
+      },
+      {
+        "disabled": false,
+        "id": 2010028405,
+        "name": "Headshot Booster",
+        "per_soul": 0.001973401596285501,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 1,
+        "total": 3.359924922481912
+      },
+      {
+        "disabled": false,
+        "id": 3647584222,
+        "name": "Split Shot",
+        "per_soul": 0.0,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 2,
+        "total": 3.2083631710979668
+      },
+      {
+        "disabled": false,
+        "id": 3331811235,
+        "name": "Long Range",
+        "per_soul": 0.0,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 2,
+        "total": 3.105863498820687
+      },
+      {
+        "disabled": false,
+        "id": 754480263,
+        "name": "Mystic Expansion",
+        "per_soul": 0.0,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 1,
+        "total": 2.6696083203170855
+      },
+      {
+        "disabled": false,
+        "id": 989206714,
+        "name": "Blood Tribute",
+        "per_soul": -0.0009184020663967756,
+        "shopable": true,
+        "slot": "Weapon",
+        "tier": 3,
+        "total": 2.585882285452039
+      },
+      {
+        "disabled": false,
+        "id": 1662311306,
+        "name": "Divine Barrier",
+        "per_soul": 0.0,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 4,
+        "total": 2.5125
+      },
+      {
+        "disabled": false,
+        "id": 1371725689,
+        "name": "Phantom Strike",
+        "per_soul": 0.0,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 4,
+        "total": 2.3658222225596797
+      },
+      {
+        "disabled": false,
+        "id": 600033864,
+        "name": "Majestic Leap",
+        "per_soul": 0.0,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 3,
+        "total": 2.3112500000000002
+      },
+      {
+        "disabled": false,
+        "id": 3731635960,
+        "name": "Dispel Magic",
+        "per_soul": 0.0,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 3,
+        "total": 2.3112500000000002
+      },
+      {
+        "disabled": false,
+        "id": 230297145,
+        "name": "Eternal Gift",
+        "per_soul": 0.0,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 5,
+        "total": 2.21375
+      },
+      {
+        "disabled": false,
+        "id": 2319629810,
+        "name": "Shadow Strike",
+        "per_soul": 0.0,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 5,
+        "total": 2.21375
+      },
+      {
+        "disabled": false,
+        "id": 3729138568,
+        "name": "Celestial Blessing",
+        "per_soul": 0.0,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 5,
+        "total": 2.21375
+      },
+      {
+        "disabled": false,
+        "id": 3270001687,
+        "name": "Warp Stone",
+        "per_soul": 0.0,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 3,
+        "total": 2.059751498280081
+      },
+      {
+        "disabled": false,
+        "id": 1804594021,
+        "name": "Rescue Beam",
+        "per_soul": 0.0,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 3,
+        "total": 1.9116526073619633
+      },
+      {
+        "disabled": false,
+        "id": 1672893796,
+        "name": "Grit",
+        "per_soul": 0.0,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 1,
+        "total": 1.90875
+      },
+      {
+        "disabled": false,
+        "id": 1710079648,
+        "name": "Healing Rite",
+        "per_soul": 0.0,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 1,
+        "total": 1.90875
+      },
+      {
+        "disabled": false,
+        "id": 857669956,
+        "name": "Guardian Ward",
+        "per_soul": 0.0,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 2,
+        "total": 1.842847053787987
+      },
+      {
+        "disabled": false,
+        "id": 2956256701,
+        "name": "Healing Nova",
+        "per_soul": 0.0,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 3,
+        "total": 1.81142254601227
+      },
+      {
+        "disabled": false,
+        "id": 2059712766,
+        "name": "Restorative Locket",
+        "per_soul": 0.0,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 2,
+        "total": 1.6501127218154232
+      },
+      {
+        "disabled": false,
+        "id": 2037039379,
+        "name": "Inhibitor",
+        "per_soul": -0.00026005602547793746,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 4,
+        "total": 0.8481414369412006
+      },
+      {
+        "disabled": false,
+        "id": 1219329868,
+        "name": "Spirit Sap",
+        "per_soul": -0.0030703095901545574,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 2,
+        "total": -1.0057229774300545
+      },
+      {
+        "disabled": false,
+        "id": 3074274290,
+        "name": "Trophy Collector",
+        "per_soul": -0.0023736314167704716,
+        "shopable": true,
+        "slot": "Vitality",
+        "tier": 2,
+        "total": -1.8432622697197982
+      },
+      {
+        "disabled": false,
+        "id": 2462046703,
+        "name": "Golden Goose Egg",
+        "per_soul": -0.006746336987066512,
+        "shopable": true,
+        "slot": "Spirit",
+        "tier": 1,
+        "total": -2.7274612693361244
+      }
+    ],
+    "layout": {
+      "bands": {
+        "1": {
+          "lower_quartile": 0.0,
+          "median": 0.0,
+          "target": 0,
+          "tier": 1,
+          "upper_quartile": 1.75
+        },
+        "2": {
+          "lower_quartile": 0.0,
+          "median": 1.0,
+          "target": 1,
+          "tier": 2,
+          "upper_quartile": 4.75
+        },
+        "3": {
+          "lower_quartile": 1.0,
+          "median": 2.0,
+          "target": 3,
+          "tier": 3,
+          "upper_quartile": 3.0
+        },
+        "4": {
+          "lower_quartile": 2.25,
+          "median": 5.0,
+          "target": 7,
+          "tier": 4,
+          "upper_quartile": 7.0
+        },
+        "5": {
+          "lower_quartile": 0.0,
+          "median": 0.0,
+          "target": 0,
+          "tier": 5,
+          "upper_quartile": 0.0
+        }
+      },
+      "flex_slots": 6,
+      "source_builds": 42,
+      "total_lower_quartile": 7.0,
+      "total_median": 10.5,
+      "total_upper_quartile": 13.0
+    },
+    "read_only": "on",
+    "reference_core_ids": [
+      3077079169,
+      2064029594,
+      2829638276,
+      1009965641,
+      2356412290,
+      4104549924,
+      2447176615,
+      3403085434,
+      865958998,
+      84321454,
+      3919289022,
+      2226497419,
+      1282141666,
+      989206714,
+      1055679805,
+      2037039379,
+      3357231760,
+      339443430,
+      2519598785
+    ],
+    "reference_loader_ids": [
+      3077079169,
+      2064029594,
+      2829638276,
+      1009965641,
+      2356412290,
+      4104549924,
+      2447176615,
+      3403085434,
+      865958998,
+      84321454,
+      3919289022,
+      2226497419,
+      1282141666,
+      989206714,
+      1055679805,
+      2037039379,
+      3357231760,
+      339443430,
+      2519598785,
+      1813726886,
+      3361075077,
+      1378931225,
+      3731635960,
+      2163598980,
+      1414025773,
+      3140772621,
+      2462046703,
+      709540378
+    ],
+    "seed_ids": [
+      3077079169,
+      2064029594,
+      2829638276,
+      84321454,
+      1009965641,
+      4104549924,
+      2356412290,
+      865958998,
+      2447176615,
+      3403085434,
+      3919289022,
+      2226497419,
+      1282141666,
+      2519598785,
+      989206714,
+      3357231760,
+      3028234315,
+      915014646,
+      1250307611
+    ]
+  },
+  "backtests": [
+    {
+      "heroes": [
+        {
+          "hero_id": 25,
+          "hero_name": "Warden",
+          "per_author": [
+            [
+              "Lightbringer x Situation",
+              {
+                "core_coverage": 0.2727272727272727,
+                "reference_recall": 0.15789473684210525,
+                "core_jaccard": 0.1111111111111111,
+                "order_proximity": 0.14197716346153846,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.034482758620689655,
+                "core_jaccard": 0.02564102564102564,
+                "order_proximity": 0.19602272727272727,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.2727272727272727,
+                "reference_recall": 0.10344827586206896,
+                "core_jaccard": 0.08108108108108109,
+                "order_proximity": 0.2510636737089202,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.18181818181818182,
+                "reference_recall": 0.11764705882352941,
+                "core_jaccard": 0.07692307692307693,
+                "order_proximity": 0.14414828431372548,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.36363636363636365,
+                "reference_recall": 0.19047619047619047,
+                "core_jaccard": 0.14285714285714285,
+                "order_proximity": 0.17245370370370372,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.36363636363636365,
+                "reference_recall": 0.18181818181818182,
+                "core_jaccard": 0.13793103448275862,
+                "order_proximity": 0.19659914361001316,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.36363636363636365,
+                "reference_recall": 0.2,
+                "core_jaccard": 0.14814814814814814,
+                "order_proximity": 0.2653162055335968,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.2727272727272727,
+                "reference_recall": 0.1,
+                "core_jaccard": 0.07894736842105263,
+                "order_proximity": 0.24986111111111114,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.18181818181818182,
+                "reference_recall": 0.09523809523809523,
+                "core_jaccard": 0.06666666666666667,
+                "order_proximity": 0.23638523391812863,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.36363636363636365,
+                "reference_recall": 0.16,
+                "core_jaccard": 0.125,
+                "order_proximity": 0.19423076923076923,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.45454545454545453,
+                "reference_recall": 0.1282051282051282,
+                "core_jaccard": 0.1111111111111111,
+                "order_proximity": 0.203125,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.2727272727272727,
+                "reference_recall": 0.17647058823529413,
+                "core_jaccard": 0.12,
+                "order_proximity": 0.22260638297872343,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.2727272727272727,
+                "reference_recall": 0.08823529411764706,
+                "core_jaccard": 0.07142857142857142,
+                "order_proximity": 0.25515625000000003,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.034482758620689655,
+                "core_jaccard": 0.02564102564102564,
+                "order_proximity": 0.2885551948051948,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.18181818181818182,
+                "reference_recall": 0.1,
+                "core_jaccard": 0.06896551724137931,
+                "order_proximity": 0.24002878289473684,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.037037037037037035,
+                "core_jaccard": 0.02702702702702703,
+                "order_proximity": 0.32242063492063494,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.07142857142857142,
+                "core_jaccard": 0.041666666666666664,
+                "order_proximity": 0.22749255952380956,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.18181818181818182,
+                "reference_recall": 0.09090909090909091,
+                "core_jaccard": 0.06451612903225806,
+                "order_proximity": 0.20833333333333337,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.2727272727272727,
+                "reference_recall": 0.12,
+                "core_jaccard": 0.09090909090909091,
+                "order_proximity": 0.2625,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.18181818181818182,
+                "reference_recall": 0.1111111111111111,
+                "core_jaccard": 0.07407407407407407,
+                "order_proximity": 0.26168818466353677,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.18181818181818182,
+                "reference_recall": 0.16666666666666666,
+                "core_jaccard": 0.09523809523809523,
+                "order_proximity": 0.2532894736842105,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.45454545454545453,
+                "reference_recall": 0.13513513513513514,
+                "core_jaccard": 0.11627906976744186,
+                "order_proximity": 0.2780448717948718,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.18181818181818182,
+                "reference_recall": 0.14285714285714285,
+                "core_jaccard": 0.08695652173913043,
+                "order_proximity": 0.2460227272727273,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.18181818181818182,
+                "reference_recall": 0.14285714285714285,
+                "core_jaccard": 0.08695652173913043,
+                "order_proximity": 0.22593537414965986,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.16666666666666666,
+                "core_jaccard": 0.0625,
+                "order_proximity": 0.17628676470588237,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.06666666666666667,
+                "core_jaccard": 0.04,
+                "order_proximity": 0.203125,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.2727272727272727,
+                "reference_recall": 0.1,
+                "core_jaccard": 0.07894736842105263,
+                "order_proximity": 0.1933333333333333,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.45454545454545453,
+                "reference_recall": 0.09803921568627451,
+                "core_jaccard": 0.08771929824561403,
+                "order_proximity": 0.3410984848484849,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.18181818181818182,
+                "reference_recall": 0.11764705882352941,
+                "core_jaccard": 0.07692307692307693,
+                "order_proximity": 0.31572997416020665,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.2727272727272727,
+                "reference_recall": 0.08571428571428572,
+                "core_jaccard": 0.06976744186046512,
+                "order_proximity": 0.2631399782135076,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.2727272727272727,
+                "reference_recall": 0.16666666666666666,
+                "core_jaccard": 0.11538461538461539,
+                "order_proximity": 0.25037878787878787,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.2727272727272727,
+                "reference_recall": 0.10714285714285714,
+                "core_jaccard": 0.08333333333333333,
+                "order_proximity": 0.23774916943521598,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.18181818181818182,
+                "reference_recall": 0.11764705882352941,
+                "core_jaccard": 0.07692307692307693,
+                "order_proximity": 0.25018382352941176,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.18181818181818182,
+                "reference_recall": 0.13333333333333333,
+                "core_jaccard": 0.08333333333333333,
+                "order_proximity": 0.21422101449275363,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.2727272727272727,
+                "reference_recall": 0.17647058823529413,
+                "core_jaccard": 0.12,
+                "order_proximity": 0.27763776881720426,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.2727272727272727,
+                "reference_recall": 0.14285714285714285,
+                "core_jaccard": 0.10344827586206896,
+                "order_proximity": 0.2057806324110672,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.18181818181818182,
+                "reference_recall": 0.125,
+                "core_jaccard": 0.08,
+                "order_proximity": 0.18606321839080459,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.18181818181818182,
+                "reference_recall": 0.16666666666666666,
+                "core_jaccard": 0.09523809523809523,
+                "order_proximity": 0.18785425101214576,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.18181818181818182,
+                "reference_recall": 0.14285714285714285,
+                "core_jaccard": 0.08695652173913043,
+                "order_proximity": 0.21037443693693691,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.2727272727272727,
+                "reference_recall": 0.14285714285714285,
+                "core_jaccard": 0.10344827586206896,
+                "order_proximity": 0.26499748995983935,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.18181818181818182,
+                "reference_recall": 0.125,
+                "core_jaccard": 0.08,
+                "order_proximity": 0.27244875222816395,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.2727272727272727,
+                "reference_recall": 0.16666666666666666,
+                "core_jaccard": 0.11538461538461539,
+                "order_proximity": 0.19997529644268772,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.03333333333333333,
+                "core_jaccard": 0.025,
+                "order_proximity": 0.21833333333333332,
+                "switch_detected": null
+              }
+            ]
+          ],
+          "aggregate": {
+            "core_coverage": 0.2325581395348837,
+            "reference_recall": 0.122503103671133,
+            "core_jaccard": 0.08510193966180496,
+            "order_proximity": 0.23283647200035906,
+            "switch_detected": null
+          }
+        }
+      ]
+    },
+    {
+      "heroes": [
+        {
+          "hero_id": 6,
+          "hero_name": "Abrams",
+          "per_author": [
+            [
+              "Lightbringer x Situation",
+              {
+                "core_coverage": 0.2727272727272727,
+                "reference_recall": 0.15789473684210525,
+                "core_jaccard": 0.1111111111111111,
+                "order_proximity": 0.18495475113122176,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.05,
+                "core_jaccard": 0.03333333333333333,
+                "order_proximity": 0.2756578947368421,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.45454545454545453,
+                "reference_recall": 0.1,
+                "core_jaccard": 0.08928571428571429,
+                "order_proximity": 0.34941620879120877,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.12847222222222224,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.07142857142857142,
+                "core_jaccard": 0.041666666666666664,
+                "order_proximity": 0.22316017316017323,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.2321937321937322,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.05555555555555555,
+                "core_jaccard": 0.03571428571428571,
+                "order_proximity": 0.10366586538461539,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.023809523809523808,
+                "core_jaccard": 0.019230769230769232,
+                "order_proximity": 0.194875,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.0625,
+                "core_jaccard": 0.038461538461538464,
+                "order_proximity": 0.2788259958071279,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.15824468085106383,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.250812243502052,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.07142857142857142,
+                "core_jaccard": 0.041666666666666664,
+                "order_proximity": 0.1740562678062678,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.14905303030303027,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.2727272727272727,
+                "reference_recall": 0.07894736842105263,
+                "core_jaccard": 0.06521739130434782,
+                "order_proximity": 0.22802337398373984,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.45454545454545453,
+                "reference_recall": 0.1,
+                "core_jaccard": 0.08928571428571429,
+                "order_proximity": 0.3343864468864469,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.06666666666666667,
+                "core_jaccard": 0.04,
+                "order_proximity": 0.1426470588235294,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.4038690476190476,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.038461538461538464,
+                "core_jaccard": 0.027777777777777776,
+                "order_proximity": 0.3511029411764707,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.45454545454545453,
+                "reference_recall": 0.10416666666666667,
+                "core_jaccard": 0.09259259259259259,
+                "order_proximity": 0.2467948717948718,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.03225806451612903,
+                "core_jaccard": 0.024390243902439025,
+                "order_proximity": 0.05706521739130434,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.18983516483516483,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.24462412587412588,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.18181818181818182,
+                "reference_recall": 0.09090909090909091,
+                "core_jaccard": 0.06451612903225806,
+                "order_proximity": 0.5408653846153846,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.05263157894736842,
+                "core_jaccard": 0.034482758620689655,
+                "order_proximity": 0.16154233870967744,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.38068181818181823,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.037037037037037035,
+                "core_jaccard": 0.02702702702702703,
+                "order_proximity": 0.19768518518518519,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.17829861111111112,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.13700564971751408,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.2727272727272727,
+                "reference_recall": 0.09375,
+                "core_jaccard": 0.075,
+                "order_proximity": 0.18958333333333333,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.15021929824561403,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.058823529411764705,
+                "core_jaccard": 0.037037037037037035,
+                "order_proximity": 0.28219696969696967,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.041666666666666664,
+                "core_jaccard": 0.029411764705882353,
+                "order_proximity": 0.14997563352826515,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.45454545454545453,
+                "reference_recall": 0.14705882352941177,
+                "core_jaccard": 0.125,
+                "order_proximity": 0.2164351851851852,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.07692307692307693,
+                "core_jaccard": 0.043478260869565216,
+                "order_proximity": 0.24206149193548385,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.2727272727272727,
+                "reference_recall": 0.15789473684210525,
+                "core_jaccard": 0.1111111111111111,
+                "order_proximity": 0.1935626102292769,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.18181818181818182,
+                "reference_recall": 0.09523809523809523,
+                "core_jaccard": 0.06666666666666667,
+                "order_proximity": 0.10551236044657099,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.06666666666666667,
+                "core_jaccard": 0.04,
+                "order_proximity": 0.28883928571428574,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.047619047619047616,
+                "core_jaccard": 0.03225806451612903,
+                "order_proximity": 0.16455419580419578,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.19431352459016393,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.047619047619047616,
+                "core_jaccard": 0.03225806451612903,
+                "order_proximity": 0.26790978773584906,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.2727272727272727,
+                "reference_recall": 0.0967741935483871,
+                "core_jaccard": 0.07692307692307693,
+                "order_proximity": 0.1487884160756501,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.19253018108651912,
+                "switch_detected": null
+              }
+            ]
+          ],
+          "aggregate": {
+            "core_coverage": 0.12121212121212119,
+            "reference_recall": 0.05056497273224158,
+            "core_jaccard": 0.0367834230085364,
+            "order_proximity": 0.2210547041762455,
+            "switch_detected": null
+          }
+        }
+      ]
+    },
+    {
+      "heroes": [
+        {
+          "hero_id": 11,
+          "hero_name": "Dynamo",
+          "per_author": [
+            [
+              "Lightbringer x Situation",
+              {
+                "core_coverage": 0.18181818181818182,
+                "reference_recall": 0.10526315789473684,
+                "core_jaccard": 0.07142857142857142,
+                "order_proximity": 0.16832646520146524,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.31009615384615385,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.18181818181818182,
+                "reference_recall": 0.06666666666666667,
+                "core_jaccard": 0.05128205128205128,
+                "order_proximity": 0.14891581632653064,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.3306179775280899,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.05555555555555555,
+                "core_jaccard": 0.03571428571428571,
+                "order_proximity": 0.39508928571428575,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.18181818181818182,
+                "reference_recall": 0.08,
+                "core_jaccard": 0.058823529411764705,
+                "order_proximity": 0.21913265306122448,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.19522058823529412,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.47301136363636365,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.045454545454545456,
+                "core_jaccard": 0.03125,
+                "order_proximity": 0.2307017543859649,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.04,
+                "core_jaccard": 0.02857142857142857,
+                "order_proximity": 0.3357487922705314,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.1244959677419355,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.22718253968253968,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.037037037037037035,
+                "core_jaccard": 0.02702702702702703,
+                "order_proximity": 0.28664291217257315,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.037037037037037035,
+                "core_jaccard": 0.02702702702702703,
+                "order_proximity": 0.3248456790123456,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.18181818181818182,
+                "reference_recall": 0.08333333333333333,
+                "core_jaccard": 0.06060606060606061,
+                "order_proximity": 0.2579166666666667,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.03225806451612903,
+                "core_jaccard": 0.024390243902439025,
+                "order_proximity": 0.33899456521739135,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.058823529411764705,
+                "core_jaccard": 0.037037037037037035,
+                "order_proximity": 0.23295454545454544,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.043478260869565216,
+                "core_jaccard": 0.030303030303030304,
+                "order_proximity": 0.23277407786885246,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.34375,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.18181818181818182,
+                "reference_recall": 0.07692307692307693,
+                "core_jaccard": 0.05714285714285714,
+                "order_proximity": 0.3862847222222222,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.17401960784313728,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.18181818181818182,
+                "reference_recall": 0.10526315789473684,
+                "core_jaccard": 0.07142857142857142,
+                "order_proximity": 0.367467043314501,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.22858796296296294,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.03571428571428571,
+                "core_jaccard": 0.02631578947368421,
+                "order_proximity": 0.1569767441860465,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.03125,
+                "core_jaccard": 0.023809523809523808,
+                "order_proximity": 0.27168693982074266,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.03333333333333333,
+                "core_jaccard": 0.025,
+                "order_proximity": 0.22895833333333332,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.20477941176470588,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.037037037037037035,
+                "core_jaccard": 0.02702702702702703,
+                "order_proximity": 0.4508928571428571,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.05,
+                "core_jaccard": 0.03333333333333333,
+                "order_proximity": 0.2313652663934426,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.043478260869565216,
+                "core_jaccard": 0.030303030303030304,
+                "order_proximity": 0.25189393939393934,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.2873774509803922,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.045454545454545456,
+                "core_jaccard": 0.03125,
+                "order_proximity": 0.22258771929824564,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.18181818181818182,
+                "reference_recall": 0.06666666666666667,
+                "core_jaccard": 0.05128205128205128,
+                "order_proximity": 0.35704365079365086,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.32671618852459017,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.0625,
+                "core_jaccard": 0.038461538461538464,
+                "order_proximity": 0.23674568965517243,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.22058333333333335,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.18359375,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.02,
+                "core_jaccard": 0.016666666666666666,
+                "order_proximity": 0.2502853881278539,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.17955139372822299,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.33136261261261263,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.29561237373737376,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.09090909090909091,
+                "reference_recall": 0.037037037037037035,
+                "core_jaccard": 0.02702702702702703,
+                "order_proximity": 0.2588734567901235,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.2727272727272727,
+                "reference_recall": 0.12,
+                "core_jaccard": 0.09090909090909091,
+                "order_proximity": 0.262920673076923,
+                "switch_detected": null
+              }
+            ]
+          ],
+          "aggregate": {
+            "core_coverage": 0.07399577167019025,
+            "reference_recall": 0.03371080438852686,
+            "core_jaccard": 0.02403294881802615,
+            "order_proximity": 0.2684321933269568,
+            "switch_detected": null
+          }
+        }
+      ]
+    },
+    {
+      "heroes": [
+        {
+          "hero_id": 12,
+          "hero_name": "Kelvin",
+          "per_author": [
+            [
+              "Lightbringer x Situation",
+              {
+                "core_coverage": 0.3,
+                "reference_recall": 0.15789473684210525,
+                "core_jaccard": 0.11538461538461539,
+                "order_proximity": 0.1494520264681555,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.2,
+                "reference_recall": 0.1,
+                "core_jaccard": 0.07142857142857142,
+                "order_proximity": 0.12024708304735757,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.2,
+                "reference_recall": 0.125,
+                "core_jaccard": 0.08333333333333333,
+                "order_proximity": 0.2504480286738351,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.1,
+                "reference_recall": 0.047619047619047616,
+                "core_jaccard": 0.03333333333333333,
+                "order_proximity": 0.19508448540706602,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.3,
+                "reference_recall": 0.06818181818181818,
+                "core_jaccard": 0.058823529411764705,
+                "order_proximity": 0.17424401732766961,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.4,
+                "reference_recall": 0.125,
+                "core_jaccard": 0.10526315789473684,
+                "order_proximity": 0.2381019167835437,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.4,
+                "reference_recall": 0.18181818181818182,
+                "core_jaccard": 0.14285714285714285,
+                "order_proximity": 0.2320691883294398,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.3,
+                "reference_recall": 0.11538461538461539,
+                "core_jaccard": 0.09090909090909091,
+                "order_proximity": 0.12785811395377578,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.1,
+                "reference_recall": 0.0625,
+                "core_jaccard": 0.04,
+                "order_proximity": 0.15588861838101034,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.1,
+                "reference_recall": 0.0625,
+                "core_jaccard": 0.04,
+                "order_proximity": 0.20967741935483872,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.1,
+                "reference_recall": 0.05263157894736842,
+                "core_jaccard": 0.03571428571428571,
+                "order_proximity": 0.1859582542694497,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.2,
+                "reference_recall": 0.1,
+                "core_jaccard": 0.07142857142857142,
+                "order_proximity": 0.20970942140296978,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.3,
+                "reference_recall": 0.14285714285714285,
+                "core_jaccard": 0.10714285714285714,
+                "order_proximity": 0.24507168458781362,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.1,
+                "reference_recall": 0.05,
+                "core_jaccard": 0.034482758620689655,
+                "order_proximity": 0.235405192761605,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.4,
+                "reference_recall": 0.0975609756097561,
+                "core_jaccard": 0.0851063829787234,
+                "order_proximity": 0.16826676907322072,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.1,
+                "reference_recall": 0.045454545454545456,
+                "core_jaccard": 0.03225806451612903,
+                "order_proximity": 0.24223602484472054,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.22217864496519266,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.1,
+                "reference_recall": 0.05555555555555555,
+                "core_jaccard": 0.037037037037037035,
+                "order_proximity": 0.3305143853530951,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.0,
+                "reference_recall": 0.0,
+                "core_jaccard": 0.0,
+                "order_proximity": 0.12965260545905707,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.4,
+                "reference_recall": 0.12903225806451613,
+                "core_jaccard": 0.10810810810810811,
+                "order_proximity": 0.3157082748948107,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.2,
+                "reference_recall": 0.07692307692307693,
+                "core_jaccard": 0.058823529411764705,
+                "order_proximity": 0.25688434303697877,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.2,
+                "reference_recall": 0.09090909090909091,
+                "core_jaccard": 0.06666666666666667,
+                "order_proximity": 0.30600358422939067,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.1,
+                "reference_recall": 0.058823529411764705,
+                "core_jaccard": 0.038461538461538464,
+                "order_proximity": 0.19455645161290322,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.2,
+                "reference_recall": 0.1,
+                "core_jaccard": 0.07142857142857142,
+                "order_proximity": 0.13512179065174454,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.1,
+                "reference_recall": 0.058823529411764705,
+                "core_jaccard": 0.038461538461538464,
+                "order_proximity": 0.1949509116409537,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.4,
+                "reference_recall": 0.13793103448275862,
+                "core_jaccard": 0.11428571428571428,
+                "order_proximity": 0.14516129032258066,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.3,
+                "reference_recall": 0.14285714285714285,
+                "core_jaccard": 0.10714285714285714,
+                "order_proximity": 0.2511827956989247,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.1,
+                "reference_recall": 0.043478260869565216,
+                "core_jaccard": 0.03125,
+                "order_proximity": 0.15747233909926758,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.2,
+                "reference_recall": 0.06896551724137931,
+                "core_jaccard": 0.05405405405405406,
+                "order_proximity": 0.33256528417818737,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.3,
+                "reference_recall": 0.13636363636363635,
+                "core_jaccard": 0.10344827586206896,
+                "order_proximity": 0.19321236559139782,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.1,
+                "reference_recall": 0.05555555555555555,
+                "core_jaccard": 0.037037037037037035,
+                "order_proximity": 0.1294162826420891,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.2,
+                "reference_recall": 0.09523809523809523,
+                "core_jaccard": 0.06896551724137931,
+                "order_proximity": 0.09338318407095035,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.3,
+                "reference_recall": 0.14285714285714285,
+                "core_jaccard": 0.10714285714285714,
+                "order_proximity": 0.14516129032258063,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.3,
+                "reference_recall": 0.13636363636363635,
+                "core_jaccard": 0.10344827586206896,
+                "order_proximity": 0.1600790513833992,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.1,
+                "reference_recall": 0.038461538461538464,
+                "core_jaccard": 0.02857142857142857,
+                "order_proximity": 0.1913624010398204,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.2,
+                "reference_recall": 0.09523809523809523,
+                "core_jaccard": 0.06896551724137931,
+                "order_proximity": 0.20891391486924987,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.1,
+                "reference_recall": 0.02857142857142857,
+                "core_jaccard": 0.022727272727272728,
+                "order_proximity": 0.1858046187683284,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.2,
+                "reference_recall": 0.13333333333333333,
+                "core_jaccard": 0.08695652173913043,
+                "order_proximity": 0.12000768049155144,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.2,
+                "reference_recall": 0.15384615384615385,
+                "core_jaccard": 0.09523809523809523,
+                "order_proximity": 0.20845422995960627,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.1,
+                "reference_recall": 0.07142857142857142,
+                "core_jaccard": 0.043478260869565216,
+                "order_proximity": 0.22930922124470512,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.3,
+                "reference_recall": 0.075,
+                "core_jaccard": 0.06382978723404255,
+                "order_proximity": 0.15512606599925843,
+                "switch_detected": null
+              }
+            ],
+            [
+              "unbekannt",
+              {
+                "core_coverage": 0.1,
+                "reference_recall": 0.03333333333333333,
+                "core_jaccard": 0.02564102564102564,
+                "order_proximity": 0.2131182795698925,
+                "switch_detected": null
+              }
+            ]
+          ],
+          "aggregate": {
+            "core_coverage": 0.19999999999999996,
+            "reference_recall": 0.08793552759599324,
+            "core_jaccard": 0.06496750434331065,
+            "order_proximity": 0.1986909412324378,
+            "switch_detected": null
+          }
+        }
+      ]
+    }
+  ]
+}

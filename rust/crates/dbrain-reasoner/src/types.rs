@@ -426,6 +426,10 @@ pub struct BacktestFilter {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BacktestMetrics {
     pub core_coverage: f64,
+    #[serde(default)]
+    pub reference_recall: f64,
+    #[serde(default)]
+    pub core_jaccard: f64,
     pub order_proximity: Option<f64>,
     pub switch_detected: Option<bool>,
 }

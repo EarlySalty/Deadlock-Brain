@@ -11,6 +11,30 @@ use crate::{
     ReasonerConfig, ReasonerError, Result,
 };
 
+pub(crate) const BASE_SLOTS_PER_CATEGORY: usize = 4;
+const FALLBACK_BASE_SLOT_CAPACITY: usize = 3 * BASE_SLOTS_PER_CATEGORY;
+
+pub(crate) fn snapshot_flex_slots(snapshot: &Value) -> Option<usize> {
+    let slots = snapshot.get("item_slot_info")?;
+    ["weapon", "vitality", "spirit"]
+        .into_iter()
+        .try_fold(0usize, |total, category| {
+            let tiers = slots
+                .get(category)?
+                .get("max_purchases_for_tier")?
+                .as_array()?;
+            let capacity = usize::try_from(tiers.first()?.as_u64()?).ok()?;
+            if capacity < BASE_SLOTS_PER_CATEGORY
+                || tiers
+                    .iter()
+                    .any(|tier| tier.as_u64() != Some(capacity as u64))
+            {
+                return None;
+            }
+            total.checked_add(capacity - BASE_SLOTS_PER_CATEGORY)
+        })
+}
+
 #[derive(Debug, Clone)]
 pub struct AuthorBuildSource {
     pub hero_id: i64,
@@ -167,18 +191,57 @@ fn layout_stats(counts: &[BTreeMap<i64, usize>]) -> CoreLayoutStats {
                 median,
                 lower_quartile: quantile(&values, 0.25),
                 upper_quartile: quantile(&values, 0.75),
-                target: median.round() as usize,
+                target: 0,
             },
         );
     }
     let total_median = quantile(&totals, 0.5);
-    let total_target: usize = bands.values().map(|band| band.target).sum();
+    let total_target = total_median.round() as usize;
+    let median_sum: f64 = bands.values().map(|band| band.median).sum();
+    let weights = bands
+        .values()
+        .map(|band| {
+            let weight = if median_sum > 0.0 {
+                band.median
+            } else {
+                counts
+                    .iter()
+                    .map(|counts| counts.get(&band.tier).copied().unwrap_or(0) as f64)
+                    .sum()
+            };
+            (band.tier, weight)
+        })
+        .collect::<Vec<_>>();
+    let weight_sum: f64 = weights.iter().map(|(_, weight)| weight).sum();
+    let mut remainders = Vec::new();
+    for (tier, weight) in weights {
+        let quota = if weight_sum > 0.0 {
+            weight / weight_sum * total_target as f64
+        } else {
+            0.0
+        };
+        bands.get_mut(&tier).unwrap().target = quota.floor() as usize;
+        remainders.push((tier, quota.fract()));
+    }
+    remainders.sort_by(|left, right| {
+        right
+            .1
+            .total_cmp(&left.1)
+            .then_with(|| left.0.cmp(&right.0))
+    });
+    let assigned: usize = bands.values().map(|band| band.target).sum();
+    for (tier, _) in remainders
+        .into_iter()
+        .take(total_target.saturating_sub(assigned))
+    {
+        bands.get_mut(&tier).unwrap().target += 1;
+    }
     CoreLayoutStats {
         source_builds: counts.len(),
         total_median,
         total_lower_quartile: quantile(&totals, 0.25),
         total_upper_quartile: quantile(&totals, 0.75),
-        flex_slots: total_target.saturating_sub(12),
+        flex_slots: total_target.saturating_sub(FALLBACK_BASE_SLOT_CAPACITY),
         bands,
     }
 }
@@ -599,8 +662,94 @@ mod tests {
         assert_eq!(warden.target_for_tier(4), 1);
         assert_eq!(warden.total_target(), 3);
         assert_eq!(layouts.overall.source_builds, 3);
-        assert_eq!(layouts.overall.target_for_tier(1), 1);
+        assert_eq!(layouts.overall.target_for_tier(1), 2);
         assert_eq!(layouts.overall.target_for_tier(2), 1);
+    }
+
+    #[test]
+    fn apportions_warden_band_medians_to_rounded_total() {
+        let counts = [[0, 0, 0, 11], [0, 1, 2, 2], [0, 1, 2, 8], [0, 5, 5, 0]].map(|bands| {
+            bands
+                .into_iter()
+                .enumerate()
+                .map(|(i, n)| (i as i64 + 1, n))
+                .collect()
+        });
+        let layout = layout_stats(&counts);
+        assert_eq!(layout.total_median, 10.5);
+        assert_eq!(
+            layout.bands.values().map(|b| b.median).collect::<Vec<_>>(),
+            [0.0, 1.0, 2.0, 5.0, 0.0]
+        );
+        assert_eq!(layout.total_target(), 11);
+        assert_eq!(
+            (1..=5)
+                .map(|tier| layout.target_for_tier(tier))
+                .collect::<Vec<_>>(),
+            [0, 1, 3, 7, 0]
+        );
+    }
+
+    #[test]
+    fn apportionment_handles_zero_medians_and_totals_below_band_sum() {
+        for counts in [
+            vec![
+                BTreeMap::from([(1, 2)]),
+                BTreeMap::from([(2, 2)]),
+                BTreeMap::from([(3, 2)]),
+            ],
+            vec![
+                BTreeMap::from([(1, 2), (2, 2)]),
+                BTreeMap::from([(2, 2), (3, 2)]),
+                BTreeMap::from([(1, 2), (3, 2)]),
+            ],
+        ] {
+            let layout = layout_stats(&counts);
+            assert_eq!(layout.total_target(), layout.total_median.round() as usize);
+        }
+    }
+
+    #[test]
+    fn snapshot_capacity_overrides_target_and_requires_unambiguous_tiers() {
+        let snapshot = serde_json::json!({"item_slot_info": {
+            "weapon": {"max_purchases_for_tier": [6, 6, 6]},
+            "vitality": {"max_purchases_for_tier": [6, 6, 6]},
+            "spirit": {"max_purchases_for_tier": [6, 6, 6]}
+        }});
+        assert_eq!(snapshot_flex_slots(&snapshot), Some(6));
+        let mut missing = snapshot.clone();
+        missing["item_slot_info"]
+            .as_object_mut()
+            .unwrap()
+            .remove("spirit");
+        assert_eq!(snapshot_flex_slots(&missing), None);
+        let mut gated = snapshot.clone();
+        gated["item_slot_info"]["weapon"]["max_purchases_for_tier"] = serde_json::json!([4, 5, 6]);
+        assert_eq!(snapshot_flex_slots(&gated), None);
+        for invalid in [
+            serde_json::json!([]),
+            serde_json::json!([-1]),
+            serde_json::json!(["six"]),
+        ] {
+            let mut malformed = snapshot.clone();
+            malformed["item_slot_info"]["spirit"]["max_purchases_for_tier"] = invalid;
+            assert_eq!(snapshot_flex_slots(&malformed), None);
+        }
+    }
+
+    #[test]
+    fn fallback_flex_uses_corrected_total_capacity() {
+        let counts = [[0, 0, 0, 15], [0, 1, 2, 2], [0, 1, 2, 12], [0, 7, 7, 0]].map(|bands| {
+            bands
+                .into_iter()
+                .enumerate()
+                .map(|(i, n)| (i as i64 + 1, n))
+                .collect()
+        });
+        let layout = layout_stats(&counts);
+        assert_eq!(layout.total_median, 14.5);
+        assert_eq!(layout.total_target(), 15);
+        assert_eq!(layout.flex_slots, 3);
     }
 
     #[test]

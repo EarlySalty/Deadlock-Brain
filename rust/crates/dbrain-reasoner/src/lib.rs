@@ -458,7 +458,17 @@ async fn load_reasoning_inputs(
         .iter()
         .map(item::build_item_model)
         .collect::<Result<Vec<_>>>()?;
-    let core_layouts = data::load_core_layouts(ctx).await?;
+    let mut core_layouts = data::load_core_layouts(ctx).await?;
+    let slot_snapshot: Option<Value> = sqlx::query_scalar("SELECT payload FROM brain.entity_snapshots WHERE source='deadlock_assets_api' AND entity_type='hero' AND payload->>'id'=$1 ORDER BY fetched_at DESC, id DESC LIMIT 1")
+        .bind(hero_model.hero_id.to_string())
+        .fetch_optional(&ctx.pool)
+        .await
+        .map_err(ReasonerError::Db)?;
+    if let Some(flex_slots) = slot_snapshot.as_ref().and_then(meta::snapshot_flex_slots) {
+        let mut layout = core_layouts.for_hero(hero_model.hero_id).clone();
+        layout.flex_slots = flex_slots;
+        core_layouts.by_hero.insert(hero_model.hero_id, layout);
+    }
     let rows = load_meta_rows(ctx, hero_model.hero_id).await?;
     let authors = load_author_builds(ctx, hero_model.hero_id).await?;
     let claims = load_claims(ctx, hero_model.hero_id).await?;

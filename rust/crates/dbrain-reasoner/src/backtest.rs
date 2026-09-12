@@ -1,5 +1,5 @@
 use std::collections::BTreeSet;
-use std::fmt::{self, Write};
+use std::fmt;
 
 use crate::{AuthorBuild, BacktestMetrics, BuildObject, HeroBacktest};
 
@@ -21,7 +21,11 @@ impl fmt::Display for crate::BacktestReport {
                     Some(value) => write!(output, "{value:.4}")?,
                     None => output.write_str("nicht messbar")?,
                 }
-                output.write_char('\n')?;
+                writeln!(
+                    output,
+                    " | Recall: {:.4} | Jaccard: {:.4}",
+                    metrics.reference_recall, metrics.core_jaccard
+                )?;
             }
         }
         Ok(())
@@ -96,6 +100,12 @@ pub fn backtest_metrics(build: &BuildObject, author: &AuthorBuild) -> BacktestMe
     };
     BacktestMetrics {
         core_coverage: coverage,
+        reference_recall: if author_core.is_empty() {
+            0.0
+        } else {
+            reasoner_core.intersection(&author_core).count() as f64 / author_core.len() as f64
+        },
+        core_jaccard: core_jaccard(build, author),
         order_proximity,
         switch_detected: None,
     }
@@ -147,11 +157,23 @@ pub fn backtest_hero_with_build(
     let aggregate = if per_author.is_empty() {
         BacktestMetrics {
             core_coverage: 0.0,
+            reference_recall: 0.0,
+            core_jaccard: 0.0,
             order_proximity: None,
             switch_detected: None,
         }
     } else {
         BacktestMetrics {
+            reference_recall: per_author
+                .iter()
+                .map(|(_, metrics)| metrics.reference_recall)
+                .sum::<f64>()
+                / per_author.len() as f64,
+            core_jaccard: per_author
+                .iter()
+                .map(|(_, metrics)| metrics.core_jaccard)
+                .sum::<f64>()
+                / per_author.len() as f64,
             core_coverage: per_author
                 .iter()
                 .map(|(_, metrics)| metrics.core_coverage)
@@ -227,6 +249,34 @@ mod tests {
             core_item_ids: core.to_vec(),
             buy_order: order.to_vec(),
         }
+    }
+
+    #[test]
+    fn reference_metrics_use_unique_reference_core_and_survive_serialization() {
+        let report = backtest_hero_with_build(
+            25,
+            "Warden",
+            &build(&[1, 1, 2, 0]),
+            &[author(&[2, 2, 3, 4, 0], &[]), author(&[], &[])],
+        );
+        let json = serde_json::to_value(&report).unwrap();
+        assert_eq!(json["per_author"][0][1]["reference_recall"], 1.0 / 3.0);
+        assert_eq!(json["per_author"][0][1]["core_jaccard"], 0.25);
+        assert_eq!(json["aggregate"]["reference_recall"], 1.0 / 6.0);
+        assert_eq!(json["aggregate"]["core_jaccard"], 0.125);
+        assert_eq!(crate::persistence_json(&report).unwrap(), json);
+        let no_authors =
+            serde_json::to_value(backtest_hero_with_build(25, "Warden", &build(&[]), &[])).unwrap();
+        assert_eq!(no_authors["aggregate"]["reference_recall"], 0.0);
+        assert_eq!(no_authors["aggregate"]["core_jaccard"], 0.0);
+        let empty = serde_json::to_value(backtest_metrics(&build(&[]), &author(&[], &[]))).unwrap();
+        assert_eq!(empty["reference_recall"], 0.0);
+        assert_eq!(empty["core_jaccard"], 1.0);
+        let text = crate::BacktestReport {
+            heroes: vec![report],
+        }
+        .to_string();
+        assert!(text.contains("Recall: 0.3333 | Jaccard: 0.2500"));
     }
 
     #[test]

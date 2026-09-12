@@ -179,7 +179,7 @@ fn select_core_items<'a>(
                 break;
             }
             let slot = slot_index(&item.item.slot);
-            if slot_counts[slot] >= 4 {
+            if slot_counts[slot] >= crate::meta::BASE_SLOTS_PER_CATEGORY {
                 if flex_used >= layout.flex_slots {
                     continue;
                 }
@@ -889,6 +889,39 @@ mod tests {
                 .map(|item| item.name.as_str())
                 .collect::<Vec<_>>(),
             vec!["Lane", "Mid", "Core", "Late"]
+        );
+    }
+
+    #[test]
+    fn exhausted_flex_leaves_band_underfilled_and_remaining_items_optional() {
+        let mut scored = (1..=7)
+            .map(|id| item(id, &format!("Weapon {id}"), id as f64, false, &[]))
+            .collect::<Vec<_>>();
+        let mut other_band = item(8, "Other band", 100.0, false, &[]);
+        other_band.item.tier = 3;
+        other_band.item.slot = SlotType::Spirit;
+        scored.push(other_band);
+        let build = compose_build_with_layout(
+            &hero(),
+            &scored,
+            &[],
+            &ReasonerConfig::default(),
+            &layout(&[(2, 7)], 1),
+        );
+        assert_eq!(build.core.len(), 5);
+        assert!(build.core.iter().all(|item| item.tier == 2));
+        let optional = build
+            .situations
+            .iter()
+            .find(|block| block.kind == SituationKind::Optional)
+            .unwrap();
+        assert_eq!(
+            optional
+                .items
+                .iter()
+                .map(|item| item.item_id)
+                .collect::<std::collections::BTreeSet<_>>(),
+            [1, 2, 8].into_iter().collect()
         );
     }
 

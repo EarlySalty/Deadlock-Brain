@@ -110,18 +110,22 @@ async fn fix_e_live_warden_evidence() {
     )
     .await
     .unwrap();
-    assert!(build.core.iter().all(|entry| after
-        .iter()
-        .find(|item| item.item.item_id == entry.item_id)
-        .unwrap()
-        .score
-        .total
-        > 0.0));
-    assert!(build
-        .situations
-        .iter()
-        .find(|block| block.label == "Optional")
-        .is_none_or(|block| block.items.len() <= 12));
+    assert!(build.core.iter().all(|entry| {
+        after
+            .iter()
+            .find(|item| item.item.item_id == entry.item_id)
+            .unwrap()
+            .score
+            .total
+            > 0.0
+    }));
+    assert!(
+        build
+            .situations
+            .iter()
+            .find(|block| block.label == "Optional")
+            .is_none_or(|block| block.items.len() <= 12)
+    );
     let mut without_scaling = hero.clone();
     without_scaling
         .scaling
@@ -163,6 +167,59 @@ async fn fix_e_live_warden_evidence() {
     let seeds = meta::load_seed_builds(&seed, &items).unwrap();
     let row: Value = sqlx::query_scalar("SELECT to_jsonb(hbs) FROM tierlist.hero_build_sources hbs WHERE hero_id=25 AND hero_build_id=779996 ORDER BY version DESC LIMIT 1").fetch_one(&ctx.pool).await.unwrap();
     let reference = data::author_build(&row);
+    let mut core_reference = reference.clone();
+    core_reference.core_item_ids = row["details"]["modCategories"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|category| {
+            category["name"]
+                .as_str()
+                .unwrap_or_default()
+                .to_ascii_lowercase()
+                .contains("core")
+        })
+        .flat_map(|category| category["mods"].as_array().unwrap())
+        .filter_map(|item| item["abilityId"].as_i64())
+        .collect();
+    let e_build: BuildObject = serde_json::from_str(include_str!(
+        "../../../../.tasks/2026-09-12-build-reasoner/WARDEN-E-BUILD.json"
+    ))
+    .unwrap();
+    let mut old_layout = meta.core_layouts.for_hero(25).clone();
+    for band in old_layout.bands.values_mut() {
+        band.target = band.median.round() as usize;
+    }
+    old_layout.flex_slots = old_layout.total_target().saturating_sub(12);
+    let old_build =
+        composer::compose_build_with_layout(&hero, &after, &deltas, &ctx.config, &old_layout);
+    let comparisons_f = [
+        ("E", &e_build),
+        ("F vor Fix", &old_build),
+        ("F Fixrunde 1", &build),
+    ]
+    .into_iter()
+    .map(|(stage, build)| {
+        json!({"stage":stage,"core":build.core,
+            "seed":backtest::backtest_metrics(build,&seeds[0]),
+            "reference_core":backtest::backtest_metrics(build,&core_reference),
+            "reference_loader":backtest::backtest_metrics(build,&reference)})
+    })
+    .collect::<Vec<_>>();
+    let item_evidence = after
+        .iter()
+        .map(|item| {
+            json!({"id":item.item.item_id,"name":item.item.name,
+        "tier":item.item.tier,"slot":item.item.slot,"total":item.score.total,
+        "per_soul":item.score.per_soul_value,"shopable":item.item.shopable,"disabled":item.item.disabled})
+        })
+        .collect::<Vec<_>>();
+    println!(
+        "FIX_F_EVIDENCE={}",
+        json!({"layout":meta.core_layouts.for_hero(25),"comparisons":comparisons_f,
+        "reference_core_ids":core_reference.core_item_ids,"reference_loader_ids":reference.core_item_ids,
+        "seed_ids":seeds[0].core_item_ids,"items":item_evidence,"build":build,"read_only":read_only})
+    );
     let comparisons = seeds.iter().map(|author| json!({"source":"Seed","author":author.author,"metrics":backtest::backtest_metrics(&build,author),"jaccard":backtest::core_jaccard(&build,author)}))
         .chain(std::iter::once(json!({"source":"Build 779996","version":reference.version,"metrics":backtest::backtest_metrics(&build,&reference),"jaccard":backtest::core_jaccard(&build,&reference)}))).collect::<Vec<_>>();
     println!(
