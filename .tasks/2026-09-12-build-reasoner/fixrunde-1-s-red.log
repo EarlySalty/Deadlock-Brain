@@ -1,0 +1,99 @@
+warte auf zentrale Test-Postgres... ok
+CENTRAL_TEST_DSN=postgres://deadlock:***@127.0.0.1:32869/deadlock_test
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running `target/debug/dl-central-migrate`
+dl-central-migrate: wende zentrale DB-Migrationen an …
+dl-central-migrate: Migrationen erfolgreich angewendet.
+   Compiling steam-core v0.1.0 (/home/nathanael/.worktrees/steam-bot-autoren-scan/rust/crates/steam-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.39s
+warning: the following packages contain code that will be rejected by a future version of Rust: binrw v0.15.1
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
+     Running unittests src/main.rs (/home/nathanael/.worktrees/steam-bot-autoren-scan/rust/target/debug/deps/steam_core-f65e110d2f9288da)
+
+running 26 tests
+test task::handlers::builds::catalog::tests::clone_needs_update_status_failed ... ok
+test task::handlers::builds::catalog::tests::clone_needs_update_unveraendert ... ok
+test task::handlers::builds::catalog::tests::clone_needs_update_neuerer_source_timestamp ... ok
+test task::handlers::builds::catalog::tests::clone_needs_update_kein_upload ... ok
+test task::handlers::builds::catalog::tests::maintain_args_hero_id_camel_case ... ok
+test task::handlers::builds::catalog::tests::maintain_args_hero_id_snake_case ... ok
+test task::handlers::builds::catalog::tests::clone_needs_update_neuere_source_version ... ok
+test task::handlers::builds::catalog::tests::clone_needs_update_name_geaendert ... ok
+test task::handlers::builds::catalog::tests::maintain_args_leerer_payload_gibt_default ... ok
+test task::handlers::builds::catalog::tests::maintain_args_ungueltig_gibt_fehler ... ok
+test task::handlers::builds::catalog::tests::target_name_kaskade ... ok
+test task::handlers::builds::catalog::tests::target_description_format_wie_node ... ok
+test task::handlers::builds::catalog::tests::discovery_empty_response_is_partial_and_visible ... FAILED
+test task::handlers::builds::catalog::tests::insert_und_cancel_publish_task ... ok
+test task::handlers::builds::catalog::tests::pending_publish_task_id_und_payload_refresh ... ok
+test task::handlers::builds::catalog::tests::discovery_persistence_errors_distinguish_partial_and_error ... FAILED
+test task::handlers::builds::catalog::tests::discovery_status_write_failure_is_visible ... FAILED
+test task::handlers::builds::catalog::tests::insert_und_cancel_delete_task ... ok
+test task::handlers::builds::catalog::tests::restore_clone_nach_delete_cancel ... ok
+test task::handlers::builds::catalog::tests::discovery_no_active_authors_succeeds_without_gc ... ok
+test task::handlers::builds::catalog::tests::discovery_records_ok_and_preserves_collab_author ... FAILED
+test task::handlers::builds::catalog::tests::queue_clone_for_update_setzt_status_pending ... ok
+test task::handlers::builds::catalog::tests::discovery_total_outage_fails_tasks_with_details ... FAILED
+test task::handlers::builds::catalog::tests::discovery_missing_author_never_erases_known_author ... FAILED
+test task::handlers::builds::catalog::tests::insert_clone_und_update_metadata ... ok
+test task::handlers::builds::catalog::tests::discovery_gc_errors_are_recorded_and_other_authors_continue ... FAILED
+
+failures:
+
+---- task::handlers::builds::catalog::tests::discovery_empty_response_is_partial_and_visible stdout ----
+
+thread 'task::handlers::builds::catalog::tests::discovery_empty_response_is_partial_and_visible' (1495078) panicked at crates/steam-core/src/task/handlers/builds/catalog.rs:1230:9:
+assertion failed: checked.is_some()
+
+---- task::handlers::builds::catalog::tests::discovery_persistence_errors_distinguish_partial_and_error stdout ----
+
+thread 'task::handlers::builds::catalog::tests::discovery_persistence_errors_distinguish_partial_and_error' (1495082) panicked at crates/steam-core/src/task/handlers/builds/catalog.rs:1271:9:
+assertion `left == right` failed
+  left: None
+ right: Some("partial")
+
+---- task::handlers::builds::catalog::tests::discovery_status_write_failure_is_visible stdout ----
+
+thread 'task::handlers::builds::catalog::tests::discovery_status_write_failure_is_visible' (1495084) panicked at crates/steam-core/src/task/handlers/builds/catalog.rs:1324:9:
+assertion failed: stats.errors.iter().any(|error|
+        error["error"].as_str().unwrap().contains("author status update failed"))
+
+---- task::handlers::builds::catalog::tests::discovery_records_ok_and_preserves_collab_author stdout ----
+
+thread 'task::handlers::builds::catalog::tests::discovery_records_ok_and_preserves_collab_author' (1495083) panicked at crates/steam-core/src/task/handlers/builds/catalog.rs:1214:9:
+assertion failed: checked.is_some()
+
+---- task::handlers::builds::catalog::tests::discovery_total_outage_fails_tasks_with_details stdout ----
+
+thread 'task::handlers::builds::catalog::tests::discovery_total_outage_fails_tasks_with_details' (1495085) panicked at crates/steam-core/src/task/handlers/builds/catalog.rs:1301:46:
+called `Result::unwrap_err()` on an `Ok` value: Object {"authorsChecked": Number(0), "errors": Array [Object {"authorAccountId": Number(13446690), "error": String("GC-Antwort-Timeout")}], "heroesFound": Number(0), "success": Bool(true), "totalNewBuilds": Number(0), "totalUpdatedBuilds": Number(0)}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+timed out closing TestDb pool for dlcentral_test_1495071_1789239376607130052_3; forcing database teardown
+
+---- task::handlers::builds::catalog::tests::discovery_missing_author_never_erases_known_author stdout ----
+
+thread 'task::handlers::builds::catalog::tests::discovery_missing_author_never_erases_known_author' (1495080) panicked at crates/steam-core/src/task/handlers/builds/catalog.rs:1290:13:
+assertion `left == right` failed
+  left: Some(0)
+ right: Some(1650097169)
+timed out closing TestDb pool for dlcentral_test_1495071_1789239376606108488_2; forcing database teardown
+
+---- task::handlers::builds::catalog::tests::discovery_gc_errors_are_recorded_and_other_authors_continue stdout ----
+
+thread 'task::handlers::builds::catalog::tests::discovery_gc_errors_are_recorded_and_other_authors_continue' (1495079) panicked at crates/steam-core/src/task/handlers/builds/catalog.rs:1251:13:
+assertion failed: checked.is_some()
+timed out closing TestDb pool for dlcentral_test_1495071_1789239376604100944_0; forcing database teardown
+
+
+failures:
+    task::handlers::builds::catalog::tests::discovery_empty_response_is_partial_and_visible
+    task::handlers::builds::catalog::tests::discovery_gc_errors_are_recorded_and_other_authors_continue
+    task::handlers::builds::catalog::tests::discovery_missing_author_never_erases_known_author
+    task::handlers::builds::catalog::tests::discovery_persistence_errors_distinguish_partial_and_error
+    task::handlers::builds::catalog::tests::discovery_records_ok_and_preserves_collab_author
+    task::handlers::builds::catalog::tests::discovery_status_write_failure_is_visible
+    task::handlers::builds::catalog::tests::discovery_total_outage_fails_tasks_with_details
+
+test result: FAILED. 19 passed; 7 failed; 0 ignored; 0 measured; 235 filtered out; finished in 19.03s
+
+error: test failed, to rerun pass `-p steam-core --bin steam-core`

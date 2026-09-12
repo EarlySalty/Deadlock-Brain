@@ -301,3 +301,49 @@ korrekt an C weitergegeben. Keine Signatur-Nebenwirkung auf `types.rs`. Offene
 Punkte (Modellverfügbarkeit 404, DB-Zugangsdaten-Rotation, `tierlist`-
 Sichtbarkeit am Prod-Pool) sind Betriebs- und Orchestrator-Sache, kein
 Nachbesserungsgrund an Paket A.
+
+## Fixrunde 2 (Merge-Kritiker)
+
+Abgeschlossen am 12.09.2026 im Worktree
+`/home/nathanael/.worktrees/deadlock-brain-a`, Branch `feat/build-reasoner-a`.
+Intent-Thread: `33a32f58-476b-4a67-99cc-8f6c1e8f7001`.
+Code-Commit: `a4d1375`, neu auf `fc74b71`, kein Amend. Ein Thread, keine
+Unter-Threads oder Unter-Agenten. Nur der eigene Feature-Branch wurde gepusht.
+Dieser Anhang ergänzt die bestehende zentrale Review-Akte; er ist nicht Teil
+des Code-Commits und wird hier nicht auf `main` committet.
+Die folgenden Zeilen beziehen sich auf `rust/crates/dbrain-reasoner/src/`.
+
+| Fund | Datei:Zeile | Änderung in `a4d1375` | Regressionstest |
+|---|---|---|---|
+| BLOCKING: Verdict im Realpfad ungeprüft | `ai_roles.rs:240`, `ai_roles.rs:109` | `call` erhält den Rollenparser als Funktionsparameter. `run_critic` übergibt `parse_critic_response`; nur `pass` und `recompose` sind gültig, andere Urteile ergeben `ReasonerError::Ai`. Alle Rollen verwenden damit denselben Parser im direkten Parse und im HTTP-Pfad. | `ai_roles.rs:256`: echter `AiClient` gegen lokalen HTTP-Testserver. `pass` und `recompose` samt Issues werden akzeptiert; `maybe` muss einen KI-Parserfehler liefern. 1 neuer Test: vor Fix rot, nach Fix grün. |
+| NIT: fehlende Zahlen werden stumm zu Null | `data.rs:26`, `data.rs:56`, `data.rs:72`, `data.rs:232`, `data.rs:349`, `data.rs:359` | `number` und `card_number` liefern `Option<f64>`. Fehlende, unparsbare und nicht endliche Werte bleiben `None`; echte Nullen bleiben `Some(0.0)`. Property-Maps überspringen ungültige Zahlen, optionales Spirit-Scaling bleibt unbekannt, Gesundheits- und Waffen-Aliase können auf gültige Ersatzwerte zurückfallen. | `data.rs:899`, `data.rs:920`, `data.rs:935`: 3 neue Tests für Property-Maps, optionales Scaling und Snapshot-Ersatzwerte. Alle 3 vor Fix rot, nach Fix grün; echte Nullen bleiben jeweils erhalten. |
+
+Entscheidung zum Nit: `Option` statt Warnzustand je Feld vermeidet zusätzliche
+Dependencies und prozessweite Log-Entprellung. Aufrufer mit optionalen Werten,
+Property-Maps oder Ersatzquellen erhalten die Unterscheidung. An bestehenden
+Pflichtfeldern vom Typ `f64`/`i64` bleibt der bisherige Null-Default ausdrücklich
+am jeweiligen Aufrufer erhalten, nachdem vorhandene Ersatzquellen geprüft sind.
+So bleiben die vereinbarten öffentlichen Typen unverändert.
+
+Testnachweis im Worktree, jeweils unter `rust/` mit
+`PATH=/home/nathanael/.cargo/bin:$PATH`:
+
+| Lauf | Bestanden | Fehlgeschlagen | Ignoriert |
+|---|---:|---:|---:|
+| Baseline `fc74b71`, `cargo test -p dbrain-reasoner` | 7 | 0 | 5 |
+| Rot-Gegenprobe: nur vier neue Tests, Produktionscode unverändert | 7 | 4 | 5 |
+| Endstand `a4d1375`, `cargo test -p dbrain-reasoner` | 11 | 0 | 5 |
+
+Die vier roten Tests scheiterten an den erwarteten Verhaltensassertionen;
+kein Compilerfehler. Doc-Tests: 0. Die fünf unverändert ignorierten Tests
+benötigen Postgres-DSNs und wurden in dieser Fixrunde nicht ausgeführt.
+`cargo clippy -p dbrain-reasoner --all-targets -- -D warnings`: Exit 0.
+Formatter nur auf den beiden eigenen Rust-Dateien:
+`rustfmt --edition 2021 --check crates/dbrain-reasoner/src/ai_roles.rs crates/dbrain-reasoner/src/data.rs`:
+Exit 0. `git diff --check`: Exit 0.
+
+`types.rs`, `lib.rs`, andere Crates und Dependencies bleiben unverändert;
+keine Code-Kommentare ergänzt. Der ungültige Kritiker liefert jetzt den
+vertraglichen KI-Fehler für den aufrufenden Build-Fallback. Die übergeordnete
+Build-Orchestrierung gehört nicht zu diesem Paket und wurde nicht verändert
+oder als End-to-End-Fallback getestet.

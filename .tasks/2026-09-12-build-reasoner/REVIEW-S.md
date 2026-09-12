@@ -110,3 +110,144 @@ doppelt an. Kurz gegen die Enqueuer pruefen.
    `SELECT ... FROM tierlist.hero_build_sources WHERE hero_id = 25` prueft, dass
    der Warden-Build in Version 31 (Autor 1650097169) erscheint, nicht nur die
    v1-Kopie 782057.
+
+## Fixrunde 1
+
+Stand: 2026-09-12. Intent-Thread: `33a32f58-476b-4a67-99cc-8f6c1e8f7001`.
+Worktree: `/home/nathanael/.worktrees/steam-bot-autoren-scan`.
+Branch: `feat/autoren-scan-reaktivieren`, Basis `f82c21c`.
+Fix-Commit für die folgenden Änderungen: `102ec83fe91548e79963be9aa93dc5d7baee3c66`.
+
+### Abgleich der fünf Mängel mit dem eigenen Diff
+
+1. **Behoben.** `rust/crates/steam-core/src/task/handlers/builds/discovery.rs:184`
+   bestimmt pro Autor `ok`, `partial` oder `error` und schreibt auch bei
+   GC-Code 2/5 und Timeout Zeitstempel und Meldung zurück. Die Meldung enthält
+   gefundene Builds, unterschiedliche Helden, neue und aktualisierte Quellen
+   sowie Fehlerzahl und Fehlerdetails. Eine erfolgreiche leere Antwort wird
+   `partial` mit `0 builds from 0 heroes`. Teilweise gespeicherte Ergebnisse
+   mit Fehlern werden `partial`, ein vollständiger Fehlschlag `error`.
+   `rust/crates/steam-persistence/src/builds.rs:857` ergänzt den vorhandenen
+   Persistenzpfad; der Db-Wrapper steht bei `:1224`. Fehler beim Status-Update
+   stehen selbst im Task-Ergebnis und zählen nicht als erfolgreicher Autor.
+   Die acht tatsächlichen Spalten von `tierlist.watched_build_authors` wurden
+   zusätzlich lesend in der Live-DB über `information_schema.columns` geprüft.
+   Keine Migration.
+2. **Behoben.** `FERTIG-S.md:78` empfiehlt jetzt alle drei Accounts einschließlich
+   `1650097169` mit der Notiz `Kollab-Autor Lightbringer x Situation`.
+   `FERTIG-S.md:134` verlangt im Live-Proof ausdrücklich `779996`, Held `25`,
+   GC-Autor `1650097169`, Version mindestens `31` und einen frischen
+   `last_seen_at`. Die v1-Kopie `782057` genügt nicht. Die Status-Abfrage prüft
+   zusätzlich alle drei Autoren. Der DB-Regressionstest
+   `rust/crates/steam-core/src/task/handlers/builds/catalog.rs:1213` sucht unter
+   `13446690`, bekommt einen Build von `1650097169` und erhält diesen GC-Autor
+   beim Einfügen und Aktualisieren auf Version 31. Es erfolgt keine
+   Normalisierung auf den beobachteten Account. Die Testantwort ist simuliert;
+   der API-Befund bleibt der lesende Nachweis aus Review Runde 1.
+3. **Behoben.** `rust/crates/steam-core/src/task/handlers/builds/discovery.rs:59`
+   gibt bei vollständigem Fehlschlag `TaskFailure` mit Zählern und Fehlerdetails
+   zurück. Dadurch setzt der vorhandene Runner den Task auf `FAILED` und
+   `ok: false`. `rust/crates/steam-core/src/task/handlers/builds/catalog.rs:108`
+   übernimmt dies auch für `BUILD_CATALOG_CYCLE`. Maintenance läuft weiterhin
+   nach Discovery und ihr Ergebnis bleibt im Fehlerobjekt erhalten. Ohne aktive
+   Autoren bleibt der leere Lauf erfolgreich. Beleg: `catalog.rs:1359` und
+   `:1424`.
+4. **Behoben.** `rust/crates/steam-persistence/src/builds.rs:287` erhält beim
+   Upsert mit `COALESCE(NULLIF(EXCLUDED.author_account_id, 0), ...)` den bekannten
+   Autor bei fehlender oder explizit nullwertiger GC-ID. Eine tatsächlich
+   gelieferte andere Account-ID darf weiterhin aktualisieren. Regressionstest:
+   `rust/crates/steam-core/src/task/handlers/builds/catalog.rs:1333`.
+5. **Geprüft und begründet belassen.**
+   `rust/crates/steam-core/src/task/handlers/builds/discovery.rs:14` und `:23`
+   bleiben gemeinsame Einstiegspunkte in dieselbe Discovery. Der Reviewer
+   verlangt eine Enqueuer-Prüfung, keine zwingende Trennung. Die Suche in den
+   aktuellen Rust-, Python-, JavaScript- und TypeScript-Quellen unter
+   `/home/nathanael/repos` fand nur Registrierung und Lane-Zuordnung im Steam-Bot,
+   keine Enqueuer für diese beiden Task-Typen. In Deadlock-Bots gibt es nur einen
+   historischen Doku-Verweis. Eine lesende gruppierte Abfrage auf
+   `steam.steam_tasks` lieferte für beide Typen keine Zeilen. Der aktive
+   Tages-Scheduler stellt `BUILD_CATALOG_CYCLE` ein. Externe, nicht vorliegende
+   dynamische Enqueuer lassen sich damit nicht grundsätzlich ausschließen;
+   für eine zusätzliche Trennung gibt es im geprüften Bestand keinen Anlass.
+
+### Prüfungen
+
+| Prüfung | Baseline | Rot-Gegenprobe | Endstand |
+| --- | --- | --- | --- |
+| Offline: steam-core und steam-persistence | 174 bestanden, 0 fehlgeschlagen | unverändert | 174 bestanden, 0 fehlgeschlagen |
+| Docker-Katalogtests | 18 bestanden | 19 bestanden, 7 fehlgeschlagen | 26 bestanden, 0 fehlgeschlagen |
+| Docker-Persistenztransaktionen | 2 bestanden | unverändert | 2 bestanden, 0 fehlgeschlagen |
+
+Die Offline-Baseline wurde auf `f82c21c` erneut ausgeführt. Für die
+Rot-Gegenprobe wurde zuerst nur der bestehende GC-Aufruf als injizierbarer
+Callback und die bestehende Ergebnisbildung als Funktion herausgezogen,
+noch ohne Verhaltensfix. Die sieben neuen Fehlerfalltests scheiterten
+anschließend an den Review-Mängeln; die 18 bestehenden Tests und die neue
+Kontrollprobe ohne aktive Autoren bestanden. Nach den Fixes bestehen alle acht
+neuen Tests. Auch der echte PostgreSQL-Constraint-Fehler beim Quellen-Upsert
+und ein abgewiesenes Autoren-Status-Update sind abgedeckt.
+
+Ausgeführte Testbefehle:
+
+```bash
+export PATH=/home/nathanael/.cargo/bin:$PATH
+SQLX_OFFLINE=true cargo test -p steam-core -p steam-persistence \
+  --manifest-path rust/Cargo.toml
+/home/nathanael/repos/Deadlock-Bots/rust/scripts/central_test_db.sh \
+  cargo test --manifest-path /home/nathanael/.worktrees/steam-bot-autoren-scan/rust/Cargo.toml \
+  -p steam-core --features testing -- task::handlers::builds::catalog::tests --include-ignored
+/home/nathanael/repos/Deadlock-Bots/rust/scripts/central_test_db.sh \
+  cargo test --manifest-path /home/nathanael/.worktrees/steam-bot-autoren-scan/rust/Cargo.toml \
+  -p steam-persistence --features testing --test build_catalog_transactions -- --include-ignored
+```
+
+Der im Briefing genannte Wrapper existiert im Steam-Bot nicht. Genutzt wurde
+unverändert der vorhandene Wrapper unter Deadlock-Bots; dessen Wegwerf-DB
+enthält die zentralen Migrationen. Es wurde kein Ersatzskript ins Repo gebaut.
+
+- Compiler: `cargo check -p steam-persistence` gegen die migrierte Wegwerf-DB
+  erfolgreich; beide Crates zusätzlich durch die Testläufe kompiliert.
+- SQLx: die Metadaten wurden vom SQLx-Makro beim Online-Check mit
+  `SQLX_OFFLINE_DIR` erzeugt, ohne JSON-Handedit. Neuer Status-Cache
+  `query-c23a021af7966dcf82b69e0881cdb2df87de08962690828d33e377bb7dcdd33a.json`;
+  Upsert-Cache `query-c447440a5aa3b0f2a7b6db391a4de0d309559870679e347dd6f498f0eda5bdb3.json`
+  ersetzt `query-12f619db3a07acfb66b621f840990c45c250a08d4bb562944690722d4df1924b.json`.
+- Formatter: `rustfmt --check` für die beiden angefassten Core-Dateien
+  erfolgreich. Die drei eigenen Persistenzfunktionen stimmen mit der
+  rustfmt-Ausgabe überein; vorbestehende Formatabweichungen außerhalb des Diffs
+  bleiben erhalten. `git diff --check` erfolgreich.
+- Clippy: `steam-core --all-targets --features testing` sowie
+  `steam-persistence --all-targets` offline erfolgreich. Der gemeinsame
+  Offline-Lauf mit allen Testfeatures traf auf neun fehlende Cache-Einträge
+  älterer Tests in `commands.rs`, `links.rs` und `tasks.rs`; diese Dateien
+  gehören nicht zum Fix. Der gemeinsame Lauf wurde daher gegen die migrierte
+  Wegwerf-DB mit `DATABASE_URL` und `SQLX_OFFLINE=false` wiederholt:
+  erfolgreich (Exit 0), keine Warnung in den geänderten Dateien.
+  Verbleibend sind die vorbestehende Warnung `gc_health.rs:45` (`cooldown`)
+  und der Future-Incompatibility-Hinweis für `binrw 0.15.1`.
+- Kein Release-Build, keine neue Poll-Schleife, keine zusätzlichen GC-Retries,
+  keine Änderungen an Lobby, Rank, Invite oder Publish. Keine Unter-Agenten.
+- Logs: `fixrunde-1-s-baseline.log`, `fixrunde-1-s-red.log`,
+  `fixrunde-1-s-green.log`, `fixrunde-1-s-offline.log` und
+  `fixrunde-1-s-clippy-db.log` in diesem Task-Ordner.
+
+### Aktualisierter SQL-Vorschlag
+
+```sql
+INSERT INTO tierlist.watched_build_authors
+    (author_account_id, notes, is_active)
+VALUES
+    (13446690, 'Lightbringer', true),
+    (34634349, 'Situation', true),
+    (1650097169, 'Kollab-Autor Lightbringer x Situation', true)
+ON CONFLICT (author_account_id) DO UPDATE
+SET notes = EXCLUDED.notes,
+    is_active = EXCLUDED.is_active;
+```
+
+Nur vorbereitet, nicht auf Prod ausgeführt. Der aktualisierte Live-Proof steht
+vollständig in `FERTIG-S.md`. Deployment und anschließender echter GC-Scan
+bleiben bei der Merge-Schleuse beziehungsweise dem Delegator.
+
+Push: `origin/feat/autoren-scan-reaktivieren` auf `102ec83fe91548e79963be9aa93dc5d7baee3c66` bestätigt.
+Es wurde ausschließlich der eigene Feature-Branch gepusht, niemals `main`.

@@ -204,3 +204,155 @@ Mangel 2 (scaling_step ohne Datenquelle, Angelpunkt tot). Wichtig: Mangel 3, 4, 
 - Der Echtdaten-Warden-Lauf mit DSN muss nachgeholt werden: vier Referenzscores
   und fuenf beste/schlechteste Items protokollieren, gegen eine echte Kern-Schwelle
   pruefen. Vorher keine Freigabe von B.
+
+## Fixrunde 1
+
+Status: Bump-up offen, noch keine Fertigfreigabe. Stand 2026-09-12.
+Worktree `/home/nathanael/.worktrees/deadlock-brain-b`, Branch
+`feat/build-reasoner-b`, Intent-Thread `33a32f58-476b-4a67-99cc-8f6c1e8f7001`.
+Keine Unter-Agenten oder Unter-Threads gestartet.
+
+A wurde wie beauftragt zuerst gemergt. Auch der anschließend eingetroffene
+Gate-Fix `a4d1375` ist enthalten; aktueller Merge-Commit `f6f0f70`.
+Die B-Fixes liegen im Arbeitsbaum, noch ohne Fix-Commit und ohne Push,
+weil der verstärkte Echtdaten-Pflichttest weiterhin einen echten Fehler zeigt.
+`types.rs` ist unverändert. In `data.rs` steht nur die freigegebene additive
+Funktion `load_hero_abilities`, in `lib.rs` deren Export sowie die ausdrücklich
+nur temporären drei `pub mod`-Zeilen für die Prüfung.
+
+### Selbstprüfung je Review-Mangel
+
+Zeilen beziehen sich auf den aktuellen Arbeitsbaum. Die Prüfung ersetzt nicht
+die nachgelagerte unabhängige Review-Runde.
+
+| Mangel | Datei:Zeile | Änderung und verbleibender Befund |
+|---|---|---|
+| 1 | `src/item.rs:104`, `src/item.rs:362` | Benannte Kern-Schwelle `CORE_SCORE_QUANTILE = 0.5`, Median des mechanischen Slot-Werts derselben Kostenklasse. Meta beeinflusst die Schwelle nicht. Test prüft alle vier Items und protokolliert alle Ränge. Quicksilver Reload bleibt unter der Schwelle, siehe Daten-Bump-up. |
+| 2 | `src/data.rs:516`, `src/lib.rs:18`, `src/hero.rs:83` | Öffentlicher Ability-Loader und verketteter `load_built_hero_model`: Grundmodell, Ability-Payloads, Stat-Zeilen, Enrichment und konfigurierter Damage-Plan. Echtdaten belegen Willpower T3 mit 0,8 + 2,7 = 3,5. |
+| 3 | `src/mechanics.rs:461` | Scoring ruft `proc_stacks` auf, liest `item.proc_cooldown`, nutzt Schussabstand für ShotBound und vorhandene Item-TickRate für Tick-Procs. MaxStacks begrenzt die Anzahl. Ability-Tickraten können mit den eingefrorenen Typen weiterhin nicht bis ins Scoring transportiert werden. Bump-up offen. |
+| 4 | `src/mechanics.rs:37`, `src/mechanics.rs:74` | Additive Funktion `condition_factor_for_hero` im Scoring. ShotBound aus Magazin, Feuerrate und Nachladen; Melee aus Archetyp/Klasse; ActionBound aus Ability-Rollen und Klassen. Alter API-Einstieg bleibt kompatibel. Die heuristische Rotation wird als Annahme in Evidence benannt. Warden fehlt noch die echte Nachladezeit im geladenen Modell. |
+| 5 | `src/item.rs:51` | `total = per_slot_value + meta_support + patch_support`. Kein Summieren von Soul- und Slot-Effizienz. `per_soul_value` bleibt für frühe Composer-Käufe verfügbar. Regression prüft identische Slot-Scores bei achtfachem Preis. |
+| 6 | `src/mechanics.rs:10`, `src/mechanics.rs:361` | Kaufboni und Properties auf Schaden oder effektivem Leben pro Sekunde normiert. Spirit über Ability-Skalierung und Castzahl, Vitality über Basisleben und Kampffenster. Keine Summe sämtlicher numerischer DB-Stats als Spirit-Skalierung mehr. Basiswirkung der Abilities fehlt weiterhin im Typ, siehe Bump-up. |
+| 7 | `src/mechanics.rs:258` | Casts exakt als Minimum aus Anfangsladungen plus W/recharge und W*uptime/channel. Tests mit W=40, uptime=0,55, Kanal=7 und recharge=30, einschließlich Sättigung. |
+| 8 | `src/mechanics.rs:150`, `src/mechanics.rs:166` | Ziel nach Ability-Wert mal itemabhängigem Imbue-Gewinn; Cooldown und Ladungen konkurrieren mit dem Kanalbudget. Test zeigt Zielwechsel bei 50 Prozent Cooldown-Reduktion. Absolute Basiswirkung bleibt Teil des Bump-ups. |
+| 9 | `src/mechanics.rs:70`, `src/item.rs:68` | Eigene Größe `hit_rate`; Gleichverteilung des Restlebens ausdrücklich als ungemessene Annahme in Evidence. 65 Prozent Schwelle ergibt unter dieser Annahme 0,35. |
+| 10 | `src/mechanics.rs:194`, `src/mechanics.rs:209` | Additive heldenabhängige Kaufphase aus Soul-Kurve und frühester Skalierungsstufe. Annahme: Upgrade-Kosten 1/2/5, Unlock-Level 1/3/5/8; fehlende Kurve/Stufe fällt sichtbar auf Kostenheuristik zurück. Verteidigung wird Late. Dies ist eine früheste Phase, keine vollständige kumulative Kaufplanung. |
+| 11 | `src/hero.rs:19` | Zuordnung durch Position der passenden Ability-ID, kein Slot als Vektorindex und kein Enumerations-Fallback. Unbekannte IDs erzeugen einen Datenfehler. Test mit unsortierter Ability-Liste und Echtdaten bestanden. |
+
+Weitere aus dem Echtdatenlauf abgeleitete Korrekturen: EAddToScale addiert den
+Bonus auf `properties.<name>.scale_function.stat_scale`; gewöhnlicher
+WeaponPowerDebuff wird nicht mehr als Skalierungsstufe erkannt. Doppelte
+Properties in aktiver und passiver Map zählen einmal. Bullet-Speed, MaxStacks
+und rohe AbilityCooldown-Werte erzeugen keinen direkten Schaden. Instant Reload
+zählt gesparte Nachladezeit statt pauschal 100 Prozent mehr Waffen-DPS.
+
+### Testnachweise
+
+Alle Läufe nutzen die Debug-Toolchain unter `/home/nathanael/.cargo/bin`.
+Die drei B-Module waren für sämtliche Paket-Prüfungen temporär öffentlich
+in `lib.rs` eingebunden.
+
+| Stand | Ohne DSN | Mit Echtdaten-DSN und isoliertem Scratch-DSN |
+|---|---|---|
+| Anfang nach erstem A-Merge | 20 bestanden, 0 fehlgeschlagen, 6 ignoriert | Zwei echte Warden-Tests bestanden; zunächst vier Fehler wegen fehlender Scratch-Konfiguration |
+| Vergleichsbaseline nach A-Gate-Fix, unveränderter B-Code aus 68dc58c | 24 bestanden, 0 fehlgeschlagen, 6 ignoriert | 30 bestanden, 0 fehlgeschlagen, 0 ignoriert |
+| Aktueller Fixstand | 44 bestanden, 0 fehlgeschlagen, 6 ignoriert | 49 bestanden, 1 fehlgeschlagen, 0 ignoriert |
+
+Der eine echte Fehler ist ausschließlich Quicksilver Reload unter der
+Kern-Schwelle. Kein Skip ohne DSN im verstärkten B-Pflichttest.
+Die Scratch-Instanz wurde separat unter `/tmp/reasoner-b-pg` auf Port 55439
+mit Datenbank `reasoner_a_fix` gestartet. Nur dort liefen die schreibenden
+A-Tests. Der Echtdatenzugang lief mit `default_transaction_read_only=on`;
+der B-Pflichttest erzwingt dies zusätzlich beim Verbindungsaufbau.
+
+Rot-Gegenproben für alle 20 neuen Tests:
+
+- Erste elf Regressionen vor den Implementierungsänderungen: 20 bestanden,
+  11 fehlgeschlagen, 6 ignoriert.
+- Gegner-Debuff/Selbstkosten-Test vor der Korrektur: 38 bestanden,
+  1 fehlgeschlagen, 6 ignoriert.
+- Reload-Regression und erweiterter Property-Test vor der Korrektur:
+  42 bestanden, 2 fehlgeschlagen, 6 ignoriert.
+- Temporäre Rücknahmen von Rotations-, Imbue-, Phasen-, Doppelzählungs-,
+  Tick-, Total- und Skalierungsfix: 36 bestanden, 8 fehlgeschlagen,
+  6 ignoriert. Diese Mutationen wurden anschließend vollständig entfernt.
+
+Formatter auf den drei eigenen B-Dateien und
+`cargo clippy -p dbrain-reasoner --all-targets -- -D warnings` sind grün.
+Es gibt keine Code-Kommentare in den drei B-Dateien. Kein externer KI-Aufruf;
+A enthält einen lokalen HTTP-Fixture-Test für den Kritiker.
+
+Prüflogs liegen unter `/tmp/reasoner-b-red.log`,
+`/tmp/reasoner-b-red2.log`, `/tmp/reasoner-b-red3.log`,
+`/tmp/reasoner-b-mutants.log`, `/tmp/reasoner-b-baseline-final-a.log`,
+`/tmp/reasoner-b-baseline-final-a-dsn.log`, `/tmp/reasoner-b-live2.log`.
+
+### Warden-Zahlen des aktuellen, noch unvollständigen Modells
+
+W=40 s, Kanalanteil=0,55, Meta leer, Patch-Deltas leer.
+Score ist `per_slot_value`; in diesem Lauf ist `total` identisch.
+Diese Zahlen sind ein Fehlernachweis, noch keine fachliche Freigabe des Builds.
+
+| Referenz-Item | Score | Kern-Schwelle gleicher Kostenklasse | Ergebnis |
+|---|---:|---:|---|
+| Veil Walker | 11,867174 | 10,577337 | darüber |
+| Mercurial Magnum | 53,035390 | 15,218273 | darüber |
+| Siphon Bullets | 35,918983 | 15,218273 | darüber |
+| Quicksilver Reload | 9,918407 | 10,735000 | darunter |
+
+| Gruppe | Item | Score |
+|---|---|---:|
+| Top 1 | Express Shot | 128,860088 |
+| Top 2 | Spirit Burn | 103,856031 |
+| Top 3 | Lucky Shot | 101,467107 |
+| Top 4 | Frenzy | 89,569428 |
+| Top 5 | Juggernaut | 88,854534 |
+| Bottom 5 | Extra Stamina | 1,411637 |
+| Bottom 4 | Extra Charge | 1,124294 |
+| Bottom 3 | Mystic Expansion | 1,122370 |
+| Bottom 2 | Golden Goose Egg | -4,734296 |
+| Bottom 1 | Trophy Collector | -6,671390 |
+
+### Bump-up und konkrete Fortsetzung
+
+[Bump-up] Paket B: Grund: Der erlaubte Loader-Zugriff liefert nur die vier
+Signature-Abilities. Wardens Hero-Payload enthält kein `weapon_info`; seine
+Stat-Zeilen enthalten Basiswaffenschaden, Feuerrate und Magazin, aber keine
+Nachladezeit. Die echte Waffenquelle ist der Snapshot `item_or_ability` mit
+`class_name = citadel_weapon_warden_set`, referenziert durch
+`hero.items.weapon_primary`. Er enthält `reload_duration = 2.914`,
+`bullet_damage = 17.34`, `shots_per_second = 3.8095238095238098`,
+`clip_size = 17`, `damage_per_second_with_reload = 38.6520684455517`.
+Aktuell ist `reload_duration` im HeroModel weiterhin 0. Ohne diese Daten
+bekommt Quicksilver Reload keinen rechnerischen Reload-Gewinn.
+
+Zusätzlich fehlen in AbilityModel Basiswirkung, Tickrate und Wirkungsdauer.
+Die vorhandene Ability-Skalierung allein ist kein absoluter Schadenswert.
+Damit sind der derzeitige Spirit-DPS-Wert und der Waffenanteil nur ein
+unzureichendes Modell; die grünen ersten Referenzscores sind kein Ersatz
+für den vollständigen Datenweg.
+
+Erledigt: freigegebener Loader, mechanische Fixes und Regressionen, DSN-Zugang,
+komplette Testläufe samt echtem negativem Pflichtnachweis, Schwelle unverändert.
+Worktree: `/home/nathanael/.worktrees/deadlock-brain-b`.
+Offen: Freigabe zur additiven Erweiterung von `types.rs` und der dazugehörigen
+Loader-Pfade in `data.rs`, alternativ verbindliche Übergabe dieser
+Datenkorrekturen an A/D. Konkrete Änderung: Waffensnapshot über
+`hero.items.weapon_primary` auflösen, vorhandenes WeaponProfile vollständig
+füllen; AbilityModel um transportierte Basiswirkung/Tickrate/Dauer ergänzen,
+vorhandene `scale_function`-Werte übernehmen und damit die bereits angebundene
+Proc-/Kampffensterrechnung speisen. Danach Schwellenlauf unverändert wiederholen,
+Formatter/Clippy/Tests abschließen, temporäre Modulzeilen entfernen, nur B-Dateien
+und freigegebene Ergänzungen mit Modell-Trailer committen und ausschließlich
+`feat/build-reasoner-b` pushen. Der aktuelle rote Pflichtlauf wird nicht gepusht.
+
+Secret-Hinweis: Ein früher fehlgeschlagener psql-Aufruf hat einen Teil des DSN
+in seiner Tool-Fehlerausgabe gezeigt. Folgende Verbindungsfehler wurden
+abgeschirmt. Keine DSN-Werte stehen in diesem Bericht oder im Diff.
+
+Vor der Übergabe wurden die drei temporären Modulzeilen wieder entfernt und
+die eigene Scratch-Postgres gestoppt. Für weitere B-Paket-Tests erneut
+`pub mod hero; pub mod item; pub mod mechanics;` temporär ergänzen und die
+bestehende Scratch-Instanz mit `pg_ctl -D /tmp/reasoner-b-pg -l
+/tmp/reasoner-b-pg.log -o '-k /tmp/reasoner-b-pg-socket -p 55439 -h 127.0.0.1'
+start` starten. Der Quellstand einschließlich aller Fixes bleibt erhalten.

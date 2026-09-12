@@ -1,0 +1,212 @@
+   Compiling steam-persistence v0.1.0 (/home/nathanael/.worktrees/steam-bot-autoren-scan/rust/crates/steam-persistence)
+   Compiling steam-core v0.1.0 (/home/nathanael/.worktrees/steam-bot-autoren-scan/rust/crates/steam-core)
+warning: unused import: `super::*`
+   --> crates/steam-core/src/task/handlers/scrim_lobby.rs:852:9
+    |
+852 |     use super::*;
+    |         ^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `steam-core` (bin "steam-core" test) generated 1 warning (run `cargo fix --bin "steam-core" -p steam-core --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 21.72s
+warning: the following packages contain code that will be rejected by a future version of Rust: binrw v0.15.1
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
+     Running unittests src/main.rs (rust/target/debug/deps/steam_core-dbdb1dad40b2245e)
+
+running 174 tests
+test api::mandatory_api_contract_tests::scrim_bindung_erlaubt_loopback_und_verweigert_oeffentliche_adressen ... ok
+test config::tests::api_bind_security_erlaubt_loopback_ohne_token ... ok
+test config::tests::api_bind_security_blockt_non_loopback_ohne_token ... ok
+test config::tests::api_bind_security_erlaubt_non_loopback_mit_token ... ok
+test api::mandatory_api_contract_tests::router_auth_schuetzt_protected_routes_real ... ok
+test config::tests::bot_account_config_disables_catalog_maintenance ... ok
+test config::tests::bot_account_config_uses_legacy_defaults ... ok
+test config::tests::bot_account_config_uses_explicit_values ... ok
+test gc_health::tests::code_5_setzt_cooldown ... ok
+test gc_health::tests::erfolg_nach_abgelaufenem_cooldown_baut_backoff_ab ... ok
+test api::mandatory_api_contract_tests::scrim_v1_operation_boundary_liefert_stabiles_unsupported_version ... ok
+test gc_health::tests::gemischt_zaehlen_nur_timeouts_fuer_den_reset ... ok
+test gc_health::tests::erfolg_setzt_fehlerzaehler_zurueck ... ok
+test gc_health::tests::fehler_jenseits_des_fensters_starten_neue_serie ... ok
+test gc_health::tests::reine_code_5_serie_loest_keinen_reset_disconnect_aus ... ok
+test steam::cso::tests::member_steam_ids_konvertiert_account_id ... ok
+test gc_health::tests::reine_code_5_serie_treibt_den_reset_streak_nicht ... ok
+test gc_health::tests::note_lane_success_schaerft_den_watchdog_wieder ... ok
+test gc_health::tests::serie_von_fehlern_ueber_schwelle_meldet_reset_faellig ... ok
+test lobby_state::tests::classify_sqlx_unterscheidet_integritaet_von_nicht_erreichbar ... ok
+test api::mandatory_api_contract_tests::json_rejections_liefern_fuer_scrims_stabile_api_error_json_und_tasks_legacy ... ok
+test gc_health::tests::vereinzelte_fehler_mit_erfolg_loesen_keinen_reset ... ok
+test gc_health::tests::erfolg_waehrend_aktivem_cooldown_loescht_ihn_nicht ... ok
+test steam::cso::tests::party_cache_bewahrt_zwei_mitglieder_mit_team_ready_und_slot ... ok
+test steam::cso::tests::party_cache_ersetzt_mitglieder_und_erfindet_keinen_slot ... ok
+test steam::cso::tests::party_cache_erkennt_creator_ueber_rechte_statt_mitgliederreihenfolge ... ok
+test api::mandatory_api_contract_tests::scrim_v1_operation_serialisiert_exakten_nicht_bereit_fehler ... ok
+test steam::cso::tests::party_cache_bewahrt_first_seen_at_ueber_updates ... ok
+test steam::email_guard::tests::test_config_faellt_auf_legacy_login_zurueck ... ok
+test steam::email_guard::tests::test_config_nutzt_ionos_login_mit_vorrang ... ok
+test lobby_state::tests::auto_start_braucht_zwoelf_echte_bereite_eindeutige_slots ... ok
+test steam::email_guard::tests::test_mail_alter_ungueltig ... ok
+test lobby_state::tests::auto_start_akzeptiert_wire_default_player_und_stabilen_cache ... ok
+test steam::email_guard::tests::test_mail_alter_abgelaufen ... ok
+test steam::email_guard::tests::test_mail_alter_frisch ... ok
+test steam::email_guard::tests::test_handler_inaktiv_ohne_env ... ok
+test steam::friends::tests::apply_meldet_nur_neue_eingehende_anfragen ... ok
+test steam::friends::tests::eintrag_ohne_steamid_wird_ignoriert ... ok
+test api::mandatory_api_contract_tests::tasks_v0_post_und_get_bleiben_legacy_wire_contract ... ok
+test steam::friends::tests::inkrementell_mischt_und_beziehung_null_entfernt ... ok
+test steam::friends::tests::unbekannte_id_hat_keine_beziehung ... ok
+test steam::friends::tests::vollliste_ersetzt_und_filtert_beziehung_null ... ok
+test steam::gc::tests::deadlock_gc_kind_roundtrip ... ok
+test steam::gc::tests::encode_kind_setzt_proto_flag ... ok
+test steam::gc::tests::wrapper_kind_kommt_aus_msg_id ... ok
+test steam::gc::tests::wrapper_by_id_nutzt_explizite_msg_id ... ok
+test steam::email_guard::tests::test_suchkriterium_filtert_nur_eigenen_empfaenger ... ok
+test steam::heartbeat::tests::runtime_ausgeloggt_hat_konsistente_felder ... ok
+test steam::email_guard::tests::test_tls_config_baut_ohne_panic ... ok
+test steam::presence::tests::gameid_unteres_wort_matcht_app_id ... ok
+test steam::heartbeat::tests::snapshot_traegt_timestamp_und_runtime ... ok
+test steam::gc::tests::write_body_entspricht_prost_encoding ... ok
+test steam::gc::tests::read_body_roundtrip ... ok
+test steam::heartbeat::tests::runtime_spiegelt_konto_konfiguration ... ok
+test steam::presence::tests::in_deadlock_lobby_ohne_match_signal ... ok
+test steam::presence::tests::minuten_ausserhalb_bereich_verworfen ... ok
+test steam::presence::tests::in_deadlock_match_mit_time_und_party ... ok
+test steam::presence::tests::guess_hero_aus_brace_muster ... ok
+test steam::token_sync::tests::updater_invocation_never_contains_secret_value ... ok
+test steam::presence::tests::nicht_in_deadlock_ohne_rp_wird_uebersprungen ... ok
+test steam::session::tests::login_timeout_deckt_legitime_recovery_ab ... ok
+test steam::token_sync::tests::updater_invocation_runs_python_directly ... ok
+test steam::session::tests::erfolgreicher_login_innerhalb_timeout_bleibt_erfolgreich ... ok
+test task::handlers::auth::tests::guard_code_meldet_kein_pending ... ok
+test steam::token_sync::tests::updater_script_override_replaces_default ... ok
+test task::handlers::auth::tests::logout_ist_inert_und_bestaetigt ... ok
+test task::handlers::auth::tests::login_ohne_session_meldet_not_logged_in ... ok
+test task::handlers::builds::publish_original::tests::build_hero_build_mappt_imbue_und_sell_priority ... ok
+test task::handlers::builds::publish_original::tests::build_hero_build_mappt_ability_order ... ok
+test task::handlers::builds::publish_original::tests::build_hero_build_mappt_item_annotation_und_flex_slots ... ok
+test task::handlers::builds::publish_original::tests::build_hero_build_mappt_kategorie_metadaten_und_leere_breite ... ok
+test task::handlers::builds::publish_original::tests::build_hero_build_mappt_optionale_kategorie ... ok
+test task::handlers::builds::publish_original::tests::build_hero_build_mappt_inline_item_ids ... ok
+test task::handlers::builds::publish_original::tests::build_hero_build_parst_bare_item_ids_weiter ... ok
+test task::handlers::builds::publish_original::tests::build_hero_build_update ... ok
+test task::handlers::free_license::tests::erfolgreicher_response_liefert_grants ... ok
+test task::handlers::friends::tests::check_response_freund_und_fremd ... ok
+test task::handlers::builds::tests::convert_tests::gc_build_to_source_felder_werden_korrekt_gemappt ... ok
+test task::handlers::free_license::tests::abgelehnter_response_liefert_task_fehler_mit_data ... ok
+test task::handlers::free_license::tests::fehlender_und_leerer_payload_nutzen_deadlock_app_id ... ok
+test task::handlers::friends::tests::friends_list_response_leer_ist_nicht_ready ... ok
+test steam::email_guard::tests::test_code_regex_englisch_primaer ... ok
+test task::handlers::friends::tests::parse_target_fehlt_oder_ungueltig ... ok
+test task::handlers::friends::tests::parse_target_akzeptiert_string_und_zahl ... ok
+test steam::email_guard::tests::test_code_regex_fallback ... ok
+test steam::email_guard::tests::test_code_regex_deutsch_primaer ... ok
+test steam::email_guard::tests::test_code_primaer_gewinnt_ueber_fallback ... ok
+test task::handlers::friends::tests::friends_list_response_form_und_counts ... ok
+test task::handlers::friends::tests::relationship_name_mappt_bekannte_und_unbekannte ... ok
+test task::handlers::friends::tests::parse_target_steam_id_hat_vorrang ... ok
+test task::handlers::friends::tests::send_und_skip_antworten_haben_node_form ... ok
+test steam::email_guard::tests::test_code_regex_ablehnung_ohne_ziffer ... ok
+test task::handlers::gc::tests::account_stats_nur_wins_ist_gueltig ... ok
+test task::handlers::gc::tests::account_stats_matching_filtert_fremde_erfolgsantwort ... ok
+test task::handlers::gc::tests::account_stats_matching_akzeptiert_gc_fehler_ohne_stats ... ok
+test task::handlers::gc::tests::account_stats_aggregiert_nur_wins ... ok
+test task::handlers::gc::tests::account_stats_ohne_wins_sind_fehler ... ok
+test task::handlers::gc::tests::account_stats_ohne_account_id_werden_abgelehnt ... ok
+test task::handlers::gc::tests::account_stats_summenzeile_hero_0_wird_uebersprungen ... ok
+test task::handlers::gc::tests::account_stats_ohne_hero_id_wird_mitgezaehlt ... ok
+test task::handlers::friends::tests::account_id_value_berechnet_oder_null ... ok
+test task::handlers::friends::tests::handler_ohne_login_meldet_not_logged_in ... ok
+test task::handlers::gc::tests::fremde_profilkarte_wird_abgelehnt ... ok
+test task::handlers::gc::tests::fremde_account_stats_werden_abgelehnt ... ok
+test task::handlers::gc::tests::karte_ohne_account_id_wird_akzeptiert ... ok
+test task::handlers::gc::tests::match_history_paging_stoppt_bei_cursor_limit_oder_page_limit ... ok
+test task::handlers::gc::tests::profile_card_args_account_id_oder_steam_id ... ok
+test task::handlers::gc::tests::is_gc_timeout_ignoriert_andere_gc_fehler ... ok
+test task::handlers::gc::tests::is_gc_timeout_erkennt_verpackten_timeout ... ok
+test task::handlers::gc::tests::is_gc_timeout_erkennt_erzeugten_transport_timeout ... ok
+test task::handlers::gc::tests::eigene_profilkarte_wird_akzeptiert ... ok
+test task::handlers::lobby::tests::normalize_team_spiegelt_node_normalize_winning_team ... ok
+test task::handlers::gc::tests::split_badge_zerlegt_rank_und_subrank ... ok
+test task::handlers::lobby::tests::party_join_payload_baut_proto_mit_rejoin ... ok
+test task::handlers::lobby::tests::neue_lobby_payloads_verwerfen_falsche_json_typen ... ok
+test task::handlers::lobby::tests::party_join_verwirft_ungueltige_party_id ... ok
+test task::handlers::lobby::tests::format_party_code_laesst_andere_laengen_unformatiert ... ok
+test task::handlers::lobby::tests::lobby_retry_wiederholt_nur_timeout_und_hoechstens_einmal ... ok
+test task::handlers::lobby::tests::join_via_code_verwirft_fehlenden_oder_ungueltigen_code ... ok
+test task::handlers::lobby::tests::format_party_code_gruppiert_neun_stellen ... ok
+test task::handlers::lobby::tests::lobby_retry_wiederholt_keine_gc_ablehnung ... ok
+test task::handlers::lobby::tests::join_via_code_payload_baut_proto_mit_echtem_code ... ok
+test task::handlers::gc::tests::until_ranked_blaettert_weiter_bis_ein_ranked_match_dabei_ist ... ok
+test task::handlers::lobby::tests::party_set_member_team_verwirft_fehlende_identitaet_und_falsches_team ... ok
+test task::handlers::lobby::tests::neue_lobby_handler_sind_registriert_serialisiert_und_ohne_gc_fehlerhaft ... ok
+test task::handlers::lobby::tests::party_set_member_team_baut_action_fuer_fremde_account_id ... ok
+test task::handlers::lobby::tests::party_set_mode_payload_baut_alle_proto_felder ... ok
+test task::handlers::lobby::tests::party_set_mode_standard_ist_custom_lobby ... ok
+test task::handlers::playtest::tests::account_id_aus_steam_id64 ... ok
+test task::handlers::playtest::tests::account_id_null_ergibt_fehler ... ok
+test task::handlers::playtest::tests::account_id_null_zahl_ergibt_fehler ... ok
+test task::handlers::playtest::tests::eresponse_mapping_alle_definierten_codes ... ok
+test task::handlers::playtest::tests::account_id_direkt_aus_string ... ok
+test task::handlers::playtest::tests::account_id_direkt_aus_zahl ... ok
+test task::handlers::playtest::tests::account_id_null_wert_ergibt_fehler ... ok
+test task::handlers::playtest::tests::nonzero_gc_code_wird_strukturierter_task_fehler ... ok
+test task::handlers::playtest::tests::handler_ohne_account_id_schlaegt_sofort_fehl ... ok
+test task::handlers::playtest::tests::payload_alle_retry_aliase ... ok
+test task::handlers::playtest::tests::handler_ohne_gc_meldet_nicht_verbunden ... ok
+test task::handlers::playtest::tests::format_playtest_error_enthaelt_code_und_key ... ok
+test task::handlers::playtest::tests::normalize_attempts_clamp ... ok
+test task::handlers::playtest::tests::payload_location_default ... ok
+test task::handlers::playtest::tests::eresponse_unbekannter_code_fallback ... ok
+test task::handlers::playtest::tests::payload_alle_timeout_aliase ... ok
+test task::handlers::lobby::tests::party_set_mode_verwirft_ungueltige_enum_werte ... ok
+test task::handlers::playtest::tests::normalize_timeout_clamp_und_default ... ok
+test task::handlers::scrim_result::tests::aktives_match_ohne_sieger_ist_nicht_final ... ok
+test task::handlers::scrim_result::tests::fremdes_aktives_match_wird_nicht_uebernommen ... ok
+test task::handlers::scrim_result::tests::ergebnis_ohne_gc_liefert_verbundungsfehler ... ok
+test task::handlers::scrim_result::tests::aktives_match_mit_echtem_sieger_liefert_match_id_und_spieler ... ok
+test task::handlers::scrim_result::tests::metadaten_download_hat_harten_deckel ... ok
+test task::handlers::playtest::tests::payload_steam_id_aliase ... ok
+test task::handlers::playtest::tests::build_result_json_message_id_ist_9190 ... ok
+test task::handlers::playtest::tests::build_result_json_erfolg_form ... ok
+test task::handlers::util::tests::parse_optional_gueltiger_payload ... ok
+test task::handlers::util::tests::parse_optional_leerer_payload_gibt_default ... ok
+test task::handlers::util::tests::id_value_to_string_akzeptiert_string_und_zahl ... ok
+test task::handlers::util::tests::parse_optional_ungueltiger_payload_fehler ... ok
+test token_refresh::tests::base64url_decodet_json_payload ... ok
+test task::lanes::tests::keine_doppelte_typ_zuordnung ... ok
+test token_refresh::tests::token_exp_none_ohne_payload ... ok
+test token_refresh::tests::token_exp_liest_exp_aus_jwt ... ok
+test steam::cso::tests::party_member_writes_bleiben_pro_party_in_ingest_reihenfolge ... ok
+test task::handlers::playtest::tests::build_result_json_fehler_form ... ok
+test task::handlers::scrim_result::tests::metadaten_bz2_und_zstd_liefern_vollstaendiges_ergebnis ... ok
+test task::handlers::scrim_result::tests::metadaten_draw_ist_keine_erfundene_team_null_entscheidung ... ok
+test task::handlers::scrim_result::tests::metadaten_dekompression_hat_harten_deckel ... ok
+test task::handlers::scrim_result::tests::metadaten_ohne_eindeutiges_ende_bleiben_offen ... ok
+test task::handlers::scrim_result::tests::finales_ergebnis_braucht_positive_dauer ... ok
+test task::handlers::scrim_result::tests::metadaten_default_outcome_mit_explizitem_sieger_ist_final ... ok
+test task::handlers::scrim_result::tests::metadaten_fehler_outcome_wird_keinem_team_zugeschlagen ... ok
+test steam::gc::tests::parallele_gc_leser_teilen_den_mindestabstand ... ok
+test task::handlers::scrim_result::tests::metadaten_pruefen_beide_match_ids ... ok
+test steam::session::tests::haengender_login_liefert_nach_timeout_einen_fehler ... ok
+
+test result: ok. 174 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running unittests src/lib.rs (rust/target/debug/deps/steam_persistence-1ac6f169ea4f8a3f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/build_catalog_transactions.rs (rust/target/debug/deps/build_catalog_transactions-fcbe555dbfa6f126)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests steam_persistence
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

@@ -16,17 +16,19 @@ Deadlock-Steam-Bot. Pakete in `PAKETE.md`.
 | Review A Runde 1 | 0c631f99 | opus48 | keiner (lesend) | keiner | fertig, gesettelt: NACHBESSERN (REVIEW-A.md, 7 Mängel, 1 Paketschnitt entschieden) |
 | Fix A Runde 1 | 989bb17b | astra | ~/.worktrees/deadlock-brain-a | feat/build-reasoner-a | fertig (fc74b71), gesettelt |
 | Review A Runde 2 | 8f81fb55 | opus48 | keiner (lesend) | keiner | fertig, gesettelt: FREIGABE |
-| Fix A Runde 2 (Gate) | 1938193f | fixer | ~/.worktrees/deadlock-brain-a | feat/build-reasoner-a | gestartet 2026-09-12 22:45 (Merge-Kritiker: run_critic ohne Verdict-Validierung) |
+| Fix A Runde 2 (Gate) | 1938193f | astra | ~/.worktrees/deadlock-brain-a | feat/build-reasoner-a | fertig (a4d1375), gesettelt; zweiter Gate-Lauf BLOCK (spirit_dps, scaling_stats), diese Funde trägt Fix B auf dem B-Branch, A wird über B integriert |
 | B Kern | 953fd289 | luna | ~/.worktrees/deadlock-brain-b | feat/build-reasoner-b (ab 3bef602) | fertig (68dc58c, FERTIG-B.md), gesettelt |
 | Review B Runde 1 | f3a5efae | opus48 | keiner (lesend) | keiner | fertig, gesettelt: NACHBESSERN (11 Mängel, 2 blockierend) |
-| Fix B Runde 1 | b5ce4903 | fixer | ~/.worktrees/deadlock-brain-b | feat/build-reasoner-b | gestartet 2026-09-12 22:47 |
+| Fix B Runde 1 | b5ce4903 | astra | ~/.worktrees/deadlock-brain-b | feat/build-reasoner-b (enthält A a4d1375) | Bump-up 23:20 beantwortet: additive Typ-Erweiterung frei, plus Gate-Funde A |
 | C Zusammensetzung | fe6a88bb | luna | ~/.worktrees/deadlock-brain-c | feat/build-reasoner-c (ab 3bef602) | fertig (1e23609, FERTIG-C.md), gesettelt |
 | Review C Runde 1 | 91f509cf | opus48 | keiner (lesend) | keiner | fertig, gesettelt: NACHBESSERN (7 Mängel, 1 blockierend) |
-| Fix C Runde 1 | 874ccb61 | fixer | ~/.worktrees/deadlock-brain-c | feat/build-reasoner-c | gestartet 2026-09-12 22:35 |
+| Fix C Runde 1 | 874ccb61 | astra | ~/.worktrees/deadlock-brain-c | feat/build-reasoner-c | fertig (631182a), gesettelt |
+| Review C Runde 2 | b2f340f4 | opus48 | keiner (lesend) | keiner | fertig, gesettelt: FREIGABE |
 | D Integration/CLI | folgt | luna | ~/.worktrees/deadlock-brain-d | feat/build-reasoner-d | wartet auf B und C |
 | S Steam-Bot Autoren-Scan | 231b6ae6 | luna | ~/.worktrees/steam-bot-autoren-scan | feat/autoren-scan-reaktivieren | fertig (f82c21c, FERTIG-S.md), gesettelt |
 | Review S Runde 1 | 8248611a | opus48 | keiner (lesend) | keiner | fertig, gesettelt: NACHBESSERN (5 Mängel, 2 wichtig) |
-| Fix S Runde 1 | 2884c49a | fixer | ~/.worktrees/steam-bot-autoren-scan | feat/autoren-scan-reaktivieren | gestartet 2026-09-12 22:48 |
+| Fix S Runde 1 | 2884c49a | astra | ~/.worktrees/steam-bot-autoren-scan | feat/autoren-scan-reaktivieren | fertig (102ec83), gesettelt |
+| Review S Runde 2 | 574e5db6 | opus48 | keiner (lesend) | keiner | gestartet 2026-09-12 23:25 |
 
 Status-Werte: geplant, gestartet, fertig, gestoppt, gebumpt. Gestoppte oder
 gestorbene Threads bleiben drin und werden nicht wieder aufgenommen.

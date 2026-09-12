@@ -240,3 +240,247 @@ Fixes gehen an ein guenstiges Modell; Mangel 2 (Typ) und Mangel 3
   Insert ist der einzige Schreibpfad.
 - Real-Event-Pruefung (Warden 30.06.2026, Spiritual Overflow 28.07.2026) im
   Integrationslauf mit echtem DSN nachholen (Mangel 7).
+
+## Fixrunde 1
+
+Fertigmeldung vom 12.09.2026, Paket C. Branch `feat/build-reasoner-c`,
+Worktree `/home/nathanael/.worktrees/deadlock-brain-c`,
+Intent-Thread `33a32f58-476b-4a67-99cc-8f6c1e8f7001`.
+Ein Thread, keine Unter-Agenten. Code-Commit
+`631182abd35294d7aef6074ceb3913461d4f5eaf`, auf
+`origin/feat/build-reasoner-c` gepusht. Kein Merge oder Push nach main.
+Die Angaben unten ersetzen die offenen Hinweise zu Mängeln 1 bis 5 aus Runde 1;
+der ursprüngliche Reviewtext bleibt als Verlauf erhalten.
+
+### Mängelabgleich gegen den eigenen Diff
+
+Alle Codepfade unten liegen in `rust/crates/dbrain-reasoner/src/` und gehören
+zum Commit `631182abd35294d7aef6074ceb3913461d4f5eaf`.
+
+1. **Waffen-Buff:** `patch.rs:317` berechnet den nachhaltigen Waffen-DPS nach
+   Anwendung der Deltas aus Magazininhalt, Feuerrate und Nachladedauer neu.
+   Der alte positive Cachewert blockiert die Neuberechnung nicht mehr.
+   `weapon_dps`, `weapon_share` und `primary_axis` erhalten den neuen Wert.
+   Regression `patch.rs:405` prüft Bullet Damage, Fire Rate und Reload einzeln
+   an einem Warden-ähnlichen Modell mit bereits positivem `sustained_dps`.
+2. **Nicht messbare Reihenfolge:** `types.rs:342` ändert ausschließlich
+   `BacktestMetrics.order_proximity` von `f64` auf `Option<f64>`.
+   `backtest.rs:75` liefert bei fehlender Vergleichbarkeit `None`,
+   `backtest.rs:162` mittelt ausschließlich `Some`; keine Autoren oder nur
+   unmessbare Autoren ergeben auch im Aggregat `None`. Die neue
+   `Display`-Implementierung für `BacktestReport` in `backtest.rs:8` zeigt
+   je Autor und im Heldenschnitt „nicht messbar“. JSON trägt `null`.
+   Regressionen: `backtest.rs:273` und `backtest.rs:306`.
+3. **Verkauf und Skill-Order:** `composer.rs:137` setzt für Lane-Items mit
+   Tier 1 Priorität 1, für andere Lane-Items Priorität 2. Items der Phasen
+   Core und Late erhalten keine Verkaufspriorität, auch Core-T1 nicht.
+   `meta.rs:27` wählt die Skill-Order des höchstgewichteten gültigen
+   Autoren-Builds des angefragten Helden aus `details.abilityOrder`, mit
+   Unterstützung der Snake-Case-Form. Reihenfolge, Currency und Delta bleiben
+   erhalten. Ungültige oder unvollständige Orders werden vollständig
+   verworfen, fremde Helden und nicht endliche Gewichte ausgeschlossen.
+   Danach folgt die bereitgestellte Order aus `brain.hero_ability_orders`,
+   sonst eine leere Order mit dem Beleg „Skill-Order: keine Quelle“.
+   `composer.rs:176` übernimmt Order und Quellenbeleg in das BuildObject.
+   Regressionen `composer.rs:361` und `composer.rs:450` prüfen den Weg über
+   BuildObject und JSON bis in den bestehenden Publish-Payload samt
+   `sell_priority`, `ability_order` und Quellenbeschreibung. `publish.rs`
+   benötigte dafür keine Änderung.
+4. **Verbreitung:** `meta.rs:179` klemmt den normierten Wert vor der
+   Stichprobendämpfung auf höchstens 1,0. Zwei gleich große Zeilen für ein
+   Item ergeben jetzt 1,0 statt 2,0; unter Mindeststichprobe 0,5 statt 1,0.
+   Regression: `meta.rs:365`.
+5. **Warden-Blöcke:** `composer.rs:206` prüft Shields vor „Can buy 1“.
+   Die Namenszuordnung für Resilience und Counterspell setzt keinen aktiven
+   Item-Status voraus. Allgemeine Defense- und Spirit-Eigenschaften ziehen
+   Kernitems wie Veil Walker und Blood Tribute nicht mehr aus dem Kern.
+   Die Optional-Liste enthält auch die im Seed dort geführten Counter-Items.
+   Regression `composer.rs:384` lädt den echten Seed per `include_str!`:
+   sämtliche 40 Items stehen in den fünf erwarteten Blöcken und in der
+   Seed-Reihenfolge: Core 19, Can buy 1 6, Tryhard 1, Shields 3, Optional 11.
+   Die ScoredItem-Werte sind Fixtures, keine Ausgabe von Paket B oder ein
+   Datenbanknachweis. Reactive Barrier wird zusätzlich als aktiv modelliert,
+   um den im Review genannten Klassifikator-Konflikt abzudecken.
+
+### Schnittstellenhinweise für D
+
+**Verbindliche Typänderung:** `BacktestMetrics.order_proximity: Option<f64>`.
+Das ist die einzige Änderung in `types.rs`. D muss Zahl oder `null` beim
+Speichern behandeln und darf fehlende Messwerte nicht als 1,0 einsetzen.
+Für Textausgabe ist `BacktestReport::to_string()` verfügbar. Eine nullable
+SQL-Spalte beziehungsweise eine entsprechende Anpassung des D-Speicherpfads
+ist bei der Integration erforderlich; der ursprüngliche Architekturentwurf
+hatte noch `order_proximity double precision NOT NULL`.
+
+**Additiver Quellenadapter für die vorhandene Schnittstellenlücke:** Der
+unveränderte A-Typ `MetaIndex` enthält nur Item-Signale, `AuthorBuild` enthält
+keine Rohdetails, Helden-ID oder Gewichte. Die bisherige Composer-Signatur
+nimmt keine Quellen entgegen. Deshalb ergänzt C ausschließlich in `meta.rs`
+`AuthorBuildSource` und `MetaIndexWithSources` statt weitere A-Typen zu ändern.
+Der Wrapper hält den bisherigen Index, gewichtete Autoren-Details und eine
+nach Helden-ID indizierte Fallback-Order als `Vec<AbilityStep>`.
+
+D muss die gelesenen Autoren-Details mit Helden-ID und Gewicht sowie die
+Order aus `brain.hero_ability_orders` in diesen Wrapper einspeisen und
+`compose_build_with_sources(hero, scored, deltas, cfg, blocked, meta)`
+verwenden. Die Übersetzung der DB-Order in `AbilityStep` erfolgt an dieser
+Integrationsgrenze; C hat keinen zusätzlichen Datenbank-Lader gebaut.
+Die bisherigen Composer-Einstiege bleiben kompatibel und melden ohne
+bereitgestellte Quelle ehrlich „keine Quelle“. D soll den Quellenbeleg bei
+späterer KI-Anreicherung der Rationale erhalten. Dies ist eine additive
+Anpassung gegenüber dem wörtlichen „aus MetaIndex“ im Fix-Briefing; die
+Beschränkung auf genau eine Feldänderung in `types.rs` bleibt eingehalten.
+
+### Testnachweis mit Baseline und Rot-Gegenproben
+
+Baseline auf `1e23609`, C-Module temporär über `mod` und `pub use` in `lib.rs`
+eingebunden: Reasoner **15 bestanden, 0 fehlgeschlagen, 1 ignoriert**;
+dbrain-builds **7 bestanden, 0 fehlgeschlagen, 5 ignoriert**.
+
+Fünf neue Regressionen vor den Produktionsfixes: Reasoner **15 bestanden,
+5 fehlgeschlagen, 1 ignoriert**. Rot waren Waffen-DPS, unmessbare Reihenfolge,
+Verkaufsprioritäten, Verbreitung und Warden-Blockzuordnung.
+Zusätzliche Skill-Order-Gegenprobe gegen den noch leeren Quellenpfad:
+**0 bestanden, 1 fehlgeschlagen, 22 ausgefiltert**, `ability_id` war `null`
+statt 101. Zusätzliche Report-Gegenprobe mit temporärer numerischer
+Ersatzanzeige für `None`: **0 bestanden, 1 fehlgeschlagen, 22 ausgefiltert**.
+Beide Gegenproben wurden vor dem Abschlusslauf zurückgenommen.
+
+Endstand mit eingebundenen C-Modulen: Reasoner **22 bestanden,
+0 fehlgeschlagen, 1 ignoriert**; dbrain-builds **7 bestanden,
+0 fehlgeschlagen, 5 ignoriert**. Alle sieben neuen Regressionen sind grün.
+Die ignorierten Tests benötigen PostgreSQL. Mängel 6 und 7 sowie der echte
+Event- und End-to-End-Lauf bleiben wie beauftragt bei D.
+
+Warden-Modell: Bullet Damage 10, Fire Rate 2, Magazin 20, Reload 2,
+Spirit-DPS 12. Ausgangs-DPS 16,6667, Waffenanteil 0,5814, Achse Hybrid.
+Mit altem Guard blieb der DPS trotz Buff bei 16,6667, der Regressionstest
+scheiterte bereits am ersten Bullet-Damage-Fall. Nach dem Fix:
+
+| Einzelner Buff | Waffen-DPS | Waffenanteil | Achse |
+|---|---:|---:|---|
+| Bullet Damage +2 | 20,0000 | 0,6250 | Weapon |
+| Fire Rate +1 | 23,0769 | 0,6579 | Weapon |
+| Reload -1 | 18,1818 | 0,6024 | Weapon |
+
+Der gemischte Reihenfolge-Test mittelt 0,0 und 1,0 zu 0,5 und schließt den
+unmessbaren dritten Autor aus. Die vorhandene Metrik-Fixture bleibt bei
+Kern-Überdeckung 0,6667, Jaccard 0,5 und Reihenfolge `Some(0,0)`.
+Das sind Formel- und Fixture-Nachweise, kein echter Warden-Meta-Backtest.
+
+Im Verzeichnis `rust/`, mit `PATH=/home/nathanael/.cargo/bin:$PATH`:
+
+```text
+cargo fmt -p dbrain-reasoner -- --config skip_children=true crates/dbrain-reasoner/src/patch.rs crates/dbrain-reasoner/src/meta.rs crates/dbrain-reasoner/src/composer.rs crates/dbrain-reasoner/src/backtest.rs crates/dbrain-reasoner/src/types.rs
+cargo fmt -p dbrain-reasoner -- --check --config skip_children=true crates/dbrain-reasoner/src/patch.rs crates/dbrain-reasoner/src/meta.rs crates/dbrain-reasoner/src/composer.rs crates/dbrain-reasoner/src/backtest.rs crates/dbrain-reasoner/src/types.rs
+cargo clippy -p dbrain-reasoner -p dbrain-builds --all-targets -- -D warnings
+cargo test -p dbrain-reasoner -p dbrain-builds
+```
+
+Alle Abschlussbefehle erfolgreich, Clippy ohne Warnungen.
+Die explizite Dateiliste beschränkt den Formatter auf die eigenen Dateien
+und die nur temporär eingebundene `lib.rs`. `lib.rs` wurde anschließend
+bytegenau auf den Ausgangsstand zurückgesetzt und ist nicht committet.
+`git diff --check` ist sauber. Kein Release-Build, keine Code-Kommentare,
+keine Änderung an fremden Implementierungsdateien oder am Steam-Bot.
+
+## Review Runde 2
+
+status: FREIGABE (2026-09-12)
+
+Geprueft: Worktree `/home/nathanael/.worktrees/deadlock-brain-c`, Code-Commit
+`631182a` (Fixrunde 1), Basis `1e23609`, Diff `git diff 1e23609..631182a`. Der
+Worktree steht auf `04305ee` (Doku-Commit ueber dem Fix). Lesend, kein Code
+geaendert, kein Branch angefasst. Nur die Maengel 1 bis 5 gegen die Maengelliste,
+Maengel 6 und 7 liegen bei D. Vergleichsbasis: die Fixrunde-1-Angaben oben,
+`referenz/lightbringer-warden.json`, MECHANIK-Abschnitte 7, 8, 13, 17.
+
+### Maengelabgleich
+
+1. **Waffen-Buff (Blocker): behoben.** `patch.rs:317` rechnet `sustained_dps`
+   jetzt bedingungslos aus dem gepatchten Waffenprofil neu (Magazininhalt,
+   Feuerrate, Nachladedauer, mit reload-beruecksichtigender Formel). Der alte
+   positive Cachewert blockiert die Neuberechnung nicht mehr. `weapon_dps`,
+   `weapon_share` und `primary_axis` leiten sich davon ab (`patch.rs:326` bis
+   `339`). Die Hero-Deltas fuer `bullet_damage`, `fire_rate` und `reload` treffen
+   die passenden Waffenfelder (`patch.rs:280` bis `284`); ein reiner Spirit-Buff
+   (`spirit_scaling`, `patch.rs:286`) fasst die Waffe nicht an und bleibt ohne
+   Waffen-Effekt. Regression `patch.rs:404` prueft die drei Mechaniken einzeln an
+   einem Warden-Modell mit bereits positivem `sustained_dps` und assertiert
+   `weapon_dps`, `weapon_share` und `primary_axis = Weapon`. Genau der
+   Pflichtfall greift jetzt.
+
+2. **Nicht messbare Reihenfolge (wichtig): behoben.** `types.rs:342` aendert
+   ausschliesslich `order_proximity` von `f64` auf `Option<f64>`; keine andere
+   Signatur ist angefasst (Diff an `types.rs` sind zwei Zeilen). `backtest.rs:77`
+   gibt bei fehlender Vergleichbarkeit `None`, sonst `Some(...)`; das Aggregat
+   mittelt per `filter_map` nur `Some` und liefert `None`, wenn kein messbarer
+   Autor bleibt. Die neue `Display`-Implementierung zeigt „nicht messbar“, JSON
+   traegt `null`. Regressionen in `backtest.rs` decken Some/None und den
+   Report-Text ab. Die D-Uebernahme steht sauber im Anhang „Schnittstellenhinweise
+   fuer D“: nullable SQL-Spalte, fehlende Messwerte nicht als 1,0 einsetzen. D kann
+   die Aenderung uebernehmen.
+
+3. **Verkauf und Skill-Order (wichtig): behoben.** `sell_priority`: `build_item`
+   (`composer.rs:137`) setzt Lane-Items auf `Some(1)` bei Tier 1, sonst `Some(2)`,
+   Core und Late auf `None`. Der Wert kommt bis in den Payload (Test
+   `composer.rs:361` prueft `publish_task_payload` mit `sell_priority` 1, 2 und
+   fehlend). `ability_order`: der neue Einstieg `compose_build_with_sources`
+   (`composer.rs:176`) fuellt Order und Quellenbeleg aus
+   `meta.ability_order(hero_id)` (`meta.rs:27`). Quellenreihenfolge wie gefordert:
+   hoechstgewichteter gueltiger Autoren-Build des angefragten Helden (Filter auf
+   `hero_id` und endliches Gewicht, deterministische Sortierung), dann
+   `brain.hero_ability_orders`, sonst leer mit Beleg „Skill-Order: keine Quelle“.
+   Unvollstaendige oder fremde Orders werden komplett verworfen
+   (`collect::<Option<Vec<_>>>`, `ability_id > 0`). Regression
+   `composer.rs:449` prueft den Weg bis in den Publish-Payload.
+
+4. **Verbreitung (nit): behoben.** `meta.rs:179` klemmt den normierten Wert vor
+   der Stichprobendaempfung mit `.min(1.0)`. Regression `caps_grouped_prevalence`
+   (zwei gleiche Zeilen ergeben 1,0 statt 2,0, unter Mindeststichprobe 0,5).
+
+5. **Warden-Bloecke (nit): behoben.** `is_shield` steht vor `is_can_buy_one`
+   (`composer.rs:206`); die Klassifikatoren sind namensbasiert ohne
+   `is_active`-Vorbedingung (Spirit- und Bullet Resilience sowie Counterspell in
+   „Can buy 1“, Reactive Barrier in „Shields“). Regression
+   `assigns_all_warden_seed_items_to_five_reference_blocks` (`composer.rs:383`)
+   laedt den echten Seed per `include_str!` und prueft je Block Namen, Reihenfolge
+   und Vollzaehligkeit. Referenz nachgezaehlt: 5 Bloecke, Core 19, Can buy 1 6,
+   Tryhard 1, Shields 3, Optional 11, Summe 40, kein Anti-Heal-Item, daher bleibt
+   der Counters-Block leer und es entstehen vier Situationsbloecke plus Core.
+
+### Neuer Befund aus dem Fix (kein Blocker, Auflage an D)
+
+Der Default-Pfad `compose_build` und `compose_build_with_blocklist` laesst
+`ability_order` weiterhin leer; nur `compose_build_with_sources` fuellt sie. D
+muss diesen Einstieg mit dem additiven Wrapper `MetaIndexWithSources`
+(`meta.rs:20`) nutzen und die Autoren-Details, Gewichte und
+`brain.hero_ability_orders` einspeisen, sonst kommt `ability_order` trotz Fix
+leer im Payload an. Die neuen Typen `AuthorBuildSource` und `MetaIndexWithSources`
+liegen in `meta.rs`, nicht in `types.rs`; das weicht vom woertlichen „aus
+MetaIndex“ des Fix-Briefings ab, haelt aber die Beschraenkung auf eine einzige
+`types.rs`-Feldaenderung ein und ist im Anhang „Schnittstellenhinweise fuer D“
+dokumentiert. Vertretbar. Kein weiterer Regressionsschaden gefunden.
+
+### Testnachweis
+
+C-Module temporaer per `mod` in `lib.rs` deklariert (nicht committet), im
+Verzeichnis `rust/` mit `PATH=/home/nathanael/.cargo/bin:$PATH`:
+
+```
+cargo test -p dbrain-reasoner -p dbrain-builds   -> exit 0
+```
+
+TESTNACHWEIS[TW-1]: dbrain-reasoner 22 passed, 1 ignored; dbrain-builds 7
+passed, 5 ignored | Baseline (Fixrunde 1, `631182a`): identische Zahlen, 0 rot.
+Die sechs ignorierten Tests brauchen ein Scratch-Postgres (`DEADLOCK_CENTRAL_DSN`
+in dieser Session nicht gesetzt, gleiche Lage wie Runde 1). Die temporaere
+`lib.rs`-Aenderung wurde per `git checkout` zurueckgenommen; `git status` ist
+sauber, der Worktree steht wieder auf `04305ee`.
+
+### Urteil
+
+FREIGABE. Alle fuenf Maengel sind behoben und durch Regressionen abgedeckt, keine
+neuen Blocker. Offene Auflagen fuer die Integration (Paket D): den
+`compose_build_with_sources`-Pfad verdrahten, die `Option<f64>`-Spalte nullable
+fuehren, sowie Maengel 6 und 7 (Item-Analyst-Filter und Echt-Event-Lauf).

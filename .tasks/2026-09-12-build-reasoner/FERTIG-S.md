@@ -65,9 +65,12 @@ Die Builds-Suche lieferte außerdem den exakten Buildnamen
 `LIGHTBRINGERxSITUATION WARDEN BUILD` mit GC-Build-ID `779996`, Version `31`,
 Hero-ID `25` und aktuellem GC-Autor `1650097169` (`juice`). Unter dem
 Lightbringer-Autor existiert zusätzlich derselbe exakte Name als Build-ID
-`782057`. Der aktuelle GC-Autor des Kollaborations-Builds ist ein
-Verifikationshinweis, kein zusätzlicher Eintrag in der unten vorgeschlagenen
-Anforderung für Lightbringer und Situation.
+`782057`, Version `1`. Nach der Entscheidung für Fixrunde 1 wird auch
+`1650097169` als "Kollab-Autor Lightbringer x Situation" beobachtet. Erst dieser
+Account erschließt die gepflegte Fassung `779996`, im Review mit Version `31`
+belegt. Lightbringer `13446690` und Situation `34634349` bleiben enthalten.
+Die IDs und Versionen sind der lesende API-Befund aus REVIEW-S.md vom
+2026-09-12, kein neuer Live-Scan dieser Fixrunde.
 
 Vorschlag für die neue Prod-Datenpflege, nicht ausgeführt:
 
@@ -76,7 +79,8 @@ INSERT INTO tierlist.watched_build_authors
     (author_account_id, notes, is_active)
 VALUES
     (13446690, 'Lightbringer', true),
-    (34634349, 'Situation', true)
+    (34634349, 'Situation', true),
+    (1650097169, 'Kollab-Autor Lightbringer x Situation', true)
 ON CONFLICT (author_account_id) DO UPDATE
 SET notes = EXCLUDED.notes,
     is_active = EXCLUDED.is_active;
@@ -84,7 +88,7 @@ SET notes = EXCLUDED.notes,
 
 Diese SQL-Anweisung wurde nicht gegen Prod ausgeführt.
 
-## Tests und Belege
+## Tests und Belege der Ursprungsrunde (f82c21c)
 
 Baseline war ein frischer Worktree auf `796bb3c`; der gleiche Offline-Testlauf
 war dort und im Feature-Worktree erfolgreich.
@@ -113,8 +117,9 @@ war dort und im Feature-Worktree erfolgreich.
 
 ## Live-Proof nach Deployment
 
-Nach Migration beziehungsweise Service-Deployment einmalig ausführen, nicht
-in Prod vorab:
+Nach Service-Deployment und Einpflege der drei Autoren einmalig ausführen.
+Keine Migration erforderlich. Die folgenden Schreibkommandos sind ausschließlich
+für den Delegator nach dem Deploy vorbereitet und wurden hier nicht ausgeführt:
 
 ```bash
 TASK_JSON="$(curl -fsS -X POST http://127.0.0.1:8782/tasks \
@@ -130,17 +135,38 @@ Danach in der zentralen DB prüfen:
 
 ```sql
 SELECT hero_build_id, hero_id, author_account_id, name, version,
-       last_updated_at, details->'modCategories' AS categories,
+       last_updated_at, last_seen_at, details->'modCategories' AS categories,
        details->'abilityOrder' AS ability_order
 FROM tierlist.hero_build_sources
 WHERE hero_id = 25
+  AND hero_build_id = 779996
+  AND author_account_id = 1650097169
+  AND version >= 31
   AND lower(name) = lower('LIGHTBRINGERxSITUATION WARDEN BUILD')
 ORDER BY last_updated_at DESC;
 ```
 
-Erwartet wird mindestens der Warden-Eintrag mit den GC-Metadaten; die
-Autoren-ID kann beim Kollaborations-Build `1650097169` sein, solange der
-GC-Autor nicht auf den beobachteten Autorenaccount normalisiert.
+Erwartet wird Build `779996` für Warden (`25`) unter GC-Autor `1650097169`,
+Version `31` oder neuer, mit frischem `last_seen_at`, dem GC-Zeitstempel
+`last_updated_at` und Build-Details.
+Die veraltete Kopie `782057` allein erfüllt den Beweis nicht. Der gespeicherte
+Autor kommt aus dem GC-Build, auch wenn die Suchanfrage einen anderen Autor
+beobachtet.
+
+Zusätzlich die Sichtbarkeit jedes Autoren-Laufs prüfen:
+
+```sql
+SELECT author_account_id, last_checked_at, last_checked_status,
+       last_checked_message
+FROM tierlist.watched_build_authors
+WHERE author_account_id IN (13446690, 34634349, 1650097169)
+ORDER BY author_account_id;
+```
+
+Alle drei Zeitstempel müssen zum neuen Lauf gehören. Die Meldungen enthalten
+Build-, Helden-, Neu-, Update- und Fehlerzahlen. Leere Antworten stehen als
+`partial`, GC-Ausfälle als `error`; für den Kollab-Account wird nach einem
+erfolgreichen vollständigen Lauf `ok` mit mindestens einem Build erwartet.
 
 ## Branch und Deploy
 
@@ -151,3 +177,35 @@ GC-Autor nicht auf den beobachteten Autorenaccount normalisiert.
 - Commit: `f82c21c41052c51b301a4a875880114fb62b6a50`.
 - Push: `origin/feat/autoren-scan-reaktivieren` erfolgreich; `main` wurde nicht
   gepusht oder verändert.
+
+## Fixrunde 1
+
+Commit: `102ec83fe91548e79963be9aa93dc5d7baee3c66`, auf `origin/feat/autoren-scan-reaktivieren`
+gepusht. Alle fünf Review-Mängel sind abgeglichen; der vollständige Nachweis
+mit Datei und Zeile steht im Anhang "Fixrunde 1" von [REVIEW-S.md](REVIEW-S.md).
+
+- Jeder Autor-Lauf schreibt `last_checked_at`, `last_checked_status` und
+  `last_checked_message` mit Build-, Helden-, Neu-, Update- und Fehlerzahlen.
+  Leerläufe sind `partial`, Totalausfälle `error`.
+- Vollständige Discovery-Fehlschläge ergeben einen fehlgeschlagenen Task
+  (`FAILED`, `ok: false`); im Katalogzyklus läuft Maintenance weiterhin und
+  ihr Ergebnis bleibt erhalten.
+- Der tatsächliche GC-Autor bleibt auch bei abweichendem Suchaccount erhalten;
+  fehlende Autoren oder `0` überschreiben keinen bekannten Autor.
+- Der SQL-Vorschlag und der Live-Proof oben enthalten den Kollab-Account
+  `1650097169` und verlangen Build `779996` mit Version mindestens `31`.
+- Beide Discovery-Handler bleiben nach Prüfung der vorhandenen Enqueuer
+  gemeinsame Einstiegspunkte. Keine neue Poll-Schleife und keine Migration.
+
+Tests: Offline-Baseline und Endstand jeweils **174 bestanden**. Docker-Katalog
+von **18 auf 26 bestanden**, Persistenztransaktionen weiterhin **2 bestanden**.
+Rot-Gegenprobe vor den Verhaltensfixes: **19 bestanden, 7 fehlgeschlagen**;
+Endstand überall **0 fehlgeschlagen**. Gemeinsames Clippy über beide Crates
+mit allen Testzielen gegen die migrierte Wegwerf-DB erfolgreich; bestehende
+Warnung in `gc_health.rs:45` und `binrw`-Hinweis bleiben. Formatter für eigene
+Änderungen und `git diff --check` erfolgreich. SQLx-Cache maschinell erneuert.
+
+Kein Deploy und keine Prod-Schreibabfrage in dieser Fixrunde. Die GC-Antworten
+in den Regressionstests sind simuliert, Persistenz und Constraints laufen
+gegen echtes PostgreSQL im Wegwerfcontainer. Der echte Live-Beweis erfolgt
+nach Deployment durch den Delegator mit den oben vorbereiteten Kommandos.

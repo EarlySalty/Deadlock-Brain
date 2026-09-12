@@ -1,0 +1,26 @@
+warte auf zentrale Test-Postgres... ok
+CENTRAL_TEST_DSN=postgres://deadlock:***@127.0.0.1:32871/deadlock_test
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running `target/debug/dl-central-migrate`
+dl-central-migrate: wende zentrale DB-Migrationen an …
+dl-central-migrate: Migrationen erfolgreich angewendet.
+    Checking steam-domain v0.1.0 (/home/nathanael/.worktrees/steam-bot-autoren-scan/rust/crates/steam-domain)
+   Compiling deadlock-proto v0.1.0 (/home/nathanael/.worktrees/steam-bot-autoren-scan/rust/crates/deadlock-proto)
+    Checking steam-persistence v0.1.0 (/home/nathanael/.worktrees/steam-bot-autoren-scan/rust/crates/steam-persistence)
+    Checking api-contract v0.1.0 (/home/nathanael/.worktrees/steam-bot-autoren-scan/rust/crates/api-contract)
+    Checking steam-gc v0.1.0 (/home/nathanael/.worktrees/steam-bot-autoren-scan/rust/crates/steam-gc)
+    Checking steam-core v0.1.0 (/home/nathanael/.worktrees/steam-bot-autoren-scan/rust/crates/steam-core)
+warning: field `cooldown` is never read
+  --> crates/steam-core/src/gc_health.rs:45:9
+   |
+44 | pub struct RateLimitOutcome {
+   |            ---------------- field in this struct
+45 |     pub cooldown: Duration,
+   |         ^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `steam-core` (bin "steam-core") generated 1 warning
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 25.15s
+warning: the following packages contain code that will be rejected by a future version of Rust: binrw v0.15.1
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
