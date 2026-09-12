@@ -205,3 +205,53 @@ Selbstprüfung abgeschlossen: Codeänderungen ausschließlich in
 Änderungen an Lanes, Runner oder Proto und keine Schreibzugriffe auf
 Produktivdaten. Kein Merge oder Deployment; der Live-Nachweis bleibt wie
 beauftragt beim Orchestrator.
+
+## Review Runde 2
+
+**Urteil: FREIGABE.** Diff der Fixrunde `0cd59bf..ffc34fa`, gelesen, kein
+Code. Alle fünf Mängel behoben, keine neuen Befunde aus dem Fix.
+
+| Mangel | Behoben | Nachweis |
+| --- | --- | --- |
+| 1 blockierend | ja | Einzelner Helden-Fehler zählt nur weiter (`discovery.rs:353-360`, `continue` statt `break`), Abbruch erst nach `MAX_CONSECUTIVE_HERO_FAILURES = 3` (`discovery.rs:20,354-358`), Erfolg setzt den Zähler zurück (`discovery.rs:363`). Scan-Fehler fließen nicht mehr in den Autorenstatus: Feld `errors` aus `AuthorScanStats` entfernt, `error_count = author_scan.error_messages.len()` speist sich allein aus eigenen Upsert-Fehlern (`discovery.rs:446`). Nach Abbruch bekommen alle Autoren `partial` mit exakt „Scan abgebrochen nach 3 Helden-Fehlern" (`discovery.rs:481-483`), und der Task schlägt sichtbar fehl (`scan_aborted` → `into_task_result` `Err`, `discovery.rs:146,151-154`). Test umgeschrieben auf die Briefing-Erwartung (`catalog.rs:1533`, nicht betroffener Autor bleibt `ok`), plus Abbruchtest (`catalog.rs:1574`) und Reset-Test (`catalog.rs:1610`). |
+| 2 wichtig | ja | Blockgröße budgetabhängig: alle Helden in einem Block, wenn `ESTIMATED_HERO_SCAN_TIME * count + DISCOVERY_RESERVE < CATALOG_TASK_TIMEOUT` (480 s), sonst 100 (`discovery.rs:104-113`). 38 Helden ergeben einen Block, 117 ergeben 100+17 (Test `catalog.rs:1276`). Frühere Blöcke schreiben Autoren ohne Treffer nicht (`discovery.rs:448-452`), der letzte Block finalisiert nur mit Zeitstempel-Guard `last_checked_at < cycle_started_at` (`discovery.rs:488-491`). Der `ok`-Schreiber aus Block 1 setzt `last_checked_at = now()` (verifiziert `steam-persistence/src/builds.rs:865`), liegt also nach `cycle_started_at`; der Guard des letzten Blocks lässt ihn unangetastet. Doppelplanung eines Zyklus verhindert der Pending-Check (`discovery.rs:80-90`). Zweiblocktest `catalog.rs:1637` belegt: Autor mit Treffer nur in Block 1 bleibt `ok`, ein exakt am Zyklusstart geschriebener Fremdstatus (`error`) bleibt ebenfalls erhalten. |
+| 3 Nit | ja | `error_count` und angehängte Meldungen deckungsgleich, nur eigene Fehlermeldungen werden angehängt (`discovery.rs:446,477-480`); blockweite Meldungen entfernt. Test prüft „0 errors" ohne GC-Meldung (`catalog.rs:1533`). |
+| 4 Nit | ja | `response_codes` ist `BTreeMap<i32,u32>`, sortierte Zählung je Code statt Liste je Held (`discovery.rs:300-302,528`). |
+| 5 Nit | ja | Wording in `FERTIG-S3.md:42` auf „alle bekannten Helden" geändert. |
+
+### Nebenwirkungen und Beobachtungen
+
+- Ein abgebrochener Block überschreibt alle Autoren auf `partial` ohne
+  Zeitstempel-Guard (`discovery.rs:501-504`), auch solche, die in einem
+  früheren Block desselben Zyklus schon `ok` waren. Das entspricht der
+  Delegator-Entscheidung 1 („nur ein abgebrochener Block markiert alle
+  Autoren mit partial") und ist live nicht auslösbar (38 Helden, ein Block).
+  Kein Mangel, nur festgehalten.
+- Ein Autor mit gefundenem Build aber fehlgeschlagenem Upsert hat
+  `builds > 0` und wird daher auch in einem Nicht-Endblock als `error`
+  geschrieben. Deckt die Entscheidung „bzw. eigenen Persistenzfehlern" ab.
+
+### Tests
+
+TESTNACHWEIS[TW-1]: 191 passed, 0 ignored | Baseline: 0 rot (offline)
+
+- Befehl: `cargo test -p steam-core --features testing` im Worktree, ohne
+  `CENTRAL_TEST_DSN`. Ergebnis: 191 passed, 84 failed, 0 ignored, Exit 101.
+  Alle 84 Fehler sind „CENTRAL_TEST_DSN muss gesetzt sein" (DB-Tests ohne
+  Test-DB), 84 Panics, 84 DSN-Meldungen, keine Logikfehler. Offlinepfad grün,
+  deckt sich mit dem Fixer-Wert 191.
+- DB-Katalogtests nicht selbst gefahren (keine Test-DB erreichbar). Der
+  Endstand 40 zentrale DB-Tests ist **Fremdnachweis des Fixers**, von mir
+  nicht verifiziert. Die vier neuen S3-Tests
+  (`discovery_keeps_all_heroes_in_one_task_when_they_fit_the_budget`,
+  `discovery_aborts_after_three_consecutive_hero_failures`,
+  `discovery_success_resets_consecutive_hero_failures`,
+  `discovery_last_block_preserves_earlier_hits_and_finalizes_only_unchecked_authors`)
+  sowie die umgeschriebenen Bestandstests prüfen die Briefing-Erwartung,
+  nicht das alte Verhalten; per Codelesung bestätigt.
+
+### Fazit
+
+FREIGABE. Beide Kernmängel korrekt behoben und durch DB-Tests abgedeckt, die
+das neue Verhalten prüfen; Nits erledigt. Offlinepfad grün, DB-Zahl als
+Fremdnachweis gekennzeichnet.
