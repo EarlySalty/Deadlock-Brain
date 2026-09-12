@@ -33,7 +33,8 @@ Deadlock-Steam-Bot. Pakete in `PAKETE.md`.
 | E Patch-Delta Live-Fix | 6baaad1c | astra | ~/.worktrees/deadlock-brain-e | fix/build-reasoner-patch-delta | fertig, gesettelt (4434a52, 2993780, FERTIG-E.md): 0 Deltas angewendet, Kern 19 positiv, Optional 12, Spirit-Feuerrate im Scoring; 273 Tests ohne DSN, 101 Reasoner mit Scratch-DB, Orchestrator-Gegenprobe 92 grün und 9 nur wegen fehlender Scratch-DSN rot |
 | Review E Runde 1 | 7eccc7c8 | opus48 | keiner (lesend) | keiner | fertig, gesettelt: FREIGABE (2 Punkte für F: Score-Wächter patch.rs:411, Komma-Dezimalzahlen); Merge 80417b9 nach main, Gate ALLOW (opus48, 0 blocking); Worktree und Branch E gelöscht |
 | F Kern nach Kostenband | 24566da5 | luna | ~/.worktrees/deadlock-brain-f | feat/build-reasoner-f | gestartet 2026-09-13 00:45 ab 80417b9, BRIEFING-F.md |
-| S3 Autoren-Scan je Held | bf285ae9 | worker_klein (luna/glm) | ~/.worktrees/steam-bot-autoren-je-held | fix/autoren-scan-je-held | gestartet 2026-09-13 00:30, BRIEFING-S3.md |
+| S3 Autoren-Scan je Held | bf285ae9 | luna | ~/.worktrees/steam-bot-autoren-je-held | fix/autoren-scan-je-held | fertig, gesettelt (0cd59bf, FERTIG-S3.md): 1 Helden-Block statt 13 Autoren-Tasks, 174 Offline und 36 DB-Tests |
+| Review S3 Runde 1 | 78a50c70 | opus48 | keiner (lesend) | keiner | läuft seit 2026-09-13 00:45, REVIEW-BRIEFING-S3.md |
 | S Steam-Bot Autoren-Scan | 231b6ae6 | luna | ~/.worktrees/steam-bot-autoren-scan | feat/autoren-scan-reaktivieren | fertig (f82c21c, FERTIG-S.md), gesettelt |
 | Review S Runde 1 | 8248611a | opus48 | keiner (lesend) | keiner | fertig, gesettelt: NACHBESSERN (5 Mängel, 2 wichtig) |
 | Fix S Runde 1 | 2884c49a | astra | ~/.worktrees/steam-bot-autoren-scan | feat/autoren-scan-reaktivieren | fertig (102ec83), gesettelt |

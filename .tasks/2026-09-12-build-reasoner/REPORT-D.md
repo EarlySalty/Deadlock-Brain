@@ -156,3 +156,21 @@ Fassade beschreiben den vorherigen Stand. Ohne DSN: 256 Tests bestanden,
 53 ignoriert. Reasoner mit lesendem Central-Zugang und lokaler Scratch-DB:
 83 Tests bestanden, keine Fehler. Die zuvor fehlende Scratch-Testumgebung
 wurde für diese Fixrunde isoliert bereitgestellt.
+
+## Live-Nachtrag nach Paket E (2026-09-13 00:40, Release 80417b9)
+
+Release-Binary 00:39 (Anker "Historie, bereits im Snapshot enthalten" im
+Binary), Läufe mit Persistenz gegen den Central-Pool, alle Exit 0:
+
+| Lauf | Ergebnis |
+| --- | --- |
+| `reason build Warden --no-ai --json` | Kern 19 Items, alle positiv; Can buy 1 = 6, Tryhard 1, Shields 3, Optional 12 |
+| `reason patch-impact Warden --json` | 3260 deduplizierte Belege, 0 angewendet, 0 Items verschoben |
+| `reason backtest --hero Warden --json` | Seed Lightbringer x Situation: Kern-Überdeckung 0,2105, Reihenfolge-Nähe 0,1503; Aggregat 43 Vergleiche 0,1763 / 0,2684 |
+| `brain.reasoner_item_scores` (hero_id 25) | 173 Zeilen überschrieben, Spirit Burn 105,30 vorn, Minimum minus 3 (vorher minus 4378) |
+
+Vergleich zum Lauf vor E (Abschnitt Backtest-Zahlen): Kern-Überdeckung 0,158
+auf 0,2105, Aggregat 0,10 auf 0,1763. Kern je Tier jetzt 1/1/2/10/5 (Tier 1
+bis 5) gegen 3/6/2/8 im Referenzbuild; das ist Befund 14 und Paket F.
+
+LIVEBEWEIS[DV-1]: PID kein Dienst (Timer-Binary) | exe rust/target/release/deadlock-brain 00:39 | journal -p err leer (kein Dienst gelaufen) | Anker "Historie, bereits im Snapshot enthalten" in Binary | Funktion: reasoner_item_scores Warden ohne Werte unter minus 3, patch-impact 0 angewendet | Ort: `deadlock-brain reason build Warden --no-ai --json`, Tabelle brain.reasoner_item_scores
