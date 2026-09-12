@@ -11,6 +11,7 @@ pub mod build_narration;
 pub mod config;
 pub mod error;
 pub mod http;
+pub mod model_resolver;
 pub mod models;
 pub mod pg;
 

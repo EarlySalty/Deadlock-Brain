@@ -99,6 +99,10 @@ pub struct ChatCompletionRequest {
     pub temperature: f64,
     pub top_p: f64,
     pub stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_format: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
 }
 
 impl ChatCompletionRequest {
@@ -110,23 +114,20 @@ impl ChatCompletionRequest {
             temperature: config.temperature,
             top_p: config.top_p,
             stream: false,
+            response_format: None,
+            reasoning_effort: None,
         }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct AiClient {
-    client: Client,
     config: AiConfig,
 }
 
 impl AiClient {
     pub fn new(config: AiConfig) -> Result<Self> {
-        let client = Client::builder()
-            .timeout(std::time::Duration::from_secs(config.timeout_seconds))
-            .user_agent("DeadlockBrain/0.1")
-            .build()?;
-        Ok(Self { client, config })
+        Ok(Self { config })
     }
 
     pub fn from_settings(settings: &Settings) -> Result<Self> {
@@ -150,18 +151,54 @@ impl AiClient {
     }
 
     fn call_openai_compatible(&self, request_payload: &Value) -> Result<Value> {
-        let url = format!(
-            "{}/chat/completions",
-            self.config.base_url.trim_end_matches('/')
-        );
-        let response = self
-            .client
-            .post(&url)
-            .bearer_auth(self.config.api_key()?)
-            .json(request_payload)
-            .send()?;
-        parse_response(response, "fireworks_openai_compatible")
+        let config = self.config.clone();
+        let request_payload = request_payload.clone();
+        std::thread::spawn(move || call_openai_compatible_sync(&config, &request_payload))
+            .join()
+            .map_err(|_| {
+                CoreError::Io(std::io::Error::other("Fireworks request thread panicked"))
+            })?
     }
+}
+
+fn call_openai_compatible_sync(config: &AiConfig, request_payload: &Value) -> Result<Value> {
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(config.timeout_seconds))
+        .user_agent("DeadlockBrain/0.1")
+        .build()?;
+    let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
+    let api_key = config.api_key()?.to_string();
+    let mut payload = request_payload.clone();
+    if let Some(object) = payload.as_object_mut() {
+        object.insert(
+            "model".to_string(),
+            json!(crate::model_resolver::model_for_request(&config.model)),
+        );
+    }
+    let response = client
+        .post(&url)
+        .bearer_auth(&api_key)
+        .json(&payload)
+        .send()?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND
+        && crate::model_resolver::explicit_model().is_none()
+    {
+        if let Some(model) =
+            crate::model_resolver::resolve_after_not_found(&config.base_url, &api_key)
+        {
+            if let Some(object) = payload.as_object_mut() {
+                object.insert("model".to_string(), json!(model));
+            }
+            return client
+                .post(&url)
+                .bearer_auth(&api_key)
+                .json(&payload)
+                .send()
+                .map_err(Into::into)
+                .and_then(|response| parse_response(response, "fireworks_openai_compatible"));
+        }
+    }
+    parse_response(response, "fireworks_openai_compatible")
 }
 
 pub fn build_review_request(
@@ -307,5 +344,7 @@ mod tests {
         .unwrap();
         assert_eq!(value.get("max_tokens").and_then(Value::as_u64), Some(123));
         assert!(value.get("max_completion_tokens").is_none());
+        assert!(value.get("response_format").is_none());
+        assert!(value.get("reasoning_effort").is_none());
     }
 }

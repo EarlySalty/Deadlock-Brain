@@ -109,6 +109,12 @@ pub struct BuildSpecPayload {
 pub struct BuildSpecCategory {
     pub name: String,
     pub optional: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height: Option<f64>,
     pub mods: Vec<BuildSpecMod>,
 }
 
@@ -116,6 +122,10 @@ pub struct BuildSpecCategory {
 pub struct BuildSpecMod {
     pub ability_id: i64,
     pub annotation: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub imbue: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sell_priority: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -317,6 +327,8 @@ pub fn assemble_payload(
                     mods.push(BuildSpecMod {
                         ability_id: *ability_id,
                         annotation: item.annotation,
+                        imbue: None,
+                        sell_priority: None,
                     });
                 } else {
                     warnings.push(format!("unknown item ignored: {}", item.name));
@@ -325,6 +337,9 @@ pub fn assemble_payload(
             BuildSpecCategory {
                 name: category.name,
                 optional: category.optional,
+                description: None,
+                width: None,
+                height: None,
                 mods,
             }
         })

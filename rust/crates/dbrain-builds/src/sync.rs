@@ -13,9 +13,9 @@ use crate::{
     api::DeadlockApiClient,
     classify::{classify_item, ClassifiedItem},
     error::BuildEngineError,
+    latest_patch_tag,
     util::{
         json_string, value_as_i64, value_f64, value_i64, value_string, winrate, BRACKET_BADGE_80,
-        PATCH_TAG_CURRENT,
     },
 };
 
@@ -78,10 +78,11 @@ pub async fn sync_build_data(
     let heroes = api.heroes()?;
     let hero_catalog_rows = upsert_hero_catalog(pool, &heroes).await?;
     let hero_ids = resolve_sync_hero_ids(pool, &options.hero).await?;
+    let patch_tag = latest_patch_tag(pool).await?;
 
     let mut hero_summaries = Vec::new();
     for hero_id in hero_ids {
-        let summary = sync_one_hero(pool, &api, hero_id, &options).await?;
+        let summary = sync_one_hero(pool, &api, hero_id, &options, &patch_tag).await?;
         hero_summaries.push(summary);
     }
 
@@ -97,6 +98,7 @@ async fn sync_one_hero(
     api: &DeadlockApiClient,
     hero_id: i64,
     options: &BuildDataSyncOptions,
+    patch_tag: &str,
 ) -> Result<HeroBuildDataSyncSummary> {
     let hero_name = hero_name(pool, hero_id).await?;
     let prevalence_payload = api.build_item_stats(hero_id)?;
@@ -137,6 +139,7 @@ async fn sync_one_hero(
         &item_stats,
         &catalog_ids,
         &lift_map,
+        patch_tag,
     )
     .await?;
 
@@ -146,7 +149,8 @@ async fn sync_one_hero(
         options.min_ability_matches,
     )?;
     analytics_pause(options);
-    let ability_order_rows = upsert_ability_order(pool, hero_id, &ability_payload).await?;
+    let ability_order_rows =
+        upsert_ability_order(pool, hero_id, &ability_payload, patch_tag).await?;
 
     let synergy_payload = api.item_permutation_stats(hero_id)?;
     analytics_pause(options);
@@ -156,6 +160,7 @@ async fn sync_one_hero(
         &synergy_payload,
         &catalog_ids,
         options.synergy_limit,
+        patch_tag,
     )
     .await?;
 
@@ -455,6 +460,7 @@ async fn upsert_hero_item_stats(
     item_stats: &BTreeMap<i64, ItemStatLine>,
     catalog_ids: &BTreeSet<i64>,
     lift_map: &HashMap<i64, f64>,
+    patch_tag: &str,
 ) -> Result<usize> {
     let mut ids = BTreeSet::new();
     ids.extend(prevalence.keys().copied());
@@ -499,7 +505,7 @@ async fn upsert_hero_item_stats(
             line.players,
             line.avg_buy_time_relative,
             lift_map.get(&item_id).copied(),
-            PATCH_TAG_CURRENT,
+            patch_tag,
         )
         .execute(pool)
         .await?;
@@ -509,7 +515,12 @@ async fn upsert_hero_item_stats(
     Ok(count)
 }
 
-async fn upsert_ability_order(pool: &PgPool, hero_id: i64, payload: &Value) -> Result<usize> {
+async fn upsert_ability_order(
+    pool: &PgPool,
+    hero_id: i64,
+    payload: &Value,
+    patch_tag: &str,
+) -> Result<usize> {
     let Some(best) = payload.as_array().and_then(|rows| {
         rows.iter()
             .max_by_key(|row| value_i64(row, "matches").unwrap_or(0))
@@ -546,7 +557,7 @@ async fn upsert_ability_order(pool: &PgPool, hero_id: i64, payload: &Value) -> R
         value_i64(best, "losses").unwrap_or(0),
         value_i64(best, "matches").unwrap_or(0),
         value_i64(best, "players").unwrap_or(0),
-        PATCH_TAG_CURRENT,
+        patch_tag,
     )
     .execute(pool)
     .await?;
@@ -559,6 +570,7 @@ async fn upsert_synergies(
     payload: &Value,
     catalog_ids: &BTreeSet<i64>,
     limit: usize,
+    patch_tag: &str,
 ) -> Result<usize> {
     let Some(rows) = payload.as_array() else {
         return Ok(0);
@@ -599,7 +611,7 @@ async fn upsert_synergies(
                 value_i64(row, "wins").unwrap_or(0),
                 value_i64(row, "losses").unwrap_or(0),
                 value_i64(row, "matches").unwrap_or(0),
-                PATCH_TAG_CURRENT,
+                patch_tag,
             )
             .execute(pool)
             .await?;
@@ -705,6 +717,7 @@ mod tests {
             &item_stats,
             &catalog_ids,
             &lift_map,
+            "current",
         )
         .await
         .expect("upsert stats");

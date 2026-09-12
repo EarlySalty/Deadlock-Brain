@@ -1,0 +1,14 @@
+[Unit]
+Description=Deadlock Brain build data refresh
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/repos/Deadlock-Brain
+Environment=INFISICAL_CONFIG_FILE=%h/.config/deadlock-bots/infisical.conf
+LoadCredential=infisical-token:%h/.config/infisical-tokens/infisical-token-bots
+ExecStart=/usr/bin/bash %h/repos/Deadlock-Brain/scripts/run_build_data_with_infisical.sh
+
+[Install]
+WantedBy=default.target
