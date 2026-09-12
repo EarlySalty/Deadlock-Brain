@@ -91,3 +91,12 @@ Befund nach dem Brain-Deploy (2026-09-12 23:32, Release 4689b80):
     Patchzeilen. Paket E (`fix/build-reasoner-patch-delta`,
     `FIX-BRIEFING-E.md`): Deltas nur nach dem Snapshot-Datum, Dedup, Vorzeichen
     aus den Zahlen, Kern nur positive Items, Optional gedeckelt.
+
+Befund nach Paket E (2026-09-13 00:35):
+14. E behebt die Patch-Anwendung (0 Deltas auf den aktuellen Snapshot, Kern
+    nur positive Scores, Spirit-Feuerrate im Scoring). Der Kern verletzt aber
+    die Spiellogik: 15 von 19 Kern-Items sind Tier 4 oder 5, der Referenzbuild
+    hat 3/6/2/8 über Tier 1 bis 4. Ursache ist der globale Cutoff nach
+    Slot-Wert. Paket F (mittel, nach E-Merge): Kern als Einkaufskurve nach
+    Kostenband, Layout aus echten Autoren-Builds abgeleitet, Tier 1 und 2 nach
+    per_soul_value, Backtest über mehrere Helden. Briefing `BRIEFING-F.md`.
