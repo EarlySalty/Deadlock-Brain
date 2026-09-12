@@ -1,0 +1,76 @@
+{
+  "quelle": "Screenshot referenz/lightbringer-warden.png, Ingame-Build-Browser, 2026-09-12",
+  "hero": "Warden",
+  "author": "Lightbringer x Situation",
+  "build_name": "LIGHTBRINGERxSITUATION WARDEN BUILD",
+  "patch_hinweis": "Nach dem Nightshift-Patch veröffentlicht; Warden galt davor als tot.",
+  "reihenfolge_hinweis": "Reihenfolge je Block ist die Anzeigereihenfolge im Spiel (links nach rechts, oben nach unten), nicht ein gemessener Kaufzeitpunkt.",
+  "bloecke": [
+    {
+      "name": "Core Items",
+      "hinweis": "CAN BUY ANY 3K ITEM INSTEAD OF VEIL",
+      "items": [
+        {"name": "High-Velocity Rounds", "tier": 1},
+        {"name": "Opening Rounds", "tier": 2},
+        {"name": "Extra Regen", "tier": 1},
+        {"name": "Quicksilver Reload", "tier": 2, "imbue": true},
+        {"name": "Monster Rounds", "tier": 1},
+        {"name": "Swift Striker", "tier": 2},
+        {"name": "Titanic Magazine", "tier": 2},
+        {"name": "Veil Walker", "tier": 3},
+        {"name": "Enduring Speed", "tier": 2},
+        {"name": "Fleetfoot", "tier": 2, "active": true},
+        {"name": "Mercurial Magnum", "tier": 4, "imbue": true},
+        {"name": "Spiritual Overflow", "tier": 4},
+        {"name": "Siphon Bullets", "tier": 4},
+        {"name": "Boundless Spirit", "tier": 4},
+        {"name": "Blood Tribute", "tier": 3, "active": true},
+        {"name": "Unstoppable", "tier": 4, "active": true},
+        {"name": "Witchmail", "tier": 4},
+        {"name": "Transcendent Cooldown", "tier": 4},
+        {"name": "Juggernaut", "tier": 4}
+      ]
+    },
+    {
+      "name": "Can buy 1",
+      "items": [
+        {"name": "Metal Skin", "tier": 3, "active": true},
+        {"name": "Dispel Magic", "tier": 3, "active": true},
+        {"name": "Spirit Resilience", "tier": 3},
+        {"name": "Counterspell", "tier": 3},
+        {"name": "Bullet Resilience", "tier": 3},
+        {"name": "Vampiric Burst", "tier": 4, "active": true}
+      ]
+    },
+    {
+      "name": "Tryhard",
+      "items": [
+        {"name": "Slowing Hex", "tier": 2, "active": true}
+      ]
+    },
+    {
+      "name": "Shields",
+      "items": [
+        {"name": "Spirit Shielding", "tier": 2},
+        {"name": "Weapon Shielding", "tier": 2},
+        {"name": "Reactive Barrier", "tier": 2}
+      ]
+    },
+    {
+      "name": "Optional",
+      "items": [
+        {"name": "Healing Booster", "tier": 2},
+        {"name": "Silencer", "tier": 4},
+        {"name": "Spellslinger", "tier": 4},
+        {"name": "Toxic Bullets", "tier": 3},
+        {"name": "Split Shot", "tier": 3, "active": true},
+        {"name": "Ricochet", "tier": 4},
+        {"name": "Armor Piercing Rounds", "tier": 4},
+        {"name": "Crippling Headshot", "tier": 4},
+        {"name": "Spellbreaker", "tier": 4},
+        {"name": "Plated Armor", "tier": 4},
+        {"name": "Inhibitor", "tier": 4}
+      ]
+    }
+  ]
+}

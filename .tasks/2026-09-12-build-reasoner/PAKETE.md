@@ -1,0 +1,36 @@
+# Pakete: build-reasoner
+
+status: aktiv (2026-09-12)
+
+Delegator: Fable, Thread `33a32f58-476b-4a67-99cc-8f6c1e8f7001`. Pakete sind
+disjunkt nach Dateien: jede Datei liegt in genau einem Paket, kein Paket fasst
+Dateien eines anderen an. Verbindliche Spec: `ARCHITEKTUR.md` und `MECHANIK.md`
+in diesem Ordner. Vorcheck-Befund: `VORCHECK-ERGEBNIS.md` (sobald vorhanden).
+
+Entscheidungen des Delegators zu den offenen Fragen aus ARCHITEKTUR.md Abschnitt 14:
+1. Skalierungsstufe: Paket B liest `property_upgrades[].name` plus
+   `scaling_stats` und verifiziert `scale_function` am DB-Snapshot.
+2. Paket A verifiziert die Spalten von `hero_stat_values` und
+   `hero_item_synergies` am echten Schema, bevor `data.rs` festgezurrt wird.
+3. Reihenfolge-Nähe auf der Autoren-Seite kommt aus der Reihenfolge im
+   `details`-Array; ohne Reihenfolge meldet der Backtest "nicht messbar".
+4. Warden-Referenz: `referenz/lightbringer-warden.json` ist ein manueller
+   Seed-Build. Paket C liest Seed-Builds aus `referenz/*.json` zusätzlich zu
+   `tierlist.hero_build_sources`; nichts wird in `tierlist` geschrieben.
+5. Reaktivierung des Autoren-Scans im Steam-Bot ist Paket S (eigenes Repo,
+   eigener Thread), startet nach A.
+
+| Paket | Inhalt (Dateien) | Worker-Thread | Modell | Status |
+|---|---|---|---|---|
+| A | `rust/Cargo.toml` (Workspace-Eintrag), `rust/crates/dbrain-reasoner/Cargo.toml`, `src/lib.rs`, `src/types.rs`, `src/data.rs`, `src/ai_roles.rs`, Tests dazu | folgt | luna | geplant |
+| B | `rust/crates/dbrain-reasoner/src/mechanics.rs`, `src/hero.rs`, `src/item.rs`, Tests dazu | folgt | luna | wartet auf A |
+| C | `rust/crates/dbrain-reasoner/src/patch.rs`, `src/meta.rs`, `src/composer.rs`, `src/backtest.rs`, `src/publish.rs`, `dbrain-builds/src/spec.rs` (nur Erweiterung `BuildSpecMod`/`BuildSpecCategory`), Tests dazu | folgt | luna | wartet auf A |
+| D | `rust/crates/deadlock-brain/src/main.rs` (Subcommand `reason`), `lib.rs`-Integration, Migration für die neuen `brain`-Tabellen, Doku `docs/BUILD_REASONER.md`, Backtest-Report | folgt | luna | wartet auf B und C |
+| S | Deadlock-Steam-Bot: Autoren-Scan reaktivieren, Autoren Lightbringer und Situation ergänzen | folgt | luna | wartet auf A |
+
+Worktrees: `~/.worktrees/deadlock-brain-<paket>`, Branch
+`feat/build-reasoner-<paket>` von `main`. B und C zweigen vom gemergten A ab.
+
+Bei Bump-up oder Kontextverlust hier den Stand nachziehen: erledigte Pakete auf
+"fertig" plus Commit, laufende auf den aktuellen Stand. Jeder Bump-up bleibt
+auf dem bestehenden Worktree-Stand.
