@@ -123,11 +123,7 @@ pub fn per_slot_value(combat: f64, purchase: f64) -> f64 {
 }
 
 pub fn per_soul_value(combat: f64, cost: i64) -> f64 {
-    if cost > 0 {
-        combat / cost as f64
-    } else {
-        0.0
-    }
+    if cost > 0 { combat / cost as f64 } else { 0.0 }
 }
 
 pub fn active_value(item: &ItemModel, hero: &HeroModel, cfg: &ReasonerConfig) -> f64 {
@@ -226,8 +222,11 @@ pub fn buy_phase_for_hero(item: &ItemModel, hero: &HeroModel) -> crate::BuyPhase
         .map(|point| point.required_souls)
         .max()
         .unwrap_or(pivot);
+    let mid = pivot + late.saturating_sub(pivot) / 2;
     if item.cost < pivot {
         crate::BuyPhase::Lane
+    } else if item.cost < mid {
+        crate::BuyPhase::Mid
     } else if item.cost < late {
         crate::BuyPhase::Core
     } else {
@@ -238,6 +237,8 @@ pub fn buy_phase_for_hero(item: &ItemModel, hero: &HeroModel) -> crate::BuyPhase
 pub fn buy_phase(item: &ItemModel) -> crate::BuyPhase {
     if item.cost <= 1600 {
         crate::BuyPhase::Lane
+    } else if item.cost <= 3200 {
+        crate::BuyPhase::Mid
     } else if item.cost <= 6400 {
         crate::BuyPhase::Core
     } else {
@@ -794,7 +795,7 @@ mod tests {
         let mut item = item();
         item.cost = 3200;
         assert_eq!(scaling_souls(&hero), Some(800));
-        assert_eq!(buy_phase_for_hero(&item, &hero), crate::BuyPhase::Core);
+        assert_eq!(buy_phase_for_hero(&item, &hero), crate::BuyPhase::Mid);
         hero.abilities[0]
             .scaling_step
             .as_mut()
@@ -1062,7 +1063,7 @@ mod tests {
         };
         assert_eq!(buy_phase(&item), crate::BuyPhase::Lane);
         let item = ItemModel { cost: 3200, ..item };
-        assert_eq!(buy_phase(&item), crate::BuyPhase::Core);
+        assert_eq!(buy_phase(&item), crate::BuyPhase::Mid);
         let item = ItemModel {
             cost: 12800,
             ..item

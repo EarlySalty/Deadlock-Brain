@@ -6,7 +6,10 @@ use std::{
 
 use serde_json::Value;
 
-use crate::{AuthorBuild, MetaIndex, MetaRow, MetaSupport, ReasonerConfig, ReasonerError, Result};
+use crate::{
+    AuthorBuild, CoreLayoutBand, CoreLayoutIndex, CoreLayoutStats, MetaIndex, MetaRow, MetaSupport,
+    ReasonerConfig, ReasonerError, Result,
+};
 
 #[derive(Debug, Clone)]
 pub struct AuthorBuildSource {
@@ -17,10 +20,19 @@ pub struct AuthorBuildSource {
 }
 
 #[derive(Debug, Clone)]
+pub struct AuthorBuildLayoutSource {
+    pub hero_id: i64,
+    pub build_id: i64,
+    pub version: i64,
+    pub details: Value,
+}
+
+#[derive(Debug, Clone)]
 pub struct MetaIndexWithSources {
     pub index: MetaIndex,
     pub author_builds: Vec<AuthorBuildSource>,
     pub hero_ability_orders: BTreeMap<i64, Vec<crate::AbilityStep>>,
+    pub core_layouts: CoreLayoutIndex,
 }
 
 impl MetaIndexWithSources {
@@ -71,6 +83,137 @@ impl MetaIndexWithSources {
                 detail: "Skill-Order: keine Quelle".to_string(),
             },
         )
+    }
+}
+
+fn category_mod_ids(category: &Value) -> impl Iterator<Item = i64> + '_ {
+    category
+        .get("mods")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            item.get("abilityId")
+                .or_else(|| item.get("ability_id"))
+                .and_then(|value| value.as_i64().or_else(|| value.as_str()?.parse().ok()))
+                .filter(|id| *id != 0)
+        })
+}
+
+fn core_categories(details: &Value) -> Vec<&Value> {
+    let Some(categories) = details
+        .get("modCategories")
+        .or_else(|| details.get("mod_categories"))
+        .and_then(Value::as_array)
+    else {
+        return Vec::new();
+    };
+    let named = categories
+        .iter()
+        .filter(|category| {
+            let name = category
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            [
+                "core", "kern", "standard", "main", "primary", "basis", "default",
+            ]
+            .iter()
+            .any(|marker| name.contains(marker))
+        })
+        .collect::<Vec<_>>();
+    if !named.is_empty() {
+        return named;
+    }
+    categories
+        .iter()
+        .max_by_key(|category| category_mod_ids(category).count())
+        .into_iter()
+        .collect()
+}
+
+fn quantile(values: &[usize], fraction: f64) -> f64 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    let mut sorted = values.to_vec();
+    sorted.sort_unstable();
+    let position = (sorted.len() - 1) as f64 * fraction;
+    let lower = position.floor() as usize;
+    let upper = position.ceil() as usize;
+    sorted[lower] as f64 + (sorted[upper] - sorted[lower]) as f64 * position.fract()
+}
+
+fn layout_stats(counts: &[BTreeMap<i64, usize>]) -> CoreLayoutStats {
+    if counts.is_empty() {
+        return CoreLayoutStats::default();
+    }
+    let totals = counts
+        .iter()
+        .map(|counts| counts.values().sum())
+        .collect::<Vec<_>>();
+    let mut bands = BTreeMap::new();
+    for tier in 1..=5 {
+        let values = counts
+            .iter()
+            .map(|counts| counts.get(&tier).copied().unwrap_or(0))
+            .collect::<Vec<_>>();
+        let median = quantile(&values, 0.5);
+        bands.insert(
+            tier,
+            CoreLayoutBand {
+                tier,
+                median,
+                lower_quartile: quantile(&values, 0.25),
+                upper_quartile: quantile(&values, 0.75),
+                target: median.round() as usize,
+            },
+        );
+    }
+    let total_median = quantile(&totals, 0.5);
+    let total_target: usize = bands.values().map(|band| band.target).sum();
+    CoreLayoutStats {
+        source_builds: counts.len(),
+        total_median,
+        total_lower_quartile: quantile(&totals, 0.25),
+        total_upper_quartile: quantile(&totals, 0.75),
+        flex_slots: total_target.saturating_sub(12),
+        bands,
+    }
+}
+
+pub fn derive_core_layouts(
+    sources: &[AuthorBuildLayoutSource],
+    item_tiers: &BTreeMap<i64, i64>,
+) -> CoreLayoutIndex {
+    let mut by_hero_counts = BTreeMap::<i64, Vec<BTreeMap<i64, usize>>>::new();
+    for source in sources {
+        let mut counts = BTreeMap::new();
+        for category in core_categories(&source.details) {
+            for item_id in category_mod_ids(category) {
+                if let Some(tier) = item_tiers.get(&item_id) {
+                    *counts.entry(*tier).or_insert(0) += 1;
+                }
+            }
+        }
+        if !counts.is_empty() {
+            by_hero_counts
+                .entry(source.hero_id)
+                .or_default()
+                .push(counts);
+        }
+    }
+    let overall_counts = by_hero_counts
+        .values()
+        .flat_map(|counts| counts.iter().cloned())
+        .collect::<Vec<_>>();
+    CoreLayoutIndex {
+        by_hero: by_hero_counts
+            .into_iter()
+            .map(|(hero_id, counts)| (hero_id, layout_stats(&counts)))
+            .collect(),
+        overall: layout_stats(&overall_counts),
     }
 }
 
@@ -412,5 +555,73 @@ mod tests {
         let support = &build_meta_index(&rows, &authors, &claims, &cfg()).by_item[&42];
         assert_eq!(support.author_hits, 1);
         assert_eq!(support.claim_hits, 1);
+    }
+
+    #[test]
+    fn derives_core_layout_from_named_categories_and_falls_back_to_largest() {
+        let source = |hero_id, build_id, categories| AuthorBuildLayoutSource {
+            hero_id,
+            build_id,
+            version: 1,
+            details: serde_json::json!({"modCategories": categories}),
+        };
+        let id = |item_id| serde_json::json!({"abilityId": item_id});
+        let sources = vec![
+            source(
+                25,
+                1,
+                vec![
+                    serde_json::json!({"name":"Early", "mods":[id(1),id(2),id(3),id(4)]}),
+                    serde_json::json!({"name":"Core Items", "mods":[id(5),id(6)]}),
+                    serde_json::json!({"name":"Core Damage", "mods":[id(7)]}),
+                ],
+            ),
+            source(
+                25,
+                2,
+                vec![
+                    serde_json::json!({"name":"First", "mods":[id(1),id(2)]}),
+                    serde_json::json!({"name":"Options", "mods":[id(3)]}),
+                ],
+            ),
+            source(
+                99,
+                3,
+                vec![serde_json::json!({"name":"Standard", "mods":[id(1),id(2),id(3)]})],
+            ),
+        ];
+        let tiers = BTreeMap::from([(1, 1), (2, 2), (3, 3), (4, 4), (5, 4), (6, 2), (7, 4)]);
+        let layouts = derive_core_layouts(&sources, &tiers);
+        let warden = layouts.for_hero(25);
+        assert_eq!(warden.source_builds, 2);
+        assert_eq!(warden.target_for_tier(1), 1);
+        assert_eq!(warden.target_for_tier(2), 1);
+        assert_eq!(warden.target_for_tier(4), 1);
+        assert_eq!(warden.total_target(), 3);
+        assert_eq!(layouts.overall.source_builds, 3);
+        assert_eq!(layouts.overall.target_for_tier(1), 1);
+        assert_eq!(layouts.overall.target_for_tier(2), 1);
+    }
+
+    #[test]
+    fn reports_interquartiles_and_flex_budget_from_target_bands() {
+        let source = |build_id, count| AuthorBuildLayoutSource {
+            hero_id: 25,
+            build_id,
+            version: 1,
+            details: serde_json::json!({"modCategories":[{"name":"Core","mods":
+                (1..=count).map(|item_id| serde_json::json!({"abilityId":item_id})).collect::<Vec<_>>()
+            }]}),
+        };
+        let layouts = derive_core_layouts(
+            &[source(1, 1), source(2, 3), source(3, 5)],
+            &BTreeMap::from([(1, 1), (2, 1), (3, 1), (4, 1), (5, 1)]),
+        );
+        let band = &layouts.overall.bands[&1];
+        assert_eq!(band.median, 3.0);
+        assert_eq!(band.lower_quartile, 2.0);
+        assert_eq!(band.upper_quartile, 4.0);
+        assert_eq!(layouts.overall.total_median, 3.0);
+        assert_eq!(layouts.overall.flex_slots, 0);
     }
 }

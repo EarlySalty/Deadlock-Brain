@@ -19,12 +19,12 @@ mod types;
 mod fix_tests;
 
 pub use ai_roles::{
-    build_critic_request, build_hero_analyst_request, build_item_analyst_request,
-    build_meta_analyst_request, build_patch_analyst_request, parse_critic_response,
-    parse_hero_analyst_response, parse_item_analyst_response, parse_meta_analyst_response,
-    parse_patch_analyst_response, run_critic, run_hero_analyst, run_item_analyst, run_meta_analyst,
-    run_patch_analyst, CriticResponse, HeroAnalystResponse, ItemAnalystResponse,
-    MetaAnalystResponse, PatchAnalystResponse,
+    CriticResponse, HeroAnalystResponse, ItemAnalystResponse, MetaAnalystResponse,
+    PatchAnalystResponse, build_critic_request, build_hero_analyst_request,
+    build_item_analyst_request, build_meta_analyst_request, build_patch_analyst_request,
+    parse_critic_response, parse_hero_analyst_response, parse_item_analyst_response,
+    parse_meta_analyst_response, parse_patch_analyst_response, run_critic, run_hero_analyst,
+    run_item_analyst, run_meta_analyst, run_patch_analyst,
 };
 pub use data::load_hero_abilities;
 pub use data::{
@@ -458,6 +458,7 @@ async fn load_reasoning_inputs(
         .iter()
         .map(item::build_item_model)
         .collect::<Result<Vec<_>>>()?;
+    let core_layouts = data::load_core_layouts(ctx).await?;
     let rows = load_meta_rows(ctx, hero_model.hero_id).await?;
     let authors = load_author_builds(ctx, hero_model.hero_id).await?;
     let claims = load_claims(ctx, hero_model.hero_id).await?;
@@ -475,6 +476,7 @@ async fn load_reasoning_inputs(
             index,
             author_builds,
             hero_ability_orders,
+            core_layouts,
         },
         snapshots,
     ))

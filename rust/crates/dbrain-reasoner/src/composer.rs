@@ -1,8 +1,8 @@
 use std::cmp::Ordering;
 
 use crate::{
-    BuildItem, BuildObject, BuyPhase, Confidence, Evidence, EvidenceKind, HeroModel, PatchDelta,
-    ReasonerConfig, ScoredItem, SituationBlock, SituationKind,
+    BuildItem, BuildObject, BuyPhase, Confidence, CoreLayoutStats, Evidence, EvidenceKind,
+    HeroModel, PatchDelta, ReasonerConfig, ScoredItem, SituationBlock, SituationKind, SlotType,
 };
 
 fn confidence_rank(confidence: &Confidence) -> u8 {
@@ -99,6 +99,106 @@ fn item_order<'a>(scored: &'a [ScoredItem], blocked: &[String]) -> Vec<&'a Score
     items
 }
 
+fn is_situation_item(item: &ScoredItem) -> bool {
+    is_shield(item)
+        || is_can_buy_one(item)
+        || is_tryhard(item)
+        || is_optional(item)
+        || is_counter(item)
+}
+
+fn phase_rank(phase: &BuyPhase) -> u8 {
+    match phase {
+        BuyPhase::Lane => 0,
+        BuyPhase::Mid => 1,
+        BuyPhase::Core => 2,
+        BuyPhase::Late => 3,
+    }
+}
+
+fn slot_index(slot: &SlotType) -> usize {
+    match slot {
+        SlotType::Weapon => 0,
+        SlotType::Vitality => 1,
+        SlotType::Spirit => 2,
+    }
+}
+
+fn core_candidates<'a>(ordered: &[&'a ScoredItem]) -> Vec<&'a ScoredItem> {
+    ordered
+        .iter()
+        .copied()
+        .filter(|item| !is_situation_item(item) && item.score.total > 0.0)
+        .collect()
+}
+
+fn select_core_items<'a>(
+    candidates: &[&'a ScoredItem],
+    layout: &CoreLayoutStats,
+) -> Vec<&'a ScoredItem> {
+    let mut selected: Vec<&ScoredItem> = Vec::new();
+    let mut used = std::collections::BTreeSet::new();
+    let mut slot_counts = [0usize; 3];
+    let mut flex_used = 0usize;
+    for tier in 1..=5 {
+        let target = layout.target_for_tier(tier);
+        if target == 0 {
+            continue;
+        }
+        let mut band = candidates
+            .iter()
+            .copied()
+            .filter(|item| item.item.tier == tier && !used.contains(&item.item.item_id))
+            .collect::<Vec<_>>();
+        band.sort_by(|left, right| {
+            let primary = if tier <= 2 {
+                right
+                    .score
+                    .per_soul_value
+                    .total_cmp(&left.score.per_soul_value)
+            } else {
+                right.score.total.total_cmp(&left.score.total)
+            };
+            primary
+                .then_with(|| right.score.total.total_cmp(&left.score.total))
+                .then_with(|| {
+                    right
+                        .score
+                        .per_soul_value
+                        .total_cmp(&left.score.per_soul_value)
+                })
+                .then_with(|| left.item.item_id.cmp(&right.item.item_id))
+        });
+        for item in band {
+            if selected
+                .iter()
+                .filter(|selected| selected.item.tier == tier)
+                .count()
+                >= target
+            {
+                break;
+            }
+            let slot = slot_index(&item.item.slot);
+            if slot_counts[slot] >= 4 {
+                if flex_used >= layout.flex_slots {
+                    continue;
+                }
+                flex_used += 1;
+            }
+            slot_counts[slot] += 1;
+            used.insert(item.item.item_id);
+            selected.push(item);
+        }
+    }
+    selected.sort_by(|left, right| {
+        phase_rank(&left.buy_phase)
+            .cmp(&phase_rank(&right.buy_phase))
+            .then_with(|| right.score.total.total_cmp(&left.score.total))
+            .then_with(|| left.item.item_id.cmp(&right.item.item_id))
+    });
+    selected
+}
+
 fn build_item(item: &ScoredItem, hero: &HeroModel, sources: Vec<Evidence>) -> BuildItem {
     let imbue_target = if item.item.imbueable {
         hero.abilities
@@ -126,7 +226,7 @@ fn build_item(item: &ScoredItem, hero: &HeroModel, sources: Vec<Evidence>) -> Bu
         imbue_target,
         sell_priority: match item.buy_phase {
             BuyPhase::Lane => Some(if item.item.tier <= 1 { 1 } else { 2 }),
-            BuyPhase::Core | BuyPhase::Late => None,
+            BuyPhase::Mid | BuyPhase::Core | BuyPhase::Late => None,
         },
         sources,
     }
@@ -171,7 +271,14 @@ pub fn compose_build_with_sources(
     blocked: &[String],
     meta: &crate::meta::MetaIndexWithSources,
 ) -> BuildObject {
-    let mut build = compose_build_with_blocklist(hero, scored, deltas, cfg, blocked);
+    let mut build = compose_build_with_layout_and_blocklist(
+        hero,
+        scored,
+        deltas,
+        cfg,
+        blocked,
+        meta.core_layouts.for_hero(hero.hero_id),
+    );
     let (order, source) = meta.ability_order(hero.hero_id);
     build.ability_order = order;
     build.rationale = source.detail;
@@ -185,14 +292,53 @@ pub fn compose_build_with_blocklist(
     _cfg: &ReasonerConfig,
     blocked: &[String],
 ) -> BuildObject {
+    compose_build_with_layout_and_blocklist(
+        hero,
+        scored,
+        deltas,
+        _cfg,
+        blocked,
+        &CoreLayoutStats::default(),
+    )
+}
+
+pub fn compose_build_with_layout(
+    hero: &HeroModel,
+    scored: &[ScoredItem],
+    deltas: &[PatchDelta],
+    cfg: &ReasonerConfig,
+    layout: &CoreLayoutStats,
+) -> BuildObject {
+    compose_build_with_layout_and_blocklist(hero, scored, deltas, cfg, &[], layout)
+}
+
+fn compose_build_with_layout_and_blocklist(
+    hero: &HeroModel,
+    scored: &[ScoredItem],
+    deltas: &[PatchDelta],
+    cfg: &ReasonerConfig,
+    blocked: &[String],
+    layout: &CoreLayoutStats,
+) -> BuildObject {
     let ordered = item_order(scored, blocked);
-    let mut core = Vec::new();
+    let selected = select_core_items(&core_candidates(&ordered), layout);
+    let selected_ids = selected
+        .iter()
+        .map(|item| item.item.item_id)
+        .collect::<std::collections::BTreeSet<_>>();
+    let core = selected
+        .into_iter()
+        .map(|item| build_item(item, hero, patch_sources(item, deltas)))
+        .collect::<Vec<_>>();
     let mut can_buy = Vec::new();
     let mut tryhard = Vec::new();
     let mut shields = Vec::new();
     let mut counters = Vec::new();
     let mut optional = Vec::new();
     for item in ordered {
+        if selected_ids.contains(&item.item.item_id) {
+            continue;
+        }
         if is_shield(item) {
             shields.push(build_item(item, hero, patch_sources(item, deltas)));
         } else if is_can_buy_one(item) {
@@ -203,8 +349,6 @@ pub fn compose_build_with_blocklist(
             optional.push(build_item(item, hero, patch_sources(item, deltas)));
         } else if is_counter(item) {
             counters.push(build_item(item, hero, patch_sources(item, deltas)));
-        } else if core.len() < 19 && item.score.total > 0.0 {
-            core.push(build_item(item, hero, patch_sources(item, deltas)));
         } else {
             optional.push(build_item(item, hero, patch_sources(item, deltas)));
         }
@@ -257,7 +401,7 @@ pub fn compose_build_with_blocklist(
     BuildObject {
         hero_id: hero.hero_id,
         hero_name: hero.name.clone(),
-        patch_tag: _cfg.patch_tag.clone(),
+        patch_tag: cfg.patch_tag.clone(),
         name: format!("{} Reasoner Build", hero.name),
         core,
         situations,
@@ -275,13 +419,21 @@ mod tests {
             item(1, "Zero", 0.0, false, &[]),
             item(2, "Negative", -2.0, false, &[]),
         ];
-        let build = compose_build(&hero(), &scored, &[], &ReasonerConfig::default());
+        let build = compose_build_with_layout(
+            &hero(),
+            &scored,
+            &[],
+            &ReasonerConfig::default(),
+            &layout(&[(2, 19)], 48),
+        );
         assert!(build.core.is_empty());
-        assert!(build
-            .situations
-            .iter()
-            .flat_map(|block| &block.items)
-            .all(|item| item.confidence != Confidence::High));
+        assert!(
+            build
+                .situations
+                .iter()
+                .flat_map(|block| &block.items)
+                .all(|item| item.confidence != Confidence::High)
+        );
     }
 
     #[test]
@@ -289,7 +441,13 @@ mod tests {
         let scored = (1..=60)
             .map(|id| item(id, &format!("Item {id}"), id as f64, false, &[]))
             .collect::<Vec<_>>();
-        let build = compose_build(&hero(), &scored, &[], &ReasonerConfig::default());
+        let build = compose_build_with_layout(
+            &hero(),
+            &scored,
+            &[],
+            &ReasonerConfig::default(),
+            &layout(&[(2, 19)], 48),
+        );
         let optional = build
             .situations
             .iter()
@@ -318,13 +476,19 @@ mod tests {
                 serde_json::json!({"item_id":2,"change_type":"buff","old_value":1,"new_value":100,"raw_line":"Damage increased from 1 to 100"}),
             ],
         );
-        let build = compose_build(&hero(), &scored, &deltas, &ReasonerConfig::default());
+        let build = compose_build_with_layout(
+            &hero(),
+            &scored,
+            &deltas,
+            &ReasonerConfig::default(),
+            &layout(&[(2, 2)], 0),
+        );
         assert_eq!(build.core[0].item_id, 1);
     }
     use super::*;
     use crate::{
-        BuyPhase, DamagePlan, DamageType, ItemModel, ItemScore, PurchaseBonuses, SlotType,
-        WeaponProfile,
+        BuyPhase, CoreLayoutBand, CoreLayoutStats, DamagePlan, DamageType, ItemModel, ItemScore,
+        PurchaseBonuses, SlotType, WeaponProfile,
     };
     use std::collections::BTreeMap;
 
@@ -400,6 +564,31 @@ mod tests {
         }
     }
 
+    fn layout(targets: &[(i64, usize)], flex_slots: usize) -> CoreLayoutStats {
+        CoreLayoutStats {
+            source_builds: 1,
+            total_median: targets.iter().map(|(_, target)| *target).sum::<usize>() as f64,
+            total_lower_quartile: 0.0,
+            total_upper_quartile: 0.0,
+            flex_slots,
+            bands: targets
+                .iter()
+                .map(|(tier, target)| {
+                    (
+                        *tier,
+                        CoreLayoutBand {
+                            tier: *tier,
+                            median: *target as f64,
+                            lower_quartile: 0.0,
+                            upper_quartile: 0.0,
+                            target: *target,
+                        },
+                    )
+                })
+                .collect(),
+        }
+    }
+
     #[test]
     fn sells_lane_items_before_early_items_and_keeps_core() {
         let mut lane = item(1, "Lane", 3.0, false, &[]);
@@ -409,18 +598,21 @@ mod tests {
         early.buy_phase = BuyPhase::Lane;
         let mut core = item(3, "Core", 1.0, false, &[]);
         core.item.tier = 1;
-        let build = compose_build(
+        let build = compose_build_with_layout(
             &hero(),
             &[lane, early, core],
             &[],
             &ReasonerConfig::default(),
+            &layout(&[(1, 2), (2, 1)], 0),
         );
         let payload = crate::publish::publish_task_payload(&build);
         assert_eq!(payload["mod_categories"][0]["mods"][0]["sell_priority"], 1);
         assert_eq!(payload["mod_categories"][0]["mods"][1]["sell_priority"], 2);
-        assert!(payload["mod_categories"][0]["mods"][2]
-            .get("sell_priority")
-            .is_none());
+        assert!(
+            payload["mod_categories"][0]["mods"][2]
+                .get("sell_priority")
+                .is_none()
+        );
     }
 
     #[test]
@@ -451,10 +643,31 @@ mod tests {
                 if name == "Blood Tribute" {
                     candidate.item.damage_axis = DamageType::Spirit;
                 }
+                candidate.item.slot = match name {
+                    "High-Velocity Rounds"
+                    | "Opening Rounds"
+                    | "Monster Rounds"
+                    | "Swift Striker"
+                    | "Titanic Magazine"
+                    | "Fleetfoot"
+                    | "Spiritual Overflow"
+                    | "Blood Tribute" => SlotType::Weapon,
+                    "Quicksilver Reload"
+                    | "Mercurial Magnum"
+                    | "Boundless Spirit"
+                    | "Transcendent Cooldown" => SlotType::Spirit,
+                    _ => SlotType::Vitality,
+                };
                 scored.push(candidate);
             }
         }
-        let build = compose_build(&hero(), &scored, &[], &ReasonerConfig::default());
+        let build = compose_build_with_layout(
+            &hero(),
+            &scored,
+            &[],
+            &ReasonerConfig::default(),
+            &layout(&[(1, 3), (2, 6), (3, 2), (4, 8)], 7),
+        );
         assert_eq!(build.situations.len(), 4);
         let actual = std::iter::once(("Core Items", &build.core)).chain(
             build
@@ -492,7 +705,7 @@ mod tests {
     #[test]
     fn ability_sources_and_sell_priorities_survive_publish_roundtrip() {
         use crate::meta::{AuthorBuildSource, MetaIndexWithSources};
-        use crate::{AbilityStep, MetaIndex};
+        use crate::{AbilityStep, CoreLayoutIndex, MetaIndex};
         let steps = |id| {
             vec![AbilityStep {
                 ability_id: id,
@@ -520,6 +733,10 @@ mod tests {
                 source(99, 9.0, "Other hero", 999),
             ],
             hero_ability_orders: BTreeMap::from([(25, steps(102))]),
+            core_layouts: CoreLayoutIndex {
+                by_hero: BTreeMap::from([(25, layout(&[(1, 1)], 0))]),
+                overall: CoreLayoutStats::default(),
+            },
         };
         let mut lane = item(1, "Lane", 1.0, false, &[]);
         lane.buy_phase = BuyPhase::Lane;
@@ -585,7 +802,13 @@ mod tests {
             item(3, "Spirit Shielding", 8.0, false, &["shield"]),
             item(4, "Slowing Hex", 7.0, true, &[]),
         ];
-        let build = compose_build(&hero(), &scored, &[], &ReasonerConfig::default());
+        let build = compose_build_with_layout(
+            &hero(),
+            &scored,
+            &[],
+            &ReasonerConfig::default(),
+            &layout(&[(2, 1)], 0),
+        );
         assert_eq!(
             build
                 .core
@@ -605,6 +828,90 @@ mod tests {
         assert_eq!(
             build.situations[0].items[0].sources[0].kind,
             EvidenceKind::Mechanic
+        );
+    }
+
+    #[test]
+    fn fills_each_cost_band_with_the_band_specific_score() {
+        let mut cheap_mechanic = item(1, "Cheap Mechanic", 100.0, false, &[]);
+        cheap_mechanic.item.tier = 1;
+        cheap_mechanic.score.per_soul_value = 1.0;
+        let mut cheap_lane = item(2, "Cheap Lane", 10.0, false, &[]);
+        cheap_lane.item.tier = 1;
+        cheap_lane.score.per_soul_value = 2.0;
+        let mut expensive_low = item(3, "Expensive Low", 20.0, false, &[]);
+        expensive_low.item.tier = 3;
+        let mut expensive_high = item(4, "Expensive High", 30.0, false, &[]);
+        expensive_high.item.tier = 3;
+        let build = compose_build_with_layout(
+            &hero(),
+            &[cheap_mechanic, cheap_lane, expensive_low, expensive_high],
+            &[],
+            &ReasonerConfig::default(),
+            &layout(&[(1, 1), (3, 1)], 0),
+        );
+        let names = build
+            .core
+            .iter()
+            .map(|item| item.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(names, vec!["Expensive High", "Cheap Lane"]);
+    }
+
+    #[test]
+    fn orders_core_by_lane_mid_core_and_late_phase() {
+        let mut items = [
+            (1, "Core", BuyPhase::Core),
+            (2, "Lane", BuyPhase::Lane),
+            (3, "Late", BuyPhase::Late),
+            (4, "Mid", BuyPhase::Mid),
+        ]
+        .into_iter()
+        .map(|(id, name, phase)| {
+            let mut item = item(id, name, id as f64, false, &[]);
+            item.item.tier = 1;
+            item.buy_phase = phase;
+            item
+        })
+        .collect::<Vec<_>>();
+        let build = compose_build_with_layout(
+            &hero(),
+            &items,
+            &[],
+            &ReasonerConfig::default(),
+            &layout(&[(1, 4)], 0),
+        );
+        items.clear();
+        assert_eq!(
+            build
+                .core
+                .iter()
+                .map(|item| item.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Lane", "Mid", "Core", "Late"]
+        );
+    }
+
+    #[test]
+    fn enforces_four_base_slots_and_only_layout_flex_slots() {
+        let scored = (1..=7)
+            .map(|id| item(id, &format!("Weapon {id}"), id as f64, false, &[]))
+            .collect::<Vec<_>>();
+        let build = compose_build_with_layout(
+            &hero(),
+            &scored,
+            &[],
+            &ReasonerConfig::default(),
+            &layout(&[(2, 7)], 2),
+        );
+        assert_eq!(build.core.len(), 6);
+        assert_eq!(build.core.last().map(|item| item.item_id), Some(2));
+        assert!(
+            build
+                .situations
+                .iter()
+                .flat_map(|block| block.items.iter())
+                .any(|item| item.item_id == 1)
         );
     }
 }

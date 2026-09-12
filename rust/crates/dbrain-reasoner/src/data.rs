@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
-use sqlx::{postgres::PgPool, Row};
+use sqlx::{Row, postgres::PgPool};
 
 use crate::{
     AbilityModel, AbilityRole, AuthorBuild, ConditionKind, DamagePlan, DamageType, HeroModel,
@@ -1066,6 +1066,42 @@ pub async fn load_author_builds(
         .collect()
 }
 
+pub(crate) async fn load_core_layouts(ctx: &ReasonerCtx) -> Result<crate::CoreLayoutIndex> {
+    let catalog_rows =
+        sqlx::query("SELECT item_id, tier FROM brain.item_catalog WHERE tier IS NOT NULL")
+            .fetch_all(&ctx.pool)
+            .await
+            .map_err(ReasonerError::Db)?;
+    let item_tiers = catalog_rows
+        .into_iter()
+        .map(|row| {
+            Ok((
+                row.try_get::<i64, _>("item_id")
+                    .map_err(ReasonerError::Db)?,
+                row.try_get::<i64, _>("tier").map_err(ReasonerError::Db)?,
+            ))
+        })
+        .collect::<Result<BTreeMap<_, _>>>()?;
+    let rows = sqlx::query("SELECT to_jsonb(selected)::text AS row_json FROM (SELECT DISTINCT ON (hero_build_id) hero_id, hero_build_id, version, details FROM tierlist.hero_build_sources ORDER BY hero_build_id, version DESC NULLS LAST, fetched_at DESC NULLS LAST) selected ORDER BY hero_id, hero_build_id")
+        .fetch_all(&ctx.pool)
+        .await
+        .map_err(ReasonerError::Db)?;
+    let mut sources = Vec::new();
+    for row in rows {
+        let text = row
+            .try_get::<String, _>("row_json")
+            .map_err(ReasonerError::Db)?;
+        let value = parse_json(text, "Layout-Autoren-Build")?;
+        sources.push(crate::meta::AuthorBuildLayoutSource {
+            hero_id: integer(value.get("hero_id")),
+            build_id: integer(value.get("hero_build_id")),
+            version: integer(value.get("version")),
+            details: value.get("details").cloned().unwrap_or(Value::Null),
+        });
+    }
+    Ok(crate::meta::derive_core_layouts(&sources, &item_tiers))
+}
+
 pub async fn load_claims(ctx: &ReasonerCtx, hero_id: i64) -> Result<Vec<Value>> {
     let name = hero_name(&ctx.pool, hero_id).await?;
     let mut claims = Vec::new();
@@ -1073,7 +1109,9 @@ pub async fn load_claims(ctx: &ReasonerCtx, hero_id: i64) -> Result<Vec<Value>> 
         if !table_exists(&ctx.pool, table).await? {
             continue;
         }
-        let query = format!("SELECT to_jsonb(c)::text AS row_json FROM {table} c WHERE lower(c.entity_name)=lower($1) OR lower(c.entity_name) LIKE lower($2) ORDER BY c.id DESC LIMIT 100");
+        let query = format!(
+            "SELECT to_jsonb(c)::text AS row_json FROM {table} c WHERE lower(c.entity_name)=lower($1) OR lower(c.entity_name) LIKE lower($2) ORDER BY c.id DESC LIMIT 100"
+        );
         let rows = sqlx::query(&query)
             .bind(&name)
             .bind(format!("%{}%", name))
@@ -1435,9 +1473,17 @@ mod tests {
         assert!(!events.is_empty());
         let authors = load_author_builds(&ctx, hero.hero_id).await.unwrap();
         assert!(!authors.is_empty());
-        assert!(authors
-            .iter()
-            .any(|build| build.published_at.is_some_and(|time| time > 0)));
-        println!("Echtdaten: 1 Held, {} Items, 4 Referenz-Items, {} Stat-Zeilen, {} Patch-Zeilen, {} Autoren-Builds", items.len(), stats.len(), events.len(), authors.len());
+        assert!(
+            authors
+                .iter()
+                .any(|build| build.published_at.is_some_and(|time| time > 0))
+        );
+        println!(
+            "Echtdaten: 1 Held, {} Items, 4 Referenz-Items, {} Stat-Zeilen, {} Patch-Zeilen, {} Autoren-Builds",
+            items.len(),
+            stats.len(),
+            events.len(),
+            authors.len()
+        );
     }
 }

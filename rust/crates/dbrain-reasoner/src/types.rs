@@ -77,6 +77,7 @@ pub enum Confidence {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum BuyPhase {
     Lane,
+    Mid,
     Core,
     Late,
 }
@@ -360,6 +361,60 @@ pub struct AuthorBuild {
     pub patch_tag: Option<String>,
     pub core_item_ids: Vec<i64>,
     pub buy_order: Vec<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CoreLayoutBand {
+    pub tier: i64,
+    pub median: f64,
+    pub lower_quartile: f64,
+    pub upper_quartile: f64,
+    pub target: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CoreLayoutStats {
+    pub source_builds: usize,
+    pub total_median: f64,
+    pub total_lower_quartile: f64,
+    pub total_upper_quartile: f64,
+    pub flex_slots: usize,
+    pub bands: BTreeMap<i64, CoreLayoutBand>,
+}
+
+impl Default for CoreLayoutStats {
+    fn default() -> Self {
+        Self {
+            source_builds: 0,
+            total_median: 0.0,
+            total_lower_quartile: 0.0,
+            total_upper_quartile: 0.0,
+            flex_slots: 0,
+            bands: BTreeMap::new(),
+        }
+    }
+}
+
+impl CoreLayoutStats {
+    pub fn target_for_tier(&self, tier: i64) -> usize {
+        self.bands.get(&tier).map(|band| band.target).unwrap_or(0)
+    }
+
+    pub fn total_target(&self) -> usize {
+        self.bands.values().map(|band| band.target).sum()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct CoreLayoutIndex {
+    pub by_hero: BTreeMap<i64, CoreLayoutStats>,
+    pub overall: CoreLayoutStats,
+}
+
+impl CoreLayoutIndex {
+    pub fn for_hero(&self, hero_id: i64) -> &CoreLayoutStats {
+        self.by_hero.get(&hero_id).unwrap_or(&self.overall)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
