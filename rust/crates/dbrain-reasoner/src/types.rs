@@ -150,6 +150,12 @@ pub struct AbilityModel {
     pub cooldown: f64,
     pub scaling_step: Option<ScalingStep>,
     pub damage_type: DamageType,
+    #[serde(default)]
+    pub base_effect: f64,
+    #[serde(default)]
+    pub tick_rate: Option<f64>,
+    #[serde(default)]
+    pub duration: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

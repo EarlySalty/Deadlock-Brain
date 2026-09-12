@@ -511,10 +511,6 @@ dependencies = [
 name = "dbrain-reasoner"
 version = "0.1.0"
 dependencies = [
- "anyhow",
- "dbrain-builds",
- "dbrain-learn",
- "dbrain-retrieval",
  "deadlock-brain-core",
  "serde",
  "serde_json",

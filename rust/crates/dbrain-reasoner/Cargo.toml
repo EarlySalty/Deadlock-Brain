@@ -8,11 +8,7 @@ name = "dbrain_reasoner"
 path = "src/lib.rs"
 
 [dependencies]
-anyhow.workspace = true
 deadlock-brain-core = { path = "../deadlock-brain-core" }
-dbrain-builds = { path = "../dbrain-builds" }
-dbrain-learn = { path = "../dbrain-learn" }
-dbrain-retrieval = { path = "../dbrain-retrieval" }
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
