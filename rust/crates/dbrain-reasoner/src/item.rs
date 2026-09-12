@@ -40,10 +40,14 @@ pub fn score_item(
         };
     }
     let condition_factor = mechanics::condition_factor_for_hero(item, hero, cfg);
-    let active_value = mechanics::active_value(item, hero, cfg);
-    let passive_value = mechanics::passive_value(item, hero, cfg);
-    let combat_value = mechanics::combat_window_value(item, hero, cfg);
-    let purchase_bonus_value = mechanics::purchase_bonus_value_with_config(item, hero, cfg);
+    let fire_rate = spirit_fire_rate_value(item, hero, cfg);
+    let active_value = mechanics::active_value(item, hero, cfg) + fire_rate.active_dps;
+    let passive_value = mechanics::passive_value(item, hero, cfg) + fire_rate.passive_dps;
+    let combat_value = mechanics::combat_window_value(item, hero, cfg)
+        + fire_rate.passive_dps
+        + fire_rate.active_dps * condition_factor;
+    let purchase_bonus_value =
+        mechanics::purchase_bonus_value_with_config(item, hero, cfg) + fire_rate.purchase_dps;
     let per_slot_value = mechanics::per_slot_value(combat_value, purchase_bonus_value);
     let per_soul_value = mechanics::per_soul_value(combat_value, item.cost);
     let meta_support = meta_value(item.item_id, meta);
@@ -55,6 +59,9 @@ pub fn score_item(
         Confidence::Low
     };
     let mut sources = Vec::new();
+    if fire_rate.weapon_dps_in_score != 0.0 {
+        sources.push(crate::Evidence { kind: crate::EvidenceKind::Mechanic, detail: format!("Spirit Power → Feuerrate aus Assets-Snapshot: {} Item-SP + {} Kaufbonus-SP, +{:.6} Schuss/s, +{:.6} Waffen-DPS im Score nach Zustandsfaktor. ERoundsPerSecond direkt; EFireRate nur als Prozent-Fallback, nie beide addiert.", fire_rate.spirit_power, fire_rate.purchase_spirit_power, fire_rate.rounds_per_second, fire_rate.weapon_dps_in_score) });
+    }
     if combat_value > 0.0 {
         sources.push(crate::Evidence {
             kind: crate::EvidenceKind::Mechanic,
@@ -98,6 +105,79 @@ pub fn score_item(
         confidence,
         buy_phase: mechanics::buy_phase_for_hero(item, hero),
         sources,
+    }
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct SpiritFireRateValue {
+    pub spirit_power: f64,
+    pub purchase_spirit_power: f64,
+    pub rounds_per_second: f64,
+    pub active_dps: f64,
+    pub passive_dps: f64,
+    pub purchase_dps: f64,
+    pub weapon_dps_in_score: f64,
+}
+
+pub fn spirit_fire_rate_value(
+    item: &ItemModel,
+    hero: &HeroModel,
+    cfg: &ReasonerConfig,
+) -> SpiritFireRateValue {
+    let scaling = |name: &str| {
+        hero.scaling
+            .iter()
+            .find(|stat| stat.stat.eq_ignore_ascii_case(name))
+            .and_then(|stat| stat.per_spirit)
+            .filter(|scale| scale.is_finite() && *scale >= 0.0)
+    };
+    let per_spirit = scaling("ERoundsPerSecond")
+        .or_else(|| scaling("EFireRate").map(|scale| hero.weapon.shots_per_second * scale / 100.0))
+        .unwrap_or_default();
+    let is_spirit = |name: &str| {
+        name.eq_ignore_ascii_case("TechPower") || name.eq_ignore_ascii_case("SpiritPower")
+    };
+    let passive_spirit = item
+        .passive_properties
+        .iter()
+        .filter(|(name, _)| is_spirit(name))
+        .map(|(_, value)| value)
+        .sum::<f64>();
+    let active_spirit = item
+        .properties
+        .iter()
+        .filter(|(name, _)| is_spirit(name) && !item.passive_properties.contains_key(*name))
+        .map(|(_, value)| value)
+        .sum::<f64>();
+    let bonus = if item.slot == crate::SlotType::Spirit {
+        hero.purchase_bonuses
+            .spirit
+            .iter()
+            .find(|bonus| bonus.tier == item.tier)
+            .map_or(0.0, |bonus| bonus.value)
+    } else {
+        0.0
+    };
+    let dps = |spirit: f64| {
+        let mut weapon = hero.weapon.clone();
+        weapon.shots_per_second += spirit * per_spirit;
+        weapon.sustained_dps = 0.0;
+        mechanics::weapon_dps(&weapon, cfg.combat_window_seconds)
+    };
+    let factor = mechanics::condition_factor_for_hero(item, hero, cfg);
+    let passive_dps = dps(passive_spirit) - dps(0.0);
+    let active_dps = dps(passive_spirit + active_spirit) - dps(passive_spirit);
+    let purchase_dps = factor
+        * (dps(passive_spirit + active_spirit + bonus) - dps(passive_spirit + active_spirit))
+        + (1.0 - factor) * (dps(passive_spirit + bonus) - dps(passive_spirit));
+    SpiritFireRateValue {
+        spirit_power: passive_spirit + active_spirit,
+        purchase_spirit_power: bonus,
+        rounds_per_second: (passive_spirit + active_spirit + bonus) * per_spirit,
+        active_dps,
+        passive_dps,
+        purchase_dps,
+        weapon_dps_in_score: passive_dps + active_dps * factor + purchase_dps,
     }
 }
 
@@ -188,6 +268,85 @@ fn patch_value(item: &ItemModel, hero: &HeroModel, deltas: &[PatchDelta]) -> f64
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn fix_e_snapshot_spirit_fire_rate_reaches_weapon_score_once() {
+        let cfg = ReasonerConfig::default();
+        let meta = MetaIndex {
+            by_item: Default::default(),
+            sample_ok: Default::default(),
+        };
+        let mut warden = hero();
+        warden.scaling = crate::data::scaling_stats(Some(
+            &serde_json::json!({"EFireRate":{"scaling_stat":"ETechPower","scale":0.25},"ERoundsPerSecond":{"scaling_stat":"ETechPower","scale":0.01}}),
+        ));
+        let item = ItemModel {
+            item_id: 1,
+            name: "Spirit fixture".into(),
+            slot: crate::SlotType::Weapon,
+            tier: 2,
+            cost: 1600,
+            is_active: false,
+            shopable: true,
+            disabled: false,
+            damage_axis: DamageType::Spirit,
+            defense_kind: vec![],
+            properties: BTreeMap::from([("TechPower".into(), 40.0)]),
+            passive_properties: BTreeMap::new(),
+            condition: ConditionKind::None,
+            proc_cooldown: None,
+            imbueable: false,
+        };
+        let with_scaling = score_item(&item, &warden, &meta, &[], &cfg);
+        warden.scaling.clear();
+        let without = score_item(&item, &warden, &meta, &[], &cfg);
+        let expected = 200.0 / (20.0 / 5.4 + 2.0) - 200.0 / 6.0;
+        assert!((with_scaling.score.total - without.score.total - expected).abs() < 1e-10);
+        assert!(
+            (with_scaling.score.active_value - without.score.active_value - expected).abs() < 1e-10
+        );
+    }
+
+    #[test]
+    fn fix_e_fire_rate_percentage_fallback_and_passive_spirit() {
+        let cfg = ReasonerConfig::default();
+        let meta = MetaIndex {
+            by_item: Default::default(),
+            sample_ok: Default::default(),
+        };
+        let mut warden = hero();
+        warden.scaling = crate::data::scaling_stats(Some(
+            &serde_json::json!({"EFireRate":{"scaling_stat":"ETechPower","scale":0.25}}),
+        ));
+        let item = ItemModel {
+            item_id: 1,
+            name: "Passive Spirit".into(),
+            slot: crate::SlotType::Weapon,
+            tier: 2,
+            cost: 1600,
+            is_active: false,
+            shopable: true,
+            disabled: false,
+            damage_axis: DamageType::Spirit,
+            defense_kind: vec![],
+            properties: BTreeMap::from([("TechPower".into(), 40.0)]),
+            passive_properties: BTreeMap::from([("TechPower".into(), 40.0)]),
+            condition: ConditionKind::ActiveCooldown {
+                uptime: 0.1,
+                cooldown: 10.0,
+            },
+            proc_cooldown: None,
+            imbueable: false,
+        };
+        let with_scaling = score_item(&item, &warden, &meta, &[], &cfg);
+        warden.scaling.clear();
+        let without = score_item(&item, &warden, &meta, &[], &cfg);
+        let expected = 200.0 / (20.0 / 5.5 + 2.0) - 200.0 / 6.0;
+        assert!((with_scaling.score.total - without.score.total - expected).abs() < 1e-10);
+        assert!(
+            (with_scaling.score.passive_value - without.score.passive_value - expected).abs()
+                < 1e-10
+        );
+    }
     use std::collections::BTreeMap;
 
     use super::*;

@@ -1,0 +1,18 @@
+{
+  "summary": "3260 deduplizierte Patch-Belege, 0 angewendet, 3260 nicht anwendbar, 0 Items verschoben",
+  "hero_id": 25,
+  "hero_name": "Warden",
+  "shifted_items": [],
+  "mercurial_scaling": [
+    {
+      "target": {
+        "Item": 3919289022
+      },
+      "mechanic": "spirit_scaling",
+      "sign": 1,
+      "magnitude": 0.053763440860215006,
+      "note": "Nicht anwendbar: Base Bullet Damage spirit scaling increased from 0.465 to 0.49 (kein eindeutig modelliertes Snapshot-Feld; 5 Fassungen)",
+      "application": null
+    }
+  ]
+}
