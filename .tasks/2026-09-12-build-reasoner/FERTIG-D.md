@@ -78,3 +78,16 @@ Steam-Bot wäre. Die CLI schreibt ohne `--publish` nichts.
 - Die zentrale Backtest-Struktur serialisiert Kern-Überdeckung,
   Reihenfolge-Nähe und Patch-Wechsel. Jaccard wurde für den Seed-Vergleich
   zusätzlich im `REPORT-D.md` aus `backtest::core_jaccard` ausgewertet.
+
+## Fixrunde 1
+
+Code-Commit `e0e1cffde98cd26713a79e80059af914e7da58a8` auf
+`feat/build-reasoner-d` gepusht. Alle fünf Review-Mängel behoben;
+Details, Datei:Zeile und Baseline-Vergleich in
+[FIXRUNDE-1-D.md](FIXRUNDE-1-D.md). Kein Merge oder Push nach `main`.
+
+Endstand: Workspace ohne DSN 256 bestanden, 53 ignoriert; Reasoner mit
+Central- und Scratch-DSN 83 bestanden, keine Fehler. Formatter und
+geforderter Clippy-Lauf grün. Die Fassade schreibt ihre Ergebnisse jetzt
+auch ohne `--publish`; die gegenteilige Aussage oben ist überholt.
+Die aktualisierte Migration ist vor dem Deployment erforderlich.

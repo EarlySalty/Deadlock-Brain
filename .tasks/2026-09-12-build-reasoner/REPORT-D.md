@@ -142,3 +142,17 @@ Deploy-Voraussetzungen aufgeführt.
    vergleichbare Autorenstände je Held benötigt.
 3. Der vorhandene Scratch-Testbestand braucht ein separates
    `REASONER_SCRATCH_DSN`, damit der vollständige Include-Ignored-Lauf grün ist.
+
+## Fixrunde 1
+
+Die fünf Review-Mängel sind mit `e0e1cffde98cd26713a79e80059af914e7da58a8`
+behoben. Vollständige Änderungen je Datei und Zeile, Rot-Gegenproben und
+Testzahlen stehen in [FIXRUNDE-1-D.md](FIXRUNDE-1-D.md) sowie im Anhang
+„Fixrunde 1“ von REVIEW-D.md im Hauptordner.
+
+Die Fassade persistiert jetzt auch ohne `--publish` in alle vier
+`reasoner_*`-Tabellen. Die obigen Aussagen über eine ausschließlich lesende
+Fassade beschreiben den vorherigen Stand. Ohne DSN: 256 Tests bestanden,
+53 ignoriert. Reasoner mit lesendem Central-Zugang und lokaler Scratch-DB:
+83 Tests bestanden, keine Fehler. Die zuvor fehlende Scratch-Testumgebung
+wurde für diese Fixrunde isoliert bereitgestellt.
