@@ -445,7 +445,7 @@ fn hero_model(payload: &Value, abilities: &[Value], stats: &[ScalingStat]) -> Re
 async fn snapshot(pool: &PgPool, entity_type: &str, name: &str) -> Result<Value> {
     let pattern = format!("%{}%", name.replace('%', ""));
     let row = sqlx::query(
-        "SELECT payload::text AS payload_json FROM brain.entity_snapshots WHERE source='deadlock_assets_api' AND entity_type=$1 AND (lower(canonical_name)=lower($2) OR lower(payload->>'name')=lower($2) OR canonical_name ILIKE $3) ORDER BY fetched_at DESC, id DESC LIMIT 1",
+        "SELECT payload::text AS payload_json FROM brain.entity_snapshots WHERE source='deadlock_assets_api' AND entity_type=$1 AND (lower(canonical_name)=lower($2) OR lower(payload->>'name')=lower($2) OR canonical_name ILIKE $3) ORDER BY (lower(canonical_name)=lower($2)) DESC NULLS LAST, (lower(payload->>'name')=lower($2)) DESC NULLS LAST, fetched_at DESC, id DESC LIMIT 1",
     )
     .bind(entity_type)
     .bind(name)
@@ -491,9 +491,9 @@ async fn ability_snapshots(pool: &PgPool, hero: &Value) -> Result<Vec<Value>> {
 
 async fn hero_name(pool: &PgPool, hero_id: i64) -> Result<String> {
     let value = sqlx::query_scalar::<_, Option<String>>(
-        "SELECT canonical_name FROM brain.entities WHERE entity_type='hero' AND id=$1",
+        "SELECT canonical_name FROM brain.entities WHERE entity_type='hero' AND primary_external_id=$1",
     )
-    .bind(hero_id)
+    .bind(hero_id.to_string())
     .fetch_optional(pool)
     .await
     .map_err(ReasonerError::Db)?
@@ -711,9 +711,18 @@ pub async fn load_meta_rows(ctx: &ReasonerCtx, hero_id: i64) -> Result<Vec<MetaR
 }
 
 pub async fn load_patch_events(ctx: &ReasonerCtx, hero_id: i64) -> Result<Vec<Value>> {
-    let name = hero_name(&ctx.pool, hero_id).await?;
-    let rows = sqlx::query("SELECT (to_jsonb(pe) || jsonb_build_object('enrichment', COALESCE(to_jsonb(pee), '{}'::jsonb)))::text AS row_json FROM brain.patch_events pe LEFT JOIN brain.patch_event_enrichments pee ON pee.patch_event_id=pe.id WHERE lower(pe.entity_name)=lower($1) OR lower(pee.secondary_entity_name)=lower($1) ORDER BY pe.posted_at DESC NULLS LAST, pe.id DESC")
-        .bind(name)
+    let mut names = sqlx::query_scalar::<_, String>(
+        "SELECT lower(e.canonical_name) FROM brain.entities e WHERE e.entity_type='hero' AND e.primary_external_id=$1 UNION SELECT lower(a.alias) FROM brain.entities e JOIN brain.entity_aliases a ON a.entity_id=e.id WHERE e.entity_type='hero' AND e.primary_external_id=$1 AND a.alias_kind IN ('canonical', 'snapshot_name', 'class_name_short')",
+    )
+    .bind(hero_id.to_string())
+    .fetch_all(&ctx.pool)
+    .await
+    .map_err(ReasonerError::Db)?;
+    if names.is_empty() {
+        names.push(hero_name(&ctx.pool, hero_id).await?.to_lowercase());
+    }
+    let rows = sqlx::query("SELECT (to_jsonb(pe) || jsonb_build_object('enrichment', COALESCE(to_jsonb(pee), '{}'::jsonb)))::text AS row_json FROM brain.patch_events pe LEFT JOIN brain.patch_event_enrichments pee ON pee.patch_event_id=pe.id WHERE lower(pe.entity_name)=ANY($1) OR lower(pee.secondary_entity_name)=ANY($1) ORDER BY pe.posted_at DESC NULLS LAST, pe.id DESC")
+        .bind(names)
         .fetch_all(&ctx.pool)
         .await
         .map_err(ReasonerError::Db)?;
@@ -795,15 +804,8 @@ fn author_build(value: &Value) -> AuthorBuild {
             .find_map(|key| value.get(*key).map(|value| string(Some(value))))
             .unwrap_or_else(|| "unbekannt".to_string()),
         version: integer(value.get("version")),
-        published_at: value
-            .get("published_at")
-            .or_else(|| value.get("publish_ts"))
-            .map(|value| integer(Some(value))),
-        last_updated_at: value
-            .get("last_updated_at")
-            .or_else(|| value.get("last_updated_ts"))
-            .or_else(|| value.get("last_seen_at"))
-            .map(|value| integer(Some(value))),
+        published_at: value.get("published_at").and_then(Value::as_i64),
+        last_updated_at: value.get("last_updated_at").and_then(Value::as_i64),
         patch_tag: ["patch_tag", "patchTag"]
             .iter()
             .find_map(|key| value.get(*key).map(|value| string(Some(value)))),
@@ -816,15 +818,7 @@ pub async fn load_author_builds(
     ctx: &ReasonerCtx,
     hero_id: i64,
 ) -> Result<Vec<crate::AuthorBuild>> {
-    let table = if table_exists(&ctx.pool, "tierlist.hero_build_sources").await? {
-        "tierlist.hero_build_sources"
-    } else if table_exists(&ctx.pool, "hero_build_sources").await? {
-        "hero_build_sources"
-    } else {
-        return Ok(Vec::new());
-    };
-    let query = format!("SELECT to_jsonb(hbs)::text AS row_json FROM {table} hbs WHERE hbs.hero_id=$1 ORDER BY COALESCE(hbs.last_seen_at, hbs.fetched_at, hbs.last_updated_ts, hbs.publish_ts, 0) DESC LIMIT 100");
-    let rows = sqlx::query(&query)
+    let rows = sqlx::query("SELECT (to_jsonb(hbs) || jsonb_build_object('published_at', EXTRACT(EPOCH FROM hbs.published_at)::bigint, 'last_updated_at', EXTRACT(EPOCH FROM hbs.last_updated_at)::bigint))::text AS row_json FROM tierlist.hero_build_sources hbs WHERE hbs.hero_id=$1 ORDER BY COALESCE(hbs.last_updated_at, hbs.published_at) DESC NULLS LAST, hbs.version DESC NULLS LAST LIMIT 100")
         .bind(hero_id)
         .fetch_all(&ctx.pool)
         .await
@@ -867,8 +861,8 @@ pub async fn load_hero_stat_values(ctx: &ReasonerCtx, hero_id: i64) -> Result<Ve
     if !table_exists(&ctx.pool, "brain.hero_stat_values").await? {
         return Ok(Vec::new());
     }
-    let rows = sqlx::query("SELECT stat_key, COALESCE(numeric_value, 0.0)::float8 AS numeric_value FROM brain.hero_stat_values WHERE entity_id=$1 OR profile_id IN (SELECT id FROM brain.hero_stat_profiles WHERE entity_id=$1) ORDER BY stat_key")
-        .bind(hero_id)
+    let rows = sqlx::query("SELECT v.stat_key, COALESCE(v.numeric_value, 0.0)::float8 AS numeric_value FROM brain.hero_stat_values v WHERE v.entity_id IN (SELECT id FROM brain.entities WHERE entity_type='hero' AND primary_external_id=$1) OR v.profile_id IN (SELECT p.id FROM brain.hero_stat_profiles p JOIN brain.entities e ON e.id=p.entity_id WHERE e.entity_type='hero' AND e.primary_external_id=$1) ORDER BY v.stat_key")
+        .bind(hero_id.to_string())
         .fetch_all(&ctx.pool)
         .await
         .map_err(ReasonerError::Db)?;
@@ -908,6 +902,121 @@ mod tests {
     use super::*;
     use sqlx::postgres::PgPoolOptions;
 
+    static SCRATCH_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    async fn scratch_context() -> (tokio::sync::MutexGuard<'static, ()>, ReasonerCtx) {
+        let guard = SCRATCH_LOCK.lock().await;
+        let dsn = std::env::var("REASONER_SCRATCH_DSN").expect("REASONER_SCRATCH_DSN fehlt");
+        let pool = PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&dsn)
+            .await
+            .unwrap();
+        let database: String = sqlx::query_scalar("SELECT current_database()")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(database, "reasoner_a_fix");
+        sqlx::raw_sql("DROP SCHEMA IF EXISTS brain CASCADE; DROP SCHEMA IF EXISTS tierlist CASCADE; CREATE SCHEMA brain; CREATE SCHEMA tierlist;
+            CREATE TABLE brain.entities (id bigint, entity_type text, canonical_name text, primary_external_id text);
+            CREATE TABLE brain.entity_aliases (entity_id bigint, alias text, alias_kind text);
+            CREATE TABLE brain.entity_snapshots (id bigint, source text, entity_type text, canonical_name text, payload jsonb, fetched_at timestamptz);
+            INSERT INTO brain.entities VALUES (175035, 'hero', 'Warden', '25'), (25, 'hero', 'Wrong Hero', '999');")
+            .execute(&pool).await.unwrap();
+        (
+            guard,
+            ReasonerCtx {
+                pool,
+                ai: None,
+                config: crate::ReasonerConfig::default(),
+            },
+        )
+    }
+
+    #[tokio::test]
+    #[ignore = "benötigt isolierten Postgres über REASONER_SCRATCH_DSN"]
+    async fn patch_events_resolve_allowed_aliases_for_external_hero_id() {
+        let (_guard, ctx) = scratch_context().await;
+        sqlx::raw_sql("CREATE TABLE brain.patch_events (id bigint, entity_name text, posted_at timestamptz);
+            CREATE TABLE brain.patch_event_enrichments (patch_event_id bigint, secondary_entity_name text);
+            INSERT INTO brain.entity_aliases VALUES (175035, 'Canonical Alias', 'canonical'), (175035, 'hero_warden', 'snapshot_name'), (175035, 'warden_short', 'class_name_short'), (175035, 'excluded', 'external_id'), (25, 'Wrong Alias', 'snapshot_name');
+            INSERT INTO brain.patch_events VALUES (1, 'WARDEN', now()), (2, 'HERO_WARDEN', now()), (3, 'warden_short', now()), (4, 'other', now()), (5, 'excluded', now()), (6, 'Wrong Alias', now()), (7, 'Canonical Alias', now());
+            INSERT INTO brain.patch_event_enrichments VALUES (4, 'HeRo_WaRdEn');")
+            .execute(&ctx.pool).await.unwrap();
+        let events = load_patch_events(&ctx, 25).await.unwrap();
+        let ids: BTreeSet<_> = events
+            .iter()
+            .map(|event| event["id"].as_i64().unwrap())
+            .collect();
+        assert_eq!(ids, BTreeSet::from([1, 2, 3, 4, 7]));
+        ctx.pool.close().await;
+    }
+
+    #[tokio::test]
+    #[ignore = "benötigt isolierten Postgres über REASONER_SCRATCH_DSN"]
+    async fn author_builds_use_real_timestamps_and_expose_schema_errors() {
+        let (_guard, ctx) = scratch_context().await;
+        assert!(load_author_builds(&ctx, 25).await.is_err());
+        sqlx::raw_sql("CREATE TABLE tierlist.hero_build_sources (hero_id bigint, version bigint, details jsonb, published_at timestamptz, last_updated_at timestamptz);
+            INSERT INTO tierlist.hero_build_sources VALUES
+            (25, 1, '{}', '2026-01-01', '2026-02-01'),
+            (25, 2, '{}', '2026-03-01', NULL),
+            (25, 3, '{}', '2026-03-01', NULL),
+            (25, 4, '{}', NULL, NULL);")
+            .execute(&ctx.pool).await.unwrap();
+        let builds = load_author_builds(&ctx, 25).await.unwrap();
+        assert_eq!(
+            builds.iter().map(|build| build.version).collect::<Vec<_>>(),
+            [3, 2, 1, 4]
+        );
+        assert_eq!(builds[0].published_at, Some(1772323200));
+        assert_eq!(builds[0].last_updated_at, None);
+        assert_eq!(builds[2].last_updated_at, Some(1769904000));
+        assert_eq!(builds[3].published_at, None);
+        sqlx::raw_sql("ALTER TABLE tierlist.hero_build_sources DROP COLUMN last_updated_at")
+            .execute(&ctx.pool)
+            .await
+            .unwrap();
+        assert!(load_author_builds(&ctx, 25).await.is_err());
+        ctx.pool.close().await;
+    }
+
+    #[tokio::test]
+    #[ignore = "benötigt isolierten Postgres über REASONER_SCRATCH_DSN"]
+    async fn hero_stats_resolve_external_id_to_profile_entity() {
+        let (_guard, ctx) = scratch_context().await;
+        sqlx::raw_sql("CREATE TABLE brain.hero_stat_profiles (id bigint, entity_id bigint);
+            CREATE TABLE brain.hero_stat_values (profile_id bigint, entity_id bigint, stat_key text, numeric_value float8);
+            INSERT INTO brain.hero_stat_profiles VALUES (10, 175035), (20, 25);
+            INSERT INTO brain.hero_stat_values VALUES (10, NULL, 'spirit_scaling.test', 2.7), (20, 25, 'wrong', 99);")
+            .execute(&ctx.pool).await.unwrap();
+        let stats = load_hero_stat_values(&ctx, 25).await.unwrap();
+        assert_eq!(stats.len(), 1);
+        assert_eq!(stats[0].stat, "spirit_scaling.test");
+        assert_eq!(stats[0].per_spirit, Some(2.7));
+        ctx.pool.close().await;
+    }
+
+    #[tokio::test]
+    #[ignore = "benötigt isolierten Postgres über REASONER_SCRATCH_DSN"]
+    async fn snapshot_prefers_canonical_exact_match_before_newer_fuzzy_match() {
+        let (_guard, ctx) = scratch_context().await;
+        sqlx::raw_sql("INSERT INTO brain.entity_snapshots VALUES
+            (1, 'deadlock_assets_api', 'hero', 'Warden', '{\"id\":25}', '2026-01-01'),
+            (2, 'deadlock_assets_api', 'hero', 'Super Warden', '{\"id\":999}', '2026-02-01'),
+            (3, 'deadlock_assets_api', 'hero', 'Other', '{\"id\":998,\"name\":\"Warden\"}', '2026-03-01');")
+            .execute(&ctx.pool).await.unwrap();
+        assert_eq!(
+            snapshot(&ctx.pool, "hero", "wArDeN").await.unwrap()["id"],
+            25
+        );
+        assert_eq!(
+            snapshot(&ctx.pool, "hero", "Super").await.unwrap()["id"],
+            999
+        );
+        ctx.pool.close().await;
+    }
+
     #[test]
     fn parses_purchase_bonuses_with_string_values() {
         let payload = serde_json::json!({
@@ -930,6 +1039,14 @@ mod tests {
         };
         let pool = PgPoolOptions::new()
             .max_connections(2)
+            .after_connect(|connection, _| {
+                Box::pin(async move {
+                    sqlx::query("SET default_transaction_read_only = on")
+                        .execute(connection)
+                        .await?;
+                    Ok(())
+                })
+            })
             .connect(&dsn)
             .await
             .unwrap();
@@ -949,5 +1066,15 @@ mod tests {
         ] {
             assert!(items.iter().any(|item| item.name == name), "{name}");
         }
+        let stats = load_hero_stat_values(&ctx, hero.hero_id).await.unwrap();
+        assert!(!stats.is_empty());
+        let events = load_patch_events(&ctx, hero.hero_id).await.unwrap();
+        assert!(!events.is_empty());
+        let authors = load_author_builds(&ctx, hero.hero_id).await.unwrap();
+        assert!(!authors.is_empty());
+        assert!(authors
+            .iter()
+            .any(|build| build.published_at.is_some_and(|time| time > 0)));
+        println!("Echtdaten: 1 Held, {} Items, 4 Referenz-Items, {} Stat-Zeilen, {} Patch-Zeilen, {} Autoren-Builds", items.len(), stats.len(), events.len(), authors.len());
     }
 }
