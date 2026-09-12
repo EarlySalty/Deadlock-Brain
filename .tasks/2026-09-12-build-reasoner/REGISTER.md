@@ -13,9 +13,11 @@ Deadlock-Steam-Bot. Pakete in `PAKETE.md`.
 | P0 Design | 0fa2a11d | opus48 | keiner (lesend) | keiner | fertig, gesettelt (ARCHITEKTUR.md, MECHANIK.md, Commit 29bb842) |
 | V Vorcheck | c9559de7 | glm | keiner (lesend) | keiner | fertig, gesettelt (VORCHECK-ERGEBNIS.md) |
 | A Fundament | 2cbde9a0 | luna | ~/.worktrees/deadlock-brain-a | feat/build-reasoner-a | fertig (3bef602, FERTIG-A.md), gesettelt |
-| Review A Runde 1 | 0c631f99 | opus48 | keiner (lesend) | keiner | gestartet 2026-09-12 20:35 |
+| Review A Runde 1 | 0c631f99 | opus48 | keiner (lesend) | keiner | fertig, gesettelt: NACHBESSERN (REVIEW-A.md, 7 Mängel, 1 Paketschnitt entschieden) |
+| Fix A Runde 1 | 989bb17b | fixer (Pyramide) | ~/.worktrees/deadlock-brain-a | feat/build-reasoner-a | gestartet 2026-09-12 21:25 |
 | B Kern | 953fd289 | luna | ~/.worktrees/deadlock-brain-b | feat/build-reasoner-b (ab 3bef602) | gestartet 2026-09-12 20:40 |
-| C Zusammensetzung | fe6a88bb | luna | ~/.worktrees/deadlock-brain-c | feat/build-reasoner-c (ab 3bef602) | gestartet 2026-09-12 20:41 |
+| C Zusammensetzung | fe6a88bb | luna | ~/.worktrees/deadlock-brain-c | feat/build-reasoner-c (ab 3bef602) | fertig (1e23609, FERTIG-C.md), gesettelt |
+| Review C Runde 1 | 91f509cf | opus48 | keiner (lesend) | keiner | gestartet 2026-09-12 21:45 |
 | D Integration/CLI | folgt | luna | ~/.worktrees/deadlock-brain-d | feat/build-reasoner-d | wartet auf B und C |
 | S Steam-Bot Autoren-Scan | 231b6ae6 | luna | ~/.worktrees/steam-bot-autoren-scan | feat/autoren-scan-reaktivieren | gestartet 2026-09-12 20:20 |
 
@@ -29,9 +31,11 @@ gestorbene Threads bleiben drin und werden nicht wieder aufgenommen.
 | P0 Design | 0fa2a11d | opus48 | fertig, gesettelt | keiner | 4 offene Fragen, Entscheidungen in PAKETE.md |
 | V Vorcheck | c9559de7 | glm | fertig, gesettelt | keiner | 9 Punkte beantwortet, Warden-Lücken gemeldet |
 | A Fundament | 2cbde9a0 | luna | fertig, gesettelt | ~/.worktrees/deadlock-brain-a | 3bef602, 7 Tests grün, 1 ignoriert |
-| Review A | 0c631f99 | opus48 | läuft | keiner | Briefing gesendet |
-| B Kern | 953fd289 | luna | läuft | ~/.worktrees/deadlock-brain-b | Briefing gesendet |
-| C Zusammensetzung | fe6a88bb | luna | läuft | ~/.worktrees/deadlock-brain-c | Briefing gesendet |
+| Review A | 0c631f99 | opus48 | fertig, gesettelt | keiner | NACHBESSERN, Mängel 2 bis 7 an Fixer |
+| Fix A | 989bb17b | fixer | läuft | ~/.worktrees/deadlock-brain-a | FIX-BRIEFING-A.md gesendet |
+| B Kern | 953fd289 | luna | läuft | ~/.worktrees/deadlock-brain-b | Paketschnitt-Entscheidung gesendet: hero.rs baut auf HeroModel aus data.rs auf |
+| C Zusammensetzung | fe6a88bb | luna | fertig, gesettelt | ~/.worktrees/deadlock-brain-c | 1e23609, Reasoner 15/0/1 mit temporärer lib.rs |
+| Review C | 91f509cf | opus48 | läuft | keiner | REVIEW-BRIEFING-C.md gesendet |
 | S Autoren-Scan | 231b6ae6 | luna | läuft | ~/.worktrees/steam-bot-autoren-scan | Briefing gesendet |
 
 Akte liegt auf main: 7a6aec4 (Auftrag, Briefings), 29bb842 (Design, Pakete,
