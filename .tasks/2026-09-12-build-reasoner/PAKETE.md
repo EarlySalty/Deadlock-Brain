@@ -80,3 +80,14 @@ Befunde nach dem S-Deploy (2026-09-13):
     Zustandsfaktor 0,6 auf Imbue-Items, Core-Cutoff 19. Review D klärt, was
     Mangel und was Kalibrierung ist; nach dem Deploy erst Sync mit echtem
     Patch-Tag, dann Backtest wiederholen.
+
+Befund nach dem Brain-Deploy (2026-09-12 23:32, Release 4689b80):
+13. Live-Warden-Build ist falsch: Kern aus Spirit-Items (Trophy Collector,
+    Golden Goose Egg), Waffen-Items nach der Patch-Anwendung bei minus 2500
+    bis minus 4400 (`brain.reasoner_item_scores`), Block Optional mit 144
+    Items. Ursache: alle historischen Patch-Deltas (416 Warden-Events, alle
+    vor dem Snapshot-Datum) werden kumulativ auf den aktuellen Snapshot
+    angewendet, dazu mehrfach vorliegende, widersprüchlich klassifizierte
+    Patchzeilen. Paket E (`fix/build-reasoner-patch-delta`,
+    `FIX-BRIEFING-E.md`): Deltas nur nach dem Snapshot-Datum, Dedup, Vorzeichen
+    aus den Zahlen, Kern nur positive Items, Optional gedeckelt.
