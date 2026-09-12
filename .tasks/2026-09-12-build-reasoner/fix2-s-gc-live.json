@@ -1,0 +1,56 @@
+[
+  {
+    "id": 4047536,
+    "status": "FAILED",
+    "result": {
+      "error": "Response code: 0",
+      "ok": false
+    },
+    "error": "Response code: 0"
+  },
+  {
+    "id": 4047539,
+    "status": "DONE",
+    "result": {
+      "data": {
+        "response": 1,
+        "result_count": 40
+      },
+      "ok": true
+    },
+    "error": null
+  },
+  {
+    "id": 4047541,
+    "status": "DONE",
+    "result": {
+      "data": {
+        "response": 1,
+        "result_count": 0
+      },
+      "ok": true
+    },
+    "error": null
+  },
+  {
+    "id": 4047556,
+    "status": "DONE",
+    "result": {
+      "data": {
+        "response": 1,
+        "result_count": 1
+      },
+      "ok": true
+    },
+    "error": null
+  },
+  {
+    "id": 4047566,
+    "status": "FAILED",
+    "result": {
+      "error": "Response code: 0",
+      "ok": false
+    },
+    "error": "Response code: 0"
+  }
+]

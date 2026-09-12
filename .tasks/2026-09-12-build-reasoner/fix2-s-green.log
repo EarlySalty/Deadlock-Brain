@@ -1,0 +1,69 @@
+warte auf zentrale Test-Postgres... ok
+CENTRAL_TEST_DSN=postgres://deadlock:***@127.0.0.1:32877/deadlock_test
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.24s
+     Running `target/debug/dl-central-migrate`
+dl-central-migrate: wende zentrale DB-Migrationen an …
+dl-central-migrate: Migrationen erfolgreich angewendet.
+   Compiling tokio v1.52.3
+   Compiling tokio-util v0.7.18
+   Compiling hyper v1.10.1
+   Compiling tokio-rustls v0.26.4
+   Compiling tower v0.5.3
+   Compiling async-imap v0.11.2
+   Compiling tokio-tungstenite v0.27.0
+   Compiling tower-http v0.6.11
+   Compiling tokio-stream v0.1.18
+   Compiling sqlx-core v0.8.6
+   Compiling hyper-util v0.1.20
+   Compiling hyper-rustls v0.27.9
+   Compiling axum v0.8.9
+   Compiling reqwest v0.12.28
+   Compiling sqlx-postgres v0.8.6
+   Compiling steam-vent v0.4.2 (/home/nathanael/.worktrees/steam-bot-autoren-scan-2/rust/vendor/steam-vent-0.4.2)
+   Compiling sqlx v0.8.6
+   Compiling dl-central-db v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/crates/dl-central-db)
+   Compiling steam-persistence v0.1.0 (/home/nathanael/.worktrees/steam-bot-autoren-scan-2/rust/crates/steam-persistence)
+   Compiling steam-core v0.1.0 (/home/nathanael/.worktrees/steam-bot-autoren-scan-2/rust/crates/steam-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 14s
+warning: the following packages contain code that will be rejected by a future version of Rust: binrw v0.15.1
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
+     Running unittests src/main.rs (/home/nathanael/.worktrees/steam-bot-autoren-scan-2/rust/target/debug/deps/steam_core-483cc23a18c153ec)
+
+running 34 tests
+test task::handlers::builds::catalog::tests::clone_needs_update_unveraendert ... ok
+test task::handlers::builds::catalog::tests::clone_needs_update_status_failed ... ok
+test task::handlers::builds::catalog::tests::clone_needs_update_neuerer_source_timestamp ... ok
+test task::handlers::builds::catalog::tests::clone_needs_update_name_geaendert ... ok
+test task::handlers::builds::catalog::tests::clone_needs_update_kein_upload ... ok
+test task::handlers::builds::catalog::tests::clone_needs_update_neuere_source_version ... ok
+test task::handlers::builds::catalog::tests::catalog_deadline_drops_work_and_releases_lane_before_stale ... ok
+test task::handlers::builds::catalog::tests::cycle_splits_every_build_and_deduplicates_open_work ... ok
+test task::handlers::builds::catalog::tests::discovery_missing_author_never_erases_known_author ... ok
+test task::handlers::builds::catalog::tests::cycle_enqueues_scoped_work_without_waiting_for_gc ... ok
+test task::handlers::builds::catalog::tests::maintain_args_hero_id_snake_case ... ok
+test task::handlers::builds::catalog::tests::maintain_args_leerer_payload_gibt_default ... ok
+test task::handlers::builds::catalog::tests::maintain_args_ungueltig_gibt_fehler ... ok
+test task::handlers::builds::catalog::tests::maintain_args_hero_id_camel_case ... ok
+test task::handlers::builds::catalog::tests::cycle_enqueue_failure_rolls_back_all_children ... ok
+test task::handlers::builds::catalog::tests::discovery_empty_response_is_partial_and_visible ... ok
+test task::handlers::builds::catalog::tests::discovery_persistence_errors_distinguish_partial_and_error ... ok
+test task::handlers::builds::catalog::tests::discovery_internal_error_with_results_is_not_success ... ok
+test task::handlers::builds::catalog::tests::empty_hero_catalog_is_an_author_failure_without_gc ... ok
+test task::handlers::builds::catalog::tests::target_description_format_wie_node ... ok
+test task::handlers::builds::catalog::tests::discovery_records_ok_and_preserves_collab_author ... ok
+test task::handlers::builds::catalog::tests::target_name_kaskade ... ok
+test task::handlers::builds::catalog::tests::discovery_no_active_authors_succeeds_without_gc ... ok
+test task::handlers::builds::catalog::tests::insert_clone_und_update_metadata ... ok
+test task::handlers::builds::catalog::tests::insert_und_cancel_delete_task ... ok
+test task::handlers::builds::catalog::tests::discovery_status_write_failure_is_visible ... ok
+test task::handlers::builds::catalog::tests::discovery_requires_a_real_hero_for_each_request ... ok
+test task::handlers::builds::catalog::tests::discovery_total_outage_fails_tasks_with_details ... ok
+test task::handlers::builds::catalog::tests::queue_clone_for_update_setzt_status_pending ... ok
+test task::handlers::builds::catalog::tests::pending_publish_task_id_und_payload_refresh ... ok
+test task::handlers::builds::catalog::tests::scoped_author_task_stops_on_rate_limit_without_scanning_others ... ok
+test task::handlers::builds::catalog::tests::restore_clone_nach_delete_cancel ... ok
+test task::handlers::builds::catalog::tests::insert_und_cancel_publish_task ... ok
+test task::handlers::builds::catalog::tests::discovery_gc_errors_are_recorded_and_other_authors_continue ... ok
+
+test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 235 filtered out; finished in 31.07s
+

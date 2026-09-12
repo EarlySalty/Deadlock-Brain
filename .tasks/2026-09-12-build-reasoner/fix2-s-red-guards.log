@@ -1,0 +1,119 @@
+warte auf zentrale Test-Postgres... ok
+CENTRAL_TEST_DSN=postgres://deadlock:***@127.0.0.1:32878/deadlock_test
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.26s
+     Running `target/debug/dl-central-migrate`
+dl-central-migrate: wende zentrale DB-Migrationen an …
+dl-central-migrate: Migrationen erfolgreich angewendet.
+   Compiling steam-persistence v0.1.0 (/home/nathanael/.worktrees/steam-bot-autoren-scan-2/rust/crates/steam-persistence)
+   Compiling steam-core v0.1.0 (/home/nathanael/.worktrees/steam-bot-autoren-scan-2/rust/crates/steam-core)
+warning: variable does not need to be mutable
+   --> crates/steam-core/src/task/handlers/builds/discovery.rs:132:9
+    |
+132 |     let mut authors = db.load_watched_authors().await?;
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `CATALOG_TASK_TIMEOUT` is never used
+  --> crates/steam-core/src/task/handlers/builds/shared.rs:12:18
+   |
+12 | pub(super) const CATALOG_TASK_TIMEOUT: Duration = Duration::from_secs(480);
+   |                  ^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `steam-core` (bin "steam-core" test) generated 2 warnings (run `cargo fix --bin "steam-core" -p steam-core --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 20.85s
+warning: the following packages contain code that will be rejected by a future version of Rust: binrw v0.15.1
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
+     Running unittests src/main.rs (/home/nathanael/.worktrees/steam-bot-autoren-scan-2/rust/target/debug/deps/steam_core-483cc23a18c153ec)
+
+running 34 tests
+test task::handlers::builds::catalog::tests::clone_needs_update_unveraendert ... ok
+test task::handlers::builds::catalog::tests::clone_needs_update_status_failed ... ok
+test task::handlers::builds::catalog::tests::clone_needs_update_neuerer_source_timestamp ... ok
+test task::handlers::builds::catalog::tests::clone_needs_update_neuere_source_version ... ok
+test task::handlers::builds::catalog::tests::clone_needs_update_name_geaendert ... ok
+test task::handlers::builds::catalog::tests::clone_needs_update_kein_upload ... ok
+test task::handlers::builds::catalog::tests::catalog_deadline_drops_work_and_releases_lane_before_stale ... FAILED
+test task::handlers::builds::catalog::tests::discovery_status_write_failure_is_visible ... ok
+test task::handlers::builds::catalog::tests::discovery_no_active_authors_succeeds_without_gc ... ok
+test task::handlers::builds::catalog::tests::maintain_args_hero_id_camel_case ... ok
+test task::handlers::builds::catalog::tests::maintain_args_hero_id_snake_case ... ok
+test task::handlers::builds::catalog::tests::maintain_args_leerer_payload_gibt_default ... ok
+test task::handlers::builds::catalog::tests::maintain_args_ungueltig_gibt_fehler ... ok
+test task::handlers::builds::catalog::tests::discovery_total_outage_fails_tasks_with_details ... ok
+test task::handlers::builds::catalog::tests::discovery_internal_error_with_results_is_not_success ... FAILED
+test task::handlers::builds::catalog::tests::discovery_persistence_errors_distinguish_partial_and_error ... ok
+test task::handlers::builds::catalog::tests::empty_hero_catalog_is_an_author_failure_without_gc ... FAILED
+test task::handlers::builds::catalog::tests::cycle_splits_every_build_and_deduplicates_open_work ... FAILED
+test task::handlers::builds::catalog::tests::cycle_enqueue_failure_rolls_back_all_children ... FAILED
+test task::handlers::builds::catalog::tests::discovery_missing_author_never_erases_known_author ... ok
+test task::handlers::builds::catalog::tests::target_description_format_wie_node ... ok
+test task::handlers::builds::catalog::tests::target_name_kaskade ... ok
+test task::handlers::builds::catalog::tests::discovery_requires_a_real_hero_for_each_request ... ok
+test task::handlers::builds::catalog::tests::cycle_enqueues_scoped_work_without_waiting_for_gc ... ok
+test task::handlers::builds::catalog::tests::insert_clone_und_update_metadata ... ok
+test task::handlers::builds::catalog::tests::discovery_empty_response_is_partial_and_visible ... ok
+test task::handlers::builds::catalog::tests::discovery_records_ok_and_preserves_collab_author ... ok
+test task::handlers::builds::catalog::tests::insert_und_cancel_delete_task ... ok
+test task::handlers::builds::catalog::tests::restore_clone_nach_delete_cancel ... ok
+test task::handlers::builds::catalog::tests::pending_publish_task_id_und_payload_refresh ... ok
+test task::handlers::builds::catalog::tests::scoped_author_task_stops_on_rate_limit_without_scanning_others ... FAILED
+test task::handlers::builds::catalog::tests::queue_clone_for_update_setzt_status_pending ... ok
+test task::handlers::builds::catalog::tests::insert_und_cancel_publish_task ... ok
+test task::handlers::builds::catalog::tests::discovery_gc_errors_are_recorded_and_other_authors_continue ... ok
+
+failures:
+
+---- task::handlers::builds::catalog::tests::catalog_deadline_drops_work_and_releases_lane_before_stale stdout ----
+
+thread 'task::handlers::builds::catalog::tests::catalog_deadline_drops_work_and_releases_lane_before_stale' (1836742) panicked at crates/steam-core/src/task/handlers/builds/catalog.rs:1264:24:
+called `Result::unwrap_err()` on an `Ok` value: ()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- task::handlers::builds::catalog::tests::discovery_internal_error_with_results_is_not_success stdout ----
+
+thread 'task::handlers::builds::catalog::tests::discovery_internal_error_with_results_is_not_success' (1836754) panicked at crates/steam-core/src/task/handlers/builds/catalog.rs:1244:13:
+assertion failed: stats.into_task_result().is_err()
+
+---- task::handlers::builds::catalog::tests::empty_hero_catalog_is_an_author_failure_without_gc stdout ----
+
+thread 'task::handlers::builds::catalog::tests::empty_hero_catalog_is_an_author_failure_without_gc' (1836771) panicked at crates/steam-core/src/task/handlers/builds/catalog.rs:1364:9:
+assertion failed: stats.into_task_result().is_err()
+
+---- task::handlers::builds::catalog::tests::cycle_splits_every_build_and_deduplicates_open_work stdout ----
+
+thread 'task::handlers::builds::catalog::tests::cycle_splits_every_build_and_deduplicates_open_work' (1836751) panicked at crates/steam-core/src/task/handlers/builds/catalog.rs:1281:9:
+assertion `left == right` failed
+  left: 3
+ right: 4
+
+---- task::handlers::builds::catalog::tests::cycle_enqueue_failure_rolls_back_all_children stdout ----
+
+thread 'task::handlers::builds::catalog::tests::cycle_enqueue_failure_rolls_back_all_children' (1836749) panicked at crates/steam-core/src/task/handlers/builds/catalog.rs:1317:9:
+assertion `left == right` failed
+  left: 1
+ right: 0
+
+---- task::handlers::builds::catalog::tests::scoped_author_task_stops_on_rate_limit_without_scanning_others stdout ----
+
+thread 'task::handlers::builds::catalog::tests::scoped_author_task_stops_on_rate_limit_without_scanning_others' (1838164) panicked at crates/steam-core/src/task/handlers/builds/catalog.rs:1333:17:
+assertion `left == right` failed
+  left: Some(13446690)
+ right: Some(1650097169)
+
+
+failures:
+    task::handlers::builds::catalog::tests::catalog_deadline_drops_work_and_releases_lane_before_stale
+    task::handlers::builds::catalog::tests::cycle_enqueue_failure_rolls_back_all_children
+    task::handlers::builds::catalog::tests::cycle_splits_every_build_and_deduplicates_open_work
+    task::handlers::builds::catalog::tests::discovery_internal_error_with_results_is_not_success
+    task::handlers::builds::catalog::tests::empty_hero_catalog_is_an_author_failure_without_gc
+    task::handlers::builds::catalog::tests::scoped_author_task_stops_on_rate_limit_without_scanning_others
+
+test result: FAILED. 28 passed; 6 failed; 0 ignored; 0 measured; 235 filtered out; finished in 30.40s
+
+error: test failed, to rerun pass `-p steam-core --bin steam-core`
