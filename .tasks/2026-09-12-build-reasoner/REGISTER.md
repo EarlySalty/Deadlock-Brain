@@ -28,7 +28,8 @@ Deadlock-Steam-Bot. Pakete in `PAKETE.md`.
 | D Integration/CLI | 5164e0e2 | luna | ~/.worktrees/deadlock-brain-d | feat/build-reasoner-d (cbfbc98 = main + B(A) + C) | fertig (5f438d2, 7fbb128; FERTIG-D.md, REPORT-D.md im Worktree), gesettelt |
 | Review D Runde 1 | ea69f312 | opus48 | keiner (lesend) | keiner | fertig, gesettelt: NACHBESSERN (1 Blocker: reasoner_*-Tabellen ohne Writes; 4 weitere) |
 | Fix D Runde 1 | 70330d8c | astra | ~/.worktrees/deadlock-brain-d | feat/build-reasoner-d | fertig (e0e1cff, 54252b0), gesettelt; 256 Tests ohne DSN, 83 Reasoner-Tests mit DSN |
-| Review D Runde 2 | af784bec | opus48 | keiner (lesend) | keiner | gestartet 2026-09-13 01:45 |
+| Review D Runde 2 | af784bec | opus48 | keiner (lesend) | keiner | fertig, gesettelt: FREIGABE; Merge-Kritiker BLOCK (Doku behauptet Read-only, tote backtest_hero, naniadm-Pfade im Timer) |
+| Fix D Runde 2 (Gate) | 866fe09f | astra | ~/.worktrees/deadlock-brain-d | feat/build-reasoner-d | gestartet 2026-09-13 02:05 |
 | S Steam-Bot Autoren-Scan | 231b6ae6 | luna | ~/.worktrees/steam-bot-autoren-scan | feat/autoren-scan-reaktivieren | fertig (f82c21c, FERTIG-S.md), gesettelt |
 | Review S Runde 1 | 8248611a | opus48 | keiner (lesend) | keiner | fertig, gesettelt: NACHBESSERN (5 Mängel, 2 wichtig) |
 | Fix S Runde 1 | 2884c49a | astra | ~/.worktrees/steam-bot-autoren-scan | feat/autoren-scan-reaktivieren | fertig (102ec83), gesettelt |
