@@ -1,0 +1,18 @@
+[package]
+name = "dbrain-reasoner"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "dbrain_reasoner"
+path = "src/lib.rs"
+
+[dependencies]
+deadlock-brain-core = { path = "../deadlock-brain-core" }
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

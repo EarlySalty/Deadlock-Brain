@@ -99,6 +99,10 @@ pub struct ChatCompletionRequest {
     pub temperature: f64,
     pub top_p: f64,
     pub stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_format: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
 }
 
 impl ChatCompletionRequest {
@@ -110,6 +114,8 @@ impl ChatCompletionRequest {
             temperature: config.temperature,
             top_p: config.top_p,
             stream: false,
+            response_format: None,
+            reasoning_effort: None,
         }
     }
 }
@@ -307,5 +313,7 @@ mod tests {
         .unwrap();
         assert_eq!(value.get("max_tokens").and_then(Value::as_u64), Some(123));
         assert!(value.get("max_completion_tokens").is_none());
+        assert!(value.get("response_format").is_none());
+        assert!(value.get("reasoning_effort").is_none());
     }
 }

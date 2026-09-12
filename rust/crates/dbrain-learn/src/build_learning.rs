@@ -458,6 +458,8 @@ Du arbeitest datenbasiert, markierst Unsicherheit und verwandelst einzelne Build
         temperature: config.temperature,
         top_p: config.top_p,
         stream: false,
+        response_format: None,
+        reasoning_effort: None,
     })
 }
 
