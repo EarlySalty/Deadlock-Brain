@@ -511,6 +511,7 @@ dependencies = [
 name = "dbrain-reasoner"
 version = "0.1.0"
 dependencies = [
+ "dbrain-builds",
  "deadlock-brain-core",
  "serde",
  "serde_json",
@@ -565,6 +566,7 @@ dependencies = [
  "dbrain-enrich",
  "dbrain-learn",
  "dbrain-normalize",
+ "dbrain-reasoner",
  "dbrain-retrieval",
  "dbrain-sources",
  "deadlock-brain-core",

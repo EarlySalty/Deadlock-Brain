@@ -55,6 +55,11 @@ enum Commands {
         #[command(subcommand)]
         target: WikiCommands,
     },
+    #[command(about = "Erzeugt mechanisch begründete Reasoner-Builds und Backtests.")]
+    Reason {
+        #[command(subcommand)]
+        target: ReasonCommands,
+    },
     #[command(about = "Zeigt Rename-/Rework-Beziehungen aus Patchnotes.")]
     Lineage(LineageArgs),
     #[command(about = "Zeigt alte/entfernte Entities aus Patchnotes.")]
@@ -215,6 +220,54 @@ enum WikiCommands {
         about = "Erzeugt game-wiki/ aus Deadlock-Data-Snapshots neu."
     )]
     Rebuild(WikiRebuildArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum ReasonCommands {
+    #[command(name = "build", about = "Baut einen Reasoner-Build für einen Helden.")]
+    Build(ReasonBuildArgs),
+    #[command(name = "patch-impact", about = "Zeigt die Wirkung des letzten Patches.")]
+    PatchImpact(ReasonPatchImpactArgs),
+    #[command(name = "backtest", about = "Vergleicht Reasoner-Builds mit Autoren-Builds.")]
+    Backtest(ReasonBacktestArgs),
+}
+
+#[derive(Debug, Args)]
+struct ReasonBuildArgs {
+    #[arg(help = "Heldname oder Hero-ID.")]
+    hero: String,
+    #[arg(long = "no-ai")]
+    no_ai: bool,
+    #[arg(long)]
+    patch: Option<String>,
+    #[arg(long)]
+    publish: bool,
+    #[arg(long)]
+    json: bool,
+    #[arg(long = "seed-path", value_name = "PATH")]
+    seed_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+struct ReasonPatchImpactArgs {
+    #[arg(help = "Heldname oder Hero-ID.")]
+    hero: String,
+    #[arg(long)]
+    patch: Option<String>,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct ReasonBacktestArgs {
+    #[arg(long)]
+    hero: Option<String>,
+    #[arg(long)]
+    patch: Option<String>,
+    #[arg(long)]
+    json: bool,
+    #[arg(long = "seed-path", value_name = "PATH")]
+    seed_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -1166,6 +1219,7 @@ async fn run(cli: Cli) -> Result<()> {
                 print_json(&result)
             }
         },
+        Commands::Reason { target } => run_reason(&pool, &settings, target).await,
         Commands::Lineage(args) => {
             let rows = load_lineage(&pool, args.query.as_deref(), args.limit).await?;
             if args.pretty {
@@ -1484,6 +1538,146 @@ async fn run_learn(settings: &Settings, target: LearnCommands) -> Result<()> {
                 print_json(&result)
             }
         }
+    }
+}
+
+async fn run_reason(pool: &PgPool, settings: &Settings, target: ReasonCommands) -> Result<()> {
+    match target {
+        ReasonCommands::Build(args) => {
+            let mut config = dbrain_reasoner::ReasonerConfig {
+                use_ai: !args.no_ai,
+                ..Default::default()
+            };
+            if let Some(patch) = args.patch {
+                config.patch_tag = patch;
+            }
+            let ai = config
+                .use_ai
+                .then(|| AiClient::from_settings(settings))
+                .transpose()?;
+            let ctx = dbrain_reasoner::ReasonerCtx {
+                pool: pool.clone(),
+                ai,
+                config,
+            };
+            let seed_path = args.seed_path.unwrap_or_else(|| {
+                config::path_env(
+                    "DEADLOCK_REASONER_SEED_PATH",
+                    settings
+                        .project_root
+                        .join(".tasks/2026-09-12-build-reasoner/referenz"),
+                )
+            });
+            let build = dbrain_reasoner::reason_build_with_seed_path(
+                &ctx,
+                &args.hero,
+                Some(&seed_path),
+            )
+            .await?;
+            let task_id = if args.publish {
+                Some(dbrain_reasoner::publish::enqueue_publish_task(pool, &build).await?)
+            } else {
+                None
+            };
+            if args.json {
+                if let Some(task_id) = task_id {
+                    print_json(&json!({"build": build, "publish_task_id": task_id}))
+                } else {
+                    print_json(&build)
+                }
+            } else {
+                print_reason_build(&build, task_id);
+                Ok(())
+            }
+        }
+        ReasonCommands::PatchImpact(args) => {
+            let mut config = dbrain_reasoner::ReasonerConfig {
+                use_ai: true,
+                ..Default::default()
+            };
+            if let Some(patch) = args.patch {
+                config.patch_tag = patch;
+            }
+            let ctx = dbrain_reasoner::ReasonerCtx {
+                pool: pool.clone(),
+                ai: Some(AiClient::from_settings(settings)?),
+                config,
+            };
+            let report = dbrain_reasoner::reason_patch_impact(&ctx, &args.hero).await?;
+            if args.json {
+                print_json(&report)
+            } else {
+                print_reason_patch_impact(&report);
+                Ok(())
+            }
+        }
+        ReasonCommands::Backtest(args) => {
+            let mut config = dbrain_reasoner::ReasonerConfig {
+                use_ai: false,
+                ..Default::default()
+            };
+            if let Some(patch) = args.patch.clone() {
+                config.patch_tag = patch;
+            }
+            let ctx = dbrain_reasoner::ReasonerCtx {
+                pool: pool.clone(),
+                ai: None,
+                config,
+            };
+            let seed_path = args.seed_path.unwrap_or_else(|| {
+                config::path_env(
+                    "DEADLOCK_REASONER_SEED_PATH",
+                    settings
+                        .project_root
+                        .join(".tasks/2026-09-12-build-reasoner/referenz"),
+                )
+            });
+            let report = dbrain_reasoner::reason_backtest_with_seed_path(
+                &ctx,
+                dbrain_reasoner::BacktestFilter {
+                    hero: args.hero,
+                    patch_tag: args.patch,
+                },
+                Some(&seed_path),
+            )
+            .await?;
+            if args.json {
+                print_json(&report)
+            } else {
+                println!("{report}");
+                Ok(())
+            }
+        }
+    }
+}
+
+fn print_reason_build(build: &dbrain_reasoner::BuildObject, task_id: Option<i64>) {
+    println!("{} ({})", build.name, build.patch_tag);
+    println!("Kern:");
+    for item in &build.core {
+        println!("- {} [{:?}]", item.name, item.confidence);
+    }
+    for block in &build.situations {
+        println!("{}:", block.label);
+        for item in &block.items {
+            println!("- {} [{:?}]", item.name, item.confidence);
+        }
+    }
+    if !build.ability_order.is_empty() {
+        println!("Skill-Order: {} Schritte", build.ability_order.len());
+    }
+    if !build.rationale.trim().is_empty() {
+        println!("Warum: {}", build.rationale);
+    }
+    if let Some(task_id) = task_id {
+        println!("Publish-Task: {task_id}");
+    }
+}
+
+fn print_reason_patch_impact(report: &dbrain_reasoner::PatchImpactReport) {
+    println!("{}: {}", report.hero_name, report.summary);
+    for (item_id, shift) in &report.shifted_items {
+        println!("- Item {item_id}: {shift:+.4}");
     }
 }
 

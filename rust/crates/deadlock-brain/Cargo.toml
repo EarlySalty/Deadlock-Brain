@@ -17,6 +17,7 @@ dbrain-enrich = { path = "../dbrain-enrich" }
 dbrain-learn = { path = "../dbrain-learn" }
 dbrain-normalize = { path = "../dbrain-normalize" }
 dbrain-retrieval = { path = "../dbrain-retrieval" }
+dbrain-reasoner = { path = "../dbrain-reasoner" }
 dbrain-sources = { path = "../dbrain-sources" }
 hex.workspace = true
 postgres.workspace = true
