@@ -16,7 +16,7 @@ High-Velocity Rounds 139. Alle liegen unter dem globalen Cutoff 19, obwohl sie
 in ihrem Kostenband vorne stehen.
 
 - Worktree: `/home/nathanael/.worktrees/deadlock-brain-f` (Branch
-  `feat/build-reasoner-f` ab main nach dem E-Merge, ausgecheckt)
+  `feat/build-reasoner-f` ab main 80417b9 mit E, ausgecheckt)
 - Intent-Thread: `33a32f58-476b-4a67-99cc-8f6c1e8f7001`
 - Du bist der einzige Thread für dieses Paket. Keine Unter-Threads oder
   Unter-Agenten spawnen.
