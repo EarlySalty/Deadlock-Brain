@@ -508,6 +508,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "dbrain-reasoner"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dbrain-builds",
+ "dbrain-learn",
+ "dbrain-retrieval",
+ "deadlock-brain-core",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 1.0.69",
+ "tokio",
+]
+
+[[package]]
 name = "dbrain-retrieval"
 version = "0.1.0"
 dependencies = [

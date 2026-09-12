@@ -607,6 +607,8 @@ pub fn build_patch_impact_request(
             temperature: config.temperature,
             top_p: config.top_p,
             stream: false,
+            response_format: None,
+            reasoning_effort: None,
         },
         prompt_text: prompt,
     })
@@ -825,6 +827,8 @@ where
             temperature: config.temperature,
             top_p: config.top_p,
             stream: false,
+            response_format: None,
+            reasoning_effort: None,
         };
 
         match chat(&request) {
