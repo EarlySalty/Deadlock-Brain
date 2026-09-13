@@ -1,0 +1,11 @@
+# Belegte Fähigkeitsinteraktionen
+
+Das neue Modul `ability_interactions` liefert dem gemeinsamen Kampfablauf vorberechnete Effekte. Es enthält keine Heldengewichte, Autorenreferenzen oder Kaufpräferenzen. Eingabe ist ausschließlich das bereits fortgeschrittene `AbilityModel`; ungekaufte Boni in `upgrades` werden nicht gelesen.
+
+Die Originalsnapshots 12889, 12887, 35816, 47135 und 35861 aus dem unveränderten RAW-SNAPSHOTS-V2.json liegen als begrenzte Rohfixture bei. Hook erhält nach Rang 1 20 % Waffenverstärkung gegen das getroffene Ziel für 6 Sekunden. Uppercut setzt bei einem echten Heldentreffer erst ab Rang 3 den Hook-Cooldown zurück und heilt 18 % des fehlenden Lebens. Hyper Beam heilt erst ab Rang 3 um 65 % seines tatsächlich zugefügten Heldenschadens. Überkill, Itemprocs und anderer Fähigkeitsschaden gehören nicht zu dieser Heilbasis.
+
+Malice gewährt je Stack 7 %, ab Rang 3 15 % Verstärkung der eigenen Folgeschäden. Maximal 5 Stacks und 9 Sekunden Debuffdauer sind Rohwerte. Ein bestätigter Treffer pro Cast, unabhängig vom Fächer aus mehreren Shards, sowie individuell auslaufende Stacks und Ersatz des ältesten Stacks am Limit sind ausdrücklich Szenarioannahmen. Neue Treffer frischen nicht stillschweigend sämtliche Stacks auf. Zielwechsel entfernt sämtliche zielgebundenen Verstärkungen; eigene Cooldowns und eigene Buffs bleiben Sache des Kampfablaufs. Dauerboni gelten nur für vom Loader als skalierend gekennzeichnete Dauerfelder.
+
+`kampfmodell` bindet `from_ability`, `on_hit`, die Multiplikatoren und die Heilfunktionen in reale Cast-/Treffer-/Zielereignisse ein. Ein Hook-Treffer braucht keinen positiven eigenen Basisschaden. HP-/Cooldownmutation, Trefferkontakt, Todgrenzen und Procberechtigung bleiben zentral im Kampfablauf. Das Modul allein ist kein Nachweis einer vollständigen Integration.
+
+Soul Exchange bleibt hinsichtlich seiner Hauptwirkung unquantifiziert: Beschreibung und Felder belegen einen Lebenswechsel, eine gegnerische Untergrenze von 30 %, einen Mindestzufluss mit Bezug auf aktuelles Opferleben und MinDiffToCast 0.1. Die genaue Kombination aus absoluten Lebenswerten, Prozentständen und Mindestzufluss ist damit nicht eindeutig. Es wird keine vermeintlich exakte Tauschformel aus Feldnamen erfunden. Die vorhandenen Rang-3-Buffs dürfen diese offene Hauptwirkung nicht verdecken.
