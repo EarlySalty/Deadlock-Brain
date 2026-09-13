@@ -1,0 +1,33 @@
+diff --git a/rust/crates/dbrain-reasoner/examples/build_evaluation.rs b/rust/crates/dbrain-reasoner/examples/build_evaluation.rs
+index e5b0dbe..affb844 100644
+--- a/rust/crates/dbrain-reasoner/examples/build_evaluation.rs
++++ b/rust/crates/dbrain-reasoner/examples/build_evaluation.rs
+@@ -232,7 +232,7 @@ async fn freeze(output: &Path) -> std::result::Result<(), Error> {
+         .await?
+         .patch_tag;
+     let sources = load_author_source_rows(&ctx, None).await?;
+-    let raw_snapshots: Vec<Value> = sqlx::query_scalar("SELECT to_jsonb(s) FROM (SELECT DISTINCT ON (source,entity_type,canonical_name) * FROM brain.entity_snapshots WHERE source='deadlock_assets_api' ORDER BY source,entity_type,canonical_name,fetched_at DESC,id DESC) s").fetch_all(&pool).await?;
++    let raw_snapshots: Vec<Value> = sqlx::query_scalar("SELECT to_jsonb(s) FROM (SELECT DISTINCT ON (source,entity_type,COALESCE(payload->>'id',external_id,canonical_name)) * FROM brain.entity_snapshots WHERE source IN ('deadlock_assets_api','deadlock_data') ORDER BY source,entity_type,COALESCE(payload->>'id',external_id,canonical_name),fetched_at DESC,id DESC) s").fetch_all(&pool).await?;
+     let tier_rows: Vec<(i64, i64)> =
+         sqlx::query_as("SELECT item_id,tier FROM brain.item_catalog WHERE tier IS NOT NULL")
+             .fetch_all(&pool)
+@@ -274,6 +274,19 @@ async fn freeze(output: &Path) -> std::result::Result<(), Error> {
+         heroes,
+     };
+     for input in &frozen.heroes {
++        for item in &input.items {
++            if !frozen.raw_snapshots.iter().any(|row| {
++                row["source"] == "deadlock_assets_api"
++                    && row["entity_type"] == "item_or_ability"
++                    && row["payload"]["id"].as_i64() == Some(item.item_id)
++            }) {
++                return Err(format!(
++                    "Rohsnapshot fehlt für Item {} ({})",
++                    item.name, item.item_id
++                )
++                .into());
++            }
++        }
+         let replay = compose(&frozen, input, &BTreeSet::new(), false, "full")?;
+         if replay != input.live_baseline {
+             return Err(format!(
