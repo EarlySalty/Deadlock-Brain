@@ -67,12 +67,13 @@ Nicht sensitive Rohbelege liegen dauerhaft unter
 - `FINAL-MECHANIK-VERGLEICH.json`: offline, gleiche Modelle/Referenz und identische
   skalare Meta-Signale, Paarstatistik auf beiden Seiten ausgeschaltet. Die
   mechanisch korrigierte Auswahl verbessert die Trefferquote nicht.
-- `ask-publish-smoke.json`: echter read-only Ask und Payload-Vertragsprüfung,
+- `ask-publish-smoke-kompakt.json`: echter read-only Ask und Payload-Vertragsprüfung,
   kein Upload. Endgültig 16 Käufe, 5 Kategorien, 3 gültige Imbue-IDs,
   5 Verkaufsprioritäten und 16 Fähigkeitsschritte. Vollständiges BuildObject
   entspricht der direkten Reasoner-Ausgabe. Der KI-Prompt enthält eine
   kompakte Projektion (14.030 statt 125.466 Zeichen); vollständige Belege
-  bleiben im Buildkontext. Kategoriegröße 780 × 260 reicht für 16 Items.
+  bleiben im Buildkontext. Das Payload-Feld Kategoriegröße 780 × 260 wurde
+  für 16 Items geprüft; eine Darstellung im Spielclient wurde nicht geprüft.
 
 Reproduzierbarer Einstieg: `dbrain-reasoner/examples/abschluss.rs`, optional
 `warden`, `catalog` oder `provenance`; offline Mechanikvergleich:
@@ -88,5 +89,21 @@ Workspace-Tests und Clippy aller Targets mit `-D warnings` auf 6fa027f sind grü
 Logs: `/tmp/brain-watch-workspace-final.log`, `/tmp/brain-watch-clippy-final.log`.
 Formatprüfung der geänderten Dateien und `git diff --check` sind grün.
 Das gesamte Workspace-Format hat bekannte Altlasten außerhalb des Fixumfangs.
-Technische unabhängige Abnahme, endgültiges Gate und Deployment werden getrennt
-im Abschlussnachtrag festgehalten; diese Datei behauptet sie nicht vorab.
+## Technischer Abschluss
+
+`ABNAHME-FINAL.md` gibt den gemeinsamen Reparaturstand technisch frei und
+verneint die fachliche Gesamtzielerfüllung. Reguläres Astra-Selbstgate auf
+2c28fda: Exit 0/ALLOW; der dokumentierte Hinweis auf deaktivierte Werkzeuge
+wird durch die unabhängige Codeabnahme und die echten Nachweise ergänzt.
+Danach sind regulärer Merge und Main-Push erfolgt. Der Release aus sauberem
+main 2c28fda wurde gebaut und vom normalen Build-data-Oneshot tatsächlich
+ausgeführt. Der Lauf endete am 13.09.2026 um 17:29:09 CEST erfolgreich mit
+Exit 0 und synchronisierte alle 38 Helden. Ein dauerhafter Rust-Daemon existiert
+für diese Strecke nicht; der Timer bleibt aktiv.
+
+`DEPLOY-BRAIN.md` versioniert den kompakten Nachweis mit Quellstand,
+Vorher-/Nachher-Binaryhash, Invocation und Betriebsprüfung. Der anschließende
+lesende Ask-/Payload-Smoke ist ebenfalls grün: identische 16 Kern-IDs,
+weiterhin 2/9 Referenzwaffen, kein Upload. F/G sind nach SHA-Backup und
+Integrationsnachweis bereinigt; der letzte Doku-Nachtrag ändert keinen
+Rust-Code. Der ursprüngliche Auftrag bleibt fachlich offen.

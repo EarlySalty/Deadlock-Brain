@@ -1,6 +1,6 @@
 # Register: build-reasoner
 
-status: Gesamtauftrag fachlich offen; technische Integration in Abschlussprüfung (2026-09-13)
+status: Gesamtauftrag fachlich offen; technische Integration produktiv abgeschlossen (2026-09-13)
 
 Verbindlicher aktueller Stand: `ABSCHLUSS.md`. Die alten Paket-/Review-Threads
 unten sind Historie und inzwischen gestoppt; veraltete Angaben „läuft“ dort

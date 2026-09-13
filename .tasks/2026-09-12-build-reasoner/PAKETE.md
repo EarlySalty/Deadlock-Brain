@@ -1,6 +1,6 @@
 # Pakete: build-reasoner
 
-status: technische Integration in Abschlussprüfung; fachlicher Gesamtauftrag offen (2026-09-13)
+status: technische Integration produktiv abgeschlossen; fachlicher Gesamtauftrag offen (2026-09-13)
 
 Aktueller Stand und Nachweise: `ABSCHLUSS.md`. Die nachfolgenden Tabellen
 dokumentieren den historischen Paketverlauf. F und G sind gemeinsam integriert,
