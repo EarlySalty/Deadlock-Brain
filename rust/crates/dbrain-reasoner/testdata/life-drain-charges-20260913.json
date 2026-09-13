@@ -1,0 +1,303 @@
+{
+  "id": 47136,
+  "fetched_at": "2026-07-30T19:23:26.118383+00:00",
+  "payload": {
+    "ability_type": "signature",
+    "behaviours": [
+      "CITADEL_ABILITY_BEHAVIOR_ALWAYS_PREVIEW_RADIUS",
+      "CITADEL_ABILITY_BEHAVIOR_DISPLAYS_DAMAGE_IMPACT",
+      "CITADEL_ABILITY_BEHAVIOR_CANNOT_CANCEL_DURING_CHANNEL",
+      "CITADEL_ABILITY_BEHAVIOR_ALLOW_ALT_CAST",
+      "CITADEL_ABILITY_BEHAVIOR_USE_INSTANT_CAST_UNIT_TARGET_UI",
+      "CITADEL_ABILITY_BEHAVIOR_TRIGGER_CANCEL_MASH_PROTECTION_ON_CAST",
+      "CITADEL_ABILITY_BEHAVIOR_CAN_SET_QUICK_CAST",
+      "CITADEL_ABILITY_BEHAVIOR_DONT_INTERRUPT_SLIDE_ON_CAST"
+    ],
+    "boss_damage_scale": 1.0,
+    "class_name": "ability_life_drain",
+    "description": {
+      "desc": "Create a tether that <span class=\"highlight\">drains enemy health over time</span> and <span class=\"highlight\">heals you</span>. Target must be in line of sight and within max range to drain. You can shoot and use other abilities during the drain, but your move speed is reduced. <br><span class=\"highlight\"><svg width=\"128\" height=\"128\" viewBox=\"0 0 128 128\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\">\n<path d=\"M106 74.5C106 102.39 97.196 125 64 125C30.804 125 22 102.39 22 74.5C22 74.2499 22.0048 74.0002 22.0078 73.751C31.2634 78.1321 44.7654 81 64 81C83.234 81 96.7357 78.1319 105.991 73.751C105.994 74.0002 106 74.2499 106 74.5Z\" fill=\"black\" fill-opacity=\"0.6\"/>\n<path d=\"M58 22.9204C58.0001 19.6507 60.6863 17 63.9999 17C67.3135 17.0003 69.9999 19.6509 70 22.9204V51.0796C70 54.3492 67.3135 56.9997 63.9999 57C60.6862 57 58 54.3494 58 51.0796V22.9204Z\" fill=\"black\" fill-opacity=\"0.6\"/>\n<path d=\"M63.6125 17.008C61.6841 17.0899 59.8918 17.7814 58.5226 18.9327C57.0626 20.1605 56.0002 22.0028 56 24.1999V49.8001C56.0002 51.9973 57.0626 53.8395 58.5226 55.0673C59.8918 56.2186 61.6841 56.9101 63.6125 56.992L64 57C66.075 56.9998 68.0169 56.2945 69.4774 55.0664C70.9372 53.8386 71.9998 51.9972 72 49.8001V24.1999L71.9969 23.9957C71.9332 21.8888 70.8918 20.1232 69.4774 18.9336C68.017 17.7055 66.075 17.0002 64 17L63.6125 17.008Z\" fill=\"black\"/>\n<path d=\"M69 12.9755C73.4305 14.5801 76.598 18.8335 76.598 23.8299V50.7515C76.598 55.7478 73.4304 60.0003 69 61.605V73.4277C84.4336 72.9935 96.282 69.6691 104.368 66.3811C104.93 66.1525 105.474 65.9235 106 65.6961C105.868 63.8985 105.711 62.0149 105.527 60.0406L103.581 44.5956C102.213 35.6269 100.295 26.7201 97.1331 20.6114C89.7895 6.41635 75.6511 4.72025 69 4.42773V12.9755Z\" fill=\"black\" fill-opacity=\"0.6\"/>\n<path d=\"M59 12.9755C54.5695 14.5801 51.402 18.8335 51.402 23.8299V50.7515C51.402 55.7478 54.5696 60.0003 59 61.605V73.4277C43.5664 72.9935 31.718 69.6691 23.6324 66.3811C23.0701 66.1525 22.526 65.9235 22 65.6961C22.1325 63.8985 22.2887 62.0149 22.4731 60.0406L24.4194 44.5956C25.7871 35.6269 27.7049 26.7201 30.8669 20.6114C38.2105 6.41635 52.3489 4.72025 59 4.42773V12.9755Z\" fill=\"black\" fill-opacity=\"0.6\"/>\n</svg>\n to give health to friendly Heroes</span>.",
+      "quip": "Steal health from an enemy over time",
+      "t3_desc": "Enables and Grants <span class=\"highlight\">+2</span> Charges. Increases spirit scaling."
+    },
+    "hero": 4,
+    "heroes": [
+      4
+    ],
+    "id": 218284420,
+    "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/abilities/spectre/life_drain.png",
+    "image_webp": "https://assets-bucket.deadlock-api.com/assets-api-res/images/abilities/spectre/life_drain.webp",
+    "name": "Life Drain",
+    "properties": {
+      "AbilityCastDelay": {
+        "can_set_token_override": true,
+        "css_class": "cast",
+        "disable_value": "0",
+        "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/images/upgrades/property_cast.png",
+        "label": "Cast Delay",
+        "postfix": "s",
+        "postvalue_label": "Cast Delay",
+        "value": "0.2"
+      },
+      "AbilityCastRange": {
+        "can_set_token_override": true,
+        "css_class": "distance",
+        "display_units": "EDisplayUnit_Meters",
+        "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/range.svg",
+        "label": "Cast Range",
+        "postfix": "m",
+        "postvalue_label": "Cast Range",
+        "scale_function": {
+          "class_name": "scale_function_single_stat",
+          "specific_stat_scale_type": "ETechRange",
+          "subclass_name": "AbilityCastRange_scale_function"
+        },
+        "value": "18m"
+      },
+      "AbilityChannelTime": {
+        "can_set_token_override": true,
+        "css_class": "cast",
+        "disable_value": "0",
+        "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/images/upgrades/property_cast.png",
+        "label": "Channel Duration",
+        "postfix": "s",
+        "postvalue_label": "Channel Duration",
+        "scale_function": {
+          "class_name": "scale_function_multi_stats",
+          "scaling_stats": [
+            "EChannelDuration",
+            "ETechDuration"
+          ],
+          "subclass_name": "scale_duration"
+        },
+        "value": "0"
+      },
+      "AbilityCharges": {
+        "can_set_token_override": true,
+        "css_class": "cast",
+        "disable_value": "-1",
+        "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/images/upgrades/property_cast.png",
+        "label": "Charges",
+        "postvalue_label": "Charges",
+        "scale_function": {
+          "class_name": "scale_function_ability_charges",
+          "subclass_name": "AbilityCharges_scale_function"
+        },
+        "value": "0"
+      },
+      "AbilityCooldown": {
+        "can_set_token_override": true,
+        "css_class": "cooldown",
+        "disable_value": "0",
+        "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/cooldown.svg",
+        "label": "Cooldown",
+        "postfix": "s",
+        "postvalue_label": "Cooldown",
+        "scale_function": {
+          "class_name": "scale_function_single_stat",
+          "specific_stat_scale_type": "ETechCooldown",
+          "subclass_name": "AbilityCooldown_scale_function"
+        },
+        "value": 34.0
+      },
+      "AbilityCooldownBetweenCharge": {
+        "can_set_token_override": true,
+        "css_class": "charge_cooldown",
+        "disable_value": "-1",
+        "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/recharge.svg",
+        "label": "Charge Delay",
+        "postfix": "s",
+        "postvalue_label": "Charge Delay",
+        "scale_function": {
+          "class_name": "scale_function_ability_recharge_time",
+          "subclass_name": "scale_function_ability_recharge_time"
+        },
+        "value": "0"
+      },
+      "AbilityDuration": {
+        "can_set_token_override": true,
+        "css_class": "duration",
+        "disable_value": "0",
+        "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/duration.svg",
+        "label": "Duration",
+        "postfix": "s",
+        "postvalue_label": "Duration",
+        "scale_function": {
+          "class_name": "scale_function_single_stat",
+          "specific_stat_scale_type": "ETechDuration",
+          "subclass_name": "AbilityDuration_scale_function"
+        },
+        "value": "2.5"
+      },
+      "AbilityPostCastDuration": {
+        "disable_value": "0",
+        "value": "0"
+      },
+      "AbilityResourceCost": {
+        "can_set_token_override": true,
+        "css_class": "cast",
+        "disable_value": "0",
+        "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/images/upgrades/property_cast.png",
+        "value": "0"
+      },
+      "AbilityUnitTargetLimit": {
+        "can_set_token_override": true,
+        "value": "10"
+      },
+      "ChannelMoveSpeed": {
+        "can_set_token_override": true,
+        "css_class": "move_speed",
+        "display_units": "EDisplayUnit_MetersPerSecond",
+        "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/move_speed.svg",
+        "postfix": "m",
+        "value": "-1"
+      },
+      "LifeDrainHealthMult": {
+        "css_class": "healing",
+        "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/heal.svg",
+        "label": "Damage to Heal",
+        "postfix": "%",
+        "postvalue_label": "Damage to Heal",
+        "scale_function": {
+          "class_name": "scale_function_single_stat",
+          "specific_stat_scale_type": "EHealingOutput",
+          "subclass_name": "LifeDrainHealthMult_scale_function"
+        },
+        "value": "100"
+      },
+      "LifeDrainPerSecond": {
+        "css_class": "tech_damage",
+        "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/damage_magic_color.svg",
+        "label": "Damage Per Second",
+        "postfix": "",
+        "postvalue_label": "Damage Per Second",
+        "scale_function": {
+          "class_name": "scale_function_tech_damage",
+          "specific_stat_scale_type": "ETechPower",
+          "stat_scale": 0.3225,
+          "subclass_name": "LifeDrainPerSecond_scale_function"
+        },
+        "value": 24.0
+      },
+      "MaxRange": {
+        "css_class": "distance",
+        "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/range.svg",
+        "label": "Max Tether Range",
+        "postfix": "m",
+        "postvalue_label": "Max Tether Range",
+        "scale_function": {
+          "class_name": "scale_function_single_stat",
+          "specific_stat_scale_type": "ETechRange",
+          "subclass_name": "MaxRange_scale_function"
+        },
+        "value": "28m"
+      },
+      "MoveSpeedReduction": {
+        "css_class": "slow",
+        "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/condition_slow.svg",
+        "provided_property_type": "MODIFIER_VALUE_MOVEMENT_SPEED_SLOW_PERCENT",
+        "usage_flags": [
+          "ConditionallyApplied"
+        ],
+        "value": "40"
+      },
+      "SilenceOnDrain": {
+        "value": "0"
+      },
+      "TechPower": {
+        "can_set_token_override": true,
+        "disable_value": "0",
+        "label": "Spirit Power",
+        "postfix": "",
+        "postvalue_label": "Spirit Power",
+        "prefix": "{s:sign}",
+        "provided_property_type": "MODIFIER_VALUE_TECH_POWER",
+        "value": "0"
+      },
+      "TickRate": {
+        "value": "0.1"
+      },
+      "WeaponPower": {
+        "can_set_token_override": true,
+        "disable_value": "0",
+        "label": "Weapon Damage",
+        "postfix": "%",
+        "postvalue_label": "Weapon Damage",
+        "prefix": "{s:sign}",
+        "provided_property_type": "MODIFIER_VALUE_WEAPON_POWER",
+        "value": "0"
+      }
+    },
+    "start_trained": false,
+    "tooltip_details": {
+      "info_sections": [
+        {
+          "basic_properties": [
+            "LifeDrainHealthMult",
+            "MaxRange"
+          ],
+          "loc_string": "Create a tether that <span class=\"highlight\">drains enemy health over time</span> and <span class=\"highlight\">heals you</span>. Target must be in line of sight and within max range to drain. You can shoot and use other abilities during the drain, but your move speed is reduced. <br><span class=\"highlight\"><svg width=\"128\" height=\"128\" viewBox=\"0 0 128 128\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\">\n<path d=\"M106 74.5C106 102.39 97.196 125 64 125C30.804 125 22 102.39 22 74.5C22 74.2499 22.0048 74.0002 22.0078 73.751C31.2634 78.1321 44.7654 81 64 81C83.234 81 96.7357 78.1319 105.991 73.751C105.994 74.0002 106 74.2499 106 74.5Z\" fill=\"black\" fill-opacity=\"0.6\"/>\n<path d=\"M58 22.9204C58.0001 19.6507 60.6863 17 63.9999 17C67.3135 17.0003 69.9999 19.6509 70 22.9204V51.0796C70 54.3492 67.3135 56.9997 63.9999 57C60.6862 57 58 54.3494 58 51.0796V22.9204Z\" fill=\"black\" fill-opacity=\"0.6\"/>\n<path d=\"M63.6125 17.008C61.6841 17.0899 59.8918 17.7814 58.5226 18.9327C57.0626 20.1605 56.0002 22.0028 56 24.1999V49.8001C56.0002 51.9973 57.0626 53.8395 58.5226 55.0673C59.8918 56.2186 61.6841 56.9101 63.6125 56.992L64 57C66.075 56.9998 68.0169 56.2945 69.4774 55.0664C70.9372 53.8386 71.9998 51.9972 72 49.8001V24.1999L71.9969 23.9957C71.9332 21.8888 70.8918 20.1232 69.4774 18.9336C68.017 17.7055 66.075 17.0002 64 17L63.6125 17.008Z\" fill=\"black\"/>\n<path d=\"M69 12.9755C73.4305 14.5801 76.598 18.8335 76.598 23.8299V50.7515C76.598 55.7478 73.4304 60.0003 69 61.605V73.4277C84.4336 72.9935 96.282 69.6691 104.368 66.3811C104.93 66.1525 105.474 65.9235 106 65.6961C105.868 63.8985 105.711 62.0149 105.527 60.0406L103.581 44.5956C102.213 35.6269 100.295 26.7201 97.1331 20.6114C89.7895 6.41635 75.6511 4.72025 69 4.42773V12.9755Z\" fill=\"black\" fill-opacity=\"0.6\"/>\n<path d=\"M59 12.9755C54.5695 14.5801 51.402 18.8335 51.402 23.8299V50.7515C51.402 55.7478 54.5696 60.0003 59 61.605V73.4277C43.5664 72.9935 31.718 69.6691 23.6324 66.3811C23.0701 66.1525 22.526 65.9235 22 65.6961C22.1325 63.8985 22.2887 62.0149 22.4731 60.0406L24.4194 44.5956C25.7871 35.6269 27.7049 26.7201 30.8669 20.6114C38.2105 6.41635 52.3489 4.72025 59 4.42773V12.9755Z\" fill=\"black\" fill-opacity=\"0.6\"/>\n</svg>\n to give health to friendly Heroes</span>.",
+          "properties_block": [
+            {
+              "properties": [
+                {
+                  "important_property": "LifeDrainPerSecond"
+                },
+                {
+                  "important_property": "StatusEffectEMP",
+                  "important_property_icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/condition_silence.svg",
+                  "requires_ability_upgrade": true,
+                  "status_effect_name": "Silenced",
+                  "status_effect_value": "SilenceOnDrain"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "type": "ability",
+    "update_time": 1676078502,
+    "upgrades": [
+      {
+        "property_upgrades": [
+          {
+            "bonus": 13.0,
+            "name": "LifeDrainPerSecond"
+          }
+        ]
+      },
+      {
+        "property_upgrades": [
+          {
+            "bonus": "2.5",
+            "name": "AbilityDuration"
+          }
+        ]
+      },
+      {
+        "property_upgrades": [
+          {
+            "bonus": "3",
+            "name": "AbilityCharges"
+          },
+          {
+            "bonus": "0.1",
+            "name": "AbilityCooldownBetweenCharge"
+          },
+          {
+            "bonus": 0.3,
+            "name": "LifeDrainPerSecond",
+            "scale_stat_filter": "ETechPower",
+            "upgrade_type": "EAddToScale"
+          }
+        ]
+      }
+    ],
+    "videos": {
+      "mp4": "https://assets-bucket.deadlock-api.com/assets-api-res/videos/hero_abilities/ghost_life_drain_h264.mp4",
+      "webm": "https://assets-bucket.deadlock-api.com/assets-api-res/videos/hero_abilities/ghost_life_drain.webm"
+    },
+    "weapon_info": {}
+  }
+}
