@@ -336,7 +336,7 @@ fn simulate(
                 .map(|v| v * hero.weapon.shots_per_second / 100.0)
         })
         .unwrap_or(0.0);
-    let mut base_stats = Stats::default();
+    let mut base_stats = Stats {spirit:hero.base_spirit_power,..Stats::default()};
     let conditional_effects: Vec<Vec<(&str, f64)>> = items
         .iter()
         .map(|item| {
@@ -690,6 +690,10 @@ mod tests {
         HeroModel {
             hero_id: 1,
             name: "Testheld".into(),
+            base_spirit_power: 0.0,
+            standard_level_up_upgrades: Default::default(),
+            standard_upgrade_levels: Default::default(),
+            level_rewards: Default::default(),
             cost_bonuses: BTreeMap::new(),
             archetype: String::new(),
             base_health: 600.0,
@@ -724,6 +728,7 @@ mod tests {
             item_id: id,
             name: format!("Item {id}"),
             class_name: format!("item_{id}"),
+            property_spirit_scaling: Default::default(),
             property_damage_types: Default::default(),
             component_items: vec![],
             description: String::new(),
@@ -749,6 +754,7 @@ mod tests {
         hero.abilities.push(AbilityModel {
             ability_id: 9,
             properties: BTreeMap::new(),
+            upgrades: Default::default(),
             class_name: "periodic".into(),
             slot: 1,
             roles: vec![AbilityRole::Damage],
@@ -932,6 +938,7 @@ mod tests {
         hero.abilities.push(AbilityModel {
             ability_id: 2,
             properties: BTreeMap::new(),
+            upgrades: Default::default(),
             class_name: "channel".into(),
             slot: 1,
             roles: vec![AbilityRole::Damage],
