@@ -119,13 +119,11 @@ async fn fix_e_live_warden_evidence() {
             .total
             > 0.0
     }));
-    assert!(
-        build
-            .situations
-            .iter()
-            .find(|block| block.label == "Optional")
-            .is_none_or(|block| block.items.len() <= 12)
-    );
+    assert!(build
+        .situations
+        .iter()
+        .find(|block| block.label == "Optional")
+        .is_none_or(|block| block.items.len() <= 12));
     let mut without_scaling = hero.clone();
     without_scaling
         .scaling
@@ -192,7 +190,8 @@ async fn fix_e_live_warden_evidence() {
     }
     old_layout.flex_slots = old_layout.total_target().saturating_sub(12);
     let old_build =
-        composer::compose_build_with_layout(&hero, &after, &deltas, &ctx.config, &old_layout);
+        composer::compose_build_with_layout(&hero, &after, &deltas, &ctx.config, &old_layout)
+            .unwrap();
     let comparisons_f = [
         ("E", &e_build),
         ("F vor Fix", &old_build),
