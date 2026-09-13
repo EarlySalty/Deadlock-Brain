@@ -132,30 +132,71 @@ fn apply(stats: &mut Stats, name: &str, v: f64) -> bool {
     }
     true
 }
-fn damage_scale(ability: &AbilityModel, spirit: f64) -> f64 {
-    ability
-        .scaling
-        .iter()
-        .filter_map(|stat| {
-            stat.per_spirit.map(|scale| {
-                scale
-                    * spirit
-                    * if stat.stat == "Spirit" {
-                        1.0
-                    } else {
-                        crate::ability_damage_units(ability, &stat.stat)
-                    }
-            })
-        })
-        .sum()
+struct PreparedAbility<'a> {
+    damage_terms: Vec<(f64, f64)>,
+    utility_keys: Vec<&'a str>,
+    periodic: f64,
+    duration_scales: bool,
 }
-fn active(
+impl<'a> PreparedAbility<'a> {
+    fn new(ability: &'a AbilityModel) -> Self {
+        let periodic = periodic_duration(ability);
+        Self {
+            damage_terms: ability
+                .scaling
+                .iter()
+                .filter_map(|stat| {
+                    stat.per_spirit.map(|scale| {
+                        (
+                            scale,
+                            if stat.stat == "Spirit" {
+                                1.0
+                            } else {
+                                crate::ability_damage_units(ability, &stat.stat)
+                            },
+                        )
+                    })
+                })
+                .collect(),
+            utility_keys: ability
+                .properties
+                .iter()
+                .filter_map(|(key, value)| {
+                    apply(&mut Stats::default(), key, *value).then_some(key.as_str())
+                })
+                .collect(),
+            periodic,
+            duration_scales: scaled_periodic_duration(
+                ability,
+                &Stats {
+                    duration: 1.0,
+                    ..Stats::default()
+                },
+            ) != periodic,
+        }
+    }
+    fn damage_scale(&self, spirit: f64) -> f64 {
+        self.damage_terms
+            .iter()
+            .map(|(scale, units)| scale * spirit * units)
+            .sum()
+    }
+    fn periodic_duration(&self, duration: f64) -> f64 {
+        if self.duration_scales {
+            self.periodic * (1.0 + duration)
+        } else {
+            self.periodic
+        }
+    }
+}
+fn active_with_text(
     item: &ItemModel,
     time: f64,
     health_fraction: f64,
     fired: bool,
     last_cast: f64,
     spirit_damage: f64,
+    text: &str,
 ) -> bool {
     let low = value(item, "LowHealthThreshold");
     if low > 0.0 {
@@ -164,7 +205,6 @@ fn active(
     match &item.condition {
         ConditionKind::None => !item.is_active,
         ConditionKind::StateBound { threshold } => {
-            let text = item.description.to_ascii_lowercase();
             if text.contains("above") || text.contains("over ") {
                 health_fraction > *threshold
             } else if text.contains("below") || text.contains("under ") {
@@ -190,6 +230,25 @@ fn active(
             *cooldown > 0.0 && time % *cooldown < duration
         }
     }
+}
+#[cfg(test)]
+fn active(
+    item: &ItemModel,
+    time: f64,
+    health_fraction: f64,
+    fired: bool,
+    last_cast: f64,
+    spirit_damage: f64,
+) -> bool {
+    active_with_text(
+        item,
+        time,
+        health_fraction,
+        fired,
+        last_cast,
+        spirit_damage,
+        &item.description.to_ascii_lowercase(),
+    )
 }
 
 pub fn evaluate_inventory(
@@ -449,6 +508,11 @@ fn simulate(
     options: (bool, Option<&BTreeMap<i64, i64>>),
 ) -> CombatScenarioEvaluation {
     let (detailed, bindings) = options;
+    let prepared: Vec<_> = hero.abilities.iter().map(PreparedAbility::new).collect();
+    let item_texts: Vec<_> = items
+        .iter()
+        .map(|item| item.description.to_ascii_lowercase())
+        .collect();
     let window = cfg.combat_window_seconds.clamp(1.0, 120.0);
     let dt = 0.2;
     let mut out = CombatScenarioEvaluation {
@@ -603,7 +667,15 @@ fn simulate(
                 let own_fraction = (base_maximum * health_fraction - self_damage_sum + leech_sum)
                     .clamp(0.0, base_maximum)
                     / base_maximum.max(1.0);
-                active(item, time, own_fraction, fired, last_cast, recent_damage)
+                active_with_text(
+                    item,
+                    time,
+                    own_fraction,
+                    fired,
+                    last_cast,
+                    recent_damage,
+                    &item_texts[idx],
+                )
             };
             let enemy_threshold = value(item, "EnemyLifeThreshold");
             if enemy_threshold > 0.0 {
@@ -713,9 +785,10 @@ fn simulate(
                 {
                     continue;
                 }
-                let raw_period = periodic_duration(ability);
-                let scaled_period = scaled_periodic_duration(ability, &stats);
-                let damage = (ability.base_effect + damage_scale(ability, stats.spirit)).max(0.0)
+                let raw_period = prepared[idx].periodic;
+                let scaled_period = prepared[idx].periodic_duration(stats.duration);
+                let damage = (ability.base_effect + prepared[idx].damage_scale(stats.spirit))
+                    .max(0.0)
                     * if raw_period > 0.0 {
                         scaled_period / raw_period
                     } else {
@@ -764,7 +837,15 @@ fn simulate(
                 } else {
                     0.0
                 };
-                let utility = ability_utility_value(hero, ability, &stats, moving, window, damage);
+                let utility = ability_utility_value(
+                    hero,
+                    ability,
+                    &stats,
+                    moving,
+                    window,
+                    damage,
+                    &prepared[idx].utility_keys,
+                );
                 let damage_amp = match ability.damage_type {
                     crate::DamageType::Spirit => stats.spirit_shred,
                     crate::DamageType::Weapon => stats.bullet_shred,
@@ -795,7 +876,7 @@ fn simulate(
                 self_damage_sum +=
                     self_damage_cost(ability, damage, current_health, stats.spirit_resist)
                         .unwrap_or(0.0);
-                let effect_time = scaled_periodic_duration(ability, &stats);
+                let effect_time = prepared[idx].periodic_duration(stats.duration);
                 let start_delay = ability
                     .properties
                     .get("AbilityCastDelay")
@@ -891,11 +972,8 @@ fn simulate(
                 channel_until = time + cast_time;
                 last_cast = time;
                 last_cast_id = (ability.ability_id > 0).then_some(ability.ability_id);
-                for (key, v) in &ability.properties {
-                    if !apply(&mut Stats::default(), key, *v) {
-                        continue;
-                    }
-                    if key == "ImmobilizeDuration"
+                for key in &prepared[idx].utility_keys {
+                    if *key == "ImmobilizeDuration"
                         && ability.properties.get("EscapeTime").copied().unwrap_or(0.0) > 0.0
                     {
                         continue;
@@ -904,7 +982,7 @@ fn simulate(
                     if duration > 0.0 {
                         ability_effects.push((
                             time + duration,
-                            key.clone(),
+                            (*key).to_string(),
                             ability_value(ability, key, &stats),
                         ));
                     }
@@ -993,9 +1071,7 @@ fn simulate(
         }
         pending_hits.retain(|event| event.at > time + duration);
         for (idx, item) in items.iter().enumerate() {
-            if value(item, "DelayBeforeStun") <= 0.0
-                || !item.description.to_ascii_lowercase().contains("ultimate")
-            {
+            if value(item, "DelayBeforeStun") <= 0.0 || !item_texts[idx].contains("ultimate") {
                 continue;
             }
             if let Some((&source, &at)) = ultimate_events
@@ -1145,7 +1221,7 @@ fn simulate(
                 }
             }
             if burn_until[idx] > time && burn_duration > 0.0 {
-                let damage = (ability.base_effect + damage_scale(ability, stats.spirit))
+                let damage = (ability.base_effect + prepared[idx].damage_scale(stats.spirit))
                     / burn_duration
                     * (burn_until[idx] - time).min(duration);
                 out.ability_damage += damage_event(
@@ -1347,10 +1423,11 @@ fn ability_utility_value(
     moving: bool,
     window: f64,
     damage: f64,
+    keys: &[&str],
 ) -> f64 {
     let mut prospective = stats.clone();
     let mut duration: f64 = 0.0;
-    for key in ability.properties.keys() {
+    for key in keys {
         if apply(&mut prospective, key, ability_value(ability, key, stats)) {
             duration = duration.max(effect_duration(ability, key, stats));
         }
