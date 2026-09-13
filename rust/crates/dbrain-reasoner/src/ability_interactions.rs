@@ -1,7 +1,3 @@
-//! Data-backed interactions consumed by the combat event loop.
-//!
-//! Properties must already contain only the upgrades actually purchased. Merely
-//! having an upgrade in `AbilityModel::upgrades` never enables its effect here.
 use crate::AbilityModel;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -30,8 +26,6 @@ fn positive(ability: &AbilityModel, key: &str) -> f64 {
 }
 
 impl AbilityInteractions {
-    /// `duration_multiplier` is the current duration factor, e.g. 1.2 for +20%.
-    /// Only properties marked ETechDuration by the loader receive this factor.
     pub fn from_ability(ability: &AbilityModel, duration_multiplier: f64) -> Self {
         let duration = |key: &str| {
             positive(ability, key)
@@ -85,7 +79,6 @@ impl AbilityInteractions {
         result
     }
 
-    /// Hero hit only. The caller must not trigger this on cast, miss or corpses.
     pub fn missing_health_heal(self, current: f64, maximum: f64) -> f64 {
         if !current.is_finite() || !maximum.is_finite() || current <= 0.0 || maximum <= 0.0 {
             return 0.0;
@@ -93,8 +86,6 @@ impl AbilityInteractions {
         (maximum - current).max(0.0) * self.missing_health_heal_fraction
     }
 
-    /// Only damage actually dealt by this ability to a living hero, after target
-    /// health clipping/resistance. Excludes item procs, overkill and other casts.
     pub fn native_healing(self, actual_ability_damage: f64) -> f64 {
         if actual_ability_damage.is_finite() {
             actual_ability_damage.max(0.0) * self.native_damage_heal_fraction
@@ -110,9 +101,6 @@ struct Stack {
     fraction: f64,
 }
 
-/// State belongs to exactly one enemy and must be cleared on target change.
-/// Malice assumes one confirmed hit per cast and independently expiring stacks;
-/// these application/refresh rules are scenario assumptions, not raw-data facts.
 #[derive(Debug, Clone, Default)]
 pub struct TargetAmplification {
     weapon: Option<Stack>,
@@ -133,7 +121,6 @@ impl TargetAmplification {
         self.all.clear();
     }
 
-    /// Call once per confirmed ability hit, after its initial damage resolves.
     pub fn on_hit(&mut self, effect: AbilityInteractions, time: f64) {
         if !time.is_finite() {
             return;
@@ -147,7 +134,6 @@ impl TargetAmplification {
         self.all.retain(|stack| stack.end > time);
         if let Some(amp) = effect.all_damage_amp.filter(valid_amplification) {
             if self.all.len() >= amp.max_stacks {
-                // At the cap a new hit replaces only the oldest stack, not all.
                 self.all.remove(0);
             }
             self.all.push(Stack {
