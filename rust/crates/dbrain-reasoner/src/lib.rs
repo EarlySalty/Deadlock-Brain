@@ -656,7 +656,7 @@ fn enrich_build(
                 continue;
             }
             if let Some(item) = find_build_item_mut(&mut build, note.item_id) {
-                item.why = text;
+                item.why = append_text(&item.why, &text);
             }
         }
     }

@@ -422,6 +422,11 @@ pub fn plan_with_economy(
             .extend(last.progression.assumptions.iter().cloned());
         plan.assumptions
             .extend(last.progression.unknown_effects.iter().cloned());
+    } else if let Some(earned) = economy.checkpoints.last() {
+        let (progressed, evidence) = at_souls(hero, order, *earned, cfg);
+        plan.final_evaluation = evaluate_inventory_with_bindings(&progressed, &[], cfg, &bindings);
+        plan.assumptions.extend(evidence.assumptions);
+        plan.assumptions.extend(evidence.unknown_effects);
     }
     plan.assumptions.push(format!(
         "{} ungefüllte Layoutplätze am letzten Budgetpunkt. Keine unbezahlbaren Käufe ergänzt.",
