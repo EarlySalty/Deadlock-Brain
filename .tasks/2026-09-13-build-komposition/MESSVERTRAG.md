@@ -116,3 +116,11 @@ wird nicht neu erzeugt: Sie hat diesen zusätzlichen PID-/Snapshotnachweis nicht
 und er wird nicht rückwirkend behauptet. Ihre unveränderten Inhalte bleiben
 gemeinsame Eingabe beider Algorithmusstände. Die nachgewiesene alte
 Fassaden-/Offline-Parität ist von der neu ergänzten Verbindungsprüfung getrennt.
+
+## Kompilierte Quellprovenienz und exklusive Ausgaben
+
+Künftige Messbinaries enthalten den vollständigen Git-HEAD und den Sauberkeitszustand beim Cargo-Bau. `build.rs` wird bei jedem Cargo-Aufruf erneut ausgewertet, daher auch nach Worktree-HEAD-/Ref-Wechseln. Cargo-OUT_DIR dient nur als standardmäßiges Buildmetadatum, nicht als Konfigurations- oder Secretweg. Unbekannte oder nicht eingecheckte Quellen verhindern beweisfähige CLI-Messungen; normale Tests bleiben möglich. Während des Baus dürfen die Quellen nicht parallel verändert werden.
+
+Ein neuer Freeze bezeichnet seine tatsächlich eingebettete Fassade mit dieser Quellrevision. Nachherberichte trennen `algorithm_revision` des laufenden Binaries von `baseline_revision` der eingelesenen eingefrorenen Fassade. Die historisch korrekt erstellte FROZEN-V2 und ihre gesicherte alte Baseline bleiben unverändert; die neue Sicherung wird nicht rückwirkend behauptet.
+
+Alle Ausgaben werden abschließend exklusiv mit `create_new` angelegt. Eine zwischen früher Pfadprüfung und Schreibbeginn erzeugte Datei wird niemals überschrieben. Schreibfehler entfernen die eigene unvollständige Ausgabe und werden propagiert. Scheitert die zweite Coverage-Datei, wird die zuvor erzeugte erste zurückgenommen; bestehende Zieldateien bleiben unangetastet.

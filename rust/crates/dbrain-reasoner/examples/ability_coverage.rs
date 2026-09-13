@@ -2,6 +2,7 @@ use serde_json::{json, Value};
 use std::{collections::BTreeMap, fs};
 
 type Error = Box<dyn std::error::Error>;
+mod support;
 
 fn number(value: &Value) -> Option<f64> {
     value
@@ -173,13 +174,16 @@ fn main() -> Result<(), Error> {
             entries.push(json!({"hero_id":model["hero_id"],"hero_name":name,"model":ability,"raw_snapshot_id":snapshot.map(|row|row["id"].clone()),"raw_fetched_at":snapshot.map(|row|row["fetched_at"].clone()),"raw_ability_id":snapshot.map(|row|row["payload"]["id"].clone()),"raw_description":snapshot.map(|row|row["payload"]["description"].clone()),"raw_upgrades":snapshot.map(|row|row["payload"]["upgrades"].clone()),"properties":properties,"raw_scaling":raw_scaling,"findings":findings}));
         }
     }
-    fs::write(
+    support::write_new(
         output,
-        serde_json::to_vec_pretty(
+        &serde_json::to_vec_pretty(
             &json!({"source":"FROZEN-V2, keine neue DB-Abfrage","baseline_revision":frozen["baseline_revision"],"frozen_at":frozen["measured_at"],"ability_count":entries.len(),"finding_counts":counts,"abilities":entries}),
         )?,
     )?;
-    fs::write(markdown, table)?;
+    if let Err(error) = support::write_new(markdown, table.as_bytes()) {
+        fs::remove_file(output)?;
+        return Err(error.into());
+    }
     eprintln!(
         "{} Fähigkeiten, {} Helden",
         entries.len(),
