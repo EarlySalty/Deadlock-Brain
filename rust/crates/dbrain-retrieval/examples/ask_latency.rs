@@ -24,8 +24,8 @@ struct Observation {
     timed_out: bool,
     exit_code: Option<i32>,
     wait_ms: u128,
-    stdout: Vec<u8>,
-    stderr_bytes: usize,
+    stdout: Option<Vec<u8>>,
+    stderr_bytes: Option<usize>,
     pipe_error: bool,
 }
 
@@ -86,8 +86,8 @@ async fn run_child(binary: &Path, args: &[&str], deadline: Duration) -> io::Resu
         timed_out,
         exit_code: status.and_then(|status| status.code()),
         wait_ms,
-        stdout: stdout.unwrap_or_default(),
-        stderr_bytes: stderr.map_or(0, |bytes| bytes.len()),
+        stdout: stdout.ok(),
+        stderr_bytes: stderr.ok().map(|bytes| bytes.len()),
         pipe_error,
     })
 }
@@ -140,7 +140,10 @@ async fn measure(output: &Path, hero: &str) -> Result<(), Error> {
     let started_at = chrono::Utc::now();
     let started = Instant::now();
     let observation = run_child(&binary, &["--read-only-worker", hero], DEADLINE).await?;
-    let ask: Option<Value> = serde_json::from_slice(&observation.stdout).ok();
+    let ask: Option<Value> = observation
+        .stdout
+        .as_deref()
+        .and_then(|bytes| serde_json::from_slice(bytes).ok());
     let valid = ask.as_ref().is_some_and(valid_build);
     let elapsed_ms = started.elapsed().as_millis();
     let passed = !observation.timed_out
@@ -154,7 +157,7 @@ async fn measure(output: &Path, hero: &str) -> Result<(), Error> {
         "deadline_ms":DEADLINE.as_millis(),"elapsed_ms":elapsed_ms,
         "process_wait_ms":observation.wait_ms,"timed_out":observation.timed_out,
         "exit_code":observation.exit_code,"pipe_error":observation.pipe_error,
-        "stdout_bytes":observation.stdout.len(),"stderr_bytes":observation.stderr_bytes,
+        "stdout_bytes":observation.stdout.as_ref().map(Vec::len),"stderr_bytes":observation.stderr_bytes,
         "valid_build_response":valid,"passed":passed,
         "read_only_required_by_worker":true,"ask_context_call_limit":1,
         "completed_ask_context_calls":if valid {Some(1)} else {None},
@@ -204,7 +207,7 @@ mod tests {
             .unwrap();
         assert_eq!(ok.exit_code, Some(0));
         assert!(!ok.timed_out && !ok.pipe_error);
-        assert!(serde_json::from_slice::<Value>(&ok.stdout).is_ok());
+        assert!(serde_json::from_slice::<Value>(ok.stdout.as_deref().unwrap()).is_ok());
         assert!(!valid_build(&json!({})));
         let failed = run_child(Path::new("/bin/false"), &[], Duration::from_secs(2))
             .await
