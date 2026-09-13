@@ -2,18 +2,29 @@ use crate::{AbilityModel, ConditionKind, HeroModel, ItemModel, ReasonerConfig, S
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum CombatEndReason {
+    #[default]
+    WindowElapsed,
+    TargetDefeated,
+    SelfDefeated,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct CombatScenarioEvaluation {
     pub name: String,
     pub target_health: f64,
     pub elapsed_seconds: f64,
+    pub end_reason: CombatEndReason,
     pub contact_seconds: f64,
     pub first_ttk: Option<f64>,
     pub targets_defeated: usize,
     pub target_switches: usize,
     pub kill_times: Vec<f64>,
     pub damage_per_second: f64,
+    pub damage_score: f64,
     pub survival_score: f64,
     pub weapon_damage: f64,
     pub ability_damage: f64,
@@ -444,6 +455,7 @@ fn evaluate_core(
         "Begrenzter deterministischer Kampfvergleich, keine vollständige Spielsimulation oder Gewinnwahrscheinlichkeit.".into(),
         "Inventarszenario: zwölf universelle Plätze, höchstens vier aktive Items; regulärer Wiederverkauf zur Hälfte des Gesamtpreises, kein Sofort-Rückkauf.".into(),
         "Drei gleich gewichtete Szenarien: gesundes Duell, steigender Lebensdruck, bewegliches Ziel. Gleiche Annahmen für alle Helden.".into(),
+        "Eigener Tod bewertet den verbleibenden Rest des Kampffensters als Wirkungsausfall: Schadensleistung und Überlebensbeitrag werden nicht durch die kurze Niederlage hochgerechnet. Beobachteter Durchsatz und tatsächliche Kampfzeit bleiben separat sichtbar; gewonnene Einzelduelle verwenden ihre echte Tötungszeit.".into(),
         "Fähigkeiten und Itemladungen starten bereit; es gelten die übergebenen Fähigkeitsstufen und belegten Ladungs-/Abklingzeiten. Kanalisieren und Schießen teilen die verfügbare Kampfzeit.".into(),
         "Jedes Ziel hat als globale Vergleichsannahme das Basisleben des übergebenen Helden. Duell und bewegliches Einzelziel enden bei Zieltod; unter Druck folgt nach genau 1,0 s ein gleiches frisches Ziel. Wechselpause und eigene Abklingzeiten zählen zur tatsächlichen verstrichenen Zeit.".into(),
         "Schaden wird vor Auslösern und Heilung am verbleibenden Zielleben begrenzt. Zielgebundene Treffer, DoTs, Kontrolle und Schadensschwellen enden beim Zieltod; eigene HP, Munition und Abklingzeiten werden nicht zurückgesetzt.".into(),
@@ -478,7 +490,7 @@ fn evaluate_core(
         result.proc_damage += scenario.proc_damage / 3.0;
         result.effective_health += scenario.effective_health / 3.0;
         result.utility += scenario.utility / 3.0;
-        result.score += (scenario.damage_per_second + scenario.survival_score) / 3.0;
+        result.score += (scenario.damage_score + scenario.survival_score) / 3.0;
         result.scenarios.push(scenario);
     }
     if !detailed {
@@ -782,6 +794,7 @@ fn simulate(
             .clamp(0.0, maximum_health);
         last_maximum_health = Some(maximum_health);
         if current_health <= 0.0 {
+            out.end_reason = CombatEndReason::SelfDefeated;
             if detailed {
                 out.sequence.push(format!(
                     "{time:.1}s: eigenes Leben aufgebraucht; Kampfablauf beendet"
@@ -1351,6 +1364,7 @@ fn simulate(
                     .push(format!("{:.1}s: Ziel besiegt", out.elapsed_seconds));
             }
             if !pressure {
+                out.end_reason = CombatEndReason::TargetDefeated;
                 break;
             }
             next_target_at = out.elapsed_seconds + 1.0;
@@ -1371,9 +1385,19 @@ fn simulate(
         }
     }
     let elapsed = out.elapsed_seconds.max(dt);
-    out.effective_health = health_sum * window / elapsed;
+    out.effective_health = if out.end_reason == CombatEndReason::SelfDefeated {
+        health_sum
+    } else {
+        health_sum * window / elapsed
+    };
     out.spirit_power *= window / elapsed;
     out.damage_per_second = (out.weapon_damage + out.ability_damage + out.proc_damage) / elapsed;
+    out.damage_score = (out.weapon_damage + out.ability_damage + out.proc_damage)
+        / if out.end_reason == CombatEndReason::SelfDefeated {
+            window
+        } else {
+            elapsed
+        };
     out.survival_score = out.effective_health / window;
     out
 }
@@ -1864,6 +1888,47 @@ pub(crate) mod tests {
         assert_eq!(
             result.score,
             evaluate_inventory_fast(&hero, &[], &cfg).score
+        );
+    }
+    #[test]
+    fn earlier_self_defeat_does_not_reward_identical_capped_damage() {
+        let mut hero = hero();
+        hero.base_health = 600.0;
+        hero.weapon.bullet_damage = 0.0;
+        let mut bomb = ability(99, 1000.0, 100.0);
+        bomb.class_name = "ability_blood_bomb".into();
+        bomb.properties.insert("SelfDamagePct".into(), 30.0);
+        hero.abilities = vec![bomb];
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 40.0,
+            ..ReasonerConfig::default()
+        };
+        let lower_cost = evaluate_inventory(&hero, &[], &cfg);
+        hero.abilities[0].base_effect = 1800.0;
+        let higher_cost = evaluate_inventory(&hero, &[], &cfg);
+        let low = &lower_cost.scenarios[1];
+        let high = &higher_cost.scenarios[1];
+        assert_eq!(low.end_reason, CombatEndReason::SelfDefeated);
+        assert_eq!(high.end_reason, CombatEndReason::SelfDefeated);
+        assert_eq!(low.ability_damage, 600.0);
+        assert_eq!(high.ability_damage, 600.0);
+        assert!(high.elapsed_seconds < low.elapsed_seconds);
+        assert!(high.damage_per_second > low.damage_per_second);
+        assert_eq!(high.damage_score, 15.0);
+        assert_eq!(high.damage_score, low.damage_score);
+        assert!(high.survival_score < low.survival_score);
+        assert!(higher_cost.score < lower_cost.score);
+        assert_eq!(
+            higher_cost.score,
+            evaluate_inventory_fast(&hero, &[], &cfg).score
+        );
+        assert_eq!(
+            higher_cost.scenarios[0].end_reason,
+            CombatEndReason::TargetDefeated
+        );
+        assert_eq!(
+            higher_cost.scenarios[0].damage_score,
+            higher_cost.scenarios[0].damage_per_second
         );
     }
     #[test]
