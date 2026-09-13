@@ -1144,8 +1144,21 @@ fn simulate(
                     if interaction.has_magazine_buff()
                         && last_cast_id.is_some()
                         && last_cast_id == item_targets[item_idx]
+                        && (activated[item_idx]
+                            || (value(items[item_idx], "AmmoReloadPercent")
+                                .max(value(items[item_idx], "ActiveReloadPercent"))
+                                <= 0.0
+                                && time >= buff_ready[item_idx]))
                     {
                         magazine_buffs[item_idx] = true;
+                        if !activated[item_idx] {
+                            buff_ready[item_idx] =
+                                time + value(items[item_idx], "AbilityCooldown").max(dt);
+                            out.item_activations
+                                .entry(items[item_idx].item_id)
+                                .or_default()
+                                .push(time);
+                        }
                     }
                 }
                 for key in &prepared[idx].utility_keys {
@@ -2217,6 +2230,37 @@ pub(crate) mod tests {
         let outside = evaluate_inventory(&hero, &[aura], &cfg);
         assert_eq!(outside.weapon_damage, plain.weapon_damage);
         assert_eq!(outside.effective_health, plain.effective_health);
+    }
+    #[test]
+    fn magazine_and_reload_share_the_same_imbue_item_cooldown() {
+        let mut hero = hero();
+        hero.base_health = 10000.0;
+        hero.weapon.bullet_damage = 100.0;
+        hero.weapon.clip_size = 1.0;
+        hero.weapon.shots_per_second = 5.0;
+        hero.weapon.reload_duration = 0.2;
+        hero.abilities = vec![ability(10, 1.0, 1.0)];
+        let mut magazine = item(7, "BulletsBonusMagicDamage", 25.0);
+        magazine.imbueable = true;
+        magazine.properties.extend([
+            ("AmmoReloadPercent".into(), 100.0),
+            ("AbilityCooldown".into(), 15.0),
+        ]);
+        magazine
+            .property_damage_types
+            .insert("BulletsBonusMagicDamage".into(), DamageType::Spirit);
+        let result = evaluate_inventory_with_bindings(
+            &hero,
+            &[magazine],
+            &ReasonerConfig {
+                combat_window_seconds: 4.0,
+                ..ReasonerConfig::default()
+            },
+            &BTreeMap::from([(7, 10)]),
+        );
+        assert!(result.scenarios[0].casts[&10] > 1);
+        assert_eq!(result.scenarios[0].item_activations[&7], vec![0.0]);
+        assert_eq!(result.scenarios[0].proc_damage, 25.0);
     }
     #[test]
     fn hook_hit_amp_and_uppercut_reset_drive_real_casts() {
