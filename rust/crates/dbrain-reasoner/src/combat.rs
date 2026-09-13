@@ -71,7 +71,7 @@ fn conditional(item: &ItemModel, name: &str) -> bool {
 }
 fn apply(stats: &mut Stats, name: &str, v: f64) -> bool {
     match name {
-        "TechPower" | "SpiritPower" | "BonusSpirit" => stats.spirit += v,
+        "TechPower" | "SpiritPower" | "BonusSpirit" | "BonusSpiritPower" | "SpiritPowerInnate" => stats.spirit += v,
         "WeaponPower"
         | "WeaponDamage"
         | "BaseAttackDamagePercent"
@@ -79,7 +79,7 @@ fn apply(stats: &mut Stats, name: &str, v: f64) -> bool {
         "BonusFireRate" | "FireRate" | "ActivatedFireRate" => stats.rate += v,
         "BonusClipSizePercent" | "ClipSizePercent" => stats.clip += v,
         "BonusClipSize" => stats.flat_clip += v,
-        "ReloadSpeed" | "ReloadSpeedPercent" | "ReloadSpeedBonus" => stats.reload += v,
+        "ReloadSpeed" | "ReloadSpeedPercent" | "ReloadSpeedBonus" | "BonusReloadSpeed" => stats.reload += v,
         "BonusHealth" | "PassiveHealth" | "Health" => stats.health += v,
         "BonusHealthPercent" | "MaxHealthPercent" => stats.health_pct += v,
         "BulletArmor" | "BulletResist" | "BulletResistPercent" => {
@@ -95,7 +95,7 @@ fn apply(stats: &mut Stats, name: &str, v: f64) -> bool {
         "HealthRegen" | "HealthRegenBonus" => stats.regeneration += v,
         "BulletShieldMaxHealth" | "TechShieldMaxHealth" | "CombatBarrier" => stats.shield += v,
         "CooldownReduction" => stats.cooldown = 1.0 - (1.0 - stats.cooldown) * (1.0 - v / 100.0),
-        "AbilityDurationPercent" | "TechDuration" => stats.duration += v,
+        "AbilityDurationPercent" | "TechDuration" | "BonusAbilityDurationPercent" => stats.duration += v,
         "SlowPercent" | "MovementSlow" | "MovementSpeedSlow" => {
             stats.slow = stats.slow.max(v.abs())
         }
@@ -564,4 +564,201 @@ fn apply_shop(hero: &HeroModel, items: &[&ItemModel], stats: &mut Stats) {
     stats.weapon += bonuses["weapon"];
     stats.spirit += bonuses["spirit"];
     stats.health_pct += bonuses["vitality"];
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{AbilityRole, CostBonus, DamagePlan, DamageType, PurchaseBonuses, WeaponProfile};
+    pub(crate) fn hero() -> HeroModel {
+        HeroModel {
+            hero_id: 1,
+            name: "Testheld".into(),
+            cost_bonuses: BTreeMap::new(),
+            archetype: String::new(),
+            base_health: 600.0,
+            level_curve: vec![],
+            purchase_bonuses: PurchaseBonuses {
+                weapon: vec![],
+                spirit: vec![],
+                vitality: vec![],
+            },
+            scaling: vec![],
+            weapon: WeaponProfile {
+                bullet_damage: 10.0,
+                shots_per_second: 5.0,
+                clip_size: 20.0,
+                reload_duration: 2.0,
+                range: 20.0,
+                falloff_start_range: 20.0,
+                falloff_end_range: 40.0,
+                sustained_dps: 0.0,
+            },
+            abilities: vec![],
+            damage_plan: DamagePlan {
+                weapon_dps: 0.0,
+                spirit_dps: 0.0,
+                weapon_share: 1.0,
+                primary_axis: DamageType::Weapon,
+            },
+        }
+    }
+    pub(crate) fn item(id: i64, key: &str, v: f64) -> ItemModel {
+        ItemModel {
+            item_id: id,
+            name: format!("Item {id}"),
+            class_name: format!("item_{id}"),
+            component_items: vec![],
+            description: String::new(),
+            slot: SlotType::Weapon,
+            tier: 1,
+            cost: 800,
+            is_active: false,
+            shopable: true,
+            disabled: false,
+            damage_axis: DamageType::Weapon,
+            defense_kind: vec![],
+            properties: BTreeMap::from([(key.into(), v)]),
+            passive_properties: BTreeMap::new(),
+            conditional_properties: BTreeSet::new(),
+            condition: ConditionKind::None,
+            proc_cooldown: None,
+            imbueable: false,
+        }
+    }
+    #[test]
+    fn damage_and_fire_rate_are_joint_not_additive() {
+        let mut hero = hero();
+        hero.weapon.reload_duration = 0.0;
+        hero.weapon.clip_size = 10000.0;
+        let cfg = ReasonerConfig::default();
+        let damage = item(1, "WeaponPower", 100.0);
+        let rate = item(2, "BonusFireRate", 100.0);
+        let base = evaluate_inventory(&hero, &[], &cfg).weapon_damage;
+        let one = evaluate_inventory(&hero, &[damage.clone()], &cfg).weapon_damage;
+        let two = evaluate_inventory(&hero, &[rate.clone()], &cfg).weapon_damage;
+        let both = evaluate_inventory(&hero, &[damage, rate], &cfg).weapon_damage;
+        assert!(both - base > (one - base) + (two - base));
+    }
+    #[test]
+    fn shop_uses_cumulative_threshold_not_sum_of_item_tiers() {
+        let mut hero = hero();
+        hero.cost_bonuses.insert(
+            "weapon".into(),
+            vec![
+                CostBonus {
+                    gold_threshold: 800,
+                    bonus: 9.0,
+                },
+                CostBonus {
+                    gold_threshold: 1600,
+                    bonus: 12.0,
+                },
+            ],
+        );
+        let a = item(1, "Unknown", 0.0);
+        let b = item(2, "Unknown", 0.0);
+        let evaluation = evaluate_inventory(&hero, &[a.clone(), b], &ReasonerConfig::default());
+        assert_eq!(evaluation.shop_bonuses["weapon"], 12.0);
+        assert_eq!(
+            evaluate_inventory(&hero, &[a.clone(), a], &ReasonerConfig::default()).shop_bonuses
+                ["weapon"],
+            9.0
+        );
+    }
+    #[test]
+    fn spirit_changes_whole_weapon_rate_and_magazine_value() {
+        let mut hero = hero();
+        hero.scaling.push(crate::ScalingStat {
+            stat: "ERoundsPerSecond".into(),
+            per_level: 0.0,
+            per_spirit: Some(0.1),
+        });
+        let cfg = ReasonerConfig::default();
+        let spirit = item(1, "TechPower", 100.0);
+        let magazine = item(2, "BonusClipSizePercent", 100.0);
+        let plain = evaluate_inventory(&hero, &[], &cfg);
+        let with_spirit = evaluate_inventory(&hero, &[spirit.clone()], &cfg);
+        assert!(with_spirit.weapon_damage > plain.weapon_damage);
+        let combined = evaluate_inventory(&hero, &[spirit, magazine], &cfg);
+        assert!(combined.weapon_damage > with_spirit.weapon_damage);
+        assert!(combined.scenarios[0].reloads < with_spirit.scenarios[0].reloads);
+    }
+    #[test]
+    fn above_and_below_health_conditions_have_opposite_windows() {
+        let mut below = item(1, "BonusFireRate", 100.0);
+        below.condition = ConditionKind::StateBound { threshold: 0.65 };
+        below.description = "While below 65% health".into();
+        let mut above = below.clone();
+        above.description = "While above 65% health".into();
+        assert!(!active(&below, 0.0, 1.0, true, 0.0, 0.0));
+        assert!(active(&above, 0.0, 1.0, true, 0.0, 0.0));
+        assert!(active(&below, 0.0, 0.3, true, 0.0, 0.0));
+        assert!(!active(&above, 0.0, 0.3, true, 0.0, 0.0));
+        below.description.clear();
+        assert!(!active(&below, 0.0, 0.3, true, 0.0, 0.0));
+    }
+    #[test]
+    fn channel_consumes_shared_time_and_damage_is_window_bounded() {
+        let mut hero = hero();
+        hero.weapon.clip_size = 1000.0;
+        hero.abilities.push(AbilityModel {
+            ability_id: 2,
+            properties: BTreeMap::new(),
+            class_name: "channel".into(),
+            slot: 1,
+            roles: vec![AbilityRole::Damage],
+            scaling: vec![],
+            channel_time: Some(4.0),
+            charges: 1,
+            cooldown: 30.0,
+            scaling_step: None,
+            damage_type: DamageType::Spirit,
+            base_effect: 1000.0,
+            tick_rate: Some(0.2),
+            duration: Some(4.0),
+        });
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 8.0,
+            ..ReasonerConfig::default()
+        };
+        let evaluation = evaluate_inventory(&hero, &[], &cfg);
+        let duel = &evaluation.scenarios[0];
+        assert!((duel.channel_seconds - 4.0).abs() < 0.01);
+        assert_eq!(duel.casts[&2], 1);
+        assert!(duel.shots <= 20.1);
+        assert!((duel.ability_damage - 1000.0).abs() < 0.01);
+        let short = evaluate_inventory(
+            &hero,
+            &[],
+            &ReasonerConfig {
+                combat_window_seconds: 2.0,
+                ..cfg
+            },
+        );
+        assert!((short.scenarios[0].ability_damage - 500.0).abs() < 0.01);
+    }
+    #[test]
+    fn proc_cooldown_caps_fast_weapon_and_unknowns_remain_visible() {
+        let mut hero = hero();
+        hero.weapon.shots_per_second = 100.0;
+        hero.weapon.clip_size = 100000.0;
+        let mut proc = item(1, "BoloProcDamage", 100.0);
+        proc.condition = ConditionKind::ShotBound;
+        proc.proc_cooldown = Some(2.0);
+        proc.properties.insert("MysteryEffect".into(), 99.0);
+        let result = evaluate_inventory(
+            &hero,
+            &[proc],
+            &ReasonerConfig {
+                combat_window_seconds: 4.0,
+                ..ReasonerConfig::default()
+            },
+        );
+        assert!(result.scenarios[0].proc_damage <= 200.01);
+        assert!(result
+            .unknown_effects
+            .iter()
+            .any(|s| s.contains("MysteryEffect")));
+    }
 }

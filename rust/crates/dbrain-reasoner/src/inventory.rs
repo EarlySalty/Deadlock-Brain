@@ -1,6 +1,6 @@
-use std::collections::{BTreeMap, BTreeSet};
 use crate::{ItemModel, ReasonerError, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InventoryRules {
@@ -168,5 +168,67 @@ impl InventoryRules {
             upgrade_components,
             resale_fraction: 0.5,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn item(id: i64, cost: i64) -> ItemModel {
+        serde_json::from_value(serde_json::json!({"item_id":id,"name":format!("Item {id}"),"slot":"Weapon","tier":1,"cost":cost,"is_active":false,"shopable":true,"disabled":false,"damage_axis":"Weapon","defense_kind":[],"properties":{},"passive_properties":{},"condition":"None","proc_cooldown":null,"imbueable":false})).unwrap()
+    }
+    #[test]
+    fn upgrade_consumes_component_and_charges_only_difference() {
+        let component = item(1, 800);
+        let upgrade = item(2, 3200);
+        let catalog = vec![component.clone(), upgrade.clone()];
+        let rules = InventoryRules {
+            max_slots: 1,
+            upgrade_components: BTreeMap::from([(2, vec![1])]),
+            resale_fraction: 0.5,
+        };
+        let mut inventory = Inventory::default();
+        inventory
+            .apply_transition(
+                &inventory
+                    .preview_purchase(&component, &catalog, &rules, &[])
+                    .unwrap(),
+            )
+            .unwrap();
+        let transition = inventory
+            .preview_purchase(&upgrade, &catalog, &rules, &[])
+            .unwrap();
+        assert_eq!(transition.purchase_cost, 2400);
+        assert_eq!(transition.consumed_ids, vec![1]);
+        assert_eq!(transition.after.spent_souls, 3200);
+        assert_eq!(transition.after.held_ids, BTreeSet::from([2]));
+        assert!(inventory
+            .preview_purchase(&upgrade, &catalog, &rules, &[1])
+            .is_err());
+    }
+    #[test]
+    fn sale_and_purchase_are_atomic_and_missing_slot_is_rejected() {
+        let first = item(1, 800);
+        let second = item(2, 1600);
+        let catalog = vec![first.clone(), second.clone()];
+        let rules = InventoryRules {
+            max_slots: 1,
+            upgrade_components: BTreeMap::new(),
+            resale_fraction: 0.5,
+        };
+        let mut inv = Inventory::default();
+        inv.apply_transition(&inv.preview_purchase(&first, &catalog, &rules, &[]).unwrap())
+            .unwrap();
+        assert!(inv
+            .preview_purchase(&second, &catalog, &rules, &[])
+            .is_err());
+        let transition = inv
+            .preview_purchase(&second, &catalog, &rules, &[1])
+            .unwrap();
+        assert_eq!(transition.net_cost, 1200);
+        assert_eq!(inv.held_ids, BTreeSet::from([1]));
+        inv.apply_transition(&transition).unwrap();
+        assert!(inv.apply_transition(&transition).is_err());
+        assert_eq!(inv.held_ids, BTreeSet::from([2]));
     }
 }
