@@ -1,6 +1,12 @@
 # Auftrag: build-reasoner
 
-status: aktiv (2026-09-12)
+status: offen – fachliches Meta-Qualitätsziel nicht erfüllt (2026-09-13)
+
+Der technische Integrationsstand von F, G und den gemeinsamen Ursachenfixes
+ist in `ABSCHLUSS.md` dokumentiert. Der aktuelle Warden-Vergleich trifft nur
+2 von 9 Waffen-Kernitems der echten Referenz 779996. Deshalb ist dieser
+Gesamtauftrag ausdrücklich nicht erledigt; technische Freigabe und Betrieb
+sind von der fehlenden fachlichen Zielerfüllung getrennt.
 
 ## Ziel
 

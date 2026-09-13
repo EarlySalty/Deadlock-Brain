@@ -255,3 +255,146 @@ TESTNACHWEIS[TW-1]: 191 passed, 0 ignored | Baseline: 0 rot (offline)
 FREIGABE. Beide Kernmängel korrekt behoben und durch DB-Tests abgedeckt, die
 das neue Verhalten prüfen; Nits erledigt. Offlinepfad grün, DB-Zahl als
 Fremdnachweis gekennzeichnet.
+
+## Fixrunde 2 (Merge-Kritiker)
+
+Bearbeitet am 13.09.2026 gemäß `FIX2-BRIEFING-S3.md`, ohne Unter-Threads.
+Code-Commit `362284e198a67870b717731e1c84f217ac56f672` auf
+`fix/autoren-scan-je-held`, direkt aufbauend auf `ffc34fa`.
+Die unabhängige Abnahme bleibt beim Orchestrator.
+
+Die Kurzpfade `discovery.rs` und `catalog.rs` beziehen sich auf
+`rust/crates/steam-core/src/task/handlers/builds/` im beauftragten Worktree;
+`builds.rs` auf `rust/crates/steam-persistence/src/`.
+Alle Codeänderungen der folgenden Tabelle liegen in Commit `362284e`.
+
+| Fund | Datei:Zeile | Änderung und Nachweis |
+| --- | --- | --- |
+| 1, BLOCKING laut Kritiker | `discovery.rs:156`, `discovery.rs:388`, `discovery.rs:582`; Test `catalog.rs:1617` | Die verbindliche Entscheidung des Delegators wird umgesetzt: Alle Builds bleiben Katalogmaterial. `totalNewBuilds`, `totalUpdatedBuilds` und `heroesFound` zählen weiterhin den gesamten Katalog; neu zählt `watchedBuilds` ausschließlich Treffer der im Task betrachteten Autoren. Das Log „Helden-Scan beendet“ nennt `catalog_builds`, `watched_builds`, `catalog_heroes`, `catalog_new_builds` und `catalog_updated_builds`. Der neue Test liefert einen beobachteten und einen fremden Autor auf unterschiedlichen Helden: beide werden gespeichert und beim zweiten Lauf aktualisiert, Katalogzähler jeweils 2, `watchedBuilds` 1, genau ein Autorenstatus mit genau einem Build und einem Helden. Es entsteht kein Status für den fremden Autor. |
+| 2, NIT | Unveränderter Request `discovery.rs:320`; vorhandener Live-Lesepfad `rust/crates/steam-core/src/task/handlers/gc.rs:103` | Live-Task 4053192, Warden ohne Autorenfilter: Response 1, `results.len() = 40`. Exakter Live-Lookup 4053206 für Held 25, Build 779996: Response 1, genau 1 Treffer. Lesende Katalogabfrage: 42 Warden-Builds, alle Sprache 0; Build 779996 gehört Autor 1650097169, Version 45. Aussagegrenze und Kappungsverdacht unten. Keine Codeänderung für diesen Fund. |
+| 3, NIT | `discovery.rs:492`, `discovery.rs:528`, `discovery.rs:541`; Tests `catalog.rs:1578`, `catalog.rs:1693` | Ein Abbruch überschreibt weder Zähler noch `ok` eines Autors mit erfolgreich persistierten Treffern im Block. Eigene Persistenzfehler behalten ihre vorhandene Einstufung. Autoren ohne Treffer erhalten `partial` und den Abbruchtext. Der atomare Schutz über `cycle_started_at` gilt nun auch beim Abbruch und erhält frühere Zyklustreffer. Angepasster Dreifehlertest sowie neuer Dreiblocktest mit Treffern in Block 1 und 2, Abbruch in Block 3. |
+| 4, NIT | `discovery.rs:460`, `discovery.rs:483`, `discovery.rs:504`; Test `catalog.rs:1653` | Fehlgeschlagene Helden werden gesammelt und mit den bekannten Builds der beobachteten Autoren abgeglichen, in einer gemeinsamen zusätzlichen Leseabfrage nur bei Heldenfehlern. Ohne Treffer lautet der Hinweis beispielsweise „GC-Fehler bei Held 1, 2“. Ein Autor mit Treffern bleibt `ok`, ein unbeteiligter Autor behält den Hinweis auf fehlende Katalogtreffer. Ein früher Block mit bekanntem Heldenfehler schreibt den Hinweis bereits; spätere leere Blöcke löschen ihn nicht. |
+| 5, NIT | `discovery.rs:33`, `discovery.rs:125`, `discovery.rs:538`; Tests `catalog.rs:1249`, `catalog.rs:1693` | Geplante Payloads tragen `block_number` und `block_count`. Statusmeldungen beginnen mit „Block 2 von 3: ...“. Der Dreiblocktest prüft einen weiteren Treffer im zweiten Block und den Erhalt dieser ausdrücklich auf Block 2 bezogenen Zähler. Alte Payloads ohne Blockfelder bleiben kompatibel. Keine Zyklusaddition, Begründung unten. |
+| 6, NIT | `discovery.rs:24`, `discovery.rs:304`, `discovery.rs:331` | Deadline und Meldung verwenden dieselbe abgeleitete Konstante `DISCOVERY_SCAN_BUDGET = CATALOG_TASK_TIMEOUT - DISCOVERY_RESERVE`, derzeit 420 s. Die Meldung formatiert deren Sekundenwert. |
+| 7, NIT | `builds.rs:946`, `discovery.rs:84`; Test `catalog.rs:1743` | Neue Persistenzfunktion `count_open_discovery_tasks` neben `has_open_catalog_maintenance_task`; das SQL ist aus dem Planungs-Guard entfernt. Der Guard loggt „Discovery-Planung übersprungen, N Tasks offen“. Der neue Test prüft beide Tasktypen, PENDING/RUNNING, abgeschlossene Tasks, andere Bots, fremde Tasktypen, leere und nullbelegte Payloads sowie die tatsächliche Planungssperre. |
+
+### Gegenprobe zu Fund 2 und Aussagegrenze
+
+Rohbeleg: `fix2-s3-live.json` neben diesem Bericht. Es wurden genau zwei
+lesende `GC_SEARCH_BUILDS`-Tasks über die bestehende API angelegt; kein
+Discovery- oder Maintenance-Handler mit Katalogschreibzugriff wurde live
+angestoßen. Die ergänzenden SELECTs liefen mit
+`default_transaction_read_only=on`.
+
+Die aktuelle ungefilterte Suche liefert 40 Ergebnisse, der gespeicherte
+Bestand umfasst 42. Damit ist die Vollständigkeit des Helden-Scans gegenüber
+dem historischen Bestand nicht belegt. Die Differenz ist kein Sprachproblem;
+sie beweist für sich aber auch kein festes Top-N-Limit, weil der Bestand
+historisch ist und Builds inzwischen verschwunden sein können. Das vorhandene
+Proto bietet weder Offset noch Cursor oder Seitengröße. Eine erfundene
+Pagination wurde deshalb nicht ergänzt.
+
+Build 779996 ist live per exakter Suche erreichbar. Ob er in den aktuellen
+40 ungefilterten Ergebnissen enthalten ist, lässt sich über die vorhandene
+Task-API nicht direkt feststellen: `GcSearchBuildsHandler` gibt nur
+`response` und `result_count`, keine Ergebnis-IDs aus. Der Katalog belegt ihn
+zuletzt am 12.09.2026 um 20:47:11 UTC mit dem angeforderten Autor und Version
+45. Dies ist ausdrücklich kein neuer Live-Beleg für seine Mitgliedschaft in
+der ungefilterten Antwort. Der im Briefing erlaubte exakte Lookup ist
+abgeschlossen; das Top-N-Risiko bleibt dokumentiert. Für einen direkten
+Mitgliedschaftsbeweis wäre eine Erweiterung des lesenden API-Ergebnisses in
+`gc.rs` samt Deployment nötig, außerhalb der erlaubten Dateien dieser Runde.
+
+### Budget und Mehrblock-Zähler
+
+1522 Builds × 2 DB-Abfragen ergeben 3044 Abfragen je Heldenzyklus.
+Vorher waren es bei 13 redundanten Autorenscans 39.572 Abfragen, also 36.528
+mehr. Die zwei Abfragen pro Build sind unverändert; die Wiederholung je
+Autor entfällt. Die Rechnung umfasst Lookup und erfolgreichen Upsert,
+keine Status- und Planungsabfragen.
+
+420 s / 3044 ergeben rechnerisch etwa 138 ms je DB-Abfrage, wenn man alle
+anderen Kosten ignoriert. Bei 38 Helden verbrauchen schon 37 Abstände à 3 s
+111 s; die verbleibenden 309 s entsprechen höchstens etwa 101,5 ms je
+DB-Abfrage, noch vor GC-Antwortzeiten und Statuskosten. Das ist eine
+Budgetrechnung, keine Messung produktiver Schreiblatenzen und keine
+Laufzeitgarantie. Der äußere Task-Timeout bleibt 480 s, der Scan reserviert
+60 s. Diese Runde führt keine produktiven Upsert-Benchmarks durch.
+
+Eine verlässliche Addition über `cycle_started_at` ist mit den vorhandenen
+strukturierten Daten nicht möglich: `watched_build_authors` speichert Status,
+Zeit und einen Freitext, aber keine Zähler oder Heldenmengen je Zyklus. Die
+Quelltabelle erhält nicht die Einordnung „neu/aktualisiert“ jedes Blocks.
+Freitext zu parsen wäre von alten Statusformaten abhängig; Heldenmengen
+ließen sich daraus nicht zuverlässig deduplizieren. Deshalb wird die im
+Briefing ausdrücklich erlaubte Alternative mit Blockangabe verwendet, ohne
+neue Tabelle oder Migration.
+
+### Tests und Selbstprüfung
+
+| Prüfung | Baseline | Endstand `362284e` |
+| --- | --- | --- |
+| Offline `steam-core --features testing` | 191 bestanden, laut Briefing und dokumentierter Fixrunde 1 | 191 bestanden, 0 fehlgeschlagen, 88 DB-Tests gezielt gefiltert |
+| Katalog mit zentraler Wegwerf-Test-DB | 40 bestanden, 0 fehlgeschlagen, hier erneut gegen `ffc34fa` gemessen | 44 bestanden, 0 fehlgeschlagen |
+| Erste Rot-Gegenprobe vor Implementierung | 38 bestanden, 5 erwartete Fehler | Alle 5 Fälle grün |
+| Zusätzliche Rot-Gegenprobe mit gezielter Rücknahme | 16 bestanden, 4 erwartete Fehler in 20 Discovery-Tests | Alle 4 Fälle grün |
+
+Vier neue Tests: Fremdautor/Katalogzähler, Zuordnung bekannter Heldenfehler,
+Dreiblock-Abbruchschutz, offener Taskzähler. Jeder neue Test hat einen roten
+Gegenfall. Die erste Rotprobe scheitert außerdem an den angepassten
+Erwartungen für Dreifehlerabbruch und Block-Payloads. Die zweite Rotprobe
+setzt ausschließlich den alten Abbruch-Guard zurück und verändert den
+Taskzähler um +1; sie belegt den Statusverlust nach früheren Zyklustreffern
+unabhängig vom Blockpräfix sowie die exakte Zählung und Planungssperre.
+Beide Mutationen wurden vor dem Endlauf vollständig zurückgenommen.
+
+DB-Befehl wie in Fixrunde 1, mit unverändertem Docker-Shim:
+
+```bash
+export PATH=/tmp/steam-scrim-dockershim:/home/nathanael/.cargo/bin:$PATH
+/home/nathanael/repos/Deadlock-Bots/rust/scripts/central_test_db.sh cargo test --manifest-path /home/nathanael/.worktrees/steam-bot-autoren-je-held/rust/Cargo.toml -p steam-core --features testing task::handlers::builds::catalog::tests
+```
+
+`cargo check -p steam-core --features testing` ist grün.
+`rustfmt --check` ausschließlich auf den drei eigenen Dateien und
+`git diff --check` sind grün. Clippy auf `steam-core`, allen Targets und
+`--features testing` ist ohne Warnungsverschärfung grün. Mit `-D warnings`
+bleibt ausschließlich der bekannte Baseline-Fehler `gc_health.rs:45`
+(`RateLimitOutcome::cooldown`, `dead_code`), Exit 101. Keine neue
+Clippy-Diagnose; der bekannte Future-Incompatibility-Hinweis für
+`binrw 0.15.1` bleibt.
+
+Prüflogs: `/tmp/steam-s3-fix2-baseline-db.log`,
+`/tmp/steam-s3-fix2-red-db.log`, `/tmp/steam-s3-fix2-red-guards.log`,
+`/tmp/steam-s3-fix2-final-db.log`, `/tmp/steam-s3-fix2-offline.log`,
+`/tmp/steam-s3-fix2-check.log`, `/tmp/steam-s3-fix2-clippy.log` und
+`/tmp/steam-s3-fix2-clippy-baseline-allowed.log`.
+
+Die Selbstprüfung umfasst Diff, Scope, Statusschutz, parametrisierte
+SQL-Abfragen, Autorenzuordnung und Testgegenproben. Keine neuen
+Code-Kommentare, keine Änderungen an Lanes, Runner oder Proto, kein
+Release-Build, keine Migration und keine produktiven Katalogschreibzugriffe.
+Report und Live-Beleg liegen im Brain-Taskordner außerhalb des Code-Commits.
+
+Die angeforderte zusätzliche Gate-Prüfung ist abgeschlossen, Exit 0,
+`ALLOW`, keine blockierenden Befunde. Aufruf:
+
+```bash
+python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/steam-bot-autoren-je-held --base ffc34fa --head HEAD
+```
+
+Der Gate-Log liegt unter `/tmp/steam-s3-fix2-gate.log`. Zwei Hinweise des
+Gates werden bewusst nicht in weitere Scope-Änderungen übersetzt:
+
+1. `watchedBuilds` zählt wie der bestehende Autorenzähler je
+   `(build_id, language)`, also gegebenenfalls mehrere Sprachvarianten.
+   Das ist die bestehende Ergebnis-Deduplizierung, keine neue Zusicherung
+   eindeutiger Build-IDs über alle Sprachen.
+2. Erfolgreiche Autorentreffer bleiben bei einem späteren Blockabbruch
+   `ok`; der Task selbst schlägt weiterhin sichtbar fehl. Das ist genau
+   die verbindliche Entscheidung zu Fund 3, kein offener Fix.
+
+Push abgeschlossen: `origin/fix/autoren-scan-je-held` enthält
+`362284e198a67870b717731e1c84f217ac56f672`, Push-Ausgabe
+`ffc34fa..362284e`. Der Steam-Worktree ist sauber. Kein Push nach main,
+kein Merge, Deployment oder Service-Neustart aus diesem Worktree.

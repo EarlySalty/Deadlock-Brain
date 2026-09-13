@@ -1,6 +1,12 @@
 # Register: build-reasoner
 
-status: aktiv (2026-09-12)
+status: Gesamtauftrag fachlich offen; technische Integration in Abschlussprüfung (2026-09-13)
+
+Verbindlicher aktueller Stand: `ABSCHLUSS.md`. Die alten Paket-/Review-Threads
+unten sind Historie und inzwischen gestoppt; veraltete Angaben „läuft“ dort
+bezeichnen keinen aktiven Worker. F und G sind in
+`feat/build-reasoner-abschluss` gemeinsam integriert, S3 ist live abgeschlossen.
+Der Intent-Thread bleibt wegen des verfehlten Meta-Qualitätsziels offen.
 
 Stufe: riesig. Delegator: Fable (Intent-Thread). Bau: Luna (gpt-5.6-luna).
 Design und Reviews: Opus 4.8. Vorcheck: GLM. T3-Projekt Deadlock-Brain

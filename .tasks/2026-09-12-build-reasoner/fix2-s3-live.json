@@ -1,0 +1,18 @@
+{
+  "checkedAt": "2026-09-12T23:27:50Z",
+  "api": "http://127.0.0.1:8782",
+  "heroSearch": {
+    "request": {"type":"GC_SEARCH_BUILDS","payload":{"hero_id":25},"bot_account_id":1},
+    "response": {"id":4053192,"status":"DONE","result":{"data":{"response":1,"result_count":40},"ok":true},"error":null}
+  },
+  "exactLookup": {
+    "request": {"type":"GC_SEARCH_BUILDS","payload":{"hero_id":25,"hero_build_id":779996},"bot_account_id":1},
+    "response": {"id":4053206,"status":"DONE","result":{"data":{"response":1,"result_count":1},"ok":true},"error":null}
+  },
+  "readOnlyCatalogCheck": {
+    "knownWardenBuilds":42,
+    "language":0,
+    "target":{"heroBuildId":779996,"authorAccountId":1650097169,"version":45,"lastSeenAt":"2026-09-12T20:47:11.720564+00:00"}
+  },
+  "limitation":"The existing read-only task handler returns counts only. Exact reachability is verified; membership of build 779996 in the current unfiltered 40-result response is not observable through this API. Historical catalog size does not prove a live page cap."
+}

@@ -1,6 +1,14 @@
 # Pakete: build-reasoner
 
-status: aktiv (2026-09-12)
+status: technische Integration in Abschlussprüfung; fachlicher Gesamtauftrag offen (2026-09-13)
+
+Aktueller Stand und Nachweise: `ABSCHLUSS.md`. Die nachfolgenden Tabellen
+dokumentieren den historischen Paketverlauf. F und G sind gemeinsam integriert,
+S3 ist produktiv abgeschlossen. Die finale Quellenregel ersetzt Entscheidung 4:
+Nur die jeweils aktuelle Version von Builds aktiver beobachteter Autoren dient
+als Lehrer. Seeds sind ausschließlich separat ausgewiesene Vergleichsdaten.
+Der vollständige GC-Katalog bleibt gespeichert, wird jedoch nicht mit den
+beobachteten Autoren als gleichwertige Lehrquelle vermischt.
 
 Delegator: Fable, Thread `33a32f58-476b-4a67-99cc-8f6c1e8f7001`. Pakete sind
 disjunkt nach Dateien: jede Datei liegt in genau einem Paket, kein Paket fasst

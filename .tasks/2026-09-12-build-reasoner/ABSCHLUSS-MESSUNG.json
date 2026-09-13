@@ -1,0 +1,808 @@
+{
+  "code_commit": "6fa027f",
+  "patch_tag": "https://steamcommunity.com/games/1422450/announcements/detail/676255623445218602",
+  "read_only": "on",
+  "reference_contract": "Nur aktuelle Builds aktiver beobachteter Autoren; in-sample, keine unabhängige Meta-Prognose. Nicht messbare Heldenmetriken sind null.",
+  "hero_count": 38,
+  "reference_builds": 64,
+  "heroes": [
+    {
+      "hero_id": 25,
+      "name": "Warden",
+      "purchases": 16,
+      "confidence": "Low",
+      "reference_builds": 2,
+      "metrics": {
+        "core_coverage": 0.125,
+        "core_jaccard": 0.06539351851851852,
+        "order_proximity": 0.19629629629629627,
+        "reference_recall": 0.12061403508771928,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 7
+    },
+    {
+      "hero_id": 1,
+      "name": "Infernus",
+      "purchases": 18,
+      "confidence": "Low",
+      "reference_builds": 3,
+      "metrics": {
+        "core_coverage": 0.1851851851851852,
+        "core_jaccard": 0.10658307210031348,
+        "order_proximity": 0.21685340802987862,
+        "reference_recall": 0.19999999999999998,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 5
+    },
+    {
+      "hero_id": 2,
+      "name": "Seven",
+      "purchases": 16,
+      "confidence": "Low",
+      "reference_builds": 1,
+      "metrics": {
+        "core_coverage": 0.0,
+        "core_jaccard": 0.0,
+        "order_proximity": null,
+        "reference_recall": 0.0,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 2
+    },
+    {
+      "hero_id": 3,
+      "name": "Vindicta",
+      "purchases": 15,
+      "confidence": "Low",
+      "reference_builds": 1,
+      "metrics": {
+        "core_coverage": 0.2,
+        "core_jaccard": 0.1111111111111111,
+        "order_proximity": 0.4523809523809524,
+        "reference_recall": 0.2,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 7
+    },
+    {
+      "hero_id": 4,
+      "name": "Lady Geist",
+      "purchases": 18,
+      "confidence": "Low",
+      "reference_builds": 1,
+      "metrics": {
+        "core_coverage": 0.0,
+        "core_jaccard": 0.0,
+        "order_proximity": null,
+        "reference_recall": 0.0,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 2
+    },
+    {
+      "hero_id": 6,
+      "name": "Abrams",
+      "purchases": 15,
+      "confidence": "Low",
+      "reference_builds": 1,
+      "metrics": {
+        "core_coverage": 0.06666666666666667,
+        "core_jaccard": 0.034482758620689655,
+        "order_proximity": null,
+        "reference_recall": 0.06666666666666667,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 5
+    },
+    {
+      "hero_id": 7,
+      "name": "Wraith",
+      "purchases": 18,
+      "confidence": "Low",
+      "reference_builds": 2,
+      "metrics": {
+        "core_coverage": 0.1388888888888889,
+        "core_jaccard": 0.06347717323327079,
+        "order_proximity": 0.32352941176470584,
+        "reference_recall": 0.10083333333333333,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 3
+    },
+    {
+      "hero_id": 8,
+      "name": "McGinnis",
+      "purchases": 18,
+      "confidence": "Low",
+      "reference_builds": 0,
+      "metrics": null,
+      "selected_pair_evidence": 7
+    },
+    {
+      "hero_id": 10,
+      "name": "Paradox",
+      "purchases": 18,
+      "confidence": "Low",
+      "reference_builds": 2,
+      "metrics": {
+        "core_coverage": 0.1388888888888889,
+        "core_jaccard": 0.0754985754985755,
+        "order_proximity": 0.2711849957374254,
+        "reference_recall": 0.1534090909090909,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 6
+    },
+    {
+      "hero_id": 11,
+      "name": "Dynamo",
+      "purchases": 17,
+      "confidence": "Low",
+      "reference_builds": 2,
+      "metrics": {
+        "core_coverage": 0.029411764705882353,
+        "core_jaccard": 0.013513513513513514,
+        "order_proximity": null,
+        "reference_recall": 0.023809523809523808,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 3
+    },
+    {
+      "hero_id": 12,
+      "name": "Kelvin",
+      "purchases": 13,
+      "confidence": "Low",
+      "reference_builds": 2,
+      "metrics": {
+        "core_coverage": 0.07692307692307693,
+        "core_jaccard": 0.04083333333333333,
+        "order_proximity": null,
+        "reference_recall": 0.08012820512820512,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 2
+    },
+    {
+      "hero_id": 13,
+      "name": "Haze",
+      "purchases": 18,
+      "confidence": "Low",
+      "reference_builds": 3,
+      "metrics": {
+        "core_coverage": 0.1111111111111111,
+        "core_jaccard": 0.06390704429920116,
+        "order_proximity": 0.17058823529411762,
+        "reference_recall": 0.13468013468013468,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 9
+    },
+    {
+      "hero_id": 14,
+      "name": "Holliday",
+      "purchases": 18,
+      "confidence": "Low",
+      "reference_builds": 0,
+      "metrics": null,
+      "selected_pair_evidence": 5
+    },
+    {
+      "hero_id": 15,
+      "name": "Bebop",
+      "purchases": 16,
+      "confidence": "Low",
+      "reference_builds": 2,
+      "metrics": {
+        "core_coverage": 0.09375,
+        "core_jaccard": 0.04793028322440087,
+        "order_proximity": 0.08070175438596497,
+        "reference_recall": 0.09166666666666667,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 5
+    },
+    {
+      "hero_id": 16,
+      "name": "Calico",
+      "purchases": 11,
+      "confidence": "Low",
+      "reference_builds": 1,
+      "metrics": {
+        "core_coverage": 0.0,
+        "core_jaccard": 0.0,
+        "order_proximity": null,
+        "reference_recall": 0.0,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 4
+    },
+    {
+      "hero_id": 17,
+      "name": "Grey Talon",
+      "purchases": 18,
+      "confidence": "Low",
+      "reference_builds": 2,
+      "metrics": {
+        "core_coverage": 0.08333333333333333,
+        "core_jaccard": 0.043697478991596636,
+        "order_proximity": 0.11764705882352938,
+        "reference_recall": 0.08333333333333333,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 3
+    },
+    {
+      "hero_id": 18,
+      "name": "Mo & Krill",
+      "purchases": 18,
+      "confidence": "Low",
+      "reference_builds": 0,
+      "metrics": null,
+      "selected_pair_evidence": 5
+    },
+    {
+      "hero_id": 19,
+      "name": "Shiv",
+      "purchases": 16,
+      "confidence": "Low",
+      "reference_builds": 3,
+      "metrics": {
+        "core_coverage": 0.16666666666666666,
+        "core_jaccard": 0.08918650793650794,
+        "order_proximity": 0.31816578483245145,
+        "reference_recall": 0.16096491228070176,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 7
+    },
+    {
+      "hero_id": 20,
+      "name": "Ivy",
+      "purchases": 17,
+      "confidence": "Low",
+      "reference_builds": 2,
+      "metrics": {
+        "core_coverage": 0.058823529411764705,
+        "core_jaccard": 0.03167641325536062,
+        "order_proximity": null,
+        "reference_recall": 0.06818181818181818,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 5
+    },
+    {
+      "hero_id": 27,
+      "name": "Yamato",
+      "purchases": 18,
+      "confidence": "Low",
+      "reference_builds": 4,
+      "metrics": {
+        "core_coverage": 0.18055555555555555,
+        "core_jaccard": 0.10125,
+        "order_proximity": 0.27694465944272445,
+        "reference_recall": 0.19623015873015873,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 12
+    },
+    {
+      "hero_id": 31,
+      "name": "Lash",
+      "purchases": 18,
+      "confidence": "Low",
+      "reference_builds": 2,
+      "metrics": {
+        "core_coverage": 0.027777777777777776,
+        "core_jaccard": 0.0125,
+        "order_proximity": null,
+        "reference_recall": 0.021739130434782608,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 0
+    },
+    {
+      "hero_id": 35,
+      "name": "Viscous",
+      "purchases": 18,
+      "confidence": "Low",
+      "reference_builds": 0,
+      "metrics": null,
+      "selected_pair_evidence": 3
+    },
+    {
+      "hero_id": 50,
+      "name": "Pocket",
+      "purchases": 8,
+      "confidence": "Low",
+      "reference_builds": 1,
+      "metrics": {
+        "core_coverage": 0.0,
+        "core_jaccard": 0.0,
+        "order_proximity": null,
+        "reference_recall": 0.0,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 0
+    },
+    {
+      "hero_id": 52,
+      "name": "Mirage",
+      "purchases": 18,
+      "confidence": "Low",
+      "reference_builds": 1,
+      "metrics": {
+        "core_coverage": 0.16666666666666666,
+        "core_jaccard": 0.09090909090909091,
+        "order_proximity": 0.07843137254901962,
+        "reference_recall": 0.16666666666666666,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 4
+    },
+    {
+      "hero_id": 58,
+      "name": "Vyper",
+      "purchases": 19,
+      "confidence": "Low",
+      "reference_builds": 2,
+      "metrics": {
+        "core_coverage": 0.18421052631578946,
+        "core_jaccard": 0.10114660114660115,
+        "order_proximity": 0.2213779956427015,
+        "reference_recall": 0.18253968253968253,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 9
+    },
+    {
+      "hero_id": 60,
+      "name": "Sinclair",
+      "purchases": 18,
+      "confidence": "Low",
+      "reference_builds": 1,
+      "metrics": {
+        "core_coverage": 0.2222222222222222,
+        "core_jaccard": 0.125,
+        "order_proximity": 0.1764705882352941,
+        "reference_recall": 0.2222222222222222,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 8
+    },
+    {
+      "hero_id": 63,
+      "name": "Mina",
+      "purchases": 18,
+      "confidence": "Low",
+      "reference_builds": 1,
+      "metrics": {
+        "core_coverage": 0.2777777777777778,
+        "core_jaccard": 0.16129032258064516,
+        "order_proximity": 0.08235294117647059,
+        "reference_recall": 0.2777777777777778,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 6
+    },
+    {
+      "hero_id": 64,
+      "name": "Drifter",
+      "purchases": 18,
+      "confidence": "Low",
+      "reference_builds": 1,
+      "metrics": {
+        "core_coverage": 0.05555555555555555,
+        "core_jaccard": 0.02857142857142857,
+        "order_proximity": null,
+        "reference_recall": 0.05555555555555555,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 9
+    },
+    {
+      "hero_id": 65,
+      "name": "Venator",
+      "purchases": 18,
+      "confidence": "Low",
+      "reference_builds": 0,
+      "metrics": null,
+      "selected_pair_evidence": 9
+    },
+    {
+      "hero_id": 66,
+      "name": "Victor",
+      "purchases": 20,
+      "confidence": "Low",
+      "reference_builds": 5,
+      "metrics": {
+        "core_coverage": 0.22999999999999998,
+        "core_jaccard": 0.13542127377266697,
+        "order_proximity": 0.17128998968008255,
+        "reference_recall": 0.2411111111111111,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 15
+    },
+    {
+      "hero_id": 67,
+      "name": "Paige",
+      "purchases": 18,
+      "confidence": "Low",
+      "reference_builds": 3,
+      "metrics": {
+        "core_coverage": 0.07407407407407407,
+        "core_jaccard": 0.0394993894993895,
+        "order_proximity": 0.3382352941176471,
+        "reference_recall": 0.08054226475279107,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 3
+    },
+    {
+      "hero_id": 69,
+      "name": "The Doorman",
+      "purchases": 19,
+      "confidence": "Low",
+      "reference_builds": 3,
+      "metrics": {
+        "core_coverage": 0.08771929824561403,
+        "core_jaccard": 0.046924201529464686,
+        "order_proximity": 0.37003968253968256,
+        "reference_recall": 0.09206349206349207,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 5
+    },
+    {
+      "hero_id": 72,
+      "name": "Billy",
+      "purchases": 17,
+      "confidence": "Low",
+      "reference_builds": 2,
+      "metrics": {
+        "core_coverage": 0.29411764705882354,
+        "core_jaccard": 0.17261904761904762,
+        "order_proximity": 0.11075980392156862,
+        "reference_recall": 0.2951388888888889,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 10
+    },
+    {
+      "hero_id": 76,
+      "name": "Graves",
+      "purchases": 18,
+      "confidence": "Low",
+      "reference_builds": 1,
+      "metrics": {
+        "core_coverage": 0.05555555555555555,
+        "core_jaccard": 0.02857142857142857,
+        "order_proximity": null,
+        "reference_recall": 0.05555555555555555,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 6
+    },
+    {
+      "hero_id": 77,
+      "name": "Apollo",
+      "purchases": 17,
+      "confidence": "Low",
+      "reference_builds": 2,
+      "metrics": {
+        "core_coverage": 0.08823529411764705,
+        "core_jaccard": 0.04643206256109482,
+        "order_proximity": 0.17279411764705882,
+        "reference_recall": 0.08888888888888888,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 5
+    },
+    {
+      "hero_id": 79,
+      "name": "Rem",
+      "purchases": 15,
+      "confidence": "Low",
+      "reference_builds": 4,
+      "metrics": {
+        "core_coverage": 0.08333333333333333,
+        "core_jaccard": 0.04431313856960409,
+        "order_proximity": 0.24285714285714285,
+        "reference_recall": 0.08709693084693085,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 3
+    },
+    {
+      "hero_id": 80,
+      "name": "Silver",
+      "purchases": 18,
+      "confidence": "Low",
+      "reference_builds": 0,
+      "metrics": null,
+      "selected_pair_evidence": 7
+    },
+    {
+      "hero_id": 81,
+      "name": "Celeste",
+      "purchases": 18,
+      "confidence": "Low",
+      "reference_builds": 1,
+      "metrics": {
+        "core_coverage": 0.16666666666666666,
+        "core_jaccard": 0.08333333333333333,
+        "order_proximity": 0.19803921568627447,
+        "reference_recall": 0.14285714285714285,
+        "switch_detected": null
+      },
+      "selected_pair_evidence": 4
+    }
+  ],
+  "warden": {
+    "reference_779996": {
+      "ids": [
+        3077079169,
+        2064029594,
+        2829638276,
+        1009965641,
+        2356412290,
+        4104549924,
+        2447176615,
+        3403085434,
+        865958998,
+        84321454,
+        3919289022,
+        2226497419,
+        1282141666,
+        989206714,
+        1055679805,
+        2037039379,
+        3357231760,
+        339443430,
+        2519598785
+      ],
+      "metrics": {
+        "core_coverage": 0.1875,
+        "core_jaccard": 0.09375,
+        "order_proximity": 0.19629629629629627,
+        "reference_recall": 0.15789473684210525,
+        "switch_detected": null
+      },
+      "version": 45
+    },
+    "weapon_reference": {
+      "count": 9,
+      "hit_count": 2,
+      "hits": [
+        {
+          "id": 2356412290,
+          "name": "Titanic Magazine"
+        },
+        {
+          "id": 339443430,
+          "name": "Frenzy"
+        }
+      ],
+      "ids": [
+        339443430,
+        989206714,
+        1009965641,
+        2064029594,
+        2226497419,
+        2356412290,
+        3077079169,
+        3403085434,
+        4104549924
+      ]
+    },
+    "seed": [
+      {
+        "ids": [
+          3077079169,
+          2064029594,
+          2829638276,
+          84321454,
+          1009965641,
+          4104549924,
+          2356412290,
+          865958998,
+          2447176615,
+          3403085434,
+          3919289022,
+          2226497419,
+          1282141666,
+          2519598785,
+          989206714,
+          3357231760,
+          3028234315,
+          915014646,
+          1250307611
+        ],
+        "metrics": {
+          "core_coverage": 0.1875,
+          "core_jaccard": 0.09375,
+          "order_proximity": 0.16296296296296295,
+          "reference_recall": 0.15789473684210525,
+          "switch_detected": null
+        }
+      }
+    ],
+    "layout": {
+      "bands": {
+        "1": {
+          "lower_quartile": 3.75,
+          "median": 4.5,
+          "target": 5,
+          "tier": 1,
+          "upper_quartile": 5.25
+        },
+        "2": {
+          "lower_quartile": 6.0,
+          "median": 6.0,
+          "target": 6,
+          "tier": 2,
+          "upper_quartile": 6.0
+        },
+        "3": {
+          "lower_quartile": 0.5,
+          "median": 1.0,
+          "target": 1,
+          "tier": 3,
+          "upper_quartile": 1.5
+        },
+        "4": {
+          "lower_quartile": 2.0,
+          "median": 4.0,
+          "target": 4,
+          "tier": 4,
+          "upper_quartile": 6.0
+        },
+        "5": {
+          "lower_quartile": 0.0,
+          "median": 0.0,
+          "target": 0,
+          "tier": 5,
+          "upper_quartile": 0.0
+        }
+      },
+      "flex_slots": 4,
+      "source_builds": 2,
+      "total_lower_quartile": 13.75,
+      "total_median": 15.5,
+      "total_upper_quartile": 17.25
+    },
+    "core": [
+      {
+        "item_id": 4204808176,
+        "name": "Rebuttal",
+        "buy_phase": "Lane",
+        "sell_priority": 1,
+        "imbue": null,
+        "why": "800 Seelen. +75.0 Leben, +30.0% zusätzlicher Schaden bei Auslösung. Der Kaufbonus dieser Stufe gibt zusätzlich +7.0% Leben. Heilung und Schadensbonus setzen eine erfolgreiche Parade voraus. Für die Empfehlung liegen noch wenige belastbare Vergleichsdaten vor."
+      },
+      {
+        "item_id": 1342610602,
+        "name": "Close Quarters",
+        "buy_phase": "Lane",
+        "sell_priority": 1,
+        "imbue": null,
+        "why": "800 Seelen. Der Nutzen hängt von der besonderen Wirkung und ihrer Auslösebedingung ab. Der Kaufbonus dieser Stufe gibt zusätzlich +4.0% Waffenschaden."
+      },
+      {
+        "item_id": 1437614329,
+        "name": "Melee Lifesteal",
+        "buy_phase": "Lane",
+        "sell_priority": 1,
+        "imbue": null,
+        "why": "800 Seelen. Der Nutzen hängt von der besonderen Wirkung und ihrer Auslösebedingung ab. Der Kaufbonus dieser Stufe gibt zusätzlich +7.0% Leben. Der zusätzliche Effekt setzt Nahkampftreffer voraus. Für die Empfehlung liegen noch wenige belastbare Vergleichsdaten vor."
+      },
+      {
+        "item_id": 1548066885,
+        "name": "Extended Magazine",
+        "buy_phase": "Lane",
+        "sell_priority": 1,
+        "imbue": null,
+        "why": "800 Seelen. +8.0% Waffenschaden, +30.0% Magazingröße. Der Kaufbonus dieser Stufe gibt zusätzlich +4.0% Waffenschaden. Zusammen mit Close Quarters: beobachtete Siegquote -2.22 Prozentpunkte gegenüber dem stärkeren Einzel-Item, 15828 gemeinsame Spiele im aktuellen Patch. Statistisches Nebensignal, kein Beweis für eine mechanische Wechselwirkung."
+      },
+      {
+        "item_id": 2922054143,
+        "name": "Rusted Barrel",
+        "buy_phase": "Lane",
+        "sell_priority": 1,
+        "imbue": null,
+        "why": "800 Seelen. +60.0 Leben. Der Kaufbonus dieser Stufe gibt zusätzlich +4.0 Spirit. Die Aktivierung hat 16.0 Sekunden Abklingzeit; ihre Wirkung gilt nicht dauerhaft."
+      },
+      {
+        "item_id": 98582110,
+        "name": "Stalker",
+        "buy_phase": "Mid",
+        "sell_priority": null,
+        "imbue": null,
+        "why": "1600 Seelen. +50.0 Leben, +17.0 Schaden pro Sekunde während des Effekts. Der Kaufbonus dieser Stufe gibt zusätzlich +8.0% Waffenschaden. Der zusätzliche Effekt setzt passende Waffentreffer voraus. Für die Empfehlung liegen noch wenige belastbare Vergleichsdaten vor."
+      },
+      {
+        "item_id": 1925087134,
+        "name": "Suppressor",
+        "buy_phase": "Mid",
+        "sell_priority": null,
+        "imbue": null,
+        "why": "1600 Seelen. +6.0 Spirit, +8.0% Kugelresistenz. Der Kaufbonus dieser Stufe gibt zusätzlich +7.0 Spirit."
+      },
+      {
+        "item_id": 1047818222,
+        "name": "Debuff Reducer",
+        "buy_phase": "Mid",
+        "sell_priority": null,
+        "imbue": null,
+        "why": "1600 Seelen. +90.0 Leben. Der Kaufbonus dieser Stufe gibt zusätzlich +8.0% Leben. Zusammen mit Extended Magazine: beobachtete Siegquote +0.13 Prozentpunkte gegenüber dem stärkeren Einzel-Item, 18090 gemeinsame Spiele im aktuellen Patch. Statistisches Nebensignal, kein Beweis für eine mechanische Wechselwirkung."
+      },
+      {
+        "item_id": 2356412290,
+        "name": "Titanic Magazine",
+        "buy_phase": "Mid",
+        "sell_priority": null,
+        "imbue": null,
+        "why": "1600 Seelen. +14.0% Waffenschaden, +100.0% Magazingröße. Der Kaufbonus dieser Stufe gibt zusätzlich +8.0% Waffenschaden. Zusammen mit Close Quarters: beobachtete Siegquote -1.98 Prozentpunkte gegenüber dem stärkeren Einzel-Item, 17387 gemeinsame Spiele im aktuellen Patch. Statistisches Nebensignal, kein Beweis für eine mechanische Wechselwirkung. Zusammen mit Extended Magazine: beobachtete Siegquote +0.29 Prozentpunkte gegenüber dem stärkeren Einzel-Item, 252944 gemeinsame Spiele im aktuellen Patch. Statistisches Nebensignal, kein Beweis für eine mechanische Wechselwirkung. Zusammen mit Debuff Reducer: beobachtete Siegquote -0.07 Prozentpunkte gegenüber dem stärkeren Einzel-Item, 19253 gemeinsame Spiele im aktuellen Patch. Statistisches Nebensignal, kein Beweis für eine mechanische Wechselwirkung. In den beobachteten Builds dieses Helden steht dieses Item überwiegend im Kern."
+      },
+      {
+        "item_id": 2447176615,
+        "name": "Enduring Speed",
+        "buy_phase": "Mid",
+        "sell_priority": null,
+        "imbue": null,
+        "why": "1600 Seelen. Der Nutzen hängt von der besonderen Wirkung und ihrer Auslösebedingung ab. Der Kaufbonus dieser Stufe gibt zusätzlich +8.0% Leben. Zusammen mit Extended Magazine: beobachtete Siegquote +1.37 Prozentpunkte gegenüber dem stärkeren Einzel-Item, 150707 gemeinsame Spiele im aktuellen Patch. Statistisches Nebensignal, kein Beweis für eine mechanische Wechselwirkung. Zusammen mit Debuff Reducer: beobachtete Siegquote +0.80 Prozentpunkte gegenüber dem stärkeren Einzel-Item, 14667 gemeinsame Spiele im aktuellen Patch. Statistisches Nebensignal, kein Beweis für eine mechanische Wechselwirkung. Zusammen mit Titanic Magazine: beobachtete Siegquote -1.87 Prozentpunkte gegenüber dem stärkeren Einzel-Item, 19280 gemeinsame Spiele im aktuellen Patch. Statistisches Nebensignal, kein Beweis für eine mechanische Wechselwirkung. In den beobachteten Builds dieses Helden steht dieses Item überwiegend im Kern."
+      },
+      {
+        "item_id": 1150006784,
+        "name": "Arcane Surge",
+        "buy_phase": "Mid",
+        "sell_priority": null,
+        "imbue": null,
+        "why": "1600 Seelen. +20.0 Spirit bei Auslösung. Der Kaufbonus dieser Stufe gibt zusätzlich +7.0 Spirit. Der zusätzliche Effekt benötigt seine Auslöseaktion und gilt nicht dauerhaft. Zusammen mit Enduring Speed: beobachtete Siegquote -0.88 Prozentpunkte gegenüber dem stärkeren Einzel-Item, 17546 gemeinsame Spiele im aktuellen Patch. Statistisches Nebensignal, kein Beweis für eine mechanische Wechselwirkung."
+      },
+      {
+        "item_id": 690458959,
+        "name": "Express Shot",
+        "buy_phase": "Core",
+        "sell_priority": null,
+        "imbue": null,
+        "why": "3200 Seelen. +8.0% Waffenschaden. Der Kaufbonus dieser Stufe gibt zusätzlich +13.0% Waffenschaden. Für die Empfehlung liegen noch wenige belastbare Vergleichsdaten vor."
+      },
+      {
+        "item_id": 1396247347,
+        "name": "Lucky Shot",
+        "buy_phase": "Late",
+        "sell_priority": null,
+        "imbue": null,
+        "why": "6400 Seelen. +30.0% Magazingröße. Der Kaufbonus dieser Stufe gibt zusätzlich +18.0% Waffenschaden. Der zusätzliche Effekt setzt passende Waffentreffer voraus."
+      },
+      {
+        "item_id": 1250307611,
+        "name": "Juggernaut",
+        "buy_phase": "Late",
+        "sell_priority": null,
+        "imbue": null,
+        "why": "6400 Seelen. Der Nutzen hängt von der besonderen Wirkung und ihrer Auslösebedingung ab. Der Kaufbonus dieser Stufe gibt zusätzlich +10.0% Leben. Zusammen mit Extended Magazine: beobachtete Siegquote +1.19 Prozentpunkte gegenüber dem stärkeren Einzel-Item, 48424 gemeinsame Spiele im aktuellen Patch. Statistisches Nebensignal, kein Beweis für eine mechanische Wechselwirkung. Zusammen mit Titanic Magazine: beobachtete Siegquote +1.05 Prozentpunkte gegenüber dem stärkeren Einzel-Item, 60336 gemeinsame Spiele im aktuellen Patch. Statistisches Nebensignal, kein Beweis für eine mechanische Wechselwirkung. Zusammen mit Enduring Speed: beobachtete Siegquote +0.78 Prozentpunkte gegenüber dem stärkeren Einzel-Item, 68808 gemeinsame Spiele im aktuellen Patch. Statistisches Nebensignal, kein Beweis für eine mechanische Wechselwirkung."
+      },
+      {
+        "item_id": 339443430,
+        "name": "Frenzy",
+        "buy_phase": "Late",
+        "sell_priority": null,
+        "imbue": null,
+        "why": "6400 Seelen. +15.0% Feuerrate, +160.0 Leben. Der Kaufbonus dieser Stufe gibt zusätzlich +18.0% Waffenschaden. Zusammen mit Extended Magazine: beobachtete Siegquote -1.71 Prozentpunkte gegenüber dem stärkeren Einzel-Item, 21028 gemeinsame Spiele im aktuellen Patch. Statistisches Nebensignal, kein Beweis für eine mechanische Wechselwirkung. Zusammen mit Titanic Magazine: beobachtete Siegquote -1.52 Prozentpunkte gegenüber dem stärkeren Einzel-Item, 23933 gemeinsame Spiele im aktuellen Patch. Statistisches Nebensignal, kein Beweis für eine mechanische Wechselwirkung. Zusammen mit Enduring Speed: beobachtete Siegquote -0.43 Prozentpunkte gegenüber dem stärkeren Einzel-Item, 18486 gemeinsame Spiele im aktuellen Patch. Statistisches Nebensignal, kein Beweis für eine mechanische Wechselwirkung. In den beobachteten Builds dieses Helden steht dieses Item überwiegend im Kern."
+      },
+      {
+        "item_id": 3577481646,
+        "name": "Mystic Reverb",
+        "buy_phase": "Late",
+        "sell_priority": null,
+        "imbue": null,
+        "why": "6400 Seelen. Der Nutzen hängt von der besonderen Wirkung und ihrer Auslösebedingung ab. Der Kaufbonus dieser Stufe gibt zusätzlich +13.0 Spirit. Für die Empfehlung liegen noch wenige belastbare Vergleichsdaten vor."
+      }
+    ]
+  }
+}
