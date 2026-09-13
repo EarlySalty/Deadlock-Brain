@@ -97,3 +97,22 @@ Die alte Baseline ist reproduzierbar aus `0af63da` plus `BASELINE-V2.patch` in
 diesem Ordner; die Patchdatei enthält ausschließlich die Rohdatenquery und die
 Roh-ID-Vollständigkeitsprüfung. Binary und SHA liegen im Nachweisordner als
 `build-evaluation-baseline-v2-a57382a` und `baseline-v2-binary.sha256`.
+
+## FreezeGuard nach unabhängiger Prüfung
+
+Die maximale Poolgröße eins sichert nicht dauerhaft dieselbe physische
+Postgresverbindung. Das Freeze-Werkzeug schaltet deshalb Idle-/Lifetime-Reaping
+aus und vergleicht vor der ersten Loaderabfrage sowie nach sämtlichen Loadern
+unmittelbar vor dem Dateischreiben Backend-PID, Transaktionssnapshot-ID,
+`transaction_isolation=repeatable read` und `transaction_read_only=on`.
+Abweichungen oder eine fehlgeschlagene Prüfung erzeugen einen Fehler, bevor
+die Ausgabedatei geschrieben wird. Neue Freeze-Dateien tragen die geprüfte
+Identität als optionale Metadaten; sie enthält keine Secrets.
+
+Die isolierte Gegenprobe verändert jede der vier Eigenschaften einzeln und
+prüft am tatsächlich verwendeten Schreibhelfer, dass keine Datei entsteht.
+Unveränderte Identität schreibt erfolgreich. Die bestehende `FROZEN-V2.json`
+wird nicht neu erzeugt: Sie hat diesen zusätzlichen PID-/Snapshotnachweis nicht,
+und er wird nicht rückwirkend behauptet. Ihre unveränderten Inhalte bleiben
+gemeinsame Eingabe beider Algorithmusstände. Die nachgewiesene alte
+Fassaden-/Offline-Parität ist von der neu ergänzten Verbindungsprüfung getrennt.

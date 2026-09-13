@@ -10,6 +10,51 @@ use std::{
 
 type Error = Box<dyn std::error::Error>;
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+struct FreezeGuard {
+    backend_pid: i32,
+    snapshot_id: String,
+    isolation: String,
+    read_only: String,
+}
+
+impl FreezeGuard {
+    fn verify(&self, current: &Self) -> std::result::Result<(), Error> {
+        if self.backend_pid <= 0
+            || self.snapshot_id.is_empty()
+            || self.isolation != "repeatable read"
+            || self.read_only != "on"
+            || self != current
+        {
+            return Err("Freeze abgebrochen: Datenbankverbindung oder Transaktionssnapshot hat sich geändert".into());
+        }
+        Ok(())
+    }
+}
+
+async fn freeze_guard(pool: &sqlx::PgPool) -> std::result::Result<FreezeGuard, Error> {
+    let (backend_pid, snapshot_id, isolation, read_only): (i32, String, String, String) =
+        sqlx::query_as("SELECT pg_backend_pid(), txid_current_snapshot()::text, current_setting('transaction_isolation'), current_setting('transaction_read_only')")
+            .fetch_one(pool).await?;
+    Ok(FreezeGuard {
+        backend_pid,
+        snapshot_id,
+        isolation,
+        read_only,
+    })
+}
+
+fn write_guarded_snapshot(
+    output: &Path,
+    bytes: &[u8],
+    start: &FreezeGuard,
+    end: &FreezeGuard,
+) -> std::result::Result<(), Error> {
+    start.verify(end)?;
+    fs::write(output, bytes)?;
+    Ok(())
+}
+
 #[derive(Serialize, Deserialize)]
 struct FrozenHero {
     hero: HeroModel,
@@ -29,6 +74,8 @@ struct Frozen {
     format_version: u32,
     baseline_revision: String,
     measured_at: String,
+    #[serde(default)]
+    snapshot_guard: Option<FreezeGuard>,
     config: ReasonerConfig,
     sources: Vec<Value>,
     raw_snapshots: Vec<Value>,
@@ -226,18 +273,16 @@ async fn freeze(output: &Path) -> std::result::Result<(), Error> {
     let access = deadlock_brain_core::pg::pg_pool_read_only().await?;
     let pool = PgPoolOptions::new()
         .max_connections(1)
+        .idle_timeout(None)
+        .max_lifetime(None)
         .connect_with((*access.connect_options()).clone())
         .await?;
     access.close().await;
     sqlx::query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
         .execute(&pool)
         .await?;
-    let read_only: String = sqlx::query_scalar("SHOW transaction_read_only")
-        .fetch_one(&pool)
-        .await?;
-    if read_only != "on" {
-        return Err("Messung ist nicht lesend".into());
-    }
+    let start_guard = freeze_guard(&pool).await?;
+    start_guard.verify(&start_guard)?;
     let mut ctx = ReasonerCtx {
         pool: pool.clone(),
         ai: None,
@@ -289,6 +334,7 @@ async fn freeze(output: &Path) -> std::result::Result<(), Error> {
         format_version: 1,
         baseline_revision: "a57382a".into(),
         measured_at,
+        snapshot_guard: Some(start_guard.clone()),
         config: ctx.config,
         sources,
         raw_snapshots,
@@ -318,9 +364,51 @@ async fn freeze(output: &Path) -> std::result::Result<(), Error> {
             .into());
         }
     }
-    fs::write(output, serde_json::to_vec(&frozen)?)?;
+    let bytes = serde_json::to_vec(&frozen)?;
+    let end_guard = freeze_guard(&pool).await?;
+    write_guarded_snapshot(output, &bytes, &start_guard, &end_guard)?;
     pool.close().await;
     Ok(())
+}
+
+#[cfg(test)]
+mod freeze_guard_tests {
+    use super::*;
+
+    #[test]
+    fn connection_or_transaction_changes_prevent_output() {
+        let start = FreezeGuard {
+            backend_pid: 123,
+            snapshot_id: "10:20:12".into(),
+            isolation: "repeatable read".into(),
+            read_only: "on".into(),
+        };
+        let mut changes = vec![start.clone(); 4];
+        changes[0].backend_pid = 124;
+        changes[1].snapshot_id = "10:21:12".into();
+        changes[2].isolation = "read committed".into();
+        changes[3].read_only = "off".into();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "brain-freeze-guard-{}-{unique}.json",
+            std::process::id()
+        ));
+        for changed in changes {
+            assert!(write_guarded_snapshot(&path, b"not written", &start, &changed).is_err());
+            assert!(!path.exists());
+            assert!(
+                changed.verify(&changed).is_err()
+                    || changed.backend_pid != start.backend_pid
+                    || changed.snapshot_id != start.snapshot_id
+            );
+        }
+        write_guarded_snapshot(&path, b"same snapshot", &start, &start).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"same snapshot");
+        fs::remove_file(path).unwrap();
+    }
 }
 
 fn evaluate(
