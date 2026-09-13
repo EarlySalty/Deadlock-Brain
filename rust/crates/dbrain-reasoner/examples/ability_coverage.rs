@@ -56,6 +56,19 @@ fn main() -> Result<(), Error> {
     if std::path::Path::new(output).exists() || std::path::Path::new(markdown).exists() {
         return Err("Ausgabe existiert bereits".into());
     }
+    let destination = |value: &str| -> Result<std::path::PathBuf, Error> {
+        let path = std::path::Path::new(value);
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or(std::path::Path::new("."));
+        Ok(parent
+            .canonicalize()?
+            .join(path.file_name().ok_or("Ausgabedateiname fehlt")?))
+    };
+    if destination(output)? == destination(markdown)? {
+        return Err("JSON und Markdown benötigen verschiedene Ausgabedateien".into());
+    }
     let frozen: Value = serde_json::from_slice(&fs::read(input)?)?;
     let mut raw = frozen["raw_snapshots"]
         .as_array()
