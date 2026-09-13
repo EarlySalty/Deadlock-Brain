@@ -515,6 +515,15 @@ fn simulate(
         .collect();
     let window = cfg.combat_window_seconds.clamp(1.0, 120.0);
     let dt = 0.2;
+    let spirit_windows: Vec<_> = items
+        .iter()
+        .map(|item| match &item.condition {
+            ConditionKind::ActionBound { action } if action == "spirit_damage_threshold" => {
+                Some(value(item, "DamageThresholdDuration").max(dt))
+            }
+            _ => None,
+        })
+        .collect();
     let mut out = CombatScenarioEvaluation {
         name: name.into(),
         ..CombatScenarioEvaluation::default()
@@ -642,12 +651,13 @@ fn simulate(
         let mut stats = base_stats.clone();
         let mut activated = vec![false; items.len()];
         for (idx, item) in items.iter().enumerate() {
-            let threshold_window = value(item, "DamageThresholdDuration").max(dt);
-            let recent_damage = spirit_events
-                .iter()
-                .filter(|(t, _)| time - *t <= threshold_window)
-                .map(|(_, d)| *d)
-                .sum();
+            let recent_damage = spirit_windows[idx].map_or(0.0, |threshold_window| {
+                spirit_events
+                    .iter()
+                    .filter(|(t, _)| time - *t <= threshold_window)
+                    .map(|(_, d)| *d)
+                    .sum()
+            });
             let cooldown = value(item, "AbilityCooldown")
                 .max(value(item, "AbilityChargeUpTime"))
                 .max(item.proc_cooldown.unwrap_or(0.0));
