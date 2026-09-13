@@ -63,7 +63,7 @@ pub fn validate_socket(path: &Path, owner: u32) -> Result<(), &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::{PermissionsExt, symlink};
+    use std::os::unix::fs::{symlink, PermissionsExt};
     use std::os::unix::net::UnixListener;
 
     #[test]

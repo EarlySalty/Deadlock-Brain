@@ -2,10 +2,10 @@ use anyhow::{anyhow, Result};
 use nix::fcntl::{fcntl, FcntlArg, FdFlag};
 use serde::Deserialize;
 use std::{
+    os::unix::fs::FileExt,
     path::{Path, PathBuf},
     time::Duration,
 };
-use tokio::io::AsyncReadExt;
 use zeroize::{Zeroize, Zeroizing};
 
 #[derive(Deserialize)]
@@ -79,16 +79,13 @@ pub(super) async fn database_dsn(path: &Path) -> Result<Zeroizing<String>> {
             "Infisical benötigt einen regulären Credential-Dateideskriptor."
         ));
     }
-    let mut token = Zeroizing::new(Vec::new());
-    tokio::time::timeout(
+    let token = tokio::time::timeout(
         Duration::from_secs(5),
-        tokio::fs::File::from_std(file)
-            .take(8193)
-            .read_to_end(&mut token),
+        tokio::task::spawn_blocking(move || read_credential(&file)),
     )
     .await
     .map_err(|_| anyhow!("Infisical-Credential wurde nicht rechtzeitig geliefert."))?
-    .map_err(|_| anyhow!("Infisical-Credential ist nicht lesbar."))?;
+    .map_err(|_| anyhow!("Infisical-Credential ist nicht lesbar."))??;
     if token.is_empty() || token.len() > 8192 {
         return Err(anyhow!("Infisical-Credential hat eine ungültige Größe."));
     }
@@ -152,4 +149,42 @@ pub(super) async fn database_dsn(path: &Path) -> Result<Zeroizing<String>> {
         }
     }
     value.ok_or_else(|| anyhow!("Datenbankzugang fehlt in Infisical."))
+}
+
+fn read_credential(file: &std::fs::File) -> Result<Zeroizing<Vec<u8>>> {
+    let mut bytes = Zeroizing::new(vec![0; 8193]);
+    let mut length = 0;
+    while length < bytes.len() {
+        let read = file
+            .read_at(&mut bytes[length..], length as u64)
+            .map_err(|_| anyhow!("Infisical-Credential ist nicht lesbar."))?;
+        if read == 0 {
+            break;
+        }
+        length += read;
+    }
+    bytes.truncate(length);
+    Ok(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Seek, Write};
+
+    #[test]
+    fn credential_reads_preserve_offset_and_allow_repeated_pool_setup() {
+        let mut file = tempfile::tempfile().unwrap();
+        file.write_all(b"synthetic-fixture").unwrap();
+        let offset = file.stream_position().unwrap();
+        assert_eq!(
+            read_credential(&file).unwrap().as_slice(),
+            b"synthetic-fixture"
+        );
+        assert_eq!(
+            read_credential(&file).unwrap().as_slice(),
+            b"synthetic-fixture"
+        );
+        assert_eq!(file.stream_position().unwrap(), offset);
+    }
 }
