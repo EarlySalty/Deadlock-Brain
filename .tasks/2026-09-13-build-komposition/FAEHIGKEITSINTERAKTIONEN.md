@@ -15,3 +15,5 @@ API-Vertrag: `duration_multiplier` ist der Faktor (1.2 bedeutet +20 %). `on_hit`
 Lokale Prüfung vor Übergabe: 153 Bibliothekstests bestanden, 0 Fehler, 16 bestehende ignoriert; Clippy `--lib -D warnings` und rustfmt des neuen Moduls grün. Darunter drei Gegenproben direkt aus den Originalrohsnapshots für Ranggrenzen, Waffen-/Spirittrennung, Ende der Laufzeit, Stacklimit, Zielwechsel und Heilbasis. Die zentrale Integration wird gesondert geprüft.
 
 Selbstgate über `gate_hook.py --review` gegen bcc3f6e: ALLOW, kein belegter Merge-Blocker. Ein NIT weist auf den fehlenden Verbraucher im Moduldiff hin; die Integration ist oben ausdrücklich als offen markiert. Dieser Modulcheck ersetzt weder die gemeinsame Ereignisprüfung noch die fachliche Abnahme.
+
+`quantified_property(ability, key)` liefert nur für in diesem Rang tatsächlich vorbereitete Effekte eine Abdeckungsmeldung. Der zentrale Verbraucher darf diese Meldung erst nach Integration der Ereignisse verwenden. Das löscht keine Unknowns zu Soul Exchange, Uppercut-Nahkampfschaden, Malice-Schaden oder anderen unimplementierten Eigenschaften.
