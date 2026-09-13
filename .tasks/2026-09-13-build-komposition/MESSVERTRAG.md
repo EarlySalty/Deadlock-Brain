@@ -66,3 +66,25 @@ Sichtbarkeits- und Serde-Erweiterungen stehen in Commit `4fee21b`.
 
 Validierung des Messwerkzeugs: Reasoner-Lib 111 Tests bestanden, 16 bestehende
 Tests ignoriert; Example gebaut und Clippy mit `-D warnings` bestanden.
+
+## Korrektur der Rohdatenidentität
+
+Der erste Freeze bewahrt die vollständigen alten Modelle und reproduziert sie,
+aber seine Rohsnapshot-Abfrage gruppierte nach Anzeigename. Das vermischt
+beispielsweise das Item Grit (1672893796) mit der gleichnamigen Fähigkeit
+(2260066289). Der neue Parser hat den fehlenden Item-Snapshot ausdrücklich
+abgewiesen; es wurde kein Ersatzwert erfunden. Für den neuen Vorher-/Nachher-
+Vergleich gilt deshalb ausschließlich `FROZEN-V2.json` mit demselben Dateiort.
+
+V2 gruppiert nach Quelle, Entitätstyp und Plattform-ID (bei Quellen ohne ID:
+external_id, erst danach kanonischer Name) und wählt die letzte Version. Die
+Item-Card-Rohquelle wird zusätzlich bewahrt. Vor dem Schreiben wird für jedes
+geladene Item dessen Rohsnapshot-ID geprüft. V2 wird vom isolierten alten
+Algorithmus a57382a erzeugt; dessen Offline-/Fassadenparität bleibt Pflicht.
+Die ersten Dateien einschließlich Baseline bleiben als ersetzter Nachweis liegen.
+
+Nachher reichert `enrich_frozen_models` neue Modellfelder ausschließlich aus der
+neuen Frozen-Datei an. `plan FROZEN AUSGABE HELDEN` gibt zusätzlich sämtliche
+Inventarübergänge und Kampfszenarien derselben Kaufplanung aus. Eine kommagetrennte
+Heldenauswahl ist für `evaluate`, `sensitivity` und `plan` möglich; unbekannte
+Namen werden abgewiesen. Holdout läuft grundsätzlich über den ganzen Bestand.

@@ -62,7 +62,7 @@ fn compose(
     excluded: &BTreeSet<String>,
     holdout: bool,
     ablation: &str,
-) -> std::result::Result<BuildObject, Error> {
+) -> std::result::Result<(BuildObject, Value), Error> {
     let sources = frozen
         .sources
         .iter()
@@ -154,6 +154,7 @@ fn compose(
     };
     let mut hero = input.hero.clone();
     let mut items = input.items.clone();
+    enrich_frozen_models(&mut hero, &mut items, &frozen.raw_snapshots)?;
     let mut deltas =
         patch::compute_patch_delta_with_snapshots(&hero, &input.events, &input.snapshots);
     patch::apply_scored_patch_delta(&mut hero, &mut items, &mut deltas, &context.index, &cfg);
@@ -165,11 +166,32 @@ fn compose(
     }
     let mut build =
         composer::compose_build_with_sources(&hero, &scores, &deltas, &cfg, &[], &context);
+    let plan = if ablation == "plan" {
+        let plan = composer::purchase_plan_with_sources(&hero, &scores, &cfg, &context);
+        if plan
+            .steps
+            .iter()
+            .map(|step| step.transition.purchased_id)
+            .collect::<Vec<_>>()
+            != build
+                .core
+                .iter()
+                .map(|item| item.item_id)
+                .collect::<Vec<_>>()
+        {
+            return Err(
+                "Mechanischer Plan stimmt nicht mit der ausgegebenen Kaufkurve überein".into(),
+            );
+        }
+        serde_json::to_value(plan)?
+    } else {
+        Value::Null
+    };
     if own.is_empty() {
         build.confidence = Confidence::Low;
         build.rationale.push_str(&format!(" Für diesen Helden fehlen Builds aktiver beobachteter Autoren. Die Kaufkurve ist ein Behelf aus {} beobachteten Builds anderer Helden; ein eigener Autorenvergleich ist nicht möglich.", context.core_layouts.overall.source_builds));
     }
-    Ok(build)
+    Ok((build, plan))
 }
 
 fn measure(
@@ -232,7 +254,7 @@ async fn freeze(output: &Path) -> std::result::Result<(), Error> {
         .await?
         .patch_tag;
     let sources = load_author_source_rows(&ctx, None).await?;
-    let raw_snapshots: Vec<Value> = sqlx::query_scalar("SELECT to_jsonb(s) FROM (SELECT DISTINCT ON (source,entity_type,canonical_name) * FROM brain.entity_snapshots WHERE source='deadlock_assets_api' ORDER BY source,entity_type,canonical_name,fetched_at DESC,id DESC) s").fetch_all(&pool).await?;
+    let raw_snapshots: Vec<Value> = sqlx::query_scalar("SELECT to_jsonb(s) FROM (SELECT DISTINCT ON (source,entity_type,COALESCE(payload->>'id',external_id,canonical_name)) * FROM brain.entity_snapshots WHERE source IN ('deadlock_assets_api','deadlock_data') ORDER BY source,entity_type,COALESCE(payload->>'id',external_id,canonical_name),fetched_at DESC,id DESC) s").fetch_all(&pool).await?;
     let tier_rows: Vec<(i64, i64)> =
         sqlx::query_as("SELECT item_id,tier FROM brain.item_catalog WHERE tier IS NOT NULL")
             .fetch_all(&pool)
@@ -274,8 +296,21 @@ async fn freeze(output: &Path) -> std::result::Result<(), Error> {
         heroes,
     };
     for input in &frozen.heroes {
+        for item in &input.items {
+            if !frozen.raw_snapshots.iter().any(|row| {
+                row["source"] == "deadlock_assets_api"
+                    && row["entity_type"] == "item_or_ability"
+                    && row["payload"]["id"].as_i64() == Some(item.item_id)
+            }) {
+                return Err(format!(
+                    "Rohsnapshot fehlt für Item {} ({})",
+                    item.name, item.item_id
+                )
+                .into());
+            }
+        }
         let replay = compose(&frozen, input, &BTreeSet::new(), false, "full")?;
-        if replay != input.live_baseline {
+        if replay.0 != input.live_baseline {
             return Err(format!(
                 "Offline-Reproduktion weicht für {} von der produktiven Fassade ab",
                 input.hero.name
@@ -288,7 +323,12 @@ async fn freeze(output: &Path) -> std::result::Result<(), Error> {
     Ok(())
 }
 
-fn evaluate(input: &Path, output: &Path, mode: &str) -> std::result::Result<(), Error> {
+fn evaluate(
+    input: &Path,
+    output: &Path,
+    mode: &str,
+    selection: Option<&str>,
+) -> std::result::Result<(), Error> {
     if output.exists() {
         return Err("Ausgabedatei existiert bereits".into());
     }
@@ -296,9 +336,27 @@ fn evaluate(input: &Path, output: &Path, mode: &str) -> std::result::Result<(), 
     if frozen.format_version != 1 {
         return Err("Unbekanntes Freeze-Format".into());
     }
+    if let Some(names) = selection {
+        for name in names.split(',') {
+            if !frozen
+                .heroes
+                .iter()
+                .any(|hero| hero.hero.name.eq_ignore_ascii_case(name))
+            {
+                return Err(format!("Unbekannter Held in der Auswahl: {name}").into());
+            }
+        }
+    }
     let holdout = mode == "holdout";
     let mut reports = Vec::new();
     for hero in &frozen.heroes {
+        if selection.is_some_and(|names| {
+            !names
+                .split(',')
+                .any(|name| name.eq_ignore_ascii_case(&hero.hero.name))
+        }) {
+            continue;
+        }
         let own = frozen
             .sources
             .iter()
@@ -313,7 +371,7 @@ fn evaluate(input: &Path, output: &Path, mode: &str) -> std::result::Result<(), 
                 } else {
                     BTreeSet::from([id])
                 };
-                let build = compose(&frozen, hero, &excluded, true, "full")?;
+                let (build, _) = compose(&frozen, hero, &excluded, true, "full")?;
                 reports.push(json!({"excluded_authors":excluded,"training_sources":frozen.sources.iter().filter(|source| author(source).is_ok_and(|id| !excluded.contains(&id))).count(),"measurement":measure(hero,&build,row)?,"build":build}));
             }
         } else {
@@ -326,19 +384,22 @@ fn evaluate(input: &Path, output: &Path, mode: &str) -> std::result::Result<(), 
                     "window20",
                     "window60",
                 ]
+            } else if mode == "plan" {
+                vec!["plan"]
             } else {
                 vec!["full"]
             };
             for variant in variants_to_run {
-                let build = compose(&frozen, hero, &BTreeSet::new(), false, variant)?;
+                let (build, plan) = compose(&frozen, hero, &BTreeSet::new(), false, variant)?;
                 let measurements = own
                     .iter()
                     .map(|row| measure(hero, &build, row))
                     .collect::<std::result::Result<Vec<_>, _>>()?;
-                variants.push(json!({"variant":variant,"build":build,"measurements":measurements}));
+                variants.push(json!({"variant":variant,"build":build,"plan":plan,"measurements":measurements}));
             }
             reports.push(json!({"hero_id":hero.hero.hero_id,"hero_name":hero.hero.name,"reference_count":own.len(),"variants":variants}));
         }
+        eprintln!("Ausgewertet: {} ({mode})", hero.hero.name);
     }
     fs::write(
         output,
@@ -355,9 +416,14 @@ async fn main() -> std::result::Result<(), Error> {
     match args.as_slice() {
         [mode, output] if mode == "freeze" => freeze(Path::new(output)).await,
         [mode, input, output]
-            if ["evaluate", "holdout", "sensitivity"].contains(&mode.as_str()) =>
+            if ["evaluate", "holdout", "sensitivity", "plan"].contains(&mode.as_str()) =>
         {
-            evaluate(Path::new(input), Path::new(output), mode)
+            evaluate(Path::new(input), Path::new(output), mode, None)
+        }
+        [mode, input, output, heroes]
+            if ["evaluate", "sensitivity", "plan"].contains(&mode.as_str()) =>
+        {
+            evaluate(Path::new(input), Path::new(output), mode, Some(heroes))
         }
         _ => Err(
             "Aufruf: build_evaluation freeze DATEI | evaluate|holdout|sensitivity FROZEN AUSGABE"
