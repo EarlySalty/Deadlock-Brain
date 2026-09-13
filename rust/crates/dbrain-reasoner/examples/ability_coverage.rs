@@ -181,7 +181,9 @@ fn main() -> Result<(), Error> {
         )?,
     )?;
     if let Err(error) = support::write_new(markdown, table.as_bytes()) {
-        fs::remove_file(output)?;
+        if let Err(cleanup) = fs::remove_file(output) {
+            return Err(format!("{error}; JSON-Rücknahme fehlgeschlagen: {cleanup}").into());
+        }
         return Err(error.into());
     }
     eprintln!(
