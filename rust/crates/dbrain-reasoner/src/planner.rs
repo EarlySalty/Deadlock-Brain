@@ -136,7 +136,7 @@ impl Search<'_> {
         let invalid = !evaluation.score.is_finite()
             || !evaluation.utility.is_finite()
             || !evaluation.effective_health.is_finite()
-            || evaluation.effective_health <= 0.0
+            || evaluation.effective_health < 0.0
             || [
                 evaluation.weapon_damage,
                 evaluation.ability_damage,
@@ -145,7 +145,7 @@ impl Search<'_> {
             .iter()
             .any(|damage| !damage.is_finite() || *damage < 0.0);
         if invalid {
-            self.invalid_metrics.insert("Inventarzustände mit nicht endlichen Kampfwerten, negativem Schaden oder nicht positivem effektivem Leben wurden als ungültig verworfen; ihre Werte wurden nicht geklemmt.".into());
+            self.invalid_metrics.insert("Inventarzustände mit nicht endlichen Kampfwerten, negativem Schaden oder negativem abgeleitetem effektivem Leben wurden als ungültig verworfen; ihre Werte wurden nicht geklemmt. Tod im Szenario allein disqualifiziert keinen Zustand.".into());
             self.cache.insert(key, None);
             return None;
         }
