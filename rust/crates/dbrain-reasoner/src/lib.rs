@@ -85,6 +85,15 @@ pub async fn reason_build_with_options(
         load_reasoning_inputs(&ctx, hero, seed_path).await?;
     let events =
         data::load_patch_events_for_snapshots(&ctx, hero_model.hero_id, &snapshots).await?;
+    static PLANNING_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+    let permit = PLANNING_SLOTS
+        .acquire()
+        .await
+        .map_err(|error| ReasonerError::Data(format!("Buildplanung nicht verfügbar: {error}")))?;
+    let calculation_ctx = ctx.clone();
+    let (build, scored) = tokio::task::spawn_blocking(move || {
+    let _permit = permit;
+    let ctx = calculation_ctx;
     let mut deltas = patch::compute_patch_delta_with_snapshots(&hero_model, &events, &snapshots);
     patch::apply_scored_patch_delta(
         &mut hero_model,
@@ -147,6 +156,10 @@ pub async fn reason_build_with_options(
         build.confidence = Confidence::Low;
         build.rationale = append_text(&build.rationale, &format!("Für diesen Helden fehlen Builds aktiver beobachteter Autoren. Die Kaufkurve ist ein Behelf aus {} beobachteten Builds anderer Helden; ein eigener Autorenvergleich ist nicht möglich.",meta.core_layouts.overall.source_builds));
     }
+    (build, scored)
+    })
+    .await
+    .map_err(|error| ReasonerError::Data(format!("Buildberechnung fehlgeschlagen: {error}")))?;
     if options.persist {
         persist_build(&ctx, &build, &scored).await?;
     }
