@@ -1,0 +1,2717 @@
+{
+  "source_sha256": "2bd97e4fc5cd66a488a6c55cfa19faa918625008b3623973842ff3d4f799002d",
+  "snapshots": [
+    {
+      "source": "deadlock_assets_api",
+      "entity_type": "item_or_ability",
+      "external_id": "2954330093",
+      "fetched_at": "2026-07-30T19:23:26.22098+00:00",
+      "id": 47231,
+      "payload": {
+        "class_name": "synth_affliction",
+        "description": {
+          "desc": "Applies damage over time to enemies nearby. Affliction's damage is non-lethal and does not apply item procs.",
+          "quip": "Apply damage over time to enemies nearby",
+          "t2_desc": "+3s Duration and +4m Radius",
+          "t3_desc": "Prevents all healing +13.0 DPS with increase Spirit scaling"
+        },
+        "id": 2954330093,
+        "name": "Affliction",
+        "properties": {
+          "AbilityCastDelay": {
+            "css_class": "cast",
+            "label": "Cast Delay",
+            "value": "0.6"
+          },
+          "AbilityCooldown": {
+            "css_class": "cooldown",
+            "label": "Cooldown",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechCooldown",
+              "subclass_name": "AbilityCooldown_scale_function"
+            },
+            "value": 170.0
+          },
+          "AbilityCooldownBetweenCharge": {
+            "css_class": "charge_cooldown",
+            "label": "Charge Delay",
+            "scale_function": {
+              "class_name": "scale_function_ability_recharge_time",
+              "subclass_name": "scale_function_ability_recharge_time"
+            },
+            "value": "-1.0"
+          },
+          "AbilityUnitTargetLimit": {
+            "value": "1"
+          },
+          "CanBePurged": {
+            "value": "1"
+          },
+          "ChannelMoveSpeed": {
+            "css_class": "move_speed",
+            "value": "1.3m"
+          },
+          "DPS": {
+            "css_class": "tech_damage",
+            "label": "Damage Per Second",
+            "scale_function": {
+              "class_name": "scale_function_tech_damage",
+              "specific_stat_scale_type": "ETechPower",
+              "stat_scale": 0.21,
+              "subclass_name": "DPS_scale_function"
+            },
+            "value": 32.0
+          },
+          "DamageInterval": {
+            "value": "0.5"
+          },
+          "DebuffDuration": {
+            "css_class": "duration",
+            "label": "Debuff Duration",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechDuration",
+              "subclass_name": "DebuffDuration_scale_function"
+            },
+            "value": "10"
+          },
+          "Radius": {
+            "css_class": "distance",
+            "label": "Radius",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechRange",
+              "subclass_name": "Radius_scale_function"
+            },
+            "value": "9m"
+          }
+        }
+      }
+    },
+    {
+      "source": "deadlock_assets_api",
+      "entity_type": "item_or_ability",
+      "external_id": "1593133799",
+      "fetched_at": "2026-06-30T18:11:10+00:00",
+      "id": 12928,
+      "payload": {
+        "class_name": "ability_afterburn",
+        "description": {
+          "desc": "Weapon hits build up a burning effect, dealing spirit damage over time . Abilities refresh to the base burn duration and weapon hits extend it.",
+          "quip": "Shoot enemies to set them on fire",
+          "t2_desc": "Burn Effect: -35% Spirit Damage",
+          "t3_desc": "+3.0s Max Burn Duration"
+        },
+        "id": 1593133799,
+        "name": "Afterburn",
+        "properties": {
+          "AbilityCooldownBetweenCharge": {
+            "css_class": "charge_cooldown",
+            "label": "Charge Delay",
+            "scale_function": {
+              "class_name": "scale_function_ability_recharge_time",
+              "subclass_name": "scale_function_ability_recharge_time"
+            },
+            "value": "-1.0"
+          },
+          "AbilityUnitTargetLimit": {
+            "value": "1"
+          },
+          "BuildUpBulletPercentPerHit": {
+            "css_class": "cast",
+            "label": "Buildup Per Bullet",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "EProcBuildUpRateScale",
+              "subclass_name": "BuildUpBulletPercentPerHit_scale_function"
+            },
+            "value": "8.1"
+          },
+          "BuildUpDuration": {
+            "css_class": "duration",
+            "label": "Buildup Decay Time",
+            "scale_function": {
+              "class_name": "scale_function_tech_duration",
+              "subclass_name": "buildup_scale_function"
+            },
+            "value": "17"
+          },
+          "BurnDuration": {
+            "css_class": "duration",
+            "label": "Max Burn Duration",
+            "scale_function": {
+              "class_name": "scale_function_tech_duration",
+              "subclass_name": "BurnDuration_scale_function"
+            },
+            "value": "3"
+          },
+          "BurnDurationBase": {
+            "css_class": "duration",
+            "label": "Base Burn Duration",
+            "value": "3"
+          },
+          "ChannelMoveSpeed": {
+            "css_class": "move_speed",
+            "value": "-1"
+          },
+          "CritBuildup": {
+            "css_class": "cast",
+            "label": "Buildup Per Headshot",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "EProcBuildUpRateScale",
+              "subclass_name": "CritBuildup_scale_function"
+            },
+            "value": "15.4"
+          },
+          "DPS": {
+            "css_class": "tech_damage",
+            "label": "Damage Per Second",
+            "scale_function": {
+              "class_name": "scale_function_tech_damage",
+              "stat_scale": 0.66,
+              "subclass_name": "DPS_scale_function"
+            },
+            "value": 14.0
+          },
+          "RefillDuration": {
+            "css_class": "duration",
+            "label": "Extend Per Bullet",
+            "value": "0.5"
+          },
+          "RefillDurationCrit": {
+            "css_class": "duration",
+            "label": "Extend Per Headshot",
+            "value": "1.0"
+          },
+          "TickRate": {
+            "value": "0.5"
+          }
+        }
+      }
+    },
+    {
+      "source": "deadlock_assets_api",
+      "entity_type": "item_or_ability",
+      "external_id": "2656490109",
+      "fetched_at": "2026-06-30T18:11:10+00:00",
+      "id": 12990,
+      "payload": {
+        "class_name": "ability_warden_crowd_control",
+        "description": {
+          "desc": "Throw a flask that damages and reduces the weapon damage and move speed of enemies it hits.",
+          "quip": "Damage and debuff enemies nearby",
+          "t1_desc": "Hit enemies lose 1 Stamina",
+          "t2_desc": "+35 Damage and -25% Weapon Damage",
+          "t3_desc": "-7s Cooldown and +2m Radius Applies -30% Fire Rate"
+        },
+        "id": 2656490109,
+        "name": "Alchemical Flask",
+        "properties": {
+          "AbilityCastDelay": {
+            "css_class": "cast",
+            "label": "Cast Delay",
+            "value": "0.1"
+          },
+          "AbilityCooldown": {
+            "css_class": "cooldown",
+            "label": "Cooldown",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechCooldown",
+              "subclass_name": "AbilityCooldown_scale_function"
+            },
+            "value": 12.0
+          },
+          "AbilityCooldownBetweenCharge": {
+            "css_class": "charge_cooldown",
+            "label": "Charge Delay",
+            "scale_function": {
+              "class_name": "scale_function_ability_recharge_time",
+              "subclass_name": "scale_function_ability_recharge_time"
+            },
+            "value": "-1.0"
+          },
+          "AbilityUnitTargetLimit": {
+            "value": "1"
+          },
+          "ChannelMoveSpeed": {
+            "css_class": "move_speed",
+            "value": "-1"
+          },
+          "Damage": {
+            "css_class": "tech_damage",
+            "label": "Damage",
+            "scale_function": {
+              "class_name": "scale_function_tech_damage",
+              "specific_stat_scale_type": "ETechPower",
+              "stat_scale": 0.63,
+              "subclass_name": "Damage_scale_function"
+            },
+            "value": 60.0
+          },
+          "DebuffDuration": {
+            "css_class": "duration",
+            "label": "Weapon Debuff Duration",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechDuration",
+              "subclass_name": "DebuffDuration_scale_function"
+            },
+            "value": "7"
+          },
+          "ForwardVelocity": {
+            "value": "800"
+          },
+          "MoveSpeedSlowPct": {
+            "css_class": "slow",
+            "label": "Move Speed",
+            "usage_flags": [
+              "ConditionallyApplied"
+            ],
+            "value": "20"
+          },
+          "ProjectileLifetime": {
+            "value": "60"
+          },
+          "Radius": {
+            "css_class": "distance",
+            "label": "Radius",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechRadius",
+              "subclass_name": "Radius_scale_function"
+            },
+            "value": "5.5m"
+          },
+          "SlowDuration": {
+            "css_class": "duration",
+            "label": "Slow Duration",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechDuration",
+              "subclass_name": "SlowDuration_scale_function"
+            },
+            "value": "3"
+          },
+          "WeaponPowerDebuff": {
+            "css_class": "bullet_damage",
+            "label": "Weapon Damage",
+            "usage_flags": [
+              "ConditionallyApplied"
+            ],
+            "value": "-25"
+          }
+        }
+      }
+    },
+    {
+      "source": "deadlock_assets_api",
+      "entity_type": "item_or_ability",
+      "external_id": "1656913918",
+      "fetched_at": "2026-06-30T18:11:10+00:00",
+      "id": 12988,
+      "payload": {
+        "class_name": "ability_warden_lock_down",
+        "description": {
+          "desc": "Curse an enemy hero. If they don't move away from their initial position within the escape time , they will be damaged and immobilized .",
+          "quip": "Curse your target, rooting them if they don't escape",
+          "t1_desc": "Warden deals +20% more Bullet Damage to trapped Heroes for 5s",
+          "t2_desc": "+0.75s Duration",
+          "t3_desc": "-14s Cooldown Silences enemies until they escape or are immobilized"
+        },
+        "id": 1656913918,
+        "name": "Binding Word",
+        "properties": {
+          "AbilityCastDelay": {
+            "css_class": "cast",
+            "label": "Cast Delay",
+            "value": "0.15"
+          },
+          "AbilityCastRange": {
+            "css_class": "range",
+            "label": "Cast Range",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechRange",
+              "subclass_name": "AbilityCastRange_scale_function"
+            },
+            "value": "15m"
+          },
+          "AbilityCooldown": {
+            "css_class": "cooldown",
+            "label": "Cooldown",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechCooldown",
+              "subclass_name": "AbilityCooldown_scale_function"
+            },
+            "value": "34"
+          },
+          "AbilityUnitTargetLimit": {
+            "value": "1"
+          },
+          "AdditionalTargetRadius": {
+            "value": "20m"
+          },
+          "ChannelMoveSpeed": {
+            "css_class": "move_speed",
+            "value": "-1"
+          },
+          "Damage": {
+            "css_class": "tech_damage",
+            "label": "Damage",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechPower",
+              "stat_scale": 2.437344,
+              "subclass_name": "Damage_scale_function"
+            },
+            "value": 110.0
+          },
+          "EscapeRange": {
+            "css_class": "distance",
+            "label": "Escape Range",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechRange",
+              "subclass_name": "EscapeRange_scale_function"
+            },
+            "value": "20m"
+          },
+          "EscapeTime": {
+            "css_class": "duration",
+            "label": "Escape Time",
+            "value": "2.8"
+          },
+          "ImmobilizeDuration": {
+            "css_class": "duration",
+            "label": "Immobilize Duration",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechDuration",
+              "subclass_name": "ImmobilizeDuration_scale_function"
+            },
+            "value": "1.75"
+          }
+        }
+      }
+    },
+    {
+      "source": "deadlock_assets_api",
+      "entity_type": "item_or_ability",
+      "external_id": "715325746",
+      "fetched_at": "2026-05-02T08:05:18+00:00",
+      "id": 97,
+      "payload": {
+        "class_name": "ability_blood_bomb",
+        "description": {
+          "desc": "Sacrifice some of your health to launch a bomb that deals damage after a brief arm time. Self damage type is Spirit and can be mitigated.",
+          "quip": "Sacrifice some health to launch a damaging bomb",
+          "t2_desc": "+ 2m Radius and + 50.0 Damage.",
+          "t3_desc": "Bombs leave a toxic mess on the ground, dealing 26.0% of the original damage per second , for 6s ."
+        },
+        "id": 715325746,
+        "name": "Essence Bomb",
+        "properties": {
+          "AbilityCooldown": {
+            "css_class": "cooldown",
+            "label": "Cooldown",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechCooldown",
+              "subclass_name": "AbilityCooldown_scale_function"
+            },
+            "value": 14.0
+          },
+          "AbilityCooldownBetweenCharge": {
+            "css_class": "charge_cooldown",
+            "label": "Charge Delay",
+            "scale_function": {
+              "class_name": "scale_function_ability_recharge_time",
+              "subclass_name": "scale_function_ability_recharge_time"
+            },
+            "value": "-1.0"
+          },
+          "AbilityUnitTargetLimit": {
+            "value": "1"
+          },
+          "ArmingDuration": {
+            "css_class": "duration",
+            "label": "Arming Duration",
+            "value": "0.65"
+          },
+          "BeepSoundBuildupCount": {
+            "value": "4"
+          },
+          "BeepSoundIntervalBias": {
+            "value": "0.55"
+          },
+          "BeepSoundMaxFrequency": {
+            "value": "0.1"
+          },
+          "ChannelMoveSpeed": {
+            "css_class": "move_speed",
+            "value": "-1"
+          },
+          "Damage": {
+            "css_class": "tech_damage",
+            "label": "Damage",
+            "scale_function": {
+              "class_name": "scale_function_tech_damage",
+              "specific_stat_scale_type": "ETechPower",
+              "stat_scale": 1.22,
+              "subclass_name": "Damage_scale_function"
+            },
+            "value": 90.0
+          },
+          "Radius": {
+            "css_class": "distance",
+            "label": "Radius",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechRadius",
+              "subclass_name": "Radius_scale_function"
+            },
+            "value": "7m"
+          },
+          "SelfDamagePct": {
+            "label": "Health Cost",
+            "value": "30"
+          }
+        }
+      }
+    },
+    {
+      "source": "deadlock_assets_api",
+      "entity_type": "item_or_ability",
+      "external_id": "519124136",
+      "fetched_at": "2026-07-06T01:01:29.890024+00:00",
+      "id": 35899,
+      "payload": {
+        "class_name": "ability_lash_flog",
+        "description": {
+          "desc": "Strike enemies in front of you with your whip, healing for a portion of the damage dealt.",
+          "quip": "Heals from targets ahead of you",
+          "t1_desc": "Apply -35% Move speed for 3s",
+          "t2_desc": "Apply -30% Fire Rate -16.0s Cooldown",
+          "t3_desc": "+80.0 Damage +40.0 Attack angle +20.0% Heal"
+        },
+        "id": 519124136,
+        "name": "Flog",
+        "properties": {
+          "AbilityCastDelay": {
+            "css_class": "cast",
+            "label": "Cast Delay",
+            "value": "0.15"
+          },
+          "AbilityCastRange": {
+            "css_class": "range",
+            "label": "Cast Range",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechRange",
+              "subclass_name": "AbilityCastRange_scale_function"
+            },
+            "value": "20m"
+          },
+          "AbilityCooldown": {
+            "css_class": "cooldown",
+            "label": "Cooldown",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechCooldown",
+              "subclass_name": "AbilityCooldown_scale_function"
+            },
+            "value": 26.0
+          },
+          "AbilityCooldownBetweenCharge": {
+            "css_class": "charge_cooldown",
+            "label": "Charge Delay",
+            "scale_function": {
+              "class_name": "scale_function_ability_recharge_time",
+              "subclass_name": "scale_function_ability_recharge_time"
+            },
+            "value": "-1.0"
+          },
+          "AbilityUnitTargetLimit": {
+            "value": "30"
+          },
+          "ChannelMoveSpeed": {
+            "css_class": "move_speed",
+            "value": "-1"
+          },
+          "Damage": {
+            "css_class": "tech_damage",
+            "label": "Damage",
+            "scale_function": {
+              "class_name": "scale_function_tech_damage",
+              "specific_stat_scale_type": "ETechPower",
+              "stat_scale": 0.85,
+              "subclass_name": "Damage_scale_function"
+            },
+            "value": 65.0
+          },
+          "HealPctVsHeroes": {
+            "css_class": "healing",
+            "label": "Heal vs heroes",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "EHealingOutput",
+              "subclass_name": "HealPctVsHeroes_scale_function"
+            },
+            "value": "50"
+          },
+          "HealPctVsNonHeroes": {
+            "css_class": "healing",
+            "label": "Heal vs non-heroes",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "EHealingOutput",
+              "subclass_name": "HealPctVsNonHeroes_scale_function"
+            },
+            "value": "16"
+          },
+          "TargetingConeAngle": {
+            "css_class": "distance",
+            "label": "Attack Angle",
+            "value": "38"
+          }
+        }
+      }
+    },
+    {
+      "source": "deadlock_assets_api",
+      "entity_type": "item_or_ability",
+      "external_id": "339443430",
+      "fetched_at": "2026-07-30T19:23:26.407847+00:00",
+      "id": 47449,
+      "payload": {
+        "activation": "passive",
+        "class_name": "upgrade_fervor",
+        "cost": 6400,
+        "description": {
+          "passive": "While you are below 50% health , you gain stat bonuses for a duration and existing debuffs on you are reduced."
+        },
+        "id": 339443430,
+        "is_active_item": false,
+        "item_slot_type": "weapon",
+        "item_tier": 4,
+        "name": "Frenzy",
+        "properties": {
+          "AbilityCooldown": {
+            "css_class": "cooldown",
+            "label": "Cooldown",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "EItemCooldown",
+              "subclass_name": "AbilityCooldown_scale_function"
+            },
+            "tooltip_section": "passive",
+            "value": "16"
+          },
+          "AbilityCooldownBetweenCharge": {
+            "css_class": "charge_cooldown",
+            "label": "Charge Delay",
+            "scale_function": {
+              "class_name": "scale_function_ability_recharge_time",
+              "subclass_name": "scale_function_ability_recharge_time"
+            },
+            "value": "-1.0"
+          },
+          "AbilityDuration": {
+            "css_class": "duration",
+            "label": "Duration",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechDuration",
+              "subclass_name": "AbilityDuration_scale_function"
+            },
+            "tooltip_section": "passive",
+            "value": "10"
+          },
+          "AbilityUnitTargetLimit": {
+            "value": "1"
+          },
+          "BonusFireRate": {
+            "label": "Fire Rate",
+            "tooltip_section": "innate",
+            "value": "15"
+          },
+          "BonusHealth": {
+            "css_class": "health",
+            "label": "Bonus Health",
+            "tooltip_section": "innate",
+            "value": "160"
+          },
+          "BulletLifestealPercent": {
+            "css_class": "healing",
+            "label": "Bullet Lifesteal",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "EHealingOutput",
+              "subclass_name": "BulletLifestealPercent_scale_function"
+            },
+            "tooltip_section": "innate",
+            "value": "10"
+          },
+          "ChannelMoveSpeed": {
+            "css_class": "move_speed",
+            "value": "-1"
+          },
+          "FervorFireRate": {
+            "css_class": "fire_rate",
+            "label": "Fire Rate",
+            "tooltip_section": "passive",
+            "usage_flags": [
+              "ConditionallyApplied"
+            ],
+            "value": "40"
+          },
+          "FervorMovespeed": {
+            "css_class": "move_speed",
+            "label": "Move Speed",
+            "tooltip_section": "passive",
+            "usage_flags": [
+              "ConditionallyApplied"
+            ],
+            "value": "4m"
+          },
+          "FervorStatusResistancePercent": {
+            "css_class": "duration",
+            "label": "Debuff Resist",
+            "tooltip_section": "passive",
+            "usage_flags": [
+              "ConditionallyApplied"
+            ],
+            "value": "40"
+          },
+          "LowHealthThreshold": {
+            "label": "Health Threshold",
+            "value": "50"
+          }
+        },
+        "tooltip_sections": [
+          {
+            "section_attributes": [
+              {
+                "properties": [
+                  "BonusHealth",
+                  "BonusFireRate",
+                  "BulletLifestealPercent"
+                ]
+              }
+            ],
+            "section_type": "innate"
+          },
+          {
+            "section_attributes": [
+              {
+                "important_properties": [
+                  "FervorMovespeed",
+                  "FervorFireRate",
+                  "FervorStatusResistancePercent"
+                ],
+                "loc_string": "While you are below 50% health , you gain stat bonuses for a duration and existing debuffs on you are reduced.",
+                "properties": [
+                  "AbilityCooldown",
+                  "AbilityDuration"
+                ]
+              }
+            ],
+            "section_type": "passive"
+          }
+        ]
+      }
+    },
+    {
+      "source": "deadlock_assets_api",
+      "entity_type": "item_or_ability",
+      "external_id": "365620721",
+      "fetched_at": "2026-06-30T18:11:10+00:00",
+      "id": 13163,
+      "payload": {
+        "activation": "passive",
+        "class_name": "upgrade_glass_cannon",
+        "cost": 6400,
+        "description": {
+          "desc": "Each hero kill grants permanent Fire Rate (up to a max of 8 times). Death results in the loss of 1 stack."
+        },
+        "id": 365620721,
+        "is_active_item": false,
+        "item_slot_type": "weapon",
+        "item_tier": 4,
+        "name": "Glass Cannon",
+        "properties": {
+          "AbilityCooldownBetweenCharge": {
+            "css_class": "charge_cooldown",
+            "label": "Charge Delay",
+            "scale_function": {
+              "class_name": "scale_function_ability_recharge_time",
+              "subclass_name": "scale_function_ability_recharge_time"
+            },
+            "value": "-1.0"
+          },
+          "AbilityUnitTargetLimit": {
+            "value": "1"
+          },
+          "BaseAttackDamagePercent": {
+            "css_class": "bullet_damage",
+            "label": "Weapon Damage",
+            "tooltip_section": "innate",
+            "value": "80"
+          },
+          "BonusClipPerKill": {
+            "label": "Bonus Ammo Per Kill",
+            "value": "2"
+          },
+          "BuildUpDuration": {
+            "css_class": "duration",
+            "label": "Buildup Decay Time",
+            "value": "2"
+          },
+          "BuildUpPerShot": {
+            "label": "Buildup Per Shot",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "EBuildUpRate",
+              "subclass_name": "buildup_scale_function"
+            },
+            "value": "1.2"
+          },
+          "ChannelMoveSpeed": {
+            "css_class": "move_speed",
+            "value": "-1"
+          },
+          "FireRatePerKill": {
+            "css_class": "fire_rate",
+            "label": "Fire Rate per Kill",
+            "tooltip_section": "passive",
+            "usage_flags": [
+              "ConditionallyApplied"
+            ],
+            "value": "7"
+          },
+          "MaxHealthLossPercent": {
+            "css_class": "health",
+            "label": "Max Health",
+            "tooltip_section": "innate",
+            "value": "-13"
+          },
+          "MaxStacks": {
+            "label": "Max Stacks",
+            "value": "8"
+          },
+          "SlowDuration": {
+            "css_class": "duration",
+            "label": "Slow Duration",
+            "scale_function": {
+              "class_name": "scale_function_tech_duration",
+              "subclass_name": "duration_scale_function"
+            },
+            "value": "3"
+          },
+          "SlowPercent": {
+            "css_class": "slow",
+            "label": "Bullet Slow Proc",
+            "usage_flags": [
+              "ConditionallyApplied"
+            ],
+            "value": "30"
+          }
+        },
+        "tooltip_sections": [
+          {
+            "section_attributes": [
+              {
+                "elevated_properties": [],
+                "properties": [
+                  "BaseAttackDamagePercent",
+                  "MaxHealthLossPercent"
+                ]
+              }
+            ],
+            "section_type": "innate"
+          },
+          {
+            "section_attributes": [
+              {
+                "important_properties": [
+                  "FireRatePerKill"
+                ],
+                "loc_string": "Each hero kill grants permanent Fire Rate (up to a max of 8 times). Death results in the loss of 1 stack."
+              }
+            ],
+            "section_type": "passive"
+          }
+        ]
+      }
+    },
+    {
+      "source": "deadlock_assets_api",
+      "entity_type": "item_or_ability",
+      "external_id": "3561817145",
+      "fetched_at": "2026-07-06T01:01:29.888186+00:00",
+      "id": 35897,
+      "payload": {
+        "class_name": "citadel_ability_lash_down_strike",
+        "description": {
+          "desc": "Stomp the ground beneath you, damaging enemies in front of you. If you perform Ground Strike while airborne, you quickly dive towards the ground. Damage grows slower after 25m.",
+          "quip": "Slam down to the ground, damaging enemies",
+          "t2_desc": "Struck enemies are knocked up and slowed by 50% for 3s",
+          "t3_desc": "Damage Per Meter +110% and improved scaling"
+        },
+        "id": 3561817145,
+        "name": "Ground Strike",
+        "properties": {
+          "AbilityCastDelay": {
+            "css_class": "cast",
+            "label": "Cast Delay",
+            "value": "0.15"
+          },
+          "AbilityCooldown": {
+            "css_class": "cooldown",
+            "label": "Cooldown",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechCooldown",
+              "subclass_name": "AbilityCooldown_scale_function"
+            },
+            "value": 18.0
+          },
+          "AbilityCooldownBetweenCharge": {
+            "css_class": "charge_cooldown",
+            "label": "Charge Delay",
+            "scale_function": {
+              "class_name": "scale_function_ability_recharge_time",
+              "subclass_name": "scale_function_ability_recharge_time"
+            },
+            "value": "-1.0"
+          },
+          "AbilityPostCastDuration": {
+            "value": "0.4"
+          },
+          "AbilityUnitTargetLimit": {
+            "value": "1"
+          },
+          "ChannelMoveSpeed": {
+            "css_class": "move_speed",
+            "value": "-1"
+          },
+          "MinAimAngle": {
+            "value": "60"
+          },
+          "Radius": {
+            "css_class": "distance",
+            "label": "Radius",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechRadius",
+              "subclass_name": "Radius_scale_function"
+            },
+            "value": "10m"
+          },
+          "StompDamage": {
+            "css_class": "tech_damage",
+            "label": "Stomp Damage",
+            "scale_function": {
+              "class_name": "scale_function_tech_damage",
+              "specific_stat_scale_type": "ETechPower",
+              "stat_scale": 0.7905,
+              "street_brawl_stat_scale": 0.71145,
+              "subclass_name": "StompDamage_scale_function"
+            },
+            "value": 60.0
+          },
+          "StompDamagePerMeterPrimary": {
+            "css_class": "tech_damage",
+            "label": "Damage Per Meter",
+            "scale_function": {
+              "class_name": "scale_function_tech_damage",
+              "stat_scale": 0.04,
+              "street_brawl_stat_scale": 0.035,
+              "subclass_name": "StompDamagePerMeterPrimary_scale_function"
+            },
+            "value": 5.5
+          },
+          "StompDamagePerMeterSecondary": {
+            "css_class": "tech_damage",
+            "scale_function": {
+              "class_name": "scale_function_tech_damage",
+              "stat_scale": 0.008137,
+              "street_brawl_stat_scale": 0.007323,
+              "subclass_name": "StompDamagePerMeterSecondary_scale_function"
+            },
+            "value": 4.2
+          },
+          "StompDamagePrimaryRange": {
+            "value": "25m"
+          },
+          "StompVerticalThreshold": {
+            "value": "118"
+          },
+          "StrikeVelocity": {
+            "value": "50m"
+          }
+        }
+      }
+    },
+    {
+      "source": "deadlock_assets_api",
+      "entity_type": "item_or_ability",
+      "external_id": "218284420",
+      "fetched_at": "2026-07-30T19:23:26.118383+00:00",
+      "id": 47136,
+      "payload": {
+        "class_name": "ability_life_drain",
+        "description": {
+          "desc": "Create a tether that drains enemy health over time and heals you . Target must be in line of sight and within max range to drain. You can shoot and use other abilities during the drain, but your move speed is reduced. to give health to friendly Heroes .",
+          "quip": "Steal health from an enemy over time",
+          "t3_desc": "Enables and Grants +2 Charges. Increases spirit scaling."
+        },
+        "id": 218284420,
+        "name": "Life Drain",
+        "properties": {
+          "AbilityCastDelay": {
+            "css_class": "cast",
+            "label": "Cast Delay",
+            "value": "0.2"
+          },
+          "AbilityCastRange": {
+            "css_class": "distance",
+            "label": "Cast Range",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechRange",
+              "subclass_name": "AbilityCastRange_scale_function"
+            },
+            "value": "18m"
+          },
+          "AbilityCooldown": {
+            "css_class": "cooldown",
+            "label": "Cooldown",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechCooldown",
+              "subclass_name": "AbilityCooldown_scale_function"
+            },
+            "value": 34.0
+          },
+          "AbilityDuration": {
+            "css_class": "duration",
+            "label": "Duration",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechDuration",
+              "subclass_name": "AbilityDuration_scale_function"
+            },
+            "value": "2.5"
+          },
+          "AbilityUnitTargetLimit": {
+            "value": "10"
+          },
+          "ChannelMoveSpeed": {
+            "css_class": "move_speed",
+            "value": "-1"
+          },
+          "LifeDrainHealthMult": {
+            "css_class": "healing",
+            "label": "Damage to Heal",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "EHealingOutput",
+              "subclass_name": "LifeDrainHealthMult_scale_function"
+            },
+            "value": "100"
+          },
+          "LifeDrainPerSecond": {
+            "css_class": "tech_damage",
+            "label": "Damage Per Second",
+            "scale_function": {
+              "class_name": "scale_function_tech_damage",
+              "specific_stat_scale_type": "ETechPower",
+              "stat_scale": 0.3225,
+              "subclass_name": "LifeDrainPerSecond_scale_function"
+            },
+            "value": 24.0
+          },
+          "MaxRange": {
+            "css_class": "distance",
+            "label": "Max Tether Range",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechRange",
+              "subclass_name": "MaxRange_scale_function"
+            },
+            "value": "28m"
+          },
+          "MoveSpeedReduction": {
+            "css_class": "slow",
+            "usage_flags": [
+              "ConditionallyApplied"
+            ],
+            "value": "40"
+          },
+          "TickRate": {
+            "value": "0.1"
+          }
+        }
+      }
+    },
+    {
+      "source": "deadlock_assets_api",
+      "entity_type": "item_or_ability",
+      "external_id": "1065103387",
+      "fetched_at": "2026-08-22T21:42:22.052916+00:00",
+      "id": 203736,
+      "payload": {
+        "class_name": "citadel_ability_lightning_ball",
+        "description": {
+          "desc": "Shoot a ball of lightning that travels in a straight line. Does damage to all targets in its radius . Slows down when damaging enemies and stops if it hits the world.",
+          "quip": "Launch a damaging ball of lightning",
+          "t2_desc": "-35% move speed on hit targets and +1s Lifetime",
+          "t3_desc": "+58.5 DPS and +1.75m radius"
+        },
+        "id": 1065103387,
+        "name": "Lightning Ball",
+        "properties": {
+          "AbilityCastDelay": {
+            "css_class": "cast",
+            "label": "Cast Delay",
+            "value": "0.2"
+          },
+          "AbilityCharges": {
+            "css_class": "cast",
+            "label": "Charges",
+            "scale_function": {
+              "class_name": "scale_function_ability_charges",
+              "subclass_name": "AbilityCharges_scale_function"
+            },
+            "value": "1"
+          },
+          "AbilityCooldown": {
+            "css_class": "cooldown",
+            "label": "Cooldown",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechCooldown",
+              "subclass_name": "AbilityCooldown_scale_function"
+            },
+            "value": 26.0
+          },
+          "AbilityCooldownBetweenCharge": {
+            "css_class": "charge_cooldown",
+            "label": "Charge Delay",
+            "scale_function": {
+              "class_name": "scale_function_ability_recharge_time",
+              "subclass_name": "scale_function_ability_recharge_time"
+            },
+            "value": "6"
+          },
+          "AbilityUnitTargetLimit": {
+            "value": "1"
+          },
+          "ChannelMoveSpeed": {
+            "css_class": "move_speed",
+            "value": "1.3m"
+          },
+          "DPS": {
+            "css_class": "tech_damage",
+            "label": "Damage Per Second",
+            "scale_function": {
+              "class_name": "scale_function_tech_damage",
+              "specific_stat_scale_type": "ETechPower",
+              "stat_scale": 0.5,
+              "subclass_name": "DPS_scale_function"
+            },
+            "value": 75.0
+          },
+          "MaxLifetime": {
+            "css_class": "duration",
+            "label": "Lifetime",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechDuration",
+              "subclass_name": "MaxLifetime_scale_function"
+            },
+            "value": "5"
+          },
+          "MinShockDuration": {
+            "value": "0.5"
+          },
+          "ShockRadius": {
+            "css_class": "distance",
+            "label": "Radius",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechRadius",
+              "subclass_name": "ShockRadius_scale_function"
+            },
+            "value": "4.25m"
+          },
+          "TickRate": {
+            "value": "0.1"
+          }
+        }
+      }
+    },
+    {
+      "source": "deadlock_assets_api",
+      "entity_type": "item_or_ability",
+      "external_id": "493591231",
+      "fetched_at": "2026-05-02T08:05:18+00:00",
+      "id": 611,
+      "payload": {
+        "activation": "passive",
+        "class_name": "upgrade_ultimate_burst",
+        "component_items": [
+          "upgrade_magic_slow"
+        ],
+        "cost": 6400,
+        "description": {
+          "desc": "Damage from your ultimate applies a stun and deals bonus spirit damage after a short delay."
+        },
+        "id": 493591231,
+        "is_active_item": false,
+        "item_slot_type": "spirit",
+        "item_tier": 4,
+        "name": "Lightning Scroll",
+        "properties": {
+          "AbilityCooldownBetweenCharge": {
+            "css_class": "charge_cooldown",
+            "label": "Charge Delay",
+            "scale_function": {
+              "class_name": "scale_function_ability_recharge_time",
+              "subclass_name": "scale_function_ability_recharge_time"
+            },
+            "value": "-1.0"
+          },
+          "AbilityDuration": {
+            "css_class": "duration",
+            "label": "Duration",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechDuration",
+              "subclass_name": "AbilityDuration_scale_function"
+            },
+            "value": "2"
+          },
+          "AbilityUnitTargetLimit": {
+            "value": "1"
+          },
+          "BonusHealth": {
+            "css_class": "health",
+            "label": "Bonus Health",
+            "tooltip_section": "innate",
+            "value": "50"
+          },
+          "BonusSprintSpeed": {
+            "css_class": "move_speed",
+            "label": "Sprint Speed",
+            "tooltip_section": "innate",
+            "value": "0.75m"
+          },
+          "ChannelMoveSpeed": {
+            "css_class": "move_speed",
+            "value": "-1"
+          },
+          "Damage": {
+            "css_class": "tech_damage",
+            "label": "Damage",
+            "scale_function": {},
+            "tooltip_section": "passive",
+            "value": "150"
+          },
+          "DelayBeforeStun": {
+            "css_class": "duration",
+            "label": "Delay Before Effect",
+            "tooltip_section": "passive",
+            "value": "3"
+          },
+          "GroundDashReductionPercent": {
+            "css_class": "slow",
+            "label": "Dash Distance",
+            "usage_flags": [
+              "ConditionallyApplied"
+            ],
+            "value": "-12"
+          },
+          "MovementSpeedSlow": {
+            "css_class": "slow",
+            "label": "Move Speed on Spirit Damage",
+            "tooltip_section": "innate",
+            "usage_flags": [
+              "ConditionallyApplied"
+            ],
+            "value": "30"
+          },
+          "SlowPercent": {
+            "css_class": "slow",
+            "label": "Move Speed",
+            "value": "80"
+          },
+          "StunDuration": {
+            "css_class": "duration",
+            "label": "Stun Duration",
+            "scale_function": {
+              "class_name": "scale_function_tech_duration",
+              "subclass_name": "stun_sf"
+            },
+            "tooltip_section": "passive",
+            "value": "0.75"
+          }
+        },
+        "tooltip_sections": [
+          {
+            "section_attributes": [
+              {
+                "properties": [
+                  "MovementSpeedSlow",
+                  "BonusHealth",
+                  "BonusSprintSpeed"
+                ]
+              }
+            ],
+            "section_type": "innate"
+          },
+          {
+            "section_attributes": [
+              {
+                "elevated_properties": [],
+                "important_properties": [
+                  "StatusEffectStun",
+                  "StunDuration",
+                  "Damage"
+                ],
+                "important_properties_with_icon": [
+                  {
+                    "localized_name": "Stun",
+                    "name": "StatusEffectStun"
+                  }
+                ],
+                "loc_string": "Damage from your ultimate applies a stun and deals bonus spirit damage after a short delay.",
+                "properties": [
+                  "DelayBeforeStun"
+                ]
+              },
+              {
+                "loc_string": "This effect can only trigger once per target per ultimate."
+              }
+            ],
+            "section_type": "passive"
+          },
+          {
+            "section_attributes": [
+              {
+                "loc_string": "Mystic Slow effects"
+              }
+            ],
+            "section_type": "passive"
+          }
+        ]
+      }
+    },
+    {
+      "source": "deadlock_assets_api",
+      "entity_type": "item_or_ability",
+      "external_id": "3230530872",
+      "fetched_at": "2026-07-30T19:23:26.116204+00:00",
+      "id": 47135,
+      "payload": {
+        "class_name": "ability_blood_shards",
+        "description": {
+          "desc": "Sacrifice some of your health to launch blood shards that apply a stack of Malice. Each stack slows the victim and increases the damage they take from you. The slow effect decreases over time.",
+          "quip": "Stack damage amplification on an enemy",
+          "t2_desc": "+25.199999 Damage and +4 Blood Shards",
+          "t3_desc": "+8% Damage Amp"
+        },
+        "id": 3230530872,
+        "name": "Malice",
+        "properties": {
+          "AbilityCastDelay": {
+            "css_class": "cast",
+            "label": "Cast Delay",
+            "value": "0.12"
+          },
+          "AbilityCooldown": {
+            "css_class": "cooldown",
+            "label": "Cooldown",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechCooldown",
+              "subclass_name": "AbilityCooldown_scale_function"
+            },
+            "value": 6.0
+          },
+          "AbilityCooldownBetweenCharge": {
+            "css_class": "charge_cooldown",
+            "label": "Charge Delay",
+            "scale_function": {
+              "class_name": "scale_function_ability_recharge_time",
+              "subclass_name": "scale_function_ability_recharge_time"
+            },
+            "value": "-1.0"
+          },
+          "AbilityPostCastDuration": {
+            "value": "0.3"
+          },
+          "AbilityUnitTargetLimit": {
+            "value": "1"
+          },
+          "ChannelMoveSpeed": {
+            "css_class": "move_speed",
+            "value": "-1"
+          },
+          "DebuffDuration": {
+            "css_class": "duration",
+            "label": "Debuff Duration",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechDuration",
+              "subclass_name": "DebuffDuration_scale_function"
+            },
+            "value": "9"
+          },
+          "HealthToDamage": {
+            "css_class": "tech_damage",
+            "label": "Damage",
+            "scale_function": {
+              "class_name": "scale_function_tech_damage",
+              "specific_stat_scale_type": "ETechPower",
+              "stat_scale": 0.558,
+              "subclass_name": "HealthToDamage_scale_function"
+            },
+            "value": 23.0
+          },
+          "MaxStacks": {
+            "label": "Max Stacks",
+            "value": "5"
+          },
+          "MoveSpeedPenaltyPerStack": {
+            "css_class": "slow",
+            "label": "Movement Slow",
+            "value": "15"
+          },
+          "NumBloodShards": {
+            "label": "Blood Shards",
+            "value": "3"
+          },
+          "SelfDamagePct": {
+            "css_class": "tech_damage",
+            "label": "Health Cost",
+            "value": "9"
+          },
+          "SlowDuration": {
+            "css_class": "duration",
+            "label": "Slow Duration",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechDuration",
+              "subclass_name": "SlowDuration_scale_function"
+            },
+            "value": "4"
+          },
+          "SpreadAngleDegrees": {
+            "value": "6"
+          },
+          "VulnerabilityPerStack": {
+            "css_class": "damage",
+            "label": "Damage Amplification",
+            "value": "7"
+          }
+        }
+      }
+    },
+    {
+      "source": "deadlock_assets_api",
+      "entity_type": "item_or_ability",
+      "external_id": "2064029594",
+      "fetched_at": "2026-06-30T18:11:10+00:00",
+      "id": 13074,
+      "payload": {
+        "activation": "passive",
+        "class_name": "upgrade_pristine_emblem",
+        "component_items": [
+          "upgrade_high_velocity_mag"
+        ],
+        "cost": 1600,
+        "description": {
+          "desc": "Your attacks have additional Weapon Damage against enemies above 50% health ."
+        },
+        "id": 2064029594,
+        "is_active_item": false,
+        "item_slot_type": "weapon",
+        "item_tier": 2,
+        "name": "Opening Rounds",
+        "properties": {
+          "AbilityCooldownBetweenCharge": {
+            "css_class": "charge_cooldown",
+            "label": "Charge Delay",
+            "scale_function": {
+              "class_name": "scale_function_ability_recharge_time",
+              "subclass_name": "scale_function_ability_recharge_time"
+            },
+            "value": "-1.0"
+          },
+          "AbilityUnitTargetLimit": {
+            "value": "1"
+          },
+          "BaseAttackDamagePercent": {
+            "css_class": "bullet_damage",
+            "label": "Weapon Damage",
+            "tooltip_section": "innate",
+            "value": "8"
+          },
+          "BaseAttackDamagePercentBonus": {
+            "css_class": "bullet_damage",
+            "label": "Weapon Damage",
+            "tooltip_section": "passive",
+            "usage_flags": [
+              "ConditionallyApplied"
+            ],
+            "value": "25"
+          },
+          "BonusBulletSpeedPercent": {
+            "css_class": "bullet_damage",
+            "label": "Bullet Velocity",
+            "tooltip_section": "innate",
+            "value": "60"
+          },
+          "ChannelMoveSpeed": {
+            "css_class": "move_speed",
+            "value": "-1"
+          },
+          "EnemyLifeThreshold": {
+            "value": "50"
+          },
+          "TechPower": {
+            "label": "Spirit Power",
+            "tooltip_section": "innate",
+            "value": "7"
+          }
+        },
+        "tooltip_sections": [
+          {
+            "section_attributes": [
+              {
+                "elevated_properties": [],
+                "properties": [
+                  "BonusBulletSpeedPercent",
+                  "BaseAttackDamagePercent",
+                  "TechPower"
+                ]
+              }
+            ],
+            "section_type": "innate"
+          },
+          {
+            "section_attributes": [
+              {
+                "important_properties": [
+                  "BaseAttackDamagePercentBonus"
+                ],
+                "loc_string": "Your attacks have additional Weapon Damage against enemies above 50% health ."
+              }
+            ],
+            "section_type": "passive"
+          }
+        ]
+      }
+    },
+    {
+      "source": "deadlock_assets_api",
+      "entity_type": "item_or_ability",
+      "external_id": "84321454",
+      "fetched_at": "2026-06-30T18:11:10+00:00",
+      "id": 13177,
+      "payload": {
+        "activation": "passive",
+        "class_name": "upgrade_quick_silver",
+        "cost": 1600,
+        "description": {
+          "desc": "Your imbued ability charges up over time with bonus spirit damage , bonus fire rate , and reloads bullets on use."
+        },
+        "id": 84321454,
+        "is_active_item": false,
+        "item_slot_type": "spirit",
+        "item_tier": 2,
+        "name": "Quicksilver Reload",
+        "properties": {
+          "AbilityChargeUpTime": {
+            "css_class": "cooldown",
+            "label": "Charge-Up Time",
+            "tooltip_section": "passive",
+            "value": "18"
+          },
+          "AbilityCooldown": {
+            "css_class": "cooldown",
+            "label": "Cooldown",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "EItemCooldown",
+              "subclass_name": "AbilityCooldown_scale_function"
+            },
+            "value": "18"
+          },
+          "AbilityCooldownBetweenCharge": {
+            "css_class": "charge_cooldown",
+            "label": "Charge Delay",
+            "scale_function": {
+              "class_name": "scale_function_ability_recharge_time",
+              "subclass_name": "scale_function_ability_recharge_time"
+            },
+            "value": "-1.0"
+          },
+          "AbilityUnitTargetLimit": {
+            "value": "1"
+          },
+          "AmmoReloadPercent": {
+            "css_class": "clipsize",
+            "label": "Bullets Reloaded",
+            "tooltip_section": "passive",
+            "value": "100"
+          },
+          "BonusFireRate": {
+            "css_class": "fire_rate",
+            "label": "Fire Rate",
+            "tooltip_section": "passive",
+            "value": "10"
+          },
+          "BuffDuration": {
+            "label": "Buff Duration",
+            "value": "12"
+          },
+          "ChannelMoveSpeed": {
+            "css_class": "move_speed",
+            "value": "-1"
+          },
+          "Damage": {
+            "css_class": "tech_damage",
+            "label": "Damage",
+            "scale_function": {
+              "class_name": "scale_function_tech_damage",
+              "specific_stat_scale_type": "ETechPower",
+              "stat_scale": 0.16,
+              "subclass_name": "Damage_scale_function"
+            },
+            "tooltip_section": "passive",
+            "value": "44"
+          }
+        },
+        "tooltip_sections": [
+          {
+            "section_attributes": [
+              {
+                "important_properties": [
+                  "Damage",
+                  "BonusFireRate",
+                  "AmmoReloadPercent"
+                ],
+                "loc_string": "Your imbued ability charges up over time with bonus spirit damage , bonus fire rate , and reloads bullets on use.",
+                "properties": [
+                  "AbilityChargeUpTime"
+                ]
+              }
+            ],
+            "section_type": "passive"
+          }
+        ]
+      }
+    },
+    {
+      "source": "deadlock_assets_api",
+      "entity_type": "item_or_ability",
+      "external_id": "1055679805",
+      "fetched_at": "2026-06-30T18:11:10+00:00",
+      "id": 13165,
+      "payload": {
+        "activation": "instant_cast",
+        "class_name": "upgrade_surging_power",
+        "component_items": [
+          "upgrade_vampire"
+        ],
+        "cost": 6400,
+        "description": {
+          "active": "Grants Lifesteal , Fire Rate , and Ammo . This added Ammo is not limited by your max magazine size."
+        },
+        "id": 1055679805,
+        "is_active_item": true,
+        "item_slot_type": "vitality",
+        "item_tier": 4,
+        "name": "Vampiric Burst",
+        "properties": {
+          "AbilityCooldown": {
+            "css_class": "cooldown",
+            "label": "Cooldown",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "EItemCooldown",
+              "subclass_name": "AbilityCooldown_scale_function"
+            },
+            "tooltip_section": "active",
+            "value": 30.0
+          },
+          "AbilityCooldownBetweenCharge": {
+            "css_class": "charge_cooldown",
+            "label": "Charge Delay",
+            "scale_function": {
+              "class_name": "scale_function_ability_recharge_time",
+              "subclass_name": "scale_function_ability_recharge_time"
+            },
+            "value": "-1.0"
+          },
+          "AbilityDuration": {
+            "css_class": "duration",
+            "label": "Duration",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "ETechDuration",
+              "subclass_name": "AbilityDuration_scale_function"
+            },
+            "tooltip_section": "active",
+            "value": "5"
+          },
+          "AbilityUnitTargetLimit": {
+            "value": "1"
+          },
+          "ActiveBonusFireRate": {
+            "css_class": "fire_rate",
+            "label": "Fire Rate",
+            "tooltip_section": "active",
+            "value": "34"
+          },
+          "ActiveBonusLifesteal": {
+            "css_class": "healing",
+            "label": "Bullet Lifesteal",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "EHealingOutput",
+              "subclass_name": "ActiveBulletLifestealPercent_scale_function"
+            },
+            "tooltip_section": "active",
+            "value": "70"
+          },
+          "ActiveReloadPercent": {
+            "label": "Ammo",
+            "tooltip_section": "active",
+            "value": "75"
+          },
+          "BaseAttackDamagePercent": {
+            "css_class": "bullet_damage",
+            "label": "Weapon Damage",
+            "tooltip_section": "innate",
+            "value": "6"
+          },
+          "BonusHealth": {
+            "label": "Bonus Health",
+            "tooltip_section": "innate",
+            "value": "100"
+          },
+          "BulletLifestealPercent": {
+            "css_class": "healing",
+            "label": "Bullet Lifesteal",
+            "scale_function": {
+              "class_name": "scale_function_single_stat",
+              "specific_stat_scale_type": "EHealingOutput",
+              "subclass_name": "BulletLifestealPercent_scale_function"
+            },
+            "tooltip_section": "innate",
+            "value": "13"
+          },
+          "BulletResist": {
+            "css_class": "bullet_armor_up",
+            "label": "Bullet Resist",
+            "tooltip_section": "innate",
+            "usage_flags": [
+              "IntrinsicallyProvidedInAbility"
+            ],
+            "value": "10"
+          },
+          "ChannelMoveSpeed": {
+            "css_class": "move_speed",
+            "value": "-1"
+          }
+        },
+        "tooltip_sections": [
+          {
+            "section_attributes": [
+              {
+                "properties": [
+                  "BulletLifestealPercent",
+                  "BulletResist",
+                  "BonusHealth",
+                  "BaseAttackDamagePercent"
+                ]
+              }
+            ],
+            "section_type": "innate"
+          },
+          {
+            "section_attributes": [
+              {
+                "important_properties": [
+                  "ActiveBonusLifesteal",
+                  "ActiveBonusFireRate"
+                ],
+                "loc_string": "Grants Lifesteal , Fire Rate , and Ammo . This added Ammo is not limited by your max magazine size.",
+                "properties": [
+                  "ActiveReloadPercent",
+                  "AbilityCooldown",
+                  "AbilityDuration"
+                ]
+              }
+            ],
+            "section_type": "active"
+          }
+        ]
+      }
+    },
+    {
+      "source": "deadlock_assets_api",
+      "entity_type": "item_or_ability",
+      "external_id": "ability_afterburn",
+      "fetched_at": "2026-05-02T08:05:19+00:00",
+      "id": 890,
+      "payload": {
+        "class_name": "ability_afterburn",
+        "properties": {
+          "AbilityCooldownBetweenCharge": {
+            "css_class": "charge_cooldown",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_ability_recharge_time",
+                "subclass_name": "scale_function_ability_recharge_time"
+              }
+            },
+            "value": "-1.0"
+          },
+          "AbilityUnitTargetLimit": {
+            "value": "1"
+          },
+          "BuildUpBulletPercentPerHit": {
+            "css_class": "cast",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "EProcBuildUpRateScale",
+                "subclass_name": "BuildUpBulletPercentPerHit_scale_function"
+              }
+            },
+            "value": "8.1"
+          },
+          "BuildUpDuration": {
+            "css_class": "duration",
+            "value": "17"
+          },
+          "BurnDuration": {
+            "css_class": "duration",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "ETechDuration",
+                "subclass_name": "BurnDuration_scale_function"
+              }
+            },
+            "value": "3"
+          },
+          "BurnDurationBase": {
+            "css_class": "duration",
+            "value": "3"
+          },
+          "ChannelMoveSpeed": {
+            "css_class": "move_speed",
+            "value": "-1"
+          },
+          "CritBuildup": {
+            "css_class": "cast",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "EProcBuildUpRateScale",
+                "subclass_name": "CritBuildup_scale_function"
+              }
+            },
+            "value": "15.4"
+          },
+          "DPS": {
+            "css_class": "tech_damage",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_tech_damage",
+                "stat_scale": 0.66,
+                "subclass_name": "DPS_scale_function"
+              }
+            },
+            "value": 14.0
+          },
+          "RefillDuration": {
+            "css_class": "duration",
+            "value": "0.5"
+          },
+          "RefillDurationCrit": {
+            "css_class": "duration",
+            "value": "1.0"
+          },
+          "TickRate": {
+            "value": "0.5"
+          }
+        }
+      }
+    },
+    {
+      "source": "deadlock_assets_api",
+      "entity_type": "item_or_ability",
+      "external_id": "ability_blood_bomb",
+      "fetched_at": "2026-05-02T08:05:19+00:00",
+      "id": 858,
+      "payload": {
+        "class_name": "ability_blood_bomb",
+        "properties": {
+          "AbilityCooldown": {
+            "css_class": "cooldown",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "ETechCooldown",
+                "subclass_name": "AbilityCooldown_scale_function"
+              }
+            },
+            "value": 14.0
+          },
+          "AbilityCooldownBetweenCharge": {
+            "css_class": "charge_cooldown",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_ability_recharge_time",
+                "subclass_name": "scale_function_ability_recharge_time"
+              }
+            },
+            "value": "-1.0"
+          },
+          "AbilityUnitTargetLimit": {
+            "value": "1"
+          },
+          "ArmingDuration": {
+            "css_class": "duration",
+            "value": "0.65"
+          },
+          "BeepSoundBuildupCount": {
+            "value": "4"
+          },
+          "BeepSoundIntervalBias": {
+            "value": "0.55"
+          },
+          "BeepSoundMaxFrequency": {
+            "value": "0.1"
+          },
+          "ChannelMoveSpeed": {
+            "css_class": "move_speed",
+            "value": "-1"
+          },
+          "Damage": {
+            "css_class": "tech_damage",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_tech_damage",
+                "specific_stat_scale_type": "ETechPower",
+                "stat_scale": 1.22,
+                "subclass_name": "Damage_scale_function"
+              }
+            },
+            "value": 90.0
+          },
+          "Radius": {
+            "css_class": "distance",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "ETechRadius",
+                "subclass_name": "Radius_scale_function"
+              }
+            },
+            "value": "7m"
+          },
+          "SelfDamagePct": {
+            "value": "30"
+          }
+        }
+      }
+    },
+    {
+      "source": "deadlock_assets_api",
+      "entity_type": "item_or_ability",
+      "external_id": "ability_blood_shards",
+      "fetched_at": "2026-05-02T08:05:19+00:00",
+      "id": 859,
+      "payload": {
+        "class_name": "ability_blood_shards",
+        "properties": {
+          "AbilityCastDelay": {
+            "css_class": "cast",
+            "value": "0.12"
+          },
+          "AbilityCooldown": {
+            "css_class": "cooldown",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "ETechCooldown",
+                "subclass_name": "AbilityCooldown_scale_function"
+              }
+            },
+            "value": 6.0
+          },
+          "AbilityCooldownBetweenCharge": {
+            "css_class": "charge_cooldown",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_ability_recharge_time",
+                "subclass_name": "scale_function_ability_recharge_time"
+              }
+            },
+            "value": "-1.0"
+          },
+          "AbilityPostCastDuration": {
+            "value": "0.3"
+          },
+          "AbilityUnitTargetLimit": {
+            "value": "1"
+          },
+          "ChannelMoveSpeed": {
+            "css_class": "move_speed",
+            "value": "-1"
+          },
+          "DebuffDuration": {
+            "css_class": "duration",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "ETechDuration",
+                "subclass_name": "DebuffDuration_scale_function"
+              }
+            },
+            "value": "9"
+          },
+          "HealthToDamage": {
+            "css_class": "tech_damage",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_tech_damage",
+                "specific_stat_scale_type": "ETechPower",
+                "stat_scale": 0.558,
+                "subclass_name": "HealthToDamage_scale_function"
+              }
+            },
+            "value": 23.0
+          },
+          "MaxStacks": {
+            "value": "5"
+          },
+          "MoveSpeedPenaltyPerStack": {
+            "css_class": "slow",
+            "value": "15"
+          },
+          "NumBloodShards": {
+            "value": "3"
+          },
+          "SelfDamagePct": {
+            "css_class": "tech_damage",
+            "value": "9"
+          },
+          "SlowDuration": {
+            "css_class": "duration",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "ETechDuration",
+                "subclass_name": "SlowDuration_scale_function"
+              }
+            },
+            "value": "4"
+          },
+          "SpreadAngleDegrees": {
+            "value": "6"
+          },
+          "VulnerabilityPerStack": {
+            "css_class": "damage",
+            "value": "8"
+          }
+        }
+      }
+    },
+    {
+      "source": "deadlock_assets_api",
+      "entity_type": "item_or_ability",
+      "external_id": "ability_lash_flog",
+      "fetched_at": "2026-05-02T08:05:19+00:00",
+      "id": 902,
+      "payload": {
+        "class_name": "ability_lash_flog",
+        "properties": {
+          "AbilityCastDelay": {
+            "css_class": "cast",
+            "value": "0.15"
+          },
+          "AbilityCastRange": {
+            "css_class": "range",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "ETechRange",
+                "subclass_name": "AbilityCastRange_scale_function"
+              }
+            },
+            "value": "20m"
+          },
+          "AbilityCooldown": {
+            "css_class": "cooldown",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "ETechCooldown",
+                "subclass_name": "AbilityCooldown_scale_function"
+              }
+            },
+            "value": 26.0
+          },
+          "AbilityCooldownBetweenCharge": {
+            "css_class": "charge_cooldown",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_ability_recharge_time",
+                "subclass_name": "scale_function_ability_recharge_time"
+              }
+            },
+            "value": "-1.0"
+          },
+          "AbilityUnitTargetLimit": {
+            "value": "30"
+          },
+          "ChannelMoveSpeed": {
+            "css_class": "move_speed",
+            "value": "-1"
+          },
+          "Damage": {
+            "css_class": "tech_damage",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_tech_damage",
+                "specific_stat_scale_type": "ETechPower",
+                "stat_scale": 0.85,
+                "subclass_name": "Damage_scale_function"
+              }
+            },
+            "value": 65.0
+          },
+          "HealPctVsHeroes": {
+            "css_class": "healing",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "EHealingOutput",
+                "subclass_name": "HealPctVsHeroes_scale_function"
+              }
+            },
+            "value": "50"
+          },
+          "HealPctVsNonHeroes": {
+            "css_class": "healing",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "EHealingOutput",
+                "subclass_name": "HealPctVsNonHeroes_scale_function"
+              }
+            },
+            "value": "16"
+          },
+          "TargetingConeAngle": {
+            "css_class": "distance",
+            "value": "30"
+          }
+        }
+      }
+    },
+    {
+      "source": "deadlock_assets_api",
+      "entity_type": "item_or_ability",
+      "external_id": "ability_life_drain",
+      "fetched_at": "2026-05-02T08:05:19+00:00",
+      "id": 860,
+      "payload": {
+        "class_name": "ability_life_drain",
+        "properties": {
+          "AbilityCastDelay": {
+            "css_class": "cast",
+            "value": "0.2"
+          },
+          "AbilityCastRange": {
+            "css_class": "distance",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "ETechRange",
+                "subclass_name": "AbilityCastRange_scale_function"
+              }
+            },
+            "value": "18m"
+          },
+          "AbilityCooldown": {
+            "css_class": "cooldown",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "ETechCooldown",
+                "subclass_name": "AbilityCooldown_scale_function"
+              }
+            },
+            "value": 34.0
+          },
+          "AbilityDuration": {
+            "css_class": "duration",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "ETechDuration",
+                "subclass_name": "AbilityDuration_scale_function"
+              }
+            },
+            "value": "2.5"
+          },
+          "AbilityUnitTargetLimit": {
+            "value": "10"
+          },
+          "ChannelMoveSpeed": {
+            "css_class": "move_speed",
+            "value": "-1"
+          },
+          "LifeDrainHealthMult": {
+            "css_class": "healing",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "EHealingOutput",
+                "subclass_name": "LifeDrainHealthMult_scale_function"
+              }
+            },
+            "value": "75"
+          },
+          "LifeDrainPerSecond": {
+            "css_class": "tech_damage",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_tech_damage",
+                "specific_stat_scale_type": "ETechPower",
+                "stat_scale": 0.43,
+                "subclass_name": "LifeDrainPerSecond_scale_function"
+              }
+            },
+            "value": 32.0
+          },
+          "MaxRange": {
+            "css_class": "distance",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "ETechRange",
+                "subclass_name": "MaxRange_scale_function"
+              }
+            },
+            "value": "28m"
+          },
+          "MoveSpeedReduction": {
+            "css_class": "slow",
+            "usage_flags": [
+              "ConditionallyApplied"
+            ],
+            "value": "40"
+          },
+          "TickRate": {
+            "value": "0.1"
+          }
+        }
+      }
+    },
+    {
+      "source": "deadlock_assets_api",
+      "entity_type": "item_or_ability",
+      "external_id": "ability_warden_crowd_control",
+      "fetched_at": "2026-05-02T08:05:19+00:00",
+      "id": 985,
+      "payload": {
+        "class_name": "ability_warden_crowd_control",
+        "properties": {
+          "AbilityCastDelay": {
+            "css_class": "cast",
+            "value": "0.1"
+          },
+          "AbilityCooldown": {
+            "css_class": "cooldown",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "ETechCooldown",
+                "subclass_name": "AbilityCooldown_scale_function"
+              }
+            },
+            "value": 12.0
+          },
+          "AbilityCooldownBetweenCharge": {
+            "css_class": "charge_cooldown",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_ability_recharge_time",
+                "subclass_name": "scale_function_ability_recharge_time"
+              }
+            },
+            "value": "-1.0"
+          },
+          "AbilityUnitTargetLimit": {
+            "value": "1"
+          },
+          "ChannelMoveSpeed": {
+            "css_class": "move_speed",
+            "value": "-1"
+          },
+          "Damage": {
+            "css_class": "tech_damage",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_tech_damage",
+                "specific_stat_scale_type": "ETechPower",
+                "stat_scale": 0.731203,
+                "subclass_name": "Damage_scale_function"
+              }
+            },
+            "value": 60.0
+          },
+          "DebuffDuration": {
+            "css_class": "duration",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "ETechDuration",
+                "subclass_name": "DebuffDuration_scale_function"
+              }
+            },
+            "value": "7"
+          },
+          "ForwardVelocity": {
+            "value": "800"
+          },
+          "MoveSpeedSlowPct": {
+            "css_class": "slow",
+            "usage_flags": [
+              "ConditionallyApplied"
+            ],
+            "value": "20"
+          },
+          "ProjectileLifetime": {
+            "value": "60"
+          },
+          "Radius": {
+            "css_class": "distance",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "ETechRadius",
+                "subclass_name": "Radius_scale_function"
+              }
+            },
+            "value": "5.5m"
+          },
+          "SlowDuration": {
+            "css_class": "duration",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "ETechDuration",
+                "subclass_name": "SlowDuration_scale_function"
+              }
+            },
+            "value": "3"
+          },
+          "WeaponPowerDebuff": {
+            "css_class": "bullet_damage",
+            "usage_flags": [
+              "ConditionallyApplied"
+            ],
+            "value": "-25"
+          }
+        }
+      }
+    },
+    {
+      "source": "deadlock_assets_api",
+      "entity_type": "item_or_ability",
+      "external_id": "ability_warden_lock_down",
+      "fetched_at": "2026-05-02T08:05:19+00:00",
+      "id": 983,
+      "payload": {
+        "class_name": "ability_warden_lock_down",
+        "properties": {
+          "AbilityCastDelay": {
+            "css_class": "cast",
+            "value": "0.15"
+          },
+          "AbilityCastRange": {
+            "css_class": "range",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "ETechRange",
+                "subclass_name": "AbilityCastRange_scale_function"
+              }
+            },
+            "value": "15m"
+          },
+          "AbilityCooldown": {
+            "css_class": "cooldown",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "ETechCooldown",
+                "subclass_name": "AbilityCooldown_scale_function"
+              }
+            },
+            "value": "34"
+          },
+          "AbilityUnitTargetLimit": {
+            "value": "1"
+          },
+          "AdditionalTargetRadius": {
+            "value": "20m"
+          },
+          "ChannelMoveSpeed": {
+            "css_class": "move_speed",
+            "value": "-1"
+          },
+          "Damage": {
+            "css_class": "tech_damage",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "ETechPower",
+                "stat_scale": 2.437344,
+                "subclass_name": "Damage_scale_function"
+              }
+            },
+            "value": 110.0
+          },
+          "EscapeRange": {
+            "css_class": "distance",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "ETechRange",
+                "subclass_name": "EscapeRange_scale_function"
+              }
+            },
+            "value": "20m"
+          },
+          "EscapeTime": {
+            "css_class": "duration",
+            "value": "2.8"
+          },
+          "ImmobilizeDuration": {
+            "css_class": "duration",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "ETechDuration",
+                "subclass_name": "ImmobilizeDuration_scale_function"
+              }
+            },
+            "value": "1.75"
+          }
+        }
+      }
+    },
+    {
+      "source": "deadlock_assets_api",
+      "entity_type": "item_or_ability",
+      "external_id": "citadel_ability_lash_down_strike",
+      "fetched_at": "2026-05-02T08:05:19+00:00",
+      "id": 900,
+      "payload": {
+        "class_name": "citadel_ability_lash_down_strike",
+        "properties": {
+          "AbilityCastDelay": {
+            "css_class": "cast",
+            "value": "0.15"
+          },
+          "AbilityCooldown": {
+            "css_class": "cooldown",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "ETechCooldown",
+                "subclass_name": "AbilityCooldown_scale_function"
+              }
+            },
+            "value": 21.0
+          },
+          "AbilityCooldownBetweenCharge": {
+            "css_class": "charge_cooldown",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_ability_recharge_time",
+                "subclass_name": "scale_function_ability_recharge_time"
+              }
+            },
+            "value": "-1.0"
+          },
+          "AbilityPostCastDuration": {
+            "value": "0.4"
+          },
+          "AbilityUnitTargetLimit": {
+            "value": "1"
+          },
+          "ChannelMoveSpeed": {
+            "css_class": "move_speed",
+            "value": "-1"
+          },
+          "MinAimAngle": {
+            "value": "60"
+          },
+          "Radius": {
+            "css_class": "distance",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "ETechRadius",
+                "subclass_name": "Radius_scale_function"
+              }
+            },
+            "value": "10m"
+          },
+          "StompDamage": {
+            "css_class": "tech_damage",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_tech_damage",
+                "specific_stat_scale_type": "ETechPower",
+                "stat_scale": 0.7905,
+                "street_brawl_stat_scale": 0.71145,
+                "subclass_name": "StompDamage_scale_function"
+              }
+            },
+            "value": 60.0
+          },
+          "StompDamagePerMeterPrimary": {
+            "css_class": "tech_damage",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_tech_damage",
+                "stat_scale": 0.0372,
+                "street_brawl_stat_scale": 0.03348,
+                "subclass_name": "StompDamagePerMeterPrimary_scale_function"
+              }
+            },
+            "value": 5.5
+          },
+          "StompDamagePerMeterSecondary": {
+            "css_class": "tech_damage",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_tech_damage",
+                "stat_scale": 0.008137,
+                "street_brawl_stat_scale": 0.007323,
+                "subclass_name": "StompDamagePerMeterSecondary_scale_function"
+              }
+            },
+            "value": 4.2
+          },
+          "StompDamagePrimaryRange": {
+            "value": "25m"
+          },
+          "StompVerticalThreshold": {
+            "value": "118"
+          },
+          "StrikeVelocity": {
+            "value": "50m"
+          }
+        }
+      }
+    },
+    {
+      "source": "deadlock_assets_api",
+      "entity_type": "item_or_ability",
+      "external_id": "citadel_ability_lightning_ball",
+      "fetched_at": "2026-05-02T08:05:19+00:00",
+      "id": 865,
+      "payload": {
+        "class_name": "citadel_ability_lightning_ball",
+        "properties": {
+          "AbilityCastDelay": {
+            "css_class": "cast",
+            "value": "0.2"
+          },
+          "AbilityCharges": {
+            "css_class": "cast",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_ability_charges",
+                "subclass_name": "AbilityCharges_scale_function"
+              }
+            },
+            "value": "1"
+          },
+          "AbilityCooldown": {
+            "css_class": "cooldown",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "ETechCooldown",
+                "subclass_name": "AbilityCooldown_scale_function"
+              }
+            },
+            "value": 26.0
+          },
+          "AbilityCooldownBetweenCharge": {
+            "css_class": "charge_cooldown",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_ability_recharge_time",
+                "subclass_name": "scale_function_ability_recharge_time"
+              }
+            },
+            "value": "7"
+          },
+          "AbilityUnitTargetLimit": {
+            "value": "1"
+          },
+          "ChannelMoveSpeed": {
+            "css_class": "move_speed",
+            "value": "1.3m"
+          },
+          "DPS": {
+            "css_class": "tech_damage",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_tech_damage",
+                "specific_stat_scale_type": "ETechPower",
+                "stat_scale": 0.5,
+                "subclass_name": "DPS_scale_function"
+              }
+            },
+            "value": 75.0
+          },
+          "MaxLifetime": {
+            "css_class": "duration",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "ETechDuration",
+                "subclass_name": "MaxLifetime_scale_function"
+              }
+            },
+            "value": "5"
+          },
+          "MinShockDuration": {
+            "value": "0.5"
+          },
+          "ShockRadius": {
+            "css_class": "distance",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "ETechRadius",
+                "subclass_name": "ShockRadius_scale_function"
+              }
+            },
+            "value": "4.25m"
+          },
+          "TickRate": {
+            "value": "0.1"
+          }
+        }
+      }
+    },
+    {
+      "source": "deadlock_assets_api",
+      "entity_type": "item_or_ability",
+      "external_id": "synth_affliction",
+      "fetched_at": "2026-05-02T08:05:19+00:00",
+      "id": 959,
+      "payload": {
+        "class_name": "synth_affliction",
+        "properties": {
+          "AbilityCastDelay": {
+            "css_class": "cast",
+            "value": "0.6"
+          },
+          "AbilityCooldown": {
+            "css_class": "cooldown",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "ETechCooldown",
+                "subclass_name": "AbilityCooldown_scale_function"
+              }
+            },
+            "value": 140.0
+          },
+          "AbilityCooldownBetweenCharge": {
+            "css_class": "charge_cooldown",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_ability_recharge_time",
+                "subclass_name": "scale_function_ability_recharge_time"
+              }
+            },
+            "value": "-1.0"
+          },
+          "AbilityUnitTargetLimit": {
+            "value": "1"
+          },
+          "CanBePurged": {
+            "value": "1"
+          },
+          "ChannelMoveSpeed": {
+            "css_class": "move_speed",
+            "value": "1.3m"
+          },
+          "DPS": {
+            "css_class": "tech_damage",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_tech_damage",
+                "specific_stat_scale_type": "ETechPower",
+                "stat_scale": 0.22,
+                "subclass_name": "DPS_scale_function"
+              }
+            },
+            "value": 34.0
+          },
+          "DamageInterval": {
+            "value": "0.5"
+          },
+          "DebuffDuration": {
+            "css_class": "duration",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "ETechDuration",
+                "subclass_name": "DebuffDuration_scale_function"
+              }
+            },
+            "value": "11"
+          },
+          "Radius": {
+            "css_class": "distance",
+            "scale_function": {
+              "subclass": {
+                "class_name": "scale_function_single_stat",
+                "specific_stat_scale_type": "ETechRange",
+                "subclass_name": "Radius_scale_function"
+              }
+            },
+            "value": "9m"
+          }
+        }
+      }
+    }
+  ]
+}

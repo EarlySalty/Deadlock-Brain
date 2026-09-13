@@ -267,7 +267,15 @@ fn evaluate_core(
                 && !metadata(name)
                 && !name.contains("ProcDamage")
                 && !matches!(name.as_str(), "AmmoReloadPercent" | "ActiveReloadPercent")
-                && !(name == "Damage" && item.imbueable)
+                && !(name == "Damage"
+                    && (item.imbueable
+                        || (item.description.to_ascii_lowercase().contains("ultimate")
+                            && item
+                                .properties
+                                .get("DelayBeforeStun")
+                                .copied()
+                                .unwrap_or(0.0)
+                                > 0.0)))
             {
                 unknown.insert(format!("{}: {name} nicht quantifiziert", item.name));
             }
@@ -299,6 +307,20 @@ fn evaluate_core(
             }
         }
         for ability in &hero.abilities {
+            if ability
+                .properties
+                .get("SelfDamagePct")
+                .copied()
+                .unwrap_or(0.0)
+                > 0.0
+            {
+                unknown.insert(format!("Fähigkeit {}: Eigenkosten-Annahme {} aus ursprünglicher Mechanikakte, nicht im Snapshot eindeutig belegt; Gegenmessung im Spiel erforderlich",ability.class_name, match ability.class_name.as_str() { "ability_blood_bomb"=>"Prozent des Fähigkeitsschadens, Spirit-Widerstand mindert Eigenkosten", "ability_blood_shards"=>"Prozent des aktuellen Lebens ohne Widerstandsminderung", _=>"Bezug unklar; Fähigkeit wird nicht als schadensfrei nutzbar simuliert" }));
+            }
+            if ability.properties.contains_key("LifeDrainHealthMult")
+                || ability.properties.contains_key("HealPctVsHeroes")
+            {
+                unknown.insert(format!("Fähigkeit {}: zusätzliches Item-Lifesteal neben eigener Heilung ist eine unbestätigte Annahme",ability.class_name));
+            }
             for (key, value) in &ability.properties {
                 if *value == 0.0 {
                     continue;
@@ -350,13 +372,14 @@ fn evaluate_core(
         "Begrenzter deterministischer Einzelzielvergleich, keine vollständige Spielsimulation oder Gewinnwahrscheinlichkeit.".into(),
         "Inventarszenario: zwölf universelle Plätze, höchstens vier aktive Items; regulärer Wiederverkauf zur Hälfte des Gesamtpreises, kein Sofort-Rückkauf.".into(),
         "Drei gleich gewichtete Szenarien: gesundes Duell, steigender Lebensdruck, bewegliches Ziel. Gleiche Annahmen für alle Helden.".into(),
-        "Alle Fähigkeiten und aktiven Items sind anfangs bereit; Basis-Fähigkeitsstufe, keine erfundenen Skill-Upgrades. Kanalisieren und Schießen teilen die verfügbare Kampfzeit.".into(),
-        "Lebensschwellen des Ziels folgen dem bereits zugefügten Schaden relativ zum Basisleben des Helden; kein automatischer Zielwechsel. Eigene Gesundheitskosten nutzen das angenommene verbleibende Leben, Spirit-Widerstand mindert belegten Eigenschaden.".into(),
+        "Fähigkeiten und Itemladungen starten bereit; es gelten die übergebenen Fähigkeitsstufen und belegten Ladungs-/Abklingzeiten. Kanalisieren und Schießen teilen die verfügbare Kampfzeit.".into(),
+        "Lebensschwellen des Ziels folgen dem bereits zugefügten Schaden relativ zum Basisleben des Helden; kein automatischer Zielwechsel. Eigene Gesundheitskosten nutzen den je Fähigkeit ausdrücklich benannten Prozentbezug; unklare Kosten verhindern eine simulierte kostenlose Castfolge.".into(),
         "Gegner startet ohne Resistenzen; eingehender Schaden ist zur Hälfte Waffen- und Spirit-Schaden. Lifesteal zählt höchstens den angenommenen Lebensverlust.".into(),
         "Bewegliches Ziel läuft mit angenommenen 8 m/s aus Kontrollkreisen; Verlangsamung reduziert die zurückgelegte Strecke, Festsetzen stoppt sie. Unbekannte Höhenschäden werden bei Höhe null nicht addiert.".into(),
         "Utility-Modellannahme: Verlangsamung und Lauftempo helfen beim Zielkontakt, bei beweglichem Ziel stärker. Überlappende Verlangsamungen nutzen nur den stärksten Wert.".into(),
         "Shopboni nach Wert der aktuell gehaltenen Items je Kategorie; Verkäufe entfernen deren Bonusanteil. Fehlende Schwellen ergeben keinen erfundenen Bonus.".into(),
-        "Fähigkeits- und Itemladungen sowie komplexe Gegnerreaktionen sind noch nicht vollständig modelliert; Imbue-Verknüpfungen bleiben bei übergebenen Kaufbindungen unverändert.".into(),
+        "Komplexe Gegnerreaktionen und nicht ausgewiesene Spezialladungen bleiben unquantifiziert; Imbue-Verknüpfungen bleiben bei übergebenen Kaufbindungen unverändert.".into(),
+        "Verzögerte Itemauslöser aus Ult-Schaden werden konservativ höchstens einmal je Ult-Aktivierung und Ziel gerechnet; kein unbelegtes Wiederholen bei jedem Tick.".into(),
         "Zeitschritt 0,2 Sekunden; unbekannte Wirkungen werden nicht als garantierter Nutzen addiert.".into(),
     ], unknown_effects: unknown.into_iter().collect(), ..InventoryEvaluation::default() };
     for (name, pressure, moving) in [
@@ -429,6 +452,13 @@ fn simulate(
         ..CombatScenarioEvaluation::default()
     };
     let mut ability_ready = vec![0.0; hero.abilities.len()];
+    let max_charges: Vec<i64> = hero
+        .abilities
+        .iter()
+        .map(|ability| ability.charges.max(1))
+        .collect();
+    let mut charges = max_charges.clone();
+    let mut charge_ready: Vec<Option<f64>> = vec![None; hero.abilities.len()];
     let mut buildup = vec![0.0; hero.abilities.len()];
     let mut burn_until = vec![0.0; hero.abilities.len()];
     let mut last_hit = vec![f64::NEG_INFINITY; hero.abilities.len()];
@@ -467,6 +497,9 @@ fn simulate(
     let mut spirit_events: Vec<(f64, f64)> = Vec::new();
     let mut pending_damage: Vec<DamagePeriod> = Vec::new();
     let mut pending_hits: Vec<HitEvent> = Vec::new();
+    let mut ultimate_generation = 0u64;
+    let mut item_ultimate_seen = vec![0u64; items.len()];
+    let mut delayed_item_hits: Vec<(f64, usize)> = Vec::new();
     let mut health_sum = 0.0;
     let mut max_health_average = 0.0;
     let mut self_damage_sum = 0.0;
@@ -620,10 +653,33 @@ fn simulate(
         let hit = target_contact(&stats, moving);
         let utility_contact = hit - contact;
         let weapon_opportunity = bullet * rate * hit;
+        for (idx, ability) in hero.abilities.iter().enumerate() {
+            if charge_ready[idx].is_some_and(|ready| time >= ready) {
+                charges[idx] = (charges[idx] + 1).min(max_charges[idx]);
+                charge_ready[idx] = if charges[idx] < max_charges[idx] {
+                    Some(
+                        time + ability
+                            .properties
+                            .get("AbilityCooldown")
+                            .copied()
+                            .filter(|value| *value > 0.0)
+                            .unwrap_or(if ability.cooldown > 0.0 {
+                                ability.cooldown
+                            } else {
+                                window
+                            })
+                            * (1.0 - stats.cooldown.clamp(0.0, 0.8)),
+                    )
+                } else {
+                    None
+                };
+            }
+        }
         if time >= channel_until {
             let mut best = None;
             for (idx, ability) in hero.abilities.iter().enumerate() {
                 if time < ability_ready[idx]
+                    || charges[idx] <= 0
                     || ability.class_name.is_empty()
                     || ability
                         .properties
@@ -672,16 +728,21 @@ fn simulate(
                     crate::DamageType::Weapon => stats.bullet_shred,
                     _ => 0.0,
                 };
-                let self_cost = ability
-                    .properties
-                    .get("SelfDamagePct")
-                    .copied()
-                    .unwrap_or(0.0)
-                    .max(0.0)
-                    / 100.0
-                    * hero.base_health
+                let current_health = ((hero.base_health * (1.0 + stats.health_pct / 100.0)
+                    + stats.health)
+                    * (1.0 - stats.health_loss.clamp(0.0, 0.99))
                     * health_fraction
-                    * (1.0 - stats.spirit_resist.clamp(-1.0, 0.9));
+                    - self_damage_sum
+                    + leech_sum)
+                    .max(0.0);
+                let Some(self_cost) =
+                    self_damage_cost(ability, damage, current_health, stats.spirit_resist)
+                else {
+                    continue;
+                };
+                if self_cost >= current_health {
+                    continue;
+                }
                 let gain = damage * complete * (1.0 + damage_amp / 100.0) + utility
                     - weapon_opportunity * cast_time
                     - self_cost;
@@ -691,6 +752,10 @@ fn simulate(
             }
             if let Some((idx, _, damage, cast_time)) = best {
                 let ability = &hero.abilities[idx];
+                if ability.slot == 4 {
+                    ultimate_generation += 1;
+                }
+                let ultimate_source = (ability.slot == 4).then_some(ultimate_generation);
                 let current_health = ((hero.base_health * (1.0 + stats.health_pct / 100.0)
                     + stats.health)
                     * (1.0 - stats.health_loss.clamp(0.0, 0.99))
@@ -698,15 +763,9 @@ fn simulate(
                     - self_damage_sum
                     + leech_sum)
                     .max(0.0);
-                self_damage_sum += ability
-                    .properties
-                    .get("SelfDamagePct")
-                    .copied()
-                    .unwrap_or(0.0)
-                    .max(0.0)
-                    / 100.0
-                    * current_health
-                    * (1.0 - stats.spirit_resist.clamp(-1.0, 0.9));
+                self_damage_sum +=
+                    self_damage_cost(ability, damage, current_health, stats.spirit_resist)
+                        .unwrap_or(0.0);
                 let effect_time = periodic_duration(ability);
                 let start_delay = ability
                     .properties
@@ -731,6 +790,7 @@ fn simulate(
                         start: time + start_delay,
                         end: time + start_delay + effect_time,
                         rate: damage / effect_time,
+                        ultimate_source,
                         damage_type: ability.damage_type.clone(),
                         heal: ability
                             .properties
@@ -741,6 +801,7 @@ fn simulate(
                     });
                 } else if ability.properties.get("EscapeTime").copied().unwrap_or(0.0) > 0.0 {
                     bindings.push(Binding {
+                        start: time + start_delay,
                         end: time + start_delay + ability.properties["EscapeTime"],
                         travelled: 0.0,
                         range: ability
@@ -759,6 +820,7 @@ fn simulate(
                 } else {
                     pending_hits.push(HitEvent {
                         at: time + start_delay,
+                        ultimate_source,
                         damage,
                         damage_type: ability.damage_type.clone(),
                         heal: ability
@@ -776,12 +838,28 @@ fn simulate(
                         -ability.slot.max(1)
                     })
                     .or_default() += 1;
-                ability_ready[idx] =
-                    time + ability.cooldown.max(window) * (1.0 - stats.cooldown.clamp(0.0, 0.8));
-                if ability.cooldown > 0.0 {
-                    ability_ready[idx] =
-                        time + ability.cooldown * (1.0 - stats.cooldown.clamp(0.0, 0.8));
+                charges[idx] -= 1;
+                let recharge = ability
+                    .properties
+                    .get("AbilityCooldown")
+                    .copied()
+                    .filter(|value| *value > 0.0)
+                    .unwrap_or(if ability.cooldown > 0.0 {
+                        ability.cooldown
+                    } else {
+                        window
+                    })
+                    * (1.0 - stats.cooldown.clamp(0.0, 0.8));
+                if charge_ready[idx].is_none() {
+                    charge_ready[idx] = Some(time + recharge);
                 }
+                ability_ready[idx] = time
+                    + ability
+                        .properties
+                        .get("AbilityCooldownBetweenCharge")
+                        .copied()
+                        .unwrap_or(0.0)
+                        .max(dt);
                 channel_until = time + cast_time;
                 last_cast = time;
                 last_cast_id = (ability.ability_id > 0).then_some(ability.ability_id);
@@ -829,6 +907,7 @@ fn simulate(
                 );
             }
         }
+        let mut ultimate_events = BTreeSet::new();
         for event in &pending_damage {
             let elapsed = (event.end.min(time + duration) - event.start.max(time)).max(0.0);
             let dealt = damage_event(
@@ -841,6 +920,11 @@ fn simulate(
                 &mut leech_sum,
             );
             out.ability_damage += dealt;
+            if dealt > 0.0 {
+                if let Some(source) = event.ultimate_source {
+                    ultimate_events.insert(source);
+                }
+            }
             leech_sum += dealt * event.heal.max(0.0);
         }
         pending_damage.retain(|event| event.end > time + duration);
@@ -856,12 +940,73 @@ fn simulate(
                     &mut leech_sum,
                 );
                 out.ability_damage += dealt;
+                if dealt > 0.0 {
+                    if let Some(source) = event.ultimate_source {
+                        ultimate_events.insert(source);
+                    }
+                }
                 leech_sum += dealt * event.heal.max(0.0);
             }
         }
         pending_hits.retain(|event| event.at > time + duration);
+        for (idx, item) in items.iter().enumerate() {
+            if value(item, "DelayBeforeStun") <= 0.0
+                || !item.description.to_ascii_lowercase().contains("ultimate")
+            {
+                continue;
+            }
+            if let Some(source) = ultimate_events
+                .iter()
+                .copied()
+                .filter(|source| *source > item_ultimate_seen[idx])
+                .max()
+            {
+                item_ultimate_seen[idx] = source;
+                delayed_item_hits.push((time + value(item, "DelayBeforeStun"), idx));
+            }
+        }
+        for (at, idx) in &delayed_item_hits {
+            if *at >= window || *at > time + duration {
+                continue;
+            }
+            let item = items[*idx];
+            let damage = value(item, "Damage")
+                + item
+                    .property_spirit_scaling
+                    .get("Damage")
+                    .copied()
+                    .unwrap_or(0.0)
+                    * stats.spirit;
+            let damage_type = item
+                .property_damage_types
+                .get("Damage")
+                .unwrap_or(&crate::DamageType::None);
+            out.proc_damage += damage_event(
+                damage,
+                damage_type,
+                &stats,
+                hit,
+                *at,
+                &mut spirit_events,
+                &mut leech_sum,
+            );
+            let stun = value(item, "StunDuration");
+            if stun > 0.0 {
+                ability_effects.push((*at + stun, "StunDuration".into(), stun));
+            }
+            out.item_activations
+                .entry(item.item_id)
+                .or_default()
+                .push(*at);
+            if detailed && out.sequence.len() < 16 {
+                out.sequence
+                    .push(format!("{at:.1}s: {} nach Ult-Treffer", item.name));
+            }
+        }
+        delayed_item_hits.retain(|(at, _)| *at > time + duration);
+
         for binding in &mut bindings {
-            let elapsed = duration.min((binding.end - time).max(0.0));
+            let elapsed = (binding.end.min(time + duration) - binding.start.max(time)).max(0.0);
             if moving && stats.control <= 0.0 {
                 binding.travelled += 8.0 * (1.0 - stats.slow.clamp(0.0, 100.0) / 100.0) * elapsed;
             }
@@ -1047,6 +1192,7 @@ fn periodic_duration(ability: &AbilityModel) -> f64 {
     }
 }
 struct DamagePeriod {
+    ultimate_source: Option<u64>,
     start: f64,
     end: f64,
     rate: f64,
@@ -1054,18 +1200,42 @@ struct DamagePeriod {
     heal: f64,
 }
 struct HitEvent {
+    ultimate_source: Option<u64>,
     at: f64,
     damage: f64,
     damage_type: crate::DamageType,
     heal: f64,
 }
 struct Binding {
+    start: f64,
     end: f64,
     travelled: f64,
     range: f64,
     damage: f64,
     damage_type: crate::DamageType,
     root: f64,
+}
+pub(crate) fn self_damage_cost(
+    ability: &AbilityModel,
+    damage: f64,
+    current_health: f64,
+    spirit_resist: f64,
+) -> Option<f64> {
+    let percent = ability
+        .properties
+        .get("SelfDamagePct")
+        .copied()
+        .unwrap_or(0.0)
+        .max(0.0)
+        / 100.0;
+    if percent == 0.0 {
+        return Some(0.0);
+    }
+    match ability.class_name.as_str() {
+        "ability_blood_bomb" => Some(percent * damage * (1.0 - spirit_resist.clamp(-1.0, 0.9))),
+        "ability_blood_shards" => Some(percent * current_health),
+        _ => None,
+    }
 }
 fn target_contact(stats: &Stats, moving: bool) -> f64 {
     if !moving || stats.control > 0.0 {
@@ -1177,7 +1347,7 @@ fn apply_shop(hero: &HeroModel, items: &[&ItemModel], stats: &mut Stats) {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::{AbilityRole, CostBonus, DamagePlan, DamageType, PurchaseBonuses, WeaponProfile};
     pub(crate) fn hero() -> HeroModel {
@@ -1424,6 +1594,26 @@ mod tests {
         assert!(result.scenarios[0].ability_procs[&20] > 0);
         hero.weapon.shots_per_second = 0.0;
         assert_eq!(evaluate_inventory(&hero, &[], &cfg).ability_damage, 0.0);
+    }
+    #[test]
+    fn finite_charges_use_recharge_cooldown_not_charge_spacing() {
+        let mut hero = hero();
+        let mut charged = ability(10, 50.0, 1.0);
+        charged.charges = 3;
+        charged.properties.extend([
+            ("AbilityCooldown".into(), 10.0),
+            ("AbilityCooldownBetweenCharge".into(), 1.0),
+        ]);
+        hero.abilities = vec![charged];
+        let result = evaluate_inventory(
+            &hero,
+            &[],
+            &ReasonerConfig {
+                combat_window_seconds: 5.0,
+                ..ReasonerConfig::default()
+            },
+        );
+        assert_eq!(result.scenarios[0].casts[&10], 3);
     }
     #[test]
     fn periodic_damage_keeps_full_duration_rate_at_window_end() {
