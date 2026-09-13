@@ -29,7 +29,8 @@ pub use ai_roles::{
 pub use data::load_hero_abilities;
 pub use data::{
     load_author_builds, load_author_source_rows, load_claims, load_hero_model,
-    load_hero_stat_values, load_item_models, load_meta_rows, load_patch_events, load_synergies,
+    load_hero_stat_values, load_item_models, load_meta_rows, load_patch_events,
+    load_patch_events_for_snapshots, load_synergies,
 };
 pub use types::*;
 
@@ -449,7 +450,7 @@ async fn persist_backtest(ctx: &ReasonerCtx, report: &BacktestReport) -> Result<
     tx.commit().await.map_err(ReasonerError::Db)
 }
 
-async fn load_reasoning_inputs(
+pub async fn load_reasoning_inputs(
     ctx: &ReasonerCtx,
     hero: &str,
     _seed_path: Option<&Path>,

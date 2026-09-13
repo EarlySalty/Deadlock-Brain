@@ -327,14 +327,14 @@ pub struct PatchApplication {
     pub source: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PatchSnapshot {
     pub target: DeltaTarget,
     pub name: String,
     pub fields: BTreeMap<String, SnapshotField>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SnapshotField {
     pub value: f64,
     pub fetched_at: Option<f64>,
