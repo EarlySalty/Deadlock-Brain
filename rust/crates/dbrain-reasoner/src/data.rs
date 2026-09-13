@@ -192,6 +192,17 @@ fn is_imbue_marker(value: Option<&Value>) -> bool {
 fn classify_condition(payload: &Value, is_active: bool) -> ConditionKind {
     let description = description_text(payload).to_ascii_lowercase();
     let values = property_values(payload.get("properties"));
+    if !is_active
+        && [
+            "SingleTargetPlayerMultiplier",
+            "BulletArmorReduction",
+            "FireRateSlow",
+        ]
+        .iter()
+        .all(|key| values.contains_key(*key))
+    {
+        return ConditionKind::None;
+    }
     let properties = payload.get("properties").and_then(Value::as_object);
     let cooldown = properties
         .and_then(|properties| properties.get("AbilityCooldown"))
@@ -393,11 +404,7 @@ fn ability_model(payload: &Value, slot: i64) -> Option<AbilityModel> {
             (value > 0.0).then_some(value)
         },
         charges: property_number("AbilityCharges") as i64,
-        cooldown: if property_number("AbilityCooldownBetweenCharge") > 0.0 {
-            property_number("AbilityCooldownBetweenCharge")
-        } else {
-            property_number("AbilityCooldown")
-        },
+        cooldown: property_number("AbilityCooldown"),
         scaling_step: None,
         damage_type: if properties
             .map(|properties| {
@@ -423,8 +430,18 @@ pub(crate) fn ability_cast_count(ability: &AbilityModel, cfg: &crate::ReasonerCo
     let window = cfg.combat_window_seconds.max(0.0);
     let channel = ability.channel_time.unwrap_or(1.0).max(0.001);
     let recharge = ability.cooldown.max(channel);
+    let charge_interval = ability
+        .properties
+        .get("AbilityCooldownBetweenCharge")
+        .copied()
+        .unwrap_or(0.0);
     (ability.charges.max(1) as f64 + window / recharge)
         .min(window * cfg.channel_uptime.clamp(0.0, 1.0) / channel)
+        .min(if charge_interval > 0.0 {
+            1.0 + (window / charge_interval).floor()
+        } else {
+            f64::INFINITY
+        })
 }
 
 pub(crate) fn ability_base_dps(ability: &AbilityModel, cfg: &crate::ReasonerConfig) -> f64 {
@@ -1338,7 +1355,8 @@ fn damage_property_units(
 ) -> f64 {
     match key {
         "Damage" | "ImpactDamage" | "BaseDamage" | "StompDamage" | "HealthToDamage"
-        | "SwapDamage" | "LandingDamage" | "ExplodeDamage" | "FullChargeDamage" => 1.0,
+        | "SwapDamage" | "LandingDamage" | "ExplodeDamage" | "FullChargeDamage"
+        | "UppercutDamage" => 1.0,
         "DamagePerProjectile" => values
             .get("ProjectileAmount")
             .copied()
@@ -1390,11 +1408,7 @@ pub fn refresh_ability_derived(ability: &mut AbilityModel) {
     ability.duration = (duration > 0.0).then_some(duration);
     ability.tick_rate = tick;
     ability.charges = get("AbilityCharges") as i64;
-    ability.cooldown = if get("AbilityCooldownBetweenCharge") > 0.0 {
-        get("AbilityCooldownBetweenCharge")
-    } else {
-        get("AbilityCooldown")
-    };
+    ability.cooldown = get("AbilityCooldown");
 }
 
 fn property_spirit_scaling(payload: &Value) -> BTreeMap<String, f64> {
@@ -1574,6 +1588,66 @@ pub fn enrich_frozen_models(
 
 #[cfg(test)]
 mod tests {
+    fn interaction_ability(class: &str, rank: usize) -> crate::AbilityModel {
+        let rows: serde_json::Value =
+            serde_json::from_str(include_str!("../testdata/ability-interactions/raw.json"))
+                .unwrap();
+        let raw = &rows
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["payload"]["class_name"] == class)
+            .unwrap()["payload"];
+        let mut ability = super::ability_model(raw, 1).unwrap();
+        for upgrade in ability.upgrades.iter().take(rank) {
+            for field in upgrade["property_upgrades"].as_array().unwrap() {
+                let name = field["name"].as_str().unwrap();
+                *ability.properties.entry(name.into()).or_default() +=
+                    super::number(field.get("bonus")).unwrap_or(0.0);
+            }
+        }
+        super::refresh_ability_derived(&mut ability);
+        ability
+    }
+    #[test]
+    fn actual_interaction_damage_and_beam_healing_reach_combat() {
+        let uppercut = interaction_ability("citadel_ability_uppercut", 3);
+        assert!(uppercut.base_effect > 0.0);
+        let beam = interaction_ability("citadel_ability_bebop_laser_beam", 3);
+        assert_eq!(beam.properties["BeamLifesteal"], 65.0);
+        let mut hero = crate::combat::tests::hero();
+        hero.base_health = 10000.0;
+        hero.weapon.bullet_damage = 0.0;
+        hero.abilities = vec![beam];
+        let cfg = crate::ReasonerConfig {
+            combat_window_seconds: 40.0,
+            ..crate::ReasonerConfig::default()
+        };
+        let healing = crate::combat::evaluate_inventory(&hero, &[], &cfg);
+        assert!(healing.ability_damage > 0.0);
+        assert!(!healing
+            .unknown_effects
+            .iter()
+            .any(|line| line.contains(": BeamLifesteal nicht")));
+        hero.abilities[0].properties.remove("BeamLifesteal");
+        let no_healing = crate::combat::evaluate_inventory(&hero, &[], &cfg);
+        assert!(healing.scenarios[1].effective_health > no_healing.scenarios[1].effective_health);
+        let drain_raw: serde_json::Value =
+            serde_json::from_str(include_str!("../testdata/life-drain-charges-20260913.json"))
+                .unwrap();
+        let mut drain = super::ability_model(&drain_raw["payload"], 2).unwrap();
+        for upgrade in &drain.upgrades {
+            for field in upgrade["property_upgrades"].as_array().unwrap() {
+                *drain
+                    .properties
+                    .entry(field["name"].as_str().unwrap().into())
+                    .or_default() += super::number(field.get("bonus")).unwrap_or(0.0);
+            }
+        }
+        super::refresh_ability_derived(&mut drain);
+        assert_eq!(drain.cooldown, drain.properties["AbilityCooldown"]);
+        assert!(drain.cooldown > drain.properties["AbilityCooldownBetweenCharge"]);
+    }
     fn combat_raw(selector: &str) -> serde_json::Value {
         let fixture: serde_json::Value =
             serde_json::from_str(include_str!("../testdata/combat-snapshot-20260913.json"))
@@ -1707,6 +1781,7 @@ mod tests {
         hero.base_health = 3000.0;
         hero.base_spirit_power = 600.0;
         let mut bomb = super::ability_model(&combat_raw("ability_blood_shards"), 3).unwrap();
+        bomb.properties.remove("VulnerabilityPerStack");
         bomb.ability_id = 1;
         hero.abilities = vec![bomb];
         let cfg = crate::ReasonerConfig {

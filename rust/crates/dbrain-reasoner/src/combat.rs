@@ -1,3 +1,5 @@
+use crate::ability_interactions::{AbilityInteractions, TargetAmplification};
+use crate::item_interactions::ItemInteraction;
 use crate::{AbilityModel, ConditionKind, HeroModel, ItemModel, ReasonerConfig, SlotType};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -79,6 +81,9 @@ struct Stats {
     speed: f64,
     control: f64,
     enemy_weapon_penalty: f64,
+    enemy_rate_slow: f64,
+    weapon_amp: f64,
+    spirit_amp: f64,
 }
 fn value(item: &ItemModel, name: &str) -> f64 {
     item.properties
@@ -343,7 +348,8 @@ fn evaluate_core(
                 unknown.insert(format!("{}: ungültiger Wert für {name}", item.name));
                 continue;
             }
-            if !apply(&mut Stats::default(), name, *v)
+            if !ItemInteraction::from_item(item).handles_property(name)
+                && !apply(&mut Stats::default(), name, *v)
                 && !metadata(name)
                 && !name.contains("ProcDamage")
                 && !matches!(name.as_str(), "AmmoReloadPercent" | "ActiveReloadPercent")
@@ -432,6 +438,7 @@ fn evaluate_core(
                 if !damage
                     && !timing
                     && !metadata(key)
+                    && !crate::ability_interactions::quantified_property(ability, key)
                     && !apply(&mut Stats::default(), key, *value)
                 {
                     unknown.insert(format!(
@@ -471,6 +478,23 @@ fn evaluate_core(
         "Verzögerte Itemauslöser aus Ult-Schaden werden konservativ höchstens einmal je Ult-Aktivierung und Ziel gerechnet; kein unbelegtes Wiederholen bei jedem Tick.".into(),
         "Zeitschritt und TTK-Auflösung 0,2 Sekunden; Ereignisse innerhalb eines Schritts folgen der ausgewiesenen Rotation. Unbekannte Wirkungen werden nicht als garantierter Nutzen addiert.".into(),
     ], unknown_effects: unknown.into_iter().collect(), ..InventoryEvaluation::default() };
+    result.assumptions.push("Rotation verwendet eine begrenzte gierige Aktionswahl: Verstärkungsnutzen wird durch Restleben, verfügbaren Waffendurchsatz und verbleibende Zeit begrenzt; keine vollständige optimale Fähigkeitsfolge. Nachladen durch dieselbe Imbue-Auslösung erfolgt vor dem Magazinbonus. Buffstats werden mit der nächsten 0,2-s-Zustandsauswertung wirksam.".into());
+    if detailed {
+        result.assumptions.push("Ein bestätigter Treffer je Fähigkeitsauslösung; Malice-Stapel haben einzelne Ablaufzeiten und ersetzen am Limit den ältesten Stapel. Hook-Verstärkung beginnt nach seinem Treffer; Uppercut heilt fehlendes Leben und setzt nur Hook zurück. Soul Exchange bleibt mangels eindeutiger HP-Bezugsregel unquantifiziert.".into());
+        result.assumptions.push("Aura-Nähe als globale Szenarioannahme: Duell und Druckziel 8 m, bewegliches Ziel 20 m; ein gegnerischer Held, während Wechselpausen keiner. Belegter Itemradius entscheidet die Wirkung. Keine Mehrzielbehauptung.".into());
+        for item in &held {
+            let interaction = ItemInteraction::from_item(item);
+            result
+                .assumptions
+                .extend(interaction.assumptions().into_iter().map(str::to_owned));
+            result.unknown_effects.extend(
+                interaction
+                    .unknown_effects()
+                    .into_iter()
+                    .map(|unknown| format!("{}: {unknown}", item.name)),
+            );
+        }
+    }
     for (name, pressure, moving) in [
         ("Duell", false, false),
         ("Unter Druck", true, false),
@@ -530,6 +554,12 @@ fn simulate(
 ) -> CombatScenarioEvaluation {
     let (detailed, bindings) = options;
     let prepared: Vec<_> = hero.abilities.iter().map(PreparedAbility::new).collect();
+    let interactions: Vec<_> = items
+        .iter()
+        .map(|item| ItemInteraction::from_item(item))
+        .collect();
+    let mut magazine_buffs = vec![false; items.len()];
+    let mut target_amplification = TargetAmplification::default();
     let item_texts: Vec<_> = items
         .iter()
         .map(|item| item.description.to_ascii_lowercase())
@@ -582,7 +612,6 @@ fn simulate(
         .zip(&item_targets)
         .filter_map(|(item, target)| target.map(|target| (item.item_id, target)))
         .collect();
-    let mut last_cast_id = None;
     let mut target_remaining = out.target_health;
     let mut target_generation = 0usize;
     let mut buff_targets = vec![0usize; items.len()];
@@ -626,13 +655,17 @@ fn simulate(
     };
     let conditional_effects: Vec<Vec<(&str, f64)>> = items
         .iter()
-        .map(|item| {
+        .enumerate()
+        .map(|(idx, item)| {
             let mut keys = BTreeSet::new();
             item.properties
                 .iter()
                 .chain(item.passive_properties.iter())
                 .filter_map(|(key, v)| {
-                    if !keys.insert(key) || !v.is_finite() || !apply(&mut Stats::default(), key, *v)
+                    if !keys.insert(key)
+                        || !v.is_finite()
+                        || interactions[idx].handles_property(key)
+                        || !apply(&mut Stats::default(), key, *v)
                     {
                         return None;
                     }
@@ -687,6 +720,21 @@ fn simulate(
             1.0
         };
         let mut stats = base_stats.clone();
+        stats.weapon_amp = target_amplification.weapon_multiplier(time) - 1.0;
+        stats.spirit_amp = target_amplification.spirit_multiplier(time) - 1.0;
+        for interaction in &interactions {
+            let distance = if moving { 20.0 } else { 8.0 };
+            let aura = interaction.aura_effects(
+                usize::from(target_available),
+                target_available
+                    && interaction
+                        .aura_radius_m
+                        .is_some_and(|radius| distance <= radius),
+            );
+            stats.bullet_shred += aura.bullet_resist_reduction_percent;
+            stats.enemy_rate_slow =
+                1.0 - (1.0 - stats.enemy_rate_slow) * (1.0 - aura.fire_rate_slow_percent / 100.0);
+        }
         let mut activated = vec![false; items.len()];
         for (idx, item) in items.iter().enumerate() {
             let recent_damage = spirit_windows[idx].map_or(0.0, |threshold_window| {
@@ -704,9 +752,7 @@ fn simulate(
             let mut trigger = if item.is_active {
                 reload <= 0.0 || ammo <= last_clip * 0.1
             } else if item.imbueable && reload > 0.0 {
-                time - last_cast <= dt + 0.001
-                    && last_cast_id == item_targets[idx]
-                    && last_cast_id.is_some()
+                false
             } else {
                 let base_maximum = last_maximum_health.unwrap_or(
                     (hero.base_health * (1.0 + base_stats.health_pct / 100.0) + base_stats.health)
@@ -738,6 +784,7 @@ fn simulate(
                 buff_until[idx] = time + buff_duration;
                 buff_ready[idx] = time + cooldown.max(dt);
                 if reload > 0.0 {
+                    magazine_buffs.fill(false);
                     ammo = (ammo + last_clip * reload / 100.0).min(last_clip);
                     reload_until = time;
                 }
@@ -782,7 +829,8 @@ fn simulate(
             .max(0.0);
         let bullet = hero.weapon.bullet_damage
             * (1.0 + stats.weapon / 100.0).max(0.0)
-            * (1.0 + stats.bullet_shred / 100.0);
+            * (1.0 + stats.bullet_shred / 100.0)
+            * (1.0 + stats.weapon_amp);
         let contact = if moving { 0.65 } else { 1.0 };
         let hit = target_contact(&stats, moving);
         let utility_contact = hit - contact;
@@ -898,6 +946,32 @@ fn simulate(
                     damage,
                     &prepared[idx].utility_keys,
                 );
+                let interaction = AbilityInteractions::from_ability(ability, 1.0 + stats.duration);
+                let useful_time =
+                    (target_remaining / weapon_opportunity.max(1.0)).min(window - time);
+                let interaction_gain = interaction.weapon_amp.map_or(0.0, |amp| {
+                    weapon_opportunity * amp.fraction * amp.duration.min(useful_time)
+                }) + interaction.all_damage_amp.map_or(0.0, |amp| {
+                    weapon_opportunity * amp.fraction * amp.duration.min(useful_time)
+                }) + interaction
+                    .missing_health_heal(current_health, maximum_health);
+                let imbue_gain = interactions
+                    .iter()
+                    .enumerate()
+                    .filter(|(item_idx, _)| {
+                        !magazine_buffs[*item_idx]
+                            && item_targets[*item_idx] == Some(ability.ability_id)
+                            && ability.ability_id > 0
+                    })
+                    .map(|(_, interaction)| {
+                        interaction.magazine_spirit_damage(
+                            hero.weapon.bullet_damage,
+                            stats.spirit,
+                            ammo.min(rate * useful_time) * hit,
+                            true,
+                        )
+                    })
+                    .sum::<f64>();
                 let damage_amp = match ability.damage_type {
                     crate::DamageType::Spirit => stats.spirit_shred,
                     crate::DamageType::Weapon => stats.bullet_shred,
@@ -911,7 +985,10 @@ fn simulate(
                 if self_cost >= current_health {
                     continue;
                 }
-                let gain = damage * complete * (1.0 + damage_amp / 100.0) + utility
+                let gain = damage * complete * (1.0 + damage_amp / 100.0)
+                    + utility
+                    + interaction_gain
+                    + imbue_gain
                     - weapon_opportunity * cast_time
                     - self_cost;
                 if gain > 0.0 && best.as_ref().is_none_or(|(_, g, _, _)| gain > *g) {
@@ -920,6 +997,7 @@ fn simulate(
             }
             if let Some((idx, _, damage, cast_time)) = best {
                 let ability = &hero.abilities[idx];
+                let interaction = AbilityInteractions::from_ability(ability, 1.0 + stats.duration);
                 if ability.slot == 4 {
                     ultimate_generation += 1;
                 }
@@ -957,13 +1035,14 @@ fn simulate(
                         rate: damage / effect_time,
                         ultimate_source,
                         damage_type: ability.damage_type.clone(),
-                        heal: ability
-                            .properties
-                            .get("LifeDrainHealthMult")
-                            .or_else(|| ability.properties.get("HealthStealPctHero"))
-                            .copied()
-                            .unwrap_or(0.0)
-                            / 100.0,
+                        heal: interaction.native_damage_heal_fraction
+                            + ability
+                                .properties
+                                .get("LifeDrainHealthMult")
+                                .or_else(|| ability.properties.get("HealthStealPctHero"))
+                                .copied()
+                                .unwrap_or(0.0)
+                                / 100.0,
                     });
                 } else if ability.properties.get("EscapeTime").copied().unwrap_or(0.0) > 0.0 {
                     bindings.push(Binding {
@@ -981,6 +1060,7 @@ fn simulate(
                     });
                 } else {
                     pending_hits.push(HitEvent {
+                        interaction,
                         item_proc_disabled: ability.item_proc_disabled,
                         at: time + start_delay,
                         ultimate_source,
@@ -1025,7 +1105,49 @@ fn simulate(
                         .max(dt);
                 channel_until = time + cast_time;
                 last_cast = time;
-                last_cast_id = (ability.ability_id > 0).then_some(ability.ability_id);
+                let last_cast_id = (ability.ability_id > 0).then_some(ability.ability_id);
+                for (item_idx, item) in items.iter().enumerate() {
+                    let reload =
+                        value(item, "AmmoReloadPercent").max(value(item, "ActiveReloadPercent"));
+                    if !item.is_active
+                        && item.imbueable
+                        && reload > 0.0
+                        && last_cast_id.is_some()
+                        && last_cast_id == item_targets[item_idx]
+                        && time >= buff_ready[item_idx]
+                    {
+                        magazine_buffs.fill(false);
+                        ammo = (ammo + clip * reload / 100.0).min(clip);
+                        reload_until = time;
+                        activated[item_idx] = true;
+                        buff_targets[item_idx] = target_generation;
+                        buff_until[item_idx] =
+                            time + value(item, "AbilityDuration").max(value(item, "BuffDuration"));
+                        buff_ready[item_idx] = time
+                            + value(item, "AbilityCooldown")
+                                .max(value(item, "AbilityChargeUpTime"))
+                                .max(item.proc_cooldown.unwrap_or(0.0))
+                                .max(dt);
+                        out.item_activations
+                            .entry(item.item_id)
+                            .or_default()
+                            .push(time);
+                        if detailed && out.sequence.len() < 16 {
+                            out.sequence.push(format!(
+                                "{time:.1}s: {} durch gebundene Fähigkeit ausgelöst",
+                                item.name
+                            ));
+                        }
+                    }
+                }
+                for (item_idx, interaction) in interactions.iter().enumerate() {
+                    if interaction.has_magazine_buff()
+                        && last_cast_id.is_some()
+                        && last_cast_id == item_targets[item_idx]
+                    {
+                        magazine_buffs[item_idx] = true;
+                    }
+                }
                 for key in &prepared[idx].utility_keys {
                     if *key == "ImmobilizeDuration"
                         && ability.properties.get("EscapeTime").copied().unwrap_or(0.0) > 0.0
@@ -1103,6 +1225,7 @@ fn simulate(
         pending_damage.retain(|event| event.end > time + duration);
         for event in &pending_hits {
             if event.at < window && event.at <= time + duration {
+                let landed = target_remaining > 0.0 && hit > 0.0;
                 let dealt = damage_event(
                     event.damage,
                     &event.damage_type,
@@ -1124,6 +1247,29 @@ fn simulate(
                     }
                 }
                 leech_sum += dealt * event.heal.max(0.0);
+                if landed {
+                    target_amplification.on_hit(event.interaction, event.at);
+                    let own_health = (maximum_health * health_fraction - self_damage_sum
+                        + leech_sum)
+                        .clamp(0.0, maximum_health);
+                    leech_sum += event
+                        .interaction
+                        .missing_health_heal(own_health, maximum_health)
+                        * hit;
+                    if let Some(class) = event.interaction.reset_ability_class {
+                        if let Some(idx) = hero
+                            .abilities
+                            .iter()
+                            .position(|ability| ability.class_name == class)
+                        {
+                            ability_ready[idx] = time;
+                            charges[idx] = (charges[idx] + 1).min(max_charges[idx]);
+                            if charges[idx] == max_charges[idx] {
+                                charge_ready[idx] = None;
+                            }
+                        }
+                    }
+                }
             }
         }
         pending_hits.retain(|event| event.at > time + duration);
@@ -1219,6 +1365,7 @@ fn simulate(
             out.channel_seconds += duration;
         } else if time >= reload_until && rate > 0.0 && target_remaining > 0.0 {
             if ammo <= 0.0001 {
+                magazine_buffs.fill(false);
                 reload_until = time
                     + hero.weapon.reload_duration.max(0.0) / (1.0 + stats.reload / 100.0).max(0.1);
                 ammo = clip;
@@ -1228,8 +1375,22 @@ fn simulate(
                 }
             } else {
                 shots = (rate * duration).min(ammo);
-                if bullet * hit > 0.0 {
-                    shots = shots.min(target_remaining / (bullet * hit));
+                let bonus = interactions
+                    .iter()
+                    .zip(&magazine_buffs)
+                    .map(|(interaction, active)| {
+                        interaction.magazine_spirit_damage(
+                            hero.weapon.bullet_damage,
+                            stats.spirit,
+                            1.0,
+                            *active,
+                        )
+                    })
+                    .sum::<f64>()
+                    * (1.0 + stats.spirit_shred / 100.0)
+                    * (1.0 + stats.spirit_amp);
+                if (bullet + bonus) * hit > 0.0 {
+                    shots = shots.min(target_remaining / ((bullet + bonus) * hit));
                 }
                 ammo -= shots;
             }
@@ -1239,6 +1400,24 @@ fn simulate(
         target_remaining -= gun_damage;
         out.shots += shots;
         out.weapon_damage += gun_damage;
+        for (interaction, active) in interactions.iter().zip(&magazine_buffs) {
+            let damage = interaction.magazine_spirit_damage(
+                hero.weapon.bullet_damage,
+                stats.spirit,
+                shots * hit,
+                *active,
+            );
+            out.proc_damage += damage_event(
+                damage,
+                &crate::DamageType::Spirit,
+                &stats,
+                1.0,
+                time,
+                &mut spirit_events,
+                &mut leech_sum,
+                &mut target_remaining,
+            );
+        }
         for (idx, ability) in hero.abilities.iter().enumerate() {
             let per_hit = ability
                 .properties
@@ -1342,6 +1521,7 @@ fn simulate(
         let mitigation = 0.5
             * (1.0 - stats.bullet_resist.clamp(-1.0, 0.9))
             * (1.0 - stats.enemy_weapon_penalty.clamp(0.0, 0.9))
+            * (1.0 - stats.enemy_rate_slow.clamp(0.0, 0.9))
             + 0.5 * (1.0 - stats.spirit_resist.clamp(-1.0, 0.9));
         leech_sum += gun_damage * stats.bullet_leech.max(0.0) / 100.0
             + stats.regeneration.max(0.0) * duration;
@@ -1356,6 +1536,7 @@ fn simulate(
         }
         if target_available && target_remaining <= 1e-9 {
             target_remaining = 0.0;
+            target_amplification.clear();
             out.targets_defeated += 1;
             out.kill_times.push(out.elapsed_seconds);
             out.first_ttk.get_or_insert(out.elapsed_seconds);
@@ -1435,6 +1616,7 @@ struct DamagePeriod {
     heal: f64,
 }
 struct HitEvent {
+    interaction: AbilityInteractions,
     item_proc_disabled: bool,
     ultimate_source: Option<u64>,
     at: f64,
@@ -1591,7 +1773,12 @@ fn damage_event(
         crate::DamageType::Weapon => (stats.bullet_shred, stats.bullet_leech),
         _ => (0.0, 0.0),
     };
-    let dealt = (damage.max(0.0) * (1.0 + shred / 100.0) * hit)
+    let amp = match damage_type {
+        crate::DamageType::Spirit => stats.spirit_amp,
+        crate::DamageType::Weapon => stats.weapon_amp,
+        _ => 0.0,
+    };
+    let dealt = (damage.max(0.0) * (1.0 + shred / 100.0) * (1.0 + amp) * hit)
         .max(0.0)
         .min(*target_remaining);
     *target_remaining -= dealt;
@@ -1930,6 +2117,163 @@ pub(crate) mod tests {
             higher_cost.scenarios[0].damage_score,
             higher_cost.scenarios[0].damage_per_second
         );
+    }
+    #[test]
+    fn magazine_imbue_survives_target_switch_but_not_reload() {
+        let mut hero = hero();
+        hero.base_health = 100.0;
+        hero.weapon.bullet_damage = 100.0;
+        hero.weapon.shots_per_second = 5.0;
+        hero.weapon.clip_size = 100.0;
+        hero.abilities = vec![ability(10, 0.0, 100.0)];
+        let mut magazine = item(7, "BulletsBonusMagicDamage", 25.0);
+        magazine.imbueable = true;
+        magazine
+            .property_damage_types
+            .insert("BulletsBonusMagicDamage".into(), DamageType::Spirit);
+        let bindings = BTreeMap::from([(7, 10)]);
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 4.0,
+            ..ReasonerConfig::default()
+        };
+        let result = evaluate_inventory_with_bindings(
+            &hero,
+            std::slice::from_ref(&magazine),
+            &cfg,
+            &bindings,
+        );
+        let chain = &result.scenarios[1];
+        assert!(chain.target_switches > 0);
+        assert_eq!(chain.casts[&10], 1);
+        assert!((chain.proc_damage - chain.targets_defeated as f64 * 20.0).abs() < 1e-8);
+        assert_eq!(result.scenarios[0].weapon_damage, 80.0);
+        assert_eq!(result.scenarios[0].proc_damage, 20.0);
+        hero.weapon.clip_size = 1.0;
+        let reload = evaluate_inventory_with_bindings(
+            &hero,
+            std::slice::from_ref(&magazine),
+            &cfg,
+            &bindings,
+        );
+        assert!(reload.scenarios[1].reloads > 0);
+        assert!(reload.scenarios[1].proc_damage < chain.proc_damage);
+        let wrong = evaluate_inventory_with_bindings(
+            &hero,
+            std::slice::from_ref(&magazine),
+            &cfg,
+            &BTreeMap::from([(7, 11)]),
+        );
+        assert_eq!(wrong.proc_damage, 0.0);
+        assert_eq!(
+            result.score,
+            evaluate_inventory_refs_fast_with_bindings(
+                &{
+                    let mut h = hero.clone();
+                    h.weapon.clip_size = 100.0;
+                    h
+                },
+                &[&magazine],
+                &cfg,
+                &bindings
+            )
+            .score
+        );
+    }
+    #[test]
+    fn aura_range_changes_only_its_own_two_effects() {
+        let hero = hero();
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 2.0,
+            ..ReasonerConfig::default()
+        };
+        let mut aura = item(5, "BulletArmorReduction", -10.0);
+        aura.properties.extend([
+            ("SingleTargetPlayerMultiplier".into(), 2.0),
+            ("FireRateSlow".into(), 15.0),
+            ("Radius".into(), 15.0),
+        ]);
+        let plain = evaluate_inventory(&hero, &[], &cfg);
+        let result = evaluate_inventory(&hero, std::slice::from_ref(&aura), &cfg);
+        assert!(result.scenarios[0].weapon_damage > plain.scenarios[0].weapon_damage);
+        assert!(result.scenarios[0].effective_health > plain.scenarios[0].effective_health);
+        assert_eq!(
+            result.scenarios[2].weapon_damage,
+            plain.scenarios[2].weapon_damage
+        );
+        assert_eq!(
+            result.scenarios[2].effective_health,
+            plain.scenarios[2].effective_health
+        );
+        let weakened = evaluate_inventory(
+            &hero,
+            &[aura.clone(), item(6, "WeaponPowerDebuff", -25.0)],
+            &cfg,
+        );
+        assert!(
+            (weakened.scenarios[0].effective_health - 600.0 / (0.5 * 0.75 * 0.7 + 0.5)).abs()
+                < 1e-8
+        );
+        aura.properties.insert("Radius".into(), 7.0);
+        let outside = evaluate_inventory(&hero, &[aura], &cfg);
+        assert_eq!(outside.weapon_damage, plain.weapon_damage);
+        assert_eq!(outside.effective_health, plain.effective_health);
+    }
+    #[test]
+    fn hook_hit_amp_and_uppercut_reset_drive_real_casts() {
+        let mut hero = hero();
+        hero.base_health = 10000.0;
+        let mut hook = ability(10, 0.0, 100.0);
+        hook.class_name = "citadel_ability_hook".into();
+        hook.properties.extend([
+            ("BulletAmp".into(), 20.0),
+            ("BulletAmpDuration".into(), 6.0),
+        ]);
+        let mut uppercut = ability(11, 1.0, 100.0);
+        uppercut.class_name = "citadel_ability_uppercut".into();
+        uppercut.properties.extend([
+            ("RestoreHookCooldown".into(), 1.0),
+            ("MissingHPHeal".into(), 18.0),
+        ]);
+        hero.abilities = vec![hook, uppercut];
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 4.0,
+            ..ReasonerConfig::default()
+        };
+        let result = evaluate_inventory(&hero, &[], &cfg);
+        assert_eq!(result.scenarios[0].casts[&10], 2);
+        assert_eq!(result.scenarios[0].casts[&11], 1);
+        hero.abilities[1].properties.remove("RestoreHookCooldown");
+        let no_reset = evaluate_inventory(&hero, &[], &cfg);
+        assert_eq!(no_reset.scenarios[0].casts[&10], 1);
+        hero.abilities.clear();
+        assert!(result.weapon_damage > evaluate_inventory(&hero, &[], &cfg).weapon_damage);
+    }
+    #[test]
+    fn malice_hits_amplify_following_damage_with_fast_path_parity() {
+        let mut hero = hero();
+        hero.base_health = 10000.0;
+        let mut malice = ability(10, 30.0, 1.0);
+        malice.class_name = "ability_blood_shards".into();
+        malice.properties.extend([
+            ("VulnerabilityPerStack".into(), 15.0),
+            ("DebuffDuration".into(), 9.0),
+            ("MaxStacks".into(), 5.0),
+        ]);
+        hero.abilities = vec![malice];
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 4.0,
+            ..ReasonerConfig::default()
+        };
+        let mut full = evaluate_inventory(&hero, &[], &cfg);
+        let fast = evaluate_inventory_fast(&hero, &[], &cfg);
+        for scenario in &mut full.scenarios {
+            scenario.sequence.clear();
+        }
+        assert_eq!(full.scenarios, fast.scenarios);
+        hero.abilities[0].properties.remove("VulnerabilityPerStack");
+        let plain = evaluate_inventory(&hero, &[], &cfg);
+        assert!(full.weapon_damage > plain.weapon_damage);
+        assert!(full.ability_damage > plain.ability_damage);
     }
     #[test]
     fn quicksilver_reload_has_one_cast_bound_activation_and_fixed_binding() {
