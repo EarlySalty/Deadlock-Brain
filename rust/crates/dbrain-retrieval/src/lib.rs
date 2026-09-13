@@ -1196,7 +1196,7 @@ async fn ask_build_context(pool: &PgPool, query: &str, plan: &QueryPlan) -> Resu
     let validation = json!({"text": result_text, "violations": []});
     let prompt = format!(
         "Erkläre diesen berechneten Deadlock-Build auf Deutsch. Übernimm Items, Reihenfolge, Zahlen und Begründungen aus dem Kontext. Erfinde keine Mechaniken oder Varianten.\n\nBUILD_CONTEXT_JSON:\n{}",
-        serde_json::to_string(&build_context)
+        serde_json::to_string(&reasoner_prompt_context(&build_context, playstyle.as_deref()))
             .map_err(|err| RetrievalError::Invalid(format!("Build-Kontext konnte nicht serialisiert werden: {err}")))?
     );
 
@@ -1218,6 +1218,64 @@ async fn ask_build_context(pool: &PgPool, query: &str, plan: &QueryPlan) -> Resu
             "playstyle_applied": false,
         },
     }))
+}
+
+fn compact_reasoner_why(item: &dbrain_reasoner::BuildItem) -> String {
+    let why = if item.why.trim().is_empty() {
+        item.sources
+            .iter()
+            .map(|source| source.detail.trim())
+            .find(|detail| !detail.is_empty())
+            .unwrap_or_default()
+    } else {
+        item.why.trim()
+    };
+    why.replace(
+        " Der Kaufbonus dieser Stufe gibt zusätzlich ",
+        " Kaufbonus: ",
+    )
+    .replace(
+        " Für die Empfehlung liegen noch wenige belastbare Vergleichsdaten vor.",
+        "",
+    )
+    .replace(
+        " Statistisches Nebensignal, kein Beweis für eine mechanische Wechselwirkung.",
+        "",
+    )
+    .replace(
+        " In den beobachteten Builds dieses Helden steht dieses Item überwiegend im Kern.",
+        " Überwiegend Kern in beobachteten Builds.",
+    )
+    .replace(
+        " Die Verkaufspriorität stammt aus einem Autoren-Build dieses Helden.",
+        "",
+    )
+}
+
+fn reasoner_prompt_context(build: &BuildObject, requested_playstyle: Option<&str>) -> JsonValue {
+    let compact_item = |item: &dbrain_reasoner::BuildItem| {
+        json!({
+            "item_id":item.item_id,"name":item.name,"buy_phase":item.buy_phase,
+            "why":compact_reasoner_why(item),"confidence":item.confidence,
+            "imbue_target":item.imbue_target,"sell_priority":item.sell_priority,
+        })
+    };
+    json!({
+        "schema":"reasoner_prompt_v1","hero_id":build.hero_id,"hero_name":build.hero_name,
+        "patch_tag":build.patch_tag,"rationale":build.rationale,
+        "core":build.core.iter().map(&compact_item).collect::<Vec<_>>(),
+        "situations":build.situations.iter().map(|block| json!({
+            "label":block.label,"kind":block.kind,"optional":block.optional,
+            "items":block.items.iter().map(&compact_item).collect::<Vec<_>>(),
+        })).collect::<Vec<_>>(),
+        "ability_order":build.ability_order,
+        "limits":[
+            "Bedingte Effekte gelten nur bei ihrer Auslösung; angenommene Verfügbarkeit ist keine gemessene Trefferquote.",
+            "Beobachtete Paarbeziehungen sind kein Beweis für eine mechanische Wechselwirkung.",
+            "Bei niedriger Sicherheit fehlen belastbare Vergleichsdaten; fehlende Effekte nicht ergänzen.",
+        ],
+        "requested_playstyle":requested_playstyle,"playstyle_applied":false,
+    })
 }
 
 fn explain_reasoner_build(build: &BuildObject, requested_playstyle: Option<&str>) -> String {
@@ -1258,6 +1316,7 @@ fn explain_reasoner_build(build: &BuildObject, requested_playstyle: Option<&str>
             ));
         }
     }
+    sections.push("Bedingte Effekte gelten nur bei ihrer Auslösung. Paarbeziehungen sind Beobachtungen, keine bewiesenen Wechselwirkungen; bei niedriger Sicherheit fehlen belastbare Vergleichsdaten.".to_string());
     sections.join("\n\n")
 }
 
@@ -1266,16 +1325,7 @@ fn explain_reasoner_items<'a>(
 ) -> String {
     items
         .map(|item| {
-            let why = if item.why.trim().is_empty() {
-                item.sources
-                    .iter()
-                    .map(|source| source.detail.trim())
-                    .filter(|detail| !detail.is_empty())
-                    .collect::<Vec<_>>()
-                    .join("; ")
-            } else {
-                item.why.trim().to_string()
-            };
+            let why = compact_reasoner_why(item);
             if why.is_empty() {
                 format!(
                     "- {}: Für dieses Item fehlt noch eine belegte Begründung.",
@@ -6477,6 +6527,28 @@ mod tests {
         assert!(text.contains("Schutz\n- Shield Item: Schutz bei Bedarf"));
         assert!(text.contains("noch nicht berechnet"));
         assert!(!explain_reasoner_build(&build, None).contains("gewünschte Spielweise"));
+        let mut build = build;
+        build.core[0].imbue_target = Some(123);
+        build.core[0].sell_priority = Some(7);
+        build.core[0]
+            .why
+            .push_str(" Verkaufe First Item vor Second Item.");
+        build.core[0].sources.push(dbrain_reasoner::Evidence {
+            kind: dbrain_reasoner::EvidenceKind::Mechanic,
+            detail: "Lange wiederholte Rohbelege".repeat(1000),
+        });
+        let compact = reasoner_prompt_context(&build, Some("tank"));
+        assert_eq!(compact["schema"], "reasoner_prompt_v1");
+        assert_eq!(compact["core"][0]["item_id"], 1);
+        assert_eq!(compact["core"][0]["imbue_target"], 123);
+        assert_eq!(compact["core"][0]["sell_priority"], 7);
+        assert!(compact["core"][0].get("sources").is_none());
+        assert!(compact["core"][0]["why"]
+            .as_str()
+            .unwrap()
+            .contains("Verkaufe First Item vor Second Item"));
+        assert_eq!(compact["situations"][0]["label"], "Schutz");
+        assert!(compact.to_string().len() < serde_json::to_string(&build).unwrap().len() / 2);
     }
 
     async fn test_pool() -> Option<PgPool> {
