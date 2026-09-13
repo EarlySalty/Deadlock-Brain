@@ -190,7 +190,10 @@ impl Search<'_> {
         for candidate in candidates {
             let item = &candidate.item;
             let mut transitions = Vec::new();
-            if let Ok(transition) = inventory.preview_purchase(item, &self.catalog, self.rules, &[])
+            let direct = inventory.preview_purchase(item, &self.catalog, self.rules, &[]);
+            if let Some(transition) = direct
+                .ok()
+                .filter(|transition| transition.after.spent_souls <= earned)
             {
                 transitions.push(transition);
             } else {
@@ -546,6 +549,143 @@ mod tests {
         assert_eq!(plan.steps[0].transition.after.spent_souls, 800);
         assert!(plan.steps[0].marginal_value > 0.0);
         assert_eq!(plan.final_evaluation, plan.steps[0].evaluation);
+    }
+
+    #[test]
+    fn frozen_acquisition_states_allow_funding_sales_before_slots_are_full() {
+        for (held, spent, earned, buy_id, buy_cost, sell_id, expected_spent) in [
+            (
+                vec![
+                    (968099481, 800),
+                    (1763073141, 1600),
+                    (1770441818, 1600),
+                    (2356412290, 1600),
+                    (2678489038, 3200),
+                    (2971868509, 1600),
+                    (3077079169, 800),
+                    (3633614685, 800),
+                    (3919289022, 6400),
+                    (3977876567, 1600),
+                    (4104549924, 1600),
+                ],
+                21600,
+                25600,
+                365620721,
+                6400,
+                3919289022,
+                24800,
+            ),
+            (
+                vec![
+                    (381961617, 1600),
+                    (668299740, 800),
+                    (1770441818, 1600),
+                    (2356412290, 1600),
+                    (2678489038, 3200),
+                    (2971868509, 1600),
+                    (3633614685, 800),
+                    (3977876567, 1600),
+                ],
+                12800,
+                14400,
+                3791587546,
+                3200,
+                2678489038,
+                14400,
+            ),
+        ] {
+            let mut catalog = held
+                .iter()
+                .map(|(id, cost)| {
+                    let mut held_item = item(*id, 0.0, 0.0).item;
+                    held_item.cost = *cost;
+                    held_item
+                })
+                .collect::<Vec<_>>();
+            let mut purchase = item(buy_id, 0.0, 0.0).item;
+            purchase.cost = buy_cost;
+            catalog.push(purchase.clone());
+            let rules = InventoryRules::from_catalog(&catalog).unwrap();
+            let inventory = Inventory {
+                held_ids: held.iter().map(|(id, _)| *id).collect(),
+                spent_souls: spent,
+            };
+            assert!(inventory.held_ids.len() < rules.max_slots);
+            let direct = inventory
+                .preview_purchase(&purchase, &catalog, &rules, &[])
+                .unwrap();
+            assert!(direct.after.spent_souls > earned);
+            let funded = inventory
+                .preview_purchase(&purchase, &catalog, &rules, &[sell_id])
+                .unwrap();
+            assert_eq!(funded.after.spent_souls, expected_spent);
+            assert!(funded.after.spent_souls <= earned);
+            assert_eq!(funded.after.held_ids.len(), inventory.held_ids.len());
+        }
+    }
+
+    #[test]
+    fn affordable_sale_is_evaluated_with_free_slots_and_can_be_rejected() {
+        let hero = hero();
+        let cfg = ReasonerConfig::default();
+        let mut items = [item(1, 1.0, 0.0), item(2, 40.0, 0.0), item(3, 20.0, 0.0)];
+        items[0].item.cost = 1600;
+        items[2].item.cost = 1600;
+        let catalog = items
+            .iter()
+            .map(|item| item.item.clone())
+            .collect::<Vec<_>>();
+        let rules = InventoryRules::from_catalog(&catalog).unwrap();
+        let candidates = vec![&items[2]];
+        let combinations = BTreeMap::new();
+        let inventory = Inventory {
+            held_ids: BTreeSet::from([1, 2]),
+            spent_souls: 2400,
+        };
+        let bindings = BTreeMap::new();
+        let mut search = Search {
+            hero: &hero,
+            cfg: &cfg,
+            order: &[],
+            catalog,
+            candidates: &candidates,
+            rules: &rules,
+            combinations: &combinations,
+            cache: BTreeMap::new(),
+            invalid_metrics: BTreeSet::new(),
+            choices_cache: BTreeMap::new(),
+            progression_cache: BTreeMap::new(),
+        };
+        let before = search.evaluate(&inventory, 3200, &bindings).unwrap();
+        let choices = search.choices(
+            &inventory,
+            &BTreeSet::from([1, 2]),
+            &BTreeMap::from([(1, 1)]),
+            3200,
+            before.score,
+            &bindings,
+        );
+        assert_eq!(choices.len(), 1);
+        assert_eq!(choices[0].transition.sold_ids, vec![1]);
+        assert_eq!(choices[0].transition.net_cost, 800);
+        assert_eq!(choices[0].transition.after.spent_souls, 3200);
+        assert!(choices[0].transition.after.held_ids.len() < rules.max_slots);
+        assert!(choices[0].marginal_value > 0.0);
+
+        let stronger_owned = Inventory {
+            held_ids: BTreeSet::from([2]),
+            spent_souls: 800,
+        };
+        let before = search.evaluate(&stronger_owned, 2000, &bindings).unwrap();
+        let rejected = search.choices(
+            &stronger_owned,
+            &BTreeSet::from([2]),
+            &BTreeMap::from([(1, 1)]),
+            2000,
+            before.score,
+            &bindings,
+        );
+        assert!(rejected.is_empty());
     }
 
     #[test]
