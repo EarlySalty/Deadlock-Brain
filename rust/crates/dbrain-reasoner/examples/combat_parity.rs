@@ -4,7 +4,7 @@ use dbrain_reasoner::{
 use serde::Deserialize;
 use std::{
     fs::File,
-    io::{BufReader, BufWriter},
+    io::{BufReader, BufWriter, Write},
     time::Instant,
 };
 
@@ -45,7 +45,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-    serde_json::to_writer(BufWriter::new(File::create(&args[2])?), &output)?;
+    let mut writer = BufWriter::new(File::create(&args[2])?);
+    serde_json::to_writer(&mut writer, &output)?;
+    writer.flush()?;
     eprintln!(
         "{} vollständige Auswertungen, reine Auswertungszeit {:.3} s",
         output.len(),
