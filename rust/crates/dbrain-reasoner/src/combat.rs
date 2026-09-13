@@ -653,6 +653,19 @@ fn simulate(
         let hit = target_contact(&stats, moving);
         let utility_contact = hit - contact;
         let weapon_opportunity = bullet * rate * hit;
+        let maximum_health = ((hero.base_health * (1.0 + stats.health_pct / 100.0) + stats.health)
+            * (1.0 - stats.health_loss.clamp(0.0, 0.99)))
+        .max(0.0);
+        let current_health = (maximum_health * health_fraction - self_damage_sum + leech_sum)
+            .clamp(0.0, maximum_health);
+        if current_health <= 0.0 {
+            if detailed {
+                out.sequence.push(format!(
+                    "{time:.1}s: eigenes Leben aufgebraucht; Kampfablauf beendet"
+                ));
+            }
+            break;
+        }
         for (idx, ability) in hero.abilities.iter().enumerate() {
             if charge_ready[idx].is_some_and(|ready| time >= ready) {
                 charges[idx] = (charges[idx] + 1).min(max_charges[idx]);
@@ -728,13 +741,6 @@ fn simulate(
                     crate::DamageType::Weapon => stats.bullet_shred,
                     _ => 0.0,
                 };
-                let current_health = ((hero.base_health * (1.0 + stats.health_pct / 100.0)
-                    + stats.health)
-                    * (1.0 - stats.health_loss.clamp(0.0, 0.99))
-                    * health_fraction
-                    - self_damage_sum
-                    + leech_sum)
-                    .max(0.0);
                 let Some(self_cost) =
                     self_damage_cost(ability, damage, current_health, stats.spirit_resist)
                 else {
@@ -755,14 +761,8 @@ fn simulate(
                 if ability.slot == 4 {
                     ultimate_generation += 1;
                 }
-                let ultimate_source = (ability.slot == 4).then_some(ultimate_generation);
-                let current_health = ((hero.base_health * (1.0 + stats.health_pct / 100.0)
-                    + stats.health)
-                    * (1.0 - stats.health_loss.clamp(0.0, 0.99))
-                    * health_fraction
-                    - self_damage_sum
-                    + leech_sum)
-                    .max(0.0);
+                let ultimate_source = (ability.slot == 4 && !ability.item_proc_disabled)
+                    .then_some(ultimate_generation);
                 self_damage_sum +=
                     self_damage_cost(ability, damage, current_health, stats.spirit_resist)
                         .unwrap_or(0.0);
@@ -787,6 +787,7 @@ fn simulate(
                         .max(0.0);
                 if effect_time > 0.0 {
                     pending_damage.push(DamagePeriod {
+                        item_proc_disabled: ability.item_proc_disabled,
                         start: time + start_delay,
                         end: time + start_delay + effect_time,
                         rate: damage / effect_time,
@@ -819,6 +820,7 @@ fn simulate(
                     });
                 } else {
                     pending_hits.push(HitEvent {
+                        item_proc_disabled: ability.item_proc_disabled,
                         at: time + start_delay,
                         ultimate_source,
                         damage,
@@ -907,7 +909,8 @@ fn simulate(
                 );
             }
         }
-        let mut ultimate_events = BTreeSet::new();
+        let mut ultimate_events = BTreeMap::new();
+        let mut excluded_spirit_events = Vec::new();
         for event in &pending_damage {
             let elapsed = (event.end.min(time + duration) - event.start.max(time)).max(0.0);
             let dealt = damage_event(
@@ -916,13 +919,19 @@ fn simulate(
                 &stats,
                 hit,
                 event.start.max(time),
-                &mut spirit_events,
+                if event.item_proc_disabled {
+                    &mut excluded_spirit_events
+                } else {
+                    &mut spirit_events
+                },
                 &mut leech_sum,
             );
             out.ability_damage += dealt;
             if dealt > 0.0 {
                 if let Some(source) = event.ultimate_source {
-                    ultimate_events.insert(source);
+                    ultimate_events
+                        .entry(source)
+                        .or_insert(event.start.max(time));
                 }
             }
             leech_sum += dealt * event.heal.max(0.0);
@@ -936,13 +945,17 @@ fn simulate(
                     &stats,
                     hit,
                     event.at,
-                    &mut spirit_events,
+                    if event.item_proc_disabled {
+                        &mut excluded_spirit_events
+                    } else {
+                        &mut spirit_events
+                    },
                     &mut leech_sum,
                 );
                 out.ability_damage += dealt;
                 if dealt > 0.0 {
                     if let Some(source) = event.ultimate_source {
-                        ultimate_events.insert(source);
+                        ultimate_events.entry(source).or_insert(event.at);
                     }
                 }
                 leech_sum += dealt * event.heal.max(0.0);
@@ -955,14 +968,13 @@ fn simulate(
             {
                 continue;
             }
-            if let Some(source) = ultimate_events
+            if let Some((&source, &at)) = ultimate_events
                 .iter()
-                .copied()
-                .filter(|source| *source > item_ultimate_seen[idx])
-                .max()
+                .filter(|(source, _)| **source > item_ultimate_seen[idx])
+                .max_by_key(|(source, _)| *source)
             {
                 item_ultimate_seen[idx] = source;
-                delayed_item_hits.push((time + value(item, "DelayBeforeStun"), idx));
+                delayed_item_hits.push((at + value(item, "DelayBeforeStun"), idx));
             }
         }
         for (at, idx) in &delayed_item_hits {
@@ -1157,14 +1169,18 @@ fn simulate(
         health_sum += (health + stats.shield.max(0.0)) / mitigation * duration / window;
         leech_sum += gun_damage * stats.bullet_leech.max(0.0) / 100.0
             + stats.regeneration.max(0.0) * duration;
+        leech_sum = leech_sum.min(self_damage_sum + health * (1.0 - health_fraction));
         out.spirit_power += stats.spirit * duration / window;
     }
     out.effective_health = health_sum
-        + leech_sum.min(if pressure {
-            max_health_average * 0.85
-        } else {
-            max_health_average * 0.3
-        })
+        + leech_sum.min(
+            self_damage_sum
+                + if pressure {
+                    max_health_average * 0.85
+                } else {
+                    max_health_average * 0.3
+                },
+        )
         - self_damage_sum;
     out
 }
@@ -1192,6 +1208,7 @@ fn periodic_duration(ability: &AbilityModel) -> f64 {
     }
 }
 struct DamagePeriod {
+    item_proc_disabled: bool,
     ultimate_source: Option<u64>,
     start: f64,
     end: f64,
@@ -1200,6 +1217,7 @@ struct DamagePeriod {
     heal: f64,
 }
 struct HitEvent {
+    item_proc_disabled: bool,
     ultimate_source: Option<u64>,
     at: f64,
     damage: f64,
@@ -1414,6 +1432,7 @@ pub(crate) mod tests {
     }
     fn ability(id: i64, damage: f64, cooldown: f64) -> AbilityModel {
         AbilityModel {
+            item_proc_disabled: false,
             ability_id: id,
             upgrades: vec![],
             properties: BTreeMap::from([
@@ -1433,6 +1452,34 @@ pub(crate) mod tests {
             tick_rate: None,
             duration: None,
         }
+    }
+    #[test]
+    fn self_damage_cannot_fund_free_casts_and_rotation_stops_on_death() {
+        let mut hero = hero();
+        let mut bomb = ability(99, 1000.0, 0.2);
+        bomb.class_name = "ability_blood_bomb".into();
+        bomb.properties.insert("SelfDamagePct".into(), 30.0);
+        hero.abilities = vec![bomb];
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 40.0,
+            ..ReasonerConfig::default()
+        };
+        let result = evaluate_inventory(&hero, &[], &cfg);
+        assert_eq!(result.scenarios[0].casts[&99], 1);
+        assert_eq!(result.scenarios[1].casts[&99], 1);
+        assert!(result.scenarios[1]
+            .sequence
+            .iter()
+            .any(|event| event.contains("Leben aufgebraucht")));
+        assert!(result.scenarios[1].shots < result.scenarios[0].shots);
+        assert!(result
+            .scenarios
+            .iter()
+            .all(|scenario| scenario.effective_health >= 0.0));
+        assert_eq!(
+            result.score,
+            evaluate_inventory_fast(&hero, &[], &cfg).score
+        );
     }
     #[test]
     fn quicksilver_reload_has_one_cast_bound_activation_and_fixed_binding() {
@@ -1619,6 +1666,7 @@ pub(crate) mod tests {
     fn periodic_damage_keeps_full_duration_rate_at_window_end() {
         let mut hero = hero();
         hero.abilities.push(AbilityModel {
+            item_proc_disabled: false,
             ability_id: 9,
             properties: BTreeMap::new(),
             upgrades: Default::default(),
@@ -1803,6 +1851,7 @@ pub(crate) mod tests {
         let mut hero = hero();
         hero.weapon.clip_size = 1000.0;
         hero.abilities.push(AbilityModel {
+            item_proc_disabled: false,
             ability_id: 2,
             properties: BTreeMap::new(),
             upgrades: Default::default(),
