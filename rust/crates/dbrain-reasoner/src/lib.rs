@@ -8,7 +8,7 @@ pub mod backtest;
 pub mod composer;
 pub mod combat;
 pub mod inventory;
-pub use data::{enrich_frozen_models,refresh_ability_derived};
+pub use data::{enrich_frozen_models,refresh_ability_derived,ability_damage_units};
 mod data;
 pub mod hero;
 pub mod item;

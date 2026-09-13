@@ -58,6 +58,7 @@ pub(crate) fn ability_class_name(value: &Value) -> String {
 
 fn ability_matches(value: &Value, ability: &AbilityModel) -> bool {
     ability_id(value)
+        .filter(|_|ability.ability_id>0)
         .map(|id| id == ability.ability_id)
         .unwrap_or_else(|| {
             let class_name = ability_class_name(value);
@@ -327,6 +328,7 @@ fn ability_model(payload: &Value, slot: i64) -> Option<AbilityModel> {
             let Some(function) = property.get("scale_function") else {
                 continue;
             };
+            let function=function.get("subclass").unwrap_or(function);
             let Some(scale) = number(function.get("stat_scale")) else {
                 continue;
             };
@@ -589,7 +591,13 @@ async fn ability_snapshots(pool: &PgPool, hero: &Value) -> Result<Vec<Value>> {
             let text = row
                 .try_get::<String, _>("payload_json")
                 .map_err(ReasonerError::Db)?;
-            abilities.push(parse_json(text, "Ability")?);
+            let mut ability=parse_json(text,"Ability")?;
+            if ability_id(&ability).is_none() {
+                let candidates:Vec<String>=sqlx::query_scalar("SELECT DISTINCT coalesce(payload->>'id',payload->>'ability_id',external_id) FROM brain.entity_snapshots WHERE source='deadlock_assets_api' AND entity_type='item_or_ability' AND payload->>'class_name'=$1 AND coalesce(payload->>'id',payload->>'ability_id',external_id) ~ '^[0-9]+$'").bind(ability_class_name(&ability)).fetch_all(pool).await.map_err(ReasonerError::Db)?;
+                let ids:BTreeSet<i64>=candidates.iter().filter_map(|value|value.parse().ok()).filter(|id|*id>0).collect();
+                if ids.len()==1 {ability["id"]=serde_json::json!(ids.first());}
+            }
+            abilities.push(ability);
         }
     }
     Ok(abilities)
@@ -1229,18 +1237,27 @@ fn standard_upgrade_levels(payload:&Value)->BTreeSet<i64> {
 fn level_rewards(payload: &Value) -> BTreeMap<i64,Vec<String>> {
     payload.get("level_info").and_then(Value::as_object).into_iter().flatten().filter_map(|(level,value)|Some((level.parse().ok()?,value.get("bonus_currencies").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect()))).collect()
 }
+pub fn ability_damage_units(ability:&AbilityModel,key:&str)->f64 {
+    damage_property_units(key,&ability.properties,ability.duration.or(ability.channel_time).unwrap_or(0.0),ability.tick_rate)
+}
+fn damage_property_units(key:&str,values:&BTreeMap<String,f64>,duration:f64,tick:Option<f64>)->f64 {
+    match key {
+        "Damage"|"ImpactDamage"|"BaseDamage"|"StompDamage"|"HealthToDamage"|"SwapDamage"|"LandingDamage"|"ExplodeDamage"|"FullChargeDamage"=>1.0,
+        "DamagePerProjectile"=>values.get("ProjectileAmount").copied().unwrap_or(1.0).max(1.0),
+        "PulseDPS"|"DamagePerSecond"|"DPS"|"LifeDrainPerSecond"|"TurretDPS"|"AfflictionDPS"=>duration,
+        "DamagePerTick"|"TickDamage"|"PulseDamage"=>tick.map_or(1.0,|tick|if duration>0.0 {duration/tick}else{1.0}),
+        _=>0.0,
+    }
+}
+
 pub fn refresh_ability_derived(ability: &mut AbilityModel) {
     let values=&ability.properties;
     let get=|name:&str| values.get(name).copied().unwrap_or_default();
     let channel=get("AbilityChannelTime");
-    let duration=get("AbilityDuration").max(channel);
+    let mut duration=get("AbilityDuration").max(channel).max(get("BurnDuration")).max(get("TurretLifetime"));
+    if duration<=0.0 && values.keys().any(|key|key.ends_with("DPS") || key.ends_with("PerSecond")) {duration=if get("MinShockDuration")>0.0 {get("MinShockDuration")}else{get("DebuffDuration")};}
     let tick=values.iter().filter(|(name,value)|(name.ends_with("TickRate") || name.as_str()=="PulseInterval") && **value>0.0).map(|(_,value)|*value).min_by(f64::total_cmp);
-    ability.base_effect=values.iter().map(|(key,value)|match key.as_str(){
-        "Damage"|"ImpactDamage"|"BaseDamage"|"StompDamage"=>*value,
-        "PulseDPS"|"DamagePerSecond"|"DPS"=>value*duration,
-        "DamagePerTick"|"TickDamage"=>tick.map_or(0.0,|tick|value*duration/tick),
-        _=>0.0,
-    }).sum();
+    ability.base_effect=values.iter().map(|(key,value)|value*damage_property_units(key,values,duration,tick)).sum();
     ability.channel_time=(channel>0.0).then_some(channel);
     ability.duration=(duration>0.0).then_some(duration);
     ability.tick_rate=tick;
@@ -1298,8 +1315,12 @@ pub fn enrich_frozen_models(hero: &mut HeroModel, items: &mut [ItemModel], snaps
     hero.level_rewards=level_rewards(hero_raw);
     hero.cost_bonuses=serde_json::from_value(hero_raw.get("cost_bonuses").cloned().unwrap_or_default()).map_err(|error|ReasonerError::Data(format!("Ungültige Shopregeln: {error}")))?;
     for ability in &mut hero.abilities {
+        if ability.ability_id<=0 {
+            let ids:BTreeSet<i64>=raw.iter().filter(|value|ability_class_name(value)==ability.class_name).filter_map(ability_id).collect();
+            if ids.len()==1 {ability.ability_id = *ids.first().unwrap();}
+        }
         let value=raw.iter().find(|value| ability_matches(value,ability));
-        if let Some(value)=value {ability.properties=property_values(value.get("properties"));ability.upgrades=value.get("upgrades").and_then(Value::as_array).cloned().unwrap_or_default();refresh_ability_derived(ability);}
+        if let Some(value)=value {if let Some(mut parsed)=ability_model(value,ability.slot) {if parsed.ability_id<=0 {parsed.ability_id=ability.ability_id;}*ability=parsed;}}
     }
     for item in items {
         if let Some(value)=raw.iter().find(|value|integer(value.get("id"))==item.item_id && value.get("properties").is_some()) {
