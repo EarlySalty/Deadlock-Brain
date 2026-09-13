@@ -728,6 +728,7 @@ mod tests {
 
     fn item() -> ItemModel {
         ItemModel {
+            property_damage_types: Default::default(),
             component_items: Vec::new(),
             class_name: String::new(),
             description: String::new(),
@@ -1156,6 +1157,7 @@ mod tests {
     #[test]
     fn purchase_bonus_uses_slot_and_tier() {
         let item = ItemModel {
+            property_damage_types: Default::default(),
             component_items: Vec::new(),
             class_name: String::new(),
             description: String::new(),
@@ -1188,6 +1190,7 @@ mod tests {
     fn condition_factor_applies_ramp_and_active_uptime() {
         let cfg = ReasonerConfig::default();
         let ramp = ItemModel {
+            property_damage_types: Default::default(),
             component_items: Vec::new(),
             class_name: String::new(),
             description: String::new(),
@@ -1239,6 +1242,7 @@ mod tests {
     #[test]
     fn buy_phase_follows_soul_thresholds() {
         let item = ItemModel {
+            property_damage_types: Default::default(),
             component_items: Vec::new(),
             class_name: String::new(),
             description: String::new(),
@@ -1315,6 +1319,7 @@ mod tests {
             },
         ];
         let item = ItemModel {
+            property_damage_types: Default::default(),
             component_items: Vec::new(),
             class_name: String::new(),
             description: String::new(),

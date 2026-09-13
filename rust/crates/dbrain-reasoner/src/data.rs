@@ -903,6 +903,7 @@ pub(crate) async fn load_item_models_with_snapshots(
             })
             .unwrap_or(false);
         let model = ItemModel {
+            property_damage_types: property_damage_types(&payload),
             component_items: payload.get("component_items").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect(),
             class_name: class_name.clone(),
             description: payload.get("description").and_then(|v| v.get("desc")).and_then(Value::as_str).unwrap_or_default().to_owned(),
@@ -1231,6 +1232,17 @@ pub async fn load_synergies(ctx: &ReasonerCtx, hero_id: i64) -> Result<Vec<Value
 }
 
 
+fn property_damage_types(payload: &Value) -> BTreeMap<String,DamageType> {
+    payload.get("properties").and_then(Value::as_object).into_iter().flatten().filter_map(|(key,property)| {
+        let damage_type=match property.get("css_class").and_then(Value::as_str) {
+            Some("tech_damage")=>DamageType::Spirit,
+            Some("bullet_damage")=>DamageType::Weapon,
+            _=>return None,
+        };
+        Some((key.clone(),damage_type))
+    }).collect()
+}
+
 pub fn enrich_frozen_models(hero: &mut HeroModel, items: &mut [ItemModel], snapshots: &[Value]) -> Result<()> {
     let payload = |row: &Value| row.get("payload").cloned().unwrap_or_else(||row.clone());
     let mut rows: Vec<&Value> = snapshots.iter().filter(|row|row.get("source").is_none_or(|v|v.as_str()==Some("deadlock_assets_api"))).collect();
@@ -1247,6 +1259,7 @@ pub fn enrich_frozen_models(hero: &mut HeroModel, items: &mut [ItemModel], snaps
     }
     for item in items {
         if let Some(value)=raw.iter().find(|value|integer(value.get("id"))==item.item_id && value.get("properties").is_some()) {
+            item.property_damage_types=property_damage_types(value);
             item.component_items=value.get("component_items").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
             item.class_name=string(value.get("class_name"));
             item.description=value.get("description").and_then(|v|v.get("desc")).and_then(Value::as_str).unwrap_or_default().to_owned();
