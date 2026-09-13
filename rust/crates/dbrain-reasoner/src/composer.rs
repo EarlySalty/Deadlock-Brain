@@ -454,11 +454,7 @@ fn build_item(
     cfg: &ReasonerConfig,
     sources: Vec<Evidence>,
 ) -> BuildItem {
-    let mut imbue_hero = hero.clone();
-    imbue_hero
-        .abilities
-        .retain(|ability| ability.ability_id > 0);
-    let imbue_target = crate::mechanics::imbue_target(&item.item, &imbue_hero, cfg);
+    let imbue_target = crate::mechanics::imbue_target(&item.item, hero, cfg);
     BuildItem {
         item_id: item.item.item_id,
         name: item.item.name.clone(),
