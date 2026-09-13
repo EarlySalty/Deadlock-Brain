@@ -209,6 +209,9 @@ fn evaluate_core(
             if !unique.insert(name) || *v == 0.0 {
                 continue;
             }
+            if name.contains("ProcDamage") && !item.property_damage_types.contains_key(name) {
+                unknown.insert(format!("{}: Schadenstyp von {name} fehlt; keine Widerstands-, Spirit-Auslöser- oder Lifesteal-Wechselwirkung angenommen",item.name));
+            }
             if !v.is_finite() {
                 unknown.insert(format!("{}: ungültiger Wert für {name}", item.name));
                 continue;
@@ -317,7 +320,7 @@ fn simulate(
     let mut last_cast = f64::NEG_INFINITY;
     let mut fired = false;
     let mut spirit_events: Vec<(f64, f64)> = Vec::new();
-    let mut pending_damage: Vec<(f64, f64)> = Vec::new();
+    let mut pending_damage: Vec<(f64, f64, crate::DamageType)> = Vec::new();
     let mut health_sum = 0.0;
     let mut leech_sum = 0.0;
     let spirit_rate = hero
@@ -357,14 +360,22 @@ fn simulate(
         })
         .collect();
     apply_shop(hero, items, &mut base_stats);
-    let item_proc_damage: Vec<f64> = items
+    let item_proc_damage: Vec<Vec<(f64, crate::DamageType)>> = items
         .iter()
         .map(|item| {
             item.properties
                 .iter()
                 .filter(|(key, _)| key.contains("ProcDamage"))
-                .map(|(_, v)| *v)
-                .sum()
+                .map(|(key, value)| {
+                    (
+                        *value,
+                        item.property_damage_types
+                            .get(key)
+                            .cloned()
+                            .unwrap_or(crate::DamageType::None),
+                    )
+                })
+                .collect()
         })
         .collect();
     let steps = (window / dt).ceil() as usize;
@@ -463,10 +474,15 @@ fn simulate(
                     })
                     .map(|(_, v)| v.max(0.0))
                     .sum::<f64>();
-                let gain = damage * complete * (1.0 + stats.spirit_shred / 100.0) + utility
+                let damage_amp = match ability.damage_type {
+                    crate::DamageType::Spirit => stats.spirit_shred,
+                    crate::DamageType::Weapon => stats.bullet_shred,
+                    _ => 0.0,
+                };
+                let gain = damage * complete * (1.0 + damage_amp / 100.0) + utility
                     - weapon_opportunity * cast_time;
                 if gain > 0.0 && best.as_ref().is_none_or(|(_, g, _, _)| gain > *g) {
-                    best = Some((idx, gain, damage * complete, cast_time));
+                    best = Some((idx, gain, damage, cast_time));
                 }
             }
             if let Some((idx, _, damage, cast_time)) = best {
@@ -478,21 +494,27 @@ fn simulate(
                         .iter()
                         .any(|s| s.stat.ends_with("DPS") || s.stat.ends_with("PerSecond"))
                 {
-                    ability
-                        .duration
-                        .or(ability.channel_time)
-                        .unwrap_or(0.0)
-                        .min(window - time)
+                    ability.duration.or(ability.channel_time).unwrap_or(0.0)
                 } else {
                     0.0
                 };
                 if effect_time > 0.0 {
-                    pending_damage.push((time + effect_time, damage / effect_time));
+                    pending_damage.push((
+                        time + effect_time,
+                        damage / effect_time,
+                        ability.damage_type.clone(),
+                    ));
                 } else {
-                    let dealt = damage * (1.0 + stats.spirit_shred / 100.0) * hit;
+                    let dealt = damage_event(
+                        damage,
+                        &ability.damage_type,
+                        &stats,
+                        hit,
+                        time,
+                        &mut spirit_events,
+                        &mut leech_sum,
+                    );
                     out.ability_damage += dealt;
-                    leech_sum += dealt * stats.spirit_leech.max(0.0) / 100.0;
-                    spirit_events.push((time, dealt));
                 }
                 *out.casts.entry(ability.ability_id).or_default() += 1;
                 ability_ready[idx] =
@@ -529,18 +551,19 @@ fn simulate(
                 }
             }
         }
-        let tick_damage = pending_damage
-            .iter()
-            .map(|(end, dps)| (end - time).clamp(0.0, duration) * dps)
-            .sum::<f64>()
-            * (1.0 + stats.spirit_shred / 100.0)
-            * hit;
-        if tick_damage > 0.0 {
-            out.ability_damage += tick_damage;
-            spirit_events.push((time, tick_damage));
-            leech_sum += tick_damage * stats.spirit_leech.max(0.0) / 100.0;
+        for (end, dps, damage_type) in &pending_damage {
+            let damage = (end - time).clamp(0.0, duration) * dps;
+            out.ability_damage += damage_event(
+                damage,
+                damage_type,
+                &stats,
+                hit,
+                time,
+                &mut spirit_events,
+                &mut leech_sum,
+            );
         }
-        pending_damage.retain(|(end, _)| *end > time + duration);
+        pending_damage.retain(|(end, _, _)| *end > time + duration);
         let mut shots = 0.0;
         if time < channel_until {
             out.channel_seconds += duration;
@@ -564,7 +587,7 @@ fn simulate(
         out.weapon_damage += gun_damage;
         out.utility += shots * bullet * utility_contact;
         for (idx, item) in items.iter().enumerate() {
-            if time < proc_ready[idx] || item_proc_damage[idx] <= 0.0 {
+            if time < proc_ready[idx] || item_proc_damage[idx].is_empty() {
                 continue;
             }
             let trigger = match item.condition {
@@ -575,12 +598,19 @@ fn simulate(
             if !trigger {
                 continue;
             }
-            let damage = item_proc_damage[idx];
-            if damage > 0.0 {
-                if let Some(cooldown) = item.proc_cooldown.filter(|v| *v > 0.0) {
-                    out.proc_damage += damage * (1.0 + stats.spirit_shred / 100.0) * hit;
-                    proc_ready[idx] = time + cooldown;
+            if let Some(cooldown) = item.proc_cooldown.filter(|v| *v > 0.0) {
+                for (damage, damage_type) in &item_proc_damage[idx] {
+                    out.proc_damage += damage_event(
+                        *damage,
+                        damage_type,
+                        &stats,
+                        hit,
+                        time,
+                        &mut spirit_events,
+                        &mut leech_sum,
+                    );
                 }
+                proc_ready[idx] = time + cooldown;
             }
         }
         let health = (hero.base_health * (1.0 + stats.health_pct / 100.0) + stats.health).max(1.0);
@@ -598,6 +628,27 @@ fn simulate(
             hero.base_health * 0.3
         });
     out
+}
+fn damage_event(
+    damage: f64,
+    damage_type: &crate::DamageType,
+    stats: &Stats,
+    hit: f64,
+    time: f64,
+    events: &mut Vec<(f64, f64)>,
+    leech: &mut f64,
+) -> f64 {
+    let (shred, lifesteal) = match damage_type {
+        crate::DamageType::Spirit => (stats.spirit_shred, stats.spirit_leech),
+        crate::DamageType::Weapon => (stats.bullet_shred, stats.bullet_leech),
+        _ => (0.0, 0.0),
+    };
+    let dealt = damage.max(0.0) * (1.0 + shred / 100.0) * hit;
+    if *damage_type == crate::DamageType::Spirit && dealt > 0.0 {
+        events.push((time, dealt));
+    }
+    *leech += dealt * lifesteal.max(0.0) / 100.0;
+    dealt
 }
 pub fn shop_bonuses(hero: &HeroModel, items: &[&ItemModel]) -> BTreeMap<String, f64> {
     [
@@ -673,6 +724,7 @@ mod tests {
             item_id: id,
             name: format!("Item {id}"),
             class_name: format!("item_{id}"),
+            property_damage_types: Default::default(),
             component_items: vec![],
             description: String::new(),
             slot: SlotType::Weapon,
@@ -690,6 +742,95 @@ mod tests {
             proc_cooldown: None,
             imbueable: false,
         }
+    }
+    #[test]
+    fn periodic_damage_keeps_full_duration_rate_at_window_end() {
+        let mut hero = hero();
+        hero.abilities.push(AbilityModel {
+            ability_id: 9,
+            properties: BTreeMap::new(),
+            class_name: "periodic".into(),
+            slot: 1,
+            roles: vec![AbilityRole::Damage],
+            scaling: vec![],
+            channel_time: None,
+            charges: 1,
+            cooldown: 1.8,
+            scaling_step: None,
+            damage_type: DamageType::Spirit,
+            base_effect: 100.0,
+            tick_rate: Some(0.2),
+            duration: Some(10.0),
+        });
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 2.0,
+            ..ReasonerConfig::default()
+        };
+        let full = evaluate_inventory(&hero, &[], &cfg);
+        assert!((full.scenarios[0].ability_damage - 22.0).abs() < 1e-8);
+        assert_eq!(full.score, evaluate_inventory_fast(&hero, &[], &cfg).score);
+    }
+    #[test]
+    fn typed_proc_events_respect_damage_type_and_trigger_spirit_threshold() {
+        let mut hero = hero();
+        hero.weapon.clip_size = 10000.0;
+        let mut proc = item(1, "TestProcDamage", 100.0);
+        proc.condition = ConditionKind::ShotBound;
+        proc.proc_cooldown = Some(1.0);
+        proc.property_damage_types
+            .insert("TestProcDamage".into(), DamageType::Spirit);
+        let leech = item(2, "AbilityLifestealPercent", 20.0);
+        let mut threshold = item(3, "BonusFireRate", 100.0);
+        threshold.condition = ConditionKind::ActionBound {
+            action: "spirit_damage_threshold".into(),
+        };
+        threshold
+            .conditional_properties
+            .insert("BonusFireRate".into());
+        threshold.properties.insert("DamageThreshold".into(), 50.0);
+        threshold
+            .properties
+            .insert("DamageThresholdDuration".into(), 2.0);
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 2.0,
+            ..ReasonerConfig::default()
+        };
+        let typed = evaluate_inventory(
+            &hero,
+            &[proc.clone(), leech.clone(), threshold.clone()],
+            &cfg,
+        );
+        assert!(typed.effective_health > 600.0);
+        proc.property_damage_types.clear();
+        let untyped = evaluate_inventory(&hero, &[proc, leech, threshold], &cfg);
+        assert_eq!(untyped.effective_health, 600.0);
+        assert!(typed.weapon_damage > untyped.weapon_damage);
+    }
+    #[test]
+    fn weapon_damage_does_not_receive_spirit_shred_or_spirit_lifesteal() {
+        let stats = Stats {
+            spirit_shred: 50.0,
+            spirit_leech: 50.0,
+            bullet_shred: 20.0,
+            bullet_leech: 10.0,
+            ..Stats::default()
+        };
+        let mut events = vec![];
+        let mut leech = 0.0;
+        assert_eq!(
+            damage_event(
+                100.0,
+                &DamageType::Weapon,
+                &stats,
+                1.0,
+                0.0,
+                &mut events,
+                &mut leech
+            ),
+            120.0
+        );
+        assert_eq!(leech, 12.0);
+        assert!(events.is_empty());
     }
     #[test]
     fn fast_and_explained_evaluations_have_identical_numbers() {
