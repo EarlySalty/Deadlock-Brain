@@ -365,6 +365,7 @@ fn ability_model(payload: &Value, slot: i64) -> Option<AbilityModel> {
         }
     }
     Some(AbilityModel {
+        properties: values.clone(),
         ability_id,
         class_name,
         slot,
@@ -540,6 +541,7 @@ fn hero_model(payload: &Value, abilities: &[Value], stats: &[ScalingStat]) -> Re
     let mut all_scaling = scaling_stats(payload.get("scaling_stats"));
     all_scaling.extend(stats.iter().cloned());
     Ok(HeroModel {
+        cost_bonuses: serde_json::from_value(payload.get("cost_bonuses").cloned().unwrap_or_else(|| serde_json::json!({}))).map_err(|e| ReasonerError::Data(format!("Ungültige Shopbonus-Schwellen: {e}")))?,
         hero_id,
         name,
         archetype: string(payload.get("hero_type")),
@@ -901,6 +903,9 @@ pub(crate) async fn load_item_models_with_snapshots(
             })
             .unwrap_or(false);
         let model = ItemModel {
+            component_items: payload.get("component_items").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect(),
+            class_name: class_name.clone(),
+            description: payload.get("description").and_then(|v| v.get("desc")).and_then(Value::as_str).unwrap_or_default().to_owned(),
             item_id,
             name: if catalog_name.is_empty() {
                 string(payload.get("name"))
@@ -1006,7 +1011,7 @@ pub async fn load_patch_events(ctx: &ReasonerCtx, hero_id: i64) -> Result<Vec<Va
     load_patch_events_for_snapshots(ctx, hero_id, &[]).await
 }
 
-pub(crate) async fn load_patch_events_for_snapshots(
+pub async fn load_patch_events_for_snapshots(
     ctx: &ReasonerCtx,
     hero_id: i64,
     snapshots: &[crate::PatchSnapshot],
