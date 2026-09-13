@@ -79,7 +79,8 @@ struct Search<'a> {
     candidates: &'a [&'a ScoredItem],
     rules: &'a InventoryRules,
     combinations: &'a BTreeMap<(i64, i64), crate::meta::CombinationSupport>,
-    cache: BTreeMap<EvaluationKey, InventoryEvaluation>,
+    cache: BTreeMap<EvaluationKey, Option<InventoryEvaluation>>,
+    invalid_metrics: BTreeSet<String>,
     choices_cache: BTreeMap<ChoiceKey, Vec<PurchaseStep>>,
     progression_cache: BTreeMap<i64, (HeroModel, ProgressionEvidence)>,
 }
@@ -123,7 +124,7 @@ impl Search<'_> {
                 .collect::<Vec<_>>(),
         );
         if let Some(evaluation) = self.cache.get(&key) {
-            return Some(evaluation.clone());
+            return evaluation.clone();
         }
         let held = inventory
             .held_ids
@@ -132,10 +133,23 @@ impl Search<'_> {
             .collect::<Option<Vec<_>>>()?;
         let evaluation =
             evaluate_inventory_refs_fast_with_bindings(hero, &held, self.cfg, bindings);
-        if !evaluation.score.is_finite() {
+        let invalid = !evaluation.score.is_finite()
+            || !evaluation.utility.is_finite()
+            || !evaluation.effective_health.is_finite()
+            || evaluation.effective_health <= 0.0
+            || [
+                evaluation.weapon_damage,
+                evaluation.ability_damage,
+                evaluation.proc_damage,
+            ]
+            .iter()
+            .any(|damage| !damage.is_finite() || *damage < 0.0);
+        if invalid {
+            self.invalid_metrics.insert("Inventarzustände mit nicht endlichen Kampfwerten, negativem Schaden oder nicht positivem effektivem Leben wurden als ungültig verworfen; ihre Werte wurden nicht geklemmt.".into());
+            self.cache.insert(key, None);
             return None;
         }
-        self.cache.insert(key, evaluation.clone());
+        self.cache.insert(key, Some(evaluation.clone()));
         Some(evaluation)
     }
 
@@ -294,6 +308,7 @@ pub fn plan_with_economy(
         rules,
         combinations,
         cache: BTreeMap::new(),
+        invalid_metrics: BTreeSet::new(),
         choices_cache: BTreeMap::new(),
         progression_cache: BTreeMap::new(),
     };
@@ -330,6 +345,7 @@ pub fn plan_with_economy(
             let Some(before) = search.evaluate(&inventory, earned, &bindings) else {
                 plan.assumptions
                     .push("Ungültiger Inventar-/Kampfzustand beendet die Kaufplanung.".into());
+                plan.assumptions.extend(search.invalid_metrics);
                 return plan;
             };
             let choices = search.choices(
@@ -462,6 +478,7 @@ pub fn plan_with_economy(
         "{} ungefüllte Layoutplätze am letzten Budgetpunkt. Keine unbezahlbaren Käufe ergänzt.",
         remaining.values().sum::<usize>()
     ));
+    plan.assumptions.extend(search.invalid_metrics);
     plan
 }
 #[cfg(test)]
@@ -589,6 +606,7 @@ mod tests {
             rules: &rules,
             combinations: &combinations,
             cache: BTreeMap::new(),
+            invalid_metrics: BTreeSet::new(),
             choices_cache: BTreeMap::new(),
             progression_cache: BTreeMap::new(),
         };
