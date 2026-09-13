@@ -312,6 +312,7 @@ mod tests {
             &serde_json::json!({"EFireRate":{"scaling_stat":"ETechPower","scale":0.25},"ERoundsPerSecond":{"scaling_stat":"ETechPower","scale":0.01}}),
         ));
         let item = ItemModel {
+            property_spirit_scaling: Default::default(),
             property_damage_types: Default::default(),
             component_items: Vec::new(),
             class_name: String::new(),
@@ -356,6 +357,7 @@ mod tests {
             &serde_json::json!({"EFireRate":{"scaling_stat":"ETechPower","scale":0.25}}),
         ));
         let item = ItemModel {
+            property_spirit_scaling: Default::default(),
             property_damage_types: Default::default(),
             component_items: Vec::new(),
             class_name: String::new(),
@@ -405,6 +407,10 @@ mod tests {
 
     fn hero() -> HeroModel {
         HeroModel {
+            base_spirit_power: 0.0,
+            standard_level_up_upgrades: Default::default(),
+            standard_upgrade_levels: Default::default(),
+            level_rewards: Default::default(),
             cost_bonuses: Default::default(),
             hero_id: 25,
             name: "Warden".to_string(),
@@ -428,6 +434,7 @@ mod tests {
                 sustained_dps: 0.0,
             },
             abilities: vec![AbilityModel {
+                upgrades: Default::default(),
                 properties: Default::default(),
                 ability_id: 1,
                 class_name: "ability1".to_string(),
@@ -455,6 +462,7 @@ mod tests {
     #[test]
     fn total_ranks_slots_independently_of_soul_efficiency() {
         let item = ItemModel {
+            property_spirit_scaling: Default::default(),
             property_damage_types: Default::default(),
             component_items: Vec::new(),
             class_name: String::new(),
@@ -477,6 +485,7 @@ mod tests {
             imbueable: false,
         };
         let expensive = ItemModel {
+            property_spirit_scaling: Default::default(),
             property_damage_types: Default::default(),
             component_items: Vec::new(),
             class_name: String::new(),
@@ -533,6 +542,7 @@ mod tests {
     #[test]
     fn build_item_model_validates_loaded_model_without_parsing_payload_again() {
         let item = ItemModel {
+            property_spirit_scaling: Default::default(),
             property_damage_types: Default::default(),
             component_items: Vec::new(),
             class_name: String::new(),
@@ -560,6 +570,7 @@ mod tests {
     #[test]
     fn score_separates_active_passive_and_meta() {
         let item = ItemModel {
+            property_spirit_scaling: Default::default(),
             property_damage_types: Default::default(),
             component_items: Vec::new(),
             class_name: String::new(),

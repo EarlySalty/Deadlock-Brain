@@ -321,26 +321,6 @@ fn ability_model(payload: &Value, slot: i64) -> Option<AbilityModel> {
     let properties = payload.get("properties").and_then(Value::as_object);
     let values = property_values(payload.get("properties"));
     let property_number = |name: &str| values.get(name).copied().unwrap_or_default();
-    let channel_time = property_number("AbilityChannelTime");
-    let duration = property_number("AbilityDuration").max(channel_time);
-    let tick_rate = values
-        .iter()
-        .filter(|(key, value)| {
-            (key.ends_with("TickRate") || key.as_str() == "PulseInterval") && **value > 0.0
-        })
-        .map(|(_, value)| *value)
-        .min_by(f64::total_cmp);
-    let base_effect = values
-        .iter()
-        .map(|(key, value)| match key.as_str() {
-            "Damage" | "ImpactDamage" | "BaseDamage" => *value,
-            "PulseDPS" | "DamagePerSecond" | "DPS" => value * duration,
-            "DamagePerTick" | "TickDamage" => tick_rate
-                .map(|tick| value * duration / tick)
-                .unwrap_or_default(),
-            _ => 0.0,
-        })
-        .sum();
     let mut scaling = scaling_stats(payload.get("scaling_stats"));
     if let Some(properties) = properties {
         for (name, property) in properties {
@@ -364,7 +344,8 @@ fn ability_model(payload: &Value, slot: i64) -> Option<AbilityModel> {
             }
         }
     }
-    Some(AbilityModel {
+    let mut model=AbilityModel {
+        upgrades: payload.get("upgrades").and_then(Value::as_array).cloned().unwrap_or_default(),
         properties: values.clone(),
         ability_id,
         class_name,
@@ -394,10 +375,12 @@ fn ability_model(payload: &Value, slot: i64) -> Option<AbilityModel> {
         } else {
             DamageType::Spirit
         },
-        base_effect,
-        tick_rate,
-        duration: (duration > 0.0).then_some(duration),
-    })
+        base_effect:0.0,
+        tick_rate:None,
+        duration:None,
+    };
+    refresh_ability_derived(&mut model);
+    Some(model)
 }
 
 pub(crate) fn ability_cast_count(ability: &AbilityModel, cfg: &crate::ReasonerConfig) -> f64 {
@@ -541,6 +524,10 @@ fn hero_model(payload: &Value, abilities: &[Value], stats: &[ScalingStat]) -> Re
     let mut all_scaling = scaling_stats(payload.get("scaling_stats"));
     all_scaling.extend(stats.iter().cloned());
     Ok(HeroModel {
+        base_spirit_power: number(payload.pointer("/starting_stats/tech_power/value")).unwrap_or_default(),
+        standard_level_up_upgrades: numeric_object(payload.get("standard_level_up_upgrades")),
+        standard_upgrade_levels: standard_upgrade_levels(payload),
+        level_rewards: level_rewards(payload),
         cost_bonuses: serde_json::from_value(payload.get("cost_bonuses").cloned().unwrap_or_else(|| serde_json::json!({}))).map_err(|e| ReasonerError::Data(format!("Ungültige Shopbonus-Schwellen: {e}")))?,
         hero_id,
         name,
@@ -904,9 +891,10 @@ pub(crate) async fn load_item_models_with_snapshots(
             .unwrap_or(false);
         let model = ItemModel {
             property_damage_types: property_damage_types(&payload),
+            property_spirit_scaling: property_spirit_scaling(&payload),
             component_items: payload.get("component_items").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect(),
             class_name: class_name.clone(),
-            description: payload.get("description").and_then(|v| v.get("desc")).and_then(Value::as_str).unwrap_or_default().to_owned(),
+            description: snapshot_description(&payload),
             item_id,
             name: if catalog_name.is_empty() {
                 string(payload.get("name"))
@@ -1232,6 +1220,58 @@ pub async fn load_synergies(ctx: &ReasonerCtx, hero_id: i64) -> Result<Vec<Value
 }
 
 
+fn numeric_object(value: Option<&Value>) -> BTreeMap<String,f64> {
+    value.and_then(Value::as_object).into_iter().flatten().filter_map(|(key,value)|number(Some(value)).map(|v|(key.clone(),v))).collect()
+}
+fn standard_upgrade_levels(payload:&Value)->BTreeSet<i64> {
+    payload.get("level_info").and_then(Value::as_object).into_iter().flatten().filter(|(_,value)|value.get("use_standard_upgrade").and_then(Value::as_bool)==Some(true)).filter_map(|(level,_)|level.parse().ok()).collect()
+}
+fn level_rewards(payload: &Value) -> BTreeMap<i64,Vec<String>> {
+    payload.get("level_info").and_then(Value::as_object).into_iter().flatten().filter_map(|(level,value)|Some((level.parse().ok()?,value.get("bonus_currencies").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect()))).collect()
+}
+pub fn refresh_ability_derived(ability: &mut AbilityModel) {
+    let values=&ability.properties;
+    let get=|name:&str| values.get(name).copied().unwrap_or_default();
+    let channel=get("AbilityChannelTime");
+    let duration=get("AbilityDuration").max(channel);
+    let tick=values.iter().filter(|(name,value)|(name.ends_with("TickRate") || name.as_str()=="PulseInterval") && **value>0.0).map(|(_,value)|*value).min_by(f64::total_cmp);
+    ability.base_effect=values.iter().map(|(key,value)|match key.as_str(){
+        "Damage"|"ImpactDamage"|"BaseDamage"|"StompDamage"=>*value,
+        "PulseDPS"|"DamagePerSecond"|"DPS"=>value*duration,
+        "DamagePerTick"|"TickDamage"=>tick.map_or(0.0,|tick|value*duration/tick),
+        _=>0.0,
+    }).sum();
+    ability.channel_time=(channel>0.0).then_some(channel);
+    ability.duration=(duration>0.0).then_some(duration);
+    ability.tick_rate=tick;
+    ability.charges=get("AbilityCharges") as i64;
+    ability.cooldown=if get("AbilityCooldownBetweenCharge")>0.0 {get("AbilityCooldownBetweenCharge")}else{get("AbilityCooldown")};
+}
+
+fn property_spirit_scaling(payload: &Value) -> BTreeMap<String,f64> {
+    payload.get("properties").and_then(Value::as_object).into_iter().flatten().filter_map(|(key,property)| {
+        let function=property.get("scale_function")?;
+        let function=function.get("subclass").unwrap_or(function);
+        let kind=string(function.get("class_name"));
+        let stat=string(function.get("specific_stat_scale_type"));
+        if kind!="scale_function_tech_damage" && stat!="ETechPower" {return None;}
+        number(function.get("stat_scale")).filter(|v|v.is_finite()).map(|value|(key.clone(),value))
+    }).collect()
+}
+fn snapshot_description(payload: &Value) -> String {
+    fn collect(value:&Value,output:&mut BTreeSet<String>) {
+        match value {
+            Value::Object(object)=>for (key,value) in object {if matches!(key.as_str(),"desc"|"loc_string") {if let Some(text)=value.as_str(){let mut in_tag=false;let clean:String=text.chars().filter(|c|{if *c=='<'{in_tag=true;false}else if *c=='>'{in_tag=false;false}else{!in_tag}}).collect();output.insert(clean.split_whitespace().collect::<Vec<_>>().join(" "));}}else if value.is_array() || value.is_object() {collect(value,output);}},
+            Value::Array(values)=>for value in values {collect(value,output);},
+            _=>{}
+        }
+    }
+    let mut output=BTreeSet::new();
+    if let Some(value)=payload.get("description") {collect(value,&mut output);}
+    if let Some(value)=payload.get("tooltip_sections") {collect(value,&mut output);}
+    output.into_iter().collect::<Vec<_>>().join(" ")
+}
+
 fn property_damage_types(payload: &Value) -> BTreeMap<String,DamageType> {
     payload.get("properties").and_then(Value::as_object).into_iter().flatten().filter_map(|(key,property)| {
         let damage_type=match property.get("css_class").and_then(Value::as_str) {
@@ -1252,17 +1292,22 @@ pub fn enrich_frozen_models(hero: &mut HeroModel, items: &mut [ItemModel], snaps
     });
     let raw: Vec<Value> = rows.into_iter().map(payload).collect();
     let hero_raw=raw.iter().find(|value| integer(value.get("id"))==hero.hero_id && value.get("cost_bonuses").is_some()).ok_or_else(||ReasonerError::MissingSnapshot(format!("Eingefrorene Shopregeln für {} fehlen",hero.name)))?;
+    hero.base_spirit_power=number(hero_raw.pointer("/starting_stats/tech_power/value")).unwrap_or_default();
+    hero.standard_level_up_upgrades=numeric_object(hero_raw.get("standard_level_up_upgrades"));
+    hero.standard_upgrade_levels=standard_upgrade_levels(hero_raw);
+    hero.level_rewards=level_rewards(hero_raw);
     hero.cost_bonuses=serde_json::from_value(hero_raw.get("cost_bonuses").cloned().unwrap_or_default()).map_err(|error|ReasonerError::Data(format!("Ungültige Shopregeln: {error}")))?;
     for ability in &mut hero.abilities {
         let value=raw.iter().find(|value| ability_matches(value,ability));
-        if let Some(value)=value {ability.properties=property_values(value.get("properties"));}
+        if let Some(value)=value {ability.properties=property_values(value.get("properties"));ability.upgrades=value.get("upgrades").and_then(Value::as_array).cloned().unwrap_or_default();refresh_ability_derived(ability);}
     }
     for item in items {
         if let Some(value)=raw.iter().find(|value|integer(value.get("id"))==item.item_id && value.get("properties").is_some()) {
             item.property_damage_types=property_damage_types(value);
+            item.property_spirit_scaling=property_spirit_scaling(value);
             item.component_items=value.get("component_items").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
             item.class_name=string(value.get("class_name"));
-            item.description=value.get("description").and_then(|v|v.get("desc")).and_then(Value::as_str).unwrap_or_default().to_owned();
+            item.description=snapshot_description(value);
         } else {return Err(ReasonerError::MissingSnapshot(format!("Eingefrorenes Item {} fehlt",item.name)));}
     }
     Ok(())
