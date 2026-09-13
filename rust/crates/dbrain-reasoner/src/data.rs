@@ -1704,8 +1704,9 @@ mod tests {
         let frenzy = combat_item(&combat_raw("Frenzy"));
         let mut hero = crate::combat::tests::hero();
         hero.weapon.bullet_damage = 0.0;
-        hero.base_health = 40.0;
-        let mut bomb = super::ability_model(&combat_raw("ability_blood_bomb"), 1).unwrap();
+        hero.base_health = 3000.0;
+        hero.base_spirit_power = 600.0;
+        let mut bomb = super::ability_model(&combat_raw("ability_blood_shards"), 3).unwrap();
         bomb.ability_id = 1;
         hero.abilities = vec![bomb];
         let cfg = crate::ReasonerConfig {
