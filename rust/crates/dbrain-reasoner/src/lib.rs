@@ -6,6 +6,8 @@ use sqlx::Row;
 mod ai_roles;
 pub mod backtest;
 pub mod composer;
+pub mod combat;
+pub mod inventory;
 mod data;
 pub mod hero;
 pub mod item;
