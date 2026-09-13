@@ -162,6 +162,31 @@ impl TargetAmplification {
     }
 }
 
+pub fn quantified_property(ability: &AbilityModel, key: &str) -> bool {
+    let effect = AbilityInteractions::from_ability(ability, 1.0);
+    match ability.class_name.as_str() {
+        "citadel_ability_hook" => {
+            effect.weapon_amp.is_some() && matches!(key, "BulletAmp" | "BulletAmpDuration")
+        }
+        "ability_blood_shards" => {
+            effect.all_damage_amp.is_some()
+                && matches!(
+                    key,
+                    "VulnerabilityPerStack" | "DebuffDuration" | "MaxStacks"
+                )
+        }
+        "citadel_ability_uppercut" => match key {
+            "RestoreHookCooldown" => effect.reset_ability_class.is_some(),
+            "MissingHPHeal" => effect.missing_health_heal_fraction > 0.0,
+            _ => false,
+        },
+        "citadel_ability_bebop_laser_beam" => {
+            key == "BeamLifesteal" && effect.native_damage_heal_fraction > 0.0
+        }
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
