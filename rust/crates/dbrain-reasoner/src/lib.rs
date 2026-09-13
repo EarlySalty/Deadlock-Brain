@@ -91,7 +91,7 @@ pub async fn reason_build_with_options(
         .await
         .map_err(|error| ReasonerError::Data(format!("Buildplanung nicht verfügbar: {error}")))?;
     let calculation_ctx = ctx.clone();
-    let (build, scored) = tokio::task::spawn_blocking(move || {
+    let calculation = tokio::task::spawn_blocking(move || {
     let _permit = permit;
     let ctx = calculation_ctx;
     let mut deltas = patch::compute_patch_delta_with_snapshots(&hero_model, &events, &snapshots);
@@ -111,7 +111,7 @@ pub async fn reason_build_with_options(
         &ctx.config,
         &[],
         &meta,
-    );
+    )?;
     if ctx.config.use_ai {
         build = enrich_build(
             &ctx,
@@ -132,7 +132,7 @@ pub async fn reason_build_with_options(
                         &ctx.config,
                         &critic.issues,
                         &meta,
-                    );
+                    )?;
                     build = enrich_build(
                         &ctx,
                         &hero_model,
@@ -156,14 +156,32 @@ pub async fn reason_build_with_options(
         build.confidence = Confidence::Low;
         build.rationale = append_text(&build.rationale, &format!("Für diesen Helden fehlen Builds aktiver beobachteter Autoren. Die Kaufkurve ist ein Behelf aus {} beobachteten Builds anderer Helden; ein eigener Autorenvergleich ist nicht möglich.",meta.core_layouts.overall.source_builds));
     }
-    (build, scored)
+    Ok::<_, ReasonerError>((build, scored))
     })
     .await
     .map_err(|error| ReasonerError::Data(format!("Buildberechnung fehlgeschlagen: {error}")))?;
-    if options.persist {
+    finish_build_with_persistence(calculation, options.persist, |build, scored| async move {
         persist_build(&ctx, &build, &scored).await?;
+        Ok(build)
+    })
+    .await
+}
+
+async fn finish_build_with_persistence<F, Fut>(
+    calculation: Result<(BuildObject, Vec<ScoredItem>)>,
+    persist: bool,
+    write: F,
+) -> Result<BuildObject>
+where
+    F: FnOnce(BuildObject, Vec<ScoredItem>) -> Fut,
+    Fut: std::future::Future<Output = Result<BuildObject>>,
+{
+    let (build, scored) = calculation?;
+    if persist {
+        write(build, scored).await
+    } else {
+        Ok(build)
     }
-    Ok(build)
 }
 
 pub async fn reason_patch_impact(ctx: &ReasonerCtx, hero: &str) -> Result<PatchImpactReport> {

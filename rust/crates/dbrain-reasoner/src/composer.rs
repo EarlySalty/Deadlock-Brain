@@ -320,7 +320,7 @@ pub fn compose_build(
     scored: &[ScoredItem],
     deltas: &[PatchDelta],
     cfg: &ReasonerConfig,
-) -> BuildObject {
+) -> crate::Result<BuildObject> {
     compose_build_with_blocklist(hero, scored, deltas, cfg, &[])
 }
 
@@ -331,7 +331,7 @@ pub fn compose_build_with_sources(
     cfg: &ReasonerConfig,
     blocked: &[String],
     meta: &crate::meta::MetaIndexWithSources,
-) -> BuildObject {
+) -> crate::Result<BuildObject> {
     let mut authors = author_evidence(hero.hero_id, &meta.author_builds);
     let (raw_order, source) = meta.ability_order(hero.hero_id);
     let (order, notes) = crate::progression::coherent_order(hero, &raw_order);
@@ -348,7 +348,7 @@ pub fn compose_build_with_sources(
             &meta.combinations,
             &authors,
         ),
-    );
+    )?;
     build.ability_order = order;
     build.rationale = format!(
         "{} {}",
@@ -359,7 +359,7 @@ pub fn compose_build_with_sources(
             .unwrap_or(&build.rationale)
             .trim()
     );
-    build
+    Ok(build)
 }
 
 pub fn purchase_plan_with_sources(
@@ -367,7 +367,7 @@ pub fn purchase_plan_with_sources(
     scored: &[ScoredItem],
     cfg: &ReasonerConfig,
     meta: &crate::meta::MetaIndexWithSources,
-) -> crate::planner::PurchasePlan {
+) -> crate::Result<crate::planner::PurchasePlan> {
     let mut authors = author_evidence(hero.hero_id, &meta.author_builds);
     (authors.ability_order, authors.skill_notes) =
         crate::progression::coherent_order(hero, &meta.ability_order(hero.hero_id).0);
@@ -394,26 +394,13 @@ fn plan_core(
         &std::collections::BTreeMap<(i64, i64), crate::meta::CombinationSupport>,
         &AuthorEvidence,
     ),
-) -> crate::planner::PurchasePlan {
+) -> crate::Result<crate::planner::PurchasePlan> {
     let (layout, combinations, authors) = context;
     let catalog = scored
         .iter()
         .map(|item| item.item.clone())
         .collect::<Vec<_>>();
-    let rules = match crate::inventory::InventoryRules::from_catalog(&catalog) {
-        Ok(rules) => rules,
-        Err(error) => {
-            return crate::planner::PurchasePlan {
-                steps: Vec::new(),
-                final_evaluation: crate::combat::evaluate_inventory(hero, &[], cfg),
-                assumptions: vec![format!(
-                    "Keine Kaufkurve: Inventarregeln unvollständig ({error})."
-                )],
-                ability_order: authors.ability_order.clone(),
-                saving_decisions: Vec::new(),
-            }
-        }
-    };
+    let rules = crate::inventory::InventoryRules::from_catalog(&catalog)?;
     let ordered = item_order(scored, blocked);
     let mut plan = crate::planner::plan_with_economy(
         hero,
@@ -429,7 +416,7 @@ fn plan_core(
         },
     );
     plan.assumptions.extend(authors.skill_notes.iter().cloned());
-    plan
+    Ok(plan)
 }
 
 pub fn compose_build_with_blocklist(
@@ -438,7 +425,7 @@ pub fn compose_build_with_blocklist(
     deltas: &[PatchDelta],
     _cfg: &ReasonerConfig,
     blocked: &[String],
-) -> BuildObject {
+) -> crate::Result<BuildObject> {
     compose_build_with_layout_and_blocklist(
         hero,
         scored,
@@ -456,7 +443,7 @@ pub fn compose_build_with_layout(
     deltas: &[PatchDelta],
     cfg: &ReasonerConfig,
     layout: &CoreLayoutStats,
-) -> BuildObject {
+) -> crate::Result<BuildObject> {
     compose_build_with_layout_and_blocklist(
         hero,
         scored,
@@ -476,7 +463,7 @@ fn compose_build_with_layout_and_blocklist(
     blocked: &[String],
     layout: &CoreLayoutStats,
     combinations: &std::collections::BTreeMap<(i64, i64), crate::meta::CombinationSupport>,
-) -> BuildObject {
+) -> crate::Result<BuildObject> {
     compose_build_with_author_evidence(
         hero,
         scored,
@@ -498,10 +485,10 @@ fn compose_build_with_author_evidence(
         &std::collections::BTreeMap<(i64, i64), crate::meta::CombinationSupport>,
         &AuthorEvidence,
     ),
-) -> BuildObject {
+) -> crate::Result<BuildObject> {
     let (_layout, combinations, authors) = context;
     let ordered = item_order(scored, blocked);
-    let plan = plan_core(hero, scored, cfg, blocked, context);
+    let plan = plan_core(hero, scored, cfg, blocked, context)?;
     let selected = plan
         .steps
         .iter()
@@ -660,7 +647,7 @@ fn compose_build_with_author_evidence(
     }
     let mut all_items = core.clone();
     all_items.extend(situations.iter().flat_map(|block| block.items.clone()));
-    BuildObject {
+    Ok(BuildObject {
         hero_id: hero.hero_id,
         hero_name: hero.name.clone(),
         patch_tag: cfg.patch_tag.clone(),
@@ -673,11 +660,59 @@ fn compose_build_with_author_evidence(
             .chain(plan.final_evaluation.unknown_effects.iter()).cloned()
             .chain(plan.final_evaluation.scenarios.iter().map(|scenario| format!("Ablauf {}: {}. {:.0} Schüsse, {} Nachladungen, {:.1} Sekunden Kanalzeit; Fähigkeiten {:?}.", scenario.name, scenario.sequence.join(" → "), scenario.shots, scenario.reloads, scenario.channel_seconds, scenario.casts)))
             .collect::<Vec<_>>().join(" "),
-    }
+    })
 }
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn missing_upgrade_component_fails_before_any_persistence() {
+        let mut broken = item(1, "Kaputtes Upgrade", 10.0, false, &[]);
+        broken.item.component_items.push("missing_component".into());
+        let cfg = ReasonerConfig::default();
+        let result =
+            compose_build_with_layout(&hero(), &[broken], &[], &cfg, &layout(&[(2, 1)], 0));
+        assert!(
+            matches!(&result, Err(crate::ReasonerError::Data(message)) if message.contains("missing_component"))
+        );
+        let writes = std::cell::Cell::new(0);
+        let failed = crate::finish_build_with_persistence(
+            result.map(|build| (build, Vec::new())),
+            true,
+            |build, _| {
+                writes.set(writes.get() + 1);
+                async { Ok(build) }
+            },
+        )
+        .await;
+        assert!(failed.is_err());
+        assert_eq!(writes.get(), 0);
+
+        let legal = compose_build_with_layout(
+            &hero(),
+            &[item(2, "Legal", 10.0, false, &[])],
+            &[],
+            &cfg,
+            &layout(&[(2, 1)], 0),
+        );
+        let saved = crate::finish_build_with_persistence(
+            legal.map(|build| (build, Vec::new())),
+            true,
+            |build, _| {
+                writes.set(writes.get() + 1);
+                async { Ok(build) }
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(saved.core.len(), 1);
+        assert_eq!(writes.get(), 1);
+        let incomplete =
+            compose_build_with_layout(&hero(), &[], &[], &cfg, &layout(&[(2, 1)], 0)).unwrap();
+        assert!(incomplete.core.is_empty());
+        assert!(incomplete.rationale.contains("ungefüllte Layoutplätze"));
+    }
+
     #[test]
     fn author_core_evidence_overrides_global_names_only_for_the_same_hero() {
         let source = |hero_id, name: &str| crate::meta::AuthorBuildSource {
@@ -699,7 +734,8 @@ mod tests {
             &ReasonerConfig::default(),
             &[],
             (&layout, &Default::default(), &other_hero),
-        );
+        )
+        .unwrap();
         assert_eq!(baseline.core[0].item_id, 2);
         let same_hero = author_evidence(25, &[source(25, "Beobachtet")]);
         let build = compose_build_with_author_evidence(
@@ -709,7 +745,8 @@ mod tests {
             &ReasonerConfig::default(),
             &[],
             (&layout, &Default::default(), &same_hero),
-        );
+        )
+        .unwrap();
         assert_eq!(build.core[0].item_id, 1);
         assert!(build.core[0].why.contains("überwiegend im Kern"));
     }
@@ -754,7 +791,8 @@ mod tests {
             &ReasonerConfig::default(),
             &[],
             (&layout, &combinations, &AuthorEvidence::default()),
-        );
+        )
+        .unwrap();
         assert_eq!(no_sale.core.len(), 13);
         assert_eq!(no_sale.core.last().unwrap().item_id, 14);
         let authors = author_evidence(
@@ -773,7 +811,8 @@ mod tests {
             &ReasonerConfig::default(),
             &[],
             (&layout, &combinations, &authors),
-        );
+        )
+        .unwrap();
         assert_eq!(build.core.len(), 13);
         assert_eq!(build.core.last().unwrap().item_id, 14);
         let sold = build.core.iter().find(|item| item.item_id == 12).unwrap();
@@ -857,9 +896,11 @@ mod tests {
             &[],
             &layout,
             &combinations,
-        );
+        )
+        .unwrap();
         let baseline =
-            compose_build_with_layout(&hero(), &items, &[], &ReasonerConfig::default(), &layout);
+            compose_build_with_layout(&hero(), &items, &[], &ReasonerConfig::default(), &layout)
+                .unwrap();
         assert_eq!(
             baseline
                 .core
@@ -886,7 +927,8 @@ mod tests {
             &[],
             &layout,
             &combinations,
-        );
+        )
+        .unwrap();
         assert_eq!(absent.core[0].item_id, 2);
     }
 
@@ -926,7 +968,8 @@ mod tests {
             &[],
             &ReasonerConfig::default(),
             &layout(&[(2, 19)], 48),
-        );
+        )
+        .unwrap();
         assert!(build.core.is_empty());
         assert!(build
             .situations
@@ -946,7 +989,8 @@ mod tests {
             &[],
             &ReasonerConfig::default(),
             &layout(&[(2, 19)], 48),
-        );
+        )
+        .unwrap();
         let optional = build
             .situations
             .iter()
@@ -990,7 +1034,8 @@ mod tests {
             &deltas,
             &ReasonerConfig::default(),
             &layout(&[(2, 2)], 0),
-        );
+        )
+        .unwrap();
         assert_eq!(build.core[0].item_id, 1);
     }
     use super::*;
@@ -1123,7 +1168,8 @@ mod tests {
             &[],
             &ReasonerConfig::default(),
             &layout(&[(1, 2), (2, 1)], 0),
-        );
+        )
+        .unwrap();
         let payload = crate::publish::publish_task_payload(&build);
         assert!(build.core.iter().all(|item| item.sell_priority.is_none()));
         assert!(payload["mod_categories"][0]["mods"]
@@ -1187,7 +1233,8 @@ mod tests {
             &[],
             &ReasonerConfig::default(),
             &layout(&[(1, 3), (2, 6), (3, 2), (4, 8)], 7),
-        );
+        )
+        .unwrap();
         assert_eq!(build.situations.len(), 4);
         let actual = std::iter::once(("Core Items", &build.core)).chain(
             build
@@ -1305,6 +1352,7 @@ mod tests {
                 &[],
                 meta,
             )
+            .unwrap()
         };
         let build = compose(&meta);
         let restored_build: BuildObject =
@@ -1347,7 +1395,7 @@ mod tests {
             ]}),
         });
         assert_eq!(compose(&meta).ability_order, steps(104));
-        let default_build = compose_build(&hero(), &[], &[], &ReasonerConfig::default());
+        let default_build = compose_build(&hero(), &[], &[], &ReasonerConfig::default()).unwrap();
         assert!(default_build.rationale.contains("keine Quelle"));
     }
 
@@ -1365,7 +1413,8 @@ mod tests {
             &[],
             &ReasonerConfig::default(),
             &layout(&[(2, 1)], 0),
-        );
+        )
+        .unwrap();
         assert_eq!(
             build
                 .core
@@ -1406,7 +1455,8 @@ mod tests {
             &[],
             &ReasonerConfig::default(),
             &layout(&[(1, 1), (3, 1)], 0),
-        );
+        )
+        .unwrap();
         let names = build
             .core
             .iter()
@@ -1442,7 +1492,8 @@ mod tests {
             &[],
             &ReasonerConfig::default(),
             &layout(&[(1, 1), (2, 1), (3, 1), (4, 1)], 0),
-        );
+        )
+        .unwrap();
         let plan = plan_core(
             &hero(),
             &items,
@@ -1453,7 +1504,8 @@ mod tests {
                 &Default::default(),
                 &AuthorEvidence::default(),
             ),
-        );
+        )
+        .unwrap();
         assert_eq!(
             build
                 .core
@@ -1500,7 +1552,8 @@ mod tests {
             &[],
             &ReasonerConfig::default(),
             &layout(&[(2, 7)], 1),
-        );
+        )
+        .unwrap();
         assert_eq!(build.core.len(), 7);
         assert!(build.core.iter().all(|item| item.tier == 2));
         let optional = build
@@ -1529,7 +1582,8 @@ mod tests {
             &[],
             &ReasonerConfig::default(),
             &layout(&[(2, 15)], 2),
-        );
+        )
+        .unwrap();
         let plan = plan_core(
             &hero(),
             &scored,
@@ -1540,7 +1594,8 @@ mod tests {
                 &Default::default(),
                 &AuthorEvidence::default(),
             ),
-        );
+        )
+        .unwrap();
         assert!(plan
             .steps
             .iter()
