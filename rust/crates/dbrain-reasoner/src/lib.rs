@@ -15,6 +15,7 @@ pub mod item;
 pub mod mechanics;
 pub mod meta;
 pub mod patch;
+pub mod planner;
 pub mod publish;
 mod types;
 

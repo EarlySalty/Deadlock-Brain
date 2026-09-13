@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use crate::{
     BuildItem, BuildObject, BuyPhase, Confidence, CoreLayoutStats, Evidence, EvidenceKind,
-    HeroModel, PatchDelta, ReasonerConfig, ScoredItem, SituationBlock, SituationKind, SlotType,
+    HeroModel, PatchDelta, ReasonerConfig, ScoredItem, SituationBlock, SituationKind,
 };
 
 fn confidence_rank(confidence: &Confidence) -> u8 {
@@ -107,23 +107,6 @@ fn is_situation_item(item: &ScoredItem) -> bool {
         || is_counter(item)
 }
 
-fn phase_rank(phase: &BuyPhase) -> u8 {
-    match phase {
-        BuyPhase::Lane => 0,
-        BuyPhase::Mid => 1,
-        BuyPhase::Core => 2,
-        BuyPhase::Late => 3,
-    }
-}
-
-fn slot_index(slot: &SlotType) -> usize {
-    match slot {
-        SlotType::Weapon => 0,
-        SlotType::Vitality => 1,
-        SlotType::Spirit => 2,
-    }
-}
-
 #[derive(Default)]
 struct AuthorEvidence {
     core: std::collections::BTreeSet<i64>,
@@ -194,177 +177,11 @@ fn core_candidates<'a>(
     ordered
         .iter()
         .copied()
-        .filter(|item| {
-            (!is_situation_item(item) || authors.core.contains(&item.item.item_id))
-                && item.score.total > 0.0
-        })
+        .filter(|item| !is_situation_item(item) || authors.core.contains(&item.item.item_id))
         .collect()
 }
 
-fn select_core_items<'a>(
-    candidates: &[&'a ScoredItem],
-    layout: &CoreLayoutStats,
-    combinations: &std::collections::BTreeMap<(i64, i64), crate::meta::CombinationSupport>,
-    authors: &AuthorEvidence,
-) -> (Vec<&'a ScoredItem>, std::collections::BTreeMap<i64, i64>) {
-    let mut selected: Vec<&ScoredItem> = Vec::new();
-    let mut used = std::collections::BTreeSet::new();
-    let mut held: Vec<&ScoredItem> = Vec::new();
-    let mut sales = std::collections::BTreeMap::new();
-    for tier in 1..=5 {
-        let target = layout.target_for_tier(tier);
-        if target == 0 {
-            continue;
-        }
-        let mut band = candidates
-            .iter()
-            .copied()
-            .filter(|item| item.item.tier == tier && !used.contains(&item.item.item_id))
-            .collect::<Vec<_>>();
-        let mut band_selected = 0;
-        while band_selected < target && !band.is_empty() {
-            band.sort_by(|left, right| {
-                let primary = if tier <= 2 {
-                    (right.score.per_soul_value
-                        + purchase_combination_value(right, &held, combinations, layout, authors)
-                            / right.item.cost.max(1) as f64)
-                        .total_cmp(
-                            &(left.score.per_soul_value
-                                + purchase_combination_value(
-                                    left,
-                                    &held,
-                                    combinations,
-                                    layout,
-                                    authors,
-                                ) / left.item.cost.max(1) as f64),
-                        )
-                } else {
-                    (right.score.total
-                        + purchase_combination_value(right, &held, combinations, layout, authors))
-                    .total_cmp(
-                        &(left.score.total
-                            + purchase_combination_value(
-                                left,
-                                &held,
-                                combinations,
-                                layout,
-                                authors,
-                            )),
-                    )
-                };
-                primary
-                    .then_with(|| right.score.total.total_cmp(&left.score.total))
-                    .then_with(|| {
-                        right
-                            .score
-                            .per_soul_value
-                            .total_cmp(&left.score.per_soul_value)
-                    })
-                    .then_with(|| left.item.item_id.cmp(&right.item.item_id))
-            });
-            let item = band.remove(0);
-            if !slot_available(&held, item, layout) {
-                let Some(index) = sale_index(&held, item, layout, authors) else {
-                    continue;
-                };
-                let sold = held.remove(index);
-                sales.insert(sold.item.item_id, item.item.item_id);
-            }
-            used.insert(item.item.item_id);
-            selected.push(item);
-            held.push(item);
-            band_selected += 1;
-        }
-    }
-    selected.sort_by_key(|item| phase_rank(&item.buy_phase));
-    (selected, sales)
-}
-
-fn slot_available(held: &[&ScoredItem], next: &ScoredItem, layout: &CoreLayoutStats) -> bool {
-    let mut slots = [0usize; 3];
-    for item in held.iter().copied().chain(std::iter::once(next)) {
-        slots[slot_index(&item.item.slot)] += 1;
-    }
-    slots
-        .iter()
-        .map(|count| count.saturating_sub(crate::meta::BASE_SLOTS_PER_CATEGORY))
-        .sum::<usize>()
-        <= layout.flex_slots
-}
-
-fn sale_index(
-    held: &[&ScoredItem],
-    next: &ScoredItem,
-    layout: &CoreLayoutStats,
-    authors: &AuthorEvidence,
-) -> Option<usize> {
-    held.iter()
-        .enumerate()
-        .filter(|(_, previous)| {
-            previous.item.tier < next.item.tier
-                && phase_rank(&previous.buy_phase) <= phase_rank(&next.buy_phase)
-        })
-        .filter_map(|(index, previous)| {
-            let priority = authors.sales.get(&previous.item.item_id)?;
-            let remaining = held
-                .iter()
-                .enumerate()
-                .filter_map(|(position, item)| (position != index).then_some(*item))
-                .collect::<Vec<_>>();
-            slot_available(&remaining, next, layout).then_some((
-                index,
-                *priority,
-                previous.item.item_id,
-            ))
-        })
-        .min_by_key(|(_, priority, id)| (*priority, *id))
-        .map(|(index, _, _)| index)
-}
-
-fn purchase_combination_value(
-    item: &ScoredItem,
-    held: &[&ScoredItem],
-    combinations: &std::collections::BTreeMap<(i64, i64), crate::meta::CombinationSupport>,
-    layout: &CoreLayoutStats,
-    authors: &AuthorEvidence,
-) -> f64 {
-    let sale = if slot_available(held, item, layout) {
-        None
-    } else {
-        sale_index(held, item, layout, authors)
-    };
-    let partners = held
-        .iter()
-        .enumerate()
-        .filter_map(|(index, item)| (Some(index) != sale).then_some(*item))
-        .collect::<Vec<_>>();
-    combination_value(item, &partners, combinations)
-}
-
-fn combination_value(
-    item: &ScoredItem,
-    selected: &[&ScoredItem],
-    combinations: &std::collections::BTreeMap<(i64, i64), crate::meta::CombinationSupport>,
-) -> f64 {
-    let lifts = selected
-        .iter()
-        .filter_map(|other| {
-            combinations
-                .get(&(
-                    item.item.item_id.min(other.item.item_id),
-                    item.item.item_id.max(other.item.item_id),
-                ))
-                .map(|support| support.relative_lift)
-        })
-        .collect::<Vec<_>>();
-    if lifts.is_empty() {
-        0.0
-    } else {
-        item.score.per_slot_value.max(0.0) * lifts.iter().sum::<f64>() / lifts.len() as f64
-    }
-}
-
-fn item_why(item: &ScoredItem, hero: &HeroModel) -> String {
+fn item_why(item: &ScoredItem) -> String {
     let mut details = Vec::new();
     for (name, label, unit) in [
         ("BaseAttackDamagePercent", "Waffenschaden", "%"),
@@ -407,26 +224,6 @@ fn item_why(item: &ScoredItem, hero: &HeroModel) -> String {
     } else {
         format!("{}.", details.join(", "))
     };
-    let bonuses = match item.item.slot {
-        SlotType::Weapon => &hero.purchase_bonuses.weapon,
-        SlotType::Spirit => &hero.purchase_bonuses.spirit,
-        SlotType::Vitality => &hero.purchase_bonuses.vitality,
-    };
-    let shop = bonuses
-        .iter()
-        .find(|bonus| bonus.tier == item.item.tier)
-        .map(|bonus| {
-            let label = match item.item.slot {
-                SlotType::Weapon => "% Waffenschaden",
-                SlotType::Spirit => " Spirit",
-                SlotType::Vitality => "% Leben",
-            };
-            format!(
-                " Der Kaufbonus dieser Stufe gibt zusätzlich {:+.1}{label}.",
-                bonus.value
-            )
-        })
-        .unwrap_or_default();
     let condition = match &item.item.condition {
         crate::ConditionKind::None => String::new(),
         crate::ConditionKind::ActiveCooldown { cooldown, .. } => format!(" Die Aktivierung hat {cooldown:.1} Sekunden Abklingzeit; ihre Wirkung gilt nicht dauerhaft."),
@@ -443,7 +240,7 @@ fn item_why(item: &ScoredItem, hero: &HeroModel) -> String {
         ""
     };
     format!(
-        "{} Seelen. {benefits}{shop}{condition}{confidence}",
+        "{} Seelen. {benefits}{condition}{confidence}",
         item.item.cost
     )
 }
@@ -452,9 +249,13 @@ fn build_item(
     item: &ScoredItem,
     hero: &HeroModel,
     cfg: &ReasonerConfig,
-    sources: Vec<Evidence>,
+    mut sources: Vec<Evidence>,
 ) -> BuildItem {
     let imbue_target = crate::mechanics::imbue_target(&item.item, hero, cfg);
+    sources.push(Evidence {
+        kind: EvidenceKind::Mechanic,
+        detail: item_why(item),
+    });
     BuildItem {
         item_id: item.item.item_id,
         name: item.item.name.clone(),
@@ -466,7 +267,7 @@ fn build_item(
                 matches!(source.kind, EvidenceKind::Meta)
                     && source.detail.starts_with("Zusammen mit ")
             })
-            .fold(item_why(item, hero), |mut why, source| {
+            .fold(item_why(item), |mut why, source| {
                 why.push(' ');
                 why.push_str(&source.detail);
                 why
@@ -494,7 +295,12 @@ fn confidence(items: &[BuildItem]) -> Confidence {
 }
 
 fn patch_sources(item: &ScoredItem, deltas: &[PatchDelta]) -> Vec<Evidence> {
-    let mut sources = item.sources.clone();
+    let mut sources = item
+        .sources
+        .iter()
+        .filter(|source| !matches!(source.kind, EvidenceKind::Mechanic))
+        .cloned()
+        .collect::<Vec<_>>();
     for delta in deltas {
         if matches!(delta.target, crate::DeltaTarget::Item(item_id) if item_id == item.item.item_id)
         {
@@ -539,8 +345,76 @@ pub fn compose_build_with_sources(
     );
     let (order, source) = meta.ability_order(hero.hero_id);
     build.ability_order = order;
-    build.rationale = source.detail;
+    build.rationale = format!(
+        "{} {}",
+        source.detail,
+        build
+            .rationale
+            .strip_prefix("Skill-Order: keine Quelle")
+            .unwrap_or(&build.rationale)
+            .trim()
+    );
     build
+}
+
+pub fn purchase_plan_with_sources(
+    hero: &HeroModel,
+    scored: &[ScoredItem],
+    cfg: &ReasonerConfig,
+    meta: &crate::meta::MetaIndexWithSources,
+) -> crate::planner::PurchasePlan {
+    let authors = author_evidence(hero.hero_id, &meta.author_builds);
+    plan_core(
+        hero,
+        scored,
+        cfg,
+        &[],
+        (
+            meta.core_layouts.for_hero(hero.hero_id),
+            &meta.combinations,
+            &authors,
+        ),
+    )
+}
+
+fn plan_core(
+    hero: &HeroModel,
+    scored: &[ScoredItem],
+    cfg: &ReasonerConfig,
+    blocked: &[String],
+    context: (
+        &CoreLayoutStats,
+        &std::collections::BTreeMap<(i64, i64), crate::meta::CombinationSupport>,
+        &AuthorEvidence,
+    ),
+) -> crate::planner::PurchasePlan {
+    let (layout, combinations, authors) = context;
+    let catalog = scored
+        .iter()
+        .map(|item| item.item.clone())
+        .collect::<Vec<_>>();
+    let rules = match crate::inventory::InventoryRules::from_catalog(&catalog) {
+        Ok(rules) => rules,
+        Err(error) => {
+            return crate::planner::PurchasePlan {
+                steps: Vec::new(),
+                final_evaluation: crate::combat::evaluate_inventory(hero, &[], cfg),
+                assumptions: vec![format!(
+                    "Keine Kaufkurve: Inventarregeln unvollständig ({error})."
+                )],
+            }
+        }
+    };
+    let ordered = item_order(scored, blocked);
+    crate::planner::plan_purchases(
+        hero,
+        scored,
+        &core_candidates(&ordered, authors),
+        layout,
+        &rules,
+        combinations,
+        cfg,
+    )
 }
 
 pub fn compose_build_with_blocklist(
@@ -610,14 +484,29 @@ fn compose_build_with_author_evidence(
         &AuthorEvidence,
     ),
 ) -> BuildObject {
-    let (layout, combinations, authors) = context;
+    let (_layout, combinations, authors) = context;
     let ordered = item_order(scored, blocked);
-    let (selected, sales) = select_core_items(
-        &core_candidates(&ordered, authors),
-        layout,
-        combinations,
-        authors,
-    );
+    let plan = plan_core(hero, scored, cfg, blocked, context);
+    let selected = plan
+        .steps
+        .iter()
+        .filter_map(|step| {
+            ordered
+                .iter()
+                .copied()
+                .find(|item| item.item.item_id == step.transition.purchased_id)
+        })
+        .collect::<Vec<_>>();
+    let sales = plan
+        .steps
+        .iter()
+        .flat_map(|step| {
+            step.transition
+                .sold_ids
+                .iter()
+                .map(|id| (*id, step.transition.purchased_id))
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
     let selected_ids = selected
         .iter()
         .map(|item| item.item.item_id)
@@ -626,29 +515,50 @@ fn compose_build_with_author_evidence(
         .iter().enumerate()
         .map(|(index, item)| {
             let mut sources = patch_sources(item, deltas);
-            for other in selected[..index].iter().filter(|other| {
-                sales.get(&other.item.item_id).is_none_or(|next_id| !selected[..=index].iter().any(|next| next.item.item_id == *next_id))
-            }) {
+            let step = &plan.steps[index];
+            for other in selected[..index].iter().filter(|other| step.transition.after.held_ids.contains(&other.item.item_id)) {
                 if let Some(support) = combinations.get(&(item.item.item_id.min(other.item.item_id), item.item.item_id.max(other.item.item_id))) {
                     sources.push(Evidence { kind: EvidenceKind::Meta, detail: format!("Zusammen mit {}: beobachtete Siegquote {:+.2} Prozentpunkte gegenüber dem stärkeren Einzel-Item, {} gemeinsame Spiele im aktuellen Patch. Statistisches Nebensignal, kein Beweis für eine mechanische Wechselwirkung.", other.item.name, support.relative_lift * 100.0, support.matches) });
                 }
             }
             let mut built = build_item(item, hero, cfg, sources);
+            built.sell_priority = None;
+            let detail = format!("Im bisherigen Build: {:+.1} gemeinsamer Kampfnutzen. Kaufpreis {} Seelen, Verkaufserlös {}, zusätzliche Ausgabe {}, insgesamt {} Seelen. Danach {} Items im Inventar; im Kampffenster {:.0} Waffenschaden, {:.0} Fähigkeitsschaden und {:.0} Auslöserschaden.", step.marginal_value, step.transition.purchase_cost, step.transition.sale_return, step.transition.net_cost, step.transition.after.spent_souls, step.transition.after.held_ids.len(), step.evaluation.weapon_damage, step.evaluation.ability_damage, step.evaluation.proc_damage);
+            built.why.push(' ');
+            built.why.push_str(&detail);
+            built.sources.push(Evidence { kind: EvidenceKind::Mechanic, detail });
+            let previous_bonuses = if index == 0 { std::collections::BTreeMap::new() } else { plan.steps[index-1].evaluation.shop_bonuses.clone() };
+            for (category, bonus) in &step.evaluation.shop_bonuses {
+                let previous = previous_bonuses.get(category).copied().unwrap_or(0.0);
+                if (*bonus-previous).abs() > f64::EPSILON {
+                    let label = match category.as_str() { "weapon" => "% Waffenschaden", "vitality" => "% Leben", "spirit" => " Spirit", _ => category.as_str() };
+                    let detail = format!("Der Shopbonus aus dem gehaltenen Kategorienwert ändert sich von {previous:.1} auf {bonus:.1}{label}; die Schwelle stammt aus dem aktuellen Helden-Snapshot.");
+                    built.why.push(' ');
+                    built.why.push_str(&detail);
+                    built.sources.push(Evidence { kind: EvidenceKind::Mechanic, detail });
+                }
+            }
+            for consumed in &step.transition.consumed_ids {
+                if let Some(previous) = scored.iter().find(|candidate| candidate.item.item_id == *consumed) {
+                    let detail = format!("{} geht im Upgrade auf; dessen Preis ist angerechnet und seine Einzelwirkung wird nicht zusätzlich behalten.", previous.item.name);
+                    built.why.push(' ');
+                    built.why.push_str(&detail);
+                    built.sources.push(Evidence { kind: EvidenceKind::Mechanic, detail });
+                }
+            }
             if authors.core.contains(&item.item.item_id) {
                 let detail = "In den beobachteten Builds dieses Helden steht dieses Item überwiegend im Kern.".to_string();
                 built.why.push(' ');
                 built.why.push_str(&detail);
                 built.sources.push(Evidence { kind: EvidenceKind::Author, detail });
             }
-            if let Some(priority) = authors.sales.get(&item.item.item_id) {
-                built.sell_priority = Some(*priority);
-            }
             if let Some(next_id) = sales.get(&item.item.item_id) {
                 if let Some(next) = selected.iter().find(|next| next.item.item_id == *next_id) {
-                    let detail = format!("Verkaufe {} vor dem Kauf von {}, damit der benötigte Platz frei wird. Die Verkaufspriorität stammt aus einem Autoren-Build dieses Helden.", item.item.name, next.item.name);
+                    built.sell_priority = Some(authors.sales.get(&item.item.item_id).copied().unwrap_or(index as u32 + 1));
+                    let detail = format!("Verkaufe {} vor dem Kauf von {}, damit der benötigte Platz frei wird. Die gemeinsame Bewertung berücksichtigt den dabei verlorenen Nutzen.", item.item.name, next.item.name);
                     built.why.push(' ');
                     built.why.push_str(&detail);
-                    built.sources.push(Evidence { kind: EvidenceKind::Author, detail });
+                    built.sources.push(Evidence { kind: EvidenceKind::Mechanic, detail });
                 }
             }
             for (sold_id, next_id) in &sales {
@@ -738,7 +648,10 @@ fn compose_build_with_author_evidence(
         situations,
         ability_order: Vec::new(),
         confidence: confidence(&all_items),
-        rationale: "Skill-Order: keine Quelle".to_string(),
+        rationale: std::iter::once(&"Skill-Order: keine Quelle".to_string()).chain(plan.assumptions.iter()).chain(plan.final_evaluation.assumptions.iter())
+            .chain(plan.final_evaluation.unknown_effects.iter()).cloned()
+            .chain(plan.final_evaluation.scenarios.iter().map(|scenario| format!("Ablauf {}: {}. {:.0} Schüsse, {} Nachladungen, {:.1} Sekunden Kanalzeit; Fähigkeiten {:?}.", scenario.name, scenario.sequence.join(" → "), scenario.shots, scenario.reloads, scenario.channel_seconds, scenario.casts)))
+            .collect::<Vec<_>>().join(" "),
     }
 }
 
@@ -781,8 +694,8 @@ mod tests {
     }
 
     #[test]
-    fn only_documented_sales_release_slots_and_sold_pairs_do_not_rank_or_explain() {
-        let mut items = (1..=4)
+    fn actual_sales_release_slots_and_sold_pairs_do_not_rank_or_explain() {
+        let mut items = (1..=12)
             .map(|id| {
                 let mut early = item(id, &format!("Früh {id}"), 20.0 - id as f64, false, &[]);
                 early.item.tier = 1;
@@ -790,15 +703,15 @@ mod tests {
                 early
             })
             .collect::<Vec<_>>();
-        let mut ghost_partner = item(5, "Partner des verkauften Items", 1.0, false, &[]);
+        let mut ghost_partner = item(13, "Partner des verkauften Items", 1.0, false, &[]);
         ghost_partner.item.tier = 3;
         ghost_partner.score.per_slot_value = 100.0;
-        let mut replacement = item(6, "Später Kauf", 2.0, false, &[]);
+        let mut replacement = item(14, "Später Kauf", 50.0, false, &[]);
         replacement.item.tier = 3;
         items.extend([ghost_partner, replacement]);
-        let layout = layout(&[(1, 4), (3, 1)], 0);
+        let layout = layout(&[(1, 12), (3, 1)], 0);
         let combinations = BTreeMap::from([(
-            (1, 5),
+            (12, 13),
             crate::meta::CombinationSupport {
                 relative_lift: 1.0,
                 matches: 1000,
@@ -812,14 +725,15 @@ mod tests {
             &[],
             (&layout, &combinations, &AuthorEvidence::default()),
         );
-        assert_eq!(no_sale.core.len(), 4);
+        assert_eq!(no_sale.core.len(), 13);
+        assert_eq!(no_sale.core.last().unwrap().item_id, 14);
         let authors = author_evidence(
             25,
             &[crate::meta::AuthorBuildSource {
                 hero_id: 25,
                 author: "Verkaufsbeleg".to_string(),
                 weight: 1.0,
-                details: serde_json::json!({"modCategories":[{"name":"CORE","mods":[{"abilityId":1,"sellPriority":3}]}]}),
+                details: serde_json::json!({"modCategories":[{"name":"CORE","mods":[{"abilityId":12,"sellPriority":3}]}]}),
             }],
         );
         let build = compose_build_with_author_evidence(
@@ -830,23 +744,25 @@ mod tests {
             &[],
             (&layout, &combinations, &authors),
         );
-        assert_eq!(build.core.len(), 5);
-        assert_eq!(build.core.last().unwrap().item_id, 6);
-        assert_eq!(build.core[0].sell_priority, Some(3));
-        assert!(build.core[0]
+        assert_eq!(build.core.len(), 13);
+        assert_eq!(build.core.last().unwrap().item_id, 14);
+        let sold = build.core.iter().find(|item| item.item_id == 12).unwrap();
+        assert_eq!(sold.sell_priority, Some(3));
+        assert!(sold
             .why
-            .contains("Verkaufe Früh 1 vor dem Kauf von Später Kauf"));
+            .contains("Verkaufe Früh 12 vor dem Kauf von Später Kauf"));
         assert!(!build
             .core
             .last()
             .unwrap()
             .sources
             .iter()
-            .any(|source| source.detail.starts_with("Zusammen mit Früh 1")));
+            .any(|source| source.detail.starts_with("Zusammen mit Früh 12:")));
         let payload = crate::publish::to_publish_payload(&build);
-        assert!(payload.mod_categories[0].mods[0]
-            .annotation
-            .contains("Verkaufe Früh 1"));
+        assert!(payload.mod_categories[0]
+            .mods
+            .iter()
+            .any(|item| item.annotation.contains("Verkaufe Früh 12")));
     }
 
     #[test]
@@ -1013,7 +929,16 @@ mod tests {
                 .iter()
                 .map(|item| item.item_id)
                 .collect::<Vec<_>>(),
-            (30..=41).rev().collect::<Vec<_>>()
+            scored
+                .iter()
+                .rev()
+                .filter(|item| !build
+                    .core
+                    .iter()
+                    .any(|chosen| chosen.item_id == item.item.item_id))
+                .take(12)
+                .map(|item| item.item.item_id)
+                .collect::<Vec<_>>()
         );
     }
 
@@ -1057,6 +982,7 @@ mod tests {
                 weapon: Vec::new(),
                 vitality: Vec::new(),
             },
+            cost_bonuses: Default::default(),
             scaling: Vec::new(),
             weapon: WeaponProfile {
                 bullet_damage: 1.0,
@@ -1082,6 +1008,9 @@ mod tests {
         ScoredItem {
             item: ItemModel {
                 item_id: id,
+                class_name: format!("item_{id}"),
+                component_items: Vec::new(),
+                description: String::new(),
                 name: name.to_string(),
                 slot: SlotType::Weapon,
                 tier: 2,
@@ -1091,7 +1020,7 @@ mod tests {
                 disabled: false,
                 damage_axis: DamageType::Weapon,
                 defense_kind: defense.iter().map(|value| value.to_string()).collect(),
-                properties: BTreeMap::new(),
+                properties: BTreeMap::from([("BaseAttackDamagePercent".into(), score)]),
                 passive_properties: BTreeMap::new(),
                 conditional_properties: Default::default(),
                 condition: crate::ConditionKind::None,
@@ -1144,7 +1073,7 @@ mod tests {
     }
 
     #[test]
-    fn sells_lane_items_before_early_items_and_keeps_core() {
+    fn does_not_invent_sales_for_lane_items_when_inventory_has_room() {
         let mut lane = item(1, "Lane", 3.0, false, &[]);
         lane.buy_phase = BuyPhase::Lane;
         lane.item.tier = 1;
@@ -1160,15 +1089,18 @@ mod tests {
             &layout(&[(1, 2), (2, 1)], 0),
         );
         let payload = crate::publish::publish_task_payload(&build);
-        assert_eq!(payload["mod_categories"][0]["mods"][0]["sell_priority"], 1);
-        assert_eq!(payload["mod_categories"][0]["mods"][1]["sell_priority"], 2);
-        assert!(payload["mod_categories"][0]["mods"][2]
-            .get("sell_priority")
-            .is_none());
+        assert!(build.core.iter().all(|item| item.sell_priority.is_none()));
+        assert!(payload["mod_categories"][0]["mods"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| item
+                .get("sell_priority")
+                .is_none_or(serde_json::Value::is_null)));
     }
 
     #[test]
-    fn assigns_all_warden_seed_items_to_five_reference_blocks() {
+    fn keeps_reference_situation_blocks_without_copying_the_seed_core() {
         let seed: serde_json::Value = serde_json::from_str(include_str!(
             "../../../../.tasks/2026-09-12-build-reasoner/referenz/lightbringer-warden.json"
         ))
@@ -1243,6 +1175,21 @@ mod tests {
             if label == "Core Items" {
                 expected_items.sort_by_key(|item| item["tier"].as_i64().unwrap());
             }
+            if label == "Core Items" {
+                let reference_names = expected_items
+                    .iter()
+                    .map(|item| item["name"].as_str().unwrap())
+                    .collect::<std::collections::BTreeSet<_>>();
+                assert!(items
+                    .iter()
+                    .all(|item| reference_names.contains(item.name.as_str())));
+                assert!(!items.is_empty());
+                continue;
+            }
+            if label == "Optional" {
+                assert!(items.len() <= 12);
+                continue;
+            }
             assert_eq!(
                 items
                     .iter()
@@ -1255,15 +1202,22 @@ mod tests {
                 "{label}"
             );
         }
+        let listed = build
+            .core
+            .iter()
+            .chain(build.situations.iter().flat_map(|block| &block.items))
+            .map(|item| item.item_id)
+            .collect::<Vec<_>>();
         assert_eq!(
-            scored.len(),
-            build.core.len()
-                + build
-                    .situations
-                    .iter()
-                    .map(|block| block.items.len())
-                    .sum::<usize>()
+            listed.len(),
+            listed
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
         );
+        assert!(listed
+            .iter()
+            .all(|id| scored.iter().any(|item| item.item.item_id == *id)));
     }
 
     #[test]
@@ -1324,7 +1278,9 @@ mod tests {
             serde_json::from_str(&serde_json::to_string(&payload).unwrap()).unwrap();
         assert_eq!(payload["ability_order"][0]["ability_id"], 101);
         assert_eq!(payload["ability_order"][1]["delta"], -2);
-        assert_eq!(restored["mod_categories"][0]["mods"][0]["sell_priority"], 1);
+        assert!(restored["mod_categories"][0]["mods"][0]
+            .get("sell_priority")
+            .is_none_or(serde_json::Value::is_null));
         assert_eq!(restored["ability_order"].as_array().unwrap().len(), 2);
         assert!(restored["description"].as_str().unwrap().contains("Best"));
         meta.author_builds.reverse();
@@ -1420,7 +1376,7 @@ mod tests {
             .iter()
             .map(|item| item.name.as_str())
             .collect::<Vec<_>>();
-        assert_eq!(names, vec!["Cheap Lane", "Expensive High"]);
+        assert_eq!(names, vec!["Cheap Mechanic", "Expensive High"]);
     }
 
     #[test]
@@ -1434,7 +1390,12 @@ mod tests {
         .into_iter()
         .map(|(id, name, phase)| {
             let mut item = item(id, name, id as f64, false, &[]);
-            item.item.tier = 1;
+            item.item.tier = match phase {
+                BuyPhase::Lane => 1,
+                BuyPhase::Mid => 2,
+                BuyPhase::Core => 3,
+                BuyPhase::Late => 4,
+            };
             item.buy_phase = phase;
             item
         })
@@ -1444,7 +1405,7 @@ mod tests {
             &items,
             &[],
             &ReasonerConfig::default(),
-            &layout(&[(1, 4)], 0),
+            &layout(&[(1, 1), (2, 1), (3, 1), (4, 1)], 0),
         );
         items.clear();
         assert_eq!(
@@ -1458,7 +1419,7 @@ mod tests {
     }
 
     #[test]
-    fn exhausted_flex_leaves_band_underfilled_and_remaining_items_optional() {
+    fn historical_flex_does_not_limit_universal_slots() {
         let mut scored = (1..=7)
             .map(|id| item(id, &format!("Weapon {id}"), id as f64, false, &[]))
             .collect::<Vec<_>>();
@@ -1473,7 +1434,7 @@ mod tests {
             &ReasonerConfig::default(),
             &layout(&[(2, 7)], 1),
         );
-        assert_eq!(build.core.len(), 5);
+        assert_eq!(build.core.len(), 7);
         assert!(build.core.iter().all(|item| item.tier == 2));
         let optional = build
             .situations
@@ -1486,13 +1447,13 @@ mod tests {
                 .iter()
                 .map(|item| item.item_id)
                 .collect::<std::collections::BTreeSet<_>>(),
-            [1, 2, 8].into_iter().collect()
+            [8].into_iter().collect()
         );
     }
 
     #[test]
-    fn enforces_four_base_slots_and_only_layout_flex_slots() {
-        let scored = (1..=7)
+    fn enforces_twelve_universal_slots_even_when_layout_requests_more() {
+        let scored = (1..=15)
             .map(|id| item(id, &format!("Weapon {id}"), id as f64, false, &[]))
             .collect::<Vec<_>>();
         let build = compose_build_with_layout(
@@ -1500,10 +1461,38 @@ mod tests {
             &scored,
             &[],
             &ReasonerConfig::default(),
-            &layout(&[(2, 7)], 2),
+            &layout(&[(2, 15)], 2),
         );
-        assert_eq!(build.core.len(), 6);
-        assert_eq!(build.core.last().map(|item| item.item_id), Some(2));
+        let plan = plan_core(
+            &hero(),
+            &scored,
+            &ReasonerConfig::default(),
+            &[],
+            (
+                &layout(&[(2, 15)], 2),
+                &Default::default(),
+                &AuthorEvidence::default(),
+            ),
+        );
+        assert!(plan
+            .steps
+            .iter()
+            .all(|step| step.transition.after.held_ids.len() <= 12));
+        assert_eq!(
+            plan.steps.last().unwrap().transition.after.held_ids.len(),
+            12
+        );
+        assert_eq!(
+            build
+                .core
+                .iter()
+                .map(|item| item.item_id)
+                .collect::<Vec<_>>(),
+            plan.steps
+                .iter()
+                .map(|step| step.transition.purchased_id)
+                .collect::<Vec<_>>()
+        );
         assert!(build
             .situations
             .iter()
