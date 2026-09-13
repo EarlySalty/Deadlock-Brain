@@ -70,6 +70,15 @@ pub(super) async fn database_dsn(path: &Path) -> Result<Zeroizing<String>> {
     let file = descriptor
         .as_file()
         .map_err(|_| anyhow!("Infisical-Credential-FD ist nicht lesbar."))?;
+    if !file
+        .metadata()
+        .map_err(|_| anyhow!("Infisical-Credential-FD konnte nicht geprüft werden."))?
+        .is_file()
+    {
+        return Err(anyhow!(
+            "Infisical benötigt einen regulären Credential-Dateideskriptor."
+        ));
+    }
     let mut token = Zeroizing::new(Vec::new());
     tokio::time::timeout(
         Duration::from_secs(5),
