@@ -1599,3 +1599,22 @@ mod tests {
         );
     }
 }
+
+pub fn enrich_frozen_models(hero: &mut HeroModel, items: &mut [ItemModel], snapshots: &[Value]) -> Result<()> {
+    let payload = |row: &Value| row.get("payload").cloned().unwrap_or_else(||row.clone());
+    let raw: Vec<Value> = snapshots.iter().map(payload).collect();
+    let hero_raw=raw.iter().find(|value| integer(value.get("id"))==hero.hero_id && value.get("cost_bonuses").is_some()).ok_or_else(||ReasonerError::MissingSnapshot(format!("Eingefrorene Shopregeln für {} fehlen",hero.name)))?;
+    hero.cost_bonuses=serde_json::from_value(hero_raw.get("cost_bonuses").cloned().unwrap_or_default()).map_err(|error|ReasonerError::Data(format!("Ungültige Shopregeln: {error}")))?;
+    for ability in &mut hero.abilities {
+        let value=raw.iter().find(|value| ability_matches(value,ability));
+        if let Some(value)=value {ability.properties=property_values(value.get("properties"));}
+    }
+    for item in items {
+        if let Some(value)=raw.iter().find(|value|integer(value.get("id"))==item.item_id && value.get("properties").is_some()) {
+            item.component_items=value.get("component_items").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
+            item.class_name=string(value.get("class_name"));
+            item.description=value.get("description").and_then(|v|v.get("desc")).and_then(Value::as_str).unwrap_or_default().to_owned();
+        } else {return Err(ReasonerError::MissingSnapshot(format!("Eingefrorenes Item {} fehlt",item.name)));}
+    }
+    Ok(())
+}
