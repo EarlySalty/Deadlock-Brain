@@ -52,8 +52,8 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         after.push(score);
     }
     let layout: CoreLayoutStats = serde_json::from_value(entry["layout"].clone())?;
-    let build = composer::compose_build_with_layout(&hero, &after, &[], &cfg, &layout);
-    let baseline = composer::compose_build_with_layout(&hero, &before, &[], &cfg, &layout);
+    let build = composer::compose_build_with_layout(&hero, &after, &[], &cfg, &layout)?;
+    let baseline = composer::compose_build_with_layout(&hero, &before, &[], &cfg, &layout)?;
     let ids: Vec<i64> = serde_json::from_value(entry["reference_779996"]["ids"].clone())?;
     let author = AuthorBuild {
         author: "779996 v45".into(),
