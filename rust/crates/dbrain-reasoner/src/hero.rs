@@ -234,6 +234,10 @@ mod tests {
 
     fn loaded_hero() -> HeroModel {
         HeroModel {
+            base_spirit_power: 0.0,
+            standard_level_up_upgrades: Default::default(),
+            standard_upgrade_levels: Default::default(),
+            level_rewards: Default::default(),
             cost_bonuses: Default::default(),
             hero_id: 25,
             name: "Warden".to_string(),
@@ -257,6 +261,7 @@ mod tests {
                 sustained_dps: 0.0,
             },
             abilities: vec![AbilityModel {
+                upgrades: Default::default(),
                 properties: Default::default(),
                 ability_id: 100,
                 class_name: "ability1".to_string(),

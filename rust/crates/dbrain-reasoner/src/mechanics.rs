@@ -728,6 +728,7 @@ mod tests {
 
     fn item() -> ItemModel {
         ItemModel {
+            property_spirit_scaling: Default::default(),
             property_damage_types: Default::default(),
             component_items: Vec::new(),
             class_name: String::new(),
@@ -753,6 +754,7 @@ mod tests {
 
     fn channel() -> AbilityModel {
         AbilityModel {
+            upgrades: Default::default(),
             properties: Default::default(),
             ability_id: 1,
             class_name: "LifeDrain".into(),
@@ -1106,6 +1108,10 @@ mod tests {
 
     fn hero() -> HeroModel {
         HeroModel {
+            base_spirit_power: 0.0,
+            standard_level_up_upgrades: Default::default(),
+            standard_upgrade_levels: Default::default(),
+            level_rewards: Default::default(),
             cost_bonuses: Default::default(),
             hero_id: 25,
             name: "Warden".to_string(),
@@ -1157,6 +1163,7 @@ mod tests {
     #[test]
     fn purchase_bonus_uses_slot_and_tier() {
         let item = ItemModel {
+            property_spirit_scaling: Default::default(),
             property_damage_types: Default::default(),
             component_items: Vec::new(),
             class_name: String::new(),
@@ -1190,6 +1197,7 @@ mod tests {
     fn condition_factor_applies_ramp_and_active_uptime() {
         let cfg = ReasonerConfig::default();
         let ramp = ItemModel {
+            property_spirit_scaling: Default::default(),
             property_damage_types: Default::default(),
             component_items: Vec::new(),
             class_name: String::new(),
@@ -1242,6 +1250,7 @@ mod tests {
     #[test]
     fn buy_phase_follows_soul_thresholds() {
         let item = ItemModel {
+            property_spirit_scaling: Default::default(),
             property_damage_types: Default::default(),
             component_items: Vec::new(),
             class_name: String::new(),
@@ -1278,6 +1287,7 @@ mod tests {
         let mut hero = hero();
         hero.abilities = vec![
             AbilityModel {
+                upgrades: Default::default(),
                 properties: Default::default(),
                 ability_id: 1,
                 class_name: "low".to_string(),
@@ -1298,6 +1308,7 @@ mod tests {
                 duration: None,
             },
             AbilityModel {
+                upgrades: Default::default(),
                 properties: Default::default(),
                 ability_id: 2,
                 class_name: "high".to_string(),
@@ -1319,6 +1330,7 @@ mod tests {
             },
         ];
         let item = ItemModel {
+            property_spirit_scaling: Default::default(),
             property_damage_types: Default::default(),
             component_items: Vec::new(),
             class_name: String::new(),
