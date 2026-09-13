@@ -2,11 +2,8 @@ use dbrain_reasoner::{
     combat::evaluate_inventory, enrich_frozen_models, HeroModel, ItemModel, ReasonerConfig,
 };
 use serde::Deserialize;
-use std::{
-    fs::File,
-    io::{BufReader, BufWriter, Write},
-    time::Instant,
-};
+use std::{fs::File, io::BufReader, time::Instant};
+mod support;
 
 #[derive(Deserialize)]
 struct Frozen {
@@ -45,9 +42,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-    let mut writer = BufWriter::new(File::create(&args[2])?);
-    serde_json::to_writer(&mut writer, &output)?;
-    writer.flush()?;
+    let bytes = serde_json::to_vec(&output)?;
+    support::write_new(&args[2], &bytes)?;
     eprintln!(
         "{} vollständige Auswertungen, reine Auswertungszeit {:.3} s",
         output.len(),
