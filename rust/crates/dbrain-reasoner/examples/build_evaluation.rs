@@ -214,9 +214,9 @@ fn compose(
         }
     }
     let mut build =
-        composer::compose_build_with_sources(&hero, &scores, &deltas, &cfg, &[], &context);
+        composer::compose_build_with_sources(&hero, &scores, &deltas, &cfg, &[], &context)?;
     let plan = if ablation == "plan" {
-        let plan = composer::purchase_plan_with_sources(&hero, &scores, &cfg, &context);
+        let plan = composer::purchase_plan_with_sources(&hero, &scores, &cfg, &context)?;
         if plan
             .steps
             .iter()
