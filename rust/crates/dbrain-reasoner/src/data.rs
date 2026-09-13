@@ -1601,6 +1601,7 @@ mod tests {
         let mut ability = super::ability_model(raw, 1).unwrap();
         for upgrade in ability.upgrades.iter().take(rank) {
             for field in upgrade["property_upgrades"].as_array().unwrap() {
+                assert!(field["upgrade_type"].is_null());
                 let name = field["name"].as_str().unwrap();
                 *ability.properties.entry(name.into()).or_default() +=
                     super::number(field.get("bonus")).unwrap_or(0.0);
@@ -1638,6 +1639,13 @@ mod tests {
         let mut drain = super::ability_model(&drain_raw["payload"], 2).unwrap();
         for upgrade in &drain.upgrades {
             for field in upgrade["property_upgrades"].as_array().unwrap() {
+                if !matches!(
+                    field["name"].as_str(),
+                    Some("AbilityCharges" | "AbilityCooldown" | "AbilityCooldownBetweenCharge")
+                ) {
+                    continue;
+                }
+                assert!(field["upgrade_type"].is_null());
                 *drain
                     .properties
                     .entry(field["name"].as_str().unwrap().into())
