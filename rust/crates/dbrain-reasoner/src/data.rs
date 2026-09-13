@@ -30,9 +30,15 @@ fn number(value: Option<&Value>) -> Option<f64> {
                 .as_f64()
                 .or_else(|| value.as_i64().map(|value| value as f64))
                 .or_else(|| {
-                    value
-                        .as_str()
-                        .and_then(|value| value.trim_end_matches('%').parse().ok())
+                    value.as_str().and_then(|value| {
+                        let value = value.trim();
+                        value
+                            .strip_suffix('%')
+                            .or_else(|| value.strip_suffix('m'))
+                            .unwrap_or(value)
+                            .parse()
+                            .ok()
+                    })
                 })
         })
         .filter(|value| value.is_finite())
@@ -347,6 +353,27 @@ fn ability_model(payload: &Value, slot: i64) -> Option<AbilityModel> {
         }
     }
     let mut model = AbilityModel {
+        duration_scaling: properties
+            .into_iter()
+            .flat_map(|properties| properties.iter())
+            .filter_map(|(name, property)| {
+                let function = property.get("scale_function")?;
+                let function = function.get("subclass").unwrap_or(function);
+                (function
+                    .get("specific_stat_scale_type")
+                    .and_then(Value::as_str)
+                    == Some("ETechDuration")
+                    || function
+                        .get("scaling_stats")
+                        .and_then(Value::as_array)
+                        .is_some_and(|stats| {
+                            stats
+                                .iter()
+                                .any(|stat| stat.as_str() == Some("ETechDuration"))
+                        }))
+                .then(|| name.clone())
+            })
+            .collect(),
         item_proc_disabled: snapshot_description(payload)
             .to_ascii_lowercase()
             .contains("does not apply item procs"),
@@ -1624,6 +1651,82 @@ mod tests {
             crate::combat::evaluate_inventory_fast(&hero, &[], &crate::ReasonerConfig::default())
                 .score
         );
+    }
+    #[test]
+    fn actual_duration_and_spirit_barrier_affect_whole_combat() {
+        let mut hero = crate::combat::tests::hero();
+        hero.weapon.bullet_damage = 0.0;
+        let willpower = super::ability_model(&combat_raw("ability_warden_high_alert"), 2).unwrap();
+        assert!(willpower
+            .scaling
+            .iter()
+            .any(|scale| scale.stat == "CombatBarrier" && scale.per_spirit == Some(0.8)));
+        hero.abilities = vec![willpower];
+        let cfg = crate::ReasonerConfig {
+            combat_window_seconds: 10.0,
+            ..crate::ReasonerConfig::default()
+        };
+        let low = crate::combat::evaluate_inventory(&hero, &[], &cfg);
+        hero.base_spirit_power = 100.0;
+        let high = crate::combat::evaluate_inventory(&hero, &[], &cfg);
+        assert!(high.effective_health - low.effective_health > 35.0);
+        let mut last_stand =
+            super::ability_model(&combat_raw("ability_warden_riot_protocol"), 4).unwrap();
+        let duration = combat_item(&combat_raw("Superior Duration"));
+        hero.base_spirit_power = 0.0;
+        hero.abilities = vec![last_stand.clone()];
+        let plain = crate::combat::evaluate_inventory(&hero, &[], &cfg);
+        let longer =
+            crate::combat::evaluate_inventory(&hero, std::slice::from_ref(&duration), &cfg);
+        assert!(
+            (longer.scenarios[0].ability_damage / plain.scenarios[0].ability_damage - 1.28).abs()
+                < 1e-8
+        );
+        last_stand.properties.remove("HealthStealPctHero");
+        hero.abilities = vec![last_stand];
+        let no_heal = crate::combat::evaluate_inventory(&hero, &[], &cfg);
+        assert!(plain.scenarios[1].effective_health > no_heal.scenarios[1].effective_health);
+        let mut binding = super::ability_model(&combat_raw("ability_warden_lock_down"), 3).unwrap();
+        binding.ability_id = 3;
+        hero.abilities = vec![binding];
+        let root = crate::combat::evaluate_inventory(&hero, std::slice::from_ref(&duration), &cfg);
+        assert!(root.scenarios[0]
+            .sequence
+            .iter()
+            .any(|event| event.contains("2.24s festgesetzt")));
+        assert_eq!(
+            root.score,
+            crate::combat::evaluate_inventory_fast(&hero, &[duration], &cfg).score
+        );
+    }
+    #[test]
+    fn actual_frenzy_uses_life_after_self_cost_and_healing() {
+        let frenzy = combat_item(&combat_raw("Frenzy"));
+        let mut hero = crate::combat::tests::hero();
+        hero.weapon.bullet_damage = 0.0;
+        hero.base_health = 40.0;
+        let mut bomb = super::ability_model(&combat_raw("ability_blood_bomb"), 1).unwrap();
+        bomb.ability_id = 1;
+        hero.abilities = vec![bomb];
+        let cfg = crate::ReasonerConfig {
+            combat_window_seconds: 120.0,
+            ..crate::ReasonerConfig::default()
+        };
+        let result = crate::combat::evaluate_inventory(&hero, std::slice::from_ref(&frenzy), &cfg);
+        assert!(!result.scenarios[0]
+            .item_activations
+            .get(&frenzy.item_id)
+            .is_none_or(Vec::is_empty));
+        let mut healed = frenzy.clone();
+        healed.properties.insert("HealthRegen".into(), 1000.0);
+        healed
+            .passive_properties
+            .insert("HealthRegen".into(), 1000.0);
+        let result = crate::combat::evaluate_inventory(&hero, &[healed], &cfg);
+        assert!(result.scenarios[1]
+            .item_activations
+            .get(&frenzy.item_id)
+            .is_none_or(Vec::is_empty));
     }
     #[test]
     fn actual_affliction_disables_item_procs_and_life_drain_does_not_loop() {
