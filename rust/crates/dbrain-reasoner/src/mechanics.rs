@@ -213,6 +213,7 @@ pub fn imbue_target(item: &ItemModel, hero: &HeroModel, cfg: &ReasonerConfig) ->
     }
     hero.abilities
         .iter()
+        .filter(|ability| ability.ability_id > 0)
         .map(|ability| {
             (
                 ability_dps(ability, hero, cfg) * imbue_gain(item, ability, cfg),
@@ -249,7 +250,6 @@ pub fn scaling_souls(hero: &HeroModel) -> Option<i64> {
     let upgrade = hero
         .abilities
         .iter()
-        .filter(|ability| ability.ability_id > 0)
         .filter_map(|ability| ability.scaling_step.as_ref())
         .map(|step| step.upgrade_index)
         .min()?;

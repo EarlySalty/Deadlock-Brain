@@ -108,6 +108,20 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 .join("../../../.tasks/2026-09-12-build-reasoner/referenz");
             let seed_authors = meta::load_seed_builds_for_hero(&seed, &items, &name)?;
             entry["reference_779996"] = json!({"version":reference.version,"ids":ids,"metrics":backtest::backtest_metrics(&build,&author)});
+            let weapon_ids = items
+                .iter()
+                .filter(|item| {
+                    item.slot == SlotType::Weapon && author.core_item_ids.contains(&item.item_id)
+                })
+                .map(|item| item.item_id)
+                .collect::<std::collections::BTreeSet<_>>();
+            let weapon_hits = build
+                .core
+                .iter()
+                .filter(|item| weapon_ids.contains(&item.item_id))
+                .map(|item| json!({"id":item.item_id,"name":item.name}))
+                .collect::<Vec<_>>();
+            entry["weapon_reference"] = json!({"count":weapon_ids.len(),"ids":weapon_ids,"hit_count":weapon_hits.len(),"hits":weapon_hits});
             eprintln!(
                 "Warden 779996: {}; Kern: {}",
                 entry["reference_779996"]["metrics"],
