@@ -11,6 +11,17 @@ use crate::{AbilityStep, CoreLayoutStats, HeroModel, ItemModel, ReasonerConfig, 
 const BEAM_WIDTH: usize = 4;
 type EvaluationKey = (i64, Vec<i64>, Vec<(i64, i64)>);
 
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct ChoiceKey {
+    earned: i64,
+    spent: i64,
+    before: u64,
+    held: Vec<i64>,
+    used: Vec<i64>,
+    remaining: Vec<(i64, usize)>,
+    bindings: Vec<(i64, i64)>,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct EconomyPolicy {
     pub checkpoints: Vec<i64>,
@@ -69,6 +80,7 @@ struct Search<'a> {
     rules: &'a InventoryRules,
     combinations: &'a BTreeMap<(i64, i64), crate::meta::CombinationSupport>,
     cache: BTreeMap<EvaluationKey, InventoryEvaluation>,
+    choices_cache: BTreeMap<ChoiceKey, Vec<PurchaseStep>>,
     progression_cache: BTreeMap<i64, (HeroModel, ProgressionEvidence)>,
 }
 
@@ -136,6 +148,21 @@ impl Search<'_> {
         before: f64,
         bindings: &BTreeMap<i64, i64>,
     ) -> Vec<PurchaseStep> {
+        let key = ChoiceKey {
+            earned,
+            spent: inventory.spent_souls,
+            before: before.to_bits(),
+            held: inventory.held_ids.iter().copied().collect(),
+            used: used.iter().copied().collect(),
+            remaining: remaining
+                .iter()
+                .map(|(tier, count)| (*tier, *count))
+                .collect(),
+            bindings: bindings.iter().map(|(id, target)| (*id, *target)).collect(),
+        };
+        if let Some(choices) = self.choices_cache.get(&key) {
+            return choices.clone();
+        }
         let candidates = self
             .candidates
             .iter()
@@ -214,6 +241,8 @@ impl Search<'_> {
                         .cmp(&right.transition.purchased_id)
                 })
         });
+        choices.truncate(BEAM_WIDTH);
+        self.choices_cache.insert(key, choices.clone());
         choices
     }
 }
@@ -265,6 +294,7 @@ pub fn plan_with_economy(
         rules,
         combinations,
         cache: BTreeMap::new(),
+        choices_cache: BTreeMap::new(),
         progression_cache: BTreeMap::new(),
     };
     let mut plan=PurchasePlan { steps:Vec::new(), final_evaluation:evaluate_inventory(hero,&[],cfg), ability_order:order.to_vec(),saving_decisions:Vec::new(), assumptions:vec![
@@ -559,6 +589,7 @@ mod tests {
             rules: &rules,
             combinations: &combinations,
             cache: BTreeMap::new(),
+            choices_cache: BTreeMap::new(),
             progression_cache: BTreeMap::new(),
         };
         let choices = search.choices(
