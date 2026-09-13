@@ -206,6 +206,8 @@ pub struct ItemModel {
     pub defense_kind: Vec<String>,
     pub properties: BTreeMap<String, f64>,
     pub passive_properties: BTreeMap<String, f64>,
+    #[serde(default)]
+    pub conditional_properties: BTreeSet<String>,
     pub condition: ConditionKind,
     pub proc_cooldown: Option<f64>,
     pub imbueable: bool,

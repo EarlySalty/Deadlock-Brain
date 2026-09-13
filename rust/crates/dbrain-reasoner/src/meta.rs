@@ -57,6 +57,77 @@ pub struct MetaIndexWithSources {
     pub author_builds: Vec<AuthorBuildSource>,
     pub hero_ability_orders: BTreeMap<i64, Vec<crate::AbilityStep>>,
     pub core_layouts: CoreLayoutIndex,
+    pub combinations: BTreeMap<(i64, i64), CombinationSupport>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CombinationSupport {
+    pub relative_lift: f64,
+    pub matches: i64,
+}
+
+pub fn combination_support(
+    rows: &[Value],
+    individual: &[MetaRow],
+    cfg: &ReasonerConfig,
+) -> BTreeMap<(i64, i64), CombinationSupport> {
+    let mut result = BTreeMap::new();
+    for row in rows {
+        let number = |key| row.get(key).and_then(Value::as_i64).unwrap_or(0);
+        let (left, right, matches, wins, losses) = (
+            number("item_id"),
+            number("with_item_id"),
+            number("matches"),
+            number("wins"),
+            number("losses"),
+        );
+        if left <= 0
+            || right <= 0
+            || left == right
+            || matches < cfg.min_matches.max(1)
+            || wins < 0
+            || losses < 0
+            || wins.checked_add(losses) != Some(matches)
+            || row.get("patch_tag").and_then(Value::as_str) != Some(cfg.patch_tag.as_str())
+        {
+            continue;
+        }
+        let baseline = |id| {
+            individual
+                .iter()
+                .filter(|item| {
+                    item.item_id == id
+                        && item.patch_tag == cfg.patch_tag
+                        && item.matches >= cfg.min_matches.max(1)
+                        && item.wins >= 0
+                        && item.losses >= 0
+                        && item.wins.checked_add(item.losses) == Some(item.matches)
+                })
+                .max_by_key(|item| item.matches)
+                .map(|item| item.wins as f64 / item.matches as f64)
+        };
+        let (Some(left_rate), Some(right_rate)) = (baseline(left), baseline(right)) else {
+            continue;
+        };
+        let relative_lift = wins as f64 / matches as f64 - left_rate.max(right_rate);
+        let key = (left.min(right), left.max(right));
+        let support = CombinationSupport {
+            relative_lift,
+            matches,
+        };
+        result
+            .entry(key)
+            .and_modify(|current: &mut CombinationSupport| {
+                if support.matches > current.matches
+                    || (support.matches == current.matches
+                        && support.relative_lift < current.relative_lift)
+                {
+                    *current = support.clone();
+                }
+            })
+            .or_insert(support);
+    }
+    result
 }
 
 impl MetaIndexWithSources {
@@ -71,7 +142,6 @@ impl MetaIndexWithSources {
                 .weight
                 .total_cmp(&left.weight)
                 .then_with(|| left.author.cmp(&right.author))
-                .then_with(|| left.details.to_string().cmp(&right.details.to_string()))
         });
         for source in authors {
             if let Some(order) = author_ability_order(&source.details) {
@@ -124,7 +194,7 @@ fn category_mod_ids(category: &Value) -> impl Iterator<Item = i64> + '_ {
         })
 }
 
-fn core_categories(details: &Value) -> Vec<&Value> {
+pub fn core_item_ids(details: &Value) -> Vec<i64> {
     let Some(categories) = details
         .get("modCategories")
         .or_else(|| details.get("mod_categories"))
@@ -140,20 +210,88 @@ fn core_categories(details: &Value) -> Vec<&Value> {
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_ascii_lowercase();
-            [
+            let explicit_core = [
                 "core", "kern", "standard", "main", "primary", "basis", "default",
             ]
             .iter()
-            .any(|marker| name.contains(marker))
+            .any(|marker| name.contains(marker));
+            if explicit_core {
+                return true;
+            }
+            if category.get("optional").and_then(Value::as_bool) == Some(true)
+                || [
+                    "optional",
+                    "option",
+                    "situational",
+                    "situation",
+                    "tryhard",
+                    "can buy",
+                    "counter",
+                    "greed",
+                    "shield",
+                ]
+                .iter()
+                .any(|marker| name.contains(marker))
+            {
+                return false;
+            }
+            name.split(|c: char| !c.is_alphanumeric()).any(|word| {
+                [
+                    "lane",
+                    "laning",
+                    "early",
+                    "start",
+                    "starter",
+                    "starting",
+                    "first",
+                    "mid",
+                    "midgame",
+                    "late",
+                    "lategame",
+                    "endgame",
+                    "früh",
+                    "anfang",
+                    "spätspiel",
+                ]
+                .contains(&word)
+            })
         })
         .collect::<Vec<_>>();
-    if !named.is_empty() {
-        return named;
-    }
-    categories
-        .iter()
-        .max_by_key(|category| category_mod_ids(category).count())
+    let selected = if named.is_empty() {
+        categories
+            .iter()
+            .filter(|category| {
+                let name = category
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_ascii_lowercase();
+                category.get("optional").and_then(Value::as_bool) != Some(true)
+                    && ![
+                        "optional",
+                        "option",
+                        "situational",
+                        "situation",
+                        "tryhard",
+                        "can buy",
+                        "counter",
+                        "greed",
+                        "shield",
+                    ]
+                    .iter()
+                    .any(|marker| name.contains(marker))
+            })
+            .max_by_key(|category| category_mod_ids(category).count())
+            .into_iter()
+            .collect()
+    } else {
+        named
+    };
+    let mut seen = BTreeSet::new();
+    selected
         .into_iter()
+        .flat_map(category_mod_ids)
+        .filter(|id| seen.insert(*id))
         .collect()
 }
 
@@ -253,11 +391,9 @@ pub fn derive_core_layouts(
     let mut by_hero_counts = BTreeMap::<i64, Vec<BTreeMap<i64, usize>>>::new();
     for source in sources {
         let mut counts = BTreeMap::new();
-        for category in core_categories(&source.details) {
-            for item_id in category_mod_ids(category) {
-                if let Some(tier) = item_tiers.get(&item_id) {
-                    *counts.entry(*tier).or_insert(0) += 1;
-                }
+        for item_id in core_item_ids(&source.details) {
+            if let Some(tier) = item_tiers.get(&item_id) {
+                *counts.entry(*tier).or_insert(0) += 1;
             }
         }
         if !counts.is_empty() {
@@ -455,9 +591,9 @@ fn seed_build(value: &Value, items: &[crate::ItemModel]) -> AuthorBuild {
                 .iter()
                 .find(|model| normalize(&model.name) == normalized)
             {
-                buy_order.push(model.item_id);
-                if block_name.contains("core") {
+                if block_name.contains("core") && !core_item_ids.contains(&model.item_id) {
                     core_item_ids.push(model.item_id);
+                    buy_order.push(model.item_id);
                 }
             }
         }
@@ -474,6 +610,22 @@ fn seed_build(value: &Value, items: &[crate::ItemModel]) -> AuthorBuild {
 }
 
 pub fn load_seed_builds(path: &Path, items: &[crate::ItemModel]) -> Result<Vec<AuthorBuild>> {
+    load_seed_builds_filtered(path, items, None)
+}
+
+pub fn load_seed_builds_for_hero(
+    path: &Path,
+    items: &[crate::ItemModel],
+    hero: &str,
+) -> Result<Vec<AuthorBuild>> {
+    load_seed_builds_filtered(path, items, Some(hero))
+}
+
+fn load_seed_builds_filtered(
+    path: &Path,
+    items: &[crate::ItemModel],
+    hero: Option<&str>,
+) -> Result<Vec<AuthorBuild>> {
     let mut paths = Vec::new();
     if path.is_file() {
         paths.push(path.to_path_buf());
@@ -504,9 +656,21 @@ pub fn load_seed_builds(path: &Path, items: &[crate::ItemModel]) -> Result<Vec<A
             let value: Value = serde_json::from_str(&text).map_err(|error| {
                 ReasonerError::Data(format!("Seed-Datei {}: {error}", path.display()))
             })?;
-            Ok(seed_build(&value, items))
+            Ok(
+                if hero.is_none_or(|hero| {
+                    value
+                        .get("hero")
+                        .and_then(Value::as_str)
+                        .is_some_and(|seed_hero| normalize(seed_hero) == normalize(hero))
+                }) {
+                    Some(seed_build(&value, items))
+                } else {
+                    None
+                },
+            )
         })
-        .collect()
+        .collect::<Result<Vec<_>>>()
+        .map(|builds| builds.into_iter().flatten().collect())
 }
 
 pub fn build_meta_index_with_seed_path(
@@ -658,12 +822,68 @@ mod tests {
         let warden = layouts.for_hero(25);
         assert_eq!(warden.source_builds, 2);
         assert_eq!(warden.target_for_tier(1), 1);
-        assert_eq!(warden.target_for_tier(2), 1);
-        assert_eq!(warden.target_for_tier(4), 1);
-        assert_eq!(warden.total_target(), 3);
+        assert_eq!(warden.target_for_tier(2), 2);
+        assert_eq!(warden.target_for_tier(4), 2);
+        assert_eq!(warden.total_target(), 5);
         assert_eq!(layouts.overall.source_builds, 3);
-        assert_eq!(layouts.overall.target_for_tier(1), 2);
+        assert_eq!(layouts.overall.target_for_tier(1), 1);
         assert_eq!(layouts.overall.target_for_tier(2), 1);
+    }
+
+    #[test]
+    fn purchase_curve_and_reference_share_phases_without_alternatives_or_abilities() {
+        let details = serde_json::json!({"modCategories": [
+            {"name":"Early game", "mods":[{"abilityId":1}]},
+            {"name":"CORE ITEMS /// CAN BUY ANY 3K ITEM", "mods":[{"abilityId":2},{"abilityId":1}]},
+            {"name":"Late game", "mods":[{"abilityId":3}]},
+            {"name":"TRYHARD", "mods":[{"abilityId":4}]},
+            {"name":"", "mods":[{"abilityId":5}]},
+            {"name":"Late optional", "optional":true, "mods":[{"abilityId":6}]}
+        ], "abilityOrder":{"currencyChanges":[{"abilityId":99}]}});
+        let reference = crate::data::author_build(&details);
+        assert_eq!(reference.core_item_ids, [1, 2, 3]);
+        assert_eq!(reference.buy_order, [1, 2, 3]);
+        let layouts = derive_core_layouts(
+            &[AuthorBuildLayoutSource {
+                hero_id: 25,
+                build_id: 1,
+                version: 1,
+                details,
+            }],
+            &BTreeMap::from([(1, 1), (2, 2), (3, 4), (4, 4), (5, 1), (6, 4)]),
+        );
+        assert_eq!(layouts.for_hero(25).total_target(), 3);
+        assert_eq!(layouts.for_hero(25).target_for_tier(1), 1);
+    }
+
+    #[test]
+    fn pair_support_rejects_old_small_or_invalid_samples_and_deduplicates_direction() {
+        let cfg = cfg();
+        let individual = [1, 2].map(|item_id| MetaRow {
+            item_id,
+            patch_tag: cfg.patch_tag.clone(),
+            prevalence_builds: 10,
+            wins: 50,
+            losses: 50,
+            matches: 100,
+            avg_buy_time_relative: None,
+            lift_pp: None,
+        });
+        let row = |left, right, matches, wins, patch: &str| serde_json::json!({"item_id":left,"with_item_id":right,"matches":matches,"wins":wins,"losses":matches-wins,"patch_tag":patch});
+        let support = combination_support(
+            &[
+                row(1, 2, 100, 70, &cfg.patch_tag),
+                row(2, 1, 100, 70, &cfg.patch_tag),
+                row(1, 2, 1000, 990, "old"),
+                row(1, 2, 1, 1, &cfg.patch_tag),
+                row(1, 2, 100, 101, &cfg.patch_tag),
+            ],
+            &individual,
+            &cfg,
+        );
+        assert_eq!(support.len(), 1);
+        assert!((support[&(1, 2)].relative_lift - 0.2).abs() < 1e-12);
+        assert_eq!(support[&(1, 2)].matches, 100);
     }
 
     #[test]

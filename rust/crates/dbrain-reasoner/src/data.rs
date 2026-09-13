@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
-use sqlx::{Row, postgres::PgPool};
+use sqlx::{postgres::PgPool, Row};
 
 use crate::{
     AbilityModel, AbilityRole, AuthorBuild, ConditionKind, DamagePlan, DamageType, HeroModel,
@@ -184,6 +184,7 @@ fn is_imbue_marker(value: Option<&Value>) -> bool {
 
 fn classify_condition(payload: &Value, is_active: bool) -> ConditionKind {
     let description = description_text(payload).to_ascii_lowercase();
+    let values = property_values(payload.get("properties"));
     let properties = payload.get("properties").and_then(Value::as_object);
     let cooldown = properties
         .and_then(|properties| properties.get("AbilityCooldown"))
@@ -204,6 +205,9 @@ fn classify_condition(payload: &Value, is_active: bool) -> ConditionKind {
             },
             cooldown,
         };
+    }
+    if let Some(condition) = condition_from_properties(&values) {
+        return condition;
     }
     if description.contains("melee") {
         return ConditionKind::MeleeBound;
@@ -228,9 +232,30 @@ fn classify_condition(payload: &Value, is_active: bool) -> ConditionKind {
         };
     }
     if description.contains("health") && description.contains("above") {
-        return ConditionKind::StateBound { threshold: 0.65 };
+        return ConditionKind::ActionBound {
+            action: "unbekannte Lebensschwelle".into(),
+        };
     }
     ConditionKind::None
+}
+
+pub(crate) fn condition_from_properties(values: &BTreeMap<String, f64>) -> Option<ConditionKind> {
+    if let Some(threshold) = values.get("EnemyLifeThreshold") {
+        return Some(ConditionKind::StateBound {
+            threshold: (threshold / 100.0).clamp(0.0, 1.0),
+        });
+    }
+    if values.keys().any(|key| key.starts_with("ParrySuccess")) {
+        return Some(ConditionKind::ActionBound {
+            action: "parry".into(),
+        });
+    }
+    if values.contains_key("DamageThreshold") && values.contains_key("ImmunityDuration") {
+        return Some(ConditionKind::ActionBound {
+            action: "spirit_damage_threshold".into(),
+        });
+    }
+    None
 }
 
 fn ability_roles(payload: &Value) -> Vec<AbilityRole> {
@@ -824,6 +849,23 @@ pub(crate) async fn load_item_models_with_snapshots(
         }
         let properties = property_values(payload.get("properties"));
         let passive_properties = passive_property_values(payload.get("properties"));
+        let conditional_properties = payload
+            .get("properties")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flatten()
+            .filter(|(_, property)| {
+                property
+                    .get("usage_flags")
+                    .and_then(Value::as_array)
+                    .is_some_and(|flags| {
+                        flags
+                            .iter()
+                            .any(|flag| flag.as_str() == Some("ConditionallyApplied"))
+                    })
+            })
+            .map(|(name, _)| name.clone())
+            .collect();
         let asset_proc_cooldown = properties
             .iter()
             .find(|(name, _)| name.to_ascii_lowercase().contains("proccooldown"))
@@ -879,6 +921,7 @@ pub(crate) async fn load_item_models_with_snapshots(
             defense_kind: defense_kind.clone(),
             properties,
             passive_properties,
+            conditional_properties,
             condition: classify_condition(&merged_payload, is_active),
             proc_cooldown,
             imbueable: is_imbue_marker(payload.get("imbue"))
@@ -1005,72 +1048,24 @@ pub(crate) async fn load_patch_events_for_snapshots(
 }
 
 fn ids_from_details(details: &Value) -> (Vec<i64>, Vec<i64>) {
-    let mut core = Vec::new();
-    let mut order = Vec::new();
-    for category in details
-        .get("mod_categories")
-        .or_else(|| details.get("modCategories"))
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-    {
-        let optional = category
-            .get("optional")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        let category_name = string(category.get("name")).to_ascii_lowercase();
-        for item in category
-            .get("mods")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-        {
-            let id = item
-                .get("ability_id")
-                .or_else(|| item.get("abilityId"))
-                .map(|value| integer(Some(value)))
-                .unwrap_or_default();
-            if id == 0 {
-                continue;
-            }
-            if !optional || category_name.contains("core") {
-                core.push(id);
-            }
-            order.push(id);
-        }
-    }
-    let ability_order = details
-        .get("ability_order")
-        .or_else(|| details.get("abilityOrder"))
-        .and_then(|value| {
-            value
-                .get("currency_changes")
-                .or_else(|| value.get("currencyChanges"))
-        })
-        .and_then(Value::as_array);
-    if let Some(changes) = ability_order {
-        for change in changes {
-            let id = change
-                .get("ability_id")
-                .or_else(|| change.get("abilityId"))
-                .map(|value| integer(Some(value)))
-                .unwrap_or_default();
-            if id != 0 {
-                order.push(id);
-            }
-        }
-    }
-    (core, order)
+    let core = crate::meta::core_item_ids(details);
+    (core.clone(), core)
 }
 
 pub(crate) fn author_build(value: &Value) -> AuthorBuild {
     let details = value.get("details").unwrap_or(value);
     let (core_item_ids, buy_order) = ids_from_details(details);
     AuthorBuild {
-        author: ["author", "author_name", "authorName", "creator_name"]
-            .iter()
-            .find_map(|key| value.get(*key).map(|value| string(Some(value))))
-            .unwrap_or_else(|| "unbekannt".to_string()),
+        author: [
+            "author",
+            "author_name",
+            "authorName",
+            "creator_name",
+            "author_account_id",
+        ]
+        .iter()
+        .find_map(|key| value.get(*key).map(|value| string(Some(value))))
+        .unwrap_or_else(|| "unbekannt".to_string()),
         version: integer(value.get("version")),
         published_at: value.get("published_at").and_then(Value::as_i64),
         last_updated_at: value.get("last_updated_at").and_then(Value::as_i64),
@@ -1086,7 +1081,7 @@ pub async fn load_author_builds(
     ctx: &ReasonerCtx,
     hero_id: i64,
 ) -> Result<Vec<crate::AuthorBuild>> {
-    let rows = sqlx::query("SELECT (to_jsonb(hbs) || jsonb_build_object('published_at', EXTRACT(EPOCH FROM hbs.published_at)::bigint, 'last_updated_at', EXTRACT(EPOCH FROM hbs.last_updated_at)::bigint))::text AS row_json FROM tierlist.hero_build_sources hbs WHERE hbs.hero_id=$1 ORDER BY COALESCE(hbs.last_updated_at, hbs.published_at) DESC NULLS LAST, hbs.version DESC NULLS LAST LIMIT 100")
+    let rows = sqlx::query("SELECT (to_jsonb(hbs) || jsonb_build_object('published_at', EXTRACT(EPOCH FROM hbs.published_at)::bigint, 'last_updated_at', EXTRACT(EPOCH FROM hbs.last_updated_at)::bigint))::text AS row_json FROM (SELECT DISTINCT ON (hero_build_id) * FROM tierlist.hero_build_sources WHERE hero_id=$1 ORDER BY hero_build_id, version DESC NULLS LAST, fetched_at DESC NULLS LAST) hbs ORDER BY COALESCE(hbs.last_updated_at, hbs.published_at) DESC NULLS LAST, hbs.hero_build_id")
         .bind(hero_id)
         .fetch_all(&ctx.pool)
         .await
@@ -1420,8 +1415,8 @@ mod tests {
     async fn author_builds_use_real_timestamps_and_expose_schema_errors() {
         let (_guard, ctx) = scratch_context().await;
         assert!(load_author_builds(&ctx, 25).await.is_err());
-        sqlx::raw_sql("SET TIME ZONE 'Pacific/Honolulu'; CREATE TABLE tierlist.hero_build_sources (hero_id bigint, version bigint, details jsonb, published_at timestamptz, last_updated_at timestamptz);
-            INSERT INTO tierlist.hero_build_sources VALUES
+        sqlx::raw_sql("SET TIME ZONE 'Pacific/Honolulu'; CREATE TABLE tierlist.hero_build_sources (hero_id bigint, version bigint, details jsonb, published_at timestamptz, last_updated_at timestamptz, hero_build_id bigint GENERATED ALWAYS AS IDENTITY, fetched_at timestamptz DEFAULT now());
+            INSERT INTO tierlist.hero_build_sources (hero_id, version, details, published_at, last_updated_at) VALUES
             (25, 1, '{}', '2026-01-01T00:00:00Z', '2026-02-01T00:00:00Z'),
             (25, 2, '{}', '2026-03-01T00:00:00Z', NULL),
             (25, 3, '{}', '2026-03-01T00:00:00Z', NULL),
@@ -1430,7 +1425,7 @@ mod tests {
         let builds = load_author_builds(&ctx, 25).await.unwrap();
         assert_eq!(
             builds.iter().map(|build| build.version).collect::<Vec<_>>(),
-            [3, 2, 1, 4]
+            [2, 3, 1, 4]
         );
         assert_eq!(builds[0].published_at, Some(1772323200));
         assert_eq!(builds[0].last_updated_at, None);
@@ -1550,11 +1545,9 @@ mod tests {
         assert!(!events.is_empty());
         let authors = load_author_builds(&ctx, hero.hero_id).await.unwrap();
         assert!(!authors.is_empty());
-        assert!(
-            authors
-                .iter()
-                .any(|build| build.published_at.is_some_and(|time| time > 0))
-        );
+        assert!(authors
+            .iter()
+            .any(|build| build.published_at.is_some_and(|time| time > 0)));
         println!(
             "Echtdaten: 1 Held, {} Items, 4 Referenz-Items, {} Stat-Zeilen, {} Patch-Zeilen, {} Autoren-Builds",
             items.len(),

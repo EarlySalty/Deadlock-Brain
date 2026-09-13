@@ -19,12 +19,12 @@ mod types;
 mod fix_tests;
 
 pub use ai_roles::{
-    CriticResponse, HeroAnalystResponse, ItemAnalystResponse, MetaAnalystResponse,
-    PatchAnalystResponse, build_critic_request, build_hero_analyst_request,
-    build_item_analyst_request, build_meta_analyst_request, build_patch_analyst_request,
-    parse_critic_response, parse_hero_analyst_response, parse_item_analyst_response,
-    parse_meta_analyst_response, parse_patch_analyst_response, run_critic, run_hero_analyst,
-    run_item_analyst, run_meta_analyst, run_patch_analyst,
+    build_critic_request, build_hero_analyst_request, build_item_analyst_request,
+    build_meta_analyst_request, build_patch_analyst_request, parse_critic_response,
+    parse_hero_analyst_response, parse_item_analyst_response, parse_meta_analyst_response,
+    parse_patch_analyst_response, run_critic, run_hero_analyst, run_item_analyst, run_meta_analyst,
+    run_patch_analyst, CriticResponse, HeroAnalystResponse, ItemAnalystResponse,
+    MetaAnalystResponse, PatchAnalystResponse,
 };
 pub use data::load_hero_abilities;
 pub use data::{
@@ -286,7 +286,11 @@ pub async fn reason_backtest_with_options(
         let mut authors = load_author_builds(&ctx, hero_model.hero_id).await?;
         if let Some(path) = seed_path {
             let items = load_item_models(&ctx).await?;
-            authors.extend(meta::load_seed_builds(path, &items)?);
+            authors.extend(meta::load_seed_builds_for_hero(
+                path,
+                &items,
+                &hero_model.name,
+            )?);
         }
         if let Some(tag) = filter.patch_tag.as_deref() {
             authors.retain(|author| author.patch_tag.as_deref() == Some(tag));
@@ -470,13 +474,21 @@ async fn load_reasoning_inputs(
         core_layouts.by_hero.insert(hero_model.hero_id, layout);
     }
     let rows = load_meta_rows(ctx, hero_model.hero_id).await?;
-    let authors = load_author_builds(ctx, hero_model.hero_id).await?;
+    let combinations = meta::combination_support(
+        &load_synergies(ctx, hero_model.hero_id).await?,
+        &rows,
+        &ctx.config,
+    );
+    let mut authors = load_author_builds(ctx, hero_model.hero_id).await?;
     let claims = load_claims(ctx, hero_model.hero_id).await?;
-    let index = if let Some(path) = seed_path {
-        meta::build_meta_index_with_seed_path(&rows, &authors, &claims, &ctx.config, path, &items)?
-    } else {
-        meta::build_meta_index(&rows, &authors, &claims, &ctx.config)
-    };
+    if let Some(path) = seed_path {
+        authors.extend(meta::load_seed_builds_for_hero(
+            path,
+            &items,
+            &hero_model.name,
+        )?);
+    }
+    let index = meta::build_meta_index(&rows, &authors, &claims, &ctx.config);
     let author_builds = load_author_sources(ctx, hero_model.hero_id).await?;
     let hero_ability_orders = load_hero_ability_orders(ctx, hero_model.hero_id).await?;
     Ok((
@@ -487,6 +499,7 @@ async fn load_reasoning_inputs(
             author_builds,
             hero_ability_orders,
             core_layouts,
+            combinations,
         },
         snapshots,
     ))
@@ -517,7 +530,7 @@ async fn load_author_sources(
     ctx: &ReasonerCtx,
     hero_id: i64,
 ) -> Result<Vec<meta::AuthorBuildSource>> {
-    let query = "SELECT jsonb_build_object('hero_id', hbs.hero_id, 'author', COALESCE(hbs.author_account_id::text, 'unbekannt'), 'weight', COALESCE(wba.priority, 0)::double precision, 'details', hbs.details)::text AS row_json FROM tierlist.hero_build_sources hbs LEFT JOIN tierlist.watched_build_authors wba ON wba.author_account_id=hbs.author_account_id WHERE hbs.hero_id=$1 ORDER BY COALESCE(hbs.last_updated_at, hbs.published_at) DESC NULLS LAST, hbs.version DESC NULLS LAST";
+    let query = "SELECT jsonb_build_object('hero_id', hbs.hero_id, 'author', COALESCE(hbs.author_account_id::text, 'unbekannt'), 'weight', COALESCE(wba.priority, 0)::double precision, 'details', hbs.details)::text AS row_json FROM (SELECT DISTINCT ON (hero_build_id) * FROM tierlist.hero_build_sources WHERE hero_id=$1 ORDER BY hero_build_id, version DESC NULLS LAST, fetched_at DESC NULLS LAST) hbs LEFT JOIN tierlist.watched_build_authors wba ON wba.author_account_id=hbs.author_account_id ORDER BY COALESCE(hbs.last_updated_at, hbs.published_at) DESC NULLS LAST, hbs.version DESC NULLS LAST, hbs.hero_build_id";
     let rows = sqlx::query(query)
         .bind(hero_id)
         .fetch_all(&ctx.pool)

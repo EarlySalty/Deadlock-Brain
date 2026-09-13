@@ -59,12 +59,8 @@ pub fn build_hero_model(
             "Waffenprofil unvollständig; Primärwaffen-Snapshot laden".into(),
         ));
     }
+    hero.weapon.sustained_dps = mechanics::weapon_dps(&hero.weapon, 40.0);
     hero.damage_plan = damage_plan(&hero, &ReasonerConfig::default());
-    if hero.weapon.sustained_dps <= 0.0 {
-        hero.weapon.sustained_dps = mechanics::weapon_dps(&hero.weapon, 40.0);
-        hero.damage_plan.weapon_dps = hero.weapon.sustained_dps;
-        hero.damage_plan = damage_plan(&hero, &ReasonerConfig::default());
-    }
     Ok(hero)
 }
 

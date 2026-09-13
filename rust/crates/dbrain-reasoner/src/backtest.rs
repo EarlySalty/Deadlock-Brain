@@ -37,12 +37,7 @@ fn unique(values: impl Iterator<Item = i64>) -> BTreeSet<i64> {
 }
 
 fn build_order(build: &BuildObject) -> Vec<i64> {
-    build
-        .core
-        .iter()
-        .chain(build.situations.iter().flat_map(|block| block.items.iter()))
-        .map(|item| item.item_id)
-        .collect()
+    build.core.iter().map(|item| item.item_id).collect()
 }
 
 pub fn core_jaccard(build: &BuildObject, author: &AuthorBuild) -> f64 {
@@ -74,7 +69,7 @@ pub fn backtest_metrics(build: &BuildObject, author: &AuthorBuild) -> BacktestMe
         .iter()
         .filter(|id| author_order.contains(id))
         .collect::<Vec<_>>();
-    let order_proximity = if common.is_empty() || reasoner_order.len() < 2 || author_order.len() < 2
+    let order_proximity = if common.len() < 2 || reasoner_order.len() < 2 || author_order.len() < 2
     {
         None
     } else {

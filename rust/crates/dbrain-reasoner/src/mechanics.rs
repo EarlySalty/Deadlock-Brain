@@ -82,6 +82,26 @@ pub fn condition_factor_for_hero(item: &ItemModel, hero: &HeroModel, cfg: &Reaso
         }
         crate::ConditionKind::ShotBound => weapon_uptime(hero),
         crate::ConditionKind::ActionBound { action } => {
+            if action == "parry" || action == "unbekannte Lebensschwelle" {
+                return 0.0;
+            }
+            if action == "spirit_damage_threshold" {
+                let threshold = item
+                    .properties
+                    .get("DamageThreshold")
+                    .copied()
+                    .unwrap_or(f64::INFINITY);
+                let duration = item
+                    .properties
+                    .get("DamageThresholdDuration")
+                    .copied()
+                    .unwrap_or_default();
+                return if hero.damage_plan.spirit_dps * duration >= threshold {
+                    1.0
+                } else {
+                    0.0
+                };
+            }
             if action_in_rotation(action, hero) {
                 1.0
             } else {
@@ -123,20 +143,41 @@ pub fn per_slot_value(combat: f64, purchase: f64) -> f64 {
 }
 
 pub fn per_soul_value(combat: f64, cost: i64) -> f64 {
-    if cost > 0 { combat / cost as f64 } else { 0.0 }
+    if cost > 0 {
+        combat / cost as f64
+    } else {
+        0.0
+    }
 }
 
 pub fn active_value(item: &ItemModel, hero: &HeroModel, cfg: &ReasonerConfig) -> f64 {
     let properties = item
         .properties
         .iter()
-        .filter(|(name, _)| !item.passive_properties.contains_key(*name))
+        .chain(item.passive_properties.iter())
+        .filter(|(name, _)| {
+            if item.is_active {
+                !item.passive_properties.contains_key(*name)
+            } else {
+                conditional_property(item, name)
+            }
+        })
         .map(|(name, value)| (name.clone(), *value))
         .collect();
     item_property_effect(&properties, item, hero, cfg)
 }
 
 pub fn passive_value(item: &ItemModel, hero: &HeroModel, cfg: &ReasonerConfig) -> f64 {
+    if !item.is_active {
+        let properties = item
+            .properties
+            .iter()
+            .chain(item.passive_properties.iter())
+            .filter(|(name, _)| !conditional_property(item, name))
+            .map(|(name, value)| (name.clone(), *value))
+            .collect();
+        return item_property_effect(&properties, item, hero, cfg);
+    }
     let factor = condition_factor_for_hero(item, hero, cfg);
     let raw: f64 = item
         .passive_properties
@@ -152,6 +193,18 @@ pub fn passive_value(item: &ItemModel, hero: &HeroModel, cfg: &ReasonerConfig) -
     let raw = raw + reload_value(&item.passive_properties, item, hero, cfg);
     let proc = proc_property_effect(&item.passive_properties, item, hero, cfg);
     raw + proc * condition_factor_for_hero(item, hero, cfg)
+}
+
+fn conditional_property(item: &ItemModel, name: &str) -> bool {
+    if name.to_ascii_lowercase().starts_with("passive") {
+        return false;
+    }
+    item.conditional_properties.contains(name)
+        || item.passive_properties.contains_key(name)
+        || is_proc_property(name)
+        || name.to_ascii_lowercase().contains("shred")
+        || name.to_ascii_lowercase().contains("debuff")
+        || name.starts_with("ParrySuccess")
 }
 
 pub fn imbue_target(item: &ItemModel, hero: &HeroModel, cfg: &ReasonerConfig) -> Option<i64> {
@@ -196,6 +249,7 @@ pub fn scaling_souls(hero: &HeroModel) -> Option<i64> {
     let upgrade = hero
         .abilities
         .iter()
+        .filter(|ability| ability.ability_id > 0)
         .filter_map(|ability| ability.scaling_step.as_ref())
         .map(|step| step.upgrade_index)
         .min()?;
@@ -207,30 +261,12 @@ pub fn scaling_souls(hero: &HeroModel) -> Option<i64> {
         .map(|point| point.required_souls)
 }
 
-pub fn buy_phase_for_hero(item: &ItemModel, hero: &HeroModel) -> crate::BuyPhase {
-    if !item.defense_kind.is_empty()
-        || matches!(item.condition, crate::ConditionKind::StateBound { .. })
-    {
-        return crate::BuyPhase::Late;
-    }
-    let Some(pivot) = scaling_souls(hero) else {
-        return buy_phase(item);
-    };
-    let late = hero
-        .level_curve
-        .iter()
-        .map(|point| point.required_souls)
-        .max()
-        .unwrap_or(pivot);
-    let mid = pivot + late.saturating_sub(pivot) / 2;
-    if item.cost < pivot {
-        crate::BuyPhase::Lane
-    } else if item.cost < mid {
-        crate::BuyPhase::Mid
-    } else if item.cost < late {
-        crate::BuyPhase::Core
-    } else {
-        crate::BuyPhase::Late
+pub fn buy_phase_for_hero(item: &ItemModel, _hero: &HeroModel) -> crate::BuyPhase {
+    match item.tier {
+        1 => crate::BuyPhase::Lane,
+        2 => crate::BuyPhase::Mid,
+        3 => crate::BuyPhase::Core,
+        _ => crate::BuyPhase::Late,
     }
 }
 
@@ -249,9 +285,6 @@ pub fn buy_phase(item: &ItemModel) -> crate::BuyPhase {
 pub fn weapon_dps(weapon: &WeaponProfile, window: f64) -> f64 {
     if window <= 0.0 || weapon.shots_per_second <= 0.0 || weapon.clip_size <= 0.0 {
         return 0.0;
-    }
-    if weapon.sustained_dps > 0.0 {
-        return weapon.sustained_dps;
     }
     let cycle = weapon.clip_size / weapon.shots_per_second;
     let cycle_with_reload = cycle + weapon.reload_duration.max(0.0);
@@ -353,7 +386,7 @@ fn property_value(name: &str, value: f64, hero: &HeroModel, cfg: &ReasonerConfig
         return hero.damage_plan.weapon_dps * percent.abs();
     }
     if lower.contains("healampreceivepenalty") || lower.contains("healampregenpenalty") {
-        return hero.base_health / window * percent.abs();
+        return 0.0;
     }
     if is_proc_property(name)
         || lower.contains("proccooldown")
@@ -372,10 +405,20 @@ fn property_value(name: &str, value: f64, hero: &HeroModel, cfg: &ReasonerConfig
         || lower.contains("bulletspeed")
         || lower.contains("bulletvelocity")
         || lower == "ammoreloadpercent"
+        || lower.contains("threshold")
+        || lower.contains("nonhero")
+        || lower.contains("nonplayer")
+        || lower.contains("outofcombat")
+        || lower.contains("minimumdamage")
+        || lower.contains("onkill")
+        || lower.contains("onsuccess")
+        || lower.starts_with("parrysuccess")
+        || lower.contains("tooltiponly")
+        || lower.contains("buildup")
     {
         return 0.0;
     }
-    if lower.contains("spiritpower") || lower.contains("techpower") {
+    if lower.contains("spiritpower") || lower.contains("techpower") || lower == "bonusspirit" {
         return magnitude * spirit_power_value(hero, cfg);
     }
     if lower.contains("shield")
@@ -403,6 +446,16 @@ fn property_value(name: &str, value: f64, hero: &HeroModel, cfg: &ReasonerConfig
     }
     if lower.contains("lifesteal") {
         return percent * (hero.damage_plan.weapon_dps + hero.damage_plan.spirit_dps);
+    }
+    if lower == "bonusclipsizepercent" || lower == "clipsizepercent" {
+        let mut changed = hero.weapon.clone();
+        changed.clip_size *= (1.0 + percent).max(0.0);
+        return weapon_dps(&changed, window) - weapon_dps(&hero.weapon, window);
+    }
+    if lower == "bonusfirerate" || lower == "firerate" {
+        let mut changed = hero.weapon.clone();
+        changed.shots_per_second *= (1.0 + percent).max(0.0);
+        return weapon_dps(&changed, window) - weapon_dps(&hero.weapon, window);
     }
     if lower.contains("weapon")
         || lower.contains("baseattackdamage")
@@ -456,7 +509,7 @@ fn proc_property_effect(
         }
         1.0 / hero.weapon.shots_per_second
     } else {
-        properties
+        item.properties
             .iter()
             .find(|(name, _)| name.to_ascii_lowercase().ends_with("tickrate"))
             .map(|(_, value)| *value)
@@ -512,7 +565,34 @@ fn item_property_effect(
     hero: &HeroModel,
     cfg: &ReasonerConfig,
 ) -> f64 {
-    property_effect(properties, hero, cfg)
+    let burn = if let (Some(duration), Some(period)) = (
+        item.properties.get("DebuffDuration"),
+        item.properties.get("ImmunityDuration"),
+    ) {
+        if item.properties.contains_key("DamageThreshold") && *period > 0.0 {
+            Some(
+                (properties.get("DPS").copied().unwrap_or_default() * duration
+                    + properties
+                        .get("ExplosionDamage")
+                        .copied()
+                        .unwrap_or_default())
+                    / period,
+            )
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let values = properties
+        .iter()
+        .filter(|(name, _)| {
+            burn.is_none() || (name.as_str() != "DPS" && name.as_str() != "ExplosionDamage")
+        })
+        .map(|(name, value)| (name.clone(), *value))
+        .collect();
+    property_effect(&values, hero, cfg)
+        + burn.unwrap_or_default()
         + proc_property_effect(properties, item, hero, cfg)
         + reload_value(properties, item, hero, cfg)
 }
@@ -545,6 +625,104 @@ fn reload_value(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn thresholds_nonhero_and_unmeasured_heals_are_not_guaranteed_combat_value() {
+        for name in [
+            "DamageThreshold",
+            "MinimumDamage",
+            "EnemyLifeThreshold",
+            "NonPlayerBonusWeaponPower",
+            "DamagePctVsNonHeroes",
+            "NonHeroAbilityLifestealTooltipOnly",
+            "HealOnKill",
+            "ParrySuccessHealPercentage",
+            "OutOfCombatHealthRegen",
+            "HealAmpReceivePenaltyPercent",
+        ] {
+            assert_eq!(
+                property_value(name, 500.0, &hero(), &ReasonerConfig::default()),
+                0.0,
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn innate_weapon_bonus_is_preserved_while_conditional_bonus_uses_real_threshold() {
+        let mut item = item();
+        item.properties = [
+            ("BaseAttackDamagePercent".into(), 8.0),
+            ("BaseAttackDamagePercentBonus".into(), 25.0),
+            ("EnemyLifeThreshold".into(), 50.0),
+        ]
+        .into_iter()
+        .collect();
+        item.conditional_properties
+            .insert("BaseAttackDamagePercentBonus".into());
+        item = crate::item::build_item_model(&item).unwrap();
+        let cfg = ReasonerConfig::default();
+        assert_eq!(item.condition, ConditionKind::StateBound { threshold: 0.5 });
+        assert!((passive_value(&item, &hero(), &cfg) - 40.0 * 0.08).abs() < 1e-12);
+        assert!((active_value(&item, &hero(), &cfg) - 40.0 * 0.25).abs() < 1e-12);
+        assert!(
+            (combat_window_value(&item, &hero(), &cfg) - (40.0 * 0.08 + 40.0 * 0.25 * 0.5)).abs()
+                < 1e-12
+        );
+    }
+
+    #[test]
+    fn magazine_uses_exact_reload_cycle_and_ignores_stale_cached_dps() {
+        let mut hero = hero();
+        hero.weapon = WeaponProfile {
+            bullet_damage: 17.34,
+            clip_size: 17.0,
+            shots_per_second: 1.0 / 0.2625,
+            reload_duration: 2.914,
+            sustained_dps: 9999.0,
+            range: 0.0,
+            falloff_start_range: 0.0,
+            falloff_end_range: 0.0,
+        };
+        let before = 17.34 * 17.0 / (17.0 / (1.0 / 0.2625) + 2.914);
+        let after = 17.34 * 34.0 / (34.0 / (1.0 / 0.2625) + 2.914);
+        assert!((weapon_dps(&hero.weapon, 40.0) - before).abs() < 1e-12);
+        assert!(
+            (property_value(
+                "BonusClipSizePercent",
+                100.0,
+                &hero,
+                &ReasonerConfig::default()
+            ) - (after - before))
+                .abs()
+                < 1e-12
+        );
+    }
+
+    #[test]
+    fn threshold_burn_is_bounded_by_its_period_and_not_guaranteed_below_trigger() {
+        let mut item = item();
+        item.properties = [
+            ("DamageThreshold".into(), 500.0),
+            ("DamageThresholdDuration".into(), 5.0),
+            ("ImmunityDuration".into(), 20.0),
+            ("DebuffDuration".into(), 8.0),
+            ("DPS".into(), 24.0),
+            ("ExplosionDamage".into(), 50.0),
+        ]
+        .into_iter()
+        .collect();
+        item.passive_properties = item.properties.clone();
+        item = crate::item::build_item_model(&item).unwrap();
+        let mut hero = hero();
+        let cfg = ReasonerConfig::default();
+        hero.damage_plan.spirit_dps = 99.0;
+        assert_eq!(combat_window_value(&item, &hero, &cfg), 0.0);
+        hero.damage_plan.spirit_dps = 100.0;
+        assert!(
+            (combat_window_value(&item, &hero, &cfg) - (50.0 + 24.0 * 8.0) / 20.0).abs() < 1e-12
+        );
+    }
+
     use super::*;
     use crate::{ConditionKind, PurchaseBonuses, ScalingStat, TierBonus};
 
@@ -562,6 +740,7 @@ mod tests {
             defense_kind: vec![],
             properties: Default::default(),
             passive_properties: Default::default(),
+            conditional_properties: Default::default(),
             condition: ConditionKind::None,
             proc_cooldown: None,
             imbueable: false,
@@ -776,7 +955,7 @@ mod tests {
     }
 
     #[test]
-    fn buy_phase_moves_with_soul_curve_and_scaling_upgrade() {
+    fn purchase_phase_follows_cost_band_even_for_defensive_or_scaling_items() {
         let mut hero = hero();
         hero.level_curve = (1..=14)
             .map(|level| crate::LevelPoint {
@@ -802,9 +981,11 @@ mod tests {
             .unwrap()
             .upgrade_index = 2;
         assert_eq!(scaling_souls(&hero), Some(8800));
-        assert_eq!(buy_phase_for_hero(&item, &hero), crate::BuyPhase::Lane);
+        assert_eq!(buy_phase_for_hero(&item, &hero), crate::BuyPhase::Mid);
         item.defense_kind.push("bullet_resist".into());
-        assert_eq!(buy_phase_for_hero(&item, &hero), crate::BuyPhase::Late);
+        assert_eq!(buy_phase_for_hero(&item, &hero), crate::BuyPhase::Mid);
+        item.tier = 1;
+        assert_eq!(buy_phase_for_hero(&item, &hero), crate::BuyPhase::Lane);
     }
 
     #[test]
@@ -982,6 +1163,7 @@ mod tests {
             defense_kind: Vec::new(),
             properties: Default::default(),
             passive_properties: Default::default(),
+            conditional_properties: Default::default(),
             condition: ConditionKind::None,
             proc_cooldown: None,
             imbueable: false,
@@ -1010,6 +1192,7 @@ mod tests {
             defense_kind: Vec::new(),
             properties: Default::default(),
             passive_properties: Default::default(),
+            conditional_properties: Default::default(),
             condition: ConditionKind::RampUp { ramp_seconds: 20.0 },
             proc_cooldown: None,
             imbueable: false,
@@ -1057,6 +1240,7 @@ mod tests {
             defense_kind: Vec::new(),
             properties: Default::default(),
             passive_properties: Default::default(),
+            conditional_properties: Default::default(),
             condition: ConditionKind::None,
             proc_cooldown: None,
             imbueable: false,
@@ -1127,6 +1311,7 @@ mod tests {
             defense_kind: Vec::new(),
             properties: Default::default(),
             passive_properties: Default::default(),
+            conditional_properties: Default::default(),
             condition: ConditionKind::None,
             proc_cooldown: None,
             imbueable: true,

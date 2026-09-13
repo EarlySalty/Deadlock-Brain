@@ -10,7 +10,13 @@ pub fn build_item_model(loaded: &ItemModel) -> Result<ItemModel> {
             "Geladenes Item-Modell enthält keine ID oder keinen Namen".to_string(),
         ));
     }
-    Ok(loaded.clone())
+    let mut loaded = loaded.clone();
+    if !loaded.is_active {
+        if let Some(condition) = crate::data::condition_from_properties(&loaded.properties) {
+            loaded.condition = condition;
+        }
+    }
+    Ok(loaded)
 }
 
 pub fn score_item(
@@ -49,11 +55,18 @@ pub fn score_item(
     let purchase_bonus_value =
         mechanics::purchase_bonus_value_with_config(item, hero, cfg) + fire_rate.purchase_dps;
     let per_slot_value = mechanics::per_slot_value(combat_value, purchase_bonus_value);
-    let per_soul_value = mechanics::per_soul_value(combat_value, item.cost);
+    let per_soul_value = mechanics::per_soul_value(per_slot_value, item.cost);
     let meta_support = meta_value(item.item_id, meta);
     let patch_support = patch_value(item, hero, deltas);
     let total = per_slot_value + meta_support + patch_support;
-    let confidence = if meta.sample_ok.contains(&item.item_id) {
+    let unmeasured = item.properties.iter().any(|(name, value)| {
+        *value != 0.0
+            && (name.contains("OnKill")
+                || name.starts_with("ParrySuccess")
+                || name.contains("HealAmpReceivePenalty")
+                || name.contains("HealAmpRegenPenalty"))
+    });
+    let confidence = if meta.sample_ok.contains(&item.item_id) && !unmeasured {
         Confidence::High
     } else {
         Confidence::Low
@@ -71,7 +84,20 @@ pub fn score_item(
     if matches!(item.condition, crate::ConditionKind::StateBound { .. }) {
         sources.push(crate::Evidence { kind:crate::EvidenceKind::Mechanic, detail:"Annahme für hit_rate: gleichverteiltes Restleben zwischen 0 und 100 Prozent, keine gemessene Trefferquote.".into() });
     }
-    sources.push(crate::Evidence { kind:crate::EvidenceKind::Mechanic,detail:"Annahmen zur Rotation: Melee aus Archetyp oder Ability-Klasse, Dash aus Mobility-Rolle. Kaufphase mit frühester Skalierungsstufe: Upgrade-Kosten 1/2/5, Ability-Unlocks auf Level 1/3/5/8; sonst Kosten-Fallback.".into() });
+    sources.push(crate::Evidence { kind:crate::EvidenceKind::Mechanic,detail:"Kaufreihenfolge nach Kostenband: günstige Anfangskäufe, Aufbau, Kern und Spätspiel. Nahkampf und Bewegung werden aus dem Heldenmodell abgeleitet; ein Kaufbonus bleibt auch bei bedingter Itemwirkung erhalten.".into() });
+    if item.properties.keys().any(|name| {
+        name.contains("OnKill")
+            || name.starts_with("ParrySuccess")
+            || name.contains("HealAmpReceivePenalty")
+            || name.contains("HealAmpRegenPenalty")
+    }) {
+        sources.push(crate::Evidence {kind:crate::EvidenceKind::Mechanic,detail:"Bedingte Heilung nach Kills oder Paraden und verhinderte Gegnerheilung sind ohne Kampf- und Gegnerdaten nicht quantifiziert. Diese Wirkung wird nicht als garantierte Dauerheilung eingerechnet.".into()});
+    }
+    if item.properties.contains_key("DamageThreshold")
+        && item.properties.contains_key("ImmunityDuration")
+    {
+        sources.push(crate::Evidence {kind:crate::EvidenceKind::Mechanic,detail:"Auslösung aus Spirit-Schaden im vorgegebenen Zeitfenster abgeschätzt. Der periodische Brandwert ist eine Obergrenze je Ziel; ohne erreichte Schadensschwelle wird kein garantierter Proc angenommen.".into()});
+    }
     if item.properties.contains_key("HealthStealPctHero")
         || item.passive_properties.contains_key("HealthStealPctHero")
     {
@@ -135,18 +161,24 @@ pub fn spirit_fire_rate_value(
         .or_else(|| scaling("EFireRate").map(|scale| hero.weapon.shots_per_second * scale / 100.0))
         .unwrap_or_default();
     let is_spirit = |name: &str| {
-        name.eq_ignore_ascii_case("TechPower") || name.eq_ignore_ascii_case("SpiritPower")
+        name.eq_ignore_ascii_case("TechPower")
+            || name.eq_ignore_ascii_case("SpiritPower")
+            || name.eq_ignore_ascii_case("BonusSpirit")
     };
     let passive_spirit = item
-        .passive_properties
+        .properties
         .iter()
-        .filter(|(name, _)| is_spirit(name))
+        .filter(|(name, _)| {
+            is_spirit(name) && (item.is_active == item.passive_properties.contains_key(*name))
+        })
         .map(|(_, value)| value)
         .sum::<f64>();
     let active_spirit = item
         .properties
         .iter()
-        .filter(|(name, _)| is_spirit(name) && !item.passive_properties.contains_key(*name))
+        .filter(|(name, _)| {
+            is_spirit(name) && (item.is_active != item.passive_properties.contains_key(*name))
+        })
         .map(|(_, value)| value)
         .sum::<f64>();
     let bonus = if item.slot == crate::SlotType::Spirit {
@@ -292,6 +324,7 @@ mod tests {
             defense_kind: vec![],
             properties: BTreeMap::from([("TechPower".into(), 40.0)]),
             passive_properties: BTreeMap::new(),
+            conditional_properties: Default::default(),
             condition: ConditionKind::None,
             proc_cooldown: None,
             imbueable: false,
@@ -302,7 +335,8 @@ mod tests {
         let expected = 200.0 / (20.0 / 5.4 + 2.0) - 200.0 / 6.0;
         assert!((with_scaling.score.total - without.score.total - expected).abs() < 1e-10);
         assert!(
-            (with_scaling.score.active_value - without.score.active_value - expected).abs() < 1e-10
+            (with_scaling.score.passive_value - without.score.passive_value - expected).abs()
+                < 1e-10
         );
     }
 
@@ -330,6 +364,7 @@ mod tests {
             defense_kind: vec![],
             properties: BTreeMap::from([("TechPower".into(), 40.0)]),
             passive_properties: BTreeMap::from([("TechPower".into(), 40.0)]),
+            conditional_properties: Default::default(),
             condition: ConditionKind::ActiveCooldown {
                 uptime: 0.1,
                 cooldown: 10.0,
@@ -341,10 +376,9 @@ mod tests {
         warden.scaling.clear();
         let without = score_item(&item, &warden, &meta, &[], &cfg);
         let expected = 200.0 / (20.0 / 5.5 + 2.0) - 200.0 / 6.0;
-        assert!((with_scaling.score.total - without.score.total - expected).abs() < 1e-10);
+        assert!((with_scaling.score.total - without.score.total - expected * 0.1).abs() < 1e-10);
         assert!(
-            (with_scaling.score.passive_value - without.score.passive_value - expected).abs()
-                < 1e-10
+            (with_scaling.score.active_value - without.score.active_value - expected).abs() < 1e-10
         );
     }
     use std::collections::BTreeMap;
@@ -414,6 +448,7 @@ mod tests {
             defense_kind: vec![],
             properties: [("WeaponDamage".into(), 10.0)].into_iter().collect(),
             passive_properties: Default::default(),
+            conditional_properties: Default::default(),
             condition: ConditionKind::None,
             proc_cooldown: None,
             imbueable: false,
@@ -436,6 +471,22 @@ mod tests {
             8.0 * costly.score.per_soul_value
         );
         assert_eq!(cheap.score.total, cheap.score.per_slot_value);
+        let mut bonus_hero = hero();
+        bonus_hero.purchase_bonuses.weapon.push(crate::TierBonus {
+            tier: 2,
+            value: 20.0,
+            value_type: "WeaponDamage".into(),
+        });
+        let with_bonus = score_item(&item, &bonus_hero, &meta, &[], &cfg);
+        assert_eq!(with_bonus.score.combat_value, cheap.score.combat_value);
+        assert!(with_bonus.score.purchase_bonus_value > 0.0);
+        assert!(
+            (with_bonus.score.per_soul_value
+                - cheap.score.per_soul_value
+                - with_bonus.score.purchase_bonus_value / item.cost as f64)
+                .abs()
+                < 1e-12
+        );
         let mut disabled = expensive.clone();
         disabled.disabled = true;
         assert_eq!(
@@ -467,6 +518,7 @@ mod tests {
             defense_kind: Vec::new(),
             properties: BTreeMap::new(),
             passive_properties: BTreeMap::new(),
+            conditional_properties: Default::default(),
             condition: ConditionKind::None,
             proc_cooldown: None,
             imbueable: false,
@@ -489,6 +541,7 @@ mod tests {
             defense_kind: Vec::new(),
             properties: [("WeaponDamage".to_string(), 10.0)].into_iter().collect(),
             passive_properties: [("PassiveHealth".to_string(), 100.0)].into_iter().collect(),
+            conditional_properties: Default::default(),
             condition: ConditionKind::ActiveCooldown {
                 uptime: 0.5,
                 cooldown: 20.0,
