@@ -58,7 +58,7 @@ pub(crate) fn ability_class_name(value: &Value) -> String {
 
 fn ability_matches(value: &Value, ability: &AbilityModel) -> bool {
     ability_id(value)
-        .filter(|_|ability.ability_id>0)
+        .filter(|_| ability.ability_id > 0)
         .map(|id| id == ability.ability_id)
         .unwrap_or_else(|| {
             let class_name = ability_class_name(value);
@@ -328,7 +328,7 @@ fn ability_model(payload: &Value, slot: i64) -> Option<AbilityModel> {
             let Some(function) = property.get("scale_function") else {
                 continue;
             };
-            let function=function.get("subclass").unwrap_or(function);
+            let function = function.get("subclass").unwrap_or(function);
             let Some(scale) = number(function.get("stat_scale")) else {
                 continue;
             };
@@ -346,8 +346,12 @@ fn ability_model(payload: &Value, slot: i64) -> Option<AbilityModel> {
             }
         }
     }
-    let mut model=AbilityModel {
-        upgrades: payload.get("upgrades").and_then(Value::as_array).cloned().unwrap_or_default(),
+    let mut model = AbilityModel {
+        upgrades: payload
+            .get("upgrades")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
         properties: values.clone(),
         ability_id,
         class_name,
@@ -377,9 +381,9 @@ fn ability_model(payload: &Value, slot: i64) -> Option<AbilityModel> {
         } else {
             DamageType::Spirit
         },
-        base_effect:0.0,
-        tick_rate:None,
-        duration:None,
+        base_effect: 0.0,
+        tick_rate: None,
+        duration: None,
     };
     refresh_ability_derived(&mut model);
     Some(model)
@@ -526,11 +530,18 @@ fn hero_model(payload: &Value, abilities: &[Value], stats: &[ScalingStat]) -> Re
     let mut all_scaling = scaling_stats(payload.get("scaling_stats"));
     all_scaling.extend(stats.iter().cloned());
     Ok(HeroModel {
-        base_spirit_power: number(payload.pointer("/starting_stats/tech_power/value")).unwrap_or_default(),
+        base_spirit_power: number(payload.pointer("/starting_stats/tech_power/value"))
+            .unwrap_or_default(),
         standard_level_up_upgrades: numeric_object(payload.get("standard_level_up_upgrades")),
         standard_upgrade_levels: standard_upgrade_levels(payload),
         level_rewards: level_rewards(payload),
-        cost_bonuses: serde_json::from_value(payload.get("cost_bonuses").cloned().unwrap_or_else(|| serde_json::json!({}))).map_err(|e| ReasonerError::Data(format!("Ungültige Shopbonus-Schwellen: {e}")))?,
+        cost_bonuses: serde_json::from_value(
+            payload
+                .get("cost_bonuses")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({})),
+        )
+        .map_err(|e| ReasonerError::Data(format!("Ungültige Shopbonus-Schwellen: {e}")))?,
         hero_id,
         name,
         archetype: string(payload.get("hero_type")),
@@ -591,11 +602,17 @@ async fn ability_snapshots(pool: &PgPool, hero: &Value) -> Result<Vec<Value>> {
             let text = row
                 .try_get::<String, _>("payload_json")
                 .map_err(ReasonerError::Db)?;
-            let mut ability=parse_json(text,"Ability")?;
+            let mut ability = parse_json(text, "Ability")?;
             if ability_id(&ability).is_none() {
                 let candidates:Vec<String>=sqlx::query_scalar("SELECT DISTINCT coalesce(payload->>'id',payload->>'ability_id',external_id) FROM brain.entity_snapshots WHERE source='deadlock_assets_api' AND entity_type='item_or_ability' AND payload->>'class_name'=$1 AND coalesce(payload->>'id',payload->>'ability_id',external_id) ~ '^[0-9]+$'").bind(ability_class_name(&ability)).fetch_all(pool).await.map_err(ReasonerError::Db)?;
-                let ids:BTreeSet<i64>=candidates.iter().filter_map(|value|value.parse().ok()).filter(|id|*id>0).collect();
-                if ids.len()==1 {ability["id"]=serde_json::json!(ids.first());}
+                let ids: BTreeSet<i64> = candidates
+                    .iter()
+                    .filter_map(|value| value.parse().ok())
+                    .filter(|id| *id > 0)
+                    .collect();
+                if ids.len() == 1 {
+                    ability["id"] = serde_json::json!(ids.first());
+                }
             }
             abilities.push(ability);
         }
@@ -900,7 +917,14 @@ pub(crate) async fn load_item_models_with_snapshots(
         let model = ItemModel {
             property_damage_types: property_damage_types(&payload),
             property_spirit_scaling: property_spirit_scaling(&payload),
-            component_items: payload.get("component_items").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect(),
+            component_items: payload
+                .get("component_items")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect(),
             class_name: class_name.clone(),
             description: snapshot_description(&payload),
             item_id,
@@ -1227,124 +1251,484 @@ pub async fn load_synergies(ctx: &ReasonerCtx, hero_id: i64) -> Result<Vec<Value
         .collect()
 }
 
-
-fn numeric_object(value: Option<&Value>) -> BTreeMap<String,f64> {
-    value.and_then(Value::as_object).into_iter().flatten().filter_map(|(key,value)|number(Some(value)).map(|v|(key.clone(),v))).collect()
+fn numeric_object(value: Option<&Value>) -> BTreeMap<String, f64> {
+    value
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .filter_map(|(key, value)| number(Some(value)).map(|v| (key.clone(), v)))
+        .collect()
 }
-fn standard_upgrade_levels(payload:&Value)->BTreeSet<i64> {
-    payload.get("level_info").and_then(Value::as_object).into_iter().flatten().filter(|(_,value)|value.get("use_standard_upgrade").and_then(Value::as_bool)==Some(true)).filter_map(|(level,_)|level.parse().ok()).collect()
+fn standard_upgrade_levels(payload: &Value) -> BTreeSet<i64> {
+    payload
+        .get("level_info")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .filter(|(_, value)| {
+            value.get("use_standard_upgrade").and_then(Value::as_bool) == Some(true)
+        })
+        .filter_map(|(level, _)| level.parse().ok())
+        .collect()
 }
-fn level_rewards(payload: &Value) -> BTreeMap<i64,Vec<String>> {
-    payload.get("level_info").and_then(Value::as_object).into_iter().flatten().filter_map(|(level,value)|Some((level.parse().ok()?,value.get("bonus_currencies").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect()))).collect()
+fn level_rewards(payload: &Value) -> BTreeMap<i64, Vec<String>> {
+    payload
+        .get("level_info")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .filter_map(|(level, value)| {
+            Some((
+                level.parse().ok()?,
+                value
+                    .get("bonus_currencies")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect(),
+            ))
+        })
+        .collect()
 }
-pub fn ability_damage_units(ability:&AbilityModel,key:&str)->f64 {
-    damage_property_units(key,&ability.properties,ability.duration.or(ability.channel_time).unwrap_or(0.0),ability.tick_rate)
+pub fn ability_damage_units(ability: &AbilityModel, key: &str) -> f64 {
+    damage_property_units(
+        key,
+        &ability.properties,
+        ability.duration.or(ability.channel_time).unwrap_or(0.0),
+        ability.tick_rate,
+    )
 }
-fn damage_property_units(key:&str,values:&BTreeMap<String,f64>,duration:f64,tick:Option<f64>)->f64 {
+fn damage_property_units(
+    key: &str,
+    values: &BTreeMap<String, f64>,
+    duration: f64,
+    tick: Option<f64>,
+) -> f64 {
     match key {
-        "Damage"|"ImpactDamage"|"BaseDamage"|"StompDamage"|"HealthToDamage"|"SwapDamage"|"LandingDamage"|"ExplodeDamage"|"FullChargeDamage"=>1.0,
-        "DamagePerProjectile"=>values.get("ProjectileAmount").copied().unwrap_or(1.0).max(1.0),
-        "PulseDPS"|"DamagePerSecond"|"DPS"|"LifeDrainPerSecond"|"TurretDPS"|"AfflictionDPS"=>duration,
-        "DamagePerTick"|"TickDamage"|"PulseDamage"=>tick.map_or(1.0,|tick|if duration>0.0 {duration/tick}else{1.0}),
-        _=>0.0,
+        "Damage" | "ImpactDamage" | "BaseDamage" | "StompDamage" | "HealthToDamage"
+        | "SwapDamage" | "LandingDamage" | "ExplodeDamage" | "FullChargeDamage" => 1.0,
+        "DamagePerProjectile" => values
+            .get("ProjectileAmount")
+            .copied()
+            .unwrap_or(1.0)
+            .max(1.0),
+        "PulseDPS" | "DamagePerSecond" | "DPS" | "LifeDrainPerSecond" | "TurretDPS"
+        | "AfflictionDPS" => duration,
+        "DamagePerTick" | "TickDamage" | "PulseDamage" => {
+            tick.map_or(
+                1.0,
+                |tick| if duration > 0.0 { duration / tick } else { 1.0 },
+            )
+        }
+        _ => 0.0,
     }
 }
 
 pub fn refresh_ability_derived(ability: &mut AbilityModel) {
-    let values=&ability.properties;
-    let get=|name:&str| values.get(name).copied().unwrap_or_default();
-    let channel=get("AbilityChannelTime");
-    let mut duration=get("AbilityDuration").max(channel).max(get("BurnDuration")).max(get("TurretLifetime"));
-    if duration<=0.0 && values.keys().any(|key|key.ends_with("DPS") || key.ends_with("PerSecond")) {duration=if get("MinShockDuration")>0.0 {get("MinShockDuration")}else{get("DebuffDuration")};}
-    let tick=values.iter().filter(|(name,value)|(name.ends_with("TickRate") || name.as_str()=="PulseInterval") && **value>0.0).map(|(_,value)|*value).min_by(f64::total_cmp);
-    ability.base_effect=values.iter().map(|(key,value)|value*damage_property_units(key,values,duration,tick)).sum();
-    ability.channel_time=(channel>0.0).then_some(channel);
-    ability.duration=(duration>0.0).then_some(duration);
-    ability.tick_rate=tick;
-    ability.charges=get("AbilityCharges") as i64;
-    ability.cooldown=if get("AbilityCooldownBetweenCharge")>0.0 {get("AbilityCooldownBetweenCharge")}else{get("AbilityCooldown")};
+    let values = &ability.properties;
+    let get = |name: &str| values.get(name).copied().unwrap_or_default();
+    let channel = get("AbilityChannelTime");
+    let mut duration = get("AbilityDuration")
+        .max(channel)
+        .max(get("BurnDuration"))
+        .max(get("TurretLifetime"));
+    if duration <= 0.0
+        && values
+            .keys()
+            .any(|key| key.ends_with("DPS") || key.ends_with("PerSecond"))
+    {
+        duration = if get("MinShockDuration") > 0.0 {
+            get("MinShockDuration")
+        } else {
+            get("DebuffDuration")
+        };
+    }
+    let tick = values
+        .iter()
+        .filter(|(name, value)| {
+            (name.ends_with("TickRate") || name.as_str() == "PulseInterval") && **value > 0.0
+        })
+        .map(|(_, value)| *value)
+        .min_by(f64::total_cmp);
+    ability.base_effect = values
+        .iter()
+        .map(|(key, value)| value * damage_property_units(key, values, duration, tick))
+        .sum();
+    ability.channel_time = (channel > 0.0).then_some(channel);
+    ability.duration = (duration > 0.0).then_some(duration);
+    ability.tick_rate = tick;
+    ability.charges = get("AbilityCharges") as i64;
+    ability.cooldown = if get("AbilityCooldownBetweenCharge") > 0.0 {
+        get("AbilityCooldownBetweenCharge")
+    } else {
+        get("AbilityCooldown")
+    };
 }
 
-fn property_spirit_scaling(payload: &Value) -> BTreeMap<String,f64> {
-    payload.get("properties").and_then(Value::as_object).into_iter().flatten().filter_map(|(key,property)| {
-        let function=property.get("scale_function")?;
-        let function=function.get("subclass").unwrap_or(function);
-        let kind=string(function.get("class_name"));
-        let stat=string(function.get("specific_stat_scale_type"));
-        if kind!="scale_function_tech_damage" && stat!="ETechPower" {return None;}
-        number(function.get("stat_scale")).filter(|v|v.is_finite()).map(|value|(key.clone(),value))
-    }).collect()
+fn property_spirit_scaling(payload: &Value) -> BTreeMap<String, f64> {
+    payload
+        .get("properties")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .filter_map(|(key, property)| {
+            let function = property.get("scale_function")?;
+            let function = function.get("subclass").unwrap_or(function);
+            let kind = string(function.get("class_name"));
+            let stat = string(function.get("specific_stat_scale_type"));
+            if kind != "scale_function_tech_damage" && stat != "ETechPower" {
+                return None;
+            }
+            number(function.get("stat_scale"))
+                .filter(|v| v.is_finite())
+                .map(|value| (key.clone(), value))
+        })
+        .collect()
 }
 fn snapshot_description(payload: &Value) -> String {
-    fn collect(value:&Value,output:&mut BTreeSet<String>) {
+    fn collect(value: &Value, output: &mut BTreeSet<String>) {
         match value {
-            Value::Object(object)=>for (key,value) in object {if matches!(key.as_str(),"desc"|"loc_string") {if let Some(text)=value.as_str(){let mut in_tag=false;let clean:String=text.chars().filter(|c|{if *c=='<'{in_tag=true;false}else if *c=='>'{in_tag=false;false}else{!in_tag}}).collect();output.insert(clean.split_whitespace().collect::<Vec<_>>().join(" "));}}else if value.is_array() || value.is_object() {collect(value,output);}},
-            Value::Array(values)=>for value in values {collect(value,output);},
-            _=>{}
+            Value::Object(object) => {
+                for (key, value) in object {
+                    if matches!(key.as_str(), "desc" | "loc_string") {
+                        if let Some(text) = value.as_str() {
+                            let mut in_tag = false;
+                            let clean: String = text
+                                .chars()
+                                .filter(|c| {
+                                    if *c == '<' {
+                                        in_tag = true;
+                                        false
+                                    } else if *c == '>' {
+                                        in_tag = false;
+                                        false
+                                    } else {
+                                        !in_tag
+                                    }
+                                })
+                                .collect();
+                            output.insert(clean.split_whitespace().collect::<Vec<_>>().join(" "));
+                        }
+                    } else if value.is_array() || value.is_object() {
+                        collect(value, output);
+                    }
+                }
+            }
+            Value::Array(values) => {
+                for value in values {
+                    collect(value, output);
+                }
+            }
+            _ => {}
         }
     }
-    let mut output=BTreeSet::new();
-    if let Some(value)=payload.get("description") {collect(value,&mut output);}
-    if let Some(value)=payload.get("tooltip_sections") {collect(value,&mut output);}
+    let mut output = BTreeSet::new();
+    if let Some(value) = payload.get("description") {
+        collect(value, &mut output);
+    }
+    if let Some(value) = payload.get("tooltip_sections") {
+        collect(value, &mut output);
+    }
     output.into_iter().collect::<Vec<_>>().join(" ")
 }
 
-fn property_damage_types(payload: &Value) -> BTreeMap<String,DamageType> {
-    payload.get("properties").and_then(Value::as_object).into_iter().flatten().filter_map(|(key,property)| {
-        let damage_type=match property.get("css_class").and_then(Value::as_str) {
-            Some("tech_damage")=>DamageType::Spirit,
-            Some("bullet_damage")=>DamageType::Weapon,
-            _=>return None,
-        };
-        Some((key.clone(),damage_type))
-    }).collect()
+fn property_damage_types(payload: &Value) -> BTreeMap<String, DamageType> {
+    payload
+        .get("properties")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .filter_map(|(key, property)| {
+            let damage_type = match property.get("css_class").and_then(Value::as_str) {
+                Some("tech_damage") => DamageType::Spirit,
+                Some("bullet_damage") => DamageType::Weapon,
+                _ => return None,
+            };
+            Some((key.clone(), damage_type))
+        })
+        .collect()
 }
 
-pub fn enrich_frozen_models(hero: &mut HeroModel, items: &mut [ItemModel], snapshots: &[Value]) -> Result<()> {
-    let payload = |row: &Value| row.get("payload").cloned().unwrap_or_else(||row.clone());
-    let mut rows: Vec<&Value> = snapshots.iter().filter(|row|row.get("source").is_none_or(|v|v.as_str()==Some("deadlock_assets_api"))).collect();
-    rows.sort_by(|left,right| {
-        let timestamp=|row: &Value|row.get("fetched_at").and_then(Value::as_str).unwrap_or_default().to_owned();
-        timestamp(right).cmp(&timestamp(left)).then_with(||integer(right.get("id")).cmp(&integer(left.get("id"))))
+pub fn enrich_frozen_models(
+    hero: &mut HeroModel,
+    items: &mut [ItemModel],
+    snapshots: &[Value],
+) -> Result<()> {
+    let payload = |row: &Value| row.get("payload").cloned().unwrap_or_else(|| row.clone());
+    let mut rows: Vec<&Value> = snapshots
+        .iter()
+        .filter(|row| {
+            row.get("source")
+                .is_none_or(|v| v.as_str() == Some("deadlock_assets_api"))
+        })
+        .collect();
+    rows.sort_by(|left, right| {
+        let timestamp = |row: &Value| {
+            row.get("fetched_at")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned()
+        };
+        timestamp(right)
+            .cmp(&timestamp(left))
+            .then_with(|| integer(right.get("id")).cmp(&integer(left.get("id"))))
     });
     let raw: Vec<Value> = rows.into_iter().map(payload).collect();
-    let hero_raw=raw.iter().find(|value| integer(value.get("id"))==hero.hero_id && value.get("cost_bonuses").is_some()).ok_or_else(||ReasonerError::MissingSnapshot(format!("Eingefrorene Shopregeln für {} fehlen",hero.name)))?;
-    hero.base_spirit_power=number(hero_raw.pointer("/starting_stats/tech_power/value")).unwrap_or_default();
-    hero.standard_level_up_upgrades=numeric_object(hero_raw.get("standard_level_up_upgrades"));
-    hero.standard_upgrade_levels=standard_upgrade_levels(hero_raw);
-    hero.level_rewards=level_rewards(hero_raw);
-    hero.cost_bonuses=serde_json::from_value(hero_raw.get("cost_bonuses").cloned().unwrap_or_default()).map_err(|error|ReasonerError::Data(format!("Ungültige Shopregeln: {error}")))?;
+    let hero_raw = raw
+        .iter()
+        .find(|value| {
+            integer(value.get("id")) == hero.hero_id && value.get("cost_bonuses").is_some()
+        })
+        .ok_or_else(|| {
+            ReasonerError::MissingSnapshot(format!(
+                "Eingefrorene Shopregeln für {} fehlen",
+                hero.name
+            ))
+        })?;
+    hero.base_spirit_power =
+        number(hero_raw.pointer("/starting_stats/tech_power/value")).unwrap_or_default();
+    hero.standard_level_up_upgrades = numeric_object(hero_raw.get("standard_level_up_upgrades"));
+    hero.standard_upgrade_levels = standard_upgrade_levels(hero_raw);
+    hero.level_rewards = level_rewards(hero_raw);
+    hero.cost_bonuses =
+        serde_json::from_value(hero_raw.get("cost_bonuses").cloned().unwrap_or_default())
+            .map_err(|error| ReasonerError::Data(format!("Ungültige Shopregeln: {error}")))?;
     for ability in &mut hero.abilities {
-        if ability.ability_id<=0 {
-            let ids:BTreeSet<i64>=raw.iter().filter(|value|ability_class_name(value)==ability.class_name).filter_map(ability_id).collect();
-            if ids.len()==1 {ability.ability_id = *ids.first().unwrap();}
+        if ability.ability_id <= 0 {
+            let ids: BTreeSet<i64> = raw
+                .iter()
+                .filter(|value| ability_class_name(value) == ability.class_name)
+                .filter_map(ability_id)
+                .collect();
+            if ids.len() == 1 {
+                ability.ability_id = *ids.first().unwrap();
+            }
         }
-        let value=raw.iter().find(|value| ability_matches(value,ability));
-        if let Some(value)=value {if let Some(mut parsed)=ability_model(value,ability.slot) {if parsed.ability_id<=0 {parsed.ability_id=ability.ability_id;}*ability=parsed;}}
+        let value = raw.iter().find(|value| ability_matches(value, ability));
+        if let Some(value) = value {
+            if let Some(mut parsed) = ability_model(value, ability.slot) {
+                if parsed.ability_id <= 0 {
+                    parsed.ability_id = ability.ability_id;
+                }
+                *ability = parsed;
+            }
+        }
     }
     for item in items {
-        if let Some(value)=raw.iter().find(|value|integer(value.get("id"))==item.item_id && value.get("properties").is_some()) {
-            item.property_damage_types=property_damage_types(value);
-            item.property_spirit_scaling=property_spirit_scaling(value);
-            item.component_items=value.get("component_items").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
-            item.class_name=string(value.get("class_name"));
-            item.description=snapshot_description(value);
-        } else {return Err(ReasonerError::MissingSnapshot(format!("Eingefrorenes Item {} fehlt",item.name)));}
+        if let Some(value) = raw.iter().find(|value| {
+            integer(value.get("id")) == item.item_id && value.get("properties").is_some()
+        }) {
+            item.property_damage_types = property_damage_types(value);
+            item.property_spirit_scaling = property_spirit_scaling(value);
+            item.component_items = value
+                .get("component_items")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect();
+            item.class_name = string(value.get("class_name"));
+            item.description = snapshot_description(value);
+        } else {
+            return Err(ReasonerError::MissingSnapshot(format!(
+                "Eingefrorenes Item {} fehlt",
+                item.name
+            )));
+        }
     }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
+    fn combat_raw(selector: &str) -> serde_json::Value {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../testdata/combat-snapshot-20260913.json"))
+                .unwrap();
+        fixture["snapshots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|row| {
+                row["payload"]["name"] == selector || row["payload"]["class_name"] == selector
+            })
+            .max_by(|a, b| {
+                a["fetched_at"]
+                    .as_str()
+                    .cmp(&b["fetched_at"].as_str())
+                    .then_with(|| a["id"].as_i64().cmp(&b["id"].as_i64()))
+            })
+            .unwrap()["payload"]
+            .clone()
+    }
+    fn combat_item(raw: &serde_json::Value) -> crate::ItemModel {
+        let mut item = crate::combat::tests::item(super::integer(raw.get("id")), "none", 0.0);
+        item.name = super::string(raw.get("name"));
+        item.properties = super::property_values(raw.get("properties"));
+        item.passive_properties = super::passive_property_values(raw.get("properties"));
+        item.is_active = raw["is_active_item"].as_bool().unwrap_or(false);
+        item.condition = super::classify_condition(raw, item.is_active);
+        item.description = super::snapshot_description(raw);
+        item.imbueable = item.description.to_ascii_lowercase().contains("imbued");
+        item.property_damage_types = super::property_damage_types(raw);
+        item.property_spirit_scaling = super::property_spirit_scaling(raw);
+        item
+    }
+    #[test]
+    fn actual_geist_self_damage_preserves_different_percent_bases() {
+        let bomb = super::ability_model(&combat_raw("ability_blood_bomb"), 1).unwrap();
+        let malice = super::ability_model(&combat_raw("ability_blood_shards"), 3).unwrap();
+        assert_eq!(bomb.base_effect, 90.0);
+        assert_eq!(
+            crate::combat::self_damage_cost(&bomb, bomb.base_effect, 600.0, 0.0),
+            Some(27.0)
+        );
+        assert_eq!(
+            crate::combat::self_damage_cost(&malice, malice.base_effect, 600.0, 0.0),
+            Some(54.0)
+        );
+        assert_eq!(
+            crate::combat::self_damage_cost(&bomb, 90.0, 600.0, 0.5),
+            Some(13.5)
+        );
+        assert_eq!(
+            crate::combat::self_damage_cost(&malice, 23.0, 600.0, 0.5),
+            Some(54.0)
+        );
+        let mut unknown = bomb.clone();
+        unknown.class_name = "unverified_cost".into();
+        assert_eq!(
+            crate::combat::self_damage_cost(&unknown, 90.0, 600.0, 0.0),
+            None
+        );
+        let mut hero = crate::combat::tests::hero();
+        hero.abilities = vec![bomb, malice];
+        let result =
+            crate::combat::evaluate_inventory(&hero, &[], &crate::ReasonerConfig::default());
+        assert!(
+            result
+                .unknown_effects
+                .iter()
+                .filter(|text| text.contains("Eigenkosten-Annahme"))
+                .count()
+                == 2
+        );
+        assert_eq!(
+            result.score,
+            crate::combat::evaluate_inventory_fast(&hero, &[], &crate::ReasonerConfig::default())
+                .score
+        );
+    }
+    #[test]
+    fn actual_quicksilver_snapshot_reloads_on_bound_cast_and_scales_damage() {
+        let mut hero = crate::combat::tests::hero();
+        hero.base_spirit_power = 50.0;
+        let raw = combat_raw("ability_warden_crowd_control");
+        let mut ability = super::ability_model(&raw, 1).unwrap();
+        ability.ability_id = 1;
+        hero.abilities = vec![ability];
+        let item = combat_item(&combat_raw("Quicksilver Reload"));
+        assert!(item.imbueable);
+        assert_eq!(item.properties["BuffDuration"], 12.0);
+        assert_eq!(item.property_spirit_scaling["Damage"], 0.16);
+        let bindings = std::collections::BTreeMap::from([(item.item_id, 1)]);
+        let cfg = crate::ReasonerConfig {
+            combat_window_seconds: 5.0,
+            ..crate::ReasonerConfig::default()
+        };
+        let result = crate::combat::evaluate_inventory_with_bindings(
+            &hero,
+            std::slice::from_ref(&item),
+            &cfg,
+            &bindings,
+        );
+        assert_eq!(result.scenarios[0].item_activations[&item.item_id].len(), 1);
+        assert!((result.scenarios[0].proc_damage - 52.0).abs() < 1e-8);
+    }
+    #[test]
+    fn actual_damage_aliases_keep_nonzero_ground_damage_and_periodic_units() {
+        for name in [
+            "ability_life_drain",
+            "ability_blood_shards",
+            "ability_afterburn",
+            "citadel_ability_lightning_ball",
+            "synth_affliction",
+        ] {
+            let ability = super::ability_model(&combat_raw(name), 1).unwrap();
+            assert!(ability.base_effect > 0.0, "{name}");
+        }
+        let drain = super::ability_model(&combat_raw("ability_life_drain"), 1).unwrap();
+        assert!((drain.base_effect - drain.properties["LifeDrainPerSecond"] * 2.5).abs() < 1e-8);
+        let ball = super::ability_model(&combat_raw("citadel_ability_lightning_ball"), 1).unwrap();
+        assert_eq!(ball.duration, Some(0.5));
+        assert_eq!(ball.base_effect, 37.5);
+    }
+    #[test]
+    fn actual_ultimate_item_waits_for_damage_then_its_delay() {
+        let mut hero = crate::combat::tests::hero();
+        let raw = combat_raw("ability_warden_crowd_control");
+        let mut ability = super::ability_model(&raw, 4).unwrap();
+        ability.ability_id = 1;
+        hero.abilities = vec![ability];
+        let item = combat_item(&combat_raw("Lightning Scroll"));
+        let short = crate::combat::evaluate_inventory(
+            &hero,
+            std::slice::from_ref(&item),
+            &crate::ReasonerConfig {
+                combat_window_seconds: 2.0,
+                ..crate::ReasonerConfig::default()
+            },
+        );
+        assert_eq!(short.proc_damage, 0.0);
+        let long = crate::combat::evaluate_inventory(
+            &hero,
+            std::slice::from_ref(&item),
+            &crate::ReasonerConfig {
+                combat_window_seconds: 5.0,
+                ..crate::ReasonerConfig::default()
+            },
+        );
+        assert!((long.scenarios[0].proc_damage - 150.0).abs() < 1e-8);
+        assert_eq!(long.scenarios[0].item_activations[&item.item_id].len(), 1);
+        hero.abilities[0].slot = 1;
+        let ordinary = crate::combat::evaluate_inventory(
+            &hero,
+            &[item],
+            &crate::ReasonerConfig {
+                combat_window_seconds: 5.0,
+                ..crate::ReasonerConfig::default()
+            },
+        );
+        assert_eq!(ordinary.proc_damage, 0.0);
+    }
+    #[test]
+    fn actual_frenzy_tooltip_and_glass_cannon_negative_property_are_retained() {
+        let frenzy = combat_item(&combat_raw("Frenzy"));
+        assert!(!frenzy.description.is_empty());
+        assert!(!frenzy.description.contains("<svg"));
+        assert_eq!(frenzy.properties["LowHealthThreshold"], 50.0);
+        let glass = combat_item(&combat_raw("Glass Cannon"));
+        let result = crate::combat::evaluate_inventory(
+            &crate::combat::tests::hero(),
+            &[glass],
+            &crate::ReasonerConfig::default(),
+        );
+        assert!((result.scenarios[0].effective_health - 522.0).abs() < 1e-8);
+    }
+
     #[test]
     fn frozen_aliases_choose_newest_snapshot_before_matching() {
-        let mut hero=super::hero_model(&serde_json::json!({"id":25,"name":"Warden"}),&[],&[]).unwrap();
-        let snapshots=vec![
+        let mut hero =
+            super::hero_model(&serde_json::json!({"id":25,"name":"Warden"}), &[], &[]).unwrap();
+        let snapshots = vec![
             serde_json::json!({"id":1,"source":"deadlock_assets_api","fetched_at":"2026-05-02T00:00:00+00:00","payload":{"id":25,"cost_bonuses":{"weapon":[{"gold_threshold":800,"bonus":99.0}]}}}),
-            serde_json::json!({"id":2,"source":"deadlock_assets_api","fetched_at":"2026-07-06T00:00:00+00:00","payload":{"id":25,"cost_bonuses":{"weapon":[{"gold_threshold":800,"bonus":9.0}]}}})
+            serde_json::json!({"id":2,"source":"deadlock_assets_api","fetched_at":"2026-07-06T00:00:00+00:00","payload":{"id":25,"cost_bonuses":{"weapon":[{"gold_threshold":800,"bonus":9.0}]}}}),
         ];
-        super::enrich_frozen_models(&mut hero,&mut [],&snapshots).unwrap();
-        assert_eq!(hero.cost_bonuses["weapon"][0].bonus,9.0);
+        super::enrich_frozen_models(&mut hero, &mut [], &snapshots).unwrap();
+        assert_eq!(hero.cost_bonuses["weapon"][0].bonus, 9.0);
     }
     use super::*;
     use sqlx::postgres::PgPoolOptions;
