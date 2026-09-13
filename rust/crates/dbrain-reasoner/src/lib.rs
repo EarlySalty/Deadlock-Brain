@@ -4,6 +4,7 @@ use serde_json::Value;
 use sqlx::Row;
 
 mod ai_roles;
+pub mod ability_interactions;
 pub mod backtest;
 pub mod composer;
 pub mod combat;
