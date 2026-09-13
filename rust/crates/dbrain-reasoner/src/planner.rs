@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::combat::{evaluate_inventory, InventoryEvaluation};
+use crate::combat::{evaluate_inventory, evaluate_inventory_refs_fast, InventoryEvaluation};
 use crate::inventory::{Inventory, InventoryRules, PurchaseTransition};
 use crate::{CoreLayoutStats, HeroModel, ItemModel, ReasonerConfig, ScoredItem};
 
@@ -56,8 +56,12 @@ impl Search<'_> {
         if let Some(evaluation) = self.cache.get(&key) {
             return Some(evaluation.clone());
         }
-        let held = inventory.held_items(&self.catalog).ok()?;
-        let evaluation = evaluate_inventory(self.hero, &held, self.cfg);
+        let held = inventory
+            .held_ids
+            .iter()
+            .map(|id| self.catalog.iter().find(|item| item.item_id == *id))
+            .collect::<Option<Vec<_>>>()?;
+        let evaluation = evaluate_inventory_refs_fast(self.hero, &held, self.cfg);
         if !evaluation.score.is_finite() {
             return None;
         }
@@ -216,7 +220,7 @@ pub fn plan_purchases(
                     .cmp(&right.transition.purchased_id)
             })
         });
-        let Some((step, _)) = beam.into_iter().next() else {
+        let Some((mut step, _)) = beam.into_iter().next() else {
             skipped += 1;
             continue;
         };
@@ -229,6 +233,9 @@ pub fn plan_purchases(
             continue;
         }
         used.insert(step.transition.purchased_id);
+        if let Ok(held) = inventory.held_items(&search.catalog) {
+            step.evaluation = evaluate_inventory(hero, &held, cfg);
+        }
         evaluation = step.evaluation.clone();
         steps.push(step);
     }
