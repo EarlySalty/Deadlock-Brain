@@ -12,7 +12,9 @@ pub fn build_item_model(loaded: &ItemModel) -> Result<ItemModel> {
     }
     let mut loaded = loaded.clone();
     if !loaded.is_active {
-        if let Some(condition) = crate::data::condition_from_properties(&loaded.properties) {
+        if crate::item_interactions::has_nearby_aura(&loaded) {
+            loaded.condition = crate::ConditionKind::None;
+        } else if let Some(condition) = crate::data::condition_from_properties(&loaded.properties) {
             loaded.condition = condition;
         }
     }

@@ -1,0 +1,636 @@
+[
+  {
+    "canonical_name": "Hunter's Aura",
+    "entity_type": "item_or_ability",
+    "external_id": "2481177645",
+    "fetched_at": "2026-06-30T18:11:10+00:00",
+    "id": 13111,
+    "imported_at": "2026-07-01T02:34:33.57382+00:00",
+    "legacy_source_document_id": 27019,
+    "legacy_sqlite_id": 565026,
+    "payload": {
+      "activation": "passive",
+      "class_name": "upgrade_bullet_armor_reduction_aura",
+      "cost": 3200,
+      "description": {
+        "desc": "Reduces nearby enemies' <span class=\"highlight\">Bullet Resist and Fire Rate</span>. If there is only one enemy hero nearby, this <span class=\"highlight\">effect is doubled</span>."
+      },
+      "heroes": [],
+      "id": 2481177645,
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/upgrades/mods_armor/bullet_armor_reduction_aura.png",
+      "image_webp": "https://assets-bucket.deadlock-api.com/assets-api-res/images/upgrades/mods_armor/bullet_armor_reduction_aura.webp",
+      "is_active_item": false,
+      "item_slot_type": "weapon",
+      "item_tier": 3,
+      "name": "Hunter's Aura",
+      "properties": {
+        "AbilityCastDelay": {
+          "can_set_token_override": true,
+          "css_class": "cast",
+          "disable_value": "0",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/images/upgrades/property_cast.png",
+          "label": "Cast Delay",
+          "postfix": "s",
+          "postvalue_label": "Cast Delay",
+          "value": "0"
+        },
+        "AbilityCastRange": {
+          "can_set_token_override": true,
+          "css_class": "range",
+          "display_units": "EDisplayUnit_Meters",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/property_range.svg",
+          "label": "Cast Range",
+          "postfix": "m",
+          "postvalue_label": "Cast Range",
+          "scale_function": {
+            "class_name": "scale_function_single_stat",
+            "specific_stat_scale_type": "ETechRange",
+            "subclass_name": "AbilityCastRange_scale_function"
+          },
+          "value": "0"
+        },
+        "AbilityChannelTime": {
+          "can_set_token_override": true,
+          "css_class": "cast",
+          "disable_value": "0",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/images/upgrades/property_cast.png",
+          "label": "Channel Duration",
+          "postfix": "s",
+          "postvalue_label": "Channel Duration",
+          "scale_function": {
+            "class_name": "scale_function_multi_stats",
+            "scaling_stats": [
+              "EChannelDuration",
+              "ETechDuration"
+            ],
+            "subclass_name": "scale_duration"
+          },
+          "value": "0"
+        },
+        "AbilityCharges": {
+          "can_set_token_override": true,
+          "css_class": "cast",
+          "disable_value": "-1",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/images/upgrades/property_cast.png",
+          "label": "Charges",
+          "postvalue_label": "Charges",
+          "scale_function": {
+            "class_name": "scale_function_ability_charges",
+            "subclass_name": "AbilityCharges_scale_function"
+          },
+          "value": "0"
+        },
+        "AbilityCooldown": {
+          "can_set_token_override": true,
+          "css_class": "cooldown",
+          "disable_value": "0",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/cooldown.svg",
+          "label": "Cooldown",
+          "postfix": "s",
+          "postvalue_label": "Cooldown",
+          "scale_function": {
+            "class_name": "scale_function_single_stat",
+            "specific_stat_scale_type": "EItemCooldown",
+            "subclass_name": "AbilityCooldown_scale_function"
+          },
+          "value": "0"
+        },
+        "AbilityCooldownBetweenCharge": {
+          "can_set_token_override": true,
+          "css_class": "charge_cooldown",
+          "disable_value": "-2",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/recharge.svg",
+          "label": "Charge Delay",
+          "postfix": "s",
+          "postvalue_label": "Charge Delay",
+          "scale_function": {
+            "class_name": "scale_function_ability_recharge_time",
+            "subclass_name": "scale_function_ability_recharge_time"
+          },
+          "value": "-1.0"
+        },
+        "AbilityDuration": {
+          "can_set_token_override": true,
+          "css_class": "duration",
+          "disable_value": "0",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/duration.svg",
+          "label": "Duration",
+          "postfix": "s",
+          "postvalue_label": "Duration",
+          "scale_function": {
+            "class_name": "scale_function_single_stat",
+            "specific_stat_scale_type": "ETechDuration",
+            "subclass_name": "AbilityDuration_scale_function"
+          },
+          "value": "0"
+        },
+        "AbilityPostCastDuration": {
+          "disable_value": "0",
+          "value": "0"
+        },
+        "AbilityResourceCost": {
+          "can_set_token_override": true,
+          "css_class": "cast",
+          "disable_value": "0",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/images/upgrades/property_cast.png",
+          "value": "0"
+        },
+        "AbilityUnitTargetLimit": {
+          "can_set_token_override": true,
+          "value": "1"
+        },
+        "BonusHealth": {
+          "css_class": "health",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/health.svg",
+          "label": "Bonus Health",
+          "postvalue_label": "Bonus Health",
+          "prefix": "{s:sign}",
+          "provided_property_type": "MODIFIER_VALUE_HEALTH_MAX",
+          "tooltip_is_elevated": false,
+          "tooltip_is_important": false,
+          "tooltip_section": "innate",
+          "value": "100"
+        },
+        "BonusSprintSpeed": {
+          "css_class": "move_speed",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/move_speed.svg",
+          "label": "Sprint Speed",
+          "postfix": "m",
+          "postvalue_label": "Sprint Speed",
+          "prefix": "{s:sign}",
+          "provided_property_type": "MODIFIER_VALUE_SPRINT_SPEED_BONUS",
+          "tooltip_is_elevated": false,
+          "tooltip_is_important": false,
+          "tooltip_section": "innate",
+          "value": "0.75m"
+        },
+        "BulletArmorReduction": {
+          "css_class": "bullet_armor_down",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/armor_bullet_color.svg",
+          "label": "Bullet Resist",
+          "postfix": "%",
+          "postvalue_label": "Bullet Resist",
+          "prefix": "{s:sign}",
+          "tooltip_is_elevated": false,
+          "tooltip_is_important": true,
+          "tooltip_section": "passive",
+          "usage_flags": [
+            "ConditionallyApplied"
+          ],
+          "value": "-10"
+        },
+        "ChannelMoveSpeed": {
+          "can_set_token_override": true,
+          "css_class": "move_speed",
+          "display_units": "EDisplayUnit_MetersPerSecond",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/move_speed.svg",
+          "postfix": "m",
+          "value": "-1"
+        },
+        "FireRateSlow": {
+          "css_class": "fire_rate",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/fire_rate.svg",
+          "label": "Fire Rate",
+          "postfix": "%",
+          "postvalue_label": "Fire Rate",
+          "prefix": "-",
+          "provided_property_type": "MODIFIER_VALUE_FIRE_RATE_SLOW",
+          "tooltip_is_elevated": false,
+          "tooltip_is_important": true,
+          "tooltip_section": "passive",
+          "usage_flags": [
+            "ConditionallyEnemyApplied"
+          ],
+          "value": "15"
+        },
+        "Radius": {
+          "css_class": "distance",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/range.svg",
+          "label": "Radius",
+          "postfix": "m",
+          "postvalue_label": "Radius",
+          "scale_function": {
+            "class_name": "scale_function_single_stat",
+            "specific_stat_scale_type": "ETechRange",
+            "subclass_name": "Radius_scale_function"
+          },
+          "tooltip_is_elevated": false,
+          "tooltip_is_important": false,
+          "tooltip_section": "passive",
+          "value": "15m"
+        },
+        "SingleTargetPlayerMultiplier": {
+          "value": "2"
+        },
+        "TechPower": {
+          "can_set_token_override": true,
+          "disable_value": "0",
+          "label": "Spirit Power",
+          "postfix": "",
+          "postvalue_label": "Spirit Power",
+          "prefix": "{s:sign}",
+          "provided_property_type": "MODIFIER_VALUE_TECH_POWER",
+          "value": "0"
+        },
+        "WeaponPower": {
+          "can_set_token_override": true,
+          "disable_value": "0",
+          "label": "Weapon Damage",
+          "postfix": "%",
+          "postvalue_label": "Weapon Damage",
+          "prefix": "{s:sign}",
+          "provided_property_type": "MODIFIER_VALUE_WEAPON_POWER",
+          "value": "0"
+        }
+      },
+      "shop_image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/items/weapon/hunters_aura.png",
+      "shop_image_webp": "https://assets-bucket.deadlock-api.com/assets-api-res/images/items/weapon/hunters_aura.webp",
+      "shopable": true,
+      "start_trained": true,
+      "tooltip_sections": [
+        {
+          "section_attributes": [
+            {
+              "properties": [
+                "BonusHealth",
+                "BonusSprintSpeed"
+              ]
+            }
+          ],
+          "section_type": "innate"
+        },
+        {
+          "section_attributes": [
+            {
+              "important_properties": [
+                "BulletArmorReduction",
+                "FireRateSlow"
+              ],
+              "loc_string": "Reduces nearby enemies' <span class=\"highlight\">Bullet Resist and Fire Rate</span>. If there is only one enemy hero nearby, this <span class=\"highlight\">effect is doubled</span>.",
+              "properties": [
+                "Radius"
+              ]
+            }
+          ],
+          "section_type": "passive"
+        }
+      ],
+      "type": "upgrade",
+      "update_time": 1701725391,
+      "upgrades": [
+        {
+          "property_upgrades": [
+            {
+              "bonus": "5",
+              "name": "FireRateSlow"
+            },
+            {
+              "bonus": "-6",
+              "name": "BulletArmorReduction"
+            },
+            {
+              "bonus": "125",
+              "name": "BonusHealth"
+            },
+            {
+              "bonus": "3m",
+              "name": "BonusSprintSpeed"
+            }
+          ]
+        }
+      ],
+      "weapon_info": {}
+    },
+    "payload_hash": "af2c296e99b045488ee8abf63302164eca38ab6ac7ef6494010a97debd60fe60",
+    "source": "deadlock_assets_api",
+    "source_document_id": 2272
+  },
+  {
+    "canonical_name": "Mercurial Magnum",
+    "entity_type": "item_or_ability",
+    "external_id": "3919289022",
+    "fetched_at": "2026-06-30T18:11:10+00:00",
+    "id": 13178,
+    "imported_at": "2026-07-01T02:34:33.57382+00:00",
+    "legacy_source_document_id": 27019,
+    "legacy_sqlite_id": 565145,
+    "payload": {
+      "activation": "passive",
+      "class_name": "upgrade_ethereal_bullets",
+      "component_items": [
+        "upgrade_quick_silver"
+      ],
+      "cost": 6400,
+      "description": {
+        "desc": "Your imbued ability charges up over time with <svg width=\"128\" height=\"128\" viewBox=\"0 0 128 128\" fill=\"white\" xmlns=\"http://www.w3.org/2000/svg\">\n<path d=\"M53.7875 20.0238C48.6533 13.3022 40.8042 9 32.0027 9C16.5345 9 4 22.2789 4 38.6558C4 38.7707 4.00052 38.8854 4.00155 39H91.8416L94.7229 33.1618C97.2906 27.9591 104.71 27.9591 107.277 33.1618L110.159 39H115.998C115.999 38.8854 116 38.7707 116 38.6558C116 22.2789 103.466 9 87.9973 9C79.1958 9 71.3467 13.3022 66.2125 20.0238C65.7565 20.6214 65.336 21.1783 64.9462 21.6946C62.4734 24.9699 61.2367 26.6078 59.9993 26.6084C58.7614 26.609 57.5227 24.9711 55.0449 21.6946C54.6545 21.1783 54.2333 20.6214 53.7766 20.0238H53.7875Z\" fill=\"white\"/>\n<path d=\"M79.7015 79L79.5588 79.8323C78.7516 84.5386 82.6742 88.3253 86.9508 88.0132C86.8571 88.1111 86.7634 88.209 86.6696 88.3069C78.1991 97.1552 69.4174 106.328 62.6218 116.742C61.1111 119.051 58.8889 119.051 57.3782 116.742C50.5788 106.325 41.7966 97.1509 33.3264 88.303C30.3317 85.1748 27.3761 82.0873 24.5608 79H79.7015Z\" fill=\"white\"/>\n<path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M101.901 35.5496C101.512 34.8168 100.488 34.8168 100.099 35.5497L93.0406 48.845C92.8929 49.123 92.6315 49.3183 92.3283 49.3766L77.8385 52.1641C77.0398 52.3178 76.7233 53.3185 77.2815 53.9252L87.4091 64.9295C87.6209 65.1597 87.7208 65.4756 87.6812 65.7898L85.7842 80.8078C85.6796 81.6357 86.5083 82.2542 87.2424 81.8963L100.56 75.402C100.838 75.2662 101.162 75.2662 101.44 75.402L114.758 81.8963C115.492 82.2542 116.32 81.6357 116.216 80.8078L114.319 65.7898C114.279 65.4756 114.379 65.1597 114.591 64.9295L124.718 53.9252C125.277 53.3185 124.96 52.3178 124.161 52.1641L109.672 49.3766C109.369 49.3183 109.107 49.123 108.959 48.845L101.901 35.5496ZM100.036 43.0789C100.366 42.1579 101.634 42.1579 101.964 43.0789L105.019 51.6179C105.01 51.6983 105.017 51.7822 105.041 51.8662L107.687 61.1634C107.817 61.6217 108.371 61.7807 108.714 61.4584L111.336 58.9947C111.498 58.8428 111.571 58.6153 111.528 58.3944L110.687 53.9877H117.422C118.389 53.9877 118.82 55.2373 118.067 55.8622L110.702 61.9792C110.601 61.9949 110.502 62.0365 110.413 62.1066L102.948 68.0247C102.581 68.3164 102.638 68.9036 103.055 69.1143L106.244 70.7259C106.44 70.8252 106.673 70.8121 106.858 70.6913L110.254 68.4723L112.085 75.0776C112.35 76.0329 111.299 76.8003 110.508 76.2296L101.591 69.8003C101.471 69.7136 101.337 69.6563 101.199 69.6285L95.0376 65.3393C94.6474 65.0677 94.116 65.3179 94.0614 65.7987L93.6534 69.3978C93.6281 69.6213 93.718 69.8423 93.8907 69.9808L96.868 72.3692L91.5448 76.2279C90.7554 76.8001 89.7037 76.0372 89.9645 75.0816L92.6557 65.2197C92.6717 65.1902 92.6845 65.1581 92.6935 65.1237L95.058 56.0862C95.1347 55.7934 94.8946 55.5156 94.6024 55.5592L90.6768 56.1448C90.5236 56.1678 90.3959 56.2773 90.3466 56.428L89.0988 60.2424L83.9931 56.1163C83.2355 55.5041 83.6428 54.2537 84.6065 54.2331L94.8405 54.0152C94.8711 54.0191 94.9023 54.0206 94.934 54.0198L103.141 53.8011C103.588 53.7892 103.88 53.3157 103.7 52.8958L102.212 49.4285C102.111 49.1944 101.886 49.0435 101.637 49.0435H97.9024L100.036 43.0789Z\" fill=\"white\"/>\n<path d=\"M67 57C68.1046 57 69 57.8954 69 59C69 60.1046 68.1046 61 67 61H7C5.89543 61 5 60.1046 5 59C5 57.8954 5.89543 57 7 57H67Z\" fill=\"white\"/>\n</svg>\n<span class=\"inline-attribute-label BonusSpiritDamage\">bonus spirit damage</span>, <svg width=\"128\" height=\"128\" viewBox=\"0 0 128 128\" fill=\"#EC9719\" xmlns=\"http://www.w3.org/2000/svg\">\n<path d=\"M78.6699 83C98.9999 83 103 91 103 91C103 91 98.9999 99 78.6699 99H51V83H78.6699ZM45.4199 88.5C46.5245 88.5 47.4199 89.3954 47.4199 90.5C47.4199 91.6046 46.5245 92.5 45.4199 92.5H13.4199C12.3154 92.5 11.4199 91.6046 11.4199 90.5C11.4199 89.3954 12.3154 88.5 13.4199 88.5H45.4199ZM98.6699 56C119 56 123 64 123 64C123 64 119 72 98.6699 72H71V56H98.6699ZM65 61.5C66.1046 61.5 67 62.3954 67 63.5C67 64.6046 66.1046 65.5 65 65.5H13C11.8954 65.5 11 64.6046 11 63.5C11 62.3954 11.8954 61.5 13 61.5H65ZM78.6699 29C98.9999 29 103 37 103 37C103 37 98.9999 45 78.6699 45H51V29H78.6699ZM45 35C46.1046 35 47 35.8954 47 37C47 38.1046 46.1046 39 45 39H13C11.8954 39 11 38.1046 11 37C11 35.8954 11.8954 35 13 35H45Z\" fill=\"#EC9719\"/>\n</svg>\n<span class=\"inline-attribute-label BonusFireRate\" style=\"color: #EC9719;\">bonus fire rate</span>, and <span class=\"highlight\">reloads bullets</span> on use. Until your next reload, your <span class=\"highlight\">bullets deal <svg width=\"128\" height=\"128\" viewBox=\"0 0 128 128\" fill=\"white\" xmlns=\"http://www.w3.org/2000/svg\">\n<path d=\"M53.7875 20.0238C48.6533 13.3022 40.8042 9 32.0027 9C16.5345 9 4 22.2789 4 38.6558C4 38.7707 4.00052 38.8854 4.00155 39H91.8416L94.7229 33.1618C97.2906 27.9591 104.71 27.9591 107.277 33.1618L110.159 39H115.998C115.999 38.8854 116 38.7707 116 38.6558C116 22.2789 103.466 9 87.9973 9C79.1958 9 71.3467 13.3022 66.2125 20.0238C65.7565 20.6214 65.336 21.1783 64.9462 21.6946C62.4734 24.9699 61.2367 26.6078 59.9993 26.6084C58.7614 26.609 57.5227 24.9711 55.0449 21.6946C54.6545 21.1783 54.2333 20.6214 53.7766 20.0238H53.7875Z\" fill=\"white\"/>\n<path d=\"M79.7015 79L79.5588 79.8323C78.7516 84.5386 82.6742 88.3253 86.9508 88.0132C86.8571 88.1111 86.7634 88.209 86.6696 88.3069C78.1991 97.1552 69.4174 106.328 62.6218 116.742C61.1111 119.051 58.8889 119.051 57.3782 116.742C50.5788 106.325 41.7966 97.1509 33.3264 88.303C30.3317 85.1748 27.3761 82.0873 24.5608 79H79.7015Z\" fill=\"white\"/>\n<path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M101.901 35.5496C101.512 34.8168 100.488 34.8168 100.099 35.5497L93.0406 48.845C92.8929 49.123 92.6315 49.3183 92.3283 49.3766L77.8385 52.1641C77.0398 52.3178 76.7233 53.3185 77.2815 53.9252L87.4091 64.9295C87.6209 65.1597 87.7208 65.4756 87.6812 65.7898L85.7842 80.8078C85.6796 81.6357 86.5083 82.2542 87.2424 81.8963L100.56 75.402C100.838 75.2662 101.162 75.2662 101.44 75.402L114.758 81.8963C115.492 82.2542 116.32 81.6357 116.216 80.8078L114.319 65.7898C114.279 65.4756 114.379 65.1597 114.591 64.9295L124.718 53.9252C125.277 53.3185 124.96 52.3178 124.161 52.1641L109.672 49.3766C109.369 49.3183 109.107 49.123 108.959 48.845L101.901 35.5496ZM100.036 43.0789C100.366 42.1579 101.634 42.1579 101.964 43.0789L105.019 51.6179C105.01 51.6983 105.017 51.7822 105.041 51.8662L107.687 61.1634C107.817 61.6217 108.371 61.7807 108.714 61.4584L111.336 58.9947C111.498 58.8428 111.571 58.6153 111.528 58.3944L110.687 53.9877H117.422C118.389 53.9877 118.82 55.2373 118.067 55.8622L110.702 61.9792C110.601 61.9949 110.502 62.0365 110.413 62.1066L102.948 68.0247C102.581 68.3164 102.638 68.9036 103.055 69.1143L106.244 70.7259C106.44 70.8252 106.673 70.8121 106.858 70.6913L110.254 68.4723L112.085 75.0776C112.35 76.0329 111.299 76.8003 110.508 76.2296L101.591 69.8003C101.471 69.7136 101.337 69.6563 101.199 69.6285L95.0376 65.3393C94.6474 65.0677 94.116 65.3179 94.0614 65.7987L93.6534 69.3978C93.6281 69.6213 93.718 69.8423 93.8907 69.9808L96.868 72.3692L91.5448 76.2279C90.7554 76.8001 89.7037 76.0372 89.9645 75.0816L92.6557 65.2197C92.6717 65.1902 92.6845 65.1581 92.6935 65.1237L95.058 56.0862C95.1347 55.7934 94.8946 55.5156 94.6024 55.5592L90.6768 56.1448C90.5236 56.1678 90.3959 56.2773 90.3466 56.428L89.0988 60.2424L83.9931 56.1163C83.2355 55.5041 83.6428 54.2537 84.6065 54.2331L94.8405 54.0152C94.8711 54.0191 94.9023 54.0206 94.934 54.0198L103.141 53.8011C103.588 53.7892 103.88 53.3157 103.7 52.8958L102.212 49.4285C102.111 49.1944 101.886 49.0435 101.637 49.0435H97.9024L100.036 43.0789Z\" fill=\"white\"/>\n<path d=\"M67 57C68.1046 57 69 57.8954 69 59C69 60.1046 68.1046 61 67 61H7C5.89543 61 5 60.1046 5 59C5 57.8954 5.89543 57 7 57H67Z\" fill=\"white\"/>\n</svg>\n<span class=\"inline-attribute-label BonusSpiritDamage\">bonus spirit damage</span></span> based on your Spirit Power."
+      },
+      "heroes": [],
+      "id": 3919289022,
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/upgrades/mods_weapon/fire_rate_plus.png",
+      "image_webp": "https://assets-bucket.deadlock-api.com/assets-api-res/images/upgrades/mods_weapon/fire_rate_plus.webp",
+      "imbue": "imbue_active",
+      "is_active_item": false,
+      "item_slot_type": "spirit",
+      "item_tier": 4,
+      "name": "Mercurial Magnum",
+      "properties": {
+        "AbilityCastDelay": {
+          "can_set_token_override": true,
+          "css_class": "cast",
+          "disable_value": "0",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/images/upgrades/property_cast.png",
+          "label": "Cast Delay",
+          "postfix": "s",
+          "postvalue_label": "Cast Delay",
+          "value": "0"
+        },
+        "AbilityCastRange": {
+          "can_set_token_override": true,
+          "css_class": "range",
+          "display_units": "EDisplayUnit_Meters",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/property_range.svg",
+          "label": "Cast Range",
+          "postfix": "m",
+          "postvalue_label": "Cast Range",
+          "scale_function": {
+            "class_name": "scale_function_single_stat",
+            "specific_stat_scale_type": "ETechRange",
+            "subclass_name": "AbilityCastRange_scale_function"
+          },
+          "value": "0"
+        },
+        "AbilityChannelTime": {
+          "can_set_token_override": true,
+          "css_class": "cast",
+          "disable_value": "0",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/images/upgrades/property_cast.png",
+          "label": "Channel Duration",
+          "postfix": "s",
+          "postvalue_label": "Channel Duration",
+          "scale_function": {
+            "class_name": "scale_function_multi_stats",
+            "scaling_stats": [
+              "EChannelDuration",
+              "ETechDuration"
+            ],
+            "subclass_name": "scale_duration"
+          },
+          "value": "0"
+        },
+        "AbilityChargeUpTime": {
+          "css_class": "cooldown",
+          "display_units": "EDisplayUnit_Normal",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/cooldown.svg",
+          "label": "Charge-Up Time",
+          "postfix": "s",
+          "postvalue_label": "Charge-Up Time",
+          "tooltip_is_elevated": false,
+          "tooltip_is_important": false,
+          "tooltip_section": "passive",
+          "value": "14"
+        },
+        "AbilityCharges": {
+          "can_set_token_override": true,
+          "css_class": "cast",
+          "disable_value": "-1",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/images/upgrades/property_cast.png",
+          "label": "Charges",
+          "postvalue_label": "Charges",
+          "scale_function": {
+            "class_name": "scale_function_ability_charges",
+            "subclass_name": "AbilityCharges_scale_function"
+          },
+          "value": "0"
+        },
+        "AbilityCooldown": {
+          "can_set_token_override": true,
+          "css_class": "cooldown",
+          "disable_value": "0",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/cooldown.svg",
+          "label": "Cooldown",
+          "postfix": "s",
+          "postvalue_label": "Cooldown",
+          "scale_function": {
+            "class_name": "scale_function_single_stat",
+            "specific_stat_scale_type": "EItemCooldown",
+            "subclass_name": "AbilityCooldown_scale_function"
+          },
+          "value": "15"
+        },
+        "AbilityCooldownBetweenCharge": {
+          "can_set_token_override": true,
+          "css_class": "charge_cooldown",
+          "disable_value": "-2",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/recharge.svg",
+          "label": "Charge Delay",
+          "postfix": "s",
+          "postvalue_label": "Charge Delay",
+          "scale_function": {
+            "class_name": "scale_function_ability_recharge_time",
+            "subclass_name": "scale_function_ability_recharge_time"
+          },
+          "value": "-1.0"
+        },
+        "AbilityDuration": {
+          "can_set_token_override": true,
+          "css_class": "duration",
+          "disable_value": "0",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/duration.svg",
+          "label": "Duration",
+          "postfix": "s",
+          "postvalue_label": "Duration",
+          "scale_function": {
+            "class_name": "scale_function_single_stat",
+            "specific_stat_scale_type": "ETechDuration",
+            "subclass_name": "AbilityDuration_scale_function"
+          },
+          "value": "0"
+        },
+        "AbilityPostCastDuration": {
+          "disable_value": "0",
+          "value": "0"
+        },
+        "AbilityResourceCost": {
+          "can_set_token_override": true,
+          "css_class": "cast",
+          "disable_value": "0",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/images/upgrades/property_cast.png",
+          "value": "0"
+        },
+        "AbilityUnitTargetLimit": {
+          "can_set_token_override": true,
+          "value": "1"
+        },
+        "AmmoReloadPercent": {
+          "label": "Bullets Reloaded",
+          "postfix": "%",
+          "postvalue_label": "Bullets Reloaded",
+          "tooltip_is_elevated": false,
+          "tooltip_is_important": false,
+          "tooltip_section": "passive",
+          "value": "100"
+        },
+        "BonusClipSizePercent": {
+          "label": "Max Ammo",
+          "postfix": "%",
+          "postvalue_label": "Max Ammo",
+          "prefix": "{s:sign}",
+          "provided_property_type": "MODIFIER_VALUE_AMMO_CLIP_SIZE_PERCENT",
+          "tooltip_is_elevated": false,
+          "tooltip_is_important": false,
+          "tooltip_section": "innate",
+          "value": "20"
+        },
+        "BonusFireRate": {
+          "css_class": "fire_rate",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/fire_rate.svg",
+          "label": "Fire Rate",
+          "postfix": "%",
+          "postvalue_label": "Fire Rate",
+          "prefix": "{s:sign}",
+          "provided_property_type": "MODIFIER_VALUE_FIRE_RATE",
+          "tooltip_is_elevated": false,
+          "tooltip_is_important": true,
+          "tooltip_section": "passive",
+          "value": "22"
+        },
+        "BuffDuration": {
+          "label": "Buff Duration",
+          "postfix": "s",
+          "postvalue_label": "Buff Duration",
+          "value": "12"
+        },
+        "BulletsBonusMagicDamage": {
+          "css_class": "tech_damage",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/damage_magic_color.svg",
+          "label": "Base Bullet Damage",
+          "postfix": "%",
+          "postvalue_label": "Base Bullet Damage",
+          "prefix": "+",
+          "scale_function": {
+            "class_name": "scale_function_tech_damage",
+            "specific_stat_scale_type": "ETechPower",
+            "stat_scale": 0.49,
+            "subclass_name": "BonusDamage_scale_function"
+          },
+          "tooltip_is_elevated": false,
+          "tooltip_is_important": true,
+          "tooltip_section": "passive",
+          "value": "25"
+        },
+        "ChannelMoveSpeed": {
+          "can_set_token_override": true,
+          "css_class": "move_speed",
+          "display_units": "EDisplayUnit_MetersPerSecond",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/move_speed.svg",
+          "postfix": "m",
+          "value": "-1"
+        },
+        "Damage": {
+          "css_class": "tech_damage",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/damage_magic_color.svg",
+          "label": "Damage",
+          "postvalue_label": "Damage",
+          "scale_function": {
+            "class_name": "scale_function_tech_damage",
+            "specific_stat_scale_type": "ETechPower",
+            "stat_scale": 0.16,
+            "subclass_name": "Damage_scale_function"
+          },
+          "tooltip_is_elevated": false,
+          "tooltip_is_important": true,
+          "tooltip_section": "passive",
+          "value": "60"
+        },
+        "TechPower": {
+          "can_set_token_override": true,
+          "disable_value": "0",
+          "label": "Spirit Power",
+          "postfix": "",
+          "postvalue_label": "Spirit Power",
+          "prefix": "{s:sign}",
+          "provided_property_type": "MODIFIER_VALUE_TECH_POWER",
+          "tooltip_is_elevated": false,
+          "tooltip_is_important": false,
+          "tooltip_section": "innate",
+          "value": "7"
+        },
+        "WeaponPower": {
+          "can_set_token_override": true,
+          "disable_value": "0",
+          "label": "Weapon Damage",
+          "postfix": "%",
+          "postvalue_label": "Weapon Damage",
+          "prefix": "{s:sign}",
+          "provided_property_type": "MODIFIER_VALUE_WEAPON_POWER",
+          "value": "0"
+        }
+      },
+      "shop_image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/items/spirit/mercurial_magnum.png",
+      "shop_image_webp": "https://assets-bucket.deadlock-api.com/assets-api-res/images/items/spirit/mercurial_magnum.webp",
+      "shopable": true,
+      "start_trained": true,
+      "tooltip_sections": [
+        {
+          "section_attributes": [
+            {
+              "properties": [
+                "BonusClipSizePercent",
+                "TechPower"
+              ]
+            }
+          ],
+          "section_type": "innate"
+        },
+        {
+          "section_attributes": [
+            {
+              "important_properties": [
+                "BulletsBonusMagicDamage",
+                "Damage",
+                "BonusFireRate"
+              ],
+              "loc_string": "Your imbued ability charges up over time with <svg width=\"128\" height=\"128\" viewBox=\"0 0 128 128\" fill=\"white\" xmlns=\"http://www.w3.org/2000/svg\">\n<path d=\"M53.7875 20.0238C48.6533 13.3022 40.8042 9 32.0027 9C16.5345 9 4 22.2789 4 38.6558C4 38.7707 4.00052 38.8854 4.00155 39H91.8416L94.7229 33.1618C97.2906 27.9591 104.71 27.9591 107.277 33.1618L110.159 39H115.998C115.999 38.8854 116 38.7707 116 38.6558C116 22.2789 103.466 9 87.9973 9C79.1958 9 71.3467 13.3022 66.2125 20.0238C65.7565 20.6214 65.336 21.1783 64.9462 21.6946C62.4734 24.9699 61.2367 26.6078 59.9993 26.6084C58.7614 26.609 57.5227 24.9711 55.0449 21.6946C54.6545 21.1783 54.2333 20.6214 53.7766 20.0238H53.7875Z\" fill=\"white\"/>\n<path d=\"M79.7015 79L79.5588 79.8323C78.7516 84.5386 82.6742 88.3253 86.9508 88.0132C86.8571 88.1111 86.7634 88.209 86.6696 88.3069C78.1991 97.1552 69.4174 106.328 62.6218 116.742C61.1111 119.051 58.8889 119.051 57.3782 116.742C50.5788 106.325 41.7966 97.1509 33.3264 88.303C30.3317 85.1748 27.3761 82.0873 24.5608 79H79.7015Z\" fill=\"white\"/>\n<path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M101.901 35.5496C101.512 34.8168 100.488 34.8168 100.099 35.5497L93.0406 48.845C92.8929 49.123 92.6315 49.3183 92.3283 49.3766L77.8385 52.1641C77.0398 52.3178 76.7233 53.3185 77.2815 53.9252L87.4091 64.9295C87.6209 65.1597 87.7208 65.4756 87.6812 65.7898L85.7842 80.8078C85.6796 81.6357 86.5083 82.2542 87.2424 81.8963L100.56 75.402C100.838 75.2662 101.162 75.2662 101.44 75.402L114.758 81.8963C115.492 82.2542 116.32 81.6357 116.216 80.8078L114.319 65.7898C114.279 65.4756 114.379 65.1597 114.591 64.9295L124.718 53.9252C125.277 53.3185 124.96 52.3178 124.161 52.1641L109.672 49.3766C109.369 49.3183 109.107 49.123 108.959 48.845L101.901 35.5496ZM100.036 43.0789C100.366 42.1579 101.634 42.1579 101.964 43.0789L105.019 51.6179C105.01 51.6983 105.017 51.7822 105.041 51.8662L107.687 61.1634C107.817 61.6217 108.371 61.7807 108.714 61.4584L111.336 58.9947C111.498 58.8428 111.571 58.6153 111.528 58.3944L110.687 53.9877H117.422C118.389 53.9877 118.82 55.2373 118.067 55.8622L110.702 61.9792C110.601 61.9949 110.502 62.0365 110.413 62.1066L102.948 68.0247C102.581 68.3164 102.638 68.9036 103.055 69.1143L106.244 70.7259C106.44 70.8252 106.673 70.8121 106.858 70.6913L110.254 68.4723L112.085 75.0776C112.35 76.0329 111.299 76.8003 110.508 76.2296L101.591 69.8003C101.471 69.7136 101.337 69.6563 101.199 69.6285L95.0376 65.3393C94.6474 65.0677 94.116 65.3179 94.0614 65.7987L93.6534 69.3978C93.6281 69.6213 93.718 69.8423 93.8907 69.9808L96.868 72.3692L91.5448 76.2279C90.7554 76.8001 89.7037 76.0372 89.9645 75.0816L92.6557 65.2197C92.6717 65.1902 92.6845 65.1581 92.6935 65.1237L95.058 56.0862C95.1347 55.7934 94.8946 55.5156 94.6024 55.5592L90.6768 56.1448C90.5236 56.1678 90.3959 56.2773 90.3466 56.428L89.0988 60.2424L83.9931 56.1163C83.2355 55.5041 83.6428 54.2537 84.6065 54.2331L94.8405 54.0152C94.8711 54.0191 94.9023 54.0206 94.934 54.0198L103.141 53.8011C103.588 53.7892 103.88 53.3157 103.7 52.8958L102.212 49.4285C102.111 49.1944 101.886 49.0435 101.637 49.0435H97.9024L100.036 43.0789Z\" fill=\"white\"/>\n<path d=\"M67 57C68.1046 57 69 57.8954 69 59C69 60.1046 68.1046 61 67 61H7C5.89543 61 5 60.1046 5 59C5 57.8954 5.89543 57 7 57H67Z\" fill=\"white\"/>\n</svg>\n<span class=\"inline-attribute-label BonusSpiritDamage\">bonus spirit damage</span>, <svg width=\"128\" height=\"128\" viewBox=\"0 0 128 128\" fill=\"#EC9719\" xmlns=\"http://www.w3.org/2000/svg\">\n<path d=\"M78.6699 83C98.9999 83 103 91 103 91C103 91 98.9999 99 78.6699 99H51V83H78.6699ZM45.4199 88.5C46.5245 88.5 47.4199 89.3954 47.4199 90.5C47.4199 91.6046 46.5245 92.5 45.4199 92.5H13.4199C12.3154 92.5 11.4199 91.6046 11.4199 90.5C11.4199 89.3954 12.3154 88.5 13.4199 88.5H45.4199ZM98.6699 56C119 56 123 64 123 64C123 64 119 72 98.6699 72H71V56H98.6699ZM65 61.5C66.1046 61.5 67 62.3954 67 63.5C67 64.6046 66.1046 65.5 65 65.5H13C11.8954 65.5 11 64.6046 11 63.5C11 62.3954 11.8954 61.5 13 61.5H65ZM78.6699 29C98.9999 29 103 37 103 37C103 37 98.9999 45 78.6699 45H51V29H78.6699ZM45 35C46.1046 35 47 35.8954 47 37C47 38.1046 46.1046 39 45 39H13C11.8954 39 11 38.1046 11 37C11 35.8954 11.8954 35 13 35H45Z\" fill=\"#EC9719\"/>\n</svg>\n<span class=\"inline-attribute-label BonusFireRate\" style=\"color: #EC9719;\">bonus fire rate</span>, and <span class=\"highlight\">reloads bullets</span> on use. Until your next reload, your <span class=\"highlight\">bullets deal <svg width=\"128\" height=\"128\" viewBox=\"0 0 128 128\" fill=\"white\" xmlns=\"http://www.w3.org/2000/svg\">\n<path d=\"M53.7875 20.0238C48.6533 13.3022 40.8042 9 32.0027 9C16.5345 9 4 22.2789 4 38.6558C4 38.7707 4.00052 38.8854 4.00155 39H91.8416L94.7229 33.1618C97.2906 27.9591 104.71 27.9591 107.277 33.1618L110.159 39H115.998C115.999 38.8854 116 38.7707 116 38.6558C116 22.2789 103.466 9 87.9973 9C79.1958 9 71.3467 13.3022 66.2125 20.0238C65.7565 20.6214 65.336 21.1783 64.9462 21.6946C62.4734 24.9699 61.2367 26.6078 59.9993 26.6084C58.7614 26.609 57.5227 24.9711 55.0449 21.6946C54.6545 21.1783 54.2333 20.6214 53.7766 20.0238H53.7875Z\" fill=\"white\"/>\n<path d=\"M79.7015 79L79.5588 79.8323C78.7516 84.5386 82.6742 88.3253 86.9508 88.0132C86.8571 88.1111 86.7634 88.209 86.6696 88.3069C78.1991 97.1552 69.4174 106.328 62.6218 116.742C61.1111 119.051 58.8889 119.051 57.3782 116.742C50.5788 106.325 41.7966 97.1509 33.3264 88.303C30.3317 85.1748 27.3761 82.0873 24.5608 79H79.7015Z\" fill=\"white\"/>\n<path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M101.901 35.5496C101.512 34.8168 100.488 34.8168 100.099 35.5497L93.0406 48.845C92.8929 49.123 92.6315 49.3183 92.3283 49.3766L77.8385 52.1641C77.0398 52.3178 76.7233 53.3185 77.2815 53.9252L87.4091 64.9295C87.6209 65.1597 87.7208 65.4756 87.6812 65.7898L85.7842 80.8078C85.6796 81.6357 86.5083 82.2542 87.2424 81.8963L100.56 75.402C100.838 75.2662 101.162 75.2662 101.44 75.402L114.758 81.8963C115.492 82.2542 116.32 81.6357 116.216 80.8078L114.319 65.7898C114.279 65.4756 114.379 65.1597 114.591 64.9295L124.718 53.9252C125.277 53.3185 124.96 52.3178 124.161 52.1641L109.672 49.3766C109.369 49.3183 109.107 49.123 108.959 48.845L101.901 35.5496ZM100.036 43.0789C100.366 42.1579 101.634 42.1579 101.964 43.0789L105.019 51.6179C105.01 51.6983 105.017 51.7822 105.041 51.8662L107.687 61.1634C107.817 61.6217 108.371 61.7807 108.714 61.4584L111.336 58.9947C111.498 58.8428 111.571 58.6153 111.528 58.3944L110.687 53.9877H117.422C118.389 53.9877 118.82 55.2373 118.067 55.8622L110.702 61.9792C110.601 61.9949 110.502 62.0365 110.413 62.1066L102.948 68.0247C102.581 68.3164 102.638 68.9036 103.055 69.1143L106.244 70.7259C106.44 70.8252 106.673 70.8121 106.858 70.6913L110.254 68.4723L112.085 75.0776C112.35 76.0329 111.299 76.8003 110.508 76.2296L101.591 69.8003C101.471 69.7136 101.337 69.6563 101.199 69.6285L95.0376 65.3393C94.6474 65.0677 94.116 65.3179 94.0614 65.7987L93.6534 69.3978C93.6281 69.6213 93.718 69.8423 93.8907 69.9808L96.868 72.3692L91.5448 76.2279C90.7554 76.8001 89.7037 76.0372 89.9645 75.0816L92.6557 65.2197C92.6717 65.1902 92.6845 65.1581 92.6935 65.1237L95.058 56.0862C95.1347 55.7934 94.8946 55.5156 94.6024 55.5592L90.6768 56.1448C90.5236 56.1678 90.3959 56.2773 90.3466 56.428L89.0988 60.2424L83.9931 56.1163C83.2355 55.5041 83.6428 54.2537 84.6065 54.2331L94.8405 54.0152C94.8711 54.0191 94.9023 54.0206 94.934 54.0198L103.141 53.8011C103.588 53.7892 103.88 53.3157 103.7 52.8958L102.212 49.4285C102.111 49.1944 101.886 49.0435 101.637 49.0435H97.9024L100.036 43.0789Z\" fill=\"white\"/>\n<path d=\"M67 57C68.1046 57 69 57.8954 69 59C69 60.1046 68.1046 61 67 61H7C5.89543 61 5 60.1046 5 59C5 57.8954 5.89543 57 7 57H67Z\" fill=\"white\"/>\n</svg>\n<span class=\"inline-attribute-label BonusSpiritDamage\">bonus spirit damage</span></span> based on your Spirit Power.",
+              "properties": [
+                "AmmoReloadPercent",
+                "AbilityChargeUpTime"
+              ]
+            }
+          ],
+          "section_type": "passive"
+        }
+      ],
+      "type": "upgrade",
+      "upgrades": [
+        {
+          "property_upgrades": [
+            {
+              "bonus": "20",
+              "name": "BonusFireRate"
+            },
+            {
+              "bonus": "60",
+              "name": "BonusClipSizePercent"
+            },
+            {
+              "bonus": "120",
+              "name": "Damage"
+            },
+            {
+              "bonus": "20",
+              "name": "BulletsBonusMagicDamage"
+            },
+            {
+              "bonus": "15",
+              "name": "TechPower"
+            }
+          ]
+        }
+      ],
+      "weapon_info": {}
+    },
+    "payload_hash": "ce4171c73981a242a8a3ca896077163c8af45c96f4bb47dc021cd9c52f6a02dc",
+    "source": "deadlock_assets_api",
+    "source_document_id": 2272
+  }
+]
