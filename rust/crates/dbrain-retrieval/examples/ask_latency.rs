@@ -195,7 +195,15 @@ mod tests {
     use super::*;
     #[tokio::test]
     async fn oversized_and_unclosed_pipes_are_bounded() {
-        assert!(collect(read_pipe(tokio::io::repeat(0))).await.is_err());
+        let overflow = collect(read_pipe(
+            tokio::io::repeat(0).take((PIPE_LIMIT + 1) as u64),
+        ))
+        .await
+        .unwrap_err();
+        assert_eq!(
+            overflow.to_string(),
+            "Prozessausgabe überschreitet Messgrenze"
+        );
         let (reader, _writer_kept_open) = tokio::io::duplex(8);
         assert!(collect(read_pipe(reader)).await.is_err());
     }
