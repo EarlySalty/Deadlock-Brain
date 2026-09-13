@@ -347,6 +347,9 @@ fn ability_model(payload: &Value, slot: i64) -> Option<AbilityModel> {
         }
     }
     let mut model = AbilityModel {
+        item_proc_disabled: snapshot_description(payload)
+            .to_ascii_lowercase()
+            .contains("does not apply item procs"),
         upgrades: payload
             .get("upgrades")
             .and_then(Value::as_array)
@@ -1623,6 +1626,37 @@ mod tests {
         );
     }
     #[test]
+    fn actual_affliction_disables_item_procs_and_life_drain_does_not_loop() {
+        let mut hero = crate::combat::tests::hero();
+        hero.weapon.bullet_damage = 0.0;
+        let affliction = super::ability_model(&combat_raw("synth_affliction"), 4).unwrap();
+        assert!(affliction.item_proc_disabled);
+        hero.abilities = vec![affliction];
+        let item = combat_item(&combat_raw("Lightning Scroll"));
+        let cfg = crate::ReasonerConfig {
+            combat_window_seconds: 40.0,
+            ..crate::ReasonerConfig::default()
+        };
+        let result = crate::combat::evaluate_inventory(&hero, &[item], &cfg);
+        assert!(result.ability_damage > 0.0);
+        assert_eq!(result.proc_damage, 0.0);
+        let mut drain = super::ability_model(&combat_raw("ability_life_drain"), 2).unwrap();
+        drain.ability_id = 99;
+        hero.abilities = vec![drain];
+        let result = crate::combat::evaluate_inventory(&hero, &[], &cfg);
+        for scenario in &result.scenarios {
+            assert!(scenario.casts.get(&99).copied().unwrap_or(0) <= 2);
+            assert!(scenario.ability_damage <= 160.0);
+            assert!(scenario.effective_health > 0.0);
+        }
+        hero.abilities[0]
+            .properties
+            .insert("AbilityCooldown".into(), -1.0);
+        super::refresh_ability_derived(&mut hero.abilities[0]);
+        let result = crate::combat::evaluate_inventory(&hero, &[], &cfg);
+        assert!(result.scenarios[0].casts.get(&99).copied().unwrap_or(0) <= 1);
+    }
+    #[test]
     fn actual_quicksilver_snapshot_reloads_on_bound_cast_and_scales_damage() {
         let mut hero = crate::combat::tests::hero();
         hero.base_spirit_power = 50.0;
@@ -1693,6 +1727,16 @@ mod tests {
         );
         assert!((long.scenarios[0].proc_damage - 150.0).abs() < 1e-8);
         assert_eq!(long.scenarios[0].item_activations[&item.item_id].len(), 1);
+        assert!((long.scenarios[0].item_activations[&item.item_id][0] - 3.1).abs() < 1e-8);
+        let before_hit = crate::combat::evaluate_inventory(
+            &hero,
+            std::slice::from_ref(&item),
+            &crate::ReasonerConfig {
+                combat_window_seconds: 3.05,
+                ..crate::ReasonerConfig::default()
+            },
+        );
+        assert_eq!(before_hit.proc_damage, 0.0);
         hero.abilities[0].slot = 1;
         let ordinary = crate::combat::evaluate_inventory(
             &hero,
