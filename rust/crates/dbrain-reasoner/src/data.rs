@@ -1006,7 +1006,7 @@ pub async fn load_patch_events(ctx: &ReasonerCtx, hero_id: i64) -> Result<Vec<Va
     load_patch_events_for_snapshots(ctx, hero_id, &[]).await
 }
 
-pub(crate) async fn load_patch_events_for_snapshots(
+pub async fn load_patch_events_for_snapshots(
     ctx: &ReasonerCtx,
     hero_id: i64,
     snapshots: &[crate::PatchSnapshot],

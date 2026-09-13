@@ -389,7 +389,7 @@ pub fn apply_patch_delta(hero: &mut HeroModel, items: &mut [ItemModel], deltas: 
     );
 }
 
-pub(crate) fn apply_scored_patch_delta(
+pub fn apply_scored_patch_delta(
     hero: &mut HeroModel,
     items: &mut [ItemModel],
     deltas: &mut [PatchDelta],
