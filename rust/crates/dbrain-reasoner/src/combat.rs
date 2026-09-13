@@ -30,7 +30,7 @@ pub struct InventoryEvaluation {
     pub assumptions: Vec<String>,
     pub unknown_effects: Vec<String>,
 }
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct Stats {
     spirit: f64,
     weapon: f64,
@@ -71,7 +71,9 @@ fn conditional(item: &ItemModel, name: &str) -> bool {
 }
 fn apply(stats: &mut Stats, name: &str, v: f64) -> bool {
     match name {
-        "TechPower" | "SpiritPower" | "BonusSpirit" | "BonusSpiritPower" | "SpiritPowerInnate" => stats.spirit += v,
+        "TechPower" | "SpiritPower" | "BonusSpirit" | "BonusSpiritPower" | "SpiritPowerInnate" => {
+            stats.spirit += v
+        }
         "WeaponPower"
         | "WeaponDamage"
         | "BaseAttackDamagePercent"
@@ -79,7 +81,9 @@ fn apply(stats: &mut Stats, name: &str, v: f64) -> bool {
         "BonusFireRate" | "FireRate" | "ActivatedFireRate" => stats.rate += v,
         "BonusClipSizePercent" | "ClipSizePercent" => stats.clip += v,
         "BonusClipSize" => stats.flat_clip += v,
-        "ReloadSpeed" | "ReloadSpeedPercent" | "ReloadSpeedBonus" | "BonusReloadSpeed" => stats.reload += v,
+        "ReloadSpeed" | "ReloadSpeedPercent" | "ReloadSpeedBonus" | "BonusReloadSpeed" => {
+            stats.reload += v
+        }
         "BonusHealth" | "PassiveHealth" | "Health" => stats.health += v,
         "BonusHealthPercent" | "MaxHealthPercent" => stats.health_pct += v,
         "BulletArmor" | "BulletResist" | "BulletResistPercent" => {
@@ -95,7 +99,9 @@ fn apply(stats: &mut Stats, name: &str, v: f64) -> bool {
         "HealthRegen" | "HealthRegenBonus" => stats.regeneration += v,
         "BulletShieldMaxHealth" | "TechShieldMaxHealth" | "CombatBarrier" => stats.shield += v,
         "CooldownReduction" => stats.cooldown = 1.0 - (1.0 - stats.cooldown) * (1.0 - v / 100.0),
-        "AbilityDurationPercent" | "TechDuration" | "BonusAbilityDurationPercent" => stats.duration += v,
+        "AbilityDurationPercent" | "TechDuration" | "BonusAbilityDurationPercent" => {
+            stats.duration += v
+        }
         "SlowPercent" | "MovementSlow" | "MovementSpeedSlow" => {
             stats.slow = stats.slow.max(v.abs())
         }
@@ -167,10 +173,37 @@ pub fn evaluate_inventory(
     items: &[ItemModel],
     cfg: &ReasonerConfig,
 ) -> InventoryEvaluation {
+    evaluate_core(hero, &items.iter().collect::<Vec<_>>(), cfg, true)
+}
+pub fn evaluate_inventory_fast(
+    hero: &HeroModel,
+    items: &[ItemModel],
+    cfg: &ReasonerConfig,
+) -> InventoryEvaluation {
+    evaluate_core(hero, &items.iter().collect::<Vec<_>>(), cfg, false)
+}
+pub fn evaluate_inventory_refs_fast(
+    hero: &HeroModel,
+    items: &[&ItemModel],
+    cfg: &ReasonerConfig,
+) -> InventoryEvaluation {
+    evaluate_core(hero, items, cfg, false)
+}
+fn evaluate_core(
+    hero: &HeroModel,
+    items: &[&ItemModel],
+    cfg: &ReasonerConfig,
+    detailed: bool,
+) -> InventoryEvaluation {
     let mut seen = BTreeSet::new();
-    let held: Vec<_> = items.iter().filter(|i| seen.insert(i.item_id)).collect();
+    let mut held: Vec<_> = items
+        .iter()
+        .copied()
+        .filter(|i| seen.insert(i.item_id))
+        .collect();
+    held.sort_by_key(|item| item.item_id);
     let mut unknown = BTreeSet::new();
-    for item in &held {
+    for item in held.iter().filter(|_| detailed) {
         let mut unique = BTreeSet::new();
         for (name, v) in item.properties.iter().chain(item.passive_properties.iter()) {
             if !unique.insert(name) || *v == 0.0 {
@@ -202,6 +235,7 @@ pub fn evaluate_inventory(
     }
     let mut result = InventoryEvaluation { shop_bonuses: shop_bonuses(hero, &held), assumptions: vec![
         "Begrenzter deterministischer Einzelzielvergleich, keine vollständige Spielsimulation oder Gewinnwahrscheinlichkeit.".into(),
+        "Inventarszenario: zwölf universelle Plätze, höchstens vier aktive Items; regulärer Wiederverkauf zur Hälfte des Gesamtpreises, kein Sofort-Rückkauf.".into(),
         "Drei gleich gewichtete Szenarien: gesundes Duell, steigender Lebensdruck, bewegliches Ziel. Gleiche Annahmen für alle Helden.".into(),
         "Alle Fähigkeiten und aktiven Items sind anfangs bereit; Basis-Fähigkeitsstufe, keine erfundenen Skill-Upgrades. Kanalisieren und Schießen teilen die verfügbare Kampfzeit.".into(),
         "Gegner startet ohne Resistenzen; eingehender Schaden ist zur Hälfte Waffen- und Spirit-Schaden. Lifesteal zählt höchstens den angenommenen Lebensverlust.".into(),
@@ -215,7 +249,7 @@ pub fn evaluate_inventory(
         ("Unter Druck", true, false),
         ("Bewegliches Ziel", false, true),
     ] {
-        let scenario = simulate(hero, &held, cfg, name, pressure, moving);
+        let scenario = simulate(hero, &held, cfg, name, pressure, moving, detailed);
         result.weapon_damage += scenario.weapon_damage / 3.0;
         result.ability_damage += scenario.ability_damage / 3.0;
         result.proc_damage += scenario.proc_damage / 3.0;
@@ -229,6 +263,9 @@ pub fn evaluate_inventory(
         + result.proc_damage
         + result.effective_health)
         / window;
+    if !detailed {
+        result.assumptions.clear();
+    }
     result
 }
 fn metadata(name: &str) -> bool {
@@ -259,6 +296,7 @@ fn simulate(
     name: &str,
     pressure: bool,
     moving: bool,
+    detailed: bool,
 ) -> CombatScenarioEvaluation {
     let window = cfg.combat_window_seconds.clamp(1.0, 120.0);
     let dt = 0.2;
@@ -295,6 +333,40 @@ fn simulate(
                 .map(|v| v * hero.weapon.shots_per_second / 100.0)
         })
         .unwrap_or(0.0);
+    let mut base_stats = Stats::default();
+    let conditional_effects: Vec<Vec<(&str, f64)>> = items
+        .iter()
+        .map(|item| {
+            let mut keys = BTreeSet::new();
+            item.properties
+                .iter()
+                .chain(item.passive_properties.iter())
+                .filter_map(|(key, v)| {
+                    if !keys.insert(key) || !v.is_finite() || !apply(&mut Stats::default(), key, *v)
+                    {
+                        return None;
+                    }
+                    if conditional(item, key) {
+                        Some((key.as_str(), *v))
+                    } else {
+                        apply(&mut base_stats, key, *v);
+                        None
+                    }
+                })
+                .collect()
+        })
+        .collect();
+    apply_shop(hero, items, &mut base_stats);
+    let item_proc_damage: Vec<f64> = items
+        .iter()
+        .map(|item| {
+            item.properties
+                .iter()
+                .filter(|(key, _)| key.contains("ProcDamage"))
+                .map(|(_, v)| *v)
+                .sum()
+        })
+        .collect();
     let steps = (window / dt).ceil() as usize;
     for step in 0..steps {
         let time = step as f64 * dt;
@@ -304,7 +376,7 @@ fn simulate(
         } else {
             1.0
         };
-        let mut stats = Stats::default();
+        let mut stats = base_stats.clone();
         for (idx, item) in items.iter().enumerate() {
             let threshold_window = value(item, "DamageThresholdDuration").max(dt);
             let recent_damage = spirit_events
@@ -324,12 +396,10 @@ fn simulate(
             } else {
                 enabled
             };
-            let mut keys = BTreeSet::new();
-            for (key, v) in item.properties.iter().chain(item.passive_properties.iter()) {
-                if !keys.insert(key) || !v.is_finite() || conditional(item, key) && !enabled {
-                    continue;
+            if enabled {
+                for (key, v) in &conditional_effects[idx] {
+                    apply(&mut stats, key, *v);
                 }
-                apply(&mut stats, key, *v);
             }
         }
         for (idx, ability) in hero.abilities.iter().enumerate() {
@@ -339,7 +409,7 @@ fn simulate(
                 }
             }
         }
-        apply_shop(hero, items, &mut stats);
+
         let clip = (hero.weapon.clip_size * (1.0 + stats.clip / 100.0) + stats.flat_clip).max(1.0);
         if !initialized {
             ammo = clip;
@@ -435,7 +505,7 @@ fn simulate(
                 last_cast = time;
                 ability_buffs_until[idx] =
                     time + ability.duration.unwrap_or(0.0) * (1.0 + stats.duration / 100.0);
-                if out.sequence.len() < 16 {
+                if detailed && out.sequence.len() < 16 {
                     out.sequence
                         .push(format!("{time:.1}s: {}", ability.class_name));
                 }
@@ -453,7 +523,7 @@ fn simulate(
                 ammo = (ammo + clip * reload_percent / 100.0).min(clip);
                 reload_until = time;
                 instant_reload_ready[idx] = time + cooldown;
-                if out.sequence.len() < 16 {
+                if detailed && out.sequence.len() < 16 {
                     out.sequence
                         .push(format!("{time:.1}s: {} füllt Magazin", item.name));
                 }
@@ -480,7 +550,7 @@ fn simulate(
                     + hero.weapon.reload_duration.max(0.0) / (1.0 + stats.reload / 100.0).max(0.1);
                 ammo = clip;
                 out.reloads += 1;
-                if out.sequence.len() < 16 {
+                if detailed && out.sequence.len() < 16 {
                     out.sequence.push(format!("{time:.1}s: Nachladen"));
                 }
             } else {
@@ -494,7 +564,7 @@ fn simulate(
         out.weapon_damage += gun_damage;
         out.utility += shots * bullet * utility_contact;
         for (idx, item) in items.iter().enumerate() {
-            if time < proc_ready[idx] {
+            if time < proc_ready[idx] || item_proc_damage[idx] <= 0.0 {
                 continue;
             }
             let trigger = match item.condition {
@@ -505,12 +575,7 @@ fn simulate(
             if !trigger {
                 continue;
             }
-            let damage = item
-                .properties
-                .iter()
-                .filter(|(key, _)| key.contains("ProcDamage"))
-                .map(|(_, v)| *v)
-                .sum::<f64>();
+            let damage = item_proc_damage[idx];
             if damage > 0.0 {
                 if let Some(cooldown) = item.proc_cooldown.filter(|v| *v > 0.0) {
                     out.proc_damage += damage * (1.0 + stats.spirit_shred / 100.0) * hit;
@@ -627,6 +692,27 @@ mod tests {
         }
     }
     #[test]
+    fn fast_and_explained_evaluations_have_identical_numbers() {
+        let hero = hero();
+        let items = vec![
+            item(1, "WeaponPower", 25.0),
+            item(2, "BonusFireRate", 20.0),
+            item(3, "TechPower", 40.0),
+        ];
+        let cfg = ReasonerConfig::default();
+        let full = evaluate_inventory(&hero, &items, &cfg);
+        let fast = evaluate_inventory_fast(&hero, &items, &cfg);
+        let refs = evaluate_inventory_refs_fast(&hero, &items.iter().collect::<Vec<_>>(), &cfg);
+        assert_eq!(full.score, fast.score);
+        assert_eq!(fast.score, refs.score);
+        assert_eq!(full.weapon_damage, fast.weapon_damage);
+        assert_eq!(full.ability_damage, fast.ability_damage);
+        assert_eq!(full.effective_health, fast.effective_health);
+        assert_eq!(full.shop_bonuses, fast.shop_bonuses);
+        assert!(fast.unknown_effects.is_empty());
+        assert!(fast.scenarios.iter().all(|s| s.sequence.is_empty()));
+    }
+    #[test]
     fn damage_and_fire_rate_are_joint_not_additive() {
         let mut hero = hero();
         hero.weapon.reload_duration = 0.0;
@@ -635,8 +721,8 @@ mod tests {
         let damage = item(1, "WeaponPower", 100.0);
         let rate = item(2, "BonusFireRate", 100.0);
         let base = evaluate_inventory(&hero, &[], &cfg).weapon_damage;
-        let one = evaluate_inventory(&hero, &[damage.clone()], &cfg).weapon_damage;
-        let two = evaluate_inventory(&hero, &[rate.clone()], &cfg).weapon_damage;
+        let one = evaluate_inventory(&hero, std::slice::from_ref(&damage), &cfg).weapon_damage;
+        let two = evaluate_inventory(&hero, std::slice::from_ref(&rate), &cfg).weapon_damage;
         let both = evaluate_inventory(&hero, &[damage, rate], &cfg).weapon_damage;
         assert!(both - base > (one - base) + (two - base));
     }
@@ -678,7 +764,7 @@ mod tests {
         let spirit = item(1, "TechPower", 100.0);
         let magazine = item(2, "BonusClipSizePercent", 100.0);
         let plain = evaluate_inventory(&hero, &[], &cfg);
-        let with_spirit = evaluate_inventory(&hero, &[spirit.clone()], &cfg);
+        let with_spirit = evaluate_inventory(&hero, std::slice::from_ref(&spirit), &cfg);
         assert!(with_spirit.weapon_damage > plain.weapon_damage);
         let combined = evaluate_inventory(&hero, &[spirit, magazine], &cfg);
         assert!(combined.weapon_damage > with_spirit.weapon_damage);
