@@ -28,8 +28,8 @@ pub use ai_roles::{
 };
 pub use data::load_hero_abilities;
 pub use data::{
-    load_author_builds, load_claims, load_hero_model, load_hero_stat_values, load_item_models,
-    load_meta_rows, load_patch_events, load_synergies,
+    load_author_builds, load_author_source_rows, load_claims, load_hero_model,
+    load_hero_stat_values, load_item_models, load_meta_rows, load_patch_events, load_synergies,
 };
 pub use types::*;
 
@@ -136,6 +136,10 @@ pub async fn reason_build_with_options(
                 }
             }
         }
+    }
+    if meta.author_builds.is_empty() {
+        build.confidence = Confidence::Low;
+        build.rationale = append_text(&build.rationale, &format!("Für diesen Helden fehlen Builds aktiver beobachteter Autoren. Die Kaufkurve ist ein Behelf aus {} beobachteten Builds anderer Helden; ein eigener Autorenvergleich ist nicht möglich.",meta.core_layouts.overall.source_builds));
     }
     if options.persist {
         persist_build(&ctx, &build, &scored).await?;
@@ -448,7 +452,7 @@ async fn persist_backtest(ctx: &ReasonerCtx, report: &BacktestReport) -> Result<
 async fn load_reasoning_inputs(
     ctx: &ReasonerCtx,
     hero: &str,
-    seed_path: Option<&Path>,
+    _seed_path: Option<&Path>,
 ) -> Result<(
     HeroModel,
     Vec<ItemModel>,
@@ -479,15 +483,8 @@ async fn load_reasoning_inputs(
         &rows,
         &ctx.config,
     );
-    let mut authors = load_author_builds(ctx, hero_model.hero_id).await?;
+    let authors = load_author_builds(ctx, hero_model.hero_id).await?;
     let claims = load_claims(ctx, hero_model.hero_id).await?;
-    if let Some(path) = seed_path {
-        authors.extend(meta::load_seed_builds_for_hero(
-            path,
-            &items,
-            &hero_model.name,
-        )?);
-    }
     let index = meta::build_meta_index(&rows, &authors, &claims, &ctx.config);
     let author_builds = load_author_sources(ctx, hero_model.hero_id).await?;
     let hero_ability_orders = load_hero_ability_orders(ctx, hero_model.hero_id).await?;
@@ -530,17 +527,9 @@ async fn load_author_sources(
     ctx: &ReasonerCtx,
     hero_id: i64,
 ) -> Result<Vec<meta::AuthorBuildSource>> {
-    let query = "SELECT jsonb_build_object('hero_id', hbs.hero_id, 'author', COALESCE(hbs.author_account_id::text, 'unbekannt'), 'weight', COALESCE(wba.priority, 0)::double precision, 'details', hbs.details)::text AS row_json FROM (SELECT DISTINCT ON (hero_build_id) * FROM tierlist.hero_build_sources WHERE hero_id=$1 ORDER BY hero_build_id, version DESC NULLS LAST, fetched_at DESC NULLS LAST) hbs LEFT JOIN tierlist.watched_build_authors wba ON wba.author_account_id=hbs.author_account_id ORDER BY COALESCE(hbs.last_updated_at, hbs.published_at) DESC NULLS LAST, hbs.version DESC NULLS LAST, hbs.hero_build_id";
-    let rows = sqlx::query(query)
-        .bind(hero_id)
-        .fetch_all(&ctx.pool)
-        .await
-        .map_err(ReasonerError::Db)?;
+    let rows = data::load_author_source_rows(ctx, Some(hero_id)).await?;
     rows.into_iter()
-        .map(|row| {
-            let text: String = row.try_get("row_json").map_err(ReasonerError::Db)?;
-            let value: Value = serde_json::from_str(&text)
-                .map_err(|error| ReasonerError::Data(format!("Autoren-Quelle: {error}")))?;
+        .map(|value| {
             Ok(meta::AuthorBuildSource {
                 hero_id: value["hero_id"].as_i64().unwrap_or(hero_id),
                 author: value["author"].as_str().unwrap_or("unbekannt").to_string(),

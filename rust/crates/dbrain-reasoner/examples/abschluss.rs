@@ -12,6 +12,11 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .await?;
     assert_eq!(read_only, "on");
     let output = std::env::args().nth(1).ok_or("Ausgabepfad fehlt")?;
+    if std::env::args().nth(2).as_deref() == Some("provenance") {
+        let provenance: serde_json::Value = sqlx::query_scalar("WITH latest AS (SELECT DISTINCT ON (hero_build_id) * FROM tierlist.hero_build_sources ORDER BY hero_build_id, version DESC NULLS LAST, fetched_at DESC NULLS LAST) SELECT jsonb_build_object('measured_at',now(),'watch_columns',(SELECT jsonb_agg(key) FROM (SELECT DISTINCT jsonb_object_keys(to_jsonb(w)) AS key FROM tierlist.watched_build_authors w) keys),'hero_sources',(SELECT jsonb_agg(row_to_json(counts)) FROM (SELECT l.hero_id,count(*) AS builds,count(w.author_account_id) AS watched_builds,count(DISTINCT l.author_account_id) AS authors FROM latest l LEFT JOIN tierlist.watched_build_authors w ON w.author_account_id=l.author_account_id GROUP BY l.hero_id ORDER BY l.hero_id) counts),'warden_authors',(SELECT jsonb_agg(row_to_json(counts)) FROM (SELECT l.author_account_id,w.author_account_id IS NOT NULL AS watched,count(*) AS builds,jsonb_agg(jsonb_build_object('id',l.hero_build_id,'version',l.version,'details',l.details)) AS sources FROM latest l LEFT JOIN tierlist.watched_build_authors w ON w.author_account_id=l.author_account_id WHERE l.hero_id=25 GROUP BY l.author_account_id,w.author_account_id ORDER BY watched DESC,builds DESC) counts))").fetch_one(&pool).await?;
+        std::fs::write(output, serde_json::to_vec_pretty(&provenance)?)?;
+        return Ok(());
+    }
     if std::env::args().nth(2).as_deref() == Some("catalog") {
         let catalog: serde_json::Value = sqlx::query_scalar("SELECT jsonb_build_object('measured_at', now(), 'authors', (SELECT jsonb_agg(jsonb_build_object('author_account_id', author_account_id, 'last_checked_at', last_checked_at, 'last_checked_status', last_checked_status) ORDER BY author_account_id) FROM tierlist.watched_build_authors), 'build_rows', (SELECT count(*) FROM tierlist.hero_build_sources), 'warden_779996_versions', (SELECT jsonb_agg(version ORDER BY version) FROM tierlist.hero_build_sources WHERE hero_build_id=779996))").fetch_one(&pool).await?;
         std::fs::write(output, serde_json::to_vec_pretty(&catalog)?)?;
@@ -36,14 +41,14 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .iter()
         .map(|item| (item.item_id, item.tier))
         .collect::<BTreeMap<_, _>>();
-    let source_rows = sqlx::query("SELECT DISTINCT ON (hero_build_id) hero_id, hero_build_id, version, details FROM tierlist.hero_build_sources ORDER BY hero_build_id, version DESC NULLS LAST, fetched_at DESC NULLS LAST").fetch_all(&pool).await?;
+    let source_rows = load_author_source_rows(&ctx, None).await?;
     let sources = source_rows
         .iter()
         .map(|row| meta::AuthorBuildLayoutSource {
-            hero_id: row.get("hero_id"),
-            build_id: row.get("hero_build_id"),
-            version: row.get("version"),
-            details: row.get("details"),
+            hero_id: row["hero_id"].as_i64().unwrap(),
+            build_id: row["hero_build_id"].as_i64().unwrap(),
+            version: row["version"].as_i64().unwrap(),
+            details: row["details"].clone(),
         })
         .collect::<Vec<_>>();
     let layouts = meta::derive_core_layouts(&sources, &tiers);
@@ -135,7 +140,18 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             entry["seed"] = json!(seed_authors.iter().map(|author|json!({"ids":author.core_item_ids,"metrics":backtest::backtest_metrics(&build,author)})).collect::<Vec<_>>());
             entry["model"] = json!(model);
             let meta_rows = load_meta_rows(&ctx, hero_id).await?;
-            let index = meta::build_meta_index(&meta_rows, &authors, &[], &ctx.config);
+            let index = meta::build_meta_index(
+                &meta_rows,
+                &authors,
+                &load_claims(&ctx, hero_id).await?,
+                &ctx.config,
+            );
+            entry["observed_sources"] = json!(source_rows
+                .iter()
+                .filter(|row| row["hero_id"].as_i64() == Some(hero_id))
+                .collect::<Vec<_>>());
+            entry["meta_rows"] = json!(meta_rows);
+            entry["synergy_input"] = json!(synergy_rows);
             entry["item_scores"] =
                 json!(item::score_items(&model, &items, &index, &[], &ctx.config));
             entry["spirit_fire_rate"] = json!(items

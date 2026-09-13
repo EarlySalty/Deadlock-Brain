@@ -240,6 +240,7 @@ pub fn core_item_ids(details: &Value) -> Vec<i64> {
                     "lane",
                     "laning",
                     "early",
+                    "earlygame",
                     "start",
                     "starter",
                     "starting",
@@ -833,7 +834,7 @@ mod tests {
     #[test]
     fn purchase_curve_and_reference_share_phases_without_alternatives_or_abilities() {
         let details = serde_json::json!({"modCategories": [
-            {"name":"Early game", "mods":[{"abilityId":1}]},
+            {"name":"#Citadel_HeroBuilds_EarlyGame", "mods":[{"abilityId":1}]},
             {"name":"CORE ITEMS /// CAN BUY ANY 3K ITEM", "mods":[{"abilityId":2},{"abilityId":1}]},
             {"name":"Late game", "mods":[{"abilityId":3}]},
             {"name":"TRYHARD", "mods":[{"abilityId":4}]},

@@ -165,20 +165,20 @@ pub fn spirit_fire_rate_value(
             || name.eq_ignore_ascii_case("SpiritPower")
             || name.eq_ignore_ascii_case("BonusSpirit")
     };
+    let is_conditional = |name: &str| {
+        item.conditional_properties.contains(name)
+            || (item.is_active != item.passive_properties.contains_key(name))
+    };
     let passive_spirit = item
         .properties
         .iter()
-        .filter(|(name, _)| {
-            is_spirit(name) && (item.is_active == item.passive_properties.contains_key(*name))
-        })
+        .filter(|(name, _)| is_spirit(name) && !is_conditional(name))
         .map(|(_, value)| value)
         .sum::<f64>();
     let active_spirit = item
         .properties
         .iter()
-        .filter(|(name, _)| {
-            is_spirit(name) && (item.is_active != item.passive_properties.contains_key(*name))
-        })
+        .filter(|(name, _)| is_spirit(name) && is_conditional(name))
         .map(|(_, value)| value)
         .sum::<f64>();
     let bonus = if item.slot == crate::SlotType::Spirit {
@@ -380,6 +380,15 @@ mod tests {
         assert!(
             (with_scaling.score.active_value - without.score.active_value - expected).abs() < 1e-10
         );
+        let mut flags_only = item.clone();
+        flags_only.passive_properties.clear();
+        flags_only.conditional_properties.insert("TechPower".into());
+        warden.scaling = crate::data::scaling_stats(Some(
+            &serde_json::json!({"EFireRate":{"scaling_stat":"ETechPower","scale":0.25}}),
+        ));
+        let flagged = spirit_fire_rate_value(&flags_only, &warden, &cfg);
+        assert_eq!(flagged.passive_dps, 0.0);
+        assert!((flagged.weapon_dps_in_score - expected * 0.1).abs() < 1e-10);
     }
     use std::collections::BTreeMap;
 

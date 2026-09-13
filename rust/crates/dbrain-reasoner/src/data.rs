@@ -1081,7 +1081,18 @@ pub async fn load_author_builds(
     ctx: &ReasonerCtx,
     hero_id: i64,
 ) -> Result<Vec<crate::AuthorBuild>> {
-    let rows = sqlx::query("SELECT (to_jsonb(hbs) || jsonb_build_object('published_at', EXTRACT(EPOCH FROM hbs.published_at)::bigint, 'last_updated_at', EXTRACT(EPOCH FROM hbs.last_updated_at)::bigint))::text AS row_json FROM (SELECT DISTINCT ON (hero_build_id) * FROM tierlist.hero_build_sources WHERE hero_id=$1 ORDER BY hero_build_id, version DESC NULLS LAST, fetched_at DESC NULLS LAST) hbs ORDER BY COALESCE(hbs.last_updated_at, hbs.published_at) DESC NULLS LAST, hbs.hero_build_id")
+    Ok(load_author_source_rows(ctx, Some(hero_id))
+        .await?
+        .iter()
+        .map(author_build)
+        .collect())
+}
+
+pub async fn load_author_source_rows(
+    ctx: &ReasonerCtx,
+    hero_id: Option<i64>,
+) -> Result<Vec<Value>> {
+    let rows = sqlx::query("SELECT (to_jsonb(hbs) || jsonb_build_object('author', hbs.author_account_id::text, 'weight', COALESCE(wba.priority,0)::double precision, 'published_at', EXTRACT(EPOCH FROM hbs.published_at)::bigint, 'last_updated_at', EXTRACT(EPOCH FROM hbs.last_updated_at)::bigint))::text AS row_json FROM (SELECT DISTINCT ON (hero_build_id) * FROM tierlist.hero_build_sources ORDER BY hero_build_id, version DESC NULLS LAST, fetched_at DESC NULLS LAST) hbs JOIN tierlist.watched_build_authors wba ON wba.author_account_id=hbs.author_account_id AND wba.is_active IS TRUE WHERE ($1::bigint IS NULL OR hbs.hero_id=$1) ORDER BY COALESCE(hbs.last_updated_at, hbs.published_at) DESC NULLS LAST, hbs.version DESC NULLS LAST, hbs.hero_build_id")
         .bind(hero_id)
         .fetch_all(&ctx.pool)
         .await
@@ -1091,7 +1102,7 @@ pub async fn load_author_builds(
             let text = row
                 .try_get::<String, _>("row_json")
                 .map_err(ReasonerError::Db)?;
-            Ok(author_build(&parse_json(text, "Autoren-Build")?))
+            parse_json(text, "Beobachtetes Autoren-Build")
         })
         .collect()
 }
@@ -1112,16 +1123,9 @@ pub(crate) async fn load_core_layouts(ctx: &ReasonerCtx) -> Result<crate::CoreLa
             ))
         })
         .collect::<Result<BTreeMap<_, _>>>()?;
-    let rows = sqlx::query("SELECT to_jsonb(selected)::text AS row_json FROM (SELECT DISTINCT ON (hero_build_id) hero_id, hero_build_id, version, details FROM tierlist.hero_build_sources ORDER BY hero_build_id, version DESC NULLS LAST, fetched_at DESC NULLS LAST) selected ORDER BY hero_id, hero_build_id")
-        .fetch_all(&ctx.pool)
-        .await
-        .map_err(ReasonerError::Db)?;
+    let rows = load_author_source_rows(ctx, None).await?;
     let mut sources = Vec::new();
-    for row in rows {
-        let text = row
-            .try_get::<String, _>("row_json")
-            .map_err(ReasonerError::Db)?;
-        let value = parse_json(text, "Layout-Autoren-Build")?;
+    for value in rows {
         sources.push(crate::meta::AuthorBuildLayoutSource {
             hero_id: integer(value.get("hero_id")),
             build_id: integer(value.get("hero_build_id")),
@@ -1129,7 +1133,20 @@ pub(crate) async fn load_core_layouts(ctx: &ReasonerCtx) -> Result<crate::CoreLa
             details: value.get("details").cloned().unwrap_or(Value::Null),
         });
     }
-    Ok(crate::meta::derive_core_layouts(&sources, &item_tiers))
+    let mut layouts = crate::meta::derive_core_layouts(&sources, &item_tiers);
+    let heroes: Vec<i64> = sqlx::query_scalar("SELECT hero_id FROM brain.hero_catalog")
+        .fetch_all(&ctx.pool)
+        .await
+        .map_err(ReasonerError::Db)?;
+    let mut fallback = layouts.overall.clone();
+    fallback.source_builds = 0;
+    for hero_id in heroes {
+        layouts
+            .by_hero
+            .entry(hero_id)
+            .or_insert_with(|| fallback.clone());
+    }
+    Ok(layouts)
 }
 
 pub async fn load_claims(ctx: &ReasonerCtx, hero_id: i64) -> Result<Vec<Value>> {
@@ -1415,7 +1432,9 @@ mod tests {
     async fn author_builds_use_real_timestamps_and_expose_schema_errors() {
         let (_guard, ctx) = scratch_context().await;
         assert!(load_author_builds(&ctx, 25).await.is_err());
-        sqlx::raw_sql("SET TIME ZONE 'Pacific/Honolulu'; CREATE TABLE tierlist.hero_build_sources (hero_id bigint, version bigint, details jsonb, published_at timestamptz, last_updated_at timestamptz, hero_build_id bigint GENERATED ALWAYS AS IDENTITY, fetched_at timestamptz DEFAULT now());
+        sqlx::raw_sql("SET TIME ZONE 'Pacific/Honolulu'; CREATE TABLE tierlist.hero_build_sources (hero_id bigint, version bigint, details jsonb, published_at timestamptz, last_updated_at timestamptz, hero_build_id bigint GENERATED ALWAYS AS IDENTITY, fetched_at timestamptz DEFAULT now(), author_account_id bigint DEFAULT 100);
+            CREATE TABLE tierlist.watched_build_authors (author_account_id bigint, priority bigint, is_active boolean);
+            INSERT INTO tierlist.watched_build_authors VALUES (100,1,true),(101,1,false);
             INSERT INTO tierlist.hero_build_sources (hero_id, version, details, published_at, last_updated_at) VALUES
             (25, 1, '{}', '2026-01-01T00:00:00Z', '2026-02-01T00:00:00Z'),
             (25, 2, '{}', '2026-03-01T00:00:00Z', NULL),
@@ -1425,12 +1444,30 @@ mod tests {
         let builds = load_author_builds(&ctx, 25).await.unwrap();
         assert_eq!(
             builds.iter().map(|build| build.version).collect::<Vec<_>>(),
-            [2, 3, 1, 4]
+            [3, 2, 1, 4]
         );
         assert_eq!(builds[0].published_at, Some(1772323200));
         assert_eq!(builds[0].last_updated_at, None);
         assert_eq!(builds[2].last_updated_at, Some(1769904000));
         assert_eq!(builds[3].published_at, None);
+        sqlx::raw_sql("INSERT INTO tierlist.hero_build_sources (hero_id,version,details,author_account_id) VALUES (25,90,'{}',101),(25,91,'{}',999);
+            INSERT INTO tierlist.hero_build_sources (hero_build_id,hero_id,version,details,author_account_id) OVERRIDING SYSTEM VALUE VALUES (1,25,99,'{}',100);").execute(&ctx.pool).await.unwrap();
+        let current = load_author_builds(&ctx, 25).await.unwrap();
+        assert_eq!(current.len(), 4);
+        assert!(current.iter().any(|build| build.version == 99));
+        assert!(!current
+            .iter()
+            .any(|build| [1, 90, 91].contains(&build.version)));
+        assert_eq!(
+            load_author_source_rows(&ctx, Some(25)).await.unwrap().len(),
+            current.len()
+        );
+        sqlx::raw_sql("INSERT INTO tierlist.hero_build_sources (hero_build_id,hero_id,version,details,author_account_id) OVERRIDING SYSTEM VALUE VALUES (1,25,100,'{}',999);").execute(&ctx.pool).await.unwrap();
+        let reassigned = load_author_builds(&ctx, 25).await.unwrap();
+        assert_eq!(reassigned.len(), 3);
+        assert!(!reassigned
+            .iter()
+            .any(|build| [1, 99, 100].contains(&build.version)));
         sqlx::raw_sql("ALTER TABLE tierlist.hero_build_sources DROP COLUMN last_updated_at")
             .execute(&ctx.pool)
             .await

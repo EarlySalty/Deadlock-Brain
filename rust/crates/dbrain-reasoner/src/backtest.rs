@@ -6,6 +6,14 @@ use crate::{AuthorBuild, BacktestMetrics, BuildObject, HeroBacktest};
 impl fmt::Display for crate::BacktestReport {
     fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
         for hero in &self.heroes {
+            if hero.per_author.is_empty() {
+                writeln!(
+                    output,
+                    "{} | Kein Vergleich möglich: keine Builds aktiver beobachteter Autoren.",
+                    hero.hero_name
+                )?;
+                continue;
+            }
             for (author, metrics) in hero
                 .per_author
                 .iter()
