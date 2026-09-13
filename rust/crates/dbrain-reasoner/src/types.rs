@@ -199,6 +199,8 @@ pub enum ConditionKind {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ItemModel {
     #[serde(default)]
+    pub property_damage_types: BTreeMap<String, DamageType>,
+    #[serde(default)]
     pub component_items: Vec<String>,
     #[serde(default)]
     pub class_name: String,
