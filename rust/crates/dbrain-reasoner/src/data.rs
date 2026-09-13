@@ -1230,8 +1230,43 @@ pub async fn load_synergies(ctx: &ReasonerCtx, hero_id: i64) -> Result<Vec<Value
         .collect()
 }
 
+
+pub fn enrich_frozen_models(hero: &mut HeroModel, items: &mut [ItemModel], snapshots: &[Value]) -> Result<()> {
+    let payload = |row: &Value| row.get("payload").cloned().unwrap_or_else(||row.clone());
+    let mut rows: Vec<&Value> = snapshots.iter().filter(|row|row.get("source").is_none_or(|v|v.as_str()==Some("deadlock_assets_api"))).collect();
+    rows.sort_by(|left,right| {
+        let timestamp=|row: &Value|row.get("fetched_at").and_then(Value::as_str).unwrap_or_default().to_owned();
+        timestamp(right).cmp(&timestamp(left)).then_with(||integer(right.get("id")).cmp(&integer(left.get("id"))))
+    });
+    let raw: Vec<Value> = rows.into_iter().map(payload).collect();
+    let hero_raw=raw.iter().find(|value| integer(value.get("id"))==hero.hero_id && value.get("cost_bonuses").is_some()).ok_or_else(||ReasonerError::MissingSnapshot(format!("Eingefrorene Shopregeln für {} fehlen",hero.name)))?;
+    hero.cost_bonuses=serde_json::from_value(hero_raw.get("cost_bonuses").cloned().unwrap_or_default()).map_err(|error|ReasonerError::Data(format!("Ungültige Shopregeln: {error}")))?;
+    for ability in &mut hero.abilities {
+        let value=raw.iter().find(|value| ability_matches(value,ability));
+        if let Some(value)=value {ability.properties=property_values(value.get("properties"));}
+    }
+    for item in items {
+        if let Some(value)=raw.iter().find(|value|integer(value.get("id"))==item.item_id && value.get("properties").is_some()) {
+            item.component_items=value.get("component_items").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
+            item.class_name=string(value.get("class_name"));
+            item.description=value.get("description").and_then(|v|v.get("desc")).and_then(Value::as_str).unwrap_or_default().to_owned();
+        } else {return Err(ReasonerError::MissingSnapshot(format!("Eingefrorenes Item {} fehlt",item.name)));}
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn frozen_aliases_choose_newest_snapshot_before_matching() {
+        let mut hero=super::hero_model(&serde_json::json!({"id":25,"name":"Warden"}),&[],&[]).unwrap();
+        let snapshots=vec![
+            serde_json::json!({"id":1,"source":"deadlock_assets_api","fetched_at":"2026-05-02T00:00:00+00:00","payload":{"id":25,"cost_bonuses":{"weapon":[{"gold_threshold":800,"bonus":99.0}]}}}),
+            serde_json::json!({"id":2,"source":"deadlock_assets_api","fetched_at":"2026-07-06T00:00:00+00:00","payload":{"id":25,"cost_bonuses":{"weapon":[{"gold_threshold":800,"bonus":9.0}]}}})
+        ];
+        super::enrich_frozen_models(&mut hero,&mut [],&snapshots).unwrap();
+        assert_eq!(hero.cost_bonuses["weapon"][0].bonus,9.0);
+    }
     use super::*;
     use sqlx::postgres::PgPoolOptions;
 
@@ -1598,23 +1633,4 @@ mod tests {
             authors.len()
         );
     }
-}
-
-pub fn enrich_frozen_models(hero: &mut HeroModel, items: &mut [ItemModel], snapshots: &[Value]) -> Result<()> {
-    let payload = |row: &Value| row.get("payload").cloned().unwrap_or_else(||row.clone());
-    let raw: Vec<Value> = snapshots.iter().map(payload).collect();
-    let hero_raw=raw.iter().find(|value| integer(value.get("id"))==hero.hero_id && value.get("cost_bonuses").is_some()).ok_or_else(||ReasonerError::MissingSnapshot(format!("Eingefrorene Shopregeln für {} fehlen",hero.name)))?;
-    hero.cost_bonuses=serde_json::from_value(hero_raw.get("cost_bonuses").cloned().unwrap_or_default()).map_err(|error|ReasonerError::Data(format!("Ungültige Shopregeln: {error}")))?;
-    for ability in &mut hero.abilities {
-        let value=raw.iter().find(|value| ability_matches(value,ability));
-        if let Some(value)=value {ability.properties=property_values(value.get("properties"));}
-    }
-    for item in items {
-        if let Some(value)=raw.iter().find(|value|integer(value.get("id"))==item.item_id && value.get("properties").is_some()) {
-            item.component_items=value.get("component_items").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
-            item.class_name=string(value.get("class_name"));
-            item.description=value.get("description").and_then(|v|v.get("desc")).and_then(Value::as_str).unwrap_or_default().to_owned();
-        } else {return Err(ReasonerError::MissingSnapshot(format!("Eingefrorenes Item {} fehlt",item.name)));}
-    }
-    Ok(())
 }
