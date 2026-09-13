@@ -251,6 +251,30 @@ mod tests {
     }
 
     #[test]
+    fn coverage_requires_complete_rank_effect_and_rejects_unimplemented_keys() {
+        let mut hook = raw_ability("citadel_ability_hook", 1);
+        assert!(quantified_property(&hook, "BulletAmp"));
+        hook.properties.remove("BulletAmpDuration");
+        assert!(!quantified_property(&hook, "BulletAmp"));
+        assert!(!quantified_property(
+            &raw_ability("citadel_ability_uppercut", 2),
+            "MissingHPHeal"
+        ));
+        assert!(quantified_property(
+            &raw_ability("citadel_ability_uppercut", 3),
+            "MissingHPHeal"
+        ));
+        assert!(!quantified_property(
+            &raw_ability("citadel_ability_uppercut", 3),
+            "UppercutDamage"
+        ));
+        assert!(!quantified_property(
+            &raw_ability("ability_health_swap", 3),
+            "EnemyMinHealthPct"
+        ));
+    }
+
+    #[test]
     fn real_hook_rank_one_is_weapon_only_and_expires() {
         assert_eq!(
             AbilityInteractions::from_ability(&raw_ability("citadel_ability_hook", 0), 1.0),
