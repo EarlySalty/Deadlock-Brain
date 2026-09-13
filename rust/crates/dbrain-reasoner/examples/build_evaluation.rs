@@ -9,6 +9,8 @@ use std::{
 };
 
 type Error = Box<dyn std::error::Error>;
+mod support;
+include!(concat!(env!("OUT_DIR"), "/evaluation_provenance.rs"));
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct FreezeGuard {
@@ -51,7 +53,7 @@ fn write_guarded_snapshot(
     end: &FreezeGuard,
 ) -> std::result::Result<(), Error> {
     start.verify(end)?;
-    fs::write(output, bytes)?;
+    support::write_new(output, bytes)?;
     Ok(())
 }
 
@@ -332,7 +334,7 @@ async fn freeze(output: &Path) -> std::result::Result<(), Error> {
     }
     let frozen = Frozen {
         format_version: 1,
-        baseline_revision: "a57382a".into(),
+        baseline_revision: ALGORITHM_REVISION.into(),
         measured_at,
         snapshot_guard: Some(start_guard.clone()),
         config: ctx.config,
@@ -489,10 +491,10 @@ fn evaluate(
         }
         eprintln!("Ausgewertet: {} ({mode})", hero.hero.name);
     }
-    fs::write(
+    support::write_new(
         output,
-        serde_json::to_vec_pretty(
-            &json!({"format_version":1,"mode":mode,"baseline_revision":frozen.baseline_revision,"frozen_at":frozen.measured_at,"patch_tag":frozen.config.patch_tag,"contract":"Autorenübereinstimmung auf identischem eingefrorenem Stand, keine historische Meta-Prognose. Holdout: Autor global aus Layout, Kernrolle, Verkauf und author_hits entfernt; Claims und statistische Skillfolge ausgeschlossen. Zeitgleiche aggregierte Spielstatistik bleibt Eingabe. Warden ist Entwicklungsreferenz, kein unabhängiger Test.","reports":reports}),
+        &serde_json::to_vec_pretty(
+            &json!({"format_version":1,"mode":mode,"algorithm_revision":ALGORITHM_REVISION,"baseline_revision":frozen.baseline_revision,"frozen_at":frozen.measured_at,"patch_tag":frozen.config.patch_tag,"contract":"Autorenübereinstimmung auf identischem eingefrorenem Stand, keine historische Meta-Prognose. Holdout: Autor global aus Layout, Kernrolle, Verkauf und author_hits entfernt; Claims und statistische Skillfolge ausgeschlossen. Zeitgleiche aggregierte Spielstatistik bleibt Eingabe. Warden ist Entwicklungsreferenz, kein unabhängiger Test.","reports":reports}),
         )?,
     )?;
     Ok(())
@@ -500,6 +502,11 @@ fn evaluate(
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Error> {
+    if !SOURCE_CLEAN || ALGORITHM_REVISION.len() != 40 {
+        return Err(
+            "Messbinary ohne saubere eingecheckte Quellrevision; nach Commit neu bauen".into(),
+        );
+    }
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     match args.as_slice() {
         [mode, output] if mode == "freeze" => freeze(Path::new(output)).await,
