@@ -312,6 +312,9 @@ mod tests {
             &serde_json::json!({"EFireRate":{"scaling_stat":"ETechPower","scale":0.25},"ERoundsPerSecond":{"scaling_stat":"ETechPower","scale":0.01}}),
         ));
         let item = ItemModel {
+            component_items: Vec::new(),
+            class_name: String::new(),
+            description: String::new(),
             item_id: 1,
             name: "Spirit fixture".into(),
             slot: crate::SlotType::Weapon,
@@ -352,6 +355,9 @@ mod tests {
             &serde_json::json!({"EFireRate":{"scaling_stat":"ETechPower","scale":0.25}}),
         ));
         let item = ItemModel {
+            component_items: Vec::new(),
+            class_name: String::new(),
+            description: String::new(),
             item_id: 1,
             name: "Passive Spirit".into(),
             slot: crate::SlotType::Weapon,
@@ -397,6 +403,7 @@ mod tests {
 
     fn hero() -> HeroModel {
         HeroModel {
+            cost_bonuses: Default::default(),
             hero_id: 25,
             name: "Warden".to_string(),
             archetype: "brawler".to_string(),
@@ -419,6 +426,7 @@ mod tests {
                 sustained_dps: 0.0,
             },
             abilities: vec![AbilityModel {
+                properties: Default::default(),
                 ability_id: 1,
                 class_name: "ability1".to_string(),
                 slot: 1,
@@ -445,6 +453,9 @@ mod tests {
     #[test]
     fn total_ranks_slots_independently_of_soul_efficiency() {
         let item = ItemModel {
+            component_items: Vec::new(),
+            class_name: String::new(),
+            description: String::new(),
             item_id: 1,
             name: "fixture".into(),
             slot: crate::SlotType::Weapon,
@@ -463,6 +474,9 @@ mod tests {
             imbueable: false,
         };
         let expensive = ItemModel {
+            component_items: Vec::new(),
+            class_name: String::new(),
+            description: String::new(),
             item_id: 2,
             cost: 6400,
             ..item.clone()
@@ -515,6 +529,9 @@ mod tests {
     #[test]
     fn build_item_model_validates_loaded_model_without_parsing_payload_again() {
         let item = ItemModel {
+            component_items: Vec::new(),
+            class_name: String::new(),
+            description: String::new(),
             item_id: 1,
             name: "Veil Walker".to_string(),
             slot: crate::SlotType::Weapon,
@@ -538,6 +555,9 @@ mod tests {
     #[test]
     fn score_separates_active_passive_and_meta() {
         let item = ItemModel {
+            component_items: Vec::new(),
+            class_name: String::new(),
+            description: String::new(),
             item_id: 1,
             name: "x".to_string(),
             slot: crate::SlotType::Weapon,

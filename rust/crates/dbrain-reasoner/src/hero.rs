@@ -234,6 +234,7 @@ mod tests {
 
     fn loaded_hero() -> HeroModel {
         HeroModel {
+            cost_bonuses: Default::default(),
             hero_id: 25,
             name: "Warden".to_string(),
             archetype: "brawler".to_string(),
@@ -256,6 +257,7 @@ mod tests {
                 sustained_dps: 0.0,
             },
             abilities: vec![AbilityModel {
+                properties: Default::default(),
                 ability_id: 100,
                 class_name: "ability1".to_string(),
                 slot: 1,

@@ -728,6 +728,9 @@ mod tests {
 
     fn item() -> ItemModel {
         ItemModel {
+            component_items: Vec::new(),
+            class_name: String::new(),
+            description: String::new(),
             item_id: 1,
             name: "fixture".into(),
             slot: SlotType::Spirit,
@@ -749,6 +752,7 @@ mod tests {
 
     fn channel() -> AbilityModel {
         AbilityModel {
+            properties: Default::default(),
             ability_id: 1,
             class_name: "LifeDrain".into(),
             slot: 1,
@@ -1101,6 +1105,7 @@ mod tests {
 
     fn hero() -> HeroModel {
         HeroModel {
+            cost_bonuses: Default::default(),
             hero_id: 25,
             name: "Warden".to_string(),
             archetype: "brawler".to_string(),
@@ -1151,6 +1156,9 @@ mod tests {
     #[test]
     fn purchase_bonus_uses_slot_and_tier() {
         let item = ItemModel {
+            component_items: Vec::new(),
+            class_name: String::new(),
+            description: String::new(),
             item_id: 1,
             name: "x".to_string(),
             slot: SlotType::Weapon,
@@ -1180,6 +1188,9 @@ mod tests {
     fn condition_factor_applies_ramp_and_active_uptime() {
         let cfg = ReasonerConfig::default();
         let ramp = ItemModel {
+            component_items: Vec::new(),
+            class_name: String::new(),
+            description: String::new(),
             item_id: 1,
             name: "x".to_string(),
             slot: SlotType::Spirit,
@@ -1228,6 +1239,9 @@ mod tests {
     #[test]
     fn buy_phase_follows_soul_thresholds() {
         let item = ItemModel {
+            component_items: Vec::new(),
+            class_name: String::new(),
+            description: String::new(),
             item_id: 1,
             name: "x".to_string(),
             slot: SlotType::Spirit,
@@ -1260,6 +1274,7 @@ mod tests {
         let mut hero = hero();
         hero.abilities = vec![
             AbilityModel {
+                properties: Default::default(),
                 ability_id: 1,
                 class_name: "low".to_string(),
                 slot: 1,
@@ -1279,6 +1294,7 @@ mod tests {
                 duration: None,
             },
             AbilityModel {
+                properties: Default::default(),
                 ability_id: 2,
                 class_name: "high".to_string(),
                 slot: 2,
@@ -1299,6 +1315,9 @@ mod tests {
             },
         ];
         let item = ItemModel {
+            component_items: Vec::new(),
+            class_name: String::new(),
+            description: String::new(),
             item_id: 1,
             name: "imbue".to_string(),
             slot: SlotType::Weapon,
