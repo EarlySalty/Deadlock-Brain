@@ -5,10 +5,10 @@ use sqlx::Row;
 
 mod ai_roles;
 pub mod backtest;
-pub mod composer;
 pub mod combat;
+pub mod composer;
 pub mod inventory;
-pub use data::{enrich_frozen_models,refresh_ability_derived,ability_damage_units};
+pub use data::{ability_damage_units, enrich_frozen_models, refresh_ability_derived};
 mod data;
 pub mod hero;
 pub mod item;
@@ -16,6 +16,7 @@ pub mod mechanics;
 pub mod meta;
 pub mod patch;
 pub mod planner;
+pub mod progression;
 pub mod publish;
 mod types;
 

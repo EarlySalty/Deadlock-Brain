@@ -111,6 +111,8 @@ fn is_situation_item(item: &ScoredItem) -> bool {
 struct AuthorEvidence {
     core: std::collections::BTreeSet<i64>,
     sales: std::collections::BTreeMap<i64, u32>,
+    ability_order: Vec<crate::AbilityStep>,
+    skill_notes: Vec<String>,
 }
 
 fn author_evidence(hero_id: i64, sources: &[crate::meta::AuthorBuildSource]) -> AuthorEvidence {
@@ -330,7 +332,11 @@ pub fn compose_build_with_sources(
     blocked: &[String],
     meta: &crate::meta::MetaIndexWithSources,
 ) -> BuildObject {
-    let authors = author_evidence(hero.hero_id, &meta.author_builds);
+    let mut authors = author_evidence(hero.hero_id, &meta.author_builds);
+    let (raw_order, source) = meta.ability_order(hero.hero_id);
+    let (order, notes) = crate::progression::coherent_order(hero, &raw_order);
+    authors.skill_notes = notes;
+    authors.ability_order = order.clone();
     let mut build = compose_build_with_author_evidence(
         hero,
         scored,
@@ -343,7 +349,6 @@ pub fn compose_build_with_sources(
             &authors,
         ),
     );
-    let (order, source) = meta.ability_order(hero.hero_id);
     build.ability_order = order;
     build.rationale = format!(
         "{} {}",
@@ -363,7 +368,9 @@ pub fn purchase_plan_with_sources(
     cfg: &ReasonerConfig,
     meta: &crate::meta::MetaIndexWithSources,
 ) -> crate::planner::PurchasePlan {
-    let authors = author_evidence(hero.hero_id, &meta.author_builds);
+    let mut authors = author_evidence(hero.hero_id, &meta.author_builds);
+    (authors.ability_order, authors.skill_notes) =
+        crate::progression::coherent_order(hero, &meta.ability_order(hero.hero_id).0);
     plan_core(
         hero,
         scored,
@@ -402,19 +409,27 @@ fn plan_core(
                 assumptions: vec![format!(
                     "Keine Kaufkurve: Inventarregeln unvollständig ({error})."
                 )],
+                ability_order: authors.ability_order.clone(),
+                saving_decisions: Vec::new(),
             }
         }
     };
     let ordered = item_order(scored, blocked);
-    crate::planner::plan_purchases(
+    let mut plan = crate::planner::plan_with_economy(
         hero,
         scored,
         &core_candidates(&ordered, authors),
-        layout,
-        &rules,
-        combinations,
         cfg,
-    )
+        crate::planner::PlanningContext {
+            layout,
+            rules: &rules,
+            combinations,
+            order: &authors.ability_order,
+            economy: &crate::planner::EconomyPolicy::default(),
+        },
+    );
+    plan.assumptions.extend(authors.skill_notes.iter().cloned());
+    plan
 }
 
 pub fn compose_build_with_blocklist(
@@ -521,9 +536,15 @@ fn compose_build_with_author_evidence(
                     sources.push(Evidence { kind: EvidenceKind::Meta, detail: format!("Zusammen mit {}: beobachtete Siegquote {:+.2} Prozentpunkte gegenüber dem stärkeren Einzel-Item, {} gemeinsame Spiele im aktuellen Patch. Statistisches Nebensignal, kein Beweis für eine mechanische Wechselwirkung.", other.item.name, support.relative_lift * 100.0, support.matches) });
                 }
             }
-            let mut built = build_item(item, hero, cfg, sources);
+            let (progressed, _) = crate::progression::at_souls(hero, &plan.ability_order, step.progression.earned_souls, cfg);
+            let mut built = build_item(item, &progressed, cfg, sources);
+            built.imbue_target = step.imbue_targets.get(&item.item.item_id).copied();
             built.sell_priority = None;
             let detail = format!("Im bisherigen Build: {:+.1} gemeinsamer Kampfnutzen. Kaufpreis {} Seelen, Verkaufserlös {}, zusätzliche Ausgabe {}, insgesamt {} Seelen. Danach {} Items im Inventar; im Kampffenster {:.0} Waffenschaden, {:.0} Fähigkeitsschaden und {:.0} Auslöserschaden.", step.marginal_value, step.transition.purchase_cost, step.transition.sale_return, step.transition.net_cost, step.transition.after.spent_souls, step.transition.after.held_ids.len(), step.evaluation.weapon_damage, step.evaluation.ability_damage, step.evaluation.proc_damage);
+            built.why.push(' ');
+            built.why.push_str(&detail);
+            built.sources.push(Evidence { kind: EvidenceKind::Mechanic, detail });
+            let detail = format!("Erwerb bei {} verdienten Seelen, Level {} und {} bereits angewandten Schritten der veröffentlichten Skillfolge; Fähigkeitsränge {:?}. Nach dem Kauf bleiben {} Seelen verfügbar.", step.progression.earned_souls, step.progression.reached_level, step.progression.applied_order_steps, step.progression.ability_ranks, step.progression.earned_souls-step.transition.after.spent_souls);
             built.why.push(' ');
             built.why.push_str(&detail);
             built.sources.push(Evidence { kind: EvidenceKind::Mechanic, detail });
@@ -697,17 +718,26 @@ mod tests {
     fn actual_sales_release_slots_and_sold_pairs_do_not_rank_or_explain() {
         let mut items = (1..=12)
             .map(|id| {
-                let mut early = item(id, &format!("Früh {id}"), 20.0 - id as f64, false, &[]);
+                let mut early = item(
+                    id,
+                    &format!("Früh {id}"),
+                    if id == 12 { 1.0 } else { 100.0 },
+                    false,
+                    &[],
+                );
                 early.item.tier = 1;
+                early.item.cost = 800;
                 early.buy_phase = BuyPhase::Lane;
                 early
             })
             .collect::<Vec<_>>();
         let mut ghost_partner = item(13, "Partner des verkauften Items", 1.0, false, &[]);
         ghost_partner.item.tier = 3;
+        ghost_partner.item.cost = 3200;
         ghost_partner.score.per_slot_value = 100.0;
         let mut replacement = item(14, "Später Kauf", 50.0, false, &[]);
         replacement.item.tier = 3;
+        replacement.item.cost = 3200;
         items.extend([ghost_partner, replacement]);
         let layout = layout(&[(1, 12), (3, 1)], 0);
         let combinations = BTreeMap::from([(
@@ -805,7 +835,7 @@ mod tests {
         let mut anchor = item(1, "Anker", 30.0, false, &[]);
         anchor.item.tier = 1;
         anchor.score.per_soul_value = 30.0;
-        let mut solo = item(2, "Einzeln stärker", 11.0, false, &[]);
+        let mut solo = item(2, "Einzeln stärker", 10.1, false, &[]);
         solo.item.tier = 3;
         let mut partner = item(3, "Passender Partner", 10.0, false, &[]);
         partner.item.tier = 3;
@@ -983,6 +1013,10 @@ mod tests {
                 vitality: Vec::new(),
             },
             cost_bonuses: Default::default(),
+            level_rewards: Default::default(),
+            standard_level_up_upgrades: Default::default(),
+            standard_upgrade_levels: Default::default(),
+            base_spirit_power: 0.0,
             scaling: Vec::new(),
             weapon: WeaponProfile {
                 bullet_damage: 1.0,
@@ -1010,6 +1044,8 @@ mod tests {
                 item_id: id,
                 class_name: format!("item_{id}"),
                 component_items: Vec::new(),
+                property_damage_types: Default::default(),
+                property_spirit_scaling: Default::default(),
                 description: String::new(),
                 name: name.to_string(),
                 slot: SlotType::Weapon,
@@ -1380,7 +1416,7 @@ mod tests {
     }
 
     #[test]
-    fn orders_core_by_lane_mid_core_and_late_phase() {
+    fn preserves_funded_acquisition_order_instead_of_resorting_by_item_phase() {
         let mut items = [
             (1, "Core", BuyPhase::Core),
             (2, "Lane", BuyPhase::Lane),
@@ -1407,15 +1443,46 @@ mod tests {
             &ReasonerConfig::default(),
             &layout(&[(1, 1), (2, 1), (3, 1), (4, 1)], 0),
         );
-        items.clear();
+        let plan = plan_core(
+            &hero(),
+            &items,
+            &ReasonerConfig::default(),
+            &[],
+            (
+                &layout(&[(1, 1), (2, 1), (3, 1), (4, 1)], 0),
+                &Default::default(),
+                &AuthorEvidence::default(),
+            ),
+        );
         assert_eq!(
             build
                 .core
                 .iter()
-                .map(|item| item.name.as_str())
+                .map(|item| item.item_id)
                 .collect::<Vec<_>>(),
-            vec!["Lane", "Mid", "Core", "Late"]
+            plan.steps
+                .iter()
+                .map(|step| step.transition.purchased_id)
+                .collect::<Vec<_>>()
         );
+        assert!(plan
+            .steps
+            .windows(2)
+            .all(|pair| pair[0].progression.earned_souls <= pair[1].progression.earned_souls));
+        let payload = crate::publish::to_publish_payload(&build);
+        assert_eq!(
+            payload.mod_categories[0]
+                .mods
+                .iter()
+                .map(|item| item.ability_id)
+                .collect::<Vec<_>>(),
+            build
+                .core
+                .iter()
+                .map(|item| item.item_id)
+                .collect::<Vec<_>>()
+        );
+        items.clear();
     }
 
     #[test]

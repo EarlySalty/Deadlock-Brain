@@ -1,16 +1,54 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::combat::{evaluate_inventory, evaluate_inventory_refs_fast, InventoryEvaluation};
+use crate::combat::{
+    evaluate_inventory, evaluate_inventory_refs_fast_with_bindings,
+    evaluate_inventory_with_bindings, InventoryEvaluation,
+};
 use crate::inventory::{Inventory, InventoryRules, PurchaseTransition};
-use crate::{CoreLayoutStats, HeroModel, ItemModel, ReasonerConfig, ScoredItem};
+use crate::progression::{at_souls, ProgressionEvidence};
+use crate::{AbilityStep, CoreLayoutStats, HeroModel, ItemModel, ReasonerConfig, ScoredItem};
 
 const BEAM_WIDTH: usize = 4;
+type EvaluationKey = (i64, Vec<i64>, Vec<(i64, i64)>);
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct EconomyPolicy {
+    pub checkpoints: Vec<i64>,
+}
+impl Default for EconomyPolicy {
+    fn default() -> Self {
+        Self {
+            checkpoints: vec![
+                800, 1600, 2400, 3200, 4000, 4800, 6400, 8000, 9600, 11200, 12800, 14400, 16000,
+                19200, 22400, 25600, 28800, 32000, 35200, 38400, 41600, 44800, 48000, 54400, 60800,
+                67200, 73600, 80000,
+            ],
+        }
+    }
+}
+
+pub struct PlanningContext<'a> {
+    pub layout: &'a CoreLayoutStats,
+    pub rules: &'a InventoryRules,
+    pub combinations: &'a BTreeMap<(i64, i64), crate::meta::CombinationSupport>,
+    pub order: &'a [AbilityStep],
+    pub economy: &'a EconomyPolicy,
+}
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct PurchaseStep {
     pub transition: PurchaseTransition,
     pub evaluation: InventoryEvaluation,
     pub marginal_value: f64,
+    pub progression: ProgressionEvidence,
+    pub imbue_targets: BTreeMap<i64, i64>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SavingDecision {
+    pub earned_souls: i64,
+    pub available_souls: i64,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -18,20 +56,24 @@ pub struct PurchasePlan {
     pub steps: Vec<PurchaseStep>,
     pub final_evaluation: InventoryEvaluation,
     pub assumptions: Vec<String>,
+    pub ability_order: Vec<AbilityStep>,
+    pub saving_decisions: Vec<SavingDecision>,
 }
 
 struct Search<'a> {
     hero: &'a HeroModel,
     cfg: &'a ReasonerConfig,
+    order: &'a [AbilityStep],
     catalog: Vec<ItemModel>,
     candidates: &'a [&'a ScoredItem],
     rules: &'a InventoryRules,
     combinations: &'a BTreeMap<(i64, i64), crate::meta::CombinationSupport>,
-    cache: BTreeMap<Vec<i64>, InventoryEvaluation>,
+    cache: BTreeMap<EvaluationKey, InventoryEvaluation>,
+    progression_cache: BTreeMap<i64, (HeroModel, ProgressionEvidence)>,
 }
 
 impl Search<'_> {
-    fn supported_value(&self, step: &PurchaseStep, tier: i64) -> f64 {
+    fn supported_value(&self, step: &PurchaseStep) -> f64 {
         let id = step.transition.purchased_id;
         let lifts = step
             .transition
@@ -47,12 +89,27 @@ impl Search<'_> {
         } else {
             lifts.iter().sum::<f64>() / lifts.len() as f64
         };
-        let mechanical = purchase_value(step, tier);
-        mechanical + mechanical.abs() * observed
+        step.marginal_value + step.marginal_value.abs() * observed
     }
 
-    fn evaluate(&mut self, inventory: &Inventory) -> Option<InventoryEvaluation> {
-        let key = inventory.held_ids.iter().copied().collect::<Vec<_>>();
+    fn evaluate(
+        &mut self,
+        inventory: &Inventory,
+        earned: i64,
+        bindings: &BTreeMap<i64, i64>,
+    ) -> Option<InventoryEvaluation> {
+        let (hero, progression) = self
+            .progression_cache
+            .entry(earned)
+            .or_insert_with(|| at_souls(self.hero, self.order, earned, self.cfg));
+        let key = (
+            progression.reached_level,
+            inventory.held_ids.iter().copied().collect::<Vec<_>>(),
+            bindings
+                .iter()
+                .map(|(id, target)| (*id, *target))
+                .collect::<Vec<_>>(),
+        );
         if let Some(evaluation) = self.cache.get(&key) {
             return Some(evaluation.clone());
         }
@@ -61,7 +118,8 @@ impl Search<'_> {
             .iter()
             .map(|id| self.catalog.iter().find(|item| item.item_id == *id))
             .collect::<Option<Vec<_>>>()?;
-        let evaluation = evaluate_inventory_refs_fast(self.hero, &held, self.cfg);
+        let evaluation =
+            evaluate_inventory_refs_fast_with_bindings(hero, &held, self.cfg, bindings);
         if !evaluation.score.is_finite() {
             return None;
         }
@@ -73,16 +131,18 @@ impl Search<'_> {
         &mut self,
         inventory: &Inventory,
         used: &BTreeSet<i64>,
-        tier: i64,
-        budget: i64,
+        remaining: &BTreeMap<i64, usize>,
+        earned: i64,
         before: f64,
+        bindings: &BTreeMap<i64, i64>,
     ) -> Vec<PurchaseStep> {
         let candidates = self
             .candidates
             .iter()
             .copied()
             .filter(|candidate| {
-                candidate.item.tier == tier && !used.contains(&candidate.item.item_id)
+                remaining.get(&candidate.item.tier).copied().unwrap_or(0) > 0
+                    && !used.contains(&candidate.item.item_id)
             })
             .collect::<Vec<_>>();
         let mut choices = Vec::new();
@@ -103,20 +163,40 @@ impl Search<'_> {
             }
             let mut best: Option<PurchaseStep> = None;
             for transition in transitions {
-                if transition.after.spent_souls > budget || transition.net_cost <= 0 {
+                if transition.after.spent_souls > earned || transition.net_cost <= 0 {
                     continue;
                 }
-                let Some(evaluation) = self.evaluate(&transition.after) else {
+                let mut next_bindings = bindings
+                    .iter()
+                    .filter(|(id, _)| transition.after.held_ids.contains(id))
+                    .map(|(id, target)| (*id, *target))
+                    .collect::<BTreeMap<_, _>>();
+                if item.imbueable {
+                    let (hero, _) = self
+                        .progression_cache
+                        .entry(earned)
+                        .or_insert_with(|| at_souls(self.hero, self.order, earned, self.cfg));
+                    if let Some(target) = crate::mechanics::imbue_target(item, hero, self.cfg) {
+                        next_bindings.insert(item.item_id, target);
+                    }
+                }
+                let Some(evaluation) = self.evaluate(&transition.after, earned, &next_bindings)
+                else {
                     continue;
                 };
                 let marginal_value = evaluation.score - before;
+                if marginal_value <= before.abs().max(1.0) * 1e-9 {
+                    continue;
+                }
                 let step = PurchaseStep {
                     transition,
                     evaluation,
                     marginal_value,
+                    progression: ProgressionEvidence::default(),
+                    imbue_targets: next_bindings,
                 };
                 if best.as_ref().is_none_or(|previous| {
-                    self.supported_value(&step, tier) > self.supported_value(previous, tier)
+                    self.supported_value(&step) > self.supported_value(previous)
                 }) {
                     best = Some(step);
                 }
@@ -126,8 +206,8 @@ impl Search<'_> {
             }
         }
         choices.sort_by(|left, right| {
-            self.supported_value(right, tier)
-                .total_cmp(&self.supported_value(left, tier))
+            self.supported_value(right)
+                .total_cmp(&self.supported_value(left))
                 .then_with(|| {
                     left.transition
                         .purchased_id
@@ -135,14 +215,6 @@ impl Search<'_> {
                 })
         });
         choices
-    }
-}
-
-fn purchase_value(step: &PurchaseStep, tier: i64) -> f64 {
-    if tier <= 2 {
-        step.marginal_value / step.transition.net_cost.max(1) as f64 * 800.0
-    } else {
-        step.marginal_value
     }
 }
 
@@ -155,101 +227,208 @@ pub fn plan_purchases(
     combinations: &BTreeMap<(i64, i64), crate::meta::CombinationSupport>,
     cfg: &ReasonerConfig,
 ) -> PurchasePlan {
+    plan_with_economy(
+        hero,
+        catalog,
+        candidates,
+        cfg,
+        PlanningContext {
+            layout,
+            rules,
+            combinations,
+            order: &[],
+            economy: &EconomyPolicy::default(),
+        },
+    )
+}
+
+pub fn plan_with_economy(
+    hero: &HeroModel,
+    catalog: &[ScoredItem],
+    candidates: &[&ScoredItem],
+    cfg: &ReasonerConfig,
+    context: PlanningContext<'_>,
+) -> PurchasePlan {
+    let PlanningContext {
+        layout,
+        rules,
+        combinations,
+        order,
+        economy,
+    } = context;
     let mut search = Search {
         hero,
         cfg,
+        order,
         catalog: catalog.iter().map(|item| item.item.clone()).collect(),
         candidates,
         rules,
         combinations,
         cache: BTreeMap::new(),
+        progression_cache: BTreeMap::new(),
     };
-    let schedule = (1..=5)
-        .flat_map(|tier| std::iter::repeat_n(tier, layout.target_for_tier(tier)))
-        .collect::<Vec<_>>();
-    let mut budget = 0i64;
-    let budgets = schedule
-        .iter()
-        .map(|tier| {
-            let maximum = candidates
-                .iter()
-                .filter(|item| item.item.tier == *tier)
-                .map(|item| item.item.cost)
-                .max()
-                .unwrap_or(0);
-            budget = budget.saturating_add(maximum);
-            budget
-        })
-        .collect::<Vec<_>>();
+    let mut plan=PurchasePlan { steps:Vec::new(), final_evaluation:evaluate_inventory(hero,&[],cfg), ability_order:order.to_vec(),saving_decisions:Vec::new(), assumptions:vec![
+        "Feste globale Seelen-Checkpoints, unabhängig von Kandidatenpreisen. Das Layout begrenzt Käufe je Kostenband; offene Bänder konkurrieren um das vorhandene Geld. Sparen bleibt eine bewertete Alternative.".into(),
+        "Begrenzte Zweischrittsuche mit vier Kandidaten: aktueller Mehrwert zählt zur Hälfte, der Zustand am nächsten Checkpoint voll. Das ist eine gesetzte Planungspräferenz, kein gemessener Spielverlauf und kein globales Optimum.".into(),
+        "Budget und Levelkurve verwenden dieselben verdienten Szenarioseelen. Anfangsgeld, Einnahmetempo, Zeitverluste und zusätzliche AP aus Spielereignissen werden nicht erfunden. Verkäufe verändern nur Ausgaben, nicht den Fortschritt.".into(),
+        format!("Inventarregel: {} universelle Plätze und höchstens vier aktive Items; Verkaufserlös {:.0}%. Freischaltzeitpunkte von Inventarplätzen und Kulanz-Erstattungen bleiben unmodelliert.",rules.max_slots,rules.resale_fraction*100.0),
+    ]};
+    if economy.checkpoints.is_empty()
+        || economy.checkpoints.iter().any(|point| *point < 0)
+        || economy
+            .checkpoints
+            .windows(2)
+            .any(|pair| pair[0] >= pair[1])
+    {
+        plan.assumptions
+            .push("Ungültige Budget-Checkpoints: keine Kaufkurve berechnet.".into());
+        return plan;
+    }
     let mut inventory = Inventory::default();
+    let mut bindings = BTreeMap::new();
     let mut used = BTreeSet::new();
-    let mut evaluation = evaluate_inventory(hero, &[], cfg);
-    let mut steps = Vec::new();
-    let mut skipped = 0;
-    for (index, tier) in schedule.iter().copied().enumerate() {
-        let choices = search.choices(&inventory, &used, tier, budgets[index], evaluation.score);
-        let mut beam = choices
-            .into_iter()
-            .take(BEAM_WIDTH)
-            .map(|step| {
-                let immediate = search.supported_value(&step, tier);
-                let mut horizon = immediate;
-                if let Some(next_tier) = schedule.get(index + 1) {
+    let mut remaining = layout
+        .bands
+        .iter()
+        .map(|(tier, band)| (*tier, band.target))
+        .collect::<BTreeMap<_, _>>();
+    for (index, earned) in economy.checkpoints.iter().copied().enumerate() {
+        if remaining.values().all(|count| *count == 0) {
+            break;
+        }
+        loop {
+            let Some(before) = search.evaluate(&inventory, earned, &bindings) else {
+                plan.assumptions
+                    .push("Ungültiger Inventar-/Kampfzustand beendet die Kaufplanung.".into());
+                return plan;
+            };
+            let choices = search.choices(
+                &inventory,
+                &used,
+                &remaining,
+                earned,
+                before.score,
+                &bindings,
+            );
+            let next_earned = economy.checkpoints.get(index + 1).copied();
+            let future_before = next_earned
+                .and_then(|next| search.evaluate(&inventory, next, &bindings))
+                .map(|evaluation| evaluation.score)
+                .unwrap_or(before.score);
+            let save_value = if let Some(next) = next_earned {
+                search
+                    .choices(
+                        &inventory,
+                        &used,
+                        &remaining,
+                        next,
+                        future_before,
+                        &bindings,
+                    )
+                    .first()
+                    .map(|step| search.supported_value(step))
+                    .unwrap_or(0.0)
+            } else {
+                0.0
+            };
+            let mut beam = Vec::new();
+            for step in choices.into_iter().take(BEAM_WIDTH) {
+                let mut horizon = search.supported_value(&step);
+                if let Some(next) = next_earned {
                     let mut next_used = used.clone();
                     next_used.insert(step.transition.purchased_id);
-                    if let Some(next) = search
-                        .choices(
-                            &step.transition.after,
-                            &next_used,
-                            *next_tier,
-                            budgets[index + 1],
-                            step.evaluation.score,
-                        )
-                        .first()
+                    let mut next_remaining = remaining.clone();
+                    let tier = catalog
+                        .iter()
+                        .find(|item| item.item.item_id == step.transition.purchased_id)
+                        .map(|item| item.item.tier)
+                        .unwrap_or(0);
+                    if let Some(count) = next_remaining.get_mut(&tier) {
+                        *count = count.saturating_sub(1);
+                    }
+                    if let Some(future) =
+                        search.evaluate(&step.transition.after, next, &step.imbue_targets)
                     {
-                        horizon += 0.5 * search.supported_value(next, *next_tier);
+                        let next_gain = search
+                            .choices(
+                                &step.transition.after,
+                                &next_used,
+                                &next_remaining,
+                                next,
+                                future.score,
+                                &step.imbue_targets,
+                            )
+                            .first()
+                            .map(|step| search.supported_value(step))
+                            .unwrap_or(0.0);
+                        horizon = 0.5 * horizon + future.score - future_before + next_gain;
                     }
                 }
-                (step, horizon)
-            })
-            .collect::<Vec<_>>();
-        beam.sort_by(|(left, left_value), (right, right_value)| {
-            right_value.total_cmp(left_value).then_with(|| {
-                left.transition
-                    .purchased_id
-                    .cmp(&right.transition.purchased_id)
-            })
-        });
-        let Some((mut step, _)) = beam.into_iter().next() else {
-            skipped += 1;
-            continue;
-        };
-        if step.marginal_value <= evaluation.score.abs().max(1.0) * 1e-9 {
-            skipped += 1;
-            continue;
+                beam.push((step, horizon));
+            }
+            beam.sort_by(|(left, l), (right, r)| {
+                r.total_cmp(l).then_with(|| {
+                    left.transition
+                        .purchased_id
+                        .cmp(&right.transition.purchased_id)
+                })
+            });
+            let Some((mut step, buy_value)) = beam.into_iter().next() else {
+                plan.saving_decisions.push(SavingDecision { earned_souls:earned,available_souls:earned-inventory.spent_souls,reason:"Kein bezahlbarer Kauf mit positivem gemeinsamen Mehrwert; Geld bleibt verfügbar.".into() });
+                break;
+            };
+            if save_value > buy_value + before.score.abs().max(1.0) * 1e-9 {
+                plan.saving_decisions.push(SavingDecision { earned_souls:earned,available_souls:earned-inventory.spent_souls,reason:"Sparen ermöglicht am nächsten Checkpoint den stärkeren gemeinsamen Zustand als Kauf plus Folgeentscheidung.".into() });
+                break;
+            }
+            if let Err(error) = inventory.apply_transition(&step.transition) {
+                plan.assumptions.push(format!(
+                    "Kaufplanung wegen ungültigem Übergang beendet: {error}"
+                ));
+                return plan;
+            }
+            let (progressed, evidence) = at_souls(hero, order, earned, cfg);
+            let held = match inventory.held_items(&search.catalog) {
+                Ok(held) => held,
+                Err(error) => {
+                    plan.assumptions
+                        .push(format!("Kaufbeleg kann nicht erstellt werden: {error}"));
+                    return plan;
+                }
+            };
+            step.evaluation =
+                evaluate_inventory_with_bindings(&progressed, &held, cfg, &step.imbue_targets);
+            bindings = step.imbue_targets.clone();
+            step.progression = evidence;
+            used.insert(step.transition.purchased_id);
+            if let Some(tier) = catalog
+                .iter()
+                .find(|item| item.item.item_id == step.transition.purchased_id)
+                .map(|item| item.item.tier)
+            {
+                if let Some(count) = remaining.get_mut(&tier) {
+                    *count = count.saturating_sub(1);
+                }
+            }
+            plan.final_evaluation = step.evaluation.clone();
+            plan.steps.push(step);
+            if remaining.values().all(|count| *count == 0) {
+                break;
+            }
         }
-        if inventory.apply_transition(&step.transition).is_err() {
-            skipped += 1;
-            continue;
-        }
-        used.insert(step.transition.purchased_id);
-        if let Ok(held) = inventory.held_items(&search.catalog) {
-            step.evaluation = evaluate_inventory(hero, &held, cfg);
-        }
-        evaluation = step.evaluation.clone();
-        steps.push(step);
     }
-    PurchasePlan {
-        steps,
-        final_evaluation: evaluation,
-        assumptions: vec![
-            "Kaufplanung mit vier Kandidaten und einem weiteren Kauf als Vorschau; begrenzte Suche, kein Beweis für das globale Optimum. Frühe Käufe gewichten gemeinsamen Mehrwert je Seele, spätere den Mehrwert im verfügbaren Inventar.".into(),
-            format!("Kaufstufen folgen dem beobachteten Layout. Das Seelenbudget je Stufe ist die kumulierte Obergrenze der Kandidatenpreise, kein gemessener Spielzeitpunkt. {skipped} geplante Käufe ohne positiven zulässigen Übergang ausgelassen."),
-            format!("Inventarregel: {} universelle Plätze, Verkaufserlös {:.0}% des Gesamtpreises; Verkaufsentscheidungen berücksichtigen den verlorenen gemeinsamen Nutzen. Freischaltzeitpunkte und Kulanz-Erstattungen werden nicht simuliert.", rules.max_slots, rules.resale_fraction * 100.0),
-        ],
+    if let Some(last) = plan.steps.last() {
+        plan.assumptions
+            .extend(last.progression.assumptions.iter().cloned());
+        plan.assumptions
+            .extend(last.progression.unknown_effects.iter().cloned());
     }
+    plan.assumptions.push(format!(
+        "{} ungefüllte Layoutplätze am letzten Budgetpunkt. Keine unbezahlbaren Käufe ergänzt.",
+        remaining.values().sum::<usize>()
+    ));
+    plan
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -352,17 +531,134 @@ mod tests {
             &BTreeMap::new(),
             &cfg,
         );
-        assert_eq!(plan.steps.len(), 2);
-        let replacement = &plan.steps[1];
+        assert_eq!(plan.steps.len(), 1);
+        assert_eq!(plan.steps[0].transition.purchased_id, 2);
+        assert_eq!(plan.steps[0].progression.earned_souls, 1600);
+        assert!(plan
+            .saving_decisions
+            .iter()
+            .any(|decision| decision.earned_souls == 800
+                && decision.reason.starts_with("Sparen ermöglicht")));
+        let before = Inventory {
+            held_ids: BTreeSet::from([1]),
+            spent_souls: 800,
+        };
+        let prior = evaluate_inventory(&hero, std::slice::from_ref(&items[0].item), &cfg);
+        let combinations = BTreeMap::new();
+        let mut search = Search {
+            hero: &hero,
+            cfg: &cfg,
+            order: &[],
+            catalog: items.iter().map(|item| item.item.clone()).collect(),
+            candidates: &candidates,
+            rules: &rules,
+            combinations: &combinations,
+            cache: BTreeMap::new(),
+            progression_cache: BTreeMap::new(),
+        };
+        let choices = search.choices(
+            &before,
+            &BTreeSet::from([1]),
+            &BTreeMap::from([(2, 1)]),
+            2400,
+            prior.score,
+            &BTreeMap::new(),
+        );
+        let replacement = &choices[0];
         assert_eq!(replacement.transition.sold_ids, [1]);
         assert_eq!(replacement.transition.after.held_ids, BTreeSet::from([2]));
         assert_eq!(replacement.transition.after.spent_souls, 2000);
         let standalone = evaluate_inventory(&hero, &[items[1].item.clone()], &cfg);
-        assert_eq!(replacement.evaluation, standalone);
-        assert!(
-            (replacement.marginal_value - (standalone.score - plan.steps[0].evaluation.score))
-                .abs()
-                < 1e-9
+        assert_eq!(replacement.evaluation.score, standalone.score);
+        assert!((replacement.marginal_value - (standalone.score - prior.score)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn later_unlock_keeps_the_binding_chosen_at_purchase() {
+        let mut hero = hero();
+        hero.level_curve = vec![
+            crate::LevelPoint {
+                level: 1,
+                required_souls: 0,
+            },
+            crate::LevelPoint {
+                level: 2,
+                required_souls: 200,
+            },
+            crate::LevelPoint {
+                level: 3,
+                required_souls: 500,
+            },
+        ];
+        hero.level_rewards = BTreeMap::from([
+            (1, vec!["EAbilityUnlocks".into()]),
+            (2, vec!["EAbilityPoints".into()]),
+            (3, vec!["EAbilityUnlocks".into()]),
+        ]);
+        let ability = |id, damage, cooldown| {
+            serde_json::from_value(serde_json::json!({"ability_id":id,"class_name":format!("ability_{id}"),"slot":1,"roles":["Damage"],"scaling":[],"channel_time":null,"charges":1,"cooldown":cooldown,"scaling_step":null,"damage_type":"Spirit","base_effect":damage,"properties":{"Damage":damage,"AbilityCooldown":cooldown}})).unwrap()
+        };
+        hero.abilities = vec![ability(10, 60.0, 10.0), ability(20, 200.0, 2.0)];
+        let order = vec![
+            AbilityStep {
+                ability_id: 10,
+                currency_type: 2,
+                delta: -1,
+            },
+            AbilityStep {
+                ability_id: 20,
+                currency_type: 2,
+                delta: -1,
+            },
+        ];
+        let mut items = vec![item(1, 100.0, 1.0), item(2, 20.0, 1.0)];
+        items[0].item.cost = 100;
+        items[0].item.imbueable = true;
+        items[1].item.cost = 1000;
+        let candidates = items.iter().collect::<Vec<_>>();
+        let mut layout = CoreLayoutStats::default();
+        layout.bands.insert(
+            1,
+            crate::CoreLayoutBand {
+                tier: 1,
+                median: 2.0,
+                lower_quartile: 2.0,
+                upper_quartile: 2.0,
+                target: 2,
+            },
+        );
+        let rules = InventoryRules::from_catalog(
+            &items
+                .iter()
+                .map(|item| item.item.clone())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+        let cfg = ReasonerConfig::default();
+        let plan = plan_with_economy(
+            &hero,
+            &items,
+            &candidates,
+            &cfg,
+            PlanningContext {
+                layout: &layout,
+                rules: &rules,
+                combinations: &BTreeMap::new(),
+                order: &order,
+                economy: &EconomyPolicy {
+                    checkpoints: vec![100, 800, 1600],
+                },
+            },
+        );
+        assert_eq!(plan.steps.len(), 2);
+        assert_eq!(plan.steps[0].progression.earned_souls, 100);
+        assert_eq!(plan.steps[0].imbue_targets.get(&1), Some(&10));
+        assert!(plan.steps[1].progression.ability_ranks.contains_key(&20));
+        assert_eq!(plan.steps[1].imbue_targets.get(&1), Some(&10));
+        let (later, _) = at_souls(&hero, &order, 1600, &cfg);
+        assert_eq!(
+            crate::mechanics::imbue_target(&items[0].item, &later, &cfg),
+            Some(20)
         );
     }
 }
