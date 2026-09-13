@@ -261,6 +261,7 @@ mod tests {
                 sustained_dps: 0.0,
             },
             abilities: vec![AbilityModel {
+                item_proc_disabled: false,
                 upgrades: Default::default(),
                 properties: Default::default(),
                 ability_id: 100,

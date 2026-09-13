@@ -754,6 +754,7 @@ mod tests {
 
     fn channel() -> AbilityModel {
         AbilityModel {
+            item_proc_disabled: false,
             upgrades: Default::default(),
             properties: Default::default(),
             ability_id: 1,
@@ -1287,6 +1288,7 @@ mod tests {
         let mut hero = hero();
         hero.abilities = vec![
             AbilityModel {
+                item_proc_disabled: false,
                 upgrades: Default::default(),
                 properties: Default::default(),
                 ability_id: 1,
@@ -1308,6 +1310,7 @@ mod tests {
                 duration: None,
             },
             AbilityModel {
+                item_proc_disabled: false,
                 upgrades: Default::default(),
                 properties: Default::default(),
                 ability_id: 2,

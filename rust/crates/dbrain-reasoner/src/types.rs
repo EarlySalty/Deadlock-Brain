@@ -142,6 +142,8 @@ pub struct ScalingStep {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AbilityModel {
     #[serde(default)]
+    pub item_proc_disabled: bool,
+    #[serde(default)]
     pub upgrades: Vec<serde_json::Value>,
     #[serde(default)]
     pub properties: BTreeMap<String, f64>,
@@ -176,11 +178,11 @@ pub struct HeroModel {
     #[serde(default)]
     pub base_spirit_power: f64,
     #[serde(default)]
-    pub standard_level_up_upgrades: BTreeMap<String,f64>,
+    pub standard_level_up_upgrades: BTreeMap<String, f64>,
     #[serde(default)]
     pub standard_upgrade_levels: BTreeSet<i64>,
     #[serde(default)]
-    pub level_rewards: BTreeMap<i64,Vec<String>>,
+    pub level_rewards: BTreeMap<i64, Vec<String>>,
     #[serde(default)]
     pub cost_bonuses: BTreeMap<String, Vec<CostBonus>>,
     pub hero_id: i64,
@@ -521,4 +523,7 @@ mod tests {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct CostBonus { pub gold_threshold: i64, pub bonus: f64 }
+pub struct CostBonus {
+    pub gold_threshold: i64,
+    pub bonus: f64,
+}
