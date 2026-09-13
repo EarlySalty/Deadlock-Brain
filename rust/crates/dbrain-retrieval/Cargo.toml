@@ -9,7 +9,7 @@ path = "src/lib.rs"
 
 [dependencies]
 deadlock-brain-core = { path = "../deadlock-brain-core" }
-dbrain-builds = { path = "../dbrain-builds" }
+dbrain-reasoner = { path = "../dbrain-reasoner" }
 chrono = { workspace = true }
 regex.workspace = true
 serde.workspace = true

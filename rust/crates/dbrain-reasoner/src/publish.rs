@@ -8,7 +8,8 @@ use dbrain_builds::spec::{AbilityOrderEntry, BuildSpecCategory, BuildSpecMod, Bu
 
 fn category_name(block: &SituationBlock) -> String {
     match block.kind {
-        SituationKind::CanBuyN(count) => format!("Can buy {count}"),
+        SituationKind::CanBuyN(1) => "Ein Item nach Bedarf".to_string(),
+        SituationKind::CanBuyN(count) => format!("Bis zu {count} Items nach Bedarf"),
         _ => block.label.clone(),
     }
 }
@@ -22,7 +23,18 @@ fn category_description(items: &[BuildItem]) -> Option<String> {
         .filter(|detail| !detail.is_empty())
         .take(3)
         .collect::<Vec<_>>();
-    (!details.is_empty()).then(|| details.join("; "))
+    (!details.is_empty()).then(|| {
+        let description = details
+            .join("; ")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        if description.chars().count() > 400 {
+            format!("{}…", description.chars().take(399).collect::<String>())
+        } else {
+            description
+        }
+    })
 }
 
 fn mod_spec(item: &BuildItem) -> BuildSpecMod {
@@ -36,11 +48,9 @@ fn mod_spec(item: &BuildItem) -> BuildSpecMod {
 
 pub fn to_publish_payload(build: &BuildObject) -> BuildSpecPayload {
     let core = BuildSpecCategory {
-        name: "Core".to_string(),
+        name: "Kern".to_string(),
         optional: false,
-        description: (!build.rationale.trim().is_empty())
-            .then(|| build.rationale.clone())
-            .or_else(|| category_description(&build.core)),
+        description: category_description(&build.core),
         width: Some(780.0),
         height: Some(260.0),
         mods: build.core.iter().map(mod_spec).collect(),
@@ -138,7 +148,13 @@ mod tests {
         let payload = to_publish_payload(&build);
         assert_eq!(payload.mod_categories[0].mods[0].imbue, Some(100));
         assert_eq!(payload.mod_categories[0].mods[0].sell_priority, Some(2));
-        assert_eq!(payload.mod_categories[1].name, "Can buy 1");
+        assert_eq!(payload.mod_categories[0].name, "Kern");
+        assert_eq!(
+            payload.mod_categories[0].description.as_deref(),
+            Some("Mechanik")
+        );
+        assert_eq!(payload.description, "Rationale");
+        assert_eq!(payload.mod_categories[1].name, "Ein Item nach Bedarf");
         assert_eq!(payload.mod_categories[1].width, Some(780.0));
         assert_eq!(payload.mod_categories[1].height, Some(260.0));
         assert_eq!(payload.ability_order.as_ref().unwrap()[0].ability_id, 100);

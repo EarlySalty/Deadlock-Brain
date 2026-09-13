@@ -9,8 +9,7 @@ use std::{
 
 pub use deadlock_brain_core as core;
 
-use dbrain_builds::BuildContext;
-use deadlock_brain_core::build_narration;
+use dbrain_reasoner::{BuildObject, BuyPhase, ReasonerConfig, ReasonerCtx, ReasonerOptions};
 use regex::Regex;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use sqlx::{
@@ -1173,42 +1172,124 @@ fn compact_patch_override(change: &JsonValue) -> Option<JsonValue> {
 async fn ask_build_context(pool: &PgPool, query: &str, plan: &QueryPlan) -> Result<JsonValue> {
     let hero_query = resolved_plan_entity_name(plan).unwrap_or_else(|| query.trim().to_string());
     let playstyle = detect_build_playstyle(query);
-    let build_context = load_build_context(pool, &hero_query, playstyle.as_deref()).await?;
-    let prompt = build_narration::build_narration_user_prompt(&build_context)
-        .map_err(|err| RetrievalError::Invalid(format!("build narration prompt failed: {err}")))?;
-    let narration = build_narration::narrate_build(&build_context)
-        .map_err(|err| RetrievalError::Invalid(format!("build narration failed: {err}")))?;
-    let known_item_names = load_known_item_names(pool).await?;
-    let validation =
-        build_narration::validate_narration(&narration, &build_context, &known_item_names);
-    let result_text = narration.clone();
+    let ctx = ReasonerCtx {
+        pool: pool.clone(),
+        ai: None,
+        config: ReasonerConfig {
+            use_ai: false,
+            ..Default::default()
+        },
+    };
+    let build_context = dbrain_reasoner::reason_build_with_options(
+        &ctx,
+        &hero_query,
+        ReasonerOptions {
+            seed_path: None,
+            persist: false,
+        },
+    )
+    .await
+    .map_err(|err| {
+        RetrievalError::Invalid(format!("Build konnte nicht berechnet werden: {err}"))
+    })?;
+    let result_text = explain_reasoner_build(&build_context, playstyle.as_deref());
+    let validation = json!({"text": result_text, "violations": []});
+    let prompt = format!(
+        "Erkläre diesen berechneten Deadlock-Build auf Deutsch. Übernimm Items, Reihenfolge, Zahlen und Begründungen aus dem Kontext. Erfinde keine Mechaniken oder Varianten.\n\nBUILD_CONTEXT_JSON:\n{}",
+        serde_json::to_string(&build_context)
+            .map_err(|err| RetrievalError::Invalid(format!("Build-Kontext konnte nicht serialisiert werden: {err}")))?
+    );
 
     Ok(json!({
         "query": query,
         "intent": plan.intent.clone(),
         "entity": plan.entities.first().cloned().unwrap_or(JsonValue::Null),
         "build_context": build_context,
+        "build_context_schema": "reasoner_build_v1",
         "result_text": result_text,
         "validation": validation,
         "prompt": prompt,
-        "sources": [],
+        "sources": build_context.core.iter().chain(build_context.situations.iter().flat_map(|block| block.items.iter())).flat_map(|item| item.sources.iter()).collect::<Vec<_>>(),
         "retrieval_meta": {
-            "route": "build_engine",
+            "route": "build_reasoner",
             "context_query": hero_query,
-            "playstyle": playstyle,
+            "playstyle": null,
+            "requested_playstyle": playstyle,
+            "playstyle_applied": false,
         },
     }))
 }
 
-async fn load_build_context(
-    pool: &PgPool,
-    hero_query: &str,
-    playstyle: Option<&str>,
-) -> Result<BuildContext> {
-    dbrain_builds::build_context(pool, hero_query, playstyle).await
-        .map_err(|err| RetrievalError::Invalid(format!("build context failed: {err}")))
+fn explain_reasoner_build(build: &BuildObject, requested_playstyle: Option<&str>) -> String {
+    let mut sections = vec![format!(
+        "{}: Kaufreihenfolge und Begründung",
+        build.hero_name
+    )];
+    if requested_playstyle.is_some() {
+        sections.push("Das ist der berechnete Meta-Build. Eine eigene Variante für die gewünschte Spielweise ist noch nicht berechnet.".to_string());
+    }
+    if !build.rationale.trim().is_empty() {
+        sections.push(build.rationale.trim().to_string());
+    }
+    for (phase, label) in [
+        (BuyPhase::Lane, "Spielbeginn"),
+        (BuyPhase::Mid, "Mittleres Spiel"),
+        (BuyPhase::Core, "Kern"),
+        (BuyPhase::Late, "Spätes Spiel"),
+    ] {
+        let items = build
+            .core
+            .iter()
+            .filter(|item| item.buy_phase == phase)
+            .collect::<Vec<_>>();
+        if !items.is_empty() {
+            sections.push(format!(
+                "{label}\n{}",
+                explain_reasoner_items(items.into_iter())
+            ));
+        }
+    }
+    for block in &build.situations {
+        if !block.items.is_empty() {
+            sections.push(format!(
+                "{}\n{}",
+                block.label,
+                explain_reasoner_items(block.items.iter())
+            ));
+        }
+    }
+    sections.join("\n\n")
 }
 
+fn explain_reasoner_items<'a>(
+    items: impl Iterator<Item = &'a dbrain_reasoner::BuildItem>,
+) -> String {
+    items
+        .map(|item| {
+            let why = if item.why.trim().is_empty() {
+                item.sources
+                    .iter()
+                    .map(|source| source.detail.trim())
+                    .filter(|detail| !detail.is_empty())
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            } else {
+                item.why.trim().to_string()
+            };
+            if why.is_empty() {
+                format!(
+                    "- {}: Für dieses Item fehlt noch eine belegte Begründung.",
+                    item.name
+                )
+            } else {
+                format!("- {}: {why}", item.name)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[cfg(test)]
 async fn load_known_item_names(pool: &PgPool) -> Result<BTreeSet<String>> {
     let rows = fetch_all(pool, "SELECT name FROM brain.item_catalog", vec![]).await?;
     let mut names = BTreeSet::new();
@@ -6352,6 +6433,51 @@ mod tests {
     use super::*;
 
     use sqlx::postgres::PgPoolOptions;
+
+    #[test]
+    fn reasoner_explanation_keeps_item_order_and_evidence_without_inventing_style() {
+        let item = |id, name: &str, why: &str| dbrain_reasoner::BuildItem {
+            item_id: id,
+            name: name.to_string(),
+            tier: 1,
+            buy_phase: BuyPhase::Lane,
+            why: why.to_string(),
+            confidence: dbrain_reasoner::Confidence::High,
+            imbue_target: None,
+            sell_priority: None,
+            sources: vec![dbrain_reasoner::Evidence {
+                kind: dbrain_reasoner::EvidenceKind::Mechanic,
+                detail: "Belegter Mechanikwert 12,5".to_string(),
+            }],
+        };
+        let build = BuildObject {
+            hero_id: 25,
+            hero_name: "Warden".to_string(),
+            patch_tag: "current".to_string(),
+            name: "Warden".to_string(),
+            core: vec![
+                item(1, "First Item", "Begründung aus dem Reasoner"),
+                item(2, "Second Item", ""),
+            ],
+            situations: vec![dbrain_reasoner::SituationBlock {
+                kind: dbrain_reasoner::SituationKind::Shields,
+                label: "Schutz".to_string(),
+                optional: true,
+                items: vec![item(3, "Shield Item", "Schutz bei Bedarf")],
+            }],
+            ability_order: Vec::new(),
+            confidence: dbrain_reasoner::Confidence::High,
+            rationale: "Belegter Patch-Effekt".to_string(),
+        };
+        let text = explain_reasoner_build(&build, Some("tank"));
+        assert!(text.contains("Belegter Patch-Effekt"));
+        assert!(text.contains("First Item: Begründung aus dem Reasoner"));
+        assert!(text.contains("Second Item: Belegter Mechanikwert 12,5"));
+        assert!(text.find("First Item").unwrap() < text.find("Second Item").unwrap());
+        assert!(text.contains("Schutz\n- Shield Item: Schutz bei Bedarf"));
+        assert!(text.contains("noch nicht berechnet"));
+        assert!(!explain_reasoner_build(&build, None).contains("gewünschte Spielweise"));
+    }
 
     async fn test_pool() -> Option<PgPool> {
         let dsn = std::env::var("DEADLOCK_CENTRAL_DSN").ok()?;
