@@ -99,6 +99,21 @@ impl Inventory {
         if after.held_ids.len() > rules.max_slots {
             return Err(error("Nicht genügend freie Inventarplätze"));
         }
+        let active_count = after
+            .held_ids
+            .iter()
+            .filter(|id| {
+                **id == item.item_id && item.is_active
+                    || catalog
+                        .iter()
+                        .any(|candidate| candidate.item_id == **id && candidate.is_active)
+            })
+            .count();
+        if active_count > 4 {
+            return Err(error(
+                "Szenario erlaubt höchstens vier aktive Items im Inventar",
+            ));
+        }
         let purchase_cost = item.cost - component_credit;
         let net_cost = purchase_cost - sale_return;
         after.spent_souls = after
