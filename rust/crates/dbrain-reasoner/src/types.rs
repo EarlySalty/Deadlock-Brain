@@ -141,6 +141,8 @@ pub struct ScalingStep {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AbilityModel {
+    #[serde(default)]
+    pub properties: BTreeMap<String, f64>,
     pub ability_id: i64,
     pub class_name: String,
     pub slot: i64,
@@ -169,6 +171,8 @@ pub struct DamagePlan {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HeroModel {
+    #[serde(default)]
+    pub cost_bonuses: BTreeMap<String, Vec<CostBonus>>,
     pub hero_id: i64,
     pub name: String,
     pub archetype: String,
@@ -194,6 +198,12 @@ pub enum ConditionKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ItemModel {
+    #[serde(default)]
+    pub component_items: Vec<String>,
+    #[serde(default)]
+    pub class_name: String,
+    #[serde(default)]
+    pub description: String,
     pub item_id: i64,
     pub name: String,
     pub slot: SlotType,
@@ -495,3 +505,6 @@ mod tests {
         assert_eq!(value, json!({"CanBuyN": 1}));
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CostBonus { pub gold_threshold: i64, pub bonus: f64 }

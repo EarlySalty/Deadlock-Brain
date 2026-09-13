@@ -197,6 +197,7 @@ fn fix_e_rejects_score_below_zero_even_with_plausible_field_ratio() {
 
 fn hero() -> HeroModel {
     HeroModel {
+        cost_bonuses: Default::default(),
         hero_id: 25,
         name: "Warden".to_string(),
         archetype: "brawler".to_string(),
