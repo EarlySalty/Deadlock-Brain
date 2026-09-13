@@ -1050,7 +1050,7 @@ mod tests {
             hero_id: 25,
             name: "Warden".to_string(),
             archetype: "brawler".to_string(),
-            base_health: 1.0,
+            base_health: 1000.0,
             level_curve: Vec::new(),
             purchase_bonuses: PurchaseBonuses {
                 spirit: Vec::new(),
