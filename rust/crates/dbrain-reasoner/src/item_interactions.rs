@@ -24,8 +24,13 @@ pub fn has_nearby_aura(item: &ItemModel) -> bool {
     .all(|key| {
         item.properties
             .get(*key)
+            .or_else(|| item.passive_properties.get(*key))
             .is_some_and(|value| value.is_finite())
-    }) && item.properties["SingleTargetPlayerMultiplier"] > 0.0
+    }) && item
+        .properties
+        .get("SingleTargetPlayerMultiplier")
+        .or_else(|| item.passive_properties.get("SingleTargetPlayerMultiplier"))
+        .is_some_and(|value| *value > 0.0)
 }
 
 impl ItemInteraction {
@@ -216,6 +221,12 @@ mod tests {
         assert_eq!(effect.aura_effects(0, true), AuraEffects::default());
         assert!(!effect.handles_property("BonusHealth"));
         assert!(!effect.handles_property("BaseAttackDamagePercent"));
+        let mut passive_only = item.clone();
+        passive_only.passive_properties = std::mem::take(&mut passive_only.properties);
+        assert_eq!(
+            ItemInteraction::from_item(&passive_only).aura_effects(1, true),
+            effect.aura_effects(1, true)
+        );
         let mut missing_range = item;
         missing_range.properties.remove("Radius");
         assert_eq!(
