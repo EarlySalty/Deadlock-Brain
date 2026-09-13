@@ -142,6 +142,8 @@ pub struct ScalingStep {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AbilityModel {
     #[serde(default)]
+    pub upgrades: Vec<serde_json::Value>,
+    #[serde(default)]
     pub properties: BTreeMap<String, f64>,
     pub ability_id: i64,
     pub class_name: String,
@@ -172,6 +174,14 @@ pub struct DamagePlan {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HeroModel {
     #[serde(default)]
+    pub base_spirit_power: f64,
+    #[serde(default)]
+    pub standard_level_up_upgrades: BTreeMap<String,f64>,
+    #[serde(default)]
+    pub standard_upgrade_levels: BTreeSet<i64>,
+    #[serde(default)]
+    pub level_rewards: BTreeMap<i64,Vec<String>>,
+    #[serde(default)]
     pub cost_bonuses: BTreeMap<String, Vec<CostBonus>>,
     pub hero_id: i64,
     pub name: String,
@@ -198,6 +208,8 @@ pub enum ConditionKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ItemModel {
+    #[serde(default)]
+    pub property_spirit_scaling: BTreeMap<String, f64>,
     #[serde(default)]
     pub property_damage_types: BTreeMap<String, DamageType>,
     #[serde(default)]
