@@ -88,3 +88,12 @@ neuen Frozen-Datei an. `plan FROZEN AUSGABE HELDEN` gibt zusätzlich sämtliche
 Inventarübergänge und Kampfszenarien derselben Kaufplanung aus. Eine kommagetrennte
 Heldenauswahl ist für `evaluate`, `sensitivity` und `plan` möglich; unbekannte
 Namen werden abgewiesen. Holdout läuft grundsätzlich über den ganzen Bestand.
+
+V2 ist erfolgreich eingefroren, alle 38 alten BuildObjects stimmen vollständig
+mit der alten Fassade überein, alle geladenen Item-IDs haben einen Rohsnapshot.
+SHA256 `FROZEN-V2.json`:
+`5451b0b4f3cde928f12f09a4ea5f4fa3128c93fd8ca227f8208a1357f6cb7b1a`.
+Die alte Baseline ist reproduzierbar aus `0af63da` plus `BASELINE-V2.patch` in
+diesem Ordner; die Patchdatei enthält ausschließlich die Rohdatenquery und die
+Roh-ID-Vollständigkeitsprüfung. Binary und SHA liegen im Nachweisordner als
+`build-evaluation-baseline-v2-a57382a` und `baseline-v2-binary.sha256`.
