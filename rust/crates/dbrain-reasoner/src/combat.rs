@@ -72,7 +72,7 @@ fn conditional(item: &ItemModel, name: &str) -> bool {
         && (item.conditional_properties.contains(name)
             || name.starts_with("ActiveBonus")
             || name.starts_with("Fervor")
-            || (item.is_active != item.passive_properties.contains_key(name))
+            || (item.is_active && !item.passive_properties.contains_key(name))
             || name.contains("ProcDamage")
             || name.contains("Reduction") && name.contains("Armor"))
 }
@@ -114,7 +114,7 @@ fn apply(stats: &mut Stats, name: &str, v: f64) -> bool {
         "BulletShieldMaxHealth" | "TechShieldMaxHealth" | "CombatBarrier" => stats.shield += v,
         "CooldownReduction" => stats.cooldown = 1.0 - (1.0 - stats.cooldown) * (1.0 - v / 100.0),
         "AbilityDurationPercent" | "TechDuration" | "BonusAbilityDurationPercent" => {
-            stats.duration += v
+            stats.duration += v / 100.0
         }
         "SlowPercent" | "MovementSlow" | "MovementSpeedSlow" | "MoveSpeedSlowPct" => {
             stats.slow = stats.slow.max(v.abs())
@@ -318,6 +318,7 @@ fn evaluate_core(
             }
             if ability.properties.contains_key("LifeDrainHealthMult")
                 || ability.properties.contains_key("HealPctVsHeroes")
+                || ability.properties.contains_key("HealthStealPctHero")
             {
                 unknown.insert(format!("Fähigkeit {}: zusätzliches Item-Lifesteal neben eigener Heilung ist eine unbestätigte Annahme",ability.class_name));
             }
@@ -345,6 +346,8 @@ fn evaluate_core(
                         | "EscapeTime"
                         | "EscapeRange"
                         | "HealPctVsHeroes"
+                        | "HealthStealPctHero"
+                        | "LifeDrainHealthMult"
                 );
                 if !damage
                     && !timing
@@ -375,6 +378,7 @@ fn evaluate_core(
         "Fähigkeiten und Itemladungen starten bereit; es gelten die übergebenen Fähigkeitsstufen und belegten Ladungs-/Abklingzeiten. Kanalisieren und Schießen teilen die verfügbare Kampfzeit.".into(),
         "Lebensschwellen des Ziels folgen dem bereits zugefügten Schaden relativ zum Basisleben des Helden; kein automatischer Zielwechsel. Eigene Gesundheitskosten nutzen den je Fähigkeit ausdrücklich benannten Prozentbezug; unklare Kosten verhindern eine simulierte kostenlose Castfolge.".into(),
         "Gegner startet ohne Resistenzen; eingehender Schaden ist zur Hälfte Waffen- und Spirit-Schaden. Lifesteal zählt höchstens den angenommenen Lebensverlust.".into(),
+        "Effektives Leben ist der zeitlich gemittelte Ressourcenbestand nach Eigenkosten und tatsächlich nutzbarer Heilung; früher Tod beendet weitere Kampfereignisse. Keine gespeicherte Überheilung.".into(),
         "Bewegliches Ziel läuft mit angenommenen 8 m/s aus Kontrollkreisen; Verlangsamung reduziert die zurückgelegte Strecke, Festsetzen stoppt sie. Unbekannte Höhenschäden werden bei Höhe null nicht addiert.".into(),
         "Utility-Modellannahme: Verlangsamung und Lauftempo helfen beim Zielkontakt, bei beweglichem Ziel stärker. Überlappende Verlangsamungen nutzen nur den stärksten Wert.".into(),
         "Shopboni nach Wert der aktuell gehaltenen Items je Kategorie; Verkäufe entfernen deren Bonusanteil. Fehlende Schwellen ergeben keinen erfundenen Bonus.".into(),
@@ -501,7 +505,7 @@ fn simulate(
     let mut item_ultimate_seen = vec![0u64; items.len()];
     let mut delayed_item_hits: Vec<(f64, usize)> = Vec::new();
     let mut health_sum = 0.0;
-    let mut max_health_average = 0.0;
+    let mut last_maximum_health: Option<f64> = None;
     let mut self_damage_sum = 0.0;
     let mut leech_sum = 0.0;
     let spirit_rate = hero
@@ -592,7 +596,14 @@ fn simulate(
                     && last_cast_id == item_targets[idx]
                     && last_cast_id.is_some()
             } else {
-                active(item, time, health_fraction, fired, last_cast, recent_damage)
+                let base_maximum = last_maximum_health.unwrap_or(
+                    (hero.base_health * (1.0 + base_stats.health_pct / 100.0) + base_stats.health)
+                        * (1.0 - base_stats.health_loss.clamp(0.0, 0.99)),
+                );
+                let own_fraction = (base_maximum * health_fraction - self_damage_sum + leech_sum)
+                    .clamp(0.0, base_maximum)
+                    / base_maximum.max(1.0);
+                active(item, time, own_fraction, fired, last_cast, recent_damage)
             };
             let enemy_threshold = value(item, "EnemyLifeThreshold");
             if enemy_threshold > 0.0 {
@@ -658,6 +669,7 @@ fn simulate(
         .max(0.0);
         let current_health = (maximum_health * health_fraction - self_damage_sum + leech_sum)
             .clamp(0.0, maximum_health);
+        last_maximum_health = Some(maximum_health);
         if current_health <= 0.0 {
             if detailed {
                 out.sequence.push(format!(
@@ -701,8 +713,25 @@ fn simulate(
                 {
                     continue;
                 }
-                let damage = (ability.base_effect + damage_scale(ability, stats.spirit)).max(0.0);
-                let cast_time = ability.channel_time.unwrap_or(0.0).max(0.0)
+                let raw_period = periodic_duration(ability);
+                let scaled_period = scaled_periodic_duration(ability, &stats);
+                let damage = (ability.base_effect + damage_scale(ability, stats.spirit)).max(0.0)
+                    * if raw_period > 0.0 {
+                        scaled_period / raw_period
+                    } else {
+                        1.0
+                    };
+                let cast_time = ability
+                    .channel_time
+                    .map(|time| {
+                        if ability.properties.contains_key("AbilityChannelTime") {
+                            ability_value(ability, "AbilityChannelTime", &stats)
+                        } else {
+                            time
+                        }
+                    })
+                    .unwrap_or(0.0)
+                    .max(0.0)
                     + ability
                         .properties
                         .get("AbilityCastDelay")
@@ -727,7 +756,7 @@ fn simulate(
                         .copied()
                         .unwrap_or(0.0)
                         .max(0.0);
-                let effect_duration = periodic_duration(ability);
+                let effect_duration = scaled_period;
                 let complete = if effect_duration > 0.0 {
                     ((window - time - start_delay) / effect_duration).clamp(0.0, 1.0)
                 } else if time + start_delay < window {
@@ -766,7 +795,7 @@ fn simulate(
                 self_damage_sum +=
                     self_damage_cost(ability, damage, current_health, stats.spirit_resist)
                         .unwrap_or(0.0);
-                let effect_time = periodic_duration(ability);
+                let effect_time = scaled_periodic_duration(ability, &stats);
                 let start_delay = ability
                     .properties
                     .get("AbilityCastDelay")
@@ -796,6 +825,7 @@ fn simulate(
                         heal: ability
                             .properties
                             .get("LifeDrainHealthMult")
+                            .or_else(|| ability.properties.get("HealthStealPctHero"))
                             .copied()
                             .unwrap_or(0.0)
                             / 100.0,
@@ -812,11 +842,7 @@ fn simulate(
                             .unwrap_or(0.0),
                         damage,
                         damage_type: ability.damage_type.clone(),
-                        root: ability
-                            .properties
-                            .get("ImmobilizeDuration")
-                            .copied()
-                            .unwrap_or(0.0),
+                        root: ability_value(ability, "ImmobilizeDuration", &stats),
                     });
                 } else {
                     pending_hits.push(HitEvent {
@@ -874,9 +900,13 @@ fn simulate(
                     {
                         continue;
                     }
-                    let duration = effect_duration(ability, key) * (1.0 + stats.duration / 100.0);
+                    let duration = effect_duration(ability, key, &stats);
                     if duration > 0.0 {
-                        ability_effects.push((time + duration, key.clone(), *v));
+                        ability_effects.push((
+                            time + duration,
+                            key.clone(),
+                            ability_value(ability, key, &stats),
+                        ));
                     }
                 }
                 if detailed && out.sequence.len() < 16 {
@@ -1165,23 +1195,15 @@ fn simulate(
             * (1.0 - stats.bullet_resist.clamp(-1.0, 0.9))
             * (1.0 - stats.enemy_weapon_penalty.clamp(0.0, 0.9))
             + 0.5 * (1.0 - stats.spirit_resist.clamp(-1.0, 0.9));
-        max_health_average += health * duration / window;
-        health_sum += (health + stats.shield.max(0.0)) / mitigation * duration / window;
         leech_sum += gun_damage * stats.bullet_leech.max(0.0) / 100.0
             + stats.regeneration.max(0.0) * duration;
         leech_sum = leech_sum.min(self_damage_sum + health * (1.0 - health_fraction));
+        health_sum += (health + stats.shield.max(0.0) + leech_sum - self_damage_sum) / mitigation
+            * duration
+            / window;
         out.spirit_power += stats.spirit * duration / window;
     }
-    out.effective_health = health_sum
-        + leech_sum.min(
-            self_damage_sum
-                + if pressure {
-                    max_health_average * 0.85
-                } else {
-                    max_health_average * 0.3
-                },
-        )
-        - self_damage_sum;
+    out.effective_health = health_sum;
     out
 }
 fn periodic_duration(ability: &AbilityModel) -> f64 {
@@ -1262,15 +1284,60 @@ fn target_contact(stats: &Stats, moving: bool) -> f64 {
         (0.65 + stats.slow.clamp(0.0, 100.0) / 100.0 * 0.5 + stats.speed.max(0.0) / 20.0).min(1.0)
     }
 }
-fn effect_duration(ability: &AbilityModel, key: &str) -> f64 {
-    let value = |key: &str| ability.properties.get(key).copied().unwrap_or(0.0);
+fn ability_value(ability: &AbilityModel, key: &str, stats: &Stats) -> f64 {
+    let value = ability.properties.get(key).copied().unwrap_or(0.0)
+        + ability
+            .scaling
+            .iter()
+            .filter(|scale| scale.stat == key)
+            .filter_map(|scale| scale.per_spirit)
+            .map(|scale| scale * stats.spirit)
+            .sum::<f64>();
+    if ability.duration_scaling.contains(key) {
+        value * (1.0 + stats.duration)
+    } else {
+        value
+    }
+}
+fn scaled_periodic_duration(ability: &AbilityModel, stats: &Stats) -> f64 {
+    let base = periodic_duration(ability);
+    if [
+        "AbilityDuration",
+        "AbilityChannelTime",
+        "BurnDuration",
+        "TurretLifetime",
+        "MinShockDuration",
+        "DebuffDuration",
+    ]
+    .iter()
+    .any(|key| {
+        ability.duration_scaling.contains(*key)
+            && ability.properties.get(*key).copied() == Some(base)
+    }) {
+        base * (1.0 + stats.duration)
+    } else {
+        base
+    }
+}
+fn effect_duration(ability: &AbilityModel, key: &str, stats: &Stats) -> f64 {
+    let value = |key: &str| ability_value(ability, key, stats);
+    let generic_duration = ability
+        .duration
+        .map(|duration| {
+            if ability.duration_scaling.contains("AbilityDuration") {
+                duration * (1.0 + stats.duration)
+            } else {
+                duration
+            }
+        })
+        .unwrap_or(0.0);
     match key {
         "SlowPercent" | "MovementSlow" | "MovementSpeedSlow" | "MoveSpeedSlowPct" => {
-            value("SlowDuration").max(ability.duration.unwrap_or(0.0))
+            value("SlowDuration").max(generic_duration)
         }
-        "WeaponPowerDebuff" => value("DebuffDuration").max(ability.duration.unwrap_or(0.0)),
+        "WeaponPowerDebuff" => value("DebuffDuration").max(generic_duration),
         "ImmobilizeDuration" | "StunDuration" | "RootDuration" => value(key),
-        _ => ability.duration.unwrap_or(0.0),
+        _ => generic_duration,
     }
 }
 fn ability_utility_value(
@@ -1283,9 +1350,9 @@ fn ability_utility_value(
 ) -> f64 {
     let mut prospective = stats.clone();
     let mut duration: f64 = 0.0;
-    for (key, v) in &ability.properties {
-        if apply(&mut prospective, key, *v) {
-            duration = duration.max(effect_duration(ability, key));
+    for key in ability.properties.keys() {
+        if apply(&mut prospective, key, ability_value(ability, key, stats)) {
+            duration = duration.max(effect_duration(ability, key, stats));
         }
     }
     let output = |s: &Stats| {
@@ -1433,6 +1500,7 @@ pub(crate) mod tests {
     fn ability(id: i64, damage: f64, cooldown: f64) -> AbilityModel {
         AbilityModel {
             item_proc_disabled: false,
+            duration_scaling: Default::default(),
             ability_id: id,
             upgrades: vec![],
             properties: BTreeMap::from([
@@ -1456,7 +1524,7 @@ pub(crate) mod tests {
     #[test]
     fn self_damage_cannot_fund_free_casts_and_rotation_stops_on_death() {
         let mut hero = hero();
-        let mut bomb = ability(99, 1000.0, 0.2);
+        let mut bomb = ability(99, 1800.0, 0.2);
         bomb.class_name = "ability_blood_bomb".into();
         bomb.properties.insert("SelfDamagePct".into(), 30.0);
         hero.abilities = vec![bomb];
@@ -1667,6 +1735,7 @@ pub(crate) mod tests {
         let mut hero = hero();
         hero.abilities.push(AbilityModel {
             item_proc_disabled: false,
+            duration_scaling: Default::default(),
             ability_id: 9,
             properties: BTreeMap::new(),
             upgrades: Default::default(),
@@ -1852,6 +1921,7 @@ pub(crate) mod tests {
         hero.weapon.clip_size = 1000.0;
         hero.abilities.push(AbilityModel {
             item_proc_disabled: false,
+            duration_scaling: Default::default(),
             ability_id: 2,
             properties: BTreeMap::new(),
             upgrades: Default::default(),

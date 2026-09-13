@@ -144,6 +144,8 @@ pub struct AbilityModel {
     #[serde(default)]
     pub item_proc_disabled: bool,
     #[serde(default)]
+    pub duration_scaling: BTreeSet<String>,
+    #[serde(default)]
     pub upgrades: Vec<serde_json::Value>,
     #[serde(default)]
     pub properties: BTreeMap<String, f64>,

@@ -262,6 +262,7 @@ mod tests {
             },
             abilities: vec![AbilityModel {
                 item_proc_disabled: false,
+                duration_scaling: Default::default(),
                 upgrades: Default::default(),
                 properties: Default::default(),
                 ability_id: 100,
