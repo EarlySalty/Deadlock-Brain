@@ -106,6 +106,8 @@ pub fn at_souls(
         }
     }
     evidence.assumptions.push("Fortschritt verwendet die tatsächlich gespeicherten Seelenschwellen und Levelbelohnungen. Verdiente Seelen sind vom ausgegebenen Geld getrennt; Verkäufe senken weder Level noch Skillrang. Keine Aussage über Spielminuten.".into());
+    hero.weapon.sustained_dps =
+        crate::mechanics::weapon_dps(&hero.weapon, cfg.combat_window_seconds);
     if order.is_empty() {
         evidence.assumptions.push("Keine belegte Skillfolge: alle Basisfähigkeiten bleiben ein Vergleichsszenario; es werden keine Fähigkeitenränge erfunden.".into());
         hero.damage_plan = crate::mechanics::damage_plan(&hero, cfg);
@@ -166,8 +168,6 @@ pub fn at_souls(
     }
     hero.abilities
         .retain(|ability| unlocked.contains(&ability.ability_id));
-    hero.weapon.sustained_dps =
-        crate::mechanics::weapon_dps(&hero.weapon, cfg.combat_window_seconds);
     hero.damage_plan = crate::mechanics::damage_plan(&hero, cfg);
     (hero, evidence)
 }
@@ -330,6 +330,15 @@ mod tests {
         assert_eq!(evidence.unspent_ability_points, 0);
         assert_eq!(ready.base_health, 900.0);
         assert!((ready.weapon.bullet_damage - 21.4).abs() < 1e-9);
+        let (without_order, _) = at_souls(&hero, &[], 2000, &cfg);
+        assert_eq!(
+            without_order.weapon.bullet_damage,
+            ready.weapon.bullet_damage
+        );
+        assert_eq!(
+            without_order.weapon.sustained_dps,
+            ready.weapon.sustained_dps
+        );
     }
 
     #[test]
