@@ -1579,11 +1579,7 @@ fn simulate(
         }
     }
     let elapsed = out.elapsed_seconds.max(dt);
-    out.effective_health = if out.end_reason == CombatEndReason::SelfDefeated {
-        health_sum
-    } else {
-        health_sum * window / elapsed
-    };
+    out.effective_health = health_sum;
     out.spirit_power *= window / elapsed;
     out.damage_per_second = (out.weapon_damage + out.ability_damage + out.proc_damage) / elapsed;
     out.damage_score = (out.weapon_damage + out.ability_damage + out.proc_damage)
@@ -1956,7 +1952,8 @@ pub(crate) mod tests {
         assert_eq!(duel.first_ttk, Some(0.2));
         assert_eq!(duel.elapsed_seconds, 0.2);
         assert_eq!(duel.damage_per_second, 3000.0);
-        assert!((duel.survival_score - 150.0).abs() < 1e-8);
+        assert_eq!(duel.effective_health, 30.0);
+        assert!((duel.survival_score - 7.5).abs() < 1e-8);
         assert_eq!(chain.ability_damage, 600.0);
         assert_eq!(chain.casts[&1], 1);
         assert_eq!(chain.target_switches, 1);
@@ -1965,6 +1962,29 @@ pub(crate) mod tests {
             result.score,
             evaluate_inventory_fast(&hero, &[], &cfg).score
         );
+    }
+    #[test]
+    fn faster_kills_earn_damage_credit_but_not_survival_credit() {
+        let mut slow = hero();
+        slow.weapon.bullet_damage = 50.0;
+        let mut fast = hero();
+        fast.weapon.bullet_damage = 150.0;
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 20.0,
+            ..ReasonerConfig::default()
+        };
+        let slow = &evaluate_inventory(&slow, &[], &cfg).scenarios[0];
+        let fast = &evaluate_inventory(&fast, &[], &cfg).scenarios[0];
+        assert_eq!(slow.end_reason, CombatEndReason::TargetDefeated);
+        assert_eq!(fast.end_reason, CombatEndReason::TargetDefeated);
+        assert!((slow.elapsed_seconds - 2.4).abs() < 1e-8);
+        assert!((fast.elapsed_seconds - 0.8).abs() < 1e-8);
+        assert!((slow.damage_per_second - 250.0).abs() < 1e-8);
+        assert!((fast.damage_per_second - 750.0).abs() < 1e-8);
+        assert!((slow.effective_health - 72.0).abs() < 1e-8);
+        assert!((fast.effective_health - 24.0).abs() < 1e-8);
+        assert!(fast.survival_score < slow.survival_score);
+        assert!(fast.damage_score > slow.damage_score);
     }
     #[test]
     fn dead_target_has_no_dot_or_lifesteal_and_new_targets_reset_health_threshold() {
@@ -2408,7 +2428,14 @@ pub(crate) mod tests {
     fn max_health_loss_applies_to_bonus_health_and_healing_cap() {
         let mut loss = item(1, "MaxHealthLossPercent", -13.0);
         loss.properties.insert("BonusHealth".into(), 100.0);
-        let result = evaluate_inventory(&hero(), &[loss], &ReasonerConfig::default());
+        let result = evaluate_inventory(
+            &hero(),
+            &[loss],
+            &ReasonerConfig {
+                combat_window_seconds: 5.0,
+                ..ReasonerConfig::default()
+            },
+        );
         assert!((result.effective_health - 609.0).abs() < 1e-8);
     }
     #[test]

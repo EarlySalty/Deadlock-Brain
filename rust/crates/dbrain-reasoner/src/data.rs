@@ -1945,7 +1945,10 @@ mod tests {
         let result = crate::combat::evaluate_inventory(
             &crate::combat::tests::hero(),
             &[glass],
-            &crate::ReasonerConfig::default(),
+            &crate::ReasonerConfig {
+                combat_window_seconds: 2.0,
+                ..crate::ReasonerConfig::default()
+            },
         );
         assert!((result.scenarios[0].effective_health - 522.0).abs() < 1e-8);
     }
