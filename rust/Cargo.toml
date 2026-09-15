@@ -8,6 +8,7 @@ members = [
   "crates/dbrain-builds",
   "crates/dbrain-learn",
   "crates/dbrain-normalize",
+  "crates/dbrain-population",
   "crates/dbrain-retrieval",
   "crates/dbrain-reasoner",
   "crates/dbrain-sources",
