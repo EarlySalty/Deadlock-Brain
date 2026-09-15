@@ -9,9 +9,7 @@ fn git(args: &[&str]) -> Option<String> {
 }
 
 fn main() {
-    // Re-evaluate on every Cargo invocation, including worktree HEAD/ref changes
-    // and dirty dependency sources outside this crate. No runtime configuration.
-    println!("cargo:rerun-if-changed=build-provenance-always-recheck");
+    println!("cargo:rerun-if-changed=nonexistent-sentinel-forces-build-provenance-every-build");
     let revision = git(&["rev-parse", "HEAD"]).unwrap_or_default();
     let clean = git(&["status", "--porcelain", "--untracked-files=normal"])
         .is_some_and(|status| status.is_empty());

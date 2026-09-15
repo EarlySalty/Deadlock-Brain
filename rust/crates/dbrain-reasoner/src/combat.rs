@@ -618,7 +618,7 @@ fn simulate(
     let mut next_target_at = f64::INFINITY;
     let mut last_clip = hero.weapon.clip_size;
     let mut ability_effects: Vec<(f64, String, f64)> = Vec::new();
-    let mut bindings: Vec<Binding> = Vec::new();
+    let mut active_bindings: Vec<Binding> = Vec::new();
     let mut buff_until = vec![0.0; items.len()];
     let mut channel_until: f64 = 0.0;
     let mut reload_until: f64 = 0.0;
@@ -1045,7 +1045,7 @@ fn simulate(
                                 / 100.0,
                     });
                 } else if ability.properties.get("EscapeTime").copied().unwrap_or(0.0) > 0.0 {
-                    bindings.push(Binding {
+                    active_bindings.push(Binding {
                         start: time + start_delay,
                         end: time + start_delay + ability.properties["EscapeTime"],
                         travelled: 0.0,
@@ -1340,7 +1340,7 @@ fn simulate(
         }
         delayed_item_hits.retain(|(at, _)| *at > time + duration);
 
-        for binding in &mut bindings {
+        for binding in &mut active_bindings {
             let elapsed = (binding.end.min(time + duration) - binding.start.max(time)).max(0.0);
             if moving && stats.control <= 0.0 {
                 binding.travelled += 8.0 * (1.0 - stats.slow.clamp(0.0, 100.0) / 100.0) * elapsed;
@@ -1372,7 +1372,7 @@ fn simulate(
                 }
             }
         }
-        bindings.retain(|binding| binding.end > time + duration);
+        active_bindings.retain(|binding| binding.end > time + duration);
         let mut shots = 0.0;
         if time < channel_until {
             out.channel_seconds += duration;
@@ -1567,7 +1567,7 @@ fn simulate(
                 channel_until = out.elapsed_seconds;
             }
             pending_hits.clear();
-            bindings.clear();
+            active_bindings.clear();
             delayed_item_hits.clear();
             spirit_events.clear();
             buildup.fill(0.0);
