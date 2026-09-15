@@ -16,6 +16,7 @@ dbrain-builds = { path = "../dbrain-builds" }
 dbrain-enrich = { path = "../dbrain-enrich" }
 dbrain-learn = { path = "../dbrain-learn" }
 dbrain-normalize = { path = "../dbrain-normalize" }
+dbrain-population = { path = "../dbrain-population" }
 dbrain-retrieval = { path = "../dbrain-retrieval" }
 dbrain-reasoner = { path = "../dbrain-reasoner" }
 dbrain-sources = { path = "../dbrain-sources" }
