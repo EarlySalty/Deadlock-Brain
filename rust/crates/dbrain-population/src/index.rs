@@ -29,7 +29,7 @@ struct BucketData {
 pub struct PopulationIndex {
     pub hero_id: i64,
     buckets: HashMap<String, BucketData>,
-    imbue: HashMap<i64, i64>,
+    imbue: HashMap<String, HashMap<i64, i64>>,
 }
 
 impl PopulationIndex {
@@ -84,24 +84,24 @@ impl PopulationIndex {
 
         let imbue_rows = sqlx::query(
             r#"
-            SELECT item_id, target_ability_id
+            SELECT bucket, item_id, target_ability_id
             FROM brain.population_imbue_stats
-            WHERE hero_id = $1 AND bucket = $2
+            WHERE hero_id = $1
             "#,
         )
         .bind(hero_id)
-        .bind(BUCKET_ALL)
         .fetch_all(pool)
         .await?;
-        let imbue = imbue_rows
-            .into_iter()
-            .map(|row| {
-                (
+        let mut imbue: HashMap<String, HashMap<i64, i64>> = HashMap::new();
+        for row in imbue_rows {
+            imbue
+                .entry(row.get::<String, _>("bucket"))
+                .or_default()
+                .insert(
                     row.get::<i64, _>("item_id"),
                     row.get::<i64, _>("target_ability_id"),
-                )
-            })
-            .collect();
+                );
+        }
 
         Ok(Self {
             hero_id,
@@ -130,7 +130,11 @@ impl PopulationIndex {
     }
 
     pub fn item(&self, item_id: i64) -> Option<&ItemStat> {
-        self.bucket(BUCKET_ALL)?
+        self.item_in(BUCKET_ALL, item_id)
+    }
+
+    pub fn item_in(&self, bucket: &str, item_id: i64) -> Option<&ItemStat> {
+        self.bucket(bucket)?
             .items
             .iter()
             .find(|item| item.item_id == item_id)
@@ -147,11 +151,22 @@ impl PopulationIndex {
     }
 
     pub fn imbue_target(&self, item_id: i64) -> Option<i64> {
-        self.imbue.get(&item_id).copied()
+        self.imbue_target_in(BUCKET_ALL, item_id)
+    }
+
+    pub fn imbue_target_in(&self, bucket: &str, item_id: i64) -> Option<i64> {
+        self.imbue
+            .get(bucket)
+            .and_then(|targets| targets.get(&item_id))
+            .copied()
     }
 
     pub fn ability_order(&self) -> Vec<i64> {
-        self.bucket(BUCKET_ALL)
+        self.ability_order_in(BUCKET_ALL)
+    }
+
+    pub fn ability_order_in(&self, bucket: &str) -> Vec<i64> {
+        self.bucket(bucket)
             .map(|data| data.ability_order.clone())
             .unwrap_or_default()
     }

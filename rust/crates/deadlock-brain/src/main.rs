@@ -60,7 +60,7 @@ enum Commands {
         #[command(subcommand)]
         target: ReasonCommands,
     },
-    #[command(about = "Laedt Populationsdaten, baut Aggregate und zeigt Held-Baselines.")]
+    #[command(about = "Lädt Populationsdaten, baut Aggregate und zeigt Held-Baselines.")]
     Population(dbrain_population::PopulationArgs),
     #[command(about = "Zeigt Rename-/Rework-Beziehungen aus Patchnotes.")]
     Lineage(LineageArgs),

@@ -24,7 +24,7 @@ pub struct PopulationArgs {
 
 #[derive(Debug, Subcommand)]
 enum PopulationCommand {
-    #[command(about = "Laedt Matchdaten der Population und speichert bereinigte Spieler-Matches.")]
+    #[command(about = "Lädt Matchdaten der Population und speichert bereinigte Spieler-Matches.")]
     Sync(SyncArgs),
     #[command(about = "Baut die Populations-Aggregate je Held und Bucket neu auf.")]
     Stats(StatsArgs),
@@ -81,6 +81,7 @@ fn run_sync(
     pool: &PgPool,
     args: SyncArgs,
 ) -> Result<()> {
+    runtime.block_on(db::assert_writable(pool))?;
     let min_unix = args
         .since
         .unwrap_or_else(|| now_unix() - DEFAULT_WINDOW_DAYS * 86_400);
@@ -128,7 +129,7 @@ fn run_sync(
         window_high = Some(window_high.map_or(highest, |value: i64| value.max(highest)));
 
         println!(
-            "geladen {seen}/{} Matches, neu {inserted_total} uebersprungen {skipped_total}",
+            "geladen {seen}/{} Matches, neu {inserted_total} übersprungen {skipped_total}",
             args.matches
         );
 
@@ -210,7 +211,7 @@ fn print_hero_detail(catalog: &Catalog, hero_id: i64, buckets: &[BucketAgg]) {
 fn print_bucket(catalog: &Catalog, bucket: &BucketAgg) {
     println!();
     let cell = if (bucket.players_raw as i64) < MIN_CELL_OBSERVATIONS {
-        "  (duenne Zelle, unter Mindestbeobachtung)"
+        "  (dünne Zelle, unter Mindestbeobachtung)"
     } else {
         ""
     };
@@ -241,7 +242,7 @@ fn print_bucket(catalog: &Catalog, bucket: &BucketAgg) {
     let mut ranked: Vec<_> = bucket.items.iter().filter(|item| !item.is_staple).collect();
     ranked.sort_by(|a, b| b.prevalence_raw.total_cmp(&a.prevalence_raw));
     if !ranked.is_empty() {
-        println!("  Weitere haeufige Kaeufe:");
+        println!("  Weitere häufige Käufe:");
         for item in ranked.iter().take(8) {
             let next = item
                 .next_item_id
@@ -270,7 +271,7 @@ fn print_bucket(catalog: &Catalog, bucket: &BucketAgg) {
                 flags.push_str(" [geteilt]");
             }
             if imbue.is_thin {
-                flags.push_str(" [duenn]");
+                flags.push_str(" [dünn]");
             }
             println!(
                 "    {:<26} -> {:<22} {}/{} Imbues{flags}",
@@ -304,7 +305,7 @@ async fn run_show(pool: &PgPool, catalog: &Catalog, args: ShowArgs) -> Result<()
     let bucket = args.bucket.as_deref().unwrap_or(BUCKET_ALL);
     if !index.buckets().iter().any(|name| name == bucket) {
         println!(
-            "Held {} hat keinen Bucket '{bucket}'. Verfuegbar: {}",
+            "Held {} hat keinen Bucket '{bucket}'. Verfügbar: {}",
             catalog.hero_name(hero_id),
             index.buckets().join(", ")
         );
@@ -322,7 +323,7 @@ async fn run_show(pool: &PgPool, catalog: &Catalog, args: ShowArgs) -> Result<()
     } else {
         println!("Staples ab 70 Prozent:");
         for item_id in &staples {
-            if let Some(item) = index.item(*item_id) {
+            if let Some(item) = index.item_in(bucket, *item_id) {
                 println!(
                     "  {:<26} {:>5.1}%  Pos {:>4.1}",
                     catalog.item_name(*item_id),
@@ -337,14 +338,14 @@ async fn run_show(pool: &PgPool, catalog: &Catalog, args: ShowArgs) -> Result<()
         .iter()
         .chain(index.population_positions(bucket).iter().map(|(id, _)| id))
         .copied()
-        .filter(|id| index.imbue_target(*id).is_some())
+        .filter(|id| index.imbue_target_in(bucket, *id).is_some())
         .collect();
     let mut seen = std::collections::HashSet::new();
     let imbue: Vec<i64> = imbue.into_iter().filter(|id| seen.insert(*id)).collect();
     if !imbue.is_empty() {
         println!("Imbue-Ziele:");
         for item_id in imbue {
-            if let Some(target) = index.imbue_target(item_id) {
+            if let Some(target) = index.imbue_target_in(bucket, item_id) {
                 println!(
                     "  {:<26} -> {}",
                     catalog.item_name(item_id),
@@ -354,7 +355,7 @@ async fn run_show(pool: &PgPool, catalog: &Catalog, args: ShowArgs) -> Result<()
         }
     }
 
-    let order = index.ability_order();
+    let order = index.ability_order_in(bucket);
     if !order.is_empty() {
         let named = order
             .iter()

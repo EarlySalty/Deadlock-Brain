@@ -69,7 +69,7 @@ impl Catalog {
             }
         }
         if catalog.items.is_empty() {
-            return Err(anyhow!("Item-Katalog enthaelt keine Kaufobjekte."));
+            return Err(anyhow!("Item-Katalog enthält keine Kaufobjekte."));
         }
         Ok(catalog)
     }
