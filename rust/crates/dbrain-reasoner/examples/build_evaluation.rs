@@ -111,7 +111,7 @@ fn compose(
     excluded: &BTreeSet<String>,
     holdout: bool,
     ablation: &str,
-) -> std::result::Result<(BuildObject, Value), Error> {
+) -> std::result::Result<(BuildObject, Value, Vec<ScoredItem>), Error> {
     let sources = frozen
         .sources
         .iter()
@@ -240,12 +240,13 @@ fn compose(
         build.confidence = Confidence::Low;
         build.rationale.push_str(&format!(" Für diesen Helden fehlen Builds aktiver beobachteter Autoren. Die Kaufkurve ist ein Behelf aus {} beobachteten Builds anderer Helden; ein eigener Autorenvergleich ist nicht möglich.", context.core_layouts.overall.source_builds));
     }
-    Ok((build, plan))
+    Ok((build, plan, scores))
 }
 
 fn measure(
     input: &FrozenHero,
     build: &BuildObject,
+    scores: &[ScoredItem],
     row: &Value,
 ) -> std::result::Result<Value, Error> {
     let reference = reference(row)?;
@@ -263,8 +264,35 @@ fn measure(
         .filter(|item| weapons.contains(&item.item_id))
         .map(|item| json!({"id":item.item_id,"name":item.name}))
         .collect::<Vec<_>>();
+    let in_build = build
+        .core
+        .iter()
+        .map(|item| item.item_id)
+        .collect::<BTreeSet<_>>();
+    let diagnostics = weapons
+        .iter()
+        .map(|id| {
+            let rank = scores.iter().position(|scored| scored.item.item_id == *id);
+            let scored = rank.map(|position| &scores[position]);
+            json!({
+                "id": id,
+                "name": scored.map(|scored| scored.item.name.clone()),
+                "in_build": in_build.contains(id),
+                "rank": rank.map(|position| position + 1),
+                "scored_items": scores.len(),
+                "cost": scored.map(|scored| scored.item.cost),
+                "total": scored.map(|scored| scored.score.total),
+                "per_slot_value": scored.map(|scored| scored.score.per_slot_value),
+                "per_soul_value": scored.map(|scored| scored.score.per_soul_value),
+                "combat_value": scored.map(|scored| scored.score.combat_value),
+                "purchase_bonus_value": scored.map(|scored| scored.score.purchase_bonus_value),
+                "condition_factor": scored.map(|scored| scored.score.condition_factor),
+                "meta_support": scored.map(|scored| scored.score.meta_support),
+            })
+        })
+        .collect::<Vec<_>>();
     Ok(
-        json!({"hero_id":input.hero.hero_id,"hero_name":input.hero.name,"build_id":row["hero_build_id"],"version":reference.version,"author_id":author(row)?,"reference_count":reference.core_item_ids.len(),"reference_weapon_count":weapons.len(),"weapon_hits":hits,"weapon_hit_count":hits.len(),"metrics":backtest::backtest_metrics(build,&reference)}),
+        json!({"hero_id":input.hero.hero_id,"hero_name":input.hero.name,"build_id":row["hero_build_id"],"version":reference.version,"author_id":author(row)?,"reference_count":reference.core_item_ids.len(),"reference_weapon_count":weapons.len(),"weapon_hits":hits,"weapon_hit_count":hits.len(),"reference_weapon_diagnostics":diagnostics,"metrics":backtest::backtest_metrics(build,&reference)}),
     )
 }
 
@@ -461,8 +489,8 @@ fn evaluate(
                 } else {
                     BTreeSet::from([id])
                 };
-                let (build, _) = compose(&frozen, hero, &excluded, true, "full")?;
-                reports.push(json!({"excluded_authors":excluded,"training_sources":frozen.sources.iter().filter(|source| author(source).is_ok_and(|id| !excluded.contains(&id))).count(),"measurement":measure(hero,&build,row)?,"build":build}));
+                let (build, _, scores) = compose(&frozen, hero, &excluded, true, "full")?;
+                reports.push(json!({"excluded_authors":excluded,"training_sources":frozen.sources.iter().filter(|source| author(source).is_ok_and(|id| !excluded.contains(&id))).count(),"measurement":measure(hero,&build,&scores,row)?,"build":build}));
             }
         } else {
             let mut variants = Vec::new();
@@ -480,10 +508,11 @@ fn evaluate(
                 vec!["full"]
             };
             for variant in variants_to_run {
-                let (build, plan) = compose(&frozen, hero, &BTreeSet::new(), false, variant)?;
+                let (build, plan, scores) =
+                    compose(&frozen, hero, &BTreeSet::new(), false, variant)?;
                 let measurements = own
                     .iter()
-                    .map(|row| measure(hero, &build, row))
+                    .map(|row| measure(hero, &build, &scores, row))
                     .collect::<std::result::Result<Vec<_>, _>>()?;
                 variants.push(json!({"variant":variant,"build":build,"plan":plan,"measurements":measurements}));
             }
