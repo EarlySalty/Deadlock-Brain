@@ -60,6 +60,8 @@ enum Commands {
         #[command(subcommand)]
         target: ReasonCommands,
     },
+    #[command(about = "Laedt Populationsdaten, baut Aggregate und zeigt Held-Baselines.")]
+    Population(dbrain_population::PopulationArgs),
     #[command(about = "Zeigt Rename-/Rework-Beziehungen aus Patchnotes.")]
     Lineage(LineageArgs),
     #[command(about = "Zeigt alte/entfernte Entities aus Patchnotes.")]
@@ -1110,14 +1112,15 @@ fn main() {
 
 fn run_from_cli() -> Result<()> {
     let cli = Cli::parse();
-    // Ein Tokio-Runtime am Top-Level nach dem PG-Cutover: `run` ist async und
-    // teilt sich einen `PgPool` fuer alle Befehle, statt pro Befehl einen eigenen
-    // Runtime oder eine eigene Verbindung hochzuziehen. Der synchrone
-    // `pg import-patchnote`-Pfad wird bewusst auf einen Blocking-Thread ausgelagert.
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?;
-    runtime.block_on(run(cli))
+    match cli.command {
+        Commands::Population(args) => dbrain_population::run_population(args),
+        command => {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            runtime.block_on(run(Cli { command }))
+        }
+    }
 }
 
 async fn run(cli: Cli) -> Result<()> {
@@ -1295,6 +1298,9 @@ async fn run(cli: Cli) -> Result<()> {
         Commands::Normalize { target } => run_normalize(&pool, target).await,
         Commands::Parse { target } => run_parse(&pool, target).await,
         Commands::Enrich { target } => run_enrich(&pool, &settings, target).await,
+        Commands::Population(_) => {
+            unreachable!("Population wird vor allgemeiner Pool-Ausfuehrung ausgefuehrt.")
+        }
         Commands::Entities(_) => {
             unreachable!("PG-Entities werden vor allgemeiner Pool-Ausfuehrung ausgefuehrt.")
         }
