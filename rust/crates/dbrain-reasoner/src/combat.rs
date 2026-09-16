@@ -32,6 +32,9 @@ pub struct CombatScenarioEvaluation {
     pub ability_damage: f64,
     pub proc_damage: f64,
     pub effective_health: f64,
+    pub incoming_health_damage: f64,
+    pub remaining_health: f64,
+    pub remaining_shields: [f64; 3],
     pub utility: f64,
     pub shots: f64,
     pub reloads: usize,
@@ -205,12 +208,17 @@ fn apply(stats: &mut Stats, name: &str, v: f64) -> bool {
     }
     true
 }
-fn defensive_capacity(health: f64, stats: &Stats, weapon_fraction: f64) -> f64 {
+fn incoming_rates(stats: &Stats, weapon_fraction: f64) -> (f64, f64) {
     let weapon_rate = weapon_fraction
         * (1.0 - stats.bullet_resist.clamp(-1.0, 0.9))
         * (1.0 - stats.enemy_weapon_penalty.clamp(0.0, 0.9))
         * (1.0 - stats.enemy_rate_slow.clamp(0.0, 0.9));
     let spirit_rate = (1.0 - weapon_fraction) * (1.0 - stats.spirit_resist.clamp(-1.0, 0.9));
+    (weapon_rate, spirit_rate)
+}
+
+fn defensive_capacity(health: f64, stats: &Stats, weapon_fraction: f64) -> f64 {
+    let (weapon_rate, spirit_rate) = incoming_rates(stats, weapon_fraction);
     crate::defense::mixed_damage_capacity(
         health,
         stats.shield,
@@ -586,7 +594,9 @@ fn evaluate_core(
         "Schadensleistung nutzt die tatsächlich verstrichene Szenariozeit. Der separat ausgewiesene Überlebensbeitrag bleibt effektives Leben geteilt durch das ursprüngliche konfigurierte Kampffenster; kurze TTK erhöht sein Gewicht nicht.".into(),
         "Eigene Gesundheitskosten nutzen den je Fähigkeit ausdrücklich benannten Prozentbezug; unklare Kosten verhindern eine simulierte kostenlose Castfolge.".into(),
         format!("Gegner startet ohne Resistenzen; expliziter eingehender Schadensmix {:.1}% Waffe und {:.1}% Spirit vor eigener Schadensminderung. Kanalgebundene Schilde schützen nur vor ihrem Typ, universelle Barrieren vor beiden. Lifesteal zählt höchstens den angenommenen Lebensverlust.", cfg.incoming_weapon_fraction()*100.0, (1.0-cfg.incoming_weapon_fraction())*100.0),
-        "Defensive Kapazität löst den konstanten Schadensmix bis zum Aufbrauchen des Lebenspools stückweise auf; ein noch ungenutzter Schild des anderen Kanals kann HP-Verlust nicht decken. Dies ersetzt weder die feste Druckkurve noch eine vollständige gegnerische Rotation oder eine reale Schildverbrauchs-/Nachladehistorie.".into(),
+        "Defensive Kapazität löst den konstanten Schadensmix bis zum Aufbrauchen des Lebenspools stückweise auf. Im Druckszenario wird tatsächlicher eingehender Schaden nach Schadensminderung von endlichen passenden Schilden und danach vom Leben abgezogen. Die Bedrohung bleibt bei Zielwechsel bestehen; keine vollständige gegnerische Fähigkeitsrotation oder CC-bedingte Unterbrechung modelliert.".into(),
+        format!("Druck-DPS vor Schadensminderung: {:.6}; {}. Basisbedrohung ist unabhängig von eigenen Item-HP-Boni oder -Verlusten. Andere Szenarien bleiben gesunde Einzelvergleiche ohne eingehenden Dauerschaden.", cfg.incoming_pressure_dps.filter(|dps| dps.is_finite() && *dps >= 0.0).unwrap_or(0.85 * hero.base_health.max(0.0) / cfg.combat_window_seconds.clamp(1.0,120.0)), if cfg.incoming_pressure_dps.is_some() { "explizit konfiguriert (ungültige Eingaben verwenden ausgewiesenen Vergleichsdefault)" } else { "Vergleichsdefault: 85 Prozent des Helden-Basislebens über das konfigurierte Fenster" }),
+        "Schildressourcen werden bei unveränderter Kapazität nicht pro Tick aufgefüllt. Ein Kapazitätsanstieg gewährt nur den Zuwachs, ein Ablauf begrenzt den Rest. Wiederholte echte Refresh-Aktivierungen bei unveränderter Gesamtkapazität und item-spezifische Regenerations-/Aufladezeiten bleiben unquantifiziert.".into(),
         "Effektives Leben ist der zeitlich gemittelte Ressourcenbestand nach Eigenkosten und tatsächlich nutzbarer Heilung; früher Tod beendet weitere Kampfereignisse. Keine gespeicherte Überheilung.".into(),
         "Bewegliches Ziel läuft mit angenommenen 8 m/s aus Kontrollkreisen; Verlangsamung reduziert die zurückgelegte Strecke, Festsetzen stoppt sie. Unbekannte Höhenschäden werden bei Höhe null nicht addiert.".into(),
         "Utility-Modellannahme: Verlangsamung und Lauftempo helfen beim Zielkontakt, bei beweglichem Ziel stärker. Überlappende Verlangsamungen nutzen nur den stärksten Wert.".into(),
@@ -753,6 +763,11 @@ fn simulate(
     let mut last_maximum_health: Option<f64> = None;
     let mut self_damage_sum = 0.0;
     let mut leech_sum = 0.0;
+    let mut incoming = crate::defense::DamageLedger::default();
+    let pressure_dps = cfg
+        .incoming_pressure_dps
+        .filter(|dps| dps.is_finite() && *dps >= 0.0)
+        .unwrap_or(0.85 * hero.base_health.max(0.0) / window);
     // Einzige Quelle der Spirit->Feuerrate-Konversion (siehe mechanics); keine
     // eigene Ableitung mehr im Sim-Pfad.
     let weapon_scaling = crate::mechanics::weapon_spirit_scaling(hero);
@@ -839,11 +854,6 @@ fn simulate(
             }
         }
         let target_available = target_remaining > 0.0;
-        let health_fraction = if pressure {
-            (1.0 - 0.85 * time / window).max(0.15)
-        } else {
-            1.0
-        };
         let mut stats = base_stats.clone();
         stats.weapon_amp = target_amplification.weapon_multiplier(time) - 1.0;
         stats.spirit_amp = target_amplification.spirit_multiplier(time) - 1.0;
@@ -883,7 +893,8 @@ fn simulate(
                     (hero.base_health * (1.0 + base_stats.health_pct / 100.0) + base_stats.health)
                         * (1.0 - base_stats.health_loss.clamp(0.0, 0.99)),
                 );
-                let own_fraction = (base_maximum * health_fraction - self_damage_sum + leech_sum)
+                let own_fraction = (base_maximum - incoming.health_damage - self_damage_sum
+                    + leech_sum)
                     .clamp(0.0, base_maximum)
                     / base_maximum.max(1.0);
                 active_with_text(
@@ -962,7 +973,9 @@ fn simulate(
         let maximum_health = ((hero.base_health * (1.0 + stats.health_pct / 100.0) + stats.health)
             * (1.0 - stats.health_loss.clamp(0.0, 0.99)))
         .max(0.0);
-        let current_health = (maximum_health * health_fraction - self_damage_sum + leech_sum)
+        incoming.synchronize(stats.shield, stats.weapon_shield, stats.spirit_shield);
+        let current_health = (maximum_health - incoming.health_damage - self_damage_sum
+            + leech_sum)
             .clamp(0.0, maximum_health);
         last_maximum_health = Some(maximum_health);
         if current_health <= 0.0 {
@@ -1393,7 +1406,7 @@ fn simulate(
                 leech_sum += dealt * event.heal.max(0.0);
                 if landed {
                     target_amplification.on_hit(event.interaction, event.at);
-                    let own_health = (maximum_health * health_fraction - self_damage_sum
+                    let own_health = (maximum_health - incoming.health_damage - self_damage_sum
                         + leech_sum)
                         .clamp(0.0, maximum_health);
                     leech_sum += event
@@ -1669,7 +1682,7 @@ fn simulate(
         .max(1.0);
         leech_sum += gun_damage * stats.bullet_leech.max(0.0) / 100.0
             + stats.regeneration.max(0.0) * duration;
-        leech_sum = leech_sum.min(self_damage_sum + health * (1.0 - health_fraction));
+        leech_sum = leech_sum.min(self_damage_sum + incoming.health_damage);
         if has_refresh {
             let eligible_events: Vec<_> = spirit_events[spirit_event_start..]
                 .iter()
@@ -1693,7 +1706,7 @@ fn simulate(
                 }
             }
             let potential: f64 = refresh_heals.iter().map(|(_, amount)| *amount).sum();
-            let missing = (self_damage_sum + health * (1.0 - health_fraction) - leech_sum).max(0.0);
+            let missing = (self_damage_sum + incoming.health_damage - leech_sum).max(0.0);
             let effective = potential.min(missing);
             leech_sum += effective;
             if potential > 0.0 {
@@ -1702,12 +1715,20 @@ fn simulate(
                 }
             }
         }
+        let mut remaining_defense = stats.clone();
+        remaining_defense.shield = incoming.remaining[0];
+        remaining_defense.weapon_shield = incoming.remaining[1];
+        remaining_defense.spirit_shield = incoming.remaining[2];
         health_sum += defensive_capacity(
-            health + leech_sum - self_damage_sum,
-            &stats,
+            (health + leech_sum - self_damage_sum - incoming.health_damage).clamp(0.0, health),
+            &remaining_defense,
             cfg.incoming_weapon_fraction(),
         ) * duration
             / window;
+        if pressure {
+            let (weapon_rate, spirit_rate) = incoming_rates(&stats, cfg.incoming_weapon_fraction());
+            incoming.receive(pressure_dps * duration, weapon_rate, spirit_rate);
+        }
         out.spirit_power += stats.spirit * duration / window;
         out.elapsed_seconds = time + duration;
         if target_available {
@@ -1743,9 +1764,23 @@ fn simulate(
             item_ultimate_seen.fill(0);
             ability_effects.retain(|(_, key, _)| !target_effect(key));
         }
+        if health - incoming.health_damage - self_damage_sum + leech_sum <= 1e-9 {
+            out.end_reason = CombatEndReason::SelfDefeated;
+            if detailed {
+                out.sequence.push(format!("{:.1}s: Leben aufgebraucht; eingehender Schaden verbraucht passende Schilde und HP", out.elapsed_seconds));
+            }
+            break;
+        }
     }
     let elapsed = out.elapsed_seconds.max(dt);
     out.effective_health = health_sum;
+    out.incoming_health_damage = incoming.health_damage;
+    out.remaining_health = (last_maximum_health.unwrap_or(hero.base_health)
+        - incoming.health_damage
+        - self_damage_sum
+        + leech_sum)
+        .max(0.0);
+    out.remaining_shields = incoming.remaining;
     out.spirit_power *= window / elapsed;
     out.damage_per_second = (out.weapon_damage + out.ability_damage + out.proc_damage) / elapsed;
     out.damage_score = (out.weapon_damage + out.ability_damage + out.proc_damage)
@@ -2344,6 +2379,38 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn health_downside_faces_the_same_incoming_damage_and_typed_backup() {
+        let mut hero = hero();
+        hero.weapon.bullet_damage = 0.0;
+        let mut cfg_json = serde_json::to_value(damage_mix_config(1.0)).unwrap();
+        cfg_json["combat_window_seconds"] = serde_json::json!(16.0);
+        cfg_json["incoming_pressure_dps"] = serde_json::json!(37.5);
+        let cfg: ReasonerConfig = serde_json::from_value(cfg_json).unwrap();
+        let loss = item(804, "MaxHealthLossPercent", 13.0);
+        let weapon_shield = item(805, "BulletShieldMaxHealth", 200.0);
+        let spirit_shield = item(806, "TechShieldMaxHealth", 200.0);
+        let plain = evaluate_inventory(&hero, &[], &cfg);
+        let bare = evaluate_inventory(&hero, std::slice::from_ref(&loss), &cfg);
+        let covered = evaluate_inventory(&hero, &[loss.clone(), weapon_shield], &cfg);
+        let wrong = evaluate_inventory(&hero, &[loss, spirit_shield], &cfg);
+        assert_eq!(bare.scenarios[1].end_reason, CombatEndReason::SelfDefeated);
+        assert!(bare.scenarios[1].elapsed_seconds < plain.scenarios[1].elapsed_seconds);
+        assert_eq!(
+            wrong.scenarios[1].elapsed_seconds,
+            bare.scenarios[1].elapsed_seconds
+        );
+        assert_eq!(
+            covered.scenarios[1].end_reason,
+            CombatEndReason::WindowElapsed
+        );
+        assert_eq!(covered.scenarios[1].elapsed_seconds, 16.0);
+        assert!((bare.scenarios[1].elapsed_seconds - 14.0).abs() < 1e-9);
+        assert!((covered.scenarios[1].remaining_health - 122.0).abs() < 1e-8);
+        assert_eq!(covered.scenarios[1].remaining_shields, [0.0, 0.0, 0.0]);
+        assert_eq!(wrong.scenarios[1].remaining_shields, [0.0, 0.0, 200.0]);
+    }
+
+    #[test]
     fn target_death_ends_duel_and_does_not_reset_own_cooldown() {
         let mut hero = hero();
         hero.weapon.bullet_damage = 0.0;
@@ -2843,7 +2910,14 @@ pub(crate) mod tests {
                 ..ReasonerConfig::default()
             },
         );
-        assert!((result.effective_health - 609.0).abs() < 1e-8);
+        // 13% affects the whole 700-HP pool. The same external 510 damage hits
+        // the pressure scenario, rather than falling proportionally with our HP.
+        assert!((result.scenarios[0].effective_health - 609.0).abs() < 1e-8);
+        assert!((result.scenarios[1].incoming_health_damage - 510.0).abs() < 1e-8);
+        assert!((result.scenarios[1].remaining_health - 99.0).abs() < 1e-8);
+        // Mean remaining HP at the 25 step starts: 609 - 102 * 2.4 = 364.2.
+        assert!((result.scenarios[1].effective_health - 364.2).abs() < 1e-8);
+        assert!((result.effective_health - 527.4).abs() < 1e-8);
     }
     #[test]
     fn slow_can_prevent_escape_and_control_improves_contact() {
@@ -3091,10 +3165,24 @@ pub(crate) mod tests {
             &[proc.clone(), leech.clone(), threshold.clone()],
             &cfg,
         );
-        assert!(typed.effective_health > 600.0);
+        let no_healing = evaluate_inventory(&hero, &[proc.clone(), threshold.clone()], &cfg);
+        assert!(typed.scenarios[1].remaining_health > no_healing.scenarios[1].remaining_health);
+        assert!(typed
+            .scenarios
+            .iter()
+            .all(|scenario| scenario.remaining_health <= 600.0));
         proc.property_damage_types.clear();
+        let untyped_without_leech =
+            evaluate_inventory(&hero, &[proc.clone(), threshold.clone()], &cfg);
         let untyped = evaluate_inventory(&hero, &[proc, leech, threshold], &cfg);
-        assert_eq!(untyped.effective_health, 600.0);
+        assert_eq!(
+            untyped.effective_health,
+            untyped_without_leech.effective_health
+        );
+        assert_eq!(
+            untyped.scenarios[1].remaining_health,
+            untyped_without_leech.scenarios[1].remaining_health
+        );
         assert!(typed.weapon_damage > untyped.weapon_damage);
     }
     #[test]

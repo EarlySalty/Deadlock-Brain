@@ -41,7 +41,19 @@ Grenze bleibt ausdrücklich: Kapazität gegen einen konstanten Mix ist keine vol
 
 Eine zusätzliche öffentliche Score-Gegenprobe fand nach dem ersten B-Commit noch 4 Punkte Nutzen ohne jedes Spirit-Ereignis. Ursache war die alte allgemeine Regeneration-Property-Heuristik neben dem neuen Ereignisrechner. Zeitgebundene Regeneration wird nun aus diesem flachen Pfad ausgeschlossen. Score und Simulator zählen sie nur einmal; sowohl reine properties als auch gespiegelte passive_properties sind geprüft. Der neue Test war rot (4 statt 0) und ist danach grün. Kein bereits veröffentlichter Stand wurde dafür angepasst; sämtliche Arbeiten bleiben im Integrationsbranch.
 
-## Prüfung dieses Fortsetzungsstands
+## C-Fortsetzung: tatsächlicher Lebensdruck und endliche Schilde
+
+Die erste C-Korrektur hat die falsche Kanalbewertung beseitigt. Anschließend ist auch die noch offene prozentuale Druckkurve entfernt: Das Druckszenario nimmt nun einen expliziten incoming_pressure_dps-Wert oder den bisherigen Vergleichsumfang von 85 Prozent des Helden-Basislebens pro Fenster als FESTES Schadensbudget. Eigene Item-HP, Bonusleben oder Max-HP-Verlust verringern nicht länger automatisch den eintreffenden Schaden. Der Gegnerkontext bleibt eine offengelegte Modellannahme, keine gemessene gegnerische Fähigkeitsrotation.
+
+DamageLedger verbraucht typgebundene Schilde, anschließend universelle Barrieren und dann Leben. Unveränderte Schildkapazitäten füllen verbrauchte Ressourcen nicht im nächsten Tick wieder auf. Kapazitätserhöhung gewährt nur den Zuwachs; Ablauf begrenzt den Rest. Wiederholte item-spezifische Refresh-/Aufladeregeln bei unveränderter Gesamtkapazität sind weiterhin nicht belegt und werden nicht erfunden. Regen/Lifesteal dürfen nur bereits entstandenen Lebensverlust auffüllen, nicht künftigen Schaden vorwegheilen. Score, frühzeitiger Tod und Diagnosefelder incoming_health_damage/remaining_health/remaining_shields verwenden diesen Zustand. Die Auswertungszeit bleibt auf 0,2 Sekunden aufgelöst.
+
+Neue öffentliche Gegenprobe zunächst rot: 600 Basis-HP, 13 Prozent Max-HP-Verlust, 16 Sekunden Fenster und 37,5 reine Waffen-DPS führten im alten Modell NICHT zum Tod. Danach tatsächlich grün: ohne passende Deckung Tod bei 14,0 Sekunden (522/37,5=13,92, auf den Schritt aufgerundet). Ein 200er Waffenschild trägt bis zum Fensterende mit 122 HP Rest; ein 200er Spiritschild bleibt beim früheren Tod ungenutzt. Keine Item-/Hero-Namenregel und kein pauschaler 600-HP-Abzug.
+
+Drei ältere Tests wurden an die belegte Semantik angepasst: Der 700-HP-Pool nach 13 Prozent Verlust bleibt im gesunden Szenario exakt 609, nach festen 510 eingehenden Schadenspunkten unter Druck aber nur noch 99. Zeitmittel bei 25 Schrittanfängen: 364,2; über alle drei Szenarien 527,4 statt einer ständig angenommenen vollen Kapazität von 609. Der Lifesteal-Test vergleicht nun tatsächlich verbliebenes Leben mit/ohne zulässigen Spirit-Heal, nicht ein künstliches EHP-Plus oberhalb vollen Lebens. Die bestehende Meldung „Leben aufgebraucht“ bleibt als Ereignis erhalten. Die Testanpassungen sind physikalisch hergeleitet, nicht aus der gewünschten Build-Liste abgelesen.
+
+Aktueller vollständiger Reasoner-Testlauf danach: 211 Library-Tests und 22 Example-Testausführungen bestanden, 16 DB-Tests ignoriert, 0 fehlgeschlagen. Clippy der Library/Examples ebenfalls Exit 0. Die folgenden Prüfzahlen dokumentieren den davor liegenden C-Kapazitätsteil.
+
+## Prüfung des vorherigen C-Kapazitätsstands
 
 - cargo test -q -p dbrain-reasoner --lib --examples: 207 Library-Tests und 22 Example-Testausführungen bestanden, 16 DB-Tests ignoriert, 0 fehlgeschlagen.
 - cargo check -q --workspace --all-targets: Exit 0; dies ist ein Workspace-Kompilationsnachweis, kein ausgeführter Workspace-/DB-Testlauf.

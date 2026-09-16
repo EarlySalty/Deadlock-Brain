@@ -15,6 +15,8 @@ pub struct ReasonerConfig {
     pub channel_uptime: f64,
     #[serde(default = "default_incoming_weapon_share")]
     pub incoming_weapon_share: f64,
+    #[serde(default)]
+    pub incoming_pressure_dps: Option<f64>,
 }
 
 fn default_incoming_weapon_share() -> f64 {
@@ -42,6 +44,7 @@ impl Default for ReasonerConfig {
             combat_window_seconds: 40.0,
             channel_uptime: 0.55,
             incoming_weapon_share: default_incoming_weapon_share(),
+            incoming_pressure_dps: None,
         }
     }
 }

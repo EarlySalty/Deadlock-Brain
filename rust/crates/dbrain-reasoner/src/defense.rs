@@ -53,6 +53,98 @@ pub(crate) fn mixed_damage_capacity(
     }
 }
 
+/// Finite shields and cumulative incoming health damage across combat steps.
+/// A constant capacity does not refill a consumed shield. A new increase grants
+/// only the increase; an expired/decreased capacity clamps the remaining pool.
+#[derive(Debug, Default)]
+pub(crate) struct DamageLedger {
+    capacities: [f64; 3],
+    pub remaining: [f64; 3], // universal, weapon, spirit
+    pub health_damage: f64,
+}
+
+impl DamageLedger {
+    pub fn synchronize(&mut self, universal: f64, weapon: f64, spirit: f64) {
+        for (idx, capacity) in [universal, weapon, spirit].into_iter().enumerate() {
+            let capacity = if capacity.is_finite() {
+                capacity.max(0.0)
+            } else {
+                0.0
+            };
+            let increase = (capacity - self.capacities[idx]).max(0.0);
+            self.remaining[idx] = (self.remaining[idx] + increase).min(capacity);
+            self.capacities[idx] = capacity;
+        }
+    }
+
+    pub fn receive(&mut self, raw_damage: f64, weapon_rate: f64, spirit_rate: f64) {
+        if !raw_damage.is_finite()
+            || raw_damage <= 0.0
+            || !weapon_rate.is_finite()
+            || !spirit_rate.is_finite()
+        {
+            return;
+        }
+        let mut weapon = raw_damage * weapon_rate.max(0.0);
+        let mut spirit = raw_damage * spirit_rate.max(0.0);
+        let weapon_absorbed = weapon.min(self.remaining[1]);
+        self.remaining[1] -= weapon_absorbed;
+        weapon -= weapon_absorbed;
+        let spirit_absorbed = spirit.min(self.remaining[2]);
+        self.remaining[2] -= spirit_absorbed;
+        spirit -= spirit_absorbed;
+        let residual = weapon + spirit;
+        let universal_absorbed = residual.min(self.remaining[0]);
+        self.remaining[0] -= universal_absorbed;
+        self.health_damage += residual - universal_absorbed;
+    }
+}
+
+#[cfg(test)]
+mod ledger_tests {
+    use super::*;
+    #[test]
+    fn finite_shield_is_consumed_once_not_refilled_per_tick() {
+        let mut state = DamageLedger::default();
+        state.synchronize(0.0, 100.0, 0.0);
+        state.receive(80.0, 1.0, 0.0);
+        assert_eq!(state.remaining[1], 20.0);
+        state.synchronize(0.0, 100.0, 0.0);
+        state.receive(80.0, 1.0, 0.0);
+        assert_eq!(state.remaining[1], 0.0);
+        assert_eq!(state.health_damage, 60.0);
+        state.synchronize(0.0, 150.0, 0.0);
+        assert_eq!(state.remaining[1], 50.0);
+        state.synchronize(0.0, 0.0, 0.0);
+        assert_eq!(state.remaining[1], 0.0);
+    }
+    #[test]
+    fn typed_and_shared_shields_deplete_before_health_without_cross_channel_credit() {
+        let mut state = DamageLedger::default();
+        state.synchronize(20.0, 100.0, 0.0);
+        state.receive(200.0, 0.5, 0.5);
+        assert_eq!(state.remaining, [0.0, 0.0, 0.0]);
+        assert_eq!(state.health_damage, 80.0);
+        state.synchronize(20.0, 100.0, 0.0);
+        state.receive(100.0, 0.0, 1.0);
+        assert_eq!(state.health_damage, 180.0);
+    }
+    #[test]
+    fn integrating_constant_damage_in_steps_preserves_total_resources() {
+        let mut full = DamageLedger::default();
+        let mut split = DamageLedger::default();
+        full.synchronize(40.0, 90.0, 50.0);
+        split.synchronize(40.0, 90.0, 50.0);
+        full.receive(1000.0, 0.2, 0.7);
+        for _ in 0..10 {
+            split.synchronize(40.0, 90.0, 50.0);
+            split.receive(100.0, 0.2, 0.7);
+        }
+        assert_eq!(full.remaining, split.remaining);
+        assert!((full.health_damage - split.health_damage).abs() < 1e-9);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
