@@ -434,8 +434,57 @@ mod freeze_guard_tests {
     }
 }
 
-async fn load_populations() -> std::result::Result<BTreeMap<i64, PopulationPrior>, Error> {
-    let pool = deadlock_brain_core::pg::pg_pool().await?;
+// Serde-Spiegel eines PopulationPrior nur fuer das eingefrorene Vorher/Nachher.
+// PopulationPrior selbst bleibt ohne serde; hier wird verlustfrei ueber die
+// oeffentlichen Zugriffsmethoden gespiegelt (Praevalenz>0, endliche Median-
+// position, Staples) und ueber from_items wieder aufgebaut.
+#[derive(Serialize, Deserialize)]
+struct FrozenPopulationPrior {
+    prevalence: Vec<(i64, f64)>,
+    median_position: Vec<(i64, f64)>,
+    staples: Vec<i64>,
+}
+
+impl FrozenPopulationPrior {
+    fn from_prior(prior: &PopulationPrior) -> Self {
+        let mut ids: BTreeSet<i64> = prior.ranked_by_prevalence().into_iter().collect();
+        for (id, _) in prior.positions() {
+            ids.insert(id);
+        }
+        for id in prior.staples() {
+            ids.insert(id);
+        }
+        Self {
+            prevalence: ids
+                .iter()
+                .map(|id| (*id, prior.prevalence(*id)))
+                .filter(|(_, value)| *value > 0.0)
+                .collect(),
+            median_position: prior.positions(),
+            staples: prior.staples(),
+        }
+    }
+
+    fn into_prior(self) -> PopulationPrior {
+        let prevalence: BTreeMap<i64, f64> = self.prevalence.into_iter().collect();
+        let median: BTreeMap<i64, f64> = self.median_position.into_iter().collect();
+        let staples: BTreeSet<i64> = self.staples.into_iter().collect();
+        let mut ids: BTreeSet<i64> = prevalence.keys().copied().collect();
+        ids.extend(median.keys().copied());
+        ids.extend(staples.iter().copied());
+        PopulationPrior::from_items(ids.into_iter().map(|id| PopulationItem {
+            item_id: id,
+            prevalence: prevalence.get(&id).copied().unwrap_or(0.0),
+            median_position: median.get(&id).copied(),
+            is_staple: staples.contains(&id),
+        }))
+    }
+}
+
+// Zentraler Zugriff nur lesend und technisch erzwungen (pg_pool_read_only setzt
+// default_transaction_read_only=on ueber die Verbindungsoptionen).
+async fn load_populations_from_db() -> std::result::Result<BTreeMap<i64, PopulationPrior>, Error> {
+    let pool = deadlock_brain_core::pg::pg_pool_read_only().await?;
     let present: Option<bool> =
         sqlx::query_scalar("SELECT to_regclass('brain.population_item_stats') IS NOT NULL")
             .fetch_one(&pool)
@@ -454,6 +503,39 @@ async fn load_populations() -> std::result::Result<BTreeMap<i64, PopulationPrior
     }
     pool.close().await;
     Ok(populations)
+}
+
+// Vorher/Nachher-Vergleiche lesen die Population aus einer eingefrorenen Datei
+// (Umgebungsvariable FROZEN_POPULATIONS), damit kein Live-DB-Drift zwischen den
+// beiden Messungen entsteht. Ohne die Variable wird read-only aus der DB geladen.
+async fn load_populations() -> std::result::Result<BTreeMap<i64, PopulationPrior>, Error> {
+    if let Some(path) = std::env::var_os("FROZEN_POPULATIONS") {
+        let mirror: BTreeMap<i64, FrozenPopulationPrior> =
+            serde_json::from_slice(&fs::read(&path)?)?;
+        return Ok(mirror
+            .into_iter()
+            .map(|(id, prior)| (id, prior.into_prior()))
+            .collect());
+    }
+    load_populations_from_db().await
+}
+
+async fn freeze_populations(output: &Path) -> std::result::Result<(), Error> {
+    if output.exists() {
+        return Err("Ausgabedatei existiert bereits".into());
+    }
+    if std::env::var_os("FROZEN_POPULATIONS").is_some() {
+        return Err(
+            "FROZEN_POPULATIONS darf beim Einfrieren der Population nicht gesetzt sein".into(),
+        );
+    }
+    let populations = load_populations_from_db().await?;
+    let mirror: BTreeMap<i64, FrozenPopulationPrior> = populations
+        .iter()
+        .map(|(id, prior)| (*id, FrozenPopulationPrior::from_prior(prior)))
+        .collect();
+    support::write_new(output, &serde_json::to_vec_pretty(&mirror)?)?;
+    Ok(())
 }
 
 fn evaluate(
@@ -560,6 +642,9 @@ async fn main() -> std::result::Result<(), Error> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     match args.as_slice() {
         [mode, output] if mode == "freeze" => freeze(Path::new(output)).await,
+        [mode, output] if mode == "freeze-populations" => {
+            freeze_populations(Path::new(output)).await
+        }
         [mode, input, output]
             if ["evaluate", "holdout", "sensitivity", "plan"].contains(&mode.as_str()) =>
         {
@@ -585,7 +670,7 @@ async fn main() -> std::result::Result<(), Error> {
             )
         }
         _ => Err(
-            "Aufruf: build_evaluation freeze DATEI | evaluate|holdout|sensitivity FROZEN AUSGABE"
+            "Aufruf: build_evaluation freeze DATEI | freeze-populations DATEI | evaluate|holdout|sensitivity FROZEN AUSGABE"
                 .into(),
         ),
     }
