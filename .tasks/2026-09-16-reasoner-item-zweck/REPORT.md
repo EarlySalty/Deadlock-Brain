@@ -2,6 +2,18 @@
 
 Stand 16.09.2026. Dies ist der nachprüfbare Orchestrierungs-/Vorprüfstand, noch keine behauptete abgeschlossene A-E-Implementierung.
 
+## Aktualisierung nach Nutzerkorrektur: ChatGPT übernimmt selbst
+
+ARBEITSTEILUNG.md hebt die automatische Vergabe späterer Phasen an neue Opus-Threads auf. Keine neuen Claude-Worker oder Claude-Subagenten wurden gestartet. Der vorhandene Worker darf ausschließlich 0+A beenden; T3 hat die Zustellung bestätigt (sequence 588210) und der Worker die Arbeitsteilung ausdrücklich angenommen.
+
+ChatGPT hat selbst die aktuelle Deadlock-API-Dokumentation geprüft und vorhandenen Rust-Code gelesen. Ergebnisse und präzise Ereignis-/Zeit-/Inventar-Gegenproben stehen in API-RECHERCHE-CHATGPT.md. Live-Hero-/Item-Payloads sind durch diese Recherche nicht vollständig belegt; keine neuen Gameplay-Zahlen behauptet und keine Inputs in die laufende Messung eingemischt.
+
+Die unabhängige Entwurfsprüfung von A-DESIGN.md auf Commit 806d4d5 hat BLOCK ergeben: damage_plan absichtlich auszunehmen und endliche negative Kanten als fehlend zu behandeln verfehlt den Auftrag. A-DESIGN-REVIEW-CHATGPT.md enthält konkrete Fix- und Testanforderungen. Der bestehende Worker hat diese Korrekturen in T3 bestätigt. Kein finaler Produktpatch wurde dadurch bereits freigegeben.
+
+Der Gesamt-Freeze ist inzwischen abgebrochen, nicht erfolgreich abgeschlossen: laut Worker hing sein Messprozess im Planner. Die Ausweichmessung benutzt FROZEN-V2 und getrennt eingefrorene Population. Neue Warden-Werte und Modell-Coverage stehen mit Quellenkennzeichnung im REGISTER.md. Besonders wichtig: mehrere ursprünglich beanstandete Items fehlen laut Worker schon im neuen Vorher-Kern; deren späteres Fehlen darf deshalb nicht als A-Erfolg gelten. Staple-Gate weiterhin rot.
+
+Die folgenden Abschnitte dokumentieren den früheren Verlauf. Der aktuelle Status steht in REGISTER.md; Angaben über einen noch laufenden Gesamt-Freeze oder ursprüngliches automatisches Opus-Routing sind historisch überholt. Diese Aktualisierung verändert ausschließlich Dokumentation, keine Produktquellen und keine Dienste.
+
 ## Gesicherter Ausgangsstand
 
 Produktbasis 706b129. Main hat inzwischen ee440f3, einen reinen Doku-Commit für den Nutzerbefund und bisherigen Phasenvertrag. Phase 0+A läuft auf eigenem Feature-Worktree mit unveränderter festgehaltener Basis. Zentrale DB, produktive Dienste, Timer und veröffentlichte Builds wurden vom Delegator nicht verändert.

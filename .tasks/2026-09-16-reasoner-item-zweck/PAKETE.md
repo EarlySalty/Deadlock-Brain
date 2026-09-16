@@ -1,19 +1,19 @@
 # Pakete: Alle-Helden-Reasoner in Rust
 
-Stand 16.09.2026. Grundlage AUFTRAG.md, BEFUND.md und ORCHESTRIERUNG.md. Kein Agentenstart allein durch diese Datei. Tatsächlich gestartete Threads stehen ausschließlich in REGISTER.md. Delegator ist dieser ChatGPT-Chat via codex-mcp; kein erfundener Intent-Thread. Die Phasen bauen strikt aufeinander auf. Pro Implementierung ein frischer Opus-4.8-Thread, eigener Worktree, kein Unterdelegieren; danach unabhängiges Review. Maximal ein Implementierer aktiv. Historische Vergleichswerte sind keine aktuelle Baseline.
+Stand 16.09.2026. Grundlage AUFTRAG.md, BEFUND.md und ORCHESTRIERUNG.md. Kein Agentenstart allein durch diese Datei. Tatsächlich gestartete Threads stehen ausschließlich in REGISTER.md. Delegator ist dieser ChatGPT-Chat via codex-mcp; kein erfundener Intent-Thread. Die Phasen bauen strikt aufeinander auf. Die Nutzerkorrektur in ARBEITSTEILUNG.md ersetzt das frühere automatische Opus-Routing: ChatGPT übernimmt Recherche, Mechanikprüfung und unabhängige Sichtung selbst; keine neuen Claude-Threads oder Claude-Subagenten. Nur der bereits laufende Worker darf 0+A beenden. Folgephasen haben keinen automatisch reservierten neuen Opus-Worker. Eigene Worktrees und unabhängige Prüfung bleiben Pflicht. Maximal ein Implementierer aktiv. Historische Vergleichswerte sind keine aktuelle Baseline.
 
 | Paket | Konkrete Lieferung | Abhängigkeit / Abnahme | Zustand |
 |---|---|---|---|
 | 0 | Eingefrorene lokale Inputs, Hashes, Warden-/Population-Metriken, Multi-Hero-Ausgangsstand, unbekannte Mechaniken | Keine Produktänderung vor Baseline; fehlende Messung offen markieren | Mit A beauftragt |
 | A | Waffen-Konversionsgraph in bestehender Rust-Pipeline, Einheiten/Vorzeichen, alle aus Assets belegten Konverter, 3 reale Hero-Fixtures und Roster-Scan | Nicht schlechterer gleicher Backtest, unabhängiger Reviewer | Aktiv, Thread 803d3e94 |
-| B | Rohe KV-Magnituden, vollständigeres Ereignis-/Bedingungsmodell, Hero-Abilities/Trigger/Charges/DoT/Stacks/Mehrziel-Uptime, Coverage | Auf abgenommenem A, frischer Worker; konkrete KV-Abdeckung steigt | Wartet auf A |
+| B | Rohe KV-Magnituden, vollständigeres Ereignis-/Bedingungsmodell, Hero-Abilities/Trigger/Charges/DoT/Stacks/Mehrziel-Uptime, Coverage | Auf abgenommenem A; kein automatischer neuer Claude-Worker; konkrete KV-Abdeckung steigt | Wartet auf A |
 | C | Echter HP-Pool, getrennte Schadens-/Shield-Kanäle, Risiko/Heilung/Defensive im Zeitverlauf | Auf abgenommenem B; Verlust und Deckung kontextabhängig nachweisbar | Wartet auf B |
 | D | Gemeinsame marginale Inventarbewertung für Kauf/Upgrade/Verkauf, nichtlineare Synergien, deterministische Mechanikketten | Auf abgenommenem C; keine Namen-/Archetyp-Sonderregeln | Wartet auf C |
 | E | Unabhängige Multi-Hero-Gesamtabnahme, Guards/Determinismus/Holdouts, Rust-Runtime-Audit, regulärer Release/Publish-Beleg | Erst wenn finale Qualitätsgates grün; keine vorgezogene Veröffentlichung | Wartet auf D |
 
 ## Review jeder Phase
 
-Ein neuer Thread prüft exakt Basis..Commit, Vertrag, Rohdatenquellen und wirklich ausgeführte Tests. Kein eigener Patch im Reviewer. Befunde mit Pfad:Zeile, Schweregrad, Gegenbeispiel, reproduzierbarem Test und minimalem Fix; ALLOW oder BLOCK eindeutig. Teilphasen dürfen keine Regression gegenüber identischen Phase-0-Eingaben verbergen. Bestehende rote Gesamtgates werden separat offen gehalten; ein technisches ALLOW für einen Zwischenpatch ist keine finale Releasefreigabe. Fixes gehen an den einzigen zuständigen Implementierungsthread, danach erneute unabhängige Prüfung. Keine Reviews ohne fertigen prüfbaren Commit.
+Ein vom Implementierer unabhängiger Reviewer prüft exakt Basis..Commit, Vertrag, Rohdatenquellen und wirklich ausgeführte Tests. Für den bestehenden A-Worker übernimmt ChatGPT diese Prüfung selbst; dafür wird kein neuer Claude-Thread angelegt. Kein eigener Patch im Reviewer. Befunde mit Pfad:Zeile, Schweregrad, Gegenbeispiel, reproduzierbarem Test und minimalem Fix; ALLOW oder BLOCK eindeutig. Teilphasen dürfen keine Regression gegenüber identischen Phase-0-Eingaben verbergen. Bestehende rote Gesamtgates werden separat offen gehalten; ein technisches ALLOW für einen Zwischenpatch ist keine finale Releasefreigabe. Fixes gehen an den einzigen zuständigen Implementierungsthread, danach erneute unabhängige Prüfung. Keine Reviews ohne fertigen prüfbaren Commit.
 
 ## B: genaue Prüfaufträge
 

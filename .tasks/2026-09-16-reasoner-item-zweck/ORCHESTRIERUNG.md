@@ -1,5 +1,7 @@
 # Reasoner: emergenter Item-Zweck – Arbeitsvertrag
 
+Routing-Korrektur des Nutzers vom 16.09.2026: ARBEITSTEILUNG.md hat für Zuständigkeiten Vorrang vor den unten dokumentierten ursprünglichen Opus-Phasen. Keine neuen Claude-Worker oder Claude-Subagenten; ChatGPT übernimmt Quellenrecherche, Mechanikprüfung und unabhängige Sichtung selbst. Nur der bereits laufende Thread 803d3e94 darf 0+A beenden. Fachlicher Vertrag, Rust, Datenbankschutz und Abnahme bleiben unverändert.
+
 Auftrag des Nutzers vom 16.09.2026. Fachlicher Ausgangspunkt: BEFUND.md (unverändert erhalten). Ausgangs-HEAD: 706b129. Die dokumentierten 6/9 Referenzwaffen, 9/10 Staples, Kendall tau 0,577 und Jaccard@12 0,500 sind historische Vergleichswerte, NICHT die neu gemessene Baseline.
 
 ## Ziel und Grenzen
