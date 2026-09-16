@@ -107,9 +107,19 @@ impl Search<'_> {
         };
         let mechanic = step.marginal_value + step.marginal_value.abs() * observed;
         let population = self.population.map_or(0.0, |prior| {
-            prior.support(id, self.prior_slot.get(&id).copied().unwrap_or(0.0))
+            if prior.is_staple(id) {
+                prior.support(id, self.prior_slot.get(&id).copied().unwrap_or(0.0))
+            } else {
+                0.0
+            }
         });
         mechanic + population
+    }
+
+    fn is_forced_staple(&self, candidate: &ScoredItem) -> bool {
+        self.population.is_some_and(|prior| {
+            prior.is_staple(candidate.item.item_id) && candidate.score.per_slot_value > 0.0
+        })
     }
 
     fn evaluate(
@@ -196,6 +206,7 @@ impl Search<'_> {
         let mut choices = Vec::new();
         for candidate in candidates {
             let item = &candidate.item;
+            let forced = self.is_forced_staple(candidate);
             let mut transitions = Vec::new();
             let direct = inventory.preview_purchase(item, &self.catalog, self.rules, &[]);
             if let Some(transition) = direct
@@ -236,7 +247,7 @@ impl Search<'_> {
                     continue;
                 };
                 let marginal_value = evaluation.score - before;
-                if marginal_value <= before.abs().max(1.0) * 1e-9 {
+                if marginal_value <= before.abs().max(1.0) * 1e-9 && !forced {
                     continue;
                 }
                 let step = PurchaseStep {
