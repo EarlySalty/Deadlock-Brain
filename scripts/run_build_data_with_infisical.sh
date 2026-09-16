@@ -60,3 +60,8 @@ if [[ -z "${DEADLOCK_CENTRAL_DSN:-}" ]]; then
 fi
 
 "$BRAIN_BIN" pull build-data --hero all
+
+"$BRAIN_BIN" population sync --matches 2000 \
+  || echo "population sync fehlgeschlagen; der bestehende Build-Data-Sync bleibt gültig." >&2
+"$BRAIN_BIN" population stats \
+  || echo "population stats fehlgeschlagen; die Populations-Aggregate wurden nicht aktualisiert." >&2

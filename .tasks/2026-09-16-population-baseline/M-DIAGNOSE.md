@@ -18,7 +18,7 @@ Modus `plan`, Debug-Build, kein `--release`. Laufzeit rund 102 s (Laden der
 
 Score aus `item::score_item` (`total = per_slot_value + meta_support + patch`);
 Rang unter allen 173 bewerteten Items. Belegdatei
-`Documents/.tasks/2026-09-16-population-baseline-mess/M-DIAG-fc71b5d.json`.
+`.tasks/2026-09-16-population-baseline/nachweise/M-DIAG-fc71b5d.json`.
 
 | Referenzwaffe | Kosten | Rang | total | combat | condF | Status | Ursache |
 |---|---:|---:|---:|---:|---:|---|---|

@@ -57,9 +57,9 @@ echte Populations-Staples mit positivem Solo-Mechanikwert sind. Mechanisch
 negative Items (Blood Tribute) bleiben ausgeschlossen. Der Prior ergänzt die
 Mechanik als Meta-Stütze und ersetzt sie nicht.
 
-## Nachweisdateien (nicht eingecheckt, im Documents-Nachweisordner)
+## Nachweisdateien
 
-`.tasks/2026-09-16-population-baseline-mess/`: `M-DIAG-fc71b5d.json`
+`.tasks/2026-09-16-population-baseline/nachweise/`: `M-DIAG-fc71b5d.json`
 (Baseline-Diagnose), `M-WARDEN-nopop.json`/`M-WARDEN-pop3.json` (Warden
 vorher/nachher), `M-SECHS-nopop.json`/`M-SECHS-pop.json` (Sechs-Helden
 vorher/nachher mit Populations-Backtest je Held).
