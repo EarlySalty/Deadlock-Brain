@@ -116,10 +116,10 @@ impl Search<'_> {
         mechanic + population
     }
 
-    fn is_forced_staple(&self, candidate: &ScoredItem) -> bool {
-        self.population.is_some_and(|prior| {
-            prior.is_staple(candidate.item.item_id) && candidate.score.per_slot_value > 0.0
-        })
+    fn is_priority_staple(&self, item_id: i64) -> bool {
+        self.population
+            .is_some_and(|prior| prior.is_staple(item_id))
+            && self.prior_slot.get(&item_id).copied().unwrap_or(0.0) > 0.0
     }
 
     fn evaluate(
@@ -206,7 +206,7 @@ impl Search<'_> {
         let mut choices = Vec::new();
         for candidate in candidates {
             let item = &candidate.item;
-            let forced = self.is_forced_staple(candidate);
+            let forced = self.is_priority_staple(item.item_id);
             let mut transitions = Vec::new();
             let direct = inventory.preview_purchase(item, &self.catalog, self.rules, &[]);
             if let Some(transition) = direct
@@ -268,8 +268,14 @@ impl Search<'_> {
             }
         }
         choices.sort_by(|left, right| {
-            self.supported_value(right)
-                .total_cmp(&self.supported_value(left))
+            let left_staple = self.is_priority_staple(left.transition.purchased_id);
+            let right_staple = self.is_priority_staple(right.transition.purchased_id);
+            right_staple
+                .cmp(&left_staple)
+                .then_with(|| {
+                    self.supported_value(right)
+                        .total_cmp(&self.supported_value(left))
+                })
                 .then_with(|| {
                     left.transition
                         .purchased_id
@@ -446,17 +452,23 @@ pub fn plan_with_economy(
                 beam.push((step, horizon));
             }
             beam.sort_by(|(left, l), (right, r)| {
-                r.total_cmp(l).then_with(|| {
-                    left.transition
-                        .purchased_id
-                        .cmp(&right.transition.purchased_id)
-                })
+                let left_staple = search.is_priority_staple(left.transition.purchased_id);
+                let right_staple = search.is_priority_staple(right.transition.purchased_id);
+                right_staple
+                    .cmp(&left_staple)
+                    .then_with(|| r.total_cmp(l))
+                    .then_with(|| {
+                        left.transition
+                            .purchased_id
+                            .cmp(&right.transition.purchased_id)
+                    })
             });
             let Some((mut step, buy_value)) = beam.into_iter().next() else {
                 plan.saving_decisions.push(SavingDecision { earned_souls:earned,available_souls:earned-inventory.spent_souls,reason:"Kein bezahlbarer Kauf mit positivem gemeinsamen Mehrwert; Geld bleibt verfügbar.".into() });
                 break;
             };
-            if save_value > buy_value + before.score.abs().max(1.0) * 1e-9 {
+            let buying_staple = search.is_priority_staple(step.transition.purchased_id);
+            if !buying_staple && save_value > buy_value + before.score.abs().max(1.0) * 1e-9 {
                 plan.saving_decisions.push(SavingDecision { earned_souls:earned,available_souls:earned-inventory.spent_souls,reason:"Sparen ermöglicht am nächsten Checkpoint den stärkeren gemeinsamen Zustand als Kauf plus Folgeentscheidung.".into() });
                 break;
             }
