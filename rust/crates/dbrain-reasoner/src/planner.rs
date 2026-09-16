@@ -44,6 +44,7 @@ pub struct PlanningContext<'a> {
     pub combinations: &'a BTreeMap<(i64, i64), crate::meta::CombinationSupport>,
     pub order: &'a [AbilityStep],
     pub economy: &'a EconomyPolicy,
+    pub population: Option<&'a crate::PopulationPrior>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -79,6 +80,8 @@ struct Search<'a> {
     candidates: &'a [&'a ScoredItem],
     rules: &'a InventoryRules,
     combinations: &'a BTreeMap<(i64, i64), crate::meta::CombinationSupport>,
+    population: Option<&'a crate::PopulationPrior>,
+    prior_slot: BTreeMap<i64, f64>,
     cache: BTreeMap<EvaluationKey, Option<InventoryEvaluation>>,
     invalid_metrics: BTreeSet<String>,
     choices_cache: BTreeMap<ChoiceKey, Vec<PurchaseStep>>,
@@ -102,7 +105,11 @@ impl Search<'_> {
         } else {
             lifts.iter().sum::<f64>() / lifts.len() as f64
         };
-        step.marginal_value + step.marginal_value.abs() * observed
+        let mechanic = step.marginal_value + step.marginal_value.abs() * observed;
+        let population = self.population.map_or(0.0, |prior| {
+            prior.support(id, self.prior_slot.get(&id).copied().unwrap_or(0.0))
+        });
+        mechanic + population
     }
 
     fn evaluate(
@@ -284,6 +291,7 @@ pub fn plan_purchases(
             combinations,
             order: &[],
             economy: &EconomyPolicy::default(),
+            population: None,
         },
     )
 }
@@ -301,7 +309,16 @@ pub fn plan_with_economy(
         combinations,
         order,
         economy,
+        population,
     } = context;
+    let prior_slot = population
+        .map(|_| {
+            catalog
+                .iter()
+                .map(|item| (item.item.item_id, item.score.per_slot_value))
+                .collect::<BTreeMap<_, _>>()
+        })
+        .unwrap_or_default();
     let mut search = Search {
         hero,
         cfg,
@@ -310,6 +327,8 @@ pub fn plan_with_economy(
         candidates,
         rules,
         combinations,
+        population,
+        prior_slot,
         cache: BTreeMap::new(),
         invalid_metrics: BTreeSet::new(),
         choices_cache: BTreeMap::new(),
@@ -651,6 +670,8 @@ mod tests {
             candidates: &candidates,
             rules: &rules,
             combinations: &combinations,
+            population: None,
+            prior_slot: BTreeMap::new(),
             cache: BTreeMap::new(),
             invalid_metrics: BTreeSet::new(),
             choices_cache: BTreeMap::new(),
@@ -745,6 +766,8 @@ mod tests {
             candidates: &candidates,
             rules: &rules,
             combinations: &combinations,
+            population: None,
+            prior_slot: BTreeMap::new(),
             cache: BTreeMap::new(),
             invalid_metrics: BTreeSet::new(),
             choices_cache: BTreeMap::new(),
@@ -842,6 +865,7 @@ mod tests {
                 economy: &EconomyPolicy {
                     checkpoints: vec![100, 800, 1600],
                 },
+                population: None,
             },
         );
         assert_eq!(plan.steps.len(), 2);

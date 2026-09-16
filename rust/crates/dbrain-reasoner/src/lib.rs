@@ -3,8 +3,8 @@ use std::{collections::BTreeMap, path::Path};
 use serde_json::Value;
 use sqlx::Row;
 
-mod ai_roles;
 pub mod ability_interactions;
+mod ai_roles;
 pub mod backtest;
 pub mod combat;
 pub mod composer;
@@ -18,6 +18,7 @@ pub mod mechanics;
 pub mod meta;
 pub mod patch;
 pub mod planner;
+pub mod population_prior;
 pub mod progression;
 pub mod publish;
 mod types;
@@ -39,6 +40,7 @@ pub use data::{
     load_hero_stat_values, load_item_models, load_meta_rows, load_patch_events,
     load_patch_events_for_snapshots, load_synergies,
 };
+pub use population_prior::{PopulationItem, PopulationPrior, POPULATION_PRIOR_WEIGHT};
 pub use types::*;
 
 #[derive(Clone, Copy, Debug)]
@@ -536,6 +538,7 @@ pub async fn load_reasoning_inputs(
             hero_ability_orders,
             core_layouts,
             combinations,
+            population: crate::PopulationPrior::default(),
         },
         snapshots,
     ))

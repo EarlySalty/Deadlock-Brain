@@ -18,3 +18,4 @@ tokio = { workspace = true, features = ["sync"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+dbrain-population = { path = "../dbrain-population" }

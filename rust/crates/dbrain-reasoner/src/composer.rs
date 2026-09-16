@@ -5,6 +5,13 @@ use crate::{
     HeroModel, PatchDelta, ReasonerConfig, ScoredItem, SituationBlock, SituationKind,
 };
 
+type PlanContext<'a> = (
+    &'a CoreLayoutStats,
+    &'a std::collections::BTreeMap<(i64, i64), crate::meta::CombinationSupport>,
+    &'a AuthorEvidence,
+    Option<&'a crate::PopulationPrior>,
+);
+
 fn confidence_rank(confidence: &Confidence) -> u8 {
     match confidence {
         Confidence::Low => 0,
@@ -347,6 +354,7 @@ pub fn compose_build_with_sources(
             meta.core_layouts.for_hero(hero.hero_id),
             &meta.combinations,
             &authors,
+            Some(&meta.population),
         ),
     )?;
     build.ability_order = order;
@@ -380,6 +388,7 @@ pub fn purchase_plan_with_sources(
             meta.core_layouts.for_hero(hero.hero_id),
             &meta.combinations,
             &authors,
+            Some(&meta.population),
         ),
     )
 }
@@ -389,13 +398,9 @@ fn plan_core(
     scored: &[ScoredItem],
     cfg: &ReasonerConfig,
     blocked: &[String],
-    context: (
-        &CoreLayoutStats,
-        &std::collections::BTreeMap<(i64, i64), crate::meta::CombinationSupport>,
-        &AuthorEvidence,
-    ),
+    context: PlanContext<'_>,
 ) -> crate::Result<crate::planner::PurchasePlan> {
-    let (layout, combinations, authors) = context;
+    let (layout, combinations, authors, population) = context;
     let catalog = scored
         .iter()
         .map(|item| item.item.clone())
@@ -413,6 +418,7 @@ fn plan_core(
             combinations,
             order: &authors.ability_order,
             economy: &crate::planner::EconomyPolicy::default(),
+            population,
         },
     );
     plan.assumptions.extend(authors.skill_notes.iter().cloned());
@@ -470,7 +476,7 @@ fn compose_build_with_layout_and_blocklist(
         deltas,
         cfg,
         blocked,
-        (layout, combinations, &AuthorEvidence::default()),
+        (layout, combinations, &AuthorEvidence::default(), None),
     )
 }
 
@@ -480,13 +486,9 @@ fn compose_build_with_author_evidence(
     deltas: &[PatchDelta],
     cfg: &ReasonerConfig,
     blocked: &[String],
-    context: (
-        &CoreLayoutStats,
-        &std::collections::BTreeMap<(i64, i64), crate::meta::CombinationSupport>,
-        &AuthorEvidence,
-    ),
+    context: PlanContext<'_>,
 ) -> crate::Result<BuildObject> {
-    let (_layout, combinations, authors) = context;
+    let (_layout, combinations, authors, _population) = context;
     let ordered = item_order(scored, blocked);
     let plan = plan_core(hero, scored, cfg, blocked, context)?;
     let selected = plan
@@ -733,7 +735,7 @@ mod tests {
             &[],
             &ReasonerConfig::default(),
             &[],
-            (&layout, &Default::default(), &other_hero),
+            (&layout, &Default::default(), &other_hero, None),
         )
         .unwrap();
         assert_eq!(baseline.core[0].item_id, 2);
@@ -744,7 +746,7 @@ mod tests {
             &[],
             &ReasonerConfig::default(),
             &[],
-            (&layout, &Default::default(), &same_hero),
+            (&layout, &Default::default(), &same_hero, None),
         )
         .unwrap();
         assert_eq!(build.core[0].item_id, 1);
@@ -790,7 +792,7 @@ mod tests {
             &[],
             &ReasonerConfig::default(),
             &[],
-            (&layout, &combinations, &AuthorEvidence::default()),
+            (&layout, &combinations, &AuthorEvidence::default(), None),
         )
         .unwrap();
         assert_eq!(no_sale.core.len(), 13);
@@ -810,7 +812,7 @@ mod tests {
             &[],
             &ReasonerConfig::default(),
             &[],
-            (&layout, &combinations, &authors),
+            (&layout, &combinations, &authors, None),
         )
         .unwrap();
         assert_eq!(build.core.len(), 13);
@@ -1339,6 +1341,7 @@ mod tests {
                 overall: CoreLayoutStats::default(),
             },
             combinations: BTreeMap::new(),
+            population: crate::PopulationPrior::default(),
         };
         let mut lane = item(1, "Lane", 1.0, false, &[]);
         lane.buy_phase = BuyPhase::Lane;
@@ -1503,6 +1506,7 @@ mod tests {
                 &layout(&[(1, 1), (2, 1), (3, 1), (4, 1)], 0),
                 &Default::default(),
                 &AuthorEvidence::default(),
+                None,
             ),
         )
         .unwrap();
@@ -1593,6 +1597,7 @@ mod tests {
                 &layout(&[(2, 15)], 2),
                 &Default::default(),
                 &AuthorEvidence::default(),
+                None,
             ),
         )
         .unwrap();

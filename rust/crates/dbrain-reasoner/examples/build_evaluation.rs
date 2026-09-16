@@ -111,6 +111,7 @@ fn compose(
     excluded: &BTreeSet<String>,
     holdout: bool,
     ablation: &str,
+    population: &PopulationPrior,
 ) -> std::result::Result<(BuildObject, Value, Vec<ScoredItem>), Error> {
     let sources = frozen
         .sources
@@ -200,6 +201,7 @@ fn compose(
         },
         core_layouts,
         combinations,
+        population: population.clone(),
     };
     let mut hero = input.hero.clone();
     let mut items = input.items.clone();
@@ -385,7 +387,14 @@ async fn freeze(output: &Path) -> std::result::Result<(), Error> {
                 .into());
             }
         }
-        let replay = compose(&frozen, input, &BTreeSet::new(), false, "full")?;
+        let replay = compose(
+            &frozen,
+            input,
+            &BTreeSet::new(),
+            false,
+            "full",
+            &PopulationPrior::default(),
+        )?;
         if replay.0 != input.live_baseline {
             return Err(format!(
                 "Offline-Reproduktion weicht für {} von der produktiven Fassade ab",
@@ -441,11 +450,46 @@ mod freeze_guard_tests {
     }
 }
 
+async fn load_populations() -> std::result::Result<BTreeMap<i64, PopulationPrior>, Error> {
+    let Ok(dsn) = std::env::var("POPULATION_DB_DSN") else {
+        return Ok(BTreeMap::new());
+    };
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&dsn)
+        .await?;
+    let hero_ids: Vec<i64> =
+        sqlx::query_scalar("SELECT DISTINCT hero_id FROM brain.population_item_stats")
+            .fetch_all(&pool)
+            .await?;
+    let mut populations = BTreeMap::new();
+    for hero_id in hero_ids {
+        let index = dbrain_population::PopulationIndex::load(&pool, hero_id).await?;
+        let staples = index
+            .staples(dbrain_population::BUCKET_ALL)
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+        let items = index
+            .population_positions(dbrain_population::BUCKET_ALL)
+            .into_iter()
+            .map(|(item_id, median)| PopulationItem {
+                item_id,
+                prevalence: index.prevalence(item_id),
+                median_position: Some(median),
+                is_staple: staples.contains(&item_id),
+            });
+        populations.insert(hero_id, PopulationPrior::from_items(items));
+    }
+    pool.close().await;
+    Ok(populations)
+}
+
 fn evaluate(
     input: &Path,
     output: &Path,
     mode: &str,
     selection: Option<&str>,
+    populations: &BTreeMap<i64, PopulationPrior>,
 ) -> std::result::Result<(), Error> {
     if output.exists() {
         return Err("Ausgabedatei existiert bereits".into());
@@ -475,6 +519,10 @@ fn evaluate(
         }) {
             continue;
         }
+        let population = populations
+            .get(&hero.hero.hero_id)
+            .cloned()
+            .unwrap_or_default();
         let own = frozen
             .sources
             .iter()
@@ -489,7 +537,8 @@ fn evaluate(
                 } else {
                     BTreeSet::from([id])
                 };
-                let (build, _, scores) = compose(&frozen, hero, &excluded, true, "full")?;
+                let (build, _, scores) =
+                    compose(&frozen, hero, &excluded, true, "full", &population)?;
                 reports.push(json!({"excluded_authors":excluded,"training_sources":frozen.sources.iter().filter(|source| author(source).is_ok_and(|id| !excluded.contains(&id))).count(),"measurement":measure(hero,&build,&scores,row)?,"build":build}));
             }
         } else {
@@ -509,7 +558,7 @@ fn evaluate(
             };
             for variant in variants_to_run {
                 let (build, plan, scores) =
-                    compose(&frozen, hero, &BTreeSet::new(), false, variant)?;
+                    compose(&frozen, hero, &BTreeSet::new(), false, variant, &population)?;
                 let measurements = own
                     .iter()
                     .map(|row| measure(hero, &build, &scores, row))
@@ -542,12 +591,26 @@ async fn main() -> std::result::Result<(), Error> {
         [mode, input, output]
             if ["evaluate", "holdout", "sensitivity", "plan"].contains(&mode.as_str()) =>
         {
-            evaluate(Path::new(input), Path::new(output), mode, None)
+            let populations = load_populations().await?;
+            evaluate(
+                Path::new(input),
+                Path::new(output),
+                mode,
+                None,
+                &populations,
+            )
         }
         [mode, input, output, heroes]
             if ["evaluate", "sensitivity", "plan"].contains(&mode.as_str()) =>
         {
-            evaluate(Path::new(input), Path::new(output), mode, Some(heroes))
+            let populations = load_populations().await?;
+            evaluate(
+                Path::new(input),
+                Path::new(output),
+                mode,
+                Some(heroes),
+                &populations,
+            )
         }
         _ => Err(
             "Aufruf: build_evaluation freeze DATEI | evaluate|holdout|sensitivity FROZEN AUSGABE"

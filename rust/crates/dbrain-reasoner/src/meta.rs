@@ -58,6 +58,7 @@ pub struct MetaIndexWithSources {
     pub hero_ability_orders: BTreeMap<i64, Vec<crate::AbilityStep>>,
     pub core_layouts: CoreLayoutIndex,
     pub combinations: BTreeMap<(i64, i64), CombinationSupport>,
+    pub population: crate::PopulationPrior,
 }
 
 #[derive(Debug, Clone)]
