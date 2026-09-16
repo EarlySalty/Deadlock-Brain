@@ -122,6 +122,10 @@ impl Search<'_> {
             && self.prior_slot.get(&item_id).copied().unwrap_or(0.0) > 0.0
     }
 
+    fn is_priority_staple_step(&self, step: &PurchaseStep) -> bool {
+        self.is_priority_staple(step.transition.purchased_id) && step.marginal_value >= 0.0
+    }
+
     fn evaluate(
         &mut self,
         inventory: &Inventory,
@@ -247,7 +251,8 @@ impl Search<'_> {
                     continue;
                 };
                 let marginal_value = evaluation.score - before;
-                if marginal_value <= before.abs().max(1.0) * 1e-9 && !forced {
+                let staple_rescue = forced && marginal_value >= 0.0;
+                if marginal_value <= before.abs().max(1.0) * 1e-9 && !staple_rescue {
                     continue;
                 }
                 let step = PurchaseStep {
@@ -268,8 +273,8 @@ impl Search<'_> {
             }
         }
         choices.sort_by(|left, right| {
-            let left_staple = self.is_priority_staple(left.transition.purchased_id);
-            let right_staple = self.is_priority_staple(right.transition.purchased_id);
+            let left_staple = self.is_priority_staple_step(left);
+            let right_staple = self.is_priority_staple_step(right);
             right_staple
                 .cmp(&left_staple)
                 .then_with(|| {
@@ -452,8 +457,8 @@ pub fn plan_with_economy(
                 beam.push((step, horizon));
             }
             beam.sort_by(|(left, l), (right, r)| {
-                let left_staple = search.is_priority_staple(left.transition.purchased_id);
-                let right_staple = search.is_priority_staple(right.transition.purchased_id);
+                let left_staple = search.is_priority_staple_step(left);
+                let right_staple = search.is_priority_staple_step(right);
                 right_staple
                     .cmp(&left_staple)
                     .then_with(|| r.total_cmp(l))
@@ -467,7 +472,7 @@ pub fn plan_with_economy(
                 plan.saving_decisions.push(SavingDecision { earned_souls:earned,available_souls:earned-inventory.spent_souls,reason:"Kein bezahlbarer Kauf mit positivem gemeinsamen Mehrwert; Geld bleibt verfügbar.".into() });
                 break;
             };
-            let buying_staple = search.is_priority_staple(step.transition.purchased_id);
+            let buying_staple = search.is_priority_staple_step(&step);
             if !buying_staple && save_value > buy_value + before.score.abs().max(1.0) * 1e-9 {
                 plan.saving_decisions.push(SavingDecision { earned_souls:earned,available_souls:earned-inventory.spent_souls,reason:"Sparen ermöglicht am nächsten Checkpoint den stärkeren gemeinsamen Zustand als Kauf plus Folgeentscheidung.".into() });
                 break;

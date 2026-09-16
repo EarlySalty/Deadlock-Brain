@@ -575,7 +575,7 @@ fn compose_build_with_author_evidence(
                     .median_position(item.item.item_id)
                     .map(|value| format!("{value:.0}"))
                     .unwrap_or_else(|| "unbekannt".to_string());
-                let detail = format!("Populations-Stütze: {:.0}% Kaufanteil bei echten Spielern dieses Helden, Median-Kaufposition {position}. Mechanik-Slotwert {:+.1}; die Kaufkurve folgt der Mechanik, der Kaufanteil stützt nur populäre Items mit tragfähigem Mechanikwert.", population.prevalence(item.item.item_id) * 100.0, item.score.per_slot_value);
+                let detail = format!("Populations-Stütze: {:.0}% Kaufanteil bei echten Spielern dieses Helden, Median-Kaufposition {position}. Mechanik-Slotwert {:+.1}; die Kaufkurve folgt der Mechanik, der Kaufanteil hebt nur Staples mit positivem Solo-Mechanikwert, die im aktuellen Build keinen negativen Marginalwert haben.", population.prevalence(item.item.item_id) * 100.0, item.score.per_slot_value);
                 built.why.push(' ');
                 built.why.push_str(&detail);
                 built.sources.push(Evidence { kind: EvidenceKind::Meta, detail });
