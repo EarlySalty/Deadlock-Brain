@@ -816,6 +816,23 @@ pub(crate) async fn load_hero_model_with_snapshots(
             );
         }
     }
+    for (name, value) in &model.standard_level_up_upgrades {
+        let label = match name.as_str() {
+            "MODIFIER_VALUE_BASE_BULLET_DAMAGE_FROM_LEVEL" => "Bullet Damage per Boon",
+            "MODIFIER_VALUE_BASE_HEALTH_FROM_LEVEL" => "Health per Boon",
+            "MODIFIER_VALUE_TECH_POWER" => "Spirit Power per Boon",
+            _ => name,
+        };
+        fields.insert(
+            format!("standard_level_up_upgrades.{name}"),
+            crate::SnapshotField {
+                value: *value,
+                fetched_at: number(payload.get("_snapshot_fetched_at")),
+                source: "deadlock_assets_api/hero".into(),
+                label: label.into(),
+            },
+        );
+    }
     let mut snapshots = vec![crate::PatchSnapshot {
         target: crate::DeltaTarget::Hero(model.hero_id),
         name: model.name.clone(),
@@ -828,18 +845,76 @@ pub(crate) async fn load_hero_model_with_snapshots(
         if ability.ability_id <= 0 {
             continue;
         }
+        let fetched_at = number(raw.get("_snapshot_fetched_at"));
+        let mut ability_fields = BTreeMap::from([(
+            "cooldown".into(),
+            crate::SnapshotField {
+                value: ability.cooldown,
+                fetched_at,
+                source: "deadlock_assets_api/item_or_ability".into(),
+                label: "Cooldown".into(),
+            },
+        )]);
+        for (name, value) in &ability.properties {
+            if name == "AbilityCooldown" {
+                continue;
+            }
+            let label = raw
+                .get("properties")
+                .and_then(|properties| properties.get(name))
+                .and_then(|property| property.get("label"))
+                .and_then(Value::as_str)
+                .unwrap_or(name);
+            ability_fields.insert(
+                format!("properties.{name}"),
+                crate::SnapshotField {
+                    value: *value,
+                    fetched_at,
+                    source: "deadlock_assets_api/item_or_ability".into(),
+                    label: label.into(),
+                },
+            );
+        }
+        for (upgrade_index, upgrade) in ability.upgrades.iter().enumerate() {
+            let Some(properties) = upgrade.get("property_upgrades").and_then(Value::as_array)
+            else {
+                continue;
+            };
+            for property in properties {
+                let Some(name) = property.get("name").and_then(Value::as_str) else {
+                    continue;
+                };
+                let Some(value) = number(property.get("bonus")) else {
+                    continue;
+                };
+                let label = if property
+                    .get("upgrade_type")
+                    .and_then(Value::as_str)
+                    .is_some_and(|kind| kind == "EAddToScale")
+                    && property
+                        .get("scale_stat_filter")
+                        .and_then(Value::as_str)
+                        .is_some_and(|filter| filter == "ETechPower")
+                {
+                    "Spirit Scaling"
+                } else {
+                    name
+                };
+                ability_fields.insert(
+                    format!("upgrade.{upgrade_index}.{name}.bonus"),
+                    crate::SnapshotField {
+                        value,
+                        fetched_at,
+                        source: "deadlock_assets_api/item_or_ability".into(),
+                        label: label.into(),
+                    },
+                );
+            }
+        }
         snapshots.push(crate::PatchSnapshot {
             target: crate::DeltaTarget::Ability(ability.ability_id),
             name: string(raw.get("name")),
-            fields: BTreeMap::from([(
-                "cooldown".into(),
-                crate::SnapshotField {
-                    value: ability.cooldown,
-                    fetched_at: number(raw.get("_snapshot_fetched_at")),
-                    source: "deadlock_assets_api/item_or_ability".into(),
-                    label: "Cooldown".into(),
-                },
-            )]),
+            fields: ability_fields,
         });
     }
     Ok((model, snapshots))
@@ -1059,6 +1134,27 @@ pub(crate) async fn load_item_models_with_snapshots(
                             .and_then(|props| props.get(name))
                             .and_then(|prop| prop.get("label")),
                     ),
+                },
+            );
+        }
+        for (name, value) in &model.property_spirit_scaling {
+            let base_label = string(
+                payload
+                    .get("properties")
+                    .and_then(|props| props.get(name))
+                    .and_then(|prop| prop.get("label")),
+            );
+            fields.insert(
+                format!("property_spirit_scaling.{name}"),
+                crate::SnapshotField {
+                    value: *value,
+                    fetched_at: number(payload.get("_snapshot_fetched_at")),
+                    source: "deadlock_assets_api/item_or_ability".into(),
+                    label: if base_label.is_empty() {
+                        format!("{name} Spirit Scaling")
+                    } else {
+                        format!("{base_label} Scaling")
+                    },
                 },
             );
         }
