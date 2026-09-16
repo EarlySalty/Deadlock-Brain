@@ -206,7 +206,14 @@ fn compose(
     let mut hero = input.hero.clone();
     let mut items = input.items.clone();
     enrich_frozen_models(&mut hero, &mut items, &frozen.raw_snapshots)?;
-    let planned = plan_build(&hero, &items, &context, &input.events, &input.snapshots, &cfg)?;
+    let planned = plan_build(
+        &hero,
+        &items,
+        &context,
+        &input.events,
+        &input.snapshots,
+        &cfg,
+    )?;
     let mut build = planned.build;
     let plan = if ablation == "plan" {
         let plan =
@@ -335,7 +342,10 @@ async fn freeze(output: &Path) -> std::result::Result<(), Error> {
         .await?;
     let mut heroes = Vec::new();
     for name in names {
+        let started = std::time::Instant::now();
+        eprintln!("Freeze/Laden beginnt: {name}");
         let (hero, items, meta, snapshots) = load_reasoning_inputs(&ctx, &name, None).await?;
+        eprintln!("Freeze/Baseline beginnt: {} ({})", name, hero.hero_id);
         let events = load_patch_events_for_snapshots(&ctx, hero.hero_id, &snapshots).await?;
         let input = FrozenHero {
             rows: load_meta_rows(&ctx, hero.hero_id).await?,
@@ -349,7 +359,10 @@ async fn freeze(output: &Path) -> std::result::Result<(), Error> {
             snapshots,
             events,
         };
-        eprintln!("Eingefroren: {name}");
+        eprintln!(
+            "Eingefroren: {name}, {:.3} s",
+            started.elapsed().as_secs_f64()
+        );
         heroes.push(input);
     }
     let frozen = Frozen {
@@ -364,6 +377,11 @@ async fn freeze(output: &Path) -> std::result::Result<(), Error> {
         heroes,
     };
     for input in &frozen.heroes {
+        let check_started = std::time::Instant::now();
+        eprintln!(
+            "Freeze/Replay-Prüfung beginnt: {} ({})",
+            input.hero.name, input.hero.hero_id
+        );
         for item in &input.items {
             if !frozen.raw_snapshots.iter().any(|row| {
                 row["source"] == "deadlock_assets_api"
@@ -386,6 +404,12 @@ async fn freeze(output: &Path) -> std::result::Result<(), Error> {
             )
             .into());
         }
+        eprintln!(
+            "Freeze/Replay-Prüfung fertig: {} ({}), {:.3} s",
+            input.hero.name,
+            input.hero.hero_id,
+            check_started.elapsed().as_secs_f64()
+        );
     }
     let bytes = serde_json::to_vec(&frozen)?;
     let end_guard = freeze_guard(&pool).await?;
@@ -632,6 +656,51 @@ fn evaluate(
     Ok(())
 }
 
+fn summarize(report: &Value) -> std::result::Result<Value, Error> {
+    if report["format_version"] != 1 {
+        return Err("Unbekanntes Auswertungsformat".into());
+    }
+    let reports = report["reports"].as_array().ok_or("reports fehlen")?;
+    let mut rows = Vec::new();
+    for hero in reports {
+        for variant in hero["variants"].as_array().ok_or("variants fehlen")? {
+            for measurement in variant["measurements"]
+                .as_array()
+                .ok_or("measurements fehlen")?
+            {
+                rows.push(json!({
+                    "hero_id": hero["hero_id"], "hero_name": hero["hero_name"],
+                    "variant": variant["variant"], "build_id": measurement["build_id"],
+                    "version": measurement["version"],
+                    "reference_weapons": measurement["reference_weapon_count"],
+                    "weapon_hits": measurement["weapon_hit_count"],
+                    "author_metrics": measurement["metrics"],
+                    "population": measurement["population_backtest"]
+                }));
+            }
+        }
+    }
+    Ok(
+        json!({"artifact_revision": report["algorithm_revision"], "baseline_revision": report["baseline_revision"], "frozen_at": report["frozen_at"], "mode": report["mode"], "rows": rows}),
+    )
+}
+
+#[cfg(test)]
+mod summary_tests {
+    use super::*;
+    #[test]
+    fn summary_keeps_artifact_revision_missing_metrics_and_separate_sources() {
+        let source = json!({"format_version":1,"algorithm_revision":"original","reports":[{"hero_id":1,"hero_name":"X","variants":[{"variant":"full","measurements":[{"build_id":2,"reference_weapon_count":9,"weapon_hit_count":6,"metrics":{"kendall_tau":null},"population_backtest":{"staple_gate_passed":false}}]}]}]});
+        let result = summarize(&source).unwrap();
+        assert_eq!(result["artifact_revision"], "original");
+        assert_eq!(result["rows"][0]["weapon_hits"], 6);
+        assert!(result["rows"][0]["author_metrics"]["kendall_tau"].is_null());
+        assert_eq!(result["rows"][0]["population"]["staple_gate_passed"], false);
+        assert!(summarize(&json!({"format_version":1})).is_err());
+        assert!(summarize(&json!({"format_version":2,"reports":[]})).is_err());
+    }
+}
+
 #[tokio::main]
 async fn main() -> std::result::Result<(), Error> {
     if !SOURCE_CLEAN || ALGORITHM_REVISION.len() != 40 {
@@ -641,6 +710,11 @@ async fn main() -> std::result::Result<(), Error> {
     }
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     match args.as_slice() {
+        [mode, input] if mode == "summary" => {
+            let report: Value = serde_json::from_slice(&fs::read(input)?)?;
+            println!("{}", serde_json::to_string_pretty(&summarize(&report)?)?);
+            Ok(())
+        }
         [mode, output] if mode == "freeze" => freeze(Path::new(output)).await,
         [mode, output] if mode == "freeze-populations" => {
             freeze_populations(Path::new(output)).await
