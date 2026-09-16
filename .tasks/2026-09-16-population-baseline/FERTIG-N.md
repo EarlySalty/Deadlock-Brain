@@ -124,3 +124,54 @@ Leerer-Prior-Build. Empfehlung: nach jedem Sync `population stats` laufen lassen
 - `cargo clippy -p dbrain-reasoner -p dbrain-population -p deadlock-brain
   --all-targets -- -D warnings`: sauber.
 - Live-Smoke nach den Änderungen: Warden 6/9, Population lädt (3-Tabellen-Guard).
+
+## Nachbesserung Ausreißer (2026-09-16, zweite Runde)
+
+Die erste Ausreißer-Erklärung (stale Aggregate) war falsch und ist widerlegt:
+um 04:31 standen 10 Warden-Staples. `N-AUSREISSER.md` ist neu geschrieben.
+
+### Echte Ursache (belegt)
+
+Der 04:34-Build lief mit KI (`used_ai=t`) und las die Population korrekt (drei
+Staples mit "Populations-Stütze"-Evidence). Ursache ist der KI-Kritiker-Recompose:
+`run_critic` gab `recompose`, der Recompose reicht `critic.issues` (LLM-Fließtext)
+als `blocked` an `compose_build_with_sources`, und `item_order` blockte jedes
+Item, dessen Name als Teilstring im Fließtext vorkam. Der Kritiker erwähnt
+Item-Namen in seinen Sätzen ("Spiritual Overflow, Healing Tempo"), also wurden
+genau diese Staples still entfernt und der Recompose fiel auf defensive Items
+zurück. Nichtdeterministisch (LLM), still ausgeliefert. Belege: die persistierte
+04:34-Zeile trägt "Offene Kritikpunkte:" (nur nach Recompose) und zitiert Items,
+die im Kern fehlen; `--no-ai` liefert fünfmal zeichengleich 6/9.
+
+### Fix und Härtung (Commit s. u.)
+
+- `item_order` blockt nur bei exaktem Namens-/ID-Abgleich statt per Teilstring in
+  Fließtext. Test `free_text_issue_does_not_block_a_mentioned_item_only_exact_-
+  names_do` mit Rot-Gegenprobe.
+- `PopulationPrior::thin_coverage_note` plus Verdrahtung in
+  `compose_build_with_sources`: deckt ein Build weniger als die Hälfte der
+  Populations-Staples ab, steht das sichtbar in der Rationale und Confidence wird
+  `Low`. Test `thin_coverage_note_fires_only_below_half_of_the_staples`.
+
+### REVIEW-N-Nits
+
+- `population stats`/`show` prüfen jetzt per `schema_present` (read-only,
+  to_regclass) und melden freundlich "Zuerst 'population sync' laufen lassen"
+  statt roh abzubrechen, ohne DDL.
+- `population_sync_runs.started_at` wird jetzt aus der echten Startzeit gesetzt
+  (`SystemTime` beim Laufbeginn, `to_timestamp`), nicht mehr aus finished minus
+  Dauer rekonstruiert.
+
+### Testzahlen nach der Nachbesserung
+
+- `cargo test -p dbrain-reasoner --lib`: 173 bestanden (vorher 171, plus
+  Blocklist- und thin-coverage-Test), 16 ignoriert, 0 rot.
+- `cargo test -p dbrain-population`: 25 bestanden, 0 rot.
+- `cargo test --workspace` ohne DSN: 390 bestanden, 58 ignoriert. Der Timing-Test
+  `dbrain-sources::deadlock_api::tests::demo_poll_total_timeout_caps_the_next_-
+  sleep` streut unter paralleler Last (isoliert fünfmal grün), fremdes Crate,
+  von N nicht berührt, kein Zusammenhang mit den Änderungen.
+- `cargo clippy -p dbrain-reasoner -p dbrain-population -p deadlock-brain
+  --all-targets -- -D warnings`: sauber.
+- Live-Smoke: Warden 6/9, Population lädt, thin-note feuert korrekt nicht (Deckung
+  9/10).
