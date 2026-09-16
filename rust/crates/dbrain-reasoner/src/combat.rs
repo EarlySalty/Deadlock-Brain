@@ -77,6 +77,8 @@ struct Stats {
     spirit_leech: f64,
     regeneration: f64,
     shield: f64,
+    weapon_shield: f64,
+    spirit_shield: f64,
     cooldown: f64,
     bonus_ability_charges: f64,
     charged_spirit: f64,
@@ -171,7 +173,9 @@ fn apply(stats: &mut Stats, name: &str, v: f64) -> bool {
         "BulletLifestealPercent" | "ActiveBonusLifesteal" => stats.bullet_leech += v,
         "AbilityLifestealPercent" | "AbilityLifestealPercentHero" => stats.spirit_leech += v,
         "HealthRegen" | "HealthRegenBonus" => stats.regeneration += v,
-        "BulletShieldMaxHealth" | "TechShieldMaxHealth" | "CombatBarrier" => stats.shield += v,
+        "BulletShieldMaxHealth" => stats.weapon_shield += v,
+        "TechShieldMaxHealth" => stats.spirit_shield += v,
+        "CombatBarrier" => stats.shield += v,
         "CooldownReduction" => stats.cooldown = 1.0 - (1.0 - stats.cooldown) * (1.0 - v / 100.0),
         "BonusAbilityCharges" => stats.bonus_ability_charges += v,
         "BonusSpiritForChargedAbilities" => stats.charged_spirit += v,
@@ -201,6 +205,22 @@ fn apply(stats: &mut Stats, name: &str, v: f64) -> bool {
     }
     true
 }
+fn defensive_capacity(health: f64, stats: &Stats, weapon_fraction: f64) -> f64 {
+    let weapon_rate = weapon_fraction
+        * (1.0 - stats.bullet_resist.clamp(-1.0, 0.9))
+        * (1.0 - stats.enemy_weapon_penalty.clamp(0.0, 0.9))
+        * (1.0 - stats.enemy_rate_slow.clamp(0.0, 0.9));
+    let spirit_rate = (1.0 - weapon_fraction) * (1.0 - stats.spirit_resist.clamp(-1.0, 0.9));
+    crate::defense::mixed_damage_capacity(
+        health,
+        stats.shield,
+        stats.weapon_shield,
+        stats.spirit_shield,
+        weapon_rate,
+        spirit_rate,
+    )
+}
+
 struct PreparedAbility<'a> {
     damage_terms: Vec<(f64, f64)>,
     utility_keys: Vec<&'a str>,
@@ -565,7 +585,8 @@ fn evaluate_core(
         "PulseDPS mit Radius wird als eigene zeitlich laufende Aura interpretiert und darf ein Folgeziel während der verbleibenden Dauer treffen. Unklare andere Effektübertragung auf Folgeziele wird konservativ nicht angenommen; Mehrfachkontakte sind kein belegtes Matchmodell.".into(),
         "Schadensleistung nutzt die tatsächlich verstrichene Szenariozeit. Der separat ausgewiesene Überlebensbeitrag bleibt effektives Leben geteilt durch das ursprüngliche konfigurierte Kampffenster; kurze TTK erhöht sein Gewicht nicht.".into(),
         "Eigene Gesundheitskosten nutzen den je Fähigkeit ausdrücklich benannten Prozentbezug; unklare Kosten verhindern eine simulierte kostenlose Castfolge.".into(),
-        "Gegner startet ohne Resistenzen; eingehender Schaden ist zur Hälfte Waffen- und Spirit-Schaden. Lifesteal zählt höchstens den angenommenen Lebensverlust.".into(),
+        format!("Gegner startet ohne Resistenzen; expliziter eingehender Schadensmix {:.1}% Waffe und {:.1}% Spirit vor eigener Schadensminderung. Kanalgebundene Schilde schützen nur vor ihrem Typ, universelle Barrieren vor beiden. Lifesteal zählt höchstens den angenommenen Lebensverlust.", cfg.incoming_weapon_fraction()*100.0, (1.0-cfg.incoming_weapon_fraction())*100.0),
+        "Defensive Kapazität löst den konstanten Schadensmix bis zum Aufbrauchen des Lebenspools stückweise auf; ein noch ungenutzter Schild des anderen Kanals kann HP-Verlust nicht decken. Dies ersetzt weder die feste Druckkurve noch eine vollständige gegnerische Rotation oder eine reale Schildverbrauchs-/Nachladehistorie.".into(),
         "Effektives Leben ist der zeitlich gemittelte Ressourcenbestand nach Eigenkosten und tatsächlich nutzbarer Heilung; früher Tod beendet weitere Kampfereignisse. Keine gespeicherte Überheilung.".into(),
         "Bewegliches Ziel läuft mit angenommenen 8 m/s aus Kontrollkreisen; Verlangsamung reduziert die zurückgelegte Strecke, Festsetzen stoppt sie. Unbekannte Höhenschäden werden bei Höhe null nicht addiert.".into(),
         "Utility-Modellannahme: Verlangsamung und Lauftempo helfen beim Zielkontakt, bei beweglichem Ziel stärker. Überlappende Verlangsamungen nutzen nur den stärksten Wert.".into(),
@@ -1046,7 +1067,7 @@ fn simulate(
                     ability,
                     &stats,
                     moving,
-                    window,
+                    cfg,
                     damage,
                     &prepared[idx].utility_keys,
                 );
@@ -1646,11 +1667,6 @@ fn simulate(
         let health = ((hero.base_health * (1.0 + stats.health_pct / 100.0) + stats.health)
             * (1.0 - stats.health_loss.clamp(0.0, 0.99)))
         .max(1.0);
-        let mitigation = 0.5
-            * (1.0 - stats.bullet_resist.clamp(-1.0, 0.9))
-            * (1.0 - stats.enemy_weapon_penalty.clamp(0.0, 0.9))
-            * (1.0 - stats.enemy_rate_slow.clamp(0.0, 0.9))
-            + 0.5 * (1.0 - stats.spirit_resist.clamp(-1.0, 0.9));
         leech_sum += gun_damage * stats.bullet_leech.max(0.0) / 100.0
             + stats.regeneration.max(0.0) * duration;
         leech_sum = leech_sum.min(self_damage_sum + health * (1.0 - health_fraction));
@@ -1686,8 +1702,11 @@ fn simulate(
                 }
             }
         }
-        health_sum += (health + stats.shield.max(0.0) + leech_sum - self_damage_sum) / mitigation
-            * duration
+        health_sum += defensive_capacity(
+            health + leech_sum - self_damage_sum,
+            &stats,
+            cfg.incoming_weapon_fraction(),
+        ) * duration
             / window;
         out.spirit_power += stats.spirit * duration / window;
         out.elapsed_seconds = time + duration;
@@ -1879,10 +1898,11 @@ fn ability_utility_value(
     ability: &AbilityModel,
     stats: &Stats,
     moving: bool,
-    window: f64,
+    cfg: &ReasonerConfig,
     damage: f64,
     keys: &[&str],
 ) -> f64 {
+    let window = cfg.combat_window_seconds.clamp(1.0, 120.0);
     let mut prospective = stats.clone();
     let mut duration: f64 = 0.0;
     for key in keys {
@@ -1899,11 +1919,19 @@ fn ability_utility_value(
             * (1.0 + s.rate / 100.0).max(0.0)
             * target_contact(s, moving)
     };
+    let mut shield_only = stats.clone();
+    shield_only.shield = prospective.shield;
+    shield_only.weapon_shield = prospective.weapon_shield;
+    shield_only.spirit_shield = prospective.spirit_shield;
+    let share = cfg.incoming_weapon_fraction();
+    let shield_gain = (defensive_capacity(hero.base_health, &shield_only, share)
+        - defensive_capacity(hero.base_health, stats, share))
+    .max(0.0);
     (output(&prospective) - output(stats)).max(0.0) * duration.min(window)
-        + (prospective.shield - stats.shield).max(0.0)
+        + shield_gain
         + (prospective.enemy_weapon_penalty - stats.enemy_weapon_penalty).max(0.0)
             * hero.base_health
-            * 0.5
+            * share
             * duration.min(window)
             / window
         + damage
@@ -2211,6 +2239,107 @@ pub(crate) mod tests {
             crate::item::build_item_model(&translated)
                 .unwrap()
                 .condition
+        );
+    }
+
+    #[test]
+    fn sustain_score_does_not_double_count_the_flat_regen_property() {
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 16.0,
+            ..ReasonerConfig::default()
+        };
+        let mut hero = hero();
+        hero.weapon.bullet_damage = 0.0;
+        let mut item = refresh_regeneration();
+        let meta = crate::MetaIndex {
+            by_item: BTreeMap::new(),
+            sample_ok: BTreeSet::new(),
+        };
+        assert_eq!(
+            crate::item::score_item(&item, &hero, &meta, &[], &cfg)
+                .score
+                .combat_value,
+            0.0
+        );
+        hero.abilities = vec![ability(1, 16.0, 1000.0)];
+        for mirrored in [false, true] {
+            if mirrored {
+                item.passive_properties = item.properties.clone();
+            }
+            let expected = damage_refresh_summary(&item, &hero, &cfg).unwrap().1;
+            let actual = crate::item::score_item(&item, &hero, &meta, &[], &cfg)
+                .score
+                .combat_value;
+            assert!(
+                (actual - expected).abs() < 1e-9,
+                "flat regen counted twice: {actual} vs {expected}"
+            );
+        }
+    }
+
+    fn damage_mix_config(weapon_share: f64) -> ReasonerConfig {
+        let mut value = serde_json::to_value(ReasonerConfig::default()).unwrap();
+        value["incoming_weapon_share"] = serde_json::json!(weapon_share);
+        value["combat_window_seconds"] = serde_json::json!(4.0);
+        serde_json::from_value(value).unwrap()
+    }
+
+    #[test]
+    fn typed_shields_do_not_cover_the_other_damage_channel() {
+        let mut hero = hero();
+        hero.weapon.bullet_damage = 0.0;
+        let weapon_shield = item(801, "BulletShieldMaxHealth", 100.0);
+        let spirit_shield = item(802, "TechShieldMaxHealth", 100.0);
+        for (share, matching, wrong) in [
+            (1.0, &weapon_shield, &spirit_shield),
+            (0.0, &spirit_shield, &weapon_shield),
+        ] {
+            let cfg = damage_mix_config(share);
+            let baseline = evaluate_inventory(&hero, &[], &cfg).effective_health;
+            let matched =
+                evaluate_inventory(&hero, std::slice::from_ref(matching), &cfg).effective_health;
+            let mismatched =
+                evaluate_inventory(&hero, std::slice::from_ref(wrong), &cfg).effective_health;
+            assert!(
+                (mismatched - baseline).abs() < 1e-8,
+                "wrong channel credited: {mismatched} vs {baseline}"
+            );
+            assert!((matched - baseline - 100.0).abs() < 1e-8);
+            let meta = crate::MetaIndex {
+                by_item: BTreeMap::new(),
+                sample_ok: BTreeSet::new(),
+            };
+            assert_eq!(
+                crate::item::score_item(wrong, &hero, &meta, &[], &cfg)
+                    .score
+                    .combat_value,
+                0.0
+            );
+            assert!(
+                (crate::item::score_item(matching, &hero, &meta, &[], &cfg)
+                    .score
+                    .combat_value
+                    - 25.0)
+                    .abs()
+                    < 1e-8
+            );
+        }
+    }
+
+    #[test]
+    fn anti_weapon_debuff_has_no_value_without_weapon_pressure() {
+        let mut hero = hero();
+        hero.weapon.bullet_damage = 0.0;
+        let debuff = item(803, "WeaponPowerDebuff", 50.0);
+        let spirit_cfg = damage_mix_config(0.0);
+        assert_eq!(
+            evaluate_inventory(&hero, std::slice::from_ref(&debuff), &spirit_cfg).effective_health,
+            evaluate_inventory(&hero, &[], &spirit_cfg).effective_health
+        );
+        let weapon_cfg = damage_mix_config(1.0);
+        assert!(
+            evaluate_inventory(&hero, &[debuff], &weapon_cfg).effective_health
+                > evaluate_inventory(&hero, &[], &weapon_cfg).effective_health
         );
     }
 

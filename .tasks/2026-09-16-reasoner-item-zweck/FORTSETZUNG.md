@@ -26,3 +26,26 @@ Explizite Grenzen: Der Eigenbuff wird nach Verlust eines Ziels bis zum Ablauf er
 - Fokussierter Formatter über ignoriertes target/focused-format/Cargo.toml, keine repoweite Neuformatierung.
 
 Die Zahlen sind lokale Rust-Gegenproben, keine Live-KI-Läufe oder Spielclient-Beweise. Vollständiger gleicher Backtest dieses neuen B-Teilfixes und unabhängige Abnahme sind noch separat erforderlich. Kein main-Merge, Deploy oder Publish durch dieses Dokument.
+
+## C: schadenskanalgerechte Kapazität und konsistenter Item-Score
+
+Neue Gegenproben waren vor der Änderung rot: Ein unpassender Schild gab 700 statt 600 effektives Leben; ein reiner Anti-Waffen-Debuff gab gegen reinen Spirit-Schaden 800 statt 600. Das wurde nicht mit Item- oder Hero-Ausnahmen repariert, sondern über einen expliziten eingehenden Schadensmix und getrennte Ressourcenkanäle.
+
+ReasonerConfig enthält incoming_weapon_share. Alte eingefrorene Configs behalten über serde exakt 0,5 als bisherigen Vergleichsdefault; 0 und 1 bilden die reinen Gegenkanäle ab. Der neue gemeinsame Rust-Helfer löst die stückweise Gleichung max(Waffenrate*x-Waffenschild,0)+max(Spiritrate*x-Spiritschild,0)=HP+Universalbarriere. Resistenz und gegnerbezogene Reduktionen verändern nur die zugehörige Rate. Ein riesiger, noch nicht verbrauchter Schild des falschen Kanals darf den HP-Verlust nicht bezahlen.
+
+Combat, Schildnutzen bei Fähigkeitswahl und die bekannten defensiven Item-Statwerte nutzen denselben Kapazitätsrechner. Der statische WeaponPowerDebuff-Wert hing zuvor an den eigenen Waffen-DPS; jetzt hängt er am geschützten HP-Pool und gegnerischen Schadensmix. Der alte 10-Punkte-Test erwartete die falsche Bezugsgröße. Er ist begründet auf (600/0,875-600)/40=2,142857 umgestellt und zusätzlich gegen reinen Spirit-Schaden und millionenfach geänderte eigene DPS abgesichert. Das ist keine Änderung, um eine Referenz-Itemliste zu treffen.
+
+Grenze bleibt ausdrücklich: Kapazität gegen einen konstanten Mix ist keine vollständig simulierte gegnerische Rotation. Die bisherige Druckkurve, fehlende detaillierte Schildverbrauchs-/Wiederaufladehistorie und unquantifizierte Gegnerreaktionen werden nicht als gelöst ausgegeben. Dieser Teilfix allein erzwingt daher auch kein gewünschtes Glass-Cannon-Urteil.
+
+## Nachprüfung B: keine zweite flache Regenerationsgutschrift
+
+Eine zusätzliche öffentliche Score-Gegenprobe fand nach dem ersten B-Commit noch 4 Punkte Nutzen ohne jedes Spirit-Ereignis. Ursache war die alte allgemeine Regeneration-Property-Heuristik neben dem neuen Ereignisrechner. Zeitgebundene Regeneration wird nun aus diesem flachen Pfad ausgeschlossen. Score und Simulator zählen sie nur einmal; sowohl reine properties als auch gespiegelte passive_properties sind geprüft. Der neue Test war rot (4 statt 0) und ist danach grün. Kein bereits veröffentlichter Stand wurde dafür angepasst; sämtliche Arbeiten bleiben im Integrationsbranch.
+
+## Prüfung dieses Fortsetzungsstands
+
+- cargo test -q -p dbrain-reasoner --lib --examples: 207 Library-Tests und 22 Example-Testausführungen bestanden, 16 DB-Tests ignoriert, 0 fehlgeschlagen.
+- cargo check -q --workspace --all-targets: Exit 0; dies ist ein Workspace-Kompilationsnachweis, kein ausgeführter Workspace-/DB-Testlauf.
+- cargo clippy -q -p dbrain-reasoner --lib --examples -- -D warnings: Exit 0.
+- Fokussiertes fmt für eigene Dateien einschließlich defense.rs: Exit 0.
+
+Die Replays unter target/completion-regen-2cc57ac.json und target/completion-regen-2cc57ac-repeat.json wurden als bereits vorhandene Artefakte angetroffen; Wiederholungsaufrufe lehnten ein Überschreiben mit Exit 1 ab. Die tatsächlich gelesene Summary des ersten Artefakts nennt Revision 2cc57ac und mode=replay, mit unveränderten ausgewiesenen Warden-/Vindicta-Metriken gegenüber 6238b3d. Ein erfolgreich frisch ausgeführter kompletter Mehrheldenlauf wird aus diesen Exit-1-Aufrufen nicht behauptet. Der neue CLI-Modus replay nimmt beide Dateien explizit, lädt niemals eine DB und bricht bei fehlender Heldenpopulation ab; seine fünf Example-Tests bestehen.

@@ -565,8 +565,47 @@ fn property_value(name: &str, value: f64, hero: &HeroModel, cfg: &ReasonerConfig
     if lower == "healthdrainedpersecond" {
         return -magnitude.abs();
     }
+    let share = cfg.incoming_weapon_fraction();
+    let defensive = match name {
+        "BulletShieldMaxHealth" => Some((0.0, magnitude, 0.0, share, 1.0 - share)),
+        "TechShieldMaxHealth" => Some((0.0, 0.0, magnitude, share, 1.0 - share)),
+        "CombatBarrier" => Some((magnitude, 0.0, 0.0, share, 1.0 - share)),
+        "BulletArmor" | "BulletResist" | "BulletResistPercent" => Some((
+            0.0,
+            0.0,
+            0.0,
+            share * (1.0 - percent.clamp(-1.0, 0.9)),
+            1.0 - share,
+        )),
+        "TechArmor" | "TechResist" | "SpiritResist" | "SpiritResistPercent" => Some((
+            0.0,
+            0.0,
+            0.0,
+            share,
+            (1.0 - share) * (1.0 - percent.clamp(-1.0, 0.9)),
+        )),
+        "WeaponPowerDebuff" => Some((
+            0.0,
+            0.0,
+            0.0,
+            share * (1.0 - percent.abs().clamp(0.0, 0.9)),
+            1.0 - share,
+        )),
+        _ => None,
+    };
+    if let Some((universal, weapon, spirit, weapon_rate, spirit_rate)) = defensive {
+        return (crate::defense::mixed_damage_capacity(
+            hero.base_health,
+            universal,
+            weapon,
+            spirit,
+            weapon_rate,
+            spirit_rate,
+        ) - hero.base_health.max(0.0))
+            / window;
+    }
     if lower.contains("weaponpowerdebuff") {
-        return hero.damage_plan.weapon_dps * percent.abs();
+        return 0.0;
     }
     if lower.contains("healampreceivepenalty") || lower.contains("healampregenpenalty") {
         return 0.0;
@@ -770,7 +809,10 @@ fn item_property_effect(
     let values = properties
         .iter()
         .filter(|(name, _)| {
-            burn.is_none() || (name.as_str() != "DPS" && name.as_str() != "ExplosionDamage")
+            (burn.is_none() || (name.as_str() != "DPS" && name.as_str() != "ExplosionDamage"))
+                && !(name.as_str() == "Regeneration"
+                    && (item.properties.contains_key("RegenerationDuration")
+                        || item.passive_properties.contains_key("RegenerationDuration")))
         })
         .map(|(name, value)| (name.clone(), *value))
         .collect();
@@ -1211,9 +1253,22 @@ mod tests {
     fn opponent_debuffs_and_self_cost_have_opposite_signs() {
         let hero = hero();
         let cfg = ReasonerConfig::default();
+        // A debuff on incoming weapon damage protects the health pool, not our own DPS.
+        let expected =
+            (hero.base_health / (0.5 * 0.75 + 0.5) - hero.base_health) / cfg.combat_window_seconds;
+        assert!((property_value("WeaponPowerDebuff", -25.0, &hero, &cfg) - expected).abs() < 1e-9);
+        let mut spirit_only = cfg.clone();
+        spirit_only.incoming_weapon_share = 0.0;
         assert_eq!(
-            property_value("WeaponPowerDebuff", -25.0, &hero, &cfg),
-            10.0
+            property_value("WeaponPowerDebuff", -25.0, &hero, &spirit_only),
+            0.0
+        );
+        let mut different_own_damage = hero.clone();
+        different_own_damage.damage_plan.weapon_dps = 1_000_000.0;
+        assert!(
+            (property_value("WeaponPowerDebuff", -25.0, &different_own_damage, &cfg) - expected)
+                .abs()
+                < 1e-9
         );
         assert_eq!(
             property_value("HealthDrainedPerSecond", 50.0, &hero, &cfg),
