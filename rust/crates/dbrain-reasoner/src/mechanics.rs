@@ -298,30 +298,117 @@ pub fn ability_casts(ability: &AbilityModel, cfg: &ReasonerConfig) -> f64 {
     crate::data::ability_cast_count(ability, cfg)
 }
 
-/// Kanonische Helden-Konversion Spirit -> Waffen-Feuerrate: zusaetzliche Schuss/s
-/// je 1 Spirit-Power. Einzige Definition dieser Konversion; der Sim-/Marginalpfad
-/// (`combat.rs`), der statische Item-Score (`item.rs::spirit_fire_rate_value`) und
-/// die Klassifikation (`damage_plan`) konsumieren ausschliesslich diese Funktion,
-/// damit dieselbe Konversion nicht mehr an mehreren Stellen getrennt abgeleitet wird.
+/// Woher die Spirit->Feuerrate-Konversion stammt (fuer sichtbaren Status).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpiritRateSource {
+    /// Keine (verwendbare) Konversion vorhanden.
+    Missing,
+    /// Direkt aus `ERoundsPerSecond`.
+    RoundsPerSecond,
+    /// Aus `EFireRate` als Prozent-Fallback.
+    FireRatePercent,
+}
+
+/// Ergebnis der kanonischen Konversion inklusive Provenienz/Fehlerstatus. Wird an
+/// der Modellgrenze einmal ermittelt (nicht pro Simulations-Tick), damit ein
+/// unbekannter/fehlerhafter Assetwert im Confidence-/Assumptions-Pfad sichtbar ist.
+#[derive(Debug, Clone, Copy)]
+pub struct SpiritRateProvenance {
+    /// Schuss/s je 1 Spirit-Power (signiert; 0 wenn fehlend oder unbekannt).
+    pub rate: f64,
+    pub source: SpiritRateSource,
+    /// Primaerwert (`ERoundsPerSecond`) war nicht endlich, wurde aber aus einem
+    /// validen `EFireRate`-Alias fachlich begruendet zurueckgewonnen.
+    pub recovered_from_nonfinite: bool,
+    /// Ein vorhandener Konversions-Stat war nicht endlich und es gab keinen
+    /// validen Ersatz -> keine bestaetigte Konversion (rate 0, aber unbekannt).
+    pub unknown_nonfinite: bool,
+}
+
+/// Kanonische Helden-Konversion Spirit -> Waffen-Feuerrate mit Provenienz. Einzige
+/// Definition dieser Konversion; Sim/Marginal (`combat.rs`), statischer Score
+/// (`item.rs`) und Klassifikation (`damage_plan`) leiten sie nicht mehr getrennt ab.
 ///
 /// `ERoundsPerSecond` ist der direkte Wert; `EFireRate` ist nur ein Prozent-Fallback
 /// (`* shots_per_second / 100`), nie werden beide addiert. Endliche negative Werte
 /// bleiben SIGNIERT erhalten (Spirit senkt dann die Feuerrate, eine echte Downside).
-/// Nicht endliche Werte (NaN/Inf) sind unbekannt/fehlerhaft und werden verworfen,
-/// nicht mit einem endlichen Minus gleichgesetzt. Physikalische Gesamtstat-Grenzen
-/// (eine Feuerrate faellt real nicht unter 0) gehoeren in die Stat-Anwendung beim
-/// Aufrufer, nicht in diese Konversionsdefinition.
-pub fn spirit_weapon_rate_per_spirit(hero: &HeroModel) -> f64 {
-    let finite = |stat: &str| {
+/// Nicht endliche Werte (NaN/Inf) sind unbekannt/fehlerhaft: ein valider Alias darf
+/// sie fachlich begruendet ersetzen (als Recovery gekennzeichnet), ohne validen
+/// Ersatz bleibt es unbekannt (rate 0, `unknown_nonfinite`), nie ein endliches Minus.
+/// Physikalische Gesamtstat-Grenzen (Feuerrate nicht unter 0) gehoeren in die
+/// Stat-Anwendung beim Aufrufer (siehe `weapon_with_spirit`), nicht hierher.
+pub fn spirit_weapon_rate_provenance(hero: &HeroModel) -> SpiritRateProvenance {
+    let raw = |stat: &str| {
         hero.scaling
             .iter()
             .find(|entry| entry.stat == stat)
             .and_then(|entry| entry.per_spirit)
-            .filter(|scale| scale.is_finite())
     };
-    finite("ERoundsPerSecond")
-        .or_else(|| finite("EFireRate").map(|scale| scale * hero.weapon.shots_per_second / 100.0))
-        .unwrap_or(0.0)
+    let rounds = raw("ERoundsPerSecond");
+    let fire = raw("EFireRate");
+    let from_fire = |value: f64| value * hero.weapon.shots_per_second / 100.0;
+    match rounds {
+        Some(value) if value.is_finite() => SpiritRateProvenance {
+            rate: value,
+            source: SpiritRateSource::RoundsPerSecond,
+            recovered_from_nonfinite: false,
+            unknown_nonfinite: false,
+        },
+        Some(_) => match fire {
+            // Primaer nicht endlich, valider Alias -> begruendete Recovery.
+            Some(alias) if alias.is_finite() => SpiritRateProvenance {
+                rate: from_fire(alias),
+                source: SpiritRateSource::FireRatePercent,
+                recovered_from_nonfinite: true,
+                unknown_nonfinite: false,
+            },
+            // Vorhanden, aber kein valider Ersatz -> unbekannt.
+            _ => SpiritRateProvenance {
+                rate: 0.0,
+                source: SpiritRateSource::Missing,
+                recovered_from_nonfinite: false,
+                unknown_nonfinite: true,
+            },
+        },
+        None => match fire {
+            Some(alias) if alias.is_finite() => SpiritRateProvenance {
+                rate: from_fire(alias),
+                source: SpiritRateSource::FireRatePercent,
+                recovered_from_nonfinite: false,
+                unknown_nonfinite: false,
+            },
+            Some(_) => SpiritRateProvenance {
+                rate: 0.0,
+                source: SpiritRateSource::Missing,
+                recovered_from_nonfinite: false,
+                unknown_nonfinite: true,
+            },
+            None => SpiritRateProvenance {
+                rate: 0.0,
+                source: SpiritRateSource::Missing,
+                recovered_from_nonfinite: false,
+                unknown_nonfinite: false,
+            },
+        },
+    }
+}
+
+/// Nur der Zahlwert der kanonischen Konversion (Schuss/s je 1 Spirit). Guenstig
+/// genug fuer den Aufruf einmal je Auswertung; den Fehlerstatus liefert
+/// [`spirit_weapon_rate_provenance`].
+pub fn spirit_weapon_rate_per_spirit(hero: &HeroModel) -> f64 {
+    spirit_weapon_rate_provenance(hero).rate
+}
+
+/// Zustandsbezogene Waffenprojektion: Basiswaffe mit `total_spirit` (innewohnend +
+/// zusaetzlich) ueber die kanonische Konversion, Feuerrate physikalisch bei 0
+/// gedeckelt. Einzige Projektion fuer Klassifikation (`damage_plan`) und statischen
+/// Score, damit der Basiszustand ueberall identisch (genau einmal) einfliesst.
+pub fn weapon_with_spirit(hero: &HeroModel, total_spirit: f64) -> WeaponProfile {
+    let rate = spirit_weapon_rate_per_spirit(hero);
+    let mut weapon = hero.weapon.clone();
+    weapon.shots_per_second = (hero.weapon.shots_per_second + total_spirit * rate).max(0.0);
+    weapon
 }
 
 fn is_damage_stat(name: &str) -> bool {
@@ -368,12 +455,9 @@ pub fn ability_dps(ability: &AbilityModel, _hero: &HeroModel, cfg: &ReasonerConf
 pub fn damage_plan(hero: &HeroModel, cfg: &ReasonerConfig) -> DamagePlan {
     // Spirit->Waffen-Konversion am innewohnenden Spirit des Helden einbeziehen,
     // damit weapon_dps/weapon_share/primary_axis die Spirit-als-Waffen-Identitaet
-    // eines Konverters spiegeln (Nullkonverter bleiben unveraendert). Die
-    // resultierende Feuerrate wird physikalisch bei 0 gedeckelt (Stat-Grenze beim
-    // Aufrufer, nicht in der Konversionsdefinition).
-    let rate = spirit_weapon_rate_per_spirit(hero);
-    let mut weapon = hero.weapon.clone();
-    weapon.shots_per_second = (weapon.shots_per_second + hero.base_spirit_power * rate).max(0.0);
+    // eines Konverters spiegeln (Nullkonverter bleiben unveraendert). Dieselbe
+    // zustandsbezogene Projektion wie im Item-Score; Basis-Spirit genau einmal.
+    let weapon = weapon_with_spirit(hero, hero.base_spirit_power);
     let weapon_dps = weapon_dps(&weapon, cfg.combat_window_seconds);
     let spirit_dps = hero
         .abilities
@@ -1271,6 +1355,46 @@ mod tests {
             4.0,
         );
         assert_eq!(spirit_weapon_rate_per_spirit(&hero), 0.0);
+    }
+
+    #[test]
+    fn spirit_rate_provenance_reports_visible_status() {
+        // Direkt aus ERoundsPerSecond.
+        let direct = with_scaling(vec![rate_stat("ERoundsPerSecond", Some(0.2))], 5.0);
+        let p = spirit_weapon_rate_provenance(&direct);
+        assert_eq!(p.source, SpiritRateSource::RoundsPerSecond);
+        assert!(!p.recovered_from_nonfinite && !p.unknown_nonfinite);
+
+        // Primaer nicht endlich, valider Alias -> Recovery sichtbar.
+        let recovered = with_scaling(
+            vec![
+                rate_stat("ERoundsPerSecond", Some(f64::NAN)),
+                rate_stat("EFireRate", Some(50.0)),
+            ],
+            4.0,
+        );
+        let p = spirit_weapon_rate_provenance(&recovered);
+        assert_eq!(p.rate, 2.0);
+        assert_eq!(p.source, SpiritRateSource::FireRatePercent);
+        assert!(p.recovered_from_nonfinite && !p.unknown_nonfinite);
+
+        // Nicht endlich ohne validen Ersatz -> unbekannt sichtbar, rate 0.
+        let unknown = with_scaling(
+            vec![
+                rate_stat("ERoundsPerSecond", Some(f64::NAN)),
+                rate_stat("EFireRate", Some(f64::INFINITY)),
+            ],
+            4.0,
+        );
+        let p = spirit_weapon_rate_provenance(&unknown);
+        assert_eq!(p.rate, 0.0);
+        assert!(p.unknown_nonfinite && !p.recovered_from_nonfinite);
+
+        // Kein Konversions-Stat -> weder unbekannt noch Recovery.
+        let missing = with_scaling(vec![rate_stat("ESomethingElse", Some(1.0))], 4.0);
+        let p = spirit_weapon_rate_provenance(&missing);
+        assert_eq!(p.source, SpiritRateSource::Missing);
+        assert!(!p.unknown_nonfinite && !p.recovered_from_nonfinite);
     }
 
     #[test]
