@@ -517,11 +517,14 @@ pub async fn load_population_prior(
     pool: &sqlx::PgPool,
     hero_id: i64,
 ) -> Result<PopulationPrior> {
-    let present: Option<bool> =
-        sqlx::query_scalar("SELECT to_regclass('brain.population_item_stats') IS NOT NULL")
-            .fetch_one(pool)
-            .await
-            .map_err(ReasonerError::Db)?;
+    let present: Option<bool> = sqlx::query_scalar(
+        "SELECT to_regclass('brain.population_item_stats') IS NOT NULL \
+         AND to_regclass('brain.population_ability_order') IS NOT NULL \
+         AND to_regclass('brain.population_imbue_stats') IS NOT NULL",
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(ReasonerError::Db)?;
     if present != Some(true) {
         return Ok(PopulationPrior::default());
     }

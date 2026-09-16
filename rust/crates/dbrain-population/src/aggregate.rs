@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
 use sqlx::postgres::PgPool;
@@ -116,8 +116,11 @@ fn compute_bucket(bucket: &str, rows: &[&AggRow], catalog: &Catalog) -> BucketAg
 
     let mut buyers: HashMap<i64, Vec<usize>> = HashMap::new();
     for (row_index, row) in rows.iter().enumerate() {
+        let mut seen: HashSet<i64> = HashSet::new();
         for item in &row.items {
-            buyers.entry(*item).or_default().push(row_index);
+            if seen.insert(*item) {
+                buyers.entry(*item).or_default().push(row_index);
+            }
         }
     }
 
@@ -505,5 +508,16 @@ mod tests {
         assert!((stat.prevalence_raw - 1.0).abs() < 1e-9);
         assert!((stat.prevalence_weighted - 1.0).abs() < 1e-9);
         assert!(all.players_weighted < 2.0);
+    }
+
+    #[test]
+    fn duplicate_item_in_a_row_counts_the_player_once() {
+        let rows = vec![row(vec![100, 100], vec![0, 0], vec![900], 80, true)];
+        let buckets = compute_hero(&rows, &catalog());
+        let all = buckets.iter().find(|b| b.bucket == "all").unwrap();
+        let stat = all.items.iter().find(|s| s.item_id == 100).unwrap();
+        assert_eq!(stat.buyers, 1);
+        assert!(stat.prevalence_raw <= 1.0);
+        assert!((stat.prevalence_raw - 1.0).abs() < 1e-9);
     }
 }

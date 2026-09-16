@@ -92,11 +92,11 @@ pub async fn record_sync_run(pool: &PgPool, run: &SyncRun) -> Result<()> {
     sqlx::query(
         r#"
         INSERT INTO brain.population_sync_runs(
-          finished_at, requested_matches, hero_filter, since_unix,
+          started_at, finished_at, requested_matches, hero_filter, since_unix,
           window_low_match_id, window_high_match_id, matches_seen,
           player_matches_inserted, player_matches_skipped, duration_ms
         )
-        VALUES(now(),$1,$2,$3,$4,$5,$6,$7,$8,$9)
+        VALUES(now() - make_interval(secs => $9::double precision / 1000.0), now(),$1,$2,$3,$4,$5,$6,$7,$8,$9)
         "#,
     )
     .bind(run.requested_matches)

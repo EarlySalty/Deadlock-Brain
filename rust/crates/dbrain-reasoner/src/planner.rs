@@ -599,6 +599,66 @@ mod tests {
     }
 
     #[test]
+    fn priority_staple_with_negative_context_margin_is_not_forced() {
+        let hero = hero();
+        let items = vec![item(1, 40.0, 100.0), item(2, -5.0, 30.0)];
+        let candidates = items.iter().collect::<Vec<_>>();
+        let mut layout = CoreLayoutStats::default();
+        layout.bands.insert(
+            1,
+            crate::CoreLayoutBand {
+                tier: 1,
+                median: 2.0,
+                lower_quartile: 2.0,
+                upper_quartile: 2.0,
+                target: 2,
+            },
+        );
+        let rules = InventoryRules::from_catalog(
+            &items
+                .iter()
+                .map(|item| item.item.clone())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+        let population = crate::PopulationPrior::from_items(std::iter::once(crate::PopulationItem {
+            item_id: 2,
+            prevalence: 0.9,
+            median_position: Some(1.0),
+            is_staple: true,
+        }));
+        let cfg = ReasonerConfig::default();
+        let plan = plan_with_economy(
+            &hero,
+            &items,
+            &candidates,
+            &cfg,
+            PlanningContext {
+                layout: &layout,
+                rules: &rules,
+                combinations: &BTreeMap::new(),
+                order: &[],
+                economy: &EconomyPolicy::default(),
+                population: Some(&population),
+            },
+        );
+        let purchased = plan
+            .steps
+            .iter()
+            .map(|step| step.transition.purchased_id)
+            .collect::<Vec<_>>();
+        assert!(
+            !purchased.contains(&2),
+            "anti-synergetischer Staple mit negativem Kontext-Marginalwert wurde erzwungen: {purchased:?}"
+        );
+        for step in &plan.steps {
+            if step.transition.purchased_id == 2 {
+                assert!(step.marginal_value >= 0.0);
+            }
+        }
+    }
+
+    #[test]
     fn frozen_acquisition_states_allow_funding_sales_before_slots_are_full() {
         for (held, spent, earned, buy_id, buy_cost, sell_id, expected_spent) in [
             (

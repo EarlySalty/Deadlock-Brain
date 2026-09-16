@@ -63,7 +63,6 @@ pub fn run_population(args: PopulationArgs) -> Result<()> {
     let client = ApiClient::new()?;
     let catalog = Catalog::fetch(&client)?;
     let pool = runtime.block_on(db::connect())?;
-    runtime.block_on(db::ensure_schema(&pool))?;
 
     match args.command {
         PopulationCommand::Sync(sync) => run_sync(&runtime, &client, &catalog, &pool, sync),
@@ -80,6 +79,7 @@ fn run_sync(
     args: SyncArgs,
 ) -> Result<()> {
     runtime.block_on(db::assert_writable(pool))?;
+    runtime.block_on(db::ensure_schema(pool))?;
     let min_unix = args
         .since
         .unwrap_or_else(|| now_unix() - DEFAULT_WINDOW_DAYS * 86_400);
@@ -123,8 +123,6 @@ fn run_sync(
         inserted_total += inserted;
         skipped_total += skipped;
         seen += page.len();
-        window_low = Some(window_low.map_or(lowest, |value: i64| value.min(lowest)));
-        window_high = Some(window_high.map_or(highest, |value: i64| value.max(highest)));
 
         println!(
             "geladen {seen}/{} Matches, neu {inserted_total} übersprungen {skipped_total}",
@@ -134,6 +132,8 @@ fn run_sync(
         if lowest == i64::MAX {
             break;
         }
+        window_low = Some(window_low.map_or(lowest, |value: i64| value.min(lowest)));
+        window_high = Some(window_high.map_or(highest, |value: i64| value.max(highest)));
         cursor = Some(lowest - 1);
         if page.len() < limit {
             break;
