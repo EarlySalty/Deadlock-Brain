@@ -1,0 +1,128 @@
+{
+  "format_version": 1,
+  "purpose": "Generische Mechanik-Gegenproben fuer den vorhandenen Rust-Reasoner",
+  "author_role": "ChatGPT, eigene Recherche und Testentwurf; kein neuer Claude-Worker",
+  "status": "Synthetische Testvektoren, noch keine integrierten oder ausgefuehrten Rust-Tests",
+  "date": "2026-09-16",
+  "not_game_data": true,
+  "no_hero_or_item_name_rules": true,
+  "cases": [
+    {
+      "id": "conversion_positive_absolute",
+      "inputs": {"base_shots_per_second": 4.0, "spirit": 100.0, "shots_per_second_per_spirit": 0.01},
+      "expected": {"shots_per_second": 5.0},
+      "consumers": ["damage_plan", "combat", "item_marginal", "planner"],
+      "assertion": "Gleicher expliziter Zustand und gleiche kanonische Kante fuer alle Konsumenten; keine erfundene Spiritmenge."
+    },
+    {
+      "id": "conversion_positive_percent_points",
+      "inputs": {"base_shots_per_second": 4.0, "spirit": 100.0, "fire_rate_percentage_points_per_spirit": 0.25},
+      "expected": {"shots_per_second": 5.0},
+      "assertion": "4 * (1 + 0.25 * 100 / 100), nicht 4 + 25 und nicht nochmal die Alias-Kante addieren."
+    },
+    {
+      "id": "conversion_negative_is_downside",
+      "inputs": {"base_shots_per_second": 4.0, "spirit": 50.0, "shots_per_second_per_spirit": -0.01},
+      "expected": {"shots_per_second": 3.5},
+      "assertion": "Endliche negative Kante bleibt erhalten; Endstat-Grenzen sind eine getrennte Regel."
+    },
+    {
+      "id": "conversion_explicit_zero_not_missing",
+      "inputs": {"base_shots_per_second": 4.0, "spirit": 100.0, "primary_absolute_scale": 0.0, "fallback_percent_scale": 0.25, "primary_alias_authoritative": true},
+      "expected": {"shots_per_second": 4.0},
+      "assertion": "Nur bei nachgewiesener Alias-Prioritaet: explizite Null ist vorhanden und loest keinen Fallback aus. Ohne diese Provenienz Konflikt melden."
+    },
+    {
+      "id": "conversion_invalid_not_silent_fallback",
+      "inputs": {"primary_scale_raw": "not-a-number", "fallback_scale": 0.25},
+      "expected": {"invalid_source_visible": true, "high_confidence_without_resolution": false},
+      "assertion": "Ungueltig und fehlend sind verschiedene Zustaende; keinen stillen mechanischen Erfolg behaupten."
+    },
+    {
+      "id": "enemy_threshold_actor_true",
+      "inputs": {"self_health_fraction": 0.9, "enemy_health_fraction": 0.2, "subject": "enemy", "operator": "less_than", "threshold": 0.3},
+      "expected": {"active": true},
+      "assertion": "Gegnerbedingung darf nicht mit eigenem HP-Wert ausgewertet werden."
+    },
+    {
+      "id": "enemy_threshold_actor_false",
+      "inputs": {"self_health_fraction": 0.2, "enemy_health_fraction": 0.9, "subject": "enemy", "operator": "less_than", "threshold": 0.3},
+      "expected": {"active": false},
+      "assertion": "Umgekehrte HP-Belegung muss die Gegnerbedingung ausschalten."
+    },
+    {
+      "id": "refresh_burst_vs_continuous_equal_damage",
+      "inputs": {
+        "window_seconds": 10.0,
+        "effect_duration_seconds": 4.0,
+        "effect_rule": "one active stack per distinct target; refresh expiry on each eligible hit",
+        "regen_per_active_target_per_second": 2.0,
+        "enough_missing_health": true,
+        "burst_events": [{"t": 0.0, "target": "a", "eligible_damage": 600.0}],
+        "continuous_events": [{"t": 0.0, "target": "a", "eligible_damage": 150.0}, {"t": 3.0, "target": "a", "eligible_damage": 150.0}, {"t": 6.0, "target": "a", "eligible_damage": 150.0}, {"t": 9.0, "target": "a", "eligible_damage": 150.0}]
+      },
+      "expected": {"burst_active_target_seconds": 4.0, "continuous_active_target_seconds": 10.0, "burst_regeneration": 8.0, "continuous_regeneration": 20.0},
+      "assertion": "Unterschied entsteht aus Zeit/Refresh, nicht aus Hero-Name oder weapon_share. Dieser hypothetische Effekt behauptet keine konkreten Itemwerte."
+    },
+    {
+      "id": "same_target_refresh_not_unique_target_stack",
+      "inputs": {"window_seconds": 10.0, "duration_seconds": 4.0, "regen_per_active_target_per_second": 2.0, "enough_missing_health": true, "events": [{"t": 0.0, "target": "a"}, {"t": 1.0, "target": "a"}]},
+      "expected": {"max_simultaneous_unique_targets": 1, "active_target_seconds": 5.0, "regeneration": 10.0},
+      "assertion": "Zwei Treffer auf denselben Gegner ergeben einen erneuerten Stack, nicht zwei verschiedene Gegner."
+    },
+    {
+      "id": "two_distinct_targets",
+      "inputs": {"window_seconds": 10.0, "duration_seconds": 4.0, "regen_per_active_target_per_second": 2.0, "max_distinct_targets": 2, "enough_missing_health": true, "events": [{"t": 0.0, "target": "a"}, {"t": 1.0, "target": "b"}]},
+      "expected": {"max_simultaneous_unique_targets": 2, "active_target_seconds": 8.0, "regeneration": 16.0},
+      "assertion": "Ueberlappungszeit und unterschiedliche Zielidentitaet getrennt erfassen."
+    },
+    {
+      "id": "lifesteal_equal_total_damage",
+      "inputs": {"lifesteal_fraction": 0.1, "burst_damage": [600.0], "periodic_damage": [100.0, 100.0, 100.0, 100.0, 100.0, 100.0], "all_damage_eligible_after_mitigation": true, "enough_missing_health_at_every_event": true, "same_healing_modifiers": true},
+      "expected": {"burst_healing": 60.0, "periodic_healing": 60.0},
+      "assertion": "Kleine Ticks sind ohne zusaetzliche bewiesene Regel kein prozentualer Lifesteal-Malus."
+    },
+    {
+      "id": "healing_clamped_to_missing_health",
+      "inputs": {"missing_health": 5.0, "potential_healing": 20.0, "incoming_damage_during_interval": 0.0},
+      "expected": {"effective_healing": 5.0},
+      "assertion": "Nicht die gesamte nominelle Heilung als Survivability gutschreiben."
+    },
+    {
+      "id": "percentage_health_downside_scales_with_pool",
+      "inputs": {"health_pools": [1599.0, 4615.0], "loss_fraction": 0.13, "other_modifiers": []},
+      "expected": {"health_losses": [207.87, 599.95], "remaining_health": [1391.13, 4015.05]},
+      "assertion": "Keine fixe 600-HP-Strafe; Zahlen sind reine Prozentrechnung, keine Behauptung ueber das Rundungsverhalten des Spielclients."
+    },
+    {
+      "id": "typed_shield_wrong_damage_type",
+      "inputs": {"weapon_only_shield": 100.0, "incoming_weapon_damage": 0.0, "incoming_spirit_damage": 150.0, "other_defenses": []},
+      "expected": {"shield_absorption": 0.0, "health_damage": 150.0},
+      "assertion": "Der hypothetische nur gegen Waffen wirkende Shield deckt keinen Spirit-Schaden."
+    },
+    {
+      "id": "gun_debuff_requires_gun_pressure",
+      "inputs": {"direct_weapon_damage_reduction_fraction": 0.2, "scenario_a": {"weapon": 200.0, "spirit": 0.0}, "scenario_b": {"weapon": 0.0, "spirit": 200.0}},
+      "expected": {"damage_after_a": 160.0, "damage_after_b": 200.0},
+      "assertion": "Direkte Schadensreduktion ist hier ausdruecklich definiert, nicht gleichbedeutend mit beliebigem WeaponPowerDebuff. Kein pauschaler Nutzen in jedem Gegnerkontext."
+    },
+    {
+      "id": "cc_immunity_not_damage_immunity",
+      "inputs": {"incoming_damage": 200.0, "incoming_cc_events": [], "only_effect": "cc_immunity", "no_position_or_cast_change": true},
+      "expected": {"direct_damage_prevented": 0.0},
+      "assertion": "CC-Immunitaet bekommt ohne CC-bedingte Aenderung keine pauschale HP-Gutschrift."
+    },
+    {
+      "id": "name_and_language_invariance",
+      "inputs": {"same_normalized_mechanic_graph": true, "rename_hero": true, "rename_items": true, "translate_display_text": true, "same_mechanical_input_hash": true},
+      "expected": {"same_scores_and_purchase_ids": true},
+      "assertion": "IDs und mechanische Eingaben bleiben gleich. Nur Anzeige-Namen/Texte aendern sich; keine Referenzkopie oder Textheuristik im finalen Effektauswerter."
+    },
+    {
+      "id": "snapshot_drift_not_patch_improvement",
+      "inputs": {"before_code": "old", "after_code": "new", "before_population_hash": "a", "after_population_hash": "b"},
+      "expected": {"valid_code_only_delta": false},
+      "assertion": "Bei verschiedenen Eingaben darf ein besserer Itemtreffer nicht als durch Code verursachte Verbesserung abgenommen werden."
+    }
+  ]
+}
