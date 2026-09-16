@@ -25,6 +25,16 @@ Befehle im rust-Unterordner mit `/home/nathanael/.cargo/bin/cargo`:
 - `clippy -q -p dbrain-reasoner --lib --examples -- -D warnings`: Exit 0.
 - `fmt --manifest-path target/focused-format/Cargo.toml`: Exit 0, nur mechanics/combat/item/data formatiert. Das Hilfsmanifest liegt ignoriert unter target; keine neue Produktlogik oder Abhängigkeit.
 
+## Ladungsfähigkeiten: weiterer belegter Mechanikfix
+
+Die Nachher-Messung von 4c2f8f8 zeigte eine reale Regression: Vindicta blieb bei 2/3 Referenzwaffen, fiel aber von Jaccard@12 0,60 auf 0,50 und von 9/9 auf 8/9 Staples. Fehlend war Rapid Recharge. Warden blieb bei 6/9 und Jaccard 0,50, sein Populations-Kendall sank leicht von 0,4706 auf 0,4603. Kein Gate wurde daraufhin freigegeben oder abgeschwächt.
+
+Die rohe Definition von Item 787198704 wurde mit dem Rust-Example direkt aus FROZEN-V2 gelesen: Snapshot 13128, fetched_at 2026-06-30, payload_hash fd9b4b4a7206765549b7c26f1ff2d034aa9d22afd2e96835acf320a3c38fd84f. Vier bis dahin im Simulator ignorierte Eigenschaftsarten sind BonusAbilityCharges=2, BonusSpiritForChargedAbilities=14, CooldownBetweenChargeReduction=30 und CooldownReductionOnChargedAbilities=14. Namen und ID werden nur als Quellenbeleg verwendet, nicht als Produktbedingung.
+
+Der Simulator wertet diese vier Typen jetzt für tatsächlich ladungsbasierte Fähigkeiten aus. Normale Fähigkeiten bekommen keine künstlichen Zusatzladungen. Der gebundene Spirit-Bonus wirkt nicht auf globale Waffenskalierung. Ladungs-Cooldown und Abstand zwischen Casts bleiben getrennt, die bereits vorhandene globale Cooldown-Grenze bleibt erhalten. Vorübergehende, bedingte Ladungs-Refills sind bewusst nicht erfunden, sondern als unbekannt sichtbar.
+
+Drei neue öffentliche Combat-Gegenproben waren vor dem Fix rot (0/3) und bestehen danach: Castzahl 1→3 bei +2 Ladungen, Wiederaufladung 3→5 Casts bei kontrolliertem halbiertem Cooldown, Intervall 1→2 Casts im kurzen Fenster, 14 eingeschränkter Spirit bei Koeffizient 0,5 ergibt Fähigkeitsschaden 10→17 ohne Waffenverstärkung. Gesamte Library anschließend 192 bestanden, 16 ignoriert, 0 fehlgeschlagen; fokussiertes fmt und Clippy lib/examples mit -D warnings Exit 0.
+
 ## Noch keine Abnahme
 
 Eingefrorener Vorher/Nachher-Backtest dieses erweiterten Produktpatches steht noch aus. Bestehendes rotes Warden-Staple-Gate bleibt rot, bis eine echte neue Messung etwas anderes belegt. Keine neue Veröffentlichung, kein Deploy, kein unabhängiges Gesamt-ALLOW. Eigene Tests sind kein unabhängiges Review.

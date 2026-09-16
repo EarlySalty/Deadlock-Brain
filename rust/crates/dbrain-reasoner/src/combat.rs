@@ -76,6 +76,10 @@ struct Stats {
     regeneration: f64,
     shield: f64,
     cooldown: f64,
+    bonus_ability_charges: f64,
+    charged_spirit: f64,
+    charged_cooldown: f64,
+    charge_spacing_reduction: f64,
     duration: f64,
     slow: f64,
     speed: f64,
@@ -85,6 +89,34 @@ struct Stats {
     weapon_amp: f64,
     spirit_amp: f64,
 }
+fn charged_property(name: &str) -> bool {
+    matches!(
+        name,
+        "BonusAbilityCharges"
+            | "BonusSpiritForChargedAbilities"
+            | "CooldownReductionOnChargedAbilities"
+            | "CooldownBetweenChargeReduction"
+    )
+}
+
+fn ability_spirit(ability: &AbilityModel, stats: &Stats) -> f64 {
+    stats.spirit
+        + if ability.charges > 0 {
+            stats.charged_spirit
+        } else {
+            0.0
+        }
+}
+
+fn ability_cooldown_factor(ability: &AbilityModel, stats: &Stats) -> f64 {
+    let reduction = if ability.charges > 0 {
+        1.0 - (1.0 - stats.cooldown) * (1.0 - stats.charged_cooldown)
+    } else {
+        stats.cooldown
+    };
+    1.0 - reduction.clamp(0.0, 0.8)
+}
+
 fn value(item: &ItemModel, name: &str) -> f64 {
     item.properties
         .get(name)
@@ -139,6 +171,15 @@ fn apply(stats: &mut Stats, name: &str, v: f64) -> bool {
         "HealthRegen" | "HealthRegenBonus" => stats.regeneration += v,
         "BulletShieldMaxHealth" | "TechShieldMaxHealth" | "CombatBarrier" => stats.shield += v,
         "CooldownReduction" => stats.cooldown = 1.0 - (1.0 - stats.cooldown) * (1.0 - v / 100.0),
+        "BonusAbilityCharges" => stats.bonus_ability_charges += v,
+        "BonusSpiritForChargedAbilities" => stats.charged_spirit += v,
+        "CooldownReductionOnChargedAbilities" => {
+            stats.charged_cooldown = 1.0 - (1.0 - stats.charged_cooldown) * (1.0 - v / 100.0)
+        }
+        "CooldownBetweenChargeReduction" => {
+            stats.charge_spacing_reduction =
+                1.0 - (1.0 - stats.charge_spacing_reduction) * (1.0 - v / 100.0)
+        }
         "AbilityDurationPercent" | "TechDuration" | "BonusAbilityDurationPercent" => {
             stats.duration += v / 100.0
         }
@@ -358,6 +399,9 @@ fn evaluate_core(
             if !v.is_finite() {
                 unknown.insert(format!("{}: ungültiger Wert für {name}", item.name));
                 continue;
+            }
+            if charged_property(name) && conditional(item, name) {
+                unknown.insert(format!("{}: zeitweise Wirkung von {name} auf Ladungsfähigkeiten nicht quantifiziert; kein kostenloses Wiederauffüllen angenommen", item.name));
             }
             if !ItemInteraction::from_item(item).handles_property(name)
                 && !apply(&mut Stats::default(), name, *v)
@@ -592,13 +636,6 @@ fn simulate(
         ..CombatScenarioEvaluation::default()
     };
     let mut ability_ready = vec![0.0; hero.abilities.len()];
-    let max_charges: Vec<i64> = hero
-        .abilities
-        .iter()
-        .map(|ability| ability.charges.max(1))
-        .collect();
-    let mut charges = max_charges.clone();
-    let mut charge_ready: Vec<Option<f64>> = vec![None; hero.abilities.len()];
     let mut buildup = vec![0.0; hero.abilities.len()];
     let mut burn_until = vec![0.0; hero.abilities.len()];
     let mut last_hit = vec![f64::NEG_INFINITY; hero.abilities.len()];
@@ -671,7 +708,9 @@ fn simulate(
                         return None;
                     }
                     if conditional(item, key) {
-                        Some((key.as_str(), *v))
+                        // Zeitweise Ladungs-Refills benötigen eine eigene
+                        // Aktivierungsregel. Nicht als permanente Extra-Ladung erfinden.
+                        (!charged_property(key)).then_some((key.as_str(), *v))
                     } else {
                         apply(&mut base_stats, key, *v);
                         None
@@ -681,6 +720,21 @@ fn simulate(
         })
         .collect();
     apply_shop(hero, items, &mut base_stats);
+    let max_charges: Vec<i64> = hero
+        .abilities
+        .iter()
+        .map(|ability| {
+            if ability.charges > 0 {
+                (ability.charges as f64 + base_stats.bonus_ability_charges)
+                    .max(0.0)
+                    .floor() as i64
+            } else {
+                1
+            }
+        })
+        .collect();
+    let mut charges = max_charges.clone();
+    let mut charge_ready: Vec<Option<f64>> = vec![None; hero.abilities.len()];
     let item_proc_damage: Vec<Vec<(f64, crate::DamageType)>> = items
         .iter()
         .map(|item| {
@@ -865,7 +919,7 @@ fn simulate(
                             } else {
                                 window
                             })
-                            * (1.0 - stats.cooldown.clamp(0.0, 0.8)),
+                            * ability_cooldown_factor(ability, &stats),
                     )
                 } else {
                     None
@@ -887,8 +941,9 @@ fn simulate(
                 }
                 let raw_period = prepared[idx].periodic;
                 let scaled_period = prepared[idx].periodic_duration(stats.duration);
-                let damage = (ability.base_effect + prepared[idx].damage_scale(stats.spirit))
-                    .max(0.0)
+                let damage = (ability.base_effect
+                    + prepared[idx].damage_scale(ability_spirit(ability, &stats)))
+                .max(0.0)
                     * if raw_period > 0.0 {
                         scaled_period / raw_period
                     } else {
@@ -1092,16 +1147,22 @@ fn simulate(
                     } else {
                         window
                     })
-                    * (1.0 - stats.cooldown.clamp(0.0, 0.8));
+                    * ability_cooldown_factor(ability, &stats);
                 if charge_ready[idx].is_none() {
                     charge_ready[idx] = Some(time + recharge);
                 }
+                let spacing_factor = if ability.charges > 0 {
+                    (1.0 - stats.charge_spacing_reduction).max(0.0)
+                } else {
+                    1.0
+                };
                 ability_ready[idx] = time
-                    + ability
+                    + (ability
                         .properties
                         .get("AbilityCooldownBetweenCharge")
                         .copied()
                         .unwrap_or(0.0)
+                        * spacing_factor)
                         .max(dt);
                 channel_until = time + cast_time;
                 last_cast = time;
@@ -1476,7 +1537,8 @@ fn simulate(
                 }
             }
             if burn_until[idx] > time && burn_duration > 0.0 {
-                let damage = (ability.base_effect + prepared[idx].damage_scale(stats.spirit))
+                let damage = (ability.base_effect
+                    + prepared[idx].damage_scale(ability_spirit(ability, &stats)))
                     / burn_duration
                     * (burn_until[idx] - time).min(duration);
                 out.ability_damage += damage_event(
@@ -1678,7 +1740,7 @@ fn ability_value(ability: &AbilityModel, key: &str, stats: &Stats) -> f64 {
             .iter()
             .filter(|scale| scale.stat == key)
             .filter_map(|scale| scale.per_spirit)
-            .map(|scale| scale * stats.spirit)
+            .map(|scale| scale * ability_spirit(ability, stats))
             .sum::<f64>();
     if ability.duration_scaling.contains(key) {
         value * (1.0 + stats.duration)
@@ -2509,6 +2571,103 @@ pub(crate) mod tests {
         hero.weapon.shots_per_second = 0.0;
         assert_eq!(evaluate_inventory(&hero, &[], &cfg).ability_damage, 0.0);
     }
+    #[test]
+    fn charged_item_bonus_charges_do_not_affect_ordinary_abilities() {
+        let mut hero = hero();
+        hero.weapon.bullet_damage = 0.0;
+        hero.base_health = 100_000.0;
+        let mut spell = ability(1, 10.0, 1000.0);
+        spell.charges = 1;
+        hero.abilities = vec![spell];
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 5.0,
+            ..Default::default()
+        };
+        let bonus = item(1, "BonusAbilityCharges", 2.0);
+        let plain = evaluate_inventory(&hero, &[], &cfg);
+        let more = evaluate_inventory(&hero, std::slice::from_ref(&bonus), &cfg);
+        assert_eq!(plain.scenarios[0].casts[&1], 1);
+        assert_eq!(more.scenarios[0].casts[&1], 3);
+        hero.abilities[0].charges = 0;
+        let ordinary = evaluate_inventory(&hero, &[bonus], &cfg);
+        assert_eq!(ordinary.scenarios[0].casts[&1], 1);
+    }
+
+    #[test]
+    fn charged_item_cooldowns_and_spacing_reach_cast_events() {
+        let mut hero = hero();
+        hero.weapon.bullet_damage = 0.0;
+        hero.base_health = 100_000.0;
+        let mut spell = ability(1, 10.0, 10.0);
+        spell.charges = 1;
+        hero.abilities = vec![spell];
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 25.0,
+            ..Default::default()
+        };
+        let bonus = item(1, "CooldownReductionOnChargedAbilities", 50.0);
+        let plain = evaluate_inventory(&hero, &[], &cfg);
+        let more = evaluate_inventory(&hero, &[bonus], &cfg);
+        assert_eq!(plain.scenarios[0].casts[&1], 3);
+        assert_eq!(more.scenarios[0].casts[&1], 5);
+        hero.abilities[0].charges = 3;
+        hero.abilities[0].cooldown = 1000.0;
+        hero.abilities[0]
+            .properties
+            .insert("AbilityCooldown".into(), 1000.0);
+        hero.abilities[0]
+            .properties
+            .insert("AbilityCooldownBetweenCharge".into(), 4.0);
+        let short = ReasonerConfig {
+            combat_window_seconds: 3.0,
+            ..Default::default()
+        };
+        let faster = item(1, "CooldownBetweenChargeReduction", 50.0);
+        assert_eq!(
+            evaluate_inventory(&hero, &[], &short).scenarios[0].casts[&1],
+            1
+        );
+        assert_eq!(
+            evaluate_inventory(&hero, &[faster], &short).scenarios[0].casts[&1],
+            2
+        );
+    }
+
+    #[test]
+    fn charged_item_spirit_is_not_global_spirit() {
+        let mut hero = hero();
+        hero.weapon.bullet_damage = 0.0;
+        hero.base_health = 100_000.0;
+        let mut spell = ability(1, 10.0, 1000.0);
+        spell.charges = 1;
+        spell.scaling.push(crate::ScalingStat {
+            stat: "Damage".into(),
+            per_level: 0.0,
+            per_spirit: Some(0.5),
+        });
+        hero.abilities = vec![spell];
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 5.0,
+            ..Default::default()
+        };
+        let bonus = item(1, "BonusSpiritForChargedAbilities", 14.0);
+        let charged = evaluate_inventory(&hero, std::slice::from_ref(&bonus), &cfg);
+        assert!((charged.scenarios[0].ability_damage - 17.0).abs() < 1e-9);
+        hero.abilities[0].charges = 0;
+        let ordinary = evaluate_inventory(&hero, std::slice::from_ref(&bonus), &cfg);
+        assert!((ordinary.scenarios[0].ability_damage - 10.0).abs() < 1e-9);
+        hero.abilities.clear();
+        hero.weapon.bullet_damage = 10.0;
+        hero.scaling.push(crate::ScalingStat {
+            stat: "ERoundsPerSecond".into(),
+            per_level: 0.0,
+            per_spirit: Some(0.5),
+        });
+        let plain = evaluate_inventory(&hero, &[], &cfg);
+        let equipped = evaluate_inventory(&hero, &[bonus], &cfg);
+        assert_eq!(plain.weapon_damage, equipped.weapon_damage);
+    }
+
     #[test]
     fn finite_charges_use_recharge_cooldown_not_charge_spacing() {
         let mut hero = hero();
