@@ -159,7 +159,7 @@ impl ApiClient {
             }
             if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
                 return Err(anyhow!(
-                    "{path} lehnt den Zugriff ab ({}); User-Agent oder Schluessel pruefen.",
+                    "{path} lehnt den Zugriff ab ({}); User-Agent oder Schlüssel prüfen.",
                     status.as_u16()
                 ));
             }
@@ -175,7 +175,7 @@ impl ApiClient {
                 .text()
                 .map_err(|_| anyhow!("Antwort von {path} war nicht lesbar."))?;
             return serde_json::from_str(&body)
-                .map_err(|_| anyhow!("Antwort von {path} war kein gueltiges JSON."));
+                .map_err(|_| anyhow!("Antwort von {path} war kein gültiges JSON."));
         }
     }
 }

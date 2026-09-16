@@ -1,22 +1,27 @@
 use anyhow::{anyhow, Result};
-use sqlx::postgres::{PgPool, PgPoolOptions};
+use sqlx::postgres::PgPool;
 use sqlx::Row;
 
 use crate::clean::PlayerMatchRow;
 
-pub const DSN_ENV: &str = "POPULATION_DB_DSN";
 const MIGRATION: &str = include_str!("../../../../scripts/migrations/2026-09-16-population.sql");
 
 pub async fn connect() -> Result<PgPool> {
-    let dsn = std::env::var(DSN_ENV)
-        .map_err(|_| anyhow!("{DSN_ENV} ist nicht gesetzt; die DSN wird nie ausgegeben."))?;
-    PgPoolOptions::new()
-        .max_connections(4)
-        .connect(&dsn)
-        .await
-        .map_err(|_| {
-            anyhow!("Verbindung zur Populations-Datenbank fehlgeschlagen (DSN aus {DSN_ENV}).")
-        })
+    deadlock_brain_core::pg::pg_pool().await
+}
+
+pub async fn assert_writable(pool: &PgPool) -> Result<()> {
+    let row = sqlx::query("SHOW transaction_read_only")
+        .fetch_one(pool)
+        .await?;
+    let value: String = row.get("transaction_read_only");
+    if value == "on" {
+        return Err(anyhow!(
+            "Die Datenbankverbindung ist read-only; population sync braucht Schreibrechte. Setze {} auf eine schreibbare Datenbank.",
+            deadlock_brain_core::pg::DSN_ENV
+        ));
+    }
+    Ok(())
 }
 
 pub async fn ensure_schema(pool: &PgPool) -> Result<()> {
