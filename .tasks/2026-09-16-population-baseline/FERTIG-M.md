@@ -3,6 +3,12 @@
 Branch `feat/build-reasoner-population` (Worktree `~/.worktrees/deadlock-brain-m`,
 von `fc71b5d`), Paket P `origin/feat/population-baseline` gemergt.
 
+Hinweis: Die Zahlen unten sind der Runde-1-Stand mit dem ungegateten Hebel.
+Runde 2 (REVIEW-M) hat den Staple-Hebel an einen nicht-negativen
+Kontext-Marginalwert gebunden und alle sieben Helden neu gemessen; der aktuelle
+Stand samt der Warden-Staple-Gate-Abweichung steht in `M-MESSUNG.md` und
+`FERTIG-FIX-M2.md`.
+
 ## Ergebnis (TLDR)
 
 - Warden 779996: **3/9 → 6/9 Referenzwaffen**, Staple-Gate **bestanden**. Ziel
@@ -92,8 +98,9 @@ Mechanik-Slotwert.
 
 ## Population als Datenquelle
 
-Aggregate in lokaler Wegwerf-DB `population_dev` (P-Ingest: 80641 Spieler-Matches
-aus 10000 Ranked-Matches). `population stats` je Held persistiert die Aggregate;
+Aggregate in lokaler Wegwerf-DB `population_dev` (P-Ingest: 119248
+Spieler-Matches aus 10059 Ranked-Matches, 38 Helden; die frühere Zahl 80641 war
+ein älterer Ingest-Zwischenstand). `population stats` je Held persistiert die Aggregate;
 das Mess-Example lädt sie über `POPULATION_DB_DSN` und `PopulationIndex::load`.
 Die zentrale DB wurde nicht beschrieben; die Produktiv-Migration spielt der
 Delegator ein.
