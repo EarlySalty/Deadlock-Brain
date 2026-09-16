@@ -206,19 +206,11 @@ fn compose(
     let mut hero = input.hero.clone();
     let mut items = input.items.clone();
     enrich_frozen_models(&mut hero, &mut items, &frozen.raw_snapshots)?;
-    let mut deltas =
-        patch::compute_patch_delta_with_snapshots(&hero, &input.events, &input.snapshots);
-    patch::apply_scored_patch_delta(&mut hero, &mut items, &mut deltas, &context.index, &cfg);
-    let mut scores = item::score_items(&hero, &items, &context.index, &[], &cfg);
-    for scored in &mut scores {
-        if !scored.score.total.is_finite() || scored.score.total <= 0.0 {
-            scored.confidence = Confidence::Low;
-        }
-    }
-    let mut build =
-        composer::compose_build_with_sources(&hero, &scores, &deltas, &cfg, &[], &context)?;
+    let planned = plan_build(&hero, &items, &context, &input.events, &input.snapshots, &cfg)?;
+    let mut build = planned.build;
     let plan = if ablation == "plan" {
-        let plan = composer::purchase_plan_with_sources(&hero, &scores, &cfg, &context)?;
+        let plan =
+            composer::purchase_plan_with_sources(&planned.hero, &planned.scored, &cfg, &context)?;
         if plan
             .steps
             .iter()
@@ -238,11 +230,8 @@ fn compose(
     } else {
         Value::Null
     };
-    if own.is_empty() {
-        build.confidence = Confidence::Low;
-        build.rationale.push_str(&format!(" Für diesen Helden fehlen Builds aktiver beobachteter Autoren. Die Kaufkurve ist ein Behelf aus {} beobachteten Builds anderer Helden; ein eigener Autorenvergleich ist nicht möglich.", context.core_layouts.overall.source_builds));
-    }
-    Ok((build, plan, scores))
+    annotate_missing_authors(&mut build, &context);
+    Ok((build, plan, planned.scored))
 }
 
 fn measure(

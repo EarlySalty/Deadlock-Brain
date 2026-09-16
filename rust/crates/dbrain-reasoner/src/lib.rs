@@ -78,6 +78,49 @@ pub async fn reason_build_with_seed_path(
     .await
 }
 
+pub struct PlannedBuild {
+    pub build: BuildObject,
+    pub scored: Vec<ScoredItem>,
+    pub hero: HeroModel,
+    pub deltas: Vec<PatchDelta>,
+}
+
+pub fn plan_build(
+    hero: &HeroModel,
+    items: &[ItemModel],
+    meta: &meta::MetaIndexWithSources,
+    events: &[Value],
+    snapshots: &[PatchSnapshot],
+    config: &ReasonerConfig,
+) -> Result<PlannedBuild> {
+    let mut hero = hero.clone();
+    let mut items = items.to_vec();
+    let mut deltas = patch::compute_patch_delta_with_snapshots(&hero, events, snapshots);
+    patch::apply_scored_patch_delta(&mut hero, &mut items, &mut deltas, &meta.index, config);
+    let mut scored = item::score_items(&hero, &items, &meta.index, &[], config);
+    finish_scores(&mut scored);
+    let build = composer::compose_build_with_sources(&hero, &scored, &deltas, config, &[], meta)?;
+    Ok(PlannedBuild {
+        build,
+        scored,
+        hero,
+        deltas,
+    })
+}
+
+pub fn annotate_missing_authors(build: &mut BuildObject, meta: &meta::MetaIndexWithSources) {
+    if meta.author_builds.is_empty() {
+        build.confidence = Confidence::Low;
+        build.rationale = append_text(
+            &build.rationale,
+            &format!(
+                "Für diesen Helden fehlen Builds aktiver beobachteter Autoren. Die Kaufkurve ist ein Behelf aus {} beobachteten Builds anderer Helden; ein eigener Autorenvergleich ist nicht möglich.",
+                meta.core_layouts.overall.source_builds
+            ),
+        );
+    }
+}
+
 pub async fn reason_build_with_options(
     ctx: &ReasonerCtx,
     hero: &str,
@@ -85,7 +128,7 @@ pub async fn reason_build_with_options(
 ) -> Result<BuildObject> {
     let seed_path = options.seed_path;
     let ctx = effective_context(ctx).await?;
-    let (mut hero_model, mut items, meta, snapshots) =
+    let (hero_model, items, meta, snapshots) =
         load_reasoning_inputs(&ctx, hero, seed_path).await?;
     let events =
         data::load_patch_events_for_snapshots(&ctx, hero_model.hero_id, &snapshots).await?;
@@ -96,71 +139,49 @@ pub async fn reason_build_with_options(
         .map_err(|error| ReasonerError::Data(format!("Buildplanung nicht verfügbar: {error}")))?;
     let calculation_ctx = ctx.clone();
     let calculation = tokio::task::spawn_blocking(move || {
-    let _permit = permit;
-    let ctx = calculation_ctx;
-    let mut deltas = patch::compute_patch_delta_with_snapshots(&hero_model, &events, &snapshots);
-    patch::apply_scored_patch_delta(
-        &mut hero_model,
-        &mut items,
-        &mut deltas,
-        &meta.index,
-        &ctx.config,
-    );
-    let mut scored = item::score_items(&hero_model, &items, &meta.index, &[], &ctx.config);
-    finish_scores(&mut scored);
-    let mut build = composer::compose_build_with_sources(
-        &hero_model,
-        &scored,
-        &deltas,
-        &ctx.config,
-        &[],
-        &meta,
-    )?;
-    if ctx.config.use_ai {
-        build = enrich_build(
-            &ctx,
-            &hero_model,
-            &scored,
-            &deltas,
-            &events,
-            &meta.index,
-            build,
-        );
-        if let Some(client) = ctx.ai.as_ref() {
-            if let Ok(critic) = ai_roles::run_critic(client, &build) {
-                if critic.verdict == "recompose" {
-                    build = composer::compose_build_with_sources(
-                        &hero_model,
-                        &scored,
-                        &deltas,
-                        &ctx.config,
-                        &critic.issues,
-                        &meta,
-                    )?;
-                    build = enrich_build(
-                        &ctx,
-                        &hero_model,
-                        &scored,
-                        &deltas,
-                        &events,
-                        &meta.index,
-                        build,
-                    );
-                    if !critic.issues.is_empty() {
-                        build.rationale = append_text(
-                            &build.rationale,
-                            &format!("Offene Kritikpunkte: {}", critic.issues.join("; ")),
+        let _permit = permit;
+        let ctx = calculation_ctx;
+        let planned = plan_build(&hero_model, &items, &meta, &events, &snapshots, &ctx.config)?;
+        let PlannedBuild {
+            mut build,
+            scored,
+            hero: hero_model,
+            deltas,
+        } = planned;
+        if ctx.config.use_ai {
+            build = enrich_build(&ctx, &hero_model, &scored, &deltas, &events, &meta.index, build);
+            if let Some(client) = ctx.ai.as_ref() {
+                if let Ok(critic) = ai_roles::run_critic(client, &build) {
+                    if critic.verdict == "recompose" {
+                        build = composer::compose_build_with_sources(
+                            &hero_model,
+                            &scored,
+                            &deltas,
+                            &ctx.config,
+                            &critic.issues,
+                            &meta,
+                        )?;
+                        build = enrich_build(
+                            &ctx,
+                            &hero_model,
+                            &scored,
+                            &deltas,
+                            &events,
+                            &meta.index,
+                            build,
                         );
+                        if !critic.issues.is_empty() {
+                            build.rationale = append_text(
+                                &build.rationale,
+                                &format!("Offene Kritikpunkte: {}", critic.issues.join("; ")),
+                            );
+                        }
                     }
                 }
             }
         }
-    }
-    if meta.author_builds.is_empty() {
-        build.confidence = Confidence::Low;
-        build.rationale = append_text(&build.rationale, &format!("Für diesen Helden fehlen Builds aktiver beobachteter Autoren. Die Kaufkurve ist ein Behelf aus {} beobachteten Builds anderer Helden; ein eigener Autorenvergleich ist nicht möglich.",meta.core_layouts.overall.source_builds));
-    }
-    Ok::<_, ReasonerError>((build, scored))
+        annotate_missing_authors(&mut build, &meta);
+        Ok::<_, ReasonerError>((build, scored))
     })
     .await
     .map_err(|error| ReasonerError::Data(format!("Buildberechnung fehlgeschlagen: {error}")))?;
