@@ -29,4 +29,4 @@ pub const ABILITY_ORDER_PREFIX: usize = 16;
 
 pub const BADGE_CENTER: f64 = 80.0;
 pub const BADGE_HALFWIDTH: f64 = 25.0;
-pub const WIN_WEIGHT: f64 = 1.25;
+pub const WIN_WEIGHT: f64 = 1.0;

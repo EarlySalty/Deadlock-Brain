@@ -50,30 +50,7 @@ impl ApiClient {
         min_unix_timestamp: i64,
         hero_ids: &[i64],
     ) -> Result<Vec<Value>> {
-        let mut params: Vec<(String, String)> = vec![
-            ("match_mode".into(), "Ranked".into()),
-            ("game_mode".into(), "normal".into()),
-            ("include_player_items".into(), "true".into()),
-            ("include_player_stats".into(), "true".into()),
-            ("include_player_info".into(), "true".into()),
-            ("include_objectives".into(), "true".into()),
-            ("include_mid_boss".into(), "true".into()),
-            ("order_by".into(), "match_id".into()),
-            ("order_direction".into(), "desc".into()),
-            ("limit".into(), limit.to_string()),
-            ("min_unix_timestamp".into(), min_unix_timestamp.to_string()),
-        ];
-        if let Some(cursor) = cursor {
-            params.push(("max_match_id".into(), cursor.to_string()));
-        }
-        if !hero_ids.is_empty() {
-            let joined = hero_ids
-                .iter()
-                .map(|id| id.to_string())
-                .collect::<Vec<_>>()
-                .join(",");
-            params.push(("hero_ids".into(), joined));
-        }
+        let params = metadata_params(cursor, limit, min_unix_timestamp, hero_ids);
         let value = self.get_json(MATCHES_BUCKET, "/v1/matches/metadata", &params)?;
         Ok(value.as_array().cloned().unwrap_or_default())
     }
@@ -180,6 +157,39 @@ impl ApiClient {
     }
 }
 
+fn metadata_params(
+    cursor: Option<i64>,
+    limit: usize,
+    min_unix_timestamp: i64,
+    hero_ids: &[i64],
+) -> Vec<(String, String)> {
+    let mut params: Vec<(String, String)> = vec![
+        ("match_mode".into(), "Ranked".into()),
+        ("game_mode".into(), "normal".into()),
+        ("include_player_items".into(), "true".into()),
+        ("include_player_stats".into(), "true".into()),
+        ("include_player_info".into(), "true".into()),
+        ("include_objectives".into(), "true".into()),
+        ("include_mid_boss".into(), "true".into()),
+        ("order_by".into(), "match_id".into()),
+        ("order_direction".into(), "desc".into()),
+        ("limit".into(), limit.to_string()),
+        ("min_unix_timestamp".into(), min_unix_timestamp.to_string()),
+    ];
+    if let Some(cursor) = cursor {
+        params.push(("max_match_id".into(), cursor.to_string()));
+    }
+    if !hero_ids.is_empty() {
+        let joined = hero_ids
+            .iter()
+            .map(|id| id.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        params.push(("hero_ids".into(), joined));
+    }
+    params
+}
+
 fn backoff(attempt: usize) -> Duration {
     let seconds = (2f64.powi(attempt as i32)).min(60.0);
     Duration::from_secs_f64(seconds)
@@ -202,4 +212,28 @@ fn next_request_in(body: &str) -> Option<Duration> {
         .and_then(|quota| quota.get("next_request_in"))
         .and_then(Value::as_f64)?;
     Some(Duration::from_secs_f64(seconds + 1.0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn value_of<'a>(params: &'a [(String, String)], key: &str) -> Option<&'a str> {
+        params
+            .iter()
+            .find(|(name, _)| name == key)
+            .map(|(_, value)| value.as_str())
+    }
+
+    #[test]
+    fn hero_filter_reaches_the_request_as_hero_ids() {
+        let params = metadata_params(Some(100), 200, 42, &[8, 15]);
+        assert_eq!(value_of(&params, "hero_ids"), Some("8,15"));
+        assert_eq!(value_of(&params, "max_match_id"), Some("100"));
+        assert_eq!(value_of(&params, "match_mode"), Some("Ranked"));
+
+        let without = metadata_params(None, 200, 42, &[]);
+        assert_eq!(value_of(&without, "hero_ids"), None);
+        assert_eq!(value_of(&without, "max_match_id"), None);
+    }
 }

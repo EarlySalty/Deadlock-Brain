@@ -48,8 +48,6 @@ struct SyncArgs {
 struct StatsArgs {
     #[arg(long)]
     hero: Option<String>,
-    #[arg(long)]
-    rebuild: bool,
 }
 
 #[derive(Debug, Args)]
@@ -164,6 +162,7 @@ fn run_sync(
 }
 
 async fn run_stats(pool: &PgPool, catalog: &Catalog, args: StatsArgs) -> Result<()> {
+    db::assert_writable(pool).await?;
     let hero_ids = match &args.hero {
         Some(needle) => {
             let id = catalog
@@ -177,7 +176,6 @@ async fn run_stats(pool: &PgPool, catalog: &Catalog, args: StatsArgs) -> Result<
         println!("Keine Spieler-Matches vorhanden. Zuerst 'population sync' laufen lassen.");
         return Ok(());
     }
-    let _ = args.rebuild;
 
     let detailed = hero_ids.len() == 1;
     for hero_id in hero_ids {

@@ -61,9 +61,7 @@ pub fn match_to_rows(match_value: &Value, catalog: &Catalog) -> Vec<PlayerMatchR
     };
     let winning_team = match_value.get("winning_team").and_then(Value::as_str);
     let match_outcome = match_value.get("match_outcome").and_then(Value::as_str);
-    let average_badge = v_i64(match_value, "average_badge")
-        .filter(|badge| *badge > 0)
-        .map(|badge| badge as i32);
+    let average_badge = v_i64(match_value, "average_badge").map(|badge| badge as i32);
     let duration_s = v_i64(match_value, "duration_s").map(|value| value as i32);
     let start_time = match_value
         .get("start_time")
@@ -390,6 +388,21 @@ mod tests {
                 assert!((0..=4).contains(rank));
             }
         }
+    }
+
+    #[test]
+    fn average_badge_zero_is_a_real_value_and_missing_is_neutral() {
+        let mut value = two_player_match();
+        value["average_badge"] = json!(0);
+        let rows = match_to_rows(&value, &catalog());
+        assert!(!rows.is_empty());
+        assert!(rows.iter().all(|row| row.average_badge == Some(0)));
+
+        let mut missing = two_player_match();
+        missing.as_object_mut().unwrap().remove("average_badge");
+        let rows = match_to_rows(&missing, &catalog());
+        assert!(!rows.is_empty());
+        assert!(rows.iter().all(|row| row.average_badge.is_none()));
     }
 
     #[test]
