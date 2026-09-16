@@ -532,14 +532,17 @@ async fn load_populations_from_db() -> std::result::Result<BTreeMap<i64, Populat
 // Vorher/Nachher-Vergleiche lesen die Population aus einer eingefrorenen Datei
 // (Umgebungsvariable FROZEN_POPULATIONS), damit kein Live-DB-Drift zwischen den
 // beiden Messungen entsteht. Ohne die Variable wird read-only aus der DB geladen.
+fn load_population_file(path: &Path) -> std::result::Result<BTreeMap<i64, PopulationPrior>, Error> {
+    let mirror: BTreeMap<i64, FrozenPopulationPrior> = serde_json::from_slice(&fs::read(path)?)?;
+    Ok(mirror
+        .into_iter()
+        .map(|(id, prior)| (id, prior.into_prior()))
+        .collect())
+}
+
 async fn load_populations() -> std::result::Result<BTreeMap<i64, PopulationPrior>, Error> {
     if let Some(path) = std::env::var_os("FROZEN_POPULATIONS") {
-        let mirror: BTreeMap<i64, FrozenPopulationPrior> =
-            serde_json::from_slice(&fs::read(&path)?)?;
-        return Ok(mirror
-            .into_iter()
-            .map(|(id, prior)| (id, prior.into_prior()))
-            .collect());
+        return load_population_file(Path::new(&path));
     }
     load_populations_from_db().await
 }
@@ -597,6 +600,15 @@ fn evaluate(
         }) {
             continue;
         }
+        if mode == "replay" && !populations.contains_key(&hero.hero.hero_id) {
+            return Err(format!(
+                "Eingefrorene Population fehlt für Held {} ({}); kein Live-Fallback",
+                hero.hero.name, hero.hero.hero_id
+            )
+            .into());
+        }
+        let started = std::time::Instant::now();
+        eprintln!("Beginne {} ({}, {mode})", hero.hero.name, hero.hero.hero_id);
         let population = populations
             .get(&hero.hero.hero_id)
             .cloned()
@@ -645,7 +657,11 @@ fn evaluate(
             }
             reports.push(json!({"hero_id":hero.hero.hero_id,"hero_name":hero.hero.name,"reference_count":own.len(),"variants":variants}));
         }
-        eprintln!("Ausgewertet: {} ({mode})", hero.hero.name);
+        eprintln!(
+            "Ausgewertet: {} ({mode}, {:.3}s)",
+            hero.hero.name,
+            started.elapsed().as_secs_f64()
+        );
     }
     support::write_new(
         output,
@@ -701,6 +717,56 @@ mod summary_tests {
     }
 }
 
+#[cfg(test)]
+mod replay_file_tests {
+    use super::*;
+    #[test]
+    fn explicit_population_file_never_recovers_from_missing_or_invalid_input() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path =
+            std::env::temp_dir().join(format!("dbrain-replay-{}-{nonce}.json", std::process::id()));
+        assert!(load_population_file(&path).is_err());
+        support::write_new(&path, b"invalid json").unwrap();
+        assert!(load_population_file(&path).is_err());
+        fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn frozen_population_roundtrip_preserves_positions_and_staples() {
+        let prior = PopulationPrior::from_items([
+            PopulationItem {
+                item_id: 1,
+                prevalence: 0.8,
+                median_position: Some(4.5),
+                is_staple: true,
+            },
+            PopulationItem {
+                item_id: 2,
+                prevalence: 0.2,
+                median_position: None,
+                is_staple: false,
+            },
+            PopulationItem {
+                item_id: 3,
+                prevalence: 0.0,
+                median_position: Some(7.0),
+                is_staple: true,
+            },
+        ]);
+        let bytes = serde_json::to_vec(&FrozenPopulationPrior::from_prior(&prior)).unwrap();
+        let rebuilt: FrozenPopulationPrior = serde_json::from_slice(&bytes).unwrap();
+        let rebuilt = rebuilt.into_prior();
+        assert_eq!(prior.positions(), rebuilt.positions());
+        assert_eq!(prior.staples(), rebuilt.staples());
+        assert_eq!(prior.ranked_by_prevalence(), rebuilt.ranked_by_prevalence());
+        for id in 1..=3 {
+            assert_eq!(prior.prevalence(id), rebuilt.prevalence(id));
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> std::result::Result<(), Error> {
     if !SOURCE_CLEAN || ALGORITHM_REVISION.len() != 40 {
@@ -710,6 +776,14 @@ async fn main() -> std::result::Result<(), Error> {
     }
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     match args.as_slice() {
+        [mode, input, population, output] if mode == "replay" => {
+            let populations = load_population_file(Path::new(population))?;
+            evaluate(Path::new(input), Path::new(output), mode, None, &populations)
+        }
+        [mode, input, population, output, heroes] if mode == "replay" => {
+            let populations = load_population_file(Path::new(population))?;
+            evaluate(Path::new(input), Path::new(output), mode, Some(heroes), &populations)
+        }
         [mode, input] if mode == "summary" => {
             let report: Value = serde_json::from_slice(&fs::read(input)?)?;
             println!("{}", serde_json::to_string_pretty(&summarize(&report)?)?);
@@ -756,7 +830,7 @@ async fn main() -> std::result::Result<(), Error> {
             )
         }
         _ => Err(
-            "Aufruf: build_evaluation freeze DATEI | freeze-populations DATEI | evaluate|holdout|sensitivity FROZEN AUSGABE"
+            "Aufruf: build_evaluation replay FROZEN POPULATION AUSGABE [HELDEN] | freeze DATEI | freeze-populations DATEI | evaluate|holdout|sensitivity FROZEN AUSGABE"
                 .into(),
         ),
     }
