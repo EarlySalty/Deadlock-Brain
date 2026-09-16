@@ -24,6 +24,14 @@ pub async fn assert_writable(pool: &PgPool) -> Result<()> {
     Ok(())
 }
 
+pub async fn schema_present(pool: &PgPool) -> Result<bool> {
+    let present: Option<bool> =
+        sqlx::query_scalar("SELECT to_regclass('brain.population_item_stats') IS NOT NULL")
+            .fetch_one(pool)
+            .await?;
+    Ok(present == Some(true))
+}
+
 pub async fn ensure_schema(pool: &PgPool) -> Result<()> {
     sqlx::raw_sql(MIGRATION)
         .execute(pool)
@@ -77,6 +85,7 @@ pub async fn insert_rows(pool: &PgPool, rows: &[PlayerMatchRow]) -> Result<(usiz
 }
 
 pub struct SyncRun {
+    pub started_at_unix: f64,
     pub requested_matches: i32,
     pub hero_filter: Option<i64>,
     pub since_unix: Option<i64>,
@@ -96,7 +105,7 @@ pub async fn record_sync_run(pool: &PgPool, run: &SyncRun) -> Result<()> {
           window_low_match_id, window_high_match_id, matches_seen,
           player_matches_inserted, player_matches_skipped, duration_ms
         )
-        VALUES(now() - make_interval(secs => $9::double precision / 1000.0), now(),$1,$2,$3,$4,$5,$6,$7,$8,$9)
+        VALUES(to_timestamp($10), now(),$1,$2,$3,$4,$5,$6,$7,$8,$9)
         "#,
     )
     .bind(run.requested_matches)
@@ -108,6 +117,7 @@ pub async fn record_sync_run(pool: &PgPool, run: &SyncRun) -> Result<()> {
     .bind(run.player_matches_inserted)
     .bind(run.player_matches_skipped)
     .bind(run.duration_ms)
+    .bind(run.started_at_unix)
     .execute(pool)
     .await?;
     Ok(())

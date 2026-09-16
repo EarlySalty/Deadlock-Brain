@@ -84,6 +84,21 @@ impl PopulationPrior {
         }
         POPULATION_PRIOR_WEIGHT * prevalence * mechanic_slot_value.max(0.0)
     }
+
+    pub fn thin_coverage_note(&self, core_ids: &[i64]) -> Option<String> {
+        let total = self.staples.len();
+        if total == 0 {
+            return None;
+        }
+        let covered = core_ids.iter().filter(|id| self.is_staple(**id)).count();
+        if covered * 2 < total {
+            Some(format!(
+                "Populations-Deckung dünn: nur {covered} von {total} Staples echter Spieler im Build; die Kaufkurve weicht stark von der Population ab."
+            ))
+        } else {
+            None
+        }
+    }
 }
 
 #[cfg(test)]
@@ -125,5 +140,18 @@ mod tests {
         assert!(!prior.is_staple(2));
         assert!(!prior.is_empty());
         assert!(PopulationPrior::default().is_empty());
+    }
+
+    #[test]
+    fn thin_coverage_note_fires_only_below_half_of_the_staples() {
+        let prior = PopulationPrior::from_items((0..10).map(|id| PopulationItem {
+            item_id: id,
+            prevalence: 0.8,
+            median_position: Some(1.0),
+            is_staple: true,
+        }));
+        assert!(prior.thin_coverage_note(&[0, 1, 2]).is_some());
+        assert!(prior.thin_coverage_note(&(0..9).collect::<Vec<_>>()).is_none());
+        assert!(PopulationPrior::default().thin_coverage_note(&[]).is_none());
     }
 }

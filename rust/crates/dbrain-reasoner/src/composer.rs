@@ -88,9 +88,10 @@ fn item_order<'a>(scored: &'a [ScoredItem], blocked: &[String]) -> Vec<&'a Score
         .filter(|item| item.score.total.is_finite())
         .filter(|item| {
             let id = item.item.item_id.to_string();
-            !blocked.iter().any(|issue| {
-                let issue = lower(issue);
-                issue.contains(&lower(&item.item.name)) || issue.contains(&id)
+            let name = lower(&item.item.name);
+            !blocked.iter().any(|entry| {
+                let entry = lower(entry.trim());
+                entry == name || entry == id
             })
         })
         .collect::<Vec<_>>();
@@ -374,6 +375,16 @@ pub fn compose_build_with_sources(
         } else {
             format!("{} {note}", build.rationale.trim_end())
         };
+    } else {
+        let core_ids = build.core.iter().map(|item| item.item_id).collect::<Vec<_>>();
+        if let Some(note) = meta.population.thin_coverage_note(&core_ids) {
+            build.confidence = Confidence::Low;
+            build.rationale = if build.rationale.trim().is_empty() {
+                note
+            } else {
+                format!("{} {note}", build.rationale.trim_end())
+            };
+        }
     }
     Ok(build)
 }
@@ -1171,6 +1182,29 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    #[test]
+    fn free_text_issue_does_not_block_a_mentioned_item_only_exact_names_do() {
+        let items = vec![
+            item(1, "Spiritual Overflow", 5.0, false, &[]),
+            item(2, "Titanic Magazine", 4.0, false, &[]),
+        ];
+        let prose = vec![
+            "Die späten Items Spiritual Overflow und Titanic Magazine liefern viel Feuerrate."
+                .to_string(),
+        ];
+        let kept = item_order(&items, &prose);
+        assert_eq!(
+            kept.len(),
+            2,
+            "ein Fließtext-Kritikpunkt darf ein darin erwähntes Item nicht blocken"
+        );
+
+        let exact = vec!["spiritual overflow".to_string()];
+        let after = item_order(&items, &exact);
+        let ids = after.iter().map(|item| item.item.item_id).collect::<Vec<_>>();
+        assert_eq!(ids, vec![2]);
     }
 
     #[test]

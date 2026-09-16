@@ -93,6 +93,10 @@ fn run_sync(
         None => Vec::new(),
     };
 
+    let started_at_unix = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_secs_f64())
+        .unwrap_or(0.0);
     let started = Instant::now();
     let mut seen = 0usize;
     let mut inserted_total = 0usize;
@@ -142,6 +146,7 @@ fn run_sync(
 
     let duration = started.elapsed();
     let run = db::SyncRun {
+        started_at_unix,
         requested_matches: args.matches as i32,
         hero_filter: hero_ids.first().copied(),
         since_unix: Some(min_unix),
@@ -163,6 +168,10 @@ fn run_sync(
 
 async fn run_stats(pool: &PgPool, catalog: &Catalog, args: StatsArgs) -> Result<()> {
     db::assert_writable(pool).await?;
+    if !db::schema_present(pool).await? {
+        println!("Keine Populationsdaten. Zuerst 'population sync' laufen lassen.");
+        return Ok(());
+    }
     let hero_ids = match &args.hero {
         Some(needle) => {
             let id = catalog
@@ -296,6 +305,10 @@ fn print_bucket(catalog: &Catalog, bucket: &BucketAgg) {
 }
 
 async fn run_show(pool: &PgPool, catalog: &Catalog, args: ShowArgs) -> Result<()> {
+    if !db::schema_present(pool).await? {
+        println!("Keine Populationsdaten. Zuerst 'population sync' laufen lassen.");
+        return Ok(());
+    }
     let hero_id = catalog
         .resolve_hero(&args.hero)
         .ok_or_else(|| anyhow!("Held '{}' ist im Katalog nicht bekannt.", args.hero))?;
