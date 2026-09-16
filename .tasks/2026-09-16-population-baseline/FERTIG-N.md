@@ -79,3 +79,48 @@ Bebop 43 s, Ivy 29 s. Alle unter 120 s.
   innerhalb der erlaubten einen Waffe.
 - `reason patch-impact` erzeugt weiterhin einen Score-Verschiebungsreport, kein
   Build-Objekt; unverändert und außerhalb des N-Umbaus.
+
+## Nachträge (2026-09-16)
+
+### 1. Ausreißer 04:34 geklärt (Commit `9385382`, `N-AUSREISSER.md`)
+
+Kein Rennen, kein Nichtdeterminismus. Der schlechte Warden-Build um 04:34 kam aus
+staleen Populations-Aggregaten: der 10k-`population sync` lud nur Rohzeilen, der
+Aggregat-Neuaufbau (`population stats`) lief erst mit dem Timer um 04:46. Der
+Build-Pfad liest nur die Aggregate, also griff bis 04:46 ein staple-armer Stand.
+Belege: `write_hero` ist bereits atomar je Held (ein Commit, kein Torn Read),
+drei Läufe `reason build Warden` sind zeichengleich, `prevalence_raw > 1` gibt es
+im Bestand nicht, der zuletzt persistierte Warden-Build ist exakt das
+Leerer-Prior-Build. Empfehlung: nach jedem Sync `population stats` laufen lassen
+(der Timer macht das). Nit (c) macht das Sync-Fenster künftig im Log sichtbar.
+
+### 2. Gate- und Review-Nits (Commit `56308d1`)
+
+- (a) `ensure_schema` nur noch in `sync` und nach `assert_writable`; `show`/`stats`
+  ohne DDL.
+- (b) `compute_bucket` dedupliziert item_ids je Zeile; kein doppelt gezählter
+  Spieler mehr, `prevalence_raw` bleibt unter 1. Test
+  `duplicate_item_in_a_row_counts_the_player_once`.
+- (c) `population_sync_runs.started_at` = Laufbeginn (`finished_at` minus
+  Laufdauer) statt Insert-Zeit.
+- (d) `run_sync` setzt `window_low`/`window_high` erst nach dem i64::MAX-Break.
+- (e) `interpolate` klemmt Netto-Vermögen nach dem letzten Sample auf den letzten
+  Wert. Das ist bewusst so: Netto-Vermögen dient nur als Rang je Zeitpunkt
+  (`networth_quintile`), und ohne Messwert nach dem letzten Sample wäre eine
+  lineare Fortschreibung erfundenes Wachstum. Konstantes Halten ist der ehrliche
+  Rang-Proxy, deshalb keine Code-Änderung, nur hier dokumentiert.
+- (f) Marginal-Gate im Planner mit Test `priority_staple_with_negative_context_-
+  margin_is_not_forced` (Rot-Gegenprobe bestätigt: ohne den Guard erzwingt der
+  Planner das anti-synergetische Item). `load_population_prior` prüft jetzt alle
+  drei Populationstabellen und degradiert gemeinsam.
+
+### Testzahlen nach den Nachträgen
+
+- `cargo test -p dbrain-population`: 25 bestanden (vorher 24, plus Dedupe-Test),
+  0 rot.
+- `cargo test -p dbrain-reasoner --lib`: 171 bestanden (vorher 170, plus
+  Marginal-Gate-Test), 16 ignoriert, 0 rot.
+- `cargo test --workspace` ohne DSN: 388 bestanden, 58 ignoriert, 0 rot.
+- `cargo clippy -p dbrain-reasoner -p dbrain-population -p deadlock-brain
+  --all-targets -- -D warnings`: sauber.
+- Live-Smoke nach den Änderungen: Warden 6/9, Population lädt (3-Tabellen-Guard).
