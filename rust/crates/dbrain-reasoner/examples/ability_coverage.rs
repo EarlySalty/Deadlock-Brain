@@ -2,6 +2,8 @@ use serde_json::{json, Value};
 use std::{collections::BTreeMap, fs};
 
 type Error = Box<dyn std::error::Error>;
+#[path = "support/raw_assets.rs"]
+mod raw_assets;
 mod support;
 
 fn number(value: &Value) -> Option<f64> {
@@ -51,6 +53,9 @@ fn category(name: &str, property: &Value) -> Option<&'static str> {
 
 fn main() -> Result<(), Error> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
+    if args.first().is_some_and(|arg| arg == "raw") {
+        return raw_assets::run(&args[1..]);
+    }
     let [input, output, markdown] = args.as_slice() else {
         return Err("Aufruf: ability_coverage FROZEN JSON MARKDOWN".into());
     };
