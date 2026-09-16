@@ -152,16 +152,10 @@ pub fn spirit_fire_rate_value(
     hero: &HeroModel,
     cfg: &ReasonerConfig,
 ) -> SpiritFireRateValue {
-    let scaling = |name: &str| {
-        hero.scaling
-            .iter()
-            .find(|stat| stat.stat.eq_ignore_ascii_case(name))
-            .and_then(|stat| stat.per_spirit)
-            .filter(|scale| scale.is_finite() && *scale >= 0.0)
-    };
-    let per_spirit = scaling("ERoundsPerSecond")
-        .or_else(|| scaling("EFireRate").map(|scale| hero.weapon.shots_per_second * scale / 100.0))
-        .unwrap_or_default();
+    // Einzige Quelle der Spirit->Feuerrate-Konversion (siehe mechanics); keine
+    // eigene Ableitung mehr im Score-Pfad. Endliche negative Skalen bleiben
+    // signiert (Downside), nicht endliche werden verworfen.
+    let per_spirit = mechanics::spirit_weapon_rate_per_spirit(hero);
     let is_spirit = |name: &str| {
         name.eq_ignore_ascii_case("TechPower")
             || name.eq_ignore_ascii_case("SpiritPower")

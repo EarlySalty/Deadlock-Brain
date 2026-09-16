@@ -298,6 +298,32 @@ pub fn ability_casts(ability: &AbilityModel, cfg: &ReasonerConfig) -> f64 {
     crate::data::ability_cast_count(ability, cfg)
 }
 
+/// Kanonische Helden-Konversion Spirit -> Waffen-Feuerrate: zusaetzliche Schuss/s
+/// je 1 Spirit-Power. Einzige Definition dieser Konversion; der Sim-/Marginalpfad
+/// (`combat.rs`), der statische Item-Score (`item.rs::spirit_fire_rate_value`) und
+/// die Klassifikation (`damage_plan`) konsumieren ausschliesslich diese Funktion,
+/// damit dieselbe Konversion nicht mehr an mehreren Stellen getrennt abgeleitet wird.
+///
+/// `ERoundsPerSecond` ist der direkte Wert; `EFireRate` ist nur ein Prozent-Fallback
+/// (`* shots_per_second / 100`), nie werden beide addiert. Endliche negative Werte
+/// bleiben SIGNIERT erhalten (Spirit senkt dann die Feuerrate, eine echte Downside).
+/// Nicht endliche Werte (NaN/Inf) sind unbekannt/fehlerhaft und werden verworfen,
+/// nicht mit einem endlichen Minus gleichgesetzt. Physikalische Gesamtstat-Grenzen
+/// (eine Feuerrate faellt real nicht unter 0) gehoeren in die Stat-Anwendung beim
+/// Aufrufer, nicht in diese Konversionsdefinition.
+pub fn spirit_weapon_rate_per_spirit(hero: &HeroModel) -> f64 {
+    let finite = |stat: &str| {
+        hero.scaling
+            .iter()
+            .find(|entry| entry.stat == stat)
+            .and_then(|entry| entry.per_spirit)
+            .filter(|scale| scale.is_finite())
+    };
+    finite("ERoundsPerSecond")
+        .or_else(|| finite("EFireRate").map(|scale| scale * hero.weapon.shots_per_second / 100.0))
+        .unwrap_or(0.0)
+}
+
 fn is_damage_stat(name: &str) -> bool {
     let name = name.to_ascii_lowercase();
     name.contains("damage")
@@ -340,7 +366,15 @@ pub fn ability_dps(ability: &AbilityModel, _hero: &HeroModel, cfg: &ReasonerConf
 }
 
 pub fn damage_plan(hero: &HeroModel, cfg: &ReasonerConfig) -> DamagePlan {
-    let weapon_dps = weapon_dps(&hero.weapon, cfg.combat_window_seconds);
+    // Spirit->Waffen-Konversion am innewohnenden Spirit des Helden einbeziehen,
+    // damit weapon_dps/weapon_share/primary_axis die Spirit-als-Waffen-Identitaet
+    // eines Konverters spiegeln (Nullkonverter bleiben unveraendert). Die
+    // resultierende Feuerrate wird physikalisch bei 0 gedeckelt (Stat-Grenze beim
+    // Aufrufer, nicht in der Konversionsdefinition).
+    let rate = spirit_weapon_rate_per_spirit(hero);
+    let mut weapon = hero.weapon.clone();
+    weapon.shots_per_second = (weapon.shots_per_second + hero.base_spirit_power * rate).max(0.0);
+    let weapon_dps = weapon_dps(&weapon, cfg.combat_window_seconds);
     let spirit_dps = hero
         .abilities
         .iter()
@@ -1160,6 +1194,117 @@ mod tests {
                 primary_axis: DamageType::Weapon,
             },
         }
+    }
+
+    fn with_scaling(stats: Vec<ScalingStat>, shots_per_second: f64) -> HeroModel {
+        let mut hero = hero();
+        hero.scaling = stats;
+        hero.weapon.shots_per_second = shots_per_second;
+        hero
+    }
+
+    fn rate_stat(stat: &str, per_spirit: Option<f64>) -> ScalingStat {
+        ScalingStat {
+            stat: stat.to_string(),
+            per_level: 0.0,
+            per_spirit,
+        }
+    }
+
+    #[test]
+    fn spirit_weapon_rate_uses_rounds_directly_and_never_adds_fire_rate() {
+        let hero = with_scaling(
+            vec![
+                rate_stat("ERoundsPerSecond", Some(0.25)),
+                rate_stat("EFireRate", Some(101.0)),
+            ],
+            4.0,
+        );
+        // ERoundsPerSecond direkt; EFireRate wird nie zusaetzlich addiert.
+        assert_eq!(spirit_weapon_rate_per_spirit(&hero), 0.25);
+    }
+
+    #[test]
+    fn spirit_weapon_rate_fire_rate_is_only_a_percentage_fallback() {
+        let hero = with_scaling(vec![rate_stat("EFireRate", Some(50.0))], 4.0);
+        // 50 % von 4 Schuss/s = 2.0 Schuss/s je Spirit.
+        assert_eq!(spirit_weapon_rate_per_spirit(&hero), 2.0);
+    }
+
+    #[test]
+    fn spirit_weapon_rate_is_zero_without_a_conversion_stat() {
+        let hero = with_scaling(vec![rate_stat("ESomethingElse", Some(1.0))], 4.0);
+        assert_eq!(spirit_weapon_rate_per_spirit(&hero), 0.0);
+    }
+
+    #[test]
+    fn spirit_weapon_rate_keeps_finite_negative_signed_as_downside() {
+        let hero = with_scaling(vec![rate_stat("ERoundsPerSecond", Some(-0.1))], 4.0);
+        // Endliche negative Konversion bleibt signiert (Downside), nicht 0.
+        assert_eq!(spirit_weapon_rate_per_spirit(&hero), -0.1);
+    }
+
+    #[test]
+    fn spirit_weapon_rate_drops_non_finite_as_unknown() {
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let hero = with_scaling(vec![rate_stat("ERoundsPerSecond", Some(bad))], 4.0);
+            // Nicht endliche Daten sind unbekannt -> verworfen, kein endliches Minus.
+            assert_eq!(spirit_weapon_rate_per_spirit(&hero), 0.0);
+        }
+        // Ist der Direktwert nicht endlich, aber der redundante EFireRate valide,
+        // wird die Konversion aus dem Fallback zurueckgewonnen (kein stiller 0-Wert,
+        // aber auch nie ein endliches Minus aus den Schrottdaten).
+        let hero = with_scaling(
+            vec![
+                rate_stat("ERoundsPerSecond", Some(f64::NAN)),
+                rate_stat("EFireRate", Some(50.0)),
+            ],
+            4.0,
+        );
+        assert_eq!(spirit_weapon_rate_per_spirit(&hero), 2.0);
+        // Sind beide nicht endlich, bleibt es bei unbekannt -> 0.
+        let hero = with_scaling(
+            vec![
+                rate_stat("ERoundsPerSecond", Some(f64::NAN)),
+                rate_stat("EFireRate", Some(f64::INFINITY)),
+            ],
+            4.0,
+        );
+        assert_eq!(spirit_weapon_rate_per_spirit(&hero), 0.0);
+    }
+
+    #[test]
+    fn spirit_weapon_rate_is_name_independent() {
+        // Zwei identisch skalierte Helden mit unterschiedlichem Namen liefern
+        // denselben Wert; die Konversion haengt nicht am Helden-Namen.
+        let mut a = with_scaling(vec![rate_stat("ERoundsPerSecond", Some(0.2))], 5.0);
+        let mut b = a.clone();
+        a.name = "Alpha".into();
+        a.hero_id = 111;
+        b.name = "Beta".into();
+        b.hero_id = 222;
+        assert_eq!(
+            spirit_weapon_rate_per_spirit(&a),
+            spirit_weapon_rate_per_spirit(&b)
+        );
+    }
+
+    #[test]
+    fn damage_plan_reflects_spirit_only_for_a_converter() {
+        let cfg = ReasonerConfig::default();
+        let mut converter = with_scaling(vec![rate_stat("ERoundsPerSecond", Some(0.2))], 5.0);
+        converter.base_spirit_power = 50.0;
+        let mut null_converter = converter.clone();
+        null_converter.scaling = vec![rate_stat("ESomethingElse", Some(0.2))];
+
+        let converter_plan = damage_plan(&converter, &cfg);
+        let null_plan = damage_plan(&null_converter, &cfg);
+        // Beim Konverter hebt der innewohnende Spirit die Waffen-DPS ueber den
+        // reinen Basiswaffenwert; beim Nullkonverter bleibt es beim Basiswert.
+        let base_only = weapon_dps(&null_converter.weapon, cfg.combat_window_seconds);
+        assert!(converter_plan.weapon_dps > base_only);
+        assert!((null_plan.weapon_dps - base_only).abs() < 1e-9);
+        assert!(converter_plan.weapon_share >= null_plan.weapon_share);
     }
 
     #[test]

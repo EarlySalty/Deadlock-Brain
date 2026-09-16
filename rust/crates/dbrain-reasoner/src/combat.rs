@@ -636,19 +636,9 @@ fn simulate(
     let mut last_maximum_health: Option<f64> = None;
     let mut self_damage_sum = 0.0;
     let mut leech_sum = 0.0;
-    let spirit_rate = hero
-        .scaling
-        .iter()
-        .find(|s| s.stat == "ERoundsPerSecond")
-        .and_then(|s| s.per_spirit)
-        .or_else(|| {
-            hero.scaling
-                .iter()
-                .find(|s| s.stat == "EFireRate")
-                .and_then(|s| s.per_spirit)
-                .map(|v| v * hero.weapon.shots_per_second / 100.0)
-        })
-        .unwrap_or(0.0);
+    // Einzige Quelle der Spirit->Feuerrate-Konversion (siehe mechanics); keine
+    // eigene Ableitung mehr im Sim-Pfad.
+    let spirit_rate = crate::mechanics::spirit_weapon_rate_per_spirit(hero);
     let mut base_stats = Stats {
         spirit: hero.base_spirit_power,
         ..Stats::default()
@@ -2699,6 +2689,22 @@ pub(crate) mod tests {
         assert!(combined.weapon_damage > with_spirit.weapon_damage);
         assert!(combined.scenarios[0].reloads < with_spirit.scenarios[0].reloads);
     }
+    #[test]
+    fn spirit_does_not_change_weapon_rate_for_a_null_converter() {
+        // Basis-Held ohne ERoundsPerSecond/EFireRate: mehr Spirit erzeugt keinen
+        // Waffen-DPS (Gegenprobe zu spirit_changes_whole_weapon_rate_...).
+        let hero = hero();
+        assert!(!hero
+            .scaling
+            .iter()
+            .any(|s| s.stat == "ERoundsPerSecond" || s.stat == "EFireRate"));
+        let cfg = ReasonerConfig::default();
+        let spirit = item(1, "TechPower", 100.0);
+        let plain = evaluate_inventory(&hero, &[], &cfg);
+        let with_spirit = evaluate_inventory(&hero, std::slice::from_ref(&spirit), &cfg);
+        assert!((with_spirit.weapon_damage - plain.weapon_damage).abs() < 1e-9);
+    }
+
     #[test]
     fn above_and_below_health_conditions_have_opposite_windows() {
         let mut below = item(1, "BonusFireRate", 100.0);

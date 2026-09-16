@@ -14,6 +14,7 @@
 //!     ungefiltert, Vorzeichen bleibt erhalten.
 //!   - `score_rate_per_spirit`   wie item.rs::spirit_fire_rate_value: negative
 //!     oder nicht endliche Skalen werden als 0 behandelt.
+//!
 //! `sign_divergence` markiert Helden, bei denen beide Pfade heute abweichen.
 //!
 //! Aufruf: hero_conversion_coverage FROZEN.json [AUSGABE.json]
