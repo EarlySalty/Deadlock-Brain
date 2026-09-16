@@ -1,5 +1,7 @@
 # Finalisierung durch ChatGPT
 
+Aktualisierung der weiteren Bearbeitung: Der hier folgende Text beschreibt den früheren A-/Ladungsstand. Maßgeblicher neuer Code-Stand ist d7c0f38 auf demselben Integrationsbranch. Spirit-Treffer/Refresh, tatsächlicher Lebensdruck, endliche typgebundene Schilde und der korrigierte Sparvergleich sind in FORTSETZUNG.md dokumentiert. Aktuelle Abnahmegrenzen und offene Schritte stehen in REGISTER.md und TODO.md. Noch kein Main-Merge oder Deploy.
+
 Stand 16.09.2026. Eigener Worktree `/home/nathanael/repos/wt/brain-purpose-finish`, Branch `fix/reasoner-mechanics-completion`. Keine neuen Claude-/Opus-Threads oder Ersatzanbieter. Der vorhandene A-Worker ist fertig (T3 ready, HEAD 46f8bfb). Seine Änderungen sowie der bereits geprüfte Rohdatenprüfer 35b1a0c sind im Integrationsbranch zusammengeführt, noch nicht auf main.
 
 ## Tatsächlich ergänzter Produktcode

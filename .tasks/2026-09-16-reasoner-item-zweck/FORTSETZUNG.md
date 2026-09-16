@@ -61,7 +61,9 @@ Neue generische Gegenprobe zuerst rot: Feuerfrequenz-Multiplikator für 800 Seel
 
 Verkaufstexte behaupteten zudem bei jeder Veräußerung, der Platz sei knapp, selbst bei Finanzierungsverkäufen mit freien Slots. Sie nennen jetzt nur den tatsächlich geplanten Verkauf samt berücksichtigtem Erlös und verlorener Wirkung. Keine Ausgabe einer Begründung, die nicht aus dem Zustand folgt.
 
-Prüfung dieses D-Teils: 212 Library-Tests und 22 Example-Testausführungen bestanden, 16 DB-Tests ignoriert, keine Fehler; Clippy Library/Examples Exit 0, fokussierter Formatter grün. Ein neuer Warden-Backtest nach diesem Planner-Fix ist separat erforderlich; die nachfolgenden Werte stammen ausdrücklich aus dem davor gemessenen Stand 51d91f0.
+Prüfung dieses D-Teils: 212 Library-Tests und 22 Example-Testausführungen bestanden, 16 DB-Tests ignoriert, keine Fehler; Clippy Library/Examples Exit 0, fokussierter Formatter grün.
+
+Danach tatsächlich ausgeführter Warden-Replay auf d7c0f38248127438fe89cabc9373144ab38a3a02: Exit 0, 27,686 Sekunden. Ergebnis target/warden-saving-d7c0f38.json, anschließend Summary Exit 0. Referenzwaffen bleiben 6/9; Populations-Kendall steigt auf 0,5774109120, Jaccard@12 bleibt 0,5. Direkte Datei-Prüfung: Magnum bleibt im Kern mit sell_priority=null, keine Verkaufsanweisung für Magnum mehr. Rusted Barrel und Healing Tempo stehen aber weiterhin im Kern, Glass Cannon ebenfalls; Enduring Speed fehlt weiterhin, Staple-Gate 9/10 bleibt rot. Die Autorenabdeckung bleibt bei reference_recall=0,421053 und core_jaccard=0,296296 und ist damit weiterhin schlechter als vor dieser Fortsetzung. Der generische Finanzierungsfehler und sein konkreter Magnum-Fall sind korrigiert, nicht die gesamte Warden-Kernwahl. Die vier anderen Helden wurden nach diesem letzten Planner-Schritt noch nicht neu gemessen; die folgende Matrix gilt ausdrücklich für 51d91f0.
 
 ## E-Zwischenmessung auf 51d91f0, keine Releasefreigabe
 
