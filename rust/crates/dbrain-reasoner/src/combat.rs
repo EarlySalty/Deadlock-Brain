@@ -335,6 +335,17 @@ fn evaluate_core(
         .collect();
     held.sort_by_key(|item| item.item_id);
     let mut unknown = BTreeSet::new();
+    if detailed {
+        unknown.extend(crate::mechanics::hero_scaling_warnings(hero));
+        let rate = crate::mechanics::spirit_weapon_rate_provenance(hero);
+        if rate.unknown_nonfinite {
+            unknown.insert("Spirit → Feuerrate: ungültige Helden-Konversion ohne validen Ersatz; nicht quantifiziert".into());
+        } else if rate.recovered_from_nonfinite {
+            unknown.insert(
+                "Spirit → Feuerrate: ungültiger Direktwert; Recovery aus Prozent-Alias".into(),
+            );
+        }
+    }
     for item in held.iter().filter(|_| detailed) {
         let mut unique = BTreeSet::new();
         for (name, v) in item.properties.iter().chain(item.passive_properties.iter()) {
@@ -638,7 +649,7 @@ fn simulate(
     let mut leech_sum = 0.0;
     // Einzige Quelle der Spirit->Feuerrate-Konversion (siehe mechanics); keine
     // eigene Ableitung mehr im Sim-Pfad.
-    let spirit_rate = crate::mechanics::spirit_weapon_rate_per_spirit(hero);
+    let weapon_scaling = crate::mechanics::weapon_spirit_scaling(hero);
     let mut base_stats = Stats {
         spirit: hero.base_spirit_power,
         ..Stats::default()
@@ -808,16 +819,15 @@ fn simulate(
         for (_, key, v) in &ability_effects {
             apply(&mut stats, key, *v);
         }
-        let clip = (hero.weapon.clip_size * (1.0 + stats.clip / 100.0) + stats.flat_clip).max(1.0);
+        let weapon = weapon_scaling.project(&hero.weapon, stats.spirit);
+        let clip = (weapon.clip_size * (1.0 + stats.clip / 100.0) + stats.flat_clip).max(0.0);
         last_clip = clip;
         if !initialized {
             ammo = clip;
             initialized = true;
         }
-        let rate = ((hero.weapon.shots_per_second + stats.spirit * spirit_rate)
-            * (1.0 + stats.rate / 100.0))
-            .max(0.0);
-        let bullet = hero.weapon.bullet_damage
+        let rate = (weapon.shots_per_second * (1.0 + stats.rate / 100.0)).max(0.0);
+        let bullet = weapon.bullet_damage
             * (1.0 + stats.weapon / 100.0).max(0.0)
             * (1.0 + stats.bullet_shred / 100.0)
             * (1.0 + stats.weapon_amp);
@@ -955,7 +965,7 @@ fn simulate(
                     })
                     .map(|(_, interaction)| {
                         interaction.magazine_spirit_damage(
-                            hero.weapon.bullet_damage,
+                            weapon.bullet_damage,
                             stats.spirit,
                             ammo.min(rate * useful_time) * hit,
                             true,
@@ -1383,7 +1393,7 @@ fn simulate(
                     .zip(&magazine_buffs)
                     .map(|(interaction, active)| {
                         interaction.magazine_spirit_damage(
-                            hero.weapon.bullet_damage,
+                            weapon.bullet_damage,
                             stats.spirit,
                             1.0,
                             *active,
@@ -1405,7 +1415,7 @@ fn simulate(
         out.weapon_damage += gun_damage;
         for (interaction, active) in interactions.iter().zip(&magazine_buffs) {
             let damage = interaction.magazine_spirit_damage(
-                hero.weapon.bullet_damage,
+                weapon.bullet_damage,
                 stats.spirit,
                 shots * hit,
                 *active,
@@ -1733,10 +1743,12 @@ fn ability_utility_value(
             duration = duration.max(effect_duration(ability, key, stats));
         }
     }
+    let weapon_scaling = crate::mechanics::weapon_spirit_scaling(hero);
     let output = |s: &Stats| {
-        hero.weapon.bullet_damage
+        let weapon = weapon_scaling.project(&hero.weapon, s.spirit);
+        weapon.bullet_damage
             * (1.0 + s.weapon / 100.0).max(0.0)
-            * hero.weapon.shots_per_second
+            * weapon.shots_per_second
             * (1.0 + s.rate / 100.0).max(0.0)
             * target_contact(s, moving)
     };
@@ -2689,6 +2701,39 @@ pub(crate) mod tests {
         assert!(combined.weapon_damage > with_spirit.weapon_damage);
         assert!(combined.scenarios[0].reloads < with_spirit.scenarios[0].reloads);
     }
+    #[test]
+    fn spirit_weapon_axes_match_materialized_weapon_in_combat() {
+        let cfg = ReasonerConfig::default();
+        for (axis, scale) in [
+            ("EBulletDamage", 0.08),
+            ("EClipSize", 0.5),
+            ("ERoundsPerSecond", 0.01),
+        ] {
+            let mut hero = hero();
+            hero.scaling = vec![crate::ScalingStat {
+                stat: axis.into(),
+                per_level: 0.0,
+                per_spirit: Some(scale),
+            }];
+            let spirit = item(1, "TechPower", 100.0);
+            let evaluated = evaluate_inventory(&hero, std::slice::from_ref(&spirit), &cfg);
+            let mut materialized = hero.clone();
+            materialized.weapon = crate::mechanics::weapon_with_spirit(&hero, 100.0);
+            materialized.scaling.clear();
+            let reference = evaluate_inventory(&materialized, std::slice::from_ref(&spirit), &cfg);
+            assert!(
+                (evaluated.weapon_damage - reference.weapon_damage).abs() < 1e-9,
+                "Kampfpfad {axis}"
+            );
+            for (a, b) in evaluated.scenarios.iter().zip(&reference.scenarios) {
+                assert_eq!(a.reloads, b.reloads, "Nachladen {axis}");
+                assert!((a.shots - b.shots).abs() < 1e-9, "Schusszahl {axis}");
+            }
+            let fast = evaluate_inventory_fast(&hero, std::slice::from_ref(&spirit), &cfg);
+            assert!((evaluated.score - fast.score).abs() < 1e-9);
+        }
+    }
+
     #[test]
     fn spirit_does_not_change_weapon_rate_for_a_null_converter() {
         // Basis-Held ohne ERoundsPerSecond/EFireRate: mehr Spirit erzeugt keinen

@@ -52,6 +52,7 @@ pub fn score_item(
     // ermitteln (nicht pro Tick), um unbekannte/fehlerhafte Assetwerte sichtbar
     // im Confidence-/Assumptions-Pfad zu halten.
     let rate_provenance = mechanics::spirit_weapon_rate_provenance(hero);
+    let scaling_warnings = mechanics::hero_scaling_warnings(hero);
     let fire_rate = spirit_fire_rate_value(item, hero, cfg);
     let active_value = mechanics::active_value(item, hero, cfg) + fire_rate.active_dps;
     let passive_value = mechanics::passive_value(item, hero, cfg) + fire_rate.passive_dps;
@@ -77,12 +78,19 @@ pub fn score_item(
     let confidence = if meta.sample_ok.contains(&item.item_id)
         && !unmeasured
         && !rate_provenance.unknown_nonfinite
+        && scaling_warnings.is_empty()
     {
         Confidence::High
     } else {
         Confidence::Low
     };
-    let mut sources = Vec::new();
+    let mut sources: Vec<crate::Evidence> = scaling_warnings
+        .into_iter()
+        .map(|detail| crate::Evidence {
+            kind: crate::EvidenceKind::Mechanic,
+            detail,
+        })
+        .collect();
     if rate_provenance.unknown_nonfinite {
         sources.push(crate::Evidence {
             kind: crate::EvidenceKind::Mechanic,
@@ -95,7 +103,7 @@ pub fn score_item(
         });
     }
     if fire_rate.weapon_dps_in_score != 0.0 {
-        sources.push(crate::Evidence { kind: crate::EvidenceKind::Mechanic, detail: format!("Spirit Power → Feuerrate aus Assets-Snapshot: {} Item-SP + {} Kaufbonus-SP, +{:.6} Schuss/s, +{:.6} Waffen-DPS im Score nach Zustandsfaktor. ERoundsPerSecond direkt; EFireRate nur als Prozent-Fallback, nie beide addiert.", fire_rate.spirit_power, fire_rate.purchase_spirit_power, fire_rate.rounds_per_second, fire_rate.weapon_dps_in_score) });
+        sources.push(crate::Evidence { kind: crate::EvidenceKind::Mechanic, detail: format!("Spirit Power → Waffenwerte aus Assets-Snapshot: {} Item-SP + {} Kaufbonus-SP → {:+.6} Schaden/Schuss, {:+.6} Magazin, {:+.6} Schuss/s → {:+.6} Waffen-DPS nach Nachladezyklus und Zustandsfaktor. EBulletDamage/EClipSize als absolute Zielstats; ERoundsPerSecond direkt, EFireRate nur Prozent-Fallback, nie beide addiert.", fire_rate.spirit_power, fire_rate.purchase_spirit_power, fire_rate.bullet_damage, fire_rate.clip_size, fire_rate.rounds_per_second, fire_rate.weapon_dps_in_score) });
     }
     if combat_value > 0.0 {
         sources.push(crate::Evidence {
@@ -161,6 +169,8 @@ pub struct SpiritFireRateValue {
     pub spirit_power: f64,
     pub purchase_spirit_power: f64,
     pub rounds_per_second: f64,
+    pub bullet_damage: f64,
+    pub clip_size: f64,
     pub active_dps: f64,
     pub passive_dps: f64,
     pub purchase_dps: f64,
@@ -177,24 +187,34 @@ pub fn spirit_fire_rate_value(
     // signiert (Downside), nicht endliche werden verworfen.
     let per_spirit = mechanics::spirit_weapon_rate_per_spirit(hero);
     let is_spirit = |name: &str| {
-        name.eq_ignore_ascii_case("TechPower")
-            || name.eq_ignore_ascii_case("SpiritPower")
-            || name.eq_ignore_ascii_case("BonusSpirit")
+        [
+            "TechPower",
+            "SpiritPower",
+            "BonusSpirit",
+            "BonusSpiritPower",
+            "SpiritPowerInnate",
+        ]
+        .iter()
+        .any(|alias| name.eq_ignore_ascii_case(alias))
     };
     let is_conditional = |name: &str| {
         item.conditional_properties.contains(name)
-            || (item.is_active != item.passive_properties.contains_key(name))
+            || (item.is_active && !item.passive_properties.contains_key(name))
     };
-    let passive_spirit = item
-        .properties
+    let mut properties = item.passive_properties.clone();
+    properties.extend(
+        item.properties
+            .iter()
+            .map(|(name, value)| (name.clone(), *value)),
+    );
+    let passive_spirit = properties
         .iter()
-        .filter(|(name, _)| is_spirit(name) && !is_conditional(name))
+        .filter(|(name, value)| is_spirit(name) && value.is_finite() && !is_conditional(name))
         .map(|(_, value)| value)
         .sum::<f64>();
-    let active_spirit = item
-        .properties
+    let active_spirit = properties
         .iter()
-        .filter(|(name, _)| is_spirit(name) && is_conditional(name))
+        .filter(|(name, value)| is_spirit(name) && value.is_finite() && is_conditional(name))
         .map(|(_, value)| value)
         .sum::<f64>();
     let bonus = if item.slot == crate::SlotType::Spirit {
@@ -225,6 +245,10 @@ pub fn spirit_fire_rate_value(
         spirit_power: passive_spirit + active_spirit,
         purchase_spirit_power: bonus,
         rounds_per_second: (passive_spirit + active_spirit + bonus) * per_spirit,
+        bullet_damage: (passive_spirit + active_spirit + bonus)
+            * mechanics::weapon_spirit_scaling(hero).bullet_damage,
+        clip_size: (passive_spirit + active_spirit + bonus)
+            * mechanics::weapon_spirit_scaling(hero).clip_size,
         active_dps,
         passive_dps,
         purchase_dps,
@@ -405,10 +429,15 @@ mod tests {
         warden.scaling.clear();
         let without = score_item(&item, &warden, &meta, &[], &cfg);
         let expected = 200.0 / (20.0 / 5.5 + 2.0) - 200.0 / 6.0;
-        assert!((with_scaling.score.total - without.score.total - expected * 0.1).abs() < 1e-10);
+        // Die passiven Werte gelten auch dann durchgehend, wenn ein anderer
+        // Effekt desselben Items einen aktiven Cooldown hat. Nur der explizit
+        // bedingte Gegenfall unten darf auf zehn Prozent reduziert werden.
+        assert!((with_scaling.score.total - without.score.total - expected).abs() < 1e-10);
         assert!(
-            (with_scaling.score.active_value - without.score.active_value - expected).abs() < 1e-10
+            (with_scaling.score.passive_value - without.score.passive_value - expected).abs()
+                < 1e-10
         );
+        assert!((with_scaling.score.active_value - without.score.active_value).abs() < 1e-10);
         let mut flags_only = item.clone();
         flags_only.passive_properties.clear();
         flags_only.conditional_properties.insert("TechPower".into());
@@ -472,6 +501,40 @@ mod tests {
         hero.base_spirit_power = 0.0;
         let control = spirit_fire_rate_value(&passive_spirit_item(100.0), &hero, &cfg);
         assert!((control.passive_dps - 160.0 / 39.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn passive_spirit_aliases_are_unconditional_and_not_counted_twice() {
+        let cfg = ReasonerConfig::default();
+        let mut hero = hero();
+        hero.scaling = vec![crate::ScalingStat {
+            stat: "EBulletDamage".into(),
+            per_level: 0.0,
+            per_spirit: Some(0.1),
+        }];
+        for alias in [
+            "TechPower",
+            "SpiritPower",
+            "BonusSpirit",
+            "BonusSpiritPower",
+            "SpiritPowerInnate",
+        ] {
+            let mut item = passive_spirit_item(100.0);
+            item.properties.clear();
+            item.passive_properties.insert(alias.into(), 100.0);
+            let only_passive = spirit_fire_rate_value(&item, &hero, &cfg);
+            item.properties.insert(alias.into(), 100.0);
+            let mirrored = spirit_fire_rate_value(&item, &hero, &cfg);
+            assert_eq!(only_passive.spirit_power, 100.0);
+            assert_eq!(mirrored.spirit_power, 100.0);
+            assert!(mirrored.passive_dps > 0.0, "Waffenschaden aus {alias}");
+            assert_eq!(mirrored.active_dps, 0.0);
+            assert_eq!(
+                mirrored.weapon_dps_in_score,
+                only_passive.weapon_dps_in_score
+            );
+            assert_eq!(mirrored.bullet_damage, 10.0);
+        }
     }
 
     #[test]

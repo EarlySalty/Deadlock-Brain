@@ -532,7 +532,39 @@ fn weapon_profile(payload: &Value) -> WeaponProfile {
     }
 }
 
+fn validate_hero_spirit_scaling(payload: &Value) -> Result<()> {
+    for (target, entry) in payload
+        .get("scaling_stats")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+    {
+        let from_spirit = string(entry.get("scaling_stat")).eq_ignore_ascii_case("ETechPower");
+        for key in ["per_spirit", "spirit_scale", "scale"] {
+            if key == "scale" && !from_spirit {
+                continue;
+            }
+            if let Some(raw) = entry.get(key).filter(|value| !value.is_null()) {
+                if number(Some(raw)).is_none() {
+                    return Err(ReasonerError::Data(format!("Helden-Skalierung /scaling_stats/{target}/{key}: kein endlicher Koeffizient; keine stille Null-Konversion")));
+                }
+            }
+        }
+        if from_spirit
+            && ["per_spirit", "spirit_scale", "scale"]
+                .iter()
+                .all(|key| number(entry.get(*key)).is_none())
+        {
+            return Err(ReasonerError::Data(format!(
+                "Helden-Skalierung /scaling_stats/{target}: Spirit-Eingang ohne Koeffizient"
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn hero_model(payload: &Value, abilities: &[Value], stats: &[ScalingStat]) -> Result<HeroModel> {
+    validate_hero_spirit_scaling(payload)?;
     let hero_id = integer(payload.get("id"));
     let name = string(payload.get("name"));
     if hero_id == 0 || name.is_empty() {
@@ -2021,6 +2053,28 @@ mod tests {
         ]);
         assert_eq!(property_values(Some(&properties)), expected);
         assert_eq!(passive_property_values(Some(&properties)), expected);
+    }
+
+    #[test]
+    fn hero_loader_rejects_invalid_spirit_scaling_before_normalization() {
+        for raw in [
+            serde_json::json!("NaN"),
+            serde_json::json!("Infinity"),
+            serde_json::json!("unknown"),
+        ] {
+            let payload = serde_json::json!({"scaling_stats": {"EBulletDamage": {"scaling_stat": "ETechPower", "scale": raw}}});
+            assert!(validate_hero_spirit_scaling(&payload).is_err());
+            let error = hero_model(&payload, &[], &[]).unwrap_err().to_string();
+            assert!(error.contains("/scaling_stats/EBulletDamage/scale"));
+        }
+        for scale in [0.0, -0.1, 0.08] {
+            assert!(validate_hero_spirit_scaling(&serde_json::json!({"scaling_stats": {"EBulletDamage": {"scaling_stat": "ETechPower", "scale": scale}}})).is_ok());
+        }
+        assert!(validate_hero_spirit_scaling(
+            &serde_json::json!({"scaling_stats": {"EClipSize": {"scaling_stat": "ETechPower"}}})
+        )
+        .is_err());
+        assert!(validate_hero_spirit_scaling(&serde_json::json!({})).is_ok());
     }
 
     #[test]

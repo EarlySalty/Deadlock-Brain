@@ -404,11 +404,72 @@ pub fn spirit_weapon_rate_per_spirit(hero: &HeroModel) -> f64 {
 /// zusaetzlich) ueber die kanonische Konversion, Feuerrate physikalisch bei 0
 /// gedeckelt. Einzige Projektion fuer Klassifikation (`damage_plan`) und statischen
 /// Score, damit der Basiszustand ueberall identisch (genau einmal) einfliesst.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WeaponSpiritScaling {
+    pub bullet_damage: f64,
+    pub clip_size: f64,
+    pub rounds_per_second: f64,
+}
+
+impl WeaponSpiritScaling {
+    /// Die Zielstats sind absolute Waffenwerte. Prozent-Feuerrate wird bereits
+    /// beim Einlesen auf Schuss/s umgerechnet; Item-Prozente folgen erst danach.
+    pub fn project(self, base: &WeaponProfile, total_spirit: f64) -> WeaponProfile {
+        let mut weapon = base.clone();
+        weapon.bullet_damage = (base.bullet_damage + total_spirit * self.bullet_damage).max(0.0);
+        weapon.clip_size = (base.clip_size + total_spirit * self.clip_size).max(0.0);
+        weapon.shots_per_second =
+            (base.shots_per_second + total_spirit * self.rounds_per_second).max(0.0);
+        weapon.sustained_dps = 0.0;
+        weapon
+    }
+}
+
+pub fn weapon_spirit_scaling(hero: &HeroModel) -> WeaponSpiritScaling {
+    let coefficient = |name: &str| {
+        hero.scaling
+            .iter()
+            .find(|stat| stat.stat.eq_ignore_ascii_case(name))
+            .and_then(|stat| stat.per_spirit)
+            .filter(|value| value.is_finite())
+            .unwrap_or(0.0)
+    };
+    WeaponSpiritScaling {
+        bullet_damage: coefficient("EBulletDamage"),
+        clip_size: coefficient("EClipSize"),
+        rounds_per_second: spirit_weapon_rate_per_spirit(hero),
+    }
+}
+
 pub fn weapon_with_spirit(hero: &HeroModel, total_spirit: f64) -> WeaponProfile {
-    let rate = spirit_weapon_rate_per_spirit(hero);
-    let mut weapon = hero.weapon.clone();
-    weapon.shots_per_second = (hero.weapon.shots_per_second + total_spirit * rate).max(0.0);
-    weapon
+    weapon_spirit_scaling(hero).project(&hero.weapon, total_spirit)
+}
+
+/// Nicht unterstützte Achsen werden nicht als bestätigte Null behandelt.
+/// Die Liste beschreibt Modellabdeckung und verändert keine Item-Rangfolge.
+pub fn hero_scaling_warnings(hero: &HeroModel) -> Vec<String> {
+    hero.scaling
+        .iter()
+        .filter_map(|stat| {
+            let scale = stat.per_spirit?;
+            if matches!(stat.stat.as_str(), "ERoundsPerSecond" | "EFireRate") {
+                return None; // eigener Provenienzpfad, einschließlich Alias-Recovery
+            }
+            if !scale.is_finite() {
+                return Some(format!(
+                    "Helden-Konversion Spirit → {}: ungültiger Koeffizient; Wirkung unbekannt",
+                    stat.stat
+                ));
+            }
+            if scale != 0.0 && !matches!(stat.stat.as_str(), "EBulletDamage" | "EClipSize") {
+                return Some(format!(
+                    "Helden-Konversion Spirit → {} ({scale}): noch nicht im Kampf quantifiziert",
+                    stat.stat
+                ));
+            }
+            None
+        })
+        .collect()
 }
 
 fn is_damage_stat(name: &str) -> bool {
@@ -1429,6 +1490,90 @@ mod tests {
         assert!(converter_plan.weapon_dps > base_only);
         assert!((null_plan.weapon_dps - base_only).abs() < 1e-9);
         assert!(converter_plan.weapon_share >= null_plan.weapon_share);
+    }
+
+    #[test]
+    fn raw_weapon_conversion_axes_reach_projection_and_damage_plan() {
+        // Koeffizienten aus dem versionierten Rohdaten-Audit. Die Basiswaffe
+        // bleibt absichtlich identisch, damit nur die jeweilige Kante wirkt.
+        let audit: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../.tasks/2026-09-16-reasoner-item-zweck/RAW-MECHANICS-SUMMARY.json"
+        ))
+        .unwrap();
+        let cfg = ReasonerConfig::default();
+        for (id, axis, coefficient) in [
+            (3, "EBulletDamage", 0.022),
+            (13, "EClipSize", 0.5),
+            (17, "EBulletDamage", 0.08),
+            (25, "ERoundsPerSecond", 0.01),
+            (27, "EClipSize", 0.15),
+        ] {
+            let source = audit["hero_scaling_candidates"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["hero_id"] == id)
+                .unwrap();
+            let mut raw = serde_json::Map::new();
+            for edge in source["edges"].as_array().unwrap() {
+                raw.insert(
+                    edge["target_stat"].as_str().unwrap().into(),
+                    edge["raw"].clone(),
+                );
+            }
+            assert_eq!(raw[axis]["scale"].as_f64().unwrap(), coefficient);
+            let mut model = hero();
+            model.scaling = crate::data::scaling_stats(Some(&serde_json::Value::Object(raw)));
+            model.base_spirit_power = 100.0;
+            let projected = weapon_with_spirit(&model, 100.0);
+            match axis {
+                "EBulletDamage" => assert!(
+                    (projected.bullet_damage - model.weapon.bullet_damage - 100.0 * coefficient)
+                        .abs()
+                        < 1e-9
+                ),
+                "EClipSize" => assert!(
+                    (projected.clip_size - model.weapon.clip_size - 100.0 * coefficient).abs()
+                        < 1e-9
+                ),
+                _ => assert!(
+                    (projected.shots_per_second
+                        - model.weapon.shots_per_second
+                        - 100.0 * coefficient)
+                        .abs()
+                        < 1e-9
+                ),
+            }
+            assert!(
+                damage_plan(&model, &cfg).weapon_dps
+                    > weapon_dps(&model.weapon, cfg.combat_window_seconds),
+                "fehlende Kante {axis}"
+            );
+            let mut renamed = model.clone();
+            renamed.name = "Neutraler Konverter".into();
+            renamed.hero_id = 999;
+            assert_eq!(
+                weapon_with_spirit(&model, 100.0),
+                weapon_with_spirit(&renamed, 100.0)
+            );
+        }
+    }
+
+    #[test]
+    fn negative_weapon_axes_are_preserved_and_end_stats_bounded() {
+        let model = with_scaling(
+            vec![
+                rate_stat("EBulletDamage", Some(-0.1)),
+                rate_stat("EClipSize", Some(-0.2)),
+            ],
+            4.0,
+        );
+        let projected = weapon_with_spirit(&model, 10.0);
+        assert!((projected.bullet_damage - (model.weapon.bullet_damage - 1.0)).abs() < 1e-9);
+        assert!((projected.clip_size - (model.weapon.clip_size - 2.0)).abs() < 1e-9);
+        let exhausted = weapon_with_spirit(&model, 1_000_000.0);
+        assert_eq!(exhausted.bullet_damage, 0.0);
+        assert_eq!(exhausted.clip_size, 0.0);
     }
 
     #[test]
