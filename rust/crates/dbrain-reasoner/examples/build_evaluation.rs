@@ -715,6 +715,18 @@ async fn main() -> std::result::Result<(), Error> {
             println!("{}", serde_json::to_string_pretty(&summarize(&report)?)?);
             Ok(())
         }
+        [mode, input, identity] if mode == "inspect" => {
+            let data: Value = serde_json::from_slice(&fs::read(input)?)?;
+            let rows = data.as_array().or_else(|| data["raw_snapshots"].as_array()).ok_or("Roh-Assets fehlen")?;
+            let matches: Vec<&Value> = rows.iter().filter(|row| {
+                let payload = row.get("payload").unwrap_or(row);
+                payload["id"].as_i64().is_some_and(|id| id.to_string() == *identity)
+                    || payload["class_name"].as_str() == Some(identity.as_str())
+            }).collect();
+            if matches.is_empty() { return Err("Keine passende Rohdefinition; keine Namensannahme".into()); }
+            println!("{}", serde_json::to_string_pretty(&matches)?);
+            Ok(())
+        }
         [mode, output] if mode == "freeze" => freeze(Path::new(output)).await,
         [mode, output] if mode == "freeze-populations" => {
             freeze_populations(Path::new(output)).await
