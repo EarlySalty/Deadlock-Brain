@@ -472,8 +472,9 @@ pub fn plan_with_economy(
                 plan.saving_decisions.push(SavingDecision { earned_souls:earned,available_souls:earned-inventory.spent_souls,reason:"Kein bezahlbarer Kauf mit positivem gemeinsamen Mehrwert; Geld bleibt verfügbar.".into() });
                 break;
             };
-            let buying_staple = search.is_priority_staple_step(&step);
-            if !buying_staple && save_value > buy_value + before.score.abs().max(1.0) * 1e-9 {
+            // Population support is already part of both horizons. It must not
+            // override the same-state comparison by bypassing the saving option.
+            if save_value > buy_value + before.score.abs().max(1.0) * 1e-9 {
                 plan.saving_decisions.push(SavingDecision { earned_souls:earned,available_souls:earned-inventory.spent_souls,reason:"Sparen ermöglicht am nächsten Checkpoint den stärkeren gemeinsamen Zustand als Kauf plus Folgeentscheidung.".into() });
                 break;
             }
@@ -599,6 +600,73 @@ mod tests {
     }
 
     #[test]
+    fn staple_priority_cannot_force_a_sale_when_waiting_preserves_a_multiplier() {
+        let mut hero = hero();
+        hero.weapon.bullet_damage = 10.0;
+        hero.weapon.shots_per_second = 1.0;
+        let mut multiplier = item(1, 0.0, 10.0);
+        multiplier.item.properties = BTreeMap::from([("BonusFireRate".into(), 100.0)]);
+        let mut staple = item(2, 100.0, 100.0);
+        staple.item.cost = 1600;
+        let items = vec![multiplier, staple];
+        let candidates = items.iter().collect::<Vec<_>>();
+        let mut layout = CoreLayoutStats::default();
+        layout.bands.insert(
+            1,
+            crate::CoreLayoutBand {
+                tier: 1,
+                median: 2.0,
+                lower_quartile: 2.0,
+                upper_quartile: 2.0,
+                target: 2,
+            },
+        );
+        let rules =
+            InventoryRules::from_catalog(&items.iter().map(|i| i.item.clone()).collect::<Vec<_>>())
+                .unwrap();
+        let population = crate::PopulationPrior::from_items([crate::PopulationItem {
+            item_id: 2,
+            prevalence: 0.9,
+            median_position: Some(2.0),
+            is_staple: true,
+        }]);
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 1.0,
+            ..ReasonerConfig::default()
+        };
+        let economy = EconomyPolicy {
+            checkpoints: vec![800, 2000, 2400],
+        };
+        let plan = plan_with_economy(
+            &hero,
+            &items,
+            &candidates,
+            &cfg,
+            PlanningContext {
+                layout: &layout,
+                rules: &rules,
+                combinations: &BTreeMap::new(),
+                order: &[],
+                economy: &economy,
+                population: Some(&population),
+            },
+        );
+        assert_eq!(plan.steps.len(), 2);
+        let purchase = plan
+            .steps
+            .iter()
+            .find(|s| s.transition.purchased_id == 2)
+            .unwrap();
+        assert!(
+            purchase.transition.after.held_ids.contains(&1),
+            "population priority discarded the useful fire-rate multiplier: {:?}",
+            purchase.transition
+        );
+        assert_eq!(purchase.transition.after.spent_souls, 2400);
+        assert!(plan.saving_decisions.iter().any(|s| s.earned_souls == 2000));
+    }
+
+    #[test]
     fn priority_staple_with_negative_context_margin_is_not_forced() {
         let hero = hero();
         let items = vec![item(1, 40.0, 100.0), item(2, -5.0, 30.0)];
@@ -621,12 +689,13 @@ mod tests {
                 .collect::<Vec<_>>(),
         )
         .unwrap();
-        let population = crate::PopulationPrior::from_items(std::iter::once(crate::PopulationItem {
-            item_id: 2,
-            prevalence: 0.9,
-            median_position: Some(1.0),
-            is_staple: true,
-        }));
+        let population =
+            crate::PopulationPrior::from_items(std::iter::once(crate::PopulationItem {
+                item_id: 2,
+                prevalence: 0.9,
+                median_position: Some(1.0),
+                is_staple: true,
+            }));
         let cfg = ReasonerConfig::default();
         let plan = plan_with_economy(
             &hero,

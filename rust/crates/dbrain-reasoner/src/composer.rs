@@ -599,7 +599,7 @@ fn compose_build_with_author_evidence(
             if let Some(next_id) = sales.get(&item.item.item_id) {
                 if let Some(next) = selected.iter().find(|next| next.item.item_id == *next_id) {
                     built.sell_priority = Some(authors.sales.get(&item.item.item_id).copied().unwrap_or(index as u32 + 1));
-                    let detail = format!("Verkaufe {} vor dem Kauf von {}, damit der benötigte Platz frei wird. Die gemeinsame Bewertung berücksichtigt den dabei verlorenen Nutzen.", item.item.name, next.item.name);
+                    let detail = format!("Verkaufe {} vor dem Kauf von {}. Die gemeinsame Bewertung berücksichtigt Verkaufserlös und verlorene Itemwirkung.", item.item.name, next.item.name);
                     built.why.push(' ');
                     built.why.push_str(&detail);
                     built.sources.push(Evidence { kind: EvidenceKind::Mechanic, detail });
@@ -608,7 +608,7 @@ fn compose_build_with_author_evidence(
             for (sold_id, next_id) in &sales {
                 if *next_id == item.item.item_id {
                     if let Some(sold) = selected.iter().find(|sold| sold.item.item_id == *sold_id) {
-                        built.why.push_str(&format!(" Vorher {} verkaufen; sonst fehlt der Platz.", sold.item.name));
+                        built.why.push_str(&format!(" Vorher {} verkaufen. Erlös und verlorene Itemwirkung sind eingerechnet.", sold.item.name));
                     }
                 }
             }

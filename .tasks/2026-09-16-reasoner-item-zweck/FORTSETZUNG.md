@@ -53,6 +53,34 @@ Drei ältere Tests wurden an die belegte Semantik angepasst: Der 700-HP-Pool nac
 
 Aktueller vollständiger Reasoner-Testlauf danach: 211 Library-Tests und 22 Example-Testausführungen bestanden, 16 DB-Tests ignoriert, 0 fehlgeschlagen. Clippy der Library/Examples ebenfalls Exit 0. Die folgenden Prüfzahlen dokumentieren den davor liegenden C-Kapazitätsteil.
 
+## D-Fortsetzung: Sparen darf auch einen Populations-Staple schlagen
+
+Eigene Sichtprüfung am tatsächlichen Planner: Das Zweischrittverfahren berechnet zwar einen Save-Horizont, übersprang diesen Vergleich aber ausdrücklich bei buying_staple=true. Dadurch konnte Population einen voreiligen Finanzierungsverkauf erzwingen, obwohl der nächste Budgetpunkt beide Multiplikatoren erhalten hätte. Der Populationsbeitrag war zusätzlich schon in beiden bewerteten Horizonten enthalten.
+
+Neue generische Gegenprobe zuerst rot: Feuerfrequenz-Multiplikator für 800 Seelen ist vorhanden; ein häufig gekauftes Schaden-Item kostet 1600. Bei insgesamt 2000 verdienten Seelen verkauft der alte Code den ersten Multiplikator für 400, obwohl bei 2400 Seelen beide zusammen verfügbar wären. Der gemessene alte Übergang ist held={1}→{2}, sold_ids=[1], sale_return=400, spent=2000. Nach Entfernen ausschließlich dieser Sparvergleich-Ausnahme ist der Test grün: warten bei 2000, beide Items halten bei 2400. Kein Verkaufsverbot, keine neue Item-/Hero-Ausnahme, kein angehobenes Populationsgewicht. Die vorhandene Populationspriorität bei der Kandidatensortierung und die endliche Vier-Kandidaten-Suche bleiben bestehen und sind keine globale Optimalitätsgarantie.
+
+Verkaufstexte behaupteten zudem bei jeder Veräußerung, der Platz sei knapp, selbst bei Finanzierungsverkäufen mit freien Slots. Sie nennen jetzt nur den tatsächlich geplanten Verkauf samt berücksichtigtem Erlös und verlorener Wirkung. Keine Ausgabe einer Begründung, die nicht aus dem Zustand folgt.
+
+Prüfung dieses D-Teils: 212 Library-Tests und 22 Example-Testausführungen bestanden, 16 DB-Tests ignoriert, keine Fehler; Clippy Library/Examples Exit 0, fokussierter Formatter grün. Ein neuer Warden-Backtest nach diesem Planner-Fix ist separat erforderlich; die nachfolgenden Werte stammen ausdrücklich aus dem davor gemessenen Stand 51d91f0.
+
+## E-Zwischenmessung auf 51d91f0, keine Releasefreigabe
+
+Drei tatsächlich erfolgreiche Aufrufe von combat_parity auf unverändertem FROZEN-V2 erzeugten je 228 vollständige Auswertungen: 38 Helden × drei feste Inventarschnitte × zwei Kampffenster. Reine Auswertungszeiten 2,974 / 2,750 / 2,178 Sekunden. Beide Paarvergleiche mittels git diff --no-index --exit-code lieferten Exit 0. Die gesamten drei Ergebnisdateien sind bytegleich. Dies ist ein Rust-Kampf-Replay, nicht drei Live-KI-Antworten und nicht die Prüfung aller möglichen Builds. Die Dateien liegen unter target/roster-combat-51d91f0-{a,b,c}.json.
+
+Frische explizite Build-Replays lieferten Exit 0 für Warden (47,764 s), Infernus (34,888 s), Vindicta (43,305 s) und Lady Geist (52,148 s). Der Abrams-Aufruf meldete erneut eine schon existierende Ausgabedatei statt eines belegten Exit 0; seine vorhandene Summary wurde separat erfolgreich gelesen. Alle fünf gelesenen Ergebnisdateien weisen denselben tatsächlichen Algorithmus-Stand 51d91f0c2bd51cd471d4b910ec346d1499cccc71 und dasselbe eingefrorene Datenpaar aus. Die Ursache des wiederholten Dateischutz-Fehlers wird nicht behauptet.
+
+| Held / Autorenreferenz | Referenzwaffen | Populations-Staples | Populations-Kendall | Populations-Jaccard@12 |
+|---|---:|---:|---:|---:|
+| Warden / 779996 v45 | 6/9 | 9/10, Gate rot | 0,560674 | 0,500000 |
+| Infernus / 256053 v296 | 5/7 | 9/9 | 0,655687 | 0,846154 |
+| Vindicta / 805943 v4 | 2/3 | 9/9 | 0,339118 | 0,600000 |
+| Lady Geist / 253366 v39 | 2/7 | 4/4 | 0,666784 | 0,263158 |
+| Abrams / 749234 v4 | 3/7 | 4/4 | 0,715184 | 0,263158 |
+
+Warden verbessert damit die Populationsreihenfolge gegenüber 6238b3d (0,460255), verliert aber Autorenabdeckung: reference_recall 0,421053 statt 0,473684 und core_jaccard 0,296296 statt 0,346154. Die Anforderungen sind also NICHT insgesamt regressionsfrei. Die vier anderen dargestellten Quellenvergleiche bleiben gegenüber 6238b3d gleich. Vindictas Kendall liegt weiterhin unter der ursprünglichen Phase-0-Angabe 0,3799.
+
+Zusätzlich wurde die tatsächliche Warden-Kaufliste über git grep --no-index --no-exclude-standard aus dem Ergebnis gelesen: Rusted Barrel und Healing Tempo stehen weiter im Kern, Glass Cannon ebenfalls; die Verkaufserklärung enthält weiterhin den Verkauf von Mercurial Magnum vor Spiritual Overflow. Diese Fehlurteile werden weder durch die bessere Populations-Kendall-Zahl verdeckt noch durch eine Namen-Blacklist entfernt. Sie begründen den anschließenden D-Sparvergleichstest und blockieren eine behauptete Gesamtfreigabe.
+
 ## Prüfung des vorherigen C-Kapazitätsstands
 
 - cargo test -q -p dbrain-reasoner --lib --examples: 207 Library-Tests und 22 Example-Testausführungen bestanden, 16 DB-Tests ignoriert, 0 fehlgeschlagen.
