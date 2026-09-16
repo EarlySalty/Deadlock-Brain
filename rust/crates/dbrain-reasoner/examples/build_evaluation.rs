@@ -249,6 +249,7 @@ fn measure(
     input: &FrozenHero,
     build: &BuildObject,
     scores: &[ScoredItem],
+    population: &PopulationPrior,
     row: &Value,
 ) -> std::result::Result<Value, Error> {
     let reference = reference(row)?;
@@ -294,7 +295,7 @@ fn measure(
         })
         .collect::<Vec<_>>();
     Ok(
-        json!({"hero_id":input.hero.hero_id,"hero_name":input.hero.name,"build_id":row["hero_build_id"],"version":reference.version,"author_id":author(row)?,"reference_count":reference.core_item_ids.len(),"reference_weapon_count":weapons.len(),"weapon_hits":hits,"weapon_hit_count":hits.len(),"reference_weapon_diagnostics":diagnostics,"metrics":backtest::backtest_metrics(build,&reference)}),
+        json!({"hero_id":input.hero.hero_id,"hero_name":input.hero.name,"build_id":row["hero_build_id"],"version":reference.version,"author_id":author(row)?,"reference_count":reference.core_item_ids.len(),"reference_weapon_count":weapons.len(),"weapon_hits":hits,"weapon_hit_count":hits.len(),"reference_weapon_diagnostics":diagnostics,"metrics":backtest::backtest_metrics(build,&reference),"population_backtest":backtest::population_backtest(build,population)}),
     )
 }
 
@@ -539,7 +540,7 @@ fn evaluate(
                 };
                 let (build, _, scores) =
                     compose(&frozen, hero, &excluded, true, "full", &population)?;
-                reports.push(json!({"excluded_authors":excluded,"training_sources":frozen.sources.iter().filter(|source| author(source).is_ok_and(|id| !excluded.contains(&id))).count(),"measurement":measure(hero,&build,&scores,row)?,"build":build}));
+                reports.push(json!({"excluded_authors":excluded,"training_sources":frozen.sources.iter().filter(|source| author(source).is_ok_and(|id| !excluded.contains(&id))).count(),"measurement":measure(hero,&build,&scores,&population,row)?,"build":build}));
             }
         } else {
             let mut variants = Vec::new();
@@ -561,7 +562,7 @@ fn evaluate(
                     compose(&frozen, hero, &BTreeSet::new(), false, variant, &population)?;
                 let measurements = own
                     .iter()
-                    .map(|row| measure(hero, &build, &scores, row))
+                    .map(|row| measure(hero, &build, &scores, &population, row))
                     .collect::<std::result::Result<Vec<_>, _>>()?;
                 variants.push(json!({"variant":variant,"build":build,"plan":plan,"measurements":measurements}));
             }

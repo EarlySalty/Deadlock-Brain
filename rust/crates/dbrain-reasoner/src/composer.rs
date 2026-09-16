@@ -488,7 +488,7 @@ fn compose_build_with_author_evidence(
     blocked: &[String],
     context: PlanContext<'_>,
 ) -> crate::Result<BuildObject> {
-    let (_layout, combinations, authors, _population) = context;
+    let (_layout, combinations, authors, population) = context;
     let ordered = item_order(scored, blocked);
     let plan = plan_core(hero, scored, cfg, blocked, context)?;
     let selected = plan
@@ -561,6 +561,16 @@ fn compose_build_with_author_evidence(
                 built.why.push(' ');
                 built.why.push_str(&detail);
                 built.sources.push(Evidence { kind: EvidenceKind::Author, detail });
+            }
+            if let Some(population) = population.filter(|prior| prior.is_staple(item.item.item_id)) {
+                let position = population
+                    .median_position(item.item.item_id)
+                    .map(|value| format!("{value:.0}"))
+                    .unwrap_or_else(|| "unbekannt".to_string());
+                let detail = format!("Populations-Stütze: {:.0}% Kaufanteil bei echten Spielern dieses Helden, Median-Kaufposition {position}. Mechanik-Slotwert {:+.1}; die Kaufkurve folgt der Mechanik, der Kaufanteil stützt nur populäre Items mit tragfähigem Mechanikwert.", population.prevalence(item.item.item_id) * 100.0, item.score.per_slot_value);
+                built.why.push(' ');
+                built.why.push_str(&detail);
+                built.sources.push(Evidence { kind: EvidenceKind::Meta, detail });
             }
             if let Some(next_id) = sales.get(&item.item.item_id) {
                 if let Some(next) = selected.iter().find(|next| next.item.item_id == *next_id) {

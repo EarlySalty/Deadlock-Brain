@@ -1,7 +1,115 @@
 use std::collections::BTreeSet;
+use std::collections::HashMap;
 use std::fmt;
 
-use crate::{AuthorBuild, BacktestMetrics, BuildObject, HeroBacktest};
+use crate::{AuthorBuild, BacktestMetrics, BuildObject, HeroBacktest, PopulationPrior};
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct PopulationBacktest {
+    pub tracked: bool,
+    pub staple_count: usize,
+    pub present_staples: Vec<i64>,
+    pub missing_staples: Vec<i64>,
+    pub staple_gate_passed: Option<bool>,
+    pub kendall_tau: Option<f64>,
+    pub jaccard_at_12: Option<f64>,
+}
+
+pub fn kendall_tau(build_order: &[i64], population_positions: &[(i64, f64)]) -> Option<f64> {
+    let positions: HashMap<i64, f64> = population_positions.iter().copied().collect();
+    let shared: Vec<(usize, f64)> = build_order
+        .iter()
+        .enumerate()
+        .filter_map(|(index, item)| positions.get(item).map(|position| (index, *position)))
+        .collect();
+    if shared.len() < 2 {
+        return None;
+    }
+    let (mut concordant, mut discordant, mut ties_build, mut ties_pop) = (0i64, 0i64, 0i64, 0i64);
+    for left in 0..shared.len() {
+        for right in (left + 1)..shared.len() {
+            let build_delta = shared[left].0 as f64 - shared[right].0 as f64;
+            let pop_delta = shared[left].1 - shared[right].1;
+            match (build_delta == 0.0, pop_delta == 0.0) {
+                (true, true) => {
+                    ties_build += 1;
+                    ties_pop += 1;
+                }
+                (true, false) => ties_build += 1,
+                (false, true) => ties_pop += 1,
+                (false, false) => {
+                    if build_delta.signum() == pop_delta.signum() {
+                        concordant += 1;
+                    } else {
+                        discordant += 1;
+                    }
+                }
+            }
+        }
+    }
+    let denominator = (((concordant + discordant + ties_build) as f64)
+        * ((concordant + discordant + ties_pop) as f64))
+        .sqrt();
+    if denominator == 0.0 {
+        return None;
+    }
+    Some((concordant - discordant) as f64 / denominator)
+}
+
+pub fn jaccard_at(k: usize, build_items: &[i64], population_items: &[i64]) -> Option<f64> {
+    let build_top = build_items.iter().take(k).copied().collect::<BTreeSet<_>>();
+    let population_top = population_items
+        .iter()
+        .take(k)
+        .copied()
+        .collect::<BTreeSet<_>>();
+    if build_top.is_empty() && population_top.is_empty() {
+        return None;
+    }
+    let intersection = build_top.intersection(&population_top).count() as f64;
+    let union = build_top.union(&population_top).count() as f64;
+    (union > 0.0).then_some(intersection / union)
+}
+
+pub fn population_backtest(build: &BuildObject, prior: &PopulationPrior) -> PopulationBacktest {
+    if prior.is_empty() {
+        return PopulationBacktest {
+            tracked: false,
+            staple_count: 0,
+            present_staples: Vec::new(),
+            missing_staples: Vec::new(),
+            staple_gate_passed: None,
+            kendall_tau: None,
+            jaccard_at_12: None,
+        };
+    }
+    let core = build
+        .core
+        .iter()
+        .map(|item| item.item_id)
+        .collect::<BTreeSet<_>>();
+    let staples = prior.staples();
+    let present = staples
+        .iter()
+        .copied()
+        .filter(|id| core.contains(id))
+        .collect::<Vec<_>>();
+    let missing = staples
+        .iter()
+        .copied()
+        .filter(|id| !core.contains(id))
+        .collect::<Vec<_>>();
+    let build_order = build_order(build);
+    PopulationBacktest {
+        tracked: true,
+        staple_count: staples.len(),
+        staple_gate_passed: (!staples.is_empty()).then_some(missing.is_empty()),
+        present_staples: present,
+        missing_staples: missing,
+        kendall_tau: kendall_tau(&build_order, &prior.positions()),
+        jaccard_at_12: jaccard_at(12, &build_order, &prior.ranked_by_prevalence()),
+    }
+}
 
 impl fmt::Display for crate::BacktestReport {
     fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -342,6 +450,42 @@ mod tests {
         let restored: crate::BacktestReport =
             serde_json::from_value(serde_json::to_value(&report).unwrap()).unwrap();
         assert_eq!(restored, report);
+    }
+
+    #[test]
+    fn population_backtest_reports_staple_gate_order_and_overlap() {
+        let prior = PopulationPrior::from_items([
+            crate::PopulationItem {
+                item_id: 1,
+                prevalence: 0.9,
+                median_position: Some(0.0),
+                is_staple: true,
+            },
+            crate::PopulationItem {
+                item_id: 2,
+                prevalence: 0.8,
+                median_position: Some(1.0),
+                is_staple: true,
+            },
+            crate::PopulationItem {
+                item_id: 3,
+                prevalence: 0.5,
+                median_position: Some(2.0),
+                is_staple: false,
+            },
+        ]);
+        let passing = population_backtest(&build(&[1, 2, 3]), &prior);
+        assert!(passing.tracked);
+        assert_eq!(passing.staple_gate_passed, Some(true));
+        assert!(passing.missing_staples.is_empty());
+        assert_eq!(passing.kendall_tau, Some(1.0));
+        let failing = population_backtest(&build(&[1, 3]), &prior);
+        assert_eq!(failing.staple_gate_passed, Some(false));
+        assert_eq!(failing.missing_staples, vec![2]);
+        let untracked = population_backtest(&build(&[1, 2]), &PopulationPrior::default());
+        assert!(!untracked.tracked);
+        assert_eq!(untracked.staple_gate_passed, None);
+        assert_eq!(untracked.kendall_tau, None);
     }
 
     #[test]

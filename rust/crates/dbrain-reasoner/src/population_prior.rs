@@ -62,6 +62,21 @@ impl PopulationPrior {
             .collect()
     }
 
+    pub fn ranked_by_prevalence(&self) -> Vec<i64> {
+        let mut items = self
+            .prevalence
+            .iter()
+            .map(|(id, value)| (*id, *value))
+            .collect::<Vec<_>>();
+        items.sort_by(|left, right| {
+            right
+                .1
+                .total_cmp(&left.1)
+                .then_with(|| left.0.cmp(&right.0))
+        });
+        items.into_iter().map(|(id, _)| id).collect()
+    }
+
     pub fn support(&self, item_id: i64, mechanic_slot_value: f64) -> f64 {
         let prevalence = self.prevalence(item_id);
         if prevalence <= 0.0 {
