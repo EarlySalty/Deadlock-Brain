@@ -12,6 +12,7 @@ pub struct ItemInteraction {
     aura: Option<(f64, f64, f64)>,
     pub aura_radius_m: Option<f64>,
     missing_magazine_type: bool,
+    pub regeneration_refresh: Option<(f64, f64, Option<u32>)>,
 }
 
 pub fn has_nearby_aura(item: &ItemModel) -> bool {
@@ -70,6 +71,15 @@ impl ItemInteraction {
                 .and_then(|_| value("Radius"))
                 .filter(|radius| *radius > 0.0),
             missing_magazine_type: requested_magazine && !typed,
+            regeneration_refresh: match item.condition {
+                crate::ConditionKind::SpiritDamageToHeroes {
+                    refresh_seconds,
+                    max_stacks,
+                } if refresh_seconds.is_finite() && refresh_seconds > 0.0 => value("Regeneration")
+                    .filter(|amount| *amount > 0.0)
+                    .map(|amount| (amount, refresh_seconds, max_stacks)),
+                _ => None,
+            },
         }
     }
 
@@ -110,6 +120,7 @@ impl ItemInteraction {
 
     pub fn handles_property(&self, property: &str) -> bool {
         match property {
+            "Regeneration" | "RegenerationDuration" => self.regeneration_refresh.is_some(),
             "BulletsBonusMagicDamage" => self.has_magazine_buff(),
             "BulletArmorReduction" | "FireRateSlow" | "SingleTargetPlayerMultiplier" => {
                 self.has_aura()
@@ -132,6 +143,9 @@ impl ItemInteraction {
 
     pub fn assumptions(&self) -> Vec<&'static str> {
         let mut assumptions = Vec::new();
+        if self.regeneration_refresh.is_some() {
+            assumptions.push("Spirit-getriggerte Regeneration: zielgebundene Stapel werden durch zulässigen tatsächlichen Spirit-Schaden erneuert. Der Eigenbuff läuft nach Zielverlust bis zu seiner Ablaufzeit weiter; diese Persistenz ist eine explizite Annahme. Regenerationsdauer und Heilmenge verwenden die belegten Basismagnituden; weitere Heil-/Dauerskalierungen sind hier nicht quantifiziert. Der Vergleich hat keine gleichzeitigen Mehrzieltreffer, kann aber getrennte Folgeziele treffen. Andere Heilquellen werden vor diesem zusätzlichen Heilbudget begrenzt.");
+        }
         if self.has_magazine_buff() {
             assumptions.push("Magazinbonus: Prozent des Waffengrundschadens einschließlich Levelboni; keine erneute Multiplikation mit Waffenbonus. Annahme: Spirit wird je Treffer aktuell ausgewertet. Imbue-Auslösung und Ende beim nächsten Nachladen müssen aus dem Kampfzustand kommen.");
         }

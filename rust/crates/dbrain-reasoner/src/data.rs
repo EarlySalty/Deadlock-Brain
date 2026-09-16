@@ -192,6 +192,13 @@ fn is_imbue_marker(value: Option<&Value>) -> bool {
 fn classify_condition(payload: &Value, is_active: bool) -> ConditionKind {
     let description = description_text(payload).to_ascii_lowercase();
     let values = property_values(payload.get("properties"));
+    if !is_active {
+        if let Some(condition) =
+            crate::damage_conditions::spirit_refresh_condition(&values, &description)
+        {
+            return condition;
+        }
+    }
     if !is_active
         && [
             "SingleTargetPlayerMultiplier",

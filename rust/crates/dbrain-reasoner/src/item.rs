@@ -12,7 +12,23 @@ pub fn build_item_model(loaded: &ItemModel) -> Result<ItemModel> {
     }
     let mut loaded = loaded.clone();
     if !loaded.is_active {
-        if crate::item_interactions::has_nearby_aura(&loaded) {
+        let mut properties = loaded.passive_properties.clone();
+        properties.extend(
+            loaded
+                .properties
+                .iter()
+                .map(|(key, value)| (key.clone(), *value)),
+        );
+        if matches!(
+            loaded.condition,
+            crate::ConditionKind::SpiritDamageToHeroes { .. }
+        ) {
+            // A normalized mechanism must remain invariant under display-text changes.
+        } else if let Some(condition) =
+            crate::damage_conditions::spirit_refresh_condition(&properties, &loaded.description)
+        {
+            loaded.condition = condition;
+        } else if crate::item_interactions::has_nearby_aura(&loaded) {
             loaded.condition = crate::ConditionKind::None;
         } else if let Some(condition) = crate::data::condition_from_properties(&loaded.properties) {
             loaded.condition = condition;
@@ -47,18 +63,24 @@ pub fn score_item(
             sources: Vec::new(),
         };
     }
-    let condition_factor = mechanics::condition_factor_for_hero(item, hero, cfg);
+    let refresh = crate::combat::damage_refresh_summary(item, hero, cfg);
+    let condition_factor = refresh
+        .map(|(factor, _)| factor)
+        .unwrap_or_else(|| mechanics::condition_factor_for_hero(item, hero, cfg));
     // Provenienz der Spirit->Feuerrate-Konversion einmal an der Modellgrenze
     // ermitteln (nicht pro Tick), um unbekannte/fehlerhafte Assetwerte sichtbar
     // im Confidence-/Assumptions-Pfad zu halten.
     let rate_provenance = mechanics::spirit_weapon_rate_provenance(hero);
     let scaling_warnings = mechanics::hero_scaling_warnings(hero);
     let fire_rate = spirit_fire_rate_value(item, hero, cfg);
-    let active_value = mechanics::active_value(item, hero, cfg) + fire_rate.active_dps;
+    let active_value = mechanics::active_value(item, hero, cfg)
+        + fire_rate.active_dps
+        + refresh.map_or(
+            0.0,
+            |(factor, healing)| if factor > 0.0 { healing / factor } else { 0.0 },
+        );
     let passive_value = mechanics::passive_value(item, hero, cfg) + fire_rate.passive_dps;
-    let combat_value = mechanics::combat_window_value(item, hero, cfg)
-        + fire_rate.passive_dps
-        + fire_rate.active_dps * condition_factor;
+    let combat_value = passive_value + active_value * condition_factor;
     let purchase_bonus_value =
         mechanics::purchase_bonus_value_with_config(item, hero, cfg) + fire_rate.purchase_dps;
     let per_slot_value = mechanics::per_slot_value(combat_value, purchase_bonus_value);
@@ -100,6 +122,12 @@ pub fn score_item(
         sources.push(crate::Evidence {
             kind: crate::EvidenceKind::Mechanic,
             detail: "Spirit → Feuerrate: primärer ERoundsPerSecond nicht endlich; Konversion aus validem EFireRate-Prozentalias zurückgewonnen und als Recovery gekennzeichnet.".into(),
+        });
+    }
+    if let Some((factor, healing)) = refresh {
+        sources.push(crate::Evidence {
+            kind: crate::EvidenceKind::Mechanic,
+            detail: format!("Spirit-Treffer auf Helden → zielgebundener Refresh → {:.6} mittlere aktive Stapel → {:.6} nutzbare Heilung/s im begrenzten Vergleich. Keine Auslösung durch proc-ausgeschlossene Treffer, keine gespeicherte Überheilung; Inventarzusammenspiel wird im Planner erneut simuliert.", factor, healing),
         });
     }
     if fire_rate.weapon_dps_in_score != 0.0 {

@@ -202,10 +202,23 @@ pub struct HeroModel {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ConditionKind {
     None,
-    ActiveCooldown { uptime: f64, cooldown: f64 },
-    ActionBound { action: String },
-    RampUp { ramp_seconds: f64 },
-    StateBound { threshold: f64 },
+    SpiritDamageToHeroes {
+        refresh_seconds: f64,
+        max_stacks: Option<u32>,
+    },
+    ActiveCooldown {
+        uptime: f64,
+        cooldown: f64,
+    },
+    ActionBound {
+        action: String,
+    },
+    RampUp {
+        ramp_seconds: f64,
+    },
+    StateBound {
+        threshold: f64,
+    },
     MeleeBound,
     ShotBound,
 }

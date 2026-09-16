@@ -1,0 +1,28 @@
+# Fortsetzung im bestehenden Integrationsbranch
+
+ChatGPT führt die Arbeit selbst im Worktree brain-purpose-finish weiter. Ausgangsrevision 6238b3d9fa294a3f6b16577c9a6298c8ec397906. Keine neuen Claude-/Opus-Worker, keine weitere bezahlte Modellausführung, keine Änderung an zentraler Datenbank oder Diensten.
+
+## Nachher-Messung des bereits vorhandenen Ladungsfixes
+
+Tatsächlich gelesen mit `build_evaluation summary target/completion-charges-6238b3d.json`. Artefakt nennt exakt Revision 6238b3d und den eingefrorenen Stand vom 13.09.2026. Gegenüber PHASE0 bleibt Warden bei 6/9 Referenzwaffen und Jaccard@12 0,5, sein Populations-Kendall liegt bei 0,460255 statt 0,4706; Staple-Gate weiterhin 9/10 und falsch. Vindicta hat nach dem Ladungsfix wieder 9/9 Staples und Jaccard@12 0,6, aber Populations-Kendall 0,339118 statt 0,3799. Damit ist die verlorene Staple-Abdeckung repariert, nicht jede Metrik regressionsfrei. Keine Freigabe daraus abgeleitet.
+
+## B: tatsächliche Spirit-Treffer, Refresh und nutzbare Regeneration
+
+Quelle tatsächlich mit dem Rust-Inspector aus FROZEN-V2 gelesen: `upgrade_mystic_regeneration`, Snapshot 13117, fetched_at 30.06.2026, payload_hash ccc269ee2bec4ecdf8f864fdc86ed355c09c191c81c09afd60b91c332c9e9826. Der Snapshot enthält Regeneration=4 HP/s, RegenerationDuration=7 s sowie die Beschreibung: Spirit-Schaden an gegnerischen Helden aktiviert Regeneration, unterschiedliche Helden stapeln. Die ältere rohe Definition aus Mai hat Dauer 6; sie wurde NICHT mit der neueren Definition vermischt. Itemname und Klassenname werden nur zum Auffinden des Belegs verwendet, niemals als produktive Bewertungsregel.
+
+Neu: ConditionKind::SpiritDamageToHeroes bewahrt Refreshdauer und optional belegtes Stapellimit. Ein enger Parser verbindet die numerischen Eigenschaften mit der normalisierten Mechanikbeschreibung. Fehlende/ungültige Zahlen, fehlender Ziel- oder Schadensbezug und nicht erkannte Formulierungen werden nicht anhand eines Namens geraten. Bereits normalisierte Bedingungen bleiben auch bei übersetzten/gelöschten Anzeigetexten erhalten. Das ist ein Parser für eine belegte Mechanikfamilie, kein vollständiges Sprachverständnis aller Tooltips.
+
+Der vorhandene Simulator führt je Item Ablaufzeiten nach stabiler Zielidentität. Mehrere Treffer auf dasselbe Ziel erneuern dessen Ablauf statt neue unterschiedliche Ziele zu erfinden. Die Integration zählt echte Stapelsekunden einschließlich Ablauf mitten im Zeitschritt, künftige Treffer erzeugen keine rückwirkende Heilung. Ausschließlich tatsächlich verursachter zulässiger Spirit-Schaden gelangt hinein; proc-disabled-Fähigkeiten lösen nicht aus. Die Ausschlussregel wurde auch für den vorhandenen Waffen-Buildup-/Brandpfad nachgezogen.
+
+Heilung wird auf fehlendes Leben begrenzt. Kein angespartes Overheal, keine Gleichsetzung mit einer lebenslangen passiven Regenerationsstatistik. Stackbelegung und tatsächlich nutzbare Regeneration werden in CombatScenarioEvaluation nach Item-ID ausgewiesen und in ItemScore.condition_factor sowie eine numerische Mechanikkette eingespeist. Der statische Score benutzt denselben begrenzten Einzelitem-Simulator; der Planner rechnet anschließend erneut im tatsächlichen Inventar. Kein weapon_share-, Hero-, Itemnamen- oder Populationsgewicht als Ersatz für den Ereignisstrom. Ohne passendes Item werden keine neuen ereignisbezogenen Vektorallokationen pro Tick vorgenommen.
+
+Explizite Grenzen: Der Eigenbuff wird nach Verlust eines Ziels bis zum Ablauf erhalten; dies ist eine ausgewiesene Annahme, nicht durch die Tooltip-Zeile alleine experimentell bewiesen. Gleichzeitige Flächentreffer sind weiterhin nicht simuliert; die vorhandenen Szenarien können verschiedene Folgeziele treffen. Weitere Heil-/Dauermodifikatoren werden mit diesem Teilfix nicht automatisch als verstanden erklärt. Die insgesamt noch offene B-Quantifizierungsabdeckung bleibt offen.
+
+## Tatsächlich ausgeführte Prüfungen
+
+- Neue öffentliche Combat-Tests zuerst rot: 0/2 bestanden. Fehlende Ableitung der Bedingung und kein Regenerationsnutzen bei zulässigem Burst nachgewiesen.
+- Danach `cargo test -q -p dbrain-reasoner --lib`: 199 bestanden, 16 datenbankabhängige Tests ignoriert, 0 fehlgeschlagen. Die 7 neuen Tests prüfen Parser, Zeit-/Zielbindung, Caps, Ablauf, Ereignisreihenfolge, tatsächlichen Combat-Nutzen/Proc-Ausschluss sowie Condition-Faktor/Sprachinvarianz/schnellen und erklärten Pfad.
+- `cargo clippy -q -p dbrain-reasoner --lib --examples -- -D warnings`: Exit 0.
+- Fokussierter Formatter über ignoriertes target/focused-format/Cargo.toml, keine repoweite Neuformatierung.
+
+Die Zahlen sind lokale Rust-Gegenproben, keine Live-KI-Läufe oder Spielclient-Beweise. Vollständiger gleicher Backtest dieses neuen B-Teilfixes und unabhängige Abnahme sind noch separat erforderlich. Kein main-Merge, Deploy oder Publish durch dieses Dokument.

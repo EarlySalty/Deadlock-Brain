@@ -11,6 +11,7 @@ pub mod composer;
 pub mod inventory;
 pub use data::{ability_damage_units, enrich_frozen_models, refresh_ability_derived};
 mod data;
+mod damage_conditions;
 pub mod hero;
 pub mod item;
 pub mod item_interactions;

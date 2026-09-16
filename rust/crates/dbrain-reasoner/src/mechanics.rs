@@ -73,6 +73,9 @@ pub fn hit_rate(threshold: f64) -> f64 {
 
 pub fn condition_factor_for_hero(item: &ItemModel, hero: &HeroModel, cfg: &ReasonerConfig) -> f64 {
     match &item.condition {
+        crate::ConditionKind::SpiritDamageToHeroes { .. } => {
+            crate::combat::damage_refresh_summary(item, hero, cfg).map_or(0.0, |(factor, _)| factor)
+        }
         crate::ConditionKind::MeleeBound => {
             if hero_melees(hero) {
                 1.0
@@ -115,6 +118,7 @@ pub fn condition_factor_for_hero(item: &ItemModel, hero: &HeroModel, cfg: &Reaso
 pub fn condition_factor(item: &ItemModel, cfg: &ReasonerConfig) -> f64 {
     match &item.condition {
         crate::ConditionKind::None => 1.0,
+        crate::ConditionKind::SpiritDamageToHeroes { .. } => 0.0, // No actor/event stream, no guaranteed uptime.
         crate::ConditionKind::ActiveCooldown { uptime, cooldown } => {
             if *cooldown > 0.0 {
                 (*uptime).clamp(0.0, 1.0)

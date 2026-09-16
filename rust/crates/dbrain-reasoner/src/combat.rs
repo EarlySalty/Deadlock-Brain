@@ -41,6 +41,8 @@ pub struct CombatScenarioEvaluation {
     pub spirit_power: f64,
     pub sequence: Vec<String>,
     pub item_activations: BTreeMap<i64, Vec<f64>>,
+    pub item_condition_seconds: BTreeMap<i64, f64>,
+    pub item_regeneration: BTreeMap<i64, f64>,
     pub imbue_targets: BTreeMap<i64, i64>,
 }
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -271,6 +273,7 @@ fn active_with_text(
     }
     match &item.condition {
         ConditionKind::None => !item.is_active,
+        ConditionKind::SpiritDamageToHeroes { .. } => false, // Stateful damage events below, never guaranteed uptime.
         ConditionKind::StateBound { threshold } => {
             if text.contains("above") || text.contains("over ") {
                 health_fraction > *threshold
@@ -316,6 +319,44 @@ fn active(
         spirit_damage,
         &item.description.to_ascii_lowercase(),
     )
+}
+
+/// Returns observed stack occupancy and useful healing per configured second for
+/// the same finite solo-item scenarios used by the planner, not a weapon-share label.
+pub(crate) fn damage_refresh_summary(
+    item: &ItemModel,
+    hero: &HeroModel,
+    cfg: &ReasonerConfig,
+) -> Option<(f64, f64)> {
+    if !matches!(item.condition, ConditionKind::SpiritDamageToHeroes { .. }) {
+        return None;
+    }
+    let evaluation = evaluate_inventory_fast(hero, std::slice::from_ref(item), cfg);
+    let elapsed: f64 = evaluation.scenarios.iter().map(|s| s.elapsed_seconds).sum();
+    let exposure: f64 = evaluation
+        .scenarios
+        .iter()
+        .map(|s| {
+            s.item_condition_seconds
+                .get(&item.item_id)
+                .copied()
+                .unwrap_or(0.0)
+        })
+        .sum();
+    let healing: f64 = evaluation
+        .scenarios
+        .iter()
+        .map(|s| {
+            s.item_regeneration
+                .get(&item.item_id)
+                .copied()
+                .unwrap_or(0.0)
+        })
+        .sum();
+    Some((
+        exposure / elapsed.max(0.2),
+        healing / 3.0 / cfg.combat_window_seconds.clamp(1.0, 120.0),
+    ))
 }
 
 pub fn evaluate_inventory(
@@ -613,6 +654,13 @@ fn simulate(
         .iter()
         .map(|item| ItemInteraction::from_item(item))
         .collect();
+    let has_refresh = interactions
+        .iter()
+        .any(|interaction| interaction.regeneration_refresh.is_some());
+    let mut refresh_states: Vec<_> = items
+        .iter()
+        .map(|_| crate::damage_conditions::RefreshStacks::default())
+        .collect();
     let mut magazine_buffs = vec![false; items.len()];
     let mut target_amplification = TargetAmplification::default();
     let item_texts: Vec<_> = items
@@ -757,6 +805,7 @@ fn simulate(
     for step in 0..steps {
         let time = step as f64 * dt;
         let duration = dt.min(window - time);
+        let spirit_event_start = spirit_events.len();
         if pressure && target_remaining <= 0.0 && time + 1e-9 >= next_target_at {
             target_remaining = out.target_health;
             out.target_switches += 1;
@@ -1547,7 +1596,11 @@ fn simulate(
                     &stats,
                     1.0,
                     time,
-                    &mut spirit_events,
+                    if ability.item_proc_disabled {
+                        &mut excluded_spirit_events
+                    } else {
+                        &mut spirit_events
+                    },
                     &mut leech_sum,
                     &mut target_remaining,
                 );
@@ -1601,6 +1654,38 @@ fn simulate(
         leech_sum += gun_damage * stats.bullet_leech.max(0.0) / 100.0
             + stats.regeneration.max(0.0) * duration;
         leech_sum = leech_sum.min(self_damage_sum + health * (1.0 - health_fraction));
+        if has_refresh {
+            let eligible_events: Vec<_> = spirit_events[spirit_event_start..]
+                .iter()
+                .filter(|(_, damage)| *damage > 0.0)
+                .map(|(at, _)| (*at, target_generation))
+                .collect();
+            let mut refresh_heals = Vec::new();
+            for (idx, interaction) in interactions.iter().enumerate() {
+                if let Some((amount, seconds, max_stacks)) = interaction.regeneration_refresh {
+                    let exposure = refresh_states[idx].integrate(
+                        time,
+                        time + duration,
+                        seconds,
+                        max_stacks,
+                        &eligible_events,
+                    );
+                    *out.item_condition_seconds
+                        .entry(items[idx].item_id)
+                        .or_default() += exposure;
+                    refresh_heals.push((items[idx].item_id, amount * exposure));
+                }
+            }
+            let potential: f64 = refresh_heals.iter().map(|(_, amount)| *amount).sum();
+            let missing = (self_damage_sum + health * (1.0 - health_fraction) - leech_sum).max(0.0);
+            let effective = potential.min(missing);
+            leech_sum += effective;
+            if potential > 0.0 {
+                for (id, amount) in refresh_heals {
+                    *out.item_regeneration.entry(id).or_default() += amount * effective / potential;
+                }
+            }
+        }
         health_sum += (health + stats.shield.max(0.0) + leech_sum - self_damage_sum) / mitigation
             * duration
             / window;
@@ -2000,6 +2085,135 @@ pub(crate) mod tests {
             duration: None,
         }
     }
+    fn refresh_regeneration() -> ItemModel {
+        let mut item = item(911, "Regeneration", 4.0);
+        item.properties.insert("RegenerationDuration".into(), 7.0);
+        item.description = "Dealing <span>spirit damage</span> to enemy Heroes grants regeneration. Stacks when dealing damage to different heroes.".into();
+        crate::item::build_item_model(&item).unwrap()
+    }
+
+    #[test]
+    fn sustain_refresh_is_derived_without_item_or_hero_identity() {
+        let item = refresh_regeneration();
+        let json = serde_json::to_value(&item.condition).unwrap();
+        assert!(json.get("SpiritDamageToHeroes").is_some(), "{json}");
+        let mut renamed = item.clone();
+        renamed.name = "Unbekannter Anzeigename".into();
+        renamed.class_name = "anonymous".into();
+        assert_eq!(
+            crate::item::build_item_model(&renamed).unwrap().condition,
+            item.condition
+        );
+    }
+
+    #[test]
+    fn sustain_refresh_uses_damage_timing_and_respects_proc_exclusion() {
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 16.0,
+            ..ReasonerConfig::default()
+        };
+        let mut burst = hero();
+        burst.weapon.bullet_damage = 0.0;
+        burst.abilities = vec![ability(1, 16.0, 1000.0)];
+        let mut periodic = burst.clone();
+        periodic.abilities[0].properties = BTreeMap::from([
+            ("DamagePerSecond".into(), 1.0),
+            ("AbilityCooldown".into(), 1000.0),
+        ]);
+        periodic.abilities[0].duration = Some(16.0);
+        periodic.abilities[0].tick_rate = Some(0.2);
+        let item = refresh_regeneration();
+        let delta = |hero: &HeroModel| {
+            evaluate_inventory(hero, std::slice::from_ref(&item), &cfg).scenarios[1]
+                .effective_health
+                - evaluate_inventory(hero, &[], &cfg).scenarios[1].effective_health
+        };
+        let burst_gain = delta(&burst);
+        let periodic_gain = delta(&periodic);
+        assert!(
+            burst_gain > 0.0,
+            "burst must trigger a finite-lived buff: {burst_gain}"
+        );
+        assert!(
+            periodic_gain > burst_gain,
+            "refreshes must extend useful healing: {periodic_gain} <= {burst_gain}"
+        );
+        periodic.abilities[0].item_proc_disabled = true;
+        assert!(
+            delta(&periodic).abs() < 1e-9,
+            "proc-disabled damage cannot grant regeneration"
+        );
+        burst.abilities.clear();
+        assert!(
+            delta(&burst).abs() < 1e-9,
+            "no spirit event must mean no regeneration"
+        );
+    }
+
+    #[test]
+    fn sustain_refresh_trace_scoring_and_fast_path_agree() {
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 16.0,
+            ..ReasonerConfig::default()
+        };
+        let mut hero = hero();
+        hero.weapon.bullet_damage = 0.0;
+        hero.abilities = vec![ability(1, 16.0, 1000.0)];
+        let item = refresh_regeneration();
+        let detailed = evaluate_inventory(&hero, std::slice::from_ref(&item), &cfg);
+        let fast = evaluate_inventory_fast(&hero, std::slice::from_ref(&item), &cfg);
+        assert_eq!(detailed.score, fast.score);
+        assert_eq!(
+            detailed.scenarios,
+            fast.scenarios
+                .iter()
+                .zip(&detailed.scenarios)
+                .map(|(f, d)| {
+                    let mut f = f.clone();
+                    f.sequence = d.sequence.clone();
+                    f
+                })
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            detailed.scenarios[0]
+                .item_regeneration
+                .get(&item.item_id)
+                .copied()
+                .unwrap_or(0.0),
+            0.0
+        );
+        assert!(detailed.scenarios[1].item_regeneration[&item.item_id] > 0.0);
+        let summary = damage_refresh_summary(&item, &hero, &cfg).unwrap();
+        assert!(summary.0 > 0.0 && summary.0 < 1.0);
+        let scored = crate::item::score_item(
+            &item,
+            &hero,
+            &crate::MetaIndex {
+                by_item: BTreeMap::new(),
+                sample_ok: BTreeSet::new(),
+            },
+            &[],
+            &cfg,
+        );
+        assert_eq!(scored.score.condition_factor, summary.0);
+        assert!(scored.score.combat_value > 0.0);
+        hero.damage_plan.weapon_share = 0.0;
+        assert_eq!(
+            summary,
+            damage_refresh_summary(&item, &hero, &cfg).unwrap(),
+            "a weapon-share label cannot replace actual events"
+        );
+        let mut translated = item.clone();
+        translated.description.clear();
+        assert_eq!(
+            item.condition,
+            crate::item::build_item_model(&translated)
+                .unwrap()
+                .condition
+        );
+    }
+
     #[test]
     fn target_death_ends_duel_and_does_not_reset_own_cooldown() {
         let mut hero = hero();

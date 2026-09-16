@@ -236,6 +236,7 @@ fn item_why(item: &ScoredItem) -> String {
     };
     let condition = match &item.item.condition {
         crate::ConditionKind::None => String::new(),
+        crate::ConditionKind::SpiritDamageToHeroes { refresh_seconds, .. } => format!(" Spirit-Schaden an gegnerischen Helden erneuert den Effekt für {refresh_seconds:.1} Sekunden; derselbe Gegner erneuert nur seinen eigenen Stapel. Heilung zählt nur bei fehlendem Leben."),
         crate::ConditionKind::ActiveCooldown { cooldown, .. } => format!(" Die Aktivierung hat {cooldown:.1} Sekunden Abklingzeit; ihre Wirkung gilt nicht dauerhaft."),
         crate::ConditionKind::StateBound { threshold } => format!(" Der bedingte Bonus hängt an einer Lebensschwelle von {:.0}%; die angenommene Verfügbarkeit ist keine gemessene Trefferquote.", threshold * 100.0),
         crate::ConditionKind::MeleeBound => " Der zusätzliche Effekt setzt Nahkampftreffer voraus.".to_string(),
@@ -376,7 +377,11 @@ pub fn compose_build_with_sources(
             format!("{} {note}", build.rationale.trim_end())
         };
     } else {
-        let core_ids = build.core.iter().map(|item| item.item_id).collect::<Vec<_>>();
+        let core_ids = build
+            .core
+            .iter()
+            .map(|item| item.item_id)
+            .collect::<Vec<_>>();
         if let Some(note) = meta.population.thin_coverage_note(&core_ids) {
             build.confidence = Confidence::Low;
             build.rationale = if build.rationale.trim().is_empty() {
@@ -1203,7 +1208,10 @@ mod tests {
 
         let exact = vec!["spiritual overflow".to_string()];
         let after = item_order(&items, &exact);
-        let ids = after.iter().map(|item| item.item.item_id).collect::<Vec<_>>();
+        let ids = after
+            .iter()
+            .map(|item| item.item.item_id)
+            .collect::<Vec<_>>();
         assert_eq!(ids, vec![2]);
     }
 
