@@ -66,7 +66,9 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         }
         let build = reason_build_with_options(&ctx, &name, options).await?;
         let authors = load_author_builds(&ctx, hero_id).await?;
-        let report = backtest::backtest_hero_with_build(hero_id, &name, &build, &authors);
+        let population = load_population_prior(&pool, hero_id).await?;
+        let report =
+            backtest::backtest_hero_with_build(hero_id, &name, &build, &authors, &population);
         let synergy_rows = load_synergies(&ctx, hero_id).await?;
         let pair_support = meta::combination_support(
             &synergy_rows,

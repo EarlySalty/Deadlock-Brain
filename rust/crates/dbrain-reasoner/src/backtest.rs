@@ -4,7 +4,7 @@ use std::fmt;
 
 use crate::{AuthorBuild, BacktestMetrics, BuildObject, HeroBacktest, PopulationPrior};
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub struct PopulationBacktest {
     pub tracked: bool,
     pub staple_count: usize,
@@ -114,6 +114,25 @@ pub fn population_backtest(build: &BuildObject, prior: &PopulationPrior) -> Popu
 impl fmt::Display for crate::BacktestReport {
     fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
         for hero in &self.heroes {
+            let population = &hero.population;
+            let gate = match population.staple_gate_passed {
+                Some(true) => "bestanden".to_string(),
+                Some(false) => "nicht bestanden".to_string(),
+                None => "null".to_string(),
+            };
+            let tau = population
+                .kendall_tau
+                .map(|value| format!("{value:.4}"))
+                .unwrap_or_else(|| "null".to_string());
+            let jaccard = population
+                .jaccard_at_12
+                .map(|value| format!("{value:.4}"))
+                .unwrap_or_else(|| "null".to_string());
+            writeln!(
+                output,
+                "{} | Population | Staple-Gate: {gate} | Kendall tau: {tau} | Jaccard@12: {jaccard}",
+                hero.hero_name
+            )?;
             if hero.per_author.is_empty() {
                 writeln!(
                     output,
@@ -259,6 +278,7 @@ pub fn backtest_hero_with_build(
     hero_name: &str,
     build: &BuildObject,
     authors: &[AuthorBuild],
+    population: &PopulationPrior,
 ) -> HeroBacktest {
     let mut per_author = authors
         .iter()
@@ -305,6 +325,7 @@ pub fn backtest_hero_with_build(
         hero_name: hero_name.to_string(),
         per_author,
         aggregate,
+        population: population_backtest(build, population),
     }
 }
 
@@ -369,6 +390,7 @@ mod tests {
             "Warden",
             &build(&[1, 1, 2, 0]),
             &[author(&[2, 2, 3, 4, 0], &[]), author(&[], &[])],
+            &PopulationPrior::default(),
         );
         let json = serde_json::to_value(&report).unwrap();
         assert_eq!(json["per_author"][0][1]["reference_recall"], 1.0 / 3.0);
@@ -377,7 +399,14 @@ mod tests {
         assert_eq!(json["aggregate"]["core_jaccard"], 0.125);
         assert_eq!(crate::persistence_json(&report).unwrap(), json);
         let no_authors =
-            serde_json::to_value(backtest_hero_with_build(25, "Warden", &build(&[]), &[])).unwrap();
+            serde_json::to_value(backtest_hero_with_build(
+                25,
+                "Warden",
+                &build(&[]),
+                &[],
+                &PopulationPrior::default(),
+            ))
+            .unwrap();
         assert_eq!(no_authors["aggregate"]["reference_recall"], 0.0);
         assert_eq!(no_authors["aggregate"]["core_jaccard"], 0.0);
         let empty = serde_json::to_value(backtest_metrics(&build(&[]), &author(&[], &[]))).unwrap();
@@ -423,13 +452,15 @@ mod tests {
                 author(&[1, 2], &[2, 1]),
                 author(&[3, 4], &[3, 4]),
             ],
+            &PopulationPrior::default(),
         );
         assert_eq!(
             serde_json::to_value(report.aggregate).unwrap()["order_proximity"],
             0.5
         );
         for authors in [vec![], vec![author(&[], &[])]] {
-            let report = backtest_hero_with_build(25, "Warden", &build, &authors);
+            let report =
+                backtest_hero_with_build(25, "Warden", &build, &authors, &PopulationPrior::default());
             assert!(serde_json::to_value(report.aggregate).unwrap()["order_proximity"].is_null());
         }
     }
@@ -442,6 +473,7 @@ mod tests {
                 "Warden",
                 &build(&[1, 2]),
                 &[author(&[1, 2], &[1, 2]), author(&[], &[])],
+                &PopulationPrior::default(),
             )],
         };
         let text = report.to_string();

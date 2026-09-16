@@ -10,6 +10,7 @@ path = "src/lib.rs"
 [dependencies]
 deadlock-brain-core = { path = "../deadlock-brain-core" }
 dbrain-builds = { path = "../dbrain-builds" }
+dbrain-population = { path = "../dbrain-population" }
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
@@ -18,4 +19,3 @@ tokio = { workspace = true, features = ["sync"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-dbrain-population = { path = "../dbrain-population" }

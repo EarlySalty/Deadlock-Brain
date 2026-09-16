@@ -388,14 +388,8 @@ async fn freeze(output: &Path) -> std::result::Result<(), Error> {
                 .into());
             }
         }
-        let replay = compose(
-            &frozen,
-            input,
-            &BTreeSet::new(),
-            false,
-            "full",
-            &PopulationPrior::default(),
-        )?;
+        let population = load_population_prior(&pool, input.hero.hero_id).await?;
+        let replay = compose(&frozen, input, &BTreeSet::new(), false, "full", &population)?;
         if replay.0 != input.live_baseline {
             return Err(format!(
                 "Offline-Reproduktion weicht für {} von der produktiven Fassade ab",
@@ -452,34 +446,22 @@ mod freeze_guard_tests {
 }
 
 async fn load_populations() -> std::result::Result<BTreeMap<i64, PopulationPrior>, Error> {
-    let Ok(dsn) = std::env::var("POPULATION_DB_DSN") else {
+    let pool = deadlock_brain_core::pg::pg_pool().await?;
+    let present: Option<bool> =
+        sqlx::query_scalar("SELECT to_regclass('brain.population_item_stats') IS NOT NULL")
+            .fetch_one(&pool)
+            .await?;
+    if present != Some(true) {
+        pool.close().await;
         return Ok(BTreeMap::new());
-    };
-    let pool = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&dsn)
-        .await?;
+    }
     let hero_ids: Vec<i64> =
         sqlx::query_scalar("SELECT DISTINCT hero_id FROM brain.population_item_stats")
             .fetch_all(&pool)
             .await?;
     let mut populations = BTreeMap::new();
     for hero_id in hero_ids {
-        let index = dbrain_population::PopulationIndex::load(&pool, hero_id).await?;
-        let staples = index
-            .staples(dbrain_population::BUCKET_ALL)
-            .into_iter()
-            .collect::<BTreeSet<_>>();
-        let items = index
-            .population_positions(dbrain_population::BUCKET_ALL)
-            .into_iter()
-            .map(|(item_id, median)| PopulationItem {
-                item_id,
-                prevalence: index.prevalence(item_id),
-                median_position: Some(median),
-                is_staple: staples.contains(&item_id),
-            });
-        populations.insert(hero_id, PopulationPrior::from_items(items));
+        populations.insert(hero_id, load_population_prior(&pool, hero_id).await?);
     }
     pool.close().await;
     Ok(populations)

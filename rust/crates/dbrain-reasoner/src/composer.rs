@@ -367,6 +367,14 @@ pub fn compose_build_with_sources(
             .unwrap_or(&build.rationale)
             .trim()
     );
+    if meta.population.is_empty() {
+        let note = "Population: keine Daten.";
+        build.rationale = if build.rationale.trim().is_empty() {
+            note.to_string()
+        } else {
+            format!("{} {note}", build.rationale.trim_end())
+        };
+    }
     Ok(build)
 }
 

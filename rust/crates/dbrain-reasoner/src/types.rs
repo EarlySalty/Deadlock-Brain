@@ -470,6 +470,8 @@ pub struct HeroBacktest {
     pub hero_name: String,
     pub per_author: Vec<(String, BacktestMetrics)>,
     pub aggregate: BacktestMetrics,
+    #[serde(default)]
+    pub population: crate::backtest::PopulationBacktest,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

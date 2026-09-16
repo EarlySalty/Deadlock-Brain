@@ -340,11 +340,13 @@ pub async fn reason_backtest_with_options(
         if let Some(tag) = filter.patch_tag.as_deref() {
             authors.retain(|author| author.patch_tag.as_deref() == Some(tag));
         }
+        let population = load_population_prior(&ctx.pool, hero_model.hero_id).await?;
         reports.push(backtest::backtest_hero_with_build(
             hero_model.hero_id,
             &hero_model.name,
             &build,
             &authors,
+            &population,
         ));
     }
     let report = BacktestReport { heroes: reports };
@@ -490,6 +492,37 @@ async fn persist_backtest(ctx: &ReasonerCtx, report: &BacktestReport) -> Result<
     tx.commit().await.map_err(ReasonerError::Db)
 }
 
+pub async fn load_population_prior(
+    pool: &sqlx::PgPool,
+    hero_id: i64,
+) -> Result<PopulationPrior> {
+    let present: Option<bool> =
+        sqlx::query_scalar("SELECT to_regclass('brain.population_item_stats') IS NOT NULL")
+            .fetch_one(pool)
+            .await
+            .map_err(ReasonerError::Db)?;
+    if present != Some(true) {
+        return Ok(PopulationPrior::default());
+    }
+    let index = dbrain_population::PopulationIndex::load(pool, hero_id)
+        .await
+        .map_err(|error| ReasonerError::Data(format!("Populationsdaten: {error}")))?;
+    let staples = index
+        .staples(dbrain_population::BUCKET_ALL)
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>();
+    let items = index
+        .population_positions(dbrain_population::BUCKET_ALL)
+        .into_iter()
+        .map(|(item_id, median)| PopulationItem {
+            item_id,
+            prevalence: index.prevalence(item_id),
+            median_position: Some(median),
+            is_staple: staples.contains(&item_id),
+        });
+    Ok(PopulationPrior::from_items(items))
+}
+
 pub async fn load_reasoning_inputs(
     ctx: &ReasonerCtx,
     hero: &str,
@@ -529,6 +562,7 @@ pub async fn load_reasoning_inputs(
     let index = meta::build_meta_index(&rows, &authors, &claims, &ctx.config);
     let author_builds = load_author_sources(ctx, hero_model.hero_id).await?;
     let hero_ability_orders = load_hero_ability_orders(ctx, hero_model.hero_id).await?;
+    let population = load_population_prior(&ctx.pool, hero_model.hero_id).await?;
     Ok((
         hero_model,
         items,
@@ -538,7 +572,7 @@ pub async fn load_reasoning_inputs(
             hero_ability_orders,
             core_layouts,
             combinations,
-            population: crate::PopulationPrior::default(),
+            population,
         },
         snapshots,
     ))
