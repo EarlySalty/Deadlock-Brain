@@ -359,6 +359,14 @@ pub struct BuildObject {
     pub ability_order: Vec<AbilityStep>,
     pub confidence: Confidence,
     pub rationale: String,
+    /// The root remains the dominant plan for existing consumers; additional
+    /// independently planned families are carried as non-recursive children.
+    #[serde(default)]
+    pub family: Option<crate::families::BuildFamily>,
+    #[serde(default)]
+    pub variants: Vec<BuildObject>,
+    #[serde(default)]
+    pub family_discovery: Option<crate::families::FamilyDiscovery>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

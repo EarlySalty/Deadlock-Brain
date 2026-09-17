@@ -192,6 +192,8 @@ fn compose(
         })
         .collect();
     let context = meta::MetaIndexWithSources {
+        observations: Vec::new(),
+        family: None,
         index,
         author_builds,
         hero_ability_orders: if holdout {

@@ -92,7 +92,33 @@ pub fn publish_task_payload(build: &BuildObject) -> Value {
     serde_json::to_value(to_publish_payload(build)).expect("BuildSpecPayload is serializable")
 }
 
+/// Validation precedes any queue write. A multi-family response cannot silently
+/// publish only its dominant child through the legacy single-build endpoint.
+pub fn validate_publish_input(build: &BuildObject) -> Result<()> {
+    if !build.variants.is_empty() {
+        return Err(ReasonerError::Data("Mehrere Buildfamilien: explizite Auswahl und Abnahme einer Variante erforderlich; der Einzelbuild-Publisher darf Varianten nicht still verwerfen.".into()));
+    }
+    if let Some(family) = &build.family {
+        let minimum = build
+            .family_discovery
+            .as_ref()
+            .map_or(100, |discovery| discovery.policy.min_matches);
+        if !family.eligible_for_planning
+            || family
+                .post_patch_player_matches
+                .is_none_or(|count| count < minimum)
+        {
+            return Err(ReasonerError::Data(format!("Familie {} ist nicht zur Veröffentlichung freigegeben: Nach-Patch-Stichprobe {:?}, mindestens {minimum} erforderlich. Historischer Populations-Support ist keine aktuelle Patch-Abnahme.", family.id, family.post_patch_player_matches)));
+        }
+        if build.core.is_empty() || matches!(build.confidence, crate::Confidence::Low) {
+            return Err(ReasonerError::Data(format!("Familie {}: fehlender Core oder unzureichend abgesicherte Mechanik-/Datengrundlage; keine Steam-Veröffentlichung.",family.id)));
+        }
+    }
+    Ok(())
+}
+
 pub async fn enqueue_publish_task(pool: &PgPool, build: &BuildObject) -> Result<i64> {
+    validate_publish_input(build)?;
     let payload = publish_task_payload(build);
     sqlx::query_scalar::<_, i64>("INSERT INTO steam.steam_tasks(type, payload, status) VALUES('BUILD_PUBLISH_ORIGINAL', $1, 'PENDING') RETURNING id")
         .bind(payload)
@@ -126,6 +152,9 @@ mod tests {
     #[test]
     fn publish_roundtrip_keeps_annotations_imbue_sell_and_layout() {
         let build = BuildObject {
+            family: None,
+            variants: Vec::new(),
+            family_discovery: None,
             hero_id: 25,
             hero_name: "Warden".to_string(),
             patch_tag: "current".to_string(),

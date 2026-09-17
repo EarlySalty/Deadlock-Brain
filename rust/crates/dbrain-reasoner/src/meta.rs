@@ -35,7 +35,7 @@ pub(crate) fn snapshot_flex_slots(snapshot: &Value) -> Option<usize> {
         })
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AuthorBuildSource {
     pub hero_id: i64,
     pub author: String,
@@ -51,20 +51,49 @@ pub struct AuthorBuildLayoutSource {
     pub details: Value,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MetaIndexWithSources {
     pub index: MetaIndex,
     pub author_builds: Vec<AuthorBuildSource>,
     pub hero_ability_orders: BTreeMap<i64, Vec<crate::AbilityStep>>,
     pub core_layouts: CoreLayoutIndex,
+    #[serde(with = "combination_serde")]
     pub combinations: BTreeMap<(i64, i64), CombinationSupport>,
     pub population: crate::PopulationPrior,
+    #[serde(default)]
+    pub observations: Vec<crate::families::BuildObservation>,
+    #[serde(default)]
+    pub family: Option<crate::families::BuildFamily>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CombinationSupport {
     pub relative_lift: f64,
     pub matches: i64,
+}
+
+mod combination_serde {
+    use super::CombinationSupport;
+    use serde::{Deserialize, Serialize};
+    use std::collections::BTreeMap;
+    pub fn serialize<S: serde::Serializer>(
+        value: &BTreeMap<(i64, i64), CombinationSupport>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        value.iter().collect::<Vec<_>>().serialize(serializer)
+    }
+    pub fn deserialize<'de, D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<BTreeMap<(i64, i64), CombinationSupport>, D::Error> {
+        let values = Vec::<((i64, i64), CombinationSupport)>::deserialize(deserializer)?;
+        let mut map = BTreeMap::new();
+        for (key, value) in values {
+            if map.insert(key, value).is_some() {
+                return Err(serde::de::Error::custom("duplicate combination key"));
+            }
+        }
+        Ok(map)
+    }
 }
 
 pub fn combination_support(
@@ -133,6 +162,17 @@ pub fn combination_support(
 
 impl MetaIndexWithSources {
     pub fn ability_order(&self, hero_id: i64) -> (Vec<crate::AbilityStep>, crate::Evidence) {
+        if let Some(family) = self.family.as_ref().filter(|family| {
+            !family.skill_order.is_empty()
+                && family
+                    .skill_order_support
+                    .is_some_and(|share| share >= 0.50)
+        }) {
+            return (family.skill_order.clone(), crate::Evidence {
+                kind: crate::EvidenceKind::Meta,
+                detail: format!("Skill-Order: tatsächlich beobachtete Folge aus Familie {}; {:.1}% Support für den Acht-Schritt-Präfix. Der Rest ist eine beobachtete Folge, kein unabhängiger Positionsmodus.", family.id, family.skill_order_support.unwrap_or(0.0)*100.0),
+            });
+        }
         let mut authors = self
             .author_builds
             .iter()
@@ -418,7 +458,7 @@ pub fn derive_core_layouts(
     }
 }
 
-fn author_ability_order(details: &Value) -> Option<Vec<crate::AbilityStep>> {
+pub(crate) fn author_ability_order(details: &Value) -> Option<Vec<crate::AbilityStep>> {
     let order = details
         .get("abilityOrder")
         .or_else(|| details.get("ability_order"))?;

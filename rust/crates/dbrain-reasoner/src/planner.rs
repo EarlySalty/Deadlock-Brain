@@ -242,7 +242,17 @@ impl Search<'_> {
                         .progression_cache
                         .entry(earned)
                         .or_insert_with(|| at_souls(self.hero, self.order, earned, self.cfg));
-                    if let Some(target) = crate::mechanics::imbue_target(item, hero, self.cfg) {
+                    let observed = self
+                        .population
+                        .and_then(|prior| prior.imbue_target(item.item_id))
+                        .filter(|target| {
+                            hero.abilities
+                                .iter()
+                                .any(|ability| ability.ability_id == *target)
+                        });
+                    if let Some(target) =
+                        observed.or_else(|| crate::mechanics::imbue_target(item, hero, self.cfg))
+                    {
                         next_bindings.insert(item.item_id, target);
                     }
                 }
@@ -357,7 +367,7 @@ pub fn plan_with_economy(
         progression_cache: BTreeMap::new(),
     };
     let mut plan=PurchasePlan { steps:Vec::new(), final_evaluation:evaluate_inventory(hero,&[],cfg), ability_order:order.to_vec(),saving_decisions:Vec::new(), assumptions:vec![
-        "Feste globale Seelen-Checkpoints, unabhängig von Kandidatenpreisen. Das Layout begrenzt Käufe je Kostenband; offene Bänder konkurrieren um das vorhandene Geld. Sparen bleibt eine bewertete Alternative.".into(),
+        "Feste globale Seelen-Checkpoints, unabhängig von Kandidatenpreisen. Kostenbänder erzwingen keine Käufe; ausschließlich die zugelassenen Identitätskäufe konkurrieren um das vorhandene Geld. Sparen bleibt eine bewertete Alternative.".into(),
         "Begrenzte Zweischrittsuche mit vier Kandidaten: aktueller Mehrwert zählt zur Hälfte, der Zustand am nächsten Checkpoint voll. Das ist eine gesetzte Planungspräferenz, kein gemessener Spielverlauf und kein globales Optimum.".into(),
         "Budget und Levelkurve verwenden dieselben verdienten Szenarioseelen. Anfangsgeld, Einnahmetempo, Zeitverluste und zusätzliche AP aus Spielereignissen werden nicht erfunden. Verkäufe verändern nur Ausgaben, nicht den Fortschritt.".into(),
         format!("Inventarregel: {} universelle Plätze und höchstens vier aktive Items; Verkaufserlös {:.0}%. Freischaltzeitpunkte von Inventarplätzen und Kulanz-Erstattungen bleiben unmodelliert.",rules.max_slots,rules.resale_fraction*100.0),
@@ -376,11 +386,24 @@ pub fn plan_with_economy(
     let mut inventory = Inventory::default();
     let mut bindings = BTreeMap::new();
     let mut used = BTreeSet::new();
-    let mut remaining = layout
-        .bands
-        .iter()
-        .map(|(tier, band)| (*tier, band.target))
-        .collect::<BTreeMap<_, _>>();
+    // Production supplies an empirical context, even when it is empty. Its
+    // historic layout is never a quota. Explicit low-level layout callers keep
+    // their requested upper bounds for diagnostics/backwards compatibility.
+    let mut remaining = if population.is_some() {
+        let mut counts = BTreeMap::new();
+        for candidate in candidates {
+            *counts.entry(candidate.item.tier).or_insert(0usize) += 1;
+        }
+        plan.assumptions.push(format!("Historisches Layout aus {} Quellbuilds wird nicht als Core-Quote verwendet; {} belegte Kandidaten konkurrieren um Käufe, Sparen bleibt zulässig.", layout.source_builds, candidates.len()));
+        counts
+    } else {
+        plan.assumptions.push("Expliziter Modellvergleich ohne Populationskontext: die vom Aufrufer vorgegebenen Kostenband-Obergrenzen gelten, aber sind keine Pflichtkäufe.".into());
+        layout
+            .bands
+            .iter()
+            .map(|(tier, band)| (*tier, band.target))
+            .collect()
+    };
     for (index, earned) in economy.checkpoints.iter().copied().enumerate() {
         if remaining.values().all(|count| *count == 0) {
             break;
