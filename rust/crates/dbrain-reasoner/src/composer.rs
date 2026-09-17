@@ -354,8 +354,7 @@ pub fn compose_build_with_sources(
     meta: &crate::meta::MetaIndexWithSources,
 ) -> crate::Result<BuildObject> {
     let mut authors = author_evidence(hero.hero_id, &meta.author_builds);
-    let (raw_order, source) = meta.ability_order(hero.hero_id);
-    let (order, notes) = crate::progression::coherent_order(hero, &raw_order);
+    let (order, source, notes) = meta.coherent_ability_order(hero);
     authors.skill_notes = notes;
     authors.ability_order = order.clone();
     let mut build = compose_build_with_author_evidence(
@@ -413,8 +412,9 @@ pub fn purchase_plan_with_sources(
     meta: &crate::meta::MetaIndexWithSources,
 ) -> crate::Result<crate::planner::PurchasePlan> {
     let mut authors = author_evidence(hero.hero_id, &meta.author_builds);
-    (authors.ability_order, authors.skill_notes) =
-        crate::progression::coherent_order(hero, &meta.ability_order(hero.hero_id).0);
+    let (order, _, notes) = meta.coherent_ability_order(hero);
+    authors.ability_order = order;
+    authors.skill_notes = notes;
     plan_core(
         hero,
         scored,
@@ -730,6 +730,147 @@ fn compose_build_with_author_evidence(
 
 #[cfg(test)]
 mod tests {
+    fn skill_validation_hero() -> HeroModel {
+        let mut hero = hero();
+        hero.hero_id = 700;
+        hero.name = "Generic skill validation fixture".into();
+        hero.abilities = [101, 102]
+            .into_iter()
+            .enumerate()
+            .map(|(slot, id)| crate::AbilityModel {
+                item_proc_disabled: false,
+                duration_scaling: Default::default(),
+                upgrades: vec![serde_json::json!({}); 3],
+                properties: Default::default(),
+                ability_id: id,
+                class_name: format!("ability_{id}"),
+                slot: slot as i64 + 1,
+                roles: Vec::new(),
+                scaling: Vec::new(),
+                channel_time: None,
+                charges: 1,
+                cooldown: 10.0,
+                scaling_step: None,
+                damage_type: DamageType::Spirit,
+                base_effect: 0.0,
+                tick_rate: None,
+                duration: None,
+            })
+            .collect();
+        hero
+    }
+
+    fn skill_step(id: i64, currency: i64) -> crate::AbilityStep {
+        crate::AbilityStep {
+            ability_id: id,
+            currency_type: currency,
+            delta: -1,
+        }
+    }
+
+    fn skill_source(
+        author: &str,
+        weight: f64,
+        order: &[crate::AbilityStep],
+    ) -> crate::meta::AuthorBuildSource {
+        crate::meta::AuthorBuildSource {
+            hero_id: 700,
+            author: author.into(),
+            weight,
+            details: serde_json::json!({"ability_order": order}),
+        }
+    }
+
+    #[test]
+    fn invalid_skill_source_falls_back_consistently_in_plan_build_and_payload() {
+        let hero = skill_validation_hero();
+        let good = vec![skill_step(101, 2), skill_step(101, 1)];
+        let bad = vec![skill_step(999, 2)];
+        let mut meta = population_context();
+        meta.author_builds = vec![
+            skill_source("invalid-first", 9.0, &bad),
+            skill_source("valid-next", 1.0, &good),
+        ];
+        let original = serde_json::to_value(&meta).unwrap();
+        let scored = vec![item(1, "Unchanged numeric item", 10.0, false, &[])];
+        let config = ReasonerConfig::default();
+        let build = compose_build_with_sources(&hero, &scored, &[], &config, &[], &meta).unwrap();
+        let plan = purchase_plan_with_sources(&hero, &scored, &config, &meta).unwrap();
+        assert_eq!(build.ability_order, good);
+        assert_eq!(plan.ability_order, good);
+        assert_eq!(
+            crate::publish::publish_task_payload(&build)["ability_order"],
+            serde_json::to_value(&good).unwrap()
+        );
+        assert!(build.rationale.contains("valid-next"));
+        assert!(build.rationale.contains("invalid-first"));
+        assert!(build.rationale.contains("übersprungen"));
+        assert_eq!(meta.ability_order(hero.hero_id).0, bad);
+        assert_eq!(serde_json::to_value(&meta).unwrap(), original);
+    }
+
+    #[test]
+    fn upgrade_before_unlock_uses_a_valid_global_skill_fallback() {
+        let hero = skill_validation_hero();
+        let good = vec![skill_step(102, 2), skill_step(102, 1)];
+        let mut meta = population_context();
+        meta.author_builds = vec![skill_source(
+            "upgrade-before-unlock",
+            5.0,
+            &[skill_step(101, 1)],
+        )];
+        meta.hero_ability_orders.insert(hero.hero_id, good.clone());
+        let (order, evidence, notes) = meta.coherent_ability_order(&hero);
+        assert_eq!(order, good);
+        assert!(evidence.detail.contains("brain.hero_ability_orders"));
+        assert!(notes
+            .iter()
+            .any(|note| note.contains("upgrade-before-unlock")));
+    }
+
+    #[test]
+    fn valid_skill_prefix_is_preserved_when_a_repeated_unlock_starts_a_bad_tail() {
+        let hero = skill_validation_hero();
+        let mut meta = population_context();
+        meta.author_builds = vec![
+            skill_source("prefix", 5.0, &[skill_step(101, 2), skill_step(101, 2)]),
+            skill_source("alternative", 1.0, &[skill_step(102, 2)]),
+        ];
+        let (order, evidence, notes) = meta.coherent_ability_order(&hero);
+        assert_eq!(order, vec![skill_step(101, 2)]);
+        assert!(evidence.detail.contains("prefix"));
+        assert!(notes
+            .iter()
+            .any(|note| note.contains("wiederholte Freischaltung")));
+    }
+
+    #[test]
+    fn no_valid_skill_source_is_not_replaced_by_an_invented_order() {
+        let hero = skill_validation_hero();
+        let mut meta = population_context();
+        meta.author_builds = vec![skill_source("foreign", 5.0, &[skill_step(999, 2)])];
+        meta.hero_ability_orders
+            .insert(hero.hero_id, vec![skill_step(101, 1)]);
+        let (order, evidence, notes) = meta.coherent_ability_order(&hero);
+        assert!(order.is_empty());
+        assert!(evidence.detail.contains("keine Quelle"));
+        assert_eq!(notes.len(), 2);
+    }
+
+    #[test]
+    fn tied_orders_from_the_same_author_are_input_order_independent() {
+        let hero = skill_validation_hero();
+        let mut meta = population_context();
+        meta.author_builds = vec![
+            skill_source("same-account", 1.0, &[skill_step(102, 2)]),
+            skill_source("same-account", 1.0, &[skill_step(101, 2)]),
+        ];
+        let first = meta.coherent_ability_order(&hero);
+        meta.author_builds.reverse();
+        assert_eq!(meta.coherent_ability_order(&hero), first);
+        assert_eq!(first.0, vec![skill_step(101, 2)]);
+    }
+
     #[test]
     fn unquantified_core_mechanics_cap_build_confidence() {
         let mut core = item(1, "Identity with unknown effect", 10.0, false, &[]);

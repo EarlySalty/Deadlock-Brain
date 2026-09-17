@@ -291,6 +291,83 @@ fn unpublished_build() -> crate::BuildObject {
     }
 }
 
+fn current_build_for_validation() -> crate::BuildObject {
+    let mut build = unpublished_build();
+    build.confidence = crate::Confidence::High;
+    build.core.push(crate::BuildItem {
+        item_id: 1,
+        name: "Synthetic core item".into(),
+        tier: 1,
+        buy_phase: crate::BuyPhase::Lane,
+        why: "Validation fixture only".into(),
+        confidence: crate::Confidence::High,
+        imbue_target: None,
+        sell_priority: None,
+        sources: Vec::new(),
+    });
+    build.ability_order.push(crate::AbilityStep {
+        ability_id: 101,
+        currency_type: 2,
+        delta: -1,
+    });
+    let family = build.family.as_mut().unwrap();
+    family.eligible_for_planning = true;
+    family.player_matches = 100;
+    family.distinct_players = 20;
+    family.post_patch_player_matches = Some(100);
+    build
+}
+
+#[tokio::test]
+async fn missing_family_blocks_legacy_publish_before_any_database_connection() {
+    let mut build = current_build_for_validation();
+    build.family = None;
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgresql://127.0.0.1:1/unreachable")
+        .unwrap();
+    let error = crate::publish::enqueue_publish_task(&pool, &build)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(error, crate::ReasonerError::Data(note) if note.contains("Keine belegte Buildfamilie"))
+    );
+}
+
+#[test]
+fn complete_current_family_passes_the_pure_publish_validator() {
+    crate::publish::validate_publish_input(&current_build_for_validation()).unwrap();
+}
+
+#[test]
+fn local_family_policy_cannot_reduce_the_publication_sample_floor() {
+    let mut build = current_build_for_validation();
+    build.family_discovery = Some(discover(&observations(0, 12, &[1, 2, 3, 4, 5, 6])));
+    assert!(build.family_discovery.as_ref().unwrap().policy.min_matches < 100);
+    build.family.as_mut().unwrap().post_patch_player_matches = Some(99);
+    let error = crate::publish::validate_publish_input(&build).unwrap_err();
+    assert!(error.to_string().contains("mindestens 100"));
+}
+
+#[test]
+fn current_patch_counts_do_not_rescue_empty_core_or_low_confidence() {
+    let mut build = current_build_for_validation();
+    build.core.clear();
+    assert!(crate::publish::validate_publish_input(&build).is_err());
+    let mut build = current_build_for_validation();
+    build.confidence = crate::Confidence::Low;
+    assert!(crate::publish::validate_publish_input(&build).is_err());
+}
+
+#[test]
+fn current_patch_counts_do_not_rescue_missing_skillorder_or_patch_identity() {
+    let mut build = current_build_for_validation();
+    build.ability_order.clear();
+    assert!(crate::publish::validate_publish_input(&build).is_err());
+    let mut build = current_build_for_validation();
+    build.patch_tag = " ".into();
+    assert!(crate::publish::validate_publish_input(&build).is_err());
+}
+
 #[tokio::test]
 async fn missing_post_patch_evidence_blocks_before_any_database_connection() {
     let pool = sqlx::postgres::PgPoolOptions::new()

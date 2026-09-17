@@ -3,6 +3,7 @@
 use dbrain_reasoner::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use sqlx::postgres::PgPoolOptions;
 use std::{fs, path::Path};
 mod support;
@@ -255,6 +256,77 @@ fn plan(
     Ok(())
 }
 
+fn verify_replay_bytes(runs: &[Vec<u8>]) -> std::result::Result<(String, usize), Error> {
+    if runs.len() != 3 {
+        return Err("exactly three independently evaluated runs required".into());
+    }
+    let reports: Vec<Value> = serde_json::from_slice(&runs[0])?;
+    if reports.is_empty()
+        || reports.iter().any(|report| {
+            !report["error"].is_null()
+                || report["hero_name"].as_str().is_none()
+                || !report["build"].is_object()
+        })
+    {
+        return Err("empty or failed plans are not a successful replay proof".into());
+    }
+    if runs[1..].iter().any(|bytes| bytes != &runs[0]) {
+        return Err("replays differ; all original outputs are retained for inspection".into());
+    }
+    Ok((format!("{:x}", Sha256::digest(&runs[0])), reports.len()))
+}
+
+/// Repeat the existing planner, without AI, DB access, score changes or output
+/// normalization. Byte equality includes every score, variant and explanation;
+/// a stable failure or an empty hero selection must not pass this check.
+fn replay(input: &Path, output_dir: &Path, names: Option<&str>) -> std::result::Result<(), Error> {
+    let input_bytes = fs::read(input)?;
+    let frozen: Frozen = serde_json::from_slice(&input_bytes)?;
+    if frozen.format_version != 1 || frozen.config.use_ai {
+        return Err("version 1 frozen inputs with AI disabled required".into());
+    }
+    if let Some(names) = names {
+        for name in names.split(',') {
+            if !frozen.heroes.iter().any(|hero| hero.hero.name == name) {
+                return Err(format!("unknown replay hero: {name}").into());
+            }
+        }
+    }
+    // create_dir is exclusive. Never reuse or delete existing evidence.
+    fs::create_dir(output_dir)?;
+    let input_hash = format!("{:x}", Sha256::digest(&input_bytes));
+    let mut runs = Vec::new();
+    for index in 1..=3 {
+        if fs::read(input)? != input_bytes {
+            return Err("frozen input changed between replays".into());
+        }
+        let output = output_dir.join(format!("replay-{index}.json"));
+        eprintln!("determinism replay {index}/3");
+        plan(input, &output, names, false)?;
+        if fs::read(input)? != input_bytes {
+            return Err("frozen input changed during replay".into());
+        }
+        runs.push(fs::read(&output)?);
+    }
+    let checked = verify_replay_bytes(&runs);
+    let hashes = runs
+        .iter()
+        .map(|bytes| format!("{:x}", Sha256::digest(bytes)))
+        .collect::<Vec<_>>();
+    let report = json!({"format_version": 1, "input_sha256": input_hash,
+        "replay_sha256": hashes, "byte_identical": checked.is_ok(),
+        "validation_error": checked.as_ref().err().map(|error| error.to_string()),
+        "heroes": checked.as_ref().ok().map(|(_, count)| count),
+        "scope": "Three new runs of the same frozen numerical planner; full output byte comparison. Not a current-patch or independent release approval."});
+    support::write_new(
+        output_dir.join("verification.json"),
+        &serde_json::to_vec_pretty(&report)?,
+    )?;
+    let (hash, count) = checked?;
+    println!("REPLAY VERIFIED: {count} heroes, three byte-identical outputs, sha256={hash}");
+    Ok(())
+}
+
 fn inspect_input(path: &Path) -> std::result::Result<(), Error> {
     let frozen: Frozen = serde_json::from_slice(&fs::read(path)?)?;
     if frozen.format_version != 1 {
@@ -373,18 +445,67 @@ fn report_summary(path: &Path) -> std::result::Result<(), Error> {
     Ok(())
 }
 
+#[cfg(test)]
+mod replay_tests {
+    use super::*;
+
+    fn numerical_output(score: f64) -> Vec<u8> {
+        serde_json::to_vec(&json!([{"hero_name":"Synthetic replay",
+            "build":{"confidence":"Low","score":score},
+            "metrics":{"staple_gate_passed":false}}]))
+        .unwrap()
+    }
+
+    #[test]
+    fn byte_identical_outputs_preserve_red_quality_metrics() {
+        let runs = vec![numerical_output(1.0); 3];
+        let (hash, count) = verify_replay_bytes(&runs).unwrap();
+        assert_eq!(hash.len(), 64);
+        assert_eq!(count, 1);
+        let unchanged: Value = serde_json::from_slice(&runs[0]).unwrap();
+        assert_eq!(unchanged[0]["metrics"]["staple_gate_passed"], false);
+        assert_eq!(unchanged[0]["build"]["confidence"], "Low");
+    }
+
+    #[test]
+    fn a_changed_numeric_value_fails_without_rounding_or_normalization() {
+        let runs = vec![
+            numerical_output(1.0),
+            numerical_output(1.0),
+            numerical_output(1.000000001),
+        ];
+        assert!(verify_replay_bytes(&runs).is_err());
+    }
+
+    #[test]
+    fn fewer_than_three_replays_are_not_accepted() {
+        assert!(verify_replay_bytes(&vec![numerical_output(1.0); 2]).is_err());
+    }
+
+    #[test]
+    fn stable_empty_or_failed_outputs_are_not_a_replay_proof() {
+        assert!(verify_replay_bytes(&vec![b"[]".to_vec(); 3]).is_err());
+        let error =
+            serde_json::to_vec(&json!([{"hero_name":"Synthetic replay","error":"plan failed"}]))
+                .unwrap();
+        assert!(verify_replay_bytes(&vec![error; 3]).is_err());
+    }
+}
+
 #[tokio::main]
 async fn main() -> std::result::Result<(), Error> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     match args.as_slice() {
         [mode,path,names] if mode=="freeze"=>freeze(Path::new(path),names).await,
         [mode,input,output] if mode=="discover"=>discover(Path::new(input),Path::new(output)),
+        [mode,input,output] if mode=="replay"=>replay(Path::new(input),Path::new(output),None),
+        [mode,input,output,names] if mode=="replay"=>replay(Path::new(input),Path::new(output),Some(names)),
         [mode,input,output] if mode=="plan" || mode=="holdout"=>plan(Path::new(input),Path::new(output),None,mode=="holdout"),
         [mode,input,output,names] if mode=="plan" || mode=="holdout"=>plan(Path::new(input),Path::new(output),Some(names),mode=="holdout"),
         [mode,path] if mode=="summary"=>summary(Path::new(path)),
         [mode,path] if mode=="report"=>report_summary(Path::new(path)),
         [mode,path] if mode=="inspect"=>inspect_input(Path::new(path)),
         [mode,path,ids] if mode=="inspect-items"=>inspect_items(Path::new(path),ids),
-        _=>Err("usage: family_evaluation freeze OUTPUT HERO,HERO | discover INPUT OUTPUT | plan INPUT OUTPUT [HERO,HERO] | holdout INPUT OUTPUT [HERO,HERO] | summary DISCOVERY | report PLANS | inspect INPUT | inspect-items INPUT ID,ID".into()),
+        _=>Err("usage: family_evaluation freeze OUTPUT HERO,HERO | discover INPUT OUTPUT | plan INPUT OUTPUT [HERO,HERO] | holdout INPUT OUTPUT [HERO,HERO] | replay INPUT NEW_DIRECTORY [HERO,HERO] | summary DISCOVERY | report PLANS | inspect INPUT | inspect-items INPUT ID,ID".into()),
     }
 }
