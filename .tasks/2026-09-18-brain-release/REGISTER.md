@@ -5,7 +5,7 @@ Auftrag: Nutzer verlangt Release-Abschluss und zul채ssigen Live-Deploy aus der �
 | Paket | Thread-ID | Modell | Status | Worktree | Letzte Meldung |
 |---|---|---|---|---|---|
 | U0 Integrationsabschluss und Consumer-Revalidierung | 57ed8534-ea8b-41bb-8822-f9a310739238 | claude-opus-4-8, bestehender Thread unver채ndert | Kontingentabbruch, nicht wieder aufnehmen | /home/nathanael/.worktrees/brain-deploy-completion-20260918 | Korrekturen geschrieben; Orchestrator hat Codecheck, Formatierung und 115 unterschiedliche erfolgreiche Tests auf dem bestehenden Stand abgeschlossen. Kein neuer Worker. |
-| Merge, Migration, Release, U1, Live-Smokes | aktuelle ChatGPT-Sitzung | Orchestrator | Vorbereitung | derselbe Worktree, nur separate Orchestrierungsdokumente | Hauptcheckout sauber; Quelle intern patch_285; produktive Evidenzmigrationen fehlen; Sicherung der betroffenen Tabellen erstellt |
+| Merge, Migration, Release, U1, Live-Smokes | aktuelle ChatGPT-Sitzung | Orchestrator | technisch getestet und gepusht, Deploy blockiert | derselbe Worktree, nur separate Orchestrierungsdokumente | Code e48d58c, vier CI-Jobs gr체n, Releasebau Exit 0. Gate ohne Urteil (Timeout/Kontingente). Prim채rkontext und stabiler Sync im isolierten Klon gepr체ft; Modelllauf an Laufzeit-Credential-Einbindung gescheitert. Produktion unver채ndert. Siehe DEPLOY-STATUS.md. |
 
 Branch: codex/brain-deploy-completion-20260918. Basis: 9ead46171f3d0f3c5d0e2fe739f1a9e693e37013. PR #6 in EarlySalty/Deadlock-Brain enth채lt PR #5 und #4. Nur ein Implementierungs-Thread, keine neuen Unter-Threads.
 
