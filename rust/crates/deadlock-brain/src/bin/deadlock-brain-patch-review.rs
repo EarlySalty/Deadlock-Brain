@@ -295,11 +295,18 @@ fn evidence_revision(tx: &mut postgres::Transaction<'_>, patch: &str) -> Result<
     let source_id = patch.strip_prefix("patch_").context("Invalid patch ID")?;
     // Kanonische Revision ueber beide Belege: die interne Quell-ID und die daraus
     // aufgeloeste Quellen-URL, unter der die Ereignisse gespeichert sind.
+    // Speicherschutz erkennt auch die Entfernung eines Events aus dieser Quelle:
+    // der Umfang umfasst alle Event-Hashes, die je unter der Quellen-URL lagen,
+    // ueber alle ihre Revisionen. Wandert ein Event zu einer anderen Quelle,
+    // erzeugt das eine neue Revision desselben event_hash und hebt damit die
+    // kanonische Revision dieser Quelle an, sodass ein Entwurf zu A veraltet.
     let row = tx.query_one(
         "SELECT COALESCE(max(revision_id),0) FROM brain.patch_evidence_revisions r \
          WHERE (r.source_table='changelog_posts' AND r.source_key=$1) \
-            OR (r.source_table='patch_events' AND r.payload->>'patch_external_id' = \
-                 (SELECT url FROM patchnotes.changelog_posts WHERE id=$1::bigint))",
+            OR (r.source_table='patch_events' AND r.source_key IN ( \
+                 SELECT DISTINCT e.source_key FROM brain.patch_evidence_revisions e \
+                 WHERE e.source_table='patch_events' AND e.payload->>'patch_external_id' = \
+                     (SELECT url FROM patchnotes.changelog_posts WHERE id=$1::bigint)))",
         &[&source_id])?;
     Ok(row.get(0))
 }

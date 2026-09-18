@@ -10,6 +10,9 @@ on:
       - 'rust/crates/deadlock-brain-yt/src/testutil.rs'
       - 'scripts/migrations/2026-09-18-patch-evidence.sql'
       - 'scripts/migrations/2026-09-18-patch-evidence-followup.sql'
+      - 'scripts/migrations/2026-09-18-patch-evidence-followup2.sql'
+      - 'rust/crates/deadlock-brain/src/pg_patchnotes.rs'
+      - 'rust/crates/deadlock-brain/src/main.rs'
       - 'tests/patch-understanding/**'
       - '.github/workflows/patch-understanding.yml'
 permissions:
@@ -67,10 +70,12 @@ jobs:
           FIX=tests/patch-understanding/schema-fixture.sql
           OLD=scripts/migrations/2026-09-18-patch-evidence.sql
           NEW=scripts/migrations/2026-09-18-patch-evidence-followup.sql
+          NEW2=scripts/migrations/2026-09-18-patch-evidence-followup2.sql
           EXIST=tests/patch-understanding/schema-assertions.sql
           HIST=tests/patch-understanding/followup-history-assertions.sql
           CAP=tests/patch-understanding/followup-caption-assertions.sql
           IDENT=tests/patch-understanding/followup-identity-assertions.sql
+          R4=tests/patch-understanding/followup2-r4-assertions.sql
 
           mkdb() { psql -v ON_ERROR_STOP=1 -d postgres -c "DROP DATABASE IF EXISTS $1" >/dev/null; psql -v ON_ERROR_STOP=1 -d postgres -c "CREATE DATABASE $1" >/dev/null; }
           run() { psql -v ON_ERROR_STOP=1 -d "$1" -f "$2" >/dev/null; }
@@ -87,17 +92,19 @@ jobs:
           mkdb histold; run histold "$FIX"; run histold "$OLD"; expect_fail histold "$HIST"
           mkdb capold; run capold "$FIX"; run capold "$OLD"; expect_fail capold "$CAP"
           mkdb identold; run identold "$FIX"; run identold "$OLD"; expect_fail identold "$IDENT"
+          # R4 needs the second migration present but unfixed to fail (identity move invalidates only the new source).
+          mkdb r4old; run r4old "$FIX"; run r4old "$OLD"; run r4old "$NEW"; expect_fail r4old "$R4"
 
-          # Full fix: old + followup migration passes every assertion suite (each on a fresh DB).
-          for pair in "existing:$EXIST" "history:$HIST" "caption:$CAP" "identity:$IDENT"; do
+          # Full fix: all three migrations pass every assertion suite (each on a fresh DB).
+          for pair in "existing:$EXIST" "history:$HIST" "caption:$CAP" "identity:$IDENT" "r4:$R4"; do
             name=${pair%%:*}; suite=${pair#*:}
-            mkdb "full_$name"; run "full_$name" "$FIX"; run "full_$name" "$OLD"; run "full_$name" "$NEW"; run "full_$name" "$suite"
+            mkdb "full_$name"; run "full_$name" "$FIX"; run "full_$name" "$OLD"; run "full_$name" "$NEW"; run "full_$name" "$NEW2"; run "full_$name" "$suite"
           done
 
-          # The followup migration is itself idempotent.
-          mkdb idem; run idem "$FIX"; run idem "$OLD"; run idem "$NEW"
+          # The followup migrations are idempotent.
+          mkdb idem; run idem "$FIX"; run idem "$OLD"; run idem "$NEW"; run idem "$NEW2"
           b=$(psql -Atd idem -c 'select count(*) from brain.patch_evidence_revisions')
-          run idem "$NEW"
+          run idem "$NEW"; run idem "$NEW2"
           a=$(psql -Atd idem -c 'select count(*) from brain.patch_evidence_revisions')
           test "$b" = "$a"
   caption-integration:
@@ -129,6 +136,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f tests/patch-understanding/caption-scratch-schema.sql
           psql -v ON_ERROR_STOP=1 -f scripts/migrations/2026-09-18-patch-evidence.sql
           psql -v ON_ERROR_STOP=1 -f scripts/migrations/2026-09-18-patch-evidence-followup.sql
+          psql -v ON_ERROR_STOP=1 -f scripts/migrations/2026-09-18-patch-evidence-followup2.sql
       - name: Run the ignored caption integration test for real
         working-directory: rust
         env:
@@ -141,11 +149,13 @@ jobs:
           psql -v ON_ERROR_STOP=1 -d cli_smoke -f tests/patch-understanding/cli-smoke-fixture.sql
           psql -v ON_ERROR_STOP=1 -d cli_smoke -f scripts/migrations/2026-09-18-patch-evidence.sql
           psql -v ON_ERROR_STOP=1 -d cli_smoke -f scripts/migrations/2026-09-18-patch-evidence-followup.sql
+          psql -v ON_ERROR_STOP=1 -d cli_smoke -f scripts/migrations/2026-09-18-patch-evidence-followup2.sql
           # Oversize copy: one referenced entity carries a payload larger than the context budget.
           psql -v ON_ERROR_STOP=1 -d postgres -c "CREATE DATABASE cli_smoke_big"
           psql -v ON_ERROR_STOP=1 -d cli_smoke_big -f tests/patch-understanding/cli-smoke-fixture.sql
           psql -v ON_ERROR_STOP=1 -d cli_smoke_big -f scripts/migrations/2026-09-18-patch-evidence.sql
           psql -v ON_ERROR_STOP=1 -d cli_smoke_big -f scripts/migrations/2026-09-18-patch-evidence-followup.sql
+          psql -v ON_ERROR_STOP=1 -d cli_smoke_big -f scripts/migrations/2026-09-18-patch-evidence-followup2.sql
           psql -v ON_ERROR_STOP=1 -d cli_smoke_big -c "UPDATE brain.entity_snapshots SET payload = jsonb_build_object('blob', repeat('x', 900000)) WHERE canonical_name='Veil Walker'"
       - name: Build and smoke the normal patch-review CLI
         working-directory: rust
