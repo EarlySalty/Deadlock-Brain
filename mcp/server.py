@@ -11,7 +11,13 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, unquote, urlparse
 
-from mcp.server import FastMCP
+try:
+    from mcp.server import FastMCP
+except ImportError:
+    try:
+        from mcp.server.fastmcp import FastMCP
+    except ImportError:
+        from mcp.server import MCPServer as FastMCP
 
 
 SECRET_LOADER = Path("/home/naniadm/Documents/Infisical/export_claude_secret.py")
