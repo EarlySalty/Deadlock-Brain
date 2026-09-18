@@ -1,7 +1,9 @@
 -- Folgemigration zu 2026-09-18-patch-evidence.sql.
 -- Aendert die urspruengliche Migration nicht, damit ein bereits ausgerollter
--- Stand kompatibel bleibt. Sie ersetzt nur Views und die Zeitkorrektur-Funktion
--- und ist wiederholbar (CREATE OR REPLACE, keine Datenneuschreibung).
+-- Stand kompatibel bleibt. Sie ersetzt nur Views, Funktionen und die
+-- Triggerlogik (CREATE OR REPLACE) und ist wiederholbar. Sie loescht oder
+-- ueberschreibt keine Quellrevisionen; vorhandene abgeleitete
+-- Knowledge-Event-Zeitwerte werden bewusst ueber den Trigger neu berechnet.
 --
 -- Korrektur 1: Die frueheste belegte Beobachtung desselben Ereignisinhalts
 --   bleibt erhalten (unveraenderter Reimport, Loeschen/Reimport, Rueckkehr zu
@@ -11,6 +13,11 @@
 -- Korrektur 2: youtube_caption_segments_v1 prueft zusaetzlich den SHA-256 des
 --   aktuellen transcript_text gegen e.text_sha256; anderer Text liefert keine
 --   alten Zeitsegmente, gleicher Text mit neuer Zeit bleibt neue Evidenzfassung.
+-- Korrektur 3: Patchidentitaet konsistent aufloesen. Ereignisse liegen unter der
+--   Quellen-URL, Quellzeilen unter der internen ID. capture_patch_evidence
+--   sperrt und invalidiert Entwuerfe jetzt ueber einen kanonischen Reviewschluessel
+--   (patch_<changelog_id>, aufgeloest ueber die URL). Mehrdeutige Zuordnungen
+--   bleiben sichtbar (roher Schluessel) statt nach Titel geraten zu werden.
 BEGIN;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
@@ -121,6 +128,90 @@ REVOKE ALL ON FUNCTION brain.correct_patch_knowledge_times() FROM PUBLIC;
 -- Bestehende patch_event-Materialisierungen mit der korrigierten Semantik neu
 -- berechnen (feuert den BEFORE-UPDATE-Trigger, idempotent).
 UPDATE brain.knowledge_events SET metadata = metadata WHERE event_source = 'patch_event';
+
+-- Kanonischer Reviewschluessel: Quellzeilen tragen die interne ID, Ereignisse die
+-- Quellen-URL. Beide muessen auf denselben Review zeigen. Die URL wird auf genau
+-- eine changelog-ID aufgeloest; bei 0 oder mehreren Treffern bleibt der rohe
+-- Schluessel erhalten, damit eine mehrdeutige Zuordnung sichtbar bleibt.
+CREATE OR REPLACE FUNCTION brain.patch_review_canonical_key(p_source_table text, p_payload jsonb)
+RETURNS text LANGUAGE plpgsql STABLE
+SET search_path = pg_catalog
+AS $function$
+DECLARE
+    match_count integer;
+    resolved text;
+BEGIN
+    IF p_source_table = 'changelog_posts' THEN
+        RETURN 'patch_' || (p_payload->>'id');
+    END IF;
+    SELECT count(*), min('patch_' || c.id::text)
+      INTO match_count, resolved
+      FROM patchnotes.changelog_posts c
+      WHERE c.url = p_payload->>'patch_external_id';
+    IF match_count = 1 THEN
+        RETURN resolved;
+    END IF;
+    RETURN p_payload->>'patch_external_id';
+END
+$function$;
+REVOKE ALL ON FUNCTION brain.patch_review_canonical_key(text, jsonb) FROM PUBLIC;
+
+-- capture_patch_evidence neu: identische Revisionslogik, aber Sperre und
+-- Entwurfs-Invalidierung ueber den kanonischen Reviewschluessel.
+CREATE OR REPLACE FUNCTION brain.capture_patch_evidence()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog
+SET TimeZone = 'UTC'
+AS $function$
+DECLARE
+    row_payload jsonb;
+    key_text text;
+    hash_text text;
+    new_state text;
+    previous_hash text;
+    previous_state text;
+    canonical_key text;
+BEGIN
+    IF NOT ((TG_TABLE_SCHEMA = 'brain' AND TG_TABLE_NAME = 'patch_events') OR (TG_TABLE_SCHEMA = 'patchnotes' AND TG_TABLE_NAME = 'changelog_posts')) THEN
+        RAISE EXCEPTION 'Unexpected patch evidence trigger source';
+    END IF;
+    IF TG_OP = 'DELETE' THEN
+        row_payload := to_jsonb(OLD);
+        new_state := 'deleted';
+    ELSE
+        row_payload := to_jsonb(NEW);
+        new_state := 'present';
+    END IF;
+    key_text := CASE WHEN TG_TABLE_NAME = 'patch_events'
+        THEN row_payload->>'event_hash' ELSE row_payload->>'id' END;
+    IF key_text IS NULL OR key_text = '' THEN
+        RAISE EXCEPTION 'Patch evidence requires a stable source key';
+    END IF;
+    canonical_key := brain.patch_review_canonical_key(TG_TABLE_NAME, row_payload);
+    PERFORM pg_advisory_xact_lock(hashtextextended('brain.patch_review:' || canonical_key, 0));
+    PERFORM pg_advisory_xact_lock(hashtextextended('brain.patch_evidence:' || TG_TABLE_NAME || ':' || key_text, 0));
+    hash_text := brain.patch_evidence_payload_hash(row_payload);
+    SELECT content_hash, state INTO previous_hash, previous_state
+      FROM brain.patch_evidence_revisions
+      WHERE source_table = TG_TABLE_NAME AND source_key = key_text
+      ORDER BY revision_id DESC LIMIT 1;
+    IF previous_hash IS DISTINCT FROM hash_text OR previous_state IS DISTINCT FROM new_state THEN
+        INSERT INTO brain.patch_evidence_revisions(
+            source_table, source_key, content_hash, state, observation_kind,
+            source_published_at, payload
+        ) VALUES (
+            TG_TABLE_NAME, key_text, hash_text, new_state, 'live',
+            brain.patch_evidence_timestamp(row_payload->>'posted_at'), row_payload
+        );
+        UPDATE brain.patch_review_runs SET status = 'needs_revalidation'
+          WHERE status = 'draft'
+            AND patch_external_id = canonical_key;
+    END IF;
+    IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+    RETURN NEW;
+END
+$function$;
+REVOKE ALL ON FUNCTION brain.capture_patch_evidence() FROM PUBLIC;
 
 REVOKE ALL ON brain.patch_history_v1, brain.youtube_caption_segments_v1 FROM PUBLIC;
 COMMIT;

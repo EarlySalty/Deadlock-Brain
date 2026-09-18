@@ -151,10 +151,17 @@ fn build_context(client: &mut Client, patch: &str, snapshot_limit: usize) -> Res
     ensure!(source.get("raw_content").and_then(Value::as_str).is_some_and(|text| !text.trim().is_empty()), "Original patch text is missing; translations or Creator claims are not a substitute");
     let published = source.get("source_published_at").and_then(Value::as_str).context("Patch publication timestamp is missing")?;
     chrono::DateTime::parse_from_rfc3339(published).context("Patch publication timestamp must carry a timezone")?;
-    let event_rows = tx.query("SELECT to_jsonb(pe)::text FROM brain.patch_events pe WHERE patch_external_id=$1 ORDER BY line_index,id LIMIT 5001", &[&patch])?;
+    // Ereignisse liegen unter der belegten Quellen-URL, nicht unter patch_<id>.
+    // Die interne Quell-ID und die gespeicherte URL werden nachvollziehbar
+    // aufgeloest; die gespeicherten Ereignis-IDs bleiben unveraendert.
+    let source_url = source.get("url").and_then(Value::as_str).map(str::trim).filter(|url| !url.is_empty())
+        .context("Patch source URL is missing; cannot resolve the stored event identity")?;
+    let event_rows = tx.query("SELECT to_jsonb(pe)::text FROM brain.patch_events pe WHERE patch_external_id=$1 ORDER BY line_index,id LIMIT 5001", &[&source_url])?;
     ensure!(!event_rows.is_empty() && event_rows.len() <= 5000, "Patch events missing or limit exceeded; import/parse the official patch first");
     let events = event_rows.into_iter().map(|row| serde_json::from_str::<Value>(&row.get::<_, String>(0)))
         .collect::<std::result::Result<Vec<_>, _>>()?;
+    // Items und Faehigkeiten liegen als entity_type='item_or_ability' vor; ohne
+    // diesen Typ fehlten die vorhandenen Quellen vollstaendig.
     let snapshot_rows = tx.query(r#"
         SELECT row_to_json(s)::text FROM (
             SELECT DISTINCT ON (es.source, es.entity_type, es.external_id)
@@ -162,18 +169,37 @@ fn build_context(client: &mut Client, patch: &str, snapshot_limit: usize) -> Res
                 es.payload_hash, es.payload, es.fetched_at AS observed_at, sd.url AS source_url
             FROM brain.entity_snapshots es
             JOIN brain.source_documents sd ON sd.id=es.source_document_id
-            WHERE es.entity_type IN ('hero','item','ability')
+            WHERE es.entity_type IN ('hero','item','ability','item_or_ability')
               AND sd.url LIKE 'https://assets.deadlock-api.com/%'
               AND es.fetched_at <= $1::text::timestamptz
             ORDER BY es.source, es.entity_type, es.external_id, es.fetched_at DESC, es.id DESC
         ) s ORDER BY s.entity_type,s.external_id LIMIT $2
     "#, &[&published, &(snapshot_limit as i64 + 1)])?;
-    ensure!(snapshot_rows.len() <= snapshot_limit, "Snapshot limit exceeded; refusing a silently incomplete hero/item context");
+    if snapshot_rows.len() > snapshot_limit {
+        // Kein stilles Abschneiden: den tatsaechlichen Umfang messen und mit
+        // realen Zahlen blockieren, bevor ein Modell aufgerufen wird.
+        let measured = tx.query_one(r#"
+            SELECT count(*)::bigint, COALESCE(sum(pg_column_size(t.payload)),0)::bigint FROM (
+                SELECT DISTINCT ON (es.source, es.entity_type, es.external_id)
+                    es.id, es.payload
+                FROM brain.entity_snapshots es
+                JOIN brain.source_documents sd ON sd.id=es.source_document_id
+                WHERE es.entity_type IN ('hero','item','ability','item_or_ability')
+                  AND sd.url LIKE 'https://assets.deadlock-api.com/%'
+                  AND es.fetched_at <= $1::text::timestamptz
+                ORDER BY es.source, es.entity_type, es.external_id, es.fetched_at DESC, es.id DESC
+            ) t
+        "#, &[&published])?;
+        let total: i64 = measured.get(0);
+        let payload_bytes: i64 = measured.get(1);
+        anyhow::bail!("Mechanic snapshot context exceeds the limit: {total} snapshots (~{payload_bytes} payload bytes) observed before publication, snapshot-limit={snapshot_limit}. Refusing a silently truncated context; narrow the selection conceptually instead of raising the budget.");
+    }
     let snapshots = snapshot_rows.into_iter().map(|row| serde_json::from_str::<Value>(&row.get::<_, String>(0)))
         .collect::<std::result::Result<Vec<_>, _>>()?;
     let revision = evidence_revision(&mut tx, patch)?;
     tx.commit()?;
-    Ok(json!({"source_revision_id":revision,"schema_version":1, "patch_external_id":patch, "patch_source":source,
+    Ok(json!({"source_revision_id":revision,"schema_version":1, "patch_external_id":patch,
+        "canonical_review_key":patch, "resolved_event_external_id":source_url, "patch_source":source,
         "patch_events":events, "mechanic_snapshots":snapshots,
         "snapshot_semantics":"last observed before publication, not version-attested current state; missing snapshots must remain unknown",
         "evidence_policy":{"creator_transcripts_included":false,"learned_insights_included":false,
@@ -184,7 +210,14 @@ fn build_context(client: &mut Client, patch: &str, snapshot_limit: usize) -> Res
 
 fn evidence_revision(tx: &mut postgres::Transaction<'_>, patch: &str) -> Result<i64> {
     let source_id = patch.strip_prefix("patch_").context("Invalid patch ID")?;
-    let row = tx.query_one("SELECT COALESCE(max(revision_id),0) FROM brain.patch_evidence_revisions WHERE (source_table='changelog_posts' AND source_key=$1) OR (source_table='patch_events' AND payload->>'patch_external_id'=$2)", &[&source_id,&patch])?;
+    // Kanonische Revision ueber beide Belege: die interne Quell-ID und die daraus
+    // aufgeloeste Quellen-URL, unter der die Ereignisse gespeichert sind.
+    let row = tx.query_one(
+        "SELECT COALESCE(max(revision_id),0) FROM brain.patch_evidence_revisions r \
+         WHERE (r.source_table='changelog_posts' AND r.source_key=$1) \
+            OR (r.source_table='patch_events' AND r.payload->>'patch_external_id' = \
+                 (SELECT url FROM patchnotes.changelog_posts WHERE id=$1::bigint))",
+        &[&source_id])?;
     Ok(row.get(0))
 }
 
