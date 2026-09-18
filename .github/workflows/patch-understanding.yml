@@ -156,7 +156,8 @@ jobs:
           psql -v ON_ERROR_STOP=1 -d cli_smoke_big -f scripts/migrations/2026-09-18-patch-evidence.sql
           psql -v ON_ERROR_STOP=1 -d cli_smoke_big -f scripts/migrations/2026-09-18-patch-evidence-followup.sql
           psql -v ON_ERROR_STOP=1 -d cli_smoke_big -f scripts/migrations/2026-09-18-patch-evidence-followup2.sql
-          psql -v ON_ERROR_STOP=1 -d cli_smoke_big -c "UPDATE brain.entity_snapshots SET payload = jsonb_build_object('blob', repeat('x', 900000)) WHERE canonical_name='Veil Walker'"
+          # Oversize a KEPT gameplay field (properties.*.value survives the projection), not a dropped blob.
+          psql -v ON_ERROR_STOP=1 -d cli_smoke_big -c "UPDATE brain.entity_snapshots SET payload = jsonb_build_object('name','Veil Walker','type','item_or_ability','properties', jsonb_build_object('Damage', jsonb_build_object('value', repeat('9', 900000)))) WHERE canonical_name='Veil Walker'"
           # R6 copy: the source text changed but the events still rest on the old basis snapshot.
           psql -v ON_ERROR_STOP=1 -d postgres -c "CREATE DATABASE cli_smoke_changed"
           psql -v ON_ERROR_STOP=1 -d cli_smoke_changed -f tests/patch-understanding/cli-smoke-fixture.sql

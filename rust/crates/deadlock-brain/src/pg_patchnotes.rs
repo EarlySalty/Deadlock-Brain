@@ -504,16 +504,24 @@ pub fn refresh_official(http: &HttpClient, options: &RefreshOfficialOptions) -> 
     if applied {
         // Schreibschutz 1: ohne installierte Evidenzmigration/Capture-Trigger wuerde
         // ein Overwrite die einzige alte Quellfassung unwiederbringlich zerstoeren.
+        // Der Capture-Trigger muss AKTIV genau auf patchnotes.changelog_posts liegen
+        // (tgrelid + tgenabled), nicht irgendein gleichnamiger Trigger.
         let evidence_ready: bool = client
             .query_one(
                 "SELECT to_regclass('brain.patch_evidence_revisions') IS NOT NULL \
-                 AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='brain_capture_patch_source' AND NOT tgisinternal)",
+                 AND EXISTS ( \
+                   SELECT 1 FROM pg_trigger t \
+                   JOIN pg_class c ON c.oid = t.tgrelid \
+                   JOIN pg_namespace n ON n.oid = c.relnamespace \
+                   WHERE t.tgname = 'brain_capture_patch_source' \
+                     AND n.nspname = 'patchnotes' AND c.relname = 'changelog_posts' \
+                     AND t.tgenabled <> 'D' AND NOT t.tgisinternal)",
                 &[],
             )?
             .get(0);
         ensure!(
             evidence_ready,
-            "Evidenzmigration/Capture-Trigger nicht installiert; Refresh-Write abgebrochen, um die einzige alte Quellfassung nicht zu ueberschreiben. Zuerst 2026-09-18-patch-evidence.sql anwenden."
+            "Evidenzmigration/aktiver Capture-Trigger auf patchnotes.changelog_posts nicht installiert; Refresh-Write abgebrochen, um die einzige alte Quellfassung nicht zu ueberschreiben. Zuerst 2026-09-18-patch-evidence.sql anwenden."
         );
         let mut tx = client.transaction()?;
         // Schreibschutz 2: Compare-and-Swap unter Row-Lock. Hat sich der Beitrag
@@ -590,26 +598,34 @@ pub fn refresh_official(http: &HttpClient, options: &RefreshOfficialOptions) -> 
     }))
 }
 
-// Announcement-GID aus einer steamcommunity-Announcement-URL ableiten. Prueft
-// erlaubten Steam-Host, den Deadlock-App-Pfad und ein VOLLSTAENDIGES numerisches
-// GID-Segment (nicht nur ein Ziffernpraefix).
+// Announcement-GID aus einer steamcommunity-Announcement-URL ableiten. Nutzt einen
+// echten URL-Parser und prueft Scheme, Host, Port, fehlende Zugangsdaten und die
+// PFAD-Segmente. Query/Fragment duerfen Host/App/Announcement-Pfad nie ersetzen;
+// das GID-Segment muss vollstaendig numerisch sein.
 fn extract_announcement_gid(url: &str) -> Option<String> {
-    let lower = url.to_ascii_lowercase();
-    let host_ok = lower.contains("://steamcommunity.com/")
-        || lower.contains("://store.steampowered.com/")
-        || lower.contains("://www.steamcommunity.com/");
-    if !host_ok || !lower.contains(&format!("/{STEAM_APPID}/")) {
+    let parsed = url::Url::parse(url).ok()?;
+    if parsed.scheme() != "https" && parsed.scheme() != "http" {
         return None;
     }
-    let marker = "/announcements/detail/";
-    let start = url.find(marker)? + marker.len();
-    let rest = &url[start..];
-    let segment: String = rest
-        .chars()
-        .take_while(|ch| *ch != '/' && *ch != '?' && *ch != '#')
-        .collect();
-    if !segment.is_empty() && segment.chars().all(|ch| ch.is_ascii_digit()) {
-        Some(segment)
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return None;
+    }
+    if parsed.port().is_some() {
+        return None;
+    }
+    let host = parsed.host_str()?.to_ascii_lowercase();
+    if host != "steamcommunity.com" && host != "www.steamcommunity.com" {
+        return None;
+    }
+    let segments: Vec<&str> = parsed.path_segments()?.filter(|s| !s.is_empty()).collect();
+    // erwartet: games / <appid> / announcements / detail / <gid>
+    let app = STEAM_APPID.to_string();
+    let idx = segments
+        .windows(4)
+        .position(|w| w == ["games", app.as_str(), "announcements", "detail"])?;
+    let gid = segments.get(idx + 4)?;
+    if !gid.is_empty() && gid.chars().all(|ch| ch.is_ascii_digit()) {
+        Some((*gid).to_string())
     } else {
         None
     }
@@ -3354,6 +3370,12 @@ mod tests {
         assert_eq!(extract_announcement_gid("https://evil.example/games/1422450/announcements/detail/12345"), None);
         assert_eq!(extract_announcement_gid("https://steamcommunity.com/games/1422450/announcements/detail/12ab34"), None);
         assert_eq!(extract_announcement_gid("https://steamcommunity.com/games/1422450/news"), None);
+        // an embedded steam URL in query/fragment must not pass a foreign host
+        assert_eq!(extract_announcement_gid("https://evil.example/x?u=https://steamcommunity.com/games/1422450/announcements/detail/999"), None);
+        assert_eq!(extract_announcement_gid("https://evil.example/x#https://steamcommunity.com/games/1422450/announcements/detail/999"), None);
+        // userinfo and non-default port are rejected
+        assert_eq!(extract_announcement_gid("https://user@steamcommunity.com/games/1422450/announcements/detail/123"), None);
+        assert_eq!(extract_announcement_gid("https://steamcommunity.com:8443/games/1422450/announcements/detail/123"), None);
     }
 
     #[test]
