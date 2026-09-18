@@ -141,23 +141,35 @@ jobs:
           psql -v ON_ERROR_STOP=1 -d cli_smoke -f tests/patch-understanding/cli-smoke-fixture.sql
           psql -v ON_ERROR_STOP=1 -d cli_smoke -f scripts/migrations/2026-09-18-patch-evidence.sql
           psql -v ON_ERROR_STOP=1 -d cli_smoke -f scripts/migrations/2026-09-18-patch-evidence-followup.sql
+          # Oversize copy: one referenced entity carries a payload larger than the context budget.
+          psql -v ON_ERROR_STOP=1 -d postgres -c "CREATE DATABASE cli_smoke_big"
+          psql -v ON_ERROR_STOP=1 -d cli_smoke_big -f tests/patch-understanding/cli-smoke-fixture.sql
+          psql -v ON_ERROR_STOP=1 -d cli_smoke_big -f scripts/migrations/2026-09-18-patch-evidence.sql
+          psql -v ON_ERROR_STOP=1 -d cli_smoke_big -f scripts/migrations/2026-09-18-patch-evidence-followup.sql
+          psql -v ON_ERROR_STOP=1 -d cli_smoke_big -c "UPDATE brain.entity_snapshots SET payload = jsonb_build_object('blob', repeat('x', 900000)) WHERE canonical_name='Veil Walker'"
       - name: Build and smoke the normal patch-review CLI
         working-directory: rust
-        env:
-          DEADLOCK_CENTRAL_DSN: postgres://test:test@localhost:5432/cli_smoke
         run: |
           set -euo pipefail
-          cargo +stable build --locked --package deadlock-brain --bin deadlock-brain-patch-review
+          cargo +stable build --locked --package deadlock-brain --bin deadlock-brain-patch-review --bin deadlock-brain
           BIN=target/debug/deadlock-brain-patch-review
-          # Prepare-mode context must resolve URL-based events and include item_or_ability snapshots.
-          "$BIN" review --patch patch_1 --snapshot-limit 400 > /tmp/cli-prepare.json
+          BRAIN=target/debug/deadlock-brain
+          # Prepare-mode context must resolve URL-based events, include item_or_ability, and expose the deterministic selection.
+          DEADLOCK_CENTRAL_DSN=postgres://test:test@localhost:5432/cli_smoke "$BIN" review --patch patch_1 --snapshot-limit 400 > /tmp/cli-prepare.json
           grep -q '"event_hash": "s1"' /tmp/cli-prepare.json
           grep -q '"event_hash": "s2"' /tmp/cli-prepare.json
           grep -q 'item_or_ability' /tmp/cli-prepare.json
-          echo "ok: CLI resolves URL identity and item_or_ability snapshots"
-          # An oversized snapshot context must block with measured numbers, not truncate.
-          if "$BIN" review --patch patch_1 --snapshot-limit 1 > /tmp/cli-block.json 2>/tmp/cli-block.err; then
+          grep -q 'deterministic_reference_projection_v1' /tmp/cli-prepare.json
+          grep -q '"mechanic_catalog"' /tmp/cli-prepare.json
+          echo "ok: CLI resolves URL identity, item_or_ability and deterministic selection"
+          # An oversized selected context must block with measured numbers, not truncate.
+          if DEADLOCK_CENTRAL_DSN=postgres://test:test@localhost:5432/cli_smoke_big "$BIN" review --patch patch_1 --snapshot-limit 400 > /tmp/cli-block.json 2>/tmp/cli-block.err; then
             echo "FAIL: oversized context should have blocked"; exit 1
           fi
-          grep -q 'Mechanic snapshot context exceeds the limit' /tmp/cli-block.err
-          echo "ok: oversized snapshot context blocks with a measured error"
+          grep -q 'Selected context still exceeds the safety limit' /tmp/cli-block.err
+          echo "ok: oversized selected context blocks with a measured error"
+          # Read-only revision drift check: the fixture patch has no snapshot yet, so it is new and drift is true.
+          DEADLOCK_CENTRAL_DSN=postgres://test:test@localhost:5432/cli_smoke "$BRAIN" pg sync-patchnotes --dsn-env DEADLOCK_CENTRAL_DSN > /tmp/cli-sync.json
+          grep -q '"drift":true' /tmp/cli-sync.json
+          grep -q '"mode":"check"' /tmp/cli-sync.json
+          echo "ok: revision drift check reports new sources without writing"

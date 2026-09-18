@@ -203,17 +203,35 @@ pub fn import_patchnote(http: &HttpClient, options: &ImportPatchnoteOptions) -> 
         anyhow!("Konnte zentrale Postgres-DB nicht oeffnen; DSN wird nicht ausgegeben.")
     })?;
     ensure_pg_schema(&mut client)?;
-    let patch = load_patchnote(&mut client, options.patch_id)?;
     let index = load_entity_index(&mut client)?;
+    import_one_patchnote(
+        &mut client,
+        http,
+        &index,
+        options.patch_id,
+        options.dry_run,
+        options,
+    )
+}
+
+// Revisionssicherer Import eines einzelnen Patchnote-Eintrags gegen einen
+// bereits geoeffneten Client und geladenen Entity-Index. prune + reinsert der
+// direkten Events behandelt auch nicht mehr enthaltene Events. Von
+// import_patchnote und sync_patchnotes gemeinsam genutzt, damit beide Wege
+// identisch schreiben.
+fn import_one_patchnote(
+    client: &mut Client,
+    http: &HttpClient,
+    index: &EntityIndex,
+    patch_id: i64,
+    dry_run: bool,
+    options: &ImportPatchnoteOptions,
+) -> Result<Value> {
+    let patch = load_patchnote(client, patch_id)?;
     let resolved = resolve_patch_source(http, &patch)?;
-    let prepared = prepare_patch(&patch, &resolved, &index)?;
-    if options.dry_run {
-        return Ok(summary_json(
-            true,
-            options,
-            &prepared,
-            PgWriteCounts::default(),
-        ));
+    let prepared = prepare_patch(&patch, &resolved, index)?;
+    if dry_run {
+        return Ok(summary_json(true, options, &prepared, PgWriteCounts::default()));
     }
     let mut tx = client.transaction()?;
     let run_id = begin_run(&mut tx)?;
@@ -236,6 +254,136 @@ pub fn import_patchnote(http: &HttpClient, options: &ImportPatchnoteOptions) -> 
     )?;
     tx.commit()?;
     Ok(summary_json(false, options, &prepared, counts))
+}
+
+#[derive(Debug, Clone)]
+pub struct SyncPatchnotesOptions {
+    pub dsn_env: String,
+    pub apply: bool,
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PatchnoteDrift {
+    New,
+    Changed,
+    Unchanged,
+}
+
+// Billige, rein lesende Drifterkennung: vergleicht den aktuell gespeicherten
+// raw_content jeder changelog-Zeile mit dem raw_content der zuletzt importierten
+// patchnote-Snapshotfassung. Gleiche id mit geaendertem Inhalt gilt als geaendert;
+// fehlt eine Snapshotfassung, ist die Quelle neu. So loest ein unveraenderter
+// Reimport keine teure Analyse aus, waehrend eine geaenderte Quelle erkannt wird.
+fn detect_patchnote_drift(
+    client: &mut Client,
+    limit: Option<i64>,
+) -> Result<Vec<(i64, Option<String>, PatchnoteDrift)>> {
+    let base = r#"
+        SELECT c.id, c.title, c.raw_content, s.snap_raw, COALESCE(s.present, false) AS present
+        FROM patchnotes.changelog_posts c
+        LEFT JOIN LATERAL (
+            SELECT es.payload->>'raw_content' AS snap_raw, true AS present
+            FROM brain.entity_snapshots es
+            WHERE es.source = $1 AND es.entity_type = 'patchnote'
+              AND es.payload->>'id' = c.id::text
+            ORDER BY es.fetched_at DESC, es.id DESC
+            LIMIT 1
+        ) s ON true
+        WHERE c.raw_content IS NOT NULL AND btrim(c.raw_content) <> ''
+        ORDER BY c.id
+    "#;
+    let rows = match limit {
+        Some(limit) => client.query(
+            &format!("{base} LIMIT $2"),
+            &[&SOURCE as &(dyn ToSql + Sync), &limit as &(dyn ToSql + Sync)],
+        )?,
+        None => client.query(base, &[&SOURCE as &(dyn ToSql + Sync)])?,
+    };
+    let mut result = Vec::with_capacity(rows.len());
+    for row in rows {
+        let id: i64 = row.get(0);
+        let title: Option<String> = row.get(1);
+        let current: Option<String> = row.get(2);
+        let stored: Option<String> = row.get(3);
+        let present: bool = row.get(4);
+        let drift = if !present {
+            PatchnoteDrift::New
+        } else if stored.as_deref() == current.as_deref() {
+            PatchnoteDrift::Unchanged
+        } else {
+            PatchnoteDrift::Changed
+        };
+        result.push((id, title, drift));
+    }
+    Ok(result)
+}
+
+// Batch-Sync fuer den Timerweg: erkennt neue und geaenderte Quellen und
+// importiert sie revisionssicher; unveraenderte werden uebersprungen. Im
+// Pruefmodus (apply=false) werden keine brain-Tabellen geschrieben.
+pub fn sync_patchnotes(http: &HttpClient, options: &SyncPatchnotesOptions) -> Result<Value> {
+    let dsn = env::var(&options.dsn_env).map_err(|_| {
+        anyhow!(
+            "{} ist nicht gesetzt; DSN wird nicht ausgegeben.",
+            options.dsn_env
+        )
+    })?;
+    let mut client = Client::connect(&dsn, NoTls).map_err(|_| {
+        anyhow!("Konnte zentrale Postgres-DB nicht oeffnen; DSN wird nicht ausgegeben.")
+    })?;
+    ensure_pg_schema(&mut client)?;
+    let drift = detect_patchnote_drift(&mut client, options.limit)?;
+    let new_ids: Vec<i64> = drift
+        .iter()
+        .filter(|(_, _, d)| *d == PatchnoteDrift::New)
+        .map(|(id, _, _)| *id)
+        .collect();
+    let changed_ids: Vec<i64> = drift
+        .iter()
+        .filter(|(_, _, d)| *d == PatchnoteDrift::Changed)
+        .map(|(id, _, _)| *id)
+        .collect();
+    let unchanged = drift
+        .iter()
+        .filter(|(_, _, d)| *d == PatchnoteDrift::Unchanged)
+        .count();
+    let has_drift = !new_ids.is_empty() || !changed_ids.is_empty();
+
+    if !options.apply {
+        return Ok(json!({
+            "mode": "check",
+            "checked": drift.len(),
+            "new": new_ids,
+            "changed": changed_ids,
+            "unchanged": unchanged,
+            "drift": has_drift,
+            "writes": false,
+            "semantics": "changed means same changelog id with different stored raw_content; unchanged is skipped without re-analysis",
+        }));
+    }
+
+    let index = load_entity_index(&mut client)?;
+    let mut imported = Vec::new();
+    for &id in new_ids.iter().chain(changed_ids.iter()) {
+        let options_one = ImportPatchnoteOptions {
+            patch_id: id,
+            dsn_env: options.dsn_env.clone(),
+            dry_run: false,
+        };
+        let summary = import_one_patchnote(&mut client, http, &index, id, false, &options_one)?;
+        imported.push(json!({"id": id, "summary": summary}));
+    }
+    Ok(json!({
+        "mode": "apply",
+        "checked": drift.len(),
+        "imported_new": new_ids,
+        "imported_changed": changed_ids,
+        "unchanged_skipped": unchanged,
+        "imported": imported,
+        "writes": true,
+        "semantics": "new and changed sources re-imported revision-safely (prune+reinsert removes dropped events); unchanged skipped",
+    }))
 }
 
 fn load_patchnote(client: &mut Client, patch_id: i64) -> Result<PatchnoteRow> {

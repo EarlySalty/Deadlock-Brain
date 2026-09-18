@@ -160,51 +160,134 @@ fn build_context(client: &mut Client, patch: &str, snapshot_limit: usize) -> Res
     ensure!(!event_rows.is_empty() && event_rows.len() <= 5000, "Patch events missing or limit exceeded; import/parse the official patch first");
     let events = event_rows.into_iter().map(|row| serde_json::from_str::<Value>(&row.get::<_, String>(0)))
         .collect::<std::result::Result<Vec<_>, _>>()?;
-    // Items und Faehigkeiten liegen als entity_type='item_or_ability' vor; ohne
-    // diesen Typ fehlten die vorhandenen Quellen vollstaendig.
-    let snapshot_rows = tx.query(r#"
-        SELECT row_to_json(s)::text FROM (
+    // Deterministische, nachvollziehbare Auswahl statt stiller Kürzung:
+    // Vollständige Payloads nur für die vom Patch tatsächlich referenzierten
+    // Entities (mechanic_snapshots); alle übrigen vor der Publikation beobachteten
+    // Entities bleiben als kompakter Katalog sichtbar (mechanic_catalog: nur
+    // Snapshot-ID, Typ, external_id, Name, Inhaltshash). Items und Fähigkeiten
+    // liegen als entity_type='item_or_ability' vor und sind eingeschlossen.
+    let catalog_rows = tx.query(r#"
+        SELECT s.id, s.entity_type, s.external_id, s.canonical_name, s.payload_hash, s.observed_at::text, s.source_url
+        FROM (
             SELECT DISTINCT ON (es.source, es.entity_type, es.external_id)
                 es.id, es.entity_type, es.external_id, es.canonical_name,
-                es.payload_hash, es.payload, es.fetched_at AS observed_at, sd.url AS source_url
+                es.payload_hash, es.fetched_at AS observed_at, sd.url AS source_url
             FROM brain.entity_snapshots es
             JOIN brain.source_documents sd ON sd.id=es.source_document_id
             WHERE es.entity_type IN ('hero','item','ability','item_or_ability')
               AND sd.url LIKE 'https://assets.deadlock-api.com/%'
               AND es.fetched_at <= $1::text::timestamptz
             ORDER BY es.source, es.entity_type, es.external_id, es.fetched_at DESC, es.id DESC
-        ) s ORDER BY s.entity_type,s.external_id LIMIT $2
-    "#, &[&published, &(snapshot_limit as i64 + 1)])?;
-    if snapshot_rows.len() > snapshot_limit {
-        // Kein stilles Abschneiden: den tatsaechlichen Umfang messen und mit
-        // realen Zahlen blockieren, bevor ein Modell aufgerufen wird.
-        let measured = tx.query_one(r#"
-            SELECT count(*)::bigint, COALESCE(sum(pg_column_size(t.payload)),0)::bigint FROM (
-                SELECT DISTINCT ON (es.source, es.entity_type, es.external_id)
-                    es.id, es.payload
-                FROM brain.entity_snapshots es
-                JOIN brain.source_documents sd ON sd.id=es.source_document_id
-                WHERE es.entity_type IN ('hero','item','ability','item_or_ability')
-                  AND sd.url LIKE 'https://assets.deadlock-api.com/%'
-                  AND es.fetched_at <= $1::text::timestamptz
-                ORDER BY es.source, es.entity_type, es.external_id, es.fetched_at DESC, es.id DESC
-            ) t
-        "#, &[&published])?;
-        let total: i64 = measured.get(0);
-        let payload_bytes: i64 = measured.get(1);
-        anyhow::bail!("Mechanic snapshot context exceeds the limit: {total} snapshots (~{payload_bytes} payload bytes) observed before publication, snapshot-limit={snapshot_limit}. Refusing a silently truncated context; narrow the selection conceptually instead of raising the budget.");
+        ) s ORDER BY s.entity_type, s.external_id
+    "#, &[&published])?;
+    // Referenzierte Namen aus den Events bestimmen (entity_name und subject).
+    let mut referenced_names: BTreeSet<String> = BTreeSet::new();
+    for event in &events {
+        for key in ["entity_name", "subject"] {
+            if let Some(name) = event.get(key).and_then(Value::as_str) {
+                let norm = normalize_reference(name);
+                if !norm.is_empty() {
+                    referenced_names.insert(norm);
+                }
+            }
+        }
     }
-    let snapshots = snapshot_rows.into_iter().map(|row| serde_json::from_str::<Value>(&row.get::<_, String>(0)))
-        .collect::<std::result::Result<Vec<_>, _>>()?;
+    struct CatalogEntry { id: i64, entity_type: String, external_id: Option<String>, canonical_name: Option<String>, payload_hash: Option<String>, observed_at: Option<String>, source_url: Option<String>, referenced: bool }
+    let catalog: Vec<CatalogEntry> = catalog_rows.iter().map(|row| {
+        let entity_type: String = row.get(1);
+        let external_id: Option<String> = row.get(2);
+        let canonical_name: Option<String> = row.get(3);
+        let referenced = reference_matches(&referenced_names, canonical_name.as_deref(), external_id.as_deref());
+        CatalogEntry { id: row.get(0), entity_type, external_id, canonical_name, payload_hash: row.get(4), observed_at: row.get(5), source_url: row.get(6), referenced }
+    }).collect();
+    let detail_ids: Vec<i64> = catalog.iter().filter(|entry| entry.referenced).map(|entry| entry.id).collect();
+    // Vollständige Payloads nur für die referenzierten Entities laden; jeder Wert
+    // behält Snapshot-ID, Inhaltshash und JSON-Pfad. Unbestätigte Vorversion bleibt
+    // unbekannt; kein String-Kürzen innerhalb eines Belegs.
+    let detail_rows = tx.query(r#"
+        SELECT es.id, es.entity_type, es.external_id, es.canonical_name, es.payload_hash,
+               es.payload::text, es.fetched_at::text AS observed_at, sd.url AS source_url
+        FROM brain.entity_snapshots es
+        JOIN brain.source_documents sd ON sd.id=es.source_document_id
+        WHERE es.id = ANY($1)
+        ORDER BY es.entity_type, es.external_id
+    "#, &[&detail_ids])?;
+    let mechanic_snapshots: Vec<Value> = detail_rows.iter().enumerate().map(|(idx, row)| {
+        let id: i64 = row.get(0);
+        let payload: Value = serde_json::from_str::<Value>(&row.get::<_, String>(5)).unwrap_or(Value::Null);
+        json!({
+            "id": id,
+            "entity_type": row.get::<_, String>(1),
+            "external_id": row.get::<_, Option<String>>(2),
+            "canonical_name": row.get::<_, Option<String>>(3),
+            "payload_hash": row.get::<_, Option<String>>(4),
+            "content_hash": row.get::<_, Option<String>>(4),
+            "observed_at": row.get::<_, Option<String>>(6),
+            "source_url": row.get::<_, Option<String>>(7),
+            "payload": payload,
+            "json_path": format!("mechanic_snapshots[{idx}].payload"),
+            "prior_version": "unknown"
+        })
+    }).collect();
+    let mechanic_catalog: Vec<Value> = catalog.iter().map(|entry| json!({
+        "id": entry.id,
+        "entity_type": entry.entity_type,
+        "external_id": entry.external_id,
+        "canonical_name": entry.canonical_name,
+        "content_hash": entry.payload_hash,
+        "observed_at": entry.observed_at,
+        "source_url": entry.source_url,
+        "detail_included": entry.referenced
+    })).collect();
     let revision = evidence_revision(&mut tx, patch)?;
     tx.commit()?;
-    Ok(json!({"source_revision_id":revision,"schema_version":1, "patch_external_id":patch,
+    let context = json!({"source_revision_id":revision,"schema_version":1, "patch_external_id":patch,
         "canonical_review_key":patch, "resolved_event_external_id":source_url, "patch_source":source,
-        "patch_events":events, "mechanic_snapshots":snapshots,
-        "snapshot_semantics":"last observed before publication, not version-attested current state; missing snapshots must remain unknown",
+        "patch_events":events, "mechanic_snapshots":mechanic_snapshots, "mechanic_catalog":mechanic_catalog,
+        "context_selection":{
+            "selection_version":"deterministic_reference_projection_v1",
+            "scope":{"available_entities":catalog.len(),"detail_entities":detail_ids.len(),"catalog_only_entities":catalog.len()-detail_ids.len(),"referenced_names":referenced_names.len()},
+            "detail_rule":"full payload for entities whose canonical_name or external_id is referenced by a patch event (entity_name or subject), normalized",
+            "excluded":"non-referenced entities are reduced to a catalog entry (id, type, external_id, name, content_hash); reason: not referenced by this patch, full payload omitted to stay within the context budget",
+            "traceability":"each detail value keeps snapshot id, content_hash and json_path; no value is string-truncated",
+            "snapshot_limit_hint":snapshot_limit,
+            "open_dimension_problem":"a patch may reference more full payloads than fit the budget; per-field gameplay projection is not implemented and stays explicitly open"
+        },
+        "snapshot_semantics":"last observed before publication, not version-attested current state; missing snapshots must remain unknown; unconfirmed prior versions stay unknown",
         "evidence_policy":{"creator_transcripts_included":false,"learned_insights_included":false,
             "patch_event_numbers":"parser output; check against raw_content",
-            "coverage":"full stored raw_content, all stored events; source and parser completeness not independently certified"}}))
+            "coverage":"full stored raw_content, all stored events; source and parser completeness not independently certified"}});
+    // Gemessener Blocker vor jedem Modellaufruf, kein stilles Abschneiden.
+    let context_bytes = serde_json::to_string(&context)?.len();
+    if context_bytes > MAX_CONTEXT_BYTES {
+        let detail_bytes: usize = mechanic_snapshots.iter().map(|value| serde_json::to_string(value).map(|text| text.len()).unwrap_or(0)).sum();
+        let catalog_bytes: usize = serde_json::to_string(&mechanic_catalog)?.len();
+        anyhow::bail!("Selected context still exceeds the safety limit: {context_bytes} bytes total (detail {detail_bytes} bytes across {} entities, catalog {catalog_bytes} bytes across {} entities, limit {MAX_CONTEXT_BYTES}). Refusing a silently truncated context; the per-field gameplay projection remains the explicit open dimension problem.", detail_ids.len(), catalog.len());
+    }
+    Ok(context)
+}
+
+// Normalisierung fuer den Referenzabgleich: klein, Whitespace zusammengefasst.
+fn normalize_reference(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+}
+
+// Referenziert, wenn der normalisierte canonical_name oder external_id exakt einem
+// Event-Namen entspricht oder ein Event-Name als ganzes Wort im Namen vorkommt.
+fn reference_matches(names: &BTreeSet<String>, canonical_name: Option<&str>, external_id: Option<&str>) -> bool {
+    let candidates: Vec<String> = [canonical_name, external_id].into_iter().flatten().map(normalize_reference).filter(|value| !value.is_empty()).collect();
+    for candidate in &candidates {
+        if names.contains(candidate) {
+            return true;
+        }
+        let padded = format!(" {candidate} ");
+        for name in names {
+            if padded.contains(&format!(" {name} ")) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 
@@ -278,4 +361,29 @@ mod tests {
     #[test] fn missing_knowledge_is_explicit() { let mut r=review(); r.findings.clear(); assert!(validate_review(&r,&context()).is_err()); r.unresolved.push("Mechanic missing".into()); validate_review(&r,&context()).unwrap(); }
     #[test] fn storyboard_cannot_claim_video_evidence() { let s=storyboard(&review(), &context()); assert_eq!(s["status"],"draft_not_rendered_not_published"); assert!(s["chapters"][0]["video_timestamp"].is_null()); }
     #[test] fn prompts_do_not_load_creator_content() { assert!(!SYSTEM_PROMPT.contains("ZWm7ixeWjbQ")); assert!(!SYSTEM_PROMPT.contains("HERESY")); }
+
+    #[test]
+    fn reference_matches_by_exact_name_and_whole_word() {
+        let mut names = BTreeSet::new();
+        names.insert("veil walker".to_string());
+        names.insert("abrams".to_string());
+        // exact canonical_name match
+        assert!(reference_matches(&names, Some("Veil Walker"), None));
+        // whole-word containment (event "Abrams" references "Abrams Gun")
+        assert!(reference_matches(&names, Some("Abrams Gun"), None));
+        // external_id match
+        assert!(reference_matches(&names, Some("Unrelated"), Some("abrams")));
+    }
+
+    #[test]
+    fn reference_matches_rejects_unreferenced_and_partial_words() {
+        let mut names = BTreeSet::new();
+        names.insert("abrams".to_string());
+        // an unrelated entity is not referenced
+        assert!(!reference_matches(&names, Some("Bebop"), Some("bebop")));
+        // a substring that is not a whole word must not match ("abram" != "abrams")
+        let mut partial = BTreeSet::new();
+        partial.insert("abram".to_string());
+        assert!(!reference_matches(&partial, Some("Abrams"), None));
+    }
 }
