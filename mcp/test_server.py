@@ -79,6 +79,34 @@ def test_query_rows_sends_sql_via_stdin_for_psql_variables():
     assert "SELECT 1 AS ok LIMIT :limit" in kwargs["input"]
 
 
+def test_patch_history_v1_routes_through_rust_cli_with_mapped_args():
+    server = load_server()
+    calls = []
+    original = server._run_patch_history_cli
+    try:
+        server._run_patch_history_cli = lambda args: calls.append(args) or {"hits": [], "source": "brain.patch_history_v1"}
+        out = server.patch_history_v1(query="cooldown", entity="Veil Walker", known_at="2026-09-16T00:00:00Z", limit=5)
+    finally:
+        server._run_patch_history_cli = original
+
+    assert out["source"] == "brain.patch_history_v1"
+    args = calls[0]
+    assert args[:2] == ["--query", "cooldown"]
+    assert "--entity" in args and args[args.index("--entity") + 1] == "Veil Walker"
+    assert "--known-at" in args and args[args.index("--known-at") + 1] == "2026-09-16T00:00:00Z"
+    # limit is capped and passed through
+    assert "--limit" in args and args[args.index("--limit") + 1] == "5"
+
+
+def test_patch_history_v1_rejects_empty_query():
+    server = load_server()
+    try:
+        server.patch_history_v1(query="   ")
+    except ValueError:
+        return
+    raise AssertionError("empty query must be rejected")
+
+
 def test_live_contract_if_deadlock_central_dsn_is_present():
     if not os.environ.get("DEADLOCK_CENTRAL_DSN"):
         print("SKIP live DB: DEADLOCK_CENTRAL_DSN nicht gesetzt")
