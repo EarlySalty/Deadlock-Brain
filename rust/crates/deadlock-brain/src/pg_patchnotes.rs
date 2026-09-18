@@ -279,26 +279,31 @@ fn detect_patchnote_drift(
     client: &mut Client,
     limit: Option<i64>,
 ) -> Result<Vec<(i64, Option<String>, PatchnoteDrift)>> {
+    // R6: Nicht irgendein Quellsnapshot zaehlt, sondern die Fassung, auf der die
+    // aktiven Events beruhen (patch_snapshot_id der Events dieser Quelle). Der Timer
+    // schreibt den Rohsnapshot vor dem Parsen; ein neuer Snapshot bei alten Events
+    // muss als geaendert erkannt werden. Fehlt eine Eventbasis, ist die Quelle neu.
     let base = r#"
-        SELECT c.id, c.title, c.raw_content, s.snap_raw, COALESCE(s.present, false) AS present
+        SELECT c.id, c.title, c.raw_content, s.snap_raw, (s.snap_raw IS NOT NULL) AS present
         FROM patchnotes.changelog_posts c
         LEFT JOIN LATERAL (
-            SELECT es.payload->>'raw_content' AS snap_raw, true AS present
-            FROM brain.entity_snapshots es
-            WHERE es.source = $1 AND es.entity_type = 'patchnote'
-              AND es.payload->>'id' = c.id::text
-            ORDER BY es.fetched_at DESC, es.id DESC
-            LIMIT 1
+            SELECT bs.payload->>'raw_content' AS snap_raw
+            FROM brain.entity_snapshots bs
+            WHERE bs.id = (
+                SELECT max(pe.patch_snapshot_id)
+                FROM brain.patch_events pe
+                WHERE pe.patch_external_id = c.url
+            )
         ) s ON true
         WHERE c.raw_content IS NOT NULL AND btrim(c.raw_content) <> ''
         ORDER BY c.id
     "#;
     let rows = match limit {
         Some(limit) => client.query(
-            &format!("{base} LIMIT $2"),
-            &[&SOURCE as &(dyn ToSql + Sync), &limit as &(dyn ToSql + Sync)],
+            &format!("{base} LIMIT $1"),
+            &[&limit as &(dyn ToSql + Sync)],
         )?,
-        None => client.query(base, &[&SOURCE as &(dyn ToSql + Sync)])?,
+        None => client.query(base, &[])?,
     };
     let mut result = Vec::with_capacity(rows.len());
     for row in rows {

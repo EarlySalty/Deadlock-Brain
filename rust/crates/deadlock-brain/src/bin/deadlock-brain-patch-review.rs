@@ -160,6 +160,23 @@ fn build_context(client: &mut Client, patch: &str, snapshot_limit: usize) -> Res
     ensure!(!event_rows.is_empty() && event_rows.len() <= 5000, "Patch events missing or limit exceeded; import/parse the official patch first");
     let events = event_rows.into_iter().map(|row| serde_json::from_str::<Value>(&row.get::<_, String>(0)))
         .collect::<std::result::Result<Vec<_>, _>>()?;
+    // R6: Quelle und Eventbasis muessen zusammengehoeren. Der Timer schreibt den
+    // Quellsnapshot vor dem Parsen; ein neuer Rohsnapshot bei alten Events ergaebe
+    // einen widerspruechlichen Kontext (neue Originalfassung, alte Eventzeile).
+    // Deshalb vor jedem Modellaufruf pruefen, dass der raw_content der Snapshot-
+    // Fassung, auf der die Events beruhen, mit dem aktuellen Quelltext uebereinstimmt.
+    let source_raw = source.get("raw_content").and_then(Value::as_str).unwrap_or_default();
+    let basis_raw: Option<Option<String>> = tx.query_opt(
+        "SELECT s.payload->>'raw_content' FROM brain.entity_snapshots s \
+         WHERE s.id = (SELECT max(patch_snapshot_id) FROM brain.patch_events WHERE patch_external_id=$1)",
+        &[&source_url],
+    )?.map(|row| row.get(0));
+    if let Some(basis_raw) = basis_raw {
+        let basis_raw = basis_raw.unwrap_or_default();
+        if basis_raw != source_raw {
+            anyhow::bail!("Source revision and event basis disagree: the stored patch text differs from the snapshot the events were parsed from. Re-run the identity-checked source refresh and sync before analysis; refusing a contradictory context (no model call).");
+        }
+    }
     // Deterministische, nachvollziehbare Gameplay-Projektion statt stiller Kürzung.
     // Voller Patchtext und alle Events bleiben. Fuer jede vor der Publikation
     // beobachtete Entity werden nur Metadaten geladen; volle Payloads nur fuer die
