@@ -1,7 +1,7 @@
 CREATE SCHEMA brain;
 CREATE SCHEMA patchnotes;
 CREATE TABLE brain.youtube_videos(video_id text PRIMARY KEY, metadata jsonb DEFAULT '{}');
-CREATE TABLE brain.youtube_transcripts(video_id text PRIMARY KEY, source_kind text NOT NULL);
+CREATE TABLE brain.youtube_transcripts(video_id text PRIMARY KEY, source_kind text NOT NULL, transcript_text text, content_hash text);
 CREATE TABLE patchnotes.changelog_posts(id bigint PRIMARY KEY, title text, url text, posted_at timestamptz, raw_content text);
 CREATE TABLE brain.patch_events(
     id bigserial PRIMARY KEY, event_hash text UNIQUE NOT NULL, patch_external_id text,

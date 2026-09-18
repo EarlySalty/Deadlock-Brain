@@ -23,10 +23,11 @@ BEGIN
     ASSERT (SELECT state FROM brain.patch_evidence_revisions WHERE source_table='patch_events' ORDER BY revision_id DESC LIMIT 1)='deleted';
     ASSERT (SELECT count(*) FROM brain.patch_history_v1 WHERE raw_line='Synthetic 35 to 40')=1;
     INSERT INTO brain.youtube_videos VALUES('test_video','{"transcript_evidence_hash":"raw2"}');
-    INSERT INTO brain.youtube_transcripts VALUES('test_video','youtube_caption_manual');
+    INSERT INTO brain.youtube_transcripts(video_id,source_kind,transcript_text)
+    VALUES('test_video','youtube_caption_manual','same text');
     INSERT INTO brain.youtube_transcript_evidence(video_id,raw_sha256,text_sha256,language,source_kind,raw_caption_json,segments)
-    VALUES('test_video','raw1','same-text','en','youtube_caption_manual','{}','[{"source_event_index":0,"start_ms":100,"end_ms":200,"text":"same text","pieces":[]}]'),
-          ('test_video','raw2','same-text','en','youtube_caption_manual','{}','[{"source_event_index":0,"start_ms":300,"end_ms":null,"text":"same text","pieces":[]}]');
+    VALUES('test_video','raw1',encode(sha256(convert_to('same text','UTF8')),'hex'),'en','youtube_caption_manual','{}','[{"source_event_index":0,"start_ms":100,"end_ms":200,"text":"same text","pieces":[]}]'),
+          ('test_video','raw2',encode(sha256(convert_to('same text','UTF8')),'hex'),'en','youtube_caption_manual','{}','[{"source_event_index":0,"start_ms":300,"end_ms":null,"text":"same text","pieces":[]}]');
     ASSERT (SELECT count(*) FROM brain.youtube_transcript_evidence)=2;
     ASSERT (SELECT start_ms FROM brain.youtube_caption_segments_v1)=300;
     ASSERT (SELECT end_ms IS NULL FROM brain.youtube_caption_segments_v1);
