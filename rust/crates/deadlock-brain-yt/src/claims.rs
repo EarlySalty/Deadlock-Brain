@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx::postgres::PgPool;
+use sqlx::Row;
 
 use crate::queue::Video;
 
@@ -176,36 +177,43 @@ pub async fn save_claims(
 }
 
 pub async fn query_claims(pool: &PgPool, entity: &str) -> anyhow::Result<Vec<ClaimRow>> {
-    let rows = sqlx::query!(
+    // Consumer-Revalidierung: Claims eines Videos, dessen Caption-/Claim-Evidenz sich
+    // geaendert hat (metadata.needs_claim_revalidation), duerfen NICHT als aktuelles
+    // verifiziertes Wissen ausgegeben werden, bis eine erneute Verifikation lief.
+    // Historische Quellenfakten bleiben in der revisionssicheren Patchhistorie lesbar;
+    // hier wird nichts geloescht, nur die aktuelle Antwort gefiltert. Laufzeitabfrage,
+    // damit die zusaetzliche Bedingung keinen sqlx-Offline-Cache braucht.
+    let rows = sqlx::query(
         r#"
-        SELECT c.entity_name AS "entity!", c.claim_type, c.claim_text,
+        SELECT c.entity_name, c.claim_type, c.claim_text,
                c.model_confidence, v.channel_title,
-               v.published_at::text AS "published_at?", v.title, v.url
+               v.published_at::text AS published_at, v.title, v.url
         FROM brain.youtube_learning_claims c
         JOIN brain.youtube_videos v ON v.video_id=c.video_id
         WHERE lower(c.entity_name)=lower($1)
           AND c.prompt_version=$2
           AND COALESCE(c.model, '')=COALESCE($3, '')
+          AND COALESCE(v.metadata->>'needs_claim_revalidation','') <> 'true'
         ORDER BY v.published_at DESC NULLS LAST, c.created_at DESC
         "#,
-        entity,
-        PROMPT_VERSION,
-        MODEL,
     )
+    .bind(entity)
+    .bind(PROMPT_VERSION)
+    .bind(MODEL)
     .fetch_all(pool)
     .await?;
 
     Ok(rows
         .into_iter()
         .map(|row| ClaimRow {
-            entity: row.entity,
-            claim_type: row.claim_type,
-            assertion: row.claim_text,
-            confidence: row.model_confidence,
-            source_channel: row.channel_title,
-            published_at: row.published_at,
-            video_title: row.title,
-            url: row.url,
+            entity: row.get("entity_name"),
+            claim_type: row.get("claim_type"),
+            assertion: row.get("claim_text"),
+            confidence: row.get("model_confidence"),
+            source_channel: row.get("channel_title"),
+            published_at: row.get("published_at"),
+            video_title: row.get("title"),
+            url: row.get("url"),
         })
         .collect())
 }
@@ -316,5 +324,130 @@ mod tests {
         assert!(walker
             .iter()
             .all(|row| row.entity.eq_ignore_ascii_case("Walker")));
+    }
+
+    // Deterministischer Query-/Filtervertrag mit eigenen Fixturezeilen (ersetzt die
+    // Paritaet nicht, deckt aber den Filter unabhaengig vom historischen Snapshot ab).
+    #[tokio::test]
+    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+    async fn query_claims_filters_by_entity_prompt_version_and_model_pg() {
+        let Some(pool) = crate::testutil::test_pool().await else {
+            return;
+        };
+        let suffix = crate::testutil::unique_suffix();
+        let feed = format!("ztest_feed_{suffix}");
+        let video = format!("ztest_qc_{suffix}");
+        crate::testutil::seed_feed(&pool, &feed).await;
+        crate::testutil::seed_video(
+            &pool,
+            &video,
+            &feed,
+            "ready",
+            "queued",
+            Some("2026-06-01T00:00:00Z"),
+            "{}",
+        )
+        .await;
+        let entity = format!("ZTestHero_{suffix}");
+        // passend
+        crate::testutil::insert_entity_claim(
+            &pool,
+            &video,
+            &format!("h_ok_{suffix}"),
+            &entity,
+            PROMPT_VERSION,
+            MODEL,
+        )
+        .await;
+        // falsche prompt_version
+        crate::testutil::insert_entity_claim(
+            &pool,
+            &video,
+            &format!("h_pv_{suffix}"),
+            &entity,
+            "other_prompt",
+            MODEL,
+        )
+        .await;
+        // falsches Modell
+        crate::testutil::insert_entity_claim(
+            &pool,
+            &video,
+            &format!("h_md_{suffix}"),
+            &entity,
+            PROMPT_VERSION,
+            "other-model",
+        )
+        .await;
+
+        let rows = query_claims(&pool, &entity).await.expect("query");
+        assert_eq!(rows.len(), 1, "nur prompt_version+model-passende Claims");
+        assert!(rows[0].entity.eq_ignore_ascii_case(&entity));
+
+        crate::testutil::cleanup(&pool, &[&video], &[&feed]).await;
+    }
+
+    // Consumer-Revalidierung: ein Video mit needs_claim_revalidation darf keine
+    // Claims als aktuelles Wissen liefern; ein sauberes Video weiterhin schon.
+    #[tokio::test]
+    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+    async fn query_claims_excludes_revalidation_flagged_videos_pg() {
+        let Some(pool) = crate::testutil::test_pool().await else {
+            return;
+        };
+        let suffix = crate::testutil::unique_suffix();
+        let feed = format!("ztest_feed_{suffix}");
+        let clean = format!("ztest_clean_{suffix}");
+        let stale = format!("ztest_stale_{suffix}");
+        let entity = format!("ZTestReval_{suffix}");
+        crate::testutil::seed_feed(&pool, &feed).await;
+        crate::testutil::seed_video(
+            &pool,
+            &clean,
+            &feed,
+            "ready",
+            "queued",
+            Some("2026-06-01T00:00:00Z"),
+            "{}",
+        )
+        .await;
+        crate::testutil::seed_video(
+            &pool,
+            &stale,
+            &feed,
+            "ready",
+            "queued",
+            Some("2026-06-02T00:00:00Z"),
+            r#"{"needs_claim_revalidation":true}"#,
+        )
+        .await;
+        crate::testutil::insert_entity_claim(
+            &pool,
+            &clean,
+            &format!("c_ok_{suffix}"),
+            &entity,
+            PROMPT_VERSION,
+            MODEL,
+        )
+        .await;
+        crate::testutil::insert_entity_claim(
+            &pool,
+            &stale,
+            &format!("c_stale_{suffix}"),
+            &entity,
+            PROMPT_VERSION,
+            MODEL,
+        )
+        .await;
+
+        let rows = query_claims(&pool, &entity).await.expect("query");
+        assert_eq!(
+            rows.len(),
+            1,
+            "revalidierungsbeduerftiges Video ausgeschlossen"
+        );
+        assert_eq!(rows[0].url, format!("https://youtube.com/watch?v={clean}"));
+
+        crate::testutil::cleanup(&pool, &[&clean, &stale], &[&feed]).await;
     }
 }

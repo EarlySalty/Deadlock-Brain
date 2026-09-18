@@ -13,7 +13,12 @@ on:
       - 'scripts/migrations/2026-09-18-patch-evidence-followup2.sql'
       - 'rust/crates/deadlock-brain/src/pg_patchnotes.rs'
       - 'rust/crates/deadlock-brain/src/main.rs'
+      - 'rust/crates/deadlock-brain-yt/src/claims.rs'
+      - 'rust/crates/deadlock-brain-yt/src/queue.rs'
+      - 'rust/crates/deadlock-brain-yt/src/transcript_claims.rs'
+      - 'rust/crates/dbrain-retrieval/src/lib.rs'
       - 'tests/patch-understanding/**'
+      - 'tests/yt-contract/**'
       - '.github/workflows/patch-understanding.yml'
 permissions:
   contents: read
@@ -205,3 +210,40 @@ jobs:
           DEADLOCK_CENTRAL_DSN=postgres://test:test@localhost:5432/cli_smoke "$BRAIN" pg sync-patchnotes --dsn-env DEADLOCK_CENTRAL_DSN > /tmp/cli-sync-nullbasis.json
           jq -e '.drift==true and (.changed==[1])' /tmp/cli-sync-nullbasis.json >/dev/null
           echo "ok: a missing event basis is treated as drift, not unchanged"
+  yt-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: brain_completion_yt
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      SQLX_OFFLINE: 'true'
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: test
+      PGPASSWORD: test
+      PGDATABASE: brain_completion_yt
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain
+        run: rustup toolchain install stable --profile minimal
+      - name: Provision isolated YT scratch schema
+        run: psql -v ON_ERROR_STOP=1 -f tests/yt-contract/scratch-schema.sql
+      - name: Run the YT database contract tests against the isolated scratch schema
+        working-directory: rust
+        env:
+          DEADLOCK_CENTRAL_DSN: postgres://test:test@localhost:5432/brain_completion_yt
+        run: >-
+          cargo +stable test --locked --package deadlock-brain-yt --bin deadlock-brain-yt --
+          --ignored --test-threads=1
+          queue::tests::select_next_videos_and_mark_status_round_trip_pg
+          transcript_claims::tests::ingest_inserts_maps_verdicts_and_is_idempotent_pg
+          transcript_claims::tests::prepare_selects_untreated_verbal_video_then_excludes_it_pg
+          claims::tests::query_claims_filters_by_entity_prompt_version_and_model_pg
+          claims::tests::query_claims_excludes_revalidation_flagged_videos_pg

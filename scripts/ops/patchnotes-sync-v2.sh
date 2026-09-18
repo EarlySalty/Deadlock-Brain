@@ -28,9 +28,19 @@ fi
 "$BRAIN_BIN" pull patchnotes
 
 # 2. Inhalts-/Eventbasis-Drift rein lesend pruefen. Kein Drift -> kein teurer Lauf.
-check_json="$("$BRAIN_BIN" pg sync-patchnotes --dsn-env DEADLOCK_CENTRAL_DSN)"
-drift="$(printf '%s' "$check_json" | jq -r '.drift')"
+#    Fehler muessen sichtbar sein: eine fehlgeschlagene oder formwidrige Pruefung
+#    darf niemals als "kein Drift" (frischer Erfolg) durchgehen.
+if ! check_json="$("$BRAIN_BIN" pg sync-patchnotes --dsn-env DEADLOCK_CENTRAL_DSN)"; then
+  echo "patchnotes-sync-v2: Drift-Pruefung fehlgeschlagen; Abbruch." >&2
+  exit 1
+fi
 echo "patchnotes-sync-v2: $check_json"
+# Antwortform validieren, sonst hart abbrechen (kein stiller Weiterlauf).
+if ! printf '%s' "$check_json" | jq -e '.mode=="check" and (.drift|type=="boolean")' >/dev/null; then
+  echo "patchnotes-sync-v2: unerwartete Antwortform der Drift-Pruefung; Abbruch." >&2
+  exit 1
+fi
+drift="$(printf '%s' "$check_json" | jq -r '.drift')"
 
 if [[ "$drift" != "true" ]]; then
   echo "patchnotes-sync-v2: keine Drift, kein Reimport."
