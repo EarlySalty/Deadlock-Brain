@@ -7,7 +7,9 @@ on:
       - 'rust/crates/deadlock-brain/src/pg_insights.rs'
       - 'rust/crates/deadlock-brain/src/bin/deadlock-brain-patch-review.rs'
       - 'rust/crates/deadlock-brain-yt/src/transcripts.rs'
+      - 'rust/crates/deadlock-brain-yt/src/testutil.rs'
       - 'scripts/migrations/2026-09-18-patch-evidence.sql'
+      - 'scripts/migrations/2026-09-18-patch-evidence-followup.sql'
       - 'tests/patch-understanding/**'
       - '.github/workflows/patch-understanding.yml'
 permissions:
@@ -59,15 +61,74 @@ jobs:
       PGDATABASE: evidence_test
     steps:
       - uses: actions/checkout@v4
-      - name: Create isolated fixture
-        run: psql -v ON_ERROR_STOP=1 -f tests/patch-understanding/schema-fixture.sql
-      - name: Apply migration and test history semantics
+      - name: Evidence semantics on both migrations
         run: |
-          psql -v ON_ERROR_STOP=1 -f scripts/migrations/2026-09-18-patch-evidence.sql
-          psql -v ON_ERROR_STOP=1 -f tests/patch-understanding/schema-assertions.sql
-      - name: Migration is idempotent
-        run: |
-          before=$(psql -Atc 'select count(*) from brain.patch_evidence_revisions')
-          psql -v ON_ERROR_STOP=1 -f scripts/migrations/2026-09-18-patch-evidence.sql
-          after=$(psql -Atc 'select count(*) from brain.patch_evidence_revisions')
+          set -euo pipefail
+          FIX=tests/patch-understanding/schema-fixture.sql
+          OLD=scripts/migrations/2026-09-18-patch-evidence.sql
+          NEW=scripts/migrations/2026-09-18-patch-evidence-followup.sql
+          EXIST=tests/patch-understanding/schema-assertions.sql
+          HIST=tests/patch-understanding/followup-history-assertions.sql
+          CAP=tests/patch-understanding/followup-caption-assertions.sql
+
+          mkdb() { psql -v ON_ERROR_STOP=1 -d postgres -c "DROP DATABASE IF EXISTS $1" >/dev/null; psql -v ON_ERROR_STOP=1 -d postgres -c "CREATE DATABASE $1" >/dev/null; }
+          run() { psql -v ON_ERROR_STOP=1 -d "$1" -f "$2" >/dev/null; }
+          expect_fail() { if psql -v ON_ERROR_STOP=1 -d "$1" -f "$2" >/dev/null 2>&1; then echo "FAIL: $2 should error on $1"; exit 1; fi; echo "ok: $2 correctly fails on $1"; }
+
+          # Baseline: the original migration keeps its current behaviour and is idempotent.
+          mkdb base; run base "$FIX"; run base "$OLD"; run base "$EXIST"
+          before=$(psql -Atd base -c 'select count(*) from brain.patch_evidence_revisions')
+          run base "$OLD"
+          after=$(psql -Atd base -c 'select count(*) from brain.patch_evidence_revisions')
           test "$before" = "$after"
+
+          # Regression proof: the old migration alone fails the new assertions.
+          mkdb histold; run histold "$FIX"; run histold "$OLD"; expect_fail histold "$HIST"
+          mkdb capold; run capold "$FIX"; run capold "$OLD"; expect_fail capold "$CAP"
+
+          # Full fix: old + followup migration passes every assertion suite (each on a fresh DB).
+          for pair in "existing:$EXIST" "history:$HIST" "caption:$CAP"; do
+            name=${pair%%:*}; suite=${pair#*:}
+            mkdb "full_$name"; run "full_$name" "$FIX"; run "full_$name" "$OLD"; run "full_$name" "$NEW"; run "full_$name" "$suite"
+          done
+
+          # The followup migration is itself idempotent.
+          mkdb idem; run idem "$FIX"; run idem "$OLD"; run idem "$NEW"
+          b=$(psql -Atd idem -c 'select count(*) from brain.patch_evidence_revisions')
+          run idem "$NEW"
+          a=$(psql -Atd idem -c 'select count(*) from brain.patch_evidence_revisions')
+          test "$b" = "$a"
+  caption-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: caption_scratch
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      SQLX_OFFLINE: 'true'
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: test
+      PGPASSWORD: test
+      PGDATABASE: caption_scratch
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain
+        run: rustup toolchain install stable --profile minimal
+      - name: Provision scratch schema and both migrations
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f tests/patch-understanding/caption-scratch-schema.sql
+          psql -v ON_ERROR_STOP=1 -f scripts/migrations/2026-09-18-patch-evidence.sql
+          psql -v ON_ERROR_STOP=1 -f scripts/migrations/2026-09-18-patch-evidence-followup.sql
+      - name: Run the ignored caption integration test for real
+        working-directory: rust
+        env:
+          DEADLOCK_CENTRAL_DSN: postgres://test:test@localhost:5432/caption_scratch
+        run: cargo +stable test --locked --package deadlock-brain-yt --bin deadlock-brain-yt -- --ignored --exact transcripts::tests::save_transcript_is_idempotent_and_sets_ready_pg
