@@ -199,3 +199,8 @@ jobs:
           fi
           grep -q 'Source revision and event basis disagree' /tmp/cli-r6.err
           echo "ok: R6 blocks a contradictory context and drift flags the changed source"
+          # R6 contract in drift: a missing/mixed event basis must count as drift even if the text matches.
+          psql -v ON_ERROR_STOP=1 -d cli_smoke -c "UPDATE brain.patch_events SET patch_snapshot_id=NULL WHERE event_hash='s2'"
+          DEADLOCK_CENTRAL_DSN=postgres://test:test@localhost:5432/cli_smoke "$BRAIN" pg sync-patchnotes --dsn-env DEADLOCK_CENTRAL_DSN > /tmp/cli-sync-nullbasis.json
+          jq -e '.drift==true and (.changed==[1])' /tmp/cli-sync-nullbasis.json >/dev/null
+          echo "ok: a missing event basis is treated as drift, not unchanged"

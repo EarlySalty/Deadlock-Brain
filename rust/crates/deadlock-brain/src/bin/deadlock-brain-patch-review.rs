@@ -165,18 +165,28 @@ fn build_context(client: &mut Client, patch: &str, snapshot_limit: usize) -> Res
     // einen widerspruechlichen Kontext (neue Originalfassung, alte Eventzeile).
     // Deshalb vor jedem Modellaufruf pruefen, dass der raw_content der Snapshot-
     // Fassung, auf der die Events beruhen, mit dem aktuellen Quelltext uebereinstimmt.
+    // R6 fail-closed: ALLE aktiven Events dieser Quelle muessen auf genau einer
+    // Basisfassung beruhen, deren raw_content mit dem aktuellen Quelltext
+    // uebereinstimmt. Fehlende, mehrdeutige oder gemischte Basen (alt+neu) sowie
+    // ein Text-Mismatch blockieren vor jedem Modellaufruf; nichts wird durchgereicht.
     let source_raw = source.get("raw_content").and_then(Value::as_str).unwrap_or_default();
-    let basis_raw: Option<Option<String>> = tx.query_opt(
-        "SELECT s.payload->>'raw_content' FROM brain.entity_snapshots s \
-         WHERE s.id = (SELECT max(patch_snapshot_id) FROM brain.patch_events WHERE patch_external_id=$1)",
+    let basis = tx.query_one(
+        "SELECT count(*) FILTER (WHERE patch_snapshot_id IS NULL)::bigint, \
+                count(DISTINCT patch_snapshot_id)::bigint, max(patch_snapshot_id) \
+         FROM brain.patch_events WHERE patch_external_id = $1",
         &[&source_url],
-    )?.map(|row| row.get(0));
-    if let Some(basis_raw) = basis_raw {
-        let basis_raw = basis_raw.unwrap_or_default();
-        if basis_raw != source_raw {
-            anyhow::bail!("Source revision and event basis disagree: the stored patch text differs from the snapshot the events were parsed from. Re-run the identity-checked source refresh and sync before analysis; refusing a contradictory context (no model call).");
-        }
-    }
+    )?;
+    let null_basis: i64 = basis.get(0);
+    let distinct_basis: i64 = basis.get(1);
+    let one_basis: Option<i64> = basis.get(2);
+    ensure!(null_basis == 0, "Event basis incomplete: {null_basis} active events of this patch have no parse-basis snapshot; refusing an unverified context (no model call). Re-run the source refresh and full sync.");
+    ensure!(distinct_basis <= 1, "Event basis is mixed: active events rest on {distinct_basis} different basis snapshots (old and new import combined); refusing a contradictory context (no model call). Re-run the full sync so all events share one basis.");
+    let basis_id = one_basis.context("Event basis snapshot is missing for this patch")?;
+    let basis_raw: Option<String> = tx
+        .query_one("SELECT payload->>'raw_content' FROM brain.entity_snapshots WHERE id = $1", &[&basis_id])?
+        .get(0);
+    ensure!(basis_raw.as_deref().unwrap_or_default() == source_raw,
+        "Source revision and event basis disagree: the stored patch text differs from the snapshot the events were parsed from. Re-run the identity-checked source refresh and sync before analysis; refusing a contradictory context (no model call).");
     // Deterministische, nachvollziehbare Gameplay-Projektion statt stiller Kürzung.
     // Voller Patchtext und alle Events bleiben. Fuer jede vor der Publikation
     // beobachtete Entity werden nur Metadaten geladen; volle Payloads nur fuer die
@@ -277,7 +287,7 @@ fn build_context(client: &mut Client, patch: &str, snapshot_limit: usize) -> Res
     for (idx, id) in detail_ids_sorted.iter().enumerate() {
         let Some(entry) = meta_by_id.get(id) else { continue; };
         let payload = payloads.get(id).cloned().unwrap_or(Value::Null);
-        let (projected, removed) = project_entity(&entry.entity_type, &payload);
+        let projected = project_entity(&entry.entity_type, &payload);
         mechanic_snapshots.push(json!({
             "id": id,
             "entity_type": entry.entity_type,
@@ -287,20 +297,33 @@ fn build_context(client: &mut Client, patch: &str, snapshot_limit: usize) -> Res
             "content_hash": entry.payload_hash,
             "included_because": inclusion.get(id),
             "projection": "gameplay_v2",
-            "removed_field_groups": removed,
             "json_path": format!("mechanic_snapshots[{idx}].gameplay"),
             "gameplay": projected,
             "prior_version": "unknown"
         }));
     }
-    // Kompakter Katalog haelt alle uebrigen Entities sichtbar (id, typ, name, class_name).
-    // Kompakter Katalog: nur die Entities, die nicht ohnehin als Detail vorliegen,
-    // je Eintrag id, Typ und Name; haelt alle uebrigen Entities sichtbar.
-    let mechanic_catalog: Vec<Value> = meta.iter().filter(|entry| !inclusion.contains_key(&entry.id)).map(|entry| json!({
-        "id": entry.id,
-        "entity_type": entry.entity_type,
-        "canonical_name": entry.canonical_name
-    })).collect();
+    // Kompakter Katalog: die uebrigen Entities nach Typ in Namenslisten gruppiert
+    // (keine wiederholten Keys/Typstrings), damit alle sichtbar bleiben ohne das
+    // Budget zu sprengen. Namen allein sind Katalog, kein Gameplay-Nachweis.
+    let mut catalog_heroes: Vec<&str> = Vec::new();
+    let mut catalog_items_abilities: Vec<&str> = Vec::new();
+    for entry in meta.iter().filter(|entry| !inclusion.contains_key(&entry.id)) {
+        let name = entry.canonical_name.as_deref().unwrap_or("");
+        if name.is_empty() {
+            continue;
+        }
+        if entry.entity_type == "hero" {
+            catalog_heroes.push(name);
+        } else {
+            catalog_items_abilities.push(name);
+        }
+    }
+    let mechanic_catalog = json!({
+        "note": "names of pre-publication entities not expanded in detail; a name alone is not mechanic evidence",
+        "heroes": catalog_heroes,
+        "items_and_abilities": catalog_items_abilities,
+    });
+    let catalog_entities = catalog_heroes.len() + catalog_items_abilities.len();
     let revision = evidence_revision(&mut tx, patch)?;
     tx.commit()?;
     let context = json!({"source_revision_id":revision,"schema_version":1, "patch_external_id":patch,
@@ -308,7 +331,7 @@ fn build_context(client: &mut Client, patch: &str, snapshot_limit: usize) -> Res
         "patch_events":events, "mechanic_snapshots":mechanic_snapshots, "mechanic_catalog":mechanic_catalog,
         "context_selection":{
             "selection_version":"deterministic_gameplay_projection_v2",
-            "scope":{"available_entities":meta.len(),"detail_entities":detail_ids_sorted.len(),"directly_referenced":direct_ids.len(),"connected_entities":detail_ids_sorted.len().saturating_sub(direct_ids.len()),"catalog_entities":mechanic_catalog.len(),"referenced_names":referenced_names.len()},
+            "scope":{"available_entities":meta.len(),"detail_entities":detail_ids_sorted.len(),"directly_referenced":direct_ids.len(),"connected_entities":detail_ids_sorted.len().saturating_sub(direct_ids.len()),"catalog_entities":catalog_entities,"referenced_names":referenced_names.len()},
             "detail_rule":"gameplay projection for entities referenced by a patch event (entity_name/subject vs canonical_name/class_name) plus their evidenced connections: a hero's ability/weapon class_names (items.*) and an ability/item's owner hero",
             "gameplay_projection":"kept: id, class_name, name, type, role/playstyle-relevant fields, item slot map, ability properties value/scale_function/label/postvalue_label; removed groups documented per entity",
             "removed_reason":"icon, css, tooltip, image/video and lore/UI fields carry no mechanic value and are dropped to fit the budget; nothing is string-truncated inside a kept value",
@@ -325,7 +348,7 @@ fn build_context(client: &mut Client, patch: &str, snapshot_limit: usize) -> Res
     if context_bytes > MAX_CONTEXT_BYTES {
         let detail_bytes: usize = mechanic_snapshots.iter().map(|value| serde_json::to_string(value).map(|text| text.len()).unwrap_or(0)).sum();
         let catalog_bytes: usize = serde_json::to_string(&mechanic_catalog)?.len();
-        anyhow::bail!("Selected context still exceeds the safety limit: {context_bytes} bytes total (gameplay detail {detail_bytes} bytes across {} entities, catalog {catalog_bytes} bytes across {} entities, limit {MAX_CONTEXT_BYTES}). Refusing a silently truncated context; narrow the reference/connection scope conceptually.", detail_ids_sorted.len(), mechanic_catalog.len());
+        anyhow::bail!("Selected context still exceeds the safety limit: {context_bytes} bytes total (gameplay detail {detail_bytes} bytes across {} entities, catalog {catalog_bytes} bytes across {} entities, limit {MAX_CONTEXT_BYTES}). Refusing a silently truncated context; narrow the reference/connection scope conceptually.", detail_ids_sorted.len(), catalog_entities);
     }
     Ok(context)
 }
@@ -349,18 +372,15 @@ fn load_payloads(tx: &mut postgres::Transaction<'_>, ids: &[i64]) -> Result<Hash
 
 // Gameplay-Projektion: Allowlist spielrelevanter Felder je Entity-Typ; gibt die
 // projizierte Struktur und die Namen der entfernten Feldgruppen zurueck.
-fn project_entity(entity_type: &str, payload: &Value) -> (Value, Vec<String>) {
+fn project_entity(entity_type: &str, payload: &Value) -> Value {
     const HERO_KEEP: &[&str] = &["id", "class_name", "name", "hero_type", "complexity", "tags", "items", "starting_stats", "scaling_stats"];
     const ABILITY_KEEP: &[&str] = &["id", "class_name", "name", "type", "ability_type", "hero", "item_slot_type", "item_tier", "cost", "is_active_item", "imbue"];
-    let Some(object) = payload.as_object() else { return (Value::Null, Vec::new()); };
+    let Some(object) = payload.as_object() else { return Value::Null; };
     let keep: &[&str] = if entity_type == "hero" { HERO_KEEP } else { ABILITY_KEEP };
     let mut projected = serde_json::Map::new();
-    let mut removed: BTreeSet<String> = BTreeSet::new();
     for (key, value) in object {
         if keep.contains(&key.as_str()) {
             projected.insert(key.clone(), value.clone());
-        } else {
-            removed.insert(key.clone());
         }
     }
     if entity_type != "hero" {
@@ -384,11 +404,10 @@ fn project_entity(entity_type: &str, payload: &Value) -> (Value, Vec<String>) {
             }
             if !compact.is_empty() {
                 projected.insert("properties".to_string(), Value::Object(compact));
-                removed.insert("properties.icon/css/tooltip".to_string());
             }
         }
     }
-    (Value::Object(projected), removed.into_iter().collect())
+    Value::Object(projected)
 }
 
 // Normalisierung fuer den Referenzabgleich: klein, Whitespace zusammengefasst.
