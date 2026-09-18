@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 use anyhow::{anyhow, ensure, Context, Result};
 use clap::{Parser, Subcommand};
@@ -160,18 +160,18 @@ fn build_context(client: &mut Client, patch: &str, snapshot_limit: usize) -> Res
     ensure!(!event_rows.is_empty() && event_rows.len() <= 5000, "Patch events missing or limit exceeded; import/parse the official patch first");
     let events = event_rows.into_iter().map(|row| serde_json::from_str::<Value>(&row.get::<_, String>(0)))
         .collect::<std::result::Result<Vec<_>, _>>()?;
-    // Deterministische, nachvollziehbare Auswahl statt stiller Kürzung:
-    // Vollständige Payloads nur für die vom Patch tatsächlich referenzierten
-    // Entities (mechanic_snapshots); alle übrigen vor der Publikation beobachteten
-    // Entities bleiben als kompakter Katalog sichtbar (mechanic_catalog: nur
-    // Snapshot-ID, Typ, external_id, Name, Inhaltshash). Items und Fähigkeiten
-    // liegen als entity_type='item_or_ability' vor und sind eingeschlossen.
-    let catalog_rows = tx.query(r#"
-        SELECT s.id, s.entity_type, s.external_id, s.canonical_name, s.payload_hash, s.observed_at::text, s.source_url
+    // Deterministische, nachvollziehbare Gameplay-Projektion statt stiller Kürzung.
+    // Voller Patchtext und alle Events bleiben. Fuer jede vor der Publikation
+    // beobachtete Entity werden nur Metadaten geladen; volle Payloads nur fuer die
+    // referenzierten Entities und ihre belegten Gameplay-Verbindungen. Items und
+    // Faehigkeiten liegen als entity_type='item_or_ability' vor.
+    let meta_rows = tx.query(r#"
+        SELECT s.id, s.entity_type, s.external_id, s.canonical_name, s.payload_hash, s.class_name, s.hero_ref
         FROM (
             SELECT DISTINCT ON (es.source, es.entity_type, es.external_id)
                 es.id, es.entity_type, es.external_id, es.canonical_name,
-                es.payload_hash, es.fetched_at AS observed_at, sd.url AS source_url
+                es.payload_hash, es.payload->>'class_name' AS class_name, es.payload->>'hero' AS hero_ref,
+                es.fetched_at
             FROM brain.entity_snapshots es
             JOIN brain.source_documents sd ON sd.id=es.source_document_id
             WHERE es.entity_type IN ('hero','item','ability','item_or_ability')
@@ -180,6 +180,17 @@ fn build_context(client: &mut Client, patch: &str, snapshot_limit: usize) -> Res
             ORDER BY es.source, es.entity_type, es.external_id, es.fetched_at DESC, es.id DESC
         ) s ORDER BY s.entity_type, s.external_id
     "#, &[&published])?;
+    struct Meta { id: i64, entity_type: String, external_id: Option<String>, canonical_name: Option<String>, payload_hash: Option<String>, class_name: Option<String>, hero_ref: Option<String> }
+    let meta: Vec<Meta> = meta_rows.iter().map(|row| Meta {
+        id: row.get(0), entity_type: row.get(1), external_id: row.get(2), canonical_name: row.get(3),
+        payload_hash: row.get(4), class_name: row.get(5), hero_ref: row.get(6),
+    }).collect();
+    let mut class_to_id: HashMap<String, i64> = HashMap::new();
+    for entry in &meta {
+        if let Some(class_name) = entry.class_name.as_deref() {
+            class_to_id.entry(class_name.to_string()).or_insert(entry.id);
+        }
+    }
     // Referenzierte Namen aus den Events bestimmen (entity_name und subject).
     let mut referenced_names: BTreeSet<String> = BTreeSet::new();
     for event in &events {
@@ -192,52 +203,86 @@ fn build_context(client: &mut Client, patch: &str, snapshot_limit: usize) -> Res
             }
         }
     }
-    struct CatalogEntry { id: i64, entity_type: String, external_id: Option<String>, canonical_name: Option<String>, payload_hash: Option<String>, observed_at: Option<String>, source_url: Option<String>, referenced: bool }
-    let catalog: Vec<CatalogEntry> = catalog_rows.iter().map(|row| {
-        let entity_type: String = row.get(1);
-        let external_id: Option<String> = row.get(2);
-        let canonical_name: Option<String> = row.get(3);
-        let referenced = reference_matches(&referenced_names, canonical_name.as_deref(), external_id.as_deref());
-        CatalogEntry { id: row.get(0), entity_type, external_id, canonical_name, payload_hash: row.get(4), observed_at: row.get(5), source_url: row.get(6), referenced }
-    }).collect();
-    let detail_ids: Vec<i64> = catalog.iter().filter(|entry| entry.referenced).map(|entry| entry.id).collect();
-    // Vollständige Payloads nur für die referenzierten Entities laden; jeder Wert
-    // behält Snapshot-ID, Inhaltshash und JSON-Pfad. Unbestätigte Vorversion bleibt
-    // unbekannt; kein String-Kürzen innerhalb eines Belegs.
-    let detail_rows = tx.query(r#"
-        SELECT es.id, es.entity_type, es.external_id, es.canonical_name, es.payload_hash,
-               es.payload::text, es.fetched_at::text AS observed_at, sd.url AS source_url
-        FROM brain.entity_snapshots es
-        JOIN brain.source_documents sd ON sd.id=es.source_document_id
-        WHERE es.id = ANY($1)
-        ORDER BY es.entity_type, es.external_id
-    "#, &[&detail_ids])?;
-    let mechanic_snapshots: Vec<Value> = detail_rows.iter().enumerate().map(|(idx, row)| {
-        let id: i64 = row.get(0);
-        let payload: Value = serde_json::from_str::<Value>(&row.get::<_, String>(5)).unwrap_or(Value::Null);
-        json!({
+    // Direkt referenzierte Entities (Name-/class_name-Abgleich).
+    let mut inclusion: HashMap<i64, String> = HashMap::new();
+    for entry in &meta {
+        if reference_matches(&referenced_names, entry.canonical_name.as_deref(), entry.class_name.as_deref()) {
+            inclusion.insert(entry.id, "referenced".to_string());
+        }
+    }
+    let direct_ids: Vec<i64> = inclusion.keys().copied().collect();
+    // Payloads der direkten Entities laden, um belegte Verbindungen aufzuloesen:
+    // Held -> seine Faehigkeiten/Waffen (items.*=class_name), Faehigkeit -> Besitzerheld.
+    let mut payloads: HashMap<i64, Value> = load_payloads(&mut tx, &direct_ids)?;
+    let meta_by_id: HashMap<i64, &Meta> = meta.iter().map(|entry| (entry.id, entry)).collect();
+    let mut connections: Vec<(i64, String)> = Vec::new();
+    for id in &direct_ids {
+        let Some(payload) = payloads.get(id) else { continue; };
+        let Some(entry) = meta_by_id.get(id) else { continue; };
+        if entry.entity_type == "hero" {
+            // Nur das Kernkit verbinden (Signaturen und Primaerwaffe); generische
+            // Bewegungsslots (Jump/Slide/Mantle/Zipline/Climb) tragen kein
+            // patchrelevantes Mechanikwissen und wuerden den Kontext sprengen.
+            const CORE_SLOTS: &[&str] = &["signature1", "signature2", "signature3", "signature4", "weapon_primary"];
+            if let Some(items) = payload.get("items").and_then(Value::as_object) {
+                for slot in CORE_SLOTS {
+                    if let Some(class_name) = items.get(*slot).and_then(Value::as_str) {
+                        if let Some(&target) = class_to_id.get(class_name) {
+                            if !inclusion.contains_key(&target) {
+                                connections.push((target, format!("core_kit_of:{}#{slot}", entry.class_name.as_deref().unwrap_or("hero"))));
+                            }
+                        }
+                    }
+                }
+            }
+        } else if let Some(hero_class) = payload.get("hero").and_then(Value::as_str) {
+            if let Some(&target) = class_to_id.get(hero_class) {
+                if !inclusion.contains_key(&target) {
+                    connections.push((target, format!("owner_hero_of:{}", entry.class_name.as_deref().unwrap_or("ability"))));
+                }
+            }
+        }
+    }
+    for (id, reason) in &connections {
+        inclusion.entry(*id).or_insert_with(|| reason.clone());
+    }
+    // Payloads der neu verbundenen Entities nachladen.
+    let connected_ids: Vec<i64> = inclusion.keys().copied().filter(|id| !payloads.contains_key(id)).collect();
+    if !connected_ids.is_empty() {
+        let more = load_payloads(&mut tx, &connected_ids)?;
+        payloads.extend(more);
+    }
+    // Gameplay-Projektion je Entity: nur spielrelevante Felder, Icon/CSS/Tooltip/Lore
+    // dokumentiert entfernt. Jeder Beleg behaelt Snapshot-ID, Inhaltshash und json_path.
+    let mut detail_ids_sorted: Vec<i64> = inclusion.keys().copied().collect();
+    detail_ids_sorted.sort_unstable();
+    let mut mechanic_snapshots: Vec<Value> = Vec::new();
+    for (idx, id) in detail_ids_sorted.iter().enumerate() {
+        let Some(entry) = meta_by_id.get(id) else { continue; };
+        let payload = payloads.get(id).cloned().unwrap_or(Value::Null);
+        let (projected, removed) = project_entity(&entry.entity_type, &payload);
+        mechanic_snapshots.push(json!({
             "id": id,
-            "entity_type": row.get::<_, String>(1),
-            "external_id": row.get::<_, Option<String>>(2),
-            "canonical_name": row.get::<_, Option<String>>(3),
-            "payload_hash": row.get::<_, Option<String>>(4),
-            "content_hash": row.get::<_, Option<String>>(4),
-            "observed_at": row.get::<_, Option<String>>(6),
-            "source_url": row.get::<_, Option<String>>(7),
-            "payload": payload,
-            "json_path": format!("mechanic_snapshots[{idx}].payload"),
+            "entity_type": entry.entity_type,
+            "external_id": entry.external_id,
+            "canonical_name": entry.canonical_name,
+            "class_name": entry.class_name,
+            "content_hash": entry.payload_hash,
+            "included_because": inclusion.get(id),
+            "projection": "gameplay_v2",
+            "removed_field_groups": removed,
+            "json_path": format!("mechanic_snapshots[{idx}].gameplay"),
+            "gameplay": projected,
             "prior_version": "unknown"
-        })
-    }).collect();
-    let mechanic_catalog: Vec<Value> = catalog.iter().map(|entry| json!({
+        }));
+    }
+    // Kompakter Katalog haelt alle uebrigen Entities sichtbar (id, typ, name, class_name).
+    // Kompakter Katalog: nur die Entities, die nicht ohnehin als Detail vorliegen,
+    // je Eintrag id, Typ und Name; haelt alle uebrigen Entities sichtbar.
+    let mechanic_catalog: Vec<Value> = meta.iter().filter(|entry| !inclusion.contains_key(&entry.id)).map(|entry| json!({
         "id": entry.id,
         "entity_type": entry.entity_type,
-        "external_id": entry.external_id,
-        "canonical_name": entry.canonical_name,
-        "content_hash": entry.payload_hash,
-        "observed_at": entry.observed_at,
-        "source_url": entry.source_url,
-        "detail_included": entry.referenced
+        "canonical_name": entry.canonical_name
     })).collect();
     let revision = evidence_revision(&mut tx, patch)?;
     tx.commit()?;
@@ -245,13 +290,14 @@ fn build_context(client: &mut Client, patch: &str, snapshot_limit: usize) -> Res
         "canonical_review_key":patch, "resolved_event_external_id":source_url, "patch_source":source,
         "patch_events":events, "mechanic_snapshots":mechanic_snapshots, "mechanic_catalog":mechanic_catalog,
         "context_selection":{
-            "selection_version":"deterministic_reference_projection_v1",
-            "scope":{"available_entities":catalog.len(),"detail_entities":detail_ids.len(),"catalog_only_entities":catalog.len()-detail_ids.len(),"referenced_names":referenced_names.len()},
-            "detail_rule":"full payload for entities whose canonical_name or external_id is referenced by a patch event (entity_name or subject), normalized",
-            "excluded":"non-referenced entities are reduced to a catalog entry (id, type, external_id, name, content_hash); reason: not referenced by this patch, full payload omitted to stay within the context budget",
-            "traceability":"each detail value keeps snapshot id, content_hash and json_path; no value is string-truncated",
-            "snapshot_limit_hint":snapshot_limit,
-            "open_dimension_problem":"a patch may reference more full payloads than fit the budget; per-field gameplay projection is not implemented and stays explicitly open"
+            "selection_version":"deterministic_gameplay_projection_v2",
+            "scope":{"available_entities":meta.len(),"detail_entities":detail_ids_sorted.len(),"directly_referenced":direct_ids.len(),"connected_entities":detail_ids_sorted.len().saturating_sub(direct_ids.len()),"catalog_entities":mechanic_catalog.len(),"referenced_names":referenced_names.len()},
+            "detail_rule":"gameplay projection for entities referenced by a patch event (entity_name/subject vs canonical_name/class_name) plus their evidenced connections: a hero's ability/weapon class_names (items.*) and an ability/item's owner hero",
+            "gameplay_projection":"kept: id, class_name, name, type, role/playstyle-relevant fields, item slot map, ability properties value/scale_function/label/postvalue_label; removed groups documented per entity",
+            "removed_reason":"icon, css, tooltip, image/video and lore/UI fields carry no mechanic value and are dropped to fit the budget; nothing is string-truncated inside a kept value",
+            "catalog":"every available entity stays visible as id, type, canonical_name, class_name, detail_included",
+            "traceability":"each detail keeps snapshot id, content_hash and json_path; prior versions stay unknown",
+            "open_dimension_problem":"if even the projected connected set exceeds the budget the CLI blocks with measured numbers instead of truncating"
         },
         "snapshot_semantics":"last observed before publication, not version-attested current state; missing snapshots must remain unknown; unconfirmed prior versions stay unknown",
         "evidence_policy":{"creator_transcripts_included":false,"learned_insights_included":false,
@@ -262,9 +308,70 @@ fn build_context(client: &mut Client, patch: &str, snapshot_limit: usize) -> Res
     if context_bytes > MAX_CONTEXT_BYTES {
         let detail_bytes: usize = mechanic_snapshots.iter().map(|value| serde_json::to_string(value).map(|text| text.len()).unwrap_or(0)).sum();
         let catalog_bytes: usize = serde_json::to_string(&mechanic_catalog)?.len();
-        anyhow::bail!("Selected context still exceeds the safety limit: {context_bytes} bytes total (detail {detail_bytes} bytes across {} entities, catalog {catalog_bytes} bytes across {} entities, limit {MAX_CONTEXT_BYTES}). Refusing a silently truncated context; the per-field gameplay projection remains the explicit open dimension problem.", detail_ids.len(), catalog.len());
+        anyhow::bail!("Selected context still exceeds the safety limit: {context_bytes} bytes total (gameplay detail {detail_bytes} bytes across {} entities, catalog {catalog_bytes} bytes across {} entities, limit {MAX_CONTEXT_BYTES}). Refusing a silently truncated context; narrow the reference/connection scope conceptually.", detail_ids_sorted.len(), mechanic_catalog.len());
     }
     Ok(context)
+}
+
+fn load_payloads(tx: &mut postgres::Transaction<'_>, ids: &[i64]) -> Result<HashMap<i64, Value>> {
+    if ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows = tx.query(
+        "SELECT id, payload::text FROM brain.entity_snapshots WHERE id = ANY($1)",
+        &[&ids],
+    )?;
+    let mut map = HashMap::new();
+    for row in rows {
+        let id: i64 = row.get(0);
+        let payload: Value = serde_json::from_str(&row.get::<_, String>(1))?;
+        map.insert(id, payload);
+    }
+    Ok(map)
+}
+
+// Gameplay-Projektion: Allowlist spielrelevanter Felder je Entity-Typ; gibt die
+// projizierte Struktur und die Namen der entfernten Feldgruppen zurueck.
+fn project_entity(entity_type: &str, payload: &Value) -> (Value, Vec<String>) {
+    const HERO_KEEP: &[&str] = &["id", "class_name", "name", "hero_type", "complexity", "tags", "items", "starting_stats", "scaling_stats"];
+    const ABILITY_KEEP: &[&str] = &["id", "class_name", "name", "type", "ability_type", "hero", "item_slot_type", "item_tier", "cost", "is_active_item", "imbue"];
+    let Some(object) = payload.as_object() else { return (Value::Null, Vec::new()); };
+    let keep: &[&str] = if entity_type == "hero" { HERO_KEEP } else { ABILITY_KEEP };
+    let mut projected = serde_json::Map::new();
+    let mut removed: BTreeSet<String> = BTreeSet::new();
+    for (key, value) in object {
+        if keep.contains(&key.as_str()) {
+            projected.insert(key.clone(), value.clone());
+        } else {
+            removed.insert(key.clone());
+        }
+    }
+    if entity_type != "hero" {
+        if let Some(properties) = object.get("properties").and_then(Value::as_object) {
+            let mut compact = serde_json::Map::new();
+            for (name, prop) in properties {
+                if let Some(prop) = prop.as_object() {
+                    // Der Property-Schluessel ist bereits der Statname; UI-Label und
+                    // Vorlabel werden als Duplikat weggelassen. Gameplay bleibt in
+                    // value, scale_function und postvalue_label (Einheit/Postfix).
+                    let mut kept = serde_json::Map::new();
+                    for field in ["value", "scale_function", "postvalue_label"] {
+                        if let Some(inner) = prop.get(field) {
+                            kept.insert(field.to_string(), inner.clone());
+                        }
+                    }
+                    if !kept.is_empty() {
+                        compact.insert(name.clone(), Value::Object(kept));
+                    }
+                }
+            }
+            if !compact.is_empty() {
+                projected.insert("properties".to_string(), Value::Object(compact));
+                removed.insert("properties.icon/css/tooltip".to_string());
+            }
+        }
+    }
+    (Value::Object(projected), removed.into_iter().collect())
 }
 
 // Normalisierung fuer den Referenzabgleich: klein, Whitespace zusammengefasst.

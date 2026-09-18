@@ -169,9 +169,10 @@ jobs:
           grep -q '"event_hash": "s1"' /tmp/cli-prepare.json
           grep -q '"event_hash": "s2"' /tmp/cli-prepare.json
           grep -q 'item_or_ability' /tmp/cli-prepare.json
-          grep -q 'deterministic_reference_projection_v1' /tmp/cli-prepare.json
+          grep -q 'deterministic_gameplay_projection_v2' /tmp/cli-prepare.json
           grep -q '"mechanic_catalog"' /tmp/cli-prepare.json
-          echo "ok: CLI resolves URL identity, item_or_ability and deterministic selection"
+          grep -q '"gameplay"' /tmp/cli-prepare.json
+          echo "ok: CLI resolves URL identity, item_or_ability and deterministic gameplay projection"
           # An oversized selected context must block with measured numbers, not truncate.
           if DEADLOCK_CENTRAL_DSN=postgres://test:test@localhost:5432/cli_smoke_big "$BIN" review --patch patch_1 --snapshot-limit 400 > /tmp/cli-block.json 2>/tmp/cli-block.err; then
             echo "FAIL: oversized context should have blocked"; exit 1
