@@ -1036,6 +1036,44 @@ enum PgCommands {
         about = "Importiert exakt einen Patchnote-Eintrag direkt nach brain.* in Postgres."
     )]
     ImportPatchnote(PgImportPatchnoteArgs),
+    #[command(
+        name = "sync-patchnotes",
+        about = "Prueft changelog_posts revisionssicher gegen brain.* und importiert neue/geaenderte Quellen."
+    )]
+    SyncPatchnotes(PgSyncPatchnotesArgs),
+    #[command(
+        name = "refresh-official",
+        about = "Aktualisiert eine vorhandene offizielle Quelle identitaetsgeprueft (ajaxgetpartnerevent)."
+    )]
+    RefreshOfficial(PgRefreshOfficialArgs),
+}
+
+#[derive(Debug, Args)]
+struct PgRefreshOfficialArgs {
+    #[arg(long = "patch-id", help = "changelog_posts.id")]
+    patch_id: i64,
+    #[arg(long = "dsn-env", default_value = "DEADLOCK_CENTRAL_DSN")]
+    dsn_env: String,
+    #[arg(long = "apply", help = "Quellzeile wirklich aktualisieren; ohne Flag nur pruefen.")]
+    apply: bool,
+    #[arg(long = "response-file", help = "Offizielle Antwort aus Datei lesen statt abrufen (Test/Offline).")]
+    response_file: Option<String>,
+}
+
+#[derive(Debug, Args)]
+struct PgSyncPatchnotesArgs {
+    #[arg(long = "dsn-env", default_value = "DEADLOCK_CENTRAL_DSN")]
+    dsn_env: String,
+    #[arg(
+        long = "apply",
+        help = "Neue/geaenderte Quellen wirklich importieren; ohne Flag nur pruefen."
+    )]
+    apply: bool,
+    #[arg(
+        long = "limit",
+        help = "Nur die ersten N changelog_posts (nach id) betrachten."
+    )]
+    limit: Option<i64>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -1329,6 +1367,23 @@ fn run_pg(http: &HttpClient, target: PgCommands) -> Result<()> {
             },
         )?),
         PgCommands::ImportPatchnote(args) => run_pg_patchnote(http, args),
+        PgCommands::SyncPatchnotes(args) => print_json(&pg_patchnotes::sync_patchnotes(
+            http,
+            &pg_patchnotes::SyncPatchnotesOptions {
+                dsn_env: args.dsn_env,
+                apply: args.apply,
+                limit: args.limit,
+            },
+        )?),
+        PgCommands::RefreshOfficial(args) => print_json(&pg_patchnotes::refresh_official(
+            http,
+            &pg_patchnotes::RefreshOfficialOptions {
+                patch_id: args.patch_id,
+                dsn_env: args.dsn_env,
+                apply: args.apply,
+                response_file: args.response_file,
+            },
+        )?),
     }
 }
 

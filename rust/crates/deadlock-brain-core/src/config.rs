@@ -66,7 +66,26 @@ impl fmt::Debug for Settings {
 }
 
 pub fn repo_root() -> PathBuf {
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    // Laufzeitvorgabe hat Vorrang: ein aus einem Feature-Worktree gebautes und
+    // spaeter bereinigtes Release wuerde sonst ueber das eingebrannte
+    // CARGO_MANIFEST_DIR auf den entfernten Worktree zeigen. Der Dienst setzt
+    // DEADLOCK_BRAIN_ROOT auf das installierte Repo.
+    repo_root_resolve(
+        std::env::var_os("DEADLOCK_BRAIN_ROOT").map(PathBuf::from),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+    )
+}
+
+fn repo_root_resolve(env_root: Option<PathBuf>, manifest_dir: PathBuf) -> PathBuf {
+    if let Some(root) = env_root {
+        if root.is_dir() {
+            return root;
+        }
+        eprintln!(
+            "DEADLOCK_BRAIN_ROOT is set but not a usable directory; falling back to the build-time repo path."
+        );
+    }
+
     for ancestor in manifest_dir.ancestors() {
         if ancestor.join("data").is_dir() && ancestor.join("src/deadlock_brain").is_dir() {
             return ancestor.to_path_buf();
@@ -233,5 +252,18 @@ mod tests {
     fn repo_root_points_at_project() {
         let root = repo_root();
         assert!(root.join("rust").is_dir());
+    }
+
+    #[test]
+    fn repo_root_prefers_runtime_root_env() {
+        let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        // Ein gesetztes, existierendes DEADLOCK_BRAIN_ROOT gewinnt gegen den
+        // eingebrannten Build-Pfad (Relokation nach Worktree-Bereinigung).
+        let tmp = std::env::temp_dir();
+        assert_eq!(repo_root_resolve(Some(tmp.clone()), manifest.clone()), tmp);
+        // Ein ungueltiger Root faellt auf die Build-Zeit-Aufloesung zurueck.
+        let bogus = tmp.join("deadlock-brain-nonexistent-root-xyz");
+        let resolved = repo_root_resolve(Some(bogus), manifest.clone());
+        assert!(resolved.join("rust").is_dir());
     }
 }
