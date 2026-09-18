@@ -70,6 +70,7 @@ jobs:
           EXIST=tests/patch-understanding/schema-assertions.sql
           HIST=tests/patch-understanding/followup-history-assertions.sql
           CAP=tests/patch-understanding/followup-caption-assertions.sql
+          IDENT=tests/patch-understanding/followup-identity-assertions.sql
 
           mkdb() { psql -v ON_ERROR_STOP=1 -d postgres -c "DROP DATABASE IF EXISTS $1" >/dev/null; psql -v ON_ERROR_STOP=1 -d postgres -c "CREATE DATABASE $1" >/dev/null; }
           run() { psql -v ON_ERROR_STOP=1 -d "$1" -f "$2" >/dev/null; }
@@ -85,9 +86,10 @@ jobs:
           # Regression proof: the old migration alone fails the new assertions.
           mkdb histold; run histold "$FIX"; run histold "$OLD"; expect_fail histold "$HIST"
           mkdb capold; run capold "$FIX"; run capold "$OLD"; expect_fail capold "$CAP"
+          mkdb identold; run identold "$FIX"; run identold "$OLD"; expect_fail identold "$IDENT"
 
           # Full fix: old + followup migration passes every assertion suite (each on a fresh DB).
-          for pair in "existing:$EXIST" "history:$HIST" "caption:$CAP"; do
+          for pair in "existing:$EXIST" "history:$HIST" "caption:$CAP" "identity:$IDENT"; do
             name=${pair%%:*}; suite=${pair#*:}
             mkdb "full_$name"; run "full_$name" "$FIX"; run "full_$name" "$OLD"; run "full_$name" "$NEW"; run "full_$name" "$suite"
           done
@@ -132,3 +134,30 @@ jobs:
         env:
           DEADLOCK_CENTRAL_DSN: postgres://test:test@localhost:5432/caption_scratch
         run: cargo +stable test --locked --package deadlock-brain-yt --bin deadlock-brain-yt -- --ignored --exact transcripts::tests::save_transcript_is_idempotent_and_sets_ready_pg
+      - name: Provision CLI smoke schema and both migrations
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -d postgres -c "CREATE DATABASE cli_smoke"
+          psql -v ON_ERROR_STOP=1 -d cli_smoke -f tests/patch-understanding/cli-smoke-fixture.sql
+          psql -v ON_ERROR_STOP=1 -d cli_smoke -f scripts/migrations/2026-09-18-patch-evidence.sql
+          psql -v ON_ERROR_STOP=1 -d cli_smoke -f scripts/migrations/2026-09-18-patch-evidence-followup.sql
+      - name: Build and smoke the normal patch-review CLI
+        working-directory: rust
+        env:
+          DEADLOCK_CENTRAL_DSN: postgres://test:test@localhost:5432/cli_smoke
+        run: |
+          set -euo pipefail
+          cargo +stable build --locked --package deadlock-brain --bin deadlock-brain-patch-review
+          BIN=target/debug/deadlock-brain-patch-review
+          # Prepare-mode context must resolve URL-based events and include item_or_ability snapshots.
+          "$BIN" review --patch patch_1 --snapshot-limit 400 > /tmp/cli-prepare.json
+          grep -q '"event_hash": "s1"' /tmp/cli-prepare.json
+          grep -q '"event_hash": "s2"' /tmp/cli-prepare.json
+          grep -q 'item_or_ability' /tmp/cli-prepare.json
+          echo "ok: CLI resolves URL identity and item_or_ability snapshots"
+          # An oversized snapshot context must block with measured numbers, not truncate.
+          if "$BIN" review --patch patch_1 --snapshot-limit 1 > /tmp/cli-block.json 2>/tmp/cli-block.err; then
+            echo "FAIL: oversized context should have blocked"; exit 1
+          fi
+          grep -q 'Mechanic snapshot context exceeds the limit' /tmp/cli-block.err
+          echo "ok: oversized snapshot context blocks with a measured error"
