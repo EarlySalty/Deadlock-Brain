@@ -1,0 +1,249 @@
+name: Patch understanding evidence
+on:
+  push:
+    branches: [codex/patch-understanding-evidence-20260918]
+  pull_request:
+    paths:
+      - 'rust/crates/deadlock-brain/src/pg_insights.rs'
+      - 'rust/crates/deadlock-brain/src/bin/deadlock-brain-patch-review.rs'
+      - 'rust/crates/deadlock-brain-yt/src/transcripts.rs'
+      - 'rust/crates/deadlock-brain-yt/src/testutil.rs'
+      - 'scripts/migrations/2026-09-18-patch-evidence.sql'
+      - 'scripts/migrations/2026-09-18-patch-evidence-followup.sql'
+      - 'scripts/migrations/2026-09-18-patch-evidence-followup2.sql'
+      - 'rust/crates/deadlock-brain/src/pg_patchnotes.rs'
+      - 'rust/crates/deadlock-brain/src/main.rs'
+      - 'rust/crates/deadlock-brain-yt/src/claims.rs'
+      - 'rust/crates/deadlock-brain-yt/src/queue.rs'
+      - 'rust/crates/deadlock-brain-yt/src/transcript_claims.rs'
+      - 'rust/crates/dbrain-retrieval/src/lib.rs'
+      - 'tests/patch-understanding/**'
+      - 'tests/yt-contract/**'
+      - '.github/workflows/patch-understanding.yml'
+permissions:
+  contents: read
+concurrency:
+  group: patch-understanding-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SQLX_OFFLINE: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain
+        run: rustup toolchain install stable --profile minimal --component clippy --component rustfmt
+      - name: Format only changed Rust files in the test checkout
+        run: rustfmt --edition 2021 rust/crates/deadlock-brain/src/pg_insights.rs rust/crates/deadlock-brain/src/bin/deadlock-brain-patch-review.rs rust/crates/deadlock-brain-yt/src/transcripts.rs
+      - name: Caption tests
+        working-directory: rust
+        run: cargo +stable test --locked --package deadlock-brain-yt --bin deadlock-brain-yt
+      - name: Review and reference validation tests
+        working-directory: rust
+        run: cargo +stable test --locked --package deadlock-brain --bin deadlock-brain-patch-review
+      - name: Insight trust tests
+        working-directory: rust
+        run: cargo +stable test --locked --package deadlock-brain --bin deadlock-brain pg_insights::tests
+      - name: Clippy
+        working-directory: rust
+        run: cargo +stable clippy --locked --package deadlock-brain --package deadlock-brain-yt
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: evidence_test
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: test
+      PGPASSWORD: test
+      PGDATABASE: evidence_test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Evidence semantics on both migrations
+        run: |
+          set -euo pipefail
+          FIX=tests/patch-understanding/schema-fixture.sql
+          OLD=scripts/migrations/2026-09-18-patch-evidence.sql
+          NEW=scripts/migrations/2026-09-18-patch-evidence-followup.sql
+          NEW2=scripts/migrations/2026-09-18-patch-evidence-followup2.sql
+          EXIST=tests/patch-understanding/schema-assertions.sql
+          HIST=tests/patch-understanding/followup-history-assertions.sql
+          CAP=tests/patch-understanding/followup-caption-assertions.sql
+          IDENT=tests/patch-understanding/followup-identity-assertions.sql
+          R4=tests/patch-understanding/followup2-r4-assertions.sql
+
+          mkdb() { psql -v ON_ERROR_STOP=1 -d postgres -c "DROP DATABASE IF EXISTS $1" >/dev/null; psql -v ON_ERROR_STOP=1 -d postgres -c "CREATE DATABASE $1" >/dev/null; }
+          run() { psql -v ON_ERROR_STOP=1 -d "$1" -f "$2" >/dev/null; }
+          expect_fail() { if psql -v ON_ERROR_STOP=1 -d "$1" -f "$2" >/dev/null 2>&1; then echo "FAIL: $2 should error on $1"; exit 1; fi; echo "ok: $2 correctly fails on $1"; }
+
+          # Baseline: the original migration keeps its current behaviour and is idempotent.
+          mkdb base; run base "$FIX"; run base "$OLD"; run base "$EXIST"
+          before=$(psql -Atd base -c 'select count(*) from brain.patch_evidence_revisions')
+          run base "$OLD"
+          after=$(psql -Atd base -c 'select count(*) from brain.patch_evidence_revisions')
+          test "$before" = "$after"
+
+          # Regression proof: the old migration alone fails the new assertions.
+          mkdb histold; run histold "$FIX"; run histold "$OLD"; expect_fail histold "$HIST"
+          mkdb capold; run capold "$FIX"; run capold "$OLD"; expect_fail capold "$CAP"
+          mkdb identold; run identold "$FIX"; run identold "$OLD"; expect_fail identold "$IDENT"
+          # R4 needs the second migration present but unfixed to fail (identity move invalidates only the new source).
+          mkdb r4old; run r4old "$FIX"; run r4old "$OLD"; run r4old "$NEW"; expect_fail r4old "$R4"
+
+          # Full fix: all three migrations pass every assertion suite (each on a fresh DB).
+          for pair in "existing:$EXIST" "history:$HIST" "caption:$CAP" "identity:$IDENT" "r4:$R4"; do
+            name=${pair%%:*}; suite=${pair#*:}
+            mkdb "full_$name"; run "full_$name" "$FIX"; run "full_$name" "$OLD"; run "full_$name" "$NEW"; run "full_$name" "$NEW2"; run "full_$name" "$suite"
+          done
+
+          # The followup migrations are idempotent.
+          mkdb idem; run idem "$FIX"; run idem "$OLD"; run idem "$NEW"; run idem "$NEW2"
+          b=$(psql -Atd idem -c 'select count(*) from brain.patch_evidence_revisions')
+          run idem "$NEW"; run idem "$NEW2"
+          a=$(psql -Atd idem -c 'select count(*) from brain.patch_evidence_revisions')
+          test "$b" = "$a"
+  caption-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: caption_scratch
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      SQLX_OFFLINE: 'true'
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: test
+      PGPASSWORD: test
+      PGDATABASE: caption_scratch
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain
+        run: rustup toolchain install stable --profile minimal
+      - name: Provision scratch schema and both migrations
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f tests/patch-understanding/caption-scratch-schema.sql
+          psql -v ON_ERROR_STOP=1 -f scripts/migrations/2026-09-18-patch-evidence.sql
+          psql -v ON_ERROR_STOP=1 -f scripts/migrations/2026-09-18-patch-evidence-followup.sql
+          psql -v ON_ERROR_STOP=1 -f scripts/migrations/2026-09-18-patch-evidence-followup2.sql
+      - name: Run the ignored caption integration test for real
+        working-directory: rust
+        env:
+          DEADLOCK_CENTRAL_DSN: postgres://test:test@localhost:5432/caption_scratch
+        run: cargo +stable test --locked --package deadlock-brain-yt --bin deadlock-brain-yt -- --ignored --exact transcripts::tests::save_transcript_is_idempotent_and_sets_ready_pg
+      - name: Provision CLI smoke schema and both migrations
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -d postgres -c "CREATE DATABASE cli_smoke"
+          psql -v ON_ERROR_STOP=1 -d cli_smoke -f tests/patch-understanding/cli-smoke-fixture.sql
+          psql -v ON_ERROR_STOP=1 -d cli_smoke -f scripts/migrations/2026-09-18-patch-evidence.sql
+          psql -v ON_ERROR_STOP=1 -d cli_smoke -f scripts/migrations/2026-09-18-patch-evidence-followup.sql
+          psql -v ON_ERROR_STOP=1 -d cli_smoke -f scripts/migrations/2026-09-18-patch-evidence-followup2.sql
+          # Oversize copy: one referenced entity carries a payload larger than the context budget.
+          psql -v ON_ERROR_STOP=1 -d postgres -c "CREATE DATABASE cli_smoke_big"
+          psql -v ON_ERROR_STOP=1 -d cli_smoke_big -f tests/patch-understanding/cli-smoke-fixture.sql
+          psql -v ON_ERROR_STOP=1 -d cli_smoke_big -f scripts/migrations/2026-09-18-patch-evidence.sql
+          psql -v ON_ERROR_STOP=1 -d cli_smoke_big -f scripts/migrations/2026-09-18-patch-evidence-followup.sql
+          psql -v ON_ERROR_STOP=1 -d cli_smoke_big -f scripts/migrations/2026-09-18-patch-evidence-followup2.sql
+          # Oversize a KEPT gameplay field (properties.*.value survives the projection), not a dropped blob.
+          psql -v ON_ERROR_STOP=1 -d cli_smoke_big -c "UPDATE brain.entity_snapshots SET payload = jsonb_build_object('name','Veil Walker','type','item_or_ability','properties', jsonb_build_object('Damage', jsonb_build_object('value', repeat('9', 900000)))) WHERE canonical_name='Veil Walker'"
+          # R6 copy: the source text changed but the events still rest on the old basis snapshot.
+          psql -v ON_ERROR_STOP=1 -d postgres -c "CREATE DATABASE cli_smoke_changed"
+          psql -v ON_ERROR_STOP=1 -d cli_smoke_changed -f tests/patch-understanding/cli-smoke-fixture.sql
+          psql -v ON_ERROR_STOP=1 -d cli_smoke_changed -f scripts/migrations/2026-09-18-patch-evidence.sql
+          psql -v ON_ERROR_STOP=1 -d cli_smoke_changed -f scripts/migrations/2026-09-18-patch-evidence-followup.sql
+          psql -v ON_ERROR_STOP=1 -d cli_smoke_changed -f scripts/migrations/2026-09-18-patch-evidence-followup2.sql
+          psql -v ON_ERROR_STOP=1 -d cli_smoke_changed -c "UPDATE patchnotes.changelog_posts SET raw_content='Official refreshed body without the removed line.' WHERE id=1"
+      - name: Build and smoke the normal patch-review CLI
+        working-directory: rust
+        run: |
+          set -euo pipefail
+          cargo +stable build --locked --package deadlock-brain --bin deadlock-brain-patch-review --bin deadlock-brain
+          BIN=target/debug/deadlock-brain-patch-review
+          BRAIN=target/debug/deadlock-brain
+          # Prepare-mode context must resolve URL-based events, include item_or_ability, and expose the deterministic selection.
+          DEADLOCK_CENTRAL_DSN=postgres://test:test@localhost:5432/cli_smoke "$BIN" review --patch patch_1 --snapshot-limit 400 > /tmp/cli-prepare.json
+          grep -q '"event_hash": "s1"' /tmp/cli-prepare.json
+          grep -q '"event_hash": "s2"' /tmp/cli-prepare.json
+          grep -q 'item_or_ability' /tmp/cli-prepare.json
+          grep -q 'deterministic_gameplay_projection_v2' /tmp/cli-prepare.json
+          grep -q '"mechanic_catalog"' /tmp/cli-prepare.json
+          grep -q '"gameplay"' /tmp/cli-prepare.json
+          echo "ok: CLI resolves URL identity, item_or_ability and deterministic gameplay projection"
+          # An oversized selected context must block with measured numbers, not truncate.
+          if DEADLOCK_CENTRAL_DSN=postgres://test:test@localhost:5432/cli_smoke_big "$BIN" review --patch patch_1 --snapshot-limit 400 > /tmp/cli-block.json 2>/tmp/cli-block.err; then
+            echo "FAIL: oversized context should have blocked"; exit 1
+          fi
+          grep -q 'Selected context still exceeds the safety limit' /tmp/cli-block.err
+          echo "ok: oversized selected context blocks with a measured error"
+          # Read-only revision drift check: events rest on a basis snapshot matching the source, so no drift.
+          # Verify semantically with jq (print_json emits pretty JSON with spaces), not whitespace-dependent grep.
+          DEADLOCK_CENTRAL_DSN=postgres://test:test@localhost:5432/cli_smoke "$BRAIN" pg sync-patchnotes --dsn-env DEADLOCK_CENTRAL_DSN > /tmp/cli-sync.json
+          jq -e '.mode=="check" and .drift==false and (.writes==false) and (.unchanged==1)' /tmp/cli-sync.json >/dev/null
+          echo "ok: matching source and event basis report no drift without writing"
+          # R6: changed source but stale event basis -> drift true and the review must block.
+          DEADLOCK_CENTRAL_DSN=postgres://test:test@localhost:5432/cli_smoke_changed "$BRAIN" pg sync-patchnotes --dsn-env DEADLOCK_CENTRAL_DSN > /tmp/cli-sync-changed.json
+          jq -e '.mode=="check" and .drift==true and (.changed==[1])' /tmp/cli-sync-changed.json >/dev/null
+          if DEADLOCK_CENTRAL_DSN=postgres://test:test@localhost:5432/cli_smoke_changed "$BIN" review --patch patch_1 --snapshot-limit 400 > /tmp/cli-r6.json 2>/tmp/cli-r6.err; then
+            echo "FAIL: build_context should block on source/basis mismatch"; exit 1
+          fi
+          grep -q 'Source revision and event basis disagree' /tmp/cli-r6.err
+          echo "ok: R6 blocks a contradictory context and drift flags the changed source"
+          # R6 contract in drift: a missing/mixed event basis must count as drift even if the text matches.
+          psql -v ON_ERROR_STOP=1 -d cli_smoke -c "UPDATE brain.patch_events SET patch_snapshot_id=NULL WHERE event_hash='s2'"
+          DEADLOCK_CENTRAL_DSN=postgres://test:test@localhost:5432/cli_smoke "$BRAIN" pg sync-patchnotes --dsn-env DEADLOCK_CENTRAL_DSN > /tmp/cli-sync-nullbasis.json
+          jq -e '.drift==true and (.changed==[1])' /tmp/cli-sync-nullbasis.json >/dev/null
+          echo "ok: a missing event basis is treated as drift, not unchanged"
+  yt-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: brain_completion_yt
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      SQLX_OFFLINE: 'true'
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: test
+      PGPASSWORD: test
+      PGDATABASE: brain_completion_yt
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain
+        run: rustup toolchain install stable --profile minimal
+      - name: Provision isolated YT scratch schema
+        run: psql -v ON_ERROR_STOP=1 -f tests/yt-contract/scratch-schema.sql
+      - name: Run the YT database contract tests against the isolated scratch schema
+        working-directory: rust
+        env:
+          DEADLOCK_CENTRAL_DSN: postgres://test:test@localhost:5432/brain_completion_yt
+        run: >-
+          cargo +stable test --locked --package deadlock-brain-yt --bin deadlock-brain-yt --
+          --ignored --test-threads=1
+          queue::tests::select_next_videos_and_mark_status_round_trip_pg
+          transcript_claims::tests::ingest_inserts_maps_verdicts_and_is_idempotent_pg
+          transcript_claims::tests::prepare_selects_untreated_verbal_video_then_excludes_it_pg
+          claims::tests::query_claims_filters_by_entity_prompt_version_and_model_pg
+          claims::tests::query_claims_excludes_revalidation_flagged_videos_pg

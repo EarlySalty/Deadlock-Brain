@@ -179,6 +179,70 @@ def _psql_env(dsn: str, base_env: dict[str, str]) -> dict[str, str]:
     return env
 
 
+def _patch_review_bin() -> str:
+    # Wiederverwendbare, revisionssichere Historienlogik lebt in Rust; der MCP-Pfad
+    # ruft sie ueber das vorhandene CLI-Binary auf (kein zweiter Dienst, kein Port).
+    override = os.environ.get("DEADLOCK_BRAIN_PATCH_REVIEW_BIN")
+    if override:
+        return override
+    root = os.environ.get("DEADLOCK_BRAIN_ROOT", str(Path(__file__).resolve().parent.parent))
+    return str(Path(root) / "rust" / "target" / "release" / "deadlock-brain-patch-review")
+
+
+def _run_patch_history_cli(args: list[str]) -> dict[str, Any]:
+    if not _DSN:
+        raise RuntimeError(f"Datenbank-Verbindung nicht verfuegbar: {_DSN_ERROR}")
+    env = dict(os.environ)
+    env["DEADLOCK_CENTRAL_DSN"] = _DSN
+    try:
+        result = subprocess.run(
+            [_patch_review_bin(), "history", *args],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            env=env,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "deadlock-brain-patch-review Binary nicht gefunden; Release bauen oder DEADLOCK_BRAIN_PATCH_REVIEW_BIN setzen."
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("Historienabfrage hat das Zeitlimit ueberschritten.") from exc
+    if result.returncode != 0:
+        raise RuntimeError("Historienabfrage fehlgeschlagen (revisionssicherer Rust-Pfad).")
+    try:
+        return json.loads(result.stdout.strip() or "{}")
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("Historienantwort war kein gueltiges JSON.") from exc
+
+
+@mcp.tool(
+    name="patch_history_v1",
+    description=(
+        "Revisionssichere Patch-Historie ueber die Rust-CLI (brain.patch_history_v1). "
+        "query ist ein Teilstring der Roh-Zeile; entity grenzt den exakten Entity-Namen "
+        "ein; known_at nimmt RFC3339 mit Zeitzone; limit ist auf 500 begrenzt. Treffer "
+        "tragen state (present/deleted), observation_kind und earlier_observation_unknown, "
+        "damit geloeschte oder revalidierungsbeduerftige Fassungen nicht als aktuelle "
+        "Fakten gelesen werden."
+    ),
+)
+def patch_history_v1(
+    query: str,
+    entity: str = "",
+    known_at: str = "",
+    limit: int = 100,
+) -> dict[str, Any]:
+    text = _require_text(query, "query")
+    args = ["--query", text, "--limit", str(_limit(limit, 100, 500))]
+    if (entity or "").strip():
+        args.extend(["--entity", entity.strip()])
+    if (known_at or "").strip():
+        args.extend(["--known-at", _require_text(known_at, "known_at")])
+    return _run_patch_history_cli(args)
+
+
 @mcp.tool(
     name="patch_history",
     description=(

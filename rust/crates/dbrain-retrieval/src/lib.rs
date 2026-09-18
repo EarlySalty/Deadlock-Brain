@@ -3293,6 +3293,7 @@ async fn load_entity_claim_rows(
         FROM brain.youtube_learning_claims c
         LEFT JOIN brain.youtube_videos v ON v.video_id=c.video_id
         WHERE lower(c.entity_name) IN ({})
+          AND COALESCE(v.metadata->>'needs_claim_revalidation','') <> 'true'
         ORDER BY c.verifier_confidence DESC, c.id
         "#,
         placeholders(names.len())
@@ -3324,6 +3325,7 @@ async fn load_entity_claim_rows(
         FROM brain.youtube_learning_claims c
         LEFT JOIN brain.youtube_videos v ON v.video_id=c.video_id
         WHERE ({})
+          AND COALESCE(v.metadata->>'needs_claim_revalidation','') <> 'true'
         "#,
         clauses.join(" OR ")
     );
@@ -3365,6 +3367,7 @@ async fn load_keyword_claim_rows(
         FROM brain.youtube_learning_claims c
         LEFT JOIN brain.youtube_videos v ON v.video_id=c.video_id
         WHERE ({})
+          AND COALESCE(v.metadata->>'needs_claim_revalidation','') <> 'true'
         ORDER BY c.verifier_confidence DESC, c.id
         "#,
         clauses.join(" OR ")
