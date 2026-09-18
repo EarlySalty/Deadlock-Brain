@@ -2,6 +2,8 @@ use anyhow::{anyhow, Result};
 use nix::fcntl::{fcntl, FcntlArg, FdFlag};
 use serde::Deserialize;
 use std::{
+    collections::BTreeMap,
+    env,
     os::unix::fs::FileExt,
     path::{Path, PathBuf},
     time::Duration,
@@ -14,7 +16,10 @@ struct Config {
     project_id: String,
     environment: String,
     secret_path: String,
-    credential_fd: i32,
+    #[serde(default)]
+    credential_fd: Option<i32>,
+    #[serde(default = "default_credential_name")]
+    credential_name: String,
     socket_path: PathBuf,
     database_secret: String,
 }
@@ -47,56 +52,48 @@ impl Drop for Entry {
     }
 }
 
+fn default_credential_name() -> String {
+    "infisical-token".to_string()
+}
+
 pub(super) async fn database_dsn(path: &Path) -> Result<Zeroizing<String>> {
+    let config = load_config(path)?;
+    let database_secret = config.database_secret.clone();
+    let mut values = fetch_values(config).await?;
+    values
+        .remove(&database_secret)
+        .ok_or_else(|| anyhow!("Datenbankzugang fehlt in Infisical."))
+}
+
+pub(super) async fn environment(
+    path: &Path,
+) -> Result<Vec<(String, Zeroizing<String>)>> {
+    let config = load_config(path)?;
+    let values = fetch_values(config).await?;
+    Ok(values.into_iter().collect())
+}
+
+fn load_config(path: &Path) -> Result<Config> {
     let data =
-        std::fs::read(path).map_err(|_| anyhow!("Infisical-Konfiguration ist nicht lesbar."))?;
-    let config: Config = serde_json::from_slice(&data)
-        .map_err(|_| anyhow!("Infisical-Konfiguration ist ungültig."))?;
-    let fd = config.credential_fd;
-    if fd < 3 {
-        return Err(anyhow!(
-            "Infisical benötigt einen ausdrücklich übergebenen Credential-FD."
-        ));
-    }
-    let flags = fcntl(fd, FcntlArg::F_GETFD)
-        .map_err(|_| anyhow!("Infisical-Credential-FD ist nicht verfügbar."))?;
-    fcntl(
-        fd,
-        FcntlArg::F_SETFD(FdFlag::from_bits_retain(flags) | FdFlag::FD_CLOEXEC),
-    )
-    .map_err(|_| anyhow!("Infisical-Credential-FD konnte nicht geschützt werden."))?;
-    let descriptor = filedescriptor::FileDescriptor::dup(&fd)
-        .map_err(|_| anyhow!("Infisical-Credential-FD ist nicht verfügbar."))?;
-    let file = descriptor
-        .as_file()
-        .map_err(|_| anyhow!("Infisical-Credential-FD ist nicht lesbar."))?;
-    if !file
-        .metadata()
-        .map_err(|_| anyhow!("Infisical-Credential-FD konnte nicht geprüft werden."))?
-        .is_file()
-    {
-        return Err(anyhow!(
-            "Infisical benötigt einen regulären Credential-Dateideskriptor."
-        ));
-    }
-    let token = tokio::time::timeout(
-        Duration::from_secs(5),
-        tokio::task::spawn_blocking(move || read_credential(&file)),
-    )
-    .await
-    .map_err(|_| anyhow!("Infisical-Credential wurde nicht rechtzeitig geliefert."))?
-    .map_err(|_| anyhow!("Infisical-Credential ist nicht lesbar."))??;
+        std::fs::read(path).map_err(|_| anyhow!("Infisical Konfiguration ist nicht lesbar."))?;
+    serde_json::from_slice(&data)
+        .map_err(|_| anyhow!("Infisical Konfiguration ist ungültig."))
+}
+
+async fn fetch_values(config: Config) -> Result<BTreeMap<String, Zeroizing<String>>> {
+    let token = load_credential(&config)?;
     if token.is_empty() || token.len() > 8192 {
-        return Err(anyhow!("Infisical-Credential hat eine ungültige Größe."));
+        return Err(anyhow!("Infisical Credential hat eine ungültige Größe."));
     }
     let token_text = std::str::from_utf8(&token)
-        .map_err(|_| anyhow!("Infisical-Credential ist ungültig."))?
+        .map_err(|_| anyhow!("Infisical Credential ist ungültig."))?
         .trim();
+
     let client = uplink_infisical_transport::client_builder(&config.socket_path, 0)
         .map_err(|message| anyhow!(message))?
         .timeout(Duration::from_secs(15))
         .build()
-        .map_err(|_| anyhow!("Infisical-Client konnte nicht gestartet werden."))?;
+        .map_err(|_| anyhow!("Infisical Client konnte nicht gestartet werden."))?;
     let mut response = client
         .get(format!(
             "{}/api/v4/secrets/",
@@ -116,48 +113,113 @@ pub(super) async fn database_dsn(path: &Path) -> Result<Zeroizing<String>> {
         .map_err(|_| anyhow!("Infisical ist nicht erreichbar."))?;
     if !response.status().is_success() {
         return Err(anyhow!(
-            "Infisical-Zugriff fehlgeschlagen (HTTP {}).",
+            "Infisical Zugriff fehlgeschlagen (HTTP {}).",
             response.status().as_u16()
         ));
     }
+
     let mut body = Zeroizing::new(Vec::new());
     while let Some(chunk) = response
         .chunk()
         .await
-        .map_err(|_| anyhow!("Infisical-Antwort wurde unterbrochen."))?
+        .map_err(|_| anyhow!("Infisical Antwort wurde unterbrochen."))?
     {
         if body.len().saturating_add(chunk.len()) > 2 * 1024 * 1024 {
-            return Err(anyhow!("Infisical-Antwort ist zu groß."));
+            return Err(anyhow!("Infisical Antwort ist zu groß."));
         }
         body.extend_from_slice(&chunk);
     }
+
     let reply: Reply =
-        serde_json::from_slice(&body).map_err(|_| anyhow!("Infisical-Antwort ist ungültig."))?;
-    let mut value = None;
+        serde_json::from_slice(&body).map_err(|_| anyhow!("Infisical Antwort ist ungültig."))?;
+    let mut values = BTreeMap::new();
     for mut entry in reply
         .secrets
         .into_iter()
-        .chain(reply.imports.into_iter().flat_map(|i| i.secrets))
+        .chain(reply.imports.into_iter().flat_map(|import| import.secrets))
     {
-        if entry.name == config.database_secret {
-            if value.is_some() || entry.value.trim().is_empty() {
-                return Err(anyhow!(
-                    "Datenbankzugang fehlt oder ist mehrfach definiert."
-                ));
-            }
-            value = Some(Zeroizing::new(std::mem::take(&mut entry.value)));
+        let name = entry.name.trim();
+        if name.is_empty() {
+            continue;
+        }
+        if !valid_environment_name(name) {
+            return Err(anyhow!("Infisical enthält einen ungültigen Variablennamen."));
+        }
+        values.insert(
+            name.to_string(),
+            Zeroizing::new(std::mem::take(&mut entry.value)),
+        );
+    }
+    Ok(values)
+}
+
+fn valid_environment_name(name: &str) -> bool {
+    let mut bytes = name.bytes();
+    let Some(first) = bytes.next() else {
+        return false;
+    };
+    (first == b'_' || first.is_ascii_alphabetic())
+        && bytes.all(|byte| byte == b'_' || byte.is_ascii_alphanumeric())
+}
+
+fn load_credential(config: &Config) -> Result<Zeroizing<Vec<u8>>> {
+    if let Some(fd) = config.credential_fd.filter(|fd| *fd >= 3) {
+        if let Ok(flags) = fcntl(fd, FcntlArg::F_GETFD) {
+            fcntl(
+                fd,
+                FcntlArg::F_SETFD(FdFlag::from_bits_retain(flags) | FdFlag::FD_CLOEXEC),
+            )
+            .map_err(|_| anyhow!("Infisical Credential FD konnte nicht geschützt werden."))?;
+            let descriptor = filedescriptor::FileDescriptor::dup(&fd)
+                .map_err(|_| anyhow!("Infisical Credential FD ist nicht verfügbar."))?;
+            let file = descriptor
+                .as_file()
+                .map_err(|_| anyhow!("Infisical Credential FD ist nicht lesbar."))?;
+            return read_credential(file);
         }
     }
-    value.ok_or_else(|| anyhow!("Datenbankzugang fehlt in Infisical."))
+
+    if let Some(directory) = env::var_os("CREDENTIALS_DIRECTORY") {
+        let path = PathBuf::from(directory).join(&config.credential_name);
+        if path.is_file() {
+            return read_credential_path(&path);
+        }
+    }
+
+    if let Some(path) = env::var_os("INFISICAL_TOKEN_FILE") {
+        let path = PathBuf::from(path);
+        if path.is_file() {
+            return read_credential_path(&path);
+        }
+    }
+
+    Err(anyhow!(
+        "Infisical Credential ist weder als FD noch als Runtime Credential verfügbar."
+    ))
+}
+
+fn read_credential_path(path: &Path) -> Result<Zeroizing<Vec<u8>>> {
+    let file = std::fs::File::open(path)
+        .map_err(|_| anyhow!("Infisical Runtime Credential ist nicht lesbar."))?;
+    read_credential(&file)
 }
 
 fn read_credential(file: &std::fs::File) -> Result<Zeroizing<Vec<u8>>> {
+    if !file
+        .metadata()
+        .map_err(|_| anyhow!("Infisical Credential konnte nicht geprüft werden."))?
+        .is_file()
+    {
+        return Err(anyhow!(
+            "Infisical benötigt ein reguläres Runtime Credential."
+        ));
+    }
     let mut bytes = Zeroizing::new(vec![0; 8193]);
     let mut length = 0;
     while length < bytes.len() {
         let read = file
             .read_at(&mut bytes[length..], length as u64)
-            .map_err(|_| anyhow!("Infisical-Credential ist nicht lesbar."))?;
+            .map_err(|_| anyhow!("Infisical Credential ist nicht lesbar."))?;
         if read == 0 {
             break;
         }
@@ -186,5 +248,14 @@ mod tests {
             b"synthetic-fixture"
         );
         assert_eq!(file.stream_position().unwrap(), offset);
+    }
+
+    #[test]
+    fn environment_names_are_strict() {
+        assert!(valid_environment_name("DEADLOCK_CENTRAL_DSN"));
+        assert!(valid_environment_name("_TOKEN_2"));
+        assert!(!valid_environment_name("2TOKEN"));
+        assert!(!valid_environment_name("BAD-NAME"));
+        assert!(!valid_environment_name(""));
     }
 }

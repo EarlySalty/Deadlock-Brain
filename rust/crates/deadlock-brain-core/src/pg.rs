@@ -1,4 +1,4 @@
-//! sqlx `PgPool`-Fundament fuer das zentrale Postgres-Brain.
+//! sqlx `PgPool` Fundament fuer das zentrale Postgres Brain.
 
 use anyhow::{anyhow, Result};
 use sqlx::postgres::PgConnectOptions;
@@ -16,6 +16,12 @@ pub async fn pg_pool_read_only() -> Result<PgPool> {
     .await
 }
 
+pub async fn infisical_environment(
+    path: &Path,
+) -> Result<Vec<(String, zeroize::Zeroizing<String>)>> {
+    secrets::environment(path).await
+}
+
 pub async fn pg_pool_from_config(path: &Path, read_only: bool) -> Result<PgPool> {
     let dsn = secrets::database_dsn(path).await?;
     let mut options = PgConnectOptions::from_str(&dsn)
@@ -31,17 +37,9 @@ pub async fn pg_pool_from_config(path: &Path, read_only: bool) -> Result<PgPool>
         .map_err(|_| anyhow!("Verbindung zur zentralen Postgres fehlgeschlagen."))
 }
 
-/// Env-Variable mit dem zentralen Postgres-DSN. Der Wert wird nie geloggt oder
-/// ausgegeben (Secret-Hygiene).
 pub const DSN_ENV: &str = "DEADLOCK_CENTRAL_DSN";
-
-/// Postgres-Schema mit den Brain-Tabellen.
 pub const SCHEMA: &str = "brain";
 
-/// Baut einen kleinen async Verbindungspool gegen die zentrale Postgres.
-///
-/// Das DSN kommt aus [`DSN_ENV`]. Weder das DSN noch die konkreten
-/// Verbindungsdetails werden im Fehlerfall ausgegeben.
 pub async fn pg_pool() -> Result<PgPool> {
     let dsn = std::env::var(DSN_ENV)
         .map_err(|_| anyhow!("{DSN_ENV} ist nicht gesetzt; DSN wird nicht ausgegeben."))?;
