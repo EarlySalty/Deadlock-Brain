@@ -13,12 +13,23 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: patch-insights-${{ github.ref }}
+  group: patch-insights-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 jobs:
   contracts:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: scratch_only
+          POSTGRES_DB: brain_contract
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
     env:
       SQLX_OFFLINE: "true"
       CARGO_BUILD_JOBS: "2"
@@ -27,8 +38,30 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python -m pip install pytest
-      - run: python -m pytest -q mcp/test_history_tools.py
+      - name: Python contracts with MCP v1
+        run: |
+          python -m pip install pytest 'mcp>=1.28,<2'
+          python -m pytest -q mcp/test_history_tools.py mcp/test_server.py mcp/test_scratch_contracts.py -k 'not live_contract'
+      - name: Python contracts with MCP v2
+        run: |
+          python -m pip install 'mcp>=2,<3'
+          python -m pytest -q mcp/test_history_tools.py mcp/test_server.py mcp/test_scratch_contracts.py -k 'not live_contract'
+      - name: Scratch schema and additive migration
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: scratch_only
+          PGDATABASE: brain_contract
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -f mcp/fixtures/patch-insights-scratch.sql
+          psql -X -v ON_ERROR_STOP=1 -f scripts/migrations/2026-09-18-patch-insights-evidence.sql
+          psql -X -v ON_ERROR_STOP=1 -f scripts/migrations/2026-09-18-patch-insights-evidence.sql
+      - name: Shared tools against isolated Postgres
+        env:
+          BRAIN_SCRATCH_TEST: "1"
+          DEADLOCK_CENTRAL_DSN: postgresql://postgres:scratch_only@127.0.0.1:5432/brain_contract
+        run: python -m pytest -q mcp/test_scratch_contracts.py
       - run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
       - name: Format changed Rust files in test checkout
         run: |
@@ -41,6 +74,11 @@ jobs:
         run: |
           cargo +stable test --package deadlock-brain --bin patch-insights
           cargo +stable test --package deadlock-brain-yt transcripts::
+      - name: Caption persistence against isolated Postgres
+        working-directory: rust
+        env:
+          DEADLOCK_CENTRAL_DSN: postgresql://postgres:scratch_only@127.0.0.1:5432/brain_contract
+        run: cargo +stable test --package deadlock-brain-yt transcripts::tests::save_transcript_is_idempotent_and_sets_ready_pg -- --ignored --exact
       - name: Clippy
         working-directory: rust
         run: |
