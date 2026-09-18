@@ -1,0 +1,73 @@
+name: Patch understanding evidence
+on:
+  push:
+    branches: [codex/patch-understanding-evidence-20260918]
+  pull_request:
+    paths:
+      - 'rust/crates/deadlock-brain/src/pg_insights.rs'
+      - 'rust/crates/deadlock-brain/src/bin/deadlock-brain-patch-review.rs'
+      - 'rust/crates/deadlock-brain-yt/src/transcripts.rs'
+      - 'scripts/migrations/2026-09-18-patch-evidence.sql'
+      - 'tests/patch-understanding/**'
+      - '.github/workflows/patch-understanding.yml'
+permissions:
+  contents: read
+concurrency:
+  group: patch-understanding-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SQLX_OFFLINE: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain
+        run: rustup toolchain install stable --profile minimal --component clippy --component rustfmt
+      - name: Format only changed Rust files in the test checkout
+        run: rustfmt --edition 2021 rust/crates/deadlock-brain/src/pg_insights.rs rust/crates/deadlock-brain/src/bin/deadlock-brain-patch-review.rs rust/crates/deadlock-brain-yt/src/transcripts.rs
+      - name: Caption tests
+        working-directory: rust
+        run: cargo +stable test --locked --package deadlock-brain-yt --bin deadlock-brain-yt
+      - name: Review and reference validation tests
+        working-directory: rust
+        run: cargo +stable test --locked --package deadlock-brain --bin deadlock-brain-patch-review
+      - name: Insight trust tests
+        working-directory: rust
+        run: cargo +stable test --locked --package deadlock-brain --bin deadlock-brain pg_insights::tests
+      - name: Clippy
+        working-directory: rust
+        run: cargo +stable clippy --locked --package deadlock-brain --package deadlock-brain-yt
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: evidence_test
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: test
+      PGPASSWORD: test
+      PGDATABASE: evidence_test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create isolated fixture
+        run: psql -v ON_ERROR_STOP=1 -f tests/patch-understanding/schema-fixture.sql
+      - name: Apply migration and test history semantics
+        run: |
+          psql -v ON_ERROR_STOP=1 -f scripts/migrations/2026-09-18-patch-evidence.sql
+          psql -v ON_ERROR_STOP=1 -f tests/patch-understanding/schema-assertions.sql
+      - name: Migration is idempotent
+        run: |
+          before=$(psql -Atc 'select count(*) from brain.patch_evidence_revisions')
+          psql -v ON_ERROR_STOP=1 -f scripts/migrations/2026-09-18-patch-evidence.sql
+          after=$(psql -Atc 'select count(*) from brain.patch_evidence_revisions')
+          test "$before" = "$after"
