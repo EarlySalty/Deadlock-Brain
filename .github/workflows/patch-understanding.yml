@@ -50,6 +50,7 @@ jobs:
           test ! -f mcp/server.py
           test ! -f mcp/test_server.py
           test ! -f pyproject.toml
+          test -z "$(find . -type f -name '*.py' -print -quit)"
           if grep -R -n -E 'python3[[:space:]]+-m[[:space:]]+deadlock_brain|PYTHONPATH=.*Deadlock-Brain/src|src/deadlock_brain' scripts service mcp; then
             echo "Veralteter Python-Produktionspfad gefunden." >&2
             exit 1
