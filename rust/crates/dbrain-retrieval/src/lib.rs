@@ -984,7 +984,13 @@ pub async fn ask_context(pool: &PgPool, query: &str, opts: &AskContextOptions) -
     let game_knowledge = if out_of_domain {
         json!({"available": false, "reason": "out_of_domain"})
     } else {
-        game_wiki::search_game_wiki(opts.game_wiki_dir.as_deref(), query, &entity, 3)?
+        game_wiki::search_game_wiki_for_answer(
+            opts.game_wiki_dir.as_deref(),
+            query,
+            &entity,
+            &intent,
+            3,
+        )?
     };
     let ground_truth = json!({
         "stats": base.get("current_stat_hints").cloned().unwrap_or(JsonValue::Null),
