@@ -48,6 +48,8 @@ enum Commands {
         about = "Baut ein vertrauenssortiertes Wissens-Buendel plus LLM-Prompt zu einer beliebigen Deadlock-Frage."
     )]
     AskContext(AskContextArgs),
+    #[command(about = "Stellt eine Frage über die vollständige Rust-Retrieval- und Modellpipeline.")]
+    Ask(AskArgs),
     #[command(about = "Fuehrt lokale Datenqualitaetschecks aus.")]
     Quality(PrettyArgs),
     #[command(about = "Erzeugt und pflegt die lokale Game-Wiki-Wissensschicht.")]
@@ -213,6 +215,25 @@ struct AskContextArgs {
     game_wiki_dir: Option<PathBuf>,
     #[arg(long)]
     pretty: bool,
+}
+
+#[derive(Debug, Args)]
+struct AskArgs {
+    query: String,
+    #[arg(long = "limit-events", default_value_t = 80)]
+    limit_events: usize,
+    #[arg(long = "include-unverified")]
+    include_unverified: bool,
+    #[arg(long = "max-claims", default_value_t = 12)]
+    max_claims: usize,
+    #[arg(long = "game-wiki-dir", value_name = "PATH")]
+    game_wiki_dir: Option<PathBuf>,
+    #[arg(long)]
+    pretty: bool,
+    #[arg(long = "dry-run")]
+    dry_run: bool,
+    #[arg(long = "no-persist")]
+    no_persist: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -1262,6 +1283,30 @@ async fn run(cli: Cli) -> Result<()> {
                 Ok(())
             } else {
                 print_json(&result)
+            }
+        }
+        Commands::Ask(args) => {
+            let result = dbrain_retrieval::ask(
+                &pool,
+                &args.query,
+                dbrain_retrieval::AskRunOptions {
+                    context: dbrain_retrieval::AskContextOptions {
+                        limit_events: usize_to_i64(args.limit_events),
+                        include_unverified: args.include_unverified,
+                        max_claims: args.max_claims,
+                        game_wiki_dir: args.game_wiki_dir.clone(),
+                    },
+                    config: deadlock_brain_core::ai::AiConfig::from_settings(&settings),
+                    dry_run: args.dry_run,
+                    persist: !args.no_persist && !args.dry_run,
+                },
+            )
+            .await?;
+            if args.pretty {
+                print_json(&result)
+            } else {
+                println!("{}", serde_json::to_string(&result)?);
+                Ok(())
             }
         }
         Commands::Quality(args) => {
