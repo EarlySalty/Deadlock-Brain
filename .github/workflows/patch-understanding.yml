@@ -17,6 +17,14 @@ on:
       - 'rust/crates/deadlock-brain-yt/src/queue.rs'
       - 'rust/crates/deadlock-brain-yt/src/transcript_claims.rs'
       - 'rust/crates/dbrain-retrieval/src/lib.rs'
+      - 'rust/crates/deadlock-brain-core/src/config.rs'
+      - 'rust/crates/deadlock-brain-core/src/pg.rs'
+      - 'rust/crates/deadlock-brain-core/src/pg_secrets.rs'
+      - 'rust/crates/deadlock-brain/src/bin/deadlock-brain-mcp.rs'
+      - 'rust/crates/deadlock-brain/src/bin/deadlock-brain-secret-exec.rs'
+      - 'scripts/run_*'
+      - 'service/systemd/**'
+      - 'mcp/**'
       - 'tests/patch-understanding/**'
       - 'tests/yt-contract/**'
       - '.github/workflows/patch-understanding.yml'
@@ -35,8 +43,35 @@ jobs:
       - uses: actions/checkout@v4
       - name: Rust toolchain
         run: rustup toolchain install stable --profile minimal --component clippy --component rustfmt
-      - name: Format only changed Rust files in the test checkout
-        run: rustfmt --edition 2021 rust/crates/deadlock-brain/src/pg_insights.rs rust/crates/deadlock-brain/src/bin/deadlock-brain-patch-review.rs rust/crates/deadlock-brain-yt/src/transcripts.rs
+      - name: Format touched Rust files
+        run: >-
+          rustfmt --edition 2021 --check
+          rust/crates/deadlock-brain/src/pg_insights.rs
+          rust/crates/deadlock-brain/src/main.rs
+          rust/crates/deadlock-brain/src/bin/deadlock-brain-patch-review.rs
+          rust/crates/deadlock-brain/src/bin/deadlock-brain-mcp.rs
+          rust/crates/deadlock-brain/src/bin/deadlock-brain-secret-exec.rs
+          rust/crates/deadlock-brain-core/src/config.rs
+          rust/crates/deadlock-brain-core/src/pg.rs
+          rust/crates/deadlock-brain-core/src/pg_secrets.rs
+          rust/crates/dbrain-retrieval/src/lib.rs
+          rust/crates/deadlock-brain-yt/src/main.rs
+          rust/crates/deadlock-brain-yt/src/claims.rs
+          rust/crates/deadlock-brain-yt/src/loop_runner.rs
+          rust/crates/deadlock-brain-yt/src/queue.rs
+          rust/crates/deadlock-brain-yt/src/transcripts.rs
+      - name: Core runtime tests
+        working-directory: rust
+        run: cargo +stable test --locked --package deadlock-brain-core
+      - name: Brain CLI tests
+        working-directory: rust
+        run: cargo +stable test --locked --package deadlock-brain --bin deadlock-brain
+      - name: Rust MCP tests
+        working-directory: rust
+        run: cargo +stable test --locked --package deadlock-brain --bin deadlock-brain-mcp
+      - name: Secret exec build
+        working-directory: rust
+        run: cargo +stable build --locked --package deadlock-brain --bin deadlock-brain-secret-exec
       - name: Caption tests
         working-directory: rust
         run: cargo +stable test --locked --package deadlock-brain-yt --bin deadlock-brain-yt
