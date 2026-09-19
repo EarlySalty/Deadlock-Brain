@@ -306,6 +306,14 @@ pub struct AskContextOptions {
 }
 
 #[derive(Debug, Clone)]
+pub struct AskRunOptions {
+    pub context: AskContextOptions,
+    pub config: core::ai::AiConfig,
+    pub dry_run: bool,
+    pub persist: bool,
+}
+
+#[derive(Debug, Clone)]
 struct AskClaimRecord {
     id: i64,
     claim_text: String,
@@ -1045,6 +1053,86 @@ pub async fn ask_context(pool: &PgPool, query: &str, opts: &AskContextOptions) -
     Ok(JsonValue::Object(result))
 }
 
+pub async fn ask(pool: &PgPool, query: &str, options: AskRunOptions) -> Result<JsonValue> {
+    let bundle = ask_context(pool, query, &options.context).await?;
+    let prompt = bundle
+        .get("prompt")
+        .and_then(JsonValue::as_str)
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if prompt.is_empty() {
+        return Err(RetrievalError::Invalid(
+            "Ask-Kontext enthält keinen Modellprompt.".to_string(),
+        ));
+    }
+
+    let request = core::ai::ChatCompletionRequest::new(
+        vec![
+            core::ai::ChatMessage::system(core::ai::DEFAULT_SYSTEM_PROMPT),
+            core::ai::ChatMessage::user(prompt.clone()),
+        ],
+        &options.config,
+    );
+    let request_value = serde_json::to_value(&request)?;
+    if options.dry_run {
+        return Ok(json!({
+            "dry_run": true,
+            "query": query,
+            "intent": bundle.get("intent").cloned().unwrap_or(JsonValue::Null),
+            "entity": bundle.get("entity").cloned().unwrap_or(JsonValue::Null),
+            "model": options.config.model,
+            "api_key_present": options.config.api_key_present(),
+            "request": request_value,
+            "retrieval_meta": bundle.get("retrieval_meta").cloned().unwrap_or(JsonValue::Null),
+        }));
+    }
+
+    let client = core::ai::AiClient::new(options.config.clone())?;
+    let response = client.chat(&request)?;
+    let answer = core::ai::extract_ai_text(&response);
+    if answer.is_empty() {
+        return Err(RetrievalError::EmptyAiResponse);
+    }
+    let provider_metadata = core::ai::ai_usage_summary(&response);
+    let note = if options.persist {
+        let storage_context = json!({
+            "query": query,
+            "entity_summary": bundle.get("entity").cloned().unwrap_or(JsonValue::Null),
+            "context_kind": "ask",
+            "prompt_de": prompt,
+            "source_references": bundle.get("sources").cloned().unwrap_or_else(|| json!([])),
+            "retrieval_meta": bundle.get("retrieval_meta").cloned().unwrap_or(JsonValue::Null),
+            "ask_bundle": bundle,
+        });
+        Some(
+            save_review_analysis_note(
+                pool,
+                &storage_context,
+                Some(&answer),
+                Some(&options.config.model),
+                None,
+                "analysis_ready",
+                Some(&provider_metadata),
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
+
+    Ok(json!({
+        "query": query,
+        "intent": bundle.get("intent").cloned().unwrap_or(JsonValue::Null),
+        "entity": bundle.get("entity").cloned().unwrap_or(JsonValue::Null),
+        "answer": answer,
+        "model": options.config.model,
+        "usage": provider_metadata,
+        "note": note,
+        "retrieval_meta": bundle.get("retrieval_meta").cloned().unwrap_or(JsonValue::Null),
+    }))
+}
+
 fn should_use_patch_overview_context(
     plan: &QueryPlan,
     entity_match: &AskEntityClaimMatch,
@@ -1553,11 +1641,45 @@ pub async fn analysis_list(pool: &PgPool, query: Option<&str>, limit: i64) -> Re
     ))
 }
 
-pub async fn search_mechanic_notes(pool: &PgPool, _query: &str, _limit: i64) -> Result<JsonValue> {
-    if !table_exists(pool, "mechanic_notes").await? || !table_exists(pool, "vector_embeddings").await? {
+pub async fn search_mechanic_notes(pool: &PgPool, query: &str, limit: i64) -> Result<JsonValue> {
+    let query = query.trim();
+    if query.is_empty() || !table_exists(pool, "mechanic_notes").await? {
         return Ok(JsonValue::Array(Vec::new()));
     }
-    todo!("Vektorsuche: spätere Wave")
+
+    // Der alte Python-Pfad hatte hier einen eigenen all-MiniLM-L6-v2/sqlite-vec
+    // Stack. Der lokale Embedder gehört inzwischen dem gemeinsamen dl-knowledge
+    // Dienst. Deadlock-Brain baut deshalb keinen zweiten Modell-Stack auf.
+    // Solange mechanic_notes nicht in dessen Index eingespeist werden, bleibt
+    // dieser Legacy-Kompatibilitätspfad deterministisch und Postgres-nativ.
+    let max_rows = clamp_i64(limit, 1, 50);
+    let pattern = format!("%{query}%");
+    let rows = fetch_all(
+        pool,
+        r#"
+        SELECT id, title, content, source, category,
+               CASE
+                 WHEN lower(title) = lower(?) THEN 0.0
+                 WHEN title ILIKE ? THEN 0.25
+                 ELSE 0.5
+               END AS distance
+        FROM brain.mechanic_notes
+        WHERE title ILIKE ? OR content ILIKE ?
+        ORDER BY distance ASC, id ASC
+        LIMIT ?
+        "#,
+        vec![
+            SqlValue::Text(query.to_string()),
+            SqlValue::Text(pattern.clone()),
+            SqlValue::Text(pattern.clone()),
+            SqlValue::Text(pattern),
+            SqlValue::Integer(max_rows),
+        ],
+    )
+    .await?;
+    Ok(JsonValue::Array(
+        rows.into_iter().map(JsonValue::Object).collect(),
+    ))
 }
 
 pub async fn analyze_query(pool: &PgPool, query: &str) -> Result<QueryPlan> {
@@ -3293,6 +3415,7 @@ async fn load_entity_claim_rows(
         FROM brain.youtube_learning_claims c
         LEFT JOIN brain.youtube_videos v ON v.video_id=c.video_id
         WHERE lower(c.entity_name) IN ({})
+          AND COALESCE(v.metadata->>'needs_claim_revalidation','') <> 'true'
         ORDER BY c.verifier_confidence DESC, c.id
         "#,
         placeholders(names.len())
@@ -3324,6 +3447,7 @@ async fn load_entity_claim_rows(
         FROM brain.youtube_learning_claims c
         LEFT JOIN brain.youtube_videos v ON v.video_id=c.video_id
         WHERE ({})
+          AND COALESCE(v.metadata->>'needs_claim_revalidation','') <> 'true'
         "#,
         clauses.join(" OR ")
     );
@@ -3365,6 +3489,7 @@ async fn load_keyword_claim_rows(
         FROM brain.youtube_learning_claims c
         LEFT JOIN brain.youtube_videos v ON v.video_id=c.video_id
         WHERE ({})
+          AND COALESCE(v.metadata->>'needs_claim_revalidation','') <> 'true'
         ORDER BY c.verifier_confidence DESC, c.id
         "#,
         clauses.join(" OR ")
