@@ -21,9 +21,13 @@ struct Args {
     command: Vec<OsString>,
 }
 
-#[tokio::main]
-async fn main() {
-    if let Err(error) = run().await {
+fn main() {
+    let result = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("Tokio Runtime konnte nicht gestartet werden")
+        .and_then(|runtime| runtime.block_on(run()));
+    if let Err(error) = result {
         eprintln!("{error:#}");
         std::process::exit(1);
     }
