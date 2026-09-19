@@ -175,7 +175,7 @@ fn load_credential(config: &Config) -> Result<Zeroizing<Vec<u8>>> {
             let file = descriptor
                 .as_file()
                 .map_err(|_| anyhow!("Infisical Credential FD ist nicht lesbar."))?;
-            return read_credential(file);
+            return read_credential(&file);
         }
     }
 
