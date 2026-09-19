@@ -48,6 +48,8 @@ enum Commands {
         about = "Baut ein vertrauenssortiertes Wissens-Buendel plus LLM-Prompt zu einer beliebigen Deadlock-Frage."
     )]
     AskContext(AskContextArgs),
+    #[command(about = "Stellt eine Frage über die vollständige Rust-Retrieval- und Modellpipeline.")]
+    Ask(AskArgs),
     #[command(about = "Fuehrt lokale Datenqualitaetschecks aus.")]
     Quality(PrettyArgs),
     #[command(about = "Erzeugt und pflegt die lokale Game-Wiki-Wissensschicht.")]
@@ -213,6 +215,25 @@ struct AskContextArgs {
     game_wiki_dir: Option<PathBuf>,
     #[arg(long)]
     pretty: bool,
+}
+
+#[derive(Debug, Args)]
+struct AskArgs {
+    query: String,
+    #[arg(long = "limit-events", default_value_t = 80)]
+    limit_events: usize,
+    #[arg(long = "include-unverified")]
+    include_unverified: bool,
+    #[arg(long = "max-claims", default_value_t = 12)]
+    max_claims: usize,
+    #[arg(long = "game-wiki-dir", value_name = "PATH")]
+    game_wiki_dir: Option<PathBuf>,
+    #[arg(long)]
+    pretty: bool,
+    #[arg(long = "dry-run")]
+    dry_run: bool,
+    #[arg(long = "no-persist")]
+    no_persist: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -1036,6 +1057,44 @@ enum PgCommands {
         about = "Importiert exakt einen Patchnote-Eintrag direkt nach brain.* in Postgres."
     )]
     ImportPatchnote(PgImportPatchnoteArgs),
+    #[command(
+        name = "sync-patchnotes",
+        about = "Prueft changelog_posts revisionssicher gegen brain.* und importiert neue/geaenderte Quellen."
+    )]
+    SyncPatchnotes(PgSyncPatchnotesArgs),
+    #[command(
+        name = "refresh-official",
+        about = "Aktualisiert eine vorhandene offizielle Quelle identitaetsgeprueft (ajaxgetpartnerevent)."
+    )]
+    RefreshOfficial(PgRefreshOfficialArgs),
+}
+
+#[derive(Debug, Args)]
+struct PgRefreshOfficialArgs {
+    #[arg(long = "patch-id", help = "changelog_posts.id")]
+    patch_id: i64,
+    #[arg(long = "dsn-env", default_value = "DEADLOCK_CENTRAL_DSN")]
+    dsn_env: String,
+    #[arg(long = "apply", help = "Quellzeile wirklich aktualisieren; ohne Flag nur pruefen.")]
+    apply: bool,
+    #[arg(long = "response-file", help = "Offizielle Antwort aus Datei lesen statt abrufen (Test/Offline).")]
+    response_file: Option<String>,
+}
+
+#[derive(Debug, Args)]
+struct PgSyncPatchnotesArgs {
+    #[arg(long = "dsn-env", default_value = "DEADLOCK_CENTRAL_DSN")]
+    dsn_env: String,
+    #[arg(
+        long = "apply",
+        help = "Neue/geaenderte Quellen wirklich importieren; ohne Flag nur pruefen."
+    )]
+    apply: bool,
+    #[arg(
+        long = "limit",
+        help = "Nur die ersten N changelog_posts (nach id) betrachten."
+    )]
+    limit: Option<i64>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -1226,6 +1285,30 @@ async fn run(cli: Cli) -> Result<()> {
                 print_json(&result)
             }
         }
+        Commands::Ask(args) => {
+            let result = dbrain_retrieval::ask(
+                &pool,
+                &args.query,
+                dbrain_retrieval::AskRunOptions {
+                    context: dbrain_retrieval::AskContextOptions {
+                        limit_events: usize_to_i64(args.limit_events),
+                        include_unverified: args.include_unverified,
+                        max_claims: args.max_claims,
+                        game_wiki_dir: args.game_wiki_dir.clone(),
+                    },
+                    config: deadlock_brain_core::ai::AiConfig::from_settings(&settings),
+                    dry_run: args.dry_run,
+                    persist: !args.no_persist && !args.dry_run,
+                },
+            )
+            .await?;
+            if args.pretty {
+                print_json(&result)
+            } else {
+                println!("{}", serde_json::to_string(&result)?);
+                Ok(())
+            }
+        }
         Commands::Quality(args) => {
             let result = dbrain_retrieval::run_quality_checks(&pool).await?;
             if args.pretty {
@@ -1329,6 +1412,23 @@ fn run_pg(http: &HttpClient, target: PgCommands) -> Result<()> {
             },
         )?),
         PgCommands::ImportPatchnote(args) => run_pg_patchnote(http, args),
+        PgCommands::SyncPatchnotes(args) => print_json(&pg_patchnotes::sync_patchnotes(
+            http,
+            &pg_patchnotes::SyncPatchnotesOptions {
+                dsn_env: args.dsn_env,
+                apply: args.apply,
+                limit: args.limit,
+            },
+        )?),
+        PgCommands::RefreshOfficial(args) => print_json(&pg_patchnotes::refresh_official(
+            http,
+            &pg_patchnotes::RefreshOfficialOptions {
+                patch_id: args.patch_id,
+                dsn_env: args.dsn_env,
+                apply: args.apply,
+                response_file: args.response_file,
+            },
+        )?),
     }
 }
 

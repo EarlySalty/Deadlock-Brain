@@ -1,6 +1,5 @@
 mod claims;
 mod db;
-mod gemini;
 mod loop_runner;
 mod queue;
 mod transcript_claims;
@@ -29,7 +28,6 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
-    GeminiLogin,
     Ingest {
         #[arg(long, default_value_t = 5)]
         limit: usize,
@@ -38,10 +36,6 @@ enum Commands {
         entity: String,
         #[arg(long)]
         pretty: bool,
-    },
-    Smoke {
-        #[arg(long)]
-        url: String,
     },
     FetchTranscripts {
         #[arg(long, default_value_t = 20)]
@@ -150,7 +144,6 @@ async fn main() {
 async fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Commands::GeminiLogin => gemini::run_login(),
         Commands::Ingest { limit } => {
             let pool = db::pg_pool().await?;
             print_json(&loop_runner::run_ingest(&pool, limit).await?)
@@ -171,27 +164,6 @@ async fn run() -> anyhow::Result<()> {
                 Ok(())
             } else {
                 print_json(&rows)
-            }
-        }
-        Commands::Smoke { url } => {
-            let prompt = claims::build_prompt(&url);
-            match gemini::analyze_url(&url, &prompt) {
-                Ok(raw_text) => print_json(&json!({
-                    "status": "ok",
-                    "raw_text": raw_text,
-                    "claims": claims::parse_model_claims(&raw_text),
-                })),
-                Err(error) => {
-                    println!(
-                        "{}",
-                        serde_json::to_string(&json!({
-                            "status": "error",
-                            "kind": error.kind.to_string(),
-                            "message": error.message,
-                        }))?
-                    );
-                    std::process::exit(1);
-                }
             }
         }
         Commands::FetchTranscripts { limit } => {

@@ -9,14 +9,17 @@
 use sqlx::postgres::{PgPool, PgPoolOptions};
 
 /// Baut einen Pool gegen die Scratch-Postgres oder `None`, wenn kein DSN
-/// gesetzt ist (dann überspringt der Test).
+/// gesetzt ist (dann überspringt der Test). Ist der DSN gesetzt, aber die
+/// Verbindung schlägt fehl, MUSS der Test scheitern statt still grün zu werden;
+/// die Panikmeldung nennt kein DSN- oder Geheimniswert.
 pub async fn test_pool() -> Option<PgPool> {
     let dsn = std::env::var("DEADLOCK_CENTRAL_DSN").ok()?;
-    PgPoolOptions::new()
-        .max_connections(2)
-        .connect(&dsn)
-        .await
-        .ok()
+    match PgPoolOptions::new().max_connections(2).connect(&dsn).await {
+        Ok(pool) => Some(pool),
+        Err(_) => panic!(
+            "DEADLOCK_CENTRAL_DSN is set but the test database connection failed (value withheld)"
+        ),
+    }
 }
 
 pub fn unique_suffix() -> String {
@@ -129,16 +132,48 @@ pub async fn insert_claim_marker(
     .expect("seed claim marker");
 }
 
+#[allow(clippy::too_many_arguments)]
+pub async fn insert_entity_claim(
+    pool: &PgPool,
+    video_id: &str,
+    claim_hash: &str,
+    entity_name: &str,
+    prompt_version: &str,
+    model: &str,
+) {
+    sqlx::query(
+        r#"
+        INSERT INTO brain.youtube_learning_claims(
+          video_id, claim_hash, claim_index, entity_type, entity_name, claim_type, claim_text,
+          evidence_quote, model_confidence, verifier_confidence, status, model, prompt_version,
+          prompt_text, model_response_text, provider_metadata, verifier, created_at, updated_at
+        )
+        VALUES($1, $2, 0, 'hero', $3, 'build', 'claim text', '', 0.5, 0.0, 'accepted', $4, $5,
+               'prompt', '', '{}'::jsonb, '{}'::jsonb, now(), now())
+        ON CONFLICT(claim_hash) DO NOTHING
+        "#,
+    )
+    .bind(video_id)
+    .bind(claim_hash)
+    .bind(entity_name)
+    .bind(model)
+    .bind(prompt_version)
+    .execute(pool)
+    .await
+    .expect("seed entity claim");
+}
+
 pub async fn cleanup(pool: &PgPool, video_ids: &[&str], feed_keys: &[&str]) {
     for video_id in video_ids {
         let _ = sqlx::query("DELETE FROM brain.youtube_learning_claims WHERE video_id=$1")
             .bind(video_id)
             .execute(pool)
             .await;
-        let _ = sqlx::query("DELETE FROM brain.youtube_transcript_claim_attempts WHERE video_id=$1")
-            .bind(video_id)
-            .execute(pool)
-            .await;
+        let _ =
+            sqlx::query("DELETE FROM brain.youtube_transcript_claim_attempts WHERE video_id=$1")
+                .bind(video_id)
+                .execute(pool)
+                .await;
         let _ = sqlx::query("DELETE FROM brain.youtube_transcripts WHERE video_id=$1")
             .bind(video_id)
             .execute(pool)
