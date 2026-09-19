@@ -1,7 +1,9 @@
 name: Patch understanding evidence
 on:
   push:
-    branches: [codex/patch-understanding-evidence-20260918]
+    branches:
+      - codex/patch-understanding-evidence-20260918
+      - feat/brain-rust-cutover-20260919
   pull_request:
     paths:
       - 'rust/crates/deadlock-brain/src/pg_insights.rs'
@@ -41,6 +43,17 @@ jobs:
       SQLX_OFFLINE: 'true'
     steps:
       - uses: actions/checkout@v4
+      - name: Rust-only Produktionspfade prüfen
+        run: |
+          set -euo pipefail
+          test ! -d src/deadlock_brain
+          test ! -f mcp/server.py
+          test ! -f mcp/test_server.py
+          test ! -f pyproject.toml
+          if grep -R -n -E 'python3[[:space:]]+-m[[:space:]]+deadlock_brain|PYTHONPATH=.*Deadlock-Brain/src|src/deadlock_brain' scripts service mcp; then
+            echo "Veralteter Python-Produktionspfad gefunden." >&2
+            exit 1
+          fi
       - name: Rust toolchain
         run: rustup toolchain install stable --profile minimal --component clippy --component rustfmt
       - name: Format touched Rust files
