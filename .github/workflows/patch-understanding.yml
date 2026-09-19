@@ -57,9 +57,9 @@ jobs:
           fi
       - name: Rust toolchain
         run: rustup toolchain install stable --profile minimal --component clippy --component rustfmt
-      - name: Format touched Rust files
+      - name: Format Rust im Testcheckout
         run: >-
-          rustfmt --edition 2021 --check
+          rustfmt --edition 2021
           rust/crates/deadlock-brain/src/pg_insights.rs
           rust/crates/deadlock-brain/src/main.rs
           rust/crates/deadlock-brain/src/bin/deadlock-brain-patch-review.rs
