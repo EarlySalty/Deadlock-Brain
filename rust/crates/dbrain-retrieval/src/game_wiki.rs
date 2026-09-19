@@ -211,19 +211,30 @@ fn search_game_wiki_inner(
             let mut selected = Vec::new();
             let mut missing = Vec::new();
             for (key, name) in bound.iter().take(MAX_HERO_ABILITIES) {
-                let index = matches.iter().position(|page| {
-                    page.binding.as_ref().is_some_and(|ability| {
-                        ability.key == *key && ability.hero_key == binding.key
+                // BoundAbilities is the explicit hero-to-ability relation. A
+                // card's display HeroKey can name another form sharing it or
+                // be stale; use the unique stable ability key, never an
+                // arbitrary first card when snapshots disagree on that key.
+                let indices = matches
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, page)| {
+                        page.binding
+                            .as_ref()
+                            .is_some_and(|ability| ability.key == *key && ability.is_ability_card)
                     })
-                });
-                if let Some(index) = index {
-                    selected.push(matches.remove(index));
+                    .map(|(index, _)| index)
+                    .collect::<Vec<_>>();
+                if indices.len() == 1 {
+                    selected.push(matches.remove(indices[0]));
                 } else {
                     missing.push(json!({"key": key, "name": name}));
                 }
             }
             hero_context = json!({
                 "hero": binding.name, "bound_abilities": bound.len(),
+                "binding_source": "hero_bound_abilities",
+                "ability_bindings": bound.iter().take(MAX_HERO_ABILITIES).map(|(key, name)| json!({"key":key,"name":name})).collect::<Vec<_>>(),
                 "missing_abilities": missing, "omitted_abilities": bound.len().saturating_sub(MAX_HERO_ABILITIES),
                 "complete": missing.is_empty() && bound.len() <= MAX_HERO_ABILITIES,
             });
@@ -298,7 +309,7 @@ struct ScoredPage {
 struct EntryBinding {
     key: String,
     name: String,
-    hero_key: String,
+    is_ability_card: bool,
     bound: Option<Vec<(String, String)>>,
 }
 
@@ -341,11 +352,7 @@ fn entry_binding(entry: &str) -> Option<EntryBinding> {
             .and_then(JsonValue::as_str)
             .unwrap_or_default()
             .to_string(),
-        hero_key: payload
-            .get("HeroKey")
-            .and_then(JsonValue::as_str)
-            .unwrap_or_default()
-            .to_string(),
+        is_ability_card: kind.contains("entity_type=\"ability_card\""),
         bound,
     })
 }
@@ -357,24 +364,40 @@ fn words(text: &str) -> Vec<String> {
         .collect()
 }
 
-fn contains_phrase(text: &str, phrase: &str) -> bool {
-    let wanted = words(phrase);
-    !wanted.is_empty() && words(text).windows(wanted.len()).any(|part| part == wanted)
-}
-
 fn resolved_hero(pages: &[ScoredPage], query: &str, entity: &JsonValue) -> Option<usize> {
-    let explicit = pages
+    let query_words = words(query);
+    let mut spans = Vec::new();
+    for (index, page) in pages.iter().enumerate() {
+        let Some(binding) = page
+            .binding
+            .as_ref()
+            .filter(|binding| binding.bound.is_some())
+        else {
+            continue;
+        };
+        let name = words(&binding.name);
+        if name.is_empty() {
+            continue;
+        }
+        for (start, part) in query_words.windows(name.len()).enumerate() {
+            if part == name {
+                spans.push((index, start, start + name.len()));
+            }
+        }
+    }
+    // Suppress a shorter name only at the exact occurrence enclosed by a
+    // longer name. A separate mention elsewhere still represents a comparison.
+    let explicit = spans
         .iter()
-        .enumerate()
-        .filter(|(_, page)| {
-            page.binding.as_ref().is_some_and(|binding| {
-                binding.bound.is_some() && contains_phrase(query, &binding.name)
+        .filter(|(_, start, end)| {
+            !spans.iter().any(|(_, other_start, other_end)| {
+                other_start <= start && other_end >= end && other_end - other_start > end - start
             })
         })
-        .map(|(index, _)| index)
-        .collect::<Vec<_>>();
+        .map(|(index, _, _)| *index)
+        .collect::<HashSet<_>>();
     if explicit.len() == 1 {
-        return explicit.first().copied();
+        return explicit.iter().next().copied();
     }
     // Never let a singular planner result override an explicit comparison.
     if !explicit.is_empty() {
@@ -1082,6 +1105,83 @@ mod tests {
     }
 
     #[test]
+    fn nested_name_only_suppresses_the_enclosed_occurrence() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_bound_hero_fixture(tmp.path(), false);
+        fs::write(tmp.path().join("pages/transformed.md"), "<!-- game-wiki-entry entity_type=\"hero\" -->\n## Beacon (Transformed)\n````json\n{\"Key\":\"hero_beacon_transformed\",\"Name\":\"Beacon (Transformed)\",\"BoundAbilities\":{\"1\":{\"Key\":\"ability_beacon_1\",\"Name\":\"Beacon Skill 1\"}}}\n````\n").unwrap();
+        let transformed = search_game_wiki_for_answer(
+            Some(tmp.path()),
+            "Welche Fähigkeiten hat Beacon (Transformed)?",
+            &JsonValue::Null,
+            "hero_overview",
+            3,
+        )
+        .unwrap();
+        assert_eq!(transformed["hero_context"]["hero"], "Beacon (Transformed)");
+        assert_eq!(transformed["hero_context"]["complete"], true);
+        let comparison = search_game_wiki_for_answer(
+            Some(tmp.path()),
+            "Welche Fähigkeiten haben Beacon und Beacon (Transformed)?",
+            &json!({"canonical_name":"Beacon (Transformed)"}),
+            "hero_overview",
+            3,
+        )
+        .unwrap();
+        assert!(comparison["hero_context"].is_null());
+    }
+
+    #[test]
+    fn bound_key_supports_shared_cards_but_ambiguous_keys_fail_closed() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_bound_hero_fixture(tmp.path(), false);
+        let cards_path = tmp.path().join("pages/deadlock-data/ability-card.md");
+        let cards = fs::read_to_string(&cards_path).unwrap().replace(
+            "\"HeroKey\":\"hero_beacon\"",
+            "\"HeroKey\":\"hero_other_form\"",
+        );
+        fs::write(&cards_path, &cards).unwrap();
+        let shared = search_game_wiki_for_answer(
+            Some(tmp.path()),
+            "Beacon Fähigkeiten",
+            &JsonValue::Null,
+            "hero_overview",
+            3,
+        )
+        .unwrap();
+        assert_eq!(shared["hero_context"]["complete"], true);
+        assert_eq!(
+            shared["hero_context"]["binding_source"],
+            "hero_bound_abilities"
+        );
+        assert_eq!(
+            shared["hero_context"]["ability_bindings"][0]["key"],
+            "ability_beacon_1"
+        );
+        assert_eq!(shared["matches"].as_array().unwrap().len(), 5);
+        fs::write(tmp.path().join("pages/conflict.md"), "<!-- game-wiki-entry entity_type=\"ability_card\" -->\n## Conflicting Skill\n````json\n{\"Key\":\"ability_beacon_1\",\"HeroKey\":\"hero_foreign\",\"Name\":\"Conflicting Skill\"}\n````\n").unwrap();
+        let ambiguous = search_game_wiki_for_answer(
+            Some(tmp.path()),
+            "Beacon Fähigkeiten",
+            &JsonValue::Null,
+            "hero_overview",
+            3,
+        )
+        .unwrap();
+        assert_eq!(ambiguous["hero_context"]["complete"], false);
+        assert_eq!(
+            ambiguous["hero_context"]["missing_abilities"][0]["key"],
+            "ability_beacon_1"
+        );
+        assert!(ambiguous["matches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(
+                |entry| entry["title"] != "Conflicting Skill" && entry["title"] != "Beacon Skill 1"
+            ));
+    }
+
+    #[test]
     fn incidental_hero_does_not_replace_item_or_patch_search() {
         let tmp = tempfile::tempdir().unwrap();
         write_bound_hero_fixture(tmp.path(), false);
@@ -1124,6 +1224,43 @@ mod tests {
     #[ignore = "Explizite Abnahme am versionierten echten Game-Wiki"]
     fn live_wiki_hero_bundle_and_nonhero_search() {
         let root = Path::new("../../../game-wiki");
+        let all_cards =
+            fs::read_to_string(root.join("pages/deadlock-data/ability-card.md")).unwrap();
+        let mut keys = HashSet::new();
+        for binding in split_search_entries(&all_cards)
+            .into_iter()
+            .filter_map(entry_binding)
+        {
+            assert!(
+                keys.insert(binding.key),
+                "Ability-Key muss im gesamten Roster eindeutig sein"
+            );
+        }
+        assert!(keys.len() > 100);
+        let mut other_heroes = Vec::new();
+        for hero in ["Paradox", "Silver", "Silver (Transformed)"] {
+            let bundle = search_game_wiki_for_answer(
+                Some(root),
+                &format!("Welche Fähigkeiten hat {hero}?"),
+                &JsonValue::Null,
+                "hero_overview",
+                3,
+            )
+            .unwrap();
+            assert_eq!(bundle["hero_context"]["hero"], hero);
+            assert_eq!(bundle["hero_context"]["complete"], true, "{hero}");
+            assert_eq!(bundle["matches"].as_array().unwrap().len(), 5, "{hero}");
+            other_heroes.push(json!({"hero":hero,"titles":bundle["matches"].as_array().unwrap().iter().map(|page| &page["title"]).collect::<Vec<_>>()}));
+        }
+        let comparison = search_game_wiki_for_answer(
+            Some(root),
+            "Welche Fähigkeiten haben Silver und Silver (Transformed)?",
+            &json!({"canonical_name":"Silver"}),
+            "hero_overview",
+            3,
+        )
+        .unwrap();
+        assert!(comparison["hero_context"].is_null());
         let result = search_game_wiki_for_answer(
             Some(root),
             "Welche Fähigkeiten hat Warden?",
@@ -1187,7 +1324,7 @@ mod tests {
         assert!(unknown["matches"].as_array().unwrap().is_empty());
         println!(
             "{}",
-            json!({"hero":result,"item_titles":item["matches"].as_array().unwrap().iter().map(|page| &page["title"]).collect::<Vec<_>>(),"unknown":unknown})
+            json!({"hero":result,"other_heroes":other_heroes,"unique_ability_keys":keys.len(),"item_titles":item["matches"].as_array().unwrap().iter().map(|page| &page["title"]).collect::<Vec<_>>(),"unknown":unknown})
         );
     }
 
