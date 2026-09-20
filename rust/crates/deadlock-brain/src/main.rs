@@ -25,6 +25,7 @@ mod pg_entities;
 mod pg_insights;
 mod pg_patchnotes;
 mod pg_steam_news;
+mod wiki_refresh;
 
 #[derive(Debug, Parser)]
 #[command(name = "deadlock-brain")]
@@ -222,6 +223,8 @@ enum WikiCommands {
         about = "Erzeugt game-wiki/ aus Deadlock-Data-Snapshots neu."
     )]
     Rebuild(WikiRebuildArgs),
+    #[command(about = "Aktualisiert Quellen und veröffentlicht einen geprüften Wiki-Snapshot.")]
+    Refresh(wiki_refresh::RefreshArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -1125,6 +1128,12 @@ fn run_from_cli() -> Result<()> {
 
 async fn run(cli: Cli) -> Result<()> {
     let Cli { command } = cli;
+    if let Commands::Wiki {
+        target: WikiCommands::Refresh(args),
+    } = &command
+    {
+        return print_json(&wiki_refresh::run(args).await?);
+    }
     let settings = config::load_settings()?;
     let command = match command {
         Commands::Pg { target } => {
@@ -1236,6 +1245,7 @@ async fn run(cli: Cli) -> Result<()> {
             }
         }
         Commands::Wiki { target } => match target {
+            WikiCommands::Refresh(args) => print_json(&wiki_refresh::run(&args).await?),
             WikiCommands::Rebuild(args) => {
                 let dir = args
                     .dir

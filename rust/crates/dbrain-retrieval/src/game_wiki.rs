@@ -14,6 +14,9 @@ use sqlx::{PgPool, Row};
 
 use crate::Result;
 
+#[path = "game_wiki_localization.rs"]
+mod localization;
+
 pub const GAME_WIKI_DIR_ENV: &str = "DEADLOCK_BRAIN_GAME_WIKI_DIR";
 const DEFAULT_SEARCH_LIMIT: usize = 3;
 const WIKI_SOURCES: &[&str] = &["deadlock_data", "deadlock_wiki"];
@@ -47,7 +50,9 @@ pub fn default_game_wiki_dir() -> PathBuf {
 
 pub async fn rebuild_game_wiki(pool: &PgPool, root: &Path) -> Result<JsonValue> {
     fs::create_dir_all(root)?;
-    let rows = load_latest_snapshots(pool).await?;
+    let mut rows = load_latest_snapshots(pool).await?;
+    localization::enrich(pool, &mut rows).await?;
+    let provenance = snapshot_provenance(&rows);
     write_schema(root)?;
 
     let generated_at = Utc::now();
@@ -101,6 +106,8 @@ pub async fn rebuild_game_wiki(pool: &PgPool, root: &Path) -> Result<JsonValue> 
         "counts": counts,
         "index": root.join("index.md"),
         "log": root.join("log.md"),
+        "generated_at": generated_at.to_rfc3339(),
+        "provenance": provenance,
     }))
 }
 
@@ -153,6 +160,10 @@ fn search_game_wiki_inner(
             "reason": "game-wiki/pages fehlt; fuehre `deadlock-brain wiki rebuild` aus",
         }));
     }
+
+    // Ein Aufruf liest genau einen unveränderlichen Snapshot, auch beim Cutover.
+    let root = fs::canonicalize(root)?;
+    let pages_root = root.join("pages");
 
     let query_terms = ranked_terms(query, entity);
     let mut files = Vec::new();
@@ -283,6 +294,39 @@ struct SnapshotRow {
     source_url: Option<String>,
     source_content_hash: Option<String>,
     source_raw_path: Option<String>,
+}
+
+fn snapshot_provenance(rows: &[SnapshotRow]) -> JsonValue {
+    let mut sources = BTreeMap::<String, JsonValue>::new();
+    for row in rows {
+        let source = sources.entry(row.source.clone()).or_insert_with(|| {
+            json!({
+                "entries": 0, "latest_fetched_at": null, "revisions": {}
+            })
+        });
+        source["entries"] = json!(source["entries"].as_u64().unwrap_or_default() + 1);
+        if let Some(date) = row.fetched_at {
+            let date = date.to_rfc3339();
+            if source["latest_fetched_at"]
+                .as_str()
+                .is_none_or(|old| old < date.as_str())
+            {
+                source["latest_fetched_at"] = json!(date);
+            }
+        }
+        if let Some(revision) = row
+            .payload
+            .pointer("/_deadlock_data/commit_sha")
+            .and_then(JsonValue::as_str)
+        {
+            source["revisions"][revision] = row
+                .payload
+                .pointer("/_deadlock_data/commit_time")
+                .cloned()
+                .unwrap_or(JsonValue::Null);
+        }
+    }
+    json!(sources)
 }
 
 #[derive(Debug, Clone)]
@@ -431,7 +475,12 @@ async fn load_latest_snapshots(pool: &PgPool) -> Result<Vec<SnapshotRow>> {
         .collect::<Vec<_>>();
     let rows = sqlx::query(
         r#"
-        WITH ranked AS (
+        WITH latest_import AS (
+            SELECT summary->>'commit_sha' AS commit_sha
+            FROM brain.source_runs
+            WHERE source = 'deadlock_data' AND status = 'ok'
+            ORDER BY id DESC LIMIT 1
+        ), ranked AS (
             SELECT
                 es.id,
                 es.source,
@@ -454,6 +503,9 @@ async fn load_latest_snapshots(pool: &PgPool) -> Result<Vec<SnapshotRow>> {
             LEFT JOIN brain.source_documents sd ON sd.id = es.source_document_id
             WHERE es.source = ANY($1)
               AND es.entity_type = ANY($2)
+              AND (es.source <> 'deadlock_data' OR
+                   es.payload->'_deadlock_data'->>'commit_sha' =
+                   (SELECT commit_sha FROM latest_import))
         )
         SELECT *
         FROM ranked
@@ -524,7 +576,8 @@ fn render_snapshot_entry(
 ### Provenienz
 
 - Canonical Name: `{canonical_name}`
-- Payload Hash: `{payload_hash}`
+- Source Payload Hash: `{payload_hash}`
+- Rendered Payload Hash: `{rendered_payload_hash}`
 - Source Content Hash: `{source_content_hash}`
 - Source URL: `{source_url}`
 - Source Raw Path: `{source_raw_path}`
@@ -550,6 +603,7 @@ fn render_snapshot_entry(
             .unwrap_or_else(|| "nicht verknuepft".to_string()),
         canonical_name = row.canonical_name.as_deref().unwrap_or("null"),
         payload_hash = row.payload_hash.as_str(),
+        rendered_payload_hash = stable_hash(&payload_json),
         source_content_hash = row.source_content_hash.as_deref().unwrap_or("null"),
         source_url = row.source_url.as_deref().unwrap_or("null"),
         source_raw_path = source_raw_path.as_deref().unwrap_or("null"),

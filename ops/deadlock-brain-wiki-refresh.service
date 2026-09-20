@@ -1,0 +1,13 @@
+[Unit]
+Description=Deadlock-Spieldaten importieren und geprüften Wiki-Snapshot veröffentlichen
+
+[Service]
+Type=oneshot
+LoadCredential=infisical-token:%h/.config/infisical-tokens/infisical-token-bots
+ExecStart=/bin/bash -c 'exec 5<"$${CREDENTIALS_DIRECTORY}/infisical-token"; exec %h/.local/share/deadlock-brain/wiki-refresh/deadlock-brain wiki refresh --config %h/.local/share/deadlock-brain/wiki-refresh/wiki-refresh.json'
+TimeoutStartSec=30min
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target
