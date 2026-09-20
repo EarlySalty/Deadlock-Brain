@@ -192,6 +192,13 @@ fn is_imbue_marker(value: Option<&Value>) -> bool {
 fn classify_condition(payload: &Value, is_active: bool) -> ConditionKind {
     let description = description_text(payload).to_ascii_lowercase();
     let values = property_values(payload.get("properties"));
+    if !is_active {
+        if let Some(condition) =
+            crate::damage_conditions::spirit_refresh_condition(&values, &description)
+        {
+            return condition;
+        }
+    }
     if !is_active
         && [
             "SingleTargetPlayerMultiplier",
@@ -532,7 +539,39 @@ fn weapon_profile(payload: &Value) -> WeaponProfile {
     }
 }
 
+fn validate_hero_spirit_scaling(payload: &Value) -> Result<()> {
+    for (target, entry) in payload
+        .get("scaling_stats")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+    {
+        let from_spirit = string(entry.get("scaling_stat")).eq_ignore_ascii_case("ETechPower");
+        for key in ["per_spirit", "spirit_scale", "scale"] {
+            if key == "scale" && !from_spirit {
+                continue;
+            }
+            if let Some(raw) = entry.get(key).filter(|value| !value.is_null()) {
+                if number(Some(raw)).is_none() {
+                    return Err(ReasonerError::Data(format!("Helden-Skalierung /scaling_stats/{target}/{key}: kein endlicher Koeffizient; keine stille Null-Konversion")));
+                }
+            }
+        }
+        if from_spirit
+            && ["per_spirit", "spirit_scale", "scale"]
+                .iter()
+                .all(|key| number(entry.get(*key)).is_none())
+        {
+            return Err(ReasonerError::Data(format!(
+                "Helden-Skalierung /scaling_stats/{target}: Spirit-Eingang ohne Koeffizient"
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn hero_model(payload: &Value, abilities: &[Value], stats: &[ScalingStat]) -> Result<HeroModel> {
+    validate_hero_spirit_scaling(payload)?;
     let hero_id = integer(payload.get("id"));
     let name = string(payload.get("name"));
     if hero_id == 0 || name.is_empty() {
@@ -777,6 +816,23 @@ pub(crate) async fn load_hero_model_with_snapshots(
             );
         }
     }
+    for (name, value) in &model.standard_level_up_upgrades {
+        let label = match name.as_str() {
+            "MODIFIER_VALUE_BASE_BULLET_DAMAGE_FROM_LEVEL" => "Bullet Damage per Boon",
+            "MODIFIER_VALUE_BASE_HEALTH_FROM_LEVEL" => "Health per Boon",
+            "MODIFIER_VALUE_TECH_POWER" => "Spirit Power per Boon",
+            _ => name,
+        };
+        fields.insert(
+            format!("standard_level_up_upgrades.{name}"),
+            crate::SnapshotField {
+                value: *value,
+                fetched_at: number(payload.get("_snapshot_fetched_at")),
+                source: "deadlock_assets_api/hero".into(),
+                label: label.into(),
+            },
+        );
+    }
     let mut snapshots = vec![crate::PatchSnapshot {
         target: crate::DeltaTarget::Hero(model.hero_id),
         name: model.name.clone(),
@@ -789,18 +845,76 @@ pub(crate) async fn load_hero_model_with_snapshots(
         if ability.ability_id <= 0 {
             continue;
         }
+        let fetched_at = number(raw.get("_snapshot_fetched_at"));
+        let mut ability_fields = BTreeMap::from([(
+            "cooldown".into(),
+            crate::SnapshotField {
+                value: ability.cooldown,
+                fetched_at,
+                source: "deadlock_assets_api/item_or_ability".into(),
+                label: "Cooldown".into(),
+            },
+        )]);
+        for (name, value) in &ability.properties {
+            if name == "AbilityCooldown" {
+                continue;
+            }
+            let label = raw
+                .get("properties")
+                .and_then(|properties| properties.get(name))
+                .and_then(|property| property.get("label"))
+                .and_then(Value::as_str)
+                .unwrap_or(name);
+            ability_fields.insert(
+                format!("properties.{name}"),
+                crate::SnapshotField {
+                    value: *value,
+                    fetched_at,
+                    source: "deadlock_assets_api/item_or_ability".into(),
+                    label: label.into(),
+                },
+            );
+        }
+        for (upgrade_index, upgrade) in ability.upgrades.iter().enumerate() {
+            let Some(properties) = upgrade.get("property_upgrades").and_then(Value::as_array)
+            else {
+                continue;
+            };
+            for property in properties {
+                let Some(name) = property.get("name").and_then(Value::as_str) else {
+                    continue;
+                };
+                let Some(value) = number(property.get("bonus")) else {
+                    continue;
+                };
+                let label = if property
+                    .get("upgrade_type")
+                    .and_then(Value::as_str)
+                    .is_some_and(|kind| kind == "EAddToScale")
+                    && property
+                        .get("scale_stat_filter")
+                        .and_then(Value::as_str)
+                        .is_some_and(|filter| filter == "ETechPower")
+                {
+                    "Spirit Scaling"
+                } else {
+                    name
+                };
+                ability_fields.insert(
+                    format!("upgrade.{upgrade_index}.{name}.bonus"),
+                    crate::SnapshotField {
+                        value,
+                        fetched_at,
+                        source: "deadlock_assets_api/item_or_ability".into(),
+                        label: label.into(),
+                    },
+                );
+            }
+        }
         snapshots.push(crate::PatchSnapshot {
             target: crate::DeltaTarget::Ability(ability.ability_id),
             name: string(raw.get("name")),
-            fields: BTreeMap::from([(
-                "cooldown".into(),
-                crate::SnapshotField {
-                    value: ability.cooldown,
-                    fetched_at: number(raw.get("_snapshot_fetched_at")),
-                    source: "deadlock_assets_api/item_or_ability".into(),
-                    label: "Cooldown".into(),
-                },
-            )]),
+            fields: ability_fields,
         });
     }
     Ok((model, snapshots))
@@ -1020,6 +1134,27 @@ pub(crate) async fn load_item_models_with_snapshots(
                             .and_then(|props| props.get(name))
                             .and_then(|prop| prop.get("label")),
                     ),
+                },
+            );
+        }
+        for (name, value) in &model.property_spirit_scaling {
+            let base_label = string(
+                payload
+                    .get("properties")
+                    .and_then(|props| props.get(name))
+                    .and_then(|prop| prop.get("label")),
+            );
+            fields.insert(
+                format!("property_spirit_scaling.{name}"),
+                crate::SnapshotField {
+                    value: *value,
+                    fetched_at: number(payload.get("_snapshot_fetched_at")),
+                    source: "deadlock_assets_api/item_or_ability".into(),
+                    label: if base_label.is_empty() {
+                        format!("{name} Spirit Scaling")
+                    } else {
+                        format!("{base_label} Scaling")
+                    },
                 },
             );
         }
@@ -2021,6 +2156,28 @@ mod tests {
         ]);
         assert_eq!(property_values(Some(&properties)), expected);
         assert_eq!(passive_property_values(Some(&properties)), expected);
+    }
+
+    #[test]
+    fn hero_loader_rejects_invalid_spirit_scaling_before_normalization() {
+        for raw in [
+            serde_json::json!("NaN"),
+            serde_json::json!("Infinity"),
+            serde_json::json!("unknown"),
+        ] {
+            let payload = serde_json::json!({"scaling_stats": {"EBulletDamage": {"scaling_stat": "ETechPower", "scale": raw}}});
+            assert!(validate_hero_spirit_scaling(&payload).is_err());
+            let error = hero_model(&payload, &[], &[]).unwrap_err().to_string();
+            assert!(error.contains("/scaling_stats/EBulletDamage/scale"));
+        }
+        for scale in [0.0, -0.1, 0.08] {
+            assert!(validate_hero_spirit_scaling(&serde_json::json!({"scaling_stats": {"EBulletDamage": {"scaling_stat": "ETechPower", "scale": scale}}})).is_ok());
+        }
+        assert!(validate_hero_spirit_scaling(
+            &serde_json::json!({"scaling_stats": {"EClipSize": {"scaling_stat": "ETechPower"}}})
+        )
+        .is_err());
+        assert!(validate_hero_spirit_scaling(&serde_json::json!({})).is_ok());
     }
 
     #[test]

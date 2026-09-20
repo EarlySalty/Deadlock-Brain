@@ -9,16 +9,18 @@ use std::{
 
 pub use deadlock_brain_core as core;
 
-use dbrain_reasoner::{BuildObject, BuyPhase, ReasonerConfig, ReasonerCtx, ReasonerOptions};
-use regex::Regex;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+#[cfg(test)]
+use dbrain_reasoner::BuyPhase;
+use dbrain_reasoner::{BuildObject, ReasonerConfig, ReasonerCtx, ReasonerOptions};
+use regex::Regex;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Map as JsonMap, Value as JsonValue};
+use sha2::{Digest, Sha256};
 use sqlx::{
     postgres::{PgColumn, PgPool, PgRow},
     Column, Row, TypeInfo,
 };
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Map as JsonMap, Value as JsonValue};
-use sha2::{Digest, Sha256};
 
 mod game_wiki;
 
@@ -399,7 +401,8 @@ pub async fn status(pool: &PgPool) -> Result<JsonValue> {
         ORDER BY source
         "#,
         vec![],
-    ).await?;
+    )
+    .await?;
     let entity_snapshots = fetch_all(
         pool,
         r#"
@@ -409,7 +412,8 @@ pub async fn status(pool: &PgPool) -> Result<JsonValue> {
         ORDER BY source, entity_type
         "#,
         vec![],
-    ).await?;
+    )
+    .await?;
     let patch_events = fetch_all(
         pool,
         r#"
@@ -419,7 +423,8 @@ pub async fn status(pool: &PgPool) -> Result<JsonValue> {
         ORDER BY source_kind, entity_type
         "#,
         vec![],
-    ).await?;
+    )
+    .await?;
     let entities = fetch_all(
         pool,
         r#"
@@ -429,7 +434,8 @@ pub async fn status(pool: &PgPool) -> Result<JsonValue> {
         ORDER BY entity_type
         "#,
         vec![],
-    ).await?;
+    )
+    .await?;
     let mut derived = Vec::new();
     for table in [
         "patch_event_enrichments",
@@ -459,13 +465,20 @@ pub async fn context(pool: &PgPool, query: &str, limit_events: i64) -> Result<Js
     build_entity_context(pool, query, limit_events).await
 }
 
-pub async fn build_entity_context(pool: &PgPool, query: &str, limit_events: i64) -> Result<JsonValue> {
+pub async fn build_entity_context(
+    pool: &PgPool,
+    query: &str,
+    limit_events: i64,
+) -> Result<JsonValue> {
     let query = query.trim().to_string();
     let query_norm = normalize_alias(&query);
     let limit = clamp_i64(limit_events, 1, MAX_EVENTS);
     let best_match = find_best_entity_match(pool, &query, &query_norm).await?;
     let fallback_used = best_match.is_none();
-    let aliases = match best_match.as_ref().and_then(|row| row.get("id").and_then(JsonValue::as_i64)) {
+    let aliases = match best_match
+        .as_ref()
+        .and_then(|row| row.get("id").and_then(JsonValue::as_i64))
+    {
         Some(entity_id) => load_aliases(pool, entity_id, MAX_ALIASES).await?,
         None => Vec::new(),
     };
@@ -486,7 +499,8 @@ pub async fn build_entity_context(pool: &PgPool, query: &str, limit_events: i64)
         &lineage_names,
         limit,
         PatchEventMode::Retrieval,
-    ).await?;
+    )
+    .await?;
     let event_ids = events
         .iter()
         .filter_map(|event| event.get("id").and_then(JsonValue::as_i64))
@@ -530,7 +544,10 @@ pub async fn build_entity_timeline(
     let query_norm = normalize_alias(&query);
     let limit = clamp_i64(limit_events, 1, MAX_TIMELINE_EVENTS);
     let best_match = find_best_entity_match(pool, &query, &query_norm).await?;
-    let aliases = match best_match.as_ref().and_then(|row| row.get("id").and_then(JsonValue::as_i64)) {
+    let aliases = match best_match
+        .as_ref()
+        .and_then(|row| row.get("id").and_then(JsonValue::as_i64))
+    {
         Some(entity_id) => load_aliases(pool, entity_id, MAX_TIMELINE_ALIASES).await?,
         None => Vec::new(),
     };
@@ -551,7 +568,8 @@ pub async fn build_entity_timeline(
         &lineage_names,
         limit,
         PatchEventMode::Timeline { ascending },
-    ).await?;
+    )
+    .await?;
     let event_ids = events
         .iter()
         .filter_map(|event| event.get("id").and_then(JsonValue::as_i64))
@@ -566,9 +584,7 @@ pub async fn build_entity_timeline(
         let impact = classify_patch_event_impact_map(&event, enrichment.as_ref());
         event.insert(
             "enrichment".to_string(),
-            enrichment
-                .map(JsonValue::Object)
-                .unwrap_or(JsonValue::Null),
+            enrichment.map(JsonValue::Object).unwrap_or(JsonValue::Null),
         );
         for (key, value) in impact {
             event.insert(key, value);
@@ -603,20 +619,24 @@ pub async fn build_entity_timeline(
     }))
 }
 
-pub fn classify_patch_event_impact(
-    event: &JsonValue,
-    enrichment: Option<&JsonValue>,
-) -> JsonValue {
+pub fn classify_patch_event_impact(event: &JsonValue, enrichment: Option<&JsonValue>) -> JsonValue {
     let event_obj = event.as_object().cloned().unwrap_or_default();
     let enrichment_obj = enrichment.and_then(JsonValue::as_object).cloned();
-    JsonValue::Object(classify_patch_event_impact_map(&event_obj, enrichment_obj.as_ref()))
+    JsonValue::Object(classify_patch_event_impact_map(
+        &event_obj,
+        enrichment_obj.as_ref(),
+    ))
 }
 
 pub async fn review(pool: &PgPool, query: &str) -> Result<JsonValue> {
     build_review_context(pool, query, 80).await
 }
 
-pub async fn build_review_context(pool: &PgPool, query: &str, limit_events: i64) -> Result<JsonValue> {
+pub async fn build_review_context(
+    pool: &PgPool,
+    query: &str,
+    limit_events: i64,
+) -> Result<JsonValue> {
     let retrieval_context = build_entity_context(pool, query, limit_events).await?;
     let ctx = retrieval_context.as_object().cloned().unwrap_or_default();
     let best_match = ctx
@@ -668,12 +688,9 @@ async fn build_patch_review_context(
     query: &str,
     limit_events: i64,
 ) -> Result<JsonValue> {
-    let events = load_patch_overview_events(
-        pool,
-        query,
-        clamp_i64(limit_events, 1, MAX_TIMELINE_EVENTS),
-    )
-    .await?;
+    let events =
+        load_patch_overview_events(pool, query, clamp_i64(limit_events, 1, MAX_TIMELINE_EVENTS))
+            .await?;
     let event_ids = events
         .iter()
         .filter_map(|event| event.get("id").and_then(JsonValue::as_i64))
@@ -773,9 +790,16 @@ fn query_patch_title_patterns(query: &str) -> Vec<String> {
     let mut patterns = BTreeSet::new();
     if let Ok(ymd) = Regex::new(r"\b(20\d{2})[-./](\d{1,2})[-./](\d{1,2})\b") {
         for capture in ymd.captures_iter(query) {
-            let year = capture.get(1).map(|value| value.as_str()).unwrap_or_default();
-            let month = capture.get(2).and_then(|value| value.as_str().parse::<u32>().ok());
-            let day = capture.get(3).and_then(|value| value.as_str().parse::<u32>().ok());
+            let year = capture
+                .get(1)
+                .map(|value| value.as_str())
+                .unwrap_or_default();
+            let month = capture
+                .get(2)
+                .and_then(|value| value.as_str().parse::<u32>().ok());
+            let day = capture
+                .get(3)
+                .and_then(|value| value.as_str().parse::<u32>().ok());
             if let (Some(month), Some(day)) = (month, day) {
                 patterns.insert(format!("%{year}-{month:02}-{day:02}%"));
                 patterns.insert(format!("%{month:02}-{day:02}-{year}%"));
@@ -784,9 +808,16 @@ fn query_patch_title_patterns(query: &str) -> Vec<String> {
     }
     if let Ok(mdy) = Regex::new(r"\b(\d{1,2})[-./](\d{1,2})[-./](20\d{2})\b") {
         for capture in mdy.captures_iter(query) {
-            let first = capture.get(1).and_then(|value| value.as_str().parse::<u32>().ok());
-            let second = capture.get(2).and_then(|value| value.as_str().parse::<u32>().ok());
-            let year = capture.get(3).map(|value| value.as_str()).unwrap_or_default();
+            let first = capture
+                .get(1)
+                .and_then(|value| value.as_str().parse::<u32>().ok());
+            let second = capture
+                .get(2)
+                .and_then(|value| value.as_str().parse::<u32>().ok());
+            let year = capture
+                .get(3)
+                .map(|value| value.as_str())
+                .unwrap_or_default();
             if let (Some(first), Some(second)) = (first, second) {
                 patterns.insert(format!("%{first:02}-{second:02}-{year}%"));
                 patterns.insert(format!("%{year}-{first:02}-{second:02}%"));
@@ -855,7 +886,9 @@ fn build_patch_overview_signals(
         }
         if entry.sample_lines.len() < 4 {
             if let Some(line) = value_to_nonempty_string(
-                event.get("normalized_line").or_else(|| event.get("raw_line")),
+                event
+                    .get("normalized_line")
+                    .or_else(|| event.get("raw_line")),
             ) {
                 entry.sample_lines.push(line);
             }
@@ -950,19 +983,25 @@ fn patch_source_references(events: &[JsonMap<String, JsonValue>]) -> Vec<JsonVal
     references
 }
 
-pub async fn ask_context(pool: &PgPool, query: &str, opts: &AskContextOptions) -> Result<JsonValue> {
+pub async fn ask_context(
+    pool: &PgPool,
+    query: &str,
+    opts: &AskContextOptions,
+) -> Result<JsonValue> {
     let plan = analyze_query(pool, query).await?;
     if is_build_engine_intent(&plan) {
         return ask_build_context(pool, query, &plan).await;
     }
     let entity_match = resolve_ask_entity_match(pool, query, &plan).await?;
-    let out_of_domain = !entity_match.matched && !query_has_deadlock_vocabulary(pool, query).await?;
+    let out_of_domain =
+        !entity_match.matched && !query_has_deadlock_vocabulary(pool, query).await?;
     let intent = if out_of_domain {
         "out_of_domain".to_string()
     } else {
         plan.intent.clone()
     };
-    let context_query = resolved_plan_entity_name(&plan).unwrap_or_else(|| query.trim().to_string());
+    let context_query =
+        resolved_plan_entity_name(&plan).unwrap_or_else(|| query.trim().to_string());
     let base = if out_of_domain {
         JsonValue::Object(JsonMap::new())
     } else if should_use_patch_overview_context(&plan, &entity_match, &intent) {
@@ -983,7 +1022,10 @@ pub async fn ask_context(pool: &PgPool, query: &str, opts: &AskContextOptions) -
         &entity_match,
     );
 
-    let entity = base.get("entity_summary").cloned().unwrap_or(JsonValue::Null);
+    let entity = base
+        .get("entity_summary")
+        .cloned()
+        .unwrap_or(JsonValue::Null);
     let item_ground_truth = ask_item_ground_truth(pool, &entity).await?;
     let item_ground_truth = apply_current_patch_overrides(
         item_ground_truth,
@@ -1010,16 +1052,28 @@ pub async fn ask_context(pool: &PgPool, query: &str, opts: &AskContextOptions) -
     });
     let mut creator_knowledge = JsonMap::new();
     if !out_of_domain {
-        creator_knowledge.insert("verified".to_string(), claims_to_json(&claim_buckets.verified));
-        creator_knowledge.insert("flagged".to_string(), claims_to_json(&claim_buckets.flagged));
-        creator_knowledge.insert("refuted".to_string(), claims_to_json(&claim_buckets.refuted));
+        creator_knowledge.insert(
+            "verified".to_string(),
+            claims_to_json(&claim_buckets.verified),
+        );
+        creator_knowledge.insert(
+            "flagged".to_string(),
+            claims_to_json(&claim_buckets.flagged),
+        );
+        creator_knowledge.insert(
+            "refuted".to_string(),
+            claims_to_json(&claim_buckets.refuted),
+        );
         if opts.include_unverified || !claim_buckets.unverified.is_empty() {
             creator_knowledge.insert(
                 "unverified".to_string(),
                 claims_to_json(&claim_buckets.unverified),
             );
         }
-        creator_knowledge.insert("omitted".to_string(), omitted_to_json(&claim_buckets.omitted));
+        creator_knowledge.insert(
+            "omitted".to_string(),
+            omitted_to_json(&claim_buckets.omitted),
+        );
     }
 
     let mut result = JsonMap::new();
@@ -1033,7 +1087,9 @@ pub async fn ask_context(pool: &PgPool, query: &str, opts: &AskContextOptions) -
     );
     result.insert(
         "sources".to_string(),
-        base.get("source_references").cloned().unwrap_or_else(|| json!([])),
+        base.get("source_references")
+            .cloned()
+            .unwrap_or_else(|| json!([])),
     );
     result.insert("trust_legend".to_string(), json!(ASK_TRUST_LEGEND));
     result.insert(
@@ -1303,7 +1359,7 @@ async fn ask_build_context(pool: &PgPool, query: &str, plan: &QueryPlan) -> Resu
         "result_text": result_text,
         "validation": validation,
         "prompt": prompt,
-        "sources": build_context.core.iter().chain(build_context.situations.iter().flat_map(|block| block.items.iter())).flat_map(|item| item.sources.iter()).collect::<Vec<_>>(),
+        "sources": std::iter::once(&build_context).chain(&build_context.variants).flat_map(|variant|variant.core.iter().chain(variant.situations.iter().flat_map(|block| block.items.iter()))).flat_map(|item| item.sources.iter()).collect::<Vec<_>>(),
         "retrieval_meta": {
             "route": "build_reasoner",
             "context_query": hero_query,
@@ -1347,6 +1403,18 @@ fn compact_reasoner_why(item: &dbrain_reasoner::BuildItem) -> String {
 }
 
 fn reasoner_prompt_context(build: &BuildObject, requested_playstyle: Option<&str>) -> JsonValue {
+    let mut context = compact_reasoner_variant(build);
+    context["requested_playstyle"] = json!(requested_playstyle);
+    context["playstyle_applied"] = json!(false);
+    context["variants"] = json!(build
+        .variants
+        .iter()
+        .map(compact_reasoner_variant)
+        .collect::<Vec<_>>());
+    context
+}
+
+fn compact_reasoner_variant(build: &BuildObject) -> JsonValue {
     let compact_item = |item: &dbrain_reasoner::BuildItem| {
         json!({
             "item_id":item.item_id,"name":item.name,"buy_phase":item.buy_phase,
@@ -1357,6 +1425,14 @@ fn reasoner_prompt_context(build: &BuildObject, requested_playstyle: Option<&str
     json!({
         "schema":"reasoner_prompt_v1","hero_id":build.hero_id,"hero_name":build.hero_name,
         "patch_tag":build.patch_tag,"rationale":build.rationale,
+        "name":build.name,"confidence":build.confidence,
+        "family":build.family.as_ref().map(|family|json!({
+            "id":family.id,"label":family.label,"player_matches":family.player_matches,
+            "distinct_players":family.distinct_players,"distinct_authors":family.distinct_authors,
+            "population_share":family.population_share,"post_patch_player_matches":family.post_patch_player_matches,
+            "cohesion":family.cohesion,"axes":family.axes,"skill_order_support":family.skill_order_support,
+            "imbues":family.imbues,"limitations":family.limitations,
+        })),
         "core":build.core.iter().map(&compact_item).collect::<Vec<_>>(),
         "situations":build.situations.iter().map(|block| json!({
             "label":block.label,"kind":block.kind,"optional":block.optional,
@@ -1368,38 +1444,57 @@ fn reasoner_prompt_context(build: &BuildObject, requested_playstyle: Option<&str
             "Beobachtete Paarbeziehungen sind kein Beweis für eine mechanische Wechselwirkung.",
             "Bei niedriger Sicherheit fehlen belastbare Vergleichsdaten; fehlende Effekte nicht ergänzen.",
         ],
-        "requested_playstyle":requested_playstyle,"playstyle_applied":false,
     })
 }
 
 fn explain_reasoner_build(build: &BuildObject, requested_playstyle: Option<&str>) -> String {
-    let mut sections = vec![format!(
-        "{}: Kaufreihenfolge und Begründung",
-        build.hero_name
-    )];
+    let mut sections = Vec::new();
     if requested_playstyle.is_some() {
-        sections.push("Das ist der berechnete Meta-Build. Eine eigene Variante für die gewünschte Spielweise ist noch nicht berechnet.".to_string());
+        sections.push(if build.family.is_some() || !build.variants.is_empty() {
+            "Die datenbelegten Varianten stehen getrennt unten. Die gewünschte Spielweise wurde nicht automatisch einer Familie zugeordnet; Items, Skillorders und Imbues werden nicht vermischt."
+        } else {
+            "Das ist der berechnete Meta-Build. Eine eigene Variante für die gewünschte Spielweise ist noch nicht berechnet."
+        }.to_string());
+    }
+    sections.extend(
+        std::iter::once(build)
+            .chain(&build.variants)
+            .map(explain_reasoner_variant),
+    );
+    sections.join("\n\n")
+}
+
+fn explain_reasoner_variant(build: &BuildObject) -> String {
+    let mut sections = vec![format!(
+        "{}: Kaufreihenfolge und Begründung; Sicherheit {:?}",
+        build.name, build.confidence
+    )];
+    if let Some(family) = &build.family {
+        sections.push(format!("Familie {}: {} Spieler-Matches, {} unabhängige Spieler, {} Autoren. Nach-Patch-Matches: {}. {}",family.id,family.player_matches,family.distinct_players,family.distinct_authors,family.post_patch_player_matches.map(|count|count.to_string()).unwrap_or_else(||"unbekannt".into()),family.limitations.join(" ")));
     }
     if !build.rationale.trim().is_empty() {
         sections.push(build.rationale.trim().to_string());
     }
-    for (phase, label) in [
-        (BuyPhase::Lane, "Spielbeginn"),
-        (BuyPhase::Mid, "Mittleres Spiel"),
-        (BuyPhase::Core, "Kern"),
-        (BuyPhase::Late, "Spätes Spiel"),
-    ] {
-        let items = build
-            .core
-            .iter()
-            .filter(|item| item.buy_phase == phase)
-            .collect::<Vec<_>>();
-        if !items.is_empty() {
-            sections.push(format!(
-                "{label}\n{}",
-                explain_reasoner_items(items.into_iter())
-            ));
-        }
+    // Phase buckets may not reorder the actual planner purchase sequence.
+    if !build.core.is_empty() {
+        sections.push(format!(
+            "Core – Kaufreihenfolge\n{}",
+            explain_reasoner_items(build.core.iter())
+        ));
+    }
+    if !build.ability_order.is_empty() {
+        sections.push(format!(
+            "Skillorder dieser Variante (Fähigkeits-IDs, Reihenfolge unverändert): {}",
+            build
+                .ability_order
+                .iter()
+                .map(|step| format!(
+                    "{} [{}:{}]",
+                    step.ability_id, step.currency_type, step.delta
+                ))
+                .collect::<Vec<_>>()
+                .join(" → ")
+        ));
     }
     for block in &build.situations {
         if !block.items.is_empty() {
@@ -1446,7 +1541,8 @@ async fn load_known_item_names(pool: &PgPool) -> Result<BTreeSet<String>> {
 }
 
 pub fn is_build_engine_intent(plan: &QueryPlan) -> bool {
-    plan.intent == "build_recommendation" && plan_primary_entity_type(plan).as_deref() == Some("hero")
+    plan.intent == "build_recommendation"
+        && plan_primary_entity_type(plan).as_deref() == Some("hero")
 }
 
 fn plan_primary_entity_type(plan: &QueryPlan) -> Option<String> {
@@ -1515,7 +1611,10 @@ pub async fn item(pool: &PgPool, query: &str) -> Result<JsonValue> {
 pub async fn build_item_context(pool: &PgPool, query: &str) -> Result<JsonValue> {
     let payload = match load_entity_payload(pool, query, "item").await? {
         Some(found) => Some(found),
-        None => load_entity_payload(pool, query, "item_special").await.ok().flatten(),
+        None => load_entity_payload(pool, query, "item_special")
+            .await
+            .ok()
+            .flatten(),
     }
     .ok_or_else(|| RetrievalError::Invalid(format!("Kein Item-Payload fuer {query} gefunden.")))?;
     Ok(JsonValue::Object(item_summary(&payload)))
@@ -1542,7 +1641,8 @@ pub async fn analysis_save_review(
         confidence,
         status,
         provider_metadata,
-    ).await
+    )
+    .await
 }
 
 pub async fn analysis_save_review_for_query(
@@ -1567,7 +1667,8 @@ pub async fn analysis_save_review_for_query(
         confidence,
         status,
         None,
-    ).await
+    )
+    .await
 }
 
 pub async fn analysis_run_ai(
@@ -1582,7 +1683,10 @@ pub async fn analysis_run_ai(
         .unwrap_or_default();
     let compact_context = compact_context_for_model(&review_context);
     let request = core::ai::build_review_request(prompt, &compact_context, &options.config);
-    let endpoint = format!("{}/chat/completions", options.config.base_url.trim_end_matches('/'));
+    let endpoint = format!(
+        "{}/chat/completions",
+        options.config.base_url.trim_end_matches('/')
+    );
     let request_value = serde_json::to_value(&request)?;
 
     if options.dry_run {
@@ -1612,7 +1716,8 @@ pub async fn analysis_run_ai(
         None,
         "analysis_ready",
         Some(&provider_metadata),
-    ).await?;
+    )
+    .await?;
     Ok(json!({
         "note": note,
         "query": query,
@@ -1640,7 +1745,8 @@ pub async fn analysis_list(pool: &PgPool, query: Option<&str>, limit: i64) -> Re
     sql.push_str(" ORDER BY updated_at DESC, id DESC LIMIT ?");
     params.push(SqlValue::Integer(max_rows));
     Ok(JsonValue::Array(
-        fetch_all(pool, &sql, params).await?
+        fetch_all(pool, &sql, params)
+            .await?
             .into_iter()
             .map(JsonValue::Object)
             .collect(),
@@ -1694,7 +1800,10 @@ pub async fn analyze_query(pool: &PgPool, query: &str) -> Result<QueryPlan> {
     let mut threats = Vec::new();
     let query_norm = normalize_alias(query);
 
-    for entity in known_entities.iter().filter(|entity| entity.entity_type == "hero") {
+    for entity in known_entities
+        .iter()
+        .filter(|entity| entity.entity_type == "hero")
+    {
         if keyword_starts_word(&query_norm, &normalize_alias(&entity.name)) {
             push_query_entity(&mut entities, &mut threats, entity);
         }
@@ -1751,7 +1860,8 @@ async fn load_known_ask_entities(pool: &PgPool) -> Result<Vec<KnownAskEntity>> {
         ORDER BY entity_type, length(canonical_name) DESC, canonical_name
         "#,
         vec![],
-    ).await?
+    )
+    .await?
     .into_iter()
     .filter_map(|row| {
         Some(KnownAskEntity {
@@ -1783,10 +1893,24 @@ fn classify_ask_intent(query_lower: &str, matched: bool, entity_type: &str) -> S
     if item_entity && !has_explicit_ask_action(&terms) {
         return "item_question".to_string();
     }
-    if contains_any_intent_term(&terms, &["geaendert", "geändert", "nerf", "buff", "patch", "update", "changelog"]) {
+    if contains_any_intent_term(
+        &terms,
+        &[
+            "geaendert",
+            "geändert",
+            "nerf",
+            "buff",
+            "patch",
+            "update",
+            "changelog",
+        ],
+    ) {
         return "patch_changes".to_string();
     }
-    if contains_any_intent_term(&terms, &["meta", "tier", "viable", "noch stark", "noch gut"]) {
+    if contains_any_intent_term(
+        &terms,
+        &["meta", "tier", "viable", "noch stark", "noch gut"],
+    ) {
         return "meta_question".to_string();
     }
     if contains_any_intent_term(&terms, &["kontert", "counter", "gegen", "matchup", "vs"]) {
@@ -1853,7 +1977,9 @@ fn has_explicit_ask_action(terms: &[String]) -> bool {
 }
 
 fn contains_any_intent_term(terms: &[String], needles: &[&str]) -> bool {
-    needles.iter().any(|needle| intent_terms_contain(terms, needle))
+    needles
+        .iter()
+        .any(|needle| intent_terms_contain(terms, needle))
 }
 
 fn intent_terms_contain(terms: &[String], needle: &str) -> bool {
@@ -1900,7 +2026,12 @@ fn intent_fetch(intent: &str) -> Vec<String> {
         "meta_question" | "hero_comparison" => {
             vec!["hero_rankings", "hero_stats", "patch_impact_notes"]
         }
-        "matchup" => vec!["counterplay_claims", "matchup_claims", "hero_stats", "patch_events"],
+        "matchup" => vec![
+            "counterplay_claims",
+            "matchup_claims",
+            "hero_stats",
+            "patch_events",
+        ],
         "match_coaching" => vec!["match_data", "build_notes"],
         _ => vec![
             "hero_stats",
@@ -1968,7 +2099,8 @@ async fn find_best_entity_match(
             SqlValue::Text(query_norm.to_string()),
             SqlValue::Text(like_norm),
         ],
-    ).await?;
+    )
+    .await?;
     let Some(mut row) = rows.into_iter().next() else {
         return Ok(None);
     };
@@ -2013,7 +2145,10 @@ async fn resolve_entity_from_query_tokens(
         let replace = best
             .as_ref()
             .map(|current| {
-                let current_score = current.get("score").and_then(JsonValue::as_i64).unwrap_or(0);
+                let current_score = current
+                    .get("score")
+                    .and_then(JsonValue::as_i64)
+                    .unwrap_or(0);
                 let current_len = value_to_string(current.get("canonical_name")).len();
                 row_score > current_score || (row_score == current_score && row_len > current_len)
             })
@@ -2076,7 +2211,8 @@ async fn find_exact_entity_match(
             SqlValue::Text(candidate.to_string()),
             SqlValue::Text(query_norm),
         ],
-    ).await?
+    )
+    .await?
     else {
         return Ok(None);
     };
@@ -2095,7 +2231,11 @@ async fn find_exact_entity_match(
     Ok(Some(row))
 }
 
-async fn load_aliases(pool: &PgPool, entity_id: i64, limit: i64) -> Result<Vec<JsonMap<String, JsonValue>>> {
+async fn load_aliases(
+    pool: &PgPool,
+    entity_id: i64,
+    limit: i64,
+) -> Result<Vec<JsonMap<String, JsonValue>>> {
     fetch_all(
         pool,
         r#"
@@ -2116,7 +2256,8 @@ async fn load_aliases(pool: &PgPool, entity_id: i64, limit: i64) -> Result<Vec<J
         LIMIT ?
         "#,
         vec![SqlValue::Integer(entity_id), SqlValue::Integer(limit)],
-    ).await
+    )
+    .await
 }
 
 async fn related_names_for_query(
@@ -2132,8 +2273,8 @@ async fn related_names_for_query(
     if !query.is_empty() {
         names.insert(query.to_string());
     }
-    if let Some(canonical) = best_match
-        .and_then(|row| value_to_nonempty_string(row.get("canonical_name")))
+    if let Some(canonical) =
+        best_match.and_then(|row| value_to_nonempty_string(row.get("canonical_name")))
     {
         names.insert(canonical);
     }
@@ -2167,7 +2308,8 @@ async fn related_names_for_query(
         params.extend(norms.iter().cloned().map(SqlValue::Text));
     }
     params.push(SqlValue::Integer(LINEAGE_NAME_LIMIT));
-    let rows = fetch_all(pool, &sql, params).await?
+    let rows = fetch_all(pool, &sql, params)
+        .await?
         .into_iter()
         .map(decode_metadata)
         .collect();
@@ -2184,8 +2326,8 @@ async fn lineage_lookup_names(
     if !query.is_empty() {
         names.insert(query.to_string());
     }
-    if let Some(canonical) = best_match
-        .and_then(|row| value_to_nonempty_string(row.get("canonical_name")))
+    if let Some(canonical) =
+        best_match.and_then(|row| value_to_nonempty_string(row.get("canonical_name")))
     {
         names.insert(canonical);
     }
@@ -2220,7 +2362,8 @@ async fn legacy_lookup_names(pool: &PgPool, query: &str) -> Result<Vec<String>> 
             SqlValue::Text(query_norm.clone()),
             SqlValue::Text(format!("%{query_norm}%")),
         ],
-    ).await?;
+    )
+    .await?;
     Ok(rows
         .into_iter()
         .filter_map(|row| value_to_nonempty_string(row.get("canonical_name")))
@@ -2249,7 +2392,11 @@ async fn load_patch_events(
     let where_clause = if let Some(best_match) = best_match {
         let mut names = event_lookup_names(best_match, aliases);
         names.extend(lineage_names.iter().map(|name| name.to_lowercase()));
-        let names = names.into_iter().collect::<BTreeSet<_>>().into_iter().collect::<Vec<_>>();
+        let names = names
+            .into_iter()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
         if names.is_empty() {
             return Ok(Vec::new());
         }
@@ -2361,7 +2508,10 @@ fn event_lookup_names(
     }
     for alias in aliases {
         let alias_kind = value_to_string(alias.get("alias_kind"));
-        if matches!(alias_kind.as_str(), "canonical" | "snapshot_name" | "class_name_short") {
+        if matches!(
+            alias_kind.as_str(),
+            "canonical" | "snapshot_name" | "class_name_short"
+        ) {
             if let Some(value) = value_to_nonempty_string(alias.get("alias")) {
                 names.insert(value.to_lowercase());
             }
@@ -2404,7 +2554,9 @@ async fn load_enrichments_by_event_id(
         return Ok(BTreeMap::new());
     }
     let mut enrichments = BTreeMap::new();
-    for row in select_by_values_i64(pool, "patch_event_enrichments", "patch_event_id", event_ids).await? {
+    for row in
+        select_by_values_i64(pool, "patch_event_enrichments", "patch_event_id", event_ids).await?
+    {
         let decoded = decode_json_fields(row);
         if let Some(patch_event_id) = decoded.get("patch_event_id").and_then(JsonValue::as_i64) {
             enrichments.insert(patch_event_id, decoded);
@@ -2494,7 +2646,8 @@ async fn candidate_sheet_tables(pool: &PgPool) -> Result<Vec<String>> {
         ORDER BY table_name
         "#,
         vec![],
-    ).await?;
+    )
+    .await?;
     Ok(rows
         .into_iter()
         .filter_map(|row| value_to_nonempty_string(row.get("name")))
@@ -2525,7 +2678,11 @@ async fn load_matching_sheet_table_rows(
         .cloned()
         .collect::<Vec<_>>();
     let text_columns = if preferred.is_empty() {
-        columns.iter().take(columns.len().min(8)).cloned().collect::<Vec<_>>()
+        columns
+            .iter()
+            .take(columns.len().min(8))
+            .cloned()
+            .collect::<Vec<_>>()
     } else {
         preferred
     };
@@ -2551,7 +2708,8 @@ async fn load_matching_sheet_table_rows(
         qualified_table(table),
         clauses.join(" OR ")
     );
-    Ok(fetch_all(pool, &sql, params).await?
+    Ok(fetch_all(pool, &sql, params)
+        .await?
         .into_iter()
         .map(decode_json_fields)
         .collect())
@@ -2567,14 +2725,17 @@ fn sheet_lookup_names(
     if !query.is_empty() {
         names.insert(query.to_string());
     }
-    if let Some(canonical) = best_match
-        .and_then(|row| value_to_nonempty_string(row.get("canonical_name")))
+    if let Some(canonical) =
+        best_match.and_then(|row| value_to_nonempty_string(row.get("canonical_name")))
     {
         names.insert(canonical);
     }
     for alias in aliases {
         let alias_kind = value_to_string(alias.get("alias_kind"));
-        if matches!(alias_kind.as_str(), "canonical" | "snapshot_name" | "class_name_short") {
+        if matches!(
+            alias_kind.as_str(),
+            "canonical" | "snapshot_name" | "class_name_short"
+        ) {
             if let Some(value) = value_to_nonempty_string(alias.get("alias")) {
                 if !value.chars().all(|ch| ch.is_ascii_digit()) {
                     names.insert(value);
@@ -2608,7 +2769,12 @@ fn classify_patch_event_impact_map(
         || lower_line.contains("new item")
         || lower_line.contains("new hero")
     {
-        return impact("added", non_numeric_level("added", &lower_line, confidence), confidence, flags);
+        return impact(
+            "added",
+            non_numeric_level("added", &lower_line, confidence),
+            confidence,
+            flags,
+        );
     }
     if change_type == "removed"
         || lower_line.contains("removed")
@@ -2687,11 +2853,20 @@ fn classify_patch_event_impact_map(
             flags,
         );
     }
-    if let Some(delta) = numeric_delta.as_ref().and_then(|value| value.get("delta")).copied() {
+    if let Some(delta) = numeric_delta
+        .as_ref()
+        .and_then(|value| value.get("delta"))
+        .copied()
+    {
         if delta > 0.0 {
             return impact(
                 "numeric_buff",
-                level_for_kind("numeric_buff", &lower_line, confidence, numeric_delta.as_ref()),
+                level_for_kind(
+                    "numeric_buff",
+                    &lower_line,
+                    confidence,
+                    numeric_delta.as_ref(),
+                ),
                 confidence,
                 flags,
             );
@@ -2699,13 +2874,22 @@ fn classify_patch_event_impact_map(
         if delta < 0.0 {
             return impact(
                 "numeric_nerf",
-                level_for_kind("numeric_nerf", &lower_line, confidence, numeric_delta.as_ref()),
+                level_for_kind(
+                    "numeric_nerf",
+                    &lower_line,
+                    confidence,
+                    numeric_delta.as_ref(),
+                ),
                 confidence,
                 flags,
             );
         }
     }
-    if change_type == "changed" || FUNCTIONAL_WORDS.iter().any(|word| lower_line.contains(word)) {
+    if change_type == "changed"
+        || FUNCTIONAL_WORDS
+            .iter()
+            .any(|word| lower_line.contains(word))
+    {
         return impact(
             "functional_change",
             level_for_kind("functional_change", &lower_line, confidence, None),
@@ -2726,7 +2910,12 @@ fn classify_patch_event_impact_map(
     impact("unknown", "unknown", confidence, flags)
 }
 
-fn impact(kind: &str, level: &str, confidence: f64, flags: Vec<String>) -> JsonMap<String, JsonValue> {
+fn impact(
+    kind: &str,
+    level: &str,
+    confidence: f64,
+    flags: Vec<String>,
+) -> JsonMap<String, JsonValue> {
     let kind = if IMPACT_KINDS.contains(&kind) {
         kind
     } else {
@@ -2773,7 +2962,10 @@ fn level_for_kind(
             "low"
         };
     }
-    if HIGH_IMPACT_WORDS.iter().any(|word| lower_line.contains(word)) {
+    if HIGH_IMPACT_WORDS
+        .iter()
+        .any(|word| lower_line.contains(word))
+    {
         return "high";
     }
     if matches!(kind, "rework" | "added" | "removed") {
@@ -2843,7 +3035,10 @@ fn coerce_flags(value: Option<&JsonValue>) -> Vec<String> {
     match value {
         None | Some(JsonValue::Null) => Vec::new(),
         Some(JsonValue::Array(items)) => {
-            let mut values = items.iter().map(|item| value_to_string(Some(item))).collect::<Vec<_>>();
+            let mut values = items
+                .iter()
+                .map(|item| value_to_string(Some(item)))
+                .collect::<Vec<_>>();
             values.sort();
             values
         }
@@ -2865,7 +3060,10 @@ fn group_events_by_patch(events: &[JsonMap<String, JsonValue>], ascending: bool)
             patch.insert("patch_snapshot_id".to_string(), json!(patch_snapshot_id));
             patch.insert(
                 "patch_external_id".to_string(),
-                event.get("patch_external_id").cloned().unwrap_or(JsonValue::Null),
+                event
+                    .get("patch_external_id")
+                    .cloned()
+                    .unwrap_or(JsonValue::Null),
             );
             patch.insert(
                 "title".to_string(),
@@ -2907,8 +3105,10 @@ fn impact_summary(events: &[JsonMap<String, JsonValue>]) -> JsonValue {
     let mut by_kind: BTreeMap<String, i64> = BTreeMap::new();
     let mut by_level: BTreeMap<String, i64> = BTreeMap::new();
     for event in events {
-        let kind = value_to_nonempty_string(event.get("impact_kind")).unwrap_or_else(|| "unknown".to_string());
-        let level = value_to_nonempty_string(event.get("impact_level")).unwrap_or_else(|| "unknown".to_string());
+        let kind = value_to_nonempty_string(event.get("impact_kind"))
+            .unwrap_or_else(|| "unknown".to_string());
+        let level = value_to_nonempty_string(event.get("impact_level"))
+            .unwrap_or_else(|| "unknown".to_string());
         *by_kind.entry(kind).or_insert(0) += 1;
         *by_level.entry(level).or_insert(0) += 1;
     }
@@ -2923,7 +3123,8 @@ fn build_lineage_summary(ctx: &JsonMap<String, JsonValue>) -> JsonValue {
     let mut names = BTreeSet::new();
     let mut relation_counts: BTreeMap<String, i64> = BTreeMap::new();
     for row in &rows {
-        let relation = value_to_nonempty_string(row.get("relation_type")).unwrap_or_else(|| "unknown".to_string());
+        let relation = value_to_nonempty_string(row.get("relation_type"))
+            .unwrap_or_else(|| "unknown".to_string());
         *relation_counts.entry(relation).or_insert(0) += 1;
         for key in ["source_name", "target_name", "owner_name"] {
             if let Some(value) = value_to_nonempty_string(row.get(key)) {
@@ -2960,7 +3161,10 @@ fn build_entity_summary(ctx: &JsonMap<String, JsonValue>) -> JsonValue {
         let kind = value_to_string(alias.get("alias_kind"));
         let value = value_to_string(alias.get("alias")).trim().to_string();
         if !value.is_empty()
-            && matches!(kind.as_str(), "canonical" | "snapshot_name" | "class_name_short")
+            && matches!(
+                kind.as_str(),
+                "canonical" | "snapshot_name" | "class_name_short"
+            )
             && !human_aliases.contains(&value)
         {
             human_aliases.push(value);
@@ -3022,9 +3226,12 @@ fn build_timeline_signals(
     let mut low_confidence_events = 0;
 
     for event in events {
-        let change_type = value_to_nonempty_string(event.get("change_type")).unwrap_or_else(|| "unknown".to_string());
-        let source_kind = value_to_nonempty_string(event.get("source_kind")).unwrap_or_else(|| "unknown".to_string());
-        let section = value_to_nonempty_string(event.get("section")).unwrap_or_else(|| "Unsectioned".to_string());
+        let change_type = value_to_nonempty_string(event.get("change_type"))
+            .unwrap_or_else(|| "unknown".to_string());
+        let source_kind = value_to_nonempty_string(event.get("source_kind"))
+            .unwrap_or_else(|| "unknown".to_string());
+        let section = value_to_nonempty_string(event.get("section"))
+            .unwrap_or_else(|| "Unsectioned".to_string());
         *change_type_counts.entry(change_type).or_insert(0) += 1;
         *source_counts.entry(source_kind).or_insert(0) += 1;
         *section_counts.entry(section).or_insert(0) += 1;
@@ -3155,7 +3362,10 @@ fn build_open_questions(
         .and_then(JsonValue::as_bool)
         .unwrap_or(false)
     {
-        questions.push("Entity konnte nicht kanonisch gematcht werden; Patch-Treffer sind nur Fallback-Suche.".to_string());
+        questions.push(
+            "Entity konnte nicht kanonisch gematcht werden; Patch-Treffer sind nur Fallback-Suche."
+                .to_string(),
+        );
     }
     if ctx
         .get("fallback")
@@ -3164,7 +3374,10 @@ fn build_open_questions(
         .and_then(JsonValue::as_bool)
         .unwrap_or(false)
     {
-        questions.push("Retrieval nutzt Fallback-Matching; Namen und Aliase vor einer Review-Aussage pruefen.".to_string());
+        questions.push(
+            "Retrieval nutzt Fallback-Matching; Namen und Aliase vor einer Review-Aussage pruefen."
+                .to_string(),
+        );
     }
     if timeline_signals
         .get("event_count")
@@ -3172,7 +3385,10 @@ fn build_open_questions(
         .unwrap_or(0)
         == 0
     {
-        questions.push("Keine Patch-Events gefunden; Trend- oder Balance-Aussagen waeren spekulativ.".to_string());
+        questions.push(
+            "Keine Patch-Events gefunden; Trend- oder Balance-Aussagen waeren spekulativ."
+                .to_string(),
+        );
     }
     if !ctx
         .get("enrichments")
@@ -3181,7 +3397,10 @@ fn build_open_questions(
         .and_then(JsonValue::as_bool)
         .unwrap_or(false)
     {
-        questions.push("Patch-Event-Enrichments fehlen; Stat-Aenderungen sind nur aus Rohzeilen ableitbar.".to_string());
+        questions.push(
+            "Patch-Event-Enrichments fehlen; Stat-Aenderungen sind nur aus Rohzeilen ableitbar."
+                .to_string(),
+        );
     } else if timeline_signals
         .get("low_confidence_event_count")
         .and_then(JsonValue::as_u64)
@@ -3208,7 +3427,10 @@ fn build_open_questions(
         .unwrap_or(0)
         > 0
     {
-        questions.push("Sheet-Stats wurden gekuerzt; fuer Detailanalyse ggf. Rohkontext nachladen.".to_string());
+        questions.push(
+            "Sheet-Stats wurden gekuerzt; fuer Detailanalyse ggf. Rohkontext nachladen."
+                .to_string(),
+        );
     }
     if timeline_signals
         .get("omitted_recent_event_count")
@@ -3221,14 +3443,19 @@ fn build_open_questions(
             .unwrap_or(0)
             > 0
     {
-        questions.push("Timeline wurde gekuerzt; fuer historische Vollanalyse hoeheres limit_events nutzen.".to_string());
+        questions.push(
+            "Timeline wurde gekuerzt; fuer historische Vollanalyse hoeheres limit_events nutzen."
+                .to_string(),
+        );
     }
     questions
 }
 
 fn build_prompt_de(best_match: &JsonMap<String, JsonValue>, query: &str) -> String {
-    let name = value_to_nonempty_string(best_match.get("canonical_name")).unwrap_or_else(|| query.to_string());
-    let entity_type = value_to_nonempty_string(best_match.get("entity_type")).unwrap_or_else(|| "Entity".to_string());
+    let name = value_to_nonempty_string(best_match.get("canonical_name"))
+        .unwrap_or_else(|| query.to_string());
+    let entity_type = value_to_nonempty_string(best_match.get("entity_type"))
+        .unwrap_or_else(|| "Entity".to_string());
     format!(
         "Du bist ein Deadlock-Analyseassistent. Nutze ausschliesslich den bereitgestellten Review-Kontext und kennzeichne Unsicherheiten klar. Behalte Namen von Items, Heroes und Abilities exakt auf Englisch; erklaere Bewertung, Patch-Interpretation und offene Fragen auf Deutsch. Ziel: Erstelle eine kompakte Review fuer {name} ({entity_type}) mit aktueller Stat-Einordnung, relevanten Timeline-Signalen, moeglichen Balance- oder Build-Implikationen und Quellenhinweisen. Erfinde keine Zahlen oder Patchdetails, die nicht im Kontext stehen."
     )
@@ -3291,7 +3518,12 @@ fn insert_ask_entity_match_name(names: &mut BTreeSet<String>, name: &str, allow_
     if name_norm.is_empty() {
         return;
     }
-    if !allow_short && (name_norm.chars().all(|character| character.is_ascii_digit()) || name_norm.len() < 4) {
+    if !allow_short
+        && (name_norm
+            .chars()
+            .all(|character| character.is_ascii_digit())
+            || name_norm.len() < 4)
+    {
         return;
     }
     names.insert(name.to_string());
@@ -3330,7 +3562,8 @@ async fn query_has_deadlock_vocabulary(pool: &PgPool, query: &str) -> Result<boo
         WHERE e.entity_type IN ('hero', 'item', 'item_special', 'ability')
         "#,
         vec![],
-    ).await?;
+    )
+    .await?;
     for row in rows {
         let Some(name) = value_to_nonempty_string(row.get("name")) else {
             continue;
@@ -3395,7 +3628,9 @@ async fn load_ask_claims(
             + claim_intent_relevance_bonus(claim, intent, entity_match, &relevance);
         claim.matched_keyword_count = relevance.distinct_matches;
     }
-    claims.retain(|claim| ask_claim_passes_minimum_relevance(claim, &keywords, entity_match, &idf_weights));
+    claims.retain(|claim| {
+        ask_claim_passes_minimum_relevance(claim, &keywords, entity_match, &idf_weights)
+    });
     Ok((claims, entity_matched, keyword_matched))
 }
 
@@ -3431,7 +3666,9 @@ async fn load_entity_claim_rows(
         pool,
         &exact_sql,
         names.iter().cloned().map(SqlValue::Text).collect(),
-    ).await? {
+    )
+    .await?
+    {
         if let Some(id) = row.get("id").and_then(JsonValue::as_i64) {
             by_id.insert(id, row);
         }
@@ -3458,7 +3695,8 @@ async fn load_entity_claim_rows(
         clauses.join(" OR ")
     );
     text_sql.push_str(" ORDER BY c.verifier_confidence DESC, c.id");
-    for row in fetch_all(pool, &text_sql, values).await?
+    for row in fetch_all(pool, &text_sql, values)
+        .await?
         .into_iter()
         .filter(|row| entity_text_row_matches_name(row, &names))
     {
@@ -3504,7 +3742,9 @@ async fn load_keyword_claim_rows(
     Ok(rows
         .into_iter()
         .filter(|row| keyword_row_starts_word(row, keywords))
-        .filter(|row| keyword_row_passes_minimum_relevance(row, keywords, entity_match, idf_weights))
+        .filter(|row| {
+            keyword_row_passes_minimum_relevance(row, keywords, entity_match, idf_weights)
+        })
         .collect())
 }
 
@@ -3519,7 +3759,8 @@ async fn load_ask_idf_weights(pool: &PgPool, keywords: &[AskKeywordSpec]) -> Res
         FROM brain.youtube_learning_claims
         "#,
         vec![],
-    ).await?;
+    )
+    .await?;
     if rows.is_empty() {
         return Ok(AskIdfWeights::default());
     }
@@ -3708,10 +3949,7 @@ fn push_ask_keyword(keywords: &mut Vec<String>, seen: &mut HashSet<String>, keyw
     }
 }
 
-fn ask_query_keyword_specs(
-    query: &str,
-    entity_match: &AskEntityClaimMatch,
-) -> Vec<AskKeywordSpec> {
+fn ask_query_keyword_specs(query: &str, entity_match: &AskEntityClaimMatch) -> Vec<AskKeywordSpec> {
     let mut specs = BTreeMap::<String, AskKeywordSpec>::new();
     let ranking_only_short_tokens = entity_match.matched
         && entity_match
@@ -3915,7 +4153,8 @@ fn keyword_row_passes_minimum_relevance(
     );
     relevance.distinct_matches >= 2
         || relevance.entity_keyword_hit
-        || (relevance.distinct_matches >= 1 && allows_single_specific_keyword(keywords, entity_match))
+        || (relevance.distinct_matches >= 1
+            && allows_single_specific_keyword(keywords, entity_match))
 }
 
 fn ask_claim_passes_minimum_relevance(
@@ -3930,7 +4169,8 @@ fn ask_claim_passes_minimum_relevance(
     let relevance = ask_claim_relevance(claim, keywords, entity_match, idf_weights);
     relevance.distinct_matches >= 2
         || relevance.entity_keyword_hit
-        || (relevance.distinct_matches >= 1 && allows_single_specific_keyword(keywords, entity_match))
+        || (relevance.distinct_matches >= 1
+            && allows_single_specific_keyword(keywords, entity_match))
 }
 
 fn allows_single_specific_keyword(
@@ -3987,8 +4227,8 @@ fn row_relevance(
     for keyword in keywords {
         let in_claim = keyword_spec_matches_text(&claim_text, keyword);
         let in_evidence = keyword_spec_matches_text(&evidence_quote, keyword);
-        let in_entity_name = keyword.entity_or_alias
-            && keyword_spec_matches_text(&entity_name_norm, keyword);
+        let in_entity_name =
+            keyword.entity_or_alias && keyword_spec_matches_text(&entity_name_norm, keyword);
         if !in_claim && !in_evidence && !in_entity_name {
             continue;
         }
@@ -4094,8 +4334,14 @@ fn claim_intent_relevance_bonus(
             let preferred = matches!(claim_type.as_str(), "counterplay" | "matchup" | "combo");
             preferred_claim_type_bonus(preferred, relevance)
                 + match claim_type.as_str() {
-                    "mechanic" if entity_name_matches_canonical(&entity_name_norm, entity_match) => {
-                        if relevance.distinctive_keyword_hit { 2 } else { -20 }
+                    "mechanic"
+                        if entity_name_matches_canonical(&entity_name_norm, entity_match) =>
+                    {
+                        if relevance.distinctive_keyword_hit {
+                            2
+                        } else {
+                            -20
+                        }
                     }
                     "mechanic" => -60,
                     "general" | "meta" | "macro" => -100,
@@ -4124,7 +4370,7 @@ fn claim_intent_relevance_bonus(
                     "general" => 2,
                     _ => 0,
                 }
-        },
+        }
         _ => 0,
     }
 }
@@ -4144,7 +4390,11 @@ fn claim_intent_priority(
         },
         "matchup" | "counterplay" => match claim_type.as_str() {
             "counterplay" | "matchup" if entity_name_is_multi_entity_listing(claim) => 1,
-            "counterplay" | "matchup" if multi_entity_claim_for_single_entity_intent(claim, entity_match) => 2,
+            "counterplay" | "matchup"
+                if multi_entity_claim_for_single_entity_intent(claim, entity_match) =>
+            {
+                2
+            }
             "counterplay" | "matchup" => 3,
             "mechanic" if entity_name_matches_canonical(&entity_name_norm, entity_match) => 2,
             _ => 0,
@@ -4203,7 +4453,8 @@ fn multi_entity_claim_for_single_entity_intent(
         || entity_name_lower.matches(',').count() >= 2
         || entity_name_lower.matches('/').count() >= 2;
     let text_listing = claim_text_lower.contains(&canonical_lower)
-        && (claim_text_lower.matches(',').count() >= 3 || claim_text_lower.matches(" vs ").count() >= 2);
+        && (claim_text_lower.matches(',').count() >= 3
+            || claim_text_lower.matches(" vs ").count() >= 2);
     entity_listing || text_listing
 }
 
@@ -4224,7 +4475,10 @@ fn entity_name_matches_entity(entity_name_norm: &str, entity_match: &AskEntityCl
         .any(|name| normalize_alias(name) == entity_name_norm)
 }
 
-fn entity_name_matches_canonical(entity_name_norm: &str, entity_match: &AskEntityClaimMatch) -> bool {
+fn entity_name_matches_canonical(
+    entity_name_norm: &str,
+    entity_match: &AskEntityClaimMatch,
+) -> bool {
     entity_match
         .canonical_name
         .as_deref()
@@ -4334,14 +4588,10 @@ fn ask_claim_take_counts(
 
     let reserve_flagged = flagged_reserve_count(claims, max_claims, intent, entity_match);
     let reserve_refuted = usize::from(!claims.refuted.is_empty());
-    let reserve_unverified = unverified_reserve_count(
-        claims,
-        include_unverified,
-        max_claims,
-        intent,
-        entity_match,
-    );
-    let reserve = (reserve_flagged + reserve_refuted + reserve_unverified).min(remaining.saturating_sub(1));
+    let reserve_unverified =
+        unverified_reserve_count(claims, include_unverified, max_claims, intent, entity_match);
+    let reserve =
+        (reserve_flagged + reserve_refuted + reserve_unverified).min(remaining.saturating_sub(1));
 
     take.verified = claims.verified.len().min(remaining.saturating_sub(reserve));
     remaining = remaining.saturating_sub(take.verified);
@@ -4407,7 +4657,10 @@ fn flagged_reserve_count(
                 && claim.relevance_score >= max_verified_score
         })
         .count();
-    competitive.max(1).min(claims.flagged.len()).min(ASK_STRONG_ON_TOPIC_TARGET)
+    competitive
+        .max(1)
+        .min(claims.flagged.len())
+        .min(ASK_STRONG_ON_TOPIC_TARGET)
 }
 
 fn unverified_reserve_count(
@@ -4487,7 +4740,8 @@ fn render_ask_prompt(bundle: &JsonValue) -> Result<String> {
     {
         return Ok(render_ask_ood_prompt(bundle));
     }
-    let ordered_context_json = serde_json::to_string_pretty(&ordered_ask_context_for_prompt(bundle))?;
+    let ordered_context_json =
+        serde_json::to_string_pretty(&ordered_ask_context_for_prompt(bundle))?;
     let mut rendered = ASK_PROMPT_TEMPLATE
         .replace("{{query}}", &value_to_string(bundle.get("query")))
         .replace("{{intent}}", &value_to_string(bundle.get("intent")))
@@ -4526,7 +4780,10 @@ fn ordered_ask_context_for_prompt(bundle: &JsonValue) -> JsonValue {
         "query".to_string(),
         bundle.get("query").cloned().unwrap_or(JsonValue::Null),
     );
-    if let Some(sources) = bundle.get("sources").filter(|value| prompt_value_available(value)) {
+    if let Some(sources) = bundle
+        .get("sources")
+        .filter(|value| prompt_value_available(value))
+    {
         ordered_context.insert("sources".to_string(), sources.clone());
     }
     JsonValue::Object(ordered_context)
@@ -4535,8 +4792,17 @@ fn ordered_ask_context_for_prompt(bundle: &JsonValue) -> JsonValue {
 fn prompt_ground_truth(bundle: &JsonValue) -> Option<JsonValue> {
     let ground_truth = bundle.get("ground_truth")?.as_object()?;
     let mut compact = JsonMap::new();
-    for key in ["stats", "lineage", "item", "patch_overview", "game_knowledge"] {
-        if let Some(value) = ground_truth.get(key).filter(|value| prompt_value_available(value)) {
+    for key in [
+        "stats",
+        "lineage",
+        "item",
+        "patch_overview",
+        "game_knowledge",
+    ] {
+        if let Some(value) = ground_truth
+            .get(key)
+            .filter(|value| prompt_value_available(value))
+        {
             compact.insert(key.to_string(), value.clone());
         }
     }
@@ -4652,7 +4918,10 @@ fn compact_claim_for_prompt(claim: &JsonValue, bucket: &str) -> JsonValue {
         compact.insert("source_video".to_string(), json!({"title": title}));
     }
     if matches!(bucket, "flagged" | "refuted") {
-        if let Some(db_evidence) = claim.get("db_evidence").filter(|value| prompt_value_available(value)) {
+        if let Some(db_evidence) = claim
+            .get("db_evidence")
+            .filter(|value| prompt_value_available(value))
+        {
             compact.insert(
                 "db_evidence".to_string(),
                 JsonValue::String(short_prompt_text(&value_to_string(Some(db_evidence)), 280)),
@@ -4732,7 +5001,9 @@ fn merged_sheet_stat_hints(
         if let Some(existing) = by_key.get_mut(&key) {
             existing.insert(
                 "numeric_value".to_string(),
-                hint.get("numeric_value").cloned().unwrap_or(JsonValue::Null),
+                hint.get("numeric_value")
+                    .cloned()
+                    .unwrap_or(JsonValue::Null),
             );
             if existing
                 .get("value")
@@ -4954,8 +5225,12 @@ fn compact_stat_change(
 
 fn has_structured_stat_change(enrichment: &JsonMap<String, JsonValue>) -> bool {
     value_to_nonempty_string(enrichment.get("stat_name")).is_some()
-        && (enrichment.get("old_value").is_some_and(|value| !value.is_null())
-            || enrichment.get("new_value").is_some_and(|value| !value.is_null()))
+        && (enrichment
+            .get("old_value")
+            .is_some_and(|value| !value.is_null())
+            || enrichment
+                .get("new_value")
+                .is_some_and(|value| !value.is_null()))
 }
 
 fn latest_patch(events: &[JsonMap<String, JsonValue>]) -> JsonValue {
@@ -4970,7 +5245,11 @@ fn latest_patch(events: &[JsonMap<String, JsonValue>]) -> JsonValue {
     })
 }
 
-fn append_reference(references: &mut Vec<JsonValue>, seen: &mut HashSet<String>, reference: JsonValue) {
+fn append_reference(
+    references: &mut Vec<JsonValue>,
+    seen: &mut HashSet<String>,
+    reference: JsonValue,
+) {
     let Some(mut object) = reference.as_object().cloned() else {
         return;
     };
@@ -5014,14 +5293,24 @@ async fn check_required_tables(pool: &PgPool) -> Result<JsonValue> {
         }
     }
     if missing.is_empty() {
-        Ok(result("ok", "required_tables", "Required normalized tables are present.", 0, Vec::new(), None))
+        Ok(result(
+            "ok",
+            "required_tables",
+            "Required normalized tables are present.",
+            0,
+            Vec::new(),
+            None,
+        ))
     } else {
         Ok(result(
             "error",
             "required_tables",
             &format!("Missing required normalized tables: {}", missing.join(", ")),
             missing.len() as i64,
-            missing.into_iter().map(|table| json!({"table": table})).collect(),
+            missing
+                .into_iter()
+                .map(|table| json!({"table": table}))
+                .collect(),
             None,
         ))
     }
@@ -5046,7 +5335,8 @@ async fn check_entity_counts(pool: &PgPool) -> Result<JsonValue> {
         WHERE source=? AND entity_type IN ('hero', 'item_or_ability', 'rank')
         "#,
         vec![SqlValue::Text(ASSETS_SOURCE.to_string())],
-    ).await?;
+    )
+    .await?;
     let mut entity_counts = BTreeMap::new();
     for row in fetch_all(
         pool,
@@ -5056,9 +5346,14 @@ async fn check_entity_counts(pool: &PgPool) -> Result<JsonValue> {
         GROUP BY entity_type
         "#,
         vec![],
-    ).await? {
+    )
+    .await?
+    {
         if let Some(entity_type) = value_to_nonempty_string(row.get("entity_type")) {
-            entity_counts.insert(entity_type, row.get("count").and_then(JsonValue::as_i64).unwrap_or(0));
+            entity_counts.insert(
+                entity_type,
+                row.get("count").and_then(JsonValue::as_i64).unwrap_or(0),
+            );
         }
     }
     let public_total = PUBLIC_ENTITY_TYPES
@@ -5128,7 +5423,8 @@ async fn check_alias_collisions(pool: &PgPool) -> Result<JsonValue> {
         LIMIT ?
         "#,
         vec![SqlValue::Integer(SAMPLE_LIMIT)],
-    ).await?;
+    )
+    .await?;
     let total = scalar_i64(
         pool,
         r#"
@@ -5142,7 +5438,8 @@ async fn check_alias_collisions(pool: &PgPool) -> Result<JsonValue> {
         ) AS collisions
         "#,
         vec![],
-    ).await?;
+    )
+    .await?;
     Ok(result(
         if total > 0 { "warning" } else { "ok" },
         "alias_collisions",
@@ -5179,7 +5476,8 @@ async fn check_patch_events_unknown_entities(pool: &PgPool) -> Result<JsonValue>
         ORDER BY id
         "#,
         vec![],
-    ).await?;
+    )
+    .await?;
     let mut total = 0;
     for row in rows {
         let entity_type = value_to_string(row.get("entity_type"));
@@ -5249,7 +5547,8 @@ async fn check_lineage_table(pool: &PgPool) -> Result<JsonValue> {
         ORDER BY relation_type
         "#,
         vec![],
-    ).await?;
+    )
+    .await?;
     Ok(result(
         if total == 0 { "warning" } else { "ok" },
         "lineage_table",
@@ -5280,7 +5579,8 @@ async fn check_legacy_entities_table(pool: &PgPool) -> Result<JsonValue> {
         pool,
         "SELECT COUNT(*) FROM brain.legacy_entities WHERE status='suspect_parser_subject'",
         vec![],
-    ).await?;
+    )
+    .await?;
     let samples = fetch_all(
         pool,
         r#"
@@ -5290,7 +5590,8 @@ async fn check_legacy_entities_table(pool: &PgPool) -> Result<JsonValue> {
         LIMIT ?
         "#,
         vec![SqlValue::Integer(SAMPLE_LIMIT)],
-    ).await?;
+    )
+    .await?;
     let suspect_samples = fetch_all(
         pool,
         r#"
@@ -5301,7 +5602,8 @@ async fn check_legacy_entities_table(pool: &PgPool) -> Result<JsonValue> {
         LIMIT ?
         "#,
         vec![SqlValue::Integer(SAMPLE_LIMIT)],
-    ).await?;
+    )
+    .await?;
     let severity = if suspect > 0 {
         "warning"
     } else if total > 0 {
@@ -5366,7 +5668,8 @@ async fn check_low_confidence_enrichments(pool: &PgPool) -> Result<JsonValue> {
         WHERE confidence < ? OR flags::text LIKE '%unparsed%'
         "#,
         vec![SqlValue::Real(LOW_CONFIDENCE_THRESHOLD)],
-    ).await?;
+    )
+    .await?;
     Ok(result(
         if total > 0 { "warning" } else { "ok" },
         "low_confidence_unparsed_enrichments",
@@ -5402,12 +5705,14 @@ async fn check_sheet_profiles_without_entity(pool: &PgPool) -> Result<JsonValue>
         LIMIT ?
         "#,
         vec![SqlValue::Integer(SAMPLE_LIMIT)],
-    ).await?;
+    )
+    .await?;
     let total = scalar_i64(
         pool,
         "SELECT COUNT(*) FROM brain.hero_stat_profiles WHERE entity_id IS NULL",
         vec![],
-    ).await?;
+    )
+    .await?;
     Ok(result(
         if total > 0 { "warning" } else { "ok" },
         "sheet_profiles_without_entity",
@@ -5445,7 +5750,8 @@ async fn check_general_events_with_known_entity_names(pool: &PgPool) -> Result<J
         ORDER BY id
         "#,
         vec![],
-    ).await?;
+    )
+    .await?;
     for mut row in rows {
         let text_key = format!(
             " {} ",
@@ -5465,7 +5771,10 @@ async fn check_general_events_with_known_entity_names(pool: &PgPool) -> Result<J
         }
         total += 1;
         if samples.len() < GENERAL_ENTITY_SCAN_LIMIT {
-            row.insert("matches".to_string(), JsonValue::Array(matches.into_iter().take(5).collect()));
+            row.insert(
+                "matches".to_string(),
+                JsonValue::Array(matches.into_iter().take(5).collect()),
+            );
             samples.push(JsonValue::Object(row));
         }
     }
@@ -5494,7 +5803,13 @@ struct ScanName {
 
 async fn known_entity_names(pool: &PgPool) -> Result<HashSet<(String, String)>> {
     let mut known = HashSet::new();
-    for row in fetch_all(pool, "SELECT entity_type, canonical_name FROM brain.entities", vec![]).await? {
+    for row in fetch_all(
+        pool,
+        "SELECT entity_type, canonical_name FROM brain.entities",
+        vec![],
+    )
+    .await?
+    {
         known.insert((
             value_to_string(row.get("entity_type")),
             normalize_alias(&value_to_string(row.get("canonical_name"))),
@@ -5508,7 +5823,9 @@ async fn known_entity_names(pool: &PgPool) -> Result<HashSet<(String, String)>> 
         JOIN brain.entities e ON e.id=a.entity_id
         "#,
         vec![],
-    ).await? {
+    )
+    .await?
+    {
         known.insert((
             value_to_string(row.get("entity_type")),
             value_to_string(row.get("alias_norm")),
@@ -5529,7 +5846,9 @@ async fn known_entity_names(pool: &PgPool) -> Result<HashSet<(String, String)>> 
             pool,
             "SELECT observed_entity_type, name_norm FROM brain.legacy_entities",
             vec![],
-        ).await? {
+        )
+        .await?
+        {
             known.insert((
                 value_to_string(row.get("observed_entity_type")),
                 value_to_string(row.get("name_norm")),
@@ -5567,7 +5886,9 @@ async fn entity_scan_names(pool: &PgPool) -> Result<Vec<ScanName>> {
         WHERE source=? AND entity_type IN ('hero', 'item', 'item_special', 'ability')
         "#,
         vec![SqlValue::Text(ASSETS_SOURCE.to_string())],
-    ).await? {
+    )
+    .await?
+    {
         let entity_type = value_to_string(row.get("entity_type"));
         let canonical_name = value_to_string(row.get("canonical_name"));
         add_scan_name(&mut by_key, &entity_type, &canonical_name, &canonical_name);
@@ -5581,7 +5902,9 @@ async fn entity_scan_names(pool: &PgPool) -> Result<Vec<ScanName>> {
         WHERE a.source=? AND e.entity_type IN ('hero', 'item', 'item_special', 'ability')
         "#,
         vec![SqlValue::Text(ASSETS_SOURCE.to_string())],
-    ).await? {
+    )
+    .await?
+    {
         add_scan_name(
             &mut by_key,
             &value_to_string(row.get("entity_type")),
@@ -5598,11 +5921,15 @@ async fn entity_scan_names(pool: &PgPool) -> Result<Vec<ScanName>> {
             WHERE relation_type IN ('rename', 'replaced_by')
             "#,
             vec![],
-        ).await? {
-            let source_type = value_to_nonempty_string(row.get("source_entity_type")).unwrap_or_else(|| "legacy".to_string());
+        )
+        .await?
+        {
+            let source_type = value_to_nonempty_string(row.get("source_entity_type"))
+                .unwrap_or_else(|| "legacy".to_string());
             let source_name = value_to_string(row.get("source_name"));
             add_scan_name(&mut by_key, &source_type, &source_name, &source_name);
-            let target_type = value_to_nonempty_string(row.get("target_entity_type")).unwrap_or_else(|| "legacy".to_string());
+            let target_type = value_to_nonempty_string(row.get("target_entity_type"))
+                .unwrap_or_else(|| "legacy".to_string());
             let target_name = value_to_string(row.get("target_name"));
             add_scan_name(&mut by_key, &target_type, &target_name, &target_name);
         }
@@ -5616,7 +5943,9 @@ async fn entity_scan_names(pool: &PgPool) -> Result<Vec<ScanName>> {
             WHERE confidence >= 0.5
             "#,
             vec![],
-        ).await? {
+        )
+        .await?
+        {
             let legacy_type = value_to_string(row.get("legacy_type"));
             let canonical_name = value_to_string(row.get("canonical_name"));
             add_scan_name(&mut by_key, &legacy_type, &canonical_name, &canonical_name);
@@ -5645,7 +5974,10 @@ fn add_scan_name(
     if name_key.len() < 4 || name_key.chars().all(|ch| ch.is_ascii_digit()) {
         return;
     }
-    if matches!(name_key.as_str(), "hero" | "item" | "ability" | "weapon" | "melee") {
+    if matches!(
+        name_key.as_str(),
+        "hero" | "item" | "ability" | "weapon" | "melee"
+    ) {
         return;
     }
     by_key
@@ -5729,21 +6061,36 @@ fn item_summary(payload: &JsonMap<String, JsonValue>) -> JsonMap<String, JsonVal
     );
     item.insert(
         "class_name".to_string(),
-        payload.get("class_name").cloned().unwrap_or(JsonValue::Null),
+        payload
+            .get("class_name")
+            .cloned()
+            .unwrap_or(JsonValue::Null),
     );
     item.insert(
         "slot".to_string(),
-        payload.get("item_slot_type").cloned().unwrap_or(JsonValue::Null),
+        payload
+            .get("item_slot_type")
+            .cloned()
+            .unwrap_or(JsonValue::Null),
     );
-    item.insert("tier".to_string(), json!(int_or_zero(payload.get("item_tier"))));
+    item.insert(
+        "tier".to_string(),
+        json!(int_or_zero(payload.get("item_tier"))),
+    );
     item.insert("cost".to_string(), json!(int_or_zero(payload.get("cost"))));
     item.insert(
         "is_active".to_string(),
-        json!(payload.get("is_active_item").and_then(JsonValue::as_bool).unwrap_or(false)),
+        json!(payload
+            .get("is_active_item")
+            .and_then(JsonValue::as_bool)
+            .unwrap_or(false)),
     );
     item.insert(
         "activation".to_string(),
-        payload.get("activation").cloned().unwrap_or(JsonValue::Null),
+        payload
+            .get("activation")
+            .cloned()
+            .unwrap_or(JsonValue::Null),
     );
     item.insert(
         "description".to_string(),
@@ -5751,7 +6098,10 @@ fn item_summary(payload: &JsonMap<String, JsonValue>) -> JsonMap<String, JsonVal
     );
     item.insert(
         "component_items".to_string(),
-        payload.get("component_items").cloned().unwrap_or_else(|| json!([])),
+        payload
+            .get("component_items")
+            .cloned()
+            .unwrap_or_else(|| json!([])),
     );
     item.insert(
         "properties".to_string(),
@@ -5764,7 +6114,10 @@ fn item_summary(payload: &JsonMap<String, JsonValue>) -> JsonMap<String, JsonVal
     );
     item.insert(
         "upgrades".to_string(),
-        payload.get("upgrades").cloned().unwrap_or_else(|| json!([])),
+        payload
+            .get("upgrades")
+            .cloned()
+            .unwrap_or_else(|| json!([])),
     );
     let archetypes = classify_item_archetypes(&item);
     item.insert(
@@ -5798,27 +6151,270 @@ fn classify_item_archetypes(item: &JsonMap<String, JsonValue>) -> Vec<String> {
     if cost >= 6400 {
         archetypes.insert("luxury");
     }
-    if item.get("is_active").and_then(JsonValue::as_bool).unwrap_or(false) {
+    if item
+        .get("is_active")
+        .and_then(JsonValue::as_bool)
+        .unwrap_or(false)
+    {
         archetypes.insert("active_burden");
     }
-    add_archetype_if(&mut archetypes, &blob, &["npc", "nonplayer", "non-player", "trooper", "bonus souls", "souls", "creep"], "lane_farm");
-    add_archetype_if(&mut archetypes, &blob, &["npc damage", "trooper", "non-player", "nonplayer", "creep", "chain", "ricochet"], "waveclear");
-    add_archetype_if(&mut archetypes, &blob, &["bonus souls", "secure", "claim", "confirm", "last hit", "orb"], "orb_secure");
-    add_archetype_if(&mut archetypes, &blob, &["close range", "weapon damage", "fire rate", "max ammo", "reload", "bonus damage", "current health damage", "bullet lifesteal", "out of combat regen"], "lane_trade");
-    add_archetype_if(&mut archetypes, &blob, &["close range", "bullet lifesteal", "melee", "duel", "weapon damage", "fire rate", "slow resist"], "duel");
-    add_archetype_if(&mut archetypes, &blob, &["burst", "bonus damage", "damage amp", "amplification", "current health damage", "execute", "crit"], "burst");
-    add_archetype_if(&mut archetypes, &blob, &["fire rate", "weapon damage", "max ammo", "reload", "bullet procs", "ricochet", "sustained"], "sustained_dps");
-    add_archetype_if(&mut archetypes, &blob, &["slow", "stun", "silence", "disarm", "root", "immobil", "knock", "teleport", "dash distance", "gravity"], "kill_setup");
-    add_archetype_if(&mut archetypes, &blob, &["teleport", "dash", "move speed", "sprint speed", "stamina", "escape", "barrier"], "escape");
-    add_archetype_if(&mut archetypes, &blob, &["stun", "silence", "disarm", "knock", "hex", "curse", "area", "nearby enemies", "radius"], "teamfight_engage");
-    add_archetype_if(&mut archetypes, &blob, &["debuff", "cleanse", "dispel", "unstoppable", "immune", "barrier", "shield", "return fire", "healing reduction", "metal skin"], "counter");
-    add_archetype_if(&mut archetypes, &blob, &["healing reduction", "anti-heal", "healbane"], "anti_heal");
-    add_archetype_if(&mut archetypes, &blob, &["disarm", "return fire", "metal skin", "bullet resist", "weapon damage reduction", "fire rate slow"], "anti_carry");
-    add_archetype_if(&mut archetypes, &blob, &["rescue", "barrier", "shield", "cleanse", "dispel", "heal yourself and nearby allies"], "save");
-    add_archetype_if(&mut archetypes, &blob, &["stack", "escalat", "amp", "cooldown", "duration", "ability range", "radius", "spirit power", "techpower", "charges", "ricochet", "bullet procs", "max weapon damage"], "core_scaling");
-    add_archetype_if(&mut archetypes, &blob, &["nearby allies", "friendly", "ally", "aura", "rescue", "heal yourself and nearby allies", "healing output"], "support");
-    add_archetype_if(&mut archetypes, &blob, &["guardian", "walker", "patron", "mid boss", "midboss", "objective", "non-player", "nonplayer", "npc damage"], "objective_damage");
-    add_archetype_if(&mut archetypes, &blob, &["split push", "splitpush", "lane pressure", "trooper", "wave"], "splitpush");
+    add_archetype_if(
+        &mut archetypes,
+        &blob,
+        &[
+            "npc",
+            "nonplayer",
+            "non-player",
+            "trooper",
+            "bonus souls",
+            "souls",
+            "creep",
+        ],
+        "lane_farm",
+    );
+    add_archetype_if(
+        &mut archetypes,
+        &blob,
+        &[
+            "npc damage",
+            "trooper",
+            "non-player",
+            "nonplayer",
+            "creep",
+            "chain",
+            "ricochet",
+        ],
+        "waveclear",
+    );
+    add_archetype_if(
+        &mut archetypes,
+        &blob,
+        &[
+            "bonus souls",
+            "secure",
+            "claim",
+            "confirm",
+            "last hit",
+            "orb",
+        ],
+        "orb_secure",
+    );
+    add_archetype_if(
+        &mut archetypes,
+        &blob,
+        &[
+            "close range",
+            "weapon damage",
+            "fire rate",
+            "max ammo",
+            "reload",
+            "bonus damage",
+            "current health damage",
+            "bullet lifesteal",
+            "out of combat regen",
+        ],
+        "lane_trade",
+    );
+    add_archetype_if(
+        &mut archetypes,
+        &blob,
+        &[
+            "close range",
+            "bullet lifesteal",
+            "melee",
+            "duel",
+            "weapon damage",
+            "fire rate",
+            "slow resist",
+        ],
+        "duel",
+    );
+    add_archetype_if(
+        &mut archetypes,
+        &blob,
+        &[
+            "burst",
+            "bonus damage",
+            "damage amp",
+            "amplification",
+            "current health damage",
+            "execute",
+            "crit",
+        ],
+        "burst",
+    );
+    add_archetype_if(
+        &mut archetypes,
+        &blob,
+        &[
+            "fire rate",
+            "weapon damage",
+            "max ammo",
+            "reload",
+            "bullet procs",
+            "ricochet",
+            "sustained",
+        ],
+        "sustained_dps",
+    );
+    add_archetype_if(
+        &mut archetypes,
+        &blob,
+        &[
+            "slow",
+            "stun",
+            "silence",
+            "disarm",
+            "root",
+            "immobil",
+            "knock",
+            "teleport",
+            "dash distance",
+            "gravity",
+        ],
+        "kill_setup",
+    );
+    add_archetype_if(
+        &mut archetypes,
+        &blob,
+        &[
+            "teleport",
+            "dash",
+            "move speed",
+            "sprint speed",
+            "stamina",
+            "escape",
+            "barrier",
+        ],
+        "escape",
+    );
+    add_archetype_if(
+        &mut archetypes,
+        &blob,
+        &[
+            "stun",
+            "silence",
+            "disarm",
+            "knock",
+            "hex",
+            "curse",
+            "area",
+            "nearby enemies",
+            "radius",
+        ],
+        "teamfight_engage",
+    );
+    add_archetype_if(
+        &mut archetypes,
+        &blob,
+        &[
+            "debuff",
+            "cleanse",
+            "dispel",
+            "unstoppable",
+            "immune",
+            "barrier",
+            "shield",
+            "return fire",
+            "healing reduction",
+            "metal skin",
+        ],
+        "counter",
+    );
+    add_archetype_if(
+        &mut archetypes,
+        &blob,
+        &["healing reduction", "anti-heal", "healbane"],
+        "anti_heal",
+    );
+    add_archetype_if(
+        &mut archetypes,
+        &blob,
+        &[
+            "disarm",
+            "return fire",
+            "metal skin",
+            "bullet resist",
+            "weapon damage reduction",
+            "fire rate slow",
+        ],
+        "anti_carry",
+    );
+    add_archetype_if(
+        &mut archetypes,
+        &blob,
+        &[
+            "rescue",
+            "barrier",
+            "shield",
+            "cleanse",
+            "dispel",
+            "heal yourself and nearby allies",
+        ],
+        "save",
+    );
+    add_archetype_if(
+        &mut archetypes,
+        &blob,
+        &[
+            "stack",
+            "escalat",
+            "amp",
+            "cooldown",
+            "duration",
+            "ability range",
+            "radius",
+            "spirit power",
+            "techpower",
+            "charges",
+            "ricochet",
+            "bullet procs",
+            "max weapon damage",
+        ],
+        "core_scaling",
+    );
+    add_archetype_if(
+        &mut archetypes,
+        &blob,
+        &[
+            "nearby allies",
+            "friendly",
+            "ally",
+            "aura",
+            "rescue",
+            "heal yourself and nearby allies",
+            "healing output",
+        ],
+        "support",
+    );
+    add_archetype_if(
+        &mut archetypes,
+        &blob,
+        &[
+            "guardian",
+            "walker",
+            "patron",
+            "mid boss",
+            "midboss",
+            "objective",
+            "non-player",
+            "nonplayer",
+            "npc damage",
+        ],
+        "objective_damage",
+    );
+    add_archetype_if(
+        &mut archetypes,
+        &blob,
+        &[
+            "split push",
+            "splitpush",
+            "lane pressure",
+            "trooper",
+            "wave",
+        ],
+        "splitpush",
+    );
     archetypes.into_iter().map(str::to_string).collect()
 }
 
@@ -5843,9 +6439,14 @@ fn compact_properties(value: Option<&JsonValue>) -> Vec<JsonMap<String, JsonValu
             continue;
         };
         let value = prop.get("value").cloned().unwrap_or(JsonValue::Null);
-        let disable = prop.get("disable_value").cloned().unwrap_or(JsonValue::Null);
-        if matches!(value_to_string(Some(&value)).as_str(), "" | "0" | "0.0" | "-1.0")
-            && matches!(value_to_string(Some(&disable)).as_str(), "0" | "-1" | "-2")
+        let disable = prop
+            .get("disable_value")
+            .cloned()
+            .unwrap_or(JsonValue::Null);
+        if matches!(
+            value_to_string(Some(&value)).as_str(),
+            "" | "0" | "0.0" | "-1.0"
+        ) && matches!(value_to_string(Some(&disable)).as_str(), "0" | "-1" | "-2")
         {
             continue;
         }
@@ -5875,7 +6476,9 @@ fn compact_properties(value: Option<&JsonValue>) -> Vec<JsonMap<String, JsonValu
         );
         row.insert(
             "tooltip_section".to_string(),
-            prop.get("tooltip_section").cloned().unwrap_or(JsonValue::Null),
+            prop.get("tooltip_section")
+                .cloned()
+                .unwrap_or(JsonValue::Null),
         );
         row.insert(
             "important".to_string(),
@@ -5909,8 +6512,14 @@ fn scale_hint(value: Option<&JsonValue>) -> Vec<String> {
     let Some(scale_function) = value.and_then(JsonValue::as_object) else {
         return Vec::new();
     };
-    if let Some(stats) = scale_function.get("scaling_stats").and_then(JsonValue::as_array) {
-        return stats.iter().map(|stat| value_to_string(Some(stat))).collect();
+    if let Some(stats) = scale_function
+        .get("scaling_stats")
+        .and_then(JsonValue::as_array)
+    {
+        return stats
+            .iter()
+            .map(|stat| value_to_string(Some(stat)))
+            .collect();
     }
     value_to_nonempty_string(scale_function.get("specific_stat_scale_type"))
         .into_iter()
@@ -6036,7 +6645,10 @@ async fn save_review_analysis_note(
         .unwrap_or_else(|| json!({"query": query, "context_hash": context_hash, "status": status})))
 }
 
-fn source_references(review_context: &JsonValue, provider_metadata: Option<&JsonValue>) -> Vec<JsonValue> {
+fn source_references(
+    review_context: &JsonValue,
+    provider_metadata: Option<&JsonValue>,
+) -> Vec<JsonValue> {
     let mut references = review_context
         .get("source_references")
         .and_then(JsonValue::as_array)
@@ -6080,15 +6692,6 @@ fn truncate_array_field(object: &mut JsonMap<String, JsonValue>, key: &str, limi
         value.truncate(limit);
     }
 }
-
-
-
-
-
-
-
-
-
 
 #[derive(Debug, Clone)]
 enum SqlValue {
@@ -6233,7 +6836,8 @@ async fn select_by_values_i64(
         pool,
         &sql,
         values.iter().copied().map(SqlValue::Integer).collect(),
-    ).await
+    )
+    .await
 }
 
 async fn select_by_values_text(
@@ -6252,7 +6856,8 @@ async fn select_by_values_text(
         pool,
         &sql,
         values.iter().cloned().map(SqlValue::Text).collect(),
-    ).await
+    )
+    .await
 }
 
 async fn table_exists(pool: &PgPool, name: &str) -> Result<bool> {
@@ -6493,13 +7098,23 @@ fn compare_event_sort_key(
             left.get("patch_snapshot_id")
                 .and_then(JsonValue::as_i64)
                 .unwrap_or(0)
-                .cmp(&right.get("patch_snapshot_id").and_then(JsonValue::as_i64).unwrap_or(0))
+                .cmp(
+                    &right
+                        .get("patch_snapshot_id")
+                        .and_then(JsonValue::as_i64)
+                        .unwrap_or(0),
+                )
         })
         .then_with(|| {
             left.get("line_index")
                 .and_then(JsonValue::as_i64)
                 .unwrap_or(0)
-                .cmp(&right.get("line_index").and_then(JsonValue::as_i64).unwrap_or(0))
+                .cmp(
+                    &right
+                        .get("line_index")
+                        .and_then(JsonValue::as_i64)
+                        .unwrap_or(0),
+                )
         })
 }
 
@@ -6537,7 +7152,11 @@ fn parse_hms(value: &str) -> Option<u32> {
     let mut parts = time.split(':');
     let hour = parts.next()?.get(0..2)?.parse::<u32>().ok()?;
     let minute = parts.next()?.get(0..2)?.parse::<u32>().ok()?;
-    let second = parts.next().and_then(|part| part.get(0..2)).and_then(|part| part.parse::<u32>().ok()).unwrap_or(0);
+    let second = parts
+        .next()
+        .and_then(|part| part.get(0..2))
+        .and_then(|part| part.parse::<u32>().ok())
+        .unwrap_or(0);
     Some(hour * 3600 + minute * 60 + second)
 }
 
@@ -6632,6 +7251,9 @@ mod tests {
             }],
         };
         let build = BuildObject {
+            family: None,
+            family_discovery: None,
+            variants: Vec::new(),
             hero_id: 25,
             hero_name: "Warden".to_string(),
             patch_tag: "current".to_string(),
@@ -6680,6 +7302,44 @@ mod tests {
             .contains("Verkaufe First Item vor Second Item"));
         assert_eq!(compact["situations"][0]["label"], "Schutz");
         assert!(compact.to_string().len() < serde_json::to_string(&build).unwrap().len() / 2);
+
+        let mut alternative = build.clone();
+        alternative.name = "Observed alternative".into();
+        alternative.core = vec![item(44, "Alternative Item", "Separate mechanical plan")];
+        alternative.core[0].imbue_target = Some(202);
+        alternative.ability_order = vec![dbrain_reasoner::AbilityStep {
+            ability_id: 202,
+            currency_type: 2,
+            delta: -1,
+        }];
+        alternative.situations.clear();
+        build.ability_order = vec![dbrain_reasoner::AbilityStep {
+            ability_id: 101,
+            currency_type: 2,
+            delta: -1,
+        }];
+        build.variants.push(alternative);
+        let compact = reasoner_prompt_context(&build, Some("tank"));
+        assert_eq!(compact["variants"].as_array().unwrap().len(), 1);
+        assert_eq!(compact["variants"][0]["name"], "Observed alternative");
+        assert_eq!(compact["variants"][0]["core"][0]["item_id"], 44);
+        assert_eq!(compact["variants"][0]["core"][0]["imbue_target"], 202);
+        assert_eq!(
+            compact["variants"][0]["ability_order"][0]["ability_id"],
+            202
+        );
+        assert_eq!(compact["ability_order"][0]["ability_id"], 101);
+        assert!(!compact["core"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["item_id"] == 44));
+        let text = explain_reasoner_build(&build, Some("tank"));
+        assert!(text.contains("Observed alternative"));
+        assert!(text.contains("Alternative Item: Separate mechanical plan"));
+        assert!(text.contains("202"));
+        assert!(!text.contains("noch nicht berechnet"));
+        assert!(text.find("First Item").unwrap() < text.find("Alternative Item").unwrap());
     }
 
     async fn test_pool() -> Option<PgPool> {
@@ -6708,7 +7368,11 @@ mod tests {
         .fetch_optional(pool)
         .await
         .expect("hero query");
-        row.and_then(|row| row.try_get::<Option<String>, _>("canonical_name").ok().flatten())
+        row.and_then(|row| {
+            row.try_get::<Option<String>, _>("canonical_name")
+                .ok()
+                .flatten()
+        })
     }
 
     #[tokio::test]
@@ -6722,11 +7386,12 @@ mod tests {
             .fetch_one(&pool)
             .await
             .expect("count");
-        let distinct_names: i64 =
-            sqlx::query_scalar("SELECT COUNT(DISTINCT name) FROM brain.item_catalog WHERE trim(name) <> ''")
-                .fetch_one(&pool)
-                .await
-                .expect("distinct count");
+        let distinct_names: i64 = sqlx::query_scalar(
+            "SELECT COUNT(DISTINCT name) FROM brain.item_catalog WHERE trim(name) <> ''",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("distinct count");
         // item_catalog has 251 rows; names are de-duplicated (one item name appears twice),
         // so the loaded set matches the distinct non-empty name count.
         assert_eq!(raw_count, 251);
@@ -6791,7 +7456,10 @@ mod tests {
         .fetch_one(&pool)
         .await
         .expect("hollow point fixture count");
-        assert!(hollow_rows > 0, "fixture must contain Hollow Point item rows");
+        assert!(
+            hollow_rows > 0,
+            "fixture must contain Hollow Point item rows"
+        );
 
         let mut best_match = JsonMap::new();
         best_match.insert("entity_type".to_string(), json!("hero"));
@@ -6995,7 +7663,10 @@ mod tests {
             .get("context_hash")
             .and_then(JsonValue::as_str)
             .map(str::to_string);
-        assert!(context_hash.is_some(), "expected context_hash in saved note");
+        assert!(
+            context_hash.is_some(),
+            "expected context_hash in saved note"
+        );
         if let Some(hash) = context_hash {
             let deleted = sqlx::query("DELETE FROM brain.analysis_notes WHERE context_hash=$1")
                 .bind(&hash)
@@ -7005,13 +7676,6 @@ mod tests {
             assert!(deleted.rows_affected() >= 1);
         }
     }
-
-
-
-
-
-
-
 
     fn ask_claim_fixture(id: i64, status: &str, confidence: f64) -> AskClaimRecord {
         AskClaimRecord {
@@ -7031,7 +7695,11 @@ mod tests {
         }
     }
 
-    fn claim_row(claim_text: &str, evidence_quote: &str, entity_name: &str) -> JsonMap<String, JsonValue> {
+    fn claim_row(
+        claim_text: &str,
+        evidence_quote: &str,
+        entity_name: &str,
+    ) -> JsonMap<String, JsonValue> {
         let mut row = JsonMap::new();
         row.insert("claim_text".to_string(), json!(claim_text));
         row.insert("evidence_quote".to_string(), json!(evidence_quote));
@@ -7164,7 +7832,14 @@ mod tests {
             .filter_map(|claim| claim.get("relevance_score").and_then(JsonValue::as_i64))
             .collect::<Vec<_>>();
 
-        assert_eq!(buckets.verified.iter().map(|claim| claim.id).collect::<Vec<_>>(), vec![702, 703]);
+        assert_eq!(
+            buckets
+                .verified
+                .iter()
+                .map(|claim| claim.id)
+                .collect::<Vec<_>>(),
+            vec![702, 703]
+        );
         assert_eq!(rel_scores, vec![40, 35]);
         assert_eq!(buckets.omitted.verified, 1);
     }
@@ -7208,7 +7883,11 @@ mod tests {
 
         assert_eq!(buckets.flagged.len(), 2);
         assert_eq!(
-            buckets.flagged.iter().map(|claim| claim.id).collect::<Vec<_>>(),
+            buckets
+                .flagged
+                .iter()
+                .map(|claim| claim.id)
+                .collect::<Vec<_>>(),
             vec![304, 305]
         );
         assert_eq!(buckets.omitted.verified, 1);
@@ -7245,7 +7924,11 @@ mod tests {
         assert_eq!(buckets.verified.len(), 1);
         assert_eq!(buckets.unverified.len(), 2);
         assert_eq!(
-            buckets.unverified.iter().map(|claim| claim.id).collect::<Vec<_>>(),
+            buckets
+                .unverified
+                .iter()
+                .map(|claim| claim.id)
+                .collect::<Vec<_>>(),
             vec![402, 403]
         );
     }
@@ -7278,7 +7961,11 @@ mod tests {
         );
 
         assert_eq!(
-            buckets.verified.iter().map(|claim| claim.id).collect::<Vec<_>>(),
+            buckets
+                .verified
+                .iter()
+                .map(|claim| claim.id)
+                .collect::<Vec<_>>(),
             vec![501, 502]
         );
         assert!(buckets
@@ -7288,9 +7975,6 @@ mod tests {
         assert!(buckets.verified.len() < 12);
     }
 
-
-
-
     #[test]
     fn keyword_starts_word_filters_mid_word_matches() {
         assert!(!keyword_starts_word("crimson slash", "lash"));
@@ -7298,7 +7982,10 @@ mod tests {
         assert!(!keyword_starts_word("automatisch", "auto"));
         assert!(keyword_starts_word("lash's ground strike", "lash"));
         assert!(keyword_starts_word("denying souls", "soul"));
-        assert!(keyword_starts_word("the disarming hex counter", "disarming"));
+        assert!(keyword_starts_word(
+            "the disarming hex counter",
+            "disarming"
+        ));
     }
 
     #[test]
@@ -7322,7 +8009,6 @@ mod tests {
         ));
     }
 
-
     #[test]
     fn build_intent_prefers_owned_build_claim_over_general_mention() {
         let entity_match = entity_match_fixture("Seven", "hero");
@@ -7335,7 +8021,12 @@ mod tests {
         let relevance = ask_claim_relevance(&build_claim, &keywords, &entity_match, &idf);
         build_claim.relevance_floor_score = relevance.score;
         build_claim.relevance_score = relevance.score
-            + claim_intent_relevance_bonus(&build_claim, "build_recommendation", &entity_match, &relevance);
+            + claim_intent_relevance_bonus(
+                &build_claim,
+                "build_recommendation",
+                &entity_match,
+                &relevance,
+            );
 
         let mut general_claim = ask_claim_fixture(202, "accepted", 0.99);
         general_claim.claim_text = "Seven is mentioned in a broad meta note.".to_string();
@@ -7344,7 +8035,12 @@ mod tests {
         let relevance = ask_claim_relevance(&general_claim, &keywords, &entity_match, &idf);
         general_claim.relevance_floor_score = relevance.score;
         general_claim.relevance_score = relevance.score
-            + claim_intent_relevance_bonus(&general_claim, "build_recommendation", &entity_match, &relevance);
+            + claim_intent_relevance_bonus(
+                &general_claim,
+                "build_recommendation",
+                &entity_match,
+                &relevance,
+            );
 
         let buckets = partition_ask_claims(
             vec![general_claim, build_claim],
@@ -7382,7 +8078,8 @@ mod tests {
         let mut mechanic_claim = ask_claim_fixture(902, "accepted", 0.9);
         mechanic_claim.claim_type = "mechanic".to_string();
         mechanic_claim.claim_text = "Items can change your combat pattern.".to_string();
-        let mechanic_relevance = ask_claim_relevance(&mechanic_claim, &keywords, &entity_match, &idf);
+        let mechanic_relevance =
+            ask_claim_relevance(&mechanic_claim, &keywords, &entity_match, &idf);
         let mechanic_bonus = claim_intent_relevance_bonus(
             &mechanic_claim,
             "mechanics_question",
@@ -7432,13 +8129,16 @@ mod tests {
             &entity_match,
         );
 
-        assert_eq!(buckets.verified.iter().map(|claim| claim.id).collect::<Vec<_>>(), vec![911]);
+        assert_eq!(
+            buckets
+                .verified
+                .iter()
+                .map(|claim| claim.id)
+                .collect::<Vec<_>>(),
+            vec![911]
+        );
         assert_eq!(buckets.omitted.verified, 0);
     }
-
-
-
-
 
     #[test]
     fn ask_prompt_preserves_timeline_details_and_hides_debug_claim_fields() {
@@ -7540,11 +8240,7 @@ mod tests {
 
             assert_eq!(intent, "meta_question");
             assert_eq!(
-                should_use_patch_overview_context(
-                    &plan,
-                    &AskEntityClaimMatch::default(),
-                    &intent
-                ),
+                should_use_patch_overview_context(&plan, &AskEntityClaimMatch::default(), &intent),
                 expected,
                 "{query}"
             );
@@ -7622,8 +8318,18 @@ mod tests {
         assert_eq!(overview["event_count"], 3);
         assert_eq!(overview["hero_movers_rough"][0]["entity"], "Seven");
         assert_eq!(overview["hero_movers_rough"][0]["rough_score"], 1);
-        assert_eq!(overview["item_and_ability_changes"].as_array().map(Vec::len), Some(1));
-        assert_eq!(overview["objective_and_economy_changes"].as_array().map(Vec::len), Some(1));
+        assert_eq!(
+            overview["item_and_ability_changes"]
+                .as_array()
+                .map(Vec::len),
+            Some(1)
+        );
+        assert_eq!(
+            overview["objective_and_economy_changes"]
+                .as_array()
+                .map(Vec::len),
+            Some(1)
+        );
     }
 
     #[test]
@@ -7658,12 +8364,4 @@ mod tests {
         assert_eq!(updates[0]["old_value"], "10");
         assert_eq!(updates[0]["new_value"], "12");
     }
-
-
-
-
-
-
-
-
 }

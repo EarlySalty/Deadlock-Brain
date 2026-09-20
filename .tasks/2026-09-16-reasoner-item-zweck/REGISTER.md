@@ -1,5 +1,19 @@
 # Register – Item-Zweck und Helden-Skalierung
 
+## Aktueller Integrationsstand der Fortsetzung
+
+Maßgeblicher Code-Stand: d7c0f38248127438fe89cabc9373144ab38a3a02 auf `fix/reasoner-mechanics-completion`, Worktree `/home/nathanael/repos/wt/brain-purpose-finish`. Die folgenden alten Worker-Tabellen sind historisch und keine Aufforderung, neue Opus-Threads zu starten. Die Nutzerkorrektur gilt: Umsetzung/Prüfungen in diesem Chat, keine neuen Claude- oder anderen bezahlten Worker gestartet.
+
+Neu direkt implementiert und gepusht: ee22628 (Spirit-Treffer/Refresh), 2cc57ac (expliziter DB-freier Replay), 53c3e40 (Schadenskanäle und einheitliche Defensive, doppelte Regen-Gutschrift entfernt), 51d91f0 (echter eingehender Schaden und endliche Schilde), d7c0f38 (Sparvergleich auch für Populations-Staples, korrekte Verkaufstexte). Details, rote Gegenproben und tatsächlich ausgeführte Tests stehen in FORTSETZUNG.md.
+
+212 Library-Tests und 22 Example-Testausführungen bestanden, 16 DB-Tests nicht ausgeführt. Fokussierte Formatierung und Clippy grün. Roster-Kampf-Replay auf 51d91f0: drei mal 228 vollständige Auswertungen, beide Dateivergleiche Exit 0. Das ist kein Live-KI-Nachweis und keine vollständige Mechanikabdeckung.
+
+Warden-Replay auf d7c0f38: tatsächlich Exit 0, 27,686 Sekunden; 6/9 Referenzwaffen, Populations-Kendall 0,577411, Jaccard@12 0,5. Magnum im Kern mit sell_priority=null; die alte Magnum-Verkaufsanweisung ist weg. Weiterhin 9/10 Staples (Enduring Speed fehlt), Rusted Barrel und Healing Tempo im Kern, Glass Cannon ebenfalls. Autoren-recall 0,421053 bleibt unter dem Vorherwert 0,473684. Keine Gesamtfreigabe.
+
+Unabhängige Endabnahme der eigenen Änderungen fehlt. Kein Main-Merge, Deploy, Restart, zentraler DB-Write oder Publish; keine neue hero_build_id. Keine automatische Wache und kein neuer Worker. Unfertige Branches/Worktrees werden nicht vor vollständiger Integration und erforderlichem Live-Beleg gelöscht. Konkrete offenen Schritte in TODO.md.
+
+## Historischer Beginn der Orchestrierung
+
 Stand der bestätigten Werkzeugeingriffe: 16.09.2026. Hauptrepo /home/nathanael/repos/Deadlock-Brain, produktiver Quell-Ausgangspunkt 706b129; Dokumentations-Commit ee440f3. Status basiert auf echten T3-/Git-Abfragen, nicht auf geplanten Worker-Namen.
 
 | Paket | Zustand | Reale Thread-ID / Modell | Worktree / Basis | Nachweis |
