@@ -10,6 +10,9 @@ pub mod combat;
 pub mod composer;
 pub mod families;
 pub mod inventory;
+pub mod lab;
+
+static PLANNING_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
 pub use data::{ability_damage_units, enrich_frozen_models, refresh_ability_derived};
 mod damage_conditions;
 mod data;
@@ -181,7 +184,6 @@ pub async fn reason_build_with_options(
     let (hero_model, items, meta, snapshots) = load_reasoning_inputs(&ctx, hero, seed_path).await?;
     let events =
         data::load_patch_events_for_snapshots(&ctx, hero_model.hero_id, &snapshots).await?;
-    static PLANNING_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
     let permit = PLANNING_SLOTS
         .acquire()
         .await
