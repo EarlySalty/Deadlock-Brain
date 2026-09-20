@@ -28,3 +28,6 @@ sha2.workspace = true
 sqlx.workspace = true
 tokio.workspace = true
 url = "2.5"
+
+[dev-dependencies]
+tempfile.workspace = true

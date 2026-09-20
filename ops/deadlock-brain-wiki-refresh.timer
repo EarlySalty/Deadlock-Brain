@@ -1,0 +1,10 @@
+[Unit]
+Description=Regelmäßiger Quellen- und Wikiabgleich für Deadlock Brain
+
+[Timer]
+OnCalendar=*-*-* 00,06,12,18:35:00
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target
