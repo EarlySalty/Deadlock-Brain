@@ -1,0 +1,59 @@
+# Deadlock-Brain: globale Betriebskonfiguration, keine Zugangsdaten.
+# Schema 1. Änderungen erfordern einen Neustart, kein Hot-Reload.
+# Produktionsstart: --config /home/nathanael/repos/Deadlock-Brain/config/bot.toml
+# Interne relative Pfade beziehen sich auf das Verzeichnis dieser Datei.
+# WIP: vorhandene Code-Defaults übernommen; produktiver Abgleich und vollständige
+# Verbraucher-Migration stehen in .tasks/2026-09-20-global-toml/TODO.md.
+schema_version = 1
+
+[paths]
+project_root = ".."
+data_dir = "../data"
+game_wiki_dir = "../game-wiki"
+reasoner_seed_dir = "../.tasks/2026-09-12-build-reasoner/referenz"
+
+[http]
+user_agent = "DeadlockBrain/0.1 contact=admin@earlysalty.com"
+timeout_seconds = 30
+retry_attempts = 3
+retry_backoff_milliseconds = 600
+
+[sheet]
+# Bestehende Sheet-ID aus dem bisherigen Settings-Default, kein Beispielwert.
+id = "1fj9XMQmVUY0FY4cbozvB18PMBnpbdsaMFTZRLa74VRY"
+gid = "0"
+
+[wiki]
+# Bisheriger Default, nicht als Ersatz für eine vorhandene Betriebsfreigabe verwenden.
+enabled = false
+min_delay_seconds = 5.0
+cache_ttl_seconds = 604800
+
+[ai]
+# Bestehender Anbieter für den zentralen Brain-Textpfad. Keine Umstellung anderer Pfade.
+provider = "fireworks"
+base_url = "https://api.fireworks.ai/inference/v1"
+# Optional: pin = "<exakte, bewusst freigegebene Katalog-ID>"
+# Ohne Pin darf nur ein erfolgreich geprüftes stabiles DeepSeek-Flash-Modell laufen.
+# Keine automatische Ausweichroute und kein einkompilierter Ersatz-Alias.
+timeout_seconds = 300
+max_completion_tokens = 16000
+temperature = 0.2
+top_p = 0.9
+
+[ai.selection]
+catalog_url = "https://api.fireworks.ai/v1/accounts/fireworks/models"
+# Neue, ausdrücklich sichtbare Betriebsgrenzen für die Katalogprüfung.
+check_interval_seconds = 3600
+last_good_ttl_seconds = 86400
+request_timeout_seconds = 30
+retry_attempts = 3
+retry_backoff_milliseconds = 600
+page_size = 100
+max_pages = 100
+probe_budget_seconds = 300
+
+[builds]
+# Bestehende Stichprobengrenzen; Spielstände und gelernte Builds bleiben in Postgres.
+min_matches = 500
+min_prevalence_builds = 30
