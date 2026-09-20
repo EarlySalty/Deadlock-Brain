@@ -31,7 +31,16 @@ pub async fn pull_deadlock_data(
     options: PullDeadlockDataOptions,
 ) -> Result<Value> {
     let pool = open_pool().await?;
-    let store = SourceStore::new(&pool, raw_dir)?;
+    pull_deadlock_data_with_pool(&pool, raw_dir, options).await
+}
+
+/// Importiert dieselbe Quelle mit einem bereits sicher konfigurierten Pool.
+pub async fn pull_deadlock_data_with_pool(
+    pool: &PgPool,
+    raw_dir: &Path,
+    options: PullDeadlockDataOptions,
+) -> Result<Value> {
+    let store = SourceStore::new(pool, raw_dir)?;
     let run_id = store.begin_run(SOURCE).await?;
     let outcome = pull_deadlock_data_inner(&store, &options).await;
     complete_run(&store, run_id, outcome).await
