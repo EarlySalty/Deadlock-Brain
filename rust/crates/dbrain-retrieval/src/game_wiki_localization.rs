@@ -16,21 +16,34 @@ struct Localization {
 }
 
 pub(super) async fn enrich(pool: &PgPool, snapshots: &mut [SnapshotRow]) -> Result<()> {
+    // An die bereits ausgewählten Karten binden, auch wenn währenddessen ein
+    // weiterer Import fertig wird.
+    let revisions: Vec<String> = snapshots
+        .iter()
+        .filter_map(|snapshot| {
+            snapshot
+                .payload
+                .pointer("/_deadlock_data/commit_sha")?
+                .as_str()
+        })
+        .map(str::to_owned)
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
     let rows = sqlx::query(
         r#"
-        SELECT DISTINCT ON (es.external_id)
+        SELECT DISTINCT ON (es.external_id, es.payload->'_deadlock_data'->>'commit_sha')
             es.id, es.external_id, es.payload, es.fetched_at, sd.url
         FROM brain.entity_snapshots es
         LEFT JOIN brain.source_documents sd ON sd.id = es.source_document_id
         WHERE es.source = 'deadlock_data' AND es.entity_type = 'localization'
           AND es.external_id IN ('german', 'english')
-          AND es.payload->'_deadlock_data'->>'commit_sha' = (
-              SELECT summary->>'commit_sha' FROM brain.source_runs
-              WHERE source = 'deadlock_data' AND status = 'ok'
-              ORDER BY id DESC LIMIT 1)
-        ORDER BY es.external_id DESC, es.fetched_at DESC, es.id DESC
+          AND es.payload->'_deadlock_data'->>'commit_sha' = ANY($1)
+        ORDER BY es.external_id DESC, es.payload->'_deadlock_data'->>'commit_sha',
+                 es.fetched_at DESC, es.id DESC
     "#,
     )
+    .bind(&revisions)
     .fetch_all(pool)
     .await?;
     let mut translations = Vec::with_capacity(rows.len());
