@@ -2,10 +2,14 @@ name: Patch understanding evidence
 on:
   push:
     branches:
+      - main
       - codex/patch-understanding-evidence-20260918
       - feat/brain-rust-cutover-20260919
+      - feat/brain-final-integration-20260921
+  workflow_dispatch:
   pull_request:
     paths:
+      - 'rust/**'
       - 'rust/crates/deadlock-brain/src/pg_insights.rs'
       - 'rust/crates/deadlock-brain/src/bin/deadlock-brain-patch-review.rs'
       - 'rust/crates/deadlock-brain-yt/src/transcripts.rs'
@@ -74,9 +78,9 @@ jobs:
           rust/crates/deadlock-brain-yt/src/loop_runner.rs
           rust/crates/deadlock-brain-yt/src/queue.rs
           rust/crates/deadlock-brain-yt/src/transcripts.rs
-      - name: Core runtime tests
+      - name: Full Rust workspace tests
         working-directory: rust
-        run: cargo +stable test --locked --package deadlock-brain-core
+        run: cargo +stable test --locked --workspace --all-targets -j 2
       - name: Brain CLI tests
         working-directory: rust
         run: cargo +stable test --locked --package deadlock-brain --bin deadlock-brain
@@ -97,7 +101,37 @@ jobs:
         run: cargo +stable test --locked --package deadlock-brain --bin deadlock-brain pg_insights::tests
       - name: Clippy
         working-directory: rust
-        run: cargo +stable clippy --locked --package deadlock-brain --package deadlock-brain-yt
+        run: cargo +stable clippy --locked --workspace --all-targets -j 2
+  reasoner-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: reasoner_a_fix_ci
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      SQLX_OFFLINE: 'true'
+      PGUSER: test
+      PGPASSWORD: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain
+        run: rustup toolchain install stable --profile minimal
+      - name: Isolated reasoner persistence and loader contracts
+        working-directory: rust
+        run: |
+          set -euo pipefail
+          export REASONER_SCRATCH_DSN="postgres://${PGUSER}:${PGPASSWORD}@localhost:5432/reasoner_a_fix_ci"
+          cargo +stable test --locked -p dbrain-reasoner --lib -j 2 -- \
+            --ignored --test-threads=1 \
+            --skip fix_e_live_warden_evidence \
+            --skip loads_warden_and_reference_items_from_real_snapshot \
+            --skip scores_warden_reference_items_from_real_snapshot
   postgres:
     runs-on: ubuntu-latest
     timeout-minutes: 10

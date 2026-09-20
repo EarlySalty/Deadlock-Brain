@@ -2284,7 +2284,7 @@ mod tests {
             .fetch_one(&pool)
             .await
             .unwrap();
-        assert_eq!(database, "reasoner_a_fix");
+        crate::fix_tests::assert_scratch_database(&database);
         sqlx::raw_sql("DROP SCHEMA IF EXISTS brain CASCADE; DROP SCHEMA IF EXISTS tierlist CASCADE; CREATE SCHEMA brain; CREATE SCHEMA tierlist;
             CREATE TABLE brain.entities (id bigint, entity_type text, canonical_name text, primary_external_id text);
             CREATE TABLE brain.entity_aliases (entity_id bigint, alias text, alias_kind text);

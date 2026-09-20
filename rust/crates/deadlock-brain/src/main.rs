@@ -49,7 +49,9 @@ enum Commands {
         about = "Baut ein vertrauenssortiertes Wissens-Buendel plus LLM-Prompt zu einer beliebigen Deadlock-Frage."
     )]
     AskContext(AskContextArgs),
-    #[command(about = "Stellt eine Frage über die vollständige Rust-Retrieval- und Modellpipeline.")]
+    #[command(
+        about = "Stellt eine Frage über die vollständige Rust-Retrieval- und Modellpipeline."
+    )]
     Ask(AskArgs),
     #[command(about = "Fuehrt lokale Datenqualitaetschecks aus.")]
     Quality(PrettyArgs),
@@ -1078,9 +1080,15 @@ struct PgRefreshOfficialArgs {
     patch_id: i64,
     #[arg(long = "dsn-env", default_value = "DEADLOCK_CENTRAL_DSN")]
     dsn_env: String,
-    #[arg(long = "apply", help = "Quellzeile wirklich aktualisieren; ohne Flag nur pruefen.")]
+    #[arg(
+        long = "apply",
+        help = "Quellzeile wirklich aktualisieren; ohne Flag nur pruefen."
+    )]
     apply: bool,
-    #[arg(long = "response-file", help = "Offizielle Antwort aus Datei lesen statt abrufen (Test/Offline).")]
+    #[arg(
+        long = "response-file",
+        help = "Offizielle Antwort aus Datei lesen statt abrufen (Test/Offline)."
+    )]
     response_file: Option<String>,
 }
 
@@ -1165,6 +1173,18 @@ struct InsightImportJsonArgs {
     dry_run: bool,
 }
 
+fn command_is_read_only(command: &Commands) -> bool {
+    match command {
+        Commands::AskContext(_) | Commands::Context(_) => true,
+        Commands::Reason { target } => match target {
+            ReasonCommands::Build(args) => args.no_persist,
+            ReasonCommands::PatchImpact(args) => args.no_persist,
+            ReasonCommands::Backtest(args) => args.no_persist,
+        },
+        _ => false,
+    }
+}
+
 fn main() {
     if let Err(error) = run_from_cli() {
         eprintln!("{error:#}");
@@ -1221,8 +1241,13 @@ async fn run(cli: Cli) -> Result<()> {
         other => other,
     };
     prepare_dirs(&settings)?;
-    // Ein PgPool fuer die gesamte Befehlsausfuehrung (DSN aus DEADLOCK_CENTRAL_DSN).
-    let pool = deadlock_brain_core::pg::pg_pool().await?;
+    // Wissensabfragen und ausdrücklich persistenzfreie Reasoner-Läufe sind
+    // auch auf Datenbankebene lesend, nicht nur durch CLI-Konvention.
+    let pool = if command_is_read_only(&command) {
+        deadlock_brain_core::pg::pg_pool_read_only().await?
+    } else {
+        deadlock_brain_core::pg::pg_pool().await?
+    };
 
     match command {
         Commands::Status => print_status(&pool, &settings).await,
@@ -3553,6 +3578,52 @@ fn capitalize(value: &str) -> String {
 mod tests {
     use super::*;
     use clap::CommandFactory;
+
+    #[test]
+    fn read_only_commands_use_a_read_only_connection() {
+        for args in [
+            vec!["deadlock-brain", "ask-context", "Warden"],
+            vec!["deadlock-brain", "context", "Warden"],
+            vec![
+                "deadlock-brain",
+                "reason",
+                "build",
+                "Warden",
+                "--no-ai",
+                "--no-persist",
+            ],
+            vec![
+                "deadlock-brain",
+                "reason",
+                "backtest",
+                "--hero",
+                "Warden",
+                "--no-persist",
+            ],
+            vec![
+                "deadlock-brain",
+                "reason",
+                "patch-impact",
+                "Warden",
+                "--no-persist",
+            ],
+        ] {
+            let cli = Cli::try_parse_from(args).unwrap();
+            assert!(command_is_read_only(&cli.command));
+        }
+    }
+
+    #[test]
+    fn explicit_writer_commands_keep_the_writer_pool() {
+        for args in [
+            vec!["deadlock-brain", "pull", "assets"],
+            vec!["deadlock-brain", "reason", "build", "Warden", "--no-ai"],
+            vec!["deadlock-brain", "refresh-sheet"],
+        ] {
+            let cli = Cli::try_parse_from(args).unwrap();
+            assert!(!command_is_read_only(&cli.command));
+        }
+    }
 
     fn assert_no_persist_cli(command: &str, hero: &[&str]) {
         let mut argv = vec!["deadlock-brain", "reason", command];

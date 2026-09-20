@@ -3,6 +3,43 @@ use serde_json::json;
 
 pub(crate) static SCRATCH_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+/// Jeder Lauf darf eine eigene, reservierte Testdatenbank verwenden. Die
+/// Prüfung geschieht vor jeder destruktiven Fixture-Initialisierung.
+pub(crate) fn assert_scratch_database(database: &str) {
+    let isolated = database
+        .strip_prefix("reasoner_a_fix_")
+        .is_some_and(|suffix| {
+            !suffix.is_empty()
+                && suffix
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+        });
+    assert!(
+        database == "reasoner_a_fix" || isolated,
+        "Reasoner-Tests benötigen eine reservierte Wegwerf-Datenbank"
+    );
+}
+
+#[test]
+fn isolated_scratch_names_are_accepted() {
+    assert_scratch_database("reasoner_a_fix");
+    assert_scratch_database("reasoner_a_fix_20260921_ci");
+}
+
+#[test]
+fn production_and_ambiguous_database_names_are_rejected() {
+    for name in [
+        "deadlock",
+        "postgres",
+        "reasoner_a_fix_",
+        "xreasoner_a_fix",
+        "reasoner_a_fix_prod-name",
+        "reasoner_a_fix_ä",
+    ] {
+        assert!(std::panic::catch_unwind(|| assert_scratch_database(name)).is_err());
+    }
+}
+
 #[tokio::test]
 #[ignore = "benötigt Wegwerf-DB reasoner_a_fix über REASONER_SCRATCH_DSN"]
 async fn fix_e_loader_keeps_exact_field_dates_and_current_hero_scaling() {
@@ -27,14 +64,19 @@ async fn fix_e_loader_keeps_exact_field_dates_and_current_hero_scaling() {
         Some(100.0)
     );
     let (items, snapshots) = data::load_item_models_with_snapshots(&ctx).await.unwrap();
-    assert_eq!(items[0].proc_cooldown, Some(10.0));
+    let item = items.iter().find(|item| item.item_id == 100).unwrap();
+    let snapshot = snapshots
+        .iter()
+        .find(|snapshot| snapshot.name == "Fixture Item")
+        .unwrap();
+    assert_eq!(item.proc_cooldown, Some(10.0));
     assert_eq!(
-        snapshots[0].fields["properties.WeaponDamage"].fetched_at,
+        snapshot.fields["properties.WeaponDamage"].fetched_at,
         Some(120.0)
     );
-    assert_eq!(snapshots[0].fields["proc_cooldown"].fetched_at, Some(200.0));
+    assert_eq!(snapshot.fields["proc_cooldown"].fetched_at, Some(200.0));
     assert_eq!(
-        snapshots[0].fields["proc_cooldown"].source,
+        snapshot.fields["proc_cooldown"].source,
         "deadlock_data/item_card"
     );
 }
@@ -446,10 +488,7 @@ async fn scratch_context() -> Option<(tokio::sync::MutexGuard<'static, ()>, Reas
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(
-        database, "reasoner_a_fix",
-        "Fix-D-Tests benötigen die gesperrte Wegwerf-DB"
-    );
+    assert_scratch_database(&database);
     sqlx::raw_sql("DROP SCHEMA IF EXISTS brain CASCADE; DROP SCHEMA IF EXISTS tierlist CASCADE;")
         .execute(&pool)
         .await
@@ -498,17 +537,21 @@ async fn fix_facade_build_persists_scores_and_keeps_patch_history() {
         .await
         .unwrap();
     assert!(!used_ai);
-    let (mut hero, mut items, meta, snapshots) =
-        load_reasoning_inputs(&effective_context(&ctx).await.unwrap(), "Warden", None)
-            .await
-            .unwrap();
+    let effective = effective_context(&ctx).await.unwrap();
+    let (hero, items, meta, snapshots) = load_reasoning_inputs(&effective, "Warden", None)
+        .await
+        .unwrap();
     let events = data::load_patch_events_for_snapshots(&ctx, 25, &snapshots)
         .await
         .unwrap();
-    let mut deltas = patch::compute_patch_delta_with_snapshots(&hero, &events, &snapshots);
-    patch::apply_scored_patch_delta(&mut hero, &mut items, &mut deltas, &meta.index, &ctx.config);
-    let mut scored = item::score_items(&hero, &items, &meta.index, &[], &ctx.config);
-    finish_scores(&mut scored);
+    // Der Persistenzvertrag gilt für die tatsächlich geplanten Familienscores,
+    // nicht für das globale Ranking vor der Familienkonditionierung.
+    let planned = plan_build(&hero, &items, &meta, &events, &snapshots, &effective.config).unwrap();
+    assert!(build
+        .family
+        .as_ref()
+        .is_some_and(|family| family.eligible_for_planning));
+    let scored = planned.scored;
     assert!(!scored.is_empty());
     let rows = sqlx::query("SELECT * FROM brain.reasoner_item_scores ORDER BY item_id")
         .fetch_all(&ctx.pool)
@@ -553,7 +596,8 @@ async fn fix_facade_build_persists_scores_and_keeps_patch_history() {
             .fetch_one(&ctx.pool)
             .await
             .unwrap();
-    assert_eq!(total, scored[0].score.total);
+    let expected = scored.iter().find(|item| item.item.item_id == 100).unwrap();
+    assert_eq!(total, expected.score.total);
     sqlx::query("UPDATE brain.patch_events SET patch_external_id='patch-2'")
         .execute(&ctx.pool)
         .await
@@ -571,7 +615,12 @@ async fn fix_facade_build_persists_scores_and_keeps_patch_history() {
             .fetch_one(&ctx.pool)
             .await
             .unwrap();
-        assert_eq!(count, 2);
+        let rows_per_patch = if table == "reasoner_item_scores" {
+            scored.len() as i64
+        } else {
+            1
+        };
+        assert_eq!(count, 2 * rows_per_patch);
     }
 }
 
