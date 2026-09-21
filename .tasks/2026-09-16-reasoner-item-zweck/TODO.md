@@ -1,0 +1,25 @@
+# Offener Abschluss des Alle-Helden-Reasoners
+
+Bestehenden Stand fortsetzen, nicht neu beginnen: /home/nathanael/repos/wt/brain-purpose-finish, Branch fix/reasoner-mechanics-completion, letzter Produktcode d7c0f38248127438fe89cabc9373144ab38a3a02. Neuere reine Doku-Commits ändern den Produktcode nicht. Keine neuen Claude-/Opus-Worker oder Ersatzanbieter starten. Diese Datei startet keinen Timer und verspricht keine Hintergrundarbeit.
+
+## Was nachweislich fertig implementiert ist
+
+Die früher zusammengeführten Waffen-/Magazin-/Spirit- und Ladungsfixes; zusätzlich Ereignis-/Refresh-Regeneration mit eindeutigen Zielen und Proc-Ausschluss, deren konsistente Score-Anbindung ohne Doppelzählung, getrennte Schildkanäle, endlicher Schildverbrauch und tatsächlicher gleichbleibender Eingangsschaden trotz HP-Downside. Der Planner lässt nun auch für einen Populations-Staple den stärkeren Sparpfad gewinnen; der Warden-Replay verkauft Magnum nicht mehr. Einzelbelege und Einschränkungen stehen in FORTSETZUNG.md.
+
+Letzter Teststand: 212 Library-Tests und 22 Example-Testausführungen grün, 16 DB-Tests ignoriert. Clippy und fokussiertes fmt grün. Dreifach bytegleiche Combat-Ausgabe für je 228 Roster-Fälle auf 51d91f0, nicht drei Live-KI-Läufe.
+
+## Was noch vor einer Gesamtfreigabe zu lösen ist
+
+1. **Kernwahl vs. Situation**: Der konkrete Warden-Output d7c0f38 enthält weiter Rusted Barrel und Healing Tempo im Kern sowie Glass Cannon; nur der Magnum-Verkauf ist behoben. Enduring Speed fehlt, 9/10-Staple-Gate rot. Die positive Populations-Kendall 0,577411 ersetzt keine Freigabe: Autoren-recall ist mit 0,421053 schlechter als 0,473684 am Ausgang 6238b3d. Keine Referenzkopie, kein Itemnamen-Ausschluss, kein Verstärken des Populationsgewichts. Die allgemeine Kernwahl wird aktuell gegen einen angenommenen 50/50-Schadensmix optimiert; ein tatsächlich situationsabhängiger Nutzen darf nicht ohne Kontext zur universellen Empfehlung werden. Bestehende Szenario-/Gegnerdaten und noch unquantifizierte Mechaniken, insbesondere SlowResistancePercent und OutOfCombatHealthRegen, zuerst nachweisen. Ebenso die noch vorhandenen harten Kostenband-Zielzahlen und Populations-Vorrangsortierung empirisch prüfen; nicht aus Frust Gate-Ziele oder Referenzen ändern.
+
+2. **Vollständigkeit und Datenalter**: Nicht quantifizierte Hero-Achsen/Fähigkeitsmechaniken und echte Buff-/Schild-Refreshregeln weiterhin sichtbar halten. Drei Inventarschnitte pro Held beweisen nicht, dass jeder Held vollständig verstanden ist. Das vorhandene FROZEN-V2/PHASE0-POP-Paar ist ein reproduzierbarer, aber gemischter historischer Stand mit älteren Rohdefinitionen. Eine zusätzliche versionskonsistente aktuelle API-Messbasis getrennt erzeugen, niemals laufende Vorher-/Nachher-Eingaben still wechseln. Zentrale DB read-only; keine implizite Migration durch den Abrufweg.
+
+3. **Abnahme nach finalem Plannerstand**: Infernus, Vindicta, Lady Geist und Abrams wurden auf 51d91f0, Warden zusätzlich auf d7c0f38 gemessen. Die vier anderen Helden nach d7c0f38 oder einem späteren Produktfix erneut mit dem expliziten `build_evaluation replay FROZEN POPULATION AUSGABE HELDEN` messen. Vor jedem Lauf eindeutige neue Ausgabepfade; vorhandene Dateien niemals überschreiben. Manche längeren Aufrufe lieferten 'Ausgabedatei existiert bereits', während anschließend ein vollständiges Artefakt mit passender Revision vorlag. Ursache nicht belegt; ein solcher Aufruf ist kein behaupteter Exit-0-Lauf. Ergebnisse tatsächlich lesen, Autor- und Population-Metriken getrennt vergleichen. Neue generische Regeln weiterhin mit roten Gegenproben, dann gesamter Reasoner-Suite prüfen. DB-Integrationstests nur in Wegwerf-DB mit geeignetem Scratch-DSN; keine zentralen Writes. Eigener Code braucht unabhängige Prüfung, keine Selbstfreigabe und kein automatischer Claude-Fallback.
+
+4. **Erst danach Main und Live**: Reguläres Merge-Gate, Merge/Push, Release gemäß tatsächlich aktuellem Brain-Verbraucher und genehmigtem Wrapperweg, Funktions-/Prozessnachweis. Der historische DEPLOY-BRAIN.md belegt einen Timer-Oneshot und eine separate Python-Corpus-Site; nicht blind brain-site neu starten und dies als Rust-Deploy ausgeben. Rust-Runtime-/Legacy-Abnahme steht weiter aus. Keine Veröffentlichung allein weil Tests grün sind. Erst bei grünem fachlichen Gate Warden veröffentlichen und hero_build_id durch Readback belegen. Branches und Worktrees erst nach bewiesener Integration auf origin/main und erforderlichem Live-Beleg entfernen.
+
+## Aktuelle Prüfdateien
+
+Eingaben: /home/nathanael/Documents/.tasks/2026-09-13-build-reasoner-ganzbuild/nachweise/FROZEN-V2.json und .tasks/2026-09-16-reasoner-item-zweck/nachweise/PHASE0-POP.json.
+
+Ausgaben im bestehenden Worktree unter rust/target: warden-saving-d7c0f38.json; {warden,infernus,vindicta,geist,abrams}-pressure-51d91f0.json; roster-combat-51d91f0-{a,b,c}.json. Exakte Befehle und gemeldete Exitcodes stehen in FORTSETZUNG.md. Sie bleiben lokale reproduzierbare Messartefakte; keine großen DB-/Rohdaten-Dumps nach Git kopieren.

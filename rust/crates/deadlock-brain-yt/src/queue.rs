@@ -6,6 +6,7 @@ use roxmltree::Node;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::postgres::PgPool;
+use sqlx::Row;
 
 use crate::{claims, db};
 
@@ -17,6 +18,7 @@ pub struct Video {
     pub channel_title: Option<String>,
     pub published_at: Option<String>,
     pub learning_status: String,
+    pub transcript_text: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -551,35 +553,39 @@ async fn upsert_video(
 
 pub async fn select_next_videos(pool: &PgPool, limit: usize) -> anyhow::Result<Vec<Video>> {
     let limit = i64::try_from(limit.max(1)).unwrap_or(i64::MAX);
-    let rows = sqlx::query!(
+    let rows = sqlx::query(
         r#"
-        SELECT video_id, title, url, channel_title,
-               published_at::text AS "published_at?", learning_status
-        FROM brain.youtube_videos
-        WHERE learning_status IN ('queued', 'failed', 'missing_transcript')
-          AND video_id NOT IN (
+        SELECT v.video_id, v.title, v.url, v.channel_title,
+               v.published_at::text AS published_at, v.learning_status,
+               t.transcript_text
+        FROM brain.youtube_videos v
+        JOIN brain.youtube_transcripts t ON t.video_id=v.video_id
+        WHERE v.learning_status IN ('queued', 'failed', 'missing_transcript')
+          AND LENGTH(TRIM(t.transcript_text)) > 0
+          AND v.video_id NOT IN (
             SELECT video_id FROM brain.youtube_learning_claims
             WHERE prompt_version=$1 AND COALESCE(model, '')=COALESCE($2, '')
           )
-        ORDER BY published_at DESC NULLS LAST, discovered_at DESC
+        ORDER BY v.published_at DESC NULLS LAST, v.discovered_at DESC
         LIMIT $3
         "#,
-        claims::PROMPT_VERSION,
-        claims::MODEL,
-        limit,
     )
+    .bind(claims::PROMPT_VERSION)
+    .bind(claims::MODEL)
+    .bind(limit)
     .fetch_all(pool)
     .await?;
 
     Ok(rows
         .into_iter()
         .map(|row| Video {
-            video_id: row.video_id,
-            title: row.title,
-            url: row.url,
-            channel_title: row.channel_title,
-            published_at: row.published_at,
-            learning_status: row.learning_status,
+            video_id: row.get("video_id"),
+            title: row.get("title"),
+            url: row.get("url"),
+            channel_title: row.get("channel_title"),
+            published_at: row.get("published_at"),
+            learning_status: row.get("learning_status"),
+            transcript_text: row.get("transcript_text"),
         })
         .collect())
 }
@@ -617,7 +623,7 @@ async fn update_status_with_metadata(
     if !metadata.is_object() {
         metadata = json!({});
     }
-    metadata["gemini_ingest"] = json!({
+    metadata["claim_ingest"] = json!({
         "status": status,
         "kind": kind,
         "message": message,
@@ -672,6 +678,10 @@ mod tests {
             "{}",
         )
         .await;
+        crate::testutil::seed_transcript(&pool, &success_id, "Deadlock gameplay transcript")
+            .await;
+        crate::testutil::seed_transcript(&pool, &failed_id, "Deadlock gameplay transcript")
+            .await;
 
         let selected = select_next_videos(&pool, 500_000).await.expect("select");
         assert!(selected.iter().any(|video| video.video_id == success_id));
@@ -708,9 +718,9 @@ mod tests {
         let metadata: serde_json::Value =
             serde_json::from_str(&metadata_text).expect("metadata json");
         assert_eq!(status, "failed");
-        assert_eq!(metadata["gemini_ingest"]["status"], "failed");
-        assert_eq!(metadata["gemini_ingest"]["kind"], "timeout");
-        assert_eq!(metadata["gemini_ingest"]["model"], claims::MODEL);
+        assert_eq!(metadata["claim_ingest"]["status"], "failed");
+        assert_eq!(metadata["claim_ingest"]["kind"], "timeout");
+        assert_eq!(metadata["claim_ingest"]["model"], claims::MODEL);
 
         crate::testutil::insert_claim_marker(
             &pool,

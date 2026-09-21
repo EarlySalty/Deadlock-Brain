@@ -1,17 +1,16 @@
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    process::{Command, Stdio},
-    time::Duration,
-};
+use std::time::Duration;
 
+use anyhow::{ensure, Context};
+use reqwest::blocking::{Client, Response};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sqlx::postgres::PgPool;
-use wait_timeout::ChildExt;
 
-const DEFAULT_YT_DLP_TIMEOUT_SECONDS: u64 = 120;
+const DEFAULT_CAPTION_TIMEOUT_SECONDS: u64 = 30;
+const MAX_CAPTION_BYTES: usize = 16 * 1024 * 1024;
+const MAX_WATCH_PAGE_BYTES: usize = 8 * 1024 * 1024;
+const USER_AGENT: &str = "Mozilla/5.0 DeadlockBrain/0.1";
 
 #[derive(Debug, Serialize)]
 pub struct FetchTranscriptsSummary {
@@ -40,13 +39,30 @@ pub struct FetchVideoSummary {
 struct VideoForTranscript {
     video_id: String,
     title: String,
-    url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CaptionSegment {
+    pub source_event_index: usize,
+    pub start_ms: Option<u64>,
+    pub duration_ms: Option<u64>,
+    pub end_ms: Option<u64>,
+    pub text: String,
+    pub pieces: Vec<CaptionPiece>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CaptionPiece {
+    pub text: String,
+    pub offset_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
 struct CaptionData {
     source_kind: CaptionSourceKind,
     transcript_text: String,
+    raw_json: String,
+    segments: Vec<CaptionSegment>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,10 +87,10 @@ impl CaptionSourceKind {
     }
 }
 
-#[derive(Debug)]
-struct CaptionFile {
-    path: PathBuf,
-    language: String,
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CaptionTrack {
+    base_url: String,
+    language_code: String,
     source_kind: CaptionSourceKind,
 }
 
@@ -93,6 +109,10 @@ struct Json3Root {
 
 #[derive(Debug, Deserialize)]
 struct Json3Event {
+    #[serde(rename = "tStartMs")]
+    start_ms: Option<u64>,
+    #[serde(rename = "dDurationMs")]
+    duration_ms: Option<u64>,
     #[serde(default)]
     segs: Vec<Json3Segment>,
 }
@@ -100,16 +120,35 @@ struct Json3Event {
 #[derive(Debug, Deserialize)]
 struct Json3Segment {
     utf8: Option<String>,
+    #[serde(rename = "tOffsetMs")]
+    offset_ms: Option<u64>,
 }
 
-pub async fn fetch_transcripts(
-    pool: &PgPool,
-    limit: usize,
-) -> anyhow::Result<FetchTranscriptsSummary> {
-    let unavailable_marked = backfill_unavailable_needs_asr(pool).await?;
-    let videos = select_videos_missing_transcripts(pool, limit).await?;
+pub async fn fetch_transcripts(pool: &PgPool, limit: usize) -> anyhow::Result<FetchTranscriptsSummary> {
+    let evidence_table: Option<String> = sqlx::query_scalar(
+        "SELECT to_regclass('brain.youtube_transcript_evidence')::text",
+    )
+    .fetch_one(pool)
+    .await?;
+    ensure!(
+        evidence_table.is_some(),
+        "Migration 2026-09-18-patch-evidence.sql fehlt vor dem Caption Import."
+    );
+    let unavailable_marked = sqlx::query(
+        "UPDATE brain.youtube_videos SET metadata=COALESCE(metadata, '{}'::jsonb) || '{\"needs_asr\":true}'::jsonb, updated_at=now() WHERE transcript_status='unavailable' AND COALESCE(metadata->>'needs_asr','false') <> 'true'",
+    )
+    .execute(pool)
+    .await?
+    .rows_affected() as usize;
+    let limit = i64::try_from(limit.max(1)).unwrap_or(i64::MAX);
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT v.video_id, v.title FROM brain.youtube_videos v WHERE v.transcript_status='missing' OR (v.transcript_status <> 'unavailable' AND NOT EXISTS (SELECT 1 FROM brain.youtube_transcripts t WHERE t.video_id=v.video_id AND LENGTH(TRIM(t.transcript_text)) > 0)) OR (v.transcript_status='ready' AND NOT EXISTS (SELECT 1 FROM brain.youtube_transcript_evidence e WHERE e.video_id=v.video_id AND e.raw_sha256=v.metadata->>'transcript_evidence_hash')) ORDER BY v.published_at DESC NULLS LAST, v.discovered_at DESC LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
     let mut summary = FetchTranscriptsSummary {
-        selected: videos.len(),
+        selected: rows.len(),
         processed: 0,
         saved: 0,
         unchanged: 0,
@@ -118,440 +157,345 @@ pub async fn fetch_transcripts(
         failed: 0,
         videos: Vec::new(),
     };
-
-    for video in videos {
-        match fetch_caption_for_video(&video) {
-            Ok(Some(caption)) => {
-                let chars = caption.transcript_text.chars().count();
-                let source_kind = caption.source_kind.as_db_value().to_string();
-                let outcome =
-                    save_transcript(pool, &video.video_id, &source_kind, &caption.transcript_text)
-                        .await?;
-                match outcome {
-                    SaveOutcome::Inserted | SaveOutcome::Updated => summary.saved += 1,
-                    SaveOutcome::Unchanged => summary.unchanged += 1,
+    for (video_id, title) in rows {
+        let video = VideoForTranscript { video_id, title };
+        let fetch_video = video.clone();
+        let result = tokio::task::spawn_blocking(move || fetch_caption_for_video(&fetch_video))
+            .await
+            .context("Caption Worker wurde abgebrochen.")?;
+        let mut item = FetchVideoSummary {
+            video_id: video.video_id.clone(),
+            title: video.title,
+            status: "failed".to_string(),
+            language: None,
+            source_kind: None,
+            transcript_chars: 0,
+            error: None,
+        };
+        match result {
+            Ok(Some(caption)) => match save_transcript(pool, &video.video_id, &caption).await {
+                Ok(outcome) => {
+                    item.status = match outcome {
+                        SaveOutcome::Inserted => "inserted",
+                        SaveOutcome::Updated => "updated",
+                        SaveOutcome::Unchanged => "unchanged",
+                    }
+                    .to_string();
+                    item.language = Some("en".to_string());
+                    item.source_kind = Some(caption.source_kind.as_db_value().to_string());
+                    item.transcript_chars = caption.transcript_text.chars().count();
+                    if outcome == SaveOutcome::Unchanged {
+                        summary.unchanged += 1;
+                    } else {
+                        summary.saved += 1;
+                    }
                 }
-                summary.processed += 1;
-                summary.videos.push(FetchVideoSummary {
-                    video_id: video.video_id,
-                    title: video.title,
-                    status: match outcome {
-                        SaveOutcome::Inserted => "inserted".to_string(),
-                        SaveOutcome::Updated => "updated".to_string(),
-                        SaveOutcome::Unchanged => "unchanged".to_string(),
-                    },
-                    language: Some("en".to_string()),
-                    source_kind: Some(source_kind),
-                    transcript_chars: chars,
-                    error: None,
-                });
-            }
+                Err(_) => {
+                    summary.failed += 1;
+                    item.error = Some(
+                        "Caption Persistenz fehlgeschlagen, die Transaktion wurde zurückgerollt."
+                            .to_string(),
+                    );
+                }
+            },
             Ok(None) => {
-                mark_transcript_unavailable(pool, &video.video_id).await?;
-                summary.processed += 1;
+                sqlx::query("UPDATE brain.youtube_videos SET transcript_status='unavailable', metadata=COALESCE(metadata,'{}'::jsonb) || '{\"needs_asr\":true}'::jsonb, updated_at=now() WHERE video_id=$1")
+                    .bind(&video.video_id)
+                    .execute(pool)
+                    .await?;
                 summary.unavailable += 1;
-                summary.videos.push(FetchVideoSummary {
-                    video_id: video.video_id,
-                    title: video.title,
-                    status: "unavailable".to_string(),
-                    language: None,
-                    source_kind: None,
-                    transcript_chars: 0,
-                    error: None,
-                });
+                item.status = "unavailable".to_string();
             }
             Err(error) => {
-                summary.processed += 1;
                 summary.failed += 1;
-                summary.videos.push(FetchVideoSummary {
-                    video_id: video.video_id,
-                    title: video.title,
-                    status: "failed".to_string(),
-                    language: None,
-                    source_kind: None,
-                    transcript_chars: 0,
-                    error: Some(error.to_string()),
-                });
+                item.error = Some(error.to_string());
             }
         }
+        summary.processed += 1;
+        summary.videos.push(item);
     }
-
     Ok(summary)
 }
 
-async fn select_videos_missing_transcripts(
-    pool: &PgPool,
-    limit: usize,
-) -> anyhow::Result<Vec<VideoForTranscript>> {
-    let limit = i64::try_from(limit.max(1)).unwrap_or(i64::MAX);
-    let rows = sqlx::query!(
-        r#"
-        SELECT v.video_id, v.title, v.url
-        FROM brain.youtube_videos v
-        WHERE v.transcript_status='missing'
-           OR (
-             v.transcript_status <> 'unavailable'
-             AND NOT EXISTS (
-               SELECT 1 FROM brain.youtube_transcripts t
-               WHERE t.video_id=v.video_id
-                 AND LENGTH(TRIM(t.transcript_text)) > 0
-             )
-           )
-        ORDER BY v.published_at DESC NULLS LAST, v.discovered_at DESC
-        LIMIT $1
-        "#,
-        limit,
-    )
-    .fetch_all(pool)
-    .await?;
-
-    Ok(rows
-        .into_iter()
-        .map(|row| VideoForTranscript {
-            video_id: row.video_id,
-            title: row.title,
-            url: row.url,
-        })
-        .collect())
-}
-
 fn fetch_caption_for_video(video: &VideoForTranscript) -> anyhow::Result<Option<CaptionData>> {
-    let temp_dir = tempfile::tempdir()?;
-    let output_template = temp_dir
-        .path()
-        .join(format!("{}.%(ext)s", video.video_id));
-    let mut child = Command::new(yt_dlp_bin())
-        .arg("--no-update")
-        .arg("--no-warnings")
-        .arg("--skip-download")
-        .arg("--write-subs")
-        .arg("--write-auto-subs")
-        .arg("--sub-langs")
-        .arg("en.*")
-        .arg("--sub-format")
-        .arg("json3")
-        .arg("-o")
-        .arg(&output_template)
-        .arg(&video.url)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-
-    let timeout = Duration::from_secs(yt_dlp_timeout_seconds());
-    let output = match child.wait_timeout(timeout) {
-        Ok(Some(_)) => child.wait_with_output()?,
-        Ok(None) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            anyhow::bail!("yt-dlp timeout after {}s", timeout.as_secs());
-        }
-        Err(error) => return Err(error.into()),
+    ensure!(valid_video_id(&video.video_id), "Ungültige YouTube Video ID.");
+    let client = Client::builder()
+        .user_agent(USER_AGENT)
+        .timeout(Duration::from_secs(caption_timeout_seconds()))
+        .redirect(reqwest::redirect::Policy::limited(3))
+        .build()?;
+    let watch_url = format!("https://www.youtube.com/watch?v={}", video.video_id);
+    let watch = client
+        .get(watch_url)
+        .send()
+        .context("YouTube Player Seite konnte nicht geladen werden.")?;
+    let watch_text = response_text_limited(watch, MAX_WATCH_PAGE_BYTES)?;
+    let player = extract_initial_player_response(&watch_text)
+        .context("YouTube Player Response fehlt.")?;
+    let Some(track) = select_english_caption_track(&player) else {
+        return Ok(None);
     };
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let command_output = format!("{stdout}\n{stderr}");
-    let caption_file = select_caption_file(temp_dir.path(), &video.video_id, &command_output)?;
-    if let Some(caption_file) = caption_file {
-        let raw = fs::read_to_string(&caption_file.path)?;
-        let transcript_text = parse_json3_transcript(&raw)?;
-        return Ok(Some(CaptionData {
-            source_kind: caption_file.source_kind,
-            transcript_text,
-        }));
-    }
-
-    if output.status.success() || looks_like_no_captions(&command_output) {
+    let mut caption_url = reqwest::Url::parse(&track.base_url)
+        .context("Caption URL ist ungültig.")?;
+    ensure!(
+        caption_url.scheme() == "https"
+            && matches!(caption_url.host_str(), Some("www.youtube.com" | "youtube.com")),
+        "Caption URL verweist nicht auf YouTube."
+    );
+    caption_url.query_pairs_mut().append_pair("fmt", "json3");
+    let response = client
+        .get(caption_url)
+        .send()
+        .context("YouTube Caption konnte nicht geladen werden.")?;
+    let raw_json = response_text_limited(response, MAX_CAPTION_BYTES)?;
+    if raw_json.trim().is_empty() {
         return Ok(None);
     }
-
-    anyhow::bail!("yt-dlp failed: {}", command_output.trim())
+    let segments = parse_json3_segments(&raw_json)?;
+    let transcript_text = segments
+        .iter()
+        .map(|part| part.text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    Ok(Some(CaptionData {
+        source_kind: track.source_kind,
+        transcript_text,
+        raw_json,
+        segments,
+    }))
 }
 
-fn select_caption_file(
-    dir: &Path,
-    video_id: &str,
-    command_output: &str,
-) -> anyhow::Result<Option<CaptionFile>> {
-    let mut candidates = Vec::new();
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.extension().and_then(|value| value.to_str()) != Some("json3") {
-            continue;
-        }
-        let Some(file_name) = path.file_name().and_then(|value| value.to_str()) else {
-            continue;
-        };
-        let file_name = file_name.to_string();
-        let Some(language) = caption_language_from_file_name(&file_name, video_id) else {
-            continue;
-        };
-        if !matches!(language.as_str(), "en" | "en-orig") {
-            continue;
-        }
-        candidates.push(CaptionFile {
-            path,
-            language,
-            source_kind: infer_source_kind(command_output, &file_name),
-        });
+fn response_text_limited(response: Response, max_bytes: usize) -> anyhow::Result<String> {
+    ensure!(response.status().is_success(), "YouTube Anfrage war nicht erfolgreich.");
+    if let Some(length) = response.content_length() {
+        ensure!(
+            length <= max_bytes as u64,
+            "YouTube Antwort überschreitet das Größenlimit."
+        );
     }
-    candidates.sort_by(|left, right| {
-        (
-            left.source_kind.priority(),
-            language_priority(&left.language),
-            left.path.as_os_str(),
-        )
-            .cmp(&(
-                right.source_kind.priority(),
-                language_priority(&right.language),
-                right.path.as_os_str(),
-            ))
-    });
-    Ok(candidates.into_iter().next())
+    let bytes = response.bytes()?;
+    ensure!(
+        bytes.len() <= max_bytes,
+        "YouTube Antwort überschreitet das Größenlimit."
+    );
+    String::from_utf8(bytes.to_vec()).context("YouTube Antwort ist kein UTF-8.")
 }
 
-fn caption_language_from_file_name(file_name: &str, video_id: &str) -> Option<String> {
-    let prefix = format!("{video_id}.");
-    let without_prefix = file_name.strip_prefix(&prefix)?;
-    let language = without_prefix.strip_suffix(".json3")?;
-    if language.trim().is_empty() {
-        return None;
-    }
-    Some(language.to_string())
-}
-
-fn infer_source_kind(command_output: &str, file_name: &str) -> CaptionSourceKind {
-    let mut manual_seen = false;
-    for line in command_output.lines() {
-        if !line.contains(file_name) {
-            continue;
-        }
-        let lower = line.to_ascii_lowercase();
-        if lower.contains("automatic subtitles") {
-            return CaptionSourceKind::Auto;
-        }
-        if lower.contains("subtitles") {
-            manual_seen = true;
-        }
-    }
-    if manual_seen {
-        CaptionSourceKind::Manual
-    } else {
-        CaptionSourceKind::Auto
-    }
-}
-
-fn language_priority(language: &str) -> u8 {
-    match language {
-        "en" => 0,
-        "en-orig" => 1,
-        _ => 2,
-    }
-}
-
-fn looks_like_no_captions(output: &str) -> bool {
-    let lower = output.to_ascii_lowercase();
-    lower.contains("has no subtitles")
-        || lower.contains("has no automatic captions")
-        || lower.contains("no automatic captions")
-        || lower.contains("there are no subtitles")
-        || lower.contains("no subtitles for the requested languages")
-}
-
-pub fn parse_json3_transcript(raw: &str) -> anyhow::Result<String> {
-    let root: Json3Root = serde_json::from_str(raw)?;
-    let mut text = String::new();
-    for event in root.events {
-        for segment in event.segs {
-            if let Some(segment_text) = segment.utf8 {
-                text.push_str(&segment_text);
-                text.push(' ');
+fn extract_initial_player_response(html: &str) -> Option<Value> {
+    for marker in [
+        "var ytInitialPlayerResponse = ",
+        "\"ytInitialPlayerResponse\":",
+    ] {
+        let marker_start = html.find(marker)? + marker.len();
+        if let Some(raw) = extract_json_object(&html[marker_start..]) {
+            if let Ok(value) = serde_json::from_str(raw) {
+                return Some(value);
             }
         }
     }
-    let normalized = normalize_whitespace(&text);
-    if normalized.is_empty() {
-        anyhow::bail!("json3 caption has no text");
-    }
-    Ok(normalized)
+    None
 }
 
-fn normalize_whitespace(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
+fn extract_json_object(input: &str) -> Option<&str> {
+    let start = input.find('{')?;
+    let bytes = input.as_bytes();
+    let mut depth = 0_u32;
+    let mut in_string = false;
+    let mut escaped = false;
+    for index in start..bytes.len() {
+        let byte = bytes[index];
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match byte {
+            b'"' => in_string = true,
+            b'{' => depth = depth.saturating_add(1),
+            b'}' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return input.get(start..=index);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn select_english_caption_track(player: &Value) -> Option<CaptionTrack> {
+    let tracks = player
+        .pointer("/captions/playerCaptionsTracklistRenderer/captionTracks")?
+        .as_array()?;
+    tracks
+        .iter()
+        .filter_map(|track| {
+            let language_code = track.get("languageCode")?.as_str()?.trim();
+            if !language_code.eq_ignore_ascii_case("en")
+                && !language_code.to_ascii_lowercase().starts_with("en-")
+            {
+                return None;
+            }
+            let base_url = track.get("baseUrl")?.as_str()?.trim();
+            if base_url.is_empty() {
+                return None;
+            }
+            let source_kind = if track.get("kind").and_then(Value::as_str) == Some("asr") {
+                CaptionSourceKind::Auto
+            } else {
+                CaptionSourceKind::Manual
+            };
+            Some(CaptionTrack {
+                base_url: base_url.to_string(),
+                language_code: language_code.to_string(),
+                source_kind,
+            })
+        })
+        .min_by_key(|track| {
+            (
+                track.source_kind.priority(),
+                u8::from(!track.language_code.eq_ignore_ascii_case("en")),
+            )
+        })
+}
+
+fn valid_video_id(id: &str) -> bool {
+    id.len() == 11
+        && id
+            .bytes()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == b'-' || ch == b'_')
+}
+
+pub fn parse_json3_segments(raw: &str) -> anyhow::Result<Vec<CaptionSegment>> {
+    let root: Json3Root = serde_json::from_str(raw)?;
+    let mut result = Vec::new();
+    for (source_event_index, event) in root.events.into_iter().enumerate() {
+        let pieces: Vec<CaptionPiece> = event
+            .segs
+            .into_iter()
+            .filter_map(|part| {
+                part.utf8.map(|text| CaptionPiece {
+                    text,
+                    offset_ms: part.offset_ms,
+                })
+            })
+            .collect();
+        let joined = pieces
+            .iter()
+            .map(|part| part.text.as_str())
+            .collect::<String>();
+        let text = joined.split_whitespace().collect::<Vec<_>>().join(" ");
+        if text.is_empty() {
+            continue;
+        }
+        ensure!(
+            event.start_ms.unwrap_or(0) <= i64::MAX as u64
+                && event.duration_ms.unwrap_or(0) <= i64::MAX as u64,
+            "Caption Zeit überschreitet den Datenbankbereich."
+        );
+        let end_ms = match (event.start_ms, event.duration_ms) {
+            (Some(start), Some(duration)) => {
+                Some(start.checked_add(duration).context("Caption Zeitüberlauf.")?)
+            }
+            _ => None,
+        };
+        ensure!(
+            end_ms.unwrap_or(0) <= i64::MAX as u64,
+            "Caption Ende überschreitet den Datenbankbereich."
+        );
+        result.push(CaptionSegment {
+            source_event_index,
+            start_ms: event.start_ms,
+            duration_ms: event.duration_ms,
+            end_ms,
+            text,
+            pieces,
+        });
+    }
+    ensure!(!result.is_empty(), "JSON3 Caption enthält keinen Text.");
+    Ok(result)
 }
 
 async fn save_transcript(
     pool: &PgPool,
     video_id: &str,
-    source_kind: &str,
-    transcript_text: &str,
+    caption: &CaptionData,
 ) -> anyhow::Result<SaveOutcome> {
-    let content_hash = stable_hash_text(transcript_text);
-    let existing = sqlx::query!(
-        r#"
-        SELECT language, source_kind, content_hash
-        FROM brain.youtube_transcripts WHERE video_id=$1
-        "#,
-        video_id,
+    let text_hash = stable_hash_text(&caption.transcript_text);
+    let raw_hash = stable_hash_text(&caption.raw_json);
+    let source_kind = caption.source_kind.as_db_value();
+    let segments = serde_json::to_string(&caption.segments)?;
+    let mut tx = pool.begin().await?;
+    let previous_raw: Option<String> = sqlx::query_scalar(
+        "SELECT metadata->>'transcript_evidence_hash' FROM brain.youtube_videos WHERE video_id=$1 FOR UPDATE",
     )
-    .fetch_optional(pool)
+    .bind(video_id)
+    .fetch_one(&mut *tx)
     .await?;
-    let outcome = match existing {
-        Some(row)
-            if row.language.as_deref() == Some("en")
-                && row.source_kind == source_kind
-                && row.content_hash == content_hash =>
+    let existing: Option<(Option<String>, String, String)> = sqlx::query_as(
+        "SELECT language, source_kind, content_hash FROM brain.youtube_transcripts WHERE video_id=$1",
+    )
+    .bind(video_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let outcome = match existing.as_ref() {
+        None => SaveOutcome::Inserted,
+        Some((language, kind, hash))
+            if language.as_deref() == Some("en")
+                && kind == source_kind
+                && hash == &text_hash
+                && previous_raw.as_deref() == Some(raw_hash.as_str()) =>
         {
             SaveOutcome::Unchanged
         }
-        Some(_) => {
-            sqlx::query!(
-                r#"
-                UPDATE brain.youtube_transcripts
-                SET language=$1, source_kind=$2, transcript_text=$3, content_hash=$4,
-                    source_document_id=NULL, updated_at=now()
-                WHERE video_id=$5
-                "#,
-                "en",
-                source_kind,
-                transcript_text,
-                content_hash,
-                video_id,
-            )
-            .execute(pool)
-            .await?;
-            SaveOutcome::Updated
-        }
-        None => {
-            sqlx::query!(
-                r#"
-                INSERT INTO brain.youtube_transcripts(
-                  video_id, language, source_kind, transcript_text, content_hash,
-                  source_document_id, imported_at, updated_at
-                )
-                VALUES($1,$2,$3,$4,$5,NULL,now(),now())
-                "#,
-                video_id,
-                "en",
-                source_kind,
-                transcript_text,
-                content_hash,
-            )
-            .execute(pool)
-            .await?;
-            SaveOutcome::Inserted
-        }
+        Some(_) => SaveOutcome::Updated,
     };
-    mark_transcript_ready(pool, video_id).await?;
+    if outcome != SaveOutcome::Unchanged {
+        sqlx::query("INSERT INTO brain.youtube_transcripts(video_id,language,source_kind,transcript_text,content_hash,source_document_id,imported_at,updated_at) VALUES($1,'en',$2,$3,$4,NULL,now(),now()) ON CONFLICT(video_id) DO UPDATE SET language=EXCLUDED.language,source_kind=EXCLUDED.source_kind,transcript_text=EXCLUDED.transcript_text,content_hash=EXCLUDED.content_hash,source_document_id=NULL,updated_at=now()")
+            .bind(video_id)
+            .bind(source_kind)
+            .bind(&caption.transcript_text)
+            .bind(&text_hash)
+            .execute(&mut *tx)
+            .await?;
+    }
+    sqlx::query("INSERT INTO brain.youtube_transcript_evidence(video_id,raw_sha256,text_sha256,language,source_kind,raw_caption_json,segments) VALUES($1,$2,$3,'en',$4,$5,$6::text::jsonb) ON CONFLICT(video_id,source_kind,raw_sha256) DO NOTHING")
+        .bind(video_id)
+        .bind(&raw_hash)
+        .bind(&text_hash)
+        .bind(source_kind)
+        .bind(&caption.raw_json)
+        .bind(&segments)
+        .execute(&mut *tx)
+        .await?;
+    let revalidate = existing.is_some() && outcome != SaveOutcome::Unchanged;
+    sqlx::query("UPDATE brain.youtube_videos SET transcript_status='ready', metadata=(COALESCE(metadata,'{}'::jsonb)-'needs_asr') || jsonb_build_object('transcript_evidence_hash',$2::text) || CASE WHEN $3 THEN '{\"needs_claim_revalidation\":true}'::jsonb ELSE '{}'::jsonb END, updated_at=now() WHERE video_id=$1")
+        .bind(video_id)
+        .bind(&raw_hash)
+        .bind(revalidate)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
     Ok(outcome)
-}
-
-async fn mark_transcript_ready(pool: &PgPool, video_id: &str) -> anyhow::Result<()> {
-    let metadata_json = sqlx::query_scalar!(
-        r#"SELECT metadata::text AS "metadata_json!" FROM brain.youtube_videos WHERE video_id=$1"#,
-        video_id,
-    )
-    .fetch_optional(pool)
-    .await?;
-    let mut metadata = json_object(metadata_json.as_deref());
-    let removed_needs_asr = metadata
-        .as_object_mut()
-        .and_then(|object| object.remove("needs_asr"))
-        .is_some();
-    if removed_needs_asr {
-        let metadata_json = serde_json::to_string(&metadata)?;
-        sqlx::query!(
-            "UPDATE brain.youtube_videos SET transcript_status='ready', metadata=$1::text::jsonb, updated_at=now() WHERE video_id=$2",
-            metadata_json,
-            video_id,
-        )
-        .execute(pool)
-        .await?;
-    } else {
-        sqlx::query!(
-            "UPDATE brain.youtube_videos SET transcript_status='ready', updated_at=now() WHERE video_id=$1 AND transcript_status <> 'ready'",
-            video_id,
-        )
-        .execute(pool)
-        .await?;
-    }
-    Ok(())
-}
-
-async fn mark_transcript_unavailable(pool: &PgPool, video_id: &str) -> anyhow::Result<()> {
-    let metadata_json = sqlx::query_scalar!(
-        r#"SELECT metadata::text AS "metadata_json!" FROM brain.youtube_videos WHERE video_id=$1"#,
-        video_id,
-    )
-    .fetch_optional(pool)
-    .await?;
-    let mut metadata = json_object(metadata_json.as_deref());
-    metadata["needs_asr"] = Value::Bool(true);
-    let metadata_json = serde_json::to_string(&metadata)?;
-    sqlx::query!(
-        "UPDATE brain.youtube_videos SET transcript_status='unavailable', metadata=$1::text::jsonb, updated_at=now() WHERE video_id=$2",
-        metadata_json,
-        video_id,
-    )
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
-async fn backfill_unavailable_needs_asr(pool: &PgPool) -> anyhow::Result<usize> {
-    let rows = sqlx::query!(
-        r#"SELECT video_id, metadata::text AS "metadata_json!" FROM brain.youtube_videos WHERE transcript_status='unavailable'"#,
-    )
-    .fetch_all(pool)
-    .await?;
-    let mut marked = 0;
-    for row in rows {
-        let mut metadata = json_object(Some(&row.metadata_json));
-        if metadata
-            .get("needs_asr")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-        {
-            continue;
-        }
-        metadata["needs_asr"] = Value::Bool(true);
-        let metadata_json = serde_json::to_string(&metadata)?;
-        sqlx::query!(
-            "UPDATE brain.youtube_videos SET metadata=$1::text::jsonb, updated_at=now() WHERE video_id=$2",
-            metadata_json,
-            row.video_id,
-        )
-        .execute(pool)
-        .await?;
-        marked += 1;
-    }
-    Ok(marked)
-}
-
-fn json_object(raw: Option<&str>) -> Value {
-    let mut metadata = raw
-        .and_then(|text| serde_json::from_str::<Value>(text).ok())
-        .unwrap_or_else(|| json!({}));
-    if !metadata.is_object() {
-        metadata = json!({});
-    }
-    metadata
 }
 
 fn stable_hash_text(content: &str) -> String {
     hex::encode(Sha256::digest(content.as_bytes()))
 }
 
-fn yt_dlp_bin() -> String {
-    std::env::var("YT_DLP_BIN").unwrap_or_else(|_| "yt-dlp".to_string())
-}
-
-fn yt_dlp_timeout_seconds() -> u64 {
-    std::env::var("YT_DLP_TIMEOUT_SECONDS")
+fn caption_timeout_seconds() -> u64 {
+    std::env::var("YOUTUBE_CAPTION_TIMEOUT_SECONDS")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or(DEFAULT_YT_DLP_TIMEOUT_SECONDS)
+        .unwrap_or(DEFAULT_CAPTION_TIMEOUT_SECONDS)
+        .clamp(1, 120)
 }
 
 #[cfg(test)]
@@ -559,88 +503,175 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_json3_into_normalized_flow_text() {
-        let parsed = parse_json3_transcript(
-            r#"{
-              "events": [
-                {"segs": [{"utf8": "Hello"}, {"utf8": "  world\n"}]},
-                {"segs": [{"utf8": "from"}, {"utf8": " captions"}]},
-                {"segs": [{"utf8": "\n"}]}
-              ]
-            }"#,
+    fn preserves_timing_and_word_offsets() {
+        let rows = parse_json3_segments(
+            r#"{"events":[{"tStartMs":1200,"dDurationMs":3500,"segs":[{"utf8":"Unstable "},{"utf8":"Rift","tOffsetMs":200}]}]}"#,
         )
-        .expect("parse json3");
-
-        assert_eq!(parsed, "Hello world from captions");
+        .unwrap();
+        assert_eq!(rows[0].start_ms, Some(1200));
+        assert_eq!(rows[0].end_ms, Some(4700));
+        assert_eq!(rows[0].pieces[1].offset_ms, Some(200));
+        assert_eq!(rows[0].text, "Unstable Rift");
     }
 
     #[test]
-    fn caption_selection_prefers_manual_english_and_rejects_translations() {
-        let temp = tempfile::tempdir().expect("tempdir");
-        fs::write(temp.path().join("abc.en.json3"), "{}").expect("write en");
-        fs::write(temp.path().join("abc.en-orig.json3"), "{}").expect("write en orig");
-        fs::write(temp.path().join("abc.de.json3"), "{}").expect("write de");
-        let output = "\
-[info] Writing video automatic subtitles to: abc.en-orig.json3
-[info] Writing video subtitles to: abc.en.json3";
+    fn missing_times_remain_unknown() {
+        let rows =
+            parse_json3_segments(r#"{"events":[{"segs":[{"utf8":"unknown time"}]}]}"#)
+                .unwrap();
+        assert_eq!(rows[0].start_ms, None);
+        assert_eq!(rows[0].end_ms, None);
+    }
 
-        let selected = select_caption_file(temp.path(), "abc", output)
-            .expect("select caption")
-            .expect("caption selected");
+    #[test]
+    fn preserves_repeated_speech_and_source_indices() {
+        let rows = parse_json3_segments(
+            r#"{"events":[{}, {"tStartMs":0,"segs":[{"utf8":"again"}]},{"tStartMs":5000,"segs":[{"utf8":"again"}]}]}"#,
+        )
+        .unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].source_event_index, 1);
+        assert_eq!(rows[1].start_ms, Some(5000));
+    }
 
-        assert_eq!(selected.language, "en");
-        assert_eq!(selected.source_kind, CaptionSourceKind::Manual);
+    #[test]
+    fn concatenates_unicode_fragments_without_inventing_spaces() {
+        let rows = parse_json3_segments(
+            r#"{"events":[{"segs":[{"utf8":"Än"},{"utf8":"derung  ✓\n"}]}]}"#,
+        )
+        .unwrap();
+        assert_eq!(rows[0].text, "Änderung ✓");
+    }
+
+    #[test]
+    fn rejects_empty_negative_and_overflow_times() {
+        assert!(parse_json3_segments(r#"{"events":[]}"#).is_err());
+        assert!(parse_json3_segments(
+            r#"{"events":[{"tStartMs":-1,"segs":[{"utf8":"x"}]}]}"#
+        )
+        .is_err());
+        assert!(parse_json3_segments(
+            r#"{"events":[{"tStartMs":18446744073709551615,"dDurationMs":1,"segs":[{"utf8":"x"}]}]}"#
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn timing_only_changes_have_different_evidence_hashes() {
+        let first = r#"{"events":[{"tStartMs":100,"segs":[{"utf8":"same"}]}]}"#;
+        let second = first.replace("100", "200");
+        assert_ne!(stable_hash_text(first), stable_hash_text(&second));
+        assert_eq!(
+            parse_json3_segments(first).unwrap()[0].text,
+            parse_json3_segments(&second).unwrap()[0].text
+        );
+    }
+
+    #[test]
+    fn player_response_parser_handles_nested_strings() {
+        let html = r#"<script>var ytInitialPlayerResponse = {"captions":{"playerCaptionsTracklistRenderer":{"captionTracks":[{"baseUrl":"https://www.youtube.com/api/timedtext?v=abc&x={ok}","languageCode":"en","name":{"simpleText":"English"}},{"baseUrl":"https://www.youtube.com/api/timedtext?v=abc&kind=asr","languageCode":"en","kind":"asr"}]}}};</script>"#;
+        let player = extract_initial_player_response(html).unwrap();
+        let track = select_english_caption_track(&player).unwrap();
+        assert_eq!(track.source_kind, CaptionSourceKind::Manual);
+        assert_eq!(track.language_code, "en");
+        assert!(track.base_url.contains("timedtext"));
+    }
+
+    #[test]
+    fn caption_selection_rejects_non_english_and_prefers_manual() {
+        let player = serde_json::json!({
+            "captions":{"playerCaptionsTracklistRenderer":{"captionTracks":[
+                {"baseUrl":"https://www.youtube.com/api/timedtext?v=a","languageCode":"de"},
+                {"baseUrl":"https://www.youtube.com/api/timedtext?v=b","languageCode":"en-US","kind":"asr"},
+                {"baseUrl":"https://www.youtube.com/api/timedtext?v=c","languageCode":"en"}
+            ]}}
+        });
+        let track = select_english_caption_track(&player).unwrap();
+        assert_eq!(track.base_url, "https://www.youtube.com/api/timedtext?v=c");
+        assert_eq!(track.source_kind, CaptionSourceKind::Manual);
+    }
+
+    #[test]
+    fn downloader_uses_validated_id_not_database_url() {
+        assert!(valid_video_id("ZWm7ixeWjbQ"));
+        for bad in ["../../test", "http://host", "--exec=echo", "abc"] {
+            assert!(!valid_video_id(bad));
+        }
+    }
+
+    #[test]
+    fn parses_json3_into_normalized_flow_text() {
+        let rows = parse_json3_segments(
+            r#"{"events":[{"segs":[{"utf8":"Hello"},{"utf8":"  world\n"}]},{"segs":[{"utf8":"from"},{"utf8":" captions"}]},{"segs":[{"utf8":"\n"}]}]}"#,
+        )
+        .unwrap();
+        let text = rows
+            .iter()
+            .map(|row| row.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert_eq!(text, "Hello world from captions");
     }
 
     #[tokio::test]
-    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+    #[ignore = "needs scratch Postgres and 2026-09-18-patch-evidence.sql"]
     async fn save_transcript_is_idempotent_and_sets_ready_pg() {
         let Some(pool) = crate::testutil::test_pool().await else {
             return;
         };
         let suffix = crate::testutil::unique_suffix();
-        let feed_key = format!("ztest_feed_{suffix}");
-        let video_id = format!("ztest_tr_{suffix}");
-        crate::testutil::seed_feed(&pool, &feed_key).await;
+        let feed = format!("ztest_feed_{suffix}");
+        let video = format!("ztest_tr_{suffix}");
+        crate::testutil::seed_feed(&pool, &feed).await;
         crate::testutil::seed_video(
             &pool,
-            &video_id,
-            &feed_key,
+            &video,
+            &feed,
             "missing",
             "queued",
             Some("2026-06-01T00:00:00Z"),
             r#"{"needs_asr":true}"#,
         )
         .await;
-
-        let first = save_transcript(&pool, &video_id, "youtube_caption_manual", "one two three")
-            .await
-            .expect("save transcript");
-        let second = save_transcript(&pool, &video_id, "youtube_caption_manual", "one two three")
-            .await
-            .expect("save transcript again");
-
-        assert_eq!(first, SaveOutcome::Inserted);
-        assert_eq!(second, SaveOutcome::Unchanged);
-
-        let status: String = sqlx::query_scalar(
-            "SELECT transcript_status FROM brain.youtube_videos WHERE video_id=$1",
+        let raw_json = r#"{"events":[{"tStartMs":1234,"dDurationMs":500,"segs":[{"utf8":"one two three"}]}]}"#.to_string();
+        let caption = CaptionData {
+            segments: parse_json3_segments(&raw_json).unwrap(),
+            raw_json,
+            source_kind: CaptionSourceKind::Manual,
+            transcript_text: "one two three".to_string(),
+        };
+        assert_eq!(
+            save_transcript(&pool, &video, &caption).await.unwrap(),
+            SaveOutcome::Inserted
+        );
+        assert_eq!(
+            save_transcript(&pool, &video, &caption).await.unwrap(),
+            SaveOutcome::Unchanged
+        );
+        let (status, needs_asr): (String, bool) = sqlx::query_as(
+            "SELECT transcript_status, (metadata->>'needs_asr') IS NOT NULL FROM brain.youtube_videos WHERE video_id=$1",
         )
-        .bind(&video_id)
+        .bind(&video)
         .fetch_one(&pool)
         .await
-        .expect("query status");
+        .unwrap();
         assert_eq!(status, "ready");
-
-        let needs_asr_present: bool = sqlx::query_scalar(
-            "SELECT (metadata->>'needs_asr') IS NOT NULL FROM brain.youtube_videos WHERE video_id=$1",
+        assert!(!needs_asr);
+        let mut retimed = caption.clone();
+        retimed.raw_json = retimed.raw_json.replace("1234", "2345");
+        retimed.segments = parse_json3_segments(&retimed.raw_json).unwrap();
+        assert_eq!(
+            save_transcript(&pool, &video, &retimed).await.unwrap(),
+            SaveOutcome::Updated
+        );
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM brain.youtube_transcript_evidence WHERE video_id=$1",
         )
-        .bind(&video_id)
+        .bind(&video)
         .fetch_one(&pool)
         .await
-        .expect("query needs_asr");
-        assert!(!needs_asr_present, "needs_asr should be removed on ready");
-
-        crate::testutil::cleanup(&pool, &[&video_id], &[&feed_key]).await;
+        .unwrap();
+        assert_eq!(count, 2);
+        crate::testutil::cleanup(&pool, &[&video], &[&feed]).await;
     }
 }

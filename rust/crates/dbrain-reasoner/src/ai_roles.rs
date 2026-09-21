@@ -255,6 +255,9 @@ mod tests {
     #[test]
     fn run_critic_validates_verdict_over_http() {
         let build = BuildObject {
+            family: None,
+            variants: Vec::new(),
+            family_discovery: None,
             hero_id: 25,
             hero_name: "Warden".to_string(),
             patch_tag: "test".to_string(),
