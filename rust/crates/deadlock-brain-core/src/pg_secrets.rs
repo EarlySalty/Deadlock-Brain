@@ -65,9 +65,7 @@ pub(super) async fn database_dsn(path: &Path) -> Result<Zeroizing<String>> {
         .ok_or_else(|| anyhow!("Datenbankzugang fehlt in Infisical."))
 }
 
-pub(super) async fn environment(
-    path: &Path,
-) -> Result<Vec<(String, Zeroizing<String>)>> {
+pub(super) async fn environment(path: &Path) -> Result<Vec<(String, Zeroizing<String>)>> {
     let config = load_config(path)?;
     let values = fetch_values(config).await?;
     Ok(values.into_iter().collect())
@@ -76,8 +74,7 @@ pub(super) async fn environment(
 fn load_config(path: &Path) -> Result<Config> {
     let data =
         std::fs::read(path).map_err(|_| anyhow!("Infisical Konfiguration ist nicht lesbar."))?;
-    serde_json::from_slice(&data)
-        .map_err(|_| anyhow!("Infisical Konfiguration ist ungültig."))
+    serde_json::from_slice(&data).map_err(|_| anyhow!("Infisical Konfiguration ist ungültig."))
 }
 
 async fn fetch_values(config: Config) -> Result<BTreeMap<String, Zeroizing<String>>> {
@@ -143,7 +140,9 @@ async fn fetch_values(config: Config) -> Result<BTreeMap<String, Zeroizing<Strin
             continue;
         }
         if !valid_environment_name(name) {
-            return Err(anyhow!("Infisical enthält einen ungültigen Variablennamen."));
+            return Err(anyhow!(
+                "Infisical enthält einen ungültigen Variablennamen."
+            ));
         }
         values.insert(
             name.to_string(),
@@ -163,6 +162,19 @@ fn valid_environment_name(name: &str) -> bool {
 }
 
 fn load_credential(config: &Config) -> Result<Zeroizing<Vec<u8>>> {
+    let runtime_directory = env::var_os("CREDENTIALS_DIRECTORY").map(PathBuf::from);
+    let token_file = env::var_os("INFISICAL_TOKEN_FILE").map(PathBuf::from);
+    load_credential_from(config, runtime_directory.as_deref(), token_file.as_deref())
+}
+
+fn load_credential_from(
+    config: &Config,
+    runtime_directory: Option<&Path>,
+    token_file: Option<&Path>,
+) -> Result<Zeroizing<Vec<u8>>> {
+    // Auch einen durch das Runtime-Credential verdrängten alten Credential-FD
+    // nicht an den gestarteten Prozess vererben.
+    let mut credential_fd = None;
     if let Some(fd) = config.credential_fd.filter(|fd| *fd >= 3) {
         if let Ok(flags) = fcntl(fd, FcntlArg::F_GETFD) {
             fcntl(
@@ -170,26 +182,32 @@ fn load_credential(config: &Config) -> Result<Zeroizing<Vec<u8>>> {
                 FcntlArg::F_SETFD(FdFlag::from_bits_retain(flags) | FdFlag::FD_CLOEXEC),
             )
             .map_err(|_| anyhow!("Infisical Credential FD konnte nicht geschützt werden."))?;
-            let descriptor = filedescriptor::FileDescriptor::dup(&fd)
-                .map_err(|_| anyhow!("Infisical Credential FD ist nicht verfügbar."))?;
-            let file = descriptor
-                .as_file()
-                .map_err(|_| anyhow!("Infisical Credential FD ist nicht lesbar."))?;
-            return read_credential(&file);
+            credential_fd = Some(fd);
         }
     }
 
-    if let Some(directory) = env::var_os("CREDENTIALS_DIRECTORY") {
-        let path = PathBuf::from(directory).join(&config.credential_name);
+    // Systemd bindet das Credential namentlich. Eine alte FD-Nummer kann
+    // inzwischen Tokio/epoll oder einem Socket gehören und beweist keine
+    // Credential-Identität. Deshalb hat die benannte Runtime-Bindung Vorrang.
+    if let Some(directory) = runtime_directory {
+        let path = directory.join(&config.credential_name);
         if path.is_file() {
             return read_credential_path(&path);
         }
     }
 
-    if let Some(path) = env::var_os("INFISICAL_TOKEN_FILE") {
-        let path = PathBuf::from(path);
+    if let Some(fd) = credential_fd {
+        let descriptor = filedescriptor::FileDescriptor::dup(&fd)
+            .map_err(|_| anyhow!("Infisical Credential FD ist nicht verfügbar."))?;
+        let file = descriptor
+            .as_file()
+            .map_err(|_| anyhow!("Infisical Credential FD ist nicht lesbar."))?;
+        return read_credential(&file);
+    }
+
+    if let Some(path) = token_file {
         if path.is_file() {
-            return read_credential_path(&path);
+            return read_credential_path(path);
         }
     }
 
@@ -246,6 +264,69 @@ mod tests {
         assert_eq!(
             read_credential(&file).unwrap().as_slice(),
             b"synthetic-fixture"
+        );
+        assert_eq!(file.stream_position().unwrap(), offset);
+    }
+
+    fn config_for_fd(fd: i32) -> Config {
+        Config {
+            project_id: "fixture".into(),
+            environment: "fixture".into(),
+            secret_path: "/".into(),
+            credential_fd: Some(fd),
+            credential_name: "infisical-token".into(),
+            socket_path: PathBuf::from("/unused-fixture.sock"),
+            database_secret: "FIXTURE_DSN".into(),
+        }
+    }
+
+    #[test]
+    fn named_runtime_credential_precedes_an_unrelated_open_descriptor() {
+        use std::os::fd::AsRawFd;
+        let (socket, _peer) = std::os::unix::net::UnixStream::pair().unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("infisical-token"), b"runtime-fixture").unwrap();
+        let config = config_for_fd(socket.as_raw_fd());
+        assert_eq!(
+            load_credential_from(&config, Some(directory.path()), None)
+                .unwrap()
+                .as_slice(),
+            b"runtime-fixture"
+        );
+    }
+
+    #[test]
+    fn displaced_credential_descriptor_is_still_closed_on_exec() {
+        use std::os::fd::AsRawFd;
+        let mut legacy = tempfile::tempfile().unwrap();
+        legacy.write_all(b"legacy-fixture").unwrap();
+        let fd = legacy.as_raw_fd();
+        fcntl(fd, FcntlArg::F_SETFD(FdFlag::empty())).unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("infisical-token"), b"runtime-fixture").unwrap();
+        assert_eq!(
+            load_credential_from(&config_for_fd(fd), Some(directory.path()), None)
+                .unwrap()
+                .as_slice(),
+            b"runtime-fixture"
+        );
+        assert!(
+            FdFlag::from_bits_retain(fcntl(fd, FcntlArg::F_GETFD).unwrap())
+                .contains(FdFlag::FD_CLOEXEC)
+        );
+    }
+
+    #[test]
+    fn explicit_credential_descriptor_remains_supported_without_systemd() {
+        use std::os::fd::AsRawFd;
+        let mut file = tempfile::tempfile().unwrap();
+        file.write_all(b"descriptor-fixture").unwrap();
+        let offset = file.stream_position().unwrap();
+        assert_eq!(
+            load_credential_from(&config_for_fd(file.as_raw_fd()), None, None)
+                .unwrap()
+                .as_slice(),
+            b"descriptor-fixture"
         );
         assert_eq!(file.stream_position().unwrap(), offset);
     }

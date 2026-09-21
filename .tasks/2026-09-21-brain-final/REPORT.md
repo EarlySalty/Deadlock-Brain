@@ -14,11 +14,11 @@ Zusätzliche Integrationskorrekturen: Ein vom autorisierten Infisical-Loader üb
 
 ## Neu ausgeführte technische Prüfungen
 
-Die vorgefundenen Ausgaben enthalten **561 bestandene Tests, 0 Fehler und 61 ignorierte Tests** in 26 Testprogrammen. Die zuvor dokumentierte Zahl 569 war nicht durch ihre Summe gedeckt. Diese Dateien stammen von 00:50 Uhr und gelten nicht als neuer Prüflauf dieser Fortsetzung. Ein frischer Workspace-Lauf mit anschließendem Clippy läuft seit 01:41 Uhr als transienter User-Dienst; sein Ergebnis wird erst nach geprüftem Abschluss übernommen. Cargo verwendet höchstens zwei Jobs und ein eigenes Buildverzeichnis. Vorbestehende Warnungen sind kein Beleg für Warnungsfreiheit.
+Der frische Workspace-Lauf vor der Runtime-Korrektur bestand mit **569 Tests, 0 Fehlern und 61 ignorierten Tests**. Die zuvor vorgefundenen 561 Tests waren ein älterer Lauf und wurden nicht als neue Abnahme verwendet. Nach der Runtime-Korrektur bestanden **572 Tests, 0 Fehler, 61 ignoriert**. Alle drei neuen Credential-Regressionstests liefen dabei tatsächlich. Cargo verwendete höchstens zwei Jobs und ein eigenes Buildverzeichnis. Clippy endete nach dieser Korrektur ebenfalls mit Exit 0; vorhandene Warnungen bedeuten keine Warnungsfreiheit.
 
-SQL-Migrationsmatrix über den autorisierten Infisical-Zugang in ausschließlich neu angelegten Testdatenbanken: ursprüngliche Assertions und Idempotenz bestanden; vier neue Assertions scheiterten erwartungsgemäß vor ihrer jeweiligen Korrektur; anschließend bestanden alle fünf vollständigen Assertionsätze sowie die Idempotenz beider Folgemigrationen. Zusätzlich bestanden fünf YouTube-Vertragstests und ein Caption-Persistenztest, die im normalen Workspace-Lauf ignoriert sind. Das sind sechs zusätzliche ausgeführte Rust-Tests, keine Produktionswrites.
+SQL-Migrationsmatrix über den autorisierten Infisical-Zugang in neu angelegten Testdatenbanken: ursprüngliche Assertions und Idempotenz bestanden; vier Gegenproben scheiterten erwartungsgemäß vor ihrer jeweiligen Korrektur; anschließend bestanden fünf vollständige Assertionsätze sowie die Idempotenz beider Folgemigrationen. Zusätzlich bestanden fünf YouTube-Vertragstests, ein Caption-Persistenztest und **13 isolierte Reasoner-Vertragstests**. Das sind 19 zusätzlich ausgeführte Rust-Tests, keine Produktionswrites. Der anfängliche Fehler in der Verbindungsübergabe des lokalen Testskripts wurde korrigiert; der danach ausgeführte reguläre Testlauf war erfolgreich.
 
-Isolierte Reasoner-Vertragstests sind separat gestartet und werden erst nach einem tatsächlichen Exit-0-Ergebnis gezählt. Die CI prüft nun den gesamten Workspace, läuft auch auf main und enthält einen eigenen Postgres-Job für diese Reasoner-Verträge. Drei historisch datengebundene Warden-Prüfungen werden dort nicht gegen synthetische Fixtures als Echtmessung ausgegeben.
+Für `61b04be` bestand GitHub-Lauf **35545490549** mit fünf erfolgreichen Jobs: Rust, Postgres, Caption Integration, YouTube Contract und Reasoner Postgres. Diese Abnahme wird nicht auf spätere Commits übertragen. Drei historisch datengebundene Warden-Tests werden nicht gegen künstliche Fixtures als aktuelle Echtmessung ausgegeben.
 
 Artefakte und vollständige Testausgaben liegen außerhalb des Repositorys unter `/home/nathanael/.local/share/deadlock-brain/releases/20260921-final/`. Roh-Spielerdaten und Datenbankzugänge werden nicht eingecheckt. Die beiden SQL-Testskripte in dieser Task-Akte dokumentieren die genauen Aufrufe; gleichnamige vorhandene Testdatenbanken werden nicht überschrieben.
 
@@ -30,10 +30,31 @@ Der Reasoner liest seine Helden- und wesentlichen Itemmodelle dagegen aus der As
 
 Beim Betriebsinventar waren Build-Data, Sheet-Sync und YouTube-Learning fehlgeschlagen. Patchnotes-Sync und Wiki hatten erfolgreiche letzte Läufe. Die separate Korpus-Webseite läuft als Python-Prozess aus deadlock-build-corpus und nutzt weder das entfernte Python-Paket noch eine Python-Brücke des Brain. Sie ist kein Nachweis des Brain-Rust-Deployments und wird nicht still als Rust ausgegeben.
 
+## Native Runtime-Prüfung und Messung vor dem Quellenrefresh
+
+Ein echter Start mit Systemd-Credential scheiterte zunächst, weil eine alte konfigurierte FD-Nummer inzwischen einem anderen offenen Deskriptor gehörte. Die native Auswahl bevorzugt jetzt das namentlich gebundene Systemd-Credential. Ein vorhandener alter FD bleibt gegen Vererbung beim Exec geschützt. Regressionen prüfen die Auswahl vor einem offenen Socket, den Schutz eines verdrängten FDs und den weiterhin unterstützten expliziten FD-Pfad.
+
+Der wiederholte native Start über `deadlock-brain-secret-exec` und `deadlock-brain ask-context` endete mit Exit 0. Das Ergebnis ist gültiges JSON mit 161.508 Bytes und enthält das gebundene Heldenwissen. Dieser Vorabtest verwendet Debug-Binaries und ersetzt keinen späteren Release-Nachweis. Die produktiven Dienste wurden dafür nicht umgeschaltet.
+
+Acht Helden wurden in einer einzigen datenbankseitig lesenden Repeatable-read-Transaktion eingefroren. Der Bestand umfasst 41.279 Spieler-Beobachtungen und 2.245 Autoren-Beobachtungen. Der jüngste Match-Zeitpunkt ist **18.09.2026, 03:10:22 Uhr, Europe/Berlin**. Die Ergebnisse sind deshalb ausdrücklich die Messung vor dem Quellenrefresh.
+
+| Held | Training Tau | Training Jaccard@12 | Holdout Tau | Holdout Jaccard@12 | Holdout Staples | Match-Stichprobe |
+|---|---:|---:|---:|---:|---:|---:|
+| Warden | 0,867 | 0,833 | 0,822 | 0,833 | 10/14 | 421 |
+| Infernus | 0,462 | 1,000 | 0,443 | 1,000 | 12/14 | 507 |
+| Vindicta | 0,137 | 1,000 | 0,123 | 0,846 | 11/12 | 266 |
+| Lady Geist | 0,104 | 0,846 | 0,132 | 0,917 | 11/13 | 353 |
+| Abrams | -0,067 | 0,500 | 0,098 | 0,583 | 7/10 | 244 |
+| Viscous | 0,315 | 0,833 | 0,322 | 0,833 | 10/11 | 107 |
+| Shiv | 0,636 | 1,000 | 0,561 | 0,917 | 11/12 | 203 |
+| Haze | 0,571 | 0,667 | 0,571 | 0,667 | 8/11 | 79 |
+
+Jeweils der vom Planner gewählte Primärbuild, nicht die nachträglich beste Variante. Training und Holdout entdecken ihre Familien aus den jeweils zulässigen Trainingsdaten. Die Holdouts sind nach Spielern und Autoren getrennt; ihre Zuordnung benutzt eingefrorene Trainingszentren. Acht primäre Staple-Gates sind rot; Haze liegt zusätzlich unter der bestehenden Mindeststichprobe von 100 Matches. Die acht Primärbuilds melden niedrige Konfidenz. Daraus folgt keine fachliche Veröffentlichungserlaubnis.
+
 ## Sicherheitsvorfall bei der Verbindungsdiagnose
 
 Ein falsch verwendeter libpq-Aufruf behandelte den Verbindungsstring als Datenbanknamen und gab dadurch einen geheimnishaltigen Ausschnitt in einer Fehlermeldung aus. Der Wert wird hier nicht wiederholt. Der korrigierte Aufruf verwendet den vorgesehenen Verbindungsparameter; Verbindungsfehler werden vor der Ausgabe unterdrückt und durch feste Meldungen ersetzt. Der betroffene Datenbankzugang muss über den normalen Betreiberprozess rotiert werden. Keine unkoordinierte Rotation aller Dienste wurde vorgenommen.
 
 ## Noch nicht behauptete Abschlüsse
 
-Reguläre Merge-Freigabe, Remote-CI des neuen Gesamtstands, Main-Merge und Push, Release-Installation, Migrationen auf Produktion, Dienstumstellung, funktionale Live-Nachweise, frische Reasoner-Messungen sowie Bereinigung sind noch nicht abgeschlossen. Diese Felder werden nur anhand tatsächlich ausgeführter Schritte ergänzt.
+Reguläre Merge-Freigabe, Remote-CI nach der letzten Runtime-Korrektur, Main-Merge und Push, Release-Installation, Migrationen auf Produktion, Dienstumstellung, funktionale Release-Nachweise, Quellenrefresh, abschließende Replays und Messungen sowie Bereinigung sind noch nicht abgeschlossen. Diese Felder werden nur anhand tatsächlich ausgeführter Schritte ergänzt.

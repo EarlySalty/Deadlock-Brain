@@ -8,7 +8,7 @@ eval "$(/home/naniadm/Documents/Infisical/export_gpt_secret.py --secret DEADLOCK
 trap 'unset DEADLOCK_CENTRAL_DSN REASONER_SCRATCH_DSN base_dsn query_suffix' EXIT
 : "${DEADLOCK_CENTRAL_DSN:?Autorisierter Datenbankzugang fehlt}"
 name="reasoner_a_fix_20260921_$(date +%H%M%S)_$$"
-if ! PGDATABASE="$DEADLOCK_CENTRAL_DSN" psql -X -w -v ON_ERROR_STOP=1 -c "CREATE DATABASE $name" >/dev/null 2>/dev/null; then
+if ! psql --dbname="$DEADLOCK_CENTRAL_DSN" -X -w -v ON_ERROR_STOP=1 -c "CREATE DATABASE $name" >/dev/null 2>/dev/null; then
   printf 'Scratch-Datenbank konnte nicht neu angelegt werden; kein Überschreiben.\n' >&2; exit 1
 fi
 printf '%s\n' "$name" >>"$OUT/owned-test-databases.txt"
@@ -17,7 +17,7 @@ base_dsn=${base_dsn%/*}
 query_suffix=
 if [[ "$DEADLOCK_CENTRAL_DSN" == *\?* ]]; then query_suffix="?${DEADLOCK_CENTRAL_DSN#*\?}"; fi
 export REASONER_SCRATCH_DSN="$base_dsn/$name$query_suffix"
-actual=$(PGDATABASE="$REASONER_SCRATCH_DSN" psql -X -w -Atqc 'SELECT current_database()' 2>/dev/null)
+actual=$(psql --dbname="$REASONER_SCRATCH_DSN" -X -w -Atqc 'SELECT current_database()' 2>/dev/null)
 [[ "$actual" == "$name" ]] || exit 1
 unset DEADLOCK_CENTRAL_DSN base_dsn query_suffix
 cd rust

@@ -28,27 +28,27 @@ R4=tests/patch-understanding/followup2-r4-assertions.sql
 create_db() {
   local name="${PREFIX}_$1"
   [[ "$name" =~ ^brain_final_[a-z0-9_]+$ ]] || exit 2
-  if ! PGDATABASE="$source_dsn" psql -X -w -v ON_ERROR_STOP=1 -c "CREATE DATABASE $name" >/dev/null 2>/dev/null; then
+  if ! psql --dbname="$source_dsn" -X -w -v ON_ERROR_STOP=1 -c "CREATE DATABASE $name" >/dev/null 2>/dev/null; then
     printf 'Neue Scratch-Datenbank %s konnte nicht angelegt werden; kein Überschreiben.\n' "$name" >&2
     exit 1
   fi
   printf '%s\n' "$name" >>"$OUT/owned-test-databases.txt"
   test_dsn="$base_dsn/$name$query_suffix"
   local actual
-  actual=$(PGDATABASE="$test_dsn" psql -X -w -Atqc 'SELECT current_database()' 2>/dev/null) || exit 1
+  actual=$(psql --dbname="$test_dsn" -X -w -Atqc 'SELECT current_database()' 2>/dev/null) || exit 1
   [[ "$actual" == "$name" ]] || { printf 'Scratch-Zielprüfung fehlgeschlagen.\n' >&2; exit 1; }
 }
 run_sql() {
-  if ! PGDATABASE="$test_dsn" psql -X -w -v ON_ERROR_STOP=1 -f "$1" >/dev/null 2>/dev/null; then
+  if ! psql --dbname="$test_dsn" -X -w -v ON_ERROR_STOP=1 -f "$1" >/dev/null 2>/dev/null; then
     printf 'SQL-Test fehlgeschlagen: %s\n' "$1" >&2
     exit 1
   fi
 }
 count_revisions() {
-  PGDATABASE="$test_dsn" psql -X -w -Atqc 'SELECT count(*) FROM brain.patch_evidence_revisions' 2>/dev/null
+  psql --dbname="$test_dsn" -X -w -Atqc 'SELECT count(*) FROM brain.patch_evidence_revisions' 2>/dev/null
 }
 expect_fail() {
-  if PGDATABASE="$test_dsn" psql -X -w -v ON_ERROR_STOP=1 -f "$1" >/dev/null 2>/dev/null; then
+  if psql --dbname="$test_dsn" -X -w -v ON_ERROR_STOP=1 -f "$1" >/dev/null 2>/dev/null; then
     printf 'Gegenprobe war unerwartet grün: %s\n' "$1" >&2; exit 1
   fi
   printf 'Gegenprobe erwartungsgemäß rot: %s\n' "$1"

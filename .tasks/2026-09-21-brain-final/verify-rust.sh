@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -uo pipefail
 cd /home/nathanael/.worktrees/brain-final-integration-20260921/rust || exit 1
-OUT=/home/nathanael/.local/share/deadlock-brain/releases/20260921-final
+umask 077
+OUT="${1:-/home/nathanael/.local/share/deadlock-brain/releases/20260921-final}"
 TARGET=/home/nathanael/.cache/deadlock-brain-final-20260921
 mkdir -p "$OUT"
 export SQLX_OFFLINE=true
