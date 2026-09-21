@@ -1106,6 +1106,18 @@ struct InsightImportJsonArgs {
     dry_run: bool,
 }
 
+fn command_is_read_only(command: &Commands) -> bool {
+    match command {
+        Commands::AskContext(_) | Commands::Context(_) => true,
+        Commands::Reason { target } => match target {
+            ReasonCommands::Build(args) => args.no_persist,
+            ReasonCommands::PatchImpact(args) => args.no_persist,
+            ReasonCommands::Backtest(args) => args.no_persist,
+        },
+        _ => false,
+    }
+}
+
 fn main() {
     if let Err(error) = run_from_cli() {
         eprintln!("{error:#}");
@@ -1162,8 +1174,13 @@ async fn run(cli: Cli) -> Result<()> {
         other => other,
     };
     prepare_dirs(&settings)?;
-    // Ein PgPool fuer die gesamte Befehlsausfuehrung (DSN aus DEADLOCK_CENTRAL_DSN).
-    let pool = deadlock_brain_core::pg::pg_pool().await?;
+    // Wissensabfragen und ausdrücklich persistenzfreie Reasoner-Läufe erzwingen
+    // Read-only bereits beim Verbindungsaufbau.
+    let pool = if command_is_read_only(&command) {
+        deadlock_brain_core::pg::pg_pool_read_only().await?
+    } else {
+        deadlock_brain_core::pg::pg_pool().await?
+    };
 
     match command {
         Commands::Status => print_status(&pool, &settings).await,
@@ -3453,6 +3470,52 @@ fn capitalize(value: &str) -> String {
 mod tests {
     use super::*;
     use clap::CommandFactory;
+
+    #[test]
+    fn wissensabfragen_erzwingen_read_only() {
+        for argv in [
+            vec!["deadlock-brain", "ask-context", "Warden"],
+            vec!["deadlock-brain", "context", "Warden"],
+            vec![
+                "deadlock-brain",
+                "reason",
+                "build",
+                "Warden",
+                "--no-persist",
+            ],
+            vec![
+                "deadlock-brain",
+                "reason",
+                "patch-impact",
+                "Warden",
+                "--no-persist",
+            ],
+            vec![
+                "deadlock-brain",
+                "reason",
+                "backtest",
+                "--hero",
+                "Warden",
+                "--no-persist",
+            ],
+        ] {
+            let cli = Cli::try_parse_from(argv).expect("read-only command must parse");
+            assert!(command_is_read_only(&cli.command));
+        }
+    }
+
+    #[test]
+    fn schreibende_befehle_bleiben_schreibfaehig() {
+        for argv in [
+            vec!["deadlock-brain", "status"],
+            vec!["deadlock-brain", "reason", "build", "Warden"],
+            vec!["deadlock-brain", "reason", "patch-impact", "Warden"],
+            vec!["deadlock-brain", "reason", "backtest", "--hero", "Warden"],
+        ] {
+            let cli = Cli::try_parse_from(argv).expect("write-capable command must parse");
+            assert!(!command_is_read_only(&cli.command));
+        }
+    }
 
     fn assert_no_persist_cli(command: &str, hero: &[&str]) {
         let mut argv = vec!["deadlock-brain", "reason", command];
