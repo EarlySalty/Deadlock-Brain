@@ -1,7 +1,6 @@
 use std::{
-    collections::HashMap,
-    env, fmt, fs,
-    path::{Path, PathBuf},
+    env, fmt,
+    path::PathBuf,
 };
 
 use crate::{CoreError, Result};
@@ -66,9 +65,28 @@ impl fmt::Debug for Settings {
 }
 
 pub fn repo_root() -> PathBuf {
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    // Laufzeitvorgabe hat Vorrang: ein aus einem Feature-Worktree gebautes und
+    // spaeter bereinigtes Release wuerde sonst ueber das eingebrannte
+    // CARGO_MANIFEST_DIR auf den entfernten Worktree zeigen. Der Dienst setzt
+    // DEADLOCK_BRAIN_ROOT auf das installierte Repo.
+    repo_root_resolve(
+        std::env::var_os("DEADLOCK_BRAIN_ROOT").map(PathBuf::from),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+    )
+}
+
+fn repo_root_resolve(env_root: Option<PathBuf>, manifest_dir: PathBuf) -> PathBuf {
+    if let Some(root) = env_root {
+        if root.is_dir() {
+            return root;
+        }
+        eprintln!(
+            "DEADLOCK_BRAIN_ROOT is set but not a usable directory; falling back to the build-time repo path."
+        );
+    }
+
     for ancestor in manifest_dir.ancestors() {
-        if ancestor.join("data").is_dir() && ancestor.join("src/deadlock_brain").is_dir() {
+        if ancestor.join("rust/Cargo.toml").is_file() && ancestor.join("config").is_dir() {
             return ancestor.to_path_buf();
         }
     }
@@ -88,20 +106,15 @@ pub fn default_data_dir() -> PathBuf {
 
 pub fn load_settings() -> Result<Settings> {
     let project_root = repo_root();
-    let dotenv = DotEnv::load(&project_root.join(".env"))?;
-    let data_dir = path_setting(
-        &dotenv,
-        "DEADLOCK_BRAIN_DATA_DIR",
-        project_root.join("data"),
-    );
-    let fireworks_api_key = setting(&dotenv, "FIREWORK_API_KEY")
-        .or_else(|| setting(&dotenv, "FIREWORKS_API_KEY"))
+    let data_dir = path_env("DEADLOCK_BRAIN_DATA_DIR", project_root.join("data"));
+    let fireworks_api_key = setting("FIREWORK_API_KEY")
+        .or_else(|| setting("FIREWORKS_API_KEY"))
         .filter(|value| !value.trim().is_empty());
-    let fireworks_base_url = setting(&dotenv, "FIREWORK_BASE_URL")
-        .or_else(|| setting(&dotenv, "FIREWORKS_BASE_URL"))
+    let fireworks_base_url = setting("FIREWORK_BASE_URL")
+        .or_else(|| setting("FIREWORKS_BASE_URL"))
         .unwrap_or_else(|| DEFAULT_FIREWORKS_BASE_URL.to_string());
-    let fireworks_model = setting(&dotenv, "FIREWORK_MODEL")
-        .or_else(|| setting(&dotenv, "FIREWORKS_MODEL"))
+    let fireworks_model = setting("FIREWORK_MODEL")
+        .or_else(|| setting("FIREWORKS_MODEL"))
         .unwrap_or_else(|| DEFAULT_FIREWORKS_MODEL.to_string());
 
     Ok(Settings {
@@ -109,23 +122,22 @@ pub fn load_settings() -> Result<Settings> {
         raw_dir: data_dir.join("raw"),
         cache_dir: data_dir.join("cache"),
         data_dir,
-        user_agent: string_setting(&dotenv, "DEADLOCK_BRAIN_USER_AGENT", DEFAULT_USER_AGENT),
-        sheet_id: string_setting(&dotenv, "DEADLOCK_STATS_SHEET_ID", DEFAULT_SHEET_ID),
-        sheet_gid: string_setting(&dotenv, "DEADLOCK_STATS_SHEET_GID", "0"),
-        wiki_enabled: bool_setting(&dotenv, "DEADLOCK_BRAIN_WIKI_ENABLED", false),
-        wiki_min_delay_seconds: f64_setting(&dotenv, "DEADLOCK_BRAIN_WIKI_MIN_DELAY_SECONDS", 5.0)?,
+        user_agent: string_setting("DEADLOCK_BRAIN_USER_AGENT", DEFAULT_USER_AGENT),
+        sheet_id: string_setting("DEADLOCK_STATS_SHEET_ID", DEFAULT_SHEET_ID),
+        sheet_gid: string_setting("DEADLOCK_STATS_SHEET_GID", "0"),
+        wiki_enabled: bool_setting("DEADLOCK_BRAIN_WIKI_ENABLED", false),
+        wiki_min_delay_seconds: f64_setting("DEADLOCK_BRAIN_WIKI_MIN_DELAY_SECONDS", 5.0)?,
         wiki_cache_ttl_seconds: u64_setting(
-            &dotenv,
             "DEADLOCK_BRAIN_WIKI_CACHE_TTL_SECONDS",
             604_800,
         )?,
         ai_api_key: fireworks_api_key,
         ai_base_url: fireworks_base_url.trim_end_matches('/').to_string(),
         ai_model: fireworks_model,
-        ai_timeout_seconds: u64_setting(&dotenv, "FIREWORKS_TIMEOUT_SECONDS", 300)?,
-        ai_max_completion_tokens: u64_setting(&dotenv, "FIREWORKS_MAX_TOKENS", 16_000)?,
-        ai_temperature: f64_setting(&dotenv, "FIREWORKS_TEMPERATURE", 0.2)?,
-        ai_top_p: f64_setting(&dotenv, "FIREWORKS_TOP_P", 0.9)?,
+        ai_timeout_seconds: u64_setting("FIREWORKS_TIMEOUT_SECONDS", 300)?,
+        ai_max_completion_tokens: u64_setting("FIREWORKS_MAX_TOKENS", 16_000)?,
+        ai_temperature: f64_setting("FIREWORKS_TEMPERATURE", 0.2)?,
+        ai_top_p: f64_setting("FIREWORKS_TOP_P", 0.9)?,
         ai_use_token_plan: false,
     })
 }
@@ -137,19 +149,12 @@ pub fn path_env(name: &'static str, default: PathBuf) -> PathBuf {
         .unwrap_or(default)
 }
 
-fn path_setting(dotenv: &DotEnv, name: &'static str, default: PathBuf) -> PathBuf {
-    setting(dotenv, name)
-        .map(PathBuf::from)
-        .filter(|value| !value.as_os_str().is_empty())
-        .unwrap_or(default)
+fn string_setting(name: &'static str, default: &str) -> String {
+    setting(name).unwrap_or_else(|| default.to_string())
 }
 
-fn string_setting(dotenv: &DotEnv, name: &'static str, default: &str) -> String {
-    setting(dotenv, name).unwrap_or_else(|| default.to_string())
-}
-
-fn bool_setting(dotenv: &DotEnv, name: &'static str, default: bool) -> bool {
-    setting(dotenv, name)
+fn bool_setting(name: &'static str, default: bool) -> bool {
+    setting(name)
         .map(|value| {
             matches!(
                 value.trim().to_ascii_lowercase().as_str(),
@@ -159,8 +164,8 @@ fn bool_setting(dotenv: &DotEnv, name: &'static str, default: bool) -> bool {
         .unwrap_or(default)
 }
 
-fn u64_setting(dotenv: &DotEnv, name: &'static str, default: u64) -> Result<u64> {
-    match setting(dotenv, name) {
+fn u64_setting(name: &'static str, default: u64) -> Result<u64> {
+    match setting(name) {
         Some(value) => value
             .parse::<u64>()
             .map_err(|error| CoreError::invalid_integer_env(name, value, error)),
@@ -168,8 +173,8 @@ fn u64_setting(dotenv: &DotEnv, name: &'static str, default: u64) -> Result<u64>
     }
 }
 
-fn f64_setting(dotenv: &DotEnv, name: &'static str, default: f64) -> Result<f64> {
-    match setting(dotenv, name) {
+fn f64_setting(name: &'static str, default: f64) -> Result<f64> {
+    match setting(name) {
         Some(value) => value
             .parse::<f64>()
             .map_err(|error| CoreError::invalid_float_env(name, value, error)),
@@ -177,52 +182,10 @@ fn f64_setting(dotenv: &DotEnv, name: &'static str, default: f64) -> Result<f64>
     }
 }
 
-fn setting(dotenv: &DotEnv, name: &'static str) -> Option<String> {
+fn setting(name: &'static str) -> Option<String> {
     env::var(name)
         .ok()
         .filter(|value| !value.trim().is_empty())
-        .or_else(|| dotenv.get(name))
-}
-
-#[derive(Debug, Default)]
-struct DotEnv {
-    values: HashMap<String, String>,
-}
-
-impl DotEnv {
-    fn load(path: &Path) -> Result<Self> {
-        if !path.exists() {
-            return Ok(Self::default());
-        }
-        let mut values = HashMap::new();
-        for line in fs::read_to_string(path)?.lines() {
-            let stripped = line.trim();
-            if stripped.is_empty() || stripped.starts_with('#') {
-                continue;
-            }
-            let Some((key, value)) = stripped.split_once('=') else {
-                continue;
-            };
-            let key = key.trim();
-            if key.is_empty() {
-                continue;
-            }
-            let value = value
-                .trim()
-                .trim_matches('"')
-                .trim_matches('\'')
-                .to_string();
-            values.insert(key.to_string(), value);
-        }
-        Ok(Self { values })
-    }
-
-    fn get(&self, name: &str) -> Option<String> {
-        self.values
-            .get(name)
-            .cloned()
-            .filter(|value| !value.trim().is_empty())
-    }
 }
 
 #[cfg(test)]
@@ -233,5 +196,18 @@ mod tests {
     fn repo_root_points_at_project() {
         let root = repo_root();
         assert!(root.join("rust").is_dir());
+    }
+
+    #[test]
+    fn repo_root_prefers_runtime_root_env() {
+        let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        // Ein gesetztes, existierendes DEADLOCK_BRAIN_ROOT gewinnt gegen den
+        // eingebrannten Build-Pfad (Relokation nach Worktree-Bereinigung).
+        let tmp = std::env::temp_dir();
+        assert_eq!(repo_root_resolve(Some(tmp.clone()), manifest.clone()), tmp);
+        // Ein ungueltiger Root faellt auf die Build-Zeit-Aufloesung zurueck.
+        let bogus = tmp.join("deadlock-brain-nonexistent-root-xyz");
+        let resolved = repo_root_resolve(Some(bogus), manifest.clone());
+        assert!(resolved.join("rust").is_dir());
     }
 }

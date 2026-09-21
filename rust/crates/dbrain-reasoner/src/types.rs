@@ -13,6 +13,24 @@ pub struct ReasonerConfig {
     pub min_prevalence_builds: i64,
     pub combat_window_seconds: f64,
     pub channel_uptime: f64,
+    #[serde(default = "default_incoming_weapon_share")]
+    pub incoming_weapon_share: f64,
+    #[serde(default)]
+    pub incoming_pressure_dps: Option<f64>,
+}
+
+fn default_incoming_weapon_share() -> f64 {
+    0.5
+}
+
+impl ReasonerConfig {
+    pub fn incoming_weapon_fraction(&self) -> f64 {
+        if self.incoming_weapon_share.is_finite() {
+            self.incoming_weapon_share.clamp(0.0, 1.0)
+        } else {
+            0.5
+        }
+    }
 }
 
 impl Default for ReasonerConfig {
@@ -25,6 +43,8 @@ impl Default for ReasonerConfig {
             min_prevalence_builds: 5,
             combat_window_seconds: 40.0,
             channel_uptime: 0.55,
+            incoming_weapon_share: default_incoming_weapon_share(),
+            incoming_pressure_dps: None,
         }
     }
 }
@@ -202,10 +222,23 @@ pub struct HeroModel {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ConditionKind {
     None,
-    ActiveCooldown { uptime: f64, cooldown: f64 },
-    ActionBound { action: String },
-    RampUp { ramp_seconds: f64 },
-    StateBound { threshold: f64 },
+    SpiritDamageToHeroes {
+        refresh_seconds: f64,
+        max_stacks: Option<u32>,
+    },
+    ActiveCooldown {
+        uptime: f64,
+        cooldown: f64,
+    },
+    ActionBound {
+        action: String,
+    },
+    RampUp {
+        ramp_seconds: f64,
+    },
+    StateBound {
+        threshold: f64,
+    },
     MeleeBound,
     ShotBound,
 }
@@ -326,6 +359,14 @@ pub struct BuildObject {
     pub ability_order: Vec<AbilityStep>,
     pub confidence: Confidence,
     pub rationale: String,
+    /// The root remains the dominant plan for existing consumers; additional
+    /// independently planned families are carried as non-recursive children.
+    #[serde(default)]
+    pub family: Option<crate::families::BuildFamily>,
+    #[serde(default)]
+    pub variants: Vec<BuildObject>,
+    #[serde(default)]
+    pub family_discovery: Option<crate::families::FamilyDiscovery>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -517,6 +558,22 @@ mod tests {
         assert_eq!(value["channel_uptime"], json!(0.55));
         let restored: ReasonerConfig = serde_json::from_value(value).unwrap();
         assert_eq!(restored, config);
+    }
+
+    #[test]
+    fn old_configs_keep_the_explicit_half_weapon_default() {
+        let mut value = serde_json::to_value(ReasonerConfig::default()).unwrap();
+        value
+            .as_object_mut()
+            .unwrap()
+            .remove("incoming_weapon_share");
+        let old: ReasonerConfig = serde_json::from_value(value).unwrap();
+        assert_eq!(old.incoming_weapon_fraction(), 0.5);
+        let mut cfg = old;
+        cfg.incoming_weapon_share = 0.0;
+        assert_eq!(cfg.incoming_weapon_fraction(), 0.0);
+        cfg.incoming_weapon_share = 1.0;
+        assert_eq!(cfg.incoming_weapon_fraction(), 1.0);
     }
 
     #[test]

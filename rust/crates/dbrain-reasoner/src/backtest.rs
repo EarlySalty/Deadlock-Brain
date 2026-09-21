@@ -338,6 +338,9 @@ mod tests {
 
     fn build(ids: &[i64]) -> BuildObject {
         BuildObject {
+            family: None,
+            variants: Vec::new(),
+            family_discovery: None,
             hero_id: 25,
             hero_name: "Warden".to_string(),
             patch_tag: "current".to_string(),
@@ -398,15 +401,14 @@ mod tests {
         assert_eq!(json["aggregate"]["reference_recall"], 1.0 / 6.0);
         assert_eq!(json["aggregate"]["core_jaccard"], 0.125);
         assert_eq!(crate::persistence_json(&report).unwrap(), json);
-        let no_authors =
-            serde_json::to_value(backtest_hero_with_build(
-                25,
-                "Warden",
-                &build(&[]),
-                &[],
-                &PopulationPrior::default(),
-            ))
-            .unwrap();
+        let no_authors = serde_json::to_value(backtest_hero_with_build(
+            25,
+            "Warden",
+            &build(&[]),
+            &[],
+            &PopulationPrior::default(),
+        ))
+        .unwrap();
         assert_eq!(no_authors["aggregate"]["reference_recall"], 0.0);
         assert_eq!(no_authors["aggregate"]["core_jaccard"], 0.0);
         let empty = serde_json::to_value(backtest_metrics(&build(&[]), &author(&[], &[]))).unwrap();
@@ -459,8 +461,13 @@ mod tests {
             0.5
         );
         for authors in [vec![], vec![author(&[], &[])]] {
-            let report =
-                backtest_hero_with_build(25, "Warden", &build, &authors, &PopulationPrior::default());
+            let report = backtest_hero_with_build(
+                25,
+                "Warden",
+                &build,
+                &authors,
+                &PopulationPrior::default(),
+            );
             assert!(serde_json::to_value(report.aggregate).unwrap()["order_proximity"].is_null());
         }
     }

@@ -85,6 +85,19 @@ fn values(event: &Value) -> Option<(f64, f64)> {
             return Some((100.0, 100.0 + direction * numbers[0]));
         }
     }
+    if let Some((_, after)) = line.split_once(" is ") {
+        let numbers = numeric_tokens(after);
+        if numbers.len() == 1 && after.contains('%') {
+            let direction = if after.contains("faster") || after.contains("higher") {
+                1.0
+            } else if after.contains("slower") || after.contains("lower") {
+                -1.0
+            } else {
+                return None;
+            };
+            return Some((100.0, 100.0 + direction * numbers[0]));
+        }
+    }
     Some((
         number(event.get("old_value"))?,
         number(event.get("new_value"))?,
@@ -103,6 +116,14 @@ fn event_id(event: &Value, keys: &[&str]) -> Option<i64> {
 fn target(hero: &HeroModel, event: &Value, snapshots: &[PatchSnapshot]) -> Option<DeltaTarget> {
     let name = text(event.get("entity_name"));
     if name.eq_ignore_ascii_case(&hero.name) {
+        let patch_line = normalized(&line(event));
+        if let Some(snapshot) = snapshots.iter().find(|snapshot| {
+            matches!(snapshot.target, DeltaTarget::Ability(_))
+                && !snapshot.name.is_empty()
+                && patch_line.starts_with(&normalized(&snapshot.name))
+        }) {
+            return Some(snapshot.target.clone());
+        }
         return Some(DeltaTarget::Hero(hero.hero_id));
     }
     if let Some(snapshot) = snapshots
@@ -148,18 +169,25 @@ fn mechanic(line: &str) -> String {
 
 fn stat_name(event: &Value) -> String {
     let line = line(event).to_ascii_lowercase();
-    let prefix = [" increased", " reduced", " decreased", " changed", " from "]
-        .iter()
-        .filter_map(|needle| line.find(needle))
-        .min()
-        .map_or(line.as_str(), |end| &line[..end]);
+    let prefix = [
+        " increased",
+        " reduced",
+        " decreased",
+        " changed",
+        " from ",
+        " is ",
+    ]
+    .iter()
+    .filter_map(|needle| line.find(needle))
+    .min()
+    .map_or(line.as_str(), |end| &line[..end]);
     normalized(prefix)
 }
 
 fn matches_field(name: &str, field: &str, label: &str) -> bool {
-    if name == normalized(field.rsplit('.').next().unwrap_or(field))
-        || (!label.is_empty() && name == normalized(label))
-    {
+    let field_name = normalized(field.rsplit('.').next().unwrap_or(field));
+    let label_name = normalized(label);
+    if name == field_name || (!label_name.is_empty() && name == label_name) {
         return true;
     }
     let aliases: &[&str] = match field {
@@ -168,10 +196,48 @@ fn matches_field(name: &str, field: &str, label: &str) -> bool {
         "weapon.reload_duration" => &["reloadtime", "basereloadtime", "reloadduration"],
         "weapon.clip_size" => &["ammocapacity", "baseammo", "clipsize"],
         "base_health" => &["health", "basehealth"],
-        "cooldown" => &["cooldown"],
+        "scaling.EFireRate" => &[
+            "fireratespiritscaling",
+            "fireratespiritpowerscaling",
+            "fireratescalingwithspirit",
+        ],
+        "scaling.ERoundsPerSecond" => &[
+            "roundsperspiritscaling",
+            "roundspersecondspiritscaling",
+            "roundsperspirit",
+        ],
+        "standard_level_up_upgrades.MODIFIER_VALUE_BASE_BULLET_DAMAGE_FROM_LEVEL" => &[
+            "bulletdamageperboon",
+            "basebulletdamageperboon",
+            "bulletdamagegrowthperboon",
+        ],
+        "properties.ForwardVelocity" => &[
+            "projectilespeed",
+            "projecticalrangeandspeed",
+            "projectilerangeandspeed",
+            "travelspeed",
+        ],
+        "properties.BonusSpirit" => &["spiritpoweronproc", "bonusspirit"],
+        "properties.BuildUpPerShot" => &["buildup", "buildupershot"],
+        "property_spirit_scaling.BulletsBonusMagicDamage" => {
+            &["basebulletdamagescaling", "basebulletdamagespiritscaling"]
+        }
+        "cooldown" | "properties.AbilityCooldown" => &["cooldown"],
+        _ if field.ends_with(".StatusResistancePercent.bonus") => &[
+            "debuffresistance",
+            "statusresistance",
+            "statusresistancepercent",
+        ],
+        _ if field.ends_with(".CombatBarrier.bonus") => &[
+            "spiritscaling",
+            "spiritpowerscaling",
+            "barrierspiritscaling",
+        ],
         _ => &[],
     };
-    aliases.contains(&name)
+    aliases
+        .iter()
+        .any(|alias| name == *alias || name.ends_with(alias))
 }
 
 pub fn compute_patch_delta(hero: &HeroModel, events: &[Value]) -> Vec<PatchDelta> {
@@ -314,6 +380,60 @@ fn apply_one(hero: &mut HeroModel, items: &mut [ItemModel], delta: &PatchDelta) 
     if !factor.is_finite() || !(1.0 / MAX_FACTOR..=MAX_FACTOR).contains(&factor) {
         return false;
     }
+    if let DeltaTarget::Ability(id) = delta.target {
+        if let Some(rest) = app.field.strip_prefix("upgrade.") {
+            let mut parts = rest.splitn(3, '.');
+            let Some(upgrade_index) = parts.next().and_then(|part| part.parse::<usize>().ok())
+            else {
+                return false;
+            };
+            let Some(property_name) = parts.next() else {
+                return false;
+            };
+            if parts.next() != Some("bonus") {
+                return false;
+            }
+            let Some(ability) = hero
+                .abilities
+                .iter_mut()
+                .find(|ability| ability.ability_id == id)
+            else {
+                return false;
+            };
+            let Some(property) = ability
+                .upgrades
+                .get_mut(upgrade_index)
+                .and_then(|upgrade| upgrade.get_mut("property_upgrades"))
+                .and_then(Value::as_array_mut)
+                .and_then(|properties| {
+                    properties.iter_mut().find(|property| {
+                        property.get("name").and_then(Value::as_str) == Some(property_name)
+                    })
+                })
+            else {
+                return false;
+            };
+            let Some(current) = number(property.get("bonus")) else {
+                return false;
+            };
+            let updated = current * factor;
+            let cumulative = updated / app.snapshot_value;
+            if !updated.is_finite()
+                || updated <= 0.0
+                || !cumulative.is_finite()
+                || !(1.0 / MAX_FACTOR..=MAX_FACTOR).contains(&cumulative)
+            {
+                return false;
+            }
+            property["bonus"] = Value::from(updated);
+            if let Some(step) = ability.scaling_step.as_mut().filter(|step| {
+                step.upgrade_index == upgrade_index as i64 && step.stat == property_name
+            }) {
+                step.to = step.from + updated;
+            }
+            return true;
+        }
+    }
     let value = match delta.target {
         DeltaTarget::Hero(id) if id == hero.hero_id => match app.field.as_str() {
             "weapon.bullet_damage" => Some(&mut hero.weapon.bullet_damage),
@@ -325,13 +445,26 @@ fn apply_one(hero: &mut HeroModel, items: &mut [ItemModel], delta: &PatchDelta) 
             field => field
                 .strip_prefix("scaling.")
                 .and_then(|name| hero.scaling.iter_mut().find(|stat| stat.stat == name))
-                .and_then(|stat| stat.per_spirit.as_mut()),
+                .and_then(|stat| stat.per_spirit.as_mut())
+                .or_else(|| {
+                    field
+                        .strip_prefix("standard_level_up_upgrades.")
+                        .and_then(|name| hero.standard_level_up_upgrades.get_mut(name))
+                }),
         },
-        DeltaTarget::Ability(id) if app.field == "cooldown" => hero
+        DeltaTarget::Ability(id) => hero
             .abilities
             .iter_mut()
             .find(|ability| ability.ability_id == id)
-            .map(|ability| &mut ability.cooldown),
+            .and_then(|ability| {
+                if app.field == "cooldown" {
+                    Some(&mut ability.cooldown)
+                } else {
+                    app.field
+                        .strip_prefix("properties.")
+                        .and_then(|name| ability.properties.get_mut(name))
+                }
+            }),
         DeltaTarget::Item(id) => {
             items
                 .iter_mut()
@@ -340,8 +473,12 @@ fn apply_one(hero: &mut HeroModel, items: &mut [ItemModel], delta: &PatchDelta) 
                     if app.field == "proc_cooldown" {
                         return item.proc_cooldown.as_mut();
                     }
-                    let name = app.field.strip_prefix("properties.")?;
-                    item.properties.get_mut(name)
+                    if let Some(name) = app.field.strip_prefix("properties.") {
+                        return item.properties.get_mut(name);
+                    }
+                    app.field
+                        .strip_prefix("property_spirit_scaling.")
+                        .and_then(|name| item.property_spirit_scaling.get_mut(name))
                 })
         }
         _ => None,
@@ -365,6 +502,17 @@ fn apply_one(hero: &mut HeroModel, items: &mut [ItemModel], delta: &PatchDelta) 
             }
             if name.to_ascii_lowercase().contains("proccooldown") {
                 item.proc_cooldown = Some(updated);
+            }
+        }
+    }
+    if let DeltaTarget::Ability(id) = delta.target {
+        if app.field.starts_with("properties.") {
+            if let Some(ability) = hero
+                .abilities
+                .iter_mut()
+                .find(|ability| ability.ability_id == id)
+            {
+                crate::data::refresh_ability_derived(ability);
             }
         }
     }
@@ -439,3 +587,7 @@ pub fn apply_scored_patch_delta(
 #[cfg(test)]
 #[path = "patch_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "patch_current_tests.rs"]
+mod current_patch_tests;

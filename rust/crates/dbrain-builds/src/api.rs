@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use reqwest::blocking::Client;
 use serde::de::DeserializeOwned;
 
-const ASSETS_BASE_URL: &str = "https://assets.deadlock-api.com/v2";
+const ASSETS_BASE_URL: &str = "https://api.deadlock-api.com/v1/assets";
 const ANALYTICS_BASE_URL: &str = "https://api.deadlock-api.com/v1/analytics";
 
 #[derive(Debug, Clone)]

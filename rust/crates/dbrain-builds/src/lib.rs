@@ -16,7 +16,7 @@ mod sync;
 mod util;
 
 pub use patch_tag::latest_patch_tag;
-pub use sync::{sync_build_data, BuildDataSyncOptions, BuildDataSyncSummary};
+pub use sync::{sync_build_data, upsert_item_catalog, BuildDataSyncOptions, BuildDataSyncSummary};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BuildContext {

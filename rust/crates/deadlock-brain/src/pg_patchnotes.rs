@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::env;
 use std::time::Duration;
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, ensure, Result};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use deadlock_brain_core::http::{HttpClient, HttpGetOptions};
 use postgres::types::ToSql;
@@ -64,6 +64,8 @@ struct SteamPartnerEvent {
     gid: String,
     event_name: String,
     #[serde(default)]
+    appid: Option<i64>,
+    #[serde(default)]
     rtime32_start_time: Option<i64>,
     #[serde(default)]
     announcement_body: Option<SteamAnnouncementBody>,
@@ -72,9 +74,23 @@ struct SteamPartnerEvent {
 #[derive(Debug, Clone, Deserialize)]
 struct SteamAnnouncementBody {
     #[serde(default)]
+    gid: Option<String>,
+    #[serde(default)]
     headline: Option<String>,
     #[serde(default)]
+    posttime: Option<i64>,
+    #[serde(default)]
+    updatetime: Option<i64>,
+    #[serde(default)]
     body: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct SteamPartnerEventResponse {
+    #[serde(default)]
+    success: i64,
+    #[serde(default)]
+    event: Option<SteamPartnerEvent>,
 }
 
 #[derive(Debug, Clone)]
@@ -203,23 +219,50 @@ pub fn import_patchnote(http: &HttpClient, options: &ImportPatchnoteOptions) -> 
         anyhow!("Konnte zentrale Postgres-DB nicht oeffnen; DSN wird nicht ausgegeben.")
     })?;
     ensure_pg_schema(&mut client)?;
-    let patch = load_patchnote(&mut client, options.patch_id)?;
     let index = load_entity_index(&mut client)?;
-    let resolved = resolve_patch_source(http, &patch)?;
-    let prepared = prepare_patch(&patch, &resolved, &index)?;
-    if options.dry_run {
-        return Ok(summary_json(
-            true,
-            options,
-            &prepared,
-            PgWriteCounts::default(),
-        ));
+    import_one_patchnote(
+        &mut client,
+        http,
+        &index,
+        options.patch_id,
+        options.dry_run,
+        true,
+        options,
+    )
+}
+
+// Revisionssicherer Import eines einzelnen Patchnote-Eintrags gegen einen
+// bereits geoeffneten Client und geladenen Entity-Index. prune + reinsert der
+// direkten Events behandelt auch nicht mehr enthaltene Events. Von
+// import_patchnote und sync_patchnotes gemeinsam genutzt, damit beide Wege
+// identisch schreiben.
+fn import_one_patchnote(
+    client: &mut Client,
+    http: &HttpClient,
+    index: &EntityIndex,
+    patch_id: i64,
+    dry_run: bool,
+    resolve_via_steam: bool,
+    options: &ImportPatchnoteOptions,
+) -> Result<Value> {
+    let patch = load_patchnote(client, patch_id)?;
+    // Der Sync importiert die Quelle unveraendert (from_row), damit der
+    // Snapshot-raw_content exakt dem changelog_posts.raw_content entspricht, auf
+    // dem Drift und R6 pruefen. Nur der Einzelimport loest ueber Steam-News auf.
+    let resolved = if resolve_via_steam {
+        resolve_patch_source(http, &patch)?
+    } else {
+        PatchSourceResolution::from_row(&patch)
+    };
+    let prepared = prepare_patch(&patch, &resolved, index)?;
+    if dry_run {
+        return Ok(summary_json(true, options, &prepared, PgWriteCounts::default()));
     }
     let mut tx = client.transaction()?;
     let run_id = begin_run(&mut tx)?;
     let document_id = upsert_source_document(&mut tx, &prepared)?;
     let snapshot_id = upsert_entity_snapshot(&mut tx, &prepared, document_id)?;
-    prune_direct_patch_events(&mut tx, &prepared.patch_external_id)?;
+    prune_direct_patch_events(&mut tx, &prepared.patch_external_id, prepared.row_id)?;
     let patch_events = insert_patch_events(&mut tx, &prepared, snapshot_id)?;
     let knowledge_events =
         materialize_patch_knowledge_events(&mut tx, &prepared.patch_external_id)?;
@@ -236,6 +279,398 @@ pub fn import_patchnote(http: &HttpClient, options: &ImportPatchnoteOptions) -> 
     )?;
     tx.commit()?;
     Ok(summary_json(false, options, &prepared, counts))
+}
+
+#[derive(Debug, Clone)]
+pub struct SyncPatchnotesOptions {
+    pub dsn_env: String,
+    pub apply: bool,
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PatchnoteDrift {
+    New,
+    Changed,
+    Unchanged,
+}
+
+// Billige, rein lesende Drifterkennung: vergleicht den aktuell gespeicherten
+// raw_content jeder changelog-Zeile mit dem raw_content der zuletzt importierten
+// patchnote-Snapshotfassung. Gleiche id mit geaendertem Inhalt gilt als geaendert;
+// fehlt eine Snapshotfassung, ist die Quelle neu. So loest ein unveraenderter
+// Reimport keine teure Analyse aus, waehrend eine geaenderte Quelle erkannt wird.
+fn detect_patchnote_drift(
+    client: &mut Client,
+    limit: Option<i64>,
+) -> Result<Vec<(i64, Option<String>, PatchnoteDrift)>> {
+    // R6-Vertrag (identisch zum Review-Guard): die aktiven Events dieser Quelle
+    // muessen auf GENAU EINER Basisfassung beruhen, deren raw_content zum Quelltext
+    // passt. Fehlende (NULL) oder gemischte (mehrere) Basen zaehlen als geaendert,
+    // damit ein Reparaturimport laeuft; nur bei einheitlicher, passender Basis gilt
+    // unveraendert. Keine Events -> neu. So blockiert nicht der Review, waehrend der
+    // Sync faelschlich drift=false meldet.
+    let base = r#"
+        SELECT c.id, c.title, c.raw_content,
+               e.ev, e.null_basis, e.distinct_basis, s.snap_raw
+        FROM patchnotes.changelog_posts c
+        LEFT JOIN LATERAL (
+            SELECT count(*) AS ev,
+                   count(*) FILTER (WHERE pe.patch_snapshot_id IS NULL) AS null_basis,
+                   count(DISTINCT pe.patch_snapshot_id) AS distinct_basis,
+                   max(pe.patch_snapshot_id) AS one_basis
+            FROM brain.patch_events pe
+            WHERE pe.patch_external_id = c.url
+        ) e ON true
+        LEFT JOIN LATERAL (
+            SELECT bs.payload->>'raw_content' AS snap_raw
+            FROM brain.entity_snapshots bs
+            WHERE bs.id = e.one_basis
+        ) s ON true
+        WHERE c.raw_content IS NOT NULL AND btrim(c.raw_content) <> ''
+        ORDER BY c.id
+    "#;
+    let rows = match limit {
+        Some(limit) => client.query(
+            &format!("{base} LIMIT $1"),
+            &[&limit as &(dyn ToSql + Sync)],
+        )?,
+        None => client.query(base, &[])?,
+    };
+    let mut result = Vec::with_capacity(rows.len());
+    for row in rows {
+        let id: i64 = row.get(0);
+        let title: Option<String> = row.get(1);
+        let current: Option<String> = row.get(2);
+        let events: i64 = row.get(3);
+        let null_basis: i64 = row.get(4);
+        let distinct_basis: i64 = row.get(5);
+        let stored: Option<String> = row.get(6);
+        let drift = if events == 0 {
+            PatchnoteDrift::New
+        } else if null_basis > 0 || distinct_basis != 1 {
+            // fehlende oder gemischte Basis: Reparaturimport noetig
+            PatchnoteDrift::Changed
+        } else if stored.as_deref() == current.as_deref() {
+            PatchnoteDrift::Unchanged
+        } else {
+            PatchnoteDrift::Changed
+        };
+        result.push((id, title, drift));
+    }
+    Ok(result)
+}
+
+// Batch-Sync fuer den Timerweg: erkennt neue und geaenderte Quellen und
+// importiert sie revisionssicher; unveraenderte werden uebersprungen. Im
+// Pruefmodus (apply=false) werden keine brain-Tabellen geschrieben.
+pub fn sync_patchnotes(http: &HttpClient, options: &SyncPatchnotesOptions) -> Result<Value> {
+    let dsn = env::var(&options.dsn_env).map_err(|_| {
+        anyhow!(
+            "{} ist nicht gesetzt; DSN wird nicht ausgegeben.",
+            options.dsn_env
+        )
+    })?;
+    let mut client = Client::connect(&dsn, NoTls).map_err(|_| {
+        anyhow!("Konnte zentrale Postgres-DB nicht oeffnen; DSN wird nicht ausgegeben.")
+    })?;
+    ensure_pg_schema(&mut client)?;
+    let drift = detect_patchnote_drift(&mut client, options.limit)?;
+    let new_ids: Vec<i64> = drift
+        .iter()
+        .filter(|(_, _, d)| *d == PatchnoteDrift::New)
+        .map(|(id, _, _)| *id)
+        .collect();
+    let changed_ids: Vec<i64> = drift
+        .iter()
+        .filter(|(_, _, d)| *d == PatchnoteDrift::Changed)
+        .map(|(id, _, _)| *id)
+        .collect();
+    let unchanged = drift
+        .iter()
+        .filter(|(_, _, d)| *d == PatchnoteDrift::Unchanged)
+        .count();
+    let has_drift = !new_ids.is_empty() || !changed_ids.is_empty();
+
+    if !options.apply {
+        return Ok(json!({
+            "mode": "check",
+            "checked": drift.len(),
+            "new": new_ids,
+            "changed": changed_ids,
+            "unchanged": unchanged,
+            "drift": has_drift,
+            "writes": false,
+            "semantics": "changed means same changelog id with different stored raw_content; unchanged is skipped without re-analysis",
+        }));
+    }
+
+    let index = load_entity_index(&mut client)?;
+    let mut imported = Vec::new();
+    for &id in new_ids.iter().chain(changed_ids.iter()) {
+        let options_one = ImportPatchnoteOptions {
+            patch_id: id,
+            dsn_env: options.dsn_env.clone(),
+            dry_run: false,
+        };
+        let summary = import_one_patchnote(&mut client, http, &index, id, false, false, &options_one)?;
+        imported.push(json!({"id": id, "summary": summary}));
+    }
+    Ok(json!({
+        "mode": "apply",
+        "checked": drift.len(),
+        "imported_new": new_ids,
+        "imported_changed": changed_ids,
+        "unchanged_skipped": unchanged,
+        "imported": imported,
+        "writes": true,
+        "semantics": "new and changed sources re-imported revision-safely (prune+reinsert removes dropped events); unchanged skipped",
+    }))
+}
+
+#[derive(Debug, Clone)]
+pub struct RefreshOfficialOptions {
+    pub patch_id: i64,
+    pub dsn_env: String,
+    pub apply: bool,
+    pub response_file: Option<String>,
+}
+
+// Quellidentitaetsgepruefter Refresh einer vorhandenen offiziellen Quelle ueber
+// den bestehenden Importadapter. Nutzt die bereits gespeicherte kanonische
+// Announcement-URL (kein Titelraten, kein neuer Sammler). App-ID und
+// Announcement-GID werden bei jeder Antwort exakt geprueft. Aktualisiert nur die
+// vorhandene Quellzeile (changelog_posts) revisionssicher; kein oeffentlicher Post.
+pub fn refresh_official(http: &HttpClient, options: &RefreshOfficialOptions) -> Result<Value> {
+    let dsn = env::var(&options.dsn_env)
+        .map_err(|_| anyhow!("{} ist nicht gesetzt; DSN wird nicht ausgegeben.", options.dsn_env))?;
+    let mut client = Client::connect(&dsn, NoTls)
+        .map_err(|_| anyhow!("Konnte zentrale Postgres-DB nicht oeffnen; DSN wird nicht ausgegeben."))?;
+    ensure_pg_schema(&mut client)?;
+    let row = load_patchnote(&mut client, options.patch_id)?;
+    let url = row
+        .url
+        .as_deref()
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+        .ok_or_else(|| anyhow!("changelog_posts.url fehlt; ohne kanonische Announcement-URL kein Refresh."))?
+        .to_string();
+    let announcement_gid = extract_announcement_gid(&url)
+        .ok_or_else(|| anyhow!("Keine Announcement-GID aus der gespeicherten URL ableitbar."))?;
+    // Herkunft sauber trennen: die response-file ist ein lokaler Import, kein
+    // nachgewiesener Live-Abruf.
+    let provenance = if options.response_file.is_some() { "local_response_file" } else { "live_http" };
+    let response: SteamPartnerEventResponse = match options.response_file.as_deref() {
+        Some(path) => {
+            let text = std::fs::read_to_string(path)
+                .map_err(|_| anyhow!("Konnte Antwortdatei nicht lesen."))?;
+            serde_json::from_str(&text)?
+        }
+        None => {
+            let request_url = format!(
+                "https://store.steampowered.com/events/ajaxgetpartnerevent?appid={STEAM_APPID}&announcement_gid={announcement_gid}&lang_list=0"
+            );
+            http.get_json(
+                &request_url,
+                HttpGetOptions {
+                    cache_ttl_seconds: Some(0),
+                    timeout: Duration::from_secs(45),
+                    ..HttpGetOptions::default()
+                },
+            )?
+        }
+    };
+    // Identitaet exakt pruefen, bevor irgendetwas uebernommen wird.
+    ensure!(response.success == 1, "Offizieller Refresh nicht erfolgreich (success != 1).");
+    let event = response.event.ok_or_else(|| anyhow!("Offizielle Antwort ohne event."))?;
+    ensure!(
+        event.appid == Some(i64::from(STEAM_APPID)),
+        "App-ID der offiziellen Antwort passt nicht zur erwarteten Deadlock-App."
+    );
+    let body = event
+        .announcement_body
+        .ok_or_else(|| anyhow!("Offizielle Antwort ohne announcement_body."))?;
+    ensure!(
+        body.gid.as_deref() == Some(announcement_gid.as_str()),
+        "Announcement-GID der Antwort stimmt nicht mit der gespeicherten Quelle ueberein."
+    );
+    let normalized = normalize_bbcode(&body.body);
+    ensure!(!normalized.trim().is_empty(), "Offizieller Body ist leer nach Normalisierung.");
+    let current = row.raw_content.clone().unwrap_or_default();
+    let changed = normalized != current;
+    let raw_body_sha256 = stable_hash(body.body.as_bytes());
+    let normalized_sha256 = stable_hash(normalized.as_bytes());
+    let applied = options.apply && changed;
+    if applied {
+        // Schreibschutz 1: ohne installierte Evidenzmigration/Capture-Trigger wuerde
+        // ein Overwrite die einzige alte Quellfassung unwiederbringlich zerstoeren.
+        // Der Capture-Trigger muss AKTIV genau auf patchnotes.changelog_posts liegen
+        // (tgrelid + tgenabled), nicht irgendein gleichnamiger Trigger.
+        let evidence_ready: bool = client
+            .query_one(
+                "SELECT to_regclass('brain.patch_evidence_revisions') IS NOT NULL \
+                 AND EXISTS ( \
+                   SELECT 1 FROM pg_trigger t \
+                   JOIN pg_class c ON c.oid = t.tgrelid \
+                   JOIN pg_namespace n ON n.oid = c.relnamespace \
+                   WHERE t.tgname = 'brain_capture_patch_source' \
+                     AND n.nspname = 'patchnotes' AND c.relname = 'changelog_posts' \
+                     AND t.tgenabled <> 'D' AND NOT t.tgisinternal)",
+                &[],
+            )?
+            .get(0);
+        ensure!(
+            evidence_ready,
+            "Evidenzmigration/aktiver Capture-Trigger auf patchnotes.changelog_posts nicht installiert; Refresh-Write abgebrochen, um die einzige alte Quellfassung nicht zu ueberschreiben. Zuerst 2026-09-18-patch-evidence.sql anwenden."
+        );
+        let mut tx = client.transaction()?;
+        // Schreibschutz 2: Compare-and-Swap unter Row-Lock. Hat sich der Beitrag
+        // waehrend des Abrufs geaendert, nicht ueberschreiben.
+        let locked = tx.query_one(
+            "SELECT raw_content, url FROM patchnotes.changelog_posts WHERE id = $1 FOR UPDATE",
+            &[&options.patch_id as &(dyn ToSql + Sync)],
+        )?;
+        let locked_raw: Option<String> = locked.get(0);
+        let locked_url: Option<String> = locked.get(1);
+        ensure!(
+            locked_raw.as_deref() == row.raw_content.as_deref() && locked_url.as_deref() == row.url.as_deref(),
+            "Quelle wurde waehrend des Abrufs geaendert; Refresh-Write abgebrochen (Compare-and-Swap)."
+        );
+        tx.execute(
+            "UPDATE patchnotes.changelog_posts SET raw_content = $1 WHERE id = $2",
+            &[&normalized as &(dyn ToSql + Sync), &options.patch_id as &(dyn ToSql + Sync)],
+        )?;
+        // Schreibschutz 3: exakten offiziellen Body samt GID/Zeit/Hash als Beleg
+        // ueber die vorhandene Source-Persistenz bewahren (kein oeffentlicher Post).
+        let evidence_metadata = json_text(&json!({
+            "announcement_gid": announcement_gid,
+            "appid": STEAM_APPID,
+            "posttime": body.posttime,
+            "updatetime": body.updatetime,
+            "provenance": provenance,
+            "raw_body_sha256": raw_body_sha256,
+            "normalized_sha256": normalized_sha256,
+            "official_body": body.body,
+        }))?;
+        let raw_path = format!("official_refresh/{announcement_gid}.bbcode");
+        let evidence_title = body.headline.clone().or_else(|| row.title.clone());
+        tx.execute(
+            r#"
+            INSERT INTO brain.source_documents(
+                source, external_id, title, url, content_type, raw_path,
+                content_hash, fetched_at, metadata
+            )
+            VALUES ('deadlock_official_refresh',$1,$2,$3,'text/x-bbcode',$4,$5,now(),$6::text::jsonb)
+            ON CONFLICT (source, external_id, content_hash) DO UPDATE SET
+                title = EXCLUDED.title,
+                url = EXCLUDED.url,
+                raw_path = EXCLUDED.raw_path,
+                fetched_at = EXCLUDED.fetched_at,
+                metadata = EXCLUDED.metadata
+            "#,
+            &[
+                &announcement_gid as &(dyn ToSql + Sync),
+                &evidence_title as &(dyn ToSql + Sync),
+                &url as &(dyn ToSql + Sync),
+                &raw_path as &(dyn ToSql + Sync),
+                &raw_body_sha256 as &(dyn ToSql + Sync),
+                &evidence_metadata as &(dyn ToSql + Sync),
+            ],
+        )?;
+        tx.commit()?;
+    }
+    Ok(json!({
+        "mode": if options.apply { "apply" } else { "check" },
+        "patch_id": options.patch_id,
+        "appid": STEAM_APPID,
+        "announcement_gid": announcement_gid,
+        "identity_verified": true,
+        "provenance": provenance,
+        "changed": changed,
+        "applied": applied,
+        "normalized_bytes": normalized.len(),
+        "raw_body_sha256": raw_body_sha256,
+        "normalized_sha256": normalized_sha256,
+        "updatetime": body.updatetime,
+        "posttime": body.posttime,
+        "writes": applied,
+        "semantics": "identity-checked refresh of the existing source row only; raw body preserved as evidence; events are re-derived by the normal sync path",
+    }))
+}
+
+// Announcement-GID aus einer steamcommunity-Announcement-URL ableiten. Nutzt einen
+// echten URL-Parser und prueft Scheme, Host, Port, fehlende Zugangsdaten und die
+// PFAD-Segmente. Query/Fragment duerfen Host/App/Announcement-Pfad nie ersetzen;
+// das GID-Segment muss vollstaendig numerisch sein.
+fn extract_announcement_gid(url: &str) -> Option<String> {
+    let parsed = url::Url::parse(url).ok()?;
+    if parsed.scheme() != "https" && parsed.scheme() != "http" {
+        return None;
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return None;
+    }
+    if parsed.port().is_some() {
+        return None;
+    }
+    let host = parsed.host_str()?.to_ascii_lowercase();
+    if host != "steamcommunity.com" && host != "www.steamcommunity.com" {
+        return None;
+    }
+    let segments: Vec<&str> = parsed.path_segments()?.filter(|s| !s.is_empty()).collect();
+    // erwartet: games / <appid> / announcements / detail / <gid>
+    let app = STEAM_APPID.to_string();
+    let idx = segments
+        .windows(4)
+        .position(|w| w == ["games", app.as_str(), "announcements", "detail"])?;
+    let gid = segments.get(idx + 4)?;
+    if !gid.is_empty() && gid.chars().all(|ch| ch.is_ascii_digit()) {
+        Some((*gid).to_string())
+    } else {
+        None
+    }
+}
+
+// Deterministische BBCode-Normalisierung des offiziellen Bodys in den einfachen
+// Zeilentext, den der Patchparser erwartet. Absaetze werden zu Zeilen, Listen zu
+// '- '-Punkten, Formatier-Tags entfernt, escapte Klammern entschaerft. Kein
+// String-Kuerzen; unbekannte Tags bleiben sichtbar statt still zu verschwinden.
+fn normalize_bbcode(body: &str) -> String {
+    let mut text = body.to_string();
+    for (from, to) in [
+        ("[/p]", "\n"),
+        ("[p]", ""),
+        ("[/list]", "\n"),
+        ("[list]", "\n"),
+        ("[*]", "- "),
+        ("[b]", ""),
+        ("[/b]", ""),
+        ("[i]", ""),
+        ("[/i]", ""),
+        ("[u]", ""),
+        ("[/u]", ""),
+    ] {
+        text = text.replace(from, to);
+    }
+    text = text.replace("\\[", "[").replace("\\]", "]");
+    let mut out: Vec<String> = Vec::new();
+    let mut blank = false;
+    for line in text.split('\n') {
+        let trimmed = line.trim_end().trim_start_matches(' ').to_string();
+        if trimmed.is_empty() {
+            if !blank && !out.is_empty() {
+                out.push(String::new());
+            }
+            blank = true;
+        } else {
+            out.push(trimmed);
+            blank = false;
+        }
+    }
+    while out.last().map(|line| line.is_empty()).unwrap_or(false) {
+        out.pop();
+    }
+    out.join("\n")
 }
 
 fn load_patchnote(client: &mut Client, patch_id: i64) -> Result<PatchnoteRow> {
@@ -504,7 +939,16 @@ fn prepare_patch(
         Some(url) if !url.is_empty() => url.to_string(),
         _ => format!("patchnotes:{}", row.id),
     };
-    let patch_external_id = canonical_patch_external_id(row.id);
+    // R5: dieselbe kanonische Identitaet wie der bestehende Parser-Pfad
+    // (normalize_patch_external_id in dbrain-normalize) und der reale Bestand
+    // verwenden. Ereignisse liegen unter der Quellen-URL (identisch zu
+    // build_context, das changelog_posts.url benutzt); nur rein numerische
+    // Quell-IDs werden zu patch_<n>. So schreibt der pg-Import in denselben
+    // Namensraum und ueberschreibt/prunt den vorhandenen Bestand konsistent.
+    let patch_external_id = match row.url.as_deref().map(str::trim).filter(|url| !url.is_empty()) {
+        Some(url) => canonical_source_external_id(url),
+        None => canonical_patch_external_id(row.id),
+    };
     let source_kind = resolved.source_kind.clone();
     let title = Some(
         row.title
@@ -1303,17 +1747,36 @@ fn upsert_entity_snapshot(
     Ok(row.get(0))
 }
 
-fn prune_direct_patch_events(tx: &mut Transaction<'_>, patch_external_id: &str) -> Result<()> {
+fn prune_direct_patch_events(
+    tx: &mut Transaction<'_>,
+    patch_external_id: &str,
+    row_id: i64,
+) -> Result<()> {
+    // R5: Nur nachweislich zu DIESER Patchquelle gehoerende Events entfernen und
+    // dabei auch den echten Altparser-Bestand ohne metadata.importer erfassen. Die
+    // Zuordnung laeuft ueber die exakte Quellidentitaet (patch_external_id) UND die
+    // Snapshot-Verknuepfung (patch_snapshot_id -> patchnote-Snapshot mit payload.id
+    // = row_id). Keine titelbasierte oder pauschale Bereinigung fremder Quellen.
+    let row_id_text = row_id.to_string();
     let rows = tx.query(
         r#"
         SELECT id
         FROM brain.patch_events
         WHERE patch_external_id = ANY($1)
-          AND metadata->>'importer'=$2
+          AND (
+            metadata->>'importer' = $2
+            OR patch_snapshot_id IN (
+              SELECT s.id FROM brain.entity_snapshots s
+              WHERE s.source = $3 AND s.entity_type = 'patchnote'
+                AND s.payload->>'id' = $4
+            )
+          )
         "#,
         &[
             &legacy_compatible_patch_external_ids(patch_external_id) as &(dyn ToSql + Sync),
             &IMPORTER as &(dyn ToSql + Sync),
+            &SOURCE as &(dyn ToSql + Sync),
+            &row_id_text as &(dyn ToSql + Sync),
         ],
     )?;
     let ids = rows
@@ -1391,6 +1854,7 @@ fn insert_patch_events(
                           THEN TRIM(BOTH FROM substr(TRIM(BOTH FROM pe.normalized_line), length(pe.entity_name) + 2))
                       ELSE TRIM(BOTH FROM pe.normalized_line)
                   END = $24
+                  AND $20::text IS NOT NULL
                 ORDER BY pe.confidence DESC NULLS LAST,
                          EXISTS (
                              SELECT 1
@@ -2008,6 +2472,18 @@ fn normalize_patch_line(value: &str) -> String {
 
 fn canonical_patch_external_id(patch_id: i64) -> String {
     format!("patch_{patch_id}")
+}
+
+// Spiegelt dbrain-normalize::normalize_patch_external_id: rein numerische Quell-IDs
+// werden zu patch_<n>, alles andere (insbesondere die Quellen-URL) bleibt unveraendert.
+// So teilen pg-Import und Parser-Pfad genau einen Identitaetsnamensraum.
+fn canonical_source_external_id(external_id: &str) -> String {
+    let trimmed = external_id.trim();
+    if !trimmed.is_empty() && trimmed.chars().all(|ch| ch.is_ascii_digit()) {
+        format!("patch_{trimmed}")
+    } else {
+        trimmed.to_string()
+    }
 }
 
 fn patch_event_content_hash(
@@ -2636,7 +3112,12 @@ mod tests {
 
         let prepared = prepare_patch(&row, &PatchSourceResolution::from_row(&row), &index).expect("prepare");
 
-        assert_eq!(prepared.patch_external_id, "patch_2");
+        // R5: die kanonische Identitaet ist die Quellen-URL (wie der Parser-Pfad und
+        // der reale Bestand); nur rein numerische Quell-IDs werden zu patch_<n>.
+        assert_eq!(
+            prepared.patch_external_id,
+            "https://forums.playdeadlock.com/threads/10-02-2025-update.84332/"
+        );
         assert_eq!(prepared.events.len(), 5);
         assert!(prepared
             .events
@@ -2862,5 +3343,47 @@ mod tests {
             legacy_compatible_patch_external_ids("patch_alpha"),
             vec!["patch_alpha".to_string()]
         );
+    }
+
+    #[test]
+    fn canonical_source_external_id_prefers_url_and_numbers() {
+        assert_eq!(
+            canonical_source_external_id("https://steamcommunity.com/games/1422450/announcements/detail/698776157349216435"),
+            "https://steamcommunity.com/games/1422450/announcements/detail/698776157349216435"
+        );
+        assert_eq!(canonical_source_external_id("285"), "patch_285");
+    }
+
+    #[test]
+    fn extract_announcement_gid_requires_host_app_and_full_numeric_gid() {
+        assert_eq!(
+            extract_announcement_gid("https://steamcommunity.com/games/1422450/announcements/detail/698776157349216435"),
+            Some("698776157349216435".to_string())
+        );
+        // trailing path/query after the full numeric segment is fine
+        assert_eq!(
+            extract_announcement_gid("https://steamcommunity.com/games/1422450/announcements/detail/12345?l=en"),
+            Some("12345".to_string())
+        );
+        // wrong app, wrong host, non-numeric or partial segments are rejected
+        assert_eq!(extract_announcement_gid("https://steamcommunity.com/games/9999/announcements/detail/12345"), None);
+        assert_eq!(extract_announcement_gid("https://evil.example/games/1422450/announcements/detail/12345"), None);
+        assert_eq!(extract_announcement_gid("https://steamcommunity.com/games/1422450/announcements/detail/12ab34"), None);
+        assert_eq!(extract_announcement_gid("https://steamcommunity.com/games/1422450/news"), None);
+        // an embedded steam URL in query/fragment must not pass a foreign host
+        assert_eq!(extract_announcement_gid("https://evil.example/x?u=https://steamcommunity.com/games/1422450/announcements/detail/999"), None);
+        assert_eq!(extract_announcement_gid("https://evil.example/x#https://steamcommunity.com/games/1422450/announcements/detail/999"), None);
+        // userinfo and non-default port are rejected
+        assert_eq!(extract_announcement_gid("https://user@steamcommunity.com/games/1422450/announcements/detail/123"), None);
+        assert_eq!(extract_announcement_gid("https://steamcommunity.com:8443/games/1422450/announcements/detail/123"), None);
+    }
+
+    #[test]
+    fn normalize_bbcode_paragraphs_bold_and_escaped_brackets() {
+        let body = "[p][b]\\[ General ][/b][/p][p][/p][p]- Unstable Rift now scales.[/p][p]- Removed extra souls.[/p]";
+        let text = normalize_bbcode(body);
+        assert_eq!(text, "[ General ]\n\n- Unstable Rift now scales.\n- Removed extra souls.");
+        // unknown tags stay visible rather than silently vanishing
+        assert!(normalize_bbcode("[p][custom]x[/custom][/p]").contains("[custom]"));
     }
 }

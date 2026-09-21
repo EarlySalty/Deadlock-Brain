@@ -478,16 +478,8 @@ async fn poll_demo_query_url_with_durations(
     poll_interval: Duration,
     timeout: Duration,
 ) -> Result<DemoJobStatus> {
-    let started = Instant::now();
-    loop {
-        let Some(remaining) = timeout.checked_sub(started.elapsed()) else {
-            return Err(demo_poll_timeout_error(job_id, timeout));
-        };
-        if remaining.is_zero() {
-            return Err(demo_poll_timeout_error(job_id, timeout));
-        }
-        let request_timeout = remaining.min(Duration::from_secs(60));
-        let raw = match http.get(
+    poll_demo_status_with(job_id, poll_interval, timeout, |request_timeout| {
+        http.get(
             url,
             HttpGetOptions {
                 timeout: request_timeout,
@@ -498,8 +490,29 @@ async fn poll_demo_query_url_with_durations(
                 },
                 ..HttpGetOptions::default()
             },
-        ) {
-            Ok(result) => result.text(),
+        )
+        .map(|result| result.text())
+    })
+    .await
+}
+
+async fn poll_demo_status_with(
+    job_id: &str,
+    poll_interval: Duration,
+    timeout: Duration,
+    mut fetch: impl FnMut(Duration) -> std::result::Result<String, CoreError>,
+) -> Result<DemoJobStatus> {
+    let started = Instant::now();
+    loop {
+        let Some(remaining) = timeout.checked_sub(started.elapsed()) else {
+            return Err(demo_poll_timeout_error(job_id, timeout));
+        };
+        if remaining.is_zero() {
+            return Err(demo_poll_timeout_error(job_id, timeout));
+        }
+        let request_timeout = remaining.min(Duration::from_secs(60));
+        let raw = match fetch(request_timeout) {
+            Ok(text) => text,
             Err(CoreError::HttpStatus { status, .. }) if status.as_u16() == 404 => {
                 return Err(SourcesError::invalid_input(
                     "Deadlock API Demo ist nicht verfuegbar.",
@@ -1671,44 +1684,29 @@ mod tests {
 
     #[test]
     fn demo_poll_total_timeout_caps_the_next_sleep() {
-        use std::{io::Write, net::TcpListener, thread};
-
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let url = format!("http://{}/status", listener.local_addr().unwrap());
-        let server = thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut request = [0_u8; 1024];
-            let bytes_read = std::io::Read::read(&mut stream, &mut request).unwrap();
-            assert!(bytes_read > 0);
-            let body = r#"{"status":"running"}"#;
-            write!(
-                stream,
-                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}",
-                body.len(),
-                body
-            )
-            .unwrap();
-        });
-        let cache = tempfile::tempdir().unwrap();
-        let http = HttpClient::new("demo-test", cache.path()).unwrap();
+        // Exercise the real polling loop without spending its 30 ms budget
+        // starting a TCP server. The adjacent test covers actual HTTP timeouts.
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
         let started = Instant::now();
-
+        let mut requests = 0;
         let timeout = runtime
-            .block_on(poll_demo_query_url_with_durations(
-                &http,
+            .block_on(poll_demo_status_with(
                 "slow-job",
-                &url,
                 Duration::from_secs(5),
                 Duration::from_millis(30),
+                |request_timeout| {
+                    requests += 1;
+                    assert!(request_timeout <= Duration::from_millis(30));
+                    Ok(r#"{"status":"running"}"#.to_string())
+                },
             ))
             .unwrap_err()
             .to_string();
 
-        server.join().unwrap();
+        assert_eq!(requests, 1);
         assert!(timeout.contains("Timeout"));
         assert!(started.elapsed() < Duration::from_millis(500));
     }
