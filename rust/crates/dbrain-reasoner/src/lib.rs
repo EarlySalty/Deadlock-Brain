@@ -43,7 +43,8 @@ pub use ai_roles::{
 pub use data::load_hero_abilities;
 pub use data::{
     load_author_builds, load_author_source_rows, load_claims, load_hero_model,
-    load_hero_stat_values, load_item_models, load_meta_rows, load_patch_events,
+    load_hero_model_with_snapshots, load_hero_stat_values, load_item_models,
+    load_item_models_with_snapshots, load_meta_rows, load_patch_events,
     load_patch_events_for_snapshots, load_synergies,
 };
 pub use population_prior::{PopulationItem, PopulationPrior, POPULATION_PRIOR_WEIGHT};

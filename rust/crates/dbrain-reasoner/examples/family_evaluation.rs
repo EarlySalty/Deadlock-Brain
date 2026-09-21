@@ -445,6 +445,73 @@ fn report_summary(path: &Path) -> std::result::Result<(), Error> {
     Ok(())
 }
 
+/// Replace only mechanical asset inputs. Population, authors, holdout split,
+/// policy and thresholds remain byte-for-byte represented by the original data.
+async fn rebase_assets(input: &Path, output: &Path) -> std::result::Result<(), Error> {
+    if output.exists() {
+        return Err("output already exists".into());
+    }
+    let bytes = fs::read(input)?;
+    let input_hash = format!("{:x}", Sha256::digest(&bytes));
+    let mut frozen: Frozen = serde_json::from_slice(&bytes)?;
+    let access = deadlock_brain_core::pg::pg_pool_read_only().await?;
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .idle_timeout(None)
+        .max_lifetime(None)
+        .connect_with((*access.connect_options()).clone())
+        .await?;
+    access.close().await;
+    sqlx::query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .execute(&pool)
+        .await?;
+    let before = guard(&pool).await?;
+    let versions: Vec<Option<String>> = sqlx::query_scalar(
+        "SELECT DISTINCT payload->>'_source_client_version' FROM brain.entity_snapshots WHERE source='deadlock_assets_api' AND entity_type IN ('hero','item_or_ability')"
+    ).fetch_all(&pool).await?;
+    if versions.len() != 1 || versions[0].as_deref().is_none_or(str::is_empty) {
+        return Err("asset rebase requires exactly one explicit client version".into());
+    }
+    let ctx = ReasonerCtx {
+        pool: pool.clone(),
+        ai: None,
+        config: frozen.config.clone(),
+    };
+    let (items, item_snapshots) = load_item_models_with_snapshots(&ctx).await?;
+    if items.is_empty() {
+        return Err("asset rebase loaded no items".into());
+    }
+    for input in &mut frozen.heroes {
+        let (hero, mut snapshots) = load_hero_model_with_snapshots(&ctx, &input.hero.name).await?;
+        if hero.hero_id != input.hero.hero_id {
+            return Err("asset rebase changed a hero identity".into());
+        }
+        snapshots.extend(item_snapshots.iter().cloned());
+        input.hero = hero;
+        input.items = items.clone();
+        input.snapshots = snapshots;
+    }
+    if before != guard(&pool).await? {
+        return Err("asset snapshot changed".into());
+    }
+    sqlx::query("ROLLBACK").execute(&pool).await?;
+    pool.close().await;
+    frozen.snapshot_guard = json!({
+        "original_input_sha256": input_hash,
+        "population_and_authors": frozen.snapshot_guard,
+        "asset_snapshot": before,
+        "client_version": versions[0],
+        "scope": "new mechanics, unchanged population/authors/events/config"
+    });
+    support::write_new(output, &serde_json::to_vec(&frozen)?)?;
+    println!(
+        "rebased {} heroes and {} items; original holdout inputs preserved",
+        frozen.heroes.len(),
+        items.len()
+    );
+    Ok(())
+}
+
 #[cfg(test)]
 mod replay_tests {
     use super::*;
@@ -454,6 +521,16 @@ mod replay_tests {
             "build":{"confidence":"Low","score":score},
             "metrics":{"staple_gate_passed":false}}]))
         .unwrap()
+    }
+
+    #[test]
+    fn frozen_float_parameters_roundtrip_without_ulp_drift() {
+        for numerator in 1..4096 {
+            let value = f64::from(numerator) / 997.0;
+            let encoded = serde_json::to_string(&value).unwrap();
+            let decoded: f64 = serde_json::from_str(&encoded).unwrap();
+            assert_eq!(value.to_bits(), decoded.to_bits(), "frozen value changed: {encoded}");
+        }
     }
 
     #[test]
@@ -497,6 +574,7 @@ async fn main() -> std::result::Result<(), Error> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     match args.as_slice() {
         [mode,path,names] if mode=="freeze"=>freeze(Path::new(path),names).await,
+        [mode,input,output] if mode=="rebase-assets"=>rebase_assets(Path::new(input),Path::new(output)).await,
         [mode,input,output] if mode=="discover"=>discover(Path::new(input),Path::new(output)),
         [mode,input,output] if mode=="replay"=>replay(Path::new(input),Path::new(output),None),
         [mode,input,output,names] if mode=="replay"=>replay(Path::new(input),Path::new(output),Some(names)),
@@ -506,6 +584,6 @@ async fn main() -> std::result::Result<(), Error> {
         [mode,path] if mode=="report"=>report_summary(Path::new(path)),
         [mode,path] if mode=="inspect"=>inspect_input(Path::new(path)),
         [mode,path,ids] if mode=="inspect-items"=>inspect_items(Path::new(path),ids),
-        _=>Err("usage: family_evaluation freeze OUTPUT HERO,HERO | discover INPUT OUTPUT | plan INPUT OUTPUT [HERO,HERO] | holdout INPUT OUTPUT [HERO,HERO] | replay INPUT NEW_DIRECTORY [HERO,HERO] | summary DISCOVERY | report PLANS | inspect INPUT | inspect-items INPUT ID,ID".into()),
+        _=>Err("usage: family_evaluation freeze OUTPUT HERO,HERO | rebase-assets INPUT OUTPUT | discover INPUT OUTPUT | plan INPUT OUTPUT [HERO,HERO] | holdout INPUT OUTPUT [HERO,HERO] | replay INPUT NEW_DIRECTORY [HERO,HERO] | summary DISCOVERY | report PLANS | inspect INPUT | inspect-items INPUT ID,ID".into()),
     }
 }

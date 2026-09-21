@@ -174,7 +174,9 @@ async fn sync_one_hero(
     })
 }
 
-pub(crate) async fn upsert_item_catalog(pool: &PgPool, payload: &Value) -> Result<usize> {
+/// Refresh the item catalog from an already fetched official asset snapshot.
+/// Callers own the write authorization; classification is shared with build-data sync.
+pub async fn upsert_item_catalog(pool: &PgPool, payload: &Value) -> Result<usize> {
     let items = payload
         .as_array()
         .ok_or_else(|| anyhow!("Item-Katalog ist kein JSON-Array"))?;

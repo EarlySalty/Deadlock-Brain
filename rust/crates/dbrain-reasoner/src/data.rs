@@ -733,7 +733,8 @@ pub async fn load_hero_model(ctx: &ReasonerCtx, hero: &str) -> Result<HeroModel>
     Ok(load_hero_model_with_snapshots(ctx, hero).await?.0)
 }
 
-pub(crate) async fn load_hero_model_with_snapshots(
+/// Load the production hero model together with its field-level provenance.
+pub async fn load_hero_model_with_snapshots(
     ctx: &ReasonerCtx,
     hero: &str,
 ) -> Result<(HeroModel, Vec<crate::PatchSnapshot>)> {
@@ -929,7 +930,8 @@ pub async fn load_item_models(ctx: &ReasonerCtx) -> Result<Vec<ItemModel>> {
     Ok(load_item_models_with_snapshots(ctx).await?.0)
 }
 
-pub(crate) async fn load_item_models_with_snapshots(
+/// Load the production item models together with their field-level provenance.
+pub async fn load_item_models_with_snapshots(
     ctx: &ReasonerCtx,
 ) -> Result<(Vec<ItemModel>, Vec<crate::PatchSnapshot>)> {
     let catalog_rows = sqlx::query(

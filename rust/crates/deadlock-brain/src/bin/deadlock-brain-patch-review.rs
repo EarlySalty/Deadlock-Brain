@@ -202,7 +202,9 @@ fn build_context(client: &mut Client, patch: &str, snapshot_limit: usize) -> Res
             FROM brain.entity_snapshots es
             JOIN brain.source_documents sd ON sd.id=es.source_document_id
             WHERE es.entity_type IN ('hero','item','ability','item_or_ability')
-              AND sd.url LIKE 'https://assets.deadlock-api.com/%'
+              AND es.source = 'deadlock_assets_api'
+              AND (sd.url LIKE 'https://assets.deadlock-api.com/%'
+                   OR sd.url LIKE 'https://api.deadlock-api.com/v1/assets/%')
               AND es.fetched_at <= $1::text::timestamptz
             ORDER BY es.source, es.entity_type, es.external_id, es.fetched_at DESC, es.id DESC
         ) s ORDER BY s.entity_type, s.external_id

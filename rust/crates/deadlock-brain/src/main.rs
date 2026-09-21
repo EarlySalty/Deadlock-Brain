@@ -751,9 +751,11 @@ struct PullAssetsArgs {
             "build_tags",
             "npc_units",
         ],
-        help = "Endpoint auswaehlen. Mehrfach nutzbar. Default: items/heroes/raw_items/raw_heroes."
+        help = "Endpunkt auswählen. Mehrfach nutzbar. Standard: items/heroes. raw_items und raw_heroes sind Kompatibilitätsnamen für normalisierte Assets."
     )]
     kind: Vec<String>,
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..), help = "Spielversion festlegen. Standard: neueste verfügbare Version für den gesamten Import.")]
+    client_version: Option<u32>,
 }
 
 #[derive(Debug, Args)]
@@ -2177,7 +2179,10 @@ async fn run_pull(pool: &PgPool, settings: &Settings, source: PullCommands) -> R
             let result = dbrain_sources::pull_assets(
                 &settings.raw_dir,
                 &http,
-                dbrain_sources::PullAssetsOptions { kinds: args.kind },
+                dbrain_sources::PullAssetsOptions {
+                    kinds: args.kind,
+                    client_version: args.client_version,
+                },
             )
             .await?;
             print_json(&result)

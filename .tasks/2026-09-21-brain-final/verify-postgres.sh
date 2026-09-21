@@ -2,8 +2,8 @@
 # Neue, eindeutig benannte Testdatenbanken. Keine Produktivmigration.
 set -euo pipefail
 umask 077
-cd /home/nathanael/.worktrees/brain-final-integration-20260921
-OUT=/home/nathanael/.local/share/deadlock-brain/releases/20260921-final
+cd "${BRAIN_TEST_ROOT:-/home/nathanael/.worktrees/brain-final-integration-20260921}"
+OUT=${BRAIN_TEST_OUT:-/home/nathanael/.local/share/deadlock-brain/releases/20260921-final}
 TARGET=/home/nathanael/.cache/deadlock-brain-final-20260921
 mkdir -p "$OUT"
 eval "$(/home/naniadm/Documents/Infisical/export_gpt_secret.py --secret DEADLOCK_CENTRAL_DSN)"

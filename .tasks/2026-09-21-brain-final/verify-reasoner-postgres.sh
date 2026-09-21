@@ -2,8 +2,8 @@
 # Destruktive Fixtures nur in einer neu angelegten, reservierten Testdatenbank.
 set -euo pipefail
 umask 077
-cd /home/nathanael/.worktrees/brain-final-integration-20260921
-OUT=/home/nathanael/.local/share/deadlock-brain/releases/20260921-final
+cd "${BRAIN_TEST_ROOT:-/home/nathanael/.worktrees/brain-final-integration-20260921}"
+OUT=${BRAIN_TEST_OUT:-/home/nathanael/.local/share/deadlock-brain/releases/20260921-final}
 eval "$(/home/naniadm/Documents/Infisical/export_gpt_secret.py --secret DEADLOCK_CENTRAL_DSN)"
 trap 'unset DEADLOCK_CENTRAL_DSN REASONER_SCRATCH_DSN base_dsn query_suffix' EXIT
 : "${DEADLOCK_CENTRAL_DSN:?Autorisierter Datenbankzugang fehlt}"
