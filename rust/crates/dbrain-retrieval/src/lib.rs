@@ -154,6 +154,19 @@ const DEADLOCK_QUERY_TERMS: &[&str] = &[
     "item",
     "build",
     "hero",
+    "heros",
+    "heroes",
+    "held",
+    "helden",
+    "charakter",
+    "charaktere",
+    "fähigkeit",
+    "fähigkeiten",
+    "faehigkeit",
+    "faehigkeiten",
+    "spielstil",
+    "archetyp",
+    "archetypen",
     "patch",
     "meta",
     "farm",
@@ -311,6 +324,7 @@ struct AskClaimRecord {
     claim_text: String,
     evidence_quote: String,
     claim_type: String,
+    entity_type: String,
     entity_name: String,
     status: String,
     verifier_confidence: f64,
@@ -1014,6 +1028,15 @@ pub async fn ask_context(pool: &PgPool, query: &str, opts: &AskContextOptions) -
         creator_knowledge.insert("omitted".to_string(), omitted_to_json(&claim_buckets.omitted));
     }
 
+    let answer_target = if intent == "hero_archetype" {
+        Some("hero".to_string())
+    } else {
+        entity_match
+            .entity_type
+            .clone()
+            .or_else(|| plan.entities.first().and_then(|entity| value_to_nonempty_string(entity.get("type"))))
+    };
+
     let mut result = JsonMap::new();
     result.insert("query".to_string(), json!(query));
     result.insert("intent".to_string(), json!(intent.clone()));
@@ -1042,6 +1065,7 @@ pub async fn ask_context(pool: &PgPool, query: &str, opts: &AskContextOptions) -
             "intent": intent,
             "out_of_domain": out_of_domain,
             "context_query": context_query,
+            "answer_target": answer_target,
             "base_prompt_de_available": base.get("prompt_de").and_then(JsonValue::as_str).is_some_and(|value| !value.trim().is_empty()),
         }),
     );
@@ -1571,13 +1595,15 @@ pub async fn analyze_query(pool: &PgPool, query: &str) -> Result<QueryPlan> {
     let mut entities = Vec::new();
     let mut threats = Vec::new();
     let query_norm = normalize_alias(query);
+    let query_terms = intent_query_terms(query);
+    let hero_group_query = asks_for_hero_group(&query_terms);
 
     for entity in known_entities.iter().filter(|entity| entity.entity_type == "hero") {
         if keyword_starts_word(&query_norm, &normalize_alias(&entity.name)) {
             push_query_entity(&mut entities, &mut threats, entity);
         }
     }
-    if entities.is_empty() {
+    if entities.is_empty() && !hero_group_query {
         for entity in known_entities
             .iter()
             .filter(|entity| matches!(entity.entity_type.as_str(), "item" | "item_special"))
@@ -1593,7 +1619,9 @@ pub async fn analyze_query(pool: &PgPool, query: &str) -> Result<QueryPlan> {
                 value_to_nonempty_string(best_match.get("canonical_name")),
                 value_to_nonempty_string(best_match.get("entity_type")),
             ) {
-                entities.push(json!({"name": name, "type": entity_type, "raw": query}));
+                if !hero_group_query || entity_type == "hero" {
+                    entities.push(json!({"name": name, "type": entity_type, "raw": query}));
+                }
             }
         }
     }
@@ -1670,6 +1698,9 @@ fn classify_ask_intent(query_lower: &str, matched: bool, entity_type: &str) -> S
     if contains_any_intent_term(&terms, &["kontert", "counter", "gegen", "matchup", "vs"]) {
         return "matchup".to_string();
     }
+    if asks_for_hero_group(&terms) && (!matched || entity_type == "hero") {
+        return "hero_archetype".to_string();
+    }
     if !matched
         && contains_any_intent_term(
             &terms,
@@ -1696,6 +1727,59 @@ fn classify_ask_intent(query_lower: &str, matched: bool, entity_type: &str) -> S
         return "item_question".to_string();
     }
     "hero_overview".to_string()
+}
+
+fn asks_for_hero_group(terms: &[String]) -> bool {
+    let hero_target = contains_any_intent_term(
+        terms,
+        &[
+            "hero",
+            "heros",
+            "heroes",
+            "held",
+            "helden",
+            "charakter",
+            "charaktere",
+            "champion",
+            "champions",
+        ],
+    );
+    if !hero_target {
+        return false;
+    }
+    contains_any_intent_term(
+        terms,
+        &[
+            "welche",
+            "welcher",
+            "welches",
+            "which",
+            "who",
+            "üblich",
+            "übliche",
+            "üblicherweise",
+            "typisch",
+            "typische",
+            "archetyp",
+            "archetypen",
+            "spielstil",
+            "playstyle",
+            "tempo",
+            "scaling",
+            "snowball",
+            "early",
+            "midgame",
+            "lategame",
+            "support",
+            "carry",
+            "tank",
+            "brawler",
+            "poke",
+            "dive",
+            "roam",
+            "roaming",
+        ],
+    )
 }
 
 fn has_explicit_ask_action(terms: &[String]) -> bool {
@@ -1775,8 +1859,8 @@ fn intent_fetch(intent: &str) -> Vec<String> {
             "shop_bonuses",
             "damage_calc",
         ],
-        "meta_question" | "hero_comparison" => {
-            vec!["hero_rankings", "hero_stats", "patch_impact_notes"]
+        "meta_question" | "hero_comparison" | "hero_archetype" => {
+            vec!["hero_rankings", "hero_stats", "patch_impact_notes", "game_wiki"]
         }
         "matchup" => vec!["counterplay_claims", "matchup_claims", "hero_stats", "patch_events"],
         "match_coaching" => vec!["match_data", "build_notes"],
@@ -3274,6 +3358,9 @@ async fn load_ask_claims(
         claim.matched_keyword_count = relevance.distinct_matches;
     }
     claims.retain(|claim| ask_claim_passes_minimum_relevance(claim, &keywords, entity_match, &idf_weights));
+    if intent == "hero_archetype" {
+        claims.retain(|claim| claim.entity_type == "hero");
+    }
     Ok((claims, entity_matched, keyword_matched))
 }
 
@@ -3543,6 +3630,7 @@ fn ask_claim_from_row(
         claim_text: value_to_string(row.get("claim_text")),
         evidence_quote: value_to_string(row.get("evidence_quote")),
         claim_type: value_to_string(row.get("claim_type")),
+        entity_type: value_to_string(row.get("entity_type")).to_lowercase(),
         entity_name: value_to_string(row.get("entity_name")),
         status: value_to_string(row.get("status")).to_lowercase(),
         verifier_confidence: safe_f64(row.get("verifier_confidence"), 0.0),
@@ -6894,6 +6982,7 @@ mod tests {
             claim_text: format!("claim {id}"),
             evidence_quote: format!("evidence {id}"),
             claim_type: "mechanic".to_string(),
+            entity_type: "item".to_string(),
             entity_name: "Mystic Shot".to_string(),
             status: status.to_string(),
             verifier_confidence: confidence,
@@ -7393,6 +7482,33 @@ mod tests {
 
         assert!(prompt.contains("\"game_knowledge\""));
         assert!(prompt.contains("FULL_WIKI_PAGE_TOKEN"));
+    }
+
+    #[test]
+    fn hero_group_questions_get_semantic_archetype_intent() {
+        for query in [
+            "Welche heros sind üblicherweise Tempo Charaktere",
+            "Welche Helden sind typische Snowball Charaktere?",
+            "Which heroes are scaling carries?",
+        ] {
+            assert_eq!(
+                classify_ask_intent(&query.to_lowercase(), false, ""),
+                "hero_archetype",
+                "{query}"
+            );
+        }
+        assert_eq!(
+            classify_ask_intent("welche helden sind in der meta?", false, ""),
+            "meta_question"
+        );
+        assert_eq!(
+            classify_ask_intent("welche heroes sind wie warden tempo charaktere?", true, "hero"),
+            "hero_archetype"
+        );
+        assert_eq!(
+            classify_ask_intent("wie funktioniert healing tempo?", true, "item"),
+            "item_question"
+        );
     }
 
     #[test]
