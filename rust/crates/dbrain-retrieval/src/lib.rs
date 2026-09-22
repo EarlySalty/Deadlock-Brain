@@ -41,6 +41,9 @@ const PROMPT_VERSION: &str = "review_context_de_v1";
 const ASK_STRONG_ON_TOPIC_TARGET: usize = 3;
 const ASK_IDF_SCALE: f64 = 10.0;
 const ASK_DISTINCTIVE_KEYWORD_MIN_IDF: i64 = 8;
+const HERO_POWER_CURVE_WINDOW_DAYS: i64 = 30;
+const HERO_POWER_CURVE_MIN_BUCKET_MATCHES: i64 = 50;
+const HERO_POWER_CURVE_SIGNAL_PP: f64 = 3.0;
 const ASK_PROMPT_TEMPLATE: &str = r#"Du bist ein erfahrener Deadlock-Coach und Analyst. Beantworte die folgende Frage – oder erstelle den gewünschten Build – AUSSCHLIESSLICH auf Basis der unten gelieferten, geprüften Fakten. Erfinde keine Werte, Items, Fähigkeiten oder Patch-Stände. Wenn die Fakten etwas nicht hergeben, sage das offen, statt zu raten.
 
 FRAGE: {{query}}
@@ -995,6 +998,11 @@ pub async fn ask_context(pool: &PgPool, query: &str, opts: &AskContextOptions) -
         item_ground_truth,
         base.get("timeline_signals").unwrap_or(&JsonValue::Null),
     );
+    let hero_power_curve = if out_of_domain {
+        JsonValue::Null
+    } else {
+        hero_power_curve_ground_truth(pool, &intent).await?
+    };
     let game_knowledge = if out_of_domain {
         json!({"available": false, "reason": "out_of_domain"})
     } else {
@@ -1012,6 +1020,7 @@ pub async fn ask_context(pool: &PgPool, query: &str, opts: &AskContextOptions) -
         "timeline": base.get("timeline_signals").cloned().unwrap_or(JsonValue::Null),
         "lineage": base.get("lineage").cloned().unwrap_or(JsonValue::Null),
         "item": item_ground_truth,
+        "hero_power_curve": hero_power_curve,
         "game_knowledge": game_knowledge,
     });
     let mut creator_knowledge = JsonMap::new();
@@ -3306,6 +3315,202 @@ async fn query_has_deadlock_vocabulary(pool: &PgPool, query: &str) -> Result<boo
         }
     }
     Ok(false)
+}
+
+async fn hero_power_curve_ground_truth(pool: &PgPool, intent: &str) -> Result<JsonValue> {
+    if intent != "hero_archetype" {
+        return Ok(JsonValue::Null);
+    }
+    if !tables_exist(pool, &["population_player_matches", "hero_catalog"]).await? {
+        return Ok(json!({"available": false, "reason": "population_data_unavailable"}));
+    }
+
+    let bounds = sqlx::query(
+        r#"
+        WITH latest AS (
+          SELECT MAX(start_time) AS max_start
+          FROM brain.population_player_matches
+          WHERE start_time IS NOT NULL
+            AND duration_s BETWEEN 600 AND 5400
+        ),
+        recent_matches AS (
+          SELECT DISTINCT p.match_id, p.duration_s, p.start_time
+          FROM brain.population_player_matches p
+          CROSS JOIN latest l
+          WHERE l.max_start IS NOT NULL
+            AND p.start_time IS NOT NULL
+            AND p.duration_s BETWEEN 600 AND 5400
+            AND p.start_time >= l.max_start - make_interval(days => $1)
+        )
+        SELECT
+          percentile_cont(0.33) WITHIN GROUP (ORDER BY duration_s)::double precision AS short_cut_s,
+          percentile_cont(0.67) WITHIN GROUP (ORDER BY duration_s)::double precision AS long_cut_s,
+          COUNT(*)::bigint AS match_count,
+          MIN(start_time)::text AS window_start,
+          MAX(start_time)::text AS window_end
+        FROM recent_matches
+        "#,
+    )
+    .bind(HERO_POWER_CURVE_WINDOW_DAYS as i32)
+    .fetch_one(pool)
+    .await?;
+
+    let global_matches = bounds.try_get::<i64, _>("match_count").unwrap_or_default();
+    let short_cut_s = bounds.try_get::<Option<f64>, _>("short_cut_s").ok().flatten();
+    let long_cut_s = bounds.try_get::<Option<f64>, _>("long_cut_s").ok().flatten();
+    let window_start = bounds.try_get::<Option<String>, _>("window_start").ok().flatten();
+    let window_end = bounds.try_get::<Option<String>, _>("window_end").ok().flatten();
+    let (Some(short_cut_s), Some(long_cut_s)) = (short_cut_s, long_cut_s) else {
+        return Ok(json!({"available": false, "reason": "no_recent_matches"}));
+    };
+    if global_matches <= 0 {
+        return Ok(json!({"available": false, "reason": "no_recent_matches"}));
+    }
+
+    let rows = sqlx::query(
+        r#"
+        WITH latest AS (
+          SELECT MAX(start_time) AS max_start
+          FROM brain.population_player_matches
+          WHERE start_time IS NOT NULL
+            AND duration_s BETWEEN 600 AND 5400
+        ),
+        recent AS (
+          SELECT p.hero_id, p.won, p.duration_s
+          FROM brain.population_player_matches p
+          CROSS JOIN latest l
+          WHERE l.max_start IS NOT NULL
+            AND p.start_time IS NOT NULL
+            AND p.duration_s BETWEEN 600 AND 5400
+            AND p.start_time >= l.max_start - make_interval(days => $1)
+        )
+        SELECT
+          r.hero_id,
+          h.name,
+          COUNT(*)::bigint AS total_matches,
+          COUNT(*) FILTER (WHERE r.duration_s <= $2)::bigint AS short_matches,
+          SUM(CASE WHEN r.won THEN 1 ELSE 0 END)
+            FILTER (WHERE r.duration_s <= $2)::bigint AS short_wins,
+          COUNT(*) FILTER (WHERE r.duration_s > $2 AND r.duration_s <= $3)::bigint AS mid_matches,
+          SUM(CASE WHEN r.won THEN 1 ELSE 0 END)
+            FILTER (WHERE r.duration_s > $2 AND r.duration_s <= $3)::bigint AS mid_wins,
+          COUNT(*) FILTER (WHERE r.duration_s > $3)::bigint AS long_matches,
+          SUM(CASE WHEN r.won THEN 1 ELSE 0 END)
+            FILTER (WHERE r.duration_s > $3)::bigint AS long_wins
+        FROM recent r
+        JOIN brain.hero_catalog h ON h.hero_id = r.hero_id
+        GROUP BY r.hero_id, h.name
+        HAVING COUNT(*) >= 30
+        ORDER BY h.name
+        "#,
+    )
+    .bind(HERO_POWER_CURVE_WINDOW_DAYS as i32)
+    .bind(short_cut_s)
+    .bind(long_cut_s)
+    .fetch_all(pool)
+    .await?;
+
+    let mut heroes = Vec::new();
+    for row in rows {
+        let hero_id = row.try_get::<i64, _>("hero_id").unwrap_or_default();
+        let name = row.try_get::<String, _>("name").unwrap_or_default();
+        if hero_id <= 0 || name.trim().is_empty() {
+            continue;
+        }
+        let total_matches = row.try_get::<i64, _>("total_matches").unwrap_or_default();
+        let short_matches = row.try_get::<i64, _>("short_matches").unwrap_or_default();
+        let short_wins = row.try_get::<Option<i64>, _>("short_wins").ok().flatten().unwrap_or_default();
+        let mid_matches = row.try_get::<i64, _>("mid_matches").unwrap_or_default();
+        let mid_wins = row.try_get::<Option<i64>, _>("mid_wins").ok().flatten().unwrap_or_default();
+        let long_matches = row.try_get::<i64, _>("long_matches").unwrap_or_default();
+        let long_wins = row.try_get::<Option<i64>, _>("long_wins").ok().flatten().unwrap_or_default();
+
+        let short_rate = win_rate(short_wins, short_matches);
+        let mid_rate = win_rate(mid_wins, mid_matches);
+        let long_rate = win_rate(long_wins, long_matches);
+        let delta_pp = short_rate.zip(long_rate).map(|(short, long)| (short - long) * 100.0);
+        let label = power_curve_label(delta_pp, short_matches, long_matches);
+
+        heroes.push(json!([
+            name,
+            hero_id,
+            total_matches,
+            short_matches,
+            short_rate.map(percent_rounded),
+            mid_matches,
+            mid_rate.map(percent_rounded),
+            long_matches,
+            long_rate.map(percent_rounded),
+            delta_pp.map(one_decimal),
+            label,
+        ]));
+    }
+
+    Ok(json!({
+        "available": true,
+        "method": "recent_duration_tertiles",
+        "window_days": HERO_POWER_CURVE_WINDOW_DAYS,
+        "window_start": window_start,
+        "window_end": window_end,
+        "global_matches": global_matches,
+        "duration_cutoffs_s": {
+            "short_game_max_s": short_cut_s.round() as i64,
+            "long_game_min_s": long_cut_s.round() as i64,
+        },
+        "minimum_bucket_matches": HERO_POWER_CURVE_MIN_BUCKET_MATCHES,
+        "signal_threshold_pp": HERO_POWER_CURVE_SIGNAL_PP,
+        "hero_curve_schema": [
+            "name",
+            "hero_id",
+            "total_matches",
+            "short_matches",
+            "short_win_rate_percent",
+            "mid_matches",
+            "mid_win_rate_percent",
+            "long_matches",
+            "long_win_rate_percent",
+            "short_minus_long_pp",
+            "curve_label"
+        ],
+        "hero_curves": heroes,
+        "interpretation": {
+            "early_skewed": "Winrate is materially higher in the shortest third of recent matches than in the longest third.",
+            "late_skewed": "Winrate is materially higher in the longest third of recent matches than in the shortest third.",
+            "flat": "Short and long match winrates differ by less than the configured signal threshold.",
+            "insufficient_sample": "At least one edge bucket is below the configured sample floor.",
+            "caution": "This is an observed power curve signal, not proof of the mechanical cause."
+        }
+    }))
+}
+
+fn win_rate(wins: i64, matches: i64) -> Option<f64> {
+    (matches > 0).then(|| wins as f64 / matches as f64)
+}
+
+fn percent_rounded(rate: f64) -> f64 {
+    one_decimal(rate * 100.0)
+}
+
+fn one_decimal(value: f64) -> f64 {
+    (value * 10.0).round() / 10.0
+}
+
+fn power_curve_label(delta_pp: Option<f64>, short_matches: i64, long_matches: i64) -> &'static str {
+    if short_matches < HERO_POWER_CURVE_MIN_BUCKET_MATCHES
+        || long_matches < HERO_POWER_CURVE_MIN_BUCKET_MATCHES
+    {
+        return "insufficient_sample";
+    }
+    let Some(delta_pp) = delta_pp else {
+        return "insufficient_sample";
+    };
+    if delta_pp >= HERO_POWER_CURVE_SIGNAL_PP {
+        "early_skewed"
+    } else if delta_pp <= -HERO_POWER_CURVE_SIGNAL_PP {
+        "late_skewed"
+    } else {
+        "flat"
+    }
 }
 
 async fn ask_item_ground_truth(pool: &PgPool, entity: &JsonValue) -> Result<JsonValue> {
@@ -7482,6 +7687,18 @@ mod tests {
 
         assert!(prompt.contains("\"game_knowledge\""));
         assert!(prompt.contains("FULL_WIKI_PAGE_TOKEN"));
+    }
+
+    #[test]
+    fn hero_power_curve_labels_require_sample_and_material_delta() {
+        assert_eq!(power_curve_label(Some(4.2), 80, 75), "early_skewed");
+        assert_eq!(power_curve_label(Some(-3.4), 80, 75), "late_skewed");
+        assert_eq!(power_curve_label(Some(2.9), 80, 75), "flat");
+        assert_eq!(
+            power_curve_label(Some(9.0), 49, 75),
+            "insufficient_sample"
+        );
+        assert_eq!(percent_rounded(0.53456), 53.5);
     }
 
     #[test]
