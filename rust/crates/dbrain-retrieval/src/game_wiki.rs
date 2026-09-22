@@ -117,7 +117,7 @@ pub fn search_game_wiki(
     entity: &JsonValue,
     limit: usize,
 ) -> Result<JsonValue> {
-    search_game_wiki_inner(root, query, entity, limit, false, false)
+    search_game_wiki_inner(root, query, entity, limit, false, false, None)
 }
 
 /// Answer context may include one complete hero and its bound ability cards.
@@ -129,6 +129,9 @@ pub(crate) fn search_game_wiki_for_answer(
     intent: &str,
     limit: usize,
 ) -> Result<JsonValue> {
+    if intent == "hero_archetype" {
+        return hero_roster_answer_context(root, query);
+    }
     let ability_overview = intent == "hero_overview"
         && words(query).iter().any(|word| {
             matches!(
@@ -141,7 +144,49 @@ pub(crate) fn search_game_wiki_for_answer(
                     | "skillset"
             )
         });
-    search_game_wiki_inner(root, query, entity, limit, ability_overview, true)
+    let answer_types = answer_entity_types(query, entity, intent);
+    search_game_wiki_inner(
+        root,
+        query,
+        entity,
+        limit,
+        ability_overview,
+        true,
+        answer_types,
+    )
+}
+
+fn answer_entity_types(
+    query: &str,
+    _entity: &JsonValue,
+    intent: &str,
+) -> Option<Vec<&'static str>> {
+    let query_words = words(query);
+    let has_ability_target = query_words.iter().any(|word| {
+        matches!(
+            word.as_str(),
+            "fähigkeit"
+                | "fähigkeiten"
+                | "faehigkeit"
+                | "faehigkeiten"
+                | "fertigkeit"
+                | "fertigkeiten"
+                | "ability"
+                | "abilities"
+                | "skill"
+                | "skills"
+        )
+    });
+    if intent == "hero_overview" && has_ability_target {
+        return Some(vec!["hero", "ability", "ability_card"]);
+    }
+    let has_hero_group_target = query_words.iter().any(|word| {
+        matches!(
+            word.as_str(),
+            "heros" | "heroes" | "helden" | "charaktere" | "champions"
+        )
+    });
+    has_hero_group_target.then(|| vec!["hero"])
 }
 
 fn search_game_wiki_inner(
@@ -151,6 +196,7 @@ fn search_game_wiki_inner(
     limit: usize,
     expand_hero: bool,
     strict_answer_match: bool,
+    answer_types: Option<Vec<&'static str>>,
 ) -> Result<JsonValue> {
     let root = resolve_game_wiki_dir(root);
     let pages_root = root.join("pages");
@@ -180,6 +226,17 @@ fn search_game_wiki_inner(
             .replace('\\', "/");
         let content = fs::read_to_string(&path)?;
         for entry in split_search_entries(&content) {
+            if let Some(allowed) = answer_types.as_ref() {
+                let Some(entry_type) = entry_entity_type(entry) else {
+                    continue;
+                };
+                if !allowed
+                    .iter()
+                    .any(|allowed_type| *allowed_type == entry_type)
+                {
+                    continue;
+                }
+            }
             let title = page_title(entry).unwrap_or_else(|| {
                 path.file_stem()
                     .and_then(|value| value.to_str())
@@ -288,6 +345,140 @@ fn search_game_wiki_inner(
     }))
 }
 
+fn hero_roster_answer_context(root: Option<&Path>, query: &str) -> Result<JsonValue> {
+    let root = resolve_game_wiki_dir(root);
+    let pages_root = root.join("pages");
+    if !pages_root.is_dir() {
+        return Ok(json!({
+            "available": false,
+            "root": root,
+            "reason": "game-wiki/pages fehlt; fuehre `deadlock-brain wiki rebuild` aus",
+        }));
+    }
+
+    let root = fs::canonicalize(root)?;
+    let pages_root = root.join("pages");
+    let mut files = Vec::new();
+    collect_markdown_files(&pages_root, &mut files)?;
+    files.sort();
+
+    let mut heroes = Vec::new();
+    let mut source_meta = JsonValue::Null;
+    for path in files {
+        let content = fs::read_to_string(path)?;
+        for entry in split_search_entries(&content) {
+            if entry_entity_type(entry).as_deref() != Some("hero") {
+                continue;
+            }
+            let Some(payload) = entry_payload_json(entry) else {
+                continue;
+            };
+            if payload.get("IsSelectable").and_then(JsonValue::as_bool) == Some(false)
+                || payload.get("IsDisabled").and_then(JsonValue::as_bool) == Some(true)
+                || payload.get("InDevelopment").and_then(JsonValue::as_bool) == Some(true)
+            {
+                continue;
+            }
+            let Some(name) = payload.get("Name").and_then(JsonValue::as_str) else {
+                continue;
+            };
+            if source_meta.is_null() {
+                source_meta = json!({
+                    "commit_sha": payload.pointer("/_deadlock_data/commit_sha").cloned().unwrap_or(JsonValue::Null),
+                    "commit_time": payload.pointer("/_deadlock_data/commit_time").cloned().unwrap_or(JsonValue::Null),
+                });
+            }
+
+            let abilities = payload
+                .get("BoundAbilities")
+                .and_then(JsonValue::as_object)
+                .map(|slots| {
+                    let mut slots = slots.iter().collect::<Vec<_>>();
+                    slots.sort_by_key(|(slot, _)| slot.parse::<u8>().unwrap_or(u8::MAX));
+                    slots
+                        .into_iter()
+                        .filter_map(|(_, ability)| {
+                            ability
+                                .get("Name")
+                                .and_then(JsonValue::as_str)
+                                .map(str::to_string)
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let scaling = payload.get("LevelScaling").and_then(JsonValue::as_object);
+
+            heroes.push(json!([
+                name,
+                payload.get("Type").cloned().unwrap_or(JsonValue::Null),
+                payload.get("MaxHealth").cloned().unwrap_or(JsonValue::Null),
+                payload
+                    .get("MaxMoveSpeed")
+                    .cloned()
+                    .unwrap_or(JsonValue::Null),
+                payload
+                    .get("SprintSpeed")
+                    .cloned()
+                    .unwrap_or(JsonValue::Null),
+                payload.get("Stamina").cloned().unwrap_or(JsonValue::Null),
+                scaling
+                    .and_then(|value| value.get("DPS"))
+                    .cloned()
+                    .unwrap_or(JsonValue::Null),
+                scaling
+                    .and_then(|value| value.get("MaxHealth"))
+                    .cloned()
+                    .unwrap_or(JsonValue::Null),
+                scaling
+                    .and_then(|value| value.get("TechPower"))
+                    .cloned()
+                    .unwrap_or(JsonValue::Null),
+                abilities,
+            ]));
+        }
+    }
+
+    heroes.sort_by(|left, right| {
+        left.get(0)
+            .and_then(JsonValue::as_str)
+            .cmp(&right.get(0).and_then(JsonValue::as_str))
+    });
+    let facts = json!({
+        "semantic_target": "hero",
+        "question_kind": "hero_archetype",
+        "hero_roster_schema": [
+            "name",
+            "type",
+            "base_health",
+            "move_speed",
+            "sprint_speed",
+            "stamina",
+            "dps_growth",
+            "health_growth",
+            "spirit_growth",
+            "abilities"
+        ],
+        "hero_roster": heroes,
+        "_deadlock_data": source_meta,
+    });
+    let content = format!("````json\n{}\n````", serde_json::to_string(&facts)?);
+    Ok(json!({
+        "available": true,
+        "root": root,
+        "query": query,
+        "matches": [{
+            "title": "Deadlock Heldenroster und Mechaniksignale",
+            "path": "generated/hero-roster",
+            "score": 1000,
+            "content": content,
+        }],
+        "match_count": 1,
+        "match_limit": 1,
+        "hero_context": JsonValue::Null,
+        "semantic_target": "hero",
+    }))
+}
+
 #[derive(Debug, Clone)]
 struct SnapshotRow {
     id: i64,
@@ -366,6 +557,25 @@ struct EntryBinding {
     bound: Option<Vec<(String, String)>>,
 }
 
+fn entry_entity_type(entry: &str) -> Option<String> {
+    let marker = entry.lines().next()?.trim();
+    let start = marker.find("entity_type=\"")? + "entity_type=\"".len();
+    let rest = marker.get(start..)?;
+    let end = rest.find('"')?;
+    Some(rest.get(..end)?.to_string())
+}
+
+fn entry_payload_json(entry: &str) -> Option<JsonValue> {
+    let mut lines = entry.lines();
+    let fence = lines.find(|line| line.starts_with("```") && line.trim_end().ends_with("json"))?;
+    let closing = fence.trim_end().strip_suffix("json")?;
+    let body = lines
+        .take_while(|line| line.trim_end() != closing)
+        .collect::<Vec<_>>()
+        .join("\n");
+    serde_json::from_str(&body).ok()
+}
+
 fn entry_binding(entry: &str) -> Option<EntryBinding> {
     let kind = entry.lines().next().unwrap_or_default();
     if !["entity_type=\"hero\"", "entity_type=\"ability_card\""]
@@ -374,14 +584,7 @@ fn entry_binding(entry: &str) -> Option<EntryBinding> {
     {
         return None;
     }
-    let mut lines = entry.lines();
-    let fence = lines.find(|line| line.starts_with("```") && line.trim_end().ends_with("json"))?;
-    let closing = fence.trim_end().strip_suffix("json")?;
-    let body = lines
-        .take_while(|line| line.trim_end() != closing)
-        .collect::<Vec<_>>()
-        .join("\n");
-    let payload: JsonValue = serde_json::from_str(&body).ok()?;
+    let payload = entry_payload_json(entry)?;
     let key = payload.get("Key")?.as_str()?.to_string();
     let bound = match payload.get("BoundAbilities") {
         Some(slots) => Some(
@@ -1423,6 +1626,39 @@ mod tests {
     }
 
     #[test]
+    fn hero_archetype_answer_uses_roster_evidence_instead_of_item_names() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pages = tmp.path().join("pages/deadlock-data");
+        fs::create_dir_all(&pages).unwrap();
+        fs::write(
+            pages.join("hero.md"),
+            "<!-- game-wiki-entry source=\"deadlock_data\" entity_type=\"hero\" external_id=\"hero_beacon\" title=\"Beacon\" -->\n## Beacon\n````json\n{\"Key\":\"hero_beacon\",\"Name\":\"Beacon\",\"Type\":\"Brawler\",\"IsSelectable\":true,\"MaxHealth\":700,\"MaxMoveSpeed\":6.5,\"SprintSpeed\":1.5,\"Stamina\":3,\"LevelScaling\":{\"DPS\":1.2,\"MaxHealth\":40},\"BoundAbilities\":{\"1\":{\"Key\":\"ability_beacon\",\"Name\":\"Fast Start\"}}}\n````\n",
+        )
+        .unwrap();
+        fs::write(
+            pages.join("item.md"),
+            "<!-- game-wiki-entry source=\"deadlock_data\" entity_type=\"item\" external_id=\"upgrade_healbuff\" title=\"Healing Tempo\" -->\n## Healing Tempo\n````json\n{\"Name\":\"Healing Tempo\",\"Description\":\"Healing is increased after a heal.\"}\n````\n",
+        )
+        .unwrap();
+
+        let result = search_game_wiki_for_answer(
+            Some(tmp.path()),
+            "Welche heros sind üblicherweise Tempo Charaktere",
+            &JsonValue::Null,
+            "hero_archetype",
+            3,
+        )
+        .unwrap();
+
+        assert_eq!(result["semantic_target"], "hero");
+        assert_eq!(result["matches"].as_array().unwrap().len(), 1);
+        let content = result["matches"][0]["content"].as_str().unwrap();
+        assert!(content.contains("Beacon"));
+        assert!(content.contains("hero_archetype"));
+        assert!(!content.contains("Healing Tempo"));
+    }
+
+    #[test]
     fn answer_search_does_not_treat_partial_item_name_as_hero_archetype_evidence() {
         let tmp = tempfile::tempdir().unwrap();
         let pages = tmp.path().join("pages/deadlock-data");
@@ -1452,6 +1688,31 @@ mod tests {
         )
         .unwrap();
         assert_eq!(item["matches"][0]["title"], "Healing Tempo");
+    }
+
+    #[test]
+    #[ignore = "Explizite Abnahme am versionierten echten Game-Wiki"]
+    fn live_wiki_hero_archetype_roster_is_compact_and_item_free() {
+        let root = Path::new("../../../game-wiki");
+        let result = search_game_wiki_for_answer(
+            Some(root),
+            "Welche heros sind üblicherweise Tempo Charaktere",
+            &JsonValue::Null,
+            "hero_archetype",
+            3,
+        )
+        .unwrap();
+        let matches = result["matches"].as_array().unwrap();
+        assert_eq!(matches.len(), 1);
+        let content = matches[0]["content"].as_str().unwrap();
+        assert!(content.contains("[\"Abrams\","));
+        assert!(content.contains("\"question_kind\":\"hero_archetype\""));
+        assert!(!content.contains("Healing Tempo"));
+        assert!(
+            content.encode_utf16().count() < 11_000,
+            "Rosterbeleg ist zu groß: {} UTF-16-Einheiten",
+            content.encode_utf16().count()
+        );
     }
 
     #[test]
