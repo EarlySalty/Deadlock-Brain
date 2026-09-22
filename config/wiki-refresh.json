@@ -1,0 +1,6 @@
+{
+  "infisical_config": "/home/nathanael/.local/share/deadlock-brain/wiki-refresh/infisical.json",
+  "source_repository": "/home/nathanael/.local/share/deadlock-brain/source-cache/deadlock-data",
+  "raw_directory": "/home/nathanael/.local/share/deadlock-brain/raw",
+  "publication_root": "/home/nathanael/.local/share/deadlock-brain/game-wiki"
+}
