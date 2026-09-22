@@ -117,7 +117,7 @@ pub fn search_game_wiki(
     entity: &JsonValue,
     limit: usize,
 ) -> Result<JsonValue> {
-    search_game_wiki_inner(root, query, entity, limit, false)
+    search_game_wiki_inner(root, query, entity, limit, false, false)
 }
 
 /// Answer context may include one complete hero and its bound ability cards.
@@ -141,7 +141,7 @@ pub(crate) fn search_game_wiki_for_answer(
                     | "skillset"
             )
         });
-    search_game_wiki_inner(root, query, entity, limit, ability_overview)
+    search_game_wiki_inner(root, query, entity, limit, ability_overview, true)
 }
 
 fn search_game_wiki_inner(
@@ -150,6 +150,7 @@ fn search_game_wiki_inner(
     entity: &JsonValue,
     limit: usize,
     expand_hero: bool,
+    strict_answer_match: bool,
 ) -> Result<JsonValue> {
     let root = resolve_game_wiki_dir(root);
     let pages_root = root.join("pages");
@@ -185,8 +186,16 @@ fn search_game_wiki_inner(
                     .unwrap_or("unknown")
                     .replace('-', " ")
             });
-            let score = score_page(&path, &title, entry, &query_terms);
+            let raw_score = score_page(&path, &title, entry, &query_terms);
             let binding = entry_binding(entry);
+            let score = if strict_answer_match
+                && raw_score > 0
+                && !answer_page_relevant(&path, &title, entry, &query_terms)
+            {
+                0
+            } else {
+                raw_score
+            };
             if score <= 0 && binding.is_none() {
                 continue;
             }
@@ -902,6 +911,37 @@ fn score_page(path: &Path, title: &str, content: &str, terms: &[String]) -> i64 
     score
 }
 
+fn answer_page_relevant(path: &Path, title: &str, content: &str, terms: &[String]) -> bool {
+    if terms.is_empty() {
+        return false;
+    }
+    let path_terms = words(&path.to_string_lossy())
+        .into_iter()
+        .collect::<HashSet<_>>();
+    let title_terms = words(title).into_iter().collect::<HashSet<_>>();
+    let content_terms = words(content).into_iter().collect::<HashSet<_>>();
+    let matched_terms = terms
+        .iter()
+        .filter(|term| {
+            title_terms.contains(term.as_str())
+                || path_terms.contains(term.as_str())
+                || content_terms.contains(term.as_str())
+        })
+        .count();
+    if matched_terms == 0 {
+        return false;
+    }
+    let title_query_terms = tokenize(title);
+    let full_title_mentioned = !title_query_terms.is_empty()
+        && title_query_terms
+            .iter()
+            .all(|term| terms.iter().any(|query_term| query_term == term));
+    if full_title_mentioned || terms.len() <= 1 {
+        return true;
+    }
+    matched_terms >= 2
+}
+
 fn page_title(content: &str) -> Option<String> {
     for line in content.lines().take(20) {
         let line = line.trim();
@@ -1380,6 +1420,38 @@ mod tests {
             "{}",
             json!({"hero":result,"other_heroes":other_heroes,"unique_ability_keys":keys.len(),"item_titles":item["matches"].as_array().unwrap().iter().map(|page| &page["title"]).collect::<Vec<_>>(),"unknown":unknown})
         );
+    }
+
+    #[test]
+    fn answer_search_does_not_treat_partial_item_name_as_hero_archetype_evidence() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pages = tmp.path().join("pages/deadlock-data");
+        fs::create_dir_all(&pages).unwrap();
+        fs::write(
+            pages.join("item.md"),
+            "<!-- game-wiki-entry entity_type=\"item\" -->\n## Healing Tempo\n````json\n{\"Name\":\"Healing Tempo\",\"Description\":\"Healing is increased after a heal.\"}\n````\n",
+        )
+        .unwrap();
+
+        let archetype = search_game_wiki_for_answer(
+            Some(tmp.path()),
+            "Welche heros sind üblicherweise Tempo Charaktere",
+            &JsonValue::Null,
+            "hero_overview",
+            3,
+        )
+        .unwrap();
+        assert!(archetype["matches"].as_array().unwrap().is_empty());
+
+        let item = search_game_wiki_for_answer(
+            Some(tmp.path()),
+            "Wie funktioniert Healing Tempo?",
+            &JsonValue::Null,
+            "item_question",
+            3,
+        )
+        .unwrap();
+        assert_eq!(item["matches"][0]["title"], "Healing Tempo");
     }
 
     #[test]
