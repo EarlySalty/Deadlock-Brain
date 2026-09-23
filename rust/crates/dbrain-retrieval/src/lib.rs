@@ -1824,6 +1824,9 @@ fn classify_ask_intent(query_lower: &str, matched: bool, entity_type: &str) -> S
     ) {
         return "patch_changes".to_string();
     }
+    if matched && contains_any_intent_term(&terms, ASK_BUILD_INTENT_TERMS) {
+        return "build_recommendation".to_string();
+    }
     if contains_any_intent_term(
         &terms,
         &["meta", "tier", "viable", "noch stark", "noch gut"],
@@ -1854,9 +1857,6 @@ fn classify_ask_intent(query_lower: &str, matched: bool, entity_type: &str) -> S
         )
     {
         return "mechanics_question".to_string();
-    }
-    if matched && contains_any_intent_term(&terms, ASK_BUILD_INTENT_TERMS) {
-        return "build_recommendation".to_string();
     }
     if item_entity {
         return "item_question".to_string();
@@ -8427,6 +8427,18 @@ mod tests {
         assert_eq!(
             classify_ask_intent("wie funktioniert healing tempo?", true, "item"),
             "item_question"
+        );
+    }
+
+    #[test]
+    fn hero_meta_build_request_prefers_build_intent_over_meta_question() {
+        assert_eq!(
+            classify_ask_intent("baue mir einen warden meta build", true, "hero"),
+            "build_recommendation"
+        );
+        assert_eq!(
+            classify_ask_intent("warden meta", true, "hero"),
+            "meta_question"
         );
     }
 
