@@ -35,7 +35,7 @@ pub(crate) fn snapshot_flex_slots(snapshot: &Value) -> Option<usize> {
         })
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AuthorBuildSource {
     pub hero_id: i64,
     pub author: String,
@@ -51,20 +51,49 @@ pub struct AuthorBuildLayoutSource {
     pub details: Value,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MetaIndexWithSources {
     pub index: MetaIndex,
     pub author_builds: Vec<AuthorBuildSource>,
     pub hero_ability_orders: BTreeMap<i64, Vec<crate::AbilityStep>>,
     pub core_layouts: CoreLayoutIndex,
+    #[serde(with = "combination_serde")]
     pub combinations: BTreeMap<(i64, i64), CombinationSupport>,
     pub population: crate::PopulationPrior,
+    #[serde(default)]
+    pub observations: Vec<crate::families::BuildObservation>,
+    #[serde(default)]
+    pub family: Option<crate::families::BuildFamily>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CombinationSupport {
     pub relative_lift: f64,
     pub matches: i64,
+}
+
+mod combination_serde {
+    use super::CombinationSupport;
+    use serde::{Deserialize, Serialize};
+    use std::collections::BTreeMap;
+    pub fn serialize<S: serde::Serializer>(
+        value: &BTreeMap<(i64, i64), CombinationSupport>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        value.iter().collect::<Vec<_>>().serialize(serializer)
+    }
+    pub fn deserialize<'de, D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<BTreeMap<(i64, i64), CombinationSupport>, D::Error> {
+        let values = Vec::<((i64, i64), CombinationSupport)>::deserialize(deserializer)?;
+        let mut map = BTreeMap::new();
+        for (key, value) in values {
+            if map.insert(key, value).is_some() {
+                return Err(serde::de::Error::custom("duplicate combination key"));
+            }
+        }
+        Ok(map)
+    }
 }
 
 pub fn combination_support(
@@ -132,52 +161,109 @@ pub fn combination_support(
 }
 
 impl MetaIndexWithSources {
+    /// Raw source order for consumers that only inspect provenance. Planning
+    /// must use `coherent_ability_order` with the actual loaded hero model.
     pub fn ability_order(&self, hero_id: i64) -> (Vec<crate::AbilityStep>, crate::Evidence) {
+        self.ability_order_candidates(hero_id)
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| (Vec::new(), Self::missing_ability_source()))
+    }
+
+    /// Validate before selecting a source so an unusable first source cannot
+    /// hide an available author/global fallback. Preserve valid prefixes and
+    /// report rejected sources without mutating any original observations.
+    pub fn coherent_ability_order(
+        &self,
+        hero: &crate::HeroModel,
+    ) -> (Vec<crate::AbilityStep>, crate::Evidence, Vec<String>) {
+        let mut notes = Vec::new();
+        for (raw, source) in self.ability_order_candidates(hero.hero_id) {
+            let (order, mut validation_notes) = crate::progression::coherent_order(hero, &raw);
+            if order.is_empty() {
+                notes.push(format!(
+                    "Skillquelle übersprungen: {}. Keine kohärenten Schritte. {}",
+                    source.detail,
+                    validation_notes.join(" ")
+                ));
+                continue;
+            }
+            notes.append(&mut validation_notes);
+            return (order, source, notes);
+        }
+        (Vec::new(), Self::missing_ability_source(), notes)
+    }
+
+    fn missing_ability_source() -> crate::Evidence {
+        crate::Evidence {
+            kind: crate::EvidenceKind::Author,
+            detail: "Skill-Order: keine Quelle".to_string(),
+        }
+    }
+
+    fn ability_order_candidates(
+        &self,
+        hero_id: i64,
+    ) -> Vec<(Vec<crate::AbilityStep>, crate::Evidence)> {
+        let mut candidates = Vec::new();
+        if let Some(family) = self.family.as_ref().filter(|family| {
+            !family.skill_order.is_empty()
+                && family
+                    .skill_order_support
+                    .is_some_and(|share| share >= 0.50)
+        }) {
+            candidates.push((family.skill_order.clone(), crate::Evidence {
+                kind: crate::EvidenceKind::Meta,
+                detail: format!("Skill-Order: tatsächlich beobachtete Folge aus Familie {}; {:.1}% Support für den Acht-Schritt-Präfix. Der Rest ist eine beobachtete Folge, kein unabhängiger Positionsmodus.", family.id, family.skill_order_support.unwrap_or(0.0)*100.0),
+            }));
+        }
         let mut authors = self
             .author_builds
             .iter()
             .filter(|source| source.hero_id == hero_id && source.weight.is_finite())
+            .filter_map(|source| author_ability_order(&source.details).map(|order| (source, order)))
             .collect::<Vec<_>>();
-        authors.sort_by(|left, right| {
+        authors.sort_by(|(left, left_order), (right, right_order)| {
             right
                 .weight
                 .total_cmp(&left.weight)
                 .then_with(|| left.author.cmp(&right.author))
+                .then_with(|| {
+                    let signature = |step: &crate::AbilityStep| {
+                        (step.ability_id, step.currency_type, step.delta)
+                    };
+                    left_order
+                        .iter()
+                        .map(signature)
+                        .cmp(right_order.iter().map(signature))
+                })
         });
-        for source in authors {
-            if let Some(order) = author_ability_order(&source.details) {
-                return (
-                    order,
-                    crate::Evidence {
-                        kind: crate::EvidenceKind::Author,
-                        detail: format!(
-                            "Skill-Order: Autoren-Build {} (Gewicht {})",
-                            source.author, source.weight
-                        ),
-                    },
-                );
-            }
+        for (source, order) in authors {
+            candidates.push((
+                order,
+                crate::Evidence {
+                    kind: crate::EvidenceKind::Author,
+                    detail: format!(
+                        "Skill-Order: Autoren-Build {} (Gewicht {})",
+                        source.author, source.weight
+                    ),
+                },
+            ));
         }
         if let Some(order) = self
             .hero_ability_orders
             .get(&hero_id)
             .filter(|order| !order.is_empty())
         {
-            return (
+            candidates.push((
                 order.clone(),
                 crate::Evidence {
                     kind: crate::EvidenceKind::Meta,
                     detail: "Skill-Order: brain.hero_ability_orders".to_string(),
                 },
-            );
+            ));
         }
-        (
-            Vec::new(),
-            crate::Evidence {
-                kind: crate::EvidenceKind::Author,
-                detail: "Skill-Order: keine Quelle".to_string(),
-            },
-        )
+        candidates
     }
 }
 
@@ -418,7 +504,7 @@ pub fn derive_core_layouts(
     }
 }
 
-fn author_ability_order(details: &Value) -> Option<Vec<crate::AbilityStep>> {
+pub(crate) fn author_ability_order(details: &Value) -> Option<Vec<crate::AbilityStep>> {
     let order = details
         .get("abilityOrder")
         .or_else(|| details.get("ability_order"))?;

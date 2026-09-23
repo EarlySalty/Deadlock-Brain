@@ -73,6 +73,9 @@ pub fn hit_rate(threshold: f64) -> f64 {
 
 pub fn condition_factor_for_hero(item: &ItemModel, hero: &HeroModel, cfg: &ReasonerConfig) -> f64 {
     match &item.condition {
+        crate::ConditionKind::SpiritDamageToHeroes { .. } => {
+            crate::combat::damage_refresh_summary(item, hero, cfg).map_or(0.0, |(factor, _)| factor)
+        }
         crate::ConditionKind::MeleeBound => {
             if hero_melees(hero) {
                 1.0
@@ -115,6 +118,7 @@ pub fn condition_factor_for_hero(item: &ItemModel, hero: &HeroModel, cfg: &Reaso
 pub fn condition_factor(item: &ItemModel, cfg: &ReasonerConfig) -> f64 {
     match &item.condition {
         crate::ConditionKind::None => 1.0,
+        crate::ConditionKind::SpiritDamageToHeroes { .. } => 0.0, // No actor/event stream, no guaranteed uptime.
         crate::ConditionKind::ActiveCooldown { uptime, cooldown } => {
             if *cooldown > 0.0 {
                 (*uptime).clamp(0.0, 1.0)
@@ -298,6 +302,180 @@ pub fn ability_casts(ability: &AbilityModel, cfg: &ReasonerConfig) -> f64 {
     crate::data::ability_cast_count(ability, cfg)
 }
 
+/// Woher die Spirit->Feuerrate-Konversion stammt (fuer sichtbaren Status).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpiritRateSource {
+    /// Keine (verwendbare) Konversion vorhanden.
+    Missing,
+    /// Direkt aus `ERoundsPerSecond`.
+    RoundsPerSecond,
+    /// Aus `EFireRate` als Prozent-Fallback.
+    FireRatePercent,
+}
+
+/// Ergebnis der kanonischen Konversion inklusive Provenienz/Fehlerstatus. Wird an
+/// der Modellgrenze einmal ermittelt (nicht pro Simulations-Tick), damit ein
+/// unbekannter/fehlerhafter Assetwert im Confidence-/Assumptions-Pfad sichtbar ist.
+#[derive(Debug, Clone, Copy)]
+pub struct SpiritRateProvenance {
+    /// Schuss/s je 1 Spirit-Power (signiert; 0 wenn fehlend oder unbekannt).
+    pub rate: f64,
+    pub source: SpiritRateSource,
+    /// Primaerwert (`ERoundsPerSecond`) war nicht endlich, wurde aber aus einem
+    /// validen `EFireRate`-Alias fachlich begruendet zurueckgewonnen.
+    pub recovered_from_nonfinite: bool,
+    /// Ein vorhandener Konversions-Stat war nicht endlich und es gab keinen
+    /// validen Ersatz -> keine bestaetigte Konversion (rate 0, aber unbekannt).
+    pub unknown_nonfinite: bool,
+}
+
+/// Kanonische Helden-Konversion Spirit -> Waffen-Feuerrate mit Provenienz. Einzige
+/// Definition dieser Konversion; Sim/Marginal (`combat.rs`), statischer Score
+/// (`item.rs`) und Klassifikation (`damage_plan`) leiten sie nicht mehr getrennt ab.
+///
+/// `ERoundsPerSecond` ist der direkte Wert; `EFireRate` ist nur ein Prozent-Fallback
+/// (`* shots_per_second / 100`), nie werden beide addiert. Endliche negative Werte
+/// bleiben SIGNIERT erhalten (Spirit senkt dann die Feuerrate, eine echte Downside).
+/// Nicht endliche Werte (NaN/Inf) sind unbekannt/fehlerhaft: ein valider Alias darf
+/// sie fachlich begruendet ersetzen (als Recovery gekennzeichnet), ohne validen
+/// Ersatz bleibt es unbekannt (rate 0, `unknown_nonfinite`), nie ein endliches Minus.
+/// Physikalische Gesamtstat-Grenzen (Feuerrate nicht unter 0) gehoeren in die
+/// Stat-Anwendung beim Aufrufer (siehe `weapon_with_spirit`), nicht hierher.
+pub fn spirit_weapon_rate_provenance(hero: &HeroModel) -> SpiritRateProvenance {
+    let raw = |stat: &str| {
+        hero.scaling
+            .iter()
+            .find(|entry| entry.stat == stat)
+            .and_then(|entry| entry.per_spirit)
+    };
+    let rounds = raw("ERoundsPerSecond");
+    let fire = raw("EFireRate");
+    let from_fire = |value: f64| value * hero.weapon.shots_per_second / 100.0;
+    match rounds {
+        Some(value) if value.is_finite() => SpiritRateProvenance {
+            rate: value,
+            source: SpiritRateSource::RoundsPerSecond,
+            recovered_from_nonfinite: false,
+            unknown_nonfinite: false,
+        },
+        Some(_) => match fire {
+            // Primaer nicht endlich, valider Alias -> begruendete Recovery.
+            Some(alias) if alias.is_finite() => SpiritRateProvenance {
+                rate: from_fire(alias),
+                source: SpiritRateSource::FireRatePercent,
+                recovered_from_nonfinite: true,
+                unknown_nonfinite: false,
+            },
+            // Vorhanden, aber kein valider Ersatz -> unbekannt.
+            _ => SpiritRateProvenance {
+                rate: 0.0,
+                source: SpiritRateSource::Missing,
+                recovered_from_nonfinite: false,
+                unknown_nonfinite: true,
+            },
+        },
+        None => match fire {
+            Some(alias) if alias.is_finite() => SpiritRateProvenance {
+                rate: from_fire(alias),
+                source: SpiritRateSource::FireRatePercent,
+                recovered_from_nonfinite: false,
+                unknown_nonfinite: false,
+            },
+            Some(_) => SpiritRateProvenance {
+                rate: 0.0,
+                source: SpiritRateSource::Missing,
+                recovered_from_nonfinite: false,
+                unknown_nonfinite: true,
+            },
+            None => SpiritRateProvenance {
+                rate: 0.0,
+                source: SpiritRateSource::Missing,
+                recovered_from_nonfinite: false,
+                unknown_nonfinite: false,
+            },
+        },
+    }
+}
+
+/// Nur der Zahlwert der kanonischen Konversion (Schuss/s je 1 Spirit). Guenstig
+/// genug fuer den Aufruf einmal je Auswertung; den Fehlerstatus liefert
+/// [`spirit_weapon_rate_provenance`].
+pub fn spirit_weapon_rate_per_spirit(hero: &HeroModel) -> f64 {
+    spirit_weapon_rate_provenance(hero).rate
+}
+
+/// Zustandsbezogene Waffenprojektion: Basiswaffe mit `total_spirit` (innewohnend +
+/// zusaetzlich) ueber die kanonische Konversion, Feuerrate physikalisch bei 0
+/// gedeckelt. Einzige Projektion fuer Klassifikation (`damage_plan`) und statischen
+/// Score, damit der Basiszustand ueberall identisch (genau einmal) einfliesst.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WeaponSpiritScaling {
+    pub bullet_damage: f64,
+    pub clip_size: f64,
+    pub rounds_per_second: f64,
+}
+
+impl WeaponSpiritScaling {
+    /// Die Zielstats sind absolute Waffenwerte. Prozent-Feuerrate wird bereits
+    /// beim Einlesen auf Schuss/s umgerechnet; Item-Prozente folgen erst danach.
+    pub fn project(self, base: &WeaponProfile, total_spirit: f64) -> WeaponProfile {
+        let mut weapon = base.clone();
+        weapon.bullet_damage = (base.bullet_damage + total_spirit * self.bullet_damage).max(0.0);
+        weapon.clip_size = (base.clip_size + total_spirit * self.clip_size).max(0.0);
+        weapon.shots_per_second =
+            (base.shots_per_second + total_spirit * self.rounds_per_second).max(0.0);
+        weapon.sustained_dps = 0.0;
+        weapon
+    }
+}
+
+pub fn weapon_spirit_scaling(hero: &HeroModel) -> WeaponSpiritScaling {
+    let coefficient = |name: &str| {
+        hero.scaling
+            .iter()
+            .find(|stat| stat.stat.eq_ignore_ascii_case(name))
+            .and_then(|stat| stat.per_spirit)
+            .filter(|value| value.is_finite())
+            .unwrap_or(0.0)
+    };
+    WeaponSpiritScaling {
+        bullet_damage: coefficient("EBulletDamage"),
+        clip_size: coefficient("EClipSize"),
+        rounds_per_second: spirit_weapon_rate_per_spirit(hero),
+    }
+}
+
+pub fn weapon_with_spirit(hero: &HeroModel, total_spirit: f64) -> WeaponProfile {
+    weapon_spirit_scaling(hero).project(&hero.weapon, total_spirit)
+}
+
+/// Nicht unterstützte Achsen werden nicht als bestätigte Null behandelt.
+/// Die Liste beschreibt Modellabdeckung und verändert keine Item-Rangfolge.
+pub fn hero_scaling_warnings(hero: &HeroModel) -> Vec<String> {
+    hero.scaling
+        .iter()
+        .filter_map(|stat| {
+            let scale = stat.per_spirit?;
+            if matches!(stat.stat.as_str(), "ERoundsPerSecond" | "EFireRate") {
+                return None; // eigener Provenienzpfad, einschließlich Alias-Recovery
+            }
+            if !scale.is_finite() {
+                return Some(format!(
+                    "Helden-Konversion Spirit → {}: ungültiger Koeffizient; Wirkung unbekannt",
+                    stat.stat
+                ));
+            }
+            if scale != 0.0 && !matches!(stat.stat.as_str(), "EBulletDamage" | "EClipSize") {
+                return Some(format!(
+                    "Helden-Konversion Spirit → {} ({scale}): noch nicht im Kampf quantifiziert",
+                    stat.stat
+                ));
+            }
+            None
+        })
+        .collect()
+}
+
 fn is_damage_stat(name: &str) -> bool {
     let name = name.to_ascii_lowercase();
     name.contains("damage")
@@ -340,7 +518,12 @@ pub fn ability_dps(ability: &AbilityModel, _hero: &HeroModel, cfg: &ReasonerConf
 }
 
 pub fn damage_plan(hero: &HeroModel, cfg: &ReasonerConfig) -> DamagePlan {
-    let weapon_dps = weapon_dps(&hero.weapon, cfg.combat_window_seconds);
+    // Spirit->Waffen-Konversion am innewohnenden Spirit des Helden einbeziehen,
+    // damit weapon_dps/weapon_share/primary_axis die Spirit-als-Waffen-Identitaet
+    // eines Konverters spiegeln (Nullkonverter bleiben unveraendert). Dieselbe
+    // zustandsbezogene Projektion wie im Item-Score; Basis-Spirit genau einmal.
+    let weapon = weapon_with_spirit(hero, hero.base_spirit_power);
+    let weapon_dps = weapon_dps(&weapon, cfg.combat_window_seconds);
     let spirit_dps = hero
         .abilities
         .iter()
@@ -382,8 +565,47 @@ fn property_value(name: &str, value: f64, hero: &HeroModel, cfg: &ReasonerConfig
     if lower == "healthdrainedpersecond" {
         return -magnitude.abs();
     }
+    let share = cfg.incoming_weapon_fraction();
+    let defensive = match name {
+        "BulletShieldMaxHealth" => Some((0.0, magnitude, 0.0, share, 1.0 - share)),
+        "TechShieldMaxHealth" => Some((0.0, 0.0, magnitude, share, 1.0 - share)),
+        "CombatBarrier" => Some((magnitude, 0.0, 0.0, share, 1.0 - share)),
+        "BulletArmor" | "BulletResist" | "BulletResistPercent" => Some((
+            0.0,
+            0.0,
+            0.0,
+            share * (1.0 - percent.clamp(-1.0, 0.9)),
+            1.0 - share,
+        )),
+        "TechArmor" | "TechResist" | "SpiritResist" | "SpiritResistPercent" => Some((
+            0.0,
+            0.0,
+            0.0,
+            share,
+            (1.0 - share) * (1.0 - percent.clamp(-1.0, 0.9)),
+        )),
+        "WeaponPowerDebuff" => Some((
+            0.0,
+            0.0,
+            0.0,
+            share * (1.0 - percent.abs().clamp(0.0, 0.9)),
+            1.0 - share,
+        )),
+        _ => None,
+    };
+    if let Some((universal, weapon, spirit, weapon_rate, spirit_rate)) = defensive {
+        return (crate::defense::mixed_damage_capacity(
+            hero.base_health,
+            universal,
+            weapon,
+            spirit,
+            weapon_rate,
+            spirit_rate,
+        ) - hero.base_health.max(0.0))
+            / window;
+    }
     if lower.contains("weaponpowerdebuff") {
-        return hero.damage_plan.weapon_dps * percent.abs();
+        return 0.0;
     }
     if lower.contains("healampreceivepenalty") || lower.contains("healampregenpenalty") {
         return 0.0;
@@ -587,7 +809,10 @@ fn item_property_effect(
     let values = properties
         .iter()
         .filter(|(name, _)| {
-            burn.is_none() || (name.as_str() != "DPS" && name.as_str() != "ExplosionDamage")
+            (burn.is_none() || (name.as_str() != "DPS" && name.as_str() != "ExplosionDamage"))
+                && !(name.as_str() == "Regeneration"
+                    && (item.properties.contains_key("RegenerationDuration")
+                        || item.passive_properties.contains_key("RegenerationDuration")))
         })
         .map(|(name, value)| (name.clone(), *value))
         .collect();
@@ -1028,9 +1253,22 @@ mod tests {
     fn opponent_debuffs_and_self_cost_have_opposite_signs() {
         let hero = hero();
         let cfg = ReasonerConfig::default();
+        // A debuff on incoming weapon damage protects the health pool, not our own DPS.
+        let expected =
+            (hero.base_health / (0.5 * 0.75 + 0.5) - hero.base_health) / cfg.combat_window_seconds;
+        assert!((property_value("WeaponPowerDebuff", -25.0, &hero, &cfg) - expected).abs() < 1e-9);
+        let mut spirit_only = cfg.clone();
+        spirit_only.incoming_weapon_share = 0.0;
         assert_eq!(
-            property_value("WeaponPowerDebuff", -25.0, &hero, &cfg),
-            10.0
+            property_value("WeaponPowerDebuff", -25.0, &hero, &spirit_only),
+            0.0
+        );
+        let mut different_own_damage = hero.clone();
+        different_own_damage.damage_plan.weapon_dps = 1_000_000.0;
+        assert!(
+            (property_value("WeaponPowerDebuff", -25.0, &different_own_damage, &cfg) - expected)
+                .abs()
+                < 1e-9
         );
         assert_eq!(
             property_value("HealthDrainedPerSecond", 50.0, &hero, &cfg),
@@ -1160,6 +1398,241 @@ mod tests {
                 primary_axis: DamageType::Weapon,
             },
         }
+    }
+
+    fn with_scaling(stats: Vec<ScalingStat>, shots_per_second: f64) -> HeroModel {
+        let mut hero = hero();
+        hero.scaling = stats;
+        hero.weapon.shots_per_second = shots_per_second;
+        hero
+    }
+
+    fn rate_stat(stat: &str, per_spirit: Option<f64>) -> ScalingStat {
+        ScalingStat {
+            stat: stat.to_string(),
+            per_level: 0.0,
+            per_spirit,
+        }
+    }
+
+    #[test]
+    fn spirit_weapon_rate_uses_rounds_directly_and_never_adds_fire_rate() {
+        let hero = with_scaling(
+            vec![
+                rate_stat("ERoundsPerSecond", Some(0.25)),
+                rate_stat("EFireRate", Some(101.0)),
+            ],
+            4.0,
+        );
+        // ERoundsPerSecond direkt; EFireRate wird nie zusaetzlich addiert.
+        assert_eq!(spirit_weapon_rate_per_spirit(&hero), 0.25);
+    }
+
+    #[test]
+    fn spirit_weapon_rate_fire_rate_is_only_a_percentage_fallback() {
+        let hero = with_scaling(vec![rate_stat("EFireRate", Some(50.0))], 4.0);
+        // 50 % von 4 Schuss/s = 2.0 Schuss/s je Spirit.
+        assert_eq!(spirit_weapon_rate_per_spirit(&hero), 2.0);
+    }
+
+    #[test]
+    fn spirit_weapon_rate_is_zero_without_a_conversion_stat() {
+        let hero = with_scaling(vec![rate_stat("ESomethingElse", Some(1.0))], 4.0);
+        assert_eq!(spirit_weapon_rate_per_spirit(&hero), 0.0);
+    }
+
+    #[test]
+    fn spirit_weapon_rate_keeps_finite_negative_signed_as_downside() {
+        let hero = with_scaling(vec![rate_stat("ERoundsPerSecond", Some(-0.1))], 4.0);
+        // Endliche negative Konversion bleibt signiert (Downside), nicht 0.
+        assert_eq!(spirit_weapon_rate_per_spirit(&hero), -0.1);
+    }
+
+    #[test]
+    fn spirit_weapon_rate_drops_non_finite_as_unknown() {
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let hero = with_scaling(vec![rate_stat("ERoundsPerSecond", Some(bad))], 4.0);
+            // Nicht endliche Daten sind unbekannt -> verworfen, kein endliches Minus.
+            assert_eq!(spirit_weapon_rate_per_spirit(&hero), 0.0);
+        }
+        // Ist der Direktwert nicht endlich, aber der redundante EFireRate valide,
+        // wird die Konversion aus dem Fallback zurueckgewonnen (kein stiller 0-Wert,
+        // aber auch nie ein endliches Minus aus den Schrottdaten).
+        let hero = with_scaling(
+            vec![
+                rate_stat("ERoundsPerSecond", Some(f64::NAN)),
+                rate_stat("EFireRate", Some(50.0)),
+            ],
+            4.0,
+        );
+        assert_eq!(spirit_weapon_rate_per_spirit(&hero), 2.0);
+        // Sind beide nicht endlich, bleibt es bei unbekannt -> 0.
+        let hero = with_scaling(
+            vec![
+                rate_stat("ERoundsPerSecond", Some(f64::NAN)),
+                rate_stat("EFireRate", Some(f64::INFINITY)),
+            ],
+            4.0,
+        );
+        assert_eq!(spirit_weapon_rate_per_spirit(&hero), 0.0);
+    }
+
+    #[test]
+    fn spirit_rate_provenance_reports_visible_status() {
+        // Direkt aus ERoundsPerSecond.
+        let direct = with_scaling(vec![rate_stat("ERoundsPerSecond", Some(0.2))], 5.0);
+        let p = spirit_weapon_rate_provenance(&direct);
+        assert_eq!(p.source, SpiritRateSource::RoundsPerSecond);
+        assert!(!p.recovered_from_nonfinite && !p.unknown_nonfinite);
+
+        // Primaer nicht endlich, valider Alias -> Recovery sichtbar.
+        let recovered = with_scaling(
+            vec![
+                rate_stat("ERoundsPerSecond", Some(f64::NAN)),
+                rate_stat("EFireRate", Some(50.0)),
+            ],
+            4.0,
+        );
+        let p = spirit_weapon_rate_provenance(&recovered);
+        assert_eq!(p.rate, 2.0);
+        assert_eq!(p.source, SpiritRateSource::FireRatePercent);
+        assert!(p.recovered_from_nonfinite && !p.unknown_nonfinite);
+
+        // Nicht endlich ohne validen Ersatz -> unbekannt sichtbar, rate 0.
+        let unknown = with_scaling(
+            vec![
+                rate_stat("ERoundsPerSecond", Some(f64::NAN)),
+                rate_stat("EFireRate", Some(f64::INFINITY)),
+            ],
+            4.0,
+        );
+        let p = spirit_weapon_rate_provenance(&unknown);
+        assert_eq!(p.rate, 0.0);
+        assert!(p.unknown_nonfinite && !p.recovered_from_nonfinite);
+
+        // Kein Konversions-Stat -> weder unbekannt noch Recovery.
+        let missing = with_scaling(vec![rate_stat("ESomethingElse", Some(1.0))], 4.0);
+        let p = spirit_weapon_rate_provenance(&missing);
+        assert_eq!(p.source, SpiritRateSource::Missing);
+        assert!(!p.unknown_nonfinite && !p.recovered_from_nonfinite);
+    }
+
+    #[test]
+    fn spirit_weapon_rate_is_name_independent() {
+        // Zwei identisch skalierte Helden mit unterschiedlichem Namen liefern
+        // denselben Wert; die Konversion haengt nicht am Helden-Namen.
+        let mut a = with_scaling(vec![rate_stat("ERoundsPerSecond", Some(0.2))], 5.0);
+        let mut b = a.clone();
+        a.name = "Alpha".into();
+        a.hero_id = 111;
+        b.name = "Beta".into();
+        b.hero_id = 222;
+        assert_eq!(
+            spirit_weapon_rate_per_spirit(&a),
+            spirit_weapon_rate_per_spirit(&b)
+        );
+    }
+
+    #[test]
+    fn damage_plan_reflects_spirit_only_for_a_converter() {
+        let cfg = ReasonerConfig::default();
+        let mut converter = with_scaling(vec![rate_stat("ERoundsPerSecond", Some(0.2))], 5.0);
+        converter.base_spirit_power = 50.0;
+        let mut null_converter = converter.clone();
+        null_converter.scaling = vec![rate_stat("ESomethingElse", Some(0.2))];
+
+        let converter_plan = damage_plan(&converter, &cfg);
+        let null_plan = damage_plan(&null_converter, &cfg);
+        // Beim Konverter hebt der innewohnende Spirit die Waffen-DPS ueber den
+        // reinen Basiswaffenwert; beim Nullkonverter bleibt es beim Basiswert.
+        let base_only = weapon_dps(&null_converter.weapon, cfg.combat_window_seconds);
+        assert!(converter_plan.weapon_dps > base_only);
+        assert!((null_plan.weapon_dps - base_only).abs() < 1e-9);
+        assert!(converter_plan.weapon_share >= null_plan.weapon_share);
+    }
+
+    #[test]
+    fn raw_weapon_conversion_axes_reach_projection_and_damage_plan() {
+        // Koeffizienten aus dem versionierten Rohdaten-Audit. Die Basiswaffe
+        // bleibt absichtlich identisch, damit nur die jeweilige Kante wirkt.
+        let audit: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../.tasks/2026-09-16-reasoner-item-zweck/RAW-MECHANICS-SUMMARY.json"
+        ))
+        .unwrap();
+        let cfg = ReasonerConfig::default();
+        for (id, axis, coefficient) in [
+            (3, "EBulletDamage", 0.022),
+            (13, "EClipSize", 0.5),
+            (17, "EBulletDamage", 0.08),
+            (25, "ERoundsPerSecond", 0.01),
+            (27, "EClipSize", 0.15),
+        ] {
+            let source = audit["hero_scaling_candidates"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["hero_id"] == id)
+                .unwrap();
+            let mut raw = serde_json::Map::new();
+            for edge in source["edges"].as_array().unwrap() {
+                raw.insert(
+                    edge["target_stat"].as_str().unwrap().into(),
+                    edge["raw"].clone(),
+                );
+            }
+            assert_eq!(raw[axis]["scale"].as_f64().unwrap(), coefficient);
+            let mut model = hero();
+            model.scaling = crate::data::scaling_stats(Some(&serde_json::Value::Object(raw)));
+            model.base_spirit_power = 100.0;
+            let projected = weapon_with_spirit(&model, 100.0);
+            match axis {
+                "EBulletDamage" => assert!(
+                    (projected.bullet_damage - model.weapon.bullet_damage - 100.0 * coefficient)
+                        .abs()
+                        < 1e-9
+                ),
+                "EClipSize" => assert!(
+                    (projected.clip_size - model.weapon.clip_size - 100.0 * coefficient).abs()
+                        < 1e-9
+                ),
+                _ => assert!(
+                    (projected.shots_per_second
+                        - model.weapon.shots_per_second
+                        - 100.0 * coefficient)
+                        .abs()
+                        < 1e-9
+                ),
+            }
+            assert!(
+                damage_plan(&model, &cfg).weapon_dps
+                    > weapon_dps(&model.weapon, cfg.combat_window_seconds),
+                "fehlende Kante {axis}"
+            );
+            let mut renamed = model.clone();
+            renamed.name = "Neutraler Konverter".into();
+            renamed.hero_id = 999;
+            assert_eq!(
+                weapon_with_spirit(&model, 100.0),
+                weapon_with_spirit(&renamed, 100.0)
+            );
+        }
+    }
+
+    #[test]
+    fn negative_weapon_axes_are_preserved_and_end_stats_bounded() {
+        let model = with_scaling(
+            vec![
+                rate_stat("EBulletDamage", Some(-0.1)),
+                rate_stat("EClipSize", Some(-0.2)),
+            ],
+            4.0,
+        );
+        let projected = weapon_with_spirit(&model, 10.0);
+        assert!((projected.bullet_damage - (model.weapon.bullet_damage - 1.0)).abs() < 1e-9);
+        assert!((projected.clip_size - (model.weapon.clip_size - 2.0)).abs() < 1e-9);
+        let exhausted = weapon_with_spirit(&model, 1_000_000.0);
+        assert_eq!(exhausted.bullet_damage, 0.0);
+        assert_eq!(exhausted.clip_size, 0.0);
     }
 
     #[test]

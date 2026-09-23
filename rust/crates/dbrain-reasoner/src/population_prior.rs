@@ -9,11 +9,13 @@ pub struct PopulationItem {
     pub is_staple: bool,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct PopulationPrior {
     prevalence: BTreeMap<i64, f64>,
     median_position: BTreeMap<i64, f64>,
     staples: BTreeSet<i64>,
+    #[serde(default)]
+    imbue_targets: BTreeMap<i64, i64>,
 }
 
 impl PopulationPrior {
@@ -33,6 +35,15 @@ impl PopulationPrior {
             }
         }
         prior
+    }
+
+    pub fn with_imbue_targets(mut self, targets: BTreeMap<i64, i64>) -> Self {
+        self.imbue_targets = targets;
+        self
+    }
+
+    pub fn imbue_target(&self, item_id: i64) -> Option<i64> {
+        self.imbue_targets.get(&item_id).copied()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -151,7 +162,9 @@ mod tests {
             is_staple: true,
         }));
         assert!(prior.thin_coverage_note(&[0, 1, 2]).is_some());
-        assert!(prior.thin_coverage_note(&(0..9).collect::<Vec<_>>()).is_none());
+        assert!(prior
+            .thin_coverage_note(&(0..9).collect::<Vec<_>>())
+            .is_none());
         assert!(PopulationPrior::default().thin_coverage_note(&[]).is_none());
     }
 }

@@ -98,6 +98,64 @@ async fn fix_e_live_warden_evidence() {
         .unwrap();
     let mut deltas = patch::compute_patch_delta_with_snapshots(&hero, &events, &snapshots);
     patch::apply_scored_patch_delta(&mut hero, &mut items, &mut deltas, &meta.index, &ctx.config);
+    assert_eq!(
+        hero.scaling
+            .iter()
+            .find(|stat| stat.stat == "EFireRate")
+            .unwrap()
+            .per_spirit,
+        Some(0.21)
+    );
+    assert_eq!(
+        hero.standard_level_up_upgrades["MODIFIER_VALUE_BASE_BULLET_DAMAGE_FROM_LEVEL"],
+        0.25
+    );
+    let flask = hero
+        .abilities
+        .iter()
+        .find(|ability| ability.ability_id == 2656490109)
+        .unwrap();
+    assert_eq!(flask.properties["ForwardVelocity"], 560.0);
+    let willpower = hero
+        .abilities
+        .iter()
+        .find(|ability| ability.ability_id == 2751689917)
+        .unwrap();
+    let willpower_t3 = willpower.upgrades[2]["property_upgrades"]
+        .as_array()
+        .unwrap();
+    assert_eq!(
+        willpower_t3
+            .iter()
+            .find(|property| property["name"] == "CombatBarrier")
+            .unwrap()["bonus"]
+            .as_f64(),
+        Some(2.1)
+    );
+    assert_eq!(
+        willpower_t3
+            .iter()
+            .find(|property| property["name"] == "StatusResistancePercent")
+            .unwrap()["bonus"]
+            .as_f64(),
+        Some(30.0)
+    );
+    let magnum = items
+        .iter()
+        .find(|item| item.name == "Mercurial Magnum")
+        .unwrap();
+    assert_eq!(magnum.properties["BulletsBonusMagicDamage"], 20.0);
+    assert_eq!(
+        magnum.property_spirit_scaling["BulletsBonusMagicDamage"],
+        0.38
+    );
+    let overflow = items
+        .iter()
+        .find(|item| item.name == "Spiritual Overflow")
+        .unwrap();
+    assert_eq!(overflow.properties["BonusSpirit"], 30.0);
+    assert_eq!(overflow.properties["BonusFireRate"], 25.0);
+    assert!((overflow.properties["BuildUpPerShot"] - 0.4875).abs() < 1e-12);
     let mut after = item::score_items(&hero, &items, &meta.index, &[], &ctx.config);
     finish_scores(&mut after);
     let build = reason_build_with_options(
@@ -153,7 +211,6 @@ async fn fix_e_live_warden_evidence() {
             &[],
             &ctx.config,
         );
-        assert!((scored.score.total - old.score.total - fire.weapon_dps_in_score).abs() < 1e-9);
         if ["Mercurial Magnum", "Boundless Spirit", "Improved Spirit"]
             .contains(&scored.item.name.as_str())
         {

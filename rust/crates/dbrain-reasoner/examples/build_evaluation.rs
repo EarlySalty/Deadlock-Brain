@@ -192,6 +192,8 @@ fn compose(
         })
         .collect();
     let context = meta::MetaIndexWithSources {
+        observations: Vec::new(),
+        family: None,
         index,
         author_builds,
         hero_ability_orders: if holdout {
@@ -206,7 +208,14 @@ fn compose(
     let mut hero = input.hero.clone();
     let mut items = input.items.clone();
     enrich_frozen_models(&mut hero, &mut items, &frozen.raw_snapshots)?;
-    let planned = plan_build(&hero, &items, &context, &input.events, &input.snapshots, &cfg)?;
+    let planned = plan_build(
+        &hero,
+        &items,
+        &context,
+        &input.events,
+        &input.snapshots,
+        &cfg,
+    )?;
     let mut build = planned.build;
     let plan = if ablation == "plan" {
         let plan =
@@ -335,7 +344,10 @@ async fn freeze(output: &Path) -> std::result::Result<(), Error> {
         .await?;
     let mut heroes = Vec::new();
     for name in names {
+        let started = std::time::Instant::now();
+        eprintln!("Freeze/Laden beginnt: {name}");
         let (hero, items, meta, snapshots) = load_reasoning_inputs(&ctx, &name, None).await?;
+        eprintln!("Freeze/Baseline beginnt: {} ({})", name, hero.hero_id);
         let events = load_patch_events_for_snapshots(&ctx, hero.hero_id, &snapshots).await?;
         let input = FrozenHero {
             rows: load_meta_rows(&ctx, hero.hero_id).await?,
@@ -349,7 +361,10 @@ async fn freeze(output: &Path) -> std::result::Result<(), Error> {
             snapshots,
             events,
         };
-        eprintln!("Eingefroren: {name}");
+        eprintln!(
+            "Eingefroren: {name}, {:.3} s",
+            started.elapsed().as_secs_f64()
+        );
         heroes.push(input);
     }
     let frozen = Frozen {
@@ -364,6 +379,11 @@ async fn freeze(output: &Path) -> std::result::Result<(), Error> {
         heroes,
     };
     for input in &frozen.heroes {
+        let check_started = std::time::Instant::now();
+        eprintln!(
+            "Freeze/Replay-Prüfung beginnt: {} ({})",
+            input.hero.name, input.hero.hero_id
+        );
         for item in &input.items {
             if !frozen.raw_snapshots.iter().any(|row| {
                 row["source"] == "deadlock_assets_api"
@@ -386,6 +406,12 @@ async fn freeze(output: &Path) -> std::result::Result<(), Error> {
             )
             .into());
         }
+        eprintln!(
+            "Freeze/Replay-Prüfung fertig: {} ({}), {:.3} s",
+            input.hero.name,
+            input.hero.hero_id,
+            check_started.elapsed().as_secs_f64()
+        );
     }
     let bytes = serde_json::to_vec(&frozen)?;
     let end_guard = freeze_guard(&pool).await?;
@@ -434,8 +460,57 @@ mod freeze_guard_tests {
     }
 }
 
-async fn load_populations() -> std::result::Result<BTreeMap<i64, PopulationPrior>, Error> {
-    let pool = deadlock_brain_core::pg::pg_pool().await?;
+// Serde-Spiegel eines PopulationPrior nur fuer das eingefrorene Vorher/Nachher.
+// PopulationPrior selbst bleibt ohne serde; hier wird verlustfrei ueber die
+// oeffentlichen Zugriffsmethoden gespiegelt (Praevalenz>0, endliche Median-
+// position, Staples) und ueber from_items wieder aufgebaut.
+#[derive(Serialize, Deserialize)]
+struct FrozenPopulationPrior {
+    prevalence: Vec<(i64, f64)>,
+    median_position: Vec<(i64, f64)>,
+    staples: Vec<i64>,
+}
+
+impl FrozenPopulationPrior {
+    fn from_prior(prior: &PopulationPrior) -> Self {
+        let mut ids: BTreeSet<i64> = prior.ranked_by_prevalence().into_iter().collect();
+        for (id, _) in prior.positions() {
+            ids.insert(id);
+        }
+        for id in prior.staples() {
+            ids.insert(id);
+        }
+        Self {
+            prevalence: ids
+                .iter()
+                .map(|id| (*id, prior.prevalence(*id)))
+                .filter(|(_, value)| *value > 0.0)
+                .collect(),
+            median_position: prior.positions(),
+            staples: prior.staples(),
+        }
+    }
+
+    fn into_prior(self) -> PopulationPrior {
+        let prevalence: BTreeMap<i64, f64> = self.prevalence.into_iter().collect();
+        let median: BTreeMap<i64, f64> = self.median_position.into_iter().collect();
+        let staples: BTreeSet<i64> = self.staples.into_iter().collect();
+        let mut ids: BTreeSet<i64> = prevalence.keys().copied().collect();
+        ids.extend(median.keys().copied());
+        ids.extend(staples.iter().copied());
+        PopulationPrior::from_items(ids.into_iter().map(|id| PopulationItem {
+            item_id: id,
+            prevalence: prevalence.get(&id).copied().unwrap_or(0.0),
+            median_position: median.get(&id).copied(),
+            is_staple: staples.contains(&id),
+        }))
+    }
+}
+
+// Zentraler Zugriff nur lesend und technisch erzwungen (pg_pool_read_only setzt
+// default_transaction_read_only=on ueber die Verbindungsoptionen).
+async fn load_populations_from_db() -> std::result::Result<BTreeMap<i64, PopulationPrior>, Error> {
+    let pool = deadlock_brain_core::pg::pg_pool_read_only().await?;
     let present: Option<bool> =
         sqlx::query_scalar("SELECT to_regclass('brain.population_item_stats') IS NOT NULL")
             .fetch_one(&pool)
@@ -454,6 +529,42 @@ async fn load_populations() -> std::result::Result<BTreeMap<i64, PopulationPrior
     }
     pool.close().await;
     Ok(populations)
+}
+
+// Vorher/Nachher-Vergleiche lesen die Population aus einer eingefrorenen Datei
+// (Umgebungsvariable FROZEN_POPULATIONS), damit kein Live-DB-Drift zwischen den
+// beiden Messungen entsteht. Ohne die Variable wird read-only aus der DB geladen.
+fn load_population_file(path: &Path) -> std::result::Result<BTreeMap<i64, PopulationPrior>, Error> {
+    let mirror: BTreeMap<i64, FrozenPopulationPrior> = serde_json::from_slice(&fs::read(path)?)?;
+    Ok(mirror
+        .into_iter()
+        .map(|(id, prior)| (id, prior.into_prior()))
+        .collect())
+}
+
+async fn load_populations() -> std::result::Result<BTreeMap<i64, PopulationPrior>, Error> {
+    if let Some(path) = std::env::var_os("FROZEN_POPULATIONS") {
+        return load_population_file(Path::new(&path));
+    }
+    load_populations_from_db().await
+}
+
+async fn freeze_populations(output: &Path) -> std::result::Result<(), Error> {
+    if output.exists() {
+        return Err("Ausgabedatei existiert bereits".into());
+    }
+    if std::env::var_os("FROZEN_POPULATIONS").is_some() {
+        return Err(
+            "FROZEN_POPULATIONS darf beim Einfrieren der Population nicht gesetzt sein".into(),
+        );
+    }
+    let populations = load_populations_from_db().await?;
+    let mirror: BTreeMap<i64, FrozenPopulationPrior> = populations
+        .iter()
+        .map(|(id, prior)| (*id, FrozenPopulationPrior::from_prior(prior)))
+        .collect();
+    support::write_new(output, &serde_json::to_vec_pretty(&mirror)?)?;
+    Ok(())
 }
 
 fn evaluate(
@@ -491,6 +602,15 @@ fn evaluate(
         }) {
             continue;
         }
+        if mode == "replay" && !populations.contains_key(&hero.hero.hero_id) {
+            return Err(format!(
+                "Eingefrorene Population fehlt für Held {} ({}); kein Live-Fallback",
+                hero.hero.name, hero.hero.hero_id
+            )
+            .into());
+        }
+        let started = std::time::Instant::now();
+        eprintln!("Beginne {} ({}, {mode})", hero.hero.name, hero.hero.hero_id);
         let population = populations
             .get(&hero.hero.hero_id)
             .cloned()
@@ -539,7 +659,11 @@ fn evaluate(
             }
             reports.push(json!({"hero_id":hero.hero.hero_id,"hero_name":hero.hero.name,"reference_count":own.len(),"variants":variants}));
         }
-        eprintln!("Ausgewertet: {} ({mode})", hero.hero.name);
+        eprintln!(
+            "Ausgewertet: {} ({mode}, {:.3}s)",
+            hero.hero.name,
+            started.elapsed().as_secs_f64()
+        );
     }
     support::write_new(
         output,
@@ -548,6 +672,101 @@ fn evaluate(
         )?,
     )?;
     Ok(())
+}
+
+fn summarize(report: &Value) -> std::result::Result<Value, Error> {
+    if report["format_version"] != 1 {
+        return Err("Unbekanntes Auswertungsformat".into());
+    }
+    let reports = report["reports"].as_array().ok_or("reports fehlen")?;
+    let mut rows = Vec::new();
+    for hero in reports {
+        for variant in hero["variants"].as_array().ok_or("variants fehlen")? {
+            for measurement in variant["measurements"]
+                .as_array()
+                .ok_or("measurements fehlen")?
+            {
+                rows.push(json!({
+                    "hero_id": hero["hero_id"], "hero_name": hero["hero_name"],
+                    "variant": variant["variant"], "build_id": measurement["build_id"],
+                    "version": measurement["version"],
+                    "reference_weapons": measurement["reference_weapon_count"],
+                    "weapon_hits": measurement["weapon_hit_count"],
+                    "author_metrics": measurement["metrics"],
+                    "population": measurement["population_backtest"]
+                }));
+            }
+        }
+    }
+    Ok(
+        json!({"artifact_revision": report["algorithm_revision"], "baseline_revision": report["baseline_revision"], "frozen_at": report["frozen_at"], "mode": report["mode"], "rows": rows}),
+    )
+}
+
+#[cfg(test)]
+mod summary_tests {
+    use super::*;
+    #[test]
+    fn summary_keeps_artifact_revision_missing_metrics_and_separate_sources() {
+        let source = json!({"format_version":1,"algorithm_revision":"original","reports":[{"hero_id":1,"hero_name":"X","variants":[{"variant":"full","measurements":[{"build_id":2,"reference_weapon_count":9,"weapon_hit_count":6,"metrics":{"kendall_tau":null},"population_backtest":{"staple_gate_passed":false}}]}]}]});
+        let result = summarize(&source).unwrap();
+        assert_eq!(result["artifact_revision"], "original");
+        assert_eq!(result["rows"][0]["weapon_hits"], 6);
+        assert!(result["rows"][0]["author_metrics"]["kendall_tau"].is_null());
+        assert_eq!(result["rows"][0]["population"]["staple_gate_passed"], false);
+        assert!(summarize(&json!({"format_version":1})).is_err());
+        assert!(summarize(&json!({"format_version":2,"reports":[]})).is_err());
+    }
+}
+
+#[cfg(test)]
+mod replay_file_tests {
+    use super::*;
+    #[test]
+    fn explicit_population_file_never_recovers_from_missing_or_invalid_input() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path =
+            std::env::temp_dir().join(format!("dbrain-replay-{}-{nonce}.json", std::process::id()));
+        assert!(load_population_file(&path).is_err());
+        support::write_new(&path, b"invalid json").unwrap();
+        assert!(load_population_file(&path).is_err());
+        fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn frozen_population_roundtrip_preserves_positions_and_staples() {
+        let prior = PopulationPrior::from_items([
+            PopulationItem {
+                item_id: 1,
+                prevalence: 0.8,
+                median_position: Some(4.5),
+                is_staple: true,
+            },
+            PopulationItem {
+                item_id: 2,
+                prevalence: 0.2,
+                median_position: None,
+                is_staple: false,
+            },
+            PopulationItem {
+                item_id: 3,
+                prevalence: 0.0,
+                median_position: Some(7.0),
+                is_staple: true,
+            },
+        ]);
+        let bytes = serde_json::to_vec(&FrozenPopulationPrior::from_prior(&prior)).unwrap();
+        let rebuilt: FrozenPopulationPrior = serde_json::from_slice(&bytes).unwrap();
+        let rebuilt = rebuilt.into_prior();
+        assert_eq!(prior.positions(), rebuilt.positions());
+        assert_eq!(prior.staples(), rebuilt.staples());
+        assert_eq!(prior.ranked_by_prevalence(), rebuilt.ranked_by_prevalence());
+        for id in 1..=3 {
+            assert_eq!(prior.prevalence(id), rebuilt.prevalence(id));
+        }
+    }
 }
 
 #[tokio::main]
@@ -559,7 +778,35 @@ async fn main() -> std::result::Result<(), Error> {
     }
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     match args.as_slice() {
+        [mode, input, population, output] if mode == "replay" => {
+            let populations = load_population_file(Path::new(population))?;
+            evaluate(Path::new(input), Path::new(output), mode, None, &populations)
+        }
+        [mode, input, population, output, heroes] if mode == "replay" => {
+            let populations = load_population_file(Path::new(population))?;
+            evaluate(Path::new(input), Path::new(output), mode, Some(heroes), &populations)
+        }
+        [mode, input] if mode == "summary" => {
+            let report: Value = serde_json::from_slice(&fs::read(input)?)?;
+            println!("{}", serde_json::to_string_pretty(&summarize(&report)?)?);
+            Ok(())
+        }
+        [mode, input, identity] if mode == "inspect" => {
+            let data: Value = serde_json::from_slice(&fs::read(input)?)?;
+            let rows = data.as_array().or_else(|| data["raw_snapshots"].as_array()).ok_or("Roh-Assets fehlen")?;
+            let matches: Vec<&Value> = rows.iter().filter(|row| {
+                let payload = row.get("payload").unwrap_or(row);
+                payload["id"].as_i64().is_some_and(|id| id.to_string() == *identity)
+                    || payload["class_name"].as_str() == Some(identity.as_str())
+            }).collect();
+            if matches.is_empty() { return Err("Keine passende Rohdefinition; keine Namensannahme".into()); }
+            println!("{}", serde_json::to_string_pretty(&matches)?);
+            Ok(())
+        }
         [mode, output] if mode == "freeze" => freeze(Path::new(output)).await,
+        [mode, output] if mode == "freeze-populations" => {
+            freeze_populations(Path::new(output)).await
+        }
         [mode, input, output]
             if ["evaluate", "holdout", "sensitivity", "plan"].contains(&mode.as_str()) =>
         {
@@ -585,7 +832,7 @@ async fn main() -> std::result::Result<(), Error> {
             )
         }
         _ => Err(
-            "Aufruf: build_evaluation freeze DATEI | evaluate|holdout|sensitivity FROZEN AUSGABE"
+            "Aufruf: build_evaluation replay FROZEN POPULATION AUSGABE [HELDEN] | freeze DATEI | freeze-populations DATEI | evaluate|holdout|sensitivity FROZEN AUSGABE"
                 .into(),
         ),
     }

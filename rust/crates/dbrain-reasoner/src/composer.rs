@@ -24,61 +24,63 @@ fn lower(value: &str) -> String {
     value.to_ascii_lowercase()
 }
 
+fn has_property(item: &ScoredItem, fragments: &[&str]) -> bool {
+    item.item
+        .properties
+        .iter()
+        .chain(&item.item.passive_properties)
+        .any(|(key, value)| {
+            value.is_finite()
+                && *value != 0.0
+                && fragments
+                    .iter()
+                    .any(|fragment| key.to_ascii_lowercase().contains(fragment))
+        })
+}
+
 fn is_shield(item: &ScoredItem) -> bool {
-    let name = lower(&item.item.name);
-    name.contains("shield") || name.contains("reactive barrier")
+    has_property(item, &["shield", "barrier"])
+        || item
+            .item
+            .defense_kind
+            .iter()
+            .any(|kind| kind.contains("shield") || kind.contains("barrier"))
 }
 
 fn is_can_buy_one(item: &ScoredItem) -> bool {
-    let name = lower(&item.item.name);
-    [
-        "metal skin",
-        "dispel magic",
-        "counterspell",
-        "vampiric burst",
-        "spirit resilience",
-        "bullet resilience",
-    ]
-    .iter()
-    .any(|needle| name.contains(needle))
+    item.item.is_active
+        && (has_property(item, &["immunity", "invuln", "dispel", "reflect", "resist"])
+            || item
+                .item
+                .defense_kind
+                .iter()
+                .any(|kind| kind.contains("resist")))
 }
 
 fn is_tryhard(item: &ScoredItem) -> bool {
-    let name = lower(&item.item.name);
-    name.contains("slowing hex")
+    matches!(&item.item.condition, crate::ConditionKind::ActionBound { action } if action == "parry")
 }
 
 fn is_optional(item: &ScoredItem) -> bool {
-    let name = lower(&item.item.name);
-    [
-        "healing booster",
-        "silencer",
-        "spellslinger",
-        "toxic bullets",
-        "split shot",
-        "ricochet",
-        "armor piercing rounds",
-        "crippling headshot",
-        "spellbreaker",
-        "plated armor",
-        "inhibitor",
-    ]
-    .iter()
-    .any(|needle| name.contains(needle))
+    matches!(
+        item.item.condition,
+        crate::ConditionKind::StateBound { .. } | crate::ConditionKind::RampUp { .. }
+    )
 }
 
 fn is_counter(item: &ScoredItem) -> bool {
-    let name = lower(&item.item.name);
-    [
-        "anti-heal",
-        "silencer",
-        "spellbreaker",
-        "inhibitor",
-        "crippling",
-        "toxic bullets",
-    ]
-    .iter()
-    .any(|needle| name.contains(needle))
+    has_property(
+        item,
+        &[
+            "healampreceivepenalty",
+            "healampregenpenalty",
+            "healingreduction",
+            "silence",
+            "disarm",
+            "movespeedslow",
+            "firerateslow",
+        ],
+    )
 }
 
 fn item_order<'a>(scored: &'a [ScoredItem], blocked: &[String]) -> Vec<&'a ScoredItem> {
@@ -183,11 +185,26 @@ fn author_evidence(hero_id: i64, sources: &[crate::meta::AuthorBuildSource]) -> 
 fn core_candidates<'a>(
     ordered: &[&'a ScoredItem],
     authors: &AuthorEvidence,
+    population: Option<&crate::PopulationPrior>,
 ) -> Vec<&'a ScoredItem> {
     ordered
         .iter()
         .copied()
-        .filter(|item| !is_situation_item(item) || authors.core.contains(&item.item.item_id))
+        .filter(|item| {
+            let id = item.item.item_id;
+            if let Some(population) = population {
+                // Population-backed planning admits identity items, not all items
+                // with a positive score. Flex candidates are displayed separately.
+                if !population.is_empty() {
+                    return population.is_staple(id)
+                        && (!is_situation_item(item) || authors.core.contains(&id));
+                }
+                return authors.core.contains(&id);
+            }
+            // Explicit model-only callers have no empirical identity. Situational
+            // effects still cannot become core just by having a large scalar score.
+            !is_situation_item(item) || authors.core.contains(&id)
+        })
         .collect()
 }
 
@@ -217,10 +234,11 @@ fn item_why(item: &ScoredItem) -> String {
             .item
             .properties
             .get(name)
-            .filter(|value| **value != 0.0)
+            .or_else(|| item.item.passive_properties.get(name))
+            .filter(|value| value.is_finite() && **value != 0.0)
         {
             let condition = if item.item.conditional_properties.contains(name)
-                || item.item.passive_properties.contains_key(name)
+                || (item.item.is_active && !item.item.passive_properties.contains_key(name))
             {
                 " bei Auslösung"
             } else {
@@ -230,12 +248,13 @@ fn item_why(item: &ScoredItem) -> String {
         }
     }
     let benefits = if details.is_empty() {
-        "Der Nutzen hängt von der besonderen Wirkung und ihrer Auslösebedingung ab.".to_string()
+        format!("Die numerischen Detailwirkungen [{}] sind in dieser Zweckbeschreibung noch nicht aufgeschlüsselt; keine zusätzliche Wirkung wird behauptet.", item.item.properties.keys().cloned().collect::<Vec<_>>().join(", "))
     } else {
         format!("{}.", details.join(", "))
     };
     let condition = match &item.item.condition {
         crate::ConditionKind::None => String::new(),
+        crate::ConditionKind::SpiritDamageToHeroes { refresh_seconds, .. } => format!(" Spirit-Schaden an gegnerischen Helden erneuert den Effekt für {refresh_seconds:.1} Sekunden; derselbe Gegner erneuert nur seinen eigenen Stapel. Heilung zählt nur bei fehlendem Leben."),
         crate::ConditionKind::ActiveCooldown { cooldown, .. } => format!(" Die Aktivierung hat {cooldown:.1} Sekunden Abklingzeit; ihre Wirkung gilt nicht dauerhaft."),
         crate::ConditionKind::StateBound { threshold } => format!(" Der bedingte Bonus hängt an einer Lebensschwelle von {:.0}%; die angenommene Verfügbarkeit ist keine gemessene Trefferquote.", threshold * 100.0),
         crate::ConditionKind::MeleeBound => " Der zusätzliche Effekt setzt Nahkampftreffer voraus.".to_string(),
@@ -305,12 +324,7 @@ fn confidence(items: &[BuildItem]) -> Confidence {
 }
 
 fn patch_sources(item: &ScoredItem, deltas: &[PatchDelta]) -> Vec<Evidence> {
-    let mut sources = item
-        .sources
-        .iter()
-        .filter(|source| !matches!(source.kind, EvidenceKind::Mechanic))
-        .cloned()
-        .collect::<Vec<_>>();
+    let mut sources = item.sources.clone();
     for delta in deltas {
         if matches!(delta.target, crate::DeltaTarget::Item(item_id) if item_id == item.item.item_id)
         {
@@ -341,8 +355,7 @@ pub fn compose_build_with_sources(
     meta: &crate::meta::MetaIndexWithSources,
 ) -> crate::Result<BuildObject> {
     let mut authors = author_evidence(hero.hero_id, &meta.author_builds);
-    let (raw_order, source) = meta.ability_order(hero.hero_id);
-    let (order, notes) = crate::progression::coherent_order(hero, &raw_order);
+    let (order, source, notes) = meta.coherent_ability_order(hero);
     authors.skill_notes = notes;
     authors.ability_order = order.clone();
     let mut build = compose_build_with_author_evidence(
@@ -376,7 +389,11 @@ pub fn compose_build_with_sources(
             format!("{} {note}", build.rationale.trim_end())
         };
     } else {
-        let core_ids = build.core.iter().map(|item| item.item_id).collect::<Vec<_>>();
+        let core_ids = build
+            .core
+            .iter()
+            .map(|item| item.item_id)
+            .collect::<Vec<_>>();
         if let Some(note) = meta.population.thin_coverage_note(&core_ids) {
             build.confidence = Confidence::Low;
             build.rationale = if build.rationale.trim().is_empty() {
@@ -396,8 +413,9 @@ pub fn purchase_plan_with_sources(
     meta: &crate::meta::MetaIndexWithSources,
 ) -> crate::Result<crate::planner::PurchasePlan> {
     let mut authors = author_evidence(hero.hero_id, &meta.author_builds);
-    (authors.ability_order, authors.skill_notes) =
-        crate::progression::coherent_order(hero, &meta.ability_order(hero.hero_id).0);
+    let (order, _, notes) = meta.coherent_ability_order(hero);
+    authors.ability_order = order;
+    authors.skill_notes = notes;
     plan_core(
         hero,
         scored,
@@ -429,7 +447,7 @@ fn plan_core(
     let mut plan = crate::planner::plan_with_economy(
         hero,
         scored,
-        &core_candidates(&ordered, authors),
+        &core_candidates(&ordered, authors, population),
         cfg,
         crate::planner::PlanningContext {
             layout,
@@ -594,7 +612,7 @@ fn compose_build_with_author_evidence(
             if let Some(next_id) = sales.get(&item.item.item_id) {
                 if let Some(next) = selected.iter().find(|next| next.item.item_id == *next_id) {
                     built.sell_priority = Some(authors.sales.get(&item.item.item_id).copied().unwrap_or(index as u32 + 1));
-                    let detail = format!("Verkaufe {} vor dem Kauf von {}, damit der benötigte Platz frei wird. Die gemeinsame Bewertung berücksichtigt den dabei verlorenen Nutzen.", item.item.name, next.item.name);
+                    let detail = format!("Verkaufe {} vor dem Kauf von {}. Die gemeinsame Bewertung berücksichtigt Verkaufserlös und verlorene Itemwirkung.", item.item.name, next.item.name);
                     built.why.push(' ');
                     built.why.push_str(&detail);
                     built.sources.push(Evidence { kind: EvidenceKind::Mechanic, detail });
@@ -603,7 +621,7 @@ fn compose_build_with_author_evidence(
             for (sold_id, next_id) in &sales {
                 if *next_id == item.item.item_id {
                     if let Some(sold) = selected.iter().find(|sold| sold.item.item_id == *sold_id) {
-                        built.why.push_str(&format!(" Vorher {} verkaufen; sonst fehlt der Platz.", sold.item.name));
+                        built.why.push_str(&format!(" Vorher {} verkaufen. Erlös und verlorene Itemwirkung sind eingerechnet.", sold.item.name));
                     }
                 }
             }
@@ -676,9 +694,26 @@ fn compose_build_with_author_evidence(
             items: counters,
         });
     }
-    let mut all_items = core.clone();
-    all_items.extend(situations.iter().flat_map(|block| block.items.clone()));
+    // Retain unknown effects across the entire purchase curve, including an
+    // early item sold later. Strong statistical support cannot hide these.
+    let unknown_effects = plan
+        .steps
+        .iter()
+        .flat_map(|step| &step.evaluation.unknown_effects)
+        .chain(&plan.final_evaluation.unknown_effects)
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    // Optional unbought counters do not invalidate the core. Unknown effects in
+    // an actually purchased state do cap overall confidence, not unrelated items.
+    let build_confidence = if unknown_effects.is_empty() {
+        confidence(&core)
+    } else {
+        Confidence::Low
+    };
     Ok(BuildObject {
+        family: None,
+        variants: Vec::new(),
+        family_discovery: None,
         hero_id: hero.hero_id,
         hero_name: hero.name.clone(),
         patch_tag: cfg.patch_tag.clone(),
@@ -686,9 +721,9 @@ fn compose_build_with_author_evidence(
         core,
         situations,
         ability_order: Vec::new(),
-        confidence: confidence(&all_items),
+        confidence: build_confidence,
         rationale: std::iter::once(&"Skill-Order: keine Quelle".to_string()).chain(plan.assumptions.iter()).chain(plan.final_evaluation.assumptions.iter())
-            .chain(plan.final_evaluation.unknown_effects.iter()).cloned()
+            .chain(unknown_effects.iter()).cloned()
             .chain(plan.final_evaluation.scenarios.iter().map(|scenario| format!("Ablauf {}: {}. {:.0} Schüsse, {} Nachladungen, {:.1} Sekunden Kanalzeit; Fähigkeiten {:?}.", scenario.name, scenario.sequence.join(" → "), scenario.shots, scenario.reloads, scenario.channel_seconds, scenario.casts)))
             .collect::<Vec<_>>().join(" "),
     })
@@ -696,6 +731,315 @@ fn compose_build_with_author_evidence(
 
 #[cfg(test)]
 mod tests {
+    fn skill_validation_hero() -> HeroModel {
+        let mut hero = hero();
+        hero.hero_id = 700;
+        hero.name = "Generic skill validation fixture".into();
+        hero.abilities = [101, 102]
+            .into_iter()
+            .enumerate()
+            .map(|(slot, id)| crate::AbilityModel {
+                item_proc_disabled: false,
+                duration_scaling: Default::default(),
+                upgrades: vec![serde_json::json!({}); 3],
+                properties: Default::default(),
+                ability_id: id,
+                class_name: format!("ability_{id}"),
+                slot: slot as i64 + 1,
+                roles: Vec::new(),
+                scaling: Vec::new(),
+                channel_time: None,
+                charges: 1,
+                cooldown: 10.0,
+                scaling_step: None,
+                damage_type: DamageType::Spirit,
+                base_effect: 0.0,
+                tick_rate: None,
+                duration: None,
+            })
+            .collect();
+        hero
+    }
+
+    fn skill_step(id: i64, currency: i64) -> crate::AbilityStep {
+        crate::AbilityStep {
+            ability_id: id,
+            currency_type: currency,
+            delta: -1,
+        }
+    }
+
+    fn skill_source(
+        author: &str,
+        weight: f64,
+        order: &[crate::AbilityStep],
+    ) -> crate::meta::AuthorBuildSource {
+        crate::meta::AuthorBuildSource {
+            hero_id: 700,
+            author: author.into(),
+            weight,
+            details: serde_json::json!({"ability_order": order}),
+        }
+    }
+
+    #[test]
+    fn invalid_skill_source_falls_back_consistently_in_plan_build_and_payload() {
+        let hero = skill_validation_hero();
+        let good = vec![skill_step(101, 2), skill_step(101, 1)];
+        let bad = vec![skill_step(999, 2)];
+        let mut meta = population_context();
+        meta.author_builds = vec![
+            skill_source("invalid-first", 9.0, &bad),
+            skill_source("valid-next", 1.0, &good),
+        ];
+        let original = serde_json::to_value(&meta).unwrap();
+        let scored = vec![item(1, "Unchanged numeric item", 10.0, false, &[])];
+        let config = ReasonerConfig::default();
+        let build = compose_build_with_sources(&hero, &scored, &[], &config, &[], &meta).unwrap();
+        let plan = purchase_plan_with_sources(&hero, &scored, &config, &meta).unwrap();
+        assert_eq!(build.ability_order, good);
+        assert_eq!(plan.ability_order, good);
+        assert_eq!(
+            crate::publish::publish_task_payload(&build)["ability_order"],
+            serde_json::to_value(&good).unwrap()
+        );
+        assert!(build.rationale.contains("valid-next"));
+        assert!(build.rationale.contains("invalid-first"));
+        assert!(build.rationale.contains("übersprungen"));
+        assert_eq!(meta.ability_order(hero.hero_id).0, bad);
+        assert_eq!(serde_json::to_value(&meta).unwrap(), original);
+    }
+
+    #[test]
+    fn upgrade_before_unlock_uses_a_valid_global_skill_fallback() {
+        let hero = skill_validation_hero();
+        let good = vec![skill_step(102, 2), skill_step(102, 1)];
+        let mut meta = population_context();
+        meta.author_builds = vec![skill_source(
+            "upgrade-before-unlock",
+            5.0,
+            &[skill_step(101, 1)],
+        )];
+        meta.hero_ability_orders.insert(hero.hero_id, good.clone());
+        let (order, evidence, notes) = meta.coherent_ability_order(&hero);
+        assert_eq!(order, good);
+        assert!(evidence.detail.contains("brain.hero_ability_orders"));
+        assert!(notes
+            .iter()
+            .any(|note| note.contains("upgrade-before-unlock")));
+    }
+
+    #[test]
+    fn valid_skill_prefix_is_preserved_when_a_repeated_unlock_starts_a_bad_tail() {
+        let hero = skill_validation_hero();
+        let mut meta = population_context();
+        meta.author_builds = vec![
+            skill_source("prefix", 5.0, &[skill_step(101, 2), skill_step(101, 2)]),
+            skill_source("alternative", 1.0, &[skill_step(102, 2)]),
+        ];
+        let (order, evidence, notes) = meta.coherent_ability_order(&hero);
+        assert_eq!(order, vec![skill_step(101, 2)]);
+        assert!(evidence.detail.contains("prefix"));
+        assert!(notes
+            .iter()
+            .any(|note| note.contains("wiederholte Freischaltung")));
+    }
+
+    #[test]
+    fn no_valid_skill_source_is_not_replaced_by_an_invented_order() {
+        let hero = skill_validation_hero();
+        let mut meta = population_context();
+        meta.author_builds = vec![skill_source("foreign", 5.0, &[skill_step(999, 2)])];
+        meta.hero_ability_orders
+            .insert(hero.hero_id, vec![skill_step(101, 1)]);
+        let (order, evidence, notes) = meta.coherent_ability_order(&hero);
+        assert!(order.is_empty());
+        assert!(evidence.detail.contains("keine Quelle"));
+        assert_eq!(notes.len(), 2);
+    }
+
+    #[test]
+    fn tied_orders_from_the_same_author_are_input_order_independent() {
+        let hero = skill_validation_hero();
+        let mut meta = population_context();
+        meta.author_builds = vec![
+            skill_source("same-account", 1.0, &[skill_step(102, 2)]),
+            skill_source("same-account", 1.0, &[skill_step(101, 2)]),
+        ];
+        let first = meta.coherent_ability_order(&hero);
+        meta.author_builds.reverse();
+        assert_eq!(meta.coherent_ability_order(&hero), first);
+        assert_eq!(first.0, vec![skill_step(101, 2)]);
+    }
+
+    #[test]
+    fn unquantified_core_mechanics_cap_build_confidence() {
+        let mut core = item(1, "Identity with unknown effect", 10.0, false, &[]);
+        core.item
+            .properties
+            .insert("UnmodeledEffectForRegression".into(), 10.0);
+        assert_eq!(core.confidence, Confidence::High);
+        let build = compose_build_with_sources(
+            &hero(),
+            &[core],
+            &[],
+            &ReasonerConfig::default(),
+            &[],
+            &population_context(),
+        )
+        .unwrap();
+        assert_eq!(build.core.len(), 1);
+        assert_eq!(build.confidence, Confidence::Low);
+        assert!(build.rationale.contains("UnmodeledEffectForRegression"));
+    }
+
+    #[test]
+    fn unconditional_passive_spirit_is_explained_without_an_invented_trigger() {
+        let mut passive = item(1, "Pure passive", 10.0, false, &[]);
+        passive.item.properties.clear();
+        passive
+            .item
+            .passive_properties
+            .insert("TechPower".into(), 10.0);
+        let why = item_why(&passive);
+        assert!(why.contains("+10.0 Spirit"));
+        assert!(!why.contains("bei Auslösung"));
+        passive.item.properties.insert("TechPower".into(), 10.0);
+        assert_eq!(why, item_why(&passive));
+        passive
+            .item
+            .conditional_properties
+            .insert("TechPower".into());
+        assert!(item_why(&passive).contains("bei Auslösung"));
+    }
+
+    fn population_context() -> crate::meta::MetaIndexWithSources {
+        crate::meta::MetaIndexWithSources {
+            observations: Vec::new(),
+            family: None,
+            index: crate::MetaIndex {
+                by_item: Default::default(),
+                sample_ok: Default::default(),
+            },
+            author_builds: Vec::new(),
+            hero_ability_orders: Default::default(),
+            core_layouts: crate::CoreLayoutIndex {
+                by_hero: Default::default(),
+                overall: layout(&[(2, 18)], 0),
+            },
+            combinations: Default::default(),
+            population: crate::PopulationPrior::from_items([
+                crate::PopulationItem {
+                    item_id: 1,
+                    prevalence: 0.9,
+                    median_position: Some(1.0),
+                    is_staple: true,
+                },
+                crate::PopulationItem {
+                    item_id: 2,
+                    prevalence: 0.2,
+                    median_position: Some(5.0),
+                    is_staple: false,
+                },
+            ]),
+        }
+    }
+
+    #[test]
+    fn population_core_is_not_padded_to_eighteen_layout_entries() {
+        let items = [
+            item(1, "Identity", 10.0, false, &[]),
+            item(2, "Very large isolated score", 1_000_000.0, false, &[]),
+        ];
+        let build = compose_build_with_sources(
+            &hero(),
+            &items,
+            &[],
+            &ReasonerConfig::default(),
+            &[],
+            &population_context(),
+        )
+        .unwrap();
+        assert_eq!(
+            build
+                .core
+                .iter()
+                .map(|item| item.item_id)
+                .collect::<Vec<_>>(),
+            vec![1]
+        );
+        assert!(build
+            .situations
+            .iter()
+            .flat_map(|block| &block.items)
+            .any(|item| item.item_id == 2));
+    }
+
+    #[test]
+    fn population_staple_stays_situational_without_same_hero_core_evidence() {
+        let mut contextual = item(1, "Situational staple", 1_000_000.0, true, &["resist"]);
+        contextual.item.properties.insert("BulletResist".into(), 60.0);
+        let identity = item(2, "Identity", 10.0, false, &[]);
+        let mut meta = population_context();
+        meta.population = crate::PopulationPrior::from_items([
+            crate::PopulationItem {
+                item_id: 1,
+                prevalence: 0.95,
+                median_position: Some(4.0),
+                is_staple: true,
+            },
+            crate::PopulationItem {
+                item_id: 2,
+                prevalence: 0.9,
+                median_position: Some(5.0),
+                is_staple: true,
+            },
+        ]);
+        let build = compose_build_with_sources(
+            &hero(),
+            &[contextual, identity],
+            &[],
+            &ReasonerConfig::default(),
+            &[],
+            &meta,
+        )
+        .unwrap();
+        assert_eq!(build.core.iter().map(|item| item.item_id).collect::<Vec<_>>(), vec![2]);
+        assert!(build
+            .situations
+            .iter()
+            .flat_map(|block| &block.items)
+            .any(|item| item.item_id == 1));
+    }
+
+    #[test]
+    fn context_dependent_bullet_defense_does_not_fill_a_core_band() {
+        let mut defense = item(
+            2,
+            "Renamable defensive active",
+            1_000_000.0,
+            true,
+            &["bullet_resist"],
+        );
+        defense.item.properties.insert("BulletResist".into(), 60.0);
+        let items = [item(1, "Identity", 10.0, false, &[]), defense];
+        let build = compose_build_with_sources(
+            &hero(),
+            &items,
+            &[],
+            &ReasonerConfig::default(),
+            &[],
+            &population_context(),
+        )
+        .unwrap();
+        assert_eq!(build.core.len(), 1);
+        assert_eq!(build.core[0].item_id, 1);
+        assert!(build
+            .situations
+            .iter()
+            .any(|block| block.optional && block.items.iter().any(|item| item.item_id == 2)));
+    }
+
     #[tokio::test]
     async fn missing_upgrade_component_fails_before_any_persistence() {
         let mut broken = item(1, "Kaputtes Upgrade", 10.0, false, &[]);
@@ -745,17 +1089,16 @@ mod tests {
     }
 
     #[test]
-    fn author_core_evidence_overrides_global_names_only_for_the_same_hero() {
+    fn author_identity_overrides_context_classification_only_for_the_same_hero() {
         let source = |hero_id, name: &str| crate::meta::AuthorBuildSource {
             hero_id,
             author: name.to_string(),
             weight: 1.0,
             details: serde_json::json!({"modCategories":[{"name":"CORE","mods":[{"abilityId":1}]}]}),
         };
-        let items = [
-            item(1, "Ricochet", 10.0, false, &[]),
-            item(2, "Andere Wahl", 5.0, false, &[]),
-        ];
+        let mut contextual = item(1, "Kontextabhängiger Bonus", 10.0, false, &[]);
+        contextual.item.condition = crate::ConditionKind::RampUp { ramp_seconds: 1.0 };
+        let items = [contextual, item(2, "Andere Wahl", 5.0, false, &[])];
         let layout = layout(&[(2, 1)], 0);
         let other_hero = author_evidence(25, &[source(26, "Anderer Held")]);
         let baseline = compose_build_with_author_evidence(
@@ -1203,7 +1546,10 @@ mod tests {
 
         let exact = vec!["spiritual overflow".to_string()];
         let after = item_order(&items, &exact);
-        let ids = after.iter().map(|item| item.item.item_id).collect::<Vec<_>>();
+        let ids = after
+            .iter()
+            .map(|item| item.item.item_id)
+            .collect::<Vec<_>>();
         assert_eq!(ids, vec![2]);
     }
 
@@ -1289,56 +1635,43 @@ mod tests {
             &layout(&[(1, 3), (2, 6), (3, 2), (4, 8)], 7),
         )
         .unwrap();
-        assert_eq!(build.situations.len(), 4);
-        let actual = std::iter::once(("Core Items", &build.core)).chain(
+        // Category names in a source are not truth. The same numeric mechanics
+        // must produce exactly the same purchases/categories after renaming.
+        let mut renamed = scored.clone();
+        for item in &mut renamed {
+            item.item.name = format!("neutral {}", item.item.item_id);
+        }
+        let renamed_build = compose_build_with_layout(
+            &hero(),
+            &renamed,
+            &[],
+            &ReasonerConfig::default(),
+            &layout(&[(1, 3), (2, 6), (3, 2), (4, 8)], 7),
+        )
+        .unwrap();
+        assert!(!build.core.is_empty());
+        assert_eq!(
+            build.core.iter().map(|i| i.item_id).collect::<Vec<_>>(),
+            renamed_build
+                .core
+                .iter()
+                .map(|i| i.item_id)
+                .collect::<Vec<_>>()
+        );
+        let signature = |build: &BuildObject| {
             build
                 .situations
                 .iter()
-                .map(|block| (block.label.as_str(), &block.items)),
-        );
-        for ((label, items), expected) in actual.zip(blocks) {
-            let expected_label = match expected["name"].as_str().unwrap() {
-                "Can buy 1" => "Ein Item nach Bedarf",
-                "Tryhard" => "Für schwere Gegner",
-                "Shields" => "Schutz",
-                other => other,
-            };
-            assert_eq!(label, expected_label);
-            let mut expected_items = expected["items"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .collect::<Vec<_>>();
-            if label == "Core Items" {
-                expected_items.sort_by_key(|item| item["tier"].as_i64().unwrap());
-            }
-            if label == "Core Items" {
-                let reference_names = expected_items
-                    .iter()
-                    .map(|item| item["name"].as_str().unwrap())
-                    .collect::<std::collections::BTreeSet<_>>();
-                assert!(items
-                    .iter()
-                    .all(|item| reference_names.contains(item.name.as_str())));
-                assert!(!items.is_empty());
-                continue;
-            }
-            if label == "Optional" {
-                assert!(items.len() <= 12);
-                continue;
-            }
-            assert_eq!(
-                items
-                    .iter()
-                    .map(|item| item.name.as_str())
-                    .collect::<Vec<_>>(),
-                expected_items
-                    .iter()
-                    .map(|item| item["name"].as_str().unwrap())
-                    .collect::<Vec<_>>(),
-                "{label}"
-            );
-        }
+                .map(|block| {
+                    (
+                        block.kind.clone(),
+                        block.items.iter().map(|i| i.item_id).collect::<Vec<_>>(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(signature(&build), signature(&renamed_build));
+        assert!(build.situations.iter().all(|block| block.optional));
         let listed = build
             .core
             .iter()
@@ -1378,6 +1711,8 @@ mod tests {
             ]}}),
         };
         let mut meta = MetaIndexWithSources {
+            observations: Vec::new(),
+            family: None,
             index: MetaIndex {
                 by_item: BTreeMap::new(),
                 sample_ok: Default::default(),
@@ -1456,11 +1791,13 @@ mod tests {
 
     #[test]
     fn keeps_core_first_and_emits_reference_situation_order() {
+        let mut slow = item(4, "Slowing Hex", 7.0, true, &[]);
+        slow.item.properties.insert("MoveSpeedSlow".into(), 20.0);
         let scored = vec![
             item(1, "Core Gun", 10.0, false, &[]),
             item(2, "Metal Skin", 9.0, true, &["bullet_resist"]),
             item(3, "Spirit Shielding", 8.0, false, &["shield"]),
-            item(4, "Slowing Hex", 7.0, true, &[]),
+            slow,
         ];
         let build = compose_build_with_layout(
             &hero(),
@@ -1484,7 +1821,7 @@ mod tests {
                 .iter()
                 .map(|block| block.label.as_str())
                 .collect::<Vec<_>>(),
-            vec!["Ein Item nach Bedarf", "Für schwere Gegner", "Schutz"]
+            vec!["Ein Item nach Bedarf", "Schutz", "Gegen bestimmte Gegner"]
         );
         assert_eq!(
             build.situations[0].items[0].sources[0].kind,
