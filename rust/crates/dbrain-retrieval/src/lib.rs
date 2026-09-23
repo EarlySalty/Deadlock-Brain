@@ -43,6 +43,9 @@ const PROMPT_VERSION: &str = "review_context_de_v1";
 const ASK_STRONG_ON_TOPIC_TARGET: usize = 3;
 const ASK_IDF_SCALE: f64 = 10.0;
 const ASK_DISTINCTIVE_KEYWORD_MIN_IDF: i64 = 8;
+const HERO_POWER_CURVE_WINDOW_DAYS: i64 = 30;
+const HERO_POWER_CURVE_MIN_BUCKET_MATCHES: i64 = 50;
+const HERO_POWER_CURVE_SIGNAL_PP: f64 = 3.0;
 const ASK_PROMPT_TEMPLATE: &str = r#"Du bist ein erfahrener Deadlock-Coach und Analyst. Beantworte die folgende Frage – oder erstelle den gewünschten Build – AUSSCHLIESSLICH auf Basis der unten gelieferten, geprüften Fakten. Erfinde keine Werte, Items, Fähigkeiten oder Patch-Stände. Wenn die Fakten etwas nicht hergeben, sage das offen, statt zu raten.
 
 FRAGE: {{query}}
@@ -156,6 +159,19 @@ const DEADLOCK_QUERY_TERMS: &[&str] = &[
     "item",
     "build",
     "hero",
+    "heros",
+    "heroes",
+    "held",
+    "helden",
+    "charakter",
+    "charaktere",
+    "fähigkeit",
+    "fähigkeiten",
+    "faehigkeit",
+    "faehigkeiten",
+    "spielstil",
+    "archetyp",
+    "archetypen",
     "patch",
     "meta",
     "farm",
@@ -313,6 +329,7 @@ struct AskClaimRecord {
     claim_text: String,
     evidence_quote: String,
     claim_type: String,
+    entity_type: String,
     entity_name: String,
     status: String,
     verifier_confidence: f64,
@@ -1023,6 +1040,11 @@ pub async fn ask_context(
         item_ground_truth,
         base.get("timeline_signals").unwrap_or(&JsonValue::Null),
     );
+    let hero_power_curve = if out_of_domain {
+        JsonValue::Null
+    } else {
+        hero_power_curve_ground_truth(pool, &intent).await?
+    };
     let game_knowledge = if out_of_domain {
         json!({"available": false, "reason": "out_of_domain"})
     } else {
@@ -1040,6 +1062,7 @@ pub async fn ask_context(
         "timeline": base.get("timeline_signals").cloned().unwrap_or(JsonValue::Null),
         "lineage": base.get("lineage").cloned().unwrap_or(JsonValue::Null),
         "item": item_ground_truth,
+        "hero_power_curve": hero_power_curve,
         "game_knowledge": game_knowledge,
     });
     let mut creator_knowledge = JsonMap::new();
@@ -1067,6 +1090,15 @@ pub async fn ask_context(
             omitted_to_json(&claim_buckets.omitted),
         );
     }
+
+    let answer_target = if intent == "hero_archetype" {
+        Some("hero".to_string())
+    } else {
+        entity_match
+            .entity_type
+            .clone()
+            .or_else(|| plan.entities.first().and_then(|entity| value_to_nonempty_string(entity.get("type"))))
+    };
 
     let mut result = JsonMap::new();
     result.insert("query".to_string(), json!(query));
@@ -1098,6 +1130,7 @@ pub async fn ask_context(
             "intent": intent,
             "out_of_domain": out_of_domain,
             "context_query": context_query,
+            "answer_target": answer_target,
             "base_prompt_de_available": base.get("prompt_de").and_then(JsonValue::as_str).is_some_and(|value| !value.trim().is_empty()),
         }),
     );
@@ -1679,6 +1712,8 @@ pub async fn analyze_query(pool: &PgPool, query: &str) -> Result<QueryPlan> {
     let mut entities = Vec::new();
     let mut threats = Vec::new();
     let query_norm = normalize_alias(query);
+    let query_terms = intent_query_terms(query);
+    let hero_group_query = asks_for_hero_group(&query_terms);
 
     for entity in known_entities
         .iter()
@@ -1688,7 +1723,7 @@ pub async fn analyze_query(pool: &PgPool, query: &str) -> Result<QueryPlan> {
             push_query_entity(&mut entities, &mut threats, entity);
         }
     }
-    if entities.is_empty() {
+    if entities.is_empty() && !hero_group_query {
         for entity in known_entities
             .iter()
             .filter(|entity| matches!(entity.entity_type.as_str(), "item" | "item_special"))
@@ -1704,7 +1739,9 @@ pub async fn analyze_query(pool: &PgPool, query: &str) -> Result<QueryPlan> {
                 value_to_nonempty_string(best_match.get("canonical_name")),
                 value_to_nonempty_string(best_match.get("entity_type")),
             ) {
-                entities.push(json!({"name": name, "type": entity_type, "raw": query}));
+                if !hero_group_query || entity_type == "hero" {
+                    entities.push(json!({"name": name, "type": entity_type, "raw": query}));
+                }
             }
         }
     }
@@ -1796,6 +1833,9 @@ fn classify_ask_intent(query_lower: &str, matched: bool, entity_type: &str) -> S
     if contains_any_intent_term(&terms, &["kontert", "counter", "gegen", "matchup", "vs"]) {
         return "matchup".to_string();
     }
+    if asks_for_hero_group(&terms) && (!matched || entity_type == "hero") {
+        return "hero_archetype".to_string();
+    }
     if !matched
         && contains_any_intent_term(
             &terms,
@@ -1822,6 +1862,59 @@ fn classify_ask_intent(query_lower: &str, matched: bool, entity_type: &str) -> S
         return "item_question".to_string();
     }
     "hero_overview".to_string()
+}
+
+fn asks_for_hero_group(terms: &[String]) -> bool {
+    let hero_target = contains_any_intent_term(
+        terms,
+        &[
+            "hero",
+            "heros",
+            "heroes",
+            "held",
+            "helden",
+            "charakter",
+            "charaktere",
+            "champion",
+            "champions",
+        ],
+    );
+    if !hero_target {
+        return false;
+    }
+    contains_any_intent_term(
+        terms,
+        &[
+            "welche",
+            "welcher",
+            "welches",
+            "which",
+            "who",
+            "üblich",
+            "übliche",
+            "üblicherweise",
+            "typisch",
+            "typische",
+            "archetyp",
+            "archetypen",
+            "spielstil",
+            "playstyle",
+            "tempo",
+            "scaling",
+            "snowball",
+            "early",
+            "midgame",
+            "lategame",
+            "support",
+            "carry",
+            "tank",
+            "brawler",
+            "poke",
+            "dive",
+            "roam",
+            "roaming",
+        ],
+    )
 }
 
 fn has_explicit_ask_action(terms: &[String]) -> bool {
@@ -1903,8 +1996,8 @@ fn intent_fetch(intent: &str) -> Vec<String> {
             "shop_bonuses",
             "damage_calc",
         ],
-        "meta_question" | "hero_comparison" => {
-            vec!["hero_rankings", "hero_stats", "patch_impact_notes"]
+        "meta_question" | "hero_comparison" | "hero_archetype" => {
+            vec!["hero_rankings", "hero_stats", "patch_impact_notes", "game_wiki"]
         }
         "matchup" => vec![
             "counterplay_claims",
@@ -3459,6 +3552,202 @@ async fn query_has_deadlock_vocabulary(pool: &PgPool, query: &str) -> Result<boo
     Ok(false)
 }
 
+async fn hero_power_curve_ground_truth(pool: &PgPool, intent: &str) -> Result<JsonValue> {
+    if intent != "hero_archetype" {
+        return Ok(JsonValue::Null);
+    }
+    if !tables_exist(pool, &["population_player_matches", "hero_catalog"]).await? {
+        return Ok(json!({"available": false, "reason": "population_data_unavailable"}));
+    }
+
+    let bounds = sqlx::query(
+        r#"
+        WITH latest AS (
+          SELECT MAX(start_time) AS max_start
+          FROM brain.population_player_matches
+          WHERE start_time IS NOT NULL
+            AND duration_s BETWEEN 600 AND 5400
+        ),
+        recent_matches AS (
+          SELECT DISTINCT p.match_id, p.duration_s, p.start_time
+          FROM brain.population_player_matches p
+          CROSS JOIN latest l
+          WHERE l.max_start IS NOT NULL
+            AND p.start_time IS NOT NULL
+            AND p.duration_s BETWEEN 600 AND 5400
+            AND p.start_time >= l.max_start - make_interval(days => $1)
+        )
+        SELECT
+          percentile_cont(0.33) WITHIN GROUP (ORDER BY duration_s)::double precision AS short_cut_s,
+          percentile_cont(0.67) WITHIN GROUP (ORDER BY duration_s)::double precision AS long_cut_s,
+          COUNT(*)::bigint AS match_count,
+          MIN(start_time)::text AS window_start,
+          MAX(start_time)::text AS window_end
+        FROM recent_matches
+        "#,
+    )
+    .bind(HERO_POWER_CURVE_WINDOW_DAYS as i32)
+    .fetch_one(pool)
+    .await?;
+
+    let global_matches = bounds.try_get::<i64, _>("match_count").unwrap_or_default();
+    let short_cut_s = bounds.try_get::<Option<f64>, _>("short_cut_s").ok().flatten();
+    let long_cut_s = bounds.try_get::<Option<f64>, _>("long_cut_s").ok().flatten();
+    let window_start = bounds.try_get::<Option<String>, _>("window_start").ok().flatten();
+    let window_end = bounds.try_get::<Option<String>, _>("window_end").ok().flatten();
+    let (Some(short_cut_s), Some(long_cut_s)) = (short_cut_s, long_cut_s) else {
+        return Ok(json!({"available": false, "reason": "no_recent_matches"}));
+    };
+    if global_matches <= 0 {
+        return Ok(json!({"available": false, "reason": "no_recent_matches"}));
+    }
+
+    let rows = sqlx::query(
+        r#"
+        WITH latest AS (
+          SELECT MAX(start_time) AS max_start
+          FROM brain.population_player_matches
+          WHERE start_time IS NOT NULL
+            AND duration_s BETWEEN 600 AND 5400
+        ),
+        recent AS (
+          SELECT p.hero_id, p.won, p.duration_s
+          FROM brain.population_player_matches p
+          CROSS JOIN latest l
+          WHERE l.max_start IS NOT NULL
+            AND p.start_time IS NOT NULL
+            AND p.duration_s BETWEEN 600 AND 5400
+            AND p.start_time >= l.max_start - make_interval(days => $1)
+        )
+        SELECT
+          r.hero_id,
+          h.name,
+          COUNT(*)::bigint AS total_matches,
+          COUNT(*) FILTER (WHERE r.duration_s <= $2)::bigint AS short_matches,
+          SUM(CASE WHEN r.won THEN 1 ELSE 0 END)
+            FILTER (WHERE r.duration_s <= $2)::bigint AS short_wins,
+          COUNT(*) FILTER (WHERE r.duration_s > $2 AND r.duration_s <= $3)::bigint AS mid_matches,
+          SUM(CASE WHEN r.won THEN 1 ELSE 0 END)
+            FILTER (WHERE r.duration_s > $2 AND r.duration_s <= $3)::bigint AS mid_wins,
+          COUNT(*) FILTER (WHERE r.duration_s > $3)::bigint AS long_matches,
+          SUM(CASE WHEN r.won THEN 1 ELSE 0 END)
+            FILTER (WHERE r.duration_s > $3)::bigint AS long_wins
+        FROM recent r
+        JOIN brain.hero_catalog h ON h.hero_id = r.hero_id
+        GROUP BY r.hero_id, h.name
+        HAVING COUNT(*) >= 30
+        ORDER BY h.name
+        "#,
+    )
+    .bind(HERO_POWER_CURVE_WINDOW_DAYS as i32)
+    .bind(short_cut_s)
+    .bind(long_cut_s)
+    .fetch_all(pool)
+    .await?;
+
+    let mut heroes = Vec::new();
+    for row in rows {
+        let hero_id = row.try_get::<i64, _>("hero_id").unwrap_or_default();
+        let name = row.try_get::<String, _>("name").unwrap_or_default();
+        if hero_id <= 0 || name.trim().is_empty() {
+            continue;
+        }
+        let total_matches = row.try_get::<i64, _>("total_matches").unwrap_or_default();
+        let short_matches = row.try_get::<i64, _>("short_matches").unwrap_or_default();
+        let short_wins = row.try_get::<Option<i64>, _>("short_wins").ok().flatten().unwrap_or_default();
+        let mid_matches = row.try_get::<i64, _>("mid_matches").unwrap_or_default();
+        let mid_wins = row.try_get::<Option<i64>, _>("mid_wins").ok().flatten().unwrap_or_default();
+        let long_matches = row.try_get::<i64, _>("long_matches").unwrap_or_default();
+        let long_wins = row.try_get::<Option<i64>, _>("long_wins").ok().flatten().unwrap_or_default();
+
+        let short_rate = win_rate(short_wins, short_matches);
+        let mid_rate = win_rate(mid_wins, mid_matches);
+        let long_rate = win_rate(long_wins, long_matches);
+        let delta_pp = short_rate.zip(long_rate).map(|(short, long)| (short - long) * 100.0);
+        let label = power_curve_label(delta_pp, short_matches, long_matches);
+
+        heroes.push(json!([
+            name,
+            hero_id,
+            total_matches,
+            short_matches,
+            short_rate.map(percent_rounded),
+            mid_matches,
+            mid_rate.map(percent_rounded),
+            long_matches,
+            long_rate.map(percent_rounded),
+            delta_pp.map(one_decimal),
+            label,
+        ]));
+    }
+
+    Ok(json!({
+        "available": true,
+        "method": "recent_duration_tertiles",
+        "window_days": HERO_POWER_CURVE_WINDOW_DAYS,
+        "window_start": window_start,
+        "window_end": window_end,
+        "global_matches": global_matches,
+        "duration_cutoffs_s": {
+            "short_game_max_s": short_cut_s.round() as i64,
+            "long_game_min_s": long_cut_s.round() as i64,
+        },
+        "minimum_bucket_matches": HERO_POWER_CURVE_MIN_BUCKET_MATCHES,
+        "signal_threshold_pp": HERO_POWER_CURVE_SIGNAL_PP,
+        "hero_curve_schema": [
+            "name",
+            "hero_id",
+            "total_matches",
+            "short_matches",
+            "short_win_rate_percent",
+            "mid_matches",
+            "mid_win_rate_percent",
+            "long_matches",
+            "long_win_rate_percent",
+            "short_minus_long_pp",
+            "curve_label"
+        ],
+        "hero_curves": heroes,
+        "interpretation": {
+            "early_skewed": "Winrate is materially higher in the shortest third of recent matches than in the longest third.",
+            "late_skewed": "Winrate is materially higher in the longest third of recent matches than in the shortest third.",
+            "flat": "Short and long match winrates differ by less than the configured signal threshold.",
+            "insufficient_sample": "At least one edge bucket is below the configured sample floor.",
+            "caution": "This is an observed power curve signal, not proof of the mechanical cause."
+        }
+    }))
+}
+
+fn win_rate(wins: i64, matches: i64) -> Option<f64> {
+    (matches > 0).then(|| wins as f64 / matches as f64)
+}
+
+fn percent_rounded(rate: f64) -> f64 {
+    one_decimal(rate * 100.0)
+}
+
+fn one_decimal(value: f64) -> f64 {
+    (value * 10.0).round() / 10.0
+}
+
+fn power_curve_label(delta_pp: Option<f64>, short_matches: i64, long_matches: i64) -> &'static str {
+    if short_matches < HERO_POWER_CURVE_MIN_BUCKET_MATCHES
+        || long_matches < HERO_POWER_CURVE_MIN_BUCKET_MATCHES
+    {
+        return "insufficient_sample";
+    }
+    let Some(delta_pp) = delta_pp else {
+        return "insufficient_sample";
+    };
+    if delta_pp >= HERO_POWER_CURVE_SIGNAL_PP {
+        "early_skewed"
+    } else if delta_pp <= -HERO_POWER_CURVE_SIGNAL_PP {
+        "late_skewed"
+    } else {
+        "flat"
+    }
+}
+
 async fn ask_item_ground_truth(pool: &PgPool, entity: &JsonValue) -> Result<JsonValue> {
     let entity_type = entity
         .get("entity_type")
@@ -3511,6 +3800,9 @@ async fn load_ask_claims(
     claims.retain(|claim| {
         ask_claim_passes_minimum_relevance(claim, &keywords, entity_match, &idf_weights)
     });
+    if intent == "hero_archetype" {
+        claims.retain(|claim| claim.entity_type == "hero");
+    }
     Ok((claims, entity_matched, keyword_matched))
 }
 
@@ -3786,6 +4078,7 @@ fn ask_claim_from_row(
         claim_text: value_to_string(row.get("claim_text")),
         evidence_quote: value_to_string(row.get("evidence_quote")),
         claim_type: value_to_string(row.get("claim_type")),
+        entity_type: value_to_string(row.get("entity_type")).to_lowercase(),
         entity_name: value_to_string(row.get("entity_name")),
         status: value_to_string(row.get("status")).to_lowercase(),
         verifier_confidence: safe_f64(row.get("verifier_confidence"), 0.0),
@@ -7560,6 +7853,7 @@ mod tests {
             claim_text: format!("claim {id}"),
             evidence_quote: format!("evidence {id}"),
             claim_type: "mechanic".to_string(),
+            entity_type: "item".to_string(),
             entity_name: "Mystic Shot".to_string(),
             status: status.to_string(),
             verifier_confidence: confidence,
@@ -8095,6 +8389,45 @@ mod tests {
 
         assert!(prompt.contains("\"game_knowledge\""));
         assert!(prompt.contains("FULL_WIKI_PAGE_TOKEN"));
+    }
+
+    #[test]
+    fn hero_power_curve_labels_require_sample_and_material_delta() {
+        assert_eq!(power_curve_label(Some(4.2), 80, 75), "early_skewed");
+        assert_eq!(power_curve_label(Some(-3.4), 80, 75), "late_skewed");
+        assert_eq!(power_curve_label(Some(2.9), 80, 75), "flat");
+        assert_eq!(
+            power_curve_label(Some(9.0), 49, 75),
+            "insufficient_sample"
+        );
+        assert_eq!(percent_rounded(0.53456), 53.5);
+    }
+
+    #[test]
+    fn hero_group_questions_get_semantic_archetype_intent() {
+        for query in [
+            "Welche heros sind üblicherweise Tempo Charaktere",
+            "Welche Helden sind typische Snowball Charaktere?",
+            "Which heroes are scaling carries?",
+        ] {
+            assert_eq!(
+                classify_ask_intent(&query.to_lowercase(), false, ""),
+                "hero_archetype",
+                "{query}"
+            );
+        }
+        assert_eq!(
+            classify_ask_intent("welche helden sind in der meta?", false, ""),
+            "meta_question"
+        );
+        assert_eq!(
+            classify_ask_intent("welche heroes sind wie warden tempo charaktere?", true, "hero"),
+            "hero_archetype"
+        );
+        assert_eq!(
+            classify_ask_intent("wie funktioniert healing tempo?", true, "item"),
+            "item_question"
+        );
     }
 
     #[test]
