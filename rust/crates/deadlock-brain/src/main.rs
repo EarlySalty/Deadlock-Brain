@@ -49,6 +49,12 @@ enum Commands {
         about = "Baut ein vertrauenssortiertes Wissens-Buendel plus LLM-Prompt zu einer beliebigen Deadlock-Frage."
     )]
     AskContext(AskContextArgs),
+    #[command(
+        name = "review-build",
+        alias = "publish-build-query",
+        about = "Berechnet eine Build-Anfrage und veröffentlicht sie als gekennzeichnetes Review-Build."
+    )]
+    ReviewBuild(ReviewBuildArgs),
     #[command(about = "Fuehrt lokale Datenqualitaetschecks aus.")]
     Quality(PrettyArgs),
     #[command(about = "Erzeugt und pflegt die lokale Game-Wiki-Wissensschicht.")]
@@ -214,6 +220,14 @@ struct AskContextArgs {
     game_wiki_dir: Option<PathBuf>,
     #[arg(long)]
     pretty: bool,
+}
+
+#[derive(Debug, Args)]
+struct ReviewBuildArgs {
+    #[arg(help = "Natürliche Build-Anfrage, zum Beispiel 'Warden Gun Build'.")]
+    query: String,
+    #[arg(long = "wait-seconds", default_value_t = 30)]
+    wait_seconds: u64,
 }
 
 #[derive(Debug, Subcommand)]
@@ -1235,6 +1249,7 @@ async fn run(cli: Cli) -> Result<()> {
                 print_json(&result)
             }
         }
+        Commands::ReviewBuild(args) => run_review_build(&pool, args).await,
         Commands::Quality(args) => {
             let result = dbrain_retrieval::run_quality_checks(&pool).await?;
             if args.pretty {
@@ -1577,6 +1592,84 @@ async fn run_learn(settings: &Settings, target: LearnCommands) -> Result<()> {
             }
         }
     }
+}
+
+async fn run_review_build(pool: &PgPool, args: ReviewBuildArgs) -> Result<()> {
+    let ask = dbrain_retrieval::ask_context(
+        pool,
+        &args.query,
+        &dbrain_retrieval::AskContextOptions {
+            limit_events: 80,
+            include_unverified: false,
+            max_claims: 12,
+            game_wiki_dir: None,
+        },
+    )
+    .await?;
+    if ask.pointer("/retrieval_meta/route").and_then(Value::as_str) != Some("build_reasoner") {
+        return Err(anyhow!(
+            "Die Anfrage wurde nicht als Build-Anfrage erkannt."
+        ));
+    }
+    let mut build: dbrain_reasoner::BuildObject = serde_json::from_value(
+        ask.get("build_context")
+            .cloned()
+            .ok_or_else(|| anyhow!("Der berechnete Build-Kontext fehlt."))?,
+    )?;
+    let alternative_variants = build.variants.len();
+    build.variants.clear();
+    build.name = format!(
+        "{} Brain Review {}",
+        build.hero_name,
+        chrono::Utc::now().format("%Y-%m-%d %H:%M")
+    );
+    let selected_family = build.family.as_ref().map(|family| family.label.clone());
+    let task_id = dbrain_reasoner::publish::enqueue_review_publish_task(pool, &build).await?;
+    let deadline =
+        tokio::time::Instant::now() + std::time::Duration::from_secs(args.wait_seconds.min(120));
+    let (last_status, hero_build_id, version) = loop {
+        let (status, result): (String, Option<Value>) = sqlx::query_as(
+            "SELECT status, result FROM steam.steam_tasks WHERE id=$1 AND type='BUILD_PUBLISH_ORIGINAL'",
+        )
+        .bind(task_id)
+        .fetch_one(pool)
+        .await?;
+        let hero_build_id = result
+            .as_ref()
+            .and_then(|value| value.pointer("/data/hero_build_id"))
+            .and_then(Value::as_i64);
+        let version = result
+            .as_ref()
+            .and_then(|value| value.pointer("/data/version"))
+            .and_then(Value::as_i64);
+        if matches!(status.as_str(), "DONE" | "FAILED" | "CANCELLED")
+            || tokio::time::Instant::now() >= deadline
+        {
+            break (status, hero_build_id, version);
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    };
+    if matches!(last_status.as_str(), "FAILED" | "CANCELLED") {
+        return Err(anyhow!(
+            "Das Review-Build konnte nicht veröffentlicht werden."
+        ));
+    }
+    print_json(&json!({
+        "status": last_status,
+        "task_id": task_id,
+        "hero_build_id": hero_build_id,
+        "version": version,
+        "hero_id": build.hero_id,
+        "hero_name": build.hero_name,
+        "build_name": build.name,
+        "selected_family": selected_family,
+        "alternative_variants": alternative_variants,
+        "core": build.core.iter().map(|item| json!({"item_id": item.item_id, "name": item.name})).collect::<Vec<_>>(),
+        "situations": build.situations.iter().map(|block| json!({
+            "label": block.label,
+            "items": block.items.iter().map(|item| json!({"item_id": item.item_id, "name": item.name})).collect::<Vec<_>>()
+        })).collect::<Vec<_>>()
+    }))
 }
 
 async fn run_reason(pool: &PgPool, settings: &Settings, target: ReasonCommands) -> Result<()> {

@@ -8,9 +8,12 @@ mod ai_roles;
 pub mod backtest;
 pub mod combat;
 pub mod composer;
+pub mod families;
 pub mod inventory;
 pub use data::{ability_damage_units, enrich_frozen_models, refresh_ability_derived};
+mod damage_conditions;
 mod data;
+mod defense;
 pub mod hero;
 pub mod item;
 pub mod item_interactions;
@@ -81,6 +84,7 @@ pub async fn reason_build_with_seed_path(
 pub struct PlannedBuild {
     pub build: BuildObject,
     pub scored: Vec<ScoredItem>,
+    pub variant_scores: BTreeMap<String, Vec<ScoredItem>>,
     pub hero: HeroModel,
     pub deltas: Vec<PatchDelta>,
 }
@@ -97,12 +101,58 @@ pub fn plan_build(
     let mut items = items.to_vec();
     let mut deltas = patch::compute_patch_delta_with_snapshots(&hero, events, snapshots);
     patch::apply_scored_patch_delta(&mut hero, &mut items, &mut deltas, &meta.index, config);
-    let mut scored = item::score_items(&hero, &items, &meta.index, &[], config);
-    finish_scores(&mut scored);
-    let build = composer::compose_build_with_sources(&hero, &scored, &deltas, config, &[], meta)?;
+    let discovery = (!meta.observations.is_empty()).then(|| {
+        families::detect_families(
+            &meta.observations,
+            &items,
+            &meta.population,
+            &families::FamilyPolicy::for_patch(events, config),
+        )
+    });
+    let contexts = if let Some(discovery) = &discovery {
+        let contexts = discovery
+            .families
+            .iter()
+            .filter(|family| family.eligible_for_planning)
+            .map(|family| families::conditioned_meta(meta, family, config))
+            .collect::<Vec<_>>();
+        if contexts.is_empty() {
+            return Err(ReasonerError::Data(format!("{}: keine ausreichend belegte Buildfamilie in {} Beobachtungen; kein gemittelter Ersatzbuild wird veröffentlicht.", hero.name, discovery.input_observations)));
+        }
+        contexts
+    } else {
+        vec![meta.clone()]
+    };
+    let mut plans = Vec::new();
+    let mut variant_scores = BTreeMap::new();
+    for context in &contexts {
+        let mut scored = item::score_items(&hero, &items, &context.index, &[], config);
+        finish_scores(&mut scored);
+        let mut build =
+            composer::compose_build_with_sources(&hero, &scored, &deltas, config, &[], context)?;
+        build.family = context.family.clone();
+        if let Some(family) = &context.family {
+            build.name = format!("{} – {}", hero.name, family.label);
+            build.rationale = append_text(&build.rationale, &format!("Familie {}: {} Spieler-Matches, {} unabhängige Spieler, {} Autoren; Kohärenz {:.3}. {}", family.id, family.player_matches, family.distinct_players, family.distinct_authors, family.cohesion, family.limitations.join(" ")));
+            if variant_scores
+                .insert(family.id.clone(), scored.clone())
+                .is_some()
+            {
+                return Err(ReasonerError::Data(format!(
+                    "Nicht eindeutige Familien-ID {}; keine Variante wird still überschrieben.",
+                    family.id
+                )));
+            }
+        }
+        plans.push((build, scored));
+    }
+    let (mut build, scored) = plans.remove(0);
+    build.variants = plans.into_iter().map(|(build, _)| build).collect();
+    build.family_discovery = discovery;
     Ok(PlannedBuild {
         build,
         scored,
+        variant_scores,
         hero,
         deltas,
     })
@@ -128,8 +178,7 @@ pub async fn reason_build_with_options(
 ) -> Result<BuildObject> {
     let seed_path = options.seed_path;
     let ctx = effective_context(ctx).await?;
-    let (hero_model, items, meta, snapshots) =
-        load_reasoning_inputs(&ctx, hero, seed_path).await?;
+    let (hero_model, items, meta, snapshots) = load_reasoning_inputs(&ctx, hero, seed_path).await?;
     let events =
         data::load_patch_events_for_snapshots(&ctx, hero_model.hero_id, &snapshots).await?;
     static PLANNING_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
@@ -147,35 +196,30 @@ pub async fn reason_build_with_options(
             scored,
             hero: hero_model,
             deltas,
+            ..
         } = planned;
         if ctx.config.use_ai {
-            build = enrich_build(&ctx, &hero_model, &scored, &deltas, &events, &meta.index, build);
+            build = enrich_build(
+                &ctx,
+                &hero_model,
+                &scored,
+                &deltas,
+                &events,
+                &meta.index,
+                build,
+            );
             if let Some(client) = ctx.ai.as_ref() {
                 if let Ok(critic) = ai_roles::run_critic(client, &build) {
-                    if critic.verdict == "recompose" {
-                        build = composer::compose_build_with_sources(
-                            &hero_model,
-                            &scored,
-                            &deltas,
-                            &ctx.config,
-                            &critic.issues,
-                            &meta,
-                        )?;
-                        build = enrich_build(
-                            &ctx,
-                            &hero_model,
-                            &scored,
-                            &deltas,
-                            &events,
-                            &meta.index,
-                            build,
+                    // AI criticism is explanatory only. It cannot remove or add
+                    // purchases, alter bindings, or recompute numeric families.
+                    if !critic.issues.is_empty() {
+                        build.rationale = append_text(
+                            &build.rationale,
+                            &format!(
+                                "Nicht numerisch angewandte KI-Kritik: {}",
+                                critic.issues.join("; ")
+                            ),
                         );
-                        if !critic.issues.is_empty() {
-                            build.rationale = append_text(
-                                &build.rationale,
-                                &format!("Offene Kritikpunkte: {}", critic.issues.join("; ")),
-                            );
-                        }
                     }
                 }
             }
@@ -513,10 +557,7 @@ async fn persist_backtest(ctx: &ReasonerCtx, report: &BacktestReport) -> Result<
     tx.commit().await.map_err(ReasonerError::Db)
 }
 
-pub async fn load_population_prior(
-    pool: &sqlx::PgPool,
-    hero_id: i64,
-) -> Result<PopulationPrior> {
+pub async fn load_population_prior(pool: &sqlx::PgPool, hero_id: i64) -> Result<PopulationPrior> {
     let present: Option<bool> = sqlx::query_scalar(
         "SELECT to_regclass('brain.population_item_stats') IS NOT NULL \
          AND to_regclass('brain.population_ability_order') IS NOT NULL \
@@ -587,10 +628,15 @@ pub async fn load_reasoning_inputs(
     let author_builds = load_author_sources(ctx, hero_model.hero_id).await?;
     let hero_ability_orders = load_hero_ability_orders(ctx, hero_model.hero_id).await?;
     let population = load_population_prior(&ctx.pool, hero_model.hero_id).await?;
+    let mut observations =
+        families::load_player_observations(&ctx.pool, hero_model.hero_id).await?;
+    observations.extend(author_builds.iter().map(families::author_observation));
     Ok((
         hero_model,
         items,
         meta::MetaIndexWithSources {
+            observations,
+            family: None,
             index,
             author_builds,
             hero_ability_orders,
@@ -627,17 +673,7 @@ async fn load_author_sources(
     ctx: &ReasonerCtx,
     hero_id: i64,
 ) -> Result<Vec<meta::AuthorBuildSource>> {
-    let rows = data::load_author_source_rows(ctx, Some(hero_id)).await?;
-    rows.into_iter()
-        .map(|value| {
-            Ok(meta::AuthorBuildSource {
-                hero_id: value["hero_id"].as_i64().unwrap_or(hero_id),
-                author: value["author"].as_str().unwrap_or("unbekannt").to_string(),
-                weight: value["weight"].as_f64().unwrap_or_default(),
-                details: value.get("details").cloned().unwrap_or(Value::Null),
-            })
-        })
-        .collect()
+    families::load_family_author_sources(&ctx.pool, hero_id).await
 }
 
 async fn load_hero_ability_orders(

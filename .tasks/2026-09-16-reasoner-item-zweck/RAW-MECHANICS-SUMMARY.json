@@ -1,0 +1,917 @@
+{
+  "contract": "Raw data inventory only. No item-purpose labels, scores or assertion of understood mechanics. Missing and ambiguous references stay unresolved. No live data, database or AI call.",
+  "explicit_conditions": [
+    {
+      "id": 239553513,
+      "name": "vanguard_aoe_buff",
+      "property": {
+        "conditional": "after proc",
+        "display_units": null,
+        "name": "BonusSpirit",
+        "negative_attribute": null,
+        "numeric_literal": 20.0,
+        "path": "/properties/BonusSpirit",
+        "provided_property_type": "MODIFIER_VALUE_TECH_POWER",
+        "raw": {
+          "conditional": "after proc",
+          "css_class": "tech_damage",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/damage_magic_color.svg",
+          "label": "Spirit Power",
+          "postvalue_label": "Spirit Power",
+          "prefix": "{s:sign}",
+          "provided_property_type": "MODIFIER_VALUE_TECH_POWER",
+          "usage_flags": [
+            "ConditionallyApplied"
+          ],
+          "value": "20"
+        },
+        "raw_value": "20",
+        "usage_flags": [
+          "ConditionallyApplied"
+        ]
+      }
+    },
+    {
+      "id": 4161463520,
+      "name": "citadel_weapon_astro_set_shotgun_backwards",
+      "property": {
+        "conditional": "within Range",
+        "display_units": "EDisplayUnit_Normal",
+        "name": "CloseRangeBonusWeaponPower",
+        "negative_attribute": null,
+        "numeric_literal": 20.0,
+        "path": "/properties/CloseRangeBonusWeaponPower",
+        "provided_property_type": null,
+        "raw": {
+          "conditional": "within Range",
+          "css_class": "bullet_damage",
+          "display_units": "EDisplayUnit_Normal",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/damage_bullet_color.svg",
+          "label": "Weapon Damage",
+          "postfix": "%",
+          "postvalue_label": "Weapon Damage",
+          "prefix": "{s:sign}",
+          "value": "20"
+        },
+        "raw_value": "20",
+        "usage_flags": null
+      }
+    },
+    {
+      "id": 2395530931,
+      "name": "ability_astro_shotgun_toggle",
+      "property": {
+        "conditional": "within Range",
+        "display_units": "EDisplayUnit_Normal",
+        "name": "CloseRangeBonusWeaponPower",
+        "negative_attribute": null,
+        "numeric_literal": 0.0,
+        "path": "/properties/CloseRangeBonusWeaponPower",
+        "provided_property_type": "MODIFIER_VALUE_CLOSE_RANGE_WEAPON_DAMAGE_INCREASE",
+        "raw": {
+          "conditional": "within Range",
+          "css_class": "bullet_damage",
+          "display_units": "EDisplayUnit_Normal",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/damage_bullet_color.svg",
+          "label": "Weapon Damage",
+          "postfix": "%",
+          "postvalue_label": "Weapon Damage",
+          "prefix": "{s:sign}",
+          "provided_property_type": "MODIFIER_VALUE_CLOSE_RANGE_WEAPON_DAMAGE_INCREASE",
+          "value": "0"
+        },
+        "raw_value": "0",
+        "usage_flags": null
+      }
+    },
+    {
+      "id": 1307289689,
+      "name": "Soul Exchange",
+      "property": {
+        "conditional": "after proc",
+        "display_units": null,
+        "name": "BonusSpirit",
+        "negative_attribute": null,
+        "numeric_literal": 0.0,
+        "path": "/properties/BonusSpirit",
+        "provided_property_type": "MODIFIER_VALUE_TECH_POWER",
+        "raw": {
+          "conditional": "after proc",
+          "css_class": "tech_damage",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/damage_magic_color.svg",
+          "label": "Spirit Power",
+          "postvalue_label": "Spirit Power",
+          "prefix": "{s:sign}",
+          "provided_property_type": "MODIFIER_VALUE_TECH_POWER",
+          "usage_flags": [
+            "IntrinsicallyProvidedInAbility"
+          ],
+          "value": "0"
+        },
+        "raw_value": "0",
+        "usage_flags": [
+          "IntrinsicallyProvidedInAbility"
+        ]
+      }
+    },
+    {
+      "id": 1963397252,
+      "name": "Ice Path",
+      "property": {
+        "conditional": "after proc",
+        "display_units": null,
+        "name": "BonusSpirit",
+        "negative_attribute": null,
+        "numeric_literal": 0.0,
+        "path": "/properties/BonusSpirit",
+        "provided_property_type": "MODIFIER_VALUE_TECH_POWER",
+        "raw": {
+          "conditional": "after proc",
+          "css_class": "tech_damage",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/damage_magic_color.svg",
+          "label": "Spirit Power",
+          "postvalue_label": "Spirit Power",
+          "prefix": "{s:sign}",
+          "provided_property_type": "MODIFIER_VALUE_TECH_POWER",
+          "usage_flags": [
+            "IntrinsicallyProvidedInAbility"
+          ],
+          "value": "0"
+        },
+        "raw_value": "0",
+        "usage_flags": [
+          "IntrinsicallyProvidedInAbility"
+        ]
+      }
+    },
+    {
+      "id": 1009965641,
+      "name": "Monster Rounds",
+      "property": {
+        "conditional": "against NPCs",
+        "display_units": null,
+        "name": "NonPlayerBonusWeaponPower",
+        "negative_attribute": null,
+        "numeric_literal": 25.0,
+        "path": "/properties/NonPlayerBonusWeaponPower",
+        "provided_property_type": "MODIFIER_VALUE_WEAPON_DAMAGE_TO_NPC_INCREASE",
+        "raw": {
+          "conditional": "against NPCs",
+          "css_class": "bullet_damage",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/damage_bullet_color.svg",
+          "label": "Weapon Damage vs. NPCs",
+          "postfix": "%",
+          "postvalue_label": "Weapon Damage vs. NPCs",
+          "prefix": "{s:sign}",
+          "provided_property_type": "MODIFIER_VALUE_WEAPON_DAMAGE_TO_NPC_INCREASE",
+          "tooltip_is_elevated": true,
+          "tooltip_is_important": false,
+          "tooltip_section": "innate",
+          "usage_flags": [
+            "ConditionallyApplied"
+          ],
+          "value": "25"
+        },
+        "raw_value": "25",
+        "usage_flags": [
+          "ConditionallyApplied"
+        ]
+      }
+    },
+    {
+      "id": 1009965641,
+      "name": "Monster Rounds",
+      "property": {
+        "conditional": "against NPCs",
+        "display_units": null,
+        "name": "NonPlayerBulletResist",
+        "negative_attribute": null,
+        "numeric_literal": 25.0,
+        "path": "/properties/NonPlayerBulletResist",
+        "provided_property_type": "MODIFIER_VALUE_BULLET_RESIST_NON_HERO",
+        "raw": {
+          "conditional": "against NPCs",
+          "css_class": "bullet_damage",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/damage_bullet_color.svg",
+          "label": "Bullet Resist vs. NPCs",
+          "postfix": "%",
+          "postvalue_label": "Bullet Resist vs. NPCs",
+          "prefix": "{s:sign}",
+          "provided_property_type": "MODIFIER_VALUE_BULLET_RESIST_NON_HERO",
+          "tooltip_is_elevated": true,
+          "tooltip_is_important": false,
+          "tooltip_section": "innate",
+          "usage_flags": [
+            "ConditionallyApplied"
+          ],
+          "value": "25"
+        },
+        "raw_value": "25",
+        "usage_flags": [
+          "ConditionallyApplied"
+        ]
+      }
+    },
+    {
+      "id": 709540378,
+      "name": "Cultist Sacrifice",
+      "property": {
+        "conditional": "against NPCs",
+        "display_units": null,
+        "name": "NonPlayerBonusWeaponPower",
+        "negative_attribute": null,
+        "numeric_literal": 30.0,
+        "path": "/properties/NonPlayerBonusWeaponPower",
+        "provided_property_type": "MODIFIER_VALUE_WEAPON_DAMAGE_TO_NPC_INCREASE",
+        "raw": {
+          "conditional": "against NPCs",
+          "css_class": "bullet_damage",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/damage_bullet_color.svg",
+          "label": "Weapon Damage vs. NPCs",
+          "postfix": "%",
+          "postvalue_label": "Weapon Damage vs. NPCs",
+          "prefix": "{s:sign}",
+          "provided_property_type": "MODIFIER_VALUE_WEAPON_DAMAGE_TO_NPC_INCREASE",
+          "tooltip_is_elevated": false,
+          "tooltip_is_important": false,
+          "tooltip_section": "innate",
+          "usage_flags": [
+            "ConditionallyApplied"
+          ],
+          "value": "30"
+        },
+        "raw_value": "30",
+        "usage_flags": [
+          "ConditionallyApplied"
+        ]
+      }
+    },
+    {
+      "id": 709540378,
+      "name": "Cultist Sacrifice",
+      "property": {
+        "conditional": "against NPCs",
+        "display_units": null,
+        "name": "NonPlayerBulletResist",
+        "negative_attribute": null,
+        "numeric_literal": 30.0,
+        "path": "/properties/NonPlayerBulletResist",
+        "provided_property_type": "MODIFIER_VALUE_BULLET_RESIST_NON_HERO",
+        "raw": {
+          "conditional": "against NPCs",
+          "css_class": "bullet_damage",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/damage_bullet_color.svg",
+          "label": "Bullet Resist vs. NPCs",
+          "postfix": "%",
+          "postvalue_label": "Bullet Resist vs. NPCs",
+          "prefix": "{s:sign}",
+          "provided_property_type": "MODIFIER_VALUE_BULLET_RESIST_NON_HERO",
+          "tooltip_is_elevated": false,
+          "tooltip_is_important": false,
+          "tooltip_section": "innate",
+          "usage_flags": [
+            "ConditionallyApplied"
+          ],
+          "value": "30"
+        },
+        "raw_value": "30",
+        "usage_flags": [
+          "ConditionallyApplied"
+        ]
+      }
+    },
+    {
+      "id": 1342610602,
+      "name": "Close Quarters",
+      "property": {
+        "conditional": "within Range",
+        "display_units": "EDisplayUnit_Normal",
+        "name": "CloseRangeBonusWeaponPower",
+        "negative_attribute": null,
+        "numeric_literal": 20.0,
+        "path": "/properties/CloseRangeBonusWeaponPower",
+        "provided_property_type": "MODIFIER_VALUE_CLOSE_RANGE_WEAPON_DAMAGE_INCREASE",
+        "raw": {
+          "conditional": "within Range",
+          "css_class": "bullet_damage",
+          "display_units": "EDisplayUnit_Normal",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/damage_bullet_color.svg",
+          "label": "Weapon Damage",
+          "postfix": "%",
+          "postvalue_label": "Weapon Damage",
+          "prefix": "{s:sign}",
+          "provided_property_type": "MODIFIER_VALUE_CLOSE_RANGE_WEAPON_DAMAGE_INCREASE",
+          "tooltip_is_elevated": false,
+          "tooltip_is_important": true,
+          "tooltip_section": "passive",
+          "usage_flags": [
+            "ConditionallyApplied"
+          ],
+          "value": "20"
+        },
+        "raw_value": "20",
+        "usage_flags": [
+          "ConditionallyApplied"
+        ]
+      }
+    },
+    {
+      "id": 3331811235,
+      "name": "Long Range",
+      "property": {
+        "conditional": "beyond Range",
+        "display_units": "EDisplayUnit_Normal",
+        "name": "LongRangeBonusWeaponPower",
+        "negative_attribute": null,
+        "numeric_literal": 40.0,
+        "path": "/properties/LongRangeBonusWeaponPower",
+        "provided_property_type": "MODIFIER_VALUE_LONG_RANGE_BULLET_DAMAGE_INCREASE",
+        "raw": {
+          "conditional": "beyond Range",
+          "css_class": "bullet_damage",
+          "display_units": "EDisplayUnit_Normal",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/damage_bullet_color.svg",
+          "label": "Weapon Damage",
+          "postfix": "%",
+          "postvalue_label": "Weapon Damage",
+          "prefix": "{s:sign}",
+          "provided_property_type": "MODIFIER_VALUE_LONG_RANGE_BULLET_DAMAGE_INCREASE",
+          "tooltip_is_elevated": false,
+          "tooltip_is_important": true,
+          "tooltip_section": "passive",
+          "usage_flags": [
+            "ConditionallyApplied"
+          ],
+          "value": "40"
+        },
+        "raw_value": "40",
+        "usage_flags": [
+          "ConditionallyApplied"
+        ]
+      }
+    },
+    {
+      "id": 2152872419,
+      "name": "Sharpshooter",
+      "property": {
+        "conditional": "beyond Range",
+        "display_units": "EDisplayUnit_Normal",
+        "name": "LongRangeBonusWeaponPower",
+        "negative_attribute": null,
+        "numeric_literal": 60.0,
+        "path": "/properties/LongRangeBonusWeaponPower",
+        "provided_property_type": "MODIFIER_VALUE_LONG_RANGE_BULLET_DAMAGE_INCREASE",
+        "raw": {
+          "conditional": "beyond Range",
+          "css_class": "bullet_damage",
+          "display_units": "EDisplayUnit_Normal",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/damage_bullet_color.svg",
+          "label": "Weapon Damage",
+          "postfix": "%",
+          "postvalue_label": "Weapon Damage",
+          "prefix": "{s:sign}",
+          "provided_property_type": "MODIFIER_VALUE_LONG_RANGE_BULLET_DAMAGE_INCREASE",
+          "tooltip_is_elevated": false,
+          "tooltip_is_important": true,
+          "tooltip_section": "passive",
+          "usage_flags": [
+            "ConditionallyApplied"
+          ],
+          "value": "60"
+        },
+        "raw_value": "60",
+        "usage_flags": [
+          "ConditionallyApplied"
+        ]
+      }
+    },
+    {
+      "id": 2095565695,
+      "name": "Point Blank",
+      "property": {
+        "conditional": "within Range",
+        "display_units": null,
+        "name": "CloseRangeBonusWeaponPower",
+        "negative_attribute": null,
+        "numeric_literal": 50.0,
+        "path": "/properties/CloseRangeBonusWeaponPower",
+        "provided_property_type": "MODIFIER_VALUE_CLOSE_RANGE_WEAPON_DAMAGE_INCREASE",
+        "raw": {
+          "conditional": "within Range",
+          "css_class": "bullet_damage",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/damage_bullet_color.svg",
+          "label": "Weapon Damage",
+          "postfix": "%",
+          "postvalue_label": "Weapon Damage",
+          "prefix": "{s:sign}",
+          "provided_property_type": "MODIFIER_VALUE_CLOSE_RANGE_WEAPON_DAMAGE_INCREASE",
+          "tooltip_is_elevated": false,
+          "tooltip_is_important": true,
+          "tooltip_section": "passive",
+          "value": "50"
+        },
+        "raw_value": "50",
+        "usage_flags": null
+      }
+    },
+    {
+      "id": 3074274290,
+      "name": "Trophy Collector",
+      "property": {
+        "conditional": "against NPCs",
+        "display_units": null,
+        "name": "NonPlayerBonusWeaponPower",
+        "negative_attribute": true,
+        "numeric_literal": -15.0,
+        "path": "/properties/NonPlayerBonusWeaponPower",
+        "provided_property_type": "MODIFIER_VALUE_WEAPON_DAMAGE_TO_NPC_INCREASE",
+        "raw": {
+          "conditional": "against NPCs",
+          "css_class": "bullet_damage",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/damage_bullet_color.svg",
+          "label": "Weapon Damage vs. NPCs",
+          "negative_attribute": true,
+          "postfix": "%",
+          "postvalue_label": "Weapon Damage vs. NPCs",
+          "prefix": "{s:sign}",
+          "provided_property_type": "MODIFIER_VALUE_WEAPON_DAMAGE_TO_NPC_INCREASE",
+          "tooltip_is_elevated": false,
+          "tooltip_is_important": false,
+          "tooltip_section": "innate",
+          "usage_flags": [
+            "ConditionallyApplied"
+          ],
+          "value": "-15"
+        },
+        "raw_value": "-15",
+        "usage_flags": [
+          "ConditionallyApplied"
+        ]
+      }
+    },
+    {
+      "id": 2226497419,
+      "name": "Spiritual Overflow",
+      "property": {
+        "conditional": "after proc",
+        "display_units": null,
+        "name": "BonusSpirit",
+        "negative_attribute": null,
+        "numeric_literal": 40.0,
+        "path": "/properties/BonusSpirit",
+        "provided_property_type": "MODIFIER_VALUE_TECH_POWER",
+        "raw": {
+          "conditional": "after proc",
+          "css_class": "tech_damage",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/damage_magic_color.svg",
+          "label": "Spirit Power",
+          "postvalue_label": "Spirit Power",
+          "prefix": "{s:sign}",
+          "provided_property_type": "MODIFIER_VALUE_TECH_POWER",
+          "tooltip_is_elevated": false,
+          "tooltip_is_important": true,
+          "tooltip_section": "passive",
+          "usage_flags": [
+            "IntrinsicallyProvidedInAbility"
+          ],
+          "value": "40"
+        },
+        "raw_value": "40",
+        "usage_flags": [
+          "IntrinsicallyProvidedInAbility"
+        ]
+      }
+    },
+    {
+      "id": 1797283378,
+      "name": "Infuser",
+      "property": {
+        "conditional": "after proc",
+        "display_units": null,
+        "name": "BonusSpirit",
+        "negative_attribute": null,
+        "numeric_literal": 30.0,
+        "path": "/properties/BonusSpirit",
+        "provided_property_type": "MODIFIER_VALUE_TECH_POWER",
+        "raw": {
+          "conditional": "after proc",
+          "css_class": "tech_damage",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/damage_magic_color.svg",
+          "label": "Spirit Power",
+          "postvalue_label": "Spirit Power",
+          "prefix": "{s:sign}",
+          "provided_property_type": "MODIFIER_VALUE_TECH_POWER",
+          "tooltip_is_elevated": false,
+          "tooltip_is_important": true,
+          "tooltip_section": "active",
+          "usage_flags": [
+            "ConditionallyApplied"
+          ],
+          "value": "30"
+        },
+        "raw_value": "30",
+        "usage_flags": [
+          "ConditionallyApplied"
+        ]
+      }
+    },
+    {
+      "id": 2533252781,
+      "name": "Ethereal Shift",
+      "property": {
+        "conditional": "after proc",
+        "display_units": null,
+        "name": "BonusSpirit",
+        "negative_attribute": null,
+        "numeric_literal": 20.0,
+        "path": "/properties/BonusSpirit",
+        "provided_property_type": "MODIFIER_VALUE_TECH_POWER",
+        "raw": {
+          "conditional": "after proc",
+          "css_class": "tech_damage",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/damage_magic_color.svg",
+          "label": "Spirit Power",
+          "postvalue_label": "Spirit Power",
+          "prefix": "{s:sign}",
+          "provided_property_type": "MODIFIER_VALUE_TECH_POWER",
+          "tooltip_is_elevated": false,
+          "tooltip_is_important": false,
+          "tooltip_section": "active",
+          "usage_flags": [
+            "ConditionallyApplied"
+          ],
+          "value": "20"
+        },
+        "raw_value": "20",
+        "usage_flags": [
+          "ConditionallyApplied"
+        ]
+      }
+    },
+    {
+      "id": 1385849824,
+      "name": "Slam Fire",
+      "property": {
+        "conditional": "against NPCs",
+        "display_units": null,
+        "name": "NonPlayerBonusWeaponPower",
+        "negative_attribute": null,
+        "numeric_literal": 100.0,
+        "path": "/properties/NonPlayerBonusWeaponPower",
+        "provided_property_type": "MODIFIER_VALUE_WEAPON_DAMAGE_TO_NPC_INCREASE",
+        "raw": {
+          "conditional": "against NPCs",
+          "css_class": "bullet_damage",
+          "icon": "https://assets-bucket.deadlock-api.com/assets-api-res/icons/damage_bullet_color.svg",
+          "label": "Weapon Damage vs. NPCs",
+          "postfix": "%",
+          "postvalue_label": "Weapon Damage vs. NPCs",
+          "prefix": "{s:sign}",
+          "provided_property_type": "MODIFIER_VALUE_WEAPON_DAMAGE_TO_NPC_INCREASE",
+          "usage_flags": [
+            "ConditionallyApplied"
+          ],
+          "value": "100"
+        },
+        "raw_value": "100",
+        "usage_flags": [
+          "ConditionallyApplied"
+        ]
+      }
+    }
+  ],
+  "format_version": 1,
+  "hero_scaling_candidates": [
+    {
+      "edges": [
+        {
+          "kind": "hero_stat_scaling",
+          "path": "/scaling_stats/EBulletDamage",
+          "quantified": false,
+          "raw": {
+            "scale": 0.022,
+            "scaling_stat": "ETechPower"
+          },
+          "target_stat": "EBulletDamage"
+        }
+      ],
+      "hero_id": 3,
+      "name": "Vindicta"
+    },
+    {
+      "edges": [
+        {
+          "kind": "hero_stat_scaling",
+          "path": "/scaling_stats/ESprintSpeed",
+          "quantified": false,
+          "raw": {
+            "scale": 0.05,
+            "scaling_stat": "ETechPower"
+          },
+          "target_stat": "ESprintSpeed"
+        }
+      ],
+      "hero_id": 7,
+      "name": "Wraith"
+    },
+    {
+      "edges": [
+        {
+          "kind": "hero_stat_scaling",
+          "path": "/scaling_stats/EClipSize",
+          "quantified": false,
+          "raw": {
+            "scale": 0.5,
+            "scaling_stat": "ETechPower"
+          },
+          "target_stat": "EClipSize"
+        }
+      ],
+      "hero_id": 13,
+      "name": "Haze"
+    },
+    {
+      "edges": [
+        {
+          "kind": "hero_stat_scaling",
+          "path": "/scaling_stats/EBulletDamage",
+          "quantified": false,
+          "raw": {
+            "scale": 0.08,
+            "scaling_stat": "ETechPower"
+          },
+          "target_stat": "EBulletDamage"
+        },
+        {
+          "kind": "hero_stat_scaling",
+          "path": "/scaling_stats/EMaxMoveSpeed",
+          "quantified": false,
+          "raw": {
+            "scale": 0.0084,
+            "scaling_stat": "ETechPower"
+          },
+          "target_stat": "EMaxMoveSpeed"
+        }
+      ],
+      "hero_id": 17,
+      "name": "Grey Talon"
+    },
+    {
+      "edges": [
+        {
+          "kind": "hero_stat_scaling",
+          "path": "/scaling_stats/EFireRate",
+          "quantified": false,
+          "raw": {
+            "scale": 0.25,
+            "scaling_stat": "ETechPower"
+          },
+          "target_stat": "EFireRate"
+        },
+        {
+          "kind": "hero_stat_scaling",
+          "path": "/scaling_stats/ERoundsPerSecond",
+          "quantified": false,
+          "raw": {
+            "scale": 0.01,
+            "scaling_stat": "ETechPower"
+          },
+          "target_stat": "ERoundsPerSecond"
+        }
+      ],
+      "hero_id": 25,
+      "name": "Warden"
+    },
+    {
+      "edges": [
+        {
+          "kind": "hero_stat_scaling",
+          "path": "/scaling_stats/EClipSize",
+          "quantified": false,
+          "raw": {
+            "scale": 0.15,
+            "scaling_stat": "ETechPower"
+          },
+          "target_stat": "EClipSize"
+        }
+      ],
+      "hero_id": 27,
+      "name": "Yamato"
+    },
+    {
+      "edges": [
+        {
+          "kind": "hero_stat_scaling",
+          "path": "/scaling_stats/EMaxMoveSpeed",
+          "quantified": false,
+          "raw": {
+            "scale": 0.0138,
+            "scaling_stat": "ETechPower"
+          },
+          "target_stat": "EMaxMoveSpeed"
+        }
+      ],
+      "hero_id": 58,
+      "name": "Vyper"
+    },
+    {
+      "edges": [
+        {
+          "kind": "hero_stat_scaling",
+          "path": "/scaling_stats/EMaxMoveSpeed",
+          "quantified": false,
+          "raw": {
+            "scale": 0.0138,
+            "scaling_stat": "ETechPower"
+          },
+          "target_stat": "EMaxMoveSpeed"
+        }
+      ],
+      "hero_id": 60,
+      "name": "Sinclair"
+    },
+    {
+      "edges": [
+        {
+          "kind": "hero_stat_scaling",
+          "path": "/scaling_stats/EBulletArmorDamageReduction",
+          "quantified": false,
+          "raw": {
+            "scale": 0.12178,
+            "scaling_stat": "ETechPower"
+          },
+          "target_stat": "EBulletArmorDamageReduction"
+        },
+        {
+          "kind": "hero_stat_scaling",
+          "path": "/scaling_stats/ETechArmorDamageReduction",
+          "quantified": false,
+          "raw": {
+            "scale": 0.12178,
+            "scaling_stat": "ETechPower"
+          },
+          "target_stat": "ETechArmorDamageReduction"
+        }
+      ],
+      "hero_id": 65,
+      "name": "Venator"
+    },
+    {
+      "edges": [
+        {
+          "kind": "hero_stat_scaling",
+          "path": "/scaling_stats/EBaseHealthRegen",
+          "quantified": false,
+          "raw": {
+            "scale": 0.08,
+            "scaling_stat": "ETechPower"
+          },
+          "target_stat": "EBaseHealthRegen"
+        }
+      ],
+      "hero_id": 66,
+      "name": "Victor"
+    },
+    {
+      "edges": [
+        {
+          "kind": "hero_stat_scaling",
+          "path": "/scaling_stats/EHeavyMeleeDamage",
+          "quantified": false,
+          "raw": {
+            "scale": 0.3,
+            "scaling_stat": "ETechPower"
+          },
+          "target_stat": "EHeavyMeleeDamage"
+        }
+      ],
+      "hero_id": 67,
+      "name": "Paige"
+    }
+  ],
+  "negative_property_scale_candidates": [
+    {
+      "class_name": "citadel_ability_melee_parry",
+      "edge": {
+        "coefficient": -1.0,
+        "input_stat": "EParryCooldown",
+        "kind": "property_scale_function",
+        "negative": true,
+        "path": "/properties/AbilityCooldown/scale_function",
+        "quantified": false,
+        "raw": {
+          "class_name": "scale_function_single_stat",
+          "specific_stat_scale_type": "EParryCooldown",
+          "stat_scale": -1.0,
+          "subclass_name": "ParryCooldown_scale_function"
+        }
+      },
+      "id": 664285540,
+      "name": "Parry"
+    },
+    {
+      "class_name": "citadel_ability_uppercut",
+      "edge": {
+        "coefficient": -0.186,
+        "input_stat": null,
+        "kind": "property_scale_function",
+        "negative": true,
+        "path": "/properties/BonusFireRate/scale_function",
+        "quantified": false,
+        "raw": {
+          "class_name": "scale_function_tech_damage",
+          "stat_scale": -0.186,
+          "subclass_name": "FireRateSlow_scale"
+        }
+      },
+      "id": 3089858203,
+      "name": "Exploding Uppercut"
+    },
+    {
+      "class_name": "citadel_ability_card_toss",
+      "edge": {
+        "coefficient": -1.0,
+        "input_stat": "ETechCooldown",
+        "kind": "property_scale_function",
+        "negative": true,
+        "path": "/properties/CardResourceGenPctScale/scale_function",
+        "quantified": false,
+        "raw": {
+          "class_name": "scale_function_single_stat",
+          "specific_stat_scale_type": "ETechCooldown",
+          "stat_scale": -1.0,
+          "subclass_name": "card_gen"
+        }
+      },
+      "id": 1999680326,
+      "name": "Card Trick"
+    },
+    {
+      "class_name": "ability_frank_shocktarget2",
+      "edge": {
+        "coefficient": -1.0,
+        "input_stat": "ETechCooldown",
+        "kind": "property_scale_function",
+        "negative": true,
+        "path": "/properties/BatteryGenerationPercent/scale_function",
+        "quantified": false,
+        "raw": {
+          "class_name": "scale_function_single_stat",
+          "specific_stat_scale_type": "ETechCooldown",
+          "stat_scale": -1.0,
+          "subclass_name": "gensf"
+        }
+      },
+      "id": 2043074967,
+      "name": "Pain Battery"
+    },
+    {
+      "class_name": "upgrade_thermal_detonator",
+      "edge": {
+        "coefficient": -0.055,
+        "input_stat": "ETechPower",
+        "kind": "property_scale_function",
+        "negative": true,
+        "path": "/properties/BulletArmorReduction/scale_function",
+        "quantified": false,
+        "raw": {
+          "class_name": "scale_function_tech_damage",
+          "specific_stat_scale_type": "ETechPower",
+          "stat_scale": -0.055,
+          "subclass_name": "BulletArmorReduction_scale_function"
+        }
+      },
+      "id": 1932939246,
+      "name": "Alchemical Fire"
+    }
+  ],
+  "sources": {
+    "heroes": {
+      "bytes": 1013475,
+      "client_version": null,
+      "path": "/home/nathanael/repos/Deadlock-Brain/data/raw/deadlock_assets_api/heroes.05b319ab2aad485b.json",
+      "records": 38,
+      "sha256": "05b319ab2aad485b9d1126bc57a80e1858b723816b4447c5a459e86745aa7a21",
+      "version_status": "Not inferred from filename, mtime or retrieval order"
+    },
+    "items": {
+      "bytes": 6043679,
+      "client_version": null,
+      "path": "/home/nathanael/repos/Deadlock-Brain/data/raw/deadlock_assets_api/items.168e4f665ca9ba9a.json",
+      "records": 726,
+      "sha256": "168e4f665ca9ba9adbc8b20953451d0cd506cacb305a788f8a8ee0ef25a244a2",
+      "version_status": "Not inferred from filename, mtime or retrieval order"
+    }
+  },
+  "summary": {
+    "definitions": 726,
+    "explicit_condition_fields": 18,
+    "heroes": 38,
+    "item_properties": 14003,
+    "negative_property_scales": 5,
+    "non_numeric_literals": 1023,
+    "raw_scaling_edges": 5584,
+    "unresolved_bindings": 0
+  },
+  "unresolved_bindings": []
+}
