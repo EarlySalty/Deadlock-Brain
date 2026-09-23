@@ -139,6 +139,50 @@ pub async fn enqueue_publish_task(pool: &PgPool, build: &BuildObject) -> Result<
         .map_err(ReasonerError::Db)
 }
 
+/// Expliziter Review-Pfad für interaktive Brain-Tests. Er verändert die reguläre
+/// Veröffentlichungsfreigabe nicht und kennzeichnet den Build sichtbar als Review.
+fn truncate_review_text(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text.to_string();
+    }
+    let mut out = text.chars().take(max_chars.saturating_sub(1)).collect::<String>();
+    out.push('…');
+    out
+}
+
+pub fn review_publish_task_payload(build: &BuildObject) -> Result<Value> {
+    if build.hero_id <= 0 || build.core.is_empty() {
+        return Err(ReasonerError::Data(
+            "Review-Build braucht einen gültigen Helden und mindestens ein Kern-Item.".into(),
+        ));
+    }
+    let mut payload = to_publish_payload(build);
+    payload.name = truncate_review_text(&format!("[REVIEW] {}", build.name), 80);
+    payload.description = format!(
+        "Experimentelles Brain Review Build. Nicht als reguläre Empfehlung freigegeben.\n{}",
+        truncate_review_text(&build.rationale, 360)
+    );
+    for category in &mut payload.mod_categories {
+        category.description = category
+            .description
+            .as_deref()
+            .map(|text| truncate_review_text(text, 220));
+        for item in &mut category.mods {
+            item.annotation = truncate_review_text(&item.annotation, 180);
+        }
+    }
+    Ok(serde_json::to_value(payload).expect("BuildSpecPayload is serializable"))
+}
+
+pub async fn enqueue_review_publish_task(pool: &PgPool, build: &BuildObject) -> Result<i64> {
+    let payload = review_publish_task_payload(build)?;
+    sqlx::query_scalar::<_, i64>("INSERT INTO steam.steam_tasks(type, payload, status) VALUES('BUILD_PUBLISH_ORIGINAL', $1, 'PENDING') RETURNING id")
+        .bind(payload)
+        .fetch_one(pool)
+        .await
+        .map_err(ReasonerError::Db)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -202,5 +246,10 @@ mod tests {
         let json = publish_task_payload(&build);
         assert_eq!(json["mod_categories"][0]["mods"][0]["annotation"], "Warum");
         assert_eq!(json["mod_categories"][0]["mods"][0]["imbue"], 100);
+        let review = review_publish_task_payload(&build).expect("Review-Payload");
+        assert_eq!(review["name"], "[REVIEW] Warden test");
+        assert!(review["description"]
+            .as_str()
+            .is_some_and(|text| text.contains("Nicht als reguläre Empfehlung freigegeben.")));
     }
 }
