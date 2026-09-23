@@ -9,7 +9,7 @@ use std::{
 
 pub use deadlock_brain_core as core;
 
-use dbrain_reasoner::{BuildObject, BuyPhase, ReasonerConfig, ReasonerCtx, ReasonerOptions};
+use dbrain_reasoner::{AbilityRole, BuildObject, BuyPhase, ReasonerConfig, ReasonerCtx, ReasonerOptions};
 use regex::Regex;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use sqlx::{
@@ -44,6 +44,8 @@ const ASK_DISTINCTIVE_KEYWORD_MIN_IDF: i64 = 8;
 const HERO_POWER_CURVE_WINDOW_DAYS: i64 = 30;
 const HERO_POWER_CURVE_MIN_BUCKET_MATCHES: i64 = 50;
 const HERO_POWER_CURVE_SIGNAL_PP: f64 = 3.0;
+const HERO_TEMPO_MAX_CANDIDATES: usize = 10;
+const HERO_TEMPO_CLEAR_PP: f64 = 4.5;
 const ASK_PROMPT_TEMPLATE: &str = r#"Du bist ein erfahrener Deadlock-Coach und Analyst. Beantworte die folgende Frage – oder erstelle den gewünschten Build – AUSSCHLIESSLICH auf Basis der unten gelieferten, geprüften Fakten. Erfinde keine Werte, Items, Fähigkeiten oder Patch-Stände. Wenn die Fakten etwas nicht hergeben, sage das offen, statt zu raten.
 
 FRAGE: {{query}}
@@ -971,6 +973,10 @@ pub async fn ask_context(pool: &PgPool, query: &str, opts: &AskContextOptions) -
     } else {
         plan.intent.clone()
     };
+    let archetype_concept = plan
+        .filters
+        .get("archetype_concept")
+        .and_then(JsonValue::as_str);
     let context_query = resolved_plan_entity_name(&plan).unwrap_or_else(|| query.trim().to_string());
     let base = if out_of_domain {
         JsonValue::Object(JsonMap::new())
@@ -1001,7 +1007,12 @@ pub async fn ask_context(pool: &PgPool, query: &str, opts: &AskContextOptions) -
     let hero_power_curve = if out_of_domain {
         JsonValue::Null
     } else {
-        hero_power_curve_ground_truth(pool, &intent).await?
+        hero_power_curve_ground_truth(pool, &intent, archetype_concept).await?
+    };
+    let hero_tempo_profile = if out_of_domain {
+        JsonValue::Null
+    } else {
+        hero_tempo_profile_ground_truth(pool, archetype_concept, &hero_power_curve).await?
     };
     let game_knowledge = if out_of_domain {
         json!({"available": false, "reason": "out_of_domain"})
@@ -1021,6 +1032,7 @@ pub async fn ask_context(pool: &PgPool, query: &str, opts: &AskContextOptions) -
         "lineage": base.get("lineage").cloned().unwrap_or(JsonValue::Null),
         "item": item_ground_truth,
         "hero_power_curve": hero_power_curve,
+        "hero_tempo_profile": hero_tempo_profile,
         "game_knowledge": game_knowledge,
     });
     let mut creator_knowledge = JsonMap::new();
@@ -1072,6 +1084,7 @@ pub async fn ask_context(pool: &PgPool, query: &str, opts: &AskContextOptions) -
             "entity_match_resolved": entity_match.matched,
             "keyword_matched": keyword_matched,
             "intent": intent,
+            "archetype_concept": archetype_concept,
             "out_of_domain": out_of_domain,
             "context_query": context_query,
             "answer_target": answer_target,
@@ -1642,12 +1655,15 @@ pub async fn analyze_query(pool: &PgPool, query: &str) -> Result<QueryPlan> {
         .unwrap_or_default();
     let query_lower = query.to_lowercase();
     let intent = classify_ask_intent(&query_lower, matched, &entity_type);
+    let archetype_concept = (intent == "hero_archetype")
+        .then(|| hero_archetype_concept(&query_terms))
+        .flatten();
     Ok(QueryPlan {
         fetch: intent_fetch(&intent),
         entities,
         threats,
         intent,
-        filters: json!({}),
+        filters: json!({"archetype_concept": archetype_concept}),
         raw_query: query.to_string(),
         language: "de".to_string(),
     })
@@ -1752,7 +1768,11 @@ fn asks_for_hero_group(terms: &[String]) -> bool {
             "champion",
             "champions",
         ],
-    );
+    ) || terms.iter().any(|term| {
+        ["-hero", "-heros", "-heroes", "-held", "-helden", "-charakter", "-charaktere"]
+            .iter()
+            .any(|suffix| term.ends_with(suffix))
+    });
     if !hero_target {
         return false;
     }
@@ -1789,6 +1809,56 @@ fn asks_for_hero_group(terms: &[String]) -> bool {
             "roaming",
         ],
     )
+}
+
+fn hero_archetype_concept(terms: &[String]) -> Option<&'static str> {
+    if terms.iter().any(|term| term.starts_with("tempo-") || term.starts_with("snowball-")) {
+        return Some("tempo");
+    }
+    if contains_any_intent_term(
+        terms,
+        &[
+            "tempo", "snowball", "snowballen", "snowballt", "early", "earlygame",
+            "early-game", "früh", "frueh", "frühe", "fruehe", "früher", "frueher",
+        ],
+    ) {
+        return Some("tempo");
+    }
+    if contains_any_intent_term(
+        terms,
+        &[
+            "scaling", "scale", "skalieren", "skaliert", "lategame", "late", "late-game",
+            "spät", "spaet", "späte", "spaete",
+        ],
+    ) {
+        return Some("scaling");
+    }
+    if contains_any_intent_term(terms, &["support", "supporter"]) {
+        return Some("support");
+    }
+    if contains_any_intent_term(terms, &["tank", "frontline"]) {
+        return Some("tank");
+    }
+    if contains_any_intent_term(terms, &["brawler", "bruiser"]) {
+        return Some("brawler");
+    }
+    if contains_any_intent_term(terms, &["poke", "poken"]) {
+        return Some("poke");
+    }
+    if contains_any_intent_term(terms, &["dive", "diver", "engage"]) {
+        return Some("dive");
+    }
+    if contains_any_intent_term(terms, &["roam", "roaming", "roamer"]) {
+        return Some("roam");
+    }
+    if contains_any_intent_term(terms, &["carry", "carries"]) {
+        return Some("carry");
+    }
+    None
+}
+
+fn archetype_uses_power_curve(concept: Option<&str>) -> bool {
+    matches!(concept, Some("tempo" | "scaling"))
 }
 
 fn has_explicit_ask_action(terms: &[String]) -> bool {
@@ -3317,8 +3387,12 @@ async fn query_has_deadlock_vocabulary(pool: &PgPool, query: &str) -> Result<boo
     Ok(false)
 }
 
-async fn hero_power_curve_ground_truth(pool: &PgPool, intent: &str) -> Result<JsonValue> {
-    if intent != "hero_archetype" {
+async fn hero_power_curve_ground_truth(
+    pool: &PgPool,
+    intent: &str,
+    archetype_concept: Option<&str>,
+) -> Result<JsonValue> {
+    if intent != "hero_archetype" || !archetype_uses_power_curve(archetype_concept) {
         return Ok(JsonValue::Null);
     }
     if !tables_exist(pool, &["population_player_matches", "hero_catalog"]).await? {
@@ -3448,6 +3522,7 @@ async fn hero_power_curve_ground_truth(pool: &PgPool, intent: &str) -> Result<Js
 
     Ok(json!({
         "available": true,
+        "archetype_concept": archetype_concept,
         "method": "recent_duration_tertiles",
         "window_days": HERO_POWER_CURVE_WINDOW_DAYS,
         "window_start": window_start,
@@ -3481,6 +3556,206 @@ async fn hero_power_curve_ground_truth(pool: &PgPool, intent: &str) -> Result<Js
             "caution": "This is an observed power curve signal, not proof of the mechanical cause."
         }
     }))
+}
+
+async fn hero_tempo_profile_ground_truth(
+    pool: &PgPool,
+    archetype_concept: Option<&str>,
+    power_curve: &JsonValue,
+) -> Result<JsonValue> {
+    if archetype_concept != Some("tempo")
+        || power_curve.get("available").and_then(JsonValue::as_bool) != Some(true)
+    {
+        return Ok(JsonValue::Null);
+    }
+
+    let mut rows = power_curve
+        .get("hero_curves")
+        .and_then(JsonValue::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|row| row.get(10).and_then(JsonValue::as_str) == Some("early_skewed"))
+        .collect::<Vec<_>>();
+    rows.sort_by(|left, right| {
+        right
+            .get(9)
+            .and_then(JsonValue::as_f64)
+            .unwrap_or_default()
+            .total_cmp(
+                &left
+                    .get(9)
+                    .and_then(JsonValue::as_f64)
+                    .unwrap_or_default(),
+            )
+    });
+    rows.truncate(HERO_TEMPO_MAX_CANDIDATES);
+
+    let ctx = ReasonerCtx {
+        pool: pool.clone(),
+        ai: None,
+        config: ReasonerConfig {
+            use_ai: false,
+            ..Default::default()
+        },
+    };
+    let mut candidates = Vec::new();
+    let mut excluded_curve_only = 0usize;
+    let mut mechanics_unavailable = 0usize;
+    for row in rows {
+        let Some(name) = row.get(0).and_then(JsonValue::as_str) else {
+            continue;
+        };
+        let delta_pp = row.get(9).and_then(JsonValue::as_f64).unwrap_or_default();
+        let short_matches = row.get(3).and_then(JsonValue::as_i64).unwrap_or_default();
+        let long_matches = row.get(7).and_then(JsonValue::as_i64).unwrap_or_default();
+        let short_win_rate = row.get(4).and_then(JsonValue::as_f64);
+        let mid_win_rate = row.get(6).and_then(JsonValue::as_f64);
+        let long_win_rate = row.get(8).and_then(JsonValue::as_f64);
+
+        let hero = match dbrain_reasoner::load_hero_model(&ctx, name).await {
+            Ok(hero) => hero,
+            Err(_) => {
+                excluded_curve_only += 1;
+                mechanics_unavailable += 1;
+                continue;
+            }
+        };
+
+        let mut mobility = 0i64;
+        let mut control = 0i64;
+        let mut damage = 0i64;
+        let mut repeatable_pressure = 0i64;
+        let mut non_ultimate_pressure = 0i64;
+        for ability in &hero.abilities {
+            let has_mobility = ability.roles.iter().any(|role| role == &AbilityRole::Mobility);
+            let has_control = ability.roles.iter().any(|role| role == &AbilityRole::Control);
+            let has_damage = ability.roles.iter().any(|role| role == &AbilityRole::Damage);
+            let has_ultimate = ability.roles.iter().any(|role| role == &AbilityRole::Ultimate);
+            mobility += if has_mobility { 1 } else { 0 };
+            control += if has_control { 1 } else { 0 };
+            damage += if has_damage { 1 } else { 0 };
+            let pressure = has_mobility || has_control || has_damage;
+            if pressure && !has_ultimate {
+                non_ultimate_pressure += 1;
+            }
+            if pressure
+                && ((ability.cooldown > 0.0 && ability.cooldown <= 20.0) || ability.charges >= 2)
+            {
+                repeatable_pressure += 1;
+            }
+        }
+
+        let mechanics_support = tempo_mechanics_support(mobility, control, repeatable_pressure);
+        let classification = tempo_candidate_classification(delta_pp, mechanics_support);
+        if classification == "curve_only" {
+            excluded_curve_only += 1;
+            continue;
+        }
+        let mut families = vec!["early_power_curve"];
+        if mobility > 0 {
+            families.push("mobility");
+        }
+        if control > 0 {
+            families.push("control");
+        }
+        if repeatable_pressure >= 2 {
+            families.push("repeatable_pressure");
+        }
+
+        candidates.push(json!({
+            "name": name,
+            "classification": classification,
+            "short_minus_long_pp": one_decimal(delta_pp),
+            "short_matches": short_matches,
+            "long_matches": long_matches,
+            "short_win_rate_percent": short_win_rate,
+            "mid_win_rate_percent": mid_win_rate,
+            "long_win_rate_percent": long_win_rate,
+            "mechanics_available": true,
+            "mechanics_signal_kind": "derived_from_ability_descriptions_and_cooldowns",
+            "mobility_abilities": mobility,
+            "control_abilities": control,
+            "damage_abilities": damage,
+            "non_ultimate_pressure_abilities": non_ultimate_pressure,
+            "repeatable_pressure_abilities": repeatable_pressure,
+            "mechanics_support": mechanics_support,
+            "supporting_signal_families": families,
+        }));
+    }
+
+    candidates.sort_by(|left, right| {
+        tempo_classification_rank(right)
+            .cmp(&tempo_classification_rank(left))
+            .then_with(|| {
+                right
+                    .get("short_minus_long_pp")
+                    .and_then(JsonValue::as_f64)
+                    .unwrap_or_default()
+                    .total_cmp(
+                        &left
+                            .get("short_minus_long_pp")
+                            .and_then(JsonValue::as_f64)
+                            .unwrap_or_default(),
+                    )
+            })
+            .then_with(|| {
+                left.get("name")
+                    .and_then(JsonValue::as_str)
+                    .cmp(&right.get("name").and_then(JsonValue::as_str))
+            })
+    });
+
+    Ok(json!({
+        "available": true,
+        "archetype_concept": "tempo",
+        "definition": "Tempo means early-to-mid pressure that can be converted into fights, picks, rotations or objectives. A short-game winrate edge alone is not enough.",
+        "classification_rule": {
+            "clear": "early-skewed power curve plus strong conversion or repeatable pressure mechanics",
+            "supported": "early-skewed power curve plus independent pressure mechanics",
+            "curve_only": "early-skewed power curve without enough independent mechanics support; do not call this a typical tempo hero from these facts alone"
+        },
+        "candidate_schema": {
+            "classification": ["clear", "supported"],
+            "supporting_signal_families": ["early_power_curve", "mobility", "control", "repeatable_pressure"]
+        },
+        "excluded_curve_only_count": excluded_curve_only,
+        "mechanics_unavailable_count": mechanics_unavailable,
+        "candidates": candidates,
+        "answer_rule": "For a direct tempo-hero question, name clear candidates first and supported candidates only when useful. Do not promote curve_only candidates to typical tempo heroes."
+    }))
+}
+
+fn tempo_mechanics_support(
+    mobility: i64,
+    control: i64,
+    repeatable_pressure: i64,
+) -> &'static str {
+    let conversion_tools = mobility + control;
+    if conversion_tools >= 2 || (conversion_tools >= 1 && repeatable_pressure >= 2) {
+        "strong"
+    } else if conversion_tools >= 1 || repeatable_pressure >= 2 {
+        "moderate"
+    } else {
+        "weak"
+    }
+}
+
+fn tempo_candidate_classification(delta_pp: f64, mechanics_support: &str) -> &'static str {
+    match mechanics_support {
+        "strong" if delta_pp >= HERO_TEMPO_CLEAR_PP => "clear",
+        "strong" if delta_pp >= HERO_POWER_CURVE_SIGNAL_PP => "supported",
+        "moderate" if delta_pp >= HERO_TEMPO_CLEAR_PP => "supported",
+        _ => "curve_only",
+    }
+}
+
+fn tempo_classification_rank(value: &JsonValue) -> u8 {
+    match value.get("classification").and_then(JsonValue::as_str) {
+        Some("clear") => 3,
+        Some("supported") => 2,
+        Some("curve_only") => 1,
+        _ => 0,
+    }
 }
 
 fn win_rate(wins: i64, matches: i64) -> Option<f64> {
@@ -7702,9 +7977,42 @@ mod tests {
     }
 
     #[test]
+    fn hero_archetype_concept_routes_only_temporal_questions_to_power_curve() {
+        for (query, expected) in [
+            ("Welche Heros sind Tempo Charaktere?", Some("tempo")),
+            ("Welche Tempo-Charaktere sind gut?", Some("tempo")),
+            ("Welche Helden snowballen früh?", Some("tempo")),
+            ("Which heroes are scaling carries?", Some("scaling")),
+            ("Welche Helden sind Supporter?", Some("support")),
+            ("Welche Helden sind gute Diver?", Some("dive")),
+        ] {
+            assert_eq!(hero_archetype_concept(&intent_query_terms(query)), expected, "{query}");
+        }
+        assert!(archetype_uses_power_curve(Some("tempo")));
+        assert!(archetype_uses_power_curve(Some("scaling")));
+        assert!(!archetype_uses_power_curve(Some("support")));
+        assert!(!archetype_uses_power_curve(Some("tank")));
+        assert!(!archetype_uses_power_curve(None));
+    }
+
+    #[test]
+    fn tempo_needs_independent_mechanics_support_instead_of_short_game_winrate_alone() {
+        assert_eq!(tempo_mechanics_support(1, 1, 1), "strong");
+        assert_eq!(tempo_mechanics_support(1, 0, 0), "moderate");
+        assert_eq!(tempo_mechanics_support(0, 0, 2), "moderate");
+        assert_eq!(tempo_mechanics_support(0, 0, 1), "weak");
+        assert_eq!(tempo_candidate_classification(5.2, "strong"), "clear");
+        assert_eq!(tempo_candidate_classification(3.4, "moderate"), "curve_only");
+        assert_eq!(tempo_candidate_classification(4.8, "moderate"), "supported");
+        assert_eq!(tempo_candidate_classification(6.0, "weak"), "curve_only");
+        assert_eq!(tempo_candidate_classification(2.9, "strong"), "curve_only");
+    }
+
+    #[test]
     fn hero_group_questions_get_semantic_archetype_intent() {
         for query in [
             "Welche heros sind üblicherweise Tempo Charaktere",
+            "Welche Tempo-Charaktere sind typisch?",
             "Welche Helden sind typische Snowball Charaktere?",
             "Which heroes are scaling carries?",
         ] {
