@@ -3946,7 +3946,7 @@ async fn hero_tempo_profile_ground_truth(
         "definition": "Tempo means early-to-mid pressure that can be converted into fights, picks, rotations or objectives. A short-game winrate edge alone is not enough.",
         "classification_rule": {
             "clear": "early-skewed power curve plus strong conversion or repeatable pressure mechanics",
-            "supported": "early-skewed power curve plus independent pressure mechanics",
+            "supported": "early-skewed power curve plus strong conversion or repeatable pressure mechanics, with a smaller timing edge than clear candidates",
             "curve_only": "early-skewed power curve without enough independent mechanics support; do not call this a typical tempo hero from these facts alone"
         },
         "candidate_schema": {
@@ -3979,7 +3979,6 @@ fn tempo_candidate_classification(delta_pp: f64, mechanics_support: &str) -> &'s
     match mechanics_support {
         "strong" if delta_pp >= HERO_TEMPO_CLEAR_PP => "clear",
         "strong" if delta_pp >= HERO_POWER_CURVE_SIGNAL_PP => "supported",
-        "moderate" if delta_pp >= HERO_TEMPO_CLEAR_PP => "supported",
         _ => "curve_only",
     }
 }
@@ -8705,7 +8704,7 @@ mod tests {
         assert_eq!(tempo_mechanics_support(0, 0, 1), "weak");
         assert_eq!(tempo_candidate_classification(5.2, "strong"), "clear");
         assert_eq!(tempo_candidate_classification(3.4, "moderate"), "curve_only");
-        assert_eq!(tempo_candidate_classification(4.8, "moderate"), "supported");
+        assert_eq!(tempo_candidate_classification(4.8, "moderate"), "curve_only");
         assert_eq!(tempo_candidate_classification(6.0, "weak"), "curve_only");
         assert_eq!(tempo_candidate_classification(2.9, "strong"), "curve_only");
     }
