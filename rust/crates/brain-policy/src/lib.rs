@@ -153,10 +153,13 @@ impl PolicyEngine {
 pub fn evidence_allowed(principal: &Principal, evidence: &Evidence) -> bool {
     match evidence.visibility {
         SourceVisibility::Public => true,
-        SourceVisibility::Internal | SourceVisibility::Private => evidence
-            .allowed_scopes
-            .iter()
-            .all(|scope| principal.scopes.contains(scope)),
+        SourceVisibility::Internal | SourceVisibility::Private => {
+            !evidence.allowed_scopes.is_empty()
+                && evidence
+                    .allowed_scopes
+                    .iter()
+                    .all(|scope| principal.scopes.contains(scope))
+        }
     }
 }
 
@@ -281,6 +284,30 @@ mod tests {
             citation: "internal:doc/1".into(),
             visibility: SourceVisibility::Private,
             allowed_scopes: scope_set(&["docs.internal"]),
+            score: 1.0,
+            patch: None,
+        };
+        assert!(!evidence_allowed(&principal, &evidence));
+    }
+
+    #[test]
+    fn private_evidence_without_explicit_scope_is_denied() {
+        let principal = Principal {
+            actor_id: "actor".into(),
+            channel: "mcp".into(),
+            scopes: scope_set(&["docs.internal"]),
+            provider_egress: BTreeSet::new(),
+        };
+        let evidence = Evidence {
+            evidence_id: "e2".into(),
+            source_id: "internal".into(),
+            logical_id: "doc/2".into(),
+            revision: 1,
+            kind: EvidenceKind::Prose,
+            content: "intern".into(),
+            citation: "internal:doc/2".into(),
+            visibility: SourceVisibility::Internal,
+            allowed_scopes: BTreeSet::new(),
             score: 1.0,
             patch: None,
         };

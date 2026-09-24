@@ -58,13 +58,13 @@ impl MemoryStore {
             .collect()
     }
 
-    pub fn source_revisions(&self) -> BTreeMap<String, u64> {
-        let mut revisions: BTreeMap<String, u64> = BTreeMap::new();
+    pub fn source_revisions(&self) -> BTreeMap<String, BTreeMap<String, u64>> {
+        let mut revisions: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
         for record in self.heads.values() {
             revisions
                 .entry(record.source_id.clone())
-                .and_modify(|revision| *revision = (*revision).max(record.revision))
-                .or_insert(record.revision);
+                .or_default()
+                .insert(record.logical_id.clone(), record.revision);
         }
         revisions
     }
@@ -192,7 +192,7 @@ impl PgStore {
         }
 
         let record_json = serde_json::to_value(record)?;
-        sqlx::query(
+        let inserted_revision = sqlx::query(
             "INSERT INTO brain.source_record_revisions
                 (source_id, logical_id, revision, content_hash, tombstone, record_json)
              VALUES ($1, $2, $3, $4, $5, $6)
@@ -206,6 +206,27 @@ impl PgStore {
         .bind(record_json.clone())
         .execute(&mut *tx)
         .await?;
+
+        if inserted_revision.rows_affected() == 0 {
+            let existing_json: serde_json::Value = sqlx::query_scalar(
+                "SELECT record_json
+                 FROM brain.source_record_revisions
+                 WHERE source_id = $1 AND logical_id = $2 AND revision = $3",
+            )
+            .bind(&record.source_id)
+            .bind(&record.logical_id)
+            .bind(record.revision as i64)
+            .fetch_one(&mut *tx)
+            .await?;
+            let existing_record: SourceRecordV2 = serde_json::from_value(existing_json)?;
+            if !equivalent_revision(&existing_record, record) {
+                return Err(StorageError::RevisionConflict {
+                    source_id: record.source_id.clone(),
+                    logical_id: record.logical_id.clone(),
+                    revision: record.revision,
+                });
+            }
+        }
 
         sqlx::query(
             "INSERT INTO brain.source_record_heads
@@ -297,11 +318,18 @@ mod tests {
     }
 
     #[test]
-    fn release_pins_highest_revision_per_source() {
+    fn release_pins_each_logical_revision() {
         let mut store = MemoryStore::default();
         store.apply(record(1, "v1", false)).unwrap();
         store.apply(record(4, "v4", false)).unwrap();
+
+        let mut second = record(2, "item-v2", false);
+        second.logical_id = "item/headshot-booster".into();
+        store.apply(second).unwrap();
+
         let release = store.corpus_release("r1", "k1", "2026-09-24", 1);
-        assert_eq!(release.source_revisions.get("fixture"), Some(&4));
+        let fixture = release.source_revisions.get("fixture").unwrap();
+        assert_eq!(fixture.get("hero/abrams"), Some(&4));
+        assert_eq!(fixture.get("item/headshot-booster"), Some(&2));
     }
 }
