@@ -1,0 +1,8 @@
+gate,requirement,owner,artifact_reference,tested_commit,tested_data_version,actual_result,status,approved_by
+G0,"Code, Daten, Runtime, Lastprofil und Rechteinventar",01/10,architecture/migration/STATUS.md,,,S000 hat Basis und Owner angelegt; Inventar steht aus,offen,
+G1,"Contracts, Schema und Pfadbesitzer integriert",02/03,architecture/migration/PFAD_OWNER.csv,,,Contract und Schema Version offen,offen,
+G2,echter Pilot,03/04/05/06/07/08/09/12/13/14,,,,nicht gestartet,offen,
+G3,Gesamtdaten und Consumerparität,03/04/05/08/09/10/12/13/14,,,,nicht gestartet,offen,
+G4,"Qualität, Sicherheit, Last und Rückweg",10/11,,,,nicht gestartet,offen,
+G5,freigegebener Produktivwechsel,11,,,,nicht gestartet,offen,
+G6,Betriebskontrolle und Legacy Ende,00/11,,,,nicht gestartet,offen,
