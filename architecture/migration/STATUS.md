@@ -3,13 +3,13 @@
 Statuswerte: `offen`, `bereit`, `in_arbeit`, `review`, `blockiert`, `integriert`.
 Arbeitsmodi: `prepare_only`, `implement`, `integration_test`, `cutover_rehearsal`.
 
-Planversion: 1.0  
-Quelleneingang: U1, U3 und U4 im Planpaket vorhanden, U4 Duplikat laut Paketmanifest dedupliziert  
-Basis Commit: `55776c7532bb461fab93bbf7c582e2a40a81d2c9`  
-Contract Version: offen  
-DB Schema Version: offen  
-Aktives Knowledge oder Corpus Release: offen  
-Letzte geprüfte Runtime: nicht geprüft  
+Planversion: 1.0
+Quelleneingang: U1, U3 und U4 im Planpaket vorhanden, U4 Duplikat laut Paketmanifest dedupliziert
+Basis Commit: `55776c7532bb461fab93bbf7c582e2a40a81d2c9`
+Contract Version: offen
+DB Schema Version: offen
+Aktives Knowledge oder Corpus Release: offen
+Letzte geprüfte Runtime: nicht geprüft
 Koordination: S000, Chat 00
 
 ## S000 Stand
@@ -40,12 +40,12 @@ Der Basis Commit enthält `rust/Cargo.toml` mit elf Workspace Mitgliedern. Vorha
 
 ## Gates
 
-G0: offen  
-G1: offen  
-G2: offen  
-G3: offen  
-G4: offen  
-G5: offen  
+G0: offen
+G1: offen
+G2: offen
+G3: offen
+G4: offen
+G5: offen
 G6: offen
 
 S000 gibt keine Implementierung frei. Chat 01 und Chat 10 erhalten `prepare_only`.
