@@ -2,7 +2,7 @@
 
 ## ADR S000 001: Bestehende Rust Crates erhalten
 
-Status: angenommen für S000  
+Status: angenommen für S000
 Basis Commit: `55776c7532bb461fab93bbf7c582e2a40a81d2c9`
 
 Entscheidung: Die vorhandenen `dbrain` Crates und `deadlock-brain-core` bilden die Ausgangsbasis. Der Zielplan beschreibt Verantwortungen, aber erzwingt in S000 keine Umbenennung und keine parallelen Ersatzmodule.
