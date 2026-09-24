@@ -1,0 +1,13 @@
+[package]
+name = "brain-contracts"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "brain_contracts"
+path = "src/lib.rs"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

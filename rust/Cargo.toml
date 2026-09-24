@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
+  "crates/brain-contracts",
+  "crates/brain-policy",
   "crates/deadlock-brain",
   "crates/deadlock-brain-core",
   "crates/deadlock-brain-yt",
