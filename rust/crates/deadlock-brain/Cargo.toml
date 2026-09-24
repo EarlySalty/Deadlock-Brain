@@ -1,4 +1,5 @@
 [package]
+publish.workspace = true
 name = "deadlock-brain"
 version.workspace = true
 edition.workspace = true
@@ -11,15 +12,15 @@ path = "src/main.rs"
 anyhow.workspace = true
 chrono.workspace = true
 clap.workspace = true
-deadlock-brain-core = { path = "../deadlock-brain-core" }
-dbrain-builds = { path = "../dbrain-builds" }
-dbrain-enrich = { path = "../dbrain-enrich" }
-dbrain-learn = { path = "../dbrain-learn" }
-dbrain-normalize = { path = "../dbrain-normalize" }
-dbrain-population = { path = "../dbrain-population" }
-dbrain-retrieval = { path = "../dbrain-retrieval" }
-dbrain-reasoner = { path = "../dbrain-reasoner" }
-dbrain-sources = { path = "../dbrain-sources" }
+deadlock-brain-core = { path = "../deadlock-brain-core", version = "0.1.0" }
+dbrain-builds = { path = "../dbrain-builds", version = "0.1.0" }
+dbrain-enrich = { path = "../dbrain-enrich", version = "0.1.0" }
+dbrain-learn = { path = "../dbrain-learn", version = "0.1.0" }
+dbrain-normalize = { path = "../dbrain-normalize", version = "0.1.0" }
+dbrain-population = { path = "../dbrain-population", version = "0.1.0" }
+dbrain-retrieval = { path = "../dbrain-retrieval", version = "0.1.0" }
+dbrain-reasoner = { path = "../dbrain-reasoner", version = "0.1.0" }
+dbrain-sources = { path = "../dbrain-sources", version = "0.1.0" }
 hex.workspace = true
 postgres.workspace = true
 serde.workspace = true

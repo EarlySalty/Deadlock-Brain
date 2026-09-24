@@ -1,4 +1,5 @@
 [package]
+publish.workspace = true
 name = "deadlock-brain-core"
 version.workspace = true
 edition.workspace = true
@@ -9,7 +10,7 @@ path = "src/lib.rs"
 
 [dependencies]
 anyhow.workspace = true
-dbrain-builds = { path = "../dbrain-builds" }
+dbrain-builds = { path = "../dbrain-builds", version = "0.1.0" }
 hex.workspace = true
 reqwest.workspace = true
 serde.workspace = true
@@ -20,7 +21,7 @@ thiserror.workspace = true
 filedescriptor = "0.8"
 nix = { version = "0.29", default-features = false, features = ["fs"] }
 tokio.workspace = true
-uplink-infisical-transport = { path = "../../vendor/uplink-infisical-transport" }
+uplink-infisical-transport = { path = "../../vendor/uplink-infisical-transport", version = "0.1.0" }
 zeroize = "1"
 
 [dev-dependencies]

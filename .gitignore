@@ -26,3 +26,6 @@ data/backups/
 # Laufzeitbericht des letzten Patchnotes-Syncs: der Timer schreibt ihn alle fuenf Minuten
 # neu (Zaehlerstaende, teils unsortierte Listen), das Repo war dadurch dauerhaft dirty.
 data/last_patchnotes_sync_quality.json
+
+# Local Python package build output
+/build/

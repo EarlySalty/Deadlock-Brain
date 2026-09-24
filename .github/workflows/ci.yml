@@ -1,0 +1,306 @@
+name: Deterministic CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+  merge_group:
+  workflow_dispatch:
+  schedule:
+    - cron: '19 4 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: brain-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_BUILD_JOBS: '2'
+  RUST_TEST_THREADS: '1'
+  PIP_DISABLE_PIP_VERSION_CHECK: '1'
+
+jobs:
+  rust:
+    name: Rust / PostgreSQL
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b # 16.14
+        env:
+          POSTGRES_USER: brain_ci
+          POSTGRES_PASSWORD: ci-only-ephemeral
+          POSTGRES_DB: brain_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U brain_ci -d brain_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      DATABASE_URL: postgresql://brain_ci:ci-only-ephemeral@127.0.0.1:5432/brain_ci
+      BRAIN_TEST_DATABASE_URL: postgresql://brain_ci:ci-only-ephemeral@127.0.0.1:5432/brain_ci
+      SQLX_OFFLINE: 'false'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Pinned Rust toolchain
+        run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+      - name: Bootstrap genuine versioned schema
+        run: |
+          sha256sum --check --strict schema/SHA256SUMS
+          psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -f scripts/ci/bootstrap-brain-schema.sql
+          psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -f scripts/ci/bootstrap-mcp-schema.sql
+          if psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -f scripts/ci/bootstrap-brain-schema.sql; then
+            echo 'Bootstrap incorrectly accepted an existing schema'; exit 1
+          fi
+      - name: Format
+        run: |
+          cargo fmt --manifest-path rust/Cargo.toml --all --check
+          rustfmt --edition 2021 --check scripts/ci/check-test-log.rs
+      - name: Clippy (online SQLx)
+        run: cargo clippy --manifest-path rust/Cargo.toml --locked --workspace --all-targets -- -D warnings
+      - name: Build all targets
+        run: cargo build --manifest-path rust/Cargo.toml --locked --workspace --all-targets
+      - name: Workspace tests including mandatory DB roundtrips
+        run: |
+          cargo test --manifest-path rust/Cargo.toml --locked --workspace --all-targets 2>&1 | tee "$RUNNER_TEMP/rust-tests.log"
+          rustc --edition 2021 scripts/ci/check-test-log.rs -o "$RUNNER_TEMP/check-test-log"
+          "$RUNNER_TEMP/check-test-log" "$RUNNER_TEMP/rust-tests.log" scripts/ci/expected-ignored-tests.txt scripts/ci/required-db-tests.txt
+      - name: Documentation tests
+        run: cargo test --manifest-path rust/Cargo.toml --locked --workspace --doc
+      - name: Missing DB must fail, not self-skip
+        run: |
+          set +e
+          env -u BRAIN_TEST_DATABASE_URL cargo test --manifest-path rust/Cargo.toml --locked -p deadlock-brain-yt transcripts::tests::save_transcript_is_idempotent_and_sets_ready_pg -- --exact > "$RUNNER_TEMP/missing-db.log" 2>&1
+          status=$?
+          set -e
+          test "$status" -ne 0
+          grep -F 'BRAIN_TEST_DATABASE_URL is required' "$RUNNER_TEMP/missing-db.log"
+      - name: Diagnostic reports (not enforcement)
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rust-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/rust-tests.log
+            ${{ runner.temp }}/missing-db.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  python:
+    name: Python / MCP contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b # 16.14
+        env:
+          POSTGRES_USER: brain_ci
+          POSTGRES_PASSWORD: ci-only-ephemeral
+          POSTGRES_DB: brain_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U brain_ci -d brain_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      DATABASE_URL: postgresql://brain_ci:ci-only-ephemeral@127.0.0.1:5432/brain_ci
+      BRAIN_TEST_DATABASE_URL: postgresql://brain_ci:ci-only-ephemeral@127.0.0.1:5432/brain_ci
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Locked application and test dependencies
+        run: |
+          python -m pip install --require-hashes -r requirements/ci.txt
+          python -m pip install --no-deps --no-build-isolation .
+          python -m pip check
+      - name: Bootstrap real MCP schema without production data
+        run: |
+          sha256sum --check --strict schema/SHA256SUMS
+          psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -f scripts/ci/bootstrap-brain-schema.sql
+          psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -f scripts/ci/bootstrap-mcp-schema.sql
+      - name: Python syntax and correctness lint
+        run: |
+          python -m compileall -q src mcp scripts rust/python_worker
+          ruff check src mcp scripts rust/python_worker
+      - name: Existing tests and deterministic database contract
+        run: python -m pytest --junitxml="${RUNNER_TEMP}/python-tests.xml"
+      - name: Missing infrastructure must fail
+        run: |
+          set +e
+          env -u BRAIN_TEST_DATABASE_URL python -m pytest mcp/test_server.py -k database_contract_requires > "$RUNNER_TEMP/python-missing-db.log" 2>&1
+          status=$?
+          set -e
+          test "$status" -eq 1
+          grep -F BRAIN_TEST_DATABASE_URL "$RUNNER_TEMP/python-missing-db.log"
+      - name: Diagnostic reports (not enforcement)
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: python-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/python-tests.xml
+            ${{ runner.temp }}/python-missing-db.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  rust-security:
+    name: Cargo audit / deny
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Pinned Rust toolchain
+        run: rustup toolchain install 1.97.1 --profile minimal
+      - name: Install pinned scanners
+        run: |
+          bash scripts/ci/install-tools.sh cargo-deny
+          cargo install cargo-audit --locked --version 0.22.2
+      - name: Advisory, source, license and dependency policy
+        run: bash scripts/ci/check-rust-security.sh
+
+  source-security:
+    name: Secrets / SAST / dependency security
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Install pinned scanners
+        run: |
+          bash scripts/ci/install-tools.sh gitleaks trivy
+          python -m pip install --require-hashes -r requirements/security.txt
+      - name: Gitleaks full reachable history
+        if: ${{ !cancelled() }}
+        run: gitleaks git --redact --no-banner --report-format json --report-path "$RUNNER_TEMP/gitleaks.json"
+      - name: Semgrep Rust and Python
+        if: ${{ !cancelled() }}
+        run: |
+          semgrep scan --config .semgrep.yml --metrics off --disable-version-check --strict --error --json-output "$RUNNER_TEMP/semgrep.json" src mcp scripts rust/crates rust/python_worker rust/vendor
+          jq -e '(.errors | length == 0) and ([.paths.scanned[] | select(endswith(".rs"))] | length > 0) and ([.paths.scanned[] | select(endswith(".py"))] | length > 0)' "$RUNNER_TEMP/semgrep.json"
+      - name: Bandit Python medium and high severity
+        if: ${{ !cancelled() }}
+        run: bandit -r src mcp scripts rust/python_worker -ll -f json -o "$RUNNER_TEMP/bandit.json"
+      - name: Python dependency audit (runtime plus optional workers)
+        if: ${{ !cancelled() }}
+        run: pip-audit --require-hashes --no-deps --disable-pip -r requirements/requirements.txt -f json -o "$RUNNER_TEMP/pip-audit.json"
+      - name: Trivy HIGH and CRITICAL
+        if: ${{ !cancelled() }}
+        run: trivy fs --scanners vuln,misconfig,secret --severity HIGH,CRITICAL --exit-code 1 --skip-dirs rust/target --format json --output "$RUNNER_TEMP/trivy.json" .
+      - name: Controlled scanner negative probes
+        if: ${{ !cancelled() }}
+        run: bash scripts/ci/scanner-selftest.sh
+      - name: Diagnostic reports (not enforcement)
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: security-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/gitleaks.json
+            ${{ runner.temp }}/semgrep.json
+            ${{ runner.temp }}/bandit.json
+            ${{ runner.temp }}/pip-audit.json
+            ${{ runner.temp }}/trivy.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  workflow-policy:
+    name: Workflow policy / negative controls
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Pinned Rust toolchain
+        run: rustup toolchain install 1.97.1 --profile minimal
+      - name: Pinned workflow scanners
+        run: bash scripts/ci/install-tools.sh actionlint zizmor
+      - name: Workflow syntax and security
+        run: |
+          actionlint
+          zizmor --offline --pedantic .github/workflows
+      - name: Gate and test-evidence negative controls
+        run: |
+          bash scripts/ci/policy-selftest.sh
+          rustc --edition 2021 --test scripts/ci/check-test-log.rs -o "$RUNNER_TEMP/test-log-policy"
+          "$RUNNER_TEMP/test-log-policy"
+
+  codeql:
+    name: CodeQL / ${{ matrix.language }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [rust, python]
+    env:
+      SQLX_OFFLINE: 'true'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Pinned Rust toolchain
+        run: rustup toolchain install 1.97.1 --profile minimal
+      - name: Initialize pinned CodeQL
+        uses: github/codeql-action/init@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4
+        with:
+          tools: linked
+          languages: ${{ matrix.language }}
+          build-mode: none
+          queries: security-extended
+          db-location: ${{ runner.temp }}/codeql-db
+      - name: Extract and analyze
+        uses: github/codeql-action/analyze@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4
+        with:
+          upload: never
+          upload-database: false
+          output: ${{ runner.temp }}/sarif
+      - name: Require extracted source and zero security findings
+        env:
+          LANGUAGE: ${{ matrix.language }}
+        run: bash scripts/ci/check-codeql.sh "$LANGUAGE" "$RUNNER_TEMP/codeql-db/$LANGUAGE" "$RUNNER_TEMP/sarif/$LANGUAGE.sarif"
+      - name: Diagnostic reports (not enforcement)
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: codeql-${{ matrix.language }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sarif/*.sarif
+          if-no-files-found: warn
+          retention-days: 14
+
+  required:
+    name: Required PR Gate
+    if: ${{ always() }}
+    needs: [rust, python, rust-security, source-security, workflow-policy, codeql]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every functional and security job to succeed
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          jq -e 'type == "object" and (keys == ["codeql", "python", "rust", "rust-security", "source-security", "workflow-policy"]) and all(.[]; .result == "success")' <<< "$NEEDS_JSON"

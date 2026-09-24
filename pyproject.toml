@@ -10,10 +10,27 @@ requires-python = ">=3.11"
 dependencies = [
     "faster-whisper",
     "yt-dlp",
+    "defusedxml>=0.7.1",
 ]
+
+[project.optional-dependencies]
+mcp = ["mcp>=1,<2"]
+browser = ["playwright>=1.44,<2"]
 
 [project.scripts]
 deadlock-brain = "deadlock_brain.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+# Existing Python has no configured linter/typechecker; start with correctness.
+select = ["E9", "F63", "F7", "F82"]
+
+[tool.pytest.ini_options]
+testpaths = ["mcp"]
+addopts = "--strict-config --strict-markers -ra"

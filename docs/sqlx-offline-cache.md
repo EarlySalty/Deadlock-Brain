@@ -1,3 +1,9 @@
+> CI-Vertrag seit 2026-09-24: Fuer neue CI-Datenbanken ausschliesslich
+> `scripts/ci/bootstrap-brain-schema.sql` und `schema/README.md` verwenden.
+> Keine Produktions-Dumps, Secrets oder Live-Verbindungen zur Cache-Erzeugung.
+> Der funktionale PR-Build validiert SQLx online gegen das isolierte Testschema.
+> Nachfolgende historische Notizen sind keine aktuelle Bootstrap-Anweisung.
+
 # sqlx-Offline-Cache (`rust/.sqlx/`)
 
 Das Async-Fundament des PG-Cutovers (Spec `docs/specs/2026-07-04-pg-cutover.md`,

@@ -249,7 +249,7 @@ def _load_patch_events(
         WHERE {where}
         ORDER BY patch_snapshot_id DESC, line_index
         LIMIT ?
-        """,
+        """,  # nosec B608 - SQL structure is allowlisted; values are separately bound. See SECURITY-CI.md.
         tuple(params),
     )
     for row in rows:
@@ -333,7 +333,7 @@ def _load_sheet_snapshot_stats(conn: sqlite3.Connection, names: list[str]) -> li
           AND lower(canonical_name) IN ({placeholders})
         ORDER BY fetched_at DESC, id DESC
         LIMIT ?
-        """,
+        """,  # nosec B608 - SQL structure is allowlisted; values are separately bound. See SECURITY-CI.md.
         (*lowered, MAX_SHEET_ROWS_PER_SOURCE),
     )
     for row in rows:
@@ -397,7 +397,7 @@ def _load_matching_sheet_table_rows(conn: sqlite3.Connection, table: str, names:
         FROM {_quote_identifier(table)}
         WHERE {" OR ".join(clauses)}
         LIMIT ?
-        """,
+        """,  # nosec B608 - SQL structure is allowlisted; values are separately bound. See SECURITY-CI.md.
         tuple(params),
     )
     return [_decode_json_fields(row) for row in rows]
@@ -429,7 +429,7 @@ def _select_by_values(conn: sqlite3.Connection, table: str, column: str, values:
         SELECT *
         FROM {_quote_identifier(table)}
         WHERE {_quote_identifier(column)} IN ({placeholders})
-        """,
+        """,  # nosec B608 - SQL structure is allowlisted; values are separately bound. See SECURITY-CI.md.
         tuple(values),
     )
 

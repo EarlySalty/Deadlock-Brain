@@ -46,7 +46,9 @@ def _fetch_secrets() -> list[dict[str, object]]:
     )
 
     try:
-        with request.urlopen(req, timeout=timeout) as resp:
+        if req.full_url.split(":", 1)[0].lower() not in {"http", "https"}:
+            raise ValueError("Only HTTP(S) URLs are allowed")
+        with request.urlopen(req, timeout=timeout) as resp:  # nosec B310 - HTTP(S) scheme checked immediately above; no file URLs.
             payload = json.loads(resp.read().decode("utf-8"))
     except error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")

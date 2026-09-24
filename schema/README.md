@@ -46,3 +46,14 @@ fest. Der Dependency-Pin wird ausschließlich dort geändert.
 Schemaänderungen benötigen neue Migrationen bzw. einen neuen, überprüften
 Upstream-Snapshot mit neuer Herkunft und Prüfsummen. Die historischen Kopien
 sind keine Einladung, Produktionsmigrationen nachträglich umzuschreiben.
+
+## Python-MCP-Vertrag
+
+`bootstrap-mcp-schema.sql` ergänzt nach dem Brain-Bootstrap die MCP-View.
+`changelog_posts.sql` ist ein unverändertes DDL-Fragment aus
+`0010_activity_moderation_content_patchnotes.sql` am selben Upstream-SHA
+(von `CREATE TABLE ... patchnotes.changelog_posts` bis vor der nächsten Tabelle).
+Die View liegt in `rust/crates/dbrain-sources/src/patch_changes.sql`; der
+Rust-Laufzeitpfad bindet exakt dieselbe Datei per `include_str!` ein.
+Dies ist keine geraten modellierte Testtabelle. Der Basisvertrag für die
+Twitch-Crates benötigt den optionalen MCP-Einstieg nicht.

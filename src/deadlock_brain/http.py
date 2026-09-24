@@ -56,7 +56,9 @@ class HttpClient:
         request_headers.update(headers or {})
         request = urllib.request.Request(url, headers=request_headers)
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
+            if request.full_url.split(":", 1)[0].lower() not in {"http", "https"}:
+                raise ValueError("Only HTTP(S) URLs are allowed")
+            with urllib.request.urlopen(request, timeout=timeout) as response:  # nosec B310 - HTTP(S) scheme checked immediately above; no file URLs.
                 content = response.read()
                 content_type = response.headers.get("content-type", "")
         except urllib.error.HTTPError as exc:

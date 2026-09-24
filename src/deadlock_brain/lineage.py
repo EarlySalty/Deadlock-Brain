@@ -220,7 +220,7 @@ def related_names_for_query(conn: sqlite3.Connection, query: str, best_match: di
            OR owner_name_norm IN ({placeholders})
         ORDER BY confidence DESC, id ASC
         LIMIT ?
-        """,
+        """,  # nosec B608 - SQL structure is allowlisted; values are separately bound. See SECURITY-CI.md.
         (*norms, *norms, *norms, LINEAGE_NAME_LIMIT),
     )
     return [_decode_metadata(row) for row in rows]
