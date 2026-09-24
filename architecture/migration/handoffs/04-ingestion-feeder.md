@@ -4,7 +4,8 @@ Status: vorgeschlagen; Implementierung blockiert; keine S04-Gesamtabnahme.
 Arbeitsmodus: dokumentarische Vorprüfung, keine eigenständige Gatefreigabe.
 Basis-Commit: `c00fc8935048bf490c1e4790f7c6195864ad49e2` (integriertes `origin/main`).
 Ergebnis-Branch: `migration/s04-ingestion-preparation-20260924`.
-Ergebnis-Commit / PR: wird nach den Dokumentprüfungen im PR protokolliert.
+Ergebnis / PR: https://github.com/EarlySalty/Deadlock-Brain/pull/16 (offen, Draft).
+Geprüfter Dokument-Commit: `f911bbb851e5182fb0dd320b749127233502d3ed`. Der abschließende PR-Head samt erneutem Prüfergebnis steht im PR-Prüfprotokoll; diese nachträgliche Ergänzung verändert nur die Übergabe.
 Tatsächlich geprüfter Code-Commit: `c00fc8935048bf490c1e4790f7c6195864ad49e2`, ausschließlich lesende Code-/Koordinationsprüfung.
 Contract-/DB-Schema-Version: laut integriertem STATUS offen; keine Version erfunden.
 Source-Paket: Plan 1.0; ZIP-SHA256 `945be6983ff0235eb0ec36b451f9613ea567e0962ca5658364e8665980177716`.
@@ -34,7 +35,7 @@ Wichtige belegte Lücken: identischer Dokumenthash aktualisiert im vorhandenen S
 | Integrierte Basis / Freigabe | `git fetch origin main`; `git show origin/main:architecture/migration/STATUS.md`; GATES und PFAD_OWNER gelesen | Basis `c00fc893...` bestätigt; G0/G1 und Contract-/Schema-Version offen. |
 | Uploadabgleich | SHA256 des bereitgestellten und des versionierten ZIPs; zusätzlich SHA256 des S04-ZIP-Mitglieds | Beide Prüfsummen stimmen exakt überein. |
 | Erste Inventar-/Referenzprüfung | Python-Standardbibliothek, nur S04-Dokumente und fixierter Git-Baum | Zunächst fehlgeschlagen: vier Referenzen auf ein auf main nicht entpacktes Planverzeichnis. Referenzen auf tatsächliches versioniertes ZIP-Mitglied korrigiert; fehlende koordinierte Paketablage als Blocker ergänzt. |
-| Abschließende Dokumentprüfung | Reproduktionsblock unten am Ergebnis-Commit | Noch nicht protokolliert; vor PR-Abschluss ausführen. |
+| Dokumentprüfung nach Korrektur | Reproduktionsblock unten, Commit `f911bbb851e5182fb0dd320b749127233502d3ed` | Exit 0: Diffprüfung; exakt fünf Dokumente; 19 eindeutige vollständige Inventarzeilen und gültige Belegreferenzen; beide SHA256-Abgleiche; 20 geplante Fälle; vier CRs. |
 | Rust fmt / clippy / test / release build | Nicht ausgeführt | Kein Rust-Code geändert. Keine Rust-Testabnahme behauptet. |
 | Storeintegration / Connector-E2E / Crash / Rebuild | Nicht ausgeführt | S02/S03-Verträge, G1 und isolierte Testumgebung fehlen. |
 | Feeder-A/B / Liveverkehr / Providerverträge | Nicht ausgeführt | Kein Provider- oder produktiver Quellenzugriff; keine Messwerte vorhanden. |
