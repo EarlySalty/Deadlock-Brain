@@ -16,12 +16,19 @@ use crate::Result;
 
 #[path = "game_wiki_localization.rs"]
 mod localization;
+#[path = "hero_dossier.rs"]
+mod hero_dossier;
+pub use hero_dossier::load_hero_dossier;
+#[cfg(test)]
+#[path = "wiki_manifest_tests.rs"]
+mod wiki_manifest_tests;
 
 pub const GAME_WIKI_DIR_ENV: &str = "DEADLOCK_BRAIN_GAME_WIKI_DIR";
 const DEFAULT_SEARCH_LIMIT: usize = 3;
 const WIKI_SOURCES: &[&str] = &["deadlock_data", "deadlock_wiki"];
 const WIKI_ENTITY_TYPES: &[&str] = &[
     "hero",
+    "hero_dossier",
     "item",
     "item_special",
     "ability",
@@ -52,6 +59,7 @@ pub async fn rebuild_game_wiki(pool: &PgPool, root: &Path) -> Result<JsonValue> 
     fs::create_dir_all(root)?;
     let mut rows = load_latest_snapshots(pool).await?;
     localization::enrich(pool, &mut rows).await?;
+    hero_dossier::append_dossiers(&mut rows);
     let provenance = snapshot_provenance(&rows);
     write_schema(root)?;
 
@@ -145,7 +153,7 @@ pub(crate) fn search_game_wiki_for_answer(
             )
         });
     let answer_types = answer_entity_types(query, entity, intent);
-    search_game_wiki_inner(
+    let mut result = search_game_wiki_inner(
         root,
         query,
         entity,
@@ -153,7 +161,15 @@ pub(crate) fn search_game_wiki_for_answer(
         ability_overview,
         true,
         answer_types,
-    )
+    )?;
+    if entity["entity_type"] == "hero" || intent == "hero_overview" {
+        if let Some(name) = entity["canonical_name"].as_str().or_else(|| entity["name"].as_str()) {
+            let snapshot_root = result["root"].as_str().map(Path::new).or(root);
+            let dossier = load_hero_dossier(snapshot_root, name)?;
+            result["hero_dossier"] = dossier;
+        }
+    }
+    Ok(result)
 }
 
 fn answer_entity_types(
@@ -692,6 +708,14 @@ async fn load_latest_snapshots(pool: &PgPool) -> Result<Vec<SnapshotRow>> {
             FROM brain.source_runs
             WHERE source = 'deadlock_data' AND status = 'ok'
             ORDER BY id DESC LIMIT 1
+        ), latest_wiki AS (
+            SELECT summary FROM brain.source_runs
+            WHERE source = 'deadlock_wiki_corpus' AND status = 'ok'
+              AND summary->>'complete' = 'true'
+            ORDER BY id DESC LIMIT 1
+        ), wiki_members AS (
+            SELECT jsonb_array_elements_text(summary->'snapshot_ids')::bigint AS id
+            FROM latest_wiki
         ), ranked AS (
             SELECT
                 es.id,
@@ -715,6 +739,10 @@ async fn load_latest_snapshots(pool: &PgPool) -> Result<Vec<SnapshotRow>> {
             LEFT JOIN brain.source_documents sd ON sd.id = es.source_document_id
             WHERE es.source = ANY($1)
               AND es.entity_type = ANY($2)
+              AND (es.source <> 'deadlock_wiki' OR
+                   CASE WHEN EXISTS (SELECT 1 FROM latest_wiki)
+                        THEN es.id IN (SELECT id FROM wiki_members)
+                        ELSE es.payload->'_wiki'->>'schema_version' IS NULL END)
               AND (es.source <> 'deadlock_data' OR
                    es.payload->'_deadlock_data'->>'commit_sha' =
                    (SELECT commit_sha FROM latest_import))
@@ -768,7 +796,8 @@ fn render_snapshot_entry(
         anchor = format!("{anchor}-{}", &suffix[..8]);
         used_anchors.insert(format!("{shard}#{anchor}"));
     }
-    let payload_json = serde_json::to_string_pretty(&row.payload)?;
+    // Fremdtext darf keine Corpus-Grenzmarkierung einschleusen. JSON bleibt verlustfrei.
+    let payload_json = serde_json::to_string_pretty(&row.payload)?.replace('<', "\\u003c");
     let fence = code_fence_for(&payload_json);
     let source_raw_path = portable_raw_path(row.source_raw_path.as_deref());
     let entry = format!(

@@ -131,13 +131,13 @@ oder nutze die CLI-Option --allow-wiki-network.",
 }
 
 #[derive(Debug, Clone)]
-struct WikiRateLimiter {
-    state_path: PathBuf,
-    min_delay_seconds: f64,
+pub(crate) struct WikiRateLimiter {
+    pub(crate) state_path: PathBuf,
+    pub(crate) min_delay_seconds: f64,
 }
 
 impl WikiRateLimiter {
-    fn wait(&self) -> Result<()> {
+    pub(crate) fn wait(&self) -> Result<()> {
         if let Some(parent) = self.state_path.parent() {
             fs::create_dir_all(parent)?;
         }

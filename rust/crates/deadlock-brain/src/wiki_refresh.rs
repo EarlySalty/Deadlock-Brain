@@ -32,6 +32,8 @@ struct Config {
     source_repository: PathBuf,
     raw_directory: PathBuf,
     publication_root: PathBuf,
+    #[serde(default)]
+    wiki: Option<dbrain_sources::wiki_corpus::WikiCorpusOptions>,
 }
 
 impl Config {
@@ -59,7 +61,8 @@ impl Config {
 /// Kein Legacy-settings-/ENV-Pfad: gewöhnliche JSON-Konfiguration und Infisical-Pool.
 pub async fn run(args: &RefreshArgs) -> Result<Value> {
     let config = Config::read(&args.config)?;
-    fs::create_dir_all(&config.publication_root).context("Wiki-Ziel ist nicht verfügbar")?;
+    fs::create_dir_all(&config.publication_root)
+        .context("Wiki-Ziel ist nicht verfügbar")?;
     let lock = OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -79,7 +82,8 @@ pub async fn run(args: &RefreshArgs) -> Result<Value> {
 
 async fn refresh(config: &Config, skip_source_update: bool) -> Result<Value> {
     let pool =
-        deadlock_brain_core::pg::pg_pool_from_config(&config.infisical_config, false).await?;
+        deadlock_brain_core::pg::pg_pool_from_config(&config.infisical_config, false)
+            .await?;
     let source_update = if skip_source_update {
         Value::Null
     } else {
@@ -93,6 +97,35 @@ async fn refresh(config: &Config, skip_source_update: bool) -> Result<Value> {
         )
         .await
         .context("Deadlock-Quellenimport fehlgeschlagen")?
+    };
+    let wiki_update = if !skip_source_update {
+        if let Some(options) = config.wiki.as_ref().filter(|options| options.enabled) {
+            let http = crate::http_client_async(
+                "Deadlock-Brain/1.0 (+https://github.com/EarlySalty/Deadlock-Brain)"
+                    .into(),
+                config.raw_directory.join("http-cache"),
+            )
+            .await?;
+            dbrain_sources::wiki_corpus::pull_wiki_corpus_with_pool(
+                &pool,
+                &config.raw_directory,
+                &http,
+                options,
+            )
+            .await
+            .context(
+                "Deadlock-Wiki-Import fehlgeschlagen; bisheriger Snapshot bleibt aktiv",
+            )?
+        } else {
+            Value::Null
+        }
+    } else {
+        Value::Null
+    };
+    let source_update = if skip_source_update {
+        Value::Null
+    } else {
+        json!({"deadlock_data":source_update,"deadlock_wiki":wiki_update})
     };
     let snapshots = config.publication_root.join("snapshots");
     fs::create_dir_all(&snapshots)?;
@@ -247,6 +280,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn wiki_corpus_is_opt_in_and_existing_config_stays_valid() {
+        let mut value = json!({
+            "infisical_config":"/test/infisical.json",
+            "source_repository":"/test/source",
+            "raw_directory":"/test/raw",
+            "publication_root":"/test/wiki"
+        });
+        let config: Config = serde_json::from_value(value.clone()).unwrap();
+        assert!(config.wiki.is_none());
+        value["wiki"] = json!({"enabled":true});
+        let config: Config = serde_json::from_value(value.clone()).unwrap();
+        let wiki = config.wiki.unwrap();
+        assert!(wiki.enabled);
+        assert_eq!(wiki.min_delay_seconds, 5.0);
+        value["wiki"]["unknown_flag"] = json!(true);
+        assert!(serde_json::from_value::<Config>(value).is_err());
+    }
+
+    #[test]
     fn failed_validation_preserves_current_and_honest_dates() -> Result<()> {
         let temp = tempfile::tempdir()?;
         let base = temp.path();
@@ -324,7 +376,8 @@ mod tests {
         assert_eq!(status["provenance"], provenance);
         assert_eq!(status["rendered_at"], "2026-09-20T00:00:00Z");
         assert_eq!(status["source_update_performed"], false);
-        let active: Value = serde_json::from_slice(&fs::read(base.join("current/status.json"))?)?;
+        let active: Value =
+            serde_json::from_slice(&fs::read(base.join("current/status.json"))?)?;
         assert_eq!(status, active);
         Ok(())
     }
