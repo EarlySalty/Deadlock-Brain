@@ -3,8 +3,11 @@
 Datum: 24.09.2026. Basis: `30326512568b7370524956839100462ba71bdb92`.
 Prüfumfang: ausschließlich additive S14-Vorbereitung und eigenständiges
 `audit/`-Crate, nicht der produktive Brain-Workspace oder ein Replaydecoder.
-Der genaue getestete Commit und PR werden in der S14-Übergabe festgehalten;
-die Suite wird nach dem Implementierungscommit erneut ausgeführt.
+Getesteter Implementierungscommit: `d4668ccec431ff128c4778d7839487848c8c4eb6`.
+Die komplette Vorbereitungssuite wurde nach diesem Commit erneut erfolgreich
+ausgeführt. Draft-PR #29 enthält die Änderungen; der folgende Dokumentationscommit
+verändert den getesteten Code nicht. Der vollständige Abschlusshead und seine
+erneuten Prüfungen stehen im PR-Protokoll.
 
 ## Ausgeführte Prüfungen
 

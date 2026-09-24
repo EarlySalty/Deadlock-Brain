@@ -3,9 +3,12 @@
 Status: **Vorbereitung getestet; vollständiges S14 blockiert, nicht integriert.**
 Basis-Commit: `30326512568b7370524956839100462ba71bdb92` (`origin/main`).
 Ergebnis-Branch: `migration/s14-replay-preparation-20260924`.
-Ergebnis-Commit / PR: wird im Abschluss dieses Dokuments nach dem Commit ergänzt.
-Tatsächlich getesteter Stand: S14-Arbeitsbaum auf obiger Basis; erneute Prüfung
-des Commitstands vor Abschluss vorgesehen.
+Implementierungscommit: `d4668ccec431ff128c4778d7839487848c8c4eb6`.
+PR: https://github.com/EarlySalty/Deadlock-Brain/pull/29 (Draft, offen).
+Tatsächlich getesteter Commit: `d4668ccec431ff128c4778d7839487848c8c4eb6`;
+Format, Clippy, 56 Tests und Releasebuild nach dem Commit erneut bestanden.
+Die nachfolgende Änderung ergänzt nur die Abschlussdokumentation. Der vollständige
+aktuelle PR-Head und dessen erneute Prüfungen werden im PR-Protokoll festgehalten.
 Contract-/Schema-Version: auf main offen, nicht von S14 geändert.
 Source-/Corpus-/Modellversion: kein freigegebener echter Replaycorpus.
 Betroffene Anforderungen: R01, R03, R18, R43, R48–R54, R59, R60; nur Vorbereitung,
