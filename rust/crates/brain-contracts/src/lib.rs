@@ -268,7 +268,7 @@ pub struct CorpusRelease {
     pub patch: String,
     pub created_at_epoch: i64,
     #[serde(default)]
-    pub source_revisions: BTreeMap<String, u64>,
+    pub source_revisions: BTreeMap<String, BTreeMap<String, u64>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

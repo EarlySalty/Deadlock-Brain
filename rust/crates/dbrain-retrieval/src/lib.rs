@@ -22,8 +22,10 @@ use sqlx::{
     Column, Row, TypeInfo,
 };
 
+mod contract_port;
 mod game_wiki;
 
+pub use contract_port::LexicalRetriever;
 pub use game_wiki::{
     default_game_wiki_dir, load_hero_dossier, rebuild_game_wiki, search_game_wiki, GAME_WIKI_DIR_ENV,
 };
