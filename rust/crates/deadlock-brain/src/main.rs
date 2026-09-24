@@ -51,10 +51,14 @@ enum Commands {
     AskContext(AskContextArgs),
     #[command(
         name = "review-build",
-        alias = "publish-build-query",
         about = "Berechnet eine Build-Anfrage und veröffentlicht sie als gekennzeichnetes Review-Build."
     )]
     ReviewBuild(ReviewBuildArgs),
+    #[command(
+        name = "publish-build-query",
+        about = "Veröffentlicht eine ausdrücklich angeforderte Build-Variante nach der bestehenden Daten- und Mechanikprüfung."
+    )]
+    PublishBuildQuery(ReviewBuildArgs),
     #[command(about = "Fuehrt lokale Datenqualitaetschecks aus.")]
     Quality(PrettyArgs),
     #[command(about = "Erzeugt und pflegt die lokale Game-Wiki-Wissensschicht.")]
@@ -1249,7 +1253,8 @@ async fn run(cli: Cli) -> Result<()> {
                 print_json(&result)
             }
         }
-        Commands::ReviewBuild(args) => run_review_build(&pool, args).await,
+        Commands::ReviewBuild(args) => run_requested_build(&pool, args, true).await,
+        Commands::PublishBuildQuery(args) => run_requested_build(&pool, args, false).await,
         Commands::Quality(args) => {
             let result = dbrain_retrieval::run_quality_checks(&pool).await?;
             if args.pretty {
@@ -1594,7 +1599,45 @@ async fn run_learn(settings: &Settings, target: LearnCommands) -> Result<()> {
     }
 }
 
-async fn run_review_build(pool: &PgPool, args: ReviewBuildArgs) -> Result<()> {
+#[cfg(test)]
+mod requested_build_tests {
+    use super::*;
+    #[test]
+    fn requested_build_commands_separate_review_from_guarded_publication() {
+        let regular = Cli::try_parse_from([
+            "deadlock-brain",
+            "publish-build-query",
+            "--",
+            "Warden Gun Build",
+        ])
+        .unwrap();
+        assert!(matches!(regular.command, Commands::PublishBuildQuery(_)));
+        let review =
+            Cli::try_parse_from(["deadlock-brain", "review-build", "--", "Warden Gun Build"])
+                .unwrap();
+        assert!(matches!(review.command, Commands::ReviewBuild(_)));
+    }
+    #[test]
+    fn requested_build_receipt_requires_real_completion() {
+        assert_eq!(confirmed_publication("DONE", Some(123)), Some(123));
+        for status in ["PENDING", "RUNNING", "FAILED", "CANCELLED", "BLOCKED"] {
+            assert!(confirmed_publication(status, Some(123)).is_none());
+        }
+        for id in [None, Some(0), Some(-1)] {
+            assert!(confirmed_publication("DONE", id).is_none());
+        }
+    }
+}
+
+fn confirmed_publication(status: &str, id: Option<i64>) -> Option<i64> {
+    if status == "DONE" {
+        id.filter(|id| *id > 0)
+    } else {
+        None
+    }
+}
+
+async fn run_requested_build(pool: &PgPool, args: ReviewBuildArgs, review: bool) -> Result<()> {
     let ask = dbrain_retrieval::ask_context(
         pool,
         &args.query,
@@ -1617,14 +1660,31 @@ async fn run_review_build(pool: &PgPool, args: ReviewBuildArgs) -> Result<()> {
             .ok_or_else(|| anyhow!("Der berechnete Build-Kontext fehlt."))?,
     )?;
     let alternative_variants = build.variants.len();
-    build.variants.clear();
-    build.name = format!(
-        "{} Brain Review {}",
-        build.hero_name,
-        chrono::Utc::now().format("%Y-%m-%d %H:%M")
-    );
+    if review {
+        build.variants.clear();
+        build.name = format!(
+            "{} Brain Review {}",
+            build.hero_name,
+            chrono::Utc::now().format("%Y-%m-%d %H:%M")
+        );
+    } else if dbrain_reasoner::publish::validate_publish_input(&build).is_err() {
+        // A user request authorizes creation, not bypassing publication quality gates.
+        return print_json(&json!({
+            "status":"BLOCKED", "task_id":null, "hero_build_id":null, "version":null,
+            "hero_name":build.hero_name, "review":false, "core":[], "situations":[],
+            "message": if alternative_variants > 0 {
+                "Mehrere Buildvarianten passen. Bitte nenne den gewünschten Spielstil. Es wurde nichts veröffentlicht."
+            } else {
+                "Die aktuellen Daten reichen nicht für einen geprüften Build. Es wurde nichts veröffentlicht."
+            }
+        }));
+    }
     let selected_family = build.family.as_ref().map(|family| family.label.clone());
-    let task_id = dbrain_reasoner::publish::enqueue_review_publish_task(pool, &build).await?;
+    let task_id = if review {
+        dbrain_reasoner::publish::enqueue_review_publish_task(pool, &build).await?
+    } else {
+        dbrain_reasoner::publish::enqueue_publish_task(pool, &build).await?
+    };
     let deadline =
         tokio::time::Instant::now() + std::time::Duration::from_secs(args.wait_seconds.min(120));
     let (last_status, hero_build_id, version) = loop {
@@ -1650,14 +1710,22 @@ async fn run_review_build(pool: &PgPool, args: ReviewBuildArgs) -> Result<()> {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     };
     if matches!(last_status.as_str(), "FAILED" | "CANCELLED") {
+        return Err(anyhow!("Der Build konnte nicht veröffentlicht werden."));
+    }
+    let confirmed_id = confirmed_publication(&last_status, hero_build_id);
+    if last_status == "DONE" && confirmed_id.is_none() {
         return Err(anyhow!(
-            "Das Review-Build konnte nicht veröffentlicht werden."
+            "Steam hat keine gültige Build-ID bestätigt. Die Veröffentlichung bleibt unbestätigt."
         ));
+    }
+    if !matches!(last_status.as_str(), "DONE" | "PENDING" | "RUNNING") {
+        return Err(anyhow!("Der Veröffentlichungsstatus ist unbekannt."));
     }
     print_json(&json!({
         "status": last_status,
+        "review": review,
         "task_id": task_id,
-        "hero_build_id": hero_build_id,
+        "hero_build_id": confirmed_id,
         "version": version,
         "hero_id": build.hero_id,
         "hero_name": build.hero_name,
