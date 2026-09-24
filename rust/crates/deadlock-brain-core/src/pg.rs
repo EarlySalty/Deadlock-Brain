@@ -16,6 +16,12 @@ pub async fn pg_pool_read_only() -> Result<PgPool> {
     .await
 }
 
+pub async fn infisical_environment(
+    path: &Path,
+) -> Result<Vec<(String, zeroize::Zeroizing<String>)>> {
+    secrets::environment(path).await
+}
+
 pub async fn pg_pool_from_config(path: &Path, read_only: bool) -> Result<PgPool> {
     let dsn = secrets::database_dsn(path).await?;
     let mut options = PgConnectOptions::from_str(&dsn)
