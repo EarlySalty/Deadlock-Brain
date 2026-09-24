@@ -22,7 +22,7 @@ Der Basis Commit enthält `rust/Cargo.toml` mit elf Workspace Mitgliedern. Vorha
 
 | Chat | Status | Arbeitsmodus oder Freigabe | Basis oder Ergebnis | Übergabe | Nächster Schritt |
 |---|---|---|---|---|---|
-| 00 | review | S000 Koordination | Basis `55776c7` | `S000_BOOTSTRAP.md` | S000 integrieren |
+| 00 | integriert | S000 Koordination | Basis `55776c7`, Merge `da40b57` | `S000_BOOTSTRAP.md` | Chat 01 und Chat 10 vorbereiten |
 | 01 | bereit | `prepare_only` | `55776c7` | offen | Code, Daten, Runtime und Quellen inventarisieren |
 | 02 | offen | nach G0 | `55776c7` | offen | Contracts und Workspace nach G0 |
 | 03 | offen | Schemaentwurf nach G0 | `55776c7` | offen | reale Migrationspfade mit 01 und 02 festlegen |
