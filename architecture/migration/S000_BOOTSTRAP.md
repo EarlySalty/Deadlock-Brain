@@ -1,8 +1,8 @@
 # S000: Koordinationsbasis
 
-Planversion: 1.0  
-Basis Commit: `55776c7532bb461fab93bbf7c582e2a40a81d2c9`  
-Planpaket SHA256: `945be6983ff0235eb0ec36b451f9613ea567e0962ca5658364e8665980177716`  
+Planversion: 1.0
+Basis Commit: `55776c7532bb461fab93bbf7c582e2a40a81d2c9`
+Planpaket SHA256: `945be6983ff0235eb0ec36b451f9613ea567e0962ca5658364e8665980177716`
 Quelle im Basis Commit: `Deadlock-Brain_Rust-Daten_Planpaket_v1.0.zip`
 
 ## Umfang
