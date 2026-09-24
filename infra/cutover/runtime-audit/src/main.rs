@@ -59,24 +59,37 @@ fn read_systemd(args: &[&str]) -> AuditResult<String> {
     String::from_utf8(bytes).map_err(|_| "systemctl_non_utf8_output")
 }
 
+fn observation(include_processes: bool) -> AuditResult<String> {
+    use brain_runtime_audit::runtime::{collect_runtime, render_runtime, LinuxReader};
+    let units = collect(&mut read_systemd)?;
+    let mut output = render(&units);
+    if include_processes {
+        let runtime = collect_runtime(&units, &mut LinuxReader)?;
+        // A restart/state change during procfs collection invalidates the whole report.
+        if collect(&mut read_systemd)? != units {
+            return Err("systemd_changed_during_observation");
+        }
+        output.push('\n');
+        output.push_str(&render_runtime(&runtime));
+    }
+    Ok(output)
+}
+
 fn main() -> ExitCode {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     if args.len() == 1 && args[0] == "--help" {
-        println!("brain-runtime-audit snapshot\nread-only user-systemd metadata; no deployment or gate approval.\nExit 0: complete collection; 1: collection failed; 2: invalid arguments.");
+        println!("brain-runtime-audit snapshot | runtime\nread-only user-systemd metadata; runtime adds bounded cgroup-v1/v2/procfs inspection.\nOnly a point-in-time observation, not proof of Rust provenance or Python-free cycles.\nNo deployment or gate approval. Exit 0: complete collection (findings may exist); 1: collection failed; 2: invalid arguments.");
         return ExitCode::SUCCESS;
     }
-    if args.len() != 1 || args[0] != "snapshot" {
-        eprintln!("Usage: brain-runtime-audit snapshot | --help");
+    if args.len() != 1 || (args[0] != "snapshot" && args[0] != "runtime") {
+        eprintln!("Usage: brain-runtime-audit snapshot | runtime | --help");
         return ExitCode::from(2);
     }
-    match collect(&mut read_systemd) {
-        Ok(units) => match std::io::stdout()
-            .lock()
-            .write_all(render(&units).as_bytes())
-        {
+    match observation(args[0] == "runtime") {
+        Ok(output) => match std::io::stdout().lock().write_all(output.as_bytes()) {
             Ok(()) => ExitCode::SUCCESS,
             Err(_) => {
-                eprintln!("runtime_inventory_failed: output_unavailable");
+                eprintln!("runtime_inventory_failed: output_unavailable; cutover_authorized=false");
                 ExitCode::from(1)
             }
         },

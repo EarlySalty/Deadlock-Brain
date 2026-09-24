@@ -150,3 +150,20 @@ sind ungeklärt, native Entrypoints kein Beweis für Pythonfreiheit. Keine
 System-Units, Cronjobs, anderen Hosts, DB-Leases, Netzwerkpfade oder vollständigen
 Prozessbäume werden durch diesen kleinen Check abgenommen. Seine Tests gehören
 nicht automatisch zum bestehenden Root-CI-Job; S02 erhält dafür einen CR.
+
+## Erweiterte Prozessaufnahme
+
+Der zusätzliche Befehl `runtime` erfasst Service-Prozessgruppen, Unterprozesse,
+Python-/PyPy-Kandidaten, namentlich erkennbare eingebettete Pythonbibliotheken
+und gelöschte ausführbare Dateien bzw. Datei-Mappings. Er unterstützt den realen
+cgroup-v1-Systemd-Host und vollständige cgroup-v2-Mounts. Details, Grenzen und die
+neuen Live-Befunde stehen in [RUNTIME_CHECK.md](RUNTIME_CHECK.md).
+
+```sh
+cargo run --manifest-path infra/cutover/runtime-audit/Cargo.toml --release --locked --offline -- runtime
+```
+
+Die vorstehenden Grenzen des kleinen Metadaten-Snapshots gelten für `snapshot`.
+Auch der erweiterte Prozessmodus ist keine vollständige Runtime-/Zyklusabnahme
+und verändert keinen Dienst. Die aktuelle Testserie umfasst 54 Tests; der
+Folgebericht steht in [RUNTIME_TEST_REPORT.md](RUNTIME_TEST_REPORT.md).

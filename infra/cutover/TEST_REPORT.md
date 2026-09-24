@@ -99,3 +99,10 @@ möglichen Systemd-Versionen sind nicht separat als Ausfallmatrix getestet.
 Die bestehende Root-CI prüft das neue eigenständige Werkzeug noch nicht mit.
 `CR-S11-01.md` weist diese Integrationsaufgabe S02/S10 zu. Ein grünes Root-CI-
 Ergebnis darf nicht als automatisch ausgeführte Audit-Testserie angegeben werden.
+
+## Fortsetzung von PR #26: erweiterte Laufzeitprüfung
+
+Der historische Bericht oben bleibt auf seine genannten Commits bezogen.
+Die anschließende Prozess-/Bibliotheksprüfung ist in `RUNTIME_TEST_REPORT.md`
+protokolliert: 54 Tests insgesamt, cgroup v1/v2, echte Prozessaufnahme und neue
+Befunde zur laufenden Releaseherkunft. Keine G4-/G5-/G6-Freigabe.

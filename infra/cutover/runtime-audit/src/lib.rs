@@ -7,7 +7,7 @@ pub type AuditResult<T> = Result<T, &'static str>;
 pub const MAX_OUTPUT_BYTES: usize = 1_048_576;
 const MAX_UNITS: usize = 256;
 const COMMON_PROPERTIES: &str = "--property=Id,LoadState,ActiveState,SubState,UnitFileState";
-const SERVICE_PROPERTIES: &str = "--property=Result,ExecMainStatus,MainPID,MemoryMax,CPUQuotaPerSecUSec,TasksMax,TimeoutStopUSec,ExecStart";
+const SERVICE_PROPERTIES: &str = "--property=Result,ExecMainStatus,MainPID,MemoryMax,CPUQuotaPerSecUSec,TasksMax,TimeoutStopUSec,ExecStart,ControlGroup";
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Unit {
@@ -29,6 +29,7 @@ struct Service {
     tasks: &'static str,
     stop_timeout: &'static str,
     entrypoint: &'static str,
+    control_group: Option<String>,
 }
 
 fn in_scope(name: &str) -> bool {
@@ -184,6 +185,7 @@ pub fn parse_unit(name: &str, properties: &str) -> AuditResult<Unit> {
         "TasksMax",
         "TimeoutStopUSec",
         "ExecStart",
+        "ControlGroup",
     ];
     let mut values = BTreeMap::new();
     for line in properties.lines() {
@@ -299,6 +301,7 @@ pub fn parse_unit(name: &str, properties: &str) -> AuditResult<Unit> {
             tasks: limit(get("TasksMax")?, false)?,
             stop_timeout: limit(get("TimeoutStopUSec")?, true)?,
             entrypoint: entrypoint(get("ExecStart")?),
+            control_group: values.get("ControlGroup").map(|v| (*v).to_owned()),
         })
     } else {
         None
@@ -378,3 +381,5 @@ pub fn render(units: &[Unit]) -> String {
     }
     out
 }
+
+pub mod runtime;

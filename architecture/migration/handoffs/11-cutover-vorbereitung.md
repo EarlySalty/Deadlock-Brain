@@ -101,3 +101,39 @@ synthetische Audit-Tests, keine integrierte Brain-/Restoreprobe.
 Owner/Folge-PRs: siehe CR-S11-01. Gemeinsame Owner-/Gate-/Schema-/CI-Dateien
 wurden nicht geändert. Quellen-/Replay-/Publikationsrechte bleiben unverändert;
 keine neuen Quelldaten oder Replays abgerufen/veröffentlicht.
+
+## Fortsetzung von PR #26: Prozessaufnahme
+
+Ausgangs-Head dieser Fortsetzung:
+`5b11aa5e77fa0a513f5ea3b68b41227da6a7129e`.
+Der genaue neue Head und seine nach dem Commit wiederholten Prüfungen stehen
+im aktuellen PR-Prüfkommentar. Die vorstehenden 28-Test-/CI-Nachweise bleiben
+historisch und werden nicht als Ergebnis für den neuen Head übernommen.
+
+Neu: `runtime-audit runtime` prüft rekursiv Service-Prozessgruppen einschließlich
+Untergruppen, Prozessidentität, namentlich erkennbare Python-/PyPy-Laufzeiten,
+eingebettete Pythonbibliotheken und gelöschte laufende Dateien. Der reale Host
+nutzt cgroup v1; v1/v2-Mounts und ihre Mitgliedschaften werden explizit unterschieden.
+Der Collector bricht bei erkannten Wechseln oder fehlender Sichtbarkeit ab.
+Kein Lesen von Environment, Kommandozeilen, Secretdateien oder Prozessspeicher.
+
+Artefakte: `infra/cutover/RUNTIME_CHECK.md`, `RUNTIME_TEST_REPORT.md`,
+`runtime-audit/src/runtime.rs`, ergänzte CLI und 24 neue Prozess-/Mounttests.
+Endstand lokal: 54 Tests unter Rust 1.97.1 und Rust 1.75.0 bestanden;
+Formatierung, Clippy mit Warnungen als Fehler sowie Audit-Releasebuild bestanden.
+Alle 26 neuen Tests haben eine dokumentierte rote Gegenprobe. Es wurde keine
+exhaustive Mutationstest- oder KI-Review-Qualitätsabnahme durchgeführt.
+
+Echte zusätzliche Befunde: zwei laufende Serviceprozesse erfasst, fünf Services
+ohne Prozessbeobachtung; ein als gelöscht markiertes laufendes Site-Binary und
+in beiden laufenden Services gelöschte Datei-Mappings. In den zwei beobachteten
+Prozessen keine erkannten Pythonhinweise, aber ausdrücklich kein Nachweis für
+die fünf inaktiven/fehlgeschlagenen Jobs oder vollständige reguläre Zyklen.
+Build-Daten und YouTube-Learning weiterhin fehlgeschlagen.
+
+Next-owner: S04/S05 für die Jobfehler; S02/S10 für die weiterhin fehlende
+Einbindung der Audit-Testserie in die gemeinsame CI; S00/S02/S03/S08 für die
+bestehenden Contract-/Schema-/Fencing-/Readinessfreigaben. S11 muss vor späterem
+Deploy die tatsächliche Releaseherkunft der laufenden Dateien bestimmen.
+Keine neuen Betriebs-/Daten-/Keyänderungen, keine Gateänderung und kein
+Produktivwechsel. S11 als Gesamtpaket bleibt blockiert, nicht fertig abgenommen.
