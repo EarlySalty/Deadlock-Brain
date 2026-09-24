@@ -3,9 +3,12 @@
 Status: Vorbereitung getestet; vollständiges S11 **blockiert**, nicht integriert.
 Basis-Commit: `30326512568b7370524956839100462ba71bdb92` (`origin/main`).
 Ergebnis-Branch: `migration/s11-cutover-preparation-20260924`.
-Ergebnis-Commit / PR: beim Git-Abschluss einzutragen.
-Tatsächlich getesteter Commit: Basis plus eigene S11-Dateien; Wiederholungsprüfung
-am committed Stand folgt im Git-Abschluss und wird im PR dokumentiert.
+Implementierungscommit: `d4e911a66542339a0babaf70311e9a4e3254995d`.
+PR: https://github.com/EarlySalty/Deadlock-Brain/pull/26 (Draft, offen).
+Tatsächlich getesteter Commit: `d4e911a66542339a0babaf70311e9a4e3254995d`;
+Format, Clippy, 28 Tests und Releasebuild nach dem Commit erneut bestanden.
+Die nachfolgende Änderung ergänzt nur diese Abschlussdokumentation. Der jeweils
+aktuelle vollständige PR-Head und dessen erneute Prüfungen stehen im PR-Protokoll.
 Contract-/Schema-Version: beide im integrierten STATUS offen.
 Source-/Corpus-/Modellversion: nicht freigegeben, nicht geändert.
 Betroffene Requirements: R01, R03, R04, R07, R18, R22, R40, R56, nur Vorbereitung.
@@ -39,6 +42,7 @@ eine vollständige Metadatenaufnahme, niemals eine Cutoverfreigabe.
 | Tests | Audit-Crate, Rust 1.97.1 | 28 bestanden, 0 fehlgeschlagen, 0 ignoriert | infra/cutover/TEST_REPORT.md |
 | Rotkontrolle | separate bewusst falsche Library / leerer CLI-Stub | 25/25 bzw. 3/3 erwartungsgemäß rot | infra/cutover/TEST_REPORT.md |
 | Releasebuild | nur Auditwerkzeug | bestanden | infra/cutover/TEST_REPORT.md |
+| Bestehende GitHub-CI | Run 36010634455, Versuch 1; Head d4e911a; Checkout-Merge 5454d76466c5fe9e185e8d20ccde98108f24141f | completed/success; keine Audit-Tests im Root-CI | infra/cutover/TEST_REPORT.md |
 | Live-Metadaten | manuell aufgerufener Snapshot im User-Systemd | 12 Units; Build-Daten und YouTube fehlgeschlagen, 5 Timer aktiv | infra/cutover/LEGACY_MATRIX.csv |
 | Restore/Fencing/G4/G5/G6 | keine freigegebenen Voraussetzungen | nicht durchgeführt | infra/cutover/REHEARSAL.md |
 

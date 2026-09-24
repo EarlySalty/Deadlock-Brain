@@ -2,9 +2,31 @@
 
 Datum: 24.09.2026. Toolchain: `rustc 1.97.1 (8bab26f4f 2026-07-14)`.
 Basis: `30326512568b7370524956839100462ba71bdb92`.
-Geprüft: eigener S11-Worktree auf dieser Basis. Die exakten nach dem Commit erneut
-geprüften SHAs und GitHub-Läufe werden in der Übergabe und im zugehörigen Draft-PR
-festgehalten. Kein Testergebnis einer fremden Session wurde übernommen.
+Geprüfter Implementierungscommit: `d4e911a66542339a0babaf70311e9a4e3254995d`.
+Format, Clippy, Tests und Releasebuild wurden nach diesem Commit erneut ausgeführt
+und bestanden. Der nachfolgende Dokumentationscommit ergänzt nur die Referenzen;
+aktuelle Head-/Merge-SHAs und erneute Prüfungen stehen im Draft-PR #26.
+Kein Testergebnis einer fremden Session wurde übernommen.
+
+## GitHub: erste tatsächlich gelesene Prüfung des Implementierungscommits
+
+PR: https://github.com/EarlySalty/Deadlock-Brain/pull/26, Draft, nicht gemergt.
+Run: https://github.com/EarlySalty/Deadlock-Brain/actions/runs/36010634455.
+Bei der ersten Abfrage am 24.09.2026 waren Migration composition und Python syntax
+erfolgreich, Rust compile noch in Arbeit. GitGuardian war erfolgreich; Semantic
+review für den Draft übersprungen. Der erfolgreiche Job `Auto merge after gates`
+war keine Mergeabnahme: der PR blieb Draft und offen. Das ist **kein grüner
+Gesamtlauf** und kein Nachweis für einen späteren Head. Der tatsächliche
+Checkout-/Merge-SHA des noch laufenden CI-Jobs war zu diesem Zeitpunkt nicht
+verifiziert.
+
+Die spätere Abfrage desselben Runs ergab `completed/success`, Versuch 1,
+Head `d4e911a66542339a0babaf70311e9a4e3254995d`. Die Checkoutlogs von Rust compile
+und Python syntax belegen den tatsächlich geprüften synthetischen Merge-SHA
+`5454d76466c5fe9e185e8d20ccde98108f24141f`. Damit ist dieser bestehende CI-Lauf
+belegt, nicht die Ausführung der neuen eigenständigen Audit-Testserie im Root-CI.
+Ein nachfolgender Head braucht seine eigenen Checks; deren Zuordnung steht im
+PR-Protokoll.
 
 ## Ergebnis
 
