@@ -2,8 +2,8 @@
 
 Status: getestet, Integration durch Chat 00 ausstehend
 Basis Commit: 2734c2da4e814ff79953e8e825275b0216a6af16
-Ergebnis Commit / PR: wird nach Commit ergänzt
-Tatsächlich getesteter Commit: wird nach Commit ergänzt
+Ergebnis Commit / PR: 7cbe61e6cdc5a6a2b923f0f18c6454d58caa2305 / PR 15
+Tatsächlich getesteter Commit: 7cbe61e6cdc5a6a2b923f0f18c6454d58caa2305
 Contract und Schema Version: bestehender Ist Stand, gemeinsame v1 Contracts noch nicht durch Chat 02 fixiert
 Source und Corpus Version: gemischter Ist Stand, siehe DATENINVENTAR.csv und QUELLENREGISTER.csv
 Betroffene Requirement IDs: Inventar und G0 Voraussetzungen aus Plan v1.0
