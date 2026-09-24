@@ -5,8 +5,9 @@ Status: **blockiert vor Implementierung**. Geliefert ist ausschließlich eine be
 Datum: 24.09.2026
 Basis-Commit: `c00fc8935048bf490c1e4790f7c6195864ad49e2` (`origin/main` beim Start)
 Ergebnis-Branch: `migration/s03-storage-preparation-20260924`
-Ergebnis-Commit / PR: nach Commit und Push im PR-Abschlussprotokoll dieses Branches dokumentiert.
-Tatsächlich geprüfter Code-Commit: Basis-Commit; keine Rust-, SQL- oder Runtimeänderungen.
+Ergebnis-Inhaltscommit: `6d5f14fde89a5463d3c8ccc1f779088c2250e725`; die anschließende Dokumentationsänderung ergänzt nur dieses Abschlussprotokoll.
+PR: https://github.com/EarlySalty/Deadlock-Brain/pull/17 (offen, Draft).
+Tatsächlich geprüfter Code-Commit: Basis-Commit; keine Rust-, SQL- oder Runtimeänderungen. Vollständiger finaler Dokumentations-Head und dessen erneute Prüfung stehen im PR-Abschlussprotokoll.
 Contract-Version: offen. `SourceRecordV2` ist eine Plananforderung, kein integrierter Vertrag.
 DB-Schema-Version: offen; die angewandte Produktionsversion wurde nicht abgefragt.
 Source-/Corpus-/Modellversion: kein freigegebener Snapshot, kein geprüftes Knowledge-Release, kein Modellaufruf.
@@ -70,7 +71,7 @@ Wiki-/Git-Historien, Facts/Effects/Rules, Aliase, Ableitungsfamilien, Karten, Sc
 
 Durchgeführt: Git-Basis- und Worktreeprüfung, lesende Codeprüfung, GitHub-Sichtbarkeitsabfrage, Vergleich der gefundenen externen Migrationsdatei mit deren HEAD. Keine Secrets abgerufen, kein Brain-Binary und kein Source-Connector gestartet, keine Datenbankverbindung hergestellt.
 
-Die Dokumentprüfung vor dem Commit umfasst den expliziten Dateiumfang, UTF-8/CSV-Struktur, eindeutige Prüf-IDs, den Status `not_run` aller 16 Fälle sowie `git diff --cached --check`. Konkrete Ergebnisse und der danach geprüfte Head-SHA stehen im PR-Abschlussprotokoll; ein fehlender Actions-Check wird nicht als Erfolg gewertet.
+Die Dokumentprüfung vor dem Inhaltscommit ergab: genau 3 eigene UTF-8-Dateien, 4 gültige relative Links, 16 eindeutige CSV-Prüf-IDs mit ausschließlich `not_run`, keine absoluten Homepfade oder Datenbank-Verbindungs-URLs. `git diff --cached --check` endete mit Exit 0. Das ist eine Strukturprüfung der Unterlagen, kein Secret-Scan und kein Storagefunktionstest. Die erneute Prüfung des finalen Head-SHA und der tatsächliche Actions-Stand stehen im PR-Abschlussprotokoll; ein fehlender Actions-Check wird nicht als Erfolg gewertet.
 
 Nicht ausgeführt: Rust-Compiler, rustfmt, Clippy, Unit-/Integrationstests, Migration, Verify, Restore, Replay, Rollback, Lasttest oder negativer Laufzeittest. Geänderter Produktivcode: 0 Dateien. Die CSV ist ein Testauftrag und **kein** Testergebnis. Es gibt weder `mock_verified` noch `integration_verified`.
 
