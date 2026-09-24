@@ -8,7 +8,7 @@ import subprocess
 import sys
 import time
 import urllib.parse
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
@@ -300,7 +300,7 @@ def fetch_missing_transcripts_with_ytdlp(
           AND transcript_status NOT IN ('unavailable')
         ORDER BY {order_sql}
         LIMIT ?
-        """,
+        """,  # nosec B608 - SQL structure is allowlisted; values are separately bound. See SECURITY-CI.md.
         (max(1, int(limit)),),
     ).fetchall()
     summary: dict[str, Any] = {"available": True, "selected": len(rows), "downloaded": 0, "errors": []}
@@ -375,7 +375,7 @@ def transcribe_missing_videos_locally(
         WHERE video_id NOT IN (SELECT video_id FROM youtube_transcripts)
         ORDER BY {order_sql}
         LIMIT ?
-        """,
+        """,  # nosec B608 - SQL structure is allowlisted; values are separately bound. See SECURITY-CI.md.
         (max(1, int(limit)),),
     ).fetchall()
     summary: dict[str, Any] = {
@@ -574,7 +574,7 @@ def list_youtube_queue(conn: sqlite3.Connection, *, status: str | None = None, l
         GROUP BY v.video_id
         ORDER BY COALESCE(v.published_at, '') DESC, v.discovered_at DESC
         LIMIT ?
-        """,
+        """,  # nosec B608 - SQL structure is allowlisted; values are separately bound. See SECURITY-CI.md.
         params,
     ).fetchall()
     return [dict(row) for row in rows]

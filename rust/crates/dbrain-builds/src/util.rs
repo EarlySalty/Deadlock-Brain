@@ -84,10 +84,27 @@ pub(crate) fn load_fixture(name: &str) -> Value {
 /// Tests sich selbst ueberspringen koennen. Das DSN wird nie geloggt.
 #[cfg(test)]
 pub(crate) async fn test_pool() -> Option<sqlx::postgres::PgPool> {
-    let dsn = std::env::var("DEADLOCK_CENTRAL_DSN").ok()?;
-    sqlx::postgres::PgPoolOptions::new()
-        .max_connections(4)
-        .connect(&dsn)
-        .await
-        .ok()
+    let dsn = std::env::var("BRAIN_TEST_DATABASE_URL")
+        .expect("BRAIN_TEST_DATABASE_URL is required; a missing DB is not a passing test");
+    let options: sqlx::postgres::PgConnectOptions = dsn.parse().expect("valid test DSN");
+    assert!(
+        matches!(options.get_host(), "127.0.0.1" | "localhost" | "::1"),
+        "test DB must be loopback"
+    );
+    assert!(
+        options
+            .get_database()
+            .expect("named test database")
+            .split('_')
+            .any(|part| matches!(part, "ci" | "test")),
+        "refusing non-test database"
+    );
+    Some(
+        sqlx::postgres::PgPoolOptions::new()
+            .max_connections(2)
+            .acquire_timeout(std::time::Duration::from_secs(5))
+            .connect_with(options)
+            .await
+            .expect("test database must be available"),
+    )
 }

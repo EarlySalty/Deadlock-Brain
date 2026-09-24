@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import urlsplit
+
 import json
 import re
 from dataclasses import dataclass
@@ -447,10 +449,17 @@ def _build_entity_index_from_entities(store: BrainStore) -> EntityIndex | None:
 
 
 def classify_source_kind(url: str | None) -> str:
-    lower = (url or "").lower()
-    if "steamcommunity.com" in lower or "steampowered.com" in lower or "steamstore-a.akamaihd.net" in lower:
+    try:
+        parsed = urlsplit(url or "")
+        if parsed.scheme.lower() not in {"http", "https"} or parsed.username or parsed.password:
+            return "other"
+        host = (parsed.hostname or "").lower().rstrip(".")
+    except ValueError:
+        return "other"
+    steam_domains = ("steamcommunity.com", "steampowered.com", "steamstore-a.akamaihd.net")
+    if any(host == domain or host.endswith("." + domain) for domain in steam_domains):
         return "steam"
-    if "forums.playdeadlock.com" in lower:
+    if host == "forums.playdeadlock.com" or host.endswith(".forums.playdeadlock.com"):
         return "forum"
     return "other"
 

@@ -1215,7 +1215,7 @@ def _derived_counts(store: BrainStore) -> list[tuple[str, int]]:
         ).fetchone()
         if not exists:
             continue
-        count = store.conn.execute(f"SELECT COUNT(*) AS count FROM {table}").fetchone()["count"]
+        count = store.conn.execute(f"SELECT COUNT(*) AS count FROM {table}").fetchone()["count"]  # nosec B608 - SQL structure is allowlisted; values are separately bound. See SECURITY-CI.md.
         rows.append((table, int(count)))
     return rows
 

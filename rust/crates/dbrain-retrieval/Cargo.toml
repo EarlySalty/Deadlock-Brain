@@ -1,4 +1,5 @@
 [package]
+publish.workspace = true
 name = "dbrain-retrieval"
 version.workspace = true
 edition.workspace = true
@@ -8,8 +9,8 @@ name = "dbrain_retrieval"
 path = "src/lib.rs"
 
 [dependencies]
-deadlock-brain-core = { path = "../deadlock-brain-core" }
-dbrain-reasoner = { path = "../dbrain-reasoner" }
+deadlock-brain-core = { path = "../deadlock-brain-core", version = "0.1.0" }
+dbrain-reasoner = { path = "../dbrain-reasoner", version = "0.1.0" }
 chrono = { workspace = true }
 regex.workspace = true
 serde.workspace = true

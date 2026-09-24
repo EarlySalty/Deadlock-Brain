@@ -659,7 +659,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "benoetigt Scratch-Postgres via DEADLOCK_CENTRAL_DSN"]
+
     async fn sync_upsert_roundtrip_writes_and_reads_back() {
         let Some(pool) = crate::util::test_pool().await else {
             eprintln!("DEADLOCK_CENTRAL_DSN nicht gesetzt; Test uebersprungen.");

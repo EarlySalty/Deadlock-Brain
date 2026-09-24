@@ -124,9 +124,13 @@ pub async fn fetch_transcripts(
             Ok(Some(caption)) => {
                 let chars = caption.transcript_text.chars().count();
                 let source_kind = caption.source_kind.as_db_value().to_string();
-                let outcome =
-                    save_transcript(pool, &video.video_id, &source_kind, &caption.transcript_text)
-                        .await?;
+                let outcome = save_transcript(
+                    pool,
+                    &video.video_id,
+                    &source_kind,
+                    &caption.transcript_text,
+                )
+                .await?;
                 match outcome {
                     SaveOutcome::Inserted | SaveOutcome::Updated => summary.saved += 1,
                     SaveOutcome::Unchanged => summary.unchanged += 1,
@@ -217,9 +221,7 @@ async fn select_videos_missing_transcripts(
 
 fn fetch_caption_for_video(video: &VideoForTranscript) -> anyhow::Result<Option<CaptionData>> {
     let temp_dir = tempfile::tempdir()?;
-    let output_template = temp_dir
-        .path()
-        .join(format!("{}.%(ext)s", video.video_id));
+    let output_template = temp_dir.path().join(format!("{}.%(ext)s", video.video_id));
     let mut child = Command::new(yt_dlp_bin())
         .arg("--no-update")
         .arg("--no-warnings")
@@ -593,7 +595,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+
     async fn save_transcript_is_idempotent_and_sets_ready_pg() {
         let Some(pool) = crate::testutil::test_pool().await else {
             return;

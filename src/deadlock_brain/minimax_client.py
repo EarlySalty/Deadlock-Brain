@@ -75,7 +75,9 @@ def call_minimax_chat(request_payload: dict[str, Any], config: MiniMaxConfig) ->
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=config.timeout_seconds) as response:
+        if request.full_url.split(":", 1)[0].lower() not in {"http", "https"}:
+            raise ValueError("Only HTTP(S) URLs are allowed")
+        with urllib.request.urlopen(request, timeout=config.timeout_seconds) as response:  # nosec B310 - HTTP(S) scheme checked immediately above; no file URLs.
             response_body = response.read().decode("utf-8", errors="replace")
             status = int(response.status)
     except urllib.error.HTTPError as exc:
@@ -113,7 +115,9 @@ def _call_minimax_token_plan(request_payload: dict[str, Any], config: MiniMaxCon
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=config.timeout_seconds) as response:
+        if request.full_url.split(":", 1)[0].lower() not in {"http", "https"}:
+            raise ValueError("Only HTTP(S) URLs are allowed")
+        with urllib.request.urlopen(request, timeout=config.timeout_seconds) as response:  # nosec B310 - HTTP(S) scheme checked immediately above; no file URLs.
             response_body = response.read().decode("utf-8", errors="replace")
             status = int(response.status)
     except urllib.error.HTTPError as exc:

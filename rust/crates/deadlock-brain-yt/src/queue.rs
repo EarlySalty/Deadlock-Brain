@@ -245,7 +245,9 @@ fn fetch_text_with_retries(client: &Client, url: &str) -> Result<String, FetchFa
         if !should_retry || attempt == FEED_FETCH_ATTEMPTS {
             break;
         }
-        thread::sleep(Duration::from_millis(FEED_FETCH_BACKOFF_MS * attempt as u64));
+        thread::sleep(Duration::from_millis(
+            FEED_FETCH_BACKOFF_MS * attempt as u64,
+        ));
     }
 
     Err(FetchFailure {
@@ -642,7 +644,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+
     async fn select_next_videos_and_mark_status_round_trip_pg() {
         let Some(pool) = crate::testutil::test_pool().await else {
             return;
@@ -720,9 +722,7 @@ mod tests {
             &format!("ztest-hash-{suffix}"),
         )
         .await;
-        let after_claim = select_next_videos(&pool, 500_000)
-            .await
-            .expect("select 3");
+        let after_claim = select_next_videos(&pool, 500_000).await.expect("select 3");
         assert!(
             !after_claim.iter().any(|video| video.video_id == failed_id),
             "video with matching claim must be excluded"

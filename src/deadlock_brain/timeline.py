@@ -313,7 +313,7 @@ def _load_patch_events(
         WHERE {where}
         ORDER BY COALESCE(posted_at, '') {direction}, patch_snapshot_id {direction}, line_index {direction}
         LIMIT ?
-        """,
+        """,  # nosec B608 - SQL structure is allowlisted; values are separately bound. See SECURITY-CI.md.
         tuple(params),
     )
     for row in rows:
@@ -531,7 +531,7 @@ def _select_by_values(conn: sqlite3.Connection, table: str, column: str, values:
         SELECT *
         FROM {_quote_identifier(table)}
         WHERE {_quote_identifier(column)} IN ({placeholders})
-        """,
+        """,  # nosec B608 - SQL structure is allowlisted; values are separately bound. See SECURITY-CI.md.
         tuple(values),
     )
 

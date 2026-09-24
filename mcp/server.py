@@ -101,7 +101,7 @@ def _query_rows(sql: str, variables: dict[str, Any] | None = None) -> list[dict[
     command = ["psql", "-X", "-q", "-tA", "-v", "ON_ERROR_STOP=1"]
     for key, value in (variables or {}).items():
         command.extend(["-v", f"{key}={value}"])
-    input_sql = f"SELECT coalesce(json_agg(t), '[]'::json) FROM ({sql}) AS t;\n"
+    input_sql = f"SELECT coalesce(json_agg(t), '[]'::json) FROM ({sql}) AS t;\n"  # nosec B608 - SQL structure is allowlisted; values are separately bound. See SECURITY-CI.md.
 
     env = _psql_env(_DSN, os.environ.copy())
 
@@ -219,7 +219,7 @@ def patch_history(
             LIMIT :limit
         ) AS recent_patch_changes
         ORDER BY patch_date, stat_name
-    """
+    """  # nosec B608 - SQL structure is allowlisted; values are separately bound. See SECURITY-CI.md.
     return _query_rows(sql, variables)
 
 
@@ -239,7 +239,7 @@ def patch_search(text: str, limit: int = 50) -> list[dict[str, Any]]:
         WHERE raw_line ILIKE :'text' OR entity_name ILIKE :'text'
         ORDER BY patch_date DESC
         LIMIT :limit
-    """
+    """  # nosec B608 - SQL structure is allowlisted; values are separately bound. See SECURITY-CI.md.
     return _query_rows(sql, variables)
 
 

@@ -169,7 +169,7 @@ def _normalize_heroes_stats(conn: sqlite3.Connection, hero_index: dict[str, int]
             INSERT INTO sheet_heroes_stats({col_list})
             VALUES({placeholders})
             ON CONFLICT(snapshot_id) DO UPDATE SET {update_set}
-            """,
+            """,  # nosec B608 - SQL structure is allowlisted; values are separately bound. See SECURITY-CI.md.
             (snapshot_id, entity_id, hero_name, alt_fire_type, hero_labs,
              *float_vals, payload_hash, now, now),
         )
@@ -279,7 +279,7 @@ def _normalize_freeform_tabs(conn: sqlite3.Connection) -> dict[str, Any]:
         WHERE source='deadlock_stats_sheet'
           AND json_extract(payload_json, '$.sheet_name') NOT IN ({})
         ORDER BY id
-        """.format(",".join("?" for _ in _DEDICATED_TABS)),
+        """.format(",".join("?" for _ in _DEDICATED_TABS)),  # nosec B608 - SQL structure is allowlisted; values are separately bound. See SECURITY-CI.md.
         tuple(_DEDICATED_TABS),
     ).fetchall()
 
@@ -598,7 +598,7 @@ def _clear_tables(conn: sqlite3.Connection) -> None:
         "sheet_hero_rankings", "sheet_boons_ap", "sheet_raw_heroes",
         "sheet_heroes_stats", "sheet_items", "sheet_shop_bonuses", "sheet_tab_rows",
     ):
-        conn.execute(f"DELETE FROM {table}")
+        conn.execute(f"DELETE FROM {table}")  # nosec B608 - SQL structure is allowlisted; values are separately bound. See SECURITY-CI.md.
 
 
 # ── Hilfsfunktionen ──────────────────────────────────────────────────────────

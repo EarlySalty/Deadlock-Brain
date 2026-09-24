@@ -1083,7 +1083,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+
     async fn ingest_inserts_maps_verdicts_and_is_idempotent_pg() {
         let Some(pool) = crate::testutil::test_pool().await else {
             return;
@@ -1166,7 +1166,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+
     async fn prepare_selects_untreated_verbal_video_then_excludes_it_pg() {
         let Some(pool) = crate::testutil::test_pool().await else {
             return;

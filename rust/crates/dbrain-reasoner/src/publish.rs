@@ -145,7 +145,10 @@ fn truncate_review_text(text: &str, max_chars: usize) -> String {
     if text.chars().count() <= max_chars {
         return text.to_string();
     }
-    let mut out = text.chars().take(max_chars.saturating_sub(1)).collect::<String>();
+    let mut out = text
+        .chars()
+        .take(max_chars.saturating_sub(1))
+        .collect::<String>();
     out.push('…');
     out
 }

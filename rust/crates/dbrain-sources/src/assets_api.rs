@@ -4,7 +4,9 @@ use deadlock_brain_core::http::{HttpClient, HttpGetOptions};
 use serde_json::{json, Map, Value};
 
 use crate::{
-    store::{complete_run, json_bytes, open_pool, EntitySnapshotInput, SourceDocumentInput, SourceStore},
+    store::{
+        complete_run, json_bytes, open_pool, EntitySnapshotInput, SourceDocumentInput, SourceStore,
+    },
     util::{python_or_string, value_to_python_string},
     Result, SourcesError,
 };
@@ -59,8 +61,9 @@ pub(crate) async fn pull_assets_inner(
     let mut endpoints_summary = Map::new();
     let mut total_snapshots = 0usize;
     for kind in selected {
-        let endpoint = endpoint_path(&kind)
-            .ok_or_else(|| SourcesError::invalid_input(format!("Unbekannter Assets-Endpoint: {kind}")))?;
+        let endpoint = endpoint_path(&kind).ok_or_else(|| {
+            SourcesError::invalid_input(format!("Unbekannter Assets-Endpoint: {kind}"))
+        })?;
         let url = format!("{BASE_URL}{endpoint}");
         let payload = http.get_json::<Value>(
             &url,

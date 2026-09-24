@@ -1,0 +1,12 @@
+[package]
+name = "brain-ci-test-evidence"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Give the existing std-only rustc helper a semantic manifest for CodeQL.
+[workspace]
+
+[[bin]]
+name = "check-test-log"
+path = "check-test-log.rs"

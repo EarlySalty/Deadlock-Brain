@@ -53,11 +53,15 @@ pub fn clean_subject(value: Option<&str>) -> String {
     if let Some(stripped) = cleaned.strip_suffix("**") {
         cleaned = stripped;
     }
-    cleaned.trim_matches(|ch: char| ch == ' ' || ch == ':' || ch == '-' || ch == '\t').to_string()
+    cleaned
+        .trim_matches(|ch: char| ch == ' ' || ch == ':' || ch == '-' || ch == '\t')
+        .to_string()
 }
 
 pub fn normalize_key(value: &str) -> String {
-    let cleaned = clean_subject(Some(value)).to_lowercase().replace('&', " and ");
+    let cleaned = clean_subject(Some(value))
+        .to_lowercase()
+        .replace('&', " and ");
     let mut out = String::new();
     let mut last_space = true;
     for ch in cleaned.chars() {
@@ -123,12 +127,10 @@ pub fn value_bool(value: Option<&Value>) -> Option<bool> {
 pub fn value_truthy(value: Option<&Value>) -> bool {
     match value {
         Some(Value::Bool(flag)) => *flag,
-        Some(Value::Number(number)) => {
-            number.as_i64().map_or_else(
-                || number.as_f64().is_some_and(|value| value != 0.0),
-                |value| value != 0,
-            )
-        }
+        Some(Value::Number(number)) => number.as_i64().map_or_else(
+            || number.as_f64().is_some_and(|value| value != 0.0),
+            |value| value != 0,
+        ),
         Some(Value::String(text)) => !text.is_empty(),
         Some(Value::Array(values)) => !values.is_empty(),
         Some(Value::Object(values)) => !values.is_empty(),
@@ -237,7 +239,11 @@ pub async fn delete_all(pool: &PgPool, table: &str) -> Result<i64> {
 }
 
 pub async fn clear_patch_events(pool: &PgPool) -> Result<i64> {
-    for table in ["legacy_entities", "entity_lineage", "patch_event_enrichments"] {
+    for table in [
+        "legacy_entities",
+        "entity_lineage",
+        "patch_event_enrichments",
+    ] {
         if table_exists(pool, table).await? {
             let _ = delete_all(pool, table).await?;
         }
@@ -257,7 +263,11 @@ pub async fn build_hero_index(
     .fetch_all(pool)
     .await?;
     for row in entity_rows {
-        add_index_candidate(&mut candidates, &normalize_alias(&row.canonical_name), row.id);
+        add_index_candidate(
+            &mut candidates,
+            &normalize_alias(&row.canonical_name),
+            row.id,
+        );
     }
 
     let alias_rows = sqlx::query!(
@@ -298,7 +308,10 @@ fn add_index_candidate(
     entity_id: i64,
 ) {
     if !alias_norm.is_empty() {
-        candidates.entry(alias_norm.to_string()).or_default().insert(entity_id);
+        candidates
+            .entry(alias_norm.to_string())
+            .or_default()
+            .insert(entity_id);
     }
 }
 

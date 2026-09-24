@@ -1,4 +1,5 @@
 [package]
+publish.workspace = true
 name = "dbrain-reasoner"
 version.workspace = true
 edition.workspace = true
@@ -8,9 +9,9 @@ name = "dbrain_reasoner"
 path = "src/lib.rs"
 
 [dependencies]
-deadlock-brain-core = { path = "../deadlock-brain-core" }
-dbrain-builds = { path = "../dbrain-builds" }
-dbrain-population = { path = "../dbrain-population" }
+deadlock-brain-core = { path = "../deadlock-brain-core", version = "0.1.0" }
+dbrain-builds = { path = "../dbrain-builds", version = "0.1.0" }
+dbrain-population = { path = "../dbrain-population", version = "0.1.0" }
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true

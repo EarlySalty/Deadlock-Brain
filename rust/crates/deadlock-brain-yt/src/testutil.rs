@@ -6,17 +6,34 @@
 //! damit Testcode keinen `.sqlx`-Cache braucht.
 #![allow(dead_code)]
 
-use sqlx::postgres::{PgPool, PgPoolOptions};
+use sqlx::postgres::PgPool;
 
 /// Baut einen Pool gegen die Scratch-Postgres oder `None`, wenn kein DSN
 /// gesetzt ist (dann überspringt der Test).
 pub async fn test_pool() -> Option<PgPool> {
-    let dsn = std::env::var("DEADLOCK_CENTRAL_DSN").ok()?;
-    PgPoolOptions::new()
-        .max_connections(2)
-        .connect(&dsn)
-        .await
-        .ok()
+    let dsn = std::env::var("BRAIN_TEST_DATABASE_URL")
+        .expect("BRAIN_TEST_DATABASE_URL is required; a missing DB is not a passing test");
+    let options: sqlx::postgres::PgConnectOptions = dsn.parse().expect("valid test DSN");
+    assert!(
+        matches!(options.get_host(), "127.0.0.1" | "localhost" | "::1"),
+        "test DB must be loopback"
+    );
+    assert!(
+        options
+            .get_database()
+            .expect("named test database")
+            .split('_')
+            .any(|part| matches!(part, "ci" | "test")),
+        "refusing non-test database"
+    );
+    Some(
+        sqlx::postgres::PgPoolOptions::new()
+            .max_connections(2)
+            .acquire_timeout(std::time::Duration::from_secs(5))
+            .connect_with(options)
+            .await
+            .expect("test database must be available"),
+    )
 }
 
 pub fn unique_suffix() -> String {
@@ -135,10 +152,11 @@ pub async fn cleanup(pool: &PgPool, video_ids: &[&str], feed_keys: &[&str]) {
             .bind(video_id)
             .execute(pool)
             .await;
-        let _ = sqlx::query("DELETE FROM brain.youtube_transcript_claim_attempts WHERE video_id=$1")
-            .bind(video_id)
-            .execute(pool)
-            .await;
+        let _ =
+            sqlx::query("DELETE FROM brain.youtube_transcript_claim_attempts WHERE video_id=$1")
+                .bind(video_id)
+                .execute(pool)
+                .await;
         let _ = sqlx::query("DELETE FROM brain.youtube_transcripts WHERE video_id=$1")
             .bind(video_id)
             .execute(pool)

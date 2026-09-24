@@ -1,0 +1,39 @@
+rules:
+  - id: python-shell-execution
+    languages: [python]
+    severity: ERROR
+    message: Do not execute a shell with application-controlled arguments.
+    pattern: subprocess.$FUNC(..., shell=True, ...)
+  - id: python-dynamic-eval
+    languages: [python]
+    severity: ERROR
+    message: Do not evaluate executable Python from data.
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: exec(...)
+  - id: python-disabled-tls
+    languages: [python]
+    severity: ERROR
+    message: TLS certificate validation must remain enabled.
+    pattern: $CLIENT.$METHOD(..., verify=False, ...)
+  - id: rust-disabled-tls
+    languages: [rust]
+    severity: ERROR
+    message: TLS certificate validation must remain enabled.
+    pattern-either:
+      - pattern: $CLIENT.danger_accept_invalid_certs(true)
+      - pattern: $CLIENT.danger_accept_invalid_hostnames(true)
+  - id: rust-shell-execution
+    languages: [rust]
+    severity: ERROR
+    message: Prefer a direct program and distinct arguments over sh -c.
+    pattern-either:
+      - pattern: Command::new("sh").arg("-c")
+      - pattern: Command::new("bash").arg("-c")
+  - id: python-unsafe-pickle
+    languages: [python]
+    severity: ERROR
+    message: Pickle input can execute code; prefer data-only formats.
+    pattern-either:
+      - pattern: pickle.load(...)
+      - pattern: pickle.loads(...)

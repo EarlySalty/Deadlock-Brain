@@ -12,13 +12,7 @@ use crate::Result;
 const PUBLIC_ITEM_TYPES: &[&str] = &["upgrade"];
 const PUBLIC_ITEM_SLOTS: &[&str] = &["weapon", "vitality", "spirit"];
 const INTERNAL_NAME_PREFIXES: &[&str] = &[
-    "ability_",
-    "citadel_",
-    "hero_",
-    "item_",
-    "melee_",
-    "upgrade_",
-    "weapon_",
+    "ability_", "citadel_", "hero_", "item_", "melee_", "upgrade_", "weapon_",
 ];
 const INTERNAL_ENTITY_TYPES: &[&str] = &["hero_internal", "ability_internal", "weapon_or_internal"];
 
@@ -90,7 +84,16 @@ pub async fn normalize_entities(pool: &PgPool, rebuild: bool) -> Result<Value> {
             if alias_norm.is_empty() {
                 continue;
             }
-            if upsert_entity_alias(pool, &candidate, entity_id, &alias, &alias_norm, &alias_kind).await? {
+            if upsert_entity_alias(
+                pool,
+                &candidate,
+                entity_id,
+                &alias,
+                &alias_norm,
+                &alias_kind,
+            )
+            .await?
+            {
                 aliases += 1;
             }
         }
@@ -105,7 +108,9 @@ pub async fn normalize_entities(pool: &PgPool, rebuild: bool) -> Result<Value> {
     }))
 }
 
-async fn collect_asset_candidates(pool: &PgPool) -> Result<HashMap<(String, String), EntityCandidate>> {
+async fn collect_asset_candidates(
+    pool: &PgPool,
+) -> Result<HashMap<(String, String), EntityCandidate>> {
     let rows = load_asset_rows(pool).await?;
     let context = build_asset_context(&rows);
     let mut candidates: HashMap<(String, String), EntityCandidate> = HashMap::new();
@@ -119,14 +124,21 @@ async fn collect_asset_candidates(pool: &PgPool) -> Result<HashMap<(String, Stri
             continue;
         };
         let entity_type = classify_snapshot(&row.entity_type, payload, &context);
-        let Some(canonical_name) = canonical_name(&entity_type, row.canonical_name.as_deref(), payload, &context) else {
+        let Some(canonical_name) = canonical_name(
+            &entity_type,
+            row.canonical_name.as_deref(),
+            payload,
+            &context,
+        ) else {
             continue;
         };
         if canonical_name.is_empty() {
             continue;
         }
 
-        let class_name = value_to_string(payload.get("class_name")).trim().to_string();
+        let class_name = value_to_string(payload.get("class_name"))
+            .trim()
+            .to_string();
         let class_key = if class_name.is_empty() {
             None
         } else {
@@ -143,7 +155,12 @@ async fn collect_asset_candidates(pool: &PgPool) -> Result<HashMap<(String, Stri
             if let Some(class_key) = class_key {
                 class_index.insert(class_key, key.clone());
             }
-            add_aliases(candidate, Some(&row.external_id), row.canonical_name.as_deref(), payload);
+            add_aliases(
+                candidate,
+                Some(&row.external_id),
+                row.canonical_name.as_deref(),
+                payload,
+            );
         } else {
             let mut candidate = EntityCandidate {
                 entity_type: entity_type.clone(),
@@ -154,7 +171,12 @@ async fn collect_asset_candidates(pool: &PgPool) -> Result<HashMap<(String, Stri
                 metadata,
                 aliases: HashSet::new(),
             };
-            add_aliases(&mut candidate, Some(&row.external_id), row.canonical_name.as_deref(), payload);
+            add_aliases(
+                &mut candidate,
+                Some(&row.external_id),
+                row.canonical_name.as_deref(),
+                payload,
+            );
             candidates.insert(key.clone(), candidate);
             if let Some(class_key) = class_key {
                 class_index.insert(class_key, key);
@@ -212,16 +234,16 @@ fn build_asset_context(rows: &[SnapshotRow]) -> AssetContext {
             continue;
         };
         if row.entity_type == "hero" {
-            let hero_id = value_to_string(payload.get("id"))
-                .trim()
-                .to_string();
+            let hero_id = value_to_string(payload.get("id")).trim().to_string();
             let class_token = strip_prefix(payload.get("class_name"), "hero_");
             if is_active_hero(payload) {
                 if !hero_id.is_empty() {
                     context.active_hero_ids.insert(hero_id);
                 }
                 if let Some(class_token) = class_token {
-                    context.active_hero_tokens.insert(class_token.to_lowercase());
+                    context
+                        .active_hero_tokens
+                        .insert(class_token.to_lowercase());
                 }
             }
         }
@@ -235,7 +257,9 @@ fn build_asset_context(rows: &[SnapshotRow]) -> AssetContext {
             continue;
         };
         let payload_type = value_to_string(payload.get("type")).to_lowercase();
-        let class_name = value_to_string(payload.get("class_name")).trim().to_lowercase();
+        let class_name = value_to_string(payload.get("class_name"))
+            .trim()
+            .to_lowercase();
         if is_public_item(&payload_type, payload) {
             let name = optional_value_to_string(payload.get("name"))
                 .or_else(|| row.canonical_name.clone())
@@ -256,10 +280,18 @@ fn build_asset_context(rows: &[SnapshotRow]) -> AssetContext {
                 .trim()
                 .to_string();
             if !class_name.is_empty() && !name.is_empty() {
-                if is_active_ability(payload, &context.active_hero_ids, &context.active_hero_tokens) {
-                    context.active_ability_names_by_class.insert(class_name, name);
+                if is_active_ability(
+                    payload,
+                    &context.active_hero_ids,
+                    &context.active_hero_tokens,
+                ) {
+                    context
+                        .active_ability_names_by_class
+                        .insert(class_name, name);
                 } else if !looks_internal_name(&name) {
-                    context.internal_ability_names_by_class.insert(class_name, name);
+                    context
+                        .internal_ability_names_by_class
+                        .insert(class_name, name);
                 }
             }
         }
@@ -275,20 +307,37 @@ fn classify_snapshot(
 ) -> String {
     let payload_type = value_to_string(payload.get("type")).to_lowercase();
     if snapshot_type == "hero" || payload_type == "hero" {
-        return if is_active_hero(payload) { "hero" } else { "hero_internal" }.to_string();
+        return if is_active_hero(payload) {
+            "hero"
+        } else {
+            "hero_internal"
+        }
+        .to_string();
     }
     if snapshot_type == "rank" || payload_type == "rank" {
         return "rank".to_string();
     }
-    let class_name = value_to_string(payload.get("class_name")).trim().to_lowercase();
+    let class_name = value_to_string(payload.get("class_name"))
+        .trim()
+        .to_lowercase();
     if payload_type == "ability" {
-        if context.active_ability_names_by_class.contains_key(&class_name) {
+        if context
+            .active_ability_names_by_class
+            .contains_key(&class_name)
+        {
             return "ability".to_string();
         }
-        if context.internal_ability_names_by_class.contains_key(&class_name) {
+        if context
+            .internal_ability_names_by_class
+            .contains_key(&class_name)
+        {
             return "ability_internal".to_string();
         }
-        return if is_active_ability(payload, &context.active_hero_ids, &context.active_hero_tokens) {
+        return if is_active_ability(
+            payload,
+            &context.active_hero_ids,
+            &context.active_hero_tokens,
+        ) {
             "ability"
         } else {
             "ability_internal"
@@ -298,11 +347,19 @@ fn classify_snapshot(
     if context.public_item_names_by_class.contains_key(&class_name) {
         return "item".to_string();
     }
-    if context.special_item_names_by_class.contains_key(&class_name) {
+    if context
+        .special_item_names_by_class
+        .contains_key(&class_name)
+    {
         return "item_special".to_string();
     }
     if is_public_item(&payload_type, payload) {
-        return if is_special_item(payload) { "item_special" } else { "item" }.to_string();
+        return if is_special_item(payload) {
+            "item_special"
+        } else {
+            "item"
+        }
+        .to_string();
     }
     "weapon_or_internal".to_string()
 }
@@ -381,7 +438,9 @@ fn canonical_name(
     payload: &serde_json::Map<String, Value>,
     context: &AssetContext,
 ) -> Option<String> {
-    let class_name = value_to_string(payload.get("class_name")).trim().to_lowercase();
+    let class_name = value_to_string(payload.get("class_name"))
+        .trim()
+        .to_lowercase();
     if entity_type == "item" {
         if let Some(name) = context.public_item_names_by_class.get(&class_name) {
             return Some(name.clone());
@@ -414,7 +473,13 @@ fn canonical_name(
     }
     if matches!(
         entity_type,
-        "hero" | "hero_internal" | "item" | "item_special" | "ability" | "ability_internal" | "rank"
+        "hero"
+            | "hero_internal"
+            | "item"
+            | "item_special"
+            | "ability"
+            | "ability_internal"
+            | "rank"
     ) {
         return Some(name);
     }
@@ -433,12 +498,32 @@ fn add_aliases(
     payload: &serde_json::Map<String, Value>,
 ) {
     if !INTERNAL_ENTITY_TYPES.contains(&candidate.entity_type.as_str()) {
-        add_alias(candidate, Some(candidate.canonical_name.clone()), "canonical");
-        add_alias(candidate, snapshot_name.map(ToString::to_string), "snapshot_name");
+        add_alias(
+            candidate,
+            Some(candidate.canonical_name.clone()),
+            "canonical",
+        );
+        add_alias(
+            candidate,
+            snapshot_name.map(ToString::to_string),
+            "snapshot_name",
+        );
     }
-    add_alias(candidate, external_id.map(ToString::to_string), "external_id");
-    add_alias(candidate, optional_value_to_string(payload.get("id")), "external_id");
-    add_alias(candidate, optional_value_to_string(payload.get("class_name")), "class_name");
+    add_alias(
+        candidate,
+        external_id.map(ToString::to_string),
+        "external_id",
+    );
+    add_alias(
+        candidate,
+        optional_value_to_string(payload.get("id")),
+        "external_id",
+    );
+    add_alias(
+        candidate,
+        optional_value_to_string(payload.get("class_name")),
+        "class_name",
+    );
 }
 
 fn add_alias(candidate: &mut EntityCandidate, value: Option<String>, alias_kind: &str) {
@@ -447,7 +532,9 @@ fn add_alias(candidate: &mut EntityCandidate, value: Option<String>, alias_kind:
     };
     let alias = value.trim();
     if !alias.is_empty() {
-        candidate.aliases.insert((alias.to_string(), alias_kind.to_string()));
+        candidate
+            .aliases
+            .insert((alias.to_string(), alias_kind.to_string()));
     }
 }
 
@@ -462,7 +549,9 @@ fn looks_internal_name(name: &str) -> bool {
         return true;
     }
     let lowered = stripped.to_lowercase();
-    INTERNAL_NAME_PREFIXES.iter().any(|prefix| lowered.starts_with(prefix))
+    INTERNAL_NAME_PREFIXES
+        .iter()
+        .any(|prefix| lowered.starts_with(prefix))
 }
 
 fn metadata_for(

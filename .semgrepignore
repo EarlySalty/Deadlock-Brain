@@ -1,0 +1,4 @@
+rust/target/
+.venv/
+.git/
+scripts/ci/target/
