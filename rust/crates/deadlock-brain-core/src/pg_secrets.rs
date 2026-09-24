@@ -162,6 +162,20 @@ fn valid_environment_name(name: &str) -> bool {
 }
 
 fn load_credential(config: &Config) -> Result<Zeroizing<Vec<u8>>> {
+    if let Some(directory) = env::var_os("CREDENTIALS_DIRECTORY") {
+        let path = PathBuf::from(directory).join(&config.credential_name);
+        if path.is_file() {
+            return read_credential_path(&path);
+        }
+    }
+
+    if let Some(path) = env::var_os("INFISICAL_TOKEN_FILE") {
+        let path = PathBuf::from(path);
+        if path.is_file() {
+            return read_credential_path(&path);
+        }
+    }
+
     if let Some(fd) = config.credential_fd.filter(|fd| *fd >= 3) {
         if let Ok(flags) = fcntl(fd, FcntlArg::F_GETFD) {
             fcntl(
@@ -175,20 +189,6 @@ fn load_credential(config: &Config) -> Result<Zeroizing<Vec<u8>>> {
                 .as_file()
                 .map_err(|_| anyhow!("Infisical Credential FD ist nicht lesbar."))?;
             return read_credential(&file);
-        }
-    }
-
-    if let Some(directory) = env::var_os("CREDENTIALS_DIRECTORY") {
-        let path = PathBuf::from(directory).join(&config.credential_name);
-        if path.is_file() {
-            return read_credential_path(&path);
-        }
-    }
-
-    if let Some(path) = env::var_os("INFISICAL_TOKEN_FILE") {
-        let path = PathBuf::from(path);
-        if path.is_file() {
-            return read_credential_path(&path);
         }
     }
 
