@@ -1,0 +1,4 @@
+/audit/target/
+# Defense in depth only: raw replay publication still requires separate approval.
+*.dem
+*.dem.*
