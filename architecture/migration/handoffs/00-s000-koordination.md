@@ -1,9 +1,9 @@
 # Übergabe: Chat 00, S000 Koordinationsbasis
 
-Status: review
+Status: integriert
 Basis Commit: `55776c7532bb461fab93bbf7c582e2a40a81d2c9`
 Ergebnis Branch: `migration/s000-bootstrap-20260924`
-Tatsächlich getesteter Commit: nicht anwendbar, keine Quellcodeänderung
+Tatsächlich geprüfter Branch Commit: `443df5862179b6bba09820babb590c29016634b0`
 Contract oder Schema Version: offen
 Source Paket: Planversion 1.0, ZIP SHA256 `945be6983ff0235eb0ec36b451f9613ea567e0962ca5658364e8665980177716`
 Betroffene Requirements: R23, R24, R25, R58, R60 als Koordinationsstart, fachliche Abnahme weiter offen
@@ -42,6 +42,6 @@ Chat 00: G0 nach belegten Ergebnissen bewerten.
 
 ## Integration durch Chat 00
 
-Merge Commit: nach Merge einzutragen
+Merge Commit: `da40b57`
 Gate und STATUS: G0 bleibt offen
-Freigegeben: S000 gibt Chat 01 und Chat 10 Vorbereitung frei
+Freigegeben: Chat 01 und Chat 10 im Modus `prepare_only`
