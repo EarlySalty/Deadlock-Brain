@@ -24,3 +24,26 @@ def test_non_http_urls_are_rejected_before_network_or_file_access(tmp_path, url)
         with pytest.raises(ValueError, match="Only HTTP"):
             client.get(url)
         opener.assert_not_called()
+
+
+@pytest.mark.parametrize("classifier_module", ["deadlock_brain.sources.patchnotes_db", "deadlock_brain.patch_parser"])
+@pytest.mark.parametrize(("url", "expected"), [
+    ("https://steamcommunity.com/app/1422450", "steam"),
+    ("https://store.steampowered.com/news", "steam"),
+    ("https://STEAMCOMMUNITY.COM./news", "steam"),
+    ("https://steamstore-a.akamaihd.net/news", "steam"),
+    ("https://forums.playdeadlock.com/threads/ci", "forum"),
+    ("https://example.invalid/steamcommunity.com", "other"),
+    ("https://steamcommunity.com.example.invalid/news", "other"),
+    ("https://notsteamcommunity.com/news", "other"),
+    ("https://example.invalid/?url=forums.playdeadlock.com", "other"),
+    ("https://steamcommunity.com@example.invalid/news", "other"),
+    ("https://example.invalid@steamcommunity.com/news", "other"),
+    ("file://steamcommunity.com/news", "other"),
+    ("https://[invalid", "other"),
+    (None, "other"),
+])
+def test_source_classification_uses_hostname_boundaries(classifier_module, url, expected):
+    import importlib
+    classifier = importlib.import_module(classifier_module).classify_source_kind
+    assert classifier(url) == expected

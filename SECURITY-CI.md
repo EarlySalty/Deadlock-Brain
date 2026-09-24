@@ -181,3 +181,30 @@ uv pip compile requirements/security.in --python-version 3.12 \
 
 Dependabot ist für GitHub Actions, Cargo und die tatsächlich vorhandenen Pip-
 Manifeste eingerichtet. Es gibt keine Node-/npm- oder Dockerfile-Toolchain.
+
+## Erkenntnisse aus dem ersten echten PR-Lauf
+
+Run `35942187782`, Commit `72d1ae10d32d40d7d37e58777f7182cf528e105b`:
+Rust, Python, Workflow-Policy und alle allgemeinen Scanner samt Gegenproben
+waren erfolgreich. Cargo-Audit und das Required PR Gate waren wegen des
+RSA-Lockfile-Befunds rot. CodeQL analysierte beide Sprachen erfolgreich,
+der nachgeschaltete Prüfer war jedoch zusätzlich rot. Die SARIF-Artefakte
+zeigen 28 Rust-Regeln und 50 Python-Regeln in `tool.extensions`, nicht in
+`tool.driver.rules`. Der Prüfer wurde entsprechend korrigiert und verlangt
+weiterhin echte Security-Regeln, erfolgreiche Invocations und null Findings.
+
+Python lieferte acht Befunde über zwei URL-Klassifikatoren, die Domainnamen
+lediglich als URL-Teilstrings erkannten. Beide verwenden jetzt geparste
+HTTP(S)-Hostnamen mit exakter Domain- oder Punkt-Subdomain-Grenze; Userinfo,
+Datei-URLs, fehlerhafte URLs und vorgetäuschte Domains werden abgewiesen.
+28 parametrisierte Regressionstests prüfen beide vorhandenen Aufrufstellen.
+
+Der erste Rust-Bericht erfasste 131 eigene Quelldateien, davon 130 ohne
+Extraktionsfehler; dem eigenständigen CI-Helfer fehlte ein Cargo-Manifest.
+Dieser std-only-Helfer bekommt dafür ein eigenes, abhängigkeitenfreies
+Manifest. Fehlerhafte Dateiextraktionen werden jetzt auch anhand der
+CodeQL-Metriken blockiert. Die CodeQL-Matrix nutzt zusätzlich eine eigene
+isolierte PostgreSQL-Instanz und denselben echten Schema-Bootstrap, damit
+SQLx-Makros nicht auf möglicherweise unvollständige Offline-Caches angewiesen
+sind. Build-mode none bleibt trotzdem kein vollständiger Cargo-Build;
+Makro-, Typinferenz- und cfg-Grenzen sind weiterhin zu beachten.
