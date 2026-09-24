@@ -1,0 +1,13 @@
+{
+  "model": "fixture-jev-model-not-for-live",
+  "answers": {
+    "answerability": {
+      "type": "noul",
+      "noul": 0.7
+    }
+  },
+  "usage": {
+    "input_tokens": 80,
+    "output_tokens": 10
+  }
+}
