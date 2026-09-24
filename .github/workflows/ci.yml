@@ -3,14 +3,6 @@ name: "Deterministic PR CI"
 on:
   pull_request:
     branches: [main]
-    paths:
-      - "rust/**"
-      - "mcp/**"
-      - "src/**"
-      - "tests/**"
-      - "scripts/migrations/**"
-      - "pyproject.toml"
-      - ".github/workflows/ci.yml"
   workflow_dispatch:
 
 permissions:
