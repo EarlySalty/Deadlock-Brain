@@ -1,0 +1,15 @@
+logical_area,real_path,owner_chat,allowed_work,base_commit,contract_version,approval_status
+coordination,architecture/migration/**,00,S000_and_integration,55776c7532bb461fab93bbf7c582e2a40a81d2c9,,active
+workspace_and_shared_contracts,rust/Cargo.toml;rust/Cargo.lock;rust/crates/deadlock-brain-core/**,02,after_G0,55776c7532bb461fab93bbf7c582e2a40a81d2c9,,reserved
+schema_and_migrations,unresolved_in_S000,03,design_after_G0_implementation_after_G1,55776c7532bb461fab93bbf7c582e2a40a81d2c9,,pending_inventory
+worker_and_feeder,rust/crates/deadlock-brain/**;rust/crates/dbrain-sources/**,04,after_G1,55776c7532bb461fab93bbf7c582e2a40a81d2c9,,reserved
+domain_rules_builds_learning,rust/crates/dbrain-builds/**;rust/crates/dbrain-reasoner/**;rust/crates/dbrain-learn/**;rust/crates/dbrain-population/**;rust/crates/dbrain-enrich/**;rust/crates/dbrain-normalize/**,05,after_G1,55776c7532bb461fab93bbf7c582e2a40a81d2c9,,reserved
+retrieval,rust/crates/dbrain-retrieval/**,06,after_G1,55776c7532bb461fab93bbf7c582e2a40a81d2c9,,reserved
+provider_and_jev,rust/crates/deadlock-brain-core/src/ai*;rust/crates/deadlock-brain-core/src/http*;rust/crates/deadlock-brain-core/src/model_resolver*,07,after_G1,55776c7532bb461fab93bbf7c582e2a40a81d2c9,,provisional_existing_path
+answer_kernel_and_api,unresolved_in_S000,08,G1_mocks_then_real,55776c7532bb461fab93bbf7c582e2a40a81d2c9,,pending_inventory
+consumer_adapters_exports,rust/crates/deadlock-brain/**;rust/crates/deadlock-brain-yt/**,09,G1_contract_API_then_real,55776c7532bb461fab93bbf7c582e2a40a81d2c9,,provisional_existing_path
+quality_and_performance,architecture/migration/evals/**;architecture/migration/benchmarks/**,10,prepare_only_now,55776c7532bb461fab93bbf7c582e2a40a81d2c9,,reserved
+cutover_and_runtime,unresolved_in_S000,11,runbook_after_G1_cutover_after_G4,55776c7532bb461fab93bbf7c582e2a40a81d2c9,,pending_inventory
+wiki_projector,rust/crates/dbrain-sources/src/wiki*;rust/crates/dbrain-retrieval/src/game_wiki*;rust/crates/deadlock-brain/src/wiki_refresh*,12,discovery_after_G0_implementation_after_G1,55776c7532bb461fab93bbf7c582e2a40a81d2c9,,provisional_existing_path
+external_api_git_schema,rust/crates/dbrain-sources/**,13,source_review_after_G0_implementation_after_G1,55776c7532bb461fab93bbf7c582e2a40a81d2c9,,provisional_existing_path
+replay_observations,rust/crates/dbrain-sources/src/deadlock_api*;rust/crates/dbrain-population/**,14,replay_access_after_G0_implementation_after_G1,55776c7532bb461fab93bbf7c582e2a40a81d2c9,,provisional_existing_path
