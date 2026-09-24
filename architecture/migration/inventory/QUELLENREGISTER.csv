@@ -1,0 +1,14 @@
+source_key,planned_role,scope_class,owner_chat,status,pinned_revision,license_data_policy,access_egress_policy,derivation_family,root_artifacts,observed_game_version,coverage,decision_evidence
+deadlock-api/deadlock-api,population_feed,required_family,13,code_adapter_verified,not_pinned,not_verified,not_verified,external_api,deadlock_api_snapshots,unknown,adapter_present,rust/crates/dbrain-sources/src/deadlock_api.rs@2734c2d
+deadlock-api/deadlock-api-assets,current_state,required_family,13,code_adapter_verified,not_pinned,not_verified,not_verified,external_api,asset_snapshots,unknown,adapter_present,rust/crates/dbrain-sources/src/assets_api.rs@2734c2d
+deadlock-wiki/deadlock-data,history_git,required_family,13,code_adapter_verified,not_pinned,not_verified,not_verified,git_history,game_data_snapshots,unknown,adapter_present,rust/crates/dbrain-sources/src/deadlock_data.rs@2734c2d
+deadlock.wiki,wiki_facts_prose,required_family,12,code_adapter_verified,not_pinned,not_verified,not_verified,wiki,wiki_page_snapshots,unknown,adapter_present,rust/crates/dbrain-sources/src/wiki.rs@2734c2d
+official_patchnotes,declared_changes,required_family,13,local_pipeline_verified,not_pinned,not_verified,not_verified,patchnotes,patch_source_documents,unknown,implemented,rust/crates/dbrain-normalize/src/patch.rs@2734c2d
+developer_forum_posts,authoritative_context,inventory,13,code_adapter_verified,not_pinned,not_verified,not_verified,forum,forum_documents,unknown,adapter_present,rust/crates/dbrain-sources/src/forum.rs@2734c2d
+google_sheet,stats_claims,inventory,13,code_adapter_verified,not_pinned,not_verified,not_verified,sheet,sheet_snapshots,unknown,adapter_present,rust/crates/dbrain-sources/src/google_sheet.rs@2734c2d
+statlocker,population_secondary,inventory,13,code_adapter_verified,not_pinned,not_verified,not_verified,external_api,population_snapshots,unknown,adapter_present,rust/crates/dbrain-sources/src/statlocker.rs@2734c2d
+reddit,community_hypotheses,inventory,13,code_adapter_verified,not_pinned,not_verified,not_verified,reddit,reddit_documents,unknown,adapter_present,rust/crates/dbrain-sources/src/reddit.rs@2734c2d
+EarlySalty/Deadlock-Docs,curated_docs_evals,required_if_present,01/09,repo_verified,98bf75aa6902,mixed_public_internal,not_verified,docs,public_and_internal_docs,not_applicable,present,git_and_rg_2026-09-24
+EarlySalty/Deadlock-2nd-Brain,internal_knowledge,required_if_present,01/03,repo_verified,0171da453592,internal,not_verified,internal_docs,second_brain,not_applicable,present,git_head_2026-09-24
+EarlySalty/Deadlock-Twitch-Bot,consumer,required_if_present,01/09,repo_verified,1442640c3ea4,private_repo,not_applicable,consumer,brain_git_dependencies,not_applicable,present,Cargo.lock_and_docs
+EarlySalty/Deadlock-Bots,consumer_publish,required_if_present,01/09,repo_verified,ff635f7b354c,private_repo,not_verified,consumer_and_knowledge,brain_and_knowledge_tables,not_applicable,present,rg_2026-09-24
