@@ -1,0 +1,75 @@
+{
+  "artifact_kind": "decision_record_not_runtime_configuration",
+  "proposal_revision": "s07-v0.1",
+  "base_commit": "c00fc8935048bf490c1e4790f7c6195864ad49e2",
+  "integration_gate": "G1",
+  "activation_gate": "G4",
+  "runtime_changed": false,
+  "features": {
+    "relevance": {
+      "approved_mode": "off",
+      "implementation": "not_started_g1_open",
+      "shadow": "not_run",
+      "live_contract": "not_run",
+      "development_labels": null,
+      "holdout_labels": null,
+      "threshold": null,
+      "measured_benefit": null,
+      "total_cost": null,
+      "evidence_loss": null,
+      "approved_by": null
+    },
+    "feeder_classification": {
+      "approved_mode": "off",
+      "implementation": "not_started_g1_open",
+      "shadow": "not_run",
+      "live_contract": "not_run",
+      "development_labels": null,
+      "holdout_labels": null,
+      "threshold": null,
+      "measured_benefit": null,
+      "total_cost": null,
+      "evidence_loss": null,
+      "approved_by": null
+    },
+    "query_routing": {
+      "approved_mode": "off",
+      "implementation": "not_started_g1_open",
+      "shadow": "not_run",
+      "live_contract": "not_run",
+      "development_labels": null,
+      "holdout_labels": null,
+      "threshold": null,
+      "measured_benefit": null,
+      "total_cost": null,
+      "evidence_loss": null,
+      "approved_by": null
+    },
+    "answerability": {
+      "approved_mode": "off",
+      "implementation": "not_started_g1_open",
+      "shadow": "not_run",
+      "live_contract": "not_run",
+      "development_labels": null,
+      "holdout_labels": null,
+      "threshold": null,
+      "measured_benefit": null,
+      "total_cost": null,
+      "evidence_loss": null,
+      "approved_by": null
+    },
+    "model_routing": {
+      "approved_mode": "off",
+      "implementation": "not_started_g1_open",
+      "shadow": "not_run",
+      "live_contract": "not_run",
+      "development_labels": null,
+      "holdout_labels": null,
+      "threshold": null,
+      "measured_benefit": null,
+      "total_cost": null,
+      "evidence_loss": null,
+      "approved_by": null
+    }
+  }
+}
