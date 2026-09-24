@@ -1,0 +1,20 @@
+[package]
+name = "brain-ingestion"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "brain_ingestion"
+path = "src/lib.rs"
+
+[dependencies]
+brain-contracts = { path = "../brain-contracts" }
+brain-storage = { path = "../brain-storage" }
+hex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

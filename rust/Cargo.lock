@@ -194,6 +194,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "brain-ingestion"
+version = "0.1.0"
+dependencies = [
+ "brain-contracts",
+ "brain-storage",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "brain-policy"
 version = "0.1.0"
 dependencies = [
@@ -201,6 +215,17 @@ dependencies = [
  "hex",
  "sha2 0.10.9",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "brain-storage"
+version = "0.1.0"
+dependencies = [
+ "brain-contracts",
+ "serde_json",
+ "sqlx",
+ "thiserror 1.0.69",
+ "tokio",
 ]
 
 [[package]]
