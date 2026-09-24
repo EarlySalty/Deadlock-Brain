@@ -5,8 +5,8 @@ Arbeitsmodus: ausschließlich Ablauf-/Testentwurf vor G1, keine selbst erteilte 
 
 Basis-Commit: `c00fc8935048bf490c1e4790f7c6195864ad49e2`.
 Ergebnisbranch: `migration/s08-answer-kernel-20260924`.
-Ergebnis-Commit / PR: Der vollständige aktuelle Head und die abschließende GitHub-Prüfung werden im PR dieses Branches festgehalten. Kein integrierter S08-Commit.
-Tatsächlich geprüfter Quellstand: obiger Basis-Commit; Dokumentationsnachweis am S08-Arbeitsstand gemäß Tabelle unten. Die abschließende Prüfung des committed Head wird im PR protokolliert.
+Ergebnis-Commit / PR: Vorbereitung in `7e698db8105ba45250b8fe540656eb4c4aceeab5`, offener Draft-[PR #19](https://github.com/EarlySalty/Deadlock-Brain/pull/19). Der aktuelle Head nach dieser Übergabeergänzung und die abschließende GitHub-Prüfung stehen im PR. Kein integrierter S08-Commit.
+Tatsächlich geprüfter Quellstand: obiger Basis-Commit; die Dokumentationsprüfung und `git diff BASE HEAD --check` wurden nach Commit auf `7e698db8105ba45250b8fe540656eb4c4aceeab5` erfolgreich wiederholt. Die abschließende Prüfung nach dieser reinen Übergabeergänzung wird im PR protokolliert.
 Contract-/Schema-/Policy-Version: offen laut integriertem STATUS.
 Source-Version: Planpaket 1.0, SHA256 `945be6983ff0235eb0ec36b451f9613ea567e0962ca5658364e8665980177716`.
 Corpus-/Knowledge-/Modell-/Rule-/Parser-Version: kein produktiver Stand geladen; keine Version von S08 erfunden.
