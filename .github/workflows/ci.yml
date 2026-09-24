@@ -1,0 +1,194 @@
+name: "Deterministic PR CI"
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "rust/**"
+      - "mcp/**"
+      - "src/**"
+      - "tests/**"
+      - "scripts/migrations/**"
+      - "pyproject.toml"
+      - ".github/workflows/ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: brain-pr-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  migration-contracts:
+    name: "Migration composition"
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject edited applied migrations and incompatible parallel table contracts
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pull_number = context.payload.pull_request.number;
+            const current = context.payload.pull_request;
+
+            const decode = (data) => Buffer.from(data.content || "", "base64").toString("utf8");
+            const normalizeSql = (value) =>
+              value
+                .replace(/\/\*[\s\S]*?\*\//g, " ")
+                .replace(/--[^\n]*/g, " ")
+                .replace(/\s+/g, " ")
+                .trim()
+                .toLowerCase();
+
+            const tableDefinitions = (sql) => {
+              const result = new Map();
+              const cleaned = sql
+                .replace(/\/\*[\s\S]*?\*\//g, " ")
+                .replace(/--[^\n]*/g, " ");
+              const regex = /create\s+table\s+(?:if\s+not\s+exists\s+)?([a-zA-Z0-9_."-]+)\s*\(([\s\S]*?)\)\s*;/gi;
+              let match;
+              while ((match = regex.exec(cleaned)) !== null) {
+                result.set(match[1].toLowerCase(), normalizeSql(match[2]));
+              }
+              return result;
+            };
+
+            const fetchText = async (ref, path) => {
+              const response = await github.rest.repos.getContent({ owner, repo, path, ref });
+              if (Array.isArray(response.data) || response.data.type !== "file") {
+                throw new Error(`Expected file content for ${path} at ${ref}`);
+              }
+              return decode(response.data);
+            };
+
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner, repo, pull_number, per_page: 100,
+            });
+            const migrationFiles = files.filter((file) =>
+              file.filename.startsWith("scripts/migrations/") && file.filename.endsWith(".sql")
+            );
+
+            const editedExisting = migrationFiles.filter((file) =>
+              ["modified", "renamed", "removed"].includes(file.status)
+            );
+            if (editedExisting.length) {
+              core.setFailed(
+                "Existing migration files are immutable after merge. Add a new migration instead: " +
+                editedExisting.map((file) => file.filename).join(", ")
+              );
+              return;
+            }
+
+            if (!migrationFiles.length) {
+              core.notice("No migration files changed.");
+              return;
+            }
+
+            const candidate = new Map();
+            for (const file of migrationFiles) {
+              const sql = await fetchText(current.head.sha, file.filename);
+              for (const [table, signature] of tableDefinitions(sql)) {
+                candidate.set(table, { signature, source: `PR #${pull_number} ${file.filename}` });
+              }
+            }
+
+            const conflicts = [];
+            const compareDefinitions = (defs, source) => {
+              for (const [table, signature] of defs) {
+                const wanted = candidate.get(table);
+                if (wanted && wanted.signature !== signature) {
+                  conflicts.push(`${table}: ${wanted.source} conflicts with ${source}`);
+                }
+              }
+            };
+
+            const baseTree = await github.rest.git.getTree({
+              owner, repo, tree_sha: current.base.sha, recursive: "true",
+            });
+            for (const entry of baseTree.data.tree || []) {
+              if (
+                entry.type !== "blob" ||
+                !entry.path?.startsWith("scripts/migrations/") ||
+                !entry.path.endsWith(".sql")
+              ) continue;
+              const sql = await fetchText(current.base.sha, entry.path);
+              compareDefinitions(tableDefinitions(sql), `main ${entry.path}`);
+            }
+
+            const openPulls = await github.paginate(github.rest.pulls.list, {
+              owner, repo, state: "open", base: "main", per_page: 100,
+            });
+            for (const other of openPulls) {
+              if (other.number === pull_number) continue;
+              const otherFiles = await github.paginate(github.rest.pulls.listFiles, {
+                owner, repo, pull_number: other.number, per_page: 100,
+              });
+              for (const file of otherFiles) {
+                if (
+                  !file.filename.startsWith("scripts/migrations/") ||
+                  !file.filename.endsWith(".sql") ||
+                  file.status === "removed"
+                ) continue;
+                try {
+                  const sql = await fetchText(other.head.sha, file.filename);
+                  compareDefinitions(
+                    tableDefinitions(sql),
+                    `open PR #${other.number} ${file.filename}`,
+                  );
+                } catch (error) {
+                  core.warning(
+                    `Could not inspect ${file.filename} from PR #${other.number}: ${String(error?.message || error)}`,
+                  );
+                }
+              }
+            }
+
+            if (conflicts.length) {
+              core.setFailed(
+                "Incompatible CREATE TABLE contracts detected:\n" +
+                [...new Set(conflicts)].join("\n")
+              );
+            } else {
+              core.notice("Migration table contracts compose with main and parallel open PRs.");
+            }
+
+  rust:
+    name: "Rust workspace"
+    runs-on: ubuntu-latest
+    env:
+      SQLX_OFFLINE: "true"
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -j2 -- -D warnings
+      - name: Tests
+        run: cargo test --workspace --all-targets --locked -j2
+
+  python:
+    name: "Python contracts"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install package and test dependencies
+        run: python -m pip install -e . pytest
+      - name: Tests
+        run: python -m pytest -q
