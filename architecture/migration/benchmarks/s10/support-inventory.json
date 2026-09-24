@@ -1,0 +1,60 @@
+{
+  "case_count": 224,
+  "executed": false,
+  "files": [
+    {
+      "case_count": 38,
+      "executed": false,
+      "labels": "expected_sources/context_terms/answer_terms/forbidden_terms",
+      "path": "evals/public-discord-core.json",
+      "sha256": "50e69d4e183001f7a65ef040f55b9cdfa2ccd58c10b1d3556ef1e03a1d8f039c",
+      "unanswerable_count": 0
+    },
+    {
+      "case_count": 38,
+      "executed": false,
+      "labels": "expected_sources/context_terms/answer_terms/forbidden_terms",
+      "path": "evals/public-discord-tools.json",
+      "sha256": "8d2718d67eb6d8b4a36ddfa8b0405c4871759d63c09b4c83e6015b02c181eb91",
+      "unanswerable_count": 0
+    },
+    {
+      "case_count": 40,
+      "executed": false,
+      "labels": "expected_sources/context_terms/answer_terms/forbidden_terms",
+      "path": "evals/public-integration.json",
+      "sha256": "b2bf6eeaf29a141233d9e371e5c32b0fb40f07a5ef1531f35752314c227084e9",
+      "unanswerable_count": 12
+    },
+    {
+      "case_count": 35,
+      "executed": false,
+      "labels": "expected_sources/context_terms/answer_terms/forbidden_terms",
+      "path": "evals/public-patchnotes-turniere.json",
+      "sha256": "7927368e900cfc2d4835b8ba0de4ccc2d45ee52f6bb96144a1276b0a1fa99eac",
+      "unanswerable_count": 0
+    },
+    {
+      "case_count": 31,
+      "executed": false,
+      "labels": "expected_sources/context_terms/answer_terms/forbidden_terms",
+      "path": "evals/public-steam-website.json",
+      "sha256": "0fb56a6e5c485f2574b9afa4a96eb788ede3d931d63bd79dbd6fae5a9addff8e",
+      "unanswerable_count": 0
+    },
+    {
+      "case_count": 42,
+      "executed": false,
+      "labels": "expected_sources/context_terms/answer_terms/forbidden_terms",
+      "path": "evals/public-twitch.json",
+      "sha256": "4583f8abe71ca6b160d1a54d963389c145a6d799e3e177cfdff498ca543bb4af",
+      "unanswerable_count": 0
+    }
+  ],
+  "kind": "support_eval_inventory",
+  "release_approved": false,
+  "schema_version": 1,
+  "source_commit": "98bf75aa690203f354c9f31d870fa82d2368142a",
+  "source_repository": "Deadlock-Docs",
+  "unanswerable_count": 12
+}
