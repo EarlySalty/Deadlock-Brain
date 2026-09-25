@@ -1,0 +1,65 @@
+name: Rust Core Verification
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'rust/**'
+      - 'scripts/migrations/*brain*'
+      - 'scripts/check_brain_core.sh'
+      - 'scripts/test_brain_core_postgres.sh'
+      - 'architecture/migration/s07/fixtures/**'
+      - '.github/workflows/rust-core-verification.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-core-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.97.1'
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Require isolated PostgreSQL test binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          pg_config --version
+          test -x "$(pg_config --bindir)/initdb"
+          test -x "$(pg_config --bindir)/pg_ctl"
+      - name: Workspace gates and isolated PostgreSQL contracts
+        run: bash scripts/check_brain_core.sh all
+      - name: Focused Core contracts
+        run: bash scripts/check_brain_core.sh core
+      - name: Preserved provider fixture hashes
+        working-directory: architecture/migration/s07/fixtures
+        run: sha256sum --check SHA256SUMS
+      - name: Test outcome summary
+        if: always()
+        shell: bash
+        run: |
+          for result in .core-test-logs/results-*.tsv; do
+            test ! -f "$result" || { echo "--- $result"; cat "$result"; }
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rust-core-verification-${{ github.sha }}
+          if-no-files-found: warn
+          path: |
+            .core-test-logs/*.log
+            .core-test-logs/results-*.tsv

@@ -1,9 +1,11 @@
 #![forbid(unsafe_code)]
 
+mod domain_reader;
 mod local_pg_reader;
 mod memory_repository;
 mod pg_jobs;
 mod pg_release;
+pub use domain_reader::DomainReader;
 pub use local_pg_reader::LocalPgReader;
 pub use memory_repository::MemoryRepository;
 

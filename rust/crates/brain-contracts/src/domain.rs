@@ -58,6 +58,42 @@ pub struct RuleEvaluation {
     pub knowledge_release: String,
     pub input_fact_ids: BTreeSet<String>,
 }
+pub const DOMAIN_CONTRACT_VERSION: &str = "brain.domain.v1";
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    content = "payload",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
+pub enum DomainObject {
+    NumericFact(NumericFact),
+    Rule(TypedRule),
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StoredDomainObject {
+    pub contract_version: String,
+    pub object: DomainObject,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DomainSnapshot {
+    pub release: CorpusRelease,
+    pub validity: Validity,
+    pub facts: Vec<NumericFact>,
+    pub rules: Vec<TypedRule>,
+}
+/// Implementations authorize BOTH the typed object and its canonical source revision.
+pub trait DomainStorePort: Send + Sync {
+    fn read_domain(
+        &self,
+        context: &crate::AuthorizedContext,
+        validity: &Validity,
+    ) -> Result<DomainSnapshot, PortError>;
+}
+
 pub trait RuleEvaluatorPort: Send + Sync {
     fn evaluate(
         &self,

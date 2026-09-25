@@ -32,6 +32,12 @@ case "$MODE" in
     run_check core "$CARGO" test --locked -p brain-contracts -p brain-policy -p brain-storage -p brain-ingestion \
       -p brain-providers -p brain-jev -p brain-kernel -p brain-api -p brain-client -p dbrain-retrieval -p dbrain-reasoner
     ;;
+  release)
+    run_check release "$CARGO" build --workspace --release --locked
+    ;;
+  postgres)
+    run_check postgres bash "$ROOT/scripts/test_brain_core_postgres.sh"
+    ;;
   all)
     run_check fmt "$CARGO" fmt --all -- --check
     run_check clippy "$CARGO" clippy --workspace --all-targets --locked -- -D warnings
@@ -39,6 +45,6 @@ case "$MODE" in
     run_check release "$CARGO" build --workspace --release --locked
     run_check postgres bash "$ROOT/scripts/test_brain_core_postgres.sh"
     ;;
-  *) echo 'Usage: check_brain_core.sh [bootstrap|core|all]' >&2; exit 2 ;;
+  *) echo 'Usage: check_brain_core.sh [bootstrap|core|release|postgres|all]' >&2; exit 2 ;;
 esac
 exit "$FAILED"
