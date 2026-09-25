@@ -1,0 +1,45 @@
+# Nicht freigegebener Entwurf aus dem vom Nutzer bereitgestellten Planpaket.
+# Leere Felder sind Blocker. Diese Datei aktiviert oder verändert keinen Dienst.
+release_id: null
+approved: false
+code_commit: null
+images: []
+toolchain: null
+contract_version: null
+db_schema_version: null
+corpus_release: null
+source_snapshot_manifest: null
+source_watermarks: {}
+embedding_config_hash: null
+lexical_generation: null
+dense_generation: null
+domain_dataset_versions: {}
+algorithm_artifacts: []
+policy_version: null
+tombstone_checkpoint: null
+provider_config_revision: null
+secret_references: []
+writer_fencing:
+  previous_writer: null
+  new_writer: null
+  fencing_token: null
+  final_offset: null
+rollback:
+  compatible_release: null
+  schema_compatibility_proof: null
+  post_cutover_write_replay: null
+  restore_report: null
+gate_reports: {}
+source_contract_version: null
+source_policy_manifest: null
+canonical_fact_version: null
+rule_set_version: null
+mechanic_graph_version: null
+hero_card_generation: null
+schema_registry_manifest: null
+replay_parser_manifest: null
+observation_dataset_version: null
+population_dataset_versions: {}
+coverage_report: null
+holdout_manifest: null
+knowledge_export_manifest: null

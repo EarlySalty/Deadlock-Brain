@@ -1,0 +1,78 @@
+{
+  "batch_mean_pair_latency_ms": {
+    "count": 5,
+    "mean": 0.00054542824,
+    "p50": 0.0005123914000000001,
+    "p95": 0.0006698920000000001,
+    "p99": 0.0006698920000000001,
+    "stddev": 0.00006482797685658871
+  },
+  "binary_sha256": "b4fcc09850021fdb4ef975c09129374456793e68d3e494ed4fa7711bb4806c2b",
+  "cache_state": "process_warm",
+  "candidate_commit": "a14340f8b1b8db9657255be2ec05672e9d562cba",
+  "case_id": "DOMAIN_POPULATION_METRICS",
+  "cpu_seconds": null,
+  "dataset": "fixed integer ordering/overlap fixtures v1",
+  "e2e_latency_ms": null,
+  "hardware": {
+    "arch": "x86_64",
+    "available_parallelism": 16,
+    "container_limits": null,
+    "cpu": "AMD EPYC 9334 32-Core Processor",
+    "network": null,
+    "os": "linux",
+    "ram_kib": 50331648,
+    "storage": null
+  },
+  "hardware_fingerprint": "9d03a73c758c6609279f88854e1003a56aa16ea08bcc99ef071bb978c3c65b0b",
+  "ingest_lag_seconds": null,
+  "io_bytes": null,
+  "kind": "stage_fixture",
+  "legacy_baseline": null,
+  "measured_at_unix_seconds": 1790259511,
+  "measurement_tool_dirty": false,
+  "process_peak_ram_kib": 3844,
+  "provider_cost": null,
+  "quality_reference_passed": true,
+  "raw_samples": [
+    {
+      "elapsed_us": 3349.46,
+      "function_calls": 10000,
+      "iterations": 5000,
+      "repetition": 0
+    },
+    {
+      "elapsed_us": 2739.834,
+      "function_calls": 10000,
+      "iterations": 5000,
+      "repetition": 1
+    },
+    {
+      "elapsed_us": 2561.9570000000003,
+      "function_calls": 10000,
+      "iterations": 5000,
+      "repetition": 2
+    },
+    {
+      "elapsed_us": 2481.346,
+      "function_calls": 10000,
+      "iterations": 5000,
+      "repetition": 3
+    },
+    {
+      "elapsed_us": 2503.109,
+      "function_calls": 10000,
+      "iterations": 5000,
+      "repetition": 4
+    }
+  ],
+  "release_approved": false,
+  "schema_version": 1,
+  "seed": null,
+  "source_path": "rust/crates/dbrain-population/src/metrics.rs",
+  "source_sha256": "f7efe078225890ae2dbf69d60deee88820ac957c805a1055e8ea80c5ba61aa38",
+  "speedup": null,
+  "tool_version": "0.1.0",
+  "toolchain": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+  "warmup_batches": 1
+}
