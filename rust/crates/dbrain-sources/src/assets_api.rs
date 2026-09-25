@@ -10,17 +10,20 @@ use crate::{
 };
 
 pub const SOURCE: &str = "deadlock_assets_api";
-pub const BASE_URL: &str = "https://assets.deadlock-api.com";
+// assets.deadlock-api.com ist seit September 2026 NXDOMAIN; die Assets liegen
+// jetzt unter /v1/assets der Haupt-API. Für /raw/* gibt es dort keinen Ersatz,
+// diese Arten schlagen deshalb weiterhin mit einem HTTP-Fehler fehl.
+pub const BASE_URL: &str = "https://api.deadlock-api.com";
 pub const ENDPOINTS: &[(&str, &str)] = &[
-    ("items", "/v2/items"),
-    ("heroes", "/v2/heroes?only_active=true"),
-    ("heroes_all", "/v2/heroes"),
+    ("items", "/v1/assets/items"),
+    ("heroes", "/v1/assets/heroes?only_active=true"),
+    ("heroes_all", "/v1/assets/heroes"),
     ("raw_items", "/raw/items"),
     ("raw_heroes", "/raw/heroes"),
-    ("ranks", "/v2/ranks"),
-    ("colors", "/v1/colors"),
-    ("build_tags", "/v2/build-tags"),
-    ("npc_units", "/v2/npc-units"),
+    ("ranks", "/v1/assets/ranks"),
+    ("colors", "/v1/assets/colors"),
+    ("build_tags", "/v1/assets/build-tags"),
+    ("npc_units", "/v1/assets/npc-units"),
 ];
 
 #[derive(Debug, Clone, Default)]
