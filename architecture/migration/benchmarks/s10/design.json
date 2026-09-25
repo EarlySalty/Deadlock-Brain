@@ -1,0 +1,10 @@
+{
+  "case_count": 40,
+  "dataset_sha256": "ed2b8a87e891c7dc93605f77c25b90aa71e86e7ac469521aa22017f8807f6b52",
+  "e2e_executed": false,
+  "kind": "test_design",
+  "profile_approved": false,
+  "profile_sha256": "d1480e5696ec7d760e661090a32cdba547044f47d2da4e413cd0166a77059bca",
+  "release_approved": false,
+  "schema_version": 1
+}
