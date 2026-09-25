@@ -1703,14 +1703,17 @@ mod tests {
                 "slow-job",
                 &url,
                 Duration::from_secs(5),
-                Duration::from_millis(30),
+                // Exercise the sleep cap, not cold connection scheduling within 30 ms.
+                // The separate status-request test covers cancellation during the request.
+                Duration::from_millis(250),
             ))
             .unwrap_err()
             .to_string();
 
         server.join().unwrap();
         assert!(timeout.contains("Timeout"));
-        assert!(started.elapsed() < Duration::from_millis(500));
+        // Still far below the requested five-second sleep, with room for a busy CI host.
+        assert!(started.elapsed() < Duration::from_millis(1500));
     }
 
     #[test]

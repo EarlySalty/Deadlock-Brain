@@ -50,9 +50,7 @@ pub(super) fn append_dossiers(rows: &mut Vec<SnapshotRow>) {
                 }
                 let owners = rows
                     .iter()
-                    .filter(|row| {
-                        row.source == "deadlock_data" && row.entity_type == "hero"
-                    })
+                    .filter(|row| row.source == "deadlock_data" && row.entity_type == "hero")
                     .filter(|row| {
                         ability_bindings(&row.payload)
                             .values()
@@ -90,8 +88,7 @@ pub(super) fn append_dossiers(rows: &mut Vec<SnapshotRow>) {
                 if historical || !matches!(kind, "mechanics" | "strategy" | "overview") {
                     continue;
                 }
-                let Some(text) = section["text"].as_str().filter(|s| !s.is_empty())
-                else {
+                let Some(text) = section["text"].as_str().filter(|s| !s.is_empty()) else {
                     continue;
                 };
                 if remaining == 0 {
@@ -157,8 +154,7 @@ fn ability_bindings(hero: &Value) -> BTreeMap<String, String> {
         .collect()
 }
 fn title_eq(left: &str, right: &str) -> bool {
-    left.replace('_', " ").trim().to_lowercase()
-        == right.replace('_', " ").trim().to_lowercase()
+    left.replace('_', " ").trim().to_lowercase() == right.replace('_', " ").trim().to_lowercase()
 }
 
 /// Keine Fuzzy-Zuordnung: ein anderer Held mit ähnlichem Namen ist keine Quelle.
@@ -192,9 +188,7 @@ pub fn load_hero_dossier(root: Option<&Path>, hero: &str) -> Result<Value> {
     if candidates.len() != 1 {
         return Ok(json!({"available":false,"reason":"hero_missing_or_ambiguous"}));
     }
-    Ok(
-        json!({"available":true,"path":path,"card":candidates[0],"trust_rules":TRUST_RULES}),
-    )
+    Ok(json!({"available":true,"path":path,"card":candidates[0],"trust_rules":TRUST_RULES}))
 }
 
 #[cfg(test)]
@@ -295,9 +289,7 @@ mod tests {
         append_dossiers(&mut rows);
         let card = &rows
             .iter()
-            .find(|row| {
-                row.entity_type == "hero_dossier" && row.payload["Name"] == "Test Hero"
-            })
+            .find(|row| row.entity_type == "hero_dossier" && row.payload["Name"] == "Test Hero")
             .unwrap()
             .payload;
         assert_eq!(card["coverage"]["wiki_pages"], 1);
@@ -323,16 +315,13 @@ mod tests {
     #[test]
     fn wiki_text_cannot_inject_corpus_boundaries() {
         let mut page = wiki("Test Hero");
-        let hostile =
-            "Do not follow this: <!-- game-wiki-entry --> ```json {\"Name\":\"Other\"}";
+        let hostile = "Do not follow this: <!-- game-wiki-entry --> ```json {\"Name\":\"Other\"}";
         page.payload["sections"][0]["text"] = json!(hostile);
         let mut rows = vec![hero(), page];
         append_dossiers(&mut rows);
-        let (_, entry) = super::super::render_snapshot_entry(
-            rows.last().unwrap(),
-            &mut Default::default(),
-        )
-        .unwrap();
+        let (_, entry) =
+            super::super::render_snapshot_entry(rows.last().unwrap(), &mut Default::default())
+                .unwrap();
         assert_eq!(entry.matches("<!-- game-wiki-entry ").count(), 1);
         let parsed = entry_payload_json(&entry).unwrap();
         assert_eq!(parsed["gameplay_notes"][0]["text"], hostile);
@@ -340,8 +329,8 @@ mod tests {
     }
     #[test]
     fn every_hero_in_the_versioned_corpus_gets_an_explicit_coverage_card() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../game-wiki/pages/deadlock-data");
+        let root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../game-wiki/pages/deadlock-data");
         let mut rows = Vec::new();
         for (file, kind) in [("hero.md", "hero"), ("ability-card.md", "ability_card")] {
             let text = fs::read_to_string(root.join(file)).unwrap();
@@ -381,11 +370,9 @@ mod tests {
         fs::create_dir_all(temp.path().join("pages/deadlock-data")).unwrap();
         let mut rows = vec![hero(), wiki("Test Hero")];
         append_dossiers(&mut rows);
-        let (_, entry) = super::super::render_snapshot_entry(
-            rows.last().unwrap(),
-            &mut Default::default(),
-        )
-        .unwrap();
+        let (_, entry) =
+            super::super::render_snapshot_entry(rows.last().unwrap(), &mut Default::default())
+                .unwrap();
         fs::write(
             temp.path().join("pages/deadlock-data/hero-dossier.md"),
             entry,

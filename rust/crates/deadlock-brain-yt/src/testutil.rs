@@ -135,10 +135,11 @@ pub async fn cleanup(pool: &PgPool, video_ids: &[&str], feed_keys: &[&str]) {
             .bind(video_id)
             .execute(pool)
             .await;
-        let _ = sqlx::query("DELETE FROM brain.youtube_transcript_claim_attempts WHERE video_id=$1")
-            .bind(video_id)
-            .execute(pool)
-            .await;
+        let _ =
+            sqlx::query("DELETE FROM brain.youtube_transcript_claim_attempts WHERE video_id=$1")
+                .bind(video_id)
+                .execute(pool)
+                .await;
         let _ = sqlx::query("DELETE FROM brain.youtube_transcripts WHERE video_id=$1")
             .bind(video_id)
             .execute(pool)

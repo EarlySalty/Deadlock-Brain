@@ -26,10 +26,7 @@ pub struct PullDeadlockDataOptions {
     pub update_repo: bool,
 }
 
-pub async fn pull_deadlock_data(
-    raw_dir: &Path,
-    options: PullDeadlockDataOptions,
-) -> Result<Value> {
+pub async fn pull_deadlock_data(raw_dir: &Path, options: PullDeadlockDataOptions) -> Result<Value> {
     let pool = open_pool().await?;
     pull_deadlock_data_with_pool(&pool, raw_dir, options).await
 }
@@ -62,22 +59,16 @@ async fn pull_deadlock_data_inner(
         .map(|value| build_resource_lookup(&value))
         .unwrap_or_default();
     let localizations = read_localizations(&options.repo_dir)?;
-    let ability_cards_value = read_json_optional(&options.repo_dir, "data/json/ability-cards.json")?
-        .unwrap_or(Value::Null);
+    let ability_cards_value =
+        read_json_optional(&options.repo_dir, "data/json/ability-cards.json")?
+            .unwrap_or(Value::Null);
     let ability_cards = build_ability_card_index(&ability_cards_value);
 
     let mut import = ImportSummary::default();
     import_version_document(store, &repo, &mut import).await?;
     import_resource_lookup(store, &repo, &resource_lookup, &mut import).await?;
     import_localizations(store, &repo, &localizations, &mut import).await?;
-    import_heroes(
-        store,
-        &repo,
-        &resource_lookup,
-        &localizations,
-        &mut import,
-    )
-    .await?;
+    import_heroes(store, &repo, &resource_lookup, &localizations, &mut import).await?;
     import_abilities(
         store,
         &repo,
@@ -194,7 +185,10 @@ fn sync_repository(repo_dir: &Path) -> Result<Value> {
         fs::create_dir_all(parent)?;
     }
     let target = repo_dir.to_string_lossy().to_string();
-    run_git(Path::new("."), &["clone", "--depth", "1", REPO_URL, &target])?;
+    run_git(
+        Path::new("."),
+        &["clone", "--depth", "1", REPO_URL, &target],
+    )?;
     let after = git_output(repo_dir, &["rev-parse", "HEAD"]).ok();
     Ok(json!({
         "updated": true,
@@ -288,17 +282,18 @@ async fn import_version_document(
     let raw_path = store.write_raw(SOURCE, rel, repo.version_text.as_bytes(), "txt")?;
     let metadata = metadata_for(repo, rel);
     let external_id = document_external_id(rel, repo);
-    store.upsert_source_document(SourceDocumentInput {
-        source: SOURCE,
-        external_id: &external_id,
-        title: Some("deadlock-data version.txt"),
-        url: github_url(repo, rel).as_deref(),
-        content_type: "text/plain",
-        raw_path: &raw_path,
-        content: repo.version_text.as_bytes(),
-        metadata: &metadata,
-    })
-    .await?;
+    store
+        .upsert_source_document(SourceDocumentInput {
+            source: SOURCE,
+            external_id: &external_id,
+            title: Some("deadlock-data version.txt"),
+            url: github_url(repo, rel).as_deref(),
+            content_type: "text/plain",
+            raw_path: &raw_path,
+            content: repo.version_text.as_bytes(),
+            metadata: &metadata,
+        })
+        .await?;
     summary.documents += 1;
     Ok(())
 }
@@ -309,7 +304,9 @@ async fn import_resource_lookup(
     lookup: &ResourceLookup,
     summary: &mut ImportSummary,
 ) -> Result<()> {
-    let Some((document_id, _payload)) = import_json_document(store, repo, "data/json/resource-lookup.json", summary).await? else {
+    let Some((document_id, _payload)) =
+        import_json_document(store, repo, "data/json/resource-lookup.json", summary).await?
+    else {
         return Ok(());
     };
 
@@ -330,7 +327,9 @@ async fn import_resource_lookup(
             canonical_name: Some(entry.name.clone()),
             payload,
         };
-        let _ = store.upsert_entity_snapshot_id(&snapshot, Some(document_id)).await?;
+        let _ = store
+            .upsert_entity_snapshot_id(&snapshot, Some(document_id))
+            .await?;
         increment_snapshot(summary, "resource_lookup");
     }
 
@@ -345,7 +344,8 @@ async fn import_localizations(
 ) -> Result<()> {
     for language in &localizations.languages {
         let rel = format!("data/localizations/{language}.json");
-        let Some((document_id, payload)) = import_json_document(store, repo, &rel, summary).await? else {
+        let Some((document_id, payload)) = import_json_document(store, repo, &rel, summary).await?
+        else {
             continue;
         };
         let payload = json!({
@@ -360,7 +360,9 @@ async fn import_localizations(
             canonical_name: Some(language.clone()),
             payload,
         };
-        let _ = store.upsert_entity_snapshot_id(&snapshot, Some(document_id)).await?;
+        let _ = store
+            .upsert_entity_snapshot_id(&snapshot, Some(document_id))
+            .await?;
         increment_snapshot(summary, "localization");
     }
     Ok(())
@@ -373,15 +375,25 @@ async fn import_heroes(
     localizations: &Localizations,
     summary: &mut ImportSummary,
 ) -> Result<()> {
-    let Some((document_id, payload)) = import_json_document(store, repo, "data/json/hero-data.json", summary).await? else {
+    let Some((document_id, payload)) =
+        import_json_document(store, repo, "data/json/hero-data.json", summary).await?
+    else {
         return Ok(());
     };
 
     for (key, value) in object_entries(&payload) {
-        let mut payload = payload_with_key(&key, &value, payload_metadata(repo, "data/json/hero-data.json"));
-        let canonical = display_name(&key, &payload, lookup, localizations)
-            .unwrap_or_else(|| key.clone());
-        let entity_type = if hero_is_public(&payload) { "hero" } else { "hero_internal" };
+        let mut payload = payload_with_key(
+            &key,
+            &value,
+            payload_metadata(repo, "data/json/hero-data.json"),
+        );
+        let canonical =
+            display_name(&key, &payload, lookup, localizations).unwrap_or_else(|| key.clone());
+        let entity_type = if hero_is_public(&payload) {
+            "hero"
+        } else {
+            "hero_internal"
+        };
         attach_lookup_metadata(&mut payload, lookup.by_key.get(&key));
         let snapshot = EntitySnapshotInput {
             source: SOURCE.to_string(),
@@ -390,7 +402,9 @@ async fn import_heroes(
             canonical_name: Some(canonical.clone()),
             payload: Value::Object(payload.clone()),
         };
-        let snapshot_id = store.upsert_entity_snapshot_id(&snapshot, Some(document_id)).await?;
+        let snapshot_id = store
+            .upsert_entity_snapshot_id(&snapshot, Some(document_id))
+            .await?;
         increment_snapshot(summary, entity_type);
 
         let entity_id = upsert_domain_entity(
@@ -433,12 +447,18 @@ async fn import_abilities(
     ability_cards: &HashMap<String, AbilityCardMeta>,
     summary: &mut ImportSummary,
 ) -> Result<()> {
-    let Some((document_id, payload)) = import_json_document(store, repo, "data/json/ability-data.json", summary).await? else {
+    let Some((document_id, payload)) =
+        import_json_document(store, repo, "data/json/ability-data.json", summary).await?
+    else {
         return Ok(());
     };
 
     for (key, value) in object_entries(&payload) {
-        let mut payload = payload_with_key(&key, &value, payload_metadata(repo, "data/json/ability-data.json"));
+        let mut payload = payload_with_key(
+            &key,
+            &value,
+            payload_metadata(repo, "data/json/ability-data.json"),
+        );
         if let Some(card) = ability_cards.get(&key) {
             payload.insert(
                 "_deadlock_data_card".to_string(),
@@ -451,8 +471,8 @@ async fn import_abilities(
             );
         }
         attach_lookup_metadata(&mut payload, lookup.by_key.get(&key));
-        let canonical = display_name(&key, &payload, lookup, localizations)
-            .unwrap_or_else(|| key.clone());
+        let canonical =
+            display_name(&key, &payload, lookup, localizations).unwrap_or_else(|| key.clone());
         let entity_type = if ability_is_public(&payload, lookup, ability_cards.get(&key)) {
             "ability"
         } else {
@@ -465,7 +485,9 @@ async fn import_abilities(
             canonical_name: Some(canonical.clone()),
             payload: Value::Object(payload.clone()),
         };
-        let snapshot_id = store.upsert_entity_snapshot_id(&snapshot, Some(document_id)).await?;
+        let snapshot_id = store
+            .upsert_entity_snapshot_id(&snapshot, Some(document_id))
+            .await?;
         increment_snapshot(summary, entity_type);
         let aliases = aliases_for_key(&key, &canonical, lookup, localizations);
         let _ = upsert_domain_entity(
@@ -494,7 +516,9 @@ async fn import_ability_cards(
     ability_cards_value: &Value,
     summary: &mut ImportSummary,
 ) -> Result<()> {
-    let Some((document_id, _payload)) = import_json_document(store, repo, "data/json/ability-cards.json", summary).await? else {
+    let Some((document_id, _payload)) =
+        import_json_document(store, repo, "data/json/ability-cards.json", summary).await?
+    else {
         return Ok(());
     };
 
@@ -526,8 +550,8 @@ async fn import_ability_cards(
                 payload_metadata(repo, "data/json/ability-cards.json"),
             );
             attach_lookup_metadata(&mut payload, lookup.by_key.get(&key));
-            let canonical = display_name(&key, &payload, lookup, localizations)
-                .unwrap_or_else(|| key.clone());
+            let canonical =
+                display_name(&key, &payload, lookup, localizations).unwrap_or_else(|| key.clone());
             let snapshot = EntitySnapshotInput {
                 source: SOURCE.to_string(),
                 entity_type: "ability_card".to_string(),
@@ -535,7 +559,9 @@ async fn import_ability_cards(
                 canonical_name: Some(canonical.clone()),
                 payload: Value::Object(payload.clone()),
             };
-            let snapshot_id = store.upsert_entity_snapshot_id(&snapshot, Some(document_id)).await?;
+            let snapshot_id = store
+                .upsert_entity_snapshot_id(&snapshot, Some(document_id))
+                .await?;
             increment_snapshot(summary, "ability_card");
             let _ = upsert_domain_entity(
                 store.pool(),
@@ -563,15 +589,21 @@ async fn import_items(
     localizations: &Localizations,
     summary: &mut ImportSummary,
 ) -> Result<()> {
-    let Some((document_id, payload)) = import_json_document(store, repo, "data/json/item-data.json", summary).await? else {
+    let Some((document_id, payload)) =
+        import_json_document(store, repo, "data/json/item-data.json", summary).await?
+    else {
         return Ok(());
     };
 
     for (key, value) in object_entries(&payload) {
-        let mut payload = payload_with_key(&key, &value, payload_metadata(repo, "data/json/item-data.json"));
+        let mut payload = payload_with_key(
+            &key,
+            &value,
+            payload_metadata(repo, "data/json/item-data.json"),
+        );
         attach_lookup_metadata(&mut payload, lookup.by_key.get(&key));
-        let canonical = display_name(&key, &payload, lookup, localizations)
-            .unwrap_or_else(|| key.clone());
+        let canonical =
+            display_name(&key, &payload, lookup, localizations).unwrap_or_else(|| key.clone());
         let entity_type = if item_is_public(&payload, lookup.by_key.get(&key)) {
             "item"
         } else {
@@ -584,7 +616,9 @@ async fn import_items(
             canonical_name: Some(canonical.clone()),
             payload: Value::Object(payload.clone()),
         };
-        let snapshot_id = store.upsert_entity_snapshot_id(&snapshot, Some(document_id)).await?;
+        let snapshot_id = store
+            .upsert_entity_snapshot_id(&snapshot, Some(document_id))
+            .await?;
         increment_snapshot(summary, entity_type);
         let _ = upsert_domain_entity(
             store.pool(),
@@ -611,15 +645,21 @@ async fn import_item_cards(
     localizations: &Localizations,
     summary: &mut ImportSummary,
 ) -> Result<()> {
-    let Some((document_id, payload)) = import_json_document(store, repo, "data/json/item-cards.json", summary).await? else {
+    let Some((document_id, payload)) =
+        import_json_document(store, repo, "data/json/item-cards.json", summary).await?
+    else {
         return Ok(());
     };
 
     for (key, value) in object_entries(&payload) {
-        let mut payload = payload_with_key(&key, &value, payload_metadata(repo, "data/json/item-cards.json"));
+        let mut payload = payload_with_key(
+            &key,
+            &value,
+            payload_metadata(repo, "data/json/item-cards.json"),
+        );
         attach_lookup_metadata(&mut payload, lookup.by_key.get(&key));
-        let canonical = display_name(&key, &payload, lookup, localizations)
-            .unwrap_or_else(|| key.clone());
+        let canonical =
+            display_name(&key, &payload, lookup, localizations).unwrap_or_else(|| key.clone());
         let snapshot = EntitySnapshotInput {
             source: SOURCE.to_string(),
             entity_type: "item_card".to_string(),
@@ -627,7 +667,9 @@ async fn import_item_cards(
             canonical_name: Some(canonical.clone()),
             payload: Value::Object(payload.clone()),
         };
-        let snapshot_id = store.upsert_entity_snapshot_id(&snapshot, Some(document_id)).await?;
+        let snapshot_id = store
+            .upsert_entity_snapshot_id(&snapshot, Some(document_id))
+            .await?;
         increment_snapshot(summary, "item_card");
         let entity_type = if item_is_public(&payload, lookup.by_key.get(&key)) {
             "item"
@@ -659,15 +701,21 @@ async fn import_npcs(
     localizations: &Localizations,
     summary: &mut ImportSummary,
 ) -> Result<()> {
-    let Some((document_id, payload)) = import_json_document(store, repo, "data/json/npc-data.json", summary).await? else {
+    let Some((document_id, payload)) =
+        import_json_document(store, repo, "data/json/npc-data.json", summary).await?
+    else {
         return Ok(());
     };
 
     for (key, value) in object_entries(&payload) {
-        let mut payload = payload_with_key(&key, &value, payload_metadata(repo, "data/json/npc-data.json"));
+        let mut payload = payload_with_key(
+            &key,
+            &value,
+            payload_metadata(repo, "data/json/npc-data.json"),
+        );
         attach_lookup_metadata(&mut payload, lookup.by_key.get(&key));
-        let canonical = display_name(&key, &payload, lookup, localizations)
-            .unwrap_or_else(|| key.clone());
+        let canonical =
+            display_name(&key, &payload, lookup, localizations).unwrap_or_else(|| key.clone());
         let snapshot = EntitySnapshotInput {
             source: SOURCE.to_string(),
             entity_type: "npc_unit".to_string(),
@@ -675,7 +723,9 @@ async fn import_npcs(
             canonical_name: Some(canonical),
             payload: Value::Object(payload),
         };
-        let _ = store.upsert_entity_snapshot_id(&snapshot, Some(document_id)).await?;
+        let _ = store
+            .upsert_entity_snapshot_id(&snapshot, Some(document_id))
+            .await?;
         increment_snapshot(summary, "npc_unit");
     }
 
@@ -698,7 +748,8 @@ async fn import_supporting_documents(
         "data/changelogs/tag_tree.json",
         "data/changelogs/hotfixes.json",
     ] {
-        let Some((document_id, payload)) = import_json_document(store, repo, rel, summary).await? else {
+        let Some((document_id, payload)) = import_json_document(store, repo, rel, summary).await?
+        else {
             continue;
         };
         let entity_type = rel
@@ -715,7 +766,9 @@ async fn import_supporting_documents(
                 "_deadlock_data": payload_metadata(repo, rel),
             }),
         };
-        let _ = store.upsert_entity_snapshot_id(&snapshot, Some(document_id)).await?;
+        let _ = store
+            .upsert_entity_snapshot_id(&snapshot, Some(document_id))
+            .await?;
         increment_snapshot(summary, &entity_type);
     }
 
@@ -736,17 +789,18 @@ async fn import_component_tree(
     let raw_path = store.write_raw(SOURCE, rel, content.as_bytes(), "txt")?;
     let metadata = metadata_for(repo, rel);
     let external_id = document_external_id(rel, repo);
-    let document_id = store.upsert_source_document(SourceDocumentInput {
-        source: SOURCE,
-        external_id: &external_id,
-        title: Some("deadlock-data item-component-tree.txt"),
-        url: github_url(repo, rel).as_deref(),
-        content_type: "text/plain",
-        raw_path: &raw_path,
-        content: content.as_bytes(),
-        metadata: &metadata,
-    })
-    .await?;
+    let document_id = store
+        .upsert_source_document(SourceDocumentInput {
+            source: SOURCE,
+            external_id: &external_id,
+            title: Some("deadlock-data item-component-tree.txt"),
+            url: github_url(repo, rel).as_deref(),
+            content_type: "text/plain",
+            raw_path: &raw_path,
+            content: content.as_bytes(),
+            metadata: &metadata,
+        })
+        .await?;
     summary.documents += 1;
 
     let edges = parse_component_tree(&content);
@@ -761,7 +815,9 @@ async fn import_component_tree(
             "_deadlock_data": payload_metadata(repo, rel),
         }),
     };
-    let _ = store.upsert_entity_snapshot_id(&snapshot, Some(document_id)).await?;
+    let _ = store
+        .upsert_entity_snapshot_id(&snapshot, Some(document_id))
+        .await?;
     increment_snapshot(summary, "item_component_tree");
     Ok(())
 }
@@ -773,8 +829,24 @@ async fn import_changelogs(
 ) -> Result<()> {
     let configs = import_changelog_configs(store, repo, summary).await?;
     import_patchnote_raw_files(store, repo, &configs, summary).await?;
-    import_patchnote_sidecar_files(store, repo, "data/changelogs/wiki", "patchnote_wikitext", "wiki_content", summary).await?;
-    import_patchnote_sidecar_files(store, repo, "data/changelogs/versions", "patchnote_structured", "events", summary).await?;
+    import_patchnote_sidecar_files(
+        store,
+        repo,
+        "data/changelogs/wiki",
+        "patchnote_wikitext",
+        "wiki_content",
+        summary,
+    )
+    .await?;
+    import_patchnote_sidecar_files(
+        store,
+        repo,
+        "data/changelogs/versions",
+        "patchnote_structured",
+        "events",
+        summary,
+    )
+    .await?;
     Ok(())
 }
 
@@ -783,7 +855,14 @@ async fn import_changelog_configs(
     repo: &RepoInfo,
     summary: &mut ImportSummary,
 ) -> Result<HashMap<String, ChangelogConfig>> {
-    let Some((document_id, payload)) = import_json_document(store, repo, "data/changelogs/changelog_configs.json", summary).await? else {
+    let Some((document_id, payload)) = import_json_document(
+        store,
+        repo,
+        "data/changelogs/changelog_configs.json",
+        summary,
+    )
+    .await?
+    else {
         return Ok(HashMap::new());
     };
     let configs = parse_changelog_configs(&payload);
@@ -797,7 +876,9 @@ async fn import_changelog_configs(
             "_deadlock_data": payload_metadata(repo, "data/changelogs/changelog_configs.json"),
         }),
     };
-    let _ = store.upsert_entity_snapshot_id(&snapshot, Some(document_id)).await?;
+    let _ = store
+        .upsert_entity_snapshot_id(&snapshot, Some(document_id))
+        .await?;
     increment_snapshot(summary, "changelog_config");
     Ok(configs)
 }
@@ -820,17 +901,18 @@ async fn import_patchnote_raw_files(
         let metadata = metadata_for(repo, &rel);
         let document_external_id = document_external_id(&rel, repo);
         let title = patch_title(&stem, config.as_ref());
-        let document_id = store.upsert_source_document(SourceDocumentInput {
-            source: SOURCE,
-            external_id: &document_external_id,
-            title: Some(&title),
-            url: config.as_ref().and_then(|value| value.link.as_deref()),
-            content_type: "text/plain",
-            raw_path: &raw_path,
-            content: content.as_bytes(),
-            metadata: &metadata,
-        })
-        .await?;
+        let document_id = store
+            .upsert_source_document(SourceDocumentInput {
+                source: SOURCE,
+                external_id: &document_external_id,
+                title: Some(&title),
+                url: config.as_ref().and_then(|value| value.link.as_deref()),
+                content_type: "text/plain",
+                raw_path: &raw_path,
+                content: content.as_bytes(),
+                metadata: &metadata,
+            })
+            .await?;
         summary.documents += 1;
 
         let wiki_path = repo_file_path(repo, &format!("data/changelogs/wiki/{stem}.txt"));
@@ -858,7 +940,9 @@ async fn import_patchnote_raw_files(
             canonical_name: Some(title),
             payload,
         };
-        let _ = store.upsert_entity_snapshot_id(&snapshot, Some(document_id)).await?;
+        let _ = store
+            .upsert_entity_snapshot_id(&snapshot, Some(document_id))
+            .await?;
         increment_snapshot(summary, "patchnote");
         increment_counter(&mut summary.changelogs, "raw");
     }
@@ -874,7 +958,11 @@ async fn import_patchnote_sidecar_files(
     summary: &mut ImportSummary,
 ) -> Result<()> {
     let dir = repo_file_path(repo, directory_rel);
-    let extension = if entity_type == "patchnote_structured" { "json" } else { "txt" };
+    let extension = if entity_type == "patchnote_structured" {
+        "json"
+    } else {
+        "txt"
+    };
     for path in sorted_files(&dir, Some(extension))? {
         let Some(stem) = file_stem_string(&path) else {
             continue;
@@ -890,17 +978,18 @@ async fn import_patchnote_sidecar_files(
         } else {
             "text/plain"
         };
-        let document_id = store.upsert_source_document(SourceDocumentInput {
-            source: SOURCE,
-            external_id: &external_id,
-            title: Some(&title),
-            url: github_url(repo, &rel).as_deref(),
-            content_type,
-            raw_path: &raw_path,
-            content: &content,
-            metadata: &metadata,
-        })
-        .await?;
+        let document_id = store
+            .upsert_source_document(SourceDocumentInput {
+                source: SOURCE,
+                external_id: &external_id,
+                title: Some(&title),
+                url: github_url(repo, &rel).as_deref(),
+                content_type,
+                raw_path: &raw_path,
+                content: &content,
+                metadata: &metadata,
+            })
+            .await?;
         summary.documents += 1;
 
         let payload_value = if extension == "json" {
@@ -920,7 +1009,9 @@ async fn import_patchnote_sidecar_files(
             canonical_name: Some(stem),
             payload,
         };
-        let _ = store.upsert_entity_snapshot_id(&snapshot, Some(document_id)).await?;
+        let _ = store
+            .upsert_entity_snapshot_id(&snapshot, Some(document_id))
+            .await?;
         increment_snapshot(summary, entity_type);
         increment_counter(&mut summary.changelogs, entity_type);
     }
@@ -943,17 +1034,18 @@ async fn import_json_document(
     let metadata = metadata_for(repo, rel);
     let external_id = document_external_id(rel, repo);
     let title = format!("deadlock-data {rel}");
-    let document_id = store.upsert_source_document(SourceDocumentInput {
-        source: SOURCE,
-        external_id: &external_id,
-        title: Some(&title),
-        url: github_url(repo, rel).as_deref(),
-        content_type: "application/json",
-        raw_path: &raw_path,
-        content: &content,
-        metadata: &metadata,
-    })
-    .await?;
+    let document_id = store
+        .upsert_source_document(SourceDocumentInput {
+            source: SOURCE,
+            external_id: &external_id,
+            title: Some(&title),
+            url: github_url(repo, rel).as_deref(),
+            content_type: "application/json",
+            raw_path: &raw_path,
+            content: &content,
+            metadata: &metadata,
+        })
+        .await?;
     summary.documents += 1;
     Ok(Some((document_id, payload)))
 }
@@ -1024,7 +1116,11 @@ fn read_localizations(repo_dir: &Path) -> Result<Localizations> {
         let mut values = HashMap::new();
         if let Some(object) = payload.as_object() {
             for (key, value) in object {
-                if let Some(text) = value.as_str().map(str::trim).filter(|text| !text.is_empty()) {
+                if let Some(text) = value
+                    .as_str()
+                    .map(str::trim)
+                    .filter(|text| !text.is_empty())
+                {
                     values.insert(key.clone(), text.to_string());
                 }
             }
@@ -1160,11 +1256,13 @@ fn item_is_public(payload: &Map<String, Value>, lookup_entries: Option<&Vec<Look
     if bool_field(payload, "IsDisabled") == Some(true) {
         return false;
     }
-    let has_lookup = lookup_entries
-        .is_some_and(|entries| entries.iter().any(|entry| entry.kind == "item"));
+    let has_lookup =
+        lookup_entries.is_some_and(|entries| entries.iter().any(|entry| entry.kind == "item"));
     has_lookup
         || (text_field(payload, "Name").is_some()
-            && (payload.get("Cost").is_some() || payload.get("Tier").is_some() || payload.get("Slot").is_some()))
+            && (payload.get("Cost").is_some()
+                || payload.get("Tier").is_some()
+                || payload.get("Slot").is_some()))
 }
 
 fn display_name(
@@ -1246,8 +1344,13 @@ struct DomainEntityInput<'a> {
 }
 
 async fn upsert_domain_entity(pool: &PgPool, input: DomainEntityInput<'_>) -> Result<i64> {
-    let existing =
-        find_existing_entity(pool, input.entity_type, input.canonical_name, &input.aliases).await?;
+    let existing = find_existing_entity(
+        pool,
+        input.entity_type,
+        input.canonical_name,
+        &input.aliases,
+    )
+    .await?;
     let metadata_json = if let Some((_, existing_metadata)) = &existing {
         merged_metadata_json(existing_metadata.as_deref(), &input.metadata)?
     } else {
@@ -1293,7 +1396,15 @@ async fn upsert_domain_entity(pool: &PgPool, input: DomainEntityInput<'_>) -> Re
     };
 
     for (alias, kind) in input.aliases {
-        insert_alias(pool, entity_id, &alias, &kind, input.external_id, input.snapshot_id).await?;
+        insert_alias(
+            pool,
+            entity_id,
+            &alias,
+            &kind,
+            input.external_id,
+            input.snapshot_id,
+        )
+        .await?;
     }
     Ok(entity_id)
 }
@@ -1388,7 +1499,10 @@ async fn insert_bound_ability_aliases(
     snapshot_id: i64,
     hero_payload: &Map<String, Value>,
 ) -> Result<i64> {
-    let Some(bound) = hero_payload.get("BoundAbilities").and_then(Value::as_object) else {
+    let Some(bound) = hero_payload
+        .get("BoundAbilities")
+        .and_then(Value::as_object)
+    else {
         return Ok(0);
     };
     let mut inserted = 0_i64;
@@ -1403,14 +1517,29 @@ async fn insert_bound_ability_aliases(
             (name.clone(), "hero_bound_ability".to_string()),
             (key.clone(), "deadlock_data_key".to_string()),
         ];
-        if let Some((entity_id, _)) = find_existing_entity(pool, "ability", &name, &aliases).await? {
-            if insert_alias(pool, entity_id, &name, "hero_bound_ability", &key, Some(snapshot_id))
-                .await?
+        if let Some((entity_id, _)) = find_existing_entity(pool, "ability", &name, &aliases).await?
+        {
+            if insert_alias(
+                pool,
+                entity_id,
+                &name,
+                "hero_bound_ability",
+                &key,
+                Some(snapshot_id),
+            )
+            .await?
             {
                 inserted += 1;
             }
-            if insert_alias(pool, entity_id, &key, "deadlock_data_key", &key, Some(snapshot_id))
-                .await?
+            if insert_alias(
+                pool,
+                entity_id,
+                &key,
+                "deadlock_data_key",
+                &key,
+                Some(snapshot_id),
+            )
+            .await?
             {
                 inserted += 1;
             }
@@ -1542,10 +1671,19 @@ fn collect_hero_stat_values(payload: &Value) -> Vec<StatValue> {
     values
 }
 
-fn collect_nested_numeric_stats(values: &mut Vec<StatValue>, prefix: &str, object: &Map<String, Value>) {
+fn collect_nested_numeric_stats(
+    values: &mut Vec<StatValue>,
+    prefix: &str,
+    object: &Map<String, Value>,
+) {
     for (key, value) in object {
         if let Some(number) = value.as_f64() {
-            push_stat(values, &format!("{prefix}.{}", stat_key(key)), number, value);
+            push_stat(
+                values,
+                &format!("{prefix}.{}", stat_key(key)),
+                number,
+                value,
+            );
         }
     }
 }
@@ -1584,7 +1722,11 @@ fn stat_key(value: &str) -> String {
     let mut previous_lower_or_digit = false;
     for ch in value.chars() {
         if ch.is_ascii_alphanumeric() {
-            if ch.is_ascii_uppercase() && previous_lower_or_digit && !output.ends_with('_') && !output.ends_with('.') {
+            if ch.is_ascii_uppercase()
+                && previous_lower_or_digit
+                && !output.ends_with('_')
+                && !output.ends_with('.')
+            {
                 output.push('_');
             }
             output.push(ch.to_ascii_lowercase());
@@ -1820,7 +1962,10 @@ fn parse_changelog_configs(value: &Value) -> HashMap<String, ChangelogConfig> {
     configs
 }
 
-fn config_for_stem(configs: &HashMap<String, ChangelogConfig>, stem: &str) -> Option<ChangelogConfig> {
+fn config_for_stem(
+    configs: &HashMap<String, ChangelogConfig>,
+    stem: &str,
+) -> Option<ChangelogConfig> {
     configs
         .get(stem)
         .cloned()
@@ -1912,7 +2057,10 @@ mod tests {
 
         let aliases = vec![
             ("__DbrainTestEntity__".to_string(), "canonical".to_string()),
-            ("__dbrain_alias_one__".to_string(), "resource_lookup".to_string()),
+            (
+                "__dbrain_alias_one__".to_string(),
+                "resource_lookup".to_string(),
+            ),
         ];
         let entity_id = upsert_domain_entity(
             &pool,
@@ -1945,12 +2093,13 @@ mod tests {
         .expect("upsert entity again");
         assert_eq!(entity_id, entity_id_again);
 
-        let alias_count: i64 =
-            sqlx::query_scalar("SELECT count(*)::int8 FROM brain.entity_aliases WHERE entity_id=$1")
-                .bind(entity_id)
-                .fetch_one(&pool)
-                .await
-                .expect("alias count");
+        let alias_count: i64 = sqlx::query_scalar(
+            "SELECT count(*)::int8 FROM brain.entity_aliases WHERE entity_id=$1",
+        )
+        .bind(entity_id)
+        .fetch_one(&pool)
+        .await
+        .expect("alias count");
         assert_eq!(alias_count, 2);
 
         // Merge behaelt bestehende Metadaten und fuegt neue Schluessel hinzu.

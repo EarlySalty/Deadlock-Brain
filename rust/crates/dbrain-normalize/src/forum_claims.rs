@@ -243,9 +243,9 @@ fn detect_entities(entity_aliases: &[EntityHit], post: &ForumPost) -> Vec<Entity
     for alias in entity_aliases {
         let needle = normalize_scan_text(&alias.alias);
         if haystack.contains(&needle)
-            && !hits
-                .iter()
-                .any(|hit| hit.entity_type == alias.entity_type && hit.canonical_name == alias.canonical_name)
+            && !hits.iter().any(|hit| {
+                hit.entity_type == alias.entity_type && hit.canonical_name == alias.canonical_name
+            })
         {
             hits.push(EntityHit {
                 entity_type: alias.entity_type.clone(),
@@ -416,7 +416,11 @@ fn source_url(post: &ForumPost) -> String {
 }
 
 fn is_developer(post: &ForumPost) -> bool {
-    let role = post.author_role.as_deref().unwrap_or_default().to_lowercase();
+    let role = post
+        .author_role
+        .as_deref()
+        .unwrap_or_default()
+        .to_lowercase();
     let author = post.author.as_deref().unwrap_or_default().to_lowercase();
     role.contains("valve developer") || author == "valve"
 }

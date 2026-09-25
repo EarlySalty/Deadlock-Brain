@@ -96,8 +96,12 @@ async fn parse_patchnotes_is_count_stable_and_idempotent() {
     let before = count(&pool, "patch_events").await;
     let before_max = max_id(&pool, "patch_events").await;
 
-    let summary = parse_patchnotes(&pool, false).await.expect("parse patchnotes");
-    let inserted = summary["events_inserted"].as_i64().expect("events_inserted");
+    let summary = parse_patchnotes(&pool, false)
+        .await
+        .expect("parse patchnotes");
+    let inserted = summary["events_inserted"]
+        .as_i64()
+        .expect("events_inserted");
     let total = summary["events_total"].as_i64().expect("events_total");
 
     cleanup_above(&pool, "patch_events", before_max).await;
@@ -120,7 +124,9 @@ async fn normalize_entities_is_count_stable() {
     let max_entities = max_id(&pool, "entities").await;
     let max_aliases = max_id(&pool, "entity_aliases").await;
 
-    let summary = normalize_entities(&pool, false).await.expect("normalize entities");
+    let summary = normalize_entities(&pool, false)
+        .await
+        .expect("normalize entities");
     let processed = summary["entities"].as_i64().expect("entities");
 
     cleanup_above(&pool, "entity_aliases", max_aliases).await;
@@ -144,7 +150,9 @@ async fn enrich_lineage_is_count_stable_and_idempotent() {
     let before_max = max_id(&pool, "entity_lineage").await;
 
     let summary = enrich_lineage(&pool, false).await.expect("enrich lineage");
-    let inserted = summary["lineage_inserted"].as_i64().expect("lineage_inserted");
+    let inserted = summary["lineage_inserted"]
+        .as_i64()
+        .expect("lineage_inserted");
     let total = summary["lineage_total"].as_i64().expect("lineage_total");
 
     cleanup_above(&pool, "entity_lineage", before_max).await;
@@ -235,7 +243,11 @@ async fn normalize_sheet_tabs_is_count_stable() {
         cleanup_above(&pool, table, maxes[index]).await;
     }
     for (index, table) in tables.iter().enumerate() {
-        assert_eq!(count(&pool, table).await, before[index], "{table} count stable");
+        assert_eq!(
+            count(&pool, table).await,
+            before[index],
+            "{table} count stable"
+        );
     }
     assert!(summary["sheet_items"]["snapshots"].as_i64().unwrap_or(0) > 0);
 }
@@ -249,7 +261,9 @@ async fn resolve_gaps_dry_run_reads_without_writing() {
     };
     let before_events = count(&pool, "patch_events").await;
 
-    let summary = resolve_gaps(&pool, true).await.expect("resolve gaps dry run");
+    let summary = resolve_gaps(&pool, true)
+        .await
+        .expect("resolve gaps dry run");
 
     assert_eq!(summary["dry_run"], true);
     assert!(summary["patch_events"]["changed"].is_number());

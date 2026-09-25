@@ -403,11 +403,7 @@ async fn build_unique_hero_index(pool: &PgPool) -> Result<HashMap<String, i64>> 
         .collect())
 }
 
-fn add_hero_candidate(
-    candidates: &mut HashMap<String, HashSet<i64>>,
-    name: &str,
-    entity_id: i64,
-) {
+fn add_hero_candidate(candidates: &mut HashMap<String, HashSet<i64>>, name: &str, entity_id: i64) {
     let key = normalize_alias(name);
     if !key.is_empty() {
         candidates.entry(key).or_default().insert(entity_id);

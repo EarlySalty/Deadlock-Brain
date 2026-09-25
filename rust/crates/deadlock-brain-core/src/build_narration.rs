@@ -5,9 +5,7 @@ use serde::{Deserialize, Serialize};
 
 pub use dbrain_builds::{BuildContext, BuildPath, BuildPathSummary, BuildPhase, ItemDossier};
 
-use crate::ai::{
-    extract_ai_text, ChatCompletionRequest, ChatMessage, AiClient, AiConfig,
-};
+use crate::ai::{extract_ai_text, AiClient, AiConfig, ChatCompletionRequest, ChatMessage};
 
 pub const BUILD_NARRATION_SYSTEM_PROMPT: &str = "Du bist ein Deadlock-Build-Coach für einen deutschen Discord. Dir wird ein Build vorgelegt, der bereits aus echten High-MMR-Spieldaten berechnet wurde: Pfade, Phasen und pro Item harte Fakten (slot_type, tier, defense_kind, damage_axis, prevalence_builds, winrate, lift_pp, sample_matches, confidence, buy_phase, synergy_with) sowie zum Helden archetype und hero_base_health.
 

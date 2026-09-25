@@ -374,7 +374,8 @@ mod tests {
             let (mut stream, _) = listener.accept().unwrap();
             let mut request = [0_u8; 1024];
             assert!(stream.read(&mut request).unwrap() > 0);
-            let body = "<feed xmlns=\"http://www.w3.org/2005/Atom\"><title>r/Deadlock</title></feed>";
+            let body =
+                "<feed xmlns=\"http://www.w3.org/2005/Atom\"><title>r/Deadlock</title></feed>";
             write!(
                 stream,
                 "HTTP/1.1 403 Forbidden\r\nContent-Type: application/atom+xml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -396,7 +397,10 @@ mod tests {
             .unwrap();
         server.join().unwrap();
         assert!(result.text().contains("r/Deadlock"));
-        assert!(std::fs::read_dir(cache_dir.path()).unwrap().next().is_none());
+        assert!(std::fs::read_dir(cache_dir.path())
+            .unwrap()
+            .next()
+            .is_none());
     }
 
     #[test]

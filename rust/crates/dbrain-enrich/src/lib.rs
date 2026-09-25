@@ -8,9 +8,7 @@ use std::{
 };
 
 use deadlock_brain_core::{
-    ai::{
-        extract_ai_text, ChatCompletionRequest, ChatMessage, AiClient, AiConfig,
-    },
+    ai::{extract_ai_text, AiClient, AiConfig, ChatCompletionRequest, ChatMessage},
     models::PatchEvent,
 };
 use regex::{Captures, Regex};
@@ -594,8 +592,9 @@ pub fn build_patch_impact_request(
         .and_then(Value::as_str)
         .map_or("Unknown", |value| value);
 
-    let mut prompt =
-        format!("Analysiere die Patch-Entwicklung für {entity_name} basierend auf den folgenden Daten.\n");
+    let mut prompt = format!(
+        "Analysiere die Patch-Entwicklung für {entity_name} basierend auf den folgenden Daten.\n"
+    );
     prompt.push_str("Gib NUR JSON aus mit folgendem Schema: {\"trend\": \"buffs_dominant\"|\"nerfs_dominant\"|\"mixed\"|\"stable\", \"affected_areas\": [\"...\"], \"momentum\": \"rising\"|\"falling\"|\"stable\", \"key_changes\": [\"...\"], \"confidence\": 0-1}\n\n");
     prompt.push_str(&serde_json::to_string_pretty(context)?);
 
@@ -718,10 +717,7 @@ pub async fn run_patch_impact_batch(
     limit: usize,
 ) -> Result<PatchImpactBatchSummary> {
     let client = AiClient::new(config.clone())?;
-    run_patch_impact_batch_with_chat(pool, config, limit, |request| {
-        Ok(client.chat(request)?)
-    })
-    .await
+    run_patch_impact_batch_with_chat(pool, config, limit, |request| Ok(client.chat(request)?)).await
 }
 
 pub async fn run_patch_impact_batch_with_chat<F>(
@@ -788,10 +784,7 @@ where
     })
 }
 
-pub async fn run_meta_trend_analysis(
-    pool: &PgPool,
-    config: &AiConfig,
-) -> Result<MetaTrendSummary> {
+pub async fn run_meta_trend_analysis(pool: &PgPool, config: &AiConfig) -> Result<MetaTrendSummary> {
     let client = AiClient::new(config.clone())?;
     run_meta_trend_analysis_with_chat(pool, config, |request| Ok(client.chat(request)?)).await
 }
@@ -1005,7 +998,10 @@ fn split_stat_subject(subject: &str) -> (String, Option<String>, Vec<String>) {
     (cleaned, None, vec!["unknown_stat_shape".to_string()])
 }
 
-fn split_values(old_raw: &str, new_raw: &str) -> Result<(String, String, Option<String>, Vec<String>)> {
+fn split_values(
+    old_raw: &str,
+    new_raw: &str,
+) -> Result<(String, String, Option<String>, Vec<String>)> {
     let (old_value, old_unit, old_flags) = split_value(old_raw)?;
     let (new_value, new_unit, new_flags) = split_value(new_raw)?;
     let mut flags = old_flags;
@@ -1027,7 +1023,9 @@ fn split_value(raw: &str) -> Result<(String, Option<String>, Vec<String>)> {
         return Ok((cleaned, None, vec!["non_numeric_value".to_string()]));
     };
     let number = capture(&captures, "number")?.to_string();
-    let unit = captures.name("unit").map(|matched| matched.as_str().to_string());
+    let unit = captures
+        .name("unit")
+        .map(|matched| matched.as_str().to_string());
     Ok((number, unit, Vec::new()))
 }
 
@@ -1091,15 +1089,18 @@ fn capitalize_first(text: &str) -> String {
 }
 
 fn sorted_unique(flags: Vec<String>) -> Vec<String> {
-    flags.into_iter().collect::<BTreeSet<_>>().into_iter().collect()
+    flags
+        .into_iter()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 async fn count_enrichments(pool: &PgPool) -> Result<i64> {
-    let count = sqlx::query_scalar!(
-        r#"SELECT COUNT(*) AS "count!" FROM brain.patch_event_enrichments"#
-    )
-    .fetch_one(pool)
-    .await?;
+    let count =
+        sqlx::query_scalar!(r#"SELECT COUNT(*) AS "count!" FROM brain.patch_event_enrichments"#)
+            .fetch_one(pool)
+            .await?;
     Ok(count)
 }
 
@@ -1107,7 +1108,9 @@ fn compiled_regex(
     cell: &'static OnceLock<std::result::Result<Regex, String>>,
     pattern: &'static str,
 ) -> Result<&'static Regex> {
-    match cell.get_or_init(|| Regex::new(&format!("(?i){pattern}")).map_err(|error| error.to_string())) {
+    match cell
+        .get_or_init(|| Regex::new(&format!("(?i){pattern}")).map_err(|error| error.to_string()))
+    {
         Ok(regex) => Ok(regex),
         Err(message) => Err(EnrichError::RegexDefinition {
             pattern,
@@ -1431,16 +1434,13 @@ fn build_timeline_signals(events: &[PatchEvent], enrichments: &[Value]) -> Value
             Some(value) => value,
             None => vec![json!({})],
         };
-        if event_enrichments
-            .iter()
-            .any(|enrichment| {
-                let confidence = enrichment
-                    .get("confidence")
-                    .and_then(Value::as_f64)
-                    .map_or(0.0, |value| value);
-                confidence < 0.5
-            })
-        {
+        if event_enrichments.iter().any(|enrichment| {
+            let confidence = enrichment
+                .get("confidence")
+                .and_then(Value::as_f64)
+                .map_or(0.0, |value| value);
+            confidence < 0.5
+        }) {
             low_confidence_events += 1;
         }
 
@@ -1545,8 +1545,12 @@ fn has_structured_stat_change(enrichment: &Value) -> bool {
         .and_then(Value::as_str)
         .map(|value| !value.is_empty())
         .is_some_and(|value| value)
-        && (enrichment.get("old_value").is_some_and(|value| !value.is_null())
-            || enrichment.get("new_value").is_some_and(|value| !value.is_null()))
+        && (enrichment
+            .get("old_value")
+            .is_some_and(|value| !value.is_null())
+            || enrichment
+                .get("new_value")
+                .is_some_and(|value| !value.is_null()))
 }
 
 fn latest_patch(event: &PatchEvent) -> Value {
@@ -1828,11 +1832,9 @@ mod tests {
 
     #[test]
     fn parses_from_to_with_ability_prefix_like_python() {
-        let enrichment = enrich_patch_event_line(
-            Some(7),
-            "Mystic Shot cooldown reduced from 12s to 10s",
-        )
-        .expect("parse");
+        let enrichment =
+            enrich_patch_event_line(Some(7), "Mystic Shot cooldown reduced from 12s to 10s")
+                .expect("parse");
 
         assert_eq!(enrichment.patch_event_id, Some(7));
         assert_eq!(enrichment.stat_name.as_deref(), Some("Cooldown"));
@@ -1849,8 +1851,8 @@ mod tests {
 
     #[test]
     fn parses_relative_delta_and_signs_reductions() {
-        let enrichment = enrich_patch_event_line(Some(8), "Fire Rate reduced by 5%")
-            .expect("parse");
+        let enrichment =
+            enrich_patch_event_line(Some(8), "Fire Rate reduced by 5%").expect("parse");
 
         assert_eq!(enrichment.stat_name.as_deref(), Some("Fire Rate"));
         assert_eq!(enrichment.new_value.as_deref(), Some("-5"));

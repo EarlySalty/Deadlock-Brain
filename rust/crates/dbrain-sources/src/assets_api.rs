@@ -4,7 +4,9 @@ use deadlock_brain_core::http::{HttpClient, HttpGetOptions};
 use serde_json::{json, Map, Value};
 
 use crate::{
-    store::{complete_run, json_bytes, open_pool, EntitySnapshotInput, SourceDocumentInput, SourceStore},
+    store::{
+        complete_run, json_bytes, open_pool, EntitySnapshotInput, SourceDocumentInput, SourceStore,
+    },
     util::{python_or_string, value_to_python_string},
     Result, SourcesError,
 };
