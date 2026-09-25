@@ -83,7 +83,11 @@ jobs:
         if: always()
         with:
           name: core-${{ matrix.suite }}-${{ github.sha }}-${{ github.run_attempt }}
-          path: .consumer-ci-reports/
+          path: |
+            .consumer-ci-reports/*.log
+            .consumer-ci-reports/*.txt
+            .consumer-ci-reports/*.tsv
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
 
@@ -124,7 +128,11 @@ jobs:
         if: always()
         with:
           name: audit-${{ matrix.suite }}-${{ github.sha }}-${{ github.run_attempt }}
-          path: .consumer-ci-reports/
+          path: |
+            .consumer-ci-reports/*.log
+            .consumer-ci-reports/*.txt
+            .consumer-ci-reports/*.tsv
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
 
@@ -197,7 +205,11 @@ jobs:
         if: always()
         with:
           name: reference-${{ matrix.suite }}-${{ matrix.revision }}-${{ github.run_attempt }}
-          path: .consumer-ci-reports/
+          path: |
+            .consumer-ci-reports/*.log
+            .consumer-ci-reports/*.txt
+            .consumer-ci-reports/*.tsv
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
 
