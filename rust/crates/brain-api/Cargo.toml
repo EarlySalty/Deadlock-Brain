@@ -1,0 +1,14 @@
+[package]
+name = "brain-api"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "brain_api"
+path = "src/lib.rs"
+
+[dependencies]
+brain-contracts = { path = "../brain-contracts" }
+brain-kernel = { path = "../brain-kernel" }
+brain-policy = { path = "../brain-policy" }
+serde_json.workspace = true

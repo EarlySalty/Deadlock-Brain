@@ -185,6 +185,98 @@ dependencies = [
 ]
 
 [[package]]
+name = "brain-api"
+version = "0.1.0"
+dependencies = [
+ "brain-contracts",
+ "brain-kernel",
+ "brain-policy",
+ "serde_json",
+]
+
+[[package]]
+name = "brain-client"
+version = "0.1.0"
+dependencies = [
+ "brain-contracts",
+ "reqwest",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "brain-contracts"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "brain-ingestion"
+version = "0.1.0"
+dependencies = [
+ "brain-contracts",
+ "brain-storage",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "brain-jev"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "brain-kernel"
+version = "0.1.0"
+dependencies = [
+ "brain-contracts",
+ "brain-policy",
+]
+
+[[package]]
+name = "brain-policy"
+version = "0.1.0"
+dependencies = [
+ "brain-contracts",
+ "hex",
+ "sha2 0.10.9",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "brain-providers"
+version = "0.1.0"
+dependencies = [
+ "brain-contracts",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "brain-storage"
+version = "0.1.0"
+dependencies = [
+ "brain-contracts",
+ "serde_json",
+ "sqlx",
+ "thiserror 1.0.69",
+ "tokio",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -540,6 +632,7 @@ dependencies = [
 name = "dbrain-retrieval"
 version = "0.1.0"
 dependencies = [
+ "brain-contracts",
  "chrono",
  "dbrain-reasoner",
  "deadlock-brain-core",

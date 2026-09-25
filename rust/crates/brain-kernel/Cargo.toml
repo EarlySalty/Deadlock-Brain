@@ -1,0 +1,12 @@
+[package]
+name = "brain-kernel"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "brain_kernel"
+path = "src/lib.rs"
+
+[dependencies]
+brain-contracts = { path = "../brain-contracts" }
+brain-policy = { path = "../brain-policy" }

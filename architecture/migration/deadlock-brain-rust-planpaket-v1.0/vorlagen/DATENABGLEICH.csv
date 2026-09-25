@@ -1,0 +1,1 @@
+source_id,snapshot_hash,watermark,source_record_id,target_record_id,revision_mapping,outcome,source_hash,target_raw_hash,transform_version,acl_check,reference_check,reason,approval,verified_by,status

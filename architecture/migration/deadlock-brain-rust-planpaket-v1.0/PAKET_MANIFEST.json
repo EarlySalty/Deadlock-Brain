@@ -1,0 +1,300 @@
+{
+  "plan_version": "1.0",
+  "date": "2026-09-24",
+  "replaces": "0.9",
+  "scope": "Three research documents integrated; Rust-only own backend; wiki/facts/cards/builds; external feeds/contracts; replays/population; monorepo; performance; dependency-safe parallel chats",
+  "implementation_status": "planning_only",
+  "EXT-01": "source_receipt_and_planning_closed_not_implementation",
+  "package_checks": {
+    "plan_markdown_files_checked": 39,
+    "local_markdown_links_checked": 29,
+    "local_links": "passed",
+    "markdown_fences": "passed",
+    "yaml_parsed": 2,
+    "csv_parsed": 9,
+    "json_parsed_before_manifest_refresh": 2,
+    "chat_count": 15,
+    "requirements_count": 60,
+    "unique_original_sources": 3,
+    "original_hashes_match": true,
+    "duplicate_upload_byte_identical": true,
+    "execution_checks": "No cargo, live repository, migration, source rights or performance tests performed"
+  },
+  "files": [
+    {
+      "path": "00_START_HIER.md",
+      "bytes": 4408,
+      "sha256": "e593285e8d9f786cec01d80f7e36ccfe2afa91cb809f64a91b9904cf759649c2"
+    },
+    {
+      "path": "01_MASTERPLAN.md",
+      "bytes": 12321,
+      "sha256": "f34cbcbd627cabefb8275402375d7aa29c424d0d0b493a934ab9ad7ab345a9fb"
+    },
+    {
+      "path": "02_GEMEINSAME_REGELN.md",
+      "bytes": 6146,
+      "sha256": "aa1e0045852e0230a76d0759cddc7ea19f47f46db9a3eef17857327b5c08d3dd"
+    },
+    {
+      "path": "03_DATENMIGRATION.md",
+      "bytes": 13855,
+      "sha256": "023402798ecf662da85698b7612c58197584d14adaa315af459e5390621e3405"
+    },
+    {
+      "path": "04_PERFORMANCE_UND_EVALS.md",
+      "bytes": 10991,
+      "sha256": "096cb9941e85f3a7d947a7801b1962a492ebf989c7a70b5d2179d003b97b6ee2"
+    },
+    {
+      "path": "05_ABNAHME_UND_CUTOVER.md",
+      "bytes": 7382,
+      "sha256": "5db513c74270988dafd453b8f1ad60111eca096e6a3dde5dcb2cc12465f0503f"
+    },
+    {
+      "path": "06_VERTRAEGE_UND_GRENZEN.md",
+      "bytes": 8380,
+      "sha256": "dd68d2ed6eab2dcfafd0e9525570e080d771f09b660cd2b389a987073a5908ea"
+    },
+    {
+      "path": "07_ANFORDERUNGEN.md",
+      "bytes": 9298,
+      "sha256": "81dbacc241ccbf5561fe9316d6e6e0307ee85da3ffd90b6a8fb53c6a5fd2a68e"
+    },
+    {
+      "path": "08_ERGAENZUNGEN_INTEGRIERT.md",
+      "bytes": 4423,
+      "sha256": "fecfea725cf361c782f75ccde504722c16860382aa7647a69b87d9f8110b364b"
+    },
+    {
+      "path": "08_OFFENE_ERGAENZUNG.md",
+      "bytes": 278,
+      "sha256": "831aa15b4c434630640be24913ab066114aa11060f30187f524a89e7ec0331d8"
+    },
+    {
+      "path": "09_STARTPROMPT.md",
+      "bytes": 2092,
+      "sha256": "19fef556b96e6773490ec8ce6690a257a1caa59f2c7dd352ea92b3b9d145c49e"
+    },
+    {
+      "path": "10_REIHENFOLGE_UND_PARALLELITAET.md",
+      "bytes": 6907,
+      "sha256": "4e670f3a065f54bc18b75f4c0658625ffacd06c68d1db94d76f5eda429e0f326"
+    },
+    {
+      "path": "11_WIKI_WISSEN_UND_BUILDS.md",
+      "bytes": 11495,
+      "sha256": "e08ad873adc81c24eeddf0e9e5cafa2115b3c6d520a76cb68eb8ac068329d7a4"
+    },
+    {
+      "path": "12_QUELLEN_UND_SCHEMAWATCH.md",
+      "bytes": 10520,
+      "sha256": "87f752b731c8a443437fa3baf3a29eba8c06f42ec331af04df24fafcf820cee3"
+    },
+    {
+      "path": "13_REPLAYS_UND_POPULATION.md",
+      "bytes": 8370,
+      "sha256": "ccede325e8bed137d81c82fad7677000278ed55791a06924284904b23b3da209"
+    },
+    {
+      "path": "PAKET_PRUEFUNG.md",
+      "bytes": 1271,
+      "sha256": "9fe0d31856247168f9beb267a69d85634de1e19386da6cc8670bfdc4e9ecec53"
+    },
+    {
+      "path": "chats/00_KOORDINATION.md",
+      "bytes": 5125,
+      "sha256": "b656c9e3d65a686c0520bbc1fa665813612e992ed0b4544822d16905324d11a6"
+    },
+    {
+      "path": "chats/01_INVENTAR_BASELINE.md",
+      "bytes": 5262,
+      "sha256": "f9ef7e68e61f6103e9d1ae6d5e417d3441fb07d24a75451c1661893c2b96a165"
+    },
+    {
+      "path": "chats/02_RUST_FUNDAMENT.md",
+      "bytes": 5049,
+      "sha256": "f27a8e13e3bad40e2db97fbb6ede1ca00a1ed23630d047e84cec0d94414b5c14"
+    },
+    {
+      "path": "chats/03_STORAGE_DATENMIGRATION.md",
+      "bytes": 5349,
+      "sha256": "55f53f438b3fab3e43e9b9a83f67a02ebb319a21b9c45e513e9e4f996f40c0a1"
+    },
+    {
+      "path": "chats/04_INGESTION_FEEDER.md",
+      "bytes": 5151,
+      "sha256": "b1278465416fa0acc9bd5f0a3142ac113459d96cf07c1fb89a6dbfeb1c7588a1"
+    },
+    {
+      "path": "chats/05_DOMAIN_PORT.md",
+      "bytes": 5372,
+      "sha256": "1b754e4ccf85fa9ffc7a5b384d32e55460068132d420dfdc0920a13c66e995c6"
+    },
+    {
+      "path": "chats/06_RETRIEVAL_SUCHINDEX.md",
+      "bytes": 5211,
+      "sha256": "14abdd4a181d1e53563450d13b8941797bf9b0567268fd102bec87724e76cb5b"
+    },
+    {
+      "path": "chats/07_PROVIDER_JEV.md",
+      "bytes": 5269,
+      "sha256": "9420a195204f428fbd68d9fff033f231bd3c54099e39f154c25a97f9c72f2440"
+    },
+    {
+      "path": "chats/08_ANSWER_KERNEL_API.md",
+      "bytes": 5225,
+      "sha256": "335202a5ffd5d55d8cb466b9ec7bf93985a170c795f1c8f6940a320dd9955699"
+    },
+    {
+      "path": "chats/09_ADAPTER_DOCS.md",
+      "bytes": 5171,
+      "sha256": "52ae60d1e892408978a53739c1e09369e36debaa0e3c533b9397abcbbac96469"
+    },
+    {
+      "path": "chats/10_QUALITAET_PERFORMANCE.md",
+      "bytes": 5476,
+      "sha256": "1c350f715bbdc5cc535d8407c2f58b18585bbe8836860c926d9b9877c2c96919"
+    },
+    {
+      "path": "chats/11_CUTOVER_LEGACY_ENDE.md",
+      "bytes": 5478,
+      "sha256": "b3d740a3659be27dbaf95a0815c0c2ca3231846daa8ee7505683c1d5e68b9667"
+    },
+    {
+      "path": "chats/12_WIKI_WISSENSKARTEN.md",
+      "bytes": 4385,
+      "sha256": "1d2b829e7802f1d8460bdf830807246db39e89d8f94ca6ae1a4e7cf496fded21"
+    },
+    {
+      "path": "chats/13_EXTERNE_QUELLEN_SCHEMA.md",
+      "bytes": 4477,
+      "sha256": "d8848bc2ad6d5e0abeade59c34af75065dbb15fb475a9a378165e237cadcd7c0"
+    },
+    {
+      "path": "chats/14_REPLAYS_OBSERVATIONS.md",
+      "bytes": 4383,
+      "sha256": "f8eb6a4cd9153fd77bd3612d40a414acd31fb3293663467231d046ccd334cf30"
+    },
+    {
+      "path": "quellen/LESART.md",
+      "bytes": 662,
+      "sha256": "5320bc3d71966ab0c81a6f24bcb2054be69fc91823ff7819768e95b6c9ca013f"
+    },
+    {
+      "path": "quellen/QUELLEN_MANIFEST.json",
+      "bytes": 1238,
+      "sha256": "14fd5f8d782134b8bb75a905a87b0deab3596ec630db23c0476162d39fdf9c9f"
+    },
+    {
+      "path": "quellen/QUELLEN_UND_ANNAHMEN.md",
+      "bytes": 4432,
+      "sha256": "77b6013da59c2d4c1c57cba19bc8c67c0c0d58616f2150f78854387361d9a8b6"
+    },
+    {
+      "path": "quellen/RECHERCHE_OEKOSYSTEM_ORIGINAL.md",
+      "bytes": 44682,
+      "sha256": "78eeee585f9dcae380b80a1214f8c81bb0423415870681163287f71ea7338e86"
+    },
+    {
+      "path": "quellen/RECHERCHE_ORIGINAL.md",
+      "bytes": 42198,
+      "sha256": "6c60e53683d6581be058060216b03b501039241dd16a6a6e01bade9e10ed01cd"
+    },
+    {
+      "path": "quellen/RECHERCHE_WIKI_ORIGINAL.md",
+      "bytes": 49719,
+      "sha256": "b8cd013158565dee0fe8e388e4d0e88e1ec677bb648a67b197223ac22fbac76d"
+    },
+    {
+      "path": "vorlagen/ANFORDERUNGS_ERGAENZUNG.md",
+      "bytes": 711,
+      "sha256": "0519f6eadc70792d633372fef124234485133e5db82744a7f8fc7b702a4ca1c6"
+    },
+    {
+      "path": "vorlagen/BENCHMARKPROFIL.yaml",
+      "bytes": 1237,
+      "sha256": "161300704a429b90a52daa9787212dfe6206ea0b3d71588ca0cda0cf7f0335fb"
+    },
+    {
+      "path": "vorlagen/BENCHMARK_BERICHT.md",
+      "bytes": 1052,
+      "sha256": "d79f5b6679592c2adac1fad007da532eaa44ece1174914621b4c2d0298657fef"
+    },
+    {
+      "path": "vorlagen/CHANGE_REQUEST.md",
+      "bytes": 525,
+      "sha256": "d66a156421aceb120f9f039776d817b03cf60370367797fcd4634b12b1e58b41"
+    },
+    {
+      "path": "vorlagen/CHAT_START.md",
+      "bytes": 1157,
+      "sha256": "25c26ab064671c51d63cd22be19b68f2bdfa9548b5471ceb9a4fcc0b32977588"
+    },
+    {
+      "path": "vorlagen/DATENABGLEICH.csv",
+      "bytes": 201,
+      "sha256": "92d32a2edb0be542c305069142ec6ea4a35d6aa739f08e4a4ad0d34b6dfeb715"
+    },
+    {
+      "path": "vorlagen/DATENINVENTAR.csv",
+      "bytes": 273,
+      "sha256": "d95a1e780ef50b07c0a2c6b694740f9559d2bc2168360ec58704982ffd69ee88"
+    },
+    {
+      "path": "vorlagen/DOMAIN_PARITAET.csv",
+      "bytes": 169,
+      "sha256": "ba41711adc6d72d0e1a604fcdd3001e1c1c6c2982111bdfd14512dbb5d8e75f1"
+    },
+    {
+      "path": "vorlagen/ENTSCHEIDUNG_ADR.md",
+      "bytes": 476,
+      "sha256": "95529f9e514cb84fb90c37bf613341d38f9da8c5e4620769b72dbba1c657ee1c"
+    },
+    {
+      "path": "vorlagen/GATES.csv",
+      "bytes": 110,
+      "sha256": "5c3f7c1ef643759dcc6d998de6d2368145b29015e6bc0f14c7d1f52465021847"
+    },
+    {
+      "path": "vorlagen/PFAD_OWNER.csv",
+      "bytes": 610,
+      "sha256": "221056b68b9ac4ad3ca7700b9a84b094d6cd27eb7bf7c22ddc1cc968f0fcea5d"
+    },
+    {
+      "path": "vorlagen/PYTHON_AUSNAHMEN.csv",
+      "bytes": 120,
+      "sha256": "80c1ed655a89c39b2727f94ce6fa74d9c51d6051b7b21774a55665cb56c47987"
+    },
+    {
+      "path": "vorlagen/QUELLENREGISTER.csv",
+      "bytes": 2990,
+      "sha256": "a4ccfc63480ce704c61d8be7c87caf8dcf6be75aeec58ff5f099e5f06ca68ff8"
+    },
+    {
+      "path": "vorlagen/RELEASE_MANIFEST.yaml",
+      "bytes": 1158,
+      "sha256": "7f0b1fe79ace7900f835d0ca6fb5ff009e1941759e13033eab4e15fd1835c3c8"
+    },
+    {
+      "path": "vorlagen/REPLAY_CAPABILITIES.csv",
+      "bytes": 176,
+      "sha256": "351407740322526c2619e0889383b6cc7b385371f2a65c50a3b2bc0f61cb2b22"
+    },
+    {
+      "path": "vorlagen/STATUS.md",
+      "bytes": 3008,
+      "sha256": "980fa8bdc51beaeba0e91a0dbc859e33ee8249db23fa9fef793b48c5989931a6"
+    },
+    {
+      "path": "vorlagen/UEBERGABE.md",
+      "bytes": 1459,
+      "sha256": "cec42c1b8a40c128e70a970e83f89ba7052c11571851de60de1fbaec87a59793"
+    },
+    {
+      "path": "vorlagen/WIKI_COVERAGE.csv",
+      "bytes": 215,
+      "sha256": "f2260d622f15f0cd017920de9cd2a7ed5bb6c7de697364932a287f423ea0f1e6"
+    }
+  ]
+}
