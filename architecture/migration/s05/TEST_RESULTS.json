@@ -1,0 +1,122 @@
+{
+  "tested_commit": "19b4e26763e5b1f3a3f8b3d145a004e5258d4145",
+  "base_commit": "c00fc8935048bf490c1e4790f7c6195864ad49e2",
+  "fixture_version": "S05-ALIAS-20260924-v1",
+  "contract_version": null,
+  "schema_version": null,
+  "implementation_authorized": false,
+  "domain_parity_accepted": false,
+  "python_reference_capture_runtime": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+  "python_unicode_version": "15.0.0",
+  "scope": "offline one-function preflight only",
+  "matrix_validation": {
+    "rows": 16,
+    "unique_ids": true,
+    "named_rust_paths_exist": true
+  },
+  "results": [
+    {
+      "command": [
+        "rustc",
+        "--version",
+        "--verbose"
+      ],
+      "exit_code": 0,
+      "stdout": "rustc 1.75.0 (82e1608df 2023-12-21) (built from a source tarball)\nbinary: rustc\ncommit-hash: 82e1608dfa6e0b5569232559e3d385fea5a93112\ncommit-date: 2023-12-21\nhost: x86_64-unknown-linux-gnu\nrelease: 1.75.0\nLLVM version: 17.0.6\n",
+      "stderr": "",
+      "audit_wall_seconds": 0.0744
+    },
+    {
+      "command": [
+        "rustc",
+        "--edition=2021",
+        "-Dwarnings",
+        "architecture/migration/s05/probes/run.rs",
+        "-o",
+        "/tmp/s05-probe-19b4e26"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "audit_wall_seconds": 0.414
+    },
+    {
+      "command": [
+        "rustc",
+        "--edition=2021",
+        "-Dwarnings",
+        "--test",
+        "architecture/migration/s05/probes/run.rs",
+        "-o",
+        "/tmp/s05-probe-tests-19b4e26"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "audit_wall_seconds": 0.4605
+    },
+    {
+      "command": [
+        "/tmp/s05-probe-tests-19b4e26",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "stdout": "\nrunning 4 tests\ntest tests::rejects_missing_signature ... ok\ntest tests::extracts_actual_function ... ok\ntest tests::rejects_missing_boundary ... ok\ntest tests::rejects_ambiguous_signature ... ok\n\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n",
+      "stderr": "",
+      "audit_wall_seconds": 0.0032
+    },
+    {
+      "command": [
+        "/tmp/s05-probe-19b4e26",
+        "/tmp/s05-characterization-19b4e26",
+        "--characterize"
+      ],
+      "exit_code": 0,
+      "stdout": "empty\tlegacy=\"\"\trust=\"\"\texact\nhero_punctuation\tlegacy=\"mo & krill\"\trust=\"mo & krill\"\texact\ninternal_separators\tlegacy=\"mo & krill\"\trust=\"mo & krill\"\texact\nunderscore\tlegacy=\"lady geist\"\trust=\"lady geist\"\texact\nascii_whitespace\tlegacy=\"abrams\"\trust=\"abrams\"\texact\nsharp_s\tlegacy=\"ss\"\trust=\"ß\"\tcasefold_decision_required\ngerman_word\tlegacy=\"strasse\"\trust=\"straße\"\tcasefold_decision_required\ngreek_sigma\tlegacy=\"σσσ\"\trust=\"σςσ\"\tcasefold_decision_required\ndotted_i\tlegacy=\"i\\u{307}\"\trust=\"i\\u{307}\"\texact\nligature\tlegacy=\"ff\"\trust=\"ﬀ\"\tcasefold_decision_required\nedge_underscores\tlegacy=\" mo \"\trust=\"mo\"\tlegacy_non_idempotence_decision_required\nonly_underscores\tlegacy=\" \"\trust=\"\"\tlegacy_non_idempotence_decision_required\ncontrol_separator\tlegacy=\"a b\"\trust=\"a\\u{1c}b\"\twhitespace_contract_required\nnbsp\tlegacy=\"a b\"\trust=\"a b\"\texact\numlaut\tlegacy=\"mö & krill\"\trust=\"mö & krill\"\texact\nkelvin\tlegacy=\"kelvin k\"\trust=\"kelvin k\"\texact\ninternal_id\tlegacy=\"hero bebop\"\trust=\"hero bebop\"\texact\ncollapsed_space\tlegacy=\"a b\"\trust=\"a b\"\texact\nSUMMARY parity_equal=11/18 differences=7 unexpected_baseline_changes=0 property_cases=4684\nSCOPE one pure function extracted unchanged; NOT whole-crate, DB, release or full-domain parity.\nCHARACTERIZATION PASSED; unresolved parity differences remain blockers.\n",
+      "stderr": "",
+      "audit_wall_seconds": 0.4048
+    },
+    {
+      "command": [
+        "/tmp/s05-probe-19b4e26",
+        "/tmp/s05-strict-19b4e26",
+        "--strict"
+      ],
+      "exit_code": 1,
+      "stdout": "empty\tlegacy=\"\"\trust=\"\"\texact\nhero_punctuation\tlegacy=\"mo & krill\"\trust=\"mo & krill\"\texact\ninternal_separators\tlegacy=\"mo & krill\"\trust=\"mo & krill\"\texact\nunderscore\tlegacy=\"lady geist\"\trust=\"lady geist\"\texact\nascii_whitespace\tlegacy=\"abrams\"\trust=\"abrams\"\texact\nsharp_s\tlegacy=\"ss\"\trust=\"ß\"\tcasefold_decision_required\ngerman_word\tlegacy=\"strasse\"\trust=\"straße\"\tcasefold_decision_required\ngreek_sigma\tlegacy=\"σσσ\"\trust=\"σςσ\"\tcasefold_decision_required\ndotted_i\tlegacy=\"i\\u{307}\"\trust=\"i\\u{307}\"\texact\nligature\tlegacy=\"ff\"\trust=\"ﬀ\"\tcasefold_decision_required\nedge_underscores\tlegacy=\" mo \"\trust=\"mo\"\tlegacy_non_idempotence_decision_required\nonly_underscores\tlegacy=\" \"\trust=\"\"\tlegacy_non_idempotence_decision_required\ncontrol_separator\tlegacy=\"a b\"\trust=\"a\\u{1c}b\"\twhitespace_contract_required\nnbsp\tlegacy=\"a b\"\trust=\"a b\"\texact\numlaut\tlegacy=\"mö & krill\"\trust=\"mö & krill\"\texact\nkelvin\tlegacy=\"kelvin k\"\trust=\"kelvin k\"\texact\ninternal_id\tlegacy=\"hero bebop\"\trust=\"hero bebop\"\texact\ncollapsed_space\tlegacy=\"a b\"\trust=\"a b\"\texact\nSUMMARY parity_equal=11/18 differences=7 unexpected_baseline_changes=0 property_cases=4684\nSCOPE one pure function extracted unchanged; NOT whole-crate, DB, release or full-domain parity.\n",
+      "stderr": "PARITY NOT ACCEPTED: unresolved legacy/Rust differences require owner decision.\n",
+      "audit_wall_seconds": 0.4356
+    },
+    {
+      "command": [
+        "sha256sum",
+        "--check",
+        "architecture/migration/s05/SOURCES.sha256"
+      ],
+      "exit_code": 0,
+      "stdout": "src/deadlock_brain/entity_normalizer.py: OK\nrust/crates/dbrain-normalize/src/util.rs: OK\nrust/crates/dbrain-normalize/src/lib.rs: OK\narchitecture/migration/STATUS.md: OK\narchitecture/migration/PFAD_OWNER.csv: OK\narchitecture/migration/GATES.csv: OK\nrust/Cargo.lock: OK\n",
+      "stderr": "",
+      "audit_wall_seconds": 0.0021
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "audit_wall_seconds": 0.003
+    }
+  ],
+  "not_run": [
+    "whole Cargo workspace",
+    "database integration",
+    "provider or network audit",
+    "regular learning cycle",
+    "production load benchmark",
+    "cutover",
+    "rustfmt unavailable on PATH"
+  ]
+}
