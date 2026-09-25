@@ -14,6 +14,7 @@ pub mod patchnotes_db;
 pub mod reddit;
 pub mod statlocker;
 pub mod wiki;
+pub mod wiki_corpus;
 
 mod store;
 mod util;

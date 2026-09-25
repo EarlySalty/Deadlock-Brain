@@ -25,6 +25,7 @@ mod pg_entities;
 mod pg_insights;
 mod pg_patchnotes;
 mod pg_steam_news;
+mod wiki_refresh;
 
 #[derive(Debug, Parser)]
 #[command(name = "deadlock-brain")]
@@ -48,6 +49,16 @@ enum Commands {
         about = "Baut ein vertrauenssortiertes Wissens-Buendel plus LLM-Prompt zu einer beliebigen Deadlock-Frage."
     )]
     AskContext(AskContextArgs),
+    #[command(
+        name = "review-build",
+        about = "Berechnet eine Build-Anfrage und veröffentlicht sie als gekennzeichnetes Review-Build."
+    )]
+    ReviewBuild(ReviewBuildArgs),
+    #[command(
+        name = "publish-build-query",
+        about = "Veröffentlicht eine ausdrücklich angeforderte Build-Variante nach der bestehenden Daten- und Mechanikprüfung."
+    )]
+    PublishBuildQuery(ReviewBuildArgs),
     #[command(about = "Fuehrt lokale Datenqualitaetschecks aus.")]
     Quality(PrettyArgs),
     #[command(about = "Erzeugt und pflegt die lokale Game-Wiki-Wissensschicht.")]
@@ -215,6 +226,14 @@ struct AskContextArgs {
     pretty: bool,
 }
 
+#[derive(Debug, Args)]
+struct ReviewBuildArgs {
+    #[arg(help = "Natürliche Build-Anfrage, zum Beispiel 'Warden Gun Build'.")]
+    query: String,
+    #[arg(long = "wait-seconds", default_value_t = 30)]
+    wait_seconds: u64,
+}
+
 #[derive(Debug, Subcommand)]
 enum WikiCommands {
     #[command(
@@ -222,6 +241,8 @@ enum WikiCommands {
         about = "Erzeugt game-wiki/ aus Deadlock-Data-Snapshots neu."
     )]
     Rebuild(WikiRebuildArgs),
+    #[command(about = "Aktualisiert Quellen und veröffentlicht einen geprüften Wiki-Snapshot.")]
+    Refresh(wiki_refresh::RefreshArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -1125,6 +1146,12 @@ fn run_from_cli() -> Result<()> {
 
 async fn run(cli: Cli) -> Result<()> {
     let Cli { command } = cli;
+    if let Commands::Wiki {
+        target: WikiCommands::Refresh(args),
+    } = &command
+    {
+        return print_json(&wiki_refresh::run(args).await?);
+    }
     let settings = config::load_settings()?;
     let command = match command {
         Commands::Pg { target } => {
@@ -1226,6 +1253,8 @@ async fn run(cli: Cli) -> Result<()> {
                 print_json(&result)
             }
         }
+        Commands::ReviewBuild(args) => run_requested_build(&pool, args, true).await,
+        Commands::PublishBuildQuery(args) => run_requested_build(&pool, args, false).await,
         Commands::Quality(args) => {
             let result = dbrain_retrieval::run_quality_checks(&pool).await?;
             if args.pretty {
@@ -1236,6 +1265,7 @@ async fn run(cli: Cli) -> Result<()> {
             }
         }
         Commands::Wiki { target } => match target {
+            WikiCommands::Refresh(args) => print_json(&wiki_refresh::run(&args).await?),
             WikiCommands::Rebuild(args) => {
                 let dir = args
                     .dir
@@ -1567,6 +1597,147 @@ async fn run_learn(settings: &Settings, target: LearnCommands) -> Result<()> {
             }
         }
     }
+}
+
+#[cfg(test)]
+mod requested_build_tests {
+    use super::*;
+    #[test]
+    fn requested_build_commands_separate_review_from_guarded_publication() {
+        let regular = Cli::try_parse_from([
+            "deadlock-brain",
+            "publish-build-query",
+            "--",
+            "Warden Gun Build",
+        ])
+        .unwrap();
+        assert!(matches!(regular.command, Commands::PublishBuildQuery(_)));
+        let review =
+            Cli::try_parse_from(["deadlock-brain", "review-build", "--", "Warden Gun Build"])
+                .unwrap();
+        assert!(matches!(review.command, Commands::ReviewBuild(_)));
+    }
+    #[test]
+    fn requested_build_receipt_requires_real_completion() {
+        assert_eq!(confirmed_publication("DONE", Some(123)), Some(123));
+        for status in ["PENDING", "RUNNING", "FAILED", "CANCELLED", "BLOCKED"] {
+            assert!(confirmed_publication(status, Some(123)).is_none());
+        }
+        for id in [None, Some(0), Some(-1)] {
+            assert!(confirmed_publication("DONE", id).is_none());
+        }
+    }
+}
+
+fn confirmed_publication(status: &str, id: Option<i64>) -> Option<i64> {
+    if status == "DONE" {
+        id.filter(|id| *id > 0)
+    } else {
+        None
+    }
+}
+
+async fn run_requested_build(pool: &PgPool, args: ReviewBuildArgs, review: bool) -> Result<()> {
+    let ask = dbrain_retrieval::ask_context(
+        pool,
+        &args.query,
+        &dbrain_retrieval::AskContextOptions {
+            limit_events: 80,
+            include_unverified: false,
+            max_claims: 12,
+            game_wiki_dir: None,
+        },
+    )
+    .await?;
+    if ask.pointer("/retrieval_meta/route").and_then(Value::as_str) != Some("build_reasoner") {
+        return Err(anyhow!(
+            "Die Anfrage wurde nicht als Build-Anfrage erkannt."
+        ));
+    }
+    let mut build: dbrain_reasoner::BuildObject = serde_json::from_value(
+        ask.get("build_context")
+            .cloned()
+            .ok_or_else(|| anyhow!("Der berechnete Build-Kontext fehlt."))?,
+    )?;
+    let alternative_variants = build.variants.len();
+    if review {
+        build.variants.clear();
+        build.name = format!(
+            "{} Brain Review {}",
+            build.hero_name,
+            chrono::Utc::now().format("%Y-%m-%d %H:%M")
+        );
+    } else if dbrain_reasoner::publish::validate_publish_input(&build).is_err() {
+        // A user request authorizes creation, not bypassing publication quality gates.
+        return print_json(&json!({
+            "status":"BLOCKED", "task_id":null, "hero_build_id":null, "version":null,
+            "hero_name":build.hero_name, "review":false, "core":[], "situations":[],
+            "message": if alternative_variants > 0 {
+                "Mehrere Buildvarianten passen. Bitte nenne den gewünschten Spielstil. Es wurde nichts veröffentlicht."
+            } else {
+                "Die aktuellen Daten reichen nicht für einen geprüften Build. Es wurde nichts veröffentlicht."
+            }
+        }));
+    }
+    let selected_family = build.family.as_ref().map(|family| family.label.clone());
+    let task_id = if review {
+        dbrain_reasoner::publish::enqueue_review_publish_task(pool, &build).await?
+    } else {
+        dbrain_reasoner::publish::enqueue_publish_task(pool, &build).await?
+    };
+    let deadline =
+        tokio::time::Instant::now() + std::time::Duration::from_secs(args.wait_seconds.min(120));
+    let (last_status, hero_build_id, version) = loop {
+        let (status, result): (String, Option<Value>) = sqlx::query_as(
+            "SELECT status, result FROM steam.steam_tasks WHERE id=$1 AND type='BUILD_PUBLISH_ORIGINAL'",
+        )
+        .bind(task_id)
+        .fetch_one(pool)
+        .await?;
+        let hero_build_id = result
+            .as_ref()
+            .and_then(|value| value.pointer("/data/hero_build_id"))
+            .and_then(Value::as_i64);
+        let version = result
+            .as_ref()
+            .and_then(|value| value.pointer("/data/version"))
+            .and_then(Value::as_i64);
+        if matches!(status.as_str(), "DONE" | "FAILED" | "CANCELLED")
+            || tokio::time::Instant::now() >= deadline
+        {
+            break (status, hero_build_id, version);
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    };
+    if matches!(last_status.as_str(), "FAILED" | "CANCELLED") {
+        return Err(anyhow!("Der Build konnte nicht veröffentlicht werden."));
+    }
+    let confirmed_id = confirmed_publication(&last_status, hero_build_id);
+    if last_status == "DONE" && confirmed_id.is_none() {
+        return Err(anyhow!(
+            "Steam hat keine gültige Build-ID bestätigt. Die Veröffentlichung bleibt unbestätigt."
+        ));
+    }
+    if !matches!(last_status.as_str(), "DONE" | "PENDING" | "RUNNING") {
+        return Err(anyhow!("Der Veröffentlichungsstatus ist unbekannt."));
+    }
+    print_json(&json!({
+        "status": last_status,
+        "review": review,
+        "task_id": task_id,
+        "hero_build_id": confirmed_id,
+        "version": version,
+        "hero_id": build.hero_id,
+        "hero_name": build.hero_name,
+        "build_name": build.name,
+        "selected_family": selected_family,
+        "alternative_variants": alternative_variants,
+        "core": build.core.iter().map(|item| json!({"item_id": item.item_id, "name": item.name})).collect::<Vec<_>>(),
+        "situations": build.situations.iter().map(|block| json!({
+            "label": block.label,
+            "items": block.items.iter().map(|item| json!({"item_id": item.item_id, "name": item.name})).collect::<Vec<_>>()
+        })).collect::<Vec<_>>()
+    }))
 }
 
 async fn run_reason(pool: &PgPool, settings: &Settings, target: ReasonCommands) -> Result<()> {

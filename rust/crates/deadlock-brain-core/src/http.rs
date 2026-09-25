@@ -240,7 +240,9 @@ impl HttpClient {
         })
     }
 
-    fn cached_result(&self, url: &str, ttl_seconds: u64) -> Result<Option<HttpResult>> {
+    /// Read the shared cache without issuing a request. Source-specific rate
+    /// limits can then apply only to actual network requests, not cache hits.
+    pub fn cached_result(&self, url: &str, ttl_seconds: u64) -> Result<Option<HttpResult>> {
         let cache_path = self.cache_path(url);
         let meta_path = metadata_path(&cache_path);
         if !cache_path.exists() || !meta_path.exists() {
