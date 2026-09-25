@@ -1,0 +1,38 @@
+{
+  "source": {
+    "source_id": "local-authorized-replay",
+    "source_revision": "REPLACE_WITH_DOCUMENTED_SOURCE_REVISION",
+    "raw_object_ref": "private:REPLACE_WITH_EXISTING_RAW_OBJECT_REFERENCE",
+    "retrieved_at_unix_ms": null,
+    "expected_sha256": null,
+    "match_reference": null,
+    "rights": {
+      "authorization_ref": "REPLACE_WITH_ACTUAL_LOCAL_RIGHTS_RECORD",
+      "scope": "private:local-validation",
+      "local_processing_allowed": false,
+      "raw_retention_allowed": false,
+      "external_egress_allowed": false
+    }
+  },
+  "budget": {
+    "max_file_bytes": 536870912,
+    "max_command_bytes": 2097152,
+    "max_total_decoded_bytes": 2147483648,
+    "max_commands": 2000000,
+    "max_packets": 10000000,
+    "max_entities": 16384,
+    "max_observations": 100000,
+    "max_output_bytes": 33554432,
+    "memory_bytes": 805306368,
+    "cpu_seconds": 120,
+    "wall_time_ms": 180000
+  },
+  "selection": {
+    "sample_every_ticks": 120,
+    "entity_classes": [
+      "CCitadelPlayerPawn",
+      "CCitadelPlayerController",
+      "CCitadelGameRulesProxy"
+    ]
+  }
+}
