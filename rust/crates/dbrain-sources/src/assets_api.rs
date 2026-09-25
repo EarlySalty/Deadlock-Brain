@@ -11,20 +11,21 @@ use crate::{
 
 pub const SOURCE: &str = "deadlock_assets_api";
 // assets.deadlock-api.com ist seit September 2026 NXDOMAIN; die Assets liegen
-// jetzt unter /v1/assets der Haupt-API. Für /raw/* gibt es dort keinen Ersatz,
-// diese Arten schlagen deshalb weiterhin mit einem HTTP-Fehler fehl.
+// jetzt unter /v1/assets der Haupt-API.
 pub const BASE_URL: &str = "https://api.deadlock-api.com";
 pub const ENDPOINTS: &[(&str, &str)] = &[
     ("items", "/v1/assets/items"),
     ("heroes", "/v1/assets/heroes?only_active=true"),
     ("heroes_all", "/v1/assets/heroes"),
-    ("raw_items", "/raw/items"),
-    ("raw_heroes", "/raw/heroes"),
     ("ranks", "/v1/assets/ranks"),
     ("colors", "/v1/assets/colors"),
     ("build_tags", "/v1/assets/build-tags"),
     ("npc_units", "/v1/assets/npc-units"),
 ];
+/// Arten des alten Hosts ohne Ersatz unter /v1/assets. Sie werden vor jedem
+/// Schreibzugriff abgelehnt statt still übersprungen.
+const RETIRED_KINDS: &[&str] = &["raw_items", "raw_heroes"];
+const DEFAULT_KINDS: &[&str] = &["items", "heroes"];
 
 #[derive(Debug, Clone, Default)]
 pub struct PullAssetsOptions {
@@ -36,34 +37,44 @@ pub async fn pull_assets(
     http: &HttpClient,
     options: PullAssetsOptions,
 ) -> Result<Value> {
+    let selected = resolve_kinds(&options.kinds)?;
     let pool = open_pool().await?;
     let store = SourceStore::new(&pool, raw_dir)?;
     let run_id = store.begin_run("assets").await?;
-    let outcome = pull_assets_inner(&store, http, &options).await;
+    let outcome = pull_assets_inner(&store, http, &selected).await;
     complete_run(&store, run_id, outcome).await
+}
+
+fn resolve_kinds(kinds: &[String]) -> Result<Vec<(String, &'static str)>> {
+    let requested: Vec<String> = if kinds.is_empty() {
+        DEFAULT_KINDS.iter().map(|kind| kind.to_string()).collect()
+    } else {
+        kinds.to_vec()
+    };
+    requested
+        .into_iter()
+        .map(|kind| {
+            if RETIRED_KINDS.contains(&kind.as_str()) {
+                return Err(SourcesError::invalid_input(format!(
+                    "Assets-Art {kind} wird von api.deadlock-api.com nicht mehr angeboten"
+                )));
+            }
+            let endpoint = endpoint_path(&kind).ok_or_else(|| {
+                SourcesError::invalid_input(format!("Unbekannter Assets-Endpoint: {kind}"))
+            })?;
+            Ok((kind, endpoint))
+        })
+        .collect()
 }
 
 pub(crate) async fn pull_assets_inner(
     store: &SourceStore<'_>,
     http: &HttpClient,
-    options: &PullAssetsOptions,
+    selected: &[(String, &'static str)],
 ) -> Result<Value> {
-    let selected = if options.kinds.is_empty() {
-        vec![
-            "items".to_string(),
-            "heroes".to_string(),
-            "raw_items".to_string(),
-            "raw_heroes".to_string(),
-        ]
-    } else {
-        options.kinds.clone()
-    };
-
     let mut endpoints_summary = Map::new();
     let mut total_snapshots = 0usize;
-    for kind in selected {
-        let endpoint = endpoint_path(&kind)
-            .ok_or_else(|| SourcesError::invalid_input(format!("Unbekannter Assets-Endpoint: {kind}")))?;
+    for (kind, endpoint) in selected.iter().cloned() {
         let url = format!("{BASE_URL}{endpoint}");
         let payload = http.get_json::<Value>(
             &url,
@@ -192,6 +203,39 @@ mod tests {
         assert_eq!(snapshots[1].external_id, "item_cold");
         // Ohne id/class_name/name faellt der External-Key auf den Index zurueck.
         assert_eq!(snapshots[2].external_id, "2");
+    }
+
+    #[test]
+    fn resolve_kinds_defaults_to_supported_endpoints() {
+        let selected = resolve_kinds(&[]).expect("Default-Arten");
+        assert_eq!(
+            selected,
+            vec![
+                ("items".to_string(), "/v1/assets/items"),
+                ("heroes".to_string(), "/v1/assets/heroes?only_active=true"),
+            ]
+        );
+    }
+
+    #[test]
+    fn resolve_kinds_rejects_retired_and_unknown_kinds() {
+        for kind in ["raw_items", "raw_heroes"] {
+            let error = resolve_kinds(&["items".to_string(), kind.to_string()])
+                .expect_err("raw-Art muss abgelehnt werden");
+            assert!(
+                error.to_string().contains("nicht mehr angeboten"),
+                "{error}"
+            );
+        }
+        let error = resolve_kinds(&["bogus".to_string()]).expect_err("unbekannte Art");
+        assert!(
+            error.to_string().contains("Unbekannter Assets-Endpoint"),
+            "{error}"
+        );
+        assert_eq!(
+            resolve_kinds(&["ranks".to_string()]).expect("ranks"),
+            vec![("ranks".to_string(), "/v1/assets/ranks")]
+        );
     }
 
     #[test]
