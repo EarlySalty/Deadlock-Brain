@@ -1,0 +1,62 @@
+{
+  "format": "s14.decoder-review.v1",
+  "review_date": "2026-09-24",
+  "status": "source_inspected_only",
+  "runtime_dependency_added": false,
+  "build_verified": false,
+  "real_replay_verified": false,
+  "upstream_gameplay_capability_inferred": false,
+  "candidates": [
+    {
+      "repository": "https://github.com/deadlock-api/haste",
+      "inspected_commit": "bfb292d4798031350861ad297aa26753267a1ea6",
+      "commit_date": "2026-09-02T11:39:15Z",
+      "root_package": "haste",
+      "version": "0.0.0",
+      "edition": "2024",
+      "root_features": ["async"],
+      "root_deadlock_feature_exists": false,
+      "root_dependencies": ["haste_broadcast", "haste_core"],
+      "recommended_next_probe": "Evaluate haste_core directly for local-file decoding; do not silently pull broadcast/network behavior into the replay worker.",
+      "core_features": ["async"],
+      "manifest_sources": [
+        "https://github.com/deadlock-api/haste/blob/bfb292d4798031350861ad297aa26753267a1ea6/Cargo.toml",
+        "https://github.com/deadlock-api/haste/blob/bfb292d4798031350861ad297aa26753267a1ea6/crates/haste_core/Cargo.toml"
+      ],
+      "transitive_git_pins": [
+        {
+          "package": "valveprotos",
+          "repository": "https://github.com/deadlock-api/valveprotos-rs.git",
+          "revision": "4f4a3cb1b0c6f19af59a722acb79ecccd01f61f6",
+          "features": ["gc-client", "serde", "user-msgs"]
+        },
+        {
+          "package": "dungers",
+          "repository": "https://github.com/deadlock-api/dungers.git",
+          "revision": "5e1e2aac76a027987911de3ef3d23ecfd992a7fb",
+          "features_from_haste_core": ["varint", "bitbuf"]
+        }
+      ],
+      "notes": [
+        "README Deadlock-feature instructions do not match the inspected manifests.",
+        "README warns about unsafe implementation and unstable public API; no memory-safety or hostile-replay audit has been performed here.",
+        "Registry dependency closure must be locked, audited and built by S02 after the candidate decision. No reproducible decoder build is claimed."
+      ]
+    },
+    {
+      "repository": "https://github.com/deadlock-api/valveprotos-rs",
+      "inspected_commit": "4f4a3cb1b0c6f19af59a722acb79ecccd01f61f6",
+      "role": "Exact transitive schema revision already pinned by the inspected haste candidate",
+      "package": "valveprotos",
+      "edition": "2024",
+      "features": ["gc-common", "gc-client", "game-msgs", "user-msgs", "serde", "reflect", "requests"],
+      "deadlock_feature_exists": false,
+      "manifest_source": "https://github.com/deadlock-api/valveprotos-rs/blob/4f4a3cb1b0c6f19af59a722acb79ecccd01f61f6/Cargo.toml",
+      "observed_default_branch_commit": "8b504c6d637d4cdd74c036dcb7e5af4dc70bd182",
+      "observed_default_branch_commit_date": "2026-09-11T20:10:54Z",
+      "default_branch_is_not_approved_upgrade": true,
+      "default_branch_source": "https://api.github.com/repos/deadlock-api/valveprotos-rs/branches/master"
+    }
+  ],
+  "next_owner": "S02/S13/S14: preserve the exact transitive revision, resolve protoc/build requirements and registry lockfile, test one approved replay before claiming supported fields"
+}

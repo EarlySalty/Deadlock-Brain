@@ -1,0 +1,12 @@
+[package]
+name = "s14-replay-audit"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+publish = false
+
+# Offline preparation tool, deliberately outside the productive workspace.
+# Its tabular inventory format is NOT a Brain runtime/observation contract.
+[workspace]
+
+[dependencies]
