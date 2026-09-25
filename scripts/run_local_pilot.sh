@@ -34,8 +34,8 @@ done
 FAILED=0
 phase() {
   local database="$1" test="$2" label="$3"
-  (cd "$ROOT/rust" && BRAIN_PILOT_DATABASE="$database" "$CARGO" test --locked -p brain-api --test local_pilot "$test" \
-    -- --ignored --exact --nocapture) >"$REPORT/$label.log" 2>&1
+  (cd "$ROOT/rust" && "$CARGO" test --locked -p brain-api --test local_pilot --no-run) >"$REPORT/$label.build.log" 2>&1
+  (cd "$ROOT/rust" && BRAIN_PILOT_DATABASE="$database" "$CARGO" test --locked -p brain-api --test local_pilot "$test" -- --ignored --exact --nocapture) >"$REPORT/$label.log" 2>&1
   local result=$?
   printf '%s\t%s\n' "$label" "$result" >>"$REPORT/summary.tsv"
   ((result == 0)) || FAILED=1

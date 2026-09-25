@@ -438,6 +438,7 @@ async fn pilot_phase_after_restart() {
     );
     fail.store(false, Ordering::SeqCst);
 
+    let load = load(&address);
     let revoke_reader = reader(&env);
     let mut revoked = tokio::task::spawn_blocking(move || {
         revoke_reader
@@ -505,6 +506,7 @@ async fn pilot_phase_after_restart() {
             "reingest_records": unchanged_records,
             "delete_tombstones": tombstones,
             "provider_calls": calls_total,
+            "load": load,
             "cases": cases,
             "failed": failed,
         }),
@@ -530,6 +532,121 @@ async fn pilot_phase_empty_rebuild() {
         "rebuild",
         json!({"snapshot_digest": digest, "documents": documents}),
     );
+}
+
+fn load(address: &str) -> Value {
+    if std::env::var("BRAIN_PILOT_VARIANT").as_deref() != Ok("diagnostic") {
+        return Value::Null;
+    }
+    let requests: usize = match std::env::var("BRAIN_PILOT_LOAD_REQUESTS") {
+        Ok(v) => v.parse().unwrap(),
+        Err(_) => return Value::Null,
+    };
+    let workers: usize = std::env::var("BRAIN_PILOT_LOAD_WORKERS")
+        .map(|v| v.parse().unwrap())
+        .unwrap_or(8);
+    let texts = [
+        "Abrams",
+        "Haze",
+        "Wraith",
+        "Lady Geist",
+        "Warden",
+        "Vindicta",
+    ];
+    let started = Instant::now();
+    let handles: Vec<_> = (0..workers)
+        .map(|worker| {
+            let address = address.to_string();
+            std::thread::spawn(move || {
+                let client =
+                    BrainClient::new(&address, PUBLIC_TOKEN, Duration::from_secs(10)).unwrap();
+                let mut samples = Vec::new();
+                let mut statuses: BTreeMap<String, usize> = BTreeMap::new();
+                for i in (worker..requests).step_by(workers) {
+                    let q = query(
+                        &format!("load-{i}"),
+                        texts[i % texts.len()],
+                        &["docs.public"],
+                        None,
+                        None,
+                    );
+                    let t = Instant::now();
+                    let key = match client.answer(&q) {
+                        Ok(r) => serde_json::to_value(r.status)
+                            .unwrap()
+                            .as_str()
+                            .unwrap()
+                            .to_string(),
+                        Err(_) => "client_error".into(),
+                    };
+                    samples.push(t.elapsed().as_micros() as u64);
+                    *statuses.entry(key).or_default() += 1;
+                }
+                (samples, statuses)
+            })
+        })
+        .collect();
+    let mut samples = Vec::new();
+    let mut statuses: BTreeMap<String, usize> = BTreeMap::new();
+    for handle in handles {
+        let (s, st) = handle.join().unwrap();
+        samples.extend(s);
+        for (k, v) in st {
+            *statuses.entry(k).or_default() += v;
+        }
+    }
+    let wall = started.elapsed();
+    let process = process_usage();
+    samples.sort_unstable();
+    let pct = |p: f64| {
+        samples[((samples.len() as f64 * p).ceil() as usize).saturating_sub(1)] as f64 / 1000.0
+    };
+    json!({
+        "requests": samples.len(),
+        "workers": workers,
+        "wall_ms": wall.as_millis() as u64,
+        "throughput_rps": samples.len() as f64 / wall.as_secs_f64(),
+        "p50_ms": pct(0.50),
+        "p95_ms": pct(0.95),
+        "p99_ms": pct(0.99),
+        "max_ms": *samples.last().unwrap() as f64 / 1000.0,
+        "statuses": statuses,
+        "process_after_load": process,
+    })
+}
+
+fn process_usage() -> Value {
+    let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    let field = |name: &str| {
+        status
+            .lines()
+            .find(|l| l.starts_with(name))
+            .and_then(|l| l.split_whitespace().nth(1))
+            .and_then(|v| v.parse::<u64>().ok())
+    };
+    let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
+    let fields: Vec<&str> = stat
+        .rsplit_once(')')
+        .map(|(_, rest)| rest.split_whitespace().collect())
+        .unwrap_or_default();
+    let ticks = |i: usize| fields.get(i).and_then(|v| v.parse::<u64>().ok());
+    let io = std::fs::read_to_string("/proc/self/io").unwrap_or_default();
+    let io_field = |name: &str| {
+        io.lines()
+            .find(|l| l.starts_with(name))
+            .and_then(|l| l.split_whitespace().nth(1))
+            .and_then(|v| v.parse::<u64>().ok())
+    };
+    json!({
+        "vm_hwm_kib": field("VmHWM:"),
+        "vm_rss_kib": field("VmRSS:"),
+        "threads": field("Threads:"),
+        "utime_ticks": ticks(11),
+        "stime_ticks": ticks(12),
+        "clock_ticks_per_second": 100,
+        "read_bytes": io_field("read_bytes:"),
+        "write_bytes": io_field("write_bytes:"),
+    })
 }
 
 fn retrieval_limit() -> usize {
