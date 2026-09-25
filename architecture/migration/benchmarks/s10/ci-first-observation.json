@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "kind": "github_checks_snapshot_not_final_acceptance",
+  "pull_request": 27,
+  "head_sha": "a14340f8b1b8db9657255be2ec05672e9d562cba",
+  "potential_merge_sha_at_observation": "c36d8f6d087b114b5b335639e9c69b168b4ea7a2",
+  "is_draft": true,
+  "auto_merge_requested": false,
+  "checks": [
+    {"name": "Migration composition", "result": "success", "run_id": 36011974212},
+    {"name": "Python syntax", "result": "success", "run_id": 36011974212},
+    {"name": "Rust compile", "result": "in_progress", "run_id": 36011974212},
+    {"name": "Semantic review", "result": "skipped", "run_id": 36011974229, "accepted_as_review": false},
+    {"name": "Auto merge after gates", "result": "success", "run_id": 36011974443, "merge_performed": false},
+    {"name": "GitGuardian Security Checks", "result": "success"}
+  ],
+  "all_checks_passed": false,
+  "standalone_s10_workspace_in_ci": false,
+  "release_approved": false,
+  "note": "Historical observation for the implementation commit. A later documentation push invalidates this as current-head CI evidence. Current checks and run attempts are reported in the PR. A skipped semantic review and a successful draft-skipping reconciliation are not approvals."
+}

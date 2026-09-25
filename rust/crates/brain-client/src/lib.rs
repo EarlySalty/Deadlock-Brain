@@ -1,38 +1,51 @@
 #![forbid(unsafe_code)]
-
-use std::time::Duration;
-
-use brain_contracts::{PublicAnswerResponse as AnswerResponse, Query};
+//! One typed Brain transport contract, with synchronous and native async clients.
+//! No configuration discovery, provider fallback, deployment or message sending.
+pub use brain_contracts::{
+    AnswerProfile, AnswerStatus, PublicAnswerResponse, PublicCitation, Query, PUBLIC_API_VERSION,
+};
 use reqwest::{
     blocking::Client,
     header::{HeaderValue, AUTHORIZATION, CONTENT_TYPE},
     StatusCode,
 };
-use std::{io::Read, net::IpAddr};
+use std::{io::Read, time::Duration};
 use thiserror::Error;
+use PublicAnswerResponse as AnswerResponse;
+mod async_client;
+mod transport;
+pub use async_client::AsyncBrainClient;
+pub use transport::{MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES};
 
-#[derive(Debug, Error)]
+#[derive(Error)]
 pub enum ClientError {
-    #[error("ungueltige Brain Basis URL")]
+    #[error("ungültige Brain Basis-URL oder Frist")]
     InvalidBaseUrl,
-    #[error("ungueltiges Bearer Token")]
+    #[error("ungültiges Bearer-Token")]
     InvalidToken,
-    #[error("Brain HTTP Fehler: {0}")]
+    #[error("Brain HTTP-Transport fehlgeschlagen")]
     Http(#[from] reqwest::Error),
     #[error("Brain antwortete mit HTTP {status}: {body}")]
     HttpStatus { status: StatusCode, body: String },
-    #[error("Brain Query ist ungültig: {0}")]
+    #[error("Brain Query ist ungültig")]
     InvalidQuery(String),
-    #[error("Brain Antwort ist kein gültiger Contract: {0}")]
+    #[error("Brain Antwort ist kein gültiger Contract")]
     Contract(#[from] serde_json::Error),
     #[error("Brain Antwort verletzt den öffentlichen Contract")]
     InvalidResponse,
+    #[error("Brain Anfrage überschreitet das Größenlimit")]
+    RequestTooLarge,
     #[error("Brain Antwort überschreitet das Größenlimit")]
     ResponseTooLarge,
     #[error("Brain Antwort konnte nicht vollständig gelesen werden")]
     BodyRead(#[from] std::io::Error),
 }
-
+// reqwest's Debug may contain the endpoint. Public diagnostics remain redacted.
+impl std::fmt::Debug for ClientError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self, f)
+    }
+}
 pub type Result<T> = std::result::Result<T, ClientError>;
 
 #[derive(Clone)]
@@ -41,132 +54,67 @@ pub struct BrainClient {
     base_url: String,
     bearer: HeaderValue,
 }
-
 impl std::fmt::Debug for BrainClient {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("BrainClient")
-            .field("base_url", &self.base_url)
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BrainClient")
+            .field("endpoint", &"<configured>")
             .field("bearer", &"<redacted>")
             .finish()
     }
 }
-
 impl BrainClient {
     pub fn new(base_url: &str, bearer_token: &str, timeout: Duration) -> Result<Self> {
-        let base_url = base_url.trim().trim_end_matches('/');
-        let parsed = reqwest::Url::parse(base_url).map_err(|_| ClientError::InvalidBaseUrl)?;
-        let loopback = parsed.host_str().is_some_and(|h| {
-            h == "localhost"
-                || h.trim_matches(['[', ']'])
-                    .parse::<IpAddr>()
-                    .is_ok_and(|ip| ip.is_loopback())
-        });
-        if !(parsed.scheme() == "https" || (parsed.scheme() == "http" && loopback))
-            || !parsed.username().is_empty()
-            || parsed.password().is_some()
-            || parsed.query().is_some()
-            || parsed.fragment().is_some()
-            || timeout.is_zero()
-            || timeout > Duration::from_secs(60)
-        {
-            return Err(ClientError::InvalidBaseUrl);
-        }
-        if bearer_token.is_empty()
-            || bearer_token.len() > 4096
-            || bearer_token.chars().any(char::is_whitespace)
-        {
-            return Err(ClientError::InvalidToken);
-        }
-        let mut bearer = HeaderValue::from_str(&format!("Bearer {bearer_token}"))
-            .map_err(|_| ClientError::InvalidToken)?;
-        bearer.set_sensitive(true);
+        let (base_url, bearer) = transport::endpoint(base_url, bearer_token, timeout)?;
         let client = Client::builder()
             .timeout(timeout)
             .connect_timeout(timeout.min(Duration::from_secs(3)))
             .redirect(reqwest::redirect::Policy::none())
             .no_proxy()
+            .no_gzip()
+            .no_brotli()
+            .no_deflate()
+            .no_zstd()
             .build()?;
         Ok(Self {
             client,
-            base_url: base_url.to_string(),
+            base_url,
             bearer,
         })
     }
-
     pub fn answer(&self, query: &Query) -> Result<AnswerResponse> {
-        query
-            .validate()
-            .map_err(|error| ClientError::InvalidQuery(error.to_string()))?;
-
+        let request = transport::encode_request(query)?;
         let response = self
             .client
             .post(format!("{}/v1/answer", self.base_url))
             .header(AUTHORIZATION, self.bearer.clone())
             .header(CONTENT_TYPE, "application/json")
-            .json(query)
+            .body(request)
             .send()?;
-
         let status = response.status();
-        const MAX_BYTES: usize = 512 * 1024;
         if response
             .content_length()
-            .is_some_and(|n| n > MAX_BYTES as u64)
+            .is_some_and(|n| n > MAX_RESPONSE_BYTES as u64)
         {
             return Err(ClientError::ResponseTooLarge);
         }
-        let is_json = response
-            .headers()
-            .get(CONTENT_TYPE)
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|v| {
-                v.split(';')
-                    .next()
-                    .is_some_and(|m| m.trim().eq_ignore_ascii_case("application/json"))
-            });
+        let is_json = transport::json_content_type(response.headers());
         let mut bytes = Vec::new();
         response
-            .take(MAX_BYTES as u64 + 1)
+            .take(MAX_RESPONSE_BYTES as u64 + 1)
             .read_to_end(&mut bytes)?;
-        if bytes.len() > MAX_BYTES {
-            return Err(ClientError::ResponseTooLarge);
-        }
-        if status != StatusCode::OK {
-            let code = serde_json::from_slice::<brain_contracts::ApiErrorEnvelope>(&bytes)
-                .ok()
-                .map(|e| e.error.code)
-                .filter(|code| {
-                    code.len() <= 64 && code.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-                })
-                .unwrap_or_else(|| "http_error".into());
-            return Err(ClientError::HttpStatus { status, body: code });
-        }
-        if !is_json {
-            return Err(ClientError::InvalidResponse);
-        }
-        let answer: AnswerResponse = serde_json::from_slice(&bytes)?;
-        answer
-            .validate(&query.request_id)
-            .map_err(|_| ClientError::InvalidResponse)?;
-        Ok(answer)
+        transport::decode_response(status, is_json, &bytes, &query.request_id)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use std::{
         collections::BTreeSet,
         io::{Read, Write},
         net::TcpListener,
         thread,
     };
-
-    use brain_contracts::{
-        AnswerProfile, AnswerStatus, PublicCitation, PUBLIC_API_VERSION as CONTRACT_VERSION,
-    };
-
-    use super::*;
-
     fn query() -> Query {
         Query {
             request_id: "request-1".into(),
@@ -178,7 +126,6 @@ mod tests {
             mode: None,
         }
     }
-
     #[test]
     fn sends_typed_query_with_bearer_and_reads_typed_response() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -193,9 +140,8 @@ mod tests {
                 .lines()
                 .any(|line| line.eq_ignore_ascii_case("authorization: Bearer test-token")));
             assert!(raw.contains("\"request_id\":\"request-1\""));
-
             let body = serde_json::to_string(&AnswerResponse {
-                contract_version: CONTRACT_VERSION.into(),
+                contract_version: PUBLIC_API_VERSION.into(),
                 request_id: "request-1".into(),
                 knowledge_release: "release-1".into(),
                 status: AnswerStatus::Answered,
@@ -206,15 +152,8 @@ mod tests {
                 }],
             })
             .unwrap();
-            write!(
-                stream,
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                body.len(),
-                body
-            )
-            .unwrap();
+            write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
         });
-
         let client = BrainClient::new(
             &format!("http://{addr}"),
             "test-token",
@@ -223,11 +162,9 @@ mod tests {
         .unwrap();
         let response = client.answer(&query()).unwrap();
         server.join().unwrap();
-
         assert_eq!(response.status, AnswerStatus::Answered);
         assert_eq!(response.request_id, "request-1");
     }
-
     #[test]
     fn debug_never_contains_bearer_token() {
         let client = BrainClient::new(
