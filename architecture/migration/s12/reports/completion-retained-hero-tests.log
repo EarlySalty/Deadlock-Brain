@@ -1,0 +1,15 @@
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-wiki-completion-20260925/rust/crates/dbrain-reasoner)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-wiki-completion-20260925/rust/crates/dbrain-retrieval)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.49s
+     Running unittests src/lib.rs (rust/target/debug/deps/dbrain_retrieval-03b95295e270c72a)
+
+running 7 tests
+test game_wiki::hero_dossier::tests::ambiguous_cards_and_unavailable_wiki_are_explicit ... ok
+test game_wiki::hero_dossier::tests::dossier_binds_stable_skills_and_separates_old_facts ... ok
+test game_wiki::hero_dossier::tests::historical_pages_and_cross_hero_ability_names_are_not_build_evidence ... ok
+test game_wiki::hero_dossier::tests::wiki_text_cannot_inject_corpus_boundaries ... ok
+test game_wiki::hero_dossier::tests::exported_card_is_loaded_by_exact_identity_only ... ok
+test game_wiki::hero_dossier::tests::note_budget_is_unicode_safe_and_reports_omissions ... ok
+test game_wiki::hero_dossier::tests::every_hero_in_the_versioned_corpus_gets_an_explicit_coverage_card ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 52 filtered out; finished in 0.21s

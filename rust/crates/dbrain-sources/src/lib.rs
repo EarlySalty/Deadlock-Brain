@@ -13,7 +13,9 @@ pub mod google_sheet;
 pub mod patchnotes_db;
 pub mod reddit;
 pub mod statlocker;
+pub use dbrain_s12_wiki_probe::{capture as wiki_capture, knowledge as wiki_knowledge};
 pub mod wiki;
+pub mod wiki_capture_io;
 pub mod wiki_corpus;
 
 mod store;

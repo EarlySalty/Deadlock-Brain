@@ -711,10 +711,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "dbrain-s12-wiki-probe"
+version = "0.1.0"
+dependencies = [
+ "brain-contracts",
+ "chrono",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "dbrain-sources"
 version = "0.1.0"
 dependencies = [
  "dbrain-normalize",
+ "dbrain-s12-wiki-probe",
  "deadlock-brain-core",
  "regex",
  "roxmltree",

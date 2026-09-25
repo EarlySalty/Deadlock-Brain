@@ -1,0 +1,247 @@
+{
+  "hero_source_id": "synthetic_wiki:page:101",
+  "locale": "de",
+  "patch": null,
+  "mode": null,
+  "canonical_knowledge_release": null,
+  "sections": {
+    "abilities": [
+      {
+        "source_id": "synthetic_wiki:page:201",
+        "revision_id": 10201,
+        "raw_sha256": "46545288631f209ba80664ab88958b4ee3aabefabfaae86be8e695bcd5257a9c",
+        "candidate_locators": [
+          "json:/condition",
+          "json:/damage",
+          "json:/entity_id",
+          "json:/mechanic_id",
+          "json:/variant"
+        ]
+      },
+      {
+        "source_id": "synthetic_wiki:page:202",
+        "revision_id": 10202,
+        "raw_sha256": "8f74a1f2a1427ee6a0ab8431abbffd8c8043fa3c0b2f60d2cc9a8bdad8de1b37",
+        "candidate_locators": [
+          "json:/entity_id",
+          "json:/mechanic_id",
+          "json:/stacks"
+        ]
+      }
+    ],
+    "aliases": [
+      {
+        "source_id": "synthetic_wiki:page:901",
+        "revision_id": 10901,
+        "raw_sha256": "4b25142c7a73e21418705ef93243cb59ab25a2ba2f6818f5e2c89c1d1260a6bb",
+        "candidate_locators": [
+          "utf8:0..28"
+        ]
+      }
+    ],
+    "build_rules": [
+      {
+        "source_id": "synthetic_wiki:page:501",
+        "revision_id": 10501,
+        "raw_sha256": "dac8ac8d08f453046d2c9ad90076ae6b8c48f1c1ab335d38cf755958f0f7762f",
+        "candidate_locators": [
+          "json:/limit",
+          "json:/mode",
+          "json:/rule_id"
+        ]
+      }
+    ],
+    "dependency_evidence": [
+      {
+        "source_id": "synthetic_wiki:page:101",
+        "revision_id": 10101,
+        "raw_sha256": "1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+        "candidate_locators": [
+          "json:/entity_id",
+          "json:/optional_value",
+          "json:/stats/0/id",
+          "json:/stats/0/unit",
+          "json:/stats/0/value",
+          "json:/stats/1/id",
+          "json:/stats/1/unit",
+          "json:/stats/1/value",
+          "json:/stats/2/id",
+          "json:/stats/2/unit",
+          "json:/stats/2/value",
+          "json:/stats/3/id",
+          "json:/stats/3/unit",
+          "json:/stats/3/value"
+        ]
+      },
+      {
+        "source_id": "synthetic_wiki:page:201",
+        "revision_id": 10201,
+        "raw_sha256": "46545288631f209ba80664ab88958b4ee3aabefabfaae86be8e695bcd5257a9c",
+        "candidate_locators": [
+          "json:/condition",
+          "json:/damage",
+          "json:/entity_id",
+          "json:/mechanic_id",
+          "json:/variant"
+        ]
+      },
+      {
+        "source_id": "synthetic_wiki:page:202",
+        "revision_id": 10202,
+        "raw_sha256": "8f74a1f2a1427ee6a0ab8431abbffd8c8043fa3c0b2f60d2cc9a8bdad8de1b37",
+        "candidate_locators": [
+          "json:/entity_id",
+          "json:/mechanic_id",
+          "json:/stacks"
+        ]
+      },
+      {
+        "source_id": "synthetic_wiki:page:301",
+        "revision_id": 10301,
+        "raw_sha256": "a638d710ec11b7cf188aacf6744535826b5a5f2e4c3a12f8cae591abc8db09f8",
+        "candidate_locators": [
+          "json:/entity_id",
+          "json:/price"
+        ]
+      },
+      {
+        "source_id": "synthetic_wiki:page:302",
+        "revision_id": 10302,
+        "raw_sha256": "92acc022d20bb60cdab710fc9d3deb1dfc221feb94d3a37e7956f7358859e07d",
+        "candidate_locators": [
+          "json:/entity_id",
+          "json:/price"
+        ]
+      },
+      {
+        "source_id": "synthetic_wiki:page:401",
+        "revision_id": 10401,
+        "raw_sha256": "aacccafbb99a44fdd7b2a6295ce8abb091a9f4a96e8a2c6b79c0efd6743d2639",
+        "candidate_locators": [
+          "json:/entity_id",
+          "json:/unit"
+        ]
+      },
+      {
+        "source_id": "synthetic_wiki:page:402",
+        "revision_id": 10402,
+        "raw_sha256": "6c58660d9c8db3a320577fedb62aca10d2a7f9f8b77a57ae2db5115f4dfb3751",
+        "candidate_locators": [
+          "json:/entity_id",
+          "json:/unit"
+        ]
+      },
+      {
+        "source_id": "synthetic_wiki:page:501",
+        "revision_id": 10501,
+        "raw_sha256": "dac8ac8d08f453046d2c9ad90076ae6b8c48f1c1ab335d38cf755958f0f7762f",
+        "candidate_locators": [
+          "json:/limit",
+          "json:/mode",
+          "json:/rule_id"
+        ]
+      },
+      {
+        "source_id": "synthetic_wiki:page:601",
+        "revision_id": 10601,
+        "raw_sha256": "662dedb4ee9486d166d01945e21a5b6d1309416f6fd3a4e49c75ccd19bf6c95b",
+        "candidate_locators": [
+          "json:/scaling",
+          "json:/unit"
+        ]
+      },
+      {
+        "source_id": "synthetic_wiki:page:701",
+        "revision_id": 10701,
+        "raw_sha256": "9d81139f0eac04d239eb233059637e3006fd19f704712efe95731afb3c3b9283",
+        "candidate_locators": [
+          "json:/per_tick",
+          "json:/unit"
+        ]
+      },
+      {
+        "source_id": "synthetic_wiki:page:901",
+        "revision_id": 10901,
+        "raw_sha256": "4b25142c7a73e21418705ef93243cb59ab25a2ba2f6818f5e2c89c1d1260a6bb",
+        "candidate_locators": [
+          "utf8:0..28"
+        ]
+      }
+    ],
+    "items": [
+      {
+        "source_id": "synthetic_wiki:page:301",
+        "revision_id": 10301,
+        "raw_sha256": "a638d710ec11b7cf188aacf6744535826b5a5f2e4c3a12f8cae591abc8db09f8",
+        "candidate_locators": [
+          "json:/entity_id",
+          "json:/price"
+        ]
+      },
+      {
+        "source_id": "synthetic_wiki:page:302",
+        "revision_id": 10302,
+        "raw_sha256": "92acc022d20bb60cdab710fc9d3deb1dfc221feb94d3a37e7956f7358859e07d",
+        "candidate_locators": [
+          "json:/entity_id",
+          "json:/price"
+        ]
+      }
+    ],
+    "mechanics": [
+      {
+        "source_id": "synthetic_wiki:page:401",
+        "revision_id": 10401,
+        "raw_sha256": "aacccafbb99a44fdd7b2a6295ce8abb091a9f4a96e8a2c6b79c0efd6743d2639",
+        "candidate_locators": [
+          "json:/entity_id",
+          "json:/unit"
+        ]
+      },
+      {
+        "source_id": "synthetic_wiki:page:402",
+        "revision_id": 10402,
+        "raw_sha256": "6c58660d9c8db3a320577fedb62aca10d2a7f9f8b77a57ae2db5115f4dfb3751",
+        "candidate_locators": [
+          "json:/entity_id",
+          "json:/unit"
+        ]
+      }
+    ],
+    "profile": [
+      {
+        "source_id": "synthetic_wiki:page:101",
+        "revision_id": 10101,
+        "raw_sha256": "1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+        "candidate_locators": [
+          "json:/entity_id",
+          "json:/optional_value",
+          "json:/stats/0/id",
+          "json:/stats/0/unit",
+          "json:/stats/0/value",
+          "json:/stats/1/id",
+          "json:/stats/1/unit",
+          "json:/stats/1/value",
+          "json:/stats/2/id",
+          "json:/stats/2/unit",
+          "json:/stats/2/value",
+          "json:/stats/3/id",
+          "json:/stats/3/unit",
+          "json:/stats/3/value"
+        ]
+      }
+    ]
+  },
+  "unknowns": [
+    "build_legality_not_evaluated",
+    "canonical_fact_rule_card_contract_missing",
+    "canonical_knowledge_release_unknown",
+    "localized_text_provenance_not_validated",
+    "mode_unknown",
+    "patch_unknown",
+    "source_syntax_is_not_fact_validation",
+    "strategy_and_empirical_evidence_not_validated"
+  ],
+  "publishable": false,
+  "preview_sha256": "1b12f5667eba07414fa05631335f543e7c34f60f1f1d1dab65265fd9422f36ac"
+}
