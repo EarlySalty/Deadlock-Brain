@@ -1,19 +1,18 @@
-use std::{path::Path, time::Duration};
-
-use deadlock_brain_core::http::{HttpClient, HttpGetOptions};
-use serde_json::{json, Map, Value};
-
 use crate::{
-    store::{
-        complete_run, json_bytes, open_pool, EntitySnapshotInput, SourceDocumentInput, SourceStore,
+    external::SourceIr,
+    schema_watch::{
+        asset_dependencies, validate_consumed, DriftReport, OpenApiSnapshot, OPENAPI_URL,
     },
-    util::{python_or_string, value_to_python_string},
+    store::{complete_run, open_pool, EntitySnapshotInput, SourceStore},
     Result, SourcesError,
 };
+use deadlock_brain_core::http::{HttpClient, SourceHttpOptions, SourceHttpResponse};
+use serde_json::{json, Map, Value};
+use std::{collections::BTreeSet, path::Path};
 
 pub const SOURCE: &str = "deadlock_assets_api";
-// assets.deadlock-api.com ist seit September 2026 NXDOMAIN; die Assets liegen
-// jetzt unter /v1/assets der Haupt-API.
+pub const PARSER_REVISION: &str = "dbrain-assets/2";
+// Keep the current main endpoint fix; do not revive the retired assets host.
 pub const BASE_URL: &str = "https://api.deadlock-api.com";
 pub const ENDPOINTS: &[(&str, &str)] = &[
     ("items", "/v1/assets/items"),
@@ -24,8 +23,6 @@ pub const ENDPOINTS: &[(&str, &str)] = &[
     ("build_tags", "/v1/assets/build-tags"),
     ("npc_units", "/v1/assets/npc-units"),
 ];
-/// Arten des alten Hosts ohne Ersatz unter /v1/assets. Sie werden vor jedem
-/// Schreibzugriff abgelehnt statt still übersprungen.
 const RETIRED_KINDS: &[&str] = &["raw_items", "raw_heroes"];
 const DEFAULT_KINDS: &[&str] = &["items", "heroes"];
 
@@ -46,27 +43,28 @@ pub async fn pull_assets(
     let outcome = pull_assets_inner(&store, http, &selected).await;
     complete_run(&store, run_id, outcome).await
 }
-
 fn resolve_kinds(kinds: &[String]) -> Result<Vec<(String, &'static str)>> {
     let requested: Vec<String> = if kinds.is_empty() {
-        DEFAULT_KINDS.iter().map(|kind| kind.to_string()).collect()
+        DEFAULT_KINDS.iter().map(|k| k.to_string()).collect()
     } else {
         kinds.to_vec()
     };
-    requested
-        .into_iter()
-        .map(|kind| {
-            if RETIRED_KINDS.contains(&kind.as_str()) {
-                return Err(SourcesError::invalid_input(format!(
-                    "Assets-Art {kind} wird von api.deadlock-api.com nicht mehr angeboten"
-                )));
-            }
-            let endpoint = endpoint_path(&kind).ok_or_else(|| {
-                SourcesError::invalid_input(format!("Unbekannter Assets-Endpoint: {kind}"))
-            })?;
-            Ok((kind, endpoint))
-        })
-        .collect()
+    let mut selected = Vec::new();
+    let mut seen = BTreeSet::new();
+    for kind in requested {
+        if RETIRED_KINDS.contains(&kind.as_str()) {
+            return Err(SourcesError::invalid_input(format!(
+                "Assets-Art {kind} wird von api.deadlock-api.com nicht mehr angeboten"
+            )));
+        }
+        let endpoint = endpoint_path(&kind).ok_or_else(|| {
+            SourcesError::invalid_input(format!("Unbekannter Assets-Endpoint: {kind}"))
+        })?;
+        if seen.insert(kind.clone()) {
+            selected.push((kind, endpoint));
+        }
+    }
+    Ok(selected)
 }
 
 pub(crate) async fn pull_assets_inner(
@@ -74,177 +72,273 @@ pub(crate) async fn pull_assets_inner(
     http: &HttpClient,
     selected: &[(String, &'static str)],
 ) -> Result<Value> {
-    let mut endpoints_summary = Map::new();
-    let mut total_snapshots = 0usize;
-    for (kind, endpoint) in selected.iter().cloned() {
-        let url = format!("{BASE_URL}{endpoint}");
-        let payload = http.get_json::<Value>(
-            &url,
-            HttpGetOptions {
-                cache_ttl_seconds: Some(3600),
-                timeout: Duration::from_secs(30),
-                ..HttpGetOptions::default()
-            },
+    // One small schema request, not an automatic baseline upgrade or bulk job.
+    let baseline = OpenApiSnapshot::pinned()?;
+    let schema_response = http.get_bounded(
+        OPENAPI_URL,
+        SourceHttpOptions {
+            max_bytes: 1024 * 1024,
+            ..Default::default()
+        },
+    )?;
+    let mut schema_ir = SourceIr::from_http(SOURCE, "dbrain-openapi/1", schema_response)?;
+    let comparison = OpenApiSnapshot::from_raw(schema_ir.raw().to_vec())
+        .and_then(|new| baseline.compare(&new, &asset_dependencies()));
+    if comparison.is_err() {
+        schema_ir.quarantine("invalid_or_unsupported_openapi");
+    }
+    store
+        .persist_ir(
+            "openapi",
+            "Deadlock API OpenAPI observation",
+            &schema_ir,
+            &json!({"role":"schema_contract","not_gameplay_evidence":true}),
+        )
+        .await?;
+    let report = comparison?;
+    let mut staged = Vec::new();
+    let mut first_error = None;
+    for (kind, endpoint) in selected {
+        let response = http.get_bounded(
+            &format!("{BASE_URL}{endpoint}"),
+            SourceHttpOptions::default(),
         )?;
-        let raw = json_bytes(&payload)?;
-        let raw_path = store.write_raw(SOURCE, &kind, &raw, "json")?;
+        let ir = prepare_assets(kind, response, Some(&report))?;
         let title = format!("Deadlock Assets API {kind}");
-        let metadata = json!({ "endpoint": endpoint });
-        let document_id = store
-            .upsert_source_document(SourceDocumentInput {
-                source: SOURCE,
-                external_id: &kind,
-                title: Some(&title),
-                url: Some(&url),
-                content_type: "application/json",
-                raw_path: &raw_path,
-                content: &raw,
-                metadata: &metadata,
-            })
-            .await?;
-
-        let snapshots = snapshots_for(&kind, &payload);
+        match store.persist_ir(kind, &title, &ir, &json!({"endpoint":endpoint,"schema_report":report,"contract_coverage":"container_and_consumed_fields"})).await {
+            Ok(document_id) => staged.push((kind.clone(), ir, document_id)),
+            Err(error) => { if first_error.is_none() { first_error=Some(error); } }
+        }
+    }
+    // No EntitySnapshot is written before all selected payloads pass preflight.
+    if let Some(error) = first_error {
+        return Err(error);
+    }
+    let mut summary = Map::new();
+    let mut total = 0usize;
+    for (kind, ir, document_id) in staged {
+        let snapshots = snapshots_for(&kind, ir.payload()?)?;
         let count = store
             .insert_many_snapshots(&snapshots, Some(document_id))
             .await?;
-        endpoints_summary.insert(
-            kind,
-            json!({
-                "url": url,
-                "items": payload_len(&payload),
-                "snapshots": count,
-            }),
-        );
-        total_snapshots += count;
+        summary.insert(kind, json!({"url":ir.provenance().locator,"snapshots":count,"raw_sha256":ir.provenance().raw_sha256,"source_document_id":document_id,"validation":ir.validation()}));
+        total += count;
     }
-
-    Ok(json!({
-        "endpoints": endpoints_summary,
-        "snapshots": total_snapshots,
-    }))
+    Ok(json!({"endpoints":summary,"snapshots":total,"schema_drift":report}))
 }
 
+/// DB-free adapter path used by fixtures and the opt-in small live contract test.
+pub fn prepare_assets(
+    kind: &str,
+    response: SourceHttpResponse,
+    drift: Option<&DriftReport>,
+) -> Result<SourceIr> {
+    let contract = consumed_contract(kind)?;
+    let mut ir = SourceIr::from_http(SOURCE, PARSER_REVISION, response)?;
+    ir.set_derivation_family("deadlock-game-assets");
+    ir.pin_schema(&OpenApiSnapshot::pinned()?.schema_sha256);
+    if let Ok(payload) = ir.payload() {
+        let validation = validate_consumed(&contract, payload);
+        let identities = snapshots_for(kind, payload);
+        match validation {
+            Ok(extra) => ir.note_extra_fields(extra),
+            Err(errors) => {
+                for error in errors {
+                    ir.quarantine(error);
+                }
+            }
+        }
+        if identities.is_err() {
+            ir.quarantine("missing_duplicate_or_invalid_entity_identity");
+        }
+    }
+    if let Some(report) = drift {
+        report.gate(kind, &mut ir);
+    }
+    Ok(ir)
+}
+
+pub fn consumed_contract(kind: &str) -> Result<Value> {
+    let id = json!({"type":"integer","minimum":0});
+    let text = json!({"type":"string","minLength":1});
+    let entry = match kind {
+        "items" | "heroes" | "heroes_all" => {
+            json!({"type":"object","required":["id"],"properties":{"id":id,"name":text,"class_name":text}})
+        }
+        "ranks" => {
+            json!({"type":"object","required":["tier","name"],"properties":{"tier":id,"name":text}})
+        }
+        "build_tags" => {
+            json!({"type":"object","required":["id","class_name","label"],"properties":{"id":id,"class_name":text,"label":text}})
+        }
+        "npc_units" => {
+            json!({"type":"object","required":["id","class_name"],"properties":{"id":id,"class_name":text}})
+        }
+        "colors" => {
+            return Ok(
+                json!({"type":"object","additionalProperties":{"type":"object","required":["red","green","blue","alpha"],"properties":{"red":id,"green":id,"blue":id,"alpha":id}}}),
+            )
+        }
+        _ => {
+            return Err(SourcesError::invalid_input(
+                "unknown/retired asset contract",
+            ))
+        }
+    };
+    Ok(json!({"type":"array","items":entry}))
+}
 fn endpoint_path(kind: &str) -> Option<&'static str> {
     ENDPOINTS
         .iter()
         .find_map(|(candidate, path)| (*candidate == kind).then_some(*path))
 }
-
-fn payload_len(payload: &Value) -> usize {
-    match payload {
-        Value::Array(values) => values.len(),
-        Value::Object(values) => values.len(),
-        _ => 1,
-    }
-}
-
-fn snapshots_for(kind: &str, payload: &Value) -> Vec<EntitySnapshotInput> {
-    let Value::Array(entries) = payload else {
-        return Vec::new();
-    };
+fn snapshots_for(kind: &str, payload: &Value) -> Result<Vec<EntitySnapshotInput>> {
     let entity_type = match kind {
-        "items" | "raw_items" => "item_or_ability",
-        "heroes" | "raw_heroes" => "hero",
+        "items" => "item_or_ability",
+        "heroes" | "heroes_all" => "hero",
         "ranks" => "rank",
         "build_tags" => "build_tag",
         "npc_units" => "npc_unit",
-        _ => kind,
+        "colors" => "color",
+        _ => return Err(SourcesError::invalid_input("unknown asset entity type")),
     };
-
-    let mut snapshots = Vec::new();
-    for entry in entries {
-        let Value::Object(object) = entry else {
-            continue;
-        };
-        let external_id = python_or_string(object.get("id"))
-            .or_else(|| python_or_string(object.get("class_name")))
-            .or_else(|| python_or_string(object.get("name")))
-            .unwrap_or_else(|| snapshots.len().to_string());
-        let canonical_name = object
-            .get("name")
-            .filter(|value| crate::util::value_is_python_truthy(value))
-            .or_else(|| {
-                object
-                    .get("class_name")
-                    .filter(|value| crate::util::value_is_python_truthy(value))
+    let entries: Vec<(String, &Value)> = if kind == "colors" {
+        let object = payload
+            .as_object()
+            .ok_or_else(|| SourcesError::invalid_input("colors must be an object"))?;
+        object
+            .iter()
+            .map(|(key, value)| (key.clone(), value))
+            .collect()
+    } else {
+        let array = payload
+            .as_array()
+            .ok_or_else(|| SourcesError::invalid_input("assets must be an array"))?;
+        array
+            .iter()
+            .map(|value| {
+                let field = if kind == "ranks" { "tier" } else { "id" };
+                value
+                    .get(field)
+                    .and_then(Value::as_u64)
+                    .map(|id| (id.to_string(), value))
+                    .ok_or_else(|| {
+                        SourcesError::invalid_input(
+                            "asset ID missing/wrong type; positional fallback is forbidden",
+                        )
+                    })
             })
-            .map(value_to_python_string);
-
-        snapshots.push(EntitySnapshotInput {
-            source: SOURCE.to_string(),
-            entity_type: entity_type.to_string(),
-            external_id,
-            canonical_name,
+            .collect::<Result<Vec<_>>>()?
+    };
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::new();
+    for (id, entry) in entries {
+        if id.trim().is_empty() || !entry.is_object() || !seen.insert(id.clone()) {
+            return Err(SourcesError::invalid_input(
+                "duplicate/invalid asset identity",
+            ));
+        }
+        let name = ["name", "label", "class_name"]
+            .iter()
+            .find_map(|key| entry.get(key).and_then(Value::as_str))
+            .map(str::to_owned);
+        out.push(EntitySnapshotInput {
+            source: SOURCE.into(),
+            entity_type: entity_type.into(),
+            external_id: id,
+            canonical_name: name,
             payload: entry.clone(),
         });
     }
-    snapshots
+    Ok(out)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Pure-Logic-Port: die Snapshot-Ableitung aus einem Assets-Payload haengt
-    /// nicht an der DB. Der DB-Schreibpfad (`pull_assets` -> Store) ist in
-    /// `store.rs` als PG-Integration abgedeckt.
-    #[test]
-    fn snapshots_for_items_derives_external_ids_and_names() {
-        let payload = serde_json::json!([
-            {"id": 7, "name": "Mystic Reach"},
-            {"class_name": "item_cold"},
-            {"nothing": true }
-        ]);
-        let snapshots = snapshots_for("items", &payload);
-        assert_eq!(snapshots.len(), 3);
-        assert!(snapshots
-            .iter()
-            .all(|snapshot| snapshot.entity_type == "item_or_ability"));
-        assert_eq!(snapshots[0].external_id, "7");
-        assert_eq!(snapshots[0].canonical_name.as_deref(), Some("Mystic Reach"));
-        assert_eq!(snapshots[1].external_id, "item_cold");
-        // Ohne id/class_name/name faellt der External-Key auf den Index zurueck.
-        assert_eq!(snapshots[2].external_id, "2");
+    fn response(raw: &[u8]) -> SourceHttpResponse {
+        SourceHttpResponse {
+            url: format!("{BASE_URL}/v1/assets/items"),
+            status: 200,
+            content: raw.into(),
+            headers: std::collections::BTreeMap::from([(
+                "content-type".into(),
+                "application/json".into(),
+            )]),
+            observed_at: 0,
+            attempts: 1,
+        }
     }
-
     #[test]
-    fn resolve_kinds_defaults_to_supported_endpoints() {
-        let selected = resolve_kinds(&[]).expect("Default-Arten");
+    fn current_paths_and_retired_kinds() {
         assert_eq!(
-            selected,
+            resolve_kinds(&[]).unwrap(),
             vec![
-                ("items".to_string(), "/v1/assets/items"),
-                ("heroes".to_string(), "/v1/assets/heroes?only_active=true"),
+                ("items".into(), "/v1/assets/items"),
+                ("heroes".into(), "/v1/assets/heroes?only_active=true")
             ]
         );
-    }
-
-    #[test]
-    fn resolve_kinds_rejects_retired_and_unknown_kinds() {
-        for kind in ["raw_items", "raw_heroes"] {
-            let error = resolve_kinds(&["items".to_string(), kind.to_string()])
-                .expect_err("raw-Art muss abgelehnt werden");
-            assert!(
-                error.to_string().contains("nicht mehr angeboten"),
-                "{error}"
-            );
+        for kind in ["raw_items", "raw_heroes", "bogus"] {
+            assert!(resolve_kinds(&[kind.into()]).is_err());
         }
-        let error = resolve_kinds(&["bogus".to_string()]).expect_err("unbekannte Art");
-        assert!(
-            error.to_string().contains("Unbekannter Assets-Endpoint"),
-            "{error}"
+        assert_eq!(
+            resolve_kinds(&["items".into(), "items".into()])
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+    #[test]
+    fn zero_is_an_id_not_a_fallback_and_parser_preserves_bytes() {
+        let raw = b" [{\"id\":0, \"name\":\"Synthetic\",\"extra\":true}]\n";
+        let ir = prepare_assets("items", response(raw), None).unwrap();
+        assert!(!ir.is_quarantined());
+        assert_eq!(ir.raw(), raw);
+        assert_eq!(
+            snapshots_for("items", ir.payload().unwrap()).unwrap()[0].external_id,
+            "0"
+        );
+        assert!(ir.metadata()["validation"]["extra_fields"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("/0/extra")));
+    }
+    #[test]
+    fn malformed_missing_wrong_container_and_duplicate_quarantine() {
+        for raw in [
+            b"{broken".as_slice(),
+            b"{}",
+            b"[null]",
+            b"[{\"name\":\"No id\"}]",
+            b"[{\"id\":false}]",
+            b"[{\"id\":-1}]",
+            b"[{\"id\":1},{\"id\":1}]",
+        ] {
+            let ir = prepare_assets("items", response(raw), None).unwrap();
+            assert!(ir.is_quarantined(), "{raw:?}");
+            assert_eq!(ir.raw(), raw);
+            assert!(ir.payload().is_err());
+        }
+        assert!(!prepare_assets("items", response(b"[]"), None)
+            .unwrap()
+            .is_quarantined());
+    }
+    #[test]
+    fn current_color_map_and_rank_tier_have_stable_identities() {
+        let colors = json!({"neutral":{"red":1,"green":2,"blue":3,"alpha":255}});
+        let ir = prepare_assets("colors", response(colors.to_string().as_bytes()), None).unwrap();
+        assert!(!ir.is_quarantined());
+        assert_eq!(
+            snapshots_for("colors", ir.payload().unwrap()).unwrap()[0].external_id,
+            "neutral"
         );
         assert_eq!(
-            resolve_kinds(&["ranks".to_string()]).expect("ranks"),
-            vec![("ranks".to_string(), "/v1/assets/ranks")]
+            snapshots_for("ranks", &json!([{"tier":0,"name":"Unranked"}])).unwrap()[0].external_id,
+            "0"
         );
-    }
-
-    #[test]
-    fn snapshots_for_maps_kind_to_entity_type() {
-        let payload = serde_json::json!([{"id": 1, "name": "Abrams"}]);
-        assert_eq!(snapshots_for("heroes", &payload)[0].entity_type, "hero");
-        assert_eq!(snapshots_for("ranks", &payload)[0].entity_type, "rank");
-        assert!(snapshots_for("items", &serde_json::json!({})).is_empty());
+        assert_eq!(
+            snapshots_for("heroes_all", &json!([{"id":1}])).unwrap()[0].entity_type,
+            "hero"
+        );
     }
 }

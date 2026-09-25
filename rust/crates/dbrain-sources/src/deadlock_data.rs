@@ -2,7 +2,6 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
-    process::Command,
 };
 
 use serde_json::{json, Map, Value};
@@ -17,16 +16,21 @@ use crate::{
 };
 
 pub const SOURCE: &str = "deadlock_data";
+pub const PARSER_REVISION: &str = "dbrain-deadlock-data/2";
 const REPO_URL: &str = "https://github.com/deadlock-wiki/deadlock-data.git";
 const REPO_WEB_URL: &str = "https://github.com/deadlock-wiki/deadlock-data";
 
 #[derive(Debug, Clone)]
 pub struct PullDeadlockDataOptions {
     pub repo_dir: PathBuf,
+    /// Full immutable commit ID. No implicit HEAD/ref resolution.
+    pub commit: String,
+    /// Legacy switch: true is rejected. Fetching is an explicit separate action.
     pub update_repo: bool,
 }
 
 pub async fn pull_deadlock_data(raw_dir: &Path, options: PullDeadlockDataOptions) -> Result<Value> {
+    validate_options(&options)?;
     let pool = open_pool().await?;
     pull_deadlock_data_with_pool(&pool, raw_dir, options).await
 }
@@ -37,6 +41,7 @@ pub async fn pull_deadlock_data_with_pool(
     raw_dir: &Path,
     options: PullDeadlockDataOptions,
 ) -> Result<Value> {
+    validate_options(&options)?;
     let store = SourceStore::new(pool, raw_dir)?;
     let run_id = store.begin_run(SOURCE).await?;
     let outcome = pull_deadlock_data_inner(&store, &options).await;
@@ -47,21 +52,67 @@ async fn pull_deadlock_data_inner(
     store: &SourceStore<'_>,
     options: &PullDeadlockDataOptions,
 ) -> Result<Value> {
+    let pinned = crate::git_source::PinnedRepository::open(&options.repo_dir, &options.commit)?;
+    pinned.require_origin(&[
+        REPO_URL,
+        REPO_WEB_URL,
+        "git@github.com:deadlock-wiki/deadlock-data.git",
+        "ssh://git@github.com/deadlock-wiki/deadlock-data.git",
+    ])?;
+    let snapshot = pinned.materialize_data()?;
+    let repo = read_repo_info(snapshot.path(), &pinned)?;
+    // Validate every JSON container before any entity/domain write. A rejected
+    // blob is retained through the same Source->IR quarantine path as HTTP.
+    for rel in repo.raw_hashes.keys().filter(|rel| rel.ends_with(".json")) {
+        let mut ir = crate::external::SourceIr::from_json(
+            SOURCE,
+            &format!("{REPO_WEB_URL}/blob/{}/{rel}", repo.commit_sha),
+            PARSER_REVISION,
+            crate::external::SourceRevision::Git {
+                commit: repo.commit_sha.clone(),
+            },
+            deadlock_brain_core::now_epoch_seconds()?,
+            fs::read(snapshot.path().join(rel))?,
+        )?;
+        ir.add_origin(&format!("{REPO_WEB_URL}@{}:{rel}", repo.commit_sha))?;
+        if let Ok(payload) = ir.payload() {
+            let entity_file = [
+                "hero-data",
+                "ability-data",
+                "ability-cards",
+                "item-data",
+                "item-cards",
+                "npc-data",
+            ]
+            .iter()
+            .any(|name| rel == &format!("data/json/{name}.json"));
+            let invalid_entities = entity_file && object_entries(payload).is_err();
+            if !payload.is_object() && !payload.is_array() {
+                ir.quarantine("unknown_git_json_container");
+            }
+            if invalid_entities {
+                ir.quarantine("invalid_git_entity_structure_or_identity");
+            }
+        }
+        if ir.is_quarantined() {
+            store
+                .persist_ir(
+                    rel,
+                    "deadlock-data quarantined blob",
+                    &ir,
+                    &json!({"role":"game_state"}),
+                )
+                .await?;
+        }
+    }
     let previous = previous_run_metadata(store.pool()).await?;
-    let git_summary = if options.update_repo {
-        sync_repository(&options.repo_dir)?
-    } else {
-        json!({"updated": false, "mode": "local"})
-    };
-    let repo = read_repo_info(&options.repo_dir, git_summary)?;
 
-    let resource_lookup = read_json_optional(&options.repo_dir, "data/json/resource-lookup.json")?
+    let resource_lookup = read_json_optional(snapshot.path(), "data/json/resource-lookup.json")?
         .map(|value| build_resource_lookup(&value))
         .unwrap_or_default();
-    let localizations = read_localizations(&options.repo_dir)?;
+    let localizations = read_localizations(snapshot.path())?;
     let ability_cards_value =
-        read_json_optional(&options.repo_dir, "data/json/ability-cards.json")?
-            .unwrap_or(Value::Null);
+        read_json_optional(snapshot.path(), "data/json/ability-cards.json")?.unwrap_or(Value::Null);
     let ability_cards = build_ability_card_index(&ability_cards_value);
 
     let mut import = ImportSummary::default();
@@ -158,92 +209,39 @@ struct RepoInfo {
     version: BTreeMap<String, String>,
     version_text: String,
     git_summary: Value,
+    raw_hashes: BTreeMap<String, String>,
+    observed_at: i64,
 }
 
-fn sync_repository(repo_dir: &Path) -> Result<Value> {
-    if repo_dir.join(".git").is_dir() {
-        let before = git_output(repo_dir, &["rev-parse", "HEAD"]).ok();
-        run_git(repo_dir, &["pull", "--ff-only"])?;
-        let after = git_output(repo_dir, &["rev-parse", "HEAD"]).ok();
-        return Ok(json!({
-            "updated": true,
-            "mode": "pull",
-            "before": before,
-            "after": after,
-            "changed": before != after,
-        }));
+fn validate_options(options: &PullDeadlockDataOptions) -> Result<()> {
+    crate::git_source::validate_commit(&options.commit)?;
+    if options.update_repo {
+        return Err(SourcesError::invalid_input("implicit Git updates disabled; fetch an explicitly approved commit separately and use update_repo=false"));
     }
-
-    if repo_dir.exists() {
-        return Err(SourcesError::invalid_input(format!(
-            "deadlock-data Pfad ist kein Git-Repo: {}",
-            repo_dir.to_string_lossy()
-        )));
-    }
-
-    if let Some(parent) = repo_dir.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let target = repo_dir.to_string_lossy().to_string();
-    run_git(
-        Path::new("."),
-        &["clone", "--depth", "1", REPO_URL, &target],
-    )?;
-    let after = git_output(repo_dir, &["rev-parse", "HEAD"]).ok();
-    Ok(json!({
-        "updated": true,
-        "mode": "clone",
-        "after": after,
-        "changed": true,
-    }))
+    Ok(())
 }
 
-fn run_git(cwd: &Path, args: &[&str]) -> Result<()> {
-    let output = Command::new("git").args(args).current_dir(cwd).output()?;
-    if output.status.success() {
-        return Ok(());
-    }
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    Err(SourcesError::invalid_input(format!(
-        "git {} fehlgeschlagen: {}",
-        args.join(" "),
-        stderr
-    )))
-}
-
-fn git_output(cwd: &Path, args: &[&str]) -> Result<String> {
-    let output = Command::new("git").args(args).current_dir(cwd).output()?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(SourcesError::invalid_input(format!(
-            "git {} fehlgeschlagen: {}",
-            args.join(" "),
-            stderr
-        )));
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-}
-
-fn read_repo_info(repo_dir: &Path, git_summary: Value) -> Result<RepoInfo> {
-    let version_text = fs::read_to_string(repo_dir.join("data/version.txt"))?;
+fn read_repo_info(
+    snapshot: &Path,
+    pinned: &crate::git_source::PinnedRepository,
+) -> Result<RepoInfo> {
+    let version_text = fs::read_to_string(snapshot.join("data/version.txt"))?;
     let version = parse_version_txt(&version_text);
-    let commit_sha = if repo_dir.join(".git").is_dir() {
-        git_output(repo_dir, &["rev-parse", "HEAD"])?
-    } else {
-        "local-fixture".to_string()
-    };
-    let commit_time = if repo_dir.join(".git").is_dir() {
-        git_output(repo_dir, &["log", "-1", "--format=%cI"]).ok()
-    } else {
-        None
-    };
+    let info = pinned.revision_info()?;
+    let mut raw_hashes = BTreeMap::new();
+    for file in pinned.files("data")? {
+        let bytes = fs::read(snapshot.join(&file.path))?;
+        raw_hashes.insert(file.path, crate::external::sha256(&bytes));
+    }
     Ok(RepoInfo {
-        repo_dir: repo_dir.to_path_buf(),
-        commit_sha,
-        commit_time,
+        repo_dir: snapshot.to_path_buf(),
+        commit_sha: pinned.commit().into(),
+        commit_time: Some(info.commit_time.to_string()),
         version,
         version_text,
-        git_summary,
+        git_summary: json!({"updated":false,"mode":"pinned_objects","revision":info}),
+        raw_hashes,
+        observed_at: deadlock_brain_core::now_epoch_seconds()?,
     })
 }
 
@@ -381,7 +379,7 @@ async fn import_heroes(
         return Ok(());
     };
 
-    for (key, value) in object_entries(&payload) {
+    for (key, value) in object_entries(&payload)? {
         let mut payload = payload_with_key(
             &key,
             &value,
@@ -453,7 +451,7 @@ async fn import_abilities(
         return Ok(());
     };
 
-    for (key, value) in object_entries(&payload) {
+    for (key, value) in object_entries(&payload)? {
         let mut payload = payload_with_key(
             &key,
             &value,
@@ -522,7 +520,7 @@ async fn import_ability_cards(
         return Ok(());
     };
 
-    for (hero_key, hero_cards) in object_entries(ability_cards_value) {
+    for (hero_key, hero_cards) in object_entries(ability_cards_value)? {
         let Some(hero_cards) = hero_cards.as_object() else {
             continue;
         };
@@ -595,7 +593,7 @@ async fn import_items(
         return Ok(());
     };
 
-    for (key, value) in object_entries(&payload) {
+    for (key, value) in object_entries(&payload)? {
         let mut payload = payload_with_key(
             &key,
             &value,
@@ -651,7 +649,7 @@ async fn import_item_cards(
         return Ok(());
     };
 
-    for (key, value) in object_entries(&payload) {
+    for (key, value) in object_entries(&payload)? {
         let mut payload = payload_with_key(
             &key,
             &value,
@@ -707,7 +705,7 @@ async fn import_npcs(
         return Ok(());
     };
 
-    for (key, value) in object_entries(&payload) {
+    for (key, value) in object_entries(&payload)? {
         let mut payload = payload_with_key(
             &key,
             &value,
@@ -1181,23 +1179,44 @@ fn read_json_optional(repo_dir: &Path, rel: &str) -> Result<Option<Value>> {
     Ok(Some(serde_json::from_slice::<Value>(&fs::read(path)?)?))
 }
 
-fn object_entries(value: &Value) -> Vec<(String, Value)> {
-    let mut entries = Vec::new();
-    if let Some(object) = value.as_object() {
-        for (key, value) in object {
-            entries.push((key.clone(), value.clone()));
+fn object_entries(value: &Value) -> Result<Vec<(String, Value)>> {
+    let entries: Vec<(String, Value)> = match value {
+        Value::Object(object) => object
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect(),
+        Value::Array(array) => array
+            .iter()
+            .map(|value| {
+                let key = value
+                    .get("Key")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.trim().is_empty())
+                    .ok_or_else(|| {
+                        SourcesError::invalid_input(
+                            "Git entity array needs an explicit Key; no positional IDs",
+                        )
+                    })?;
+                Ok((key.to_owned(), value.clone()))
+            })
+            .collect::<Result<Vec<_>>>()?,
+        _ => {
+            return Err(SourcesError::invalid_input(
+                "Git entity container must be map or keyed array",
+            ))
         }
-    } else if let Some(array) = value.as_array() {
-        for (index, value) in array.iter().enumerate() {
-            let key = value
-                .as_object()
-                .and_then(|object| text_field(object, "Key"))
-                .unwrap_or_else(|| index.to_string());
-            entries.push((key, value.clone()));
+    };
+    let mut seen = std::collections::BTreeSet::new();
+    for (key, value) in &entries {
+        if key.trim().is_empty() || !value.is_object() || !seen.insert(key.clone()) {
+            return Err(SourcesError::invalid_input(
+                "invalid/duplicate Git entity identity",
+            ));
         }
     }
+    let mut entries = entries;
     entries.sort_by(|left, right| left.0.cmp(&right.0));
-    entries
+    Ok(entries)
 }
 
 fn payload_with_key(key: &str, value: &Value, metadata: Value) -> Map<String, Value> {
@@ -1783,16 +1802,35 @@ fn value_to_raw(value: &Value) -> String {
 }
 
 fn metadata_for(repo: &RepoInfo, rel: &str) -> Value {
+    let provenance = crate::external::Provenance {
+        source: SOURCE.into(),
+        locator: format!("{REPO_WEB_URL}/blob/{}/{rel}", repo.commit_sha),
+        source_revision: crate::external::SourceRevision::Git {
+            commit: repo.commit_sha.clone(),
+        },
+        parser_revision: PARSER_REVISION.into(),
+        parser_family: "dbrain-sources".into(),
+        raw_sha256: repo.raw_hashes.get(rel).cloned().unwrap_or_default(),
+        schema_sha256: None,
+        observed_at: repo.observed_at,
+        origin_artifacts: std::collections::BTreeSet::from([format!(
+            "{REPO_WEB_URL}@{}:{rel}",
+            repo.commit_sha
+        )]),
+        derivation_family: Some("deadlock-wiki/deadbot".into()),
+        publication_authorized: false,
+        provider_egress_authorized: false,
+    };
     json!({
-        "repo": "deadlock-wiki/deadlock-data",
-        "repo_url": REPO_URL,
-        "commit_sha": repo.commit_sha,
-        "commit_time": repo.commit_time,
-        "version": repo.version,
-        "file_path": rel,
-        "source_trust": "trusted",
-        "source_origin": "deadlock-wiki/deadlock-data",
-        "generated_by": "deadbot",
+        "repo": "deadlock-wiki/deadlock-data", "repo_url": REPO_URL,
+        "commit_sha": repo.commit_sha, "commit_time": repo.commit_time,
+        "version": repo.version, "file_path": rel,
+        "source_trust": "trusted", "trust_scope":"legacy_source_class_not_rights_or_independence",
+        "source_origin": "deadlock-wiki/deadlock-data", "generated_by": "deadbot",
+        "generator_revision": null, "game_valid_from": null,
+        "parser_revision": PARSER_REVISION,
+        "source_ir_version": crate::external::IR_VERSION, "provenance": provenance,
+        "validation": {"state":"validated","scope":"pinned_blob_and_json_container"},
     })
 }
 
@@ -1819,15 +1857,11 @@ fn domain_metadata(repo: &RepoInfo, kind: &str, key: &str, payload: &Map<String,
 }
 
 fn document_external_id(rel: &str, repo: &RepoInfo) -> String {
-    format!("{rel}@{}", repo.commit_sha)
+    format!("{rel}@{}#{}", repo.commit_sha, PARSER_REVISION)
 }
 
 fn github_url(repo: &RepoInfo, rel: &str) -> Option<String> {
-    if repo.commit_sha == "local-fixture" {
-        None
-    } else {
-        Some(format!("{REPO_WEB_URL}/blob/{}/{rel}", repo.commit_sha))
-    }
+    Some(format!("{REPO_WEB_URL}/blob/{}/{rel}", repo.commit_sha))
 }
 
 fn increment_snapshot(summary: &mut ImportSummary, entity_type: &str) {
@@ -2013,6 +2047,17 @@ fn us_date_title(date: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn entity_ids_never_fall_back_to_position() {
+        assert!(super::object_entries(&serde_json::json!([{"Name":"missing"}])).is_err());
+        assert!(super::object_entries(&serde_json::json!([{"Key":"x"},{"Key":"x"}])).is_err());
+        assert!(super::object_entries(&serde_json::json!({"x":null})).is_err());
+        assert_eq!(
+            super::object_entries(&serde_json::json!([{"Key":"x"}])).unwrap()[0].0,
+            "x"
+        );
+    }
+
     use super::*;
     use sqlx::postgres::{PgPool, PgPoolOptions};
 

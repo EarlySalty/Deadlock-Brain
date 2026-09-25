@@ -9,7 +9,7 @@ use std::{
     process,
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use deadlock_brain_core::{
     ai::{extract_ai_text, AiClient, AiConfig, ChatCompletionRequest, ChatMessage},
@@ -756,10 +756,9 @@ struct PullDeadlockDataArgs {
         help = "Lokaler Cache. Standard: data/external/deadlock-data."
     )]
     repo_dir: Option<PathBuf>,
-    #[arg(
-        long = "no-git-update",
-        help = "Nutze vorhandenen Cache ohne git pull."
-    )]
+    #[arg(long, help = "Vollständiger Commitpin (40/64 Hexzeichen); alternativ DBRAIN_DEADLOCK_DATA_COMMIT.")]
+    commit: Option<String>,
+    #[arg(long = "no-git-update", help = "Kompatibilitätsflag; Gitimporte lesen grundsätzlich nur lokal gepinnte Objekte.")]
     no_git_update: bool,
 }
 
@@ -2220,11 +2219,16 @@ async fn run_pull(pool: &PgPool, settings: &Settings, source: PullCommands) -> R
             let repo_dir = args
                 .repo_dir
                 .unwrap_or_else(|| settings.data_dir.join("external/deadlock-data"));
+            let commit = args.commit
+                .or_else(|| std::env::var("DBRAIN_DEADLOCK_DATA_COMMIT").ok())
+                .context("deadlock-data benötigt --commit oder DBRAIN_DEADLOCK_DATA_COMMIT; keine HEAD-Semantik")?;
+            let _legacy_no_git_update = args.no_git_update;
             let pull = dbrain_sources::pull_deadlock_data(
                 &settings.raw_dir,
                 dbrain_sources::PullDeadlockDataOptions {
                     repo_dir,
-                    update_repo: !args.no_git_update,
+                    commit,
+                    update_repo: false,
                 },
             )
             .await?;

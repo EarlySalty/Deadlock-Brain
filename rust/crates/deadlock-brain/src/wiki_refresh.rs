@@ -90,7 +90,9 @@ async fn refresh(config: &Config, skip_source_update: bool) -> Result<Value> {
             &config.raw_directory,
             dbrain_sources::PullDeadlockDataOptions {
                 repo_dir: config.source_repository.clone(),
-                update_repo: true,
+                commit: std::env::var("DBRAIN_DEADLOCK_DATA_COMMIT")
+                    .context("Wiki-Quellenimport benötigt DBRAIN_DEADLOCK_DATA_COMMIT; kein implizites HEAD")?,
+                update_repo: false,
             },
         )
         .await

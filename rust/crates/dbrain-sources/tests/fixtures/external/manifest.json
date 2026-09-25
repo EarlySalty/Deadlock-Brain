@@ -1,0 +1,16 @@
+{
+  "fixture_version": 1,
+  "schema": {
+    "file": "openapi-20260925.json",
+    "source_url": "https://api.deadlock-api.com/openapi.json",
+    "observed_date": "2026-09-25",
+    "bytes": 380364,
+    "raw_sha256": "341bc2b2681d0bc353df721974bdbf46290c1f0645eba594d18381c3a2cbbc70",
+    "openapi_version": "3.1.0",
+    "api_version": "0.1.0",
+    "revision_kind": "content-addressed observation; not a deployment commit"
+  },
+  "synthetic_cases": "Inline Rust byte literals and temporary Git repositories; no player/match datasets",
+  "rights_scope": "Public contract inspection authorized for this task; no game payload publication or provider egress authorization inferred",
+  "network_in_default_tests": false
+}

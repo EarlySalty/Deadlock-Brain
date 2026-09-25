@@ -9,6 +9,7 @@ path = "src/lib.rs"
 
 [dependencies]
 anyhow.workspace = true
+chrono.workspace = true
 dbrain-builds = { path = "../dbrain-builds" }
 hex.workspace = true
 reqwest.workspace = true

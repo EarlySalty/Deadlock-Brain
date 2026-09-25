@@ -5,6 +5,10 @@
 pub use deadlock_brain_core as core;
 
 pub mod assets_api;
+pub mod external;
+pub mod git_source;
+pub mod schema_watch;
+pub mod schema_signal;
 pub mod deadlock_api;
 pub mod deadlock_data;
 pub mod error;

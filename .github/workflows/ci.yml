@@ -169,6 +169,10 @@ jobs:
           workspaces: rust
       - name: Compile all workspace targets
         run: cargo check --workspace --all-targets --locked -j2
+      - name: External source contracts and shared HTTP regression tests
+        # Default suite is fixture/local-socket only. The ignored live contract
+        # and Postgres integration tests are deliberately not enabled here.
+        run: cargo test -p dbrain-sources -p deadlock-brain-core --locked -j2
 
   python:
     name: "Python syntax"

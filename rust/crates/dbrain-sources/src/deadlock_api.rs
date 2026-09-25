@@ -11,7 +11,7 @@ use serde_json::{json, Map, Value};
 
 use crate::{
     store::{
-        complete_run, json_bytes, open_pool, EntitySnapshotInput, SourceDocumentInput, SourceStore,
+        complete_run, open_pool, EntitySnapshotInput, SourceDocumentInput, SourceStore,
     },
     util::{form_urlencode, python_or_string},
     Result, SourcesError,
@@ -180,56 +180,31 @@ async fn pull_match_metadata_inner(
     }
 
     let url = format!("{BASE_URL}/v1/matches/metadata?{}", form_urlencode(&params));
-    let payload = get_deadlock_api_json(http, &url, options.cache_ttl_seconds)?;
-    let rows = payload.as_array().cloned().unwrap_or_default();
-    let target_player_slot =
-        if safe_match_ids.len() == 1 && safe_account_ids.len() == 1 && safe_hero_ids.len() == 1 {
-            metadata_player_slot(
-                &rows,
-                &safe_match_ids[0],
-                &safe_account_ids[0],
-                &safe_hero_ids[0],
-            )?
-        } else {
-            None
-        };
     let external_id = format!("match-metadata:{}", safe_match_ids.join(","));
-    let raw = json_bytes(&payload)?;
-    let raw_path = store.write_raw(SOURCE, &external_id, &raw, "json")?;
     let title = format!("Deadlock API match metadata {}", safe_match_ids.join(","));
     let metadata = json!({
-        "match_ids": safe_match_ids,
-        "account_ids": safe_account_ids,
-        "hero_ids": safe_hero_ids,
-        "cache_ttl_seconds": options.cache_ttl_seconds,
+        "match_ids": safe_match_ids, "account_ids": safe_account_ids, "hero_ids": safe_hero_ids,
+        "requested_cache_ttl_seconds": options.cache_ttl_seconds,
+        "cache_mode": "uncached_provenance_read",
         "include_player_items": options.include_player_items,
         "include_player_stats": options.include_player_stats,
         "include_player_death_details": options.include_player_death_details,
         "include_objectives": options.include_objectives,
+        "schema_coverage": "consumed_fields_only; upstream OpenAPI has no JSON metadata schema",
     });
-    let document_id = store
-        .upsert_source_document(SourceDocumentInput {
-            source: SOURCE,
-            external_id: &external_id,
-            title: Some(&title),
-            url: Some(&url),
-            content_type: "application/json",
-            raw_path: &raw_path,
-            content: &raw,
-            metadata: &metadata,
-        })
-        .await?;
-
+    let (ir, document_id) = fetch_match_document(store, http, &url, &external_id, &title, &metadata, false).await?;
+    let rows = ir.payload()?.as_array().ok_or_else(|| SourcesError::invalid_input("metadata array missing"))?.clone();
+    let target_player_slot =
+        if safe_match_ids.len() == 1 && safe_account_ids.len() == 1 && safe_hero_ids.len() == 1 {
+            metadata_player_slot(&rows, &safe_match_ids[0], &safe_account_ids[0], &safe_hero_ids[0])?
+        } else { None };
     let mut snapshots = Vec::new();
     for row in &rows {
         let Value::Object(object) = row else {
             continue;
         };
-        let match_id = python_or_string(object.get("match_id"))
-            .or_else(|| python_or_string(object.get("matchId")))
-            .unwrap_or_default()
-            .trim()
-            .to_string();
+        let match_id = history_match_id(object)
+            .ok_or_else(||SourcesError::invalid_input("validated metadata lost its match identity"))?;
         if match_id.is_empty() {
             continue;
         }
@@ -374,31 +349,14 @@ async fn pull_player_match_history_inner(
 ) -> Result<Value> {
     let account_id = safe_numeric_id(&options.account_id, "account_id")?;
     let url = format!("{BASE_URL}/v1/players/{account_id}/match-history");
-    let payload = get_deadlock_api_json(http, &url, options.cache_ttl_seconds)?;
-    let rows = match_history_rows(&payload)?;
-    let filtered = filter_match_history(rows, options.hero_id)?;
     let external_id = format!("player-match-history:{account_id}");
-    let raw = json_bytes(&payload)?;
-    let raw_path = store.write_raw(SOURCE, &external_id, &raw, "json")?;
     let title = format!("Deadlock API player match history {account_id}");
-    let metadata = json!({
-        "account_id": account_id,
-        "hero_id": options.hero_id,
-        "cache_ttl_seconds": options.cache_ttl_seconds,
-    });
-    let document_id = store
-        .upsert_source_document(SourceDocumentInput {
-            source: SOURCE,
-            external_id: &external_id,
-            title: Some(&title),
-            url: Some(&url),
-            content_type: "application/json",
-            raw_path: &raw_path,
-            content: &raw,
-            metadata: &metadata,
-        })
-        .await?;
-
+    let metadata = json!({"account_id":account_id,"hero_id":options.hero_id,
+        "requested_cache_ttl_seconds":options.cache_ttl_seconds,"cache_mode":"uncached_provenance_read",
+        "schema_coverage":"consumed_identity_fields"});
+    let (ir, document_id) = fetch_match_document(store, http, &url, &external_id, &title, &metadata, true).await?;
+    let rows = match_history_rows(ir.payload()?)?;
+    let filtered = filter_match_history(rows, options.hero_id)?;
     let mut snapshots = Vec::new();
     for (index, row) in filtered.iter().enumerate() {
         let (_, hero_id, match_id) = match_history_fields(row, index)?;
@@ -1110,23 +1068,49 @@ fn demo_headers(accept: &'static str) -> Vec<(String, String)> {
     ]
 }
 
-fn get_deadlock_api_json(http: &HttpClient, url: &str, cache_ttl_seconds: u64) -> Result<Value> {
-    let result = http.get(
-        url,
-        HttpGetOptions {
-            cache_ttl_seconds: Some(cache_ttl_seconds),
-            timeout: Duration::from_secs(60),
-            headers: vec![
-                ("Accept".to_string(), "application/json".to_string()),
-                (
-                    "Referer".to_string(),
-                    "https://deadlock-api.com/".to_string(),
-                ),
-            ],
-            ..HttpGetOptions::default()
-        },
-    )?;
-    Ok(serde_json::from_str(&result.text())?)
+/// The current match adapters share raw/provenance/quarantine with Assets/Git.
+/// This validates consumed identities, not unspecified upstream match semantics.
+pub fn prepare_match_response(response: deadlock_brain_core::http::SourceHttpResponse, history: bool) -> Result<crate::external::SourceIr> {
+    let mut ir = crate::external::SourceIr::from_http(SOURCE, "dbrain-match-api/2", response)?;
+    ir.pin_schema(&crate::schema_watch::OpenApiSnapshot::pinned()?.schema_sha256);
+    ir.set_derivation_family("deadlock-api-match-observations");
+    if let Ok(payload) = ir.payload() {
+        let mut errors = Vec::new(); let mut extras = Vec::new(); let mut seen = std::collections::BTreeSet::new();
+        if let Some(rows) = payload.as_array() {
+            for (index,row) in rows.iter().enumerate() {
+                let Some(object) = row.as_object() else { errors.push(format!("/{index}:expected_object")); continue; };
+                let parse_id = |value: &Value| value.as_u64().or_else(|| value.as_str().and_then(|s| s.trim().parse::<u64>().ok()));
+                let a=object.get("match_id").and_then(parse_id);
+                let b=object.get("matchId").and_then(parse_id);
+                let id=a.or(b);
+                if id.is_none() || (object.contains_key("match_id") && a.is_none()) || (object.contains_key("matchId") && b.is_none()) || (a.is_some() && b.is_some() && a!=b) || id.is_some_and(|id| !seen.insert(id)) {
+                    errors.push(format!("/{index}:missing_invalid_duplicate_or_ambiguous_match_id"));
+                }
+                if history && match_history_fields(row,index).is_err() { errors.push(format!("/{index}:missing_or_invalid_hero_id")); }
+                if object.get("players").is_some_and(|players| !players.is_array() || players.as_array().is_some_and(|rows| rows.iter().any(|p| !p.is_object()))) {
+                    errors.push(format!("/{index}/players:unknown_structure"));
+                }
+                for field in object.keys() {
+                    if !["match_id","matchId","hero_id","heroId","player_hero_id","playerHeroId","players"].contains(&field.as_str()) { extras.push(format!("/{index}/{field}")); }
+                }
+            }
+        } else { errors.push("expected_match_array".into()); }
+        ir.note_extra_fields(extras);
+        for error in errors { ir.quarantine(error); }
+    }
+    Ok(ir)
+}
+
+async fn fetch_match_document(
+    store: &SourceStore<'_>, http: &HttpClient, url: &str, external_id: &str,
+    title: &str, metadata: &Value, history: bool,
+) -> Result<(crate::external::SourceIr, i64)> {
+    let response = http.get_bounded(url, deadlock_brain_core::http::SourceHttpOptions {
+        headers: demo_headers("application/json"), ..Default::default()
+    })?;
+    let ir = prepare_match_response(response, history)?;
+    let document_id=store.persist_ir(external_id,title,&ir,metadata).await?;
+    Ok((ir,document_id))
 }
 
 fn safe_ids(values: &[String]) -> Vec<String> {
@@ -1197,7 +1181,7 @@ fn metadata_player_slot(
         let Some(object) = row.as_object() else {
             continue;
         };
-        if python_or_string(object.get("match_id")).as_deref() != Some(match_id) {
+        if history_match_id(object).as_deref() != Some(match_id) {
             continue;
         }
         let Some(players) = object.get("players").and_then(Value::as_array) else {
@@ -1286,10 +1270,10 @@ fn history_hero_id(object: &Map<String, Value>) -> Option<u32> {
 }
 
 fn history_match_id(object: &Map<String, Value>) -> Option<String> {
-    python_or_string(object.get("match_id"))
-        .or_else(|| python_or_string(object.get("matchId")))
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
+    ["match_id", "matchId"].iter().find_map(|key| {
+        let value=object.get(*key)?;
+        value.as_u64().or_else(||value.as_str().and_then(|s|s.trim().parse::<u64>().ok())).map(|id|id.to_string())
+    })
 }
 
 fn with_source_metadata(payload: &Value, metadata: Value) -> Value {
@@ -1679,7 +1663,9 @@ mod tests {
             let (mut stream, _) = listener.accept().unwrap();
             let mut request = [0_u8; 1024];
             let bytes_read = std::io::Read::read(&mut stream, &mut request).unwrap();
-            assert!(bytes_read > 0);
+            // The total deadline may cancel after TCP connect but before any
+            // headers under parallel load. Cancellation is a valid timeout path.
+            if bytes_read == 0 { return; }
             let body = r#"{"status":"running"}"#;
             write!(
                 stream,
