@@ -13,7 +13,7 @@ mod player_decision_learning;
 mod util;
 
 pub use build_learning::{
-    build_learning_context, build_ai_build_learning_request, learn_analyze_build,
+    build_ai_build_learning_request, build_learning_context, learn_analyze_build,
     learn_analyze_next, learn_import_steam_builds, learn_list_builds, LearnAnalyzeBuildOptions,
     LearnAnalyzeNextOptions, LearnImportSteamBuildsOptions, BUILD_LEARNING_PROMPT_VERSION,
 };
@@ -35,7 +35,7 @@ pub use player_decision_learning::{
 mod tests {
     use std::path::PathBuf;
 
-    use deadlock_brain_core::{config::Settings, ai::AiConfig};
+    use deadlock_brain_core::{ai::AiConfig, config::Settings};
     use sqlx::postgres::{PgPool, PgPoolOptions};
 
     use super::*;

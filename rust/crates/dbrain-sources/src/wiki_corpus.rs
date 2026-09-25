@@ -9,9 +9,7 @@ use serde_json::{json, Value};
 use sqlx::PgPool;
 
 use crate::{
-    store::{
-        complete_run, json_bytes, EntitySnapshotInput, SourceDocumentInput, SourceStore,
-    },
+    store::{complete_run, json_bytes, EntitySnapshotInput, SourceDocumentInput, SourceStore},
     util::form_urlencode,
     wiki::{WikiRateLimiter, DEFAULT_API_URL, SOURCE},
     Result, SourcesError,
@@ -56,7 +54,9 @@ impl WikiCorpusOptions {
             || self.max_response_bytes == 0
             || self.max_total_bytes < self.max_response_bytes
         {
-            return Err(SourcesError::invalid_input("Ungültige Wiki-Grenzen; mindestens fünf Sekunden Abrufabstand sind erforderlich"));
+            return Err(SourcesError::invalid_input(
+                "Ungültige Wiki-Grenzen; mindestens fünf Sekunden Abrufabstand sind erforderlich",
+            ));
         }
         Ok(())
     }
@@ -164,9 +164,7 @@ fn collect_corpus(
         .pointer("/query/rightsinfo")
         .filter(|rights| nonempty(rights.get("text")) && nonempty(rights.get("url")))
         .ok_or_else(|| {
-            SourcesError::invalid_input(
-                "Wiki-Lizenzangaben fehlen; kein unattribuierter Import",
-            )
+            SourcesError::invalid_input("Wiki-Lizenzangaben fehlen; kein unattribuierter Import")
         })?
         .clone();
     let mut continuation = None::<Value>;
@@ -198,9 +196,9 @@ fn collect_corpus(
         api_ok(&listing)?;
         let empty = Vec::new();
         let batch = match listing.pointer("/query/pages") {
-            Some(value) => value.as_array().ok_or_else(|| {
-                SourcesError::invalid_input("Ungültige Wiki-Seitenliste")
-            })?,
+            Some(value) => value
+                .as_array()
+                .ok_or_else(|| SourcesError::invalid_input("Ungültige Wiki-Seitenliste"))?,
             None if listing.get("continue").is_some()
                 || (!pages.is_empty() && listing["batchcomplete"] == true) =>
             {
@@ -219,10 +217,7 @@ fn collect_corpus(
                             .any(|ch| ch.is_control() || matches!(ch, '<' | '>'))
                 })
                 .ok_or_else(|| SourcesError::invalid_input("Wiki-Titel fehlt"))?;
-            if page["ns"].as_i64() != Some(0)
-                || page.get("missing").is_some()
-                || !ids.insert(id)
-            {
+            if page["ns"].as_i64() != Some(0) || page.get("missing").is_some() || !ids.insert(id) {
                 return Err(SourcesError::invalid_input(
                     "Ungültige oder doppelte Wiki-Seite",
                 ));
@@ -237,9 +232,7 @@ fn collect_corpus(
             let timestamp = revision["timestamp"]
                 .as_str()
                 .filter(|s| !s.is_empty())
-                .ok_or_else(|| {
-                    SourcesError::invalid_input("Wiki-Revisionsdatum fehlt")
-                })?;
+                .ok_or_else(|| SourcesError::invalid_input("Wiki-Revisionsdatum fehlt"))?;
             // Vorlagen können sich ohne neue Artikelrevision ändern. touched
             // wird deshalb Teil des Cache-Schlüssels über den API-requestid.
             let touched = page["touched"]
@@ -265,9 +258,9 @@ fn collect_corpus(
                     "Wiki-Seite änderte sich während des Imports; erneut synchronisieren",
                 ));
             }
-            let html = parsed["parse"]["text"].as_str().ok_or_else(|| {
-                SourcesError::invalid_input("Gerenderter Wiki-Text fehlt")
-            })?;
+            let html = parsed["parse"]["text"]
+                .as_str()
+                .ok_or_else(|| SourcesError::invalid_input("Gerenderter Wiki-Text fehlt"))?;
             if html.len() > options.max_response_bytes {
                 return Err(SourcesError::invalid_input(
                     "Wiki-Text überschreitet das Größenlimit",
@@ -284,8 +277,7 @@ fn collect_corpus(
                 })
                 .map(str::to_string)
                 .collect::<Vec<_>>();
-            let historical =
-                is_historical(title) || categories.iter().any(|c| is_historical(c));
+            let historical = is_historical(title) || categories.iter().any(|c| is_historical(c));
             let sections = extract_sections(html);
             if sections.iter().all(|section| section.text.is_empty()) {
                 return Err(SourcesError::invalid_input(
@@ -306,8 +298,7 @@ fn collect_corpus(
                 }
             });
             // Auch Kategorien, Lizenz und Provenienz belegen Korpusspeicher.
-            total_bytes =
-                total_bytes.saturating_add(serde_json::to_vec(&normalized)?.len());
+            total_bytes = total_bytes.saturating_add(serde_json::to_vec(&normalized)?.len());
             if total_bytes > options.max_total_bytes {
                 return Err(SourcesError::invalid_input(
                     "Normalisierter Wiki-Korpus überschreitet das Größenlimit",
@@ -527,8 +518,7 @@ mod tests {
     fn pagination_and_exact_revision_are_used() {
         let mut first = listing(1);
         first["continue"] = json!({"continue":"||","gapcontinue":"Hero 2"});
-        let mut replies =
-            VecDeque::from(vec![site(), first, parsed(1), listing(2), parsed(2)]);
+        let mut replies = VecDeque::from(vec![site(), first, parsed(1), listing(2), parsed(2)]);
         let mut requests = Vec::new();
         let pages = collect_corpus(&options(), |p| {
             requests.push(
@@ -589,10 +579,9 @@ mod tests {
     }
     #[test]
     fn disabled_network_makes_no_requests() {
-        assert!(collect_corpus(&WikiCorpusOptions::default(), |_| panic!(
-            "network called"
-        ))
-        .is_err());
+        assert!(
+            collect_corpus(&WikiCorpusOptions::default(), |_| panic!("network called")).is_err()
+        );
     }
     #[test]
     fn duplicate_pages_limits_and_repeated_cursors_do_not_claim_completeness() {
@@ -613,9 +602,7 @@ mod tests {
         .is_err());
         let mut second = listing(2);
         second["continue"] = first["continue"].clone();
-        assert!(
-            run(vec![site(), first, parsed(1), second, parsed(2)], options()).is_err()
-        );
+        assert!(run(vec![site(), first, parsed(1), second, parsed(2)], options()).is_err());
         assert!(run(
             vec![site(), listing(1), parsed(1)],
             WikiCorpusOptions {

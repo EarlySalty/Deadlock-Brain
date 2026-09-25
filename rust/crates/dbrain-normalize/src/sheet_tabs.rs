@@ -4,8 +4,8 @@ use serde_json::{json, Value};
 use sqlx::PgPool;
 
 use crate::util::{
-    bind_params, build_hero_index, json_string, normalize_alias, parse_bool, parse_float, parse_int,
-    payload_values, row_number, title_case, value_to_string, SqlParam, SHEET_SOURCE,
+    bind_params, build_hero_index, json_string, normalize_alias, parse_bool, parse_float,
+    parse_int, payload_values, row_number, title_case, value_to_string, SqlParam, SHEET_SOURCE,
 };
 use crate::Result;
 
@@ -106,13 +106,27 @@ struct SheetRow {
 
 pub async fn normalize_sheet_tabs(pool: &PgPool, rebuild: bool) -> Result<Value> {
     if rebuild {
-        sqlx::query!("DELETE FROM brain.sheet_hero_rankings").execute(pool).await?;
-        sqlx::query!("DELETE FROM brain.sheet_boons_ap").execute(pool).await?;
-        sqlx::query!("DELETE FROM brain.sheet_raw_heroes").execute(pool).await?;
-        sqlx::query!("DELETE FROM brain.sheet_heroes_stats").execute(pool).await?;
-        sqlx::query!("DELETE FROM brain.sheet_items").execute(pool).await?;
-        sqlx::query!("DELETE FROM brain.sheet_shop_bonuses").execute(pool).await?;
-        sqlx::query!("DELETE FROM brain.sheet_tab_rows").execute(pool).await?;
+        sqlx::query!("DELETE FROM brain.sheet_hero_rankings")
+            .execute(pool)
+            .await?;
+        sqlx::query!("DELETE FROM brain.sheet_boons_ap")
+            .execute(pool)
+            .await?;
+        sqlx::query!("DELETE FROM brain.sheet_raw_heroes")
+            .execute(pool)
+            .await?;
+        sqlx::query!("DELETE FROM brain.sheet_heroes_stats")
+            .execute(pool)
+            .await?;
+        sqlx::query!("DELETE FROM brain.sheet_items")
+            .execute(pool)
+            .await?;
+        sqlx::query!("DELETE FROM brain.sheet_shop_bonuses")
+            .execute(pool)
+            .await?;
+        sqlx::query!("DELETE FROM brain.sheet_tab_rows")
+            .execute(pool)
+            .await?;
     }
 
     let hero_index = build_hero_index(pool, false).await?;
@@ -150,7 +164,9 @@ async fn normalize_heroes_stats(pool: &PgPool, hero_index: &HeroIndex) -> Result
             continue;
         };
         let hero_name = value_to_string(values.get("Hero Name")).trim().to_string();
-        if hero_name.is_empty() || matches!(hero_name.to_lowercase().as_str(), "hero name" | "hero labs") {
+        if hero_name.is_empty()
+            || matches!(hero_name.to_lowercase().as_str(), "hero name" | "hero labs")
+        {
             continue;
         }
         let mut params = vec![
@@ -162,10 +178,14 @@ async fn normalize_heroes_stats(pool: &PgPool, hero_index: &HeroIndex) -> Result
             SqlParam::TextOpt(nonempty(value_to_string(values.get("Hero Labs")))),
         ];
         for (label, _) in HEROES_STATS_MAP {
-            params.push(SqlParam::FloatOpt(parse_float(&value_to_string(values.get(*label)))));
+            params.push(SqlParam::FloatOpt(parse_float(&value_to_string(
+                values.get(*label),
+            ))));
         }
         params.push(SqlParam::Text(row.payload_hash.clone()));
-        bind_params(sqlx::query(&sql), &params).execute(pool).await?;
+        bind_params(sqlx::query(&sql), &params)
+            .execute(pool)
+            .await?;
         inserted += 1;
     }
 
@@ -191,7 +211,11 @@ async fn normalize_items(pool: &PgPool) -> Result<Value> {
         if code_name.is_empty() && game_name.is_empty() {
             continue;
         }
-        let canonical = if game_name.is_empty() { code_name.clone() } else { game_name.clone() };
+        let canonical = if game_name.is_empty() {
+            code_name.clone()
+        } else {
+            game_name.clone()
+        };
         sqlx::query!(
             r#"
             INSERT INTO brain.sheet_items(
@@ -276,7 +300,9 @@ async fn normalize_freeform_tabs(pool: &PgPool) -> Result<Value> {
         let Some(payload) = parse_payload(&row.payload_json) else {
             continue;
         };
-        let tab_name = value_to_string(payload.get("sheet_name")).trim().to_string();
+        let tab_name = value_to_string(payload.get("sheet_name"))
+            .trim()
+            .to_string();
         if tab_name.is_empty() {
             continue;
         }
@@ -324,7 +350,12 @@ async fn normalize_freeform_tabs(pool: &PgPool) -> Result<Value> {
 async fn normalize_hero_rankings(pool: &PgPool, hero_index: &HeroIndex) -> Result<Value> {
     let rows = load_sheet_rows(pool, Some("Hero meta ranking"), false).await?;
     let mut inserted = 0_i64;
-    let mut columns = vec!["snapshot_id", "legacy_snapshot_id", "entity_id", "hero_name"];
+    let mut columns = vec![
+        "snapshot_id",
+        "legacy_snapshot_id",
+        "entity_id",
+        "hero_name",
+    ];
     columns.extend(RANKING_COLUMN_MAP.iter().map(|(_, column)| *column));
     columns.push("payload_hash");
     let sql = upsert_sql("sheet_hero_rankings", &columns);
@@ -357,7 +388,9 @@ async fn normalize_hero_rankings(pool: &PgPool, hero_index: &HeroIndex) -> Resul
             ]))));
         }
         params.push(SqlParam::Text(row.payload_hash.clone()));
-        bind_params(sqlx::query(&sql), &params).execute(pool).await?;
+        bind_params(sqlx::query(&sql), &params)
+            .execute(pool)
+            .await?;
         inserted += 1;
     }
     Ok(json!({"snapshots": rows.len(), "inserted": inserted}))
@@ -373,7 +406,8 @@ async fn normalize_boons_ap(pool: &PgPool) -> Result<Value> {
         let Some(values) = payload_values(&payload) else {
             continue;
         };
-        let Some(souls) = parse_int(&value_to_string(values.get("Souls"))).filter(|value| *value > 0)
+        let Some(souls) =
+            parse_int(&value_to_string(values.get("Souls"))).filter(|value| *value > 0)
         else {
             continue;
         };
@@ -443,10 +477,14 @@ async fn normalize_raw_heroes(pool: &PgPool, hero_index: &HeroIndex) -> Result<V
             SqlParam::Int(if disabled { 1 } else { 0 }),
         ];
         for (label, _) in RAW_HERO_COLUMN_MAP {
-            params.push(SqlParam::FloatOpt(parse_float(&value_to_string(values.get(*label)))));
+            params.push(SqlParam::FloatOpt(parse_float(&value_to_string(
+                values.get(*label),
+            ))));
         }
         params.push(SqlParam::Text(row.payload_hash.clone()));
-        bind_params(sqlx::query(&sql), &params).execute(pool).await?;
+        bind_params(sqlx::query(&sql), &params)
+            .execute(pool)
+            .await?;
         inserted += 1;
     }
     Ok(json!({"snapshots": rows.len(), "inserted": inserted}))
@@ -454,7 +492,11 @@ async fn normalize_raw_heroes(pool: &PgPool, hero_index: &HeroIndex) -> Result<V
 
 type HeroIndex = std::collections::HashMap<String, i64>;
 
-async fn load_sheet_rows(pool: &PgPool, sheet: Option<&str>, freeform: bool) -> Result<Vec<SheetRow>> {
+async fn load_sheet_rows(
+    pool: &PgPool,
+    sheet: Option<&str>,
+    freeform: bool,
+) -> Result<Vec<SheetRow>> {
     let rows = sqlx::query!(
         r#"
         SELECT id AS "id!", COALESCE(legacy_sqlite_id, id) AS "legacy_snapshot_id!",
@@ -480,7 +522,9 @@ async fn load_sheet_rows(pool: &PgPool, sheet: Option<&str>, freeform: bool) -> 
         let Some(payload) = parse_payload(&row.payload_json) else {
             continue;
         };
-        let name = value_to_string(payload.get("sheet_name")).trim().to_string();
+        let name = value_to_string(payload.get("sheet_name"))
+            .trim()
+            .to_string();
         let include = if freeform {
             !name.is_empty() && !DEDICATED_TABS.contains(&name.as_str())
         } else {
@@ -494,7 +538,9 @@ async fn load_sheet_rows(pool: &PgPool, sheet: Option<&str>, freeform: bool) -> 
 }
 
 fn parse_payload(payload_json: &str) -> Option<Value> {
-    serde_json::from_str::<Value>(payload_json).ok().filter(Value::is_object)
+    serde_json::from_str::<Value>(payload_json)
+        .ok()
+        .filter(Value::is_object)
 }
 
 /// Baut das Upsert-SQL fuer die Sheet-Tabellen mit fester Konflikt-Spalte

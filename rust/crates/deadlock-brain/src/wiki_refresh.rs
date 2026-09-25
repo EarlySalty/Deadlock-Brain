@@ -61,8 +61,7 @@ impl Config {
 /// Kein Legacy-settings-/ENV-Pfad: gewöhnliche JSON-Konfiguration und Infisical-Pool.
 pub async fn run(args: &RefreshArgs) -> Result<Value> {
     let config = Config::read(&args.config)?;
-    fs::create_dir_all(&config.publication_root)
-        .context("Wiki-Ziel ist nicht verfügbar")?;
+    fs::create_dir_all(&config.publication_root).context("Wiki-Ziel ist nicht verfügbar")?;
     let lock = OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -82,8 +81,7 @@ pub async fn run(args: &RefreshArgs) -> Result<Value> {
 
 async fn refresh(config: &Config, skip_source_update: bool) -> Result<Value> {
     let pool =
-        deadlock_brain_core::pg::pg_pool_from_config(&config.infisical_config, false)
-            .await?;
+        deadlock_brain_core::pg::pg_pool_from_config(&config.infisical_config, false).await?;
     let source_update = if skip_source_update {
         Value::Null
     } else {
@@ -101,8 +99,7 @@ async fn refresh(config: &Config, skip_source_update: bool) -> Result<Value> {
     let wiki_update = if !skip_source_update {
         if let Some(options) = config.wiki.as_ref().filter(|options| options.enabled) {
             let http = crate::http_client_async(
-                "Deadlock-Brain/1.0 (+https://github.com/EarlySalty/Deadlock-Brain)"
-                    .into(),
+                "Deadlock-Brain/1.0 (+https://github.com/EarlySalty/Deadlock-Brain)".into(),
                 config.raw_directory.join("http-cache"),
             )
             .await?;
@@ -113,9 +110,7 @@ async fn refresh(config: &Config, skip_source_update: bool) -> Result<Value> {
                 options,
             )
             .await
-            .context(
-                "Deadlock-Wiki-Import fehlgeschlagen; bisheriger Snapshot bleibt aktiv",
-            )?
+            .context("Deadlock-Wiki-Import fehlgeschlagen; bisheriger Snapshot bleibt aktiv")?
         } else {
             Value::Null
         }
@@ -376,8 +371,7 @@ mod tests {
         assert_eq!(status["provenance"], provenance);
         assert_eq!(status["rendered_at"], "2026-09-20T00:00:00Z");
         assert_eq!(status["source_update_performed"], false);
-        let active: Value =
-            serde_json::from_slice(&fs::read(base.join("current/status.json"))?)?;
+        let active: Value = serde_json::from_slice(&fs::read(base.join("current/status.json"))?)?;
         assert_eq!(status, active);
         Ok(())
     }

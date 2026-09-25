@@ -6,12 +6,7 @@ use sqlx::PgPool;
 use crate::util::{json_string, normalize_alias, table_count, table_exists};
 use crate::Result;
 
-const SUSPICIOUS_PREFIXES: &[&str] = &[
-    "added ",
-    "removed ",
-    "improved ",
-    "the following ",
-];
+const SUSPICIOUS_PREFIXES: &[&str] = &["added ", "removed ", "improved ", "the following "];
 
 #[derive(Debug, Clone)]
 struct PatchEntityRow {
@@ -271,7 +266,11 @@ fn name_confidence(name: &str, row: &PatchEntityRow) -> f64 {
     if name.is_empty() || name.len() > 70 {
         return 0.2;
     }
-    if SUSPICIOUS_PREFIXES.iter().any(|prefix| lowered.starts_with(prefix)) || lowered.ends_with(" from") {
+    if SUSPICIOUS_PREFIXES
+        .iter()
+        .any(|prefix| lowered.starts_with(prefix))
+        || lowered.ends_with(" from")
+    {
         return 0.25;
     }
     if name.contains('(') && !name.contains(')') {
@@ -286,7 +285,10 @@ fn name_confidence(name: &str, row: &PatchEntityRow) -> f64 {
     if name.split_whitespace().count() > 6 {
         return 0.35;
     }
-    if matches!(row.entity_type.as_str(), "hero" | "item" | "item_special" | "ability") {
+    if matches!(
+        row.entity_type.as_str(),
+        "hero" | "item" | "item_special" | "ability"
+    ) {
         0.74
     } else {
         0.55
