@@ -68,6 +68,15 @@ Spezial-Suites auf `8c28619` (Code identisch zu `15653cd` außer dem Pilot-Test)
 
 TESTNACHWEIS[TW-1]: 709 passed, 67 ignored | Baseline: 0 rot (main 25c6ed6 vor Core nicht separat gemessen; alle Zwischenstände 0 fehlgeschlagen)
 
+GitHub Actions auf PR #40 (https://github.com/EarlySalty/Deadlock-Brain/pull/40):
+
+| Head | Run | Ergebnis |
+|---|---|---|
+| `5cfb0a5` | [36198651529](https://github.com/EarlySalty/Deadlock-Brain/actions/runs/36198651529), Versuch 1 | rot: "Integrated suite (wiki)" fand kein `protoc`, weil sie jetzt den ganzen Workspace samt Replay-Decoder baut; dadurch auch "Consumer Offline Gate" rot |
+| `73477e8` | [36199382899](https://github.com/EarlySalty/Deadlock-Brain/actions/runs/36199382899) und [36199382850](https://github.com/EarlySalty/Deadlock-Brain/actions/runs/36199382850), Versuch 1 | grün: alle Core-, Audit- und integrierten Suites, Consumer Offline Gate, Rust compile, Migration composition, GitGuardian; "Semantic review" übersprungen |
+
+Ein Check namens "Required PR Gate" existiert in diesem Repo nicht; das Consumer Offline Gate ist der vorhandene deterministische Aggregator. Jeder spätere Push macht diese Abnahme ungültig.
+
 ## 4. Runtime (lokal, nur lesend, 25.09.2026 23:45 und 26.09.2026 00:40 CEST)
 
 | Unit | Zustand | Befund |
