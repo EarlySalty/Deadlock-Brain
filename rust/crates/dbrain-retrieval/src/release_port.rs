@@ -48,9 +48,13 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
         let snapshot = self.snapshot(query, context)?;
         let mut records = snapshot.authorized(&context.principal, provider)?;
         records.retain(|r| {
-            r.metadata
-                .get("patch")
-                .is_none_or(|p| p == &snapshot.release.patch)
+            // Typed derived objects have a second, source-level authorization boundary.
+            // Only DomainStorePort may expose them; generic lexical/dense search must not
+            // bypass that boundary by treating their serialized JSON as ordinary prose.
+            !r.metadata.contains_key("domain_contract")
+                && r.metadata
+                    .get("patch")
+                    .is_none_or(|p| p == &snapshot.release.patch)
                 && query
                     .mode
                     .as_ref()

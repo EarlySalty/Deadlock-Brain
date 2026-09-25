@@ -51,6 +51,45 @@ async fn store() -> MemoryRepository {
     store
 }
 #[tokio::test]
+async fn typed_domain_objects_cannot_bypass_source_acl_via_generic_retrieval() {
+    let store = store().await;
+    let mut derived = record("derived", 1);
+    derived.content = "Abrams sensitive derived fact".into();
+    derived
+        .metadata
+        .insert("domain_contract".into(), "brain.domain.v1".into());
+    store.apply_record(derived).unwrap();
+    let release = store.release_from_heads("r2", "v1", "p1").unwrap();
+    store.publish(&release).await.unwrap();
+    let mut context = context();
+    context.knowledge_release = "r2".into();
+    let lexical = ReleaseRetriever::new(store.clone(), 10);
+    let hits = lexical.retrieve(&query(), &context).unwrap();
+    assert_eq!(hits.len(), 2);
+    assert!(hits
+        .iter()
+        .all(|hit| hit.logical_id != "derived" && !hit.content.contains("sensitive")));
+    let index = DenseIndex {
+        release_id: "r2".into(),
+        identity: identity(),
+        entries: vec![DenseEntry {
+            document: DocumentRevision {
+                source_id: "fixture".into(),
+                logical_id: "derived".into(),
+                revision: 1,
+                content_hash: "derived-1".into(),
+            },
+            vector: vec![1.0, 0.0],
+        }],
+    };
+    // The malformed-model fixture must never be called for the excluded derived object.
+    let hybrid = HybridRetriever::new(store, FixtureEmbedding { wrong: true }, index, 10).unwrap();
+    let (dense_hits, usage) = hybrid.retrieve_with_usage(&query(), &context).unwrap();
+    assert_eq!(dense_hits, hits);
+    assert_eq!(usage.network_rounds, 0);
+}
+
+#[tokio::test]
 async fn release_pinning_acl_tombstone_and_forged_evidence() {
     let store = store().await;
     let retriever = ReleaseRetriever::new(store.clone(), 10);
