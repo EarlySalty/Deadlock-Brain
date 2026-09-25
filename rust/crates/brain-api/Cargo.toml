@@ -23,4 +23,5 @@ tempfile.workspace = true
 brain-client = { path = "../brain-client" }
 brain-storage = { path = "../brain-storage" }
 dbrain-retrieval = { path = "../dbrain-retrieval" }
+sqlx = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
