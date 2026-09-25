@@ -1,0 +1,27 @@
+{
+  "object": "list",
+  "model": "fixture-embedding-model-not-for-live",
+  "data": [
+    {
+      "object": "embedding",
+      "index": 1,
+      "embedding": [
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "object": "embedding",
+      "index": 0,
+      "embedding": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 4,
+    "total_tokens": 4
+  }
+}

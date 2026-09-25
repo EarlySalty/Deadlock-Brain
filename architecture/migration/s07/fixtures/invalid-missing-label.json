@@ -1,0 +1,56 @@
+{
+  "model": "fixture-jev-model-not-for-live",
+  "answers": {
+    "relevance": {
+      "type": "score",
+      "score": 1.5,
+      "legend": {
+        "0": "Kein Beitrag zur Frage",
+        "1": "Teilweise passende Evidenz",
+        "2": "Direkt passende Evidenz"
+      },
+      "probabilities": {
+        "0": 0.0,
+        "1": 0.5,
+        "2": 0.5
+      },
+      "confidence": 0.2
+    },
+    "feeder_classification": {
+      "type": "choice",
+      "choice": "wiki",
+      "probabilities": {
+        "wiki": 0.75,
+        "other": 0.25
+      },
+      "confidence": 0.6
+    },
+    "query_routing": {
+      "type": "choice",
+      "choice": "structured",
+      "probabilities": {
+        "structured": 0.9,
+        "explanation": 0.1,
+        "abstain": 0.0
+      },
+      "confidence": 0.8
+    },
+    "answerability": {
+      "type": "noul",
+      "noul": 0.7
+    },
+    "model_routing": {
+      "type": "choice",
+      "choice": "baseline_only",
+      "probabilities": {
+        "baseline_only": 0.8,
+        "approved_primary": 0.2
+      },
+      "confidence": 0.7
+    }
+  },
+  "usage": {
+    "input_tokens": 80,
+    "output_tokens": 10
+  }
+}
