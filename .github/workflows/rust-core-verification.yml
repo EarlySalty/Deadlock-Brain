@@ -137,9 +137,8 @@ jobs:
           retention-days: 7
 
   reference:
-    # These independent CODEX B/C/D branches are NOT silently merged into CODEX A.
-    # Success here verifies the pinned reference, not cross-branch composition.
-    name: Pinned reference suite (${{ matrix.suite }})
+    # Wiki/Sources/Replay are merged in migration/rust-integration; these suites run on the composed checkout.
+    name: Integrated suite (${{ matrix.suite }})
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
@@ -147,30 +146,25 @@ jobs:
       matrix:
         include:
           - suite: wiki
-            revision: f7fafa5f6bd984df0f94c8117b0c17e2a2a08d27
           - suite: sources
-            revision: b44f2fe4f416cc1e2c8c56323fe9e5b2c74415fb
           - suite: replay
-            revision: f0b5bf15b9c16d75dcc2df5e7051f97901f5742e
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          repository: EarlySalty/Deadlock-Brain
-          ref: ${{ matrix.revision }}
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
         with:
           toolchain: '1.97.1'
           components: rustfmt, clippy
-      - name: Record exact reference and acquire locked dependencies
+      - name: Record exact composed commit and acquire locked dependencies
         env:
-          EXPECTED: ${{ matrix.revision }}
+          EXPECTED: ${{ github.sha }}
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED"
           mkdir -p .consumer-ci-reports/test-home
-          { printf 'reference_only=true\n'; git rev-parse HEAD; rustc --version; cargo --version; } > .consumer-ci-reports/provenance.txt
+          { printf 'composed_checkout=true\n'; git rev-parse HEAD; rustc --version; cargo --version; } > .consumer-ci-reports/provenance.txt
           cargo fetch --manifest-path rust/Cargo.toml --locked
       - name: Wiki offline and typed source integration
         if: matrix.suite == 'wiki'
@@ -204,7 +198,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: reference-${{ matrix.suite }}-${{ matrix.revision }}-${{ github.run_attempt }}
+          name: integrated-${{ matrix.suite }}-${{ github.sha }}-${{ github.run_attempt }}
           path: |
             .consumer-ci-reports/*.log
             .consumer-ci-reports/*.txt
@@ -243,9 +237,7 @@ jobs:
               ...['core', 'storage', 'ingestion', 'retrieval', 'provider-jev', 'kernel-api-consumer']
                 .map(name => `core-${name}-${context.sha}-${attempt}`),
               ...['quality-pr27', 'cutover-audit'].map(name => `audit-${name}-${context.sha}-${attempt}`),
-              `reference-wiki-f7fafa5f6bd984df0f94c8117b0c17e2a2a08d27-${attempt}`,
-              `reference-sources-b44f2fe4f416cc1e2c8c56323fe9e5b2c74415fb-${attempt}`,
-              `reference-replay-f0b5bf15b9c16d75dcc2df5e7051f97901f5742e-${attempt}`,
+              ...['wiki', 'sources', 'replay'].map(name => `integrated-${name}-${context.sha}-${attempt}`),
             ];
             const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
               ...context.repo, run_id: context.runId, per_page: 100,
@@ -256,4 +248,4 @@ jobs:
               core.setFailed(`Missing, duplicate or expired suite artifacts: ${missing.join(', ')}`);
               return;
             }
-            await core.summary.addRaw('All eleven declared offline suites passed. Reference-only Wiki/Sources/Replay evidence is not composed-runtime or production approval. No merge or deployment.').write();
+            await core.summary.addRaw('All eleven declared offline suites passed. Wiki/Sources/Replay ran on the composed checkout; offline evidence is not runtime or production approval. No merge or deployment.').write();
