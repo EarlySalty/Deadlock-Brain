@@ -758,7 +758,7 @@ struct PullDeadlockDataArgs {
     repo_dir: Option<PathBuf>,
     #[arg(
         long,
-        help = "Vollständiger Commitpin (40/64 Hexzeichen); alternativ DBRAIN_DEADLOCK_DATA_COMMIT."
+        help = "Vollständiger Commitpin; alternativ DBRAIN_DEADLOCK_DATA_COMMIT. Benötigt Parserrevision."
     )]
     commit: Option<String>,
     #[arg(
@@ -766,6 +766,62 @@ struct PullDeadlockDataArgs {
         help = "Kompatibilitätsflag; Gitimporte lesen grundsätzlich nur lokal gepinnte Objekte."
     )]
     no_git_update: bool,
+    #[arg(
+        long,
+        help = "Versionierte JSON-Quellenpins; alternativ DBRAIN_SOURCE_PINS_CONFIG. Keine Pin-Overrides bei Configdatei."
+    )]
+    source_config: Option<PathBuf>,
+    #[arg(
+        long,
+        help = "Nur lokale Pin-Konfiguration prüfen; keine Datenbank und keine Writes."
+    )]
+    check_config: bool,
+    #[arg(
+        long,
+        help = "Explizite Parserrevision; alternativ DBRAIN_DEADLOCK_DATA_PARSER_REVISION."
+    )]
+    parser_revision: Option<String>,
+    #[arg(skip)]
+    resolved: Option<Box<dbrain_sources::PullDeadlockDataOptions>>,
+}
+
+impl PullDeadlockDataArgs {
+    fn resolve(&self, settings: &Settings) -> Result<dbrain_sources::PullDeadlockDataOptions> {
+        let source_config = self
+            .source_config
+            .clone()
+            .or_else(|| std::env::var_os("DBRAIN_SOURCE_PINS_CONFIG").map(PathBuf::from));
+        let pin = if let Some(path) = source_config {
+            if self.commit.is_some()
+                || self.parser_revision.is_some()
+                || std::env::var_os("DBRAIN_DEADLOCK_DATA_COMMIT").is_some()
+                || std::env::var_os("DBRAIN_DEADLOCK_DATA_PARSER_REVISION").is_some()
+            {
+                anyhow::bail!("source-config cannot be combined with CLI/environment pin overrides; edit the explicit configuration instead");
+            }
+            dbrain_sources::source_pins::SourcePins::read(&path)?.deadlock_data
+        } else {
+            dbrain_sources::source_pins::DeadlockDataPin {
+                commit: self.commit.clone().or_else(|| std::env::var("DBRAIN_DEADLOCK_DATA_COMMIT").ok())
+                    .context("deadlock-data requires --source-config, --commit or DBRAIN_DEADLOCK_DATA_COMMIT; never implicit HEAD")?,
+                parser_revision: self.parser_revision.clone().or_else(|| std::env::var("DBRAIN_DEADLOCK_DATA_PARSER_REVISION").ok())
+                    .context("deadlock-data requires --parser-revision or DBRAIN_DEADLOCK_DATA_PARSER_REVISION")?,
+                schema_version: None,
+                data_version: None,
+            }
+        };
+        let options = dbrain_sources::PullDeadlockDataOptions {
+            repo_dir: self
+                .repo_dir
+                .clone()
+                .unwrap_or_else(|| settings.data_dir.join("external/deadlock-data")),
+            pin,
+            update_repo: false,
+        };
+        let _legacy_no_git_update = self.no_git_update;
+        dbrain_sources::deadlock_data::preflight(&options)?;
+        Ok(options)
+    }
 }
 
 #[derive(Debug, Args)]
@@ -1156,7 +1212,7 @@ async fn run(cli: Cli) -> Result<()> {
         return print_json(&wiki_refresh::run(args).await?);
     }
     let settings = config::load_settings()?;
-    let command = match command {
+    let mut command = match command {
         Commands::Pg { target } => {
             // Alle `pg`-Befehle nutzen synchrone Crates (`postgres` bzw. der
             // blocking-HttpClient), die intern teils selbst einen Tokio-Runtime
@@ -1182,6 +1238,17 @@ async fn run(cli: Cli) -> Result<()> {
         }
         other => other,
     };
+    // Resolve once before side effects; the same immutable options reach the importer.
+    if let Commands::Pull {
+        source: PullCommands::DeadlockData(args),
+    } = &mut command
+    {
+        let options = args.resolve(&settings)?;
+        if args.check_config {
+            return print_json(&json!({"valid":true,"source_pin":options.pin,"writes":false}));
+        }
+        args.resolved = Some(Box::new(options));
+    }
     prepare_dirs(&settings)?;
     // Ein PgPool fuer die gesamte Befehlsausfuehrung (DSN aus DEADLOCK_CENTRAL_DSN).
     let pool = deadlock_brain_core::pg::pg_pool().await?;
@@ -2222,20 +2289,13 @@ async fn run_pull(pool: &PgPool, settings: &Settings, source: PullCommands) -> R
             print_json(&result)
         }
         PullCommands::DeadlockData(args) => {
-            let repo_dir = args
-                .repo_dir
-                .unwrap_or_else(|| settings.data_dir.join("external/deadlock-data"));
-            let commit = args.commit
-                .or_else(|| std::env::var("DBRAIN_DEADLOCK_DATA_COMMIT").ok())
-                .context("deadlock-data benötigt --commit oder DBRAIN_DEADLOCK_DATA_COMMIT; keine HEAD-Semantik")?;
-            let _legacy_no_git_update = args.no_git_update;
-            let pull = dbrain_sources::pull_deadlock_data(
+            let options = args
+                .resolved
+                .context("deadlock-data source pin preflight was not performed")?;
+            let pull = dbrain_sources::deadlock_data::pull_deadlock_data_with_pool(
+                pool,
                 &settings.raw_dir,
-                dbrain_sources::PullDeadlockDataOptions {
-                    repo_dir,
-                    commit,
-                    update_repo: false,
-                },
+                *options,
             )
             .await?;
             let patch_events = dbrain_normalize::parse_patchnotes(pool, false).await?;

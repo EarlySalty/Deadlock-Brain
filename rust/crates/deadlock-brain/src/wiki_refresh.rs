@@ -23,6 +23,12 @@ pub struct RefreshArgs {
         help = "Nur vorhandene Daten exportieren; kein neuer Quellenabruf."
     )]
     pub skip_source_update: bool,
+    #[arg(
+        long,
+        conflicts_with = "skip_source_update",
+        help = "Nur Config und lokale Quellenpins prüfen; keine Credentials, Datenbank, HTTP oder Schreibzugriffe."
+    )]
+    pub check_config: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -32,18 +38,31 @@ struct Config {
     source_repository: PathBuf,
     raw_directory: PathBuf,
     publication_root: PathBuf,
+    source_pins: dbrain_sources::source_pins::SourcePins,
     #[serde(default)]
     wiki: Option<dbrain_sources::wiki_corpus::WikiCorpusOptions>,
 }
 
 impl Config {
+    fn source_options(&self) -> dbrain_sources::PullDeadlockDataOptions {
+        dbrain_sources::PullDeadlockDataOptions {
+            repo_dir: self.source_repository.clone(),
+            pin: self.source_pins.deadlock_data.clone(),
+            update_repo: false,
+        }
+    }
+
     fn read(path: &Path) -> Result<Self> {
         let bytes = fs::read(path).context("Wiki-Konfiguration ist nicht lesbar")?;
         if bytes.len() > 64 * 1024 {
             bail!("Wiki-Konfiguration ist zu groß");
         }
         let config: Self =
-            serde_json::from_slice(&bytes).context("Wiki-Konfiguration ist ungültig")?;
+            serde_json::from_slice(&bytes).context("Wiki-Konfiguration ist ungültig; source_pins mit Commit und Parserrevision ist erforderlich")?;
+        config.source_pins.validate()?;
+        if let Some(wiki) = config.wiki.as_ref().filter(|wiki| wiki.enabled) {
+            wiki.validate_pinned()?;
+        }
         for path in [
             &config.infisical_config,
             &config.source_repository,
@@ -61,6 +80,12 @@ impl Config {
 /// Kein Legacy-settings-/ENV-Pfad: gewöhnliche JSON-Konfiguration und Infisical-Pool.
 pub async fn run(args: &RefreshArgs) -> Result<Value> {
     let config = Config::read(&args.config)?;
+    if !args.skip_source_update {
+        dbrain_sources::deadlock_data::preflight(&config.source_options())?;
+    }
+    if args.check_config {
+        return Ok(json!({"valid":true,"source_pins":config.source_pins,"writes":false}));
+    }
     fs::create_dir_all(&config.publication_root).context("Wiki-Ziel ist nicht verfügbar")?;
     let lock = OpenOptions::new()
         .create(true)
@@ -88,13 +113,7 @@ async fn refresh(config: &Config, skip_source_update: bool) -> Result<Value> {
         dbrain_sources::deadlock_data::pull_deadlock_data_with_pool(
             &pool,
             &config.raw_directory,
-            dbrain_sources::PullDeadlockDataOptions {
-                repo_dir: config.source_repository.clone(),
-                commit: std::env::var("DBRAIN_DEADLOCK_DATA_COMMIT").context(
-                    "Wiki-Quellenimport benötigt DBRAIN_DEADLOCK_DATA_COMMIT; kein implizites HEAD",
-                )?,
-                update_repo: false,
-            },
+            config.source_options(),
         )
         .await
         .context("Deadlock-Quellenimport fehlgeschlagen")?
@@ -278,12 +297,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn wiki_corpus_is_opt_in_and_existing_config_stays_valid() {
+    fn wiki_corpus_is_opt_in_and_source_pins_are_explicit() {
         let mut value = json!({
             "infisical_config":"/test/infisical.json",
             "source_repository":"/test/source",
             "raw_directory":"/test/raw",
-            "publication_root":"/test/wiki"
+            "publication_root":"/test/wiki",
+            "source_pins":{"schema_version":1,"deadlock_data":{"commit":"a".repeat(40),"parser_revision":dbrain_sources::deadlock_data::PARSER_REVISION}}
         });
         let config: Config = serde_json::from_value(value.clone()).unwrap();
         assert!(config.wiki.is_none());

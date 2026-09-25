@@ -122,7 +122,7 @@ fn embedded_python_mapping_is_visible() {
     );
     let output = report(&mut r).unwrap();
     assert!(output.contains("python_candidates=1"));
-    assert!(output.contains("embedded_python_candidate"));
+    assert!(output.contains("mapped_python_candidate"));
 }
 
 #[test]
@@ -377,5 +377,99 @@ fn matching_path_in_wrong_v1_controller_is_not_membership_proof() {
             }
         )
         .is_err());
+    }
+}
+
+#[test]
+fn deleted_python_and_pypy_executables_are_candidates() {
+    for exe in [
+        "python",
+        "python3.12",
+        "python3.13t",
+        "python3.12d",
+        "pypy3",
+        "pypy3.10",
+    ] {
+        let mut r = fixture();
+        r.process(
+            101,
+            GROUP,
+            &format!("/private/NEVER_PRINT_THIS/{exe} (deleted)"),
+        );
+        let output = report(&mut r).unwrap();
+        assert!(output.contains("python_candidates=1"), "{exe}");
+        assert!(output.contains("deleted_executables=1"));
+        assert!(!output.contains("NEVER_PRINT_THIS"));
+    }
+}
+
+#[test]
+fn renamed_deleted_interpreter_is_detected_from_stat_comm() {
+    let mut r = fixture();
+    r.process(
+        101,
+        GROUP,
+        "/private/NEVER_PRINT_THIS/removed-runtime (deleted)",
+    );
+    r.set(
+        "/proc/101/stat",
+        &format!("101 (python3.13t) S {} 123 0 0\n", ["0"; 18].join(" ")),
+    );
+    let output = report(&mut r).unwrap();
+    assert!(output.contains("python_candidates=1"));
+    assert!(!output.contains("NEVER_PRINT_THIS"));
+}
+
+#[test]
+fn deleted_python_mappings_cover_embedded_and_renamed_runtimes() {
+    for name in ["libpython3.12.so.1.0", "libpypy3-c.so", "python3.13t"] {
+        let mut r = fixture();
+        r.process(101, GROUP, "/private/NEVER_PRINT_THIS/host (deleted)");
+        r.set(
+            "/proc/101/maps",
+            &format!("00400000-00401000 r-xp 00000000 08:01 42 /private/{name} (deleted)\n"),
+        );
+        let output = report(&mut r).unwrap();
+        assert!(output.contains("python_candidates=1"), "{name}");
+        assert!(output.contains("processes_with_deleted_mappings=1"));
+        assert!(output.contains("mapped_python_candidate"));
+    }
+}
+
+#[test]
+fn misleading_names_and_nonexecutable_python_files_are_not_candidates() {
+    for name in [
+        "python-helper",
+        "python3.txt",
+        "pypython",
+        "libpython-not-a-library.so",
+        "python.",
+    ] {
+        let mut r = fixture();
+        r.process(101, GROUP, &format!("/private/{name} (deleted)"));
+        r.set(
+            "/proc/101/maps",
+            &format!("00400000-00401000 r-xp 00000000 08:01 42 /private/{name} (deleted)\n"),
+        );
+        assert!(
+            report(&mut r).unwrap().contains("python_candidates=0"),
+            "{name}"
+        );
+    }
+    let mut r = fixture();
+    r.set(
+        "/proc/101/maps",
+        "00400000-00401000 r--p 00000000 08:01 42 /private/python3 (deleted)\n",
+    );
+    assert!(report(&mut r).unwrap().contains("python_candidates=0"));
+}
+
+#[test]
+fn deleted_runtime_collection_reads_only_allowlisted_metadata() {
+    let mut r = fixture();
+    r.process(101, GROUP, "/private/python3 (deleted)");
+    report(&mut r).unwrap();
+    for path in r.calls.iter().filter(|p| p.starts_with("/proc/")) {
+        assert!(["stat", "cgroup", "exe", "maps"].contains(&path.rsplit('/').next().unwrap()));
     }
 }

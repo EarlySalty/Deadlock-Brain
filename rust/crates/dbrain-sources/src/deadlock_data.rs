@@ -24,13 +24,13 @@ const REPO_WEB_URL: &str = "https://github.com/deadlock-wiki/deadlock-data";
 pub struct PullDeadlockDataOptions {
     pub repo_dir: PathBuf,
     /// Full immutable commit ID. No implicit HEAD/ref resolution.
-    pub commit: String,
+    pub pin: crate::source_pins::DeadlockDataPin,
     /// Legacy switch: true is rejected. Fetching is an explicit separate action.
     pub update_repo: bool,
 }
 
 pub async fn pull_deadlock_data(raw_dir: &Path, options: PullDeadlockDataOptions) -> Result<Value> {
-    validate_options(&options)?;
+    preflight(&options)?;
     let pool = open_pool().await?;
     pull_deadlock_data_with_pool(&pool, raw_dir, options).await
 }
@@ -41,7 +41,7 @@ pub async fn pull_deadlock_data_with_pool(
     raw_dir: &Path,
     options: PullDeadlockDataOptions,
 ) -> Result<Value> {
-    validate_options(&options)?;
+    preflight(&options)?;
     let store = SourceStore::new(pool, raw_dir)?;
     let run_id = store.begin_run(SOURCE).await?;
     let outcome = pull_deadlock_data_inner(&store, &options).await;
@@ -52,13 +52,7 @@ async fn pull_deadlock_data_inner(
     store: &SourceStore<'_>,
     options: &PullDeadlockDataOptions,
 ) -> Result<Value> {
-    let pinned = crate::git_source::PinnedRepository::open(&options.repo_dir, &options.commit)?;
-    pinned.require_origin(&[
-        REPO_URL,
-        REPO_WEB_URL,
-        "git@github.com:deadlock-wiki/deadlock-data.git",
-        "ssh://git@github.com/deadlock-wiki/deadlock-data.git",
-    ])?;
+    let pinned = preflight(options)?;
     let snapshot = pinned.materialize_data()?;
     let repo = read_repo_info(snapshot.path(), &pinned)?;
     // Validate every JSON container before any entity/domain write. A rejected
@@ -150,6 +144,7 @@ async fn pull_deadlock_data_inner(
         "repo_dir": options.repo_dir.to_string_lossy(),
         "repo_url": REPO_URL,
         "commit_sha": repo.commit_sha,
+        "source_pin": options.pin,
         "commit_time": repo.commit_time,
         "previous_commit_sha": previous.commit_sha,
         "commit_changed": previous.commit_sha.as_deref() != Some(repo.commit_sha.as_str()),
@@ -213,12 +208,29 @@ struct RepoInfo {
     observed_at: i64,
 }
 
-fn validate_options(options: &PullDeadlockDataOptions) -> Result<()> {
-    crate::git_source::validate_commit(&options.commit)?;
+/// Validate the entire configured source before credentials, pool creation or writes.
+pub fn preflight(options: &PullDeadlockDataOptions) -> Result<crate::git_source::PinnedRepository> {
+    options.pin.validate()?;
     if options.update_repo {
         return Err(SourcesError::invalid_input("implicit Git updates disabled; fetch an explicitly approved commit separately and use update_repo=false"));
     }
-    Ok(())
+    let pinned = crate::git_source::PinnedRepository::open(&options.repo_dir, &options.pin.commit)
+        .map_err(|_| SourcesError::invalid_input("deadlock_data.commit is unavailable locally or is not a commit object; fetch the explicitly approved pin separately"))?;
+    pinned.require_origin(&[
+        REPO_URL,
+        REPO_WEB_URL,
+        "git@github.com:deadlock-wiki/deadlock-data.git",
+        "ssh://git@github.com/deadlock-wiki/deadlock-data.git",
+    ])?;
+    let raw = pinned.read_blob("data/version.txt")?;
+    let text = std::str::from_utf8(&raw)
+        .map_err(|_| SourcesError::invalid_input("pinned data/version.txt is not UTF-8"))?;
+    options.pin.verify_data_version(
+        parse_version_txt(text)
+            .get("ClientVersion")
+            .map(String::as_str),
+    )?;
+    Ok(pinned)
 }
 
 fn read_repo_info(
