@@ -10,9 +10,7 @@ use deadlock_brain_core::{
 use serde_json::{json, Map, Value};
 
 use crate::{
-    store::{
-        complete_run, open_pool, EntitySnapshotInput, SourceDocumentInput, SourceStore,
-    },
+    store::{complete_run, open_pool, EntitySnapshotInput, SourceDocumentInput, SourceStore},
     util::{form_urlencode, python_or_string},
     Result, SourcesError,
 };
@@ -192,19 +190,32 @@ async fn pull_match_metadata_inner(
         "include_objectives": options.include_objectives,
         "schema_coverage": "consumed_fields_only; upstream OpenAPI has no JSON metadata schema",
     });
-    let (ir, document_id) = fetch_match_document(store, http, &url, &external_id, &title, &metadata, false).await?;
-    let rows = ir.payload()?.as_array().ok_or_else(|| SourcesError::invalid_input("metadata array missing"))?.clone();
+    let (ir, document_id) =
+        fetch_match_document(store, http, &url, &external_id, &title, &metadata, false).await?;
+    let rows = ir
+        .payload()?
+        .as_array()
+        .ok_or_else(|| SourcesError::invalid_input("metadata array missing"))?
+        .clone();
     let target_player_slot =
         if safe_match_ids.len() == 1 && safe_account_ids.len() == 1 && safe_hero_ids.len() == 1 {
-            metadata_player_slot(&rows, &safe_match_ids[0], &safe_account_ids[0], &safe_hero_ids[0])?
-        } else { None };
+            metadata_player_slot(
+                &rows,
+                &safe_match_ids[0],
+                &safe_account_ids[0],
+                &safe_hero_ids[0],
+            )?
+        } else {
+            None
+        };
     let mut snapshots = Vec::new();
     for row in &rows {
         let Value::Object(object) = row else {
             continue;
         };
-        let match_id = history_match_id(object)
-            .ok_or_else(||SourcesError::invalid_input("validated metadata lost its match identity"))?;
+        let match_id = history_match_id(object).ok_or_else(|| {
+            SourcesError::invalid_input("validated metadata lost its match identity")
+        })?;
         if match_id.is_empty() {
             continue;
         }
@@ -354,7 +365,8 @@ async fn pull_player_match_history_inner(
     let metadata = json!({"account_id":account_id,"hero_id":options.hero_id,
         "requested_cache_ttl_seconds":options.cache_ttl_seconds,"cache_mode":"uncached_provenance_read",
         "schema_coverage":"consumed_identity_fields"});
-    let (ir, document_id) = fetch_match_document(store, http, &url, &external_id, &title, &metadata, true).await?;
+    let (ir, document_id) =
+        fetch_match_document(store, http, &url, &external_id, &title, &metadata, true).await?;
     let rows = match_history_rows(ir.payload()?)?;
     let filtered = filter_match_history(rows, options.hero_id)?;
     let mut snapshots = Vec::new();
@@ -1070,47 +1082,98 @@ fn demo_headers(accept: &'static str) -> Vec<(String, String)> {
 
 /// The current match adapters share raw/provenance/quarantine with Assets/Git.
 /// This validates consumed identities, not unspecified upstream match semantics.
-pub fn prepare_match_response(response: deadlock_brain_core::http::SourceHttpResponse, history: bool) -> Result<crate::external::SourceIr> {
+pub fn prepare_match_response(
+    response: deadlock_brain_core::http::SourceHttpResponse,
+    history: bool,
+) -> Result<crate::external::SourceIr> {
     let mut ir = crate::external::SourceIr::from_http(SOURCE, "dbrain-match-api/2", response)?;
     ir.pin_schema(&crate::schema_watch::OpenApiSnapshot::pinned()?.schema_sha256);
     ir.set_derivation_family("deadlock-api-match-observations");
     if let Ok(payload) = ir.payload() {
-        let mut errors = Vec::new(); let mut extras = Vec::new(); let mut seen = std::collections::BTreeSet::new();
+        let mut errors = Vec::new();
+        let mut extras = Vec::new();
+        let mut seen = std::collections::BTreeSet::new();
         if let Some(rows) = payload.as_array() {
-            for (index,row) in rows.iter().enumerate() {
-                let Some(object) = row.as_object() else { errors.push(format!("/{index}:expected_object")); continue; };
-                let parse_id = |value: &Value| value.as_u64().or_else(|| value.as_str().and_then(|s| s.trim().parse::<u64>().ok()));
-                let a=object.get("match_id").and_then(parse_id);
-                let b=object.get("matchId").and_then(parse_id);
-                let id=a.or(b);
-                if id.is_none() || (object.contains_key("match_id") && a.is_none()) || (object.contains_key("matchId") && b.is_none()) || (a.is_some() && b.is_some() && a!=b) || id.is_some_and(|id| !seen.insert(id)) {
-                    errors.push(format!("/{index}:missing_invalid_duplicate_or_ambiguous_match_id"));
+            for (index, row) in rows.iter().enumerate() {
+                let Some(object) = row.as_object() else {
+                    errors.push(format!("/{index}:expected_object"));
+                    continue;
+                };
+                let parse_id = |value: &Value| {
+                    value
+                        .as_u64()
+                        .or_else(|| value.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
+                };
+                let a = object.get("match_id").and_then(parse_id);
+                let b = object.get("matchId").and_then(parse_id);
+                let id = a.or(b);
+                if id.is_none()
+                    || (object.contains_key("match_id") && a.is_none())
+                    || (object.contains_key("matchId") && b.is_none())
+                    || (a.is_some() && b.is_some() && a != b)
+                    || id.is_some_and(|id| !seen.insert(id))
+                {
+                    errors.push(format!(
+                        "/{index}:missing_invalid_duplicate_or_ambiguous_match_id"
+                    ));
                 }
-                if history && match_history_fields(row,index).is_err() { errors.push(format!("/{index}:missing_or_invalid_hero_id")); }
-                if object.get("players").is_some_and(|players| !players.is_array() || players.as_array().is_some_and(|rows| rows.iter().any(|p| !p.is_object()))) {
+                if history && match_history_fields(row, index).is_err() {
+                    errors.push(format!("/{index}:missing_or_invalid_hero_id"));
+                }
+                if object.get("players").is_some_and(|players| {
+                    !players.is_array()
+                        || players
+                            .as_array()
+                            .is_some_and(|rows| rows.iter().any(|p| !p.is_object()))
+                }) {
                     errors.push(format!("/{index}/players:unknown_structure"));
                 }
                 for field in object.keys() {
-                    if !["match_id","matchId","hero_id","heroId","player_hero_id","playerHeroId","players"].contains(&field.as_str()) { extras.push(format!("/{index}/{field}")); }
+                    if ![
+                        "match_id",
+                        "matchId",
+                        "hero_id",
+                        "heroId",
+                        "player_hero_id",
+                        "playerHeroId",
+                        "players",
+                    ]
+                    .contains(&field.as_str())
+                    {
+                        extras.push(format!("/{index}/{field}"));
+                    }
                 }
             }
-        } else { errors.push("expected_match_array".into()); }
+        } else {
+            errors.push("expected_match_array".into());
+        }
         ir.note_extra_fields(extras);
-        for error in errors { ir.quarantine(error); }
+        for error in errors {
+            ir.quarantine(error);
+        }
     }
     Ok(ir)
 }
 
 async fn fetch_match_document(
-    store: &SourceStore<'_>, http: &HttpClient, url: &str, external_id: &str,
-    title: &str, metadata: &Value, history: bool,
+    store: &SourceStore<'_>,
+    http: &HttpClient,
+    url: &str,
+    external_id: &str,
+    title: &str,
+    metadata: &Value,
+    history: bool,
 ) -> Result<(crate::external::SourceIr, i64)> {
-    let response = http.get_bounded(url, deadlock_brain_core::http::SourceHttpOptions {
-        headers: demo_headers("application/json"), ..Default::default()
-    })?;
+    let response = http.get_bounded(
+        url,
+        deadlock_brain_core::http::SourceHttpOptions {
+            headers: demo_headers("application/json"),
+            ..Default::default()
+        },
+    )?;
     let ir = prepare_match_response(response, history)?;
-    let document_id=store.persist_ir(external_id,title,&ir,metadata).await?;
-    Ok((ir,document_id))
+    let document_id = store.persist_ir(external_id, title, &ir, metadata).await?;
+    Ok((ir, document_id))
 }
 
 fn safe_ids(values: &[String]) -> Vec<String> {
@@ -1271,8 +1334,11 @@ fn history_hero_id(object: &Map<String, Value>) -> Option<u32> {
 
 fn history_match_id(object: &Map<String, Value>) -> Option<String> {
     ["match_id", "matchId"].iter().find_map(|key| {
-        let value=object.get(*key)?;
-        value.as_u64().or_else(||value.as_str().and_then(|s|s.trim().parse::<u64>().ok())).map(|id|id.to_string())
+        let value = object.get(*key)?;
+        value
+            .as_u64()
+            .or_else(|| value.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
+            .map(|id| id.to_string())
     })
 }
 
@@ -1665,7 +1731,9 @@ mod tests {
             let bytes_read = std::io::Read::read(&mut stream, &mut request).unwrap();
             // The total deadline may cancel after TCP connect but before any
             // headers under parallel load. Cancellation is a valid timeout path.
-            if bytes_read == 0 { return; }
+            if bytes_read == 0 {
+                return;
+            }
             let body = r#"{"status":"running"}"#;
             write!(
                 stream,

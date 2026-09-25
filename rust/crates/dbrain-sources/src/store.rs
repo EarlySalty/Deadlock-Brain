@@ -80,7 +80,11 @@ impl<'a> SourceStore<'a> {
         content: &[u8],
         suffix: &str,
     ) -> Result<PathBuf> {
-        if source.is_empty() || !source.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-')) {
+        if source.is_empty()
+            || !source
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-'))
+        {
             return Err(SourcesError::invalid_input("unsafe raw source namespace"));
         }
         let source_dir = self.raw_dir.join(source);
@@ -93,8 +97,12 @@ impl<'a> SourceStore<'a> {
         }
         let path = source_dir.join(format!("{safe_external}.{digest}.{suffix}"));
         if path.exists() {
-            if fs::metadata(&path)?.len() != content.len() as u64 || stable_hash_bytes(&fs::read(&path)?) != digest {
-                return Err(SourcesError::invariant("existing raw artifact failed integrity check"));
+            if fs::metadata(&path)?.len() != content.len() as u64
+                || stable_hash_bytes(&fs::read(&path)?) != digest
+            {
+                return Err(SourcesError::invariant(
+                    "existing raw artifact failed integrity check",
+                ));
             }
         } else {
             use std::io::Write;
@@ -102,10 +110,14 @@ impl<'a> SourceStore<'a> {
             temp.write_all(content)?;
             temp.as_file().sync_all()?;
             match temp.persist_noclobber(&path) {
-                Ok(_) => {},
+                Ok(_) => {}
                 Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
-                    if fs::metadata(&path)?.len() != content.len() as u64 || stable_hash_bytes(&fs::read(&path)?) != digest {
-                        return Err(SourcesError::invariant("concurrent raw artifact integrity conflict"));
+                    if fs::metadata(&path)?.len() != content.len() as u64
+                        || stable_hash_bytes(&fs::read(&path)?) != digest
+                    {
+                        return Err(SourcesError::invariant(
+                            "concurrent raw artifact integrity conflict",
+                        ));
                     }
                 }
                 Err(error) => return Err(error.error.into()),
@@ -128,18 +140,28 @@ impl<'a> SourceStore<'a> {
         let key = ir.document_key(external_id);
         let mut metadata = ir.metadata();
         metadata["adapter"] = details.clone();
-        let content_type = metadata.pointer("/transport/headers/content-type")
+        let content_type = metadata
+            .pointer("/transport/headers/content-type")
             .and_then(Value::as_str)
-            .unwrap_or_else(|| if metadata.pointer("/transport/status").is_some() {
-                "application/octet-stream"
-            } else {
-                "application/json"
+            .unwrap_or_else(|| {
+                if metadata.pointer("/transport/status").is_some() {
+                    "application/octet-stream"
+                } else {
+                    "application/json"
+                }
             });
-        let id = self.upsert_source_document(SourceDocumentInput {
-            source, external_id: &key, title: Some(title),
-            url: Some(&ir.provenance().locator), content_type,
-            raw_path: &raw_path, content: ir.raw(), metadata: &metadata,
-        }).await?;
+        let id = self
+            .upsert_source_document(SourceDocumentInput {
+                source,
+                external_id: &key,
+                title: Some(title),
+                url: Some(&ir.provenance().locator),
+                content_type,
+                raw_path: &raw_path,
+                content: ir.raw(),
+                metadata: &metadata,
+            })
+            .await?;
         if ir.is_quarantined() {
             return Err(SourcesError::invalid_input(format!(
                 "source quarantined; raw/provenance retained in source_document {id}"
@@ -669,20 +691,29 @@ mod tests {
     async fn raw_artifacts_are_atomic_full_hash_verified_and_non_overwriting() {
         // A lazy zero-connection pool permits testing only write_raw; no SQL or
         // connection attempt is made by this test.
-        let pool=sqlx::postgres::PgPoolOptions::new().min_connections(0)
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .min_connections(0)
             .connect_lazy_with(sqlx::postgres::PgConnectOptions::new());
-        let temp=tempfile::tempdir().unwrap();
-        let store=SourceStore::new(&pool,temp.path()).unwrap();
-        let raw=b" {\"id\":1}\n";
-        let path=store.write_raw("source","a/b:c",raw,"json").unwrap();
-        assert!(path.file_name().unwrap().to_str().unwrap().contains(&stable_hash_bytes(raw)));
-        assert_eq!(std::fs::read(&path).unwrap(),raw);
-        assert_eq!(store.write_raw("source","a/b:c",raw,"json").unwrap(),path);
-        std::fs::write(&path,b"corrupt").unwrap();
-        assert!(store.write_raw("source","a/b:c",raw,"json").is_err());
-        assert_eq!(std::fs::read(&path).unwrap(),b"corrupt");
-        assert!(store.write_raw("../escape","x",raw,"json").is_err());
-        assert!(store.write_raw("source","x",raw,"../json").is_err());
+        let temp = tempfile::tempdir().unwrap();
+        let store = SourceStore::new(&pool, temp.path()).unwrap();
+        let raw = b" {\"id\":1}\n";
+        let path = store.write_raw("source", "a/b:c", raw, "json").unwrap();
+        assert!(path
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .contains(&stable_hash_bytes(raw)));
+        assert_eq!(std::fs::read(&path).unwrap(), raw);
+        assert_eq!(
+            store.write_raw("source", "a/b:c", raw, "json").unwrap(),
+            path
+        );
+        std::fs::write(&path, b"corrupt").unwrap();
+        assert!(store.write_raw("source", "a/b:c", raw, "json").is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"corrupt");
+        assert!(store.write_raw("../escape", "x", raw, "json").is_err());
+        assert!(store.write_raw("source", "x", raw, "../json").is_err());
         pool.close().await;
     }
 

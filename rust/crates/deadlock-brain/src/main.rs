@@ -756,9 +756,15 @@ struct PullDeadlockDataArgs {
         help = "Lokaler Cache. Standard: data/external/deadlock-data."
     )]
     repo_dir: Option<PathBuf>,
-    #[arg(long, help = "Vollständiger Commitpin (40/64 Hexzeichen); alternativ DBRAIN_DEADLOCK_DATA_COMMIT.")]
+    #[arg(
+        long,
+        help = "Vollständiger Commitpin (40/64 Hexzeichen); alternativ DBRAIN_DEADLOCK_DATA_COMMIT."
+    )]
     commit: Option<String>,
-    #[arg(long = "no-git-update", help = "Kompatibilitätsflag; Gitimporte lesen grundsätzlich nur lokal gepinnte Objekte.")]
+    #[arg(
+        long = "no-git-update",
+        help = "Kompatibilitätsflag; Gitimporte lesen grundsätzlich nur lokal gepinnte Objekte."
+    )]
     no_git_update: bool,
 }
 

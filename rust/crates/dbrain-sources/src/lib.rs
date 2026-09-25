@@ -5,17 +5,17 @@
 pub use deadlock_brain_core as core;
 
 pub mod assets_api;
-pub mod external;
-pub mod git_source;
-pub mod schema_watch;
-pub mod schema_signal;
 pub mod deadlock_api;
 pub mod deadlock_data;
 pub mod error;
+pub mod external;
 pub mod forum;
+pub mod git_source;
 pub mod google_sheet;
 pub mod patchnotes_db;
 pub mod reddit;
+pub mod schema_signal;
+pub mod schema_watch;
 pub mod statlocker;
 pub use dbrain_s12_wiki_probe::{capture as wiki_capture, knowledge as wiki_knowledge};
 pub mod wiki;
