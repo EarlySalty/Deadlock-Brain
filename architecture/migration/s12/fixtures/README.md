@@ -9,3 +9,7 @@ Der Hauptpilot bindet zwei Ability-, zwei Item- und zwei unterschiedliche Mechan
 `hero-preview.golden.json` hält die geprüfte deutsche Referenzvorschau fest. Numerische Belege sind ausschließlich Source-/Revision-/Hash-/Locatorreferenzen, keine kanonischen Facts. Der Golden-Test allein ist kein Groundingnachweis: zusätzliche Tests lösen jede Referenz gegen den Capture auf, vergleichen explizite erwartete Abschnittsmitgliedschaften und testen Unbekannte, Revoke, Zukunftsstände und Fehler.
 
 Live-Wiki-Rechte und echter API-/Exportzugang bleiben unabhängig hiervon offen. Diese Fixtures dürfen nicht als Beleg eines echten G2-Piloten oder einer geprüften Live-Abdeckung verwendet werden.
+
+## Erweiterter Contract-Pilot (25.09.2026)
+
+`completion.mapping.json` ordnet nur die obigen synthetischen Felder zu. `completion-release.json` und `completion-review.json` sind ausschließlich Testfreigaben mit exakten Revisions-/Hashpins, niemals Freigaben für Livequellen. `completion-card.golden.json` hält die Projektion gegen echte gemeinsame Contracts fest. `literal-data.lua` und `literal-template.wiki` sind neu verfasste Datenliterale; sie werden ausschließlich geparst, nicht ausgeführt. Transport- und Fehlerszenarien erzeugen zusätzliche Antworten/Mutationen in Rust aus diesem Pilot, nicht aus Netzwerkzugriffen.

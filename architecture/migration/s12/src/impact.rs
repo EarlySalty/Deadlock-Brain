@@ -97,6 +97,11 @@ pub fn compare(before: &Report, after: &Report) -> Result<Impact> {
             raw_content_changed.insert(*id);
         }
     }
+    // A source-wide ACL/license/egress decision is not a raw content change,
+    // but cached downstream projections must still be invalidated.
+    if before.source_policy != after.source_policy {
+        changed_pages.extend(&ids);
+    }
     let mut reparse_pages = changed_pages.clone();
     if full_reconcile_required || before.parser_version != after.parser_version {
         reparse_pages.extend(&ids);

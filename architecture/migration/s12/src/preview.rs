@@ -130,14 +130,17 @@ pub(crate) fn project(
     Ok(previews)
 }
 
-fn safe_closure(start: i64, pages: &BTreeMap<i64, PageProbe>) -> Option<BTreeSet<i64>> {
+pub(crate) fn safe_closure<P: std::borrow::Borrow<PageProbe>>(
+    start: i64,
+    pages: &BTreeMap<i64, P>,
+) -> Option<BTreeSet<i64>> {
     let mut visited = BTreeSet::new();
     let mut pending = vec![start];
     while let Some(id) = pending.pop() {
         if !visited.insert(id) {
             continue;
         }
-        let page = pages.get(&id)?;
+        let page: &PageProbe = std::borrow::Borrow::borrow(pages.get(&id)?);
         if !page.previewable() || !page.dependencies_complete {
             return None;
         }

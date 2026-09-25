@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const CAPTURE_VERSION: &str = "s12-capture-v1";
-pub const PARSER_VERSION: &str = "s12-syntax-probe-v1";
+pub const PARSER_VERSION: &str = "s12-syntax-probe-v2";
 pub const MAX_INPUT_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_CONTENT_BYTES: usize = 512 * 1024;
 pub const MAX_PAGES: usize = 10_000;

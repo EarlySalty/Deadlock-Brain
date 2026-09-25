@@ -1,4 +1,19 @@
-# S12 — ausführbare Wiki-Vorbereitung
+# S12 — Wiki-/Knowledge-Pfad
+
+## Aktueller Stand: 25.09.2026
+
+Die ursprüngliche Offline-Suite aus PR #30 bleibt erhalten und wurde erweitert. `capture` bietet begrenzte Discovery/Continuation mit injiziertem Transport, `literal` liest ausschließlich sichere Datenliterale, und `knowledge` bindet die gemeinsame IR an die **vorhandene** `brain-contracts`-Crate. `dbrain-sources` verwendet dieselbe Bibliothek und seinen bestehenden SourceStore; keine zweite Facts-Datenbank.
+
+Neue Offline-Kommandos: `extract`, `project` und `ir-delta`. Release- und Review-Dateien sind explizite Eingaben; aus Parsererfolg wird keine automatische Freigabe. Der optionale Netzwerkadapter bleibt standardmäßig deaktiviert. Der einzige Live-Metadatencheck ergab HTTP 403, ohne Umgehung oder weitere Abrufe.
+
+Aktuelle Implementierung, Grenzen, Befehle, tatsächlich ausgeführte Tests und lokale Claude-Prüfung: [CODEX_WIKI_COMPLETION.md](../handoffs/CODEX_WIKI_COMPLETION.md). Reproduktion: `python3 architecture/migration/s12/check-completion.py` vom Repository aus, mit Rust 1.97.1 auf PATH. Die neuen Ergebnisdateien heißen `reports/completion-*`.
+
+Die folgenden Abschnitte und die ursprünglichen Reports dokumentieren den **historischen prepare-only-Stand aus PR #30**. Aussagen über damals fehlende Contracts, unveränderte Workspaces und fehlende Card-Projektion sind keine Beschreibung der neuen Adapter. Liveabdeckung, Gatefreigaben und kanonische Produktion bleiben dennoch unbewiesen.
+
+---
+
+## Übernommene Vorbereitung aus PR #30
+
 
 **Arbeitsmodus: `prepare_only`. Kein integrierter Wiki-Importer, keine kanonische HeroKnowledgeCard, kein G2/G3/G4-Nachweis.**
 

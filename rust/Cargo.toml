@@ -12,6 +12,7 @@ members = [
   "crates/dbrain-retrieval",
   "crates/dbrain-reasoner",
   "crates/dbrain-sources",
+  "crates/brain-contracts",
 ]
 
 [workspace.package]

@@ -312,6 +312,15 @@ fn inspect_revision(raw: &Value, id: i64, retrieved_at: i64) -> Result<RevisionP
         "wikitext" => {
             // Deliberately no template expansion, Lua execution, numeric inference or
             // implicit HTML fallback. Unknown expressions retain exact byte locators.
+            if let Ok(candidates) = crate::literal::template(content) {
+                result.candidates = candidates;
+                result.syntax_parsed = valid_time;
+                result.diagnostics.push(Diagnostic::new(
+                    "literal_template_parameters_not_expanded_or_validated",
+                    "revision/slots/main/content",
+                ));
+                return Ok(result);
+            }
             let markers = ["{{", "}}", "<", "{|", "|}"];
             let mut unsupported = false;
             for marker in markers {
@@ -335,6 +344,20 @@ fn inspect_revision(raw: &Value, id: i64, retrieved_at: i64) -> Result<RevisionP
                 ));
             }
         }
+        "Scribunto" => match crate::literal::lua(content) {
+            Ok(candidates) => {
+                result.candidates = candidates;
+                result.syntax_parsed = valid_time;
+                result.diagnostics.push(Diagnostic::new(
+                    "literal_data_only_no_lua_execution",
+                    "revision/slots/main/content",
+                ));
+            }
+            Err(_) => result.diagnostics.push(Diagnostic::new(
+                "unsupported_content_model_no_execution",
+                "revision/slots/main/contentmodel",
+            )),
+        },
         _ => result.diagnostics.push(Diagnostic::new(
             "unsupported_content_model_no_execution",
             "revision/slots/main/contentmodel",

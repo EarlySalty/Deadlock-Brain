@@ -1,5 +1,9 @@
-use dbrain_s12_wiki_probe::{analyze, compare, model::MAX_INPUT_BYTES, Result};
-use serde::Serialize;
+use brain_contracts::CorpusRelease;
+use dbrain_s12_wiki_probe::{
+    analyze, compare, knowledge, model::MAX_INPUT_BYTES, parse_json, Result,
+};
+use knowledge::{MappingProfile, ProjectionReview};
+use serde::{de::DeserializeOwned, Serialize};
 use std::{
     env,
     fs::File,
@@ -8,7 +12,7 @@ use std::{
     process::ExitCode,
 };
 
-const USAGE: &str = "S12 offline wiki preparation (no network, database, provider or publication)\n\n  dbrain-s12-wiki-probe analyze CAPTURE.json [--require-production-ready]\n  dbrain-s12-wiki-probe delta BEFORE.json AFTER.json\n\nExit: 0 = analysis completed (NOT production acceptance), 2 = invalid capture,\n      3 = production acceptance requested but blocked.\n";
+const USAGE: &str = "S12 offline wiki preparation (no network, database, provider or publication)\n\n  dbrain-s12-wiki-probe analyze CAPTURE.json [--require-production-ready]\n  dbrain-s12-wiki-probe delta BEFORE.json AFTER.json\n  dbrain-s12-wiki-probe extract CAPTURE.json MAPPING.json\n  dbrain-s12-wiki-probe project CAPTURE.json MAPPING.json RELEASE.json REVIEW.json HERO_PAGE_ID LOCALE\n  dbrain-s12-wiki-probe ir-delta BEFORE.json BEFORE-MAPPING.json AFTER.json AFTER-MAPPING.json\n\nExit: 0 = analysis completed (NOT production acceptance), 2 = invalid capture,\n      3 = production acceptance requested but blocked.\n";
 
 fn read_capture(path: &Path) -> Result<Vec<u8>> {
     let metadata = std::fs::symlink_metadata(path).map_err(|_| "cannot inspect input file")?;
@@ -25,7 +29,10 @@ fn read_capture(path: &Path) -> Result<Vec<u8>> {
     }
     Ok(bytes)
 }
-
+fn read_json<T: DeserializeOwned>(path: &Path) -> Result<T> {
+    serde_json::from_value(parse_json(&read_capture(path)?)?)
+        .map_err(|_| "invalid auxiliary input schema".into())
+}
 fn print_json(value: &impl Serialize) -> Result<()> {
     let bytes = serde_json::to_vec_pretty(value).map_err(|_| "report serialization failed")?;
     if bytes.len() > 32 * 1024 * 1024 {
@@ -36,7 +43,6 @@ fn print_json(value: &impl Serialize) -> Result<()> {
         .and_then(|_| out.write_all(b"\n"))
         .map_err(|_| "cannot write report".into())
 }
-
 fn run() -> Result<u8> {
     let args: Vec<_> = env::args_os().skip(1).collect();
     if args.is_empty() || (args.len() == 1 && (args[0] == "--help" || args[0] == "-h")) {
@@ -58,10 +64,40 @@ fn run() -> Result<u8> {
             print_json(&compare(&before, &after)?)?;
             Ok(0)
         }
+        Some("extract") if args.len() == 3 => {
+            let mapping: MappingProfile = read_json(Path::new(&args[2]))?;
+            print_json(&knowledge::extract(
+                &read_capture(Path::new(&args[1]))?,
+                &mapping,
+            )?)?;
+            Ok(0)
+        }
+        Some("project") if args.len() == 7 => {
+            let mapping: MappingProfile = read_json(Path::new(&args[2]))?;
+            let release: CorpusRelease = read_json(Path::new(&args[3]))?;
+            let review: ProjectionReview = read_json(Path::new(&args[4]))?;
+            let id = args[5]
+                .to_str()
+                .and_then(|v| v.parse::<i64>().ok())
+                .ok_or("invalid hero page ID")?;
+            let locale = args[6].to_str().ok_or("invalid locale")?;
+            let ir = knowledge::extract(&read_capture(Path::new(&args[1]))?, &mapping)?;
+            print_json(&knowledge::project_card(
+                &ir, id, locale, &release, &review,
+            )?)?;
+            Ok(0)
+        }
+        Some("ir-delta") if args.len() == 5 => {
+            let before_mapping: MappingProfile = read_json(Path::new(&args[2]))?;
+            let after_mapping: MappingProfile = read_json(Path::new(&args[4]))?;
+            let before = knowledge::extract(&read_capture(Path::new(&args[1]))?, &before_mapping)?;
+            let after = knowledge::extract(&read_capture(Path::new(&args[3]))?, &after_mapping)?;
+            print_json(&knowledge::compare_ir(&before, &after)?)?;
+            Ok(0)
+        }
         _ => Err("invalid arguments; use --help".into()),
     }
 }
-
 fn main() -> ExitCode {
     match run() {
         Ok(code) => ExitCode::from(code),

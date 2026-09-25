@@ -1,7 +1,10 @@
 //! Bounded, network-free S12 preparation. Nothing here publishes knowledge or
 //! implements a substitute for the unapproved S02/S03/S05 runtime contracts.
+pub mod capture;
 mod discovery;
 mod impact;
+pub mod knowledge;
+pub mod literal;
 pub mod model;
 mod pages;
 mod preview;

@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd -- "$(dirname -- "")"
-cargo fmt --all -- --check
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
+# Scope formatting to this package: --all would also traverse the shared runtime
+# workspace through brain-contracts and inspect unrelated historical files.
+cargo fmt --package dbrain-s12-wiki-probe -- --check
 cargo clippy --all-targets --locked --offline -- -D warnings
 cargo test --all-targets --locked --offline
 cargo build --release --locked --offline
