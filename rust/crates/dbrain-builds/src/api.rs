@@ -4,7 +4,9 @@ use anyhow::{Context, Result};
 use reqwest::blocking::Client;
 use serde::de::DeserializeOwned;
 
-const ASSETS_BASE_URL: &str = "https://assets.deadlock-api.com/v2";
+// assets.deadlock-api.com ist seit September 2026 NXDOMAIN; die Assets liegen
+// jetzt unter der Haupt-API mit derselben Feldstruktur.
+const ASSETS_BASE_URL: &str = "https://api.deadlock-api.com/v1/assets";
 const ANALYTICS_BASE_URL: &str = "https://api.deadlock-api.com/v1/analytics";
 
 #[derive(Debug, Clone)]

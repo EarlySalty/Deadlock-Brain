@@ -8,28 +8,44 @@ from deadlock_brain.storage import BrainStore
 
 
 SOURCE = "deadlock_assets_api"
-BASE_URL = "https://assets.deadlock-api.com"
+# assets.deadlock-api.com ist seit September 2026 NXDOMAIN; die Assets liegen
+# jetzt unter /v1/assets der Haupt-API. Gleiche Basis wie der Rust-Fetcher.
+BASE_URL = "https://api.deadlock-api.com"
 
 
 ENDPOINTS = {
-    "items": "/v2/items",
-    "heroes": "/v2/heroes?only_active=true",
-    "heroes_all": "/v2/heroes",
-    "raw_items": "/raw/items",
-    "raw_heroes": "/raw/heroes",
-    "ranks": "/v2/ranks",
-    "colors": "/v1/colors",
-    "build_tags": "/v2/build-tags",
-    "npc_units": "/v2/npc-units",
+    "items": "/v1/assets/items",
+    "heroes": "/v1/assets/heroes?only_active=true",
+    "heroes_all": "/v1/assets/heroes",
+    "ranks": "/v1/assets/ranks",
+    "colors": "/v1/assets/colors",
+    "build_tags": "/v1/assets/build-tags",
+    "npc_units": "/v1/assets/npc-units",
 }
+
+# Arten des alten Hosts ohne Ersatz unter /v1/assets. Sie werden vor jedem
+# Schreibzugriff abgelehnt statt still uebersprungen.
+RETIRED_KINDS = frozenset({"raw_items", "raw_heroes"})
+DEFAULT_KINDS = ["items", "heroes"]
+
+
+def resolve_kinds(kinds: list[str] | None) -> list[str]:
+    """Prueft alle angeforderten Arten, bevor HTTP oder Store geschrieben wird."""
+    requested = list(kinds) if kinds else list(DEFAULT_KINDS)
+    for kind in requested:
+        if kind in RETIRED_KINDS:
+            raise ValueError(
+                f"Assets-Art {kind} wird von api.deadlock-api.com nicht mehr angeboten"
+            )
+        if kind not in ENDPOINTS:
+            raise ValueError(f"Unbekannter Assets-Endpoint: {kind}")
+    return requested
 
 
 def pull_assets(store: BrainStore, http: HttpClient, *, kinds: list[str] | None = None) -> dict[str, Any]:
-    selected = kinds or ["items", "heroes", "raw_items", "raw_heroes"]
+    selected = resolve_kinds(kinds)
     summary: dict[str, Any] = {"endpoints": {}, "snapshots": 0}
     for kind in selected:
-        if kind not in ENDPOINTS:
-            raise ValueError(f"Unbekannter Assets-Endpoint: {kind}")
         url = f"{BASE_URL}{ENDPOINTS[kind]}"
         payload = http.get_json(url, cache_ttl_seconds=3600)
         raw = json.dumps(payload, ensure_ascii=True, sort_keys=True).encode("utf-8")

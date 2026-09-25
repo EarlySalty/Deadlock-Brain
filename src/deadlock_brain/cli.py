@@ -334,7 +334,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--kind",
         action="append",
         choices=sorted(ENDPOINTS.keys()),
-        help="Endpoint auswaehlen. Mehrfach nutzbar. Default: items/heroes/raw_items/raw_heroes.",
+        help="Endpoint auswaehlen. Mehrfach nutzbar. Default: items/heroes.",
     )
 
     sheet = pull_sub.add_parser("sheet", help="Zieht das Google Sheet als CSV.")
