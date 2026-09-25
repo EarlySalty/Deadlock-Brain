@@ -739,14 +739,12 @@ struct PullAssetsArgs {
             "items",
             "heroes",
             "heroes_all",
-            "raw_items",
-            "raw_heroes",
             "ranks",
             "colors",
             "build_tags",
             "npc_units",
         ],
-        help = "Endpoint auswaehlen. Mehrfach nutzbar. Default: items/heroes/raw_items/raw_heroes."
+        help = "Endpoint auswaehlen. Mehrfach nutzbar. Default: items/heroes."
     )]
     kind: Vec<String>,
 }
@@ -3932,5 +3930,35 @@ mod tests {
         });
         server.join().expect("server thread");
         fs::remove_dir_all(cache_dir).expect("remove cache dir");
+    }
+
+    #[test]
+    fn pull_assets_rejects_unsupported_raw_kinds() {
+        for kind in ["raw_items", "raw_heroes"] {
+            let error = Cli::try_parse_from(["deadlock-brain", "pull", "assets", "--kind", kind])
+                .unwrap_err();
+            assert_eq!(error.kind(), clap::error::ErrorKind::InvalidValue);
+        }
+    }
+
+    #[test]
+    fn pull_assets_accepts_supported_kinds_and_default() {
+        for kind in ["items", "heroes", "ranks"] {
+            Cli::try_parse_from(["deadlock-brain", "pull", "assets", "--kind", kind])
+                .expect("supported pull assets kind should parse");
+        }
+        Cli::try_parse_from(["deadlock-brain", "pull", "assets"])
+            .expect("pull assets without --kind should parse");
+    }
+
+    #[test]
+    fn pull_assets_help_lists_supported_kinds_only() {
+        let help = Cli::try_parse_from(["deadlock-brain", "pull", "assets", "--help"]).unwrap_err();
+        assert_eq!(help.kind(), clap::error::ErrorKind::DisplayHelp);
+        let text = help.to_string();
+        assert!(text.contains("items"));
+        assert!(text.contains("heroes"));
+        assert!(!text.contains("raw_items"));
+        assert!(!text.contains("raw_heroes"));
     }
 }
