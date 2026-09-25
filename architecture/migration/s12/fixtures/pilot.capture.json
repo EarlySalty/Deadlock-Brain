@@ -1,0 +1,1066 @@
+{
+  "format": "s12-capture-v1",
+  "source_key": "synthetic_wiki",
+  "retrieved_at": 1790280000,
+  "policy": {
+    "offline_review_allowed": true,
+    "decision_ref": "synthetic-fixture-authored-S12-20260924",
+    "source_license": "Synthetic test data authored for S12; not upstream wiki content",
+    "publication_allowed": false,
+    "provider_egress_allowed": false,
+    "media_download_allowed": false
+  },
+  "siteinfo": {
+    "query": {
+      "general": {
+        "lang": "en",
+        "sitename": "Synthetic fixture wiki"
+      },
+      "namespaces": [
+        {
+          "id": -1,
+          "canonical": "Special",
+          "name": "Special"
+        },
+        {
+          "id": 0,
+          "canonical": "",
+          "name": ""
+        },
+        {
+          "id": 6,
+          "canonical": "File",
+          "name": "File"
+        },
+        {
+          "id": 10,
+          "canonical": "Template",
+          "name": "Template"
+        },
+        {
+          "id": 828,
+          "canonical": "Module",
+          "name": "Module"
+        },
+        {
+          "id": 3000,
+          "canonical": "Data",
+          "name": "Data"
+        }
+      ],
+      "rightsinfo": {
+        "text": "Synthetic fixture only",
+        "url": "https://example.invalid/fixture-license"
+      }
+    }
+  },
+  "discovery": [
+    {
+      "namespace": 0,
+      "request_continue": {},
+      "response": {
+        "query": {
+          "allpages": [
+            {
+              "pageid": 101,
+              "ns": 0,
+              "title": "Fixture Ranger"
+            },
+            {
+              "pageid": 102,
+              "ns": 0,
+              "title": "Other Fixture Hero"
+            },
+            {
+              "pageid": 201,
+              "ns": 0,
+              "title": "Fixture Pulse"
+            },
+            {
+              "pageid": 202,
+              "ns": 0,
+              "title": "Fixture Stack Skill"
+            },
+            {
+              "pageid": 301,
+              "ns": 0,
+              "title": "Fixture Lens"
+            }
+          ]
+        },
+        "continue": {
+          "apcontinue": "fixture-next",
+          "continue": "-||"
+        }
+      }
+    },
+    {
+      "namespace": 0,
+      "request_continue": {
+        "apcontinue": "fixture-next",
+        "continue": "-||"
+      },
+      "response": {
+        "query": {
+          "allpages": [
+            {
+              "pageid": 302,
+              "ns": 0,
+              "title": "Fixture Ward"
+            },
+            {
+              "pageid": 401,
+              "ns": 0,
+              "title": "Fixture Build-Up"
+            },
+            {
+              "pageid": 402,
+              "ns": 0,
+              "title": "Fixture Stack"
+            },
+            {
+              "pageid": 501,
+              "ns": 0,
+              "title": "Fixture Inventory Rule"
+            },
+            {
+              "pageid": 801,
+              "ns": 0,
+              "title": "Fixture Lore"
+            },
+            {
+              "pageid": 802,
+              "ns": 0,
+              "title": "Fixture Guide"
+            },
+            {
+              "pageid": 803,
+              "ns": 0,
+              "title": "Fixture Patch History"
+            },
+            {
+              "pageid": 804,
+              "ns": 0,
+              "title": "Fixture Ranger/de"
+            },
+            {
+              "pageid": 901,
+              "ns": 0,
+              "title": "Old Fixture Ranger"
+            },
+            {
+              "pageid": 1002,
+              "ns": 0,
+              "title": "Fixture Other"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "namespace": 6,
+      "request_continue": {},
+      "response": {
+        "query": {
+          "allpages": [
+            {
+              "pageid": 1001,
+              "ns": 6,
+              "title": "File:Fixture.png"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "namespace": 10,
+      "request_continue": {},
+      "response": {
+        "query": {
+          "allpages": [
+            {
+              "pageid": 701,
+              "ns": 10,
+              "title": "Template:Fixture Scaling"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "namespace": 828,
+      "request_continue": {},
+      "response": {
+        "query": {
+          "allpages": [
+            {
+              "pageid": 702,
+              "ns": 828,
+              "title": "Module:Unsafe Fixture"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "namespace": 3000,
+      "request_continue": {},
+      "response": {
+        "query": {
+          "allpages": [
+            {
+              "pageid": 601,
+              "ns": 3000,
+              "title": "Data:Fixture Scaling"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "pages": [
+    {
+      "page_id": 101,
+      "access_allowed": true,
+      "dependencies_complete": true,
+      "response": {
+        "query": {
+          "pages": [
+            {
+              "pageid": 101,
+              "ns": 0,
+              "title": "Fixture Ranger",
+              "lastrevid": 10101,
+              "revisions": [
+                {
+                  "revid": 9101,
+                  "timestamp": "2026-09-23T10:00:00Z",
+                  "slots": {
+                    "main": {
+                      "contentmodel": "json",
+                      "content": "{\"entity_id\":\"fixture:hero:one\",\"stats\":[{\"id\":\"health\",\"value\":\"900.0\",\"unit\":\"health\"},{\"id\":\"resist\",\"value\":\"10\",\"unit\":\"percent\"},{\"id\":\"resist_delta\",\"value\":\"2\",\"unit\":\"percentage_point\"},{\"id\":\"multiplier\",\"value\":\"1.05\",\"unit\":\"multiplier\"}],\"optional_value\":null}"
+                    }
+                  }
+                },
+                {
+                  "revid": 10101,
+                  "timestamp": "2026-09-24T10:00:00Z",
+                  "slots": {
+                    "main": {
+                      "contentmodel": "json",
+                      "content": "{\"entity_id\":\"fixture:hero:one\",\"stats\":[{\"id\":\"health\",\"value\":\"1000.0\",\"unit\":\"health\"},{\"id\":\"resist\",\"value\":\"10\",\"unit\":\"percent\"},{\"id\":\"resist_delta\",\"value\":\"2\",\"unit\":\"percentage_point\"},{\"id\":\"multiplier\",\"value\":\"1.05\",\"unit\":\"multiplier\"}],\"optional_value\":null}"
+                    }
+                  }
+                }
+              ],
+              "templates": [],
+              "links": [
+                {
+                  "title": "Fixture Pulse"
+                },
+                {
+                  "title": "Fixture Stack Skill"
+                },
+                {
+                  "title": "Fixture Lens"
+                },
+                {
+                  "title": "Fixture Ward"
+                },
+                {
+                  "title": "Fixture Inventory Rule"
+                }
+              ],
+              "pagelanguage": "en",
+              "fullurl": "https://example.invalid/wiki/fixture/101"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "page_id": 102,
+      "access_allowed": true,
+      "dependencies_complete": true,
+      "response": {
+        "query": {
+          "pages": [
+            {
+              "pageid": 102,
+              "ns": 0,
+              "title": "Other Fixture Hero",
+              "lastrevid": 10102,
+              "revisions": [
+                {
+                  "revid": 10102,
+                  "timestamp": "2026-09-24T10:00:00Z",
+                  "slots": {
+                    "main": {
+                      "contentmodel": "json",
+                      "content": "{\"entity_id\":\"fixture:hero:two\",\"health\":\"850\"}"
+                    }
+                  }
+                }
+              ],
+              "templates": [],
+              "links": [],
+              "pagelanguage": "en",
+              "fullurl": "https://example.invalid/wiki/fixture/102"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "page_id": 201,
+      "access_allowed": true,
+      "dependencies_complete": true,
+      "response": {
+        "query": {
+          "pages": [
+            {
+              "pageid": 201,
+              "ns": 0,
+              "title": "Fixture Pulse",
+              "lastrevid": 10201,
+              "revisions": [
+                {
+                  "revid": 10201,
+                  "timestamp": "2026-09-24T10:00:00Z",
+                  "slots": {
+                    "main": {
+                      "contentmodel": "json",
+                      "content": "{\"entity_id\":\"fixture:ability:pulse\",\"condition\":\"while_airborne\",\"variant\":\"charged\",\"mechanic_id\":\"fixture:mechanic:build_up\",\"damage\":\"42.125\"}"
+                    }
+                  }
+                }
+              ],
+              "templates": [],
+              "links": [
+                {
+                  "title": "Data:Fixture Scaling"
+                },
+                {
+                  "title": "Fixture Build-Up"
+                }
+              ],
+              "pagelanguage": "en",
+              "fullurl": "https://example.invalid/wiki/fixture/201"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "page_id": 202,
+      "access_allowed": true,
+      "dependencies_complete": true,
+      "response": {
+        "query": {
+          "pages": [
+            {
+              "pageid": 202,
+              "ns": 0,
+              "title": "Fixture Stack Skill",
+              "lastrevid": 10202,
+              "revisions": [
+                {
+                  "revid": 10202,
+                  "timestamp": "2026-09-24T10:00:00Z",
+                  "slots": {
+                    "main": {
+                      "contentmodel": "json",
+                      "content": "{\"entity_id\":\"fixture:ability:stack\",\"mechanic_id\":\"fixture:mechanic:stack\",\"stacks\":\"3\"}"
+                    }
+                  }
+                }
+              ],
+              "templates": [],
+              "links": [
+                {
+                  "title": "Fixture Stack"
+                }
+              ],
+              "pagelanguage": "en",
+              "fullurl": "https://example.invalid/wiki/fixture/202"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "page_id": 301,
+      "access_allowed": true,
+      "dependencies_complete": true,
+      "response": {
+        "query": {
+          "pages": [
+            {
+              "pageid": 301,
+              "ns": 0,
+              "title": "Fixture Lens",
+              "lastrevid": 10301,
+              "revisions": [
+                {
+                  "revid": 10301,
+                  "timestamp": "2026-09-24T10:00:00Z",
+                  "slots": {
+                    "main": {
+                      "contentmodel": "json",
+                      "content": "{\"entity_id\":\"fixture:item:lens\",\"price\":\"500\"}"
+                    }
+                  }
+                }
+              ],
+              "templates": [],
+              "links": [],
+              "pagelanguage": "en",
+              "fullurl": "https://example.invalid/wiki/fixture/301"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "page_id": 302,
+      "access_allowed": true,
+      "dependencies_complete": true,
+      "response": {
+        "query": {
+          "pages": [
+            {
+              "pageid": 302,
+              "ns": 0,
+              "title": "Fixture Ward",
+              "lastrevid": 10302,
+              "revisions": [
+                {
+                  "revid": 10302,
+                  "timestamp": "2026-09-24T10:00:00Z",
+                  "slots": {
+                    "main": {
+                      "contentmodel": "json",
+                      "content": "{\"entity_id\":\"fixture:item:ward\",\"price\":\"600\"}"
+                    }
+                  }
+                }
+              ],
+              "templates": [],
+              "links": [],
+              "pagelanguage": "en",
+              "fullurl": "https://example.invalid/wiki/fixture/302"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "page_id": 401,
+      "access_allowed": true,
+      "dependencies_complete": true,
+      "response": {
+        "query": {
+          "pages": [
+            {
+              "pageid": 401,
+              "ns": 0,
+              "title": "Fixture Build-Up",
+              "lastrevid": 10401,
+              "revisions": [
+                {
+                  "revid": 10401,
+                  "timestamp": "2026-09-24T10:00:00Z",
+                  "slots": {
+                    "main": {
+                      "contentmodel": "json",
+                      "content": "{\"entity_id\":\"fixture:mechanic:build_up\",\"unit\":\"percent\"}"
+                    }
+                  }
+                }
+              ],
+              "templates": [],
+              "links": [],
+              "pagelanguage": "en",
+              "fullurl": "https://example.invalid/wiki/fixture/401"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "page_id": 402,
+      "access_allowed": true,
+      "dependencies_complete": true,
+      "response": {
+        "query": {
+          "pages": [
+            {
+              "pageid": 402,
+              "ns": 0,
+              "title": "Fixture Stack",
+              "lastrevid": 10402,
+              "revisions": [
+                {
+                  "revid": 10402,
+                  "timestamp": "2026-09-24T10:00:00Z",
+                  "slots": {
+                    "main": {
+                      "contentmodel": "json",
+                      "content": "{\"entity_id\":\"fixture:mechanic:stack\",\"unit\":\"count\"}"
+                    }
+                  }
+                }
+              ],
+              "templates": [],
+              "links": [],
+              "pagelanguage": "en",
+              "fullurl": "https://example.invalid/wiki/fixture/402"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "page_id": 501,
+      "access_allowed": true,
+      "dependencies_complete": true,
+      "response": {
+        "query": {
+          "pages": [
+            {
+              "pageid": 501,
+              "ns": 0,
+              "title": "Fixture Inventory Rule",
+              "lastrevid": 10501,
+              "revisions": [
+                {
+                  "revid": 10501,
+                  "timestamp": "2026-09-24T10:00:00Z",
+                  "slots": {
+                    "main": {
+                      "contentmodel": "json",
+                      "content": "{\"rule_id\":\"fixture:inventory\",\"limit\":\"2\",\"mode\":null}"
+                    }
+                  }
+                }
+              ],
+              "templates": [],
+              "links": [],
+              "pagelanguage": "en",
+              "fullurl": "https://example.invalid/wiki/fixture/501"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "page_id": 601,
+      "access_allowed": true,
+      "dependencies_complete": true,
+      "response": {
+        "query": {
+          "pages": [
+            {
+              "pageid": 601,
+              "ns": 3000,
+              "title": "Data:Fixture Scaling",
+              "lastrevid": 10601,
+              "revisions": [
+                {
+                  "revid": 10601,
+                  "timestamp": "2026-09-24T10:00:00Z",
+                  "slots": {
+                    "main": {
+                      "contentmodel": "json",
+                      "content": "{\"scaling\":\"0.15\",\"unit\":\"multiplier\"}"
+                    }
+                  }
+                }
+              ],
+              "templates": [],
+              "links": [
+                {
+                  "title": "Template:Fixture Scaling"
+                }
+              ],
+              "pagelanguage": "en",
+              "fullurl": "https://example.invalid/wiki/fixture/601"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "page_id": 701,
+      "access_allowed": true,
+      "dependencies_complete": true,
+      "response": {
+        "query": {
+          "pages": [
+            {
+              "pageid": 701,
+              "ns": 10,
+              "title": "Template:Fixture Scaling",
+              "lastrevid": 10701,
+              "revisions": [
+                {
+                  "revid": 10701,
+                  "timestamp": "2026-09-24T10:00:00Z",
+                  "slots": {
+                    "main": {
+                      "contentmodel": "json",
+                      "content": "{\"per_tick\":\"0.5\",\"unit\":\"percent\"}"
+                    }
+                  }
+                }
+              ],
+              "templates": [],
+              "links": [],
+              "pagelanguage": "en",
+              "fullurl": "https://example.invalid/wiki/fixture/701"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "page_id": 702,
+      "access_allowed": true,
+      "dependencies_complete": true,
+      "response": {
+        "query": {
+          "pages": [
+            {
+              "pageid": 702,
+              "ns": 828,
+              "title": "Module:Unsafe Fixture",
+              "lastrevid": 10702,
+              "revisions": [
+                {
+                  "revid": 10702,
+                  "timestamp": "2026-09-24T10:00:00Z",
+                  "slots": {
+                    "main": {
+                      "contentmodel": "Scribunto",
+                      "content": "return { unsafe = function() error(\"must never execute\") end }"
+                    }
+                  }
+                }
+              ],
+              "templates": [],
+              "links": [],
+              "pagelanguage": "en",
+              "fullurl": "https://example.invalid/wiki/fixture/702"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "page_id": 801,
+      "access_allowed": true,
+      "dependencies_complete": true,
+      "response": {
+        "query": {
+          "pages": [
+            {
+              "pageid": 801,
+              "ns": 0,
+              "title": "Fixture Lore",
+              "lastrevid": 10801,
+              "revisions": [
+                {
+                  "revid": 10801,
+                  "timestamp": "2026-09-24T10:00:00Z",
+                  "slots": {
+                    "main": {
+                      "contentmodel": "wikitext",
+                      "content": "Synthetic lore, not a current gameplay fact."
+                    }
+                  }
+                }
+              ],
+              "templates": [],
+              "links": [],
+              "pagelanguage": "en",
+              "fullurl": "https://example.invalid/wiki/fixture/801"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "page_id": 802,
+      "access_allowed": true,
+      "dependencies_complete": true,
+      "response": {
+        "query": {
+          "pages": [
+            {
+              "pageid": 802,
+              "ns": 0,
+              "title": "Fixture Guide",
+              "lastrevid": 10802,
+              "revisions": [
+                {
+                  "revid": 10802,
+                  "timestamp": "2026-09-24T10:00:00Z",
+                  "slots": {
+                    "main": {
+                      "contentmodel": "wikitext",
+                      "content": "Synthetic guide: this is unvalidated strategy prose."
+                    }
+                  }
+                }
+              ],
+              "templates": [],
+              "links": [],
+              "pagelanguage": "en",
+              "fullurl": "https://example.invalid/wiki/fixture/802"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "page_id": 803,
+      "access_allowed": true,
+      "dependencies_complete": true,
+      "response": {
+        "query": {
+          "pages": [
+            {
+              "pageid": 803,
+              "ns": 0,
+              "title": "Fixture Patch History",
+              "lastrevid": 10803,
+              "revisions": [
+                {
+                  "revid": 10803,
+                  "timestamp": "2026-09-24T10:00:00Z",
+                  "slots": {
+                    "main": {
+                      "contentmodel": "wikitext",
+                      "content": "Synthetic historical note; its revision is not a game patch."
+                    }
+                  }
+                }
+              ],
+              "templates": [],
+              "links": [],
+              "pagelanguage": "en",
+              "fullurl": "https://example.invalid/wiki/fixture/803"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "page_id": 804,
+      "access_allowed": true,
+      "dependencies_complete": true,
+      "response": {
+        "query": {
+          "pages": [
+            {
+              "pageid": 804,
+              "ns": 0,
+              "title": "Fixture Ranger/de",
+              "lastrevid": 10804,
+              "revisions": [
+                {
+                  "revid": 10804,
+                  "timestamp": "2026-09-24T10:00:00Z",
+                  "slots": {
+                    "main": {
+                      "contentmodel": "wikitext",
+                      "content": "Synthetischer Held, Übersetzungsherkunft noch ungeprüft."
+                    }
+                  }
+                }
+              ],
+              "templates": [],
+              "links": [],
+              "pagelanguage": "de",
+              "fullurl": "https://example.invalid/wiki/fixture/804"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "page_id": 901,
+      "access_allowed": true,
+      "dependencies_complete": true,
+      "response": {
+        "query": {
+          "pages": [
+            {
+              "pageid": 901,
+              "ns": 0,
+              "title": "Old Fixture Ranger",
+              "lastrevid": 10901,
+              "revisions": [
+                {
+                  "revid": 10901,
+                  "timestamp": "2026-09-24T10:00:00Z",
+                  "slots": {
+                    "main": {
+                      "contentmodel": "wikitext",
+                      "content": "#REDIRECT [[Fixture Ranger]]"
+                    }
+                  }
+                }
+              ],
+              "templates": [],
+              "links": [
+                {
+                  "title": "Fixture Ranger"
+                }
+              ],
+              "pagelanguage": "en",
+              "fullurl": "https://example.invalid/wiki/fixture/901"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "page_id": 1001,
+      "access_allowed": true,
+      "dependencies_complete": true,
+      "response": {
+        "query": {
+          "pages": [
+            {
+              "pageid": 1001,
+              "ns": 6,
+              "title": "File:Fixture.png",
+              "lastrevid": 11001,
+              "revisions": [
+                {
+                  "revid": 11001,
+                  "timestamp": "2026-09-24T10:00:00Z",
+                  "slots": {
+                    "main": {
+                      "contentmodel": "wikitext",
+                      "content": "Synthetic media description only; no binary image included."
+                    }
+                  }
+                }
+              ],
+              "templates": [],
+              "links": [],
+              "pagelanguage": "en",
+              "fullurl": "https://example.invalid/wiki/fixture/1001"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "page_id": 1002,
+      "access_allowed": true,
+      "dependencies_complete": true,
+      "response": {
+        "query": {
+          "pages": [
+            {
+              "pageid": 1002,
+              "ns": 0,
+              "title": "Fixture Other",
+              "lastrevid": 11002,
+              "revisions": [
+                {
+                  "revid": 11002,
+                  "timestamp": "2026-09-24T10:00:00Z",
+                  "slots": {
+                    "main": {
+                      "contentmodel": "wikitext",
+                      "content": "Synthetic independent prose."
+                    }
+                  }
+                }
+              ],
+              "templates": [],
+              "links": [],
+              "pagelanguage": "en",
+              "fullurl": "https://example.invalid/wiki/fixture/1002"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "classification": [
+    {
+      "page_id": 101,
+      "kind": "hero",
+      "build_critical": true,
+      "approved_exclusion": null
+    },
+    {
+      "page_id": 102,
+      "kind": "hero",
+      "build_critical": true,
+      "approved_exclusion": null
+    },
+    {
+      "page_id": 201,
+      "kind": "ability",
+      "build_critical": true,
+      "approved_exclusion": null
+    },
+    {
+      "page_id": 202,
+      "kind": "ability",
+      "build_critical": true,
+      "approved_exclusion": null
+    },
+    {
+      "page_id": 301,
+      "kind": "item",
+      "build_critical": true,
+      "approved_exclusion": null
+    },
+    {
+      "page_id": 302,
+      "kind": "item",
+      "build_critical": true,
+      "approved_exclusion": null
+    },
+    {
+      "page_id": 401,
+      "kind": "mechanic",
+      "build_critical": true,
+      "approved_exclusion": null
+    },
+    {
+      "page_id": 402,
+      "kind": "mechanic",
+      "build_critical": true,
+      "approved_exclusion": null
+    },
+    {
+      "page_id": 501,
+      "kind": "rule",
+      "build_critical": true,
+      "approved_exclusion": null
+    },
+    {
+      "page_id": 601,
+      "kind": "data",
+      "build_critical": true,
+      "approved_exclusion": null
+    },
+    {
+      "page_id": 701,
+      "kind": "template",
+      "build_critical": false,
+      "approved_exclusion": null
+    },
+    {
+      "page_id": 702,
+      "kind": "module",
+      "build_critical": false,
+      "approved_exclusion": null
+    },
+    {
+      "page_id": 801,
+      "kind": "lore",
+      "build_critical": false,
+      "approved_exclusion": null
+    },
+    {
+      "page_id": 802,
+      "kind": "guide",
+      "build_critical": false,
+      "approved_exclusion": null
+    },
+    {
+      "page_id": 803,
+      "kind": "patch_history",
+      "build_critical": false,
+      "approved_exclusion": null
+    },
+    {
+      "page_id": 804,
+      "kind": "localization",
+      "build_critical": false,
+      "approved_exclusion": null
+    },
+    {
+      "page_id": 901,
+      "kind": "redirect",
+      "build_critical": false,
+      "approved_exclusion": null
+    },
+    {
+      "page_id": 1001,
+      "kind": "media_metadata",
+      "build_critical": false,
+      "approved_exclusion": null
+    },
+    {
+      "page_id": 1002,
+      "kind": "other",
+      "build_critical": false,
+      "approved_exclusion": null
+    }
+  ],
+  "hero_bindings": [
+    {
+      "hero_page_id": 101,
+      "locale": "de",
+      "ability_page_ids": [
+        201,
+        202
+      ],
+      "mechanic_page_ids": [
+        401,
+        402
+      ],
+      "item_page_ids": [
+        301,
+        302
+      ],
+      "rule_page_ids": [
+        501
+      ],
+      "alias_page_ids": [
+        901
+      ]
+    },
+    {
+      "hero_page_id": 101,
+      "locale": "en",
+      "ability_page_ids": [
+        201,
+        202
+      ],
+      "mechanic_page_ids": [
+        401,
+        402
+      ],
+      "item_page_ids": [
+        301,
+        302
+      ],
+      "rule_page_ids": [
+        501
+      ],
+      "alias_page_ids": [
+        901
+      ]
+    },
+    {
+      "hero_page_id": 102,
+      "locale": "en",
+      "ability_page_ids": [],
+      "mechanic_page_ids": [],
+      "item_page_ids": [],
+      "rule_page_ids": [],
+      "alias_page_ids": []
+    }
+  ]
+}

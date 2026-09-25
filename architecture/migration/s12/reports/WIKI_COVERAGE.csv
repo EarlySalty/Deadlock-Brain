@@ -1,0 +1,16 @@
+scope,capture_sha256,discovery_at_unix,page_kind,discovered,fetched,parsed,normalized,validated,published,quarantined,unavailable,policy_blocked,approved_exclusion,build_critical_unvalidated
+synthetic_fixture_only_not_live,a3c3d64c99c764652bea7709f630d8b4599bf13de4dc79f5a3a243153141ee83,1790280000,hero,2,2,2,0,0,0,0,0,0,0,2
+synthetic_fixture_only_not_live,a3c3d64c99c764652bea7709f630d8b4599bf13de4dc79f5a3a243153141ee83,1790280000,ability,2,2,2,0,0,0,0,0,0,0,2
+synthetic_fixture_only_not_live,a3c3d64c99c764652bea7709f630d8b4599bf13de4dc79f5a3a243153141ee83,1790280000,item,2,2,2,0,0,0,0,0,0,0,2
+synthetic_fixture_only_not_live,a3c3d64c99c764652bea7709f630d8b4599bf13de4dc79f5a3a243153141ee83,1790280000,mechanic,2,2,2,0,0,0,0,0,0,0,2
+synthetic_fixture_only_not_live,a3c3d64c99c764652bea7709f630d8b4599bf13de4dc79f5a3a243153141ee83,1790280000,rule,1,1,1,0,0,0,0,0,0,0,1
+synthetic_fixture_only_not_live,a3c3d64c99c764652bea7709f630d8b4599bf13de4dc79f5a3a243153141ee83,1790280000,patch_history,1,1,1,0,0,0,0,0,0,0,0
+synthetic_fixture_only_not_live,a3c3d64c99c764652bea7709f630d8b4599bf13de4dc79f5a3a243153141ee83,1790280000,data,1,1,1,0,0,0,0,0,0,0,1
+synthetic_fixture_only_not_live,a3c3d64c99c764652bea7709f630d8b4599bf13de4dc79f5a3a243153141ee83,1790280000,template,1,1,1,0,0,0,0,0,0,0,0
+synthetic_fixture_only_not_live,a3c3d64c99c764652bea7709f630d8b4599bf13de4dc79f5a3a243153141ee83,1790280000,module,1,1,0,0,0,0,1,0,0,0,0
+synthetic_fixture_only_not_live,a3c3d64c99c764652bea7709f630d8b4599bf13de4dc79f5a3a243153141ee83,1790280000,lore,1,1,1,0,0,0,0,0,0,0,0
+synthetic_fixture_only_not_live,a3c3d64c99c764652bea7709f630d8b4599bf13de4dc79f5a3a243153141ee83,1790280000,guide,1,1,1,0,0,0,0,0,0,0,0
+synthetic_fixture_only_not_live,a3c3d64c99c764652bea7709f630d8b4599bf13de4dc79f5a3a243153141ee83,1790280000,localization,1,1,1,0,0,0,0,0,0,0,0
+synthetic_fixture_only_not_live,a3c3d64c99c764652bea7709f630d8b4599bf13de4dc79f5a3a243153141ee83,1790280000,redirect,1,1,1,0,0,0,0,0,0,0,0
+synthetic_fixture_only_not_live,a3c3d64c99c764652bea7709f630d8b4599bf13de4dc79f5a3a243153141ee83,1790280000,media_metadata,1,1,1,0,0,0,0,0,0,0,0
+synthetic_fixture_only_not_live,a3c3d64c99c764652bea7709f630d8b4599bf13de4dc79f5a3a243153141ee83,1790280000,other,1,1,1,0,0,0,0,0,0,0,0
