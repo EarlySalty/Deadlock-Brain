@@ -1,3 +1,6 @@
+pub mod bounded;
+pub use bounded::{SourceHttpOptions, SourceHttpResponse};
+
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -73,6 +76,7 @@ impl HttpResult {
 pub struct HttpClient {
     client: Client,
     no_redirect_client: Client,
+    bounded_source_client: Client,
     user_agent: String,
     cache_dir: PathBuf,
 }
@@ -91,9 +95,19 @@ impl HttpClient {
             .timeout(Duration::from_secs(30))
             .redirect(reqwest::redirect::Policy::none())
             .build()?;
+        // A policy variant of the same shared HTTP core. Legacy callers retain
+        // decompression; source provenance reads retain exact entity bytes.
+        let bounded_source_client = Client::builder()
+            .user_agent(user_agent.clone())
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(30))
+            .redirect(reqwest::redirect::Policy::none())
+            .no_gzip().no_brotli().no_deflate().no_zstd()
+            .build()?;
         Ok(Self {
             client,
             no_redirect_client,
+            bounded_source_client,
             user_agent,
             cache_dir,
         })
