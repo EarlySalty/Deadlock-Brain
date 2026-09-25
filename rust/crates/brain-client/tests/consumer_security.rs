@@ -33,6 +33,28 @@ fn rejects_unsafe_endpoints_before_network_access() {
 }
 
 #[test]
+fn local_consumers_do_not_treat_https_as_egress_permission() {
+    for endpoint in [
+        "https://example.invalid",
+        "https://localhost.example.invalid",
+        "https://127.0.0.1.example.invalid",
+    ] {
+        assert!(
+            AsyncBrainClient::new_local(endpoint, "fixture-token", Duration::from_secs(1)).is_err()
+        );
+    }
+    for endpoint in [
+        "http://127.0.0.1:1",
+        "https://localhost:1",
+        "http://[::1]:1",
+    ] {
+        assert!(
+            AsyncBrainClient::new_local(endpoint, "fixture-token", Duration::from_secs(1)).is_ok()
+        );
+    }
+}
+
+#[test]
 fn rejects_invalid_credentials_without_logging_them() {
     for token in ["", "two words", "line\nbreak", "tab\ttoken"] {
         assert!(matches!(

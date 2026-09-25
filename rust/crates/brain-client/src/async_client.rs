@@ -20,6 +20,23 @@ impl std::fmt::Debug for AsyncBrainClient {
     }
 }
 impl AsyncBrainClient {
+    /// For consumers of local community/internal knowledge. HTTPS is not an
+    /// implicit authorization to send their requests to an external host.
+    pub fn new_local(base_url: &str, bearer_token: &str, timeout: Duration) -> Result<Self> {
+        let parsed =
+            reqwest::Url::parse(base_url.trim()).map_err(|_| ClientError::InvalidBaseUrl)?;
+        let local = parsed.host_str().is_some_and(|host| {
+            host == "localhost"
+                || host
+                    .trim_matches(['[', ']'])
+                    .parse::<std::net::IpAddr>()
+                    .is_ok_and(|ip| ip.is_loopback())
+        });
+        if !local {
+            return Err(ClientError::InvalidBaseUrl);
+        }
+        Self::new(base_url, bearer_token, timeout)
+    }
     /// Explicit caller configuration only. Nothing is read from production config.
     pub fn new(base_url: &str, bearer_token: &str, timeout: Duration) -> Result<Self> {
         let (base_url, bearer) = transport::endpoint(base_url, bearer_token, timeout)?;
