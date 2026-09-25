@@ -1,6 +1,6 @@
 # S01 Code und Runtime Inventar
 
-Stand: 24.09.2026
+Stand: 24.09.2026, Runtime korrigiert am 25.09.2026
 Basis Commit Deadlock Brain: 2734c2da4e814ff79953e8e825275b0216a6af16
 Arbeitsbranch: feat/brain-s01-inventory-20260924
 
@@ -46,21 +46,46 @@ docs/specs/2026-06-29-brain-command-design.md dokumentiert den Discord Brain Pfa
 
 ## Runtime
 
-Die Repo Unit service/systemd/deadlock-brain-build-data.timer ist im Nutzer System installiert.
+Korrigiert am 25.09.2026 (Review PR 15). Die erste Fassung vom 24.09.2026 kannte nur den Build Timer und ist in diesem Abschnitt überholt.
 
-Runtime Nachweis am 24.09.2026:
+Erhebung: `systemctl --user list-unit-files 'deadlock-brain*'`, `systemctl --user list-timers 'deadlock-brain*' --all`, `systemctl --user show <unit>` (FragmentPath, DropInPaths, ExecStart, WorkingDirectory, Result, ExecMainStatus, Zeitstempel) und `journalctl --user` am 25.09.2026 zwischen 04:25 und 04:45 CEST. Environment Werte, Credentials und DSNs wurden nicht ausgegeben. `systemctl list-unit-files '*brain*'` auf Systemebene liefert keine Unit. `/home/naniadm` ist ein Symlink auf `/home/nathanael`, `~/Documents/Deadlock-Brain` ein Symlink auf `~/repos/Deadlock-Brain`.
 
-* deadlock-brain-build-data.timer: aktiv und wartend, nächster Lauf 25.09.2026 03:30 CEST
-* deadlock-brain-build-data.service: letzter Lauf fehlgeschlagen
-* Fehlerursache laut systemd Status: Release Binary /home/nathanael/repos/Deadlock-Brain/rust/target/release/deadlock-brain-secret-exec fehlt
-* deadlock-brain.service: nicht gefunden
-* deadlock-brain-youtube.service: nicht gefunden
+### Deadlock Brain User Units
 
-Damit ist ein geplanter periodischer Build Pfad real vorhanden, aber zum Inventarzeitpunkt nicht erfolgreich lauffähig.
+| Unit | Takt | Letztes Ergebnis 25.09.2026 | Laufzeitpfad | Zuständigkeit |
+|---|---|---|---|---|
+| deadlock-brain-patchnotes-sync.timer und .service | alle 5 Minuten | success 04:26, "no new patchnotes (changelog=285 brain=285)" | `~/.local/bin/deadlock-brain-patchnotes-sync.sh` (Skript außerhalb des Repos, Stand 06.07.2026) mit `DEADLOCK_BRAIN_ROOT=~/Documents/Deadlock-Brain` aus der Unit, also Binary `rust/target/release/deadlock-brain` im geteilten Hauptcheckout; bei neuem Patch `pull deadlock-data`, `pull assets --kind items --kind heroes`, `normalize entities --rebuild` | Ingest Patchnotes und Assets, S04 |
+| deadlock-brain-sheet-sync.timer und .service | alle 4 Stunden | success 04:16 bis 04:17 | `~/repos/Deadlock-Brain/scripts/run_sheet_sync_with_infisical.sh` über Drop-in `10-infisical-wrapper.conf`, Binary `rust/target/release/deadlock-brain` mit `deadlock-brain-secret-exec` im geteilten Hauptcheckout | Ingest Google Sheet, S04 |
+| deadlock-brain-wiki-refresh.timer und .service | 00:35, 06:35, 12:35, 18:35 | success 04:11:46 bis 04:11:56, `state: ready` | `~/.local/share/deadlock-brain/wiki-refresh/deadlock-brain` als Symlink auf `/opt/deadlock-brain/releases/12814d9/deadlock-brain` (Merge von PR 13, sha256 laut `release.json`), Config `wiki-refresh.json` ohne `wiki` Block, Wiki Korpus Import daher aus | Game Wiki und Heldenkarten, S12 und S06 |
+| deadlock-brain-build-data.timer und .service | täglich 03:30 | failed, exit 1, an jedem Tag vom 22. bis 25.09.2026 | `~/repos/Deadlock-Brain/scripts/run_build_data_with_infisical.sh` und `rust/target/release/deadlock-brain` im geteilten Hauptcheckout (Branch feat/brain-rust-cutover-20260919 mit uncommitteten Skriptänderungen) | Build Daten und Population, S04 und S05 |
+| deadlock-brain-youtube-learning.timer und .service | alle 6 Stunden | failed, exit 1, seit 23.09.2026 05:10 bei jedem Lauf | `~/.worktrees/brain-live-main/scripts/run_youtube_learning_with_infisical.sh` | YouTube Learning, absichtlich pausiert, S04 |
+| deadlock-brain-site.service | Dauerdienst | active (running) seit 20.09.2026 02:13 | `python3 ~/Documents/deadlock-build-corpus/site/server.py`, lauscht auf 127.0.0.1:8087, Code außerhalb des Brain Repos | Build Corpus Seite, S11 |
+
+Nicht vorhanden: `deadlock-brain.service` und `deadlock-brain-youtube.service`. Der YouTube Pfad heißt `deadlock-brain-youtube-learning`.
+
+Im Repo versioniert sind nur `service/systemd/deadlock-brain-build-data.*` und `ops/deadlock-brain-wiki-refresh.*`; beide installierten Service Dateien stimmen ohne Kommentare mit dem Repo Stand überein. Die Units für Patchnotes Sync, Sheet Sync, YouTube Learning und Site liegen nur unter `~/.config/systemd/user/` und sind nicht versioniert.
+
+### Angrenzende Units anderer Repos
+
+| Unit | Repo | Stand 25.09.2026 | Bezug |
+|---|---|---|---|
+| dl-knowledge.service | Deadlock-Bots Release 46c4f07c | active seit 20.09.2026 | zweiter Retrieval Pfad, S09 |
+| dl-brain-feeder.timer | Deadlock-Bots | success 20.09.2026, sonntags 19:00 | Feeder in Brain Tabellen, S04 und S09 |
+| wiki-freshness.timer | Deadlock-Docs | failed 24.09.2026 | Doku Frische, nicht Brain Runtime |
+
+### Fehlerursachen, neu erhoben am 25.09.2026
+
+Build Data, 22. bis 24.09.2026: `deadlock-brain-secret-exec Release Binary fehlt`. Das Binary liegt seit 24.09.2026 08:15 CEST in `rust/target/release/`. Die Aussage der ersten Fassung war damit schon beim S01 Commit (24.09.2026 11:33) überholt.
+
+Build Data, 25.09.2026 03:30: `GET https://assets.deadlock-api.com/v2/items?language=english` scheitert mit `dns error`. `assets.deadlock-api.com` ist NXDOMAIN, die Assets liegen jetzt unter `https://api.deadlock-api.com/v1/assets/`. Code Fix in PR 33 (`dbrain-builds/src/api.rs` und `dbrain-sources/src/assets_api.rs`). Live wirkt er erst, wenn der Timer ein Binary aus main nutzt, siehe S01-R11.
+
+YouTube Learning: `deploy-preflight [deadlock-brain-yt]: FEHLER: Branch '' != erwartet 'main' in ~/.worktrees/brain-live-main`. Der Worktree steht detached auf dfefc8f und wurde von anderen Sessions umgeschaltet (21.09.2026 feat/brain-rust-cutover-20260919, 23.09.2026 fix/brain-tempo-multisignal-20260923). Hinter dem Preflight bricht der Wrapper ohne `DEADLOCK_BRAIN_ENABLE_YOUTUBE_SYNC=1` bewusst mit "disabled" ab; die Unit setzt die Variable nicht, und `rust/target/release/deadlock-brain-yt` fehlt im Worktree. Es fehlt also keine aktive Funktion, der Fehler erzeugt aber alle 6 Stunden eine Ausfallmeldung.
+
+Damit sind fünf Brain Timer und ein Brain Dienst real in Betrieb, davon drei grün und zwei rot. Keine dieser Units wurde durch S01 geändert oder neu gestartet.
 
 ## Laufende Pfade gegenüber Dokumentation
 
-Der periodische Build Timer ist Runtime belegt. README und docs nennen zusätzlich Cron Beispiele und weitere Learning Wrapper. Für diese Beispiele liegt in S01 kein Runtime Nachweis vor. Sie werden deshalb als dokumentiert, nicht als laufend eingeordnet.
+Runtime belegt sind die sechs Units oben. README und docs nennen zusätzlich Cron Beispiele und Learning Wrapper (`scripts/run_build_learning.sh`, `scripts/run_player_match_learning.sh`). Für diese beiden gibt es keine Unit, und das User Journal seit 20.09.2026 enthält keinen Aufruf; sie bleiben als dokumentiert, nicht als laufend eingeordnet.
 
 ## Datenbestand
 

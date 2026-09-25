@@ -4,7 +4,7 @@
 
 Externe Deadlock Quellen gelangen über dbrain-sources in Raw Snapshots, Source Dokumente, Caches und Postgres bezogene Strukturen. dbrain-normalize erzeugt normalisierte Entities, Claims, Patchdaten und Lineage. dbrain-population erzeugt Population und Analytics Material. dbrain-learn verarbeitet Builds, Matches und Demo Evidenz zu Lernartefakten. dbrain-reasoner nutzt Domain Daten für Mechanik, Meta, Planung und Publishing. dbrain-retrieval bildet einen Suchpfad über Game Wiki und abgeleitete Indizes.
 
-Der periodische Build Daten Pfad wird über den Nutzer Timer deadlock-brain-build-data.timer gestartet. Der Service war beim S01 Lauf vorhanden, scheiterte aber am fehlenden Release Binary deadlock-brain-secret-exec.
+Periodisch laufen fünf Nutzer Timer: Patchnotes Sync schreibt Patchnotes, Deadlock Data und Assets in `brain.*` und normalisiert Entities neu; Sheet Sync zieht das Google Sheet; Wiki Refresh baut den Game Wiki Snapshot samt Heldenkarten unter `~/.local/share/deadlock-brain/game-wiki/current`; Build Data holt Item Katalog, Helden und Analytics für Builds und Population; YouTube Learning ist pausiert. Der Dienst deadlock-brain-site liefert die Build Corpus Seite lokal auf 127.0.0.1:8087 aus. Stand 25.09.2026 sind Build Data und YouTube Learning rot, siehe CODE_RUNTIME_INVENTAR.md.
 
 ## Consumer
 

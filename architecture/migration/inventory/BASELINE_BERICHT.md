@@ -6,7 +6,7 @@ Der Deadlock Brain Code ist bereits überwiegend als Rust Workspace organisiert.
 
 Der lokale Datenordner hatte am 24.09.2026 eine gemessene Größe von 1.813.651.236 Bytes. Die Messung sagt nichts über logische Datensatzanzahl, Vollständigkeit oder Migrationsfähigkeit aus.
 
-Der installierte tägliche Build Timer ist aktiv. Der ausgelöste Service ist aktuell nicht erfolgreich, weil das erwartete Release Binary deadlock-brain-secret-exec fehlt. Damit ist die heutige periodische Datenversorgung keine grüne Runtime Baseline.
+Korrigiert am 25.09.2026: Fünf Brain Timer und ein Brain Dienst laufen als User Units (Details in CODE_RUNTIME_INVENTAR.md). Grün sind Patchnotes Sync, Sheet Sync, Wiki Refresh und der Site Dienst. Rot sind Build Data (22. bis 24.09.2026 fehlendes secret-exec Binary, seit 25.09.2026 NXDOMAIN von assets.deadlock-api.com) und YouTube Learning (Preflight im detached Worktree brain-live-main, Funktion selbst absichtlich pausiert). Die periodische Datenversorgung ist damit keine vollständig grüne Runtime Baseline.
 
 ## Antwort und Retrieval Baseline
 
@@ -16,7 +16,7 @@ Deadlock Bots dokumentiert für dl-knowledge eine Golden Evaluation mit 224 Fäl
 
 ## Ingest Baseline
 
-Der Build Timer liefert einen realen Scheduler Nachweis. Weitere README Cron Beispiele und Learning Wrapper sind Code und Dokumentation, aber in S01 nicht als laufender Scheduler bestätigt.
+Real laufende Ingest Pfade sind Patchnotes Sync (5 Minuten), Sheet Sync (4 Stunden), Wiki Refresh (6 Stunden) und Build Data (täglich, rot). YouTube Learning ist als Timer aktiv, aber im Wrapper pausiert. `scripts/run_build_learning.sh` und `scripts/run_player_match_learning.sh` haben keine Unit und keinen Journal Eintrag seit 20.09.2026.
 
 ## Ressourcen
 
@@ -25,4 +25,4 @@ CPU, RAM, Queue Lag, DB Pool Wartezeit, p50, p95 und p99 wurden in S01 nicht erh
 
 ## Baseline Entscheidung
 
-Für Code und Datenbestand ist eine belastbare Inventarbasis vorhanden. Für Performance und erfolgreiche periodische Versorgung bestehen offene Punkte. Der Runtime Fehler und die fehlende Chat 10 Messung müssen vor einer Performance Freigabe geschlossen werden.
+Für Code und Datenbestand ist eine belastbare Inventarbasis vorhanden. Für Performance und erfolgreiche periodische Versorgung bestehen offene Punkte. Die beiden roten Timer und die fehlende Chat 10 Messung müssen vor einer Performance Freigabe geschlossen werden.
