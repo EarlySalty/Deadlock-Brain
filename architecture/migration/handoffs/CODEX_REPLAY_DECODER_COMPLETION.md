@@ -94,6 +94,8 @@ Die mutierten Quellen wurden bytegleich wiederhergestellt; danach wurde das gesa
 
 Die geprüfte Git-Revision und aktuellen GitHub-Run-IDs werden im PR-Abnahmeprotokoll am tatsächlich gepushten Head dokumentiert. Ein älterer grüner Run gilt nicht für einen neuen Push. GitHub-Actions und ein unabhängiges Review werden nicht durch diesen eigenen Testbericht ersetzt.
 
+Erster GitHub-Lauf auf `9fcbc867e91440b55d2766e97c3b837b18b89a29`: Semantic Review `36165944545`, Versuch 1, erfolgreich. Deterministic PR CI `36165944648`, Versuch 1, fand beim `valveprotos`-Build die fehlende Standarddatei `google/protobuf/descriptor.proto` auf dem frischen Runner. Lokal waren diese Header bereits installiert. Korrektur: CI installiert zusätzlich `libprotobuf-dev` und prüft die konkrete Headerdatei vor dem Build. Der rote Lauf wird nicht als Decoder-Testabnahme ausgegeben; die vollständige CI und das Review müssen für den Korrektur-Head erneut laufen.
+
 ## Was Claude lokal konkret noch ausführen muss
 
 ### 1. Berechtigter echter Pilot und Corpus

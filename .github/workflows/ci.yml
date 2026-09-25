@@ -171,8 +171,9 @@ jobs:
       - name: Install protocol compiler
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends protobuf-compiler
+          sudo apt-get install -y --no-install-recommends protobuf-compiler libprotobuf-dev
           test "$(protoc --version)" = "libprotoc 3.21.12"
+          test -r /usr/include/google/protobuf/descriptor.proto
       - name: Compile all workspace targets
         run: cargo check --workspace --all-targets --locked -j2
       - name: Verify replay decoder and retained real-corpus gate
