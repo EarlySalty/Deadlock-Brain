@@ -8,6 +8,7 @@ name = "dbrain_retrieval"
 path = "src/lib.rs"
 
 [dependencies]
+brain-contracts = { path = "../brain-contracts" }
 deadlock-brain-core = { path = "../deadlock-brain-core" }
 dbrain-reasoner = { path = "../dbrain-reasoner" }
 chrono = { workspace = true }
@@ -19,5 +20,6 @@ sqlx = { workspace = true, features = ["json", "chrono"] }
 thiserror.workspace = true
 
 [dev-dependencies]
+brain-storage = { path = "../brain-storage" }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "process", "io-util"] }
