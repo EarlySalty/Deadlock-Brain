@@ -100,12 +100,11 @@ pub(crate) async fn build_context(
 
 pub(crate) async fn resolve_hero_id(pool: &PgPool, hero_query: &str) -> Result<i64> {
     if let Ok(hero_id) = hero_query.trim().parse::<i64>() {
-        let found: Option<i64> = sqlx::query_scalar!(
-            "SELECT hero_id FROM brain.hero_catalog WHERE hero_id=$1",
-            hero_id,
-        )
-        .fetch_optional(pool)
-        .await?;
+        let found: Option<i64> =
+            sqlx::query_scalar::<_, i64>("SELECT hero_id FROM brain.hero_catalog WHERE hero_id=$1")
+                .bind(hero_id)
+                .fetch_optional(pool)
+                .await?;
         return found.ok_or_else(|| BuildEngineError::HeroNotFound(hero_query.to_string()).into());
     }
 
@@ -117,12 +116,11 @@ pub(crate) async fn resolve_hero_id(pool: &PgPool, hero_query: &str) -> Result<i
         return Ok(hero_id);
     }
 
-    let heroes = sqlx::query!("SELECT hero_id, name FROM brain.hero_catalog ORDER BY hero_id")
-        .fetch_all(pool)
-        .await?
-        .into_iter()
-        .map(|row| (row.hero_id, row.name))
-        .collect::<Vec<(i64, String)>>();
+    let heroes = sqlx::query_as::<_, (i64, String)>(
+        "SELECT hero_id, name FROM brain.hero_catalog ORDER BY hero_id",
+    )
+    .fetch_all(pool)
+    .await?;
 
     if let Some((hero_id, _)) = heroes
         .iter()
@@ -147,39 +145,36 @@ pub(crate) async fn resolve_hero_id(pool: &PgPool, hero_query: &str) -> Result<i
 }
 
 async fn resolve_from_entity_aliases(pool: &PgPool, query_norm: &str) -> Result<Option<i64>> {
-    let rows = sqlx::query!(
+    let rows = sqlx::query_as::<_, (Option<String>, String)>(
         r#"
-        SELECT e.primary_external_id AS "primary_external_id?", e.canonical_name AS "canonical_name!"
+        SELECT e.primary_external_id, e.canonical_name
         FROM brain.entity_aliases a
         JOIN brain.entities e ON e.id = a.entity_id
         WHERE a.alias_norm=$1 AND e.entity_type='hero'
         ORDER BY e.id
         LIMIT 5
         "#,
-        query_norm,
     )
+    .bind(query_norm)
     .fetch_all(pool)
     .await?;
-    for row in rows {
-        if let Some(hero_id) = row
-            .primary_external_id
-            .and_then(|id| id.parse::<i64>().ok())
-        {
-            let exists: Option<i64> = sqlx::query_scalar!(
+    for (primary_external_id, canonical_name) in rows {
+        if let Some(hero_id) = primary_external_id.and_then(|id| id.parse::<i64>().ok()) {
+            let exists: Option<i64> = sqlx::query_scalar::<_, i64>(
                 "SELECT hero_id FROM brain.hero_catalog WHERE hero_id=$1",
-                hero_id,
             )
+            .bind(hero_id)
             .fetch_optional(pool)
             .await?;
             if exists.is_some() {
                 return Ok(Some(hero_id));
             }
         }
-        let canonical_norm = normalize_name(&row.canonical_name);
-        if let Some(hero_id) = sqlx::query_scalar!(
+        let canonical_norm = normalize_name(&canonical_name);
+        if let Some(hero_id) = sqlx::query_scalar::<_, i64>(
             "SELECT hero_id FROM brain.hero_catalog WHERE lower(name)=lower($1)",
-            row.canonical_name,
         )
+        .bind(&canonical_name)
         .fetch_optional(pool)
         .await?
         {
@@ -200,16 +195,16 @@ struct HeroRow {
 }
 
 async fn load_hero(pool: &PgPool, hero_id: i64) -> Result<HeroRow> {
-    let row = sqlx::query!(
+    let row = sqlx::query_as::<_, (String, String, i64)>(
         "SELECT name, archetype, base_health FROM brain.hero_catalog WHERE hero_id=$1",
-        hero_id,
     )
+    .bind(hero_id)
     .fetch_optional(pool)
     .await?;
-    row.map(|row| HeroRow {
-        name: row.name,
-        archetype: row.archetype,
-        base_health: Some(row.base_health as f64),
+    row.map(|(name, archetype, base_health)| HeroRow {
+        name,
+        archetype,
+        base_health: Some(base_health as f64),
     })
     .ok_or_else(|| BuildEngineError::HeroNotFound(hero_id.to_string()).into())
 }
@@ -230,25 +225,39 @@ struct ItemRow {
     lift_pp: Option<f64>,
 }
 
+#[derive(sqlx::FromRow)]
+struct ItemDbRow {
+    item_id: i64,
+    name: String,
+    slot_type: String,
+    tier: i64,
+    defense_kind_json: String,
+    damage_axis: String,
+    prevalence_builds: i64,
+    wins: i64,
+    losses: i64,
+    matches: i64,
+    avg_buy_time_relative: Option<f64>,
+    lift_pp: Option<f64>,
+}
+
 async fn load_item_rows(pool: &PgPool, hero_id: i64) -> Result<Vec<ItemRow>> {
-    let rows = sqlx::query!(
+    let rows = sqlx::query_as::<_, ItemDbRow>(
         r#"
         SELECT
-          i.item_id AS "item_id!", i.name AS "name!", i.slot_type AS "slot_type!",
-          i.tier AS "tier!", i.defense_kind::text AS "defense_kind_json!",
-          i.damage_axis AS "damage_axis!",
-          s.prevalence_builds AS "prevalence_builds!", s.wins AS "wins!",
-          s.losses AS "losses!", s.matches AS "matches!",
-          s.avg_buy_time_relative AS "avg_buy_time_relative?", s.lift_pp AS "lift_pp?"
+          i.item_id, i.name, i.slot_type, i.tier,
+          i.defense_kind::text AS defense_kind_json, i.damage_axis,
+          s.prevalence_builds, s.wins, s.losses, s.matches,
+          s.avg_buy_time_relative, s.lift_pp
         FROM brain.hero_item_stats s
         JOIN brain.item_catalog i ON i.item_id=s.item_id
         WHERE s.hero_id=$1 AND s.bracket=$2 AND s.patch_tag=$3
         ORDER BY s.prevalence_builds DESC, s.matches DESC, i.item_id ASC
         "#,
-        hero_id,
-        BRACKET_BADGE_80,
-        PATCH_TAG_CURRENT,
     )
+    .bind(hero_id)
+    .bind(BRACKET_BADGE_80)
+    .bind(PATCH_TAG_CURRENT)
     .fetch_all(pool)
     .await?;
     let rows = rows
@@ -472,7 +481,7 @@ async fn synergy_names(
     item_id: i64,
     name_lookup: &HashMap<i64, String>,
 ) -> Result<Vec<String>> {
-    let ids = sqlx::query_scalar!(
+    let ids = sqlx::query_scalar::<_, i64>(
         r#"
         SELECT with_item_id
         FROM brain.hero_item_synergies
@@ -480,10 +489,10 @@ async fn synergy_names(
         ORDER BY matches DESC, with_item_id ASC
         LIMIT 8
         "#,
-        hero_id,
-        item_id,
-        PATCH_TAG_CURRENT,
     )
+    .bind(hero_id)
+    .bind(item_id)
+    .bind(PATCH_TAG_CURRENT)
     .fetch_all(pool)
     .await?;
     Ok(ids
@@ -501,16 +510,16 @@ fn item_name_lookup(selected_items: &[&ScoredItem]) -> HashMap<i64, String> {
 }
 
 async fn load_ability_order(pool: &PgPool, hero_id: i64) -> Result<Option<Vec<i64>>> {
-    let abilities_json: Option<String> = sqlx::query_scalar!(
+    let abilities_json: Option<String> = sqlx::query_scalar::<_, String>(
         r#"
-        SELECT abilities::text AS "abilities_json!"
+        SELECT abilities::text
         FROM brain.hero_ability_orders
         WHERE hero_id=$1 AND bracket=$2 AND patch_tag=$3
         "#,
-        hero_id,
-        BRACKET_BADGE_80,
-        PATCH_TAG_CURRENT,
     )
+    .bind(hero_id)
+    .bind(BRACKET_BADGE_80)
+    .bind(PATCH_TAG_CURRENT)
     .fetch_optional(pool)
     .await?;
     abilities_json

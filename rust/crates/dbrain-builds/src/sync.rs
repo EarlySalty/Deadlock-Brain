@@ -205,7 +205,7 @@ pub(crate) async fn upsert_item_catalog(pool: &PgPool, payload: &Value) -> Resul
             damage_axis,
         } = classify_item(item);
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO brain.item_catalog(
               item_id, name, slot_type, tier, defense_kind, damage_axis, properties, updated_at
@@ -220,14 +220,14 @@ pub(crate) async fn upsert_item_catalog(pool: &PgPool, payload: &Value) -> Resul
               properties=excluded.properties,
               updated_at=excluded.updated_at
             "#,
-            item_id,
-            name,
-            slot_type,
-            tier,
-            json_string(&defense_kind)?,
-            damage_axis,
-            json_string(&properties)?,
         )
+        .bind(item_id)
+        .bind(name)
+        .bind(slot_type)
+        .bind(tier)
+        .bind(json_string(&defense_kind)?)
+        .bind(damage_axis)
+        .bind(json_string(&properties)?)
         .execute(pool)
         .await?;
         count += 1;
@@ -251,7 +251,7 @@ pub(crate) async fn upsert_hero_catalog(pool: &PgPool, payload: &Value) -> Resul
         };
         let base_health = base_health(hero).unwrap_or(0);
         let archetype = derive_archetype(base_health);
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO brain.hero_catalog(hero_id, name, base_health, archetype, stats, updated_at)
             VALUES($1, $2, $3, $4, $5::text::jsonb, now())
@@ -262,12 +262,12 @@ pub(crate) async fn upsert_hero_catalog(pool: &PgPool, payload: &Value) -> Resul
               stats=excluded.stats,
               updated_at=excluded.updated_at
             "#,
-            hero_id,
-            name,
-            base_health,
-            archetype,
-            json_string(hero)?,
         )
+        .bind(hero_id)
+        .bind(name)
+        .bind(base_health)
+        .bind(archetype)
+        .bind(json_string(hero)?)
         .execute(pool)
         .await?;
         count += 1;
@@ -297,19 +297,19 @@ fn derive_archetype(base_health: i64) -> &'static str {
 
 async fn resolve_sync_hero_ids(pool: &PgPool, hero: &str) -> Result<Vec<i64>> {
     if hero.trim().eq_ignore_ascii_case("all") {
-        let ids = sqlx::query_scalar!("SELECT hero_id FROM brain.hero_catalog ORDER BY hero_id")
-            .fetch_all(pool)
-            .await?;
+        let ids =
+            sqlx::query_scalar::<_, i64>("SELECT hero_id FROM brain.hero_catalog ORDER BY hero_id")
+                .fetch_all(pool)
+                .await?;
         return Ok(ids);
     }
 
     if let Ok(hero_id) = hero.trim().parse::<i64>() {
-        let exists: Option<i64> = sqlx::query_scalar!(
-            "SELECT hero_id FROM brain.hero_catalog WHERE hero_id=$1",
-            hero_id,
-        )
-        .fetch_optional(pool)
-        .await?;
+        let exists: Option<i64> =
+            sqlx::query_scalar::<_, i64>("SELECT hero_id FROM brain.hero_catalog WHERE hero_id=$1")
+                .bind(hero_id)
+                .fetch_optional(pool)
+                .await?;
         return exists
             .map(|id| vec![id])
             .ok_or_else(|| BuildEngineError::HeroNotFound(hero.to_string()).into());
@@ -321,12 +321,11 @@ async fn resolve_sync_hero_ids(pool: &PgPool, hero: &str) -> Result<Vec<i64>> {
 }
 
 async fn hero_name(pool: &PgPool, hero_id: i64) -> Result<String> {
-    let name: Option<String> = sqlx::query_scalar!(
-        "SELECT name FROM brain.hero_catalog WHERE hero_id=$1",
-        hero_id,
-    )
-    .fetch_optional(pool)
-    .await?;
+    let name: Option<String> =
+        sqlx::query_scalar::<_, String>("SELECT name FROM brain.hero_catalog WHERE hero_id=$1")
+            .bind(hero_id)
+            .fetch_optional(pool)
+            .await?;
     name.ok_or_else(|| BuildEngineError::HeroNotFound(hero_id.to_string()).into())
 }
 
@@ -411,7 +410,7 @@ fn parse_item_stats(payload: &Value) -> Result<BTreeMap<i64, ItemStatLine>> {
 }
 
 async fn item_catalog_ids(pool: &PgPool) -> Result<BTreeSet<i64>> {
-    let ids = sqlx::query_scalar!("SELECT item_id FROM brain.item_catalog")
+    let ids = sqlx::query_scalar::<_, i64>("SELECT item_id FROM brain.item_catalog")
         .fetch_all(pool)
         .await?;
     Ok(ids.into_iter().collect())
@@ -478,7 +477,7 @@ async fn upsert_hero_item_stats(
             players: 0,
             avg_buy_time_relative: None,
         });
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO brain.hero_item_stats(
               hero_id, item_id, bracket, prevalence_builds, wins, losses, matches, players,
@@ -495,18 +494,18 @@ async fn upsert_hero_item_stats(
               lift_pp=excluded.lift_pp,
               updated_at=excluded.updated_at
             "#,
-            hero_id,
-            item_id,
-            BRACKET_BADGE_80,
-            prevalence.get(&item_id).copied().unwrap_or(0),
-            line.wins,
-            line.losses,
-            line.matches,
-            line.players,
-            line.avg_buy_time_relative,
-            lift_map.get(&item_id).copied(),
-            patch_tag,
         )
+        .bind(hero_id)
+        .bind(item_id)
+        .bind(BRACKET_BADGE_80)
+        .bind(prevalence.get(&item_id).copied().unwrap_or(0))
+        .bind(line.wins)
+        .bind(line.losses)
+        .bind(line.matches)
+        .bind(line.players)
+        .bind(line.avg_buy_time_relative)
+        .bind(lift_map.get(&item_id).copied())
+        .bind(patch_tag)
         .execute(pool)
         .await?;
         count += 1;
@@ -536,7 +535,7 @@ async fn upsert_ability_order(
         return Ok(0);
     }
 
-    sqlx::query!(
+    sqlx::query(
         r#"
         INSERT INTO brain.hero_ability_orders(
           hero_id, bracket, abilities, wins, losses, matches, players, patch_tag, updated_at
@@ -550,15 +549,15 @@ async fn upsert_ability_order(
           players=excluded.players,
           updated_at=excluded.updated_at
         "#,
-        hero_id,
-        BRACKET_BADGE_80,
-        json_string(&abilities)?,
-        value_i64(best, "wins").unwrap_or(0),
-        value_i64(best, "losses").unwrap_or(0),
-        value_i64(best, "matches").unwrap_or(0),
-        value_i64(best, "players").unwrap_or(0),
-        patch_tag,
     )
+    .bind(hero_id)
+    .bind(BRACKET_BADGE_80)
+    .bind(json_string(&abilities)?)
+    .bind(value_i64(best, "wins").unwrap_or(0))
+    .bind(value_i64(best, "losses").unwrap_or(0))
+    .bind(value_i64(best, "matches").unwrap_or(0))
+    .bind(value_i64(best, "players").unwrap_or(0))
+    .bind(patch_tag)
     .execute(pool)
     .await?;
     Ok(1)
@@ -593,7 +592,7 @@ async fn upsert_synergies(
             continue;
         }
         for (item_id, with_item_id) in [(first, second), (second, first)] {
-            sqlx::query!(
+            sqlx::query(
                 r#"
                 INSERT INTO brain.hero_item_synergies(
                   hero_id, item_id, with_item_id, wins, losses, matches, patch_tag, updated_at
@@ -605,14 +604,14 @@ async fn upsert_synergies(
                   matches=excluded.matches,
                   updated_at=excluded.updated_at
                 "#,
-                hero_id,
-                item_id,
-                with_item_id,
-                value_i64(row, "wins").unwrap_or(0),
-                value_i64(row, "losses").unwrap_or(0),
-                value_i64(row, "matches").unwrap_or(0),
-                patch_tag,
             )
+            .bind(hero_id)
+            .bind(item_id)
+            .bind(with_item_id)
+            .bind(value_i64(row, "wins").unwrap_or(0))
+            .bind(value_i64(row, "losses").unwrap_or(0))
+            .bind(value_i64(row, "matches").unwrap_or(0))
+            .bind(patch_tag)
             .execute(pool)
             .await?;
             count += 1;
