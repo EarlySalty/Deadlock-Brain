@@ -1,0 +1,31 @@
+case_id,area,scenario,expected,owner,requirements,status
+S06-T01,lexical,"Seltener exakter Entity- oder Itembegriff","Exakter berechtigter Treffer bleibt vor generischer Prosa auffindbar",06/10,R11,proposed_not_run
+S06-T02,locale,"DE/EN-Aliasse und Umlautvarianten derselben Entity","Stabile Entity-ID und dieselbe numerische Wahrheit statt doppelter Facts",05/06/10/12,R28/R34/R35,proposed_not_run
+S06-T03,code,"Codebezeichner mit Unterstrichen und seltenem Symbolnamen","Vorab gelabelte Codepassage bleibt bei festem Tokenizer auffindbar",06/10,R11/R57,proposed_not_run
+S06-T04,scope,"Nicht berechtigte interne Treffer sind semantisch relevanter als öffentliche","Keine unberechtigte Evidenz in Ergebnissen oder Modellausgaben",02/06/08/10,R06/R11,proposed_not_run
+S06-T05,ann_filter,"Restriktiver ACL-/Metadatenfilter lässt weniger als K ANN-Treffer übrig","Nur begrenzt im gleichen Scope und Release erweitern; Unterfüllung und Recall sichtbar",03/06/10,R06/R11/R19,proposed_not_run
+S06-T06,empty,"Keine berechtigte relevante Gold-Evidenz vorhanden","Abstention separat bewerten; kein erfundenes Recall=1 und kein Scope-Bypass",06/08/10,R06/R11,proposed_not_run
+S06-T07,patch_mode,"Gleichnamige Facts aus altem Patch oder anderem Mode","Nur passend gültige Revisionen verwenden; Unknown nicht als current behandeln",05/06/10/12,R32/R35,proposed_not_run
+S06-T08,release,"Lexical und Dense oder Karte und Fact stammen aus verschiedenen Releases","Inkonsistenter Mix wird nicht weitergegeben; nur freigegebener konsistenter Fallback",02/03/06/08/10,R35/R40,proposed_not_run
+S06-T09,acl_revocation,"Objektrechte werden zwischen Retrieval und Jev widerrufen","Aktuelle Prüfung stoppt Übermittlung vor Jev",02/06/07/08/10,R06,proposed_not_run
+S06-T10,acl_revocation,"Objektrechte werden nach Jev vor Antwortmodell oder Ausgabe widerrufen","Aktuelle Prüfung stoppt weitere Evidenzweitergabe und unzulässige Zitate",02/06/07/08/10,R06,proposed_not_run
+S06-T11,cache,"Cache unter alten Rechten befüllt und danach Objekt gelöscht","Cachehit umgeht weder Tombstone noch aktuelle ACL; Rollback reaktiviert nichts",02/03/06/08/10,R06/R22,proposed_not_run
+S06-T12,egress,"Nutzer darf interne Quelle lesen aber gewählter Provider nicht","Keine Query-/Dokument-/Jev-/LLM-Übermittlung an diesen Provider",02/06/07/08/10,R06/R14,proposed_not_run
+S06-T13,dedup,"Gleicher Contenthash in öffentlicher und privater Quelle","Keine Rechteverschmelzung oder Offenlegung privater Quellenreferenzen",02/03/06/10,R06/R08/R43,proposed_not_run
+S06-T14,fusion,"Ranglisten werden permutiert oder identische Treffer mehrfach geliefert","Deterministisches Ergebnis und höchstens ein RRF-Beitrag je Evidenz und Retriever",06/10,R11,proposed_not_run
+S06-T15,identity,"Gleiche Evidence-ID hat widersprüchliche Revision oder Provenienz","Konflikt sichtbar und keine stille Überschreibung oder Fusion",02/03/06/10,R08/R35/R42,proposed_not_run
+S06-T16,correlation,"Mehrere Parser oder Karten leiten dieselbe Rootquelle ab","Ableitungen gelten nicht als unabhängige Bestätigung",03/05/06/10,R30/R43,proposed_not_run
+S06-T17,graph,"Mechaniknachbar ist relevant aber gesperrt oder in falschem Release","Nachbarerweiterung prüft Rechte und Release sowie Hop-/Kandidatenlimit",05/06/10,R06/R30/R35,proposed_not_run
+S06-T18,numeric,"Numerische Frage trifft ähnliche Prosa und exakte S05-Berechnung","Berechnungswert nur mit Inputreferenzen und Einheiten aus S05; keine Kartenarithmetik",05/06/08/10,R35/R37,proposed_not_run
+S06-T19,cards,"Veraltete Hero-Karte widerspricht aktuellen gebundenen Facts","Keine Vermischung; veraltete Karte verwerfen oder explizit als ungeeignet melden",04/05/06/10/12,R32/R35/R38,proposed_not_run
+S06-T20,embedding,"Dimension gleich aber Modellrevision oder Vorverarbeitung abweichend","Kompatibilitätsprüfung lehnt gemischte Vektoren ab",02/06/07/10,R11/R17,proposed_not_run
+S06-T21,unavailable,"Vektortabellen fehlen oder Indexgeneration ist nicht lesbar","Typisierter Degradierungs-/Fehlerpfad statt Panic oder als Erfolg getarnter Leerliste",02/03/06/08/10,R11/R17,proposed_not_run
+S06-T22,budget,"Deadline oder Kandidatenbudget während Erweiterung erschöpft","Begrenztes Ende mit dokumentiertem Grund; kein endloses Nachladen",02/06/08/10,R11/R19,proposed_not_run
+S06-T23,jev,"Jev fällt aus oder liefert unbekannte beziehungsweise unzulässige Evidence-IDs","Nur erlaubte Kandidaten und geprüfter Fallback; Jev ausschaltbar",06/07/08/10,R06/R12/R20,proposed_not_run
+S06-T24,jev_retention,"Jev entfernt entscheidenden bereits gefundenen Fact","Kritischer Fall scheitert unabhängig von durchschnittlicher Retention",05/06/07/08/10,R20/R35/R37,proposed_not_run
+S06-T25,delta,"Unveränderter Text und unveränderte Modell-/Chunkerkonfiguration erneut eingespielt","Keine neuen Embeddings; derselbe Inhalts- und Konfigurationsfingerprint",03/04/06/10,R17/R38,proposed_not_run
+S06-T26,invalidation,"Fact oder Parserrevision ändert abhängige Kartenabschnitte","Nur betroffene Ableitungen revalidieren; kein unpassender Release und kein stiller Spielpatch",03/04/05/06/10/12/13,R38/R47,proposed_not_run
+S06-T27,rebuild,"Abgeleiteter Index leer oder Build stürzt vor Veröffentlichung ab","Rebuild aus gepinntem Corpus reproduzierbar; kein unvollständiger Release wird aktiv",03/04/06/10,R17/R40,proposed_not_run
+S06-T28,payload,"Rohreplay-Ticks oder vollständige Hero-Megakarte werden als Standardembeddinginput angeboten","Nur freigegebene kompakte Abschnitte indexieren; Rohartefakte bleiben außerhalb",03/04/06/10/12/14,R35/R51,proposed_not_run
+S06-T29,baseline,"Legacy-Vektorsuche fällt auf LIKE mit distance=0 zurück","Messung als Textfallback markieren und nicht als erfolgreiche Dense-Baseline zählen",01/06/10,R11/R19/R24,proposed_not_run
+S06-T30,holdout,"Korrelierte Ableitungen oder erst nach Cutoff verfügbare Quellen im Testset","Split nach Quellenfamilie beziehungsweise Match und zeitlicher Verfügbarkeit; kein Zukunftswissen",05/06/10/14,R43/R53,proposed_not_run
