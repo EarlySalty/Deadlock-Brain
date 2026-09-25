@@ -10,3 +10,9 @@ path = "src/lib.rs"
 [dependencies]
 brain-contracts = { path = "../brain-contracts" }
 brain-policy = { path = "../brain-policy" }
+serde_json.workspace = true
+
+[dev-dependencies]
+brain-storage = { path = "../brain-storage" }
+dbrain-retrieval = { path = "../dbrain-retrieval" }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

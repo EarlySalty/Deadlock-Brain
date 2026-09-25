@@ -1,5 +1,8 @@
 #![forbid(unsafe_code)]
 
+pub mod mode;
+pub use mode::{JevMode, ShadowObservation};
+
 use std::collections::BTreeSet;
 
 use serde::{

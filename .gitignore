@@ -12,6 +12,9 @@ data/youtube_audio/
 data/youtube_transcripts/
 data/gemini_profile/
 rust/target/
+# Isolated Core integration cluster and test output (never production data).
+.core-test-pg/
+.core-test-logs/
 
 .env
 

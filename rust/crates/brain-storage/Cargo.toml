@@ -11,6 +11,7 @@ path = "src/lib.rs"
 brain-contracts = { path = "../brain-contracts" }
 serde_json.workspace = true
 sqlx = { workspace = true, features = ["json"] }
+postgres = { workspace = true, features = ["with-serde_json-1"] }
 thiserror.workspace = true
 
 [dev-dependencies]

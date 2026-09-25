@@ -1,5 +1,12 @@
 #![forbid(unsafe_code)]
 
+mod local_pg_reader;
+mod memory_repository;
+mod pg_jobs;
+mod pg_release;
+pub use local_pg_reader::LocalPgReader;
+pub use memory_repository::MemoryRepository;
+
 use std::collections::BTreeMap;
 
 use brain_contracts::{ContractError, CorpusRelease, SourceRecordV2};
@@ -150,9 +157,18 @@ impl PgStore {
     }
 
     pub async fn apply(&self, record: &SourceRecordV2) -> Result<ApplyOutcome> {
-        record.validate()?;
         let mut tx = self.pool.begin().await?;
-        let lock_key = format!("{}\u{1f}{}", record.source_id, record.logical_id);
+        let outcome = Self::apply_connection(&mut tx, record).await?;
+        tx.commit().await?;
+        Ok(outcome)
+    }
+
+    pub(crate) async fn apply_connection(
+        tx: &mut sqlx::PgConnection,
+        record: &SourceRecordV2,
+    ) -> Result<ApplyOutcome> {
+        record.validate()?;
+        let lock_key = serde_json::to_string(&(&record.source_id, &record.logical_id))?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)")
             .bind(lock_key)
             .execute(&mut *tx)
@@ -173,14 +189,12 @@ impl PgStore {
             let revision: i64 = row.try_get("revision")?;
             let current_revision = revision as u64;
             if record.revision < current_revision {
-                tx.commit().await?;
                 return Ok(ApplyOutcome::IgnoredStale);
             }
             if record.revision == current_revision {
                 let current_json: serde_json::Value = row.try_get("record_json")?;
                 let current_record: SourceRecordV2 = serde_json::from_value(current_json)?;
                 if equivalent_revision(&current_record, record) {
-                    tx.commit().await?;
                     return Ok(ApplyOutcome::Unchanged);
                 }
                 return Err(StorageError::RevisionConflict {
@@ -247,8 +261,6 @@ impl PgStore {
         .bind(record_json)
         .execute(&mut *tx)
         .await?;
-
-        tx.commit().await?;
 
         Ok(if record.tombstone {
             ApplyOutcome::Tombstoned

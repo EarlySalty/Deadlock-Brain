@@ -6,6 +6,18 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub const CONTRACT_VERSION: &str = "brain.v1";
+pub mod domain;
+pub mod embedding;
+pub mod public_api;
+pub mod store;
+pub use embedding::{EmbeddingIdentity, EmbeddingOutput, EmbeddingProviderPort};
+pub use public_api::{
+    ApiErrorDetail, ApiErrorEnvelope, PublicAnswerResponse, PublicCitation, PUBLIC_API_VERSION,
+};
+pub use store::{
+    BatchReceipt, CorpusSnapshot, DocumentStorePort, Lease, SnapshotReadPort, SourceBatch,
+    SourceCheckpoint, StoreFuture,
+};
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ContractError {
@@ -21,6 +33,8 @@ pub enum ContractError {
     InvalidRevision,
     #[error("ungueltige stabile ID")]
     InvalidStableId,
+    #[error("Contract Größenlimit überschritten")]
+    LimitExceeded,
 }
 
 pub type Result<T> = std::result::Result<T, ContractError>;
@@ -61,6 +75,18 @@ impl Query {
         }
         if self.text.trim().is_empty() {
             return Err(ContractError::MissingQueryText);
+        }
+        if self.text.len() > 32_768 || self.requested_scopes.len() > 64 {
+            return Err(ContractError::LimitExceeded);
+        }
+        if [&self.request_id, &self.conversation_id]
+            .into_iter()
+            .chain(self.requested_scopes.iter())
+            .chain(self.patch.iter())
+            .chain(self.mode.iter())
+            .any(|id| id.trim().is_empty() || id.len() > 512 || id.chars().any(char::is_control))
+        {
+            return Err(ContractError::InvalidStableId);
         }
         Ok(())
     }
@@ -137,13 +163,14 @@ pub struct SourceRecordV2 {
 
 impl SourceRecordV2 {
     pub fn validate(&self) -> Result<()> {
-        if self.source_id.trim().is_empty()
-            || self.logical_id.trim().is_empty()
-            || self.content_hash.trim().is_empty()
+        if [&self.source_id, &self.logical_id, &self.content_hash]
+            .iter()
+            .any(|id| id.trim().is_empty() || id.len() > 512 || id.chars().any(char::is_control))
         {
             return Err(ContractError::InvalidStableId);
         }
-        if self.revision == 0 {
+        // The wire type is unsigned, but PostgreSQL revisions are signed BIGINTs.
+        if self.revision == 0 || self.revision > i64::MAX as u64 {
             return Err(ContractError::InvalidRevision);
         }
         Ok(())
@@ -256,6 +283,8 @@ pub struct AnswerResponse {
 #[serde(deny_unknown_fields)]
 pub struct ProviderAnswer {
     pub text: String,
+    #[serde(default)]
+    pub cited_evidence_ids: Vec<String>,
     #[serde(default)]
     pub usage: Usage,
 }
@@ -386,6 +415,29 @@ pub trait RetrievalPort: Send + Sync {
         query: &Query,
         context: &AuthorizedContext,
     ) -> std::result::Result<Vec<Evidence>, PortError>;
+
+    fn retrieve_with_usage(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+    ) -> std::result::Result<(Vec<Evidence>, Usage), PortError> {
+        self.retrieve(query, context)
+            .map(|evidence| (evidence, Usage::default()))
+    }
+
+    /// Revalidate against canonical revisions and CURRENT ACLs, including on cache hits.
+    /// The fail-closed default deliberately does not trust a provider or an old evidence pack.
+    fn validate_evidence(
+        &self,
+        _query: &Query,
+        _context: &AuthorizedContext,
+        _evidence: &[Evidence],
+        _for_provider: bool,
+    ) -> std::result::Result<(), PortError> {
+        Err(PortError::InvalidResponse(
+            "canonical evidence validation unavailable".into(),
+        ))
+    }
 }
 
 pub trait AnswerProviderPort: Send + Sync {

@@ -5,6 +5,10 @@ use brain_contracts::{
     PortError, Query, RetrievalPort, Usage, CONTRACT_VERSION,
 };
 use brain_policy::{evidence_allowed, provider_egress_allowed};
+mod cache;
+mod execution;
+mod flight;
+pub use cache::CachedKernel;
 
 pub trait AnswerKernelPort: Send + Sync {
     fn answer(&self, query: &Query, context: &AuthorizedContext) -> AnswerResponse;
@@ -42,157 +46,7 @@ where
             );
         }
 
-        let retrieved = match self.retrieval.retrieve(query, context) {
-            Ok(evidence) => evidence,
-            Err(PortError::BudgetExceeded) => {
-                return response(
-                    query,
-                    context,
-                    AnswerStatus::BudgetExceeded,
-                    "Retrieval Budget ist ausgeschöpft.",
-                    Vec::new(),
-                    Usage::default(),
-                )
-            }
-            Err(_) => {
-                return response(
-                    query,
-                    context,
-                    AnswerStatus::InsufficientEvidence,
-                    "Evidenz konnte nicht geladen werden.",
-                    Vec::new(),
-                    Usage::default(),
-                )
-            }
-        };
-
-        let had_retrieved = !retrieved.is_empty();
-        let mut evidence = retrieved
-            .into_iter()
-            .filter(|item| item.validate().is_ok())
-            .filter(|item| evidence_allowed(&context.principal, item))
-            .collect::<Vec<_>>();
-
-        if evidence.is_empty() {
-            return response(
-                query,
-                context,
-                if had_retrieved {
-                    AnswerStatus::UnauthorizedEvidence
-                } else {
-                    AnswerStatus::InsufficientEvidence
-                },
-                if had_retrieved {
-                    "Gefundene Evidenz ist für diesen Kontext nicht freigegeben."
-                } else {
-                    "Für diese Frage liegt keine ausreichende Evidenz vor."
-                },
-                Vec::new(),
-                Usage::default(),
-            );
-        }
-
-        evidence.sort_by(|left, right| {
-            right
-                .score
-                .total_cmp(&left.score)
-                .then_with(|| left.evidence_id.cmp(&right.evidence_id))
-        });
-
-        if matches!(query.profile, brain_contracts::AnswerProfile::Fact) {
-            if let Some(fact) = evidence
-                .iter()
-                .find(|item| matches!(item.kind, EvidenceKind::Fact))
-                .cloned()
-            {
-                return response(
-                    query,
-                    context,
-                    AnswerStatus::Answered,
-                    fact.content.clone(),
-                    vec![fact],
-                    Usage::default(),
-                );
-            }
-        }
-
-        if context.budget.max_network_rounds == 0 {
-            return response(
-                query,
-                context,
-                AnswerStatus::BudgetExceeded,
-                "Für diese Anfrage sind keine Modellrunden freigegeben.",
-                evidence,
-                Usage::default(),
-            );
-        }
-
-        let egress_class = if evidence
-            .iter()
-            .all(|item| matches!(item.visibility, brain_contracts::SourceVisibility::Public))
-        {
-            "public"
-        } else {
-            "internal"
-        };
-        if !provider_egress_allowed(&context.principal, egress_class) {
-            return response(
-                query,
-                context,
-                AnswerStatus::UnauthorizedEvidence,
-                "Die Evidenz darf nicht an den Antwortprovider übertragen werden.",
-                evidence,
-                Usage::default(),
-            );
-        }
-
-        let provider = match self.provider.answer(query, context, &evidence) {
-            Ok(answer) => answer,
-            Err(PortError::BudgetExceeded) => {
-                return response(
-                    query,
-                    context,
-                    AnswerStatus::BudgetExceeded,
-                    "Provider Budget ist ausgeschöpft.",
-                    evidence,
-                    Usage::default(),
-                )
-            }
-            Err(_) => {
-                return response(
-                    query,
-                    context,
-                    AnswerStatus::ProviderError,
-                    "Der Antwortprovider ist nicht verfügbar.",
-                    evidence,
-                    Usage::default(),
-                )
-            }
-        };
-
-        if provider.usage.network_rounds > context.budget.max_network_rounds
-            || provider.usage.input_tokens > context.budget.max_input_tokens as u64
-            || provider.usage.output_tokens > context.budget.max_output_tokens as u64
-            || provider.usage.cost_micros > context.budget.max_cost_micros
-        {
-            return response(
-                query,
-                context,
-                AnswerStatus::BudgetExceeded,
-                "Provider Nutzung überschreitet das freigegebene Budget.",
-                evidence,
-                provider.usage,
-            );
-        }
-
-        response(
-            query,
-            context,
-            AnswerStatus::Answered,
-            provider.text,
-            evidence,
-            provider.usage,
-        )
+        execution::answer(&self.retrieval, &self.provider, query, context)
     }
 }
 
@@ -242,6 +96,21 @@ mod tests {
         ) -> Result<Vec<Evidence>, PortError> {
             Ok(self.0.clone())
         }
+        fn validate_evidence(
+            &self,
+            _query: &Query,
+            _context: &AuthorizedContext,
+            evidence: &[Evidence],
+            _provider: bool,
+        ) -> Result<(), PortError> {
+            if evidence.iter().all(|item| self.0.contains(item)) {
+                Ok(())
+            } else {
+                Err(PortError::InvalidResponse(
+                    "fixture evidence mismatch".into(),
+                ))
+            }
+        }
     }
 
     #[derive(Clone)]
@@ -259,6 +128,10 @@ mod tests {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Ok(ProviderAnswer {
                 text: "erklärt".into(),
+                cited_evidence_ids: _evidence
+                    .iter()
+                    .map(|item| item.evidence_id.clone())
+                    .collect(),
                 usage: Usage {
                     provider: Some("fixture".into()),
                     model: Some("fixture".into()),

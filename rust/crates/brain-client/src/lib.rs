@@ -2,12 +2,13 @@
 
 use std::time::Duration;
 
-use brain_contracts::{AnswerResponse, Query};
+use brain_contracts::{PublicAnswerResponse as AnswerResponse, Query};
 use reqwest::{
     blocking::Client,
     header::{HeaderValue, AUTHORIZATION, CONTENT_TYPE},
     StatusCode,
 };
+use std::{io::Read, net::IpAddr};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -24,6 +25,12 @@ pub enum ClientError {
     InvalidQuery(String),
     #[error("Brain Antwort ist kein gültiger Contract: {0}")]
     Contract(#[from] serde_json::Error),
+    #[error("Brain Antwort verletzt den öffentlichen Contract")]
+    InvalidResponse,
+    #[error("Brain Antwort überschreitet das Größenlimit")]
+    ResponseTooLarge,
+    #[error("Brain Antwort konnte nicht vollständig gelesen werden")]
+    BodyRead(#[from] std::io::Error),
 }
 
 pub type Result<T> = std::result::Result<T, ClientError>;
@@ -47,14 +54,39 @@ impl std::fmt::Debug for BrainClient {
 
 impl BrainClient {
     pub fn new(base_url: &str, bearer_token: &str, timeout: Duration) -> Result<Self> {
-        let base_url = base_url.trim_end_matches('/').trim();
-        if !base_url.starts_with("http://") && !base_url.starts_with("https://") {
+        let base_url = base_url.trim().trim_end_matches('/');
+        let parsed = reqwest::Url::parse(base_url).map_err(|_| ClientError::InvalidBaseUrl)?;
+        let loopback = parsed.host_str().is_some_and(|h| {
+            h == "localhost"
+                || h.trim_matches(['[', ']'])
+                    .parse::<IpAddr>()
+                    .is_ok_and(|ip| ip.is_loopback())
+        });
+        if !(parsed.scheme() == "https" || (parsed.scheme() == "http" && loopback))
+            || !parsed.username().is_empty()
+            || parsed.password().is_some()
+            || parsed.query().is_some()
+            || parsed.fragment().is_some()
+            || timeout.is_zero()
+            || timeout > Duration::from_secs(60)
+        {
             return Err(ClientError::InvalidBaseUrl);
         }
-
-        let bearer = HeaderValue::from_str(&format!("Bearer {bearer_token}"))
+        if bearer_token.is_empty()
+            || bearer_token.len() > 4096
+            || bearer_token.chars().any(char::is_whitespace)
+        {
+            return Err(ClientError::InvalidToken);
+        }
+        let mut bearer = HeaderValue::from_str(&format!("Bearer {bearer_token}"))
             .map_err(|_| ClientError::InvalidToken)?;
-        let client = Client::builder().timeout(timeout).build()?;
+        bearer.set_sensitive(true);
+        let client = Client::builder()
+            .timeout(timeout)
+            .connect_timeout(timeout.min(Duration::from_secs(3)))
+            .redirect(reqwest::redirect::Policy::none())
+            .no_proxy()
+            .build()?;
         Ok(Self {
             client,
             base_url: base_url.to_string(),
@@ -76,14 +108,47 @@ impl BrainClient {
             .send()?;
 
         let status = response.status();
-        let body = response.text()?;
-        if !status.is_success() {
-            return Err(ClientError::HttpStatus {
-                status,
-                body: body.chars().take(1000).collect(),
-            });
+        const MAX_BYTES: usize = 512 * 1024;
+        if response
+            .content_length()
+            .is_some_and(|n| n > MAX_BYTES as u64)
+        {
+            return Err(ClientError::ResponseTooLarge);
         }
-        Ok(serde_json::from_str(&body)?)
+        let is_json = response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| {
+                v.split(';')
+                    .next()
+                    .is_some_and(|m| m.trim().eq_ignore_ascii_case("application/json"))
+            });
+        let mut bytes = Vec::new();
+        response
+            .take(MAX_BYTES as u64 + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() > MAX_BYTES {
+            return Err(ClientError::ResponseTooLarge);
+        }
+        if status != StatusCode::OK {
+            let code = serde_json::from_slice::<brain_contracts::ApiErrorEnvelope>(&bytes)
+                .ok()
+                .map(|e| e.error.code)
+                .filter(|code| {
+                    code.len() <= 64 && code.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                })
+                .unwrap_or_else(|| "http_error".into());
+            return Err(ClientError::HttpStatus { status, body: code });
+        }
+        if !is_json {
+            return Err(ClientError::InvalidResponse);
+        }
+        let answer: AnswerResponse = serde_json::from_slice(&bytes)?;
+        answer
+            .validate(&query.request_id)
+            .map_err(|_| ClientError::InvalidResponse)?;
+        Ok(answer)
     }
 }
 
@@ -96,7 +161,9 @@ mod tests {
         thread,
     };
 
-    use brain_contracts::{AnswerProfile, AnswerStatus, Usage, CONTRACT_VERSION};
+    use brain_contracts::{
+        AnswerProfile, AnswerStatus, PublicCitation, PUBLIC_API_VERSION as CONTRACT_VERSION,
+    };
 
     use super::*;
 
@@ -133,8 +200,10 @@ mod tests {
                 knowledge_release: "release-1".into(),
                 status: AnswerStatus::Answered,
                 text: "Antwort".into(),
-                citations: Vec::new(),
-                usage: Usage::default(),
+                citations: vec![PublicCitation {
+                    citation_id: "cite-fixture".into(),
+                    label: "Beleg 1".into(),
+                }],
             })
             .unwrap();
             write!(

@@ -12,3 +12,15 @@ brain-contracts = { path = "../brain-contracts" }
 brain-kernel = { path = "../brain-kernel" }
 brain-policy = { path = "../brain-policy" }
 serde_json.workspace = true
+sha2.workspace = true
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+tokio = { workspace = true, features = ["sync"] }
+
+[dev-dependencies]
+brain-ingestion = { path = "../brain-ingestion" }
+brain-providers = { path = "../brain-providers" }
+tempfile.workspace = true
+brain-client = { path = "../brain-client" }
+brain-storage = { path = "../brain-storage" }
+dbrain-retrieval = { path = "../dbrain-retrieval" }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

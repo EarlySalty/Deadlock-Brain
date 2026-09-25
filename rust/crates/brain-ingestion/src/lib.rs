@@ -22,6 +22,10 @@ pub enum IngestionError {
     Storage(#[from] StorageError),
     #[error("Datei liegt ausserhalb des Connector Roots: {0}")]
     OutsideRoot(PathBuf),
+    #[error("Ungültiger oder zu großer Datei-/Checkpoint-Zustand: {0}")]
+    InvalidState(String),
+    #[error(transparent)]
+    Port(#[from] brain_contracts::PortError),
 }
 
 pub type Result<T> = std::result::Result<T, IngestionError>;
@@ -37,6 +41,10 @@ pub struct FileState {
 pub struct FileCheckpoint {
     #[serde(default)]
     pub files: BTreeMap<String, FileState>,
+    #[serde(default)]
+    pub source_id: Option<String>,
+    #[serde(default)]
+    pub configuration: Option<String>,
 }
 
 impl FileCheckpoint {
@@ -88,34 +96,84 @@ impl FileConnector {
     }
 
     pub fn scan(&self, previous: &FileCheckpoint) -> Result<ScanResult> {
+        let root_meta = fs::symlink_metadata(&self.root)?;
+        if !root_meta.is_dir()
+            || root_meta.file_type().is_symlink()
+            || self.source_id.trim().is_empty()
+            || previous
+                .source_id
+                .as_ref()
+                .is_some_and(|id| id != &self.source_id)
+            || (!previous.files.is_empty() && previous.source_id.is_none())
+        {
+            return Err(IngestionError::InvalidState(
+                "source identity or root mismatch".into(),
+            ));
+        }
+        let configuration = digest(
+            serde_json::to_string(&(
+                &self.source_id,
+                fs::canonicalize(&self.root)?,
+                self.visibility,
+                &self.allowed_scopes,
+            ))?
+            .as_bytes(),
+        );
+        let same_configuration = previous.configuration.as_ref() == Some(&configuration);
         let mut paths = Vec::new();
         collect_files(&self.root, &mut paths)?;
         paths.sort();
-
+        let total_bytes: u64 = paths
+            .iter()
+            .map(fs::metadata)
+            .collect::<std::io::Result<Vec<_>>>()?
+            .iter()
+            .map(|m| m.len())
+            .sum();
+        if total_bytes > 64 * 1024 * 1024 || previous.files.len() > 10_000 {
+            return Err(IngestionError::InvalidState("scan size limit".into()));
+        }
         let mut next = previous.clone();
+        next.source_id = Some(self.source_id.clone());
+        next.configuration = Some(configuration);
         let mut seen = BTreeSet::new();
         let mut records = Vec::new();
 
         for path in paths {
             let logical_id = self.logical_id(&path)?;
             seen.insert(logical_id.clone());
-            let content = fs::read(&path)?;
+            let canonical = fs::canonicalize(&path)?;
+            if !canonical.starts_with(fs::canonicalize(&self.root)?) {
+                return Err(IngestionError::OutsideRoot(path));
+            }
+            // Open input roots owned by the feeder; do not expose this as an arbitrary-path API.
+            let file = fs::File::open(&path)?;
+            let mut content = Vec::new();
+            std::io::Read::read_to_end(
+                &mut std::io::Read::take(file, 4 * 1024 * 1024 + 1),
+                &mut content,
+            )?;
+            if content.len() > 4 * 1024 * 1024 {
+                return Err(IngestionError::InvalidState("file size limit".into()));
+            }
             let content_hash = digest(&content);
             let previous_state = previous.files.get(&logical_id);
 
-            if previous_state
-                .is_some_and(|state| !state.tombstone && state.content_hash == content_hash)
+            if same_configuration
+                && previous_state
+                    .is_some_and(|state| !state.tombstone && state.content_hash == content_hash)
             {
                 continue;
             }
 
-            let revision = previous_state.map_or(1, |state| state.revision + 1);
+            let revision = next_revision(previous_state.map_or(0, |state| state.revision))?;
             let record = SourceRecordV2 {
                 source_id: self.source_id.clone(),
                 logical_id: logical_id.clone(),
                 revision,
                 content_hash: content_hash.clone(),
-                content: String::from_utf8_lossy(&content).into_owned(),
+                content: String::from_utf8(content)
+                    .map_err(|_| IngestionError::InvalidState("file is not UTF-8".into()))?,
                 visibility: self.visibility,
                 allowed_scopes: self.allowed_scopes.clone(),
                 tombstone: false,
@@ -138,7 +196,7 @@ impl FileConnector {
             if seen.contains(logical_id) || state.tombstone {
                 continue;
             }
-            let revision = state.revision + 1;
+            let revision = next_revision(state.revision)?;
             let content_hash = digest(format!("tombstone:{logical_id}:{revision}").as_bytes());
             records.push(SourceRecordV2 {
                 source_id: self.source_id.clone(),
@@ -201,8 +259,13 @@ impl FileConnector {
 }
 
 fn collect_files(root: &Path, output: &mut Vec<PathBuf>) -> Result<()> {
-    if !root.exists() {
-        return Ok(());
+    collect_files_at(root, output, 0)
+}
+fn collect_files_at(root: &Path, output: &mut Vec<PathBuf>, depth: usize) -> Result<()> {
+    if depth > 32 {
+        return Err(IngestionError::InvalidState(
+            "directory nesting limit".into(),
+        ));
     }
     for entry in fs::read_dir(root)? {
         let entry = entry?;
@@ -211,13 +274,26 @@ fn collect_files(root: &Path, output: &mut Vec<PathBuf>) -> Result<()> {
             continue;
         }
         if file_type.is_dir() {
-            collect_files(&entry.path(), output)?;
+            collect_files_at(&entry.path(), output, depth + 1)?;
         } else if file_type.is_file() {
+            if entry.metadata()?.len() > 4 * 1024 * 1024 || output.len() >= 10_000 {
+                return Err(IngestionError::InvalidState(
+                    "file count or size limit".into(),
+                ));
+            }
             output.push(entry.path());
         }
     }
     Ok(())
 }
+fn next_revision(previous: u64) -> Result<u64> {
+    previous
+        .checked_add(1)
+        .filter(|value| *value <= i64::MAX as u64)
+        .ok_or_else(|| IngestionError::InvalidState("revision exhausted".into()))
+}
+
+mod durable;
 
 fn digest(content: &[u8]) -> String {
     hex::encode(Sha256::digest(content))

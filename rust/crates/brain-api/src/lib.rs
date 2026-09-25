@@ -3,6 +3,9 @@
 use brain_contracts::{AnswerResponse, Budget, Query};
 use brain_kernel::AnswerKernelPort;
 use brain_policy::{PolicyEngine, PolicyError};
+use sha2::{Digest, Sha256};
+mod http;
+pub use http::router;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApiResponse {
@@ -40,6 +43,15 @@ where
     }
 
     pub fn handle_answer(&self, authorization: Option<&str>, body: &[u8]) -> ApiResponse {
+        if body.len() > 64 * 1024 {
+            return json_error(413, "payload_too_large", "Request ist zu groß");
+        }
+        if self.knowledge_release.trim().is_empty()
+            || self.knowledge_release == "current"
+            || !(1..=60000).contains(&self.deadline_ms)
+        {
+            return json_error(503, "not_ready", "Kein gültiger Core-Kontext konfiguriert");
+        }
         let Some(token) = bearer_token(authorization) else {
             return json_error(401, "unauthorized", "Bearer Token fehlt oder ist ungültig");
         };
@@ -78,6 +90,15 @@ where
         };
 
         let answer = self.kernel.answer(&query, &context);
+        if answer.contract_version != brain_contracts::CONTRACT_VERSION
+            || answer.request_id != query.request_id
+            || answer.knowledge_release != context.knowledge_release
+            || answer.citations.iter().any(|e| {
+                e.validate().is_err() || !brain_policy::evidence_allowed(&context.principal, e)
+            })
+        {
+            return json_error(502, "invalid_kernel_response", "Ungültige Core-Antwort");
+        }
         answer_response(&answer)
     }
 }
@@ -92,7 +113,30 @@ fn bearer_token(header: Option<&str>) -> Option<&str> {
 }
 
 fn answer_response(answer: &AnswerResponse) -> ApiResponse {
-    match serde_json::to_string(answer) {
+    let public = brain_contracts::PublicAnswerResponse {
+        contract_version: brain_contracts::PUBLIC_API_VERSION.into(),
+        request_id: answer.request_id.clone(),
+        knowledge_release: answer.knowledge_release.clone(),
+        status: answer.status,
+        text: answer.text.clone(),
+        citations: answer
+            .citations
+            .iter()
+            .enumerate()
+            .map(|(index, item)| brain_contracts::PublicCitation {
+                citation_id: format!("cite-{:x}", Sha256::digest(item.evidence_id.as_bytes())),
+                label: format!("Beleg {}", index + 1),
+            })
+            .collect(),
+    };
+    if public.validate(&answer.request_id).is_err() {
+        return json_error(
+            502,
+            "invalid_kernel_response",
+            "Ungültige öffentliche Antwort",
+        );
+    }
+    match serde_json::to_string(&public) {
         Ok(body) => ApiResponse {
             status: 200,
             content_type: "application/json",
@@ -152,7 +196,19 @@ mod tests {
                 knowledge_release: context.knowledge_release.clone(),
                 status: AnswerStatus::Answered,
                 text: "Antwort".into(),
-                citations: Vec::new(),
+                citations: vec![brain_contracts::Evidence {
+                    evidence_id: "fixture-evidence".into(),
+                    source_id: "private-source-path".into(),
+                    logical_id: "internal-id".into(),
+                    revision: 1,
+                    kind: brain_contracts::EvidenceKind::Fact,
+                    content: "fixture content".into(),
+                    citation: "internal:fixture".into(),
+                    visibility: brain_contracts::SourceVisibility::Public,
+                    allowed_scopes: BTreeSet::new(),
+                    score: 1.0,
+                    patch: None,
+                }],
                 usage: Usage::default(),
             }
         }
@@ -200,7 +256,13 @@ mod tests {
         );
 
         assert_eq!(response.status, 200);
-        let answer: AnswerResponse = serde_json::from_str(&response.body).unwrap();
+        let answer: brain_contracts::PublicAnswerResponse =
+            serde_json::from_str(&response.body).unwrap();
+        assert!(!response.body.contains("private-source-path"));
+        assert!(!response.body.contains("internal-id"));
+        assert!(!response.body.contains("fixture content"));
+        assert!(!response.body.contains("allowed_scopes"));
+        answer.validate("request-1").unwrap();
         assert_eq!(answer.status, AnswerStatus::Answered);
         assert_eq!(answer.knowledge_release, "release-1");
         assert_eq!(calls.load(Ordering::SeqCst), 1);

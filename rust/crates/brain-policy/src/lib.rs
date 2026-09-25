@@ -89,6 +89,9 @@ impl CredentialRegistry {
     }
 
     pub fn authenticate(&self, token: &str) -> Result<Principal> {
+        if token.is_empty() || token.len() > 4096 || token.chars().any(char::is_whitespace) {
+            return Err(PolicyError::InvalidCredentials);
+        }
         self.grants
             .iter()
             .find(|grant| grant.matches(token))
@@ -97,10 +100,11 @@ impl CredentialRegistry {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct PolicyEngine {
     credentials: CredentialRegistry,
     conversation_owners: Arc<Mutex<HashMap<String, String>>>,
+    ownership_store: Option<Arc<dyn brain_contracts::store::ConversationOwnershipPort>>,
 }
 
 impl PolicyEngine {
@@ -108,7 +112,17 @@ impl PolicyEngine {
         Self {
             credentials,
             conversation_owners: Arc::new(Mutex::new(HashMap::new())),
+            ownership_store: None,
         }
+    }
+
+    pub fn with_ownership_store(
+        credentials: CredentialRegistry,
+        store: Arc<dyn brain_contracts::store::ConversationOwnershipPort>,
+    ) -> Self {
+        let mut engine = Self::new(credentials);
+        engine.ownership_store = Some(store);
+        engine
     }
 
     pub fn authorize_query(
@@ -119,24 +133,43 @@ impl PolicyEngine {
         deadline_ms: u64,
         budget: Budget,
     ) -> Result<AuthorizedContext> {
-        let principal = self.credentials.authenticate(bearer_token)?;
+        let mut principal = self.credentials.authenticate(bearer_token)?;
         for requested in &query.requested_scopes {
             if !principal.scopes.contains(requested) {
                 return Err(PolicyError::ScopeDenied(requested.clone()));
             }
         }
 
-        let mut owners = self
-            .conversation_owners
-            .lock()
-            .map_err(|_| PolicyError::StatePoisoned)?;
-        match owners.get(&query.conversation_id) {
-            Some(owner) if owner != &principal.actor_id => {
-                return Err(PolicyError::ConversationOwnerMismatch);
-            }
-            Some(_) => {}
-            None => {
-                owners.insert(query.conversation_id.clone(), principal.actor_id.clone());
+        // An explicit scope selection narrows the authenticated grant; it never widens it.
+        if !query.requested_scopes.is_empty() {
+            principal.scopes = query.requested_scopes.clone();
+        }
+
+        if let Some(store) = &self.ownership_store {
+            store
+                .claim_conversation(&query.conversation_id, &principal.actor_id)
+                .map_err(|error| match error {
+                    brain_contracts::PortError::InvalidResponse(_) => {
+                        PolicyError::ConversationOwnerMismatch
+                    }
+                    _ => PolicyError::StatePoisoned,
+                })?;
+        } else {
+            let mut owners = self
+                .conversation_owners
+                .lock()
+                .map_err(|_| PolicyError::StatePoisoned)?;
+            match owners.get(&query.conversation_id) {
+                Some(owner) if owner != &principal.actor_id => {
+                    return Err(PolicyError::ConversationOwnerMismatch)
+                }
+                Some(_) => {}
+                None => {
+                    if owners.len() >= 65536 {
+                        return Err(PolicyError::StatePoisoned);
+                    }
+                    owners.insert(query.conversation_id.clone(), principal.actor_id.clone());
+                }
             }
         }
 
@@ -151,16 +184,8 @@ impl PolicyEngine {
 }
 
 pub fn evidence_allowed(principal: &Principal, evidence: &Evidence) -> bool {
-    match evidence.visibility {
-        SourceVisibility::Public => true,
-        SourceVisibility::Internal | SourceVisibility::Private => {
-            !evidence.allowed_scopes.is_empty()
-                && evidence
-                    .allowed_scopes
-                    .iter()
-                    .all(|scope| principal.scopes.contains(scope))
-        }
-    }
+    (evidence.visibility == SourceVisibility::Public || !evidence.allowed_scopes.is_empty())
+        && evidence.allowed_scopes.is_subset(&principal.scopes)
 }
 
 pub fn provider_egress_allowed(principal: &Principal, egress_class: &str) -> bool {

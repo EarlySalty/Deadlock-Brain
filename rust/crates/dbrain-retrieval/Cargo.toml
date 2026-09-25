@@ -20,5 +20,6 @@ sqlx = { workspace = true, features = ["json", "chrono"] }
 thiserror.workspace = true
 
 [dev-dependencies]
+brain-storage = { path = "../brain-storage" }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "process", "io-util"] }

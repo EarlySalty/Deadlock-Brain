@@ -1,0 +1,17 @@
+{
+  "model": "fixture-jev-model-not-for-live",
+  "state": {
+    "question": "Welche Farbe ist für Objekt Alpha angegeben?",
+    "evidence": "Im erfundenen Testdatensatz hat Objekt Alpha die Farbe Blau."
+  },
+  "questions": {
+    "answerability": {
+      "type": "noul",
+      "instructions": "Ist die Frage allein mit der vorgelegten erlaubten Evidenz beantwortbar?",
+      "criteria": {
+        "true": "Die benötigte Aussage ist belegt",
+        "false": "Wesentliche Belege fehlen"
+      }
+    }
+  }
+}

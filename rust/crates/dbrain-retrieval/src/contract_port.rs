@@ -98,14 +98,8 @@ impl RetrievalPort for LexicalRetriever {
 }
 
 fn record_allowed(record: &SourceRecordV2, scopes: &BTreeSet<String>) -> bool {
-    if matches!(record.visibility, SourceVisibility::Public) {
-        return true;
-    }
-    !record.allowed_scopes.is_empty()
-        && record
-            .allowed_scopes
-            .iter()
-            .all(|required| scopes.contains(required))
+    (record.visibility == SourceVisibility::Public || !record.allowed_scopes.is_empty())
+        && record.allowed_scopes.is_subset(scopes)
 }
 
 fn patch_allowed(record: &SourceRecordV2, requested_patch: Option<&str>) -> bool {
