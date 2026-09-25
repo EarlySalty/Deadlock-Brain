@@ -185,6 +185,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "brain-contracts"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -554,10 +563,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "dbrain-s12-wiki-probe"
+version = "0.1.0"
+dependencies = [
+ "brain-contracts",
+ "chrono",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "dbrain-sources"
 version = "0.1.0"
 dependencies = [
  "dbrain-normalize",
+ "dbrain-s12-wiki-probe",
  "deadlock-brain-core",
  "regex",
  "roxmltree",

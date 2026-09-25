@@ -8,6 +8,7 @@ name = "dbrain_sources"
 path = "src/lib.rs"
 
 [dependencies]
+dbrain-s12-wiki-probe = { path = "../../../architecture/migration/s12" }
 deadlock-brain-core = { path = "../deadlock-brain-core" }
 regex.workspace = true
 roxmltree.workspace = true
