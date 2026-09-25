@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import shlex
@@ -10,7 +11,13 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, unquote, urlparse
 
-from mcp.server import FastMCP
+try:
+    from mcp.server import FastMCP
+except ImportError:
+    try:
+        from mcp.server.fastmcp import FastMCP
+    except ImportError:
+        from mcp.server import MCPServer as FastMCP
 
 
 SECRET_LOADER = Path("/home/naniadm/Documents/Infisical/export_claude_secret.py")
@@ -35,7 +42,8 @@ mcp = FastMCP(
     "dl-brain",
     instructions=(
         "Stellt die zentrale Postgres-Patch-Historie aus brain.patch_changes "
-        "als read-only Tools bereit."
+        "als read-only Tools bereit. Für historische Änderungsfragen change_lookup "
+        "mit Originalquellen nutzen. patch_insight liefert eigene Hypothesen, keine Spieldaten."
     ),
 )
 
@@ -67,7 +75,8 @@ def _load_dsn_once() -> tuple[str | None, str | None]:
     return None, f"{SECRET_NAME} konnte nicht geladen werden."
 
 
-_DSN, _DSN_ERROR = _load_dsn_once()
+_DSN: str | None = None
+_DSN_ERROR: str | None = None
 
 
 def _limit(value: int, default: int, cap: int) -> int:
@@ -95,6 +104,11 @@ def _require_date(value: str) -> str:
 
 
 def _query_rows(sql: str, variables: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    global _DSN, _DSN_ERROR
+    if not _DSN:
+        _DSN = os.environ.get(SECRET_NAME)
+        if not _DSN:
+            _DSN, _DSN_ERROR = _load_dsn_once()
     if not _DSN:
         raise RuntimeError(f"Datenbank-Verbindung nicht verfuegbar: {_DSN_ERROR}")
 
@@ -287,6 +301,16 @@ def entity_summary(entity: str) -> dict[str, Any]:
     """
     rows = _query_rows(sql, variables)
     return rows[0]
+
+
+_history_spec = importlib.util.spec_from_file_location(
+    "dl_brain_history_tools", Path(__file__).with_name("history_tools.py")
+)
+if _history_spec is None or _history_spec.loader is None:
+    raise RuntimeError("Historische Brain-Tools konnten nicht geladen werden.")
+_history_module = importlib.util.module_from_spec(_history_spec)
+_history_spec.loader.exec_module(_history_module)
+_history_module.register_tools(mcp, lambda sql, variables: _query_rows(sql, variables))
 
 
 if __name__ == "__main__":
