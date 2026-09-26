@@ -71,7 +71,10 @@ fn fields(evidence: &Evidence) -> Vec<Vec<String>> {
     for line in evidence.content.lines() {
         if let Some((key, _)) = line.split_once(':') {
             let key = key.trim();
-            if !matches!(key.to_ascii_lowercase().as_str(), "aliases" | "alias") {
+            if !matches!(
+                key.to_ascii_lowercase().as_str(),
+                "aliases" | "alias" | "hero" | "item" | "entity"
+            ) {
                 keys.push(words(key));
             }
         }
@@ -185,6 +188,7 @@ mod tests {
         assert!(select(&query("Abrams armor"), &evidence).is_none());
         assert!(select(&query("Seven health"), &evidence).is_none());
         assert!(select(&query("Abrams"), &evidence).is_none());
+        assert!(select(&query("Abrams hero"), &evidence).is_none());
         assert!(select(&query("unrelated health"), &evidence).is_none());
         assert!(select(&query("Abrams health 650"), &evidence).is_some());
     }
