@@ -129,11 +129,35 @@ fn entity_documents_sort_metadata_and_reject_duplicates() {
     let mut spoofed_source = entity(3, "Seven");
     spoofed_source.metadata = serde_json::json!({"Source": "other"});
     assert!(entity_documents(&[spoofed_source]).is_err());
+    let mut spoofed_alias = entity(3, "Seven");
+    spoofed_alias.metadata = serde_json::json!({"Aliases:": "Warden"});
+    assert!(entity_documents(&[spoofed_alias]).is_err());
+    let mut spaced_alias = entity(3, "Seven");
+    spaced_alias.metadata = serde_json::json!({"Aliases :": "Warden"});
+    assert!(entity_documents(&[spaced_alias]).is_err());
+    let mut double_colon_alias = entity(3, "Seven");
+    double_colon_alias.metadata = serde_json::json!({"Aliases::": "Warden"});
+    assert!(entity_documents(&[double_colon_alias]).is_err());
+    let mut spoofed_external = entity(3, "Seven");
+    spoofed_external.metadata = serde_json::json!({"External\tID": "hero_25"});
+    assert!(entity_documents(&[spoofed_external]).is_err());
     let mut spoofed_name = entity(3, "Seven");
     spoofed_name.metadata = serde_json::json!({"hero": "Warden"});
     let imported = entity_documents(&[spoofed_name]).unwrap();
     assert!(imported.documents[0].content.starts_with("hero: Seven\n"));
     assert!(!imported.documents[0].content.contains("hero: Warden"));
+    let mut spoofed_colon_name = entity(3, "Seven");
+    spoofed_colon_name.metadata = serde_json::json!({"hero :": "Warden"});
+    assert!(
+        !entity_documents(&[spoofed_colon_name]).unwrap().documents[0]
+            .content
+            .contains("hero :")
+    );
+    let mut unrelated_colon = entity(3, "Seven");
+    unrelated_colon.metadata = serde_json::json!({"other: hero": "Warden"});
+    assert!(!entity_documents(&[unrelated_colon]).unwrap().documents[0]
+        .content
+        .contains("other: hero"));
     let mut historical = entity(3, "Seven");
     historical.metadata = serde_json::json!({"hero": 25});
     assert!(!entity_documents(&[historical]).unwrap().documents[0]

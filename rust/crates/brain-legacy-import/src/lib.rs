@@ -325,7 +325,13 @@ pub fn entity_documents(rows: &[EntityRow]) -> Result<LegacySource> {
         if let serde_json::Value::Object(map) = &row.metadata {
             let sorted: BTreeMap<_, _> = map.iter().collect();
             for (key, value) in sorted {
-                let normalized_key = key.trim().to_ascii_lowercase();
+                let rendered_key = clean(key);
+                let normalized_key = rendered_key
+                    .split(':')
+                    .next()
+                    .unwrap_or_default()
+                    .trim()
+                    .to_ascii_lowercase();
                 if ["external id", "source", "aliases", "alias"].contains(&normalized_key.as_str())
                 {
                     return Err(invalid(format!(
@@ -337,8 +343,11 @@ pub fn entity_documents(rows: &[EntityRow]) -> Result<LegacySource> {
                 if ["hero", "item", "entity"].contains(&normalized_key.as_str()) {
                     continue;
                 }
+                if rendered_key.contains(':') {
+                    continue;
+                }
                 if let Some(value) = metadata_value(value) {
-                    content.push_str(&format!("{}: {value}\n", clean(key)));
+                    content.push_str(&format!("{rendered_key}: {value}\n"));
                 }
             }
         }
