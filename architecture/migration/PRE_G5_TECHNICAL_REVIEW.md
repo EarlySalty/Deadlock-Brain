@@ -221,3 +221,108 @@ PRODUCTION_CUTOVER_READY: NEIN
 Erläuterung zu den JA-Markern der Verträge: `LEGACY_CORE_MIGRATION_READY` bedeutet, dass der Importpfad für die Kategorie-1-Daten deterministisch, idempotent und an echten Daten belegt ist; der Import in die produktive DB `brain` ist G5. `STEAM_PUBLISH_CONTRACT_READY` und `BOT_INGEST_CONTRACT_READY` beziehen sich auf Vertrag, Client beziehungsweise Adapter und Fixture-Transport; die Provider-Seite des Steam-Bots und die Abschaltung des Bot-Writers stehen in Abschnitt 12.
 
 `TECHNICALLY_READY_FOR_G5_REVIEW: NEIN` ist keine G5-Entscheidung und löst weder Merge noch Deploy aus.
+
+## Nachtrag vom 26.09.2026: Fortsetzung vor G5
+
+Dieser Nachtrag bewertet die Fortsetzung nach PR #51. Die Abschnitte davor dokumentieren den damaligen geprüften Stand; ihre Testzahlen gelten nicht automatisch für spätere Feature-Branches. PR #51 war vollständig grün. Der zuvor lose Commit `44b5a5981e0dcd0b39000f2d3c3812af2b4eeb71` wurde auf `integration/pre-g5-followup-20260926` erhalten. [PR #52](https://github.com/EarlySalty/Deadlock-Brain/pull/52) wurde mit vollständig grüner CI ausschließlich nach `migration/rust-integration` integriert; der Merge-Commit ist `6391c2ab0a33c6a043a42c8a587d38d8dbb57986`. Er ergänzt das echte Tombstone-Skript, eine Patchnotes-Provider-Fixture und den Brain-Feeds-Contracttest. Der belegte Ausgangsbestand hatte 1 253 Dokumente; Entfernung erzeugte je einen Tombstone für `legacy-entities` und `legacy-patchnotes`, eine Wiederholung null neue Records. Eine leere Entity-Quelle brach ohne Massentombstones ab.
+
+Das Tombstone-Skript ist auf PR #52 inzwischen mit Commit `97333f6` auf einen eigenen PostgreSQL-16-Wegwerfcluster über einen privaten Unix-Socket umgestellt. Es liest nur den vorhandenen Legacy-Dump; der produktive PostgreSQL-Dienst, Infisical, Passwort- und DSN-Umgebungsvariablen werden nicht benutzt. Ein neuer Echtlauf bestand T1–T5 erneut: 1 253 Basisdokumente, je ein Entity- und Patch-Tombstone, Wiederholung 0/0, leere Entity-Quelle aus dem erwarteten Grund fail-closed, Heads unverändert und Herkunft ohne Mismatch. Cluster und temporäre Dateien wurden aufgeräumt. Shell-Syntax, Diff-Prüfung und ShellCheck (abzüglich eines Trap-Fehlalarms SC2317) waren grün.
+
+### Sheet-Tabellen und Kernpfad
+
+| Tabelle | Entscheidung für V1 | Kernanbindung |
+|---|---|---|
+| `sheet_items` | Cache/Spiegel von Item-ID und Namen aus `raw_items_and_abilities`; kanonisch sind Assets-API-Items | Durch `/v1/assets/items` ersetzt; kein Sheet-Import |
+| `sheet_tab_rows` | Untypisierte Zeilen auch aus Scratchpad/Calculators | Historisch/deferred; kein Bulk-Import |
+| `sheet_raw_heroes` | Spiegel von Helden-ID, Namen, Status und Grundwerten aus `raw_hero_data` | Durch `/v1/assets/heroes` ersetzt; kein Sheet-Import |
+| `sheet_heroes_stats` | Abgeleiteter Sheet-Cache für HP, DPS, Feuerrate, Munition, Growth und Falloff | Durch typisierte Assets-API-Heldenfakten ersetzen; kein Sheet-Import |
+| `sheet_boons_ap` | Sheet-exklusive Souls-zu-Boon/AP-Reihe ohne belegten V1-Core-Leser | Historisch/deferred; kein V1-Import |
+| `sheet_hero_rankings` | Subjektive Community-Wertungen wie Carry und Support | Historisch/deferred; kein kanonischer Spielwert |
+| `sheet_shop_bonuses` | Sheet-exklusive Souls-Kosten-zu-Bonus-Reihe ohne belegten V1-Core-Leser | Historisch/deferred; kein V1-Import |
+
+Damit ist keine pauschale Migration der sieben Tabellen gerechtfertigt. Kein Sheet-exklusiver Fakt ist als erforderlicher V1-Core-Fakt belegt; `brain_legacy` bleibt keine Laufzeitquelle. Der vorhandene Assets-Adapter serialisiert allerdings nur skalare Top-Level-Felder und lässt verschachtelte Heldenwerte wie `starting_stats.max_health.value` aus. Ein begrenzter, typisierter Nested-Field-Adapter mit API-Provenienz ist nötig, bevor HP und andere kanonische Heldenfakten im Core als bereit gelten. Ein später gewünschter Economy-Fakt braucht einen eigenen typisierten Quellenvertrag statt eines Imports aus `sheet_tab_rows`.
+
+### Match, Meta, Population und YouTube
+
+- Match — **A (Core-Ingest)**: konkrete Match-Metadaten und zitierbare Demo-Evidenz als `SourceRecordV2` aus der Deadlock API, mit Account-Scope für personenbezogene Werte. Eine interaktive Abfrage beliebiger aktueller Spieler-Matches ist ein eigener späterer Runtime-Pfad, kein Ersatz für den V1-Faktenimport. Brain erhält weder `DEADLOCK_CENTRAL_DSN` noch eine direkte ClickHouse-Verbindung.
+- Meta — **B (Runtime-Lookup)**: zeitabhängige Aggregation aus der vorhandenen Deadlock-API-Analytics, begrenzt nach Patch, Zeitfenster und Umfang und mit Provenienz. Eingefrorene, ausdrücklich als Release-Fakt benötigte Aggregate wären ein späterer separater Import.
+- Population — **B (Runtime-Lookup)**: aktuelle Raten und Aggregationen aus derselben Deadlock-API-Analytics, begrenzt und mit Provenienz; keine zweite ClickHouse-Instanz und kein neuer Brain-DB-Pfad.
+- YouTube: Für V1 ist kein technisch zwingender Kern-Fakt belegt. Transkripte bleiben deferred, bis der Betreiber Scope, Lizenz und Aufbewahrung entscheidet. Es gibt keinen Legacy-Fallback.
+
+Diese Pfadentscheidungen sind technisch dokumentiert, aber noch nicht vollständig implementiert oder gegen die betreffenden API-Antworten geprüft. Deshalb bleibt `MATCH_META_PATH_READY` vorerst `NEIN`.
+
+### Providerprüfung nach PR #51
+
+Der Patchnotes-Export auf [PR #49](https://github.com/EarlySalty/Deadlock--Patchnotes-Bot/pull/49) implementiert `brain.feed.patchnotes.v1`. Der semantische Abgleich mit der Brain-Fixture bestätigte Feldform, Hash-Bindung, Größen- und Mengenlimits, HTTPS-URL, Duplikat- und Unknown-Field-Ablehnung sowie die deterministische Post-Reihenfolge. Die Prüfung fand zwei Randfehler: Ein übergroßer Rohpost oder mehr als 5 000 Posts wurden als HTTP 500 statt 413 beantwortet; reine Änderungen an Titel, URL oder Veröffentlichungszeit änderten die `source_revision` nicht. Die Korrektur liegt als Commit `77c89fa` auf dem Provider-Branch; lokal bestanden 103 `unittest`-Tests sowie 181 `pytest`-Tests und 30 Untertests. Vor dem produktiven Einsatz bleibt der Auth- und Config-Pfad mit der Workspace-Regel „Secrets aus Infisical, normale Config-Datei für den Rest, keine Environment-Variablen für Config“ abzugleichen. Ein direkter Infisical-Pfad wurde ohne etabliertes Muster nicht als Nebeninfrastruktur erfunden.
+
+Der spätere PR-Head `41f26e9` bereinigt Imports und Formatierung; Ruff-Check, Ruff-Formatprüfung und lokale Tests bestanden erneut. Der unabhängige Python-Review bestätigte die Contract-Implementierung, aber nicht die Betriebsbereitschaft des eigenständigen Servers ohne Infisical-Bootstrap. Der Selbst-Review-Gate lief in ein Grok-Timeout und lieferte keinen Codebefund.
+
+GitGuardian war auf dem Ausgangs-PR grün. Die roten Security-CI-Jobs belegen derzeit keinen Codefehler: GitHub meldete `runner_id=0` und `steps=[]` und annotierte einen Abrechnungs- beziehungsweise Spending-Limit-Blocker. Ein vollständiger CI-Grün-Nachweis für den Provider fehlt damit.
+
+Nach der Provider-Korrektur wurde die Brain-Fixture auf die metadatengebundene `source_revision` und daraus folgende `export_revision` gebracht. Commit `c96575b` auf PR #52 prüft die beiden Revisionen rechnerisch gegen die Provider-Kanonisierung. `cargo test --locked --offline -p brain-feeds` bestand mit der verfügbaren modernen Rust-Toolchain (6 Tests); die CI auf dem neuen PR-Head läuft separat.
+
+### Fakten-Relevanz und Nachweisgrenze
+
+Der Fakten-Relevanz-Fix liegt separat als `cbb270cc6bfdcce5feabc996095818dc9d005b3a` auf `feat/pre-g5-fact-relevance-20260926`. Fokussierte Kernel-Tests und Clippy mit `-D warnings` waren lokal grün. Der Default-Pilot-E2E nutzt das Explain-Profil; dessen alter 18/18-Nachweis prüft die neue Faktenentscheidung daher nicht. Der Legacy-Echtrelease und die vollständigen Skript-Suiten sind auf diesem Commit noch nicht neu belegt.
+
+Die nachfolgenden Fix-Commits `81dc89e`, `efa782c` und `9b8c79a` schließen die im unabhängigen Intent-Review gefundenen Fälle: Identitätszeilen sind keine Faktenfelder; Kernel und Release-Retrieval teilen die deutsche Wortnormalisierung; Semikolon-Aliase werden erkannt; patchneutrale Records bleiben bei passendem Release verwendbar, ausdrücklich falsche Patches und Modi gesperrt. Alias-Mehrdeutigkeit wird über alle für diese Anfrage zulässigen Release-Records statt nur über die Top-Treffer geprüft, einschließlich aktueller Head-Rechte und Revokes. Der unabhängige Review bewertet den stabilen Release-/Head-Zustand mit **JA**. Bei einer gleichzeitigen Rechtefreigabe zwischen zwei Head-Lesevorgängen bleibt eine Race-Möglichkeit; sie ist als Restgrenze vermerkt.
+
+Auf `9b8c79a` bestanden `cargo fmt --all -- --check`, Workspace-Clippy mit `-D warnings`, `cargo test --workspace --locked --offline` und `cargo build --workspace --release --locked --offline` mit der im Repo gepinnten Rust-Version 1.97.1. Das sind Code- und Fixture-Nachweise, keine Wiederholung des Default-E2E oder der Last gegen die getrennte Brain-PG.
+
+Konkreter Grund für die weiterhin ausgelassenen Pilot-, E2E- und Last-Echtläufe: `run_isolated_pilot.sh` und `run_isolated_legacy_import.sh` exportieren DB-Passwörter als Environment-Variablen; `test_brain_serve.sh` setzt Environment-Konfiguration für den Testprozess. Die Workspace-Startanweisung verbietet Environment-Variablen für Config und Secrets im Klartext. Das Tombstone-Skript in PR #52 nutzt diesen Pfad seit `97333f6` nicht mehr und ist erneut real gelaufen; der historische Komplettimport aus Abschnitt 3 ist kein erneuter Lauf des neuen Fakten-Commits. Vor einer vollständigen Wiederholung der anderen Skripte ist ein zulässiger Secret-/Config-Transport nötig.
+
+### Steam-Publish-Provider
+
+[Steam-PR #73](https://github.com/EarlySalty/Deadlock-Steam-Bot/pull/73) auf `feat/brain-build-publish-provider-20260926` sichert den zuvor uncommitteten Arbeitsstand und implementiert die zwei Endpunkte für `brain.build_publish.v1`. Der vorgesehene persistente Schlüssel `request_id` wird in derselben PostgreSQL-Transaktion wie `steam_task` angelegt. Ein Unique Constraint ist in der separaten [Schema-PR #461](https://github.com/EarlySalty/Deadlock-Bots/pull/461) enthalten; diese Migration muss vor jeder späteren Provider-Aktivierung angewendet werden. Der Task-Pfad wurde auf `BUILD_PUBLISH_ORIGINAL` korrigiert, damit der Inline-Build-Payload verarbeitet wird, und die `hero_build_id` wird aus dem tatsächlichen Ergebnis gelesen. Es wurde kein Build publiziert.
+
+Die 11 fokussierten HTTP-Contracttests, Formatprüfung und Clippy waren lokal grün. Der exakte vollständige Steam-Testbefehl kompiliert, scheitert aber in 38 bestehenden DB-Tests ohne `CENTRAL_TEST_DSN`. Der Test-Runner bietet dafür nur Environment-Konfiguration; ein solcher Lauf verstieße gegen die Workspace-Regel. Die Race- und Restart-Transaktion ist daher bisher nur mit einem Store-Fixture, nicht gegen eine echte PostgreSQL-Testinstanz belegt. Die GitHub-Actions-Jobs zu PR #73 wurden mit `runner_id=0` und `steps=[]` wegen Billing nicht gestartet; GitGuardian war grün. Persistente Idempotenz ist implementiert, aber die vollständige Test-Abnahme bleibt offen.
+
+Nach unabhängiger Kritik wurde PR #73 mit Commit `42df79c` korrigiert: `updated_at` stammt nun vom gespeicherten `steam_task`-Zustand und ändert sich nicht bei bloßem GET. Ein zusätzlicher ignorierter HTTP-Integrationstest wurde in einer isolierten lokalen PostgreSQL-Datenbank mit Peer-Authentifizierung und normaler Config-Datei tatsächlich ausgeführt: zwei parallele identische POSTs ergaben genau einen Task, ein neu aufgebauter Provider-State konnte den Status lesen, queued/running/succeeded behielten stabile Zeitstempel, ein Payload-Konflikt erzeugte keinen Task. Die Wegwerf-Datenbank und ihre secretfreie Config wurden danach entfernt. Der unabhängige Nachreview fand keinen weiteren Codeblocker; die volle Alt-Suite und GitHub-CI bleiben aus den genannten Gründen ohne Grün-Nachweis. Eine Aktivierung würde zuerst Schema-PR #461 und den zentralen Migrator erfordern und ist hier ausdrücklich nicht erfolgt.
+
+### Gemeinsame Fakten- und Assets-Integration
+
+[PR #53](https://github.com/EarlySalty/Deadlock-Brain/pull/53) und [PR #54](https://github.com/EarlySalty/Deadlock-Brain/pull/54) wurden auf `migration/rust-integration` umgestellt und gemeinsam mit dem neuen Ende-zu-Ende-Test in [PR #55](https://github.com/EarlySalty/Deadlock-Brain/pull/55) geprüft. Der zusammengesetzte Diff verankert Fakten an Entity/Alias und das konkret angefragte Feld. Releaseweite Alias-Mehrdeutigkeit berücksichtigt aktuelle Heads und Rechte. Legacy- und Assets-Heldendokumente teilen nur bei gleicher externer Helden-ID **und** gleichem kanonischem Namen eine Identität. Legacy-Quelle und -ID stammen aus strukturierten Import-Metadaten statt aus frei ergänzbaren Content-Zeilen. Doppelte externe IDs und reservierte Quell-/ID-/Alias-Schlüssel werden abgewiesen; historische numerische `hero`-Metadaten erzeugen keine Namenszeile. Parser-Revision v2 erzwingt die neue Ableitung auch bei vorhandenen Checkpoints. Widersprüchliche Aussagen zum selben Feld werden auch bei einem konfigurierten Retrieval-Limit von eins nicht beantwortet. Ein längerer Feldname wie „max health“ hat Vorrang vor einem nur teilweise passenden „health“; eine angefragte Zahl muss zum Wert dieser Feldzeile gehören. Der typisierte Assets-`fact_key` ist eindeutig an die Wertzeile gebunden.
+
+Der Assets-Feed erhält fünf erforderliche numerische `starting_stats`-Felder als eigene Core-Records. Die Provenienz zeigt über JSON-Pointer auf den tatsächlich erfassten API-Antwortkörper; Tests dereferenzieren die Pointer und prüfen auch umsortierte Helden. Ein kombinierter Release-Kernel-Test schickt die Assets-Fixture und einen realistisch identifizierten Legacy-Helden durch Speicherung, Retrieval und Faktenantwort. Getestet sind richtige und falsche Entity, Feld, Alias, Patch, Modus, Zahl, Provenienz sowie gleichfeldige Legacy/Assets-Konflikte. Der unabhängige fachliche Review und der abschließende unabhängige Bug-/Security-Nachreview gaben auf dem gemeinsamen Code **JA**. Der automatische `gate_hook.py --review` lieferte auf dem gemeinsamen Diff wegen eines Grok-Rate-Limits keinen Codebefund; der unabhängige Nachreview deckte diesen fehlenden Codebefund ab.
+
+Die lokalen gezielten Tests für `brain-contracts`, `brain-legacy-import`, `brain-feeds`, `brain-kernel` und `dbrain-retrieval` bestanden auf dem Integrations-Head `8f247b0` mit Rust 1.97.1. Der abschließende Head `05f5231` schließt zudem den über frei benannte Metadaten-Schlüssel möglichen Alias-Bypass; der unabhängige Bug- und Security-Nachreview gab dafür **JA**. Der echte Tombstone-Test lief auf `05f5231` erneut am vorhandenen Dump in einem isolierten PostgreSQL-16-Cluster: 1 253 Basisdokumente; je ein Entity- und Patch-Tombstone; Wiederholung 0/0; leere Entity-Quelle fail-closed mit 1 253 unveränderten Heads; Herkunftsprüfungen ohne Fehler. Auf diesem finalen Head sind `cargo fmt --all -- --check`, Workspace-Clippy mit `-D warnings`, `cargo test --workspace --locked --offline` und `cargo build --workspace --release --locked --offline` grün. Die GitHub-CI war vollständig grün. Der C1-Job führte mit einem echten `brain-serve`-Prozess gegen Wegwerf-PostgreSQL je 600 Requests bei 8, 16 und 32 Workern aus: jeweils 600 beantwortet, null Client-Fehler, jeweils vier beobachtete Reader-Verbindungen; kein „too many clients“. PR #55 wurde ausschließlich nach `migration/rust-integration` integriert; Merge-Commit `ee4889eae837ebe40ca06543e326824b915ace27`. Die DB-/Serve-/Wiki-Spezialskripte wurden nicht lokal wiederholt, weil ihre bestehende Laufzeitkonfiguration über Environment-Variablen der Workspace-Regel widerspricht. Ein alter 18/18-E2E-Nachweis wird nicht als Test dieses neuen Heads ausgegeben.
+
+### Zwischenzeitlich extern gemergte Provider-PRs
+
+Während dieses Reviews wurden Patchnotes-PR #49, Steam-PR #73 und Schema-PR #461 über den GitHub-Account `EarlySalty` nach den jeweiligen `main`-Branches gemergt (19:14–19:16 UTC). Diese Merges und ein Deploy waren kein Schritt dieser Pre-G5-Arbeit. Der finale Patchnotes-Head `0c9fd6f` ergänzt Infisical-/systemd-Credential-Zugriff und begrenzte reine DB-Lesezugriffe; der Feed-Vertrag und die Brain-Fixture bleiben semantisch konsistent. Lokal bestanden 107 Unittests und 187 Pytest-Tests plus 30 Untertests. Vier geänderte Dateien sind bei `ruff format --check` rot; die GitHub-Security-Jobs wurden wegen Billing nicht gestartet (`runner_id=0`, keine Schritte), GitGuardian ist grün. Das ist kein belegter Security-Codefehler, aber kein CI-Grün-Nachweis.
+
+Der finale Steam-Head `c12e9ab` ergänzt gegenüber dem zuvor geprüften `42df79c` ausschließlich die Ablehnung von `payload.hero_build_id` mit HTTP 422 vor dem Queue-Insert und den zugehörigen Test. Persistente Transaktion/Unique Constraint, Auth, Body-Grenze, Status und Zeitstempel blieben unverändert; der Squash-Merge-Baum entspricht dem PR-Head. Auf dem gemergten Stand bestanden Formatierung, Clippy und zwölf fokussierte HTTP-Tests. Der DB-abhängige Volltest ohne Environment-Konfiguration und der echte PostgreSQL-Race-/Restart-Test auf diesem **neuen** Head sind nicht erneut belegt. Der Schema-Merge enthält dieselbe Migration wie PR #461. Kein Build wurde von dieser Arbeit in Steam veröffentlicht.
+
+### Maßgebliche Bewertung dieser Fortsetzung
+
+Die folgenden Marker gelten für den Integrationsstand nach PR #55 und ersetzen die gleichnamigen historischen Marker weiter oben. „Bereit“ meint hier nur den belegten technischen Pfad, keine G5- oder Produktionsfreigabe. Die Patchnotes-Security-Jobs wurden von GitHub wegen Billing gar nicht gestartet; die Steam-Vollsuite verlangt eine nach Workspace-Regel unzulässige Environment-Konfiguration. Match, Meta, Population und YouTube sind dokumentiert, aber ohne Betreiberentscheidung und vollständige Implementierung nicht G5-fertig. PR #40 bleibt Draft, der supersedete Cutover-Branch bleibt unberührt, und kein Consumer wurde aktiviert.
+
+AUTHORITATIVE_INTEGRATION_COMMIT: ee4889eae837ebe40ca06543e326824b915ace27
+
+DETACHED_44B5A59_PRESERVED: JA
+
+PATCHNOTES_PROVIDER_IMPLEMENTED: JA
+PATCHNOTES_PROVIDER_CI_GREEN: BLOCKED_BY_GITHUB_BILLING
+
+STEAM_PROVIDER_IMPLEMENTED: JA
+STEAM_PROVIDER_PERSISTENT_IDEMPOTENCY: JA
+STEAM_PROVIDER_TESTS_GREEN: NEIN
+
+FACT_RELEVANCE_HARDENED: JA
+
+SHEET_CORE_PATH_READY: JA
+YOUTUBE_V1_DECISION_REQUIRED: JA
+MATCH_META_PATH_READY: NEIN
+
+LEGACY_CORE_MIGRATION_READY: JA
+BRAIN_DB_ISOLATED: JA
+600_REQUEST_TEST_PASSED: JA
+DEFAULT_E2E_PASSED: NEIN
+
+G1_READY: JA
+G2_READY: NEIN
+G3_READY: NEIN
+G4_READY: NEIN
+
+TECHNICALLY_READY_FOR_G5_REVIEW: NEIN
+PRODUCTION_CUTOVER_READY: NEIN
