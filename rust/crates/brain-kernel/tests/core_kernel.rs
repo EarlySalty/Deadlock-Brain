@@ -131,7 +131,7 @@ async fn asset_hero_entity_and_field_records_share_identity() {
         }
         s.apply_record(fact).unwrap();
     }
-    for (name, external_id) in [("Warden", "hero_25"), ("Other", "hero_26")] {
+    for (name, external_id) in [("Warden", "hero_25"), ("Other", "hero_25")] {
         let mut legacy = record(1);
         legacy.source_id = "legacy-entities".into();
         legacy.logical_id = format!("entity/hero/{name}");
@@ -142,6 +142,12 @@ async fn asset_hero_entity_and_field_records_share_identity() {
         legacy
             .metadata
             .insert("connector".into(), "brain_legacy".into());
+        legacy
+            .metadata
+            .insert("entity_source".into(), "deadlock_assets_api".into());
+        legacy
+            .metadata
+            .insert("entity_external_id".into(), external_id.into());
         s.apply_record(legacy).unwrap();
     }
     for i in 0..110 {
@@ -195,6 +201,12 @@ async fn asset_hero_entity_and_field_records_share_identity() {
     conflicting
         .metadata
         .insert("connector".into(), "brain_legacy".into());
+    conflicting
+        .metadata
+        .insert("entity_source".into(), "deadlock_assets_api".into());
+    conflicting
+        .metadata
+        .insert("entity_external_id".into(), "hero_25".into());
     s.apply_record(conflicting).unwrap();
     let release = s.release_from_heads("r2", "v2", "p1").unwrap();
     s.publish(&release).await.unwrap();

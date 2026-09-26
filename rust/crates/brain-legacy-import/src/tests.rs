@@ -120,6 +120,54 @@ fn entity_documents_sort_metadata_and_reject_duplicates() {
     assert!(!doc.content.contains("n: "));
     assert_eq!(doc.patch, Observed::unknown(UnknownReason::NotPresent));
     assert!(entity_documents(&[entity(1, "Abrams"), entity(2, "Abrams")]).is_err());
+    let mut duplicate_external = entity(2, "Warden");
+    duplicate_external.primary_external_id = Some("hero_1".into());
+    assert!(entity_documents(&[entity(1, "Abrams"), duplicate_external]).is_err());
+    let mut spoofed = entity(3, "Seven");
+    spoofed.metadata = serde_json::json!({"External ID": "hero_25"});
+    assert!(entity_documents(&[spoofed]).is_err());
+    let mut spoofed_source = entity(3, "Seven");
+    spoofed_source.metadata = serde_json::json!({"Source": "other"});
+    assert!(entity_documents(&[spoofed_source]).is_err());
+    let mut spoofed_name = entity(3, "Seven");
+    spoofed_name.metadata = serde_json::json!({"hero": "Warden"});
+    assert!(entity_documents(&[spoofed_name]).is_err());
+    let batch = prepare_batch(&source, &public_policy(), &context(), None).unwrap();
+    assert_eq!(
+        batch.records[0]
+            .metadata
+            .get("entity_source")
+            .map(String::as_str),
+        Some("deadlock_assets_api")
+    );
+    assert_eq!(
+        batch.records[0]
+            .metadata
+            .get("entity_external_id")
+            .map(String::as_str),
+        Some("hero_2")
+    );
+}
+
+#[test]
+fn changed_parser_configuration_reissues_unchanged_entity_with_structured_identity() {
+    let source = entity_documents(&[entity(25, "Warden")]).unwrap();
+    let first = prepare_batch(&source, &public_policy(), &context(), None).unwrap();
+    let mut old_checkpoint = first.checkpoint;
+    old_checkpoint.configuration = "previous-parser-configuration".into();
+    old_checkpoint.state["configuration"] =
+        serde_json::Value::String(old_checkpoint.configuration.clone());
+    let refreshed =
+        prepare_batch(&source, &public_policy(), &context(), Some(&old_checkpoint)).unwrap();
+    assert_eq!(refreshed.records.len(), 1);
+    assert_eq!(refreshed.records[0].revision, 2);
+    assert_eq!(
+        refreshed.records[0]
+            .metadata
+            .get("entity_external_id")
+            .map(String::as_str),
+        Some("hero_25")
+    );
 }
 
 #[tokio::test]

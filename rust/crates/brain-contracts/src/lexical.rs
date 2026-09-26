@@ -85,7 +85,7 @@ pub fn fact_names(
 pub fn fact_entity_key(
     source_id: &str,
     logical_id: &str,
-    content: &str,
+    _content: &str,
     metadata: &BTreeMap<String, String>,
 ) -> (String, String) {
     let mut parts = logical_id.split('/');
@@ -96,8 +96,14 @@ pub fn fact_entity_key(
                     && metadata.get("connector").map(String::as_str) == Some("deadlock-assets")
                     && kind == "hero"
                 {
-                    if let Ok(number) = id.parse::<u64>() {
-                        return ("deadlock_assets_api".into(), format!("hero/{number}"));
+                    if let (Ok(number), Some(name)) = (id.parse::<u64>(), metadata.get("name")) {
+                        let canonical = terms(name).join("_");
+                        if !canonical.is_empty() {
+                            return (
+                                "deadlock_assets_api".into(),
+                                format!("hero/{number}/{canonical}"),
+                            );
+                        }
                     }
                 }
                 return (source_id.to_owned(), format!("asset/{kind}/{id}"));
@@ -107,25 +113,88 @@ pub fn fact_entity_key(
     if source_id == "legacy-entities"
         && metadata.get("connector").map(String::as_str) == Some("brain_legacy")
         && logical_id.starts_with("entity/hero/")
+        && metadata.get("entity_source").map(String::as_str) == Some("deadlock_assets_api")
     {
-        let mut external = None;
-        let mut source_matches = false;
-        for line in content.lines() {
-            if let Some(value) = line.strip_prefix("External ID: ") {
-                external = Some(value.trim());
-            }
-            if line == "Source: deadlock_assets_api" {
-                source_matches = true;
-            }
-        }
-        if source_matches {
-            if let Some(id) = external {
-                let id = id.strip_prefix("hero_").unwrap_or(id);
-                if let Ok(number) = id.parse::<u64>() {
-                    return ("deadlock_assets_api".into(), format!("hero/{number}"));
+        if let Some(id) = metadata.get("entity_external_id").map(String::as_str) {
+            let id = id.strip_prefix("hero_").unwrap_or(id);
+            if let Ok(number) = id.parse::<u64>() {
+                let canonical = terms(logical_id.trim_start_matches("entity/hero/")).join("_");
+                if !canonical.is_empty() {
+                    return (
+                        "deadlock_assets_api".into(),
+                        format!("hero/{number}/{canonical}"),
+                    );
                 }
             }
         }
     }
     (source_id.to_owned(), logical_id.to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cross_source_join_requires_matching_id_and_canonical_name() {
+        let assets = BTreeMap::from([
+            ("connector".into(), "deadlock-assets".into()),
+            ("name".into(), "Warden".into()),
+        ]);
+        let legacy = BTreeMap::from([
+            ("connector".into(), "brain_legacy".into()),
+            ("entity_source".into(), "deadlock_assets_api".into()),
+            ("entity_external_id".into(), "hero_25".into()),
+        ]);
+        let asset_key = fact_entity_key(
+            "deadlock-assets-heroes",
+            "asset/hero/25/starting_stats.max_health.value",
+            "Hero: Warden\nmax health: 770",
+            &assets,
+        );
+        let legacy_key = fact_entity_key(
+            "legacy-entities",
+            "entity/hero/Warden",
+            "hero: Warden\nExternal ID: hero_25\nSource: deadlock_assets_api\n",
+            &legacy,
+        );
+        assert_eq!(asset_key, legacy_key);
+        assert_ne!(
+            asset_key,
+            fact_entity_key(
+                "legacy-entities",
+                "entity/hero/Other",
+                "hero: Other\nExternal ID: hero_25\nSource: deadlock_assets_api\n",
+                &legacy,
+            )
+        );
+        assert_eq!(
+            asset_key,
+            fact_entity_key(
+                "legacy-entities",
+                "entity/hero/Warden",
+                "hero: Warden\nExternal ID: hero_25\nSource: deadlock_assets_api\nExternal ID: hero_999\n",
+                &legacy,
+            )
+        );
+        assert_eq!(
+            asset_key,
+            fact_entity_key(
+                "legacy-entities",
+                "entity/hero/Warden",
+                "hero: Warden\nExternal ID: hero_25\nSource: deadlock_assets_api\nSource: other\n",
+                &legacy,
+            )
+        );
+        let untrusted = BTreeMap::from([("connector".into(), "brain_legacy".into())]);
+        assert_ne!(
+            asset_key,
+            fact_entity_key(
+                "legacy-entities",
+                "entity/hero/Warden",
+                "hero: Warden\nExternal ID: hero_25\nSource: deadlock_assets_api\n",
+                &untrusted,
+            )
+        );
+    }
 }
