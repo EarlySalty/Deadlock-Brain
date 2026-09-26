@@ -1,0 +1,48 @@
+name: C5 Wiki runtime pilot (offline)
+
+on:
+  pull_request:
+    branches: [main, migration/rust-integration]
+    paths:
+      - 'rust/**'
+      - 'scripts/*wiki*'
+      - 'config/wiki-c5-pilot.example.json'
+      - '.github/workflows/wiki-runtime-pilot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wiki-runtime-pilot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scratch-pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SQLX_OFFLINE: 'true'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_TARGET_DIR: ${{ github.workspace }}/rust/target
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: 1.97.1
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+      - name: Scratch PostgreSQL and build prerequisites
+        run: sudo apt-get update && sudo apt-get install -y postgresql postgresql-client libpq-dev protobuf-compiler
+      - name: Formatting and bounded Wiki contracts
+        run: |
+          cargo fmt --manifest-path rust/Cargo.toml --all -- --check
+          cargo clippy --manifest-path rust/Cargo.toml --locked -p brain-contracts -p brain-storage -p dbrain-s12-wiki-probe -p dbrain-sources --all-targets --no-deps -- -D warnings
+      - name: Mock discovery, real scratch staging, domain readback and CLI
+        # This script has NO live capture option. Live-network flags belong only
+        # to the separate, manually invoked run_wiki_pilot.sh operator script.
+        run: bash scripts/test_wiki_runtime.sh

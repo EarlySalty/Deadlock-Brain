@@ -11,7 +11,7 @@ use dbrain_s12_wiki_probe::{
     knowledge::WikiIr,
     model::Capture,
 };
-use deadlock_brain_core::http::{HttpClient, HttpGetOptions, RetryPolicy};
+use deadlock_brain_core::http::{HttpClient, SourceHttpOptions};
 use serde_json::{json, Value};
 use sqlx::PgPool;
 use std::{fs::OpenOptions, path::Path, time::Duration};
@@ -61,37 +61,55 @@ pub fn capture_with_http(
         state_path: http.cache_dir().join("wiki_last_request.txt"),
         min_delay_seconds: access.min_delay_seconds,
     };
-    capture::collect(options, |params| {
-        limiter
-            .wait()
-            .map_err(|_| "Wiki rate limiter unavailable".to_string())?;
+    options.validate().map_err(SourcesError::invalid_input)?;
+    if options.request_interval_ms < 5_000 {
+        return Err(SourcesError::invalid_input(
+            "live Wiki interval must be at least 5000 ms",
+        ));
+    }
+    capture::collect_bytes(options, |params, limit| {
+        let started = std::time::Instant::now();
+        limiter.wait_bounded(limit.timeout).map_err(|_| {
+            "Wiki rate limiter unavailable or capture deadline exhausted".to_string()
+        })?;
+        let remaining = limit
+            .timeout
+            .saturating_sub(started.elapsed())
+            .min(Duration::from_secs(300));
+        if remaining.is_zero() {
+            return Err("capture deadline exhausted".into());
+        }
         let pairs: Vec<_> = params
             .iter()
             .map(|(key, value)| (key.as_str(), value.clone()))
             .collect();
         let url = format!("{DEFAULT_API_URL}?{}", form_urlencode(&pairs));
         let response = http
-            .get_no_redirect(
+            .get_bounded(
                 &url,
-                HttpGetOptions {
-                    cache_ttl_seconds: Some(0),
-                    timeout: Duration::from_secs(30),
-                    retry: RetryPolicy {
-                        attempts: 1,
-                        ..Default::default()
-                    },
+                SourceHttpOptions {
+                    max_bytes: limit.max_bytes.min(access.max_response_bytes),
+                    attempts: 1,
+                    request_timeout: remaining.min(Duration::from_secs(30)),
+                    total_timeout: remaining,
                     ..Default::default()
                 },
             )
             .map_err(|_| {
-                "Wiki HTTP request failed; no retry, redirect or access bypass".to_string()
+                "Wiki HTTP failed or exceeded byte/deadline budget; no retry or redirect"
+                    .to_string()
             })?;
-        // Shared HttpClient currently buffers the body. This protects JSON parsing,
-        // not transport allocation; no unsupported streaming-limit claim is made.
-        if response.content.len() > access.max_response_bytes {
-            return Err("Wiki response byte limit".into());
+        response
+            .ensure_success()
+            .map_err(|_| format!("Wiki HTTP {}; capture stopped", response.status))?;
+        if response
+            .headers
+            .get("content-encoding")
+            .is_some_and(|v| v != "identity")
+        {
+            return Err("unexpected compressed Wiki response".into());
         }
-        dbrain_s12_wiki_probe::parse_json(&response.content)
+        Ok(response.content)
     })
     .map_err(SourcesError::invalid_input)
 }
@@ -100,6 +118,18 @@ pub fn capture_with_http(
 /// This deliberately creates NO entity snapshots, facts, cards or release marker.
 /// Current-denial content has already been removed by the IR constructor.
 pub async fn stage_sources_with_pool(pool: &PgPool, raw_dir: &Path, ir: &WikiIr) -> Result<Value> {
+    if !ir.report().source_policy.raw_retention_allowed
+        || ir
+            .report()
+            .source_policy
+            .source_license
+            .as_deref()
+            .is_none_or(|s| s.trim().is_empty())
+    {
+        return Err(SourcesError::invalid_input(
+            "raw staging requires explicit retention approval and source license",
+        ));
+    }
     let store = SourceStore::new(pool, raw_dir)?;
     let run_id = store.begin_run("wiki_knowledge_capture").await?;
     let outcome = async {

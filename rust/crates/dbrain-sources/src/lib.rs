@@ -21,6 +21,7 @@ pub use dbrain_s12_wiki_probe::{capture as wiki_capture, knowledge as wiki_knowl
 pub mod wiki;
 pub mod wiki_capture_io;
 pub mod wiki_corpus;
+pub mod wiki_runtime;
 
 mod store;
 mod util;

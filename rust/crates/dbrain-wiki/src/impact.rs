@@ -26,6 +26,11 @@ pub fn compare(before: &Report, after: &Report) -> Result<Impact> {
     if after.retrieved_at < before.retrieved_at {
         return Err("stale capture must not replace a newer capture".into());
     }
+    if before.discovery_scope.as_ref().map(|s| &s.selection)
+        != after.discovery_scope.as_ref().map(|s| &s.selection)
+    {
+        return Err("cannot delta different discovery scopes; omission is not deletion".into());
+    }
     let old: BTreeMap<_, _> = before.pages.iter().map(|p| (p.page_id, p)).collect();
     let new: BTreeMap<_, _> = after.pages.iter().map(|p| (p.page_id, p)).collect();
     let ids: BTreeSet<_> = old.keys().chain(new.keys()).copied().collect();

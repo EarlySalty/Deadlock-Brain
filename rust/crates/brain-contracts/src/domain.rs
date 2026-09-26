@@ -59,6 +59,10 @@ pub struct RuleEvaluation {
     pub input_fact_ids: BTreeSet<String>,
 }
 pub const DOMAIN_CONTRACT_VERSION: &str = "brain.domain.v1";
+/// Optional versioned Vec<DocumentRevision> in SourceRecordV2 metadata. Derived
+/// Wiki facts must authorize their exact dependency revisions as well as `source`.
+/// Uses the common source::Versioned envelope, not a second Wiki contract.
+pub const DOMAIN_DEPENDENCIES_METADATA_KEY: &str = "brain.domain.dependencies";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(

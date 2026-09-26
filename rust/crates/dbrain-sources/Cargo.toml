@@ -9,6 +9,7 @@ path = "src/lib.rs"
 
 [dependencies]
 brain-contracts = { path = "../brain-contracts" }
+brain-storage = { path = "../brain-storage" }
 dbrain-s12-wiki-probe = { path = "../dbrain-wiki" }
 deadlock-brain-core = { path = "../deadlock-brain-core" }
 regex.workspace = true

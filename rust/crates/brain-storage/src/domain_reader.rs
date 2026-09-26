@@ -76,6 +76,31 @@ impl<S: SnapshotReadPort> DomainStorePort for DomainReader<S> {
             if stored.contract_version != *schema {
                 return Err(invalid("domain envelope version mismatch"));
             }
+            if let Some(encoded) = record
+                .metadata
+                .get(brain_contracts::domain::DOMAIN_DEPENDENCIES_METADATA_KEY)
+            {
+                if encoded.len() > 64 * 1024 {
+                    return Err(invalid("oversized domain dependencies"));
+                }
+                let dependencies: brain_contracts::source::Versioned<Vec<DocumentRevision>> =
+                    serde_json::from_str(encoded)
+                        .map_err(|_| invalid("invalid domain dependency contract"))?;
+                if dependencies.data.len() > 64 {
+                    return Err(invalid("domain dependency budget exceeded"));
+                }
+                let mut identities = BTreeSet::new();
+                let mut authorized = true;
+                for dependency in &dependencies.data {
+                    if !identities.insert((&dependency.source_id, &dependency.logical_id)) {
+                        return Err(invalid("ambiguous domain dependency"));
+                    }
+                    authorized &= source_visible(dependency, &visible)?;
+                }
+                if !authorized {
+                    continue;
+                }
+            }
             match stored.object {
                 DomainObject::NumericFact(fact) => {
                     if !fact.verified || fact.validity != *validity {
@@ -289,6 +314,46 @@ mod tests {
         v.patch = "p2".into();
         assert!(reader.read_domain(&context(), &v).is_err());
     }
+    #[tokio::test]
+    async fn wiki_dependency_pins_reject_unknown_versions_forgery_and_duplicates() {
+        use brain_contracts::{domain::DOMAIN_DEPENDENCIES_METADATA_KEY, source::Versioned};
+        let dependency = fact().source;
+        for encoded in [
+            serde_json::json!({"contract_version":"brain.ir.v999","data":[]}).to_string(),
+            serde_json::to_string(&Versioned::new(vec![DocumentRevision {
+                content_hash: "forged".into(),
+                ..dependency.clone()
+            }]))
+            .unwrap(),
+            serde_json::to_string(&Versioned::new(vec![
+                dependency.clone(),
+                dependency.clone(),
+            ]))
+            .unwrap(),
+        ] {
+            let mut record = typed("fact", DomainObject::NumericFact(fact()));
+            record
+                .metadata
+                .insert(DOMAIN_DEPENDENCIES_METADATA_KEY.into(), encoded);
+            assert!(DomainReader::new(store(vec![record]).await)
+                .read_domain(&context(), &validity())
+                .is_err());
+        }
+        let mut record = typed("fact", DomainObject::NumericFact(fact()));
+        record.metadata.insert(
+            DOMAIN_DEPENDENCIES_METADATA_KEY.into(),
+            serde_json::to_string(&Versioned::new(vec![dependency])).unwrap(),
+        );
+        assert_eq!(
+            DomainReader::new(store(vec![record]).await)
+                .read_domain(&context(), &validity())
+                .unwrap()
+                .facts
+                .len(),
+            1
+        );
+    }
+
     #[tokio::test]
     async fn future_contract_and_malformed_domain_payload_are_rejected() {
         let mut future = typed("fact", DomainObject::NumericFact(fact()));
