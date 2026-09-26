@@ -363,6 +363,7 @@ async fn pilot_phase_after_restart() {
         let started = Instant::now();
         let calls_before = calls.load(Ordering::SeqCst);
         let domain_case = matches!(check, Check::Domain(_, _));
+        let card_case = matches!(check, Check::Card);
         let outcome = std::thread::spawn(move || {
             BrainClient::new(&address, &token, Duration::from_secs(10))
                 .unwrap()
@@ -389,7 +390,7 @@ async fn pilot_phase_after_restart() {
             egress.extend(matches);
         }
         let (status, result) = evaluate(&outcome, &egress, &captured, check);
-        let result = result && mapped;
+        let result = result && (mapped || card_case);
         let provider_calls = calls.load(Ordering::SeqCst) - calls_before;
         let passed = result && (!domain_case || provider_calls == 0);
         cases.push(json!({"case": name, "status": status, "passed": passed, "elapsed_ms": elapsed, "provider_egress": egress, "provider_calls": provider_calls}));
@@ -535,6 +536,16 @@ async fn pilot_phase_after_restart() {
             Check::Domain(status, reason),
         );
     }
+    let mut card = domain_fixture::query(
+        &brain_contracts::domain::DomainRequest::Card {
+            hero: "Fixture Hero".into(),
+            locale: "en".into(),
+        },
+        PATCH,
+    );
+    card.request_id = "hero_card".into();
+    card.conversation_id = "pilot-hero_card".into();
+    run(&mut cases, "hero_card", PUBLIC_TOKEN, card, Check::Card);
     fail.store(true, Ordering::SeqCst);
     run(
         &mut cases,
@@ -823,6 +834,7 @@ enum Check {
     Rejected,
     Status(AnswerStatus),
     Domain(AnswerStatus, &'static str),
+    Card,
 }
 
 fn evaluate(
@@ -862,6 +874,12 @@ fn evaluate(
         Check::NotAnswered => !answered,
         Check::Rejected => false,
         Check::Status(expected) => response.status == expected,
+        Check::Card => {
+            response.status == AnswerStatus::Answered
+                && egress.is_empty()
+                && !captured.is_empty()
+                && !response.citations.is_empty()
+        }
         Check::Domain(expected, reason) => {
             response.status == expected
                 && egress.is_empty()
