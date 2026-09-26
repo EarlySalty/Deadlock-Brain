@@ -96,6 +96,7 @@ Bewertung: Die Instanz bleibt stabil und `max_connections` musste nicht erhöht 
 - `backup.sh` (als `deadlock-brain-pg`, Unit `deadlock-brain-postgresql-backup.service`): `pg_dump --create -Fc` je Datenbank, `pg_dumpall --globals-only --no-role-passwords`, Inhaltsverzeichnis, Versionsmarker, `SHA256SUMS`. Unabhängig vom DL-Main-Backup (für DL-Main existiert laut Inventar ohnehin kein Dump-Timer).
 - `restore-probe.sh`: prüft `SHA256SUMS`, legt eine frische Wegwerf-Instanz unter `/var/lib/deadlock-brain/restore-probe.*` an (eigener Socket, Port 5447, kein TCP), spielt Globals und Dumps ein und vergleicht mit der laufenden Instanz: Datenbank-, Schema- und Tabellen-ACLs, Owner, Zeilenzahl und md5 jeder Tabelle in `brain` und `brain_legacy`, Versionsmarker, Tombstones in Revisionen und Heads, Sichtbarkeitsverteilung, Releases, Checkpoints, Conversation-Owner. Danach wird die Wegwerf-Instanz entfernt.
 - Ergebnis Backup `brain-20260926T031943Z`: `RESTORE_EQUAL db=brain` (340 Prüfzeilen), `RESTORE_EQUAL db=brain_pilot` (32 Prüfzeilen, darunter 1 Tombstone von 20 Revisionen, 2 private Heads nach Revoke, Release `pilot-r1`, 3 Checkpoints, 279 Conversation-Owner).
+- Wiederholung am 26.09. nach Integration von PR #49/#50 (`ed06e13`): `brain` weiter fingerprint-gleich; `brain_pilot` weicht jetzt erwartbar ab, weil die Wegwerf-Pilotdatenbank nach der Sicherung für Last- und E2E-Stufen neu befüllt wurde (u. a. `conversation_owners_v1` 279 => 629 durch Load-/Staging-Conversations). Schema-, ACL-, Release-, Tombstone- und übrige Zeilen-Hashes identisch. Kein Restore-Defekt.
 
 ## brain-serve gegen die neue Instanz
 
@@ -109,8 +110,8 @@ Siehe Migrationsbericht. Kurz: `patchnotes.changelog_posts` (Lesen), `steam.stea
 
 ## Bekannte Blocker
 
-1. `DB_POOLING_BACKPRESSURE` fehlt: `LocalPgReader` verbindet pro Operation neu. Blockiert 600_REQUEST_TEST_PASSED.
-2. C9-Consumer-Wiring fehlt (kein Branch). Consumer-Staging nicht prüfbar.
+1. ~~`DB_POOLING_BACKPRESSURE` fehlt~~ Behoben: PR #49 integriert (`ed06e13`), Pool nachgewiesen (600×3 Stufen gegen diese Instanz, Peak 4, 0 „too many clients"); siehe `FINAL_LOCAL_INTEGRATION_REVIEW.md`.
+2. ~~C9-Consumer-Wiring fehlt~~ Behoben: PR #50 integriert (`ed06e13`); Consumer-Staging lokal gegen brain-serve-Staging bestanden (Twitch-Shadow-Fix `d877a9d` in PR #984).
 3. Echter Wiki-Pilot: Rechte- und Lizenzentscheidung für Capture und Raw-Aufbewahrung liegt beim Betreiber; der C5-Store ist nur an seinen eigenen Scratch-Cluster gebunden (Marker, Superuser-Rolle `brain_wiki_c5`, Zusatztabellen `source_runs`/`source_documents` außerhalb von `brain-migrate`).
 4. Kein freigegebener Provider und Modell, keine freigegebene `.dem`.
 5. Legacy-Datenmodell ist nicht in den Kern-Store überführt; es gibt keinen Konverter Alttabellen nach `SourceRecordV2`. `brain_legacy` ist Archiv, keine Laufzeitquelle.

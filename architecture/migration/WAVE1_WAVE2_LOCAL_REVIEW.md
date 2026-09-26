@@ -11,10 +11,10 @@ Stand: 26.09.2026. Integrator und Verifizierer: lokale Claude-Session im Worktre
 | 3 | #45 C2/C3 Retrieval | `f0cd5ad` | `brain-contracts/src/lib.rs` | Modulliste vereinigt: C4 `external`, `replay`, `source`, `wiki`, `value` plus C2 `provider_input`, `retrieval`, `DocumentHead`/`ChunkProvenance` |
 | 4 | #42 C1 brain-serve | `a85fd52` | Workflow, `local_pilot.rs` | beide CI-Schritte behalten (C11-Upgrade-Probe und C1-Prozesspilot); Pilot auf den C1-Crate `brain-serve` mit Dienst-PID |
 | 5 | #44 C7/C8 Runtime | `dbd0e01` | `s12/check.sh`, `check-completion.py` | Python-Prüfer entfernt (C8), Shell-Runner nutzt C4-Workspace-Pfade; `check.sh` baut per Manifest und startet das Probe-Binary aus `CARGO_TARGET_DIR` |
-| 6 | DB_POOLING_BACKPRESSURE | fehlt | nicht integriert | Zweig existiert weder lokal noch auf `origin` |
+| 6 | DB_POOLING_BACKPRESSURE | `d020891` (PR #49) | konfliktfrei | siehe `FINAL_LOCAL_INTEGRATION_REVIEW.md` |
 | 7 | #47 C5 Wiki | `f4f1e9e` | konfliktfrei | |
 | 8 | #48 C6 Domain/Build | `cb76914` | fünf Dateien | siehe unten |
-| 9 | C9 Consumer-Wiring | fehlt | nicht integriert | kein Branch vorhanden |
+| 9 | C9 Consumer-Wiring | `0424790` (PR #50) | konfliktfrei auf #49-Basis | CLI/MCP über typed BrainClient, Token nur per Env, Scopes explizit |
 | vorbereitend | #46 C10 Replay | `919c790` | nicht gemergt | ohne freigegebene `.dem` kein echter Nachweis; bleibt eigener PR |
 
 ## Semantische Integrationsfixes (eigene Commits)
@@ -28,7 +28,7 @@ Erhalten: C2 `read_heads`, Chunking und BM25; C4 Wiki-, Source- und Replay-Vertr
 
 | Paket | Befund | Bewertung |
 |---|---|---|
-| C1 | Composition Root startbar, Health/Readiness, SIGTERM-Budget, Passwort nur per Env-Port. Anfragepfad nutzt `LocalPgReader` mit Neuverbindung je Operation | Blocker für Last (Pooling fehlt) |
+| C1 | Composition Root startbar, Health/Readiness, SIGTERM-Budget, Passwort nur per Env-Port. Seit PR #49 ein gemeinsamer, hart begrenzter `LocalPgReader`-Pool für den gesamten Anfragepfad | ok (Pool nach PR #49 auf eigener Instanz nachgewiesen) |
 | C11 | Migration getrennt, Upgrade/Restore-Probe, Least-Privilege-Test. `check_core_schema()` braucht SELECT auf alle sechs Kerntabellen, auch für Ingest | ok, Grants angepasst |
 | C2/C3 | Chunk-Index je Release, Heads batchweise, Cache revalidiert; Prosa-Revoke im Cache ergibt `unauthorized_evidence` | ok |
 | C4 | Versionierte Envelopes, gemeinsame IR | ok |
@@ -49,14 +49,15 @@ Gegen die eigene Brain-Instanz: Default-E2E 18/18, Betriebsprüfungen 16/16, Iso
 - Echter Wiki-Pilot mit zwei Revisionen: Rechte- und Lizenzfreigabe für Capture und Raw-Aufbewahrung fehlt (nicht automatisch gesetzt); C5-Store nicht an die neue Instanz anschließbar ohne Umbau.
 - Provider-Shadow-Test: kein freigegebener Provider und kein freigegebenes Modell.
 - Replay: keine freigegebene `.dem`; C10 nicht ausgeführt.
-- Consumer-Staging: C9 existiert nicht.
 - Live-Abnahme: `LIVEBEWEIS[DV-1]` nicht ausgeführt: PR-first-Testbetrieb, kein Deploy, kein Produktivdienst.
+
+Consumer-Staging ist inzwischen lokal nachgeholt: siehe `FINAL_LOCAL_INTEGRATION_REVIEW.md` (CLI, MCP, Docs, 2nd-Brain live gegen brain-serve-Staging; Twitch und Bots über Fixture-/Testpfade).
 
 ## Marker
 
 BRAIN_DB_ISOLATED: JA
-600_REQUEST_TEST_PASSED: NEIN
+600_REQUEST_TEST_PASSED: JA (nach PR #49 gegen die eigene Instanz, 8/16/32 Worker)
 DEFAULT_E2E_PASSED: JA (18/18 gegen die neue Instanz; Build- und Card-Fälle mit synthetischem Domain-Adapter)
 WIKI_REAL_PILOT_PASSED: NEIN
-CONSUMER_STAGING_PASSED: NEIN
+CONSUMER_STAGING_PASSED: JA (nur lokale Staging-Pfade, keine produktiven Bots)
 PRODUCTION_CUTOVER_READY: NEIN

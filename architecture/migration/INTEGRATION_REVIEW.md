@@ -243,3 +243,33 @@ WIKI_REAL_PILOT_PASSED: NEIN
 CONSUMER_STAGING_PASSED: NEIN
 PRODUCTION_DB_CUTOVER_READY: NEIN
 PRODUCTION_CUTOVER_READY: NEIN
+
+## 21. Nachtrag 26.09.2026 (Abend): DB-Pooling #49 und C9 #50 integriert
+
+PR #49 (`codex/fix-brain-db-pooling`, Head `d020891`) und PR #50 (`codex/fix-c9-consumer-wiring`, Head `0424790`) sind semantisch reviewet und auf `migration/rust-integration` integriert; integrierter Code-Commit `ed06e13` (Merge `a24c80d` für #49, `ed06e13` für #50 auf #49-Basis). Damit sind die Aussagen „Pooling fehlt" und „C9 fehlt" aus Abschnitt 20 und den Nachweisstufen ersetzt.
+
+Vollständiger Bericht mit allen Messwerten, Consumer-PR-Shas, Staging- und Restore-Ergebnissen: [FINAL_LOCAL_INTEGRATION_REVIEW.md](FINAL_LOCAL_INTEGRATION_REVIEW.md). Kurzfassung:
+
+- Workspace auf `ed06e13`: fmt/clippy `-D warnings` grün, 943 Tests passed / 0 failed, Release-Build grün; `test_brain_serve.sh`, `test_brain_storage_upgrade.sh`, `test_brain_core_postgres.sh`, `test_wiki_runtime.sh`, `s12/check-completion.sh` grün.
+- 600-Request-Test gegen die echte getrennte Brain-Instanz (Pool hart 4): je Stufe 600 answered, Peak-Pool 4, 8 Neuverbindungen, 0 „too many clients", 0 falsche `unauthorized_evidence`, Recovery nach erzwungenem Instanz-Neustart grün; `max_connections=40` unverändert.
+- Default-E2E nach Pooling: 18/18 (inkl. `build_rejected`, ACL-Revoke, Delete, Providerfehler, Scope-Leak-Schutz, Neustart-Recovery).
+- Consumer-Staging lokal: CLI, MCP, Docs-Adapter, 2nd-Brain-Adapter live gegen brain-serve-Staging; Twitch und Bots über Fixture-/Testpfade. Twitch-Befund „Shadow-Probe verzögert sichtbare Legacy-Antwort" im PR #984-Diff gefunden und mit Commit `d877a9d` behoben (Probe abgekoppelt, Regressionstest).
+- Isolation und Backup/Restore erneut geprüft: alle Isolationsproben PASS; Restore-Probe `brain` fingerprint-gleich, `brain_pilot` erwartbar neu befüllt (Pilot-Wegwerfdatenbank, Sicherung von 03:19).
+- Der rote „Semantic review"-Check an Bots #459 ist quota-bedingt („monthly quota exceeded") und wurde nicht umgangen; das GitHub-Runner-Problem an 2nd-Brain #2 (`runner_id=0`) ist infrastrukturbedingt.
+
+TESTNACHWEIS[TW-2]: 943 passed, 0 failed | Baseline: 0 rot
+
+BRAIN_DB_ISOLATED: JA
+BRAIN_DATA_MIGRATION_VERIFIED: JA
+DB_POOLING_VERIFIED: JA
+600_REQUEST_TEST_PASSED: JA
+DEFAULT_E2E_PASSED: JA
+CONSUMER_STAGING_PASSED: JA
+WIKI_REAL_PILOT_PASSED: NEIN
+PROVIDER_SHADOW_PASSED: NEIN
+REAL_REPLAY_PASSED: NEIN
+G1_READY: JA
+G2_READY: NEIN
+G3_READY: NEIN
+G4_READY: JA
+PRODUCTION_CUTOVER_READY: NEIN

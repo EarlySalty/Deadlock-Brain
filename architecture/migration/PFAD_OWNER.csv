@@ -14,4 +14,4 @@ wiki_projector,rust/crates/dbrain-sources/src/wiki*;rust/crates/dbrain-retrieval
 external_api_git_schema,rust/crates/dbrain-sources/**,13,source_review_after_G0_implementation_after_G1,55776c7532bb461fab93bbf7c582e2a40a81d2c9,,provisional_existing_path
 replay_observations,rust/crates/dbrain-sources/src/deadlock_api*;rust/crates/dbrain-population/**,14,replay_access_after_G0_implementation_after_G1,55776c7532bb461fab93bbf7c582e2a40a81d2c9,,provisional_existing_path
 brain_postgres_instance,ops/brain-postgres/**;scripts/run_isolated_*.sh;scripts/sample_brain_pg.sh,03/11,staging_only_no_cutover,fe414512114420dc9cb3b9355264015794b5fec6,brain.store.v2,active
-brain_serve_composition_root,rust/crates/brain-serve/**,08,staging_only,fe414512114420dc9cb3b9355264015794b5fec6,brain.public.v1,active
+brain_serve_composition_root,rust/crates/brain-serve/**,08,staging_only,ed06e13de17e98e1bc322036dbeb92bcece121d7,brain.public.v1,active
