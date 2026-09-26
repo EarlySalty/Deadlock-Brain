@@ -294,6 +294,7 @@ fn next_revision(previous: u64) -> Result<u64> {
 }
 
 mod durable;
+pub mod document_set;
 
 fn digest(content: &[u8]) -> String {
     hex::encode(Sha256::digest(content))

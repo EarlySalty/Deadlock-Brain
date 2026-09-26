@@ -9,6 +9,9 @@ use brain_contracts::{
     value::{Observed, UnknownReason},
     CorpusRelease, SourceBatch, SourceCheckpoint, SourceRecordV2, SourceVisibility,
 };
+use brain_ingestion::document_set::{
+    current_pins, prepare_document_batch, CoreDocument, DocumentSetSource,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -336,103 +339,70 @@ pub fn entity_documents(rows: &[EntityRow]) -> Result<LegacySource> {
     })
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DocumentState {
-    pub revision: u64,
-    pub content_hash: String,
-    pub tombstone: bool,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct LegacyCheckpoint {
-    pub configuration: String,
-    pub documents: BTreeMap<String, DocumentState>,
-}
-
 pub fn configuration(source_id: &str, policy: &SourcePolicyConfig) -> Result<String> {
     Ok(sha256_hex(
         serde_json::to_string(&(source_id, PARSER_REVISION, policy))?.as_bytes(),
     ))
 }
 
-fn next_revision(previous: u64) -> Result<u64> {
-    previous
-        .checked_add(1)
-        .filter(|v| *v <= i64::MAX as u64)
-        .ok_or_else(|| invalid("revision exhausted"))
-}
-
-fn record_for(
+fn core_document(
     source_id: &str,
     document: &LegacyDocument,
-    revision: u64,
     policy: &SourcePolicyConfig,
     context: &ImportContext,
-) -> Result<SourceRecordV2> {
-    let content_hash = sha256_hex(document.content.as_bytes());
-    let mut record = SourceRecordV2 {
-        source_id: source_id.into(),
-        logical_id: document.logical_id.clone(),
-        revision,
-        content_hash: content_hash.clone(),
-        content: document.content.clone(),
-        visibility: policy.visibility,
-        allowed_scopes: policy.allowed_scopes.clone(),
-        tombstone: false,
-        valid_from: None,
-        valid_to: None,
-        metadata: BTreeMap::from([
-            ("connector".into(), PARSER_FAMILY.into()),
-            ("kind".into(), document.kind.into()),
-            ("locator".into(), document.locator.clone()),
-            ("legacy_rows".into(), document.legacy_rows.to_string()),
-            ("legacy_snapshot".into(), context.snapshot_label.clone()),
-        ]),
-    };
+) -> CoreDocument {
+    let mut metadata = BTreeMap::from([
+        ("connector".to_string(), PARSER_FAMILY.to_string()),
+        ("kind".into(), document.kind.into()),
+        ("locator".into(), document.locator.clone()),
+        ("legacy_rows".into(), document.legacy_rows.to_string()),
+        ("legacy_snapshot".into(), context.snapshot_label.clone()),
+    ]);
     if let Observed::Known { value } = &document.patch {
-        record.metadata.insert("legacy_patch".into(), value.clone());
+        metadata.insert("legacy_patch".into(), value.clone());
     }
-    let origin = OriginArtifact {
-        identity: SourceIdentity {
-            source_id: source_id.into(),
-            logical_id: document.logical_id.clone(),
+    CoreDocument {
+        logical_id: document.logical_id.clone(),
+        content: document.content.clone(),
+        metadata,
+        origin: OriginArtifact {
+            identity: SourceIdentity {
+                source_id: source_id.into(),
+                logical_id: document.logical_id.clone(),
+            },
+            source_revision: SourceRevision::Api {
+                api_version: ARCHIVE_API_VERSION.into(),
+                original_revision: Some(context.snapshot_label.clone()),
+            },
+            raw_sha256: sha256_hex(document.content.as_bytes()),
+            locator: document.locator.clone(),
+            parser_revision: PARSER_REVISION.into(),
+            parser_family: PARSER_FAMILY.into(),
+            schema_version: Observed::known(format!(
+                "{ARCHIVE_API_VERSION}@{}",
+                context.snapshot_label
+            )),
+            schema_sha256: Observed::known(context.schema_sha256.clone()),
+            retrieved_at: Observed::known(SourceTimestamp::UnixSeconds(context.snapshot_epoch)),
+            source_time: document.source_time.clone(),
+            language: document.language.clone(),
+            origin_artifacts: document.origin_artifacts.clone(),
+            derivation_family: Observed::known(document.derivation_family.clone()),
+            policy: SourcePolicy {
+                visibility: policy.visibility,
+                allowed_scopes: policy.allowed_scopes.clone(),
+                authorization_ref: Observed::unknown(UnknownReason::NotPresent),
+                license: Observed::unknown(UnknownReason::NotPresent),
+                publication_allowed: policy.publication_allowed,
+                provider_egress_allowed: policy.provider_egress_allowed,
+                raw_retention_allowed: policy.raw_retention_allowed,
+            },
+            validity: GameValidity {
+                patch: document.patch.clone(),
+                ..GameValidity::unknown()
+            },
         },
-        source_revision: SourceRevision::Api {
-            api_version: ARCHIVE_API_VERSION.into(),
-            original_revision: Some(context.snapshot_label.clone()),
-        },
-        raw_sha256: content_hash,
-        locator: document.locator.clone(),
-        parser_revision: PARSER_REVISION.into(),
-        parser_family: PARSER_FAMILY.into(),
-        schema_version: Observed::known(format!(
-            "{ARCHIVE_API_VERSION}@{}",
-            context.snapshot_label
-        )),
-        schema_sha256: Observed::known(context.schema_sha256.clone()),
-        retrieved_at: Observed::known(SourceTimestamp::UnixSeconds(context.snapshot_epoch)),
-        source_time: document.source_time.clone(),
-        language: document.language.clone(),
-        origin_artifacts: document.origin_artifacts.clone(),
-        derivation_family: Observed::known(document.derivation_family.clone()),
-        policy: SourcePolicy {
-            visibility: policy.visibility,
-            allowed_scopes: policy.allowed_scopes.clone(),
-            authorization_ref: Observed::unknown(UnknownReason::NotPresent),
-            license: Observed::unknown(UnknownReason::NotPresent),
-            publication_allowed: policy.publication_allowed,
-            provider_egress_allowed: policy.provider_egress_allowed,
-            raw_retention_allowed: policy.raw_retention_allowed,
-        },
-        validity: GameValidity {
-            patch: document.patch.clone(),
-            ..GameValidity::unknown()
-        },
-    };
-    origin.bind_record(&mut record).map_err(invalid)?;
-    Ok(record)
+    }
 }
 
 pub fn prepare_batch(
@@ -442,100 +412,25 @@ pub fn prepare_batch(
     previous: Option<&SourceCheckpoint>,
 ) -> Result<SourceBatch> {
     policy.validate()?;
-    if source.documents.is_empty() {
-        return Err(invalid(
-            "empty legacy read never tombstones an existing source",
-        ));
-    }
     if source.documents.len() > MAX_DOCUMENTS_PER_SOURCE {
         return Err(invalid("legacy source exceeds document limit"));
     }
-    let configuration = configuration(source.source_id, policy)?;
-    let (generation, state) = match previous {
-        None => (0, LegacyCheckpoint::default()),
-        Some(stored) if stored.source_id == source.source_id => {
-            let state: LegacyCheckpoint = serde_json::from_value(stored.state.clone())?;
-            if state.configuration != stored.configuration {
-                return Err(invalid("checkpoint configuration mismatch"));
-            }
-            (stored.generation, state)
-        }
-        Some(_) => return Err(invalid("checkpoint source mismatch")),
+    let set = DocumentSetSource {
+        source_id: source.source_id.into(),
+        configuration: configuration(source.source_id, policy)?,
+        visibility: policy.visibility,
+        allowed_scopes: policy.allowed_scopes.clone(),
+        tombstone_metadata: BTreeMap::from([
+            ("connector".into(), PARSER_FAMILY.into()),
+            ("legacy_snapshot".into(), context.snapshot_label.clone()),
+        ]),
     };
-    let same_configuration = state.configuration == configuration;
-    let mut next = LegacyCheckpoint {
-        configuration: configuration.clone(),
-        documents: state.documents.clone(),
-    };
-    let mut records = Vec::new();
-    let mut seen = BTreeSet::new();
-    for document in &source.documents {
-        if !seen.insert(document.logical_id.clone()) {
-            return Err(invalid("duplicate logical id"));
-        }
-        let hash = sha256_hex(document.content.as_bytes());
-        let previous_state = state.documents.get(&document.logical_id);
-        if same_configuration
-            && previous_state.is_some_and(|s| !s.tombstone && s.content_hash == hash)
-        {
-            continue;
-        }
-        let revision = next_revision(previous_state.map_or(0, |s| s.revision))?;
-        let record = record_for(source.source_id, document, revision, policy, context)?;
-        next.documents.insert(
-            document.logical_id.clone(),
-            DocumentState {
-                revision,
-                content_hash: record.content_hash.clone(),
-                tombstone: false,
-            },
-        );
-        records.push(record);
-    }
-    for (logical_id, previous_state) in &state.documents {
-        if seen.contains(logical_id) || previous_state.tombstone {
-            continue;
-        }
-        let revision = next_revision(previous_state.revision)?;
-        let content_hash = sha256_hex(format!("tombstone:{logical_id}:{revision}").as_bytes());
-        records.push(SourceRecordV2 {
-            source_id: source.source_id.into(),
-            logical_id: logical_id.clone(),
-            revision,
-            content_hash: content_hash.clone(),
-            content: String::new(),
-            visibility: policy.visibility,
-            allowed_scopes: policy.allowed_scopes.clone(),
-            tombstone: true,
-            valid_from: None,
-            valid_to: None,
-            metadata: BTreeMap::from([
-                ("connector".into(), PARSER_FAMILY.into()),
-                ("legacy_snapshot".into(), context.snapshot_label.clone()),
-            ]),
-        });
-        next.documents.insert(
-            logical_id.clone(),
-            DocumentState {
-                revision,
-                content_hash,
-                tombstone: true,
-            },
-        );
-    }
-    records.sort_by(|a, b| a.logical_id.cmp(&b.logical_id));
-    let batch = SourceBatch {
-        expected_generation: generation,
-        checkpoint: SourceCheckpoint {
-            source_id: source.source_id.into(),
-            configuration,
-            generation: next_revision(generation)?,
-            state: serde_json::to_value(&next)?,
-        },
-        records,
-    };
-    batch.validate()?;
-    Ok(batch)
+    let documents: Vec<CoreDocument> = source
+        .documents
+        .iter()
+        .map(|d| core_document(source.source_id, d, policy, context))
+        .collect();
+    prepare_document_batch(&set, &documents, previous).map_err(|e| invalid(e.to_string()))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -553,13 +448,7 @@ pub fn release_from_checkpoints(
 ) -> Result<CorpusRelease> {
     let mut pins: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
     for checkpoint in checkpoints {
-        let state: LegacyCheckpoint = serde_json::from_value(checkpoint.state.clone())?;
-        let documents: BTreeMap<String, u64> = state
-            .documents
-            .into_iter()
-            .filter(|(_, s)| !s.tombstone)
-            .map(|(id, s)| (id, s.revision))
-            .collect();
+        let documents = current_pins(checkpoint).map_err(|e| invalid(e.to_string()))?;
         if !documents.is_empty()
             && pins
                 .insert(checkpoint.source_id.clone(), documents)

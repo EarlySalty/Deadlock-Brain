@@ -1,27 +1,23 @@
 [package]
-name = "brain-legacy-import"
+name = "brain-feeds"
 version.workspace = true
 edition.workspace = true
 
 [lib]
-name = "brain_legacy_import"
+name = "brain_feeds"
 path = "src/lib.rs"
-
-[[bin]]
-name = "brain-legacy-import"
-path = "src/bin/brain-legacy-import.rs"
 
 [dependencies]
 brain-contracts = { path = "../brain-contracts" }
-brain-storage = { path = "../brain-storage" }
 brain-ingestion = { path = "../brain-ingestion" }
+dbrain-sources = { path = "../dbrain-sources" }
 hex.workspace = true
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
-sqlx = { workspace = true, features = ["json"] }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [dev-dependencies]
+brain-storage = { path = "../brain-storage" }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
