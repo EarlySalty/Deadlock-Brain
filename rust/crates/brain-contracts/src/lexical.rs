@@ -52,8 +52,10 @@ pub fn fact_names(
             names.extend(value.split([',', ';']).map(terms));
         }
     }
-    if let Some((_, name)) = logical_id.rsplit_once('/') {
-        names.push(terms(name));
+    if !logical_id.starts_with("asset/") || logical_id.split('/').count() <= 3 {
+        if let Some((_, name)) = logical_id.rsplit_once('/') {
+            names.push(terms(name));
+        }
     }
     for line in content.lines() {
         let Some((key, value)) = line.split_once(':') else {
@@ -75,4 +77,18 @@ pub fn fact_names(
     names.sort();
     names.dedup();
     names
+}
+
+/// Several field records from one asset share the upstream entity ID. Other
+/// sources retain their full logical document identity until they define one.
+pub fn fact_entity_key(source_id: &str, logical_id: &str) -> (String, String) {
+    let mut parts = logical_id.split('/');
+    if parts.next() == Some("asset") {
+        if let (Some(kind), Some(id)) = (parts.next(), parts.next()) {
+            if !kind.is_empty() && !id.is_empty() {
+                return (source_id.to_owned(), format!("asset/{kind}/{id}"));
+            }
+        }
+    }
+    (source_id.to_owned(), logical_id.to_owned())
 }

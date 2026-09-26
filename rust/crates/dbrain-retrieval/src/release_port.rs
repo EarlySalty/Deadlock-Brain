@@ -122,7 +122,10 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
             for record in owners {
                 let head = heads.get(&(record.source_id.clone(), record.logical_id.clone()));
                 if effective_head(record, head, context, false)?.is_some() {
-                    visible.insert((&record.source_id, &record.logical_id));
+                    visible.insert(brain_contracts::lexical::fact_entity_key(
+                        &record.source_id,
+                        &record.logical_id,
+                    ));
                     if visible.len() > 1 {
                         return Ok(true);
                     }

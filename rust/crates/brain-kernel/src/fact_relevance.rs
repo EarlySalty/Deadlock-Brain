@@ -1,7 +1,7 @@
 //! Deterministic anchors for the release-backed, text-only fact path. Typed
 //! domain facts are resolved by the domain retriever before this path runs.
 use brain_contracts::{
-    lexical::{fact_names, terms},
+    lexical::{fact_entity_key, fact_names, terms},
     Evidence, EvidenceKind, Query,
 };
 use std::collections::BTreeSet;
@@ -82,7 +82,7 @@ pub(super) fn select<'a>(query: &Query, evidence: &'a [Evidence]) -> Option<&'a 
         {
             continue;
         }
-        matched_entities.insert((&item.source_id, &item.logical_id));
+        matched_entities.insert(fact_entity_key(&item.source_id, &item.logical_id));
         if fields(item)
             .iter()
             .any(|field| contains_phrase(&query_words, field))

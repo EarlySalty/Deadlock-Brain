@@ -101,6 +101,52 @@ async fn release_pinned_patch_agnostic_fact_and_mode_fail_closed() {
         AnswerStatus::InsufficientEvidence
     );
 }
+
+#[tokio::test]
+async fn asset_hero_entity_and_field_records_share_identity() {
+    let s = MemoryRepository::default();
+    for (logical_id, field, value) in [
+        ("asset/hero/25", "hero", "Warden"),
+        (
+            "asset/hero/25/starting_stats.max_health.value",
+            "max health",
+            "770",
+        ),
+        ("asset/hero/25/starting_stats.stamina.value", "stamina", "3"),
+    ] {
+        let mut fact = record(1);
+        fact.source_id = "deadlock-assets-heroes".into();
+        fact.logical_id = logical_id.into();
+        fact.content = format!("Hero: Warden\n{field}: {value}\n");
+        fact.metadata.insert("kind".into(), "fact".into());
+        fact.metadata.insert("name".into(), "Warden".into());
+        if field != "hero" {
+            fact.metadata.insert("field".into(), field.into());
+        }
+        s.apply_record(fact).unwrap();
+    }
+    let release = s.release_from_heads("r1", "v1", "p1").unwrap();
+    s.publish(&release).await.unwrap();
+    let kernel = Kernel::new(
+        ReleaseRetriever::new(s, 10),
+        Provider {
+            calls: Arc::new(AtomicUsize::new(0)),
+            revoke: None,
+            forged: false,
+        },
+    );
+    let mut request = query();
+    request.profile = AnswerProfile::Fact;
+    request.text = "Warden max health".into();
+    let answer = kernel.answer(&request, &context());
+    assert_eq!(answer.status, AnswerStatus::Answered);
+    assert!(answer.text.contains("770"));
+    assert_eq!(answer.citations.len(), 1);
+    assert_eq!(
+        answer.citations[0].logical_id,
+        "asset/hero/25/starting_stats.max_health.value"
+    );
+}
 struct Provider {
     calls: Arc<AtomicUsize>,
     revoke: Option<MemoryRepository>,
