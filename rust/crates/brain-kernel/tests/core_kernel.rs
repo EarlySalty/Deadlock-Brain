@@ -124,6 +124,10 @@ async fn asset_hero_entity_and_field_records_share_identity() {
             .insert("connector".into(), "deadlock-assets".into());
         if field != "hero" {
             fact.metadata.insert("field".into(), field.into());
+            fact.metadata.insert(
+                "fact_key".into(),
+                format!("starting_stats.{}.value", field.replace(' ', "_")),
+            );
         }
         s.apply_record(fact).unwrap();
     }
@@ -167,6 +171,16 @@ async fn asset_hero_entity_and_field_records_share_identity() {
     assert_eq!(
         answer.citations[0].logical_id,
         "asset/hero/25/starting_stats.max_health.value"
+    );
+    request.text = "Warden starting_stats.max_health.value 770".into();
+    assert_eq!(
+        kernel.answer(&request, &context()).status,
+        AnswerStatus::Answered
+    );
+    request.text = "Warden starting_stats.max_health.value 3".into();
+    assert_eq!(
+        kernel.answer(&request, &context()).status,
+        AnswerStatus::InsufficientEvidence
     );
     request.text = "Guardian max health".into();
     assert_eq!(

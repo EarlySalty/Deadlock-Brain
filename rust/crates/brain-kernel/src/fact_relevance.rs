@@ -82,6 +82,29 @@ fn field_value_numbers(
     if matched.len() == 1 {
         return matched.pop();
     }
+    if matched.is_empty() {
+        let provenance = evidence.provenance.as_ref()?;
+        if let (Some(fact_key), Some(field)) = (
+            provenance.metadata.get("fact_key"),
+            provenance.metadata.get("field"),
+        ) {
+            let key_words = words(fact_key);
+            if key_words.len() == specificity && contains_phrase(query_words, &key_words) {
+                let field_words = words(field);
+                let mut bound = evidence
+                    .content
+                    .lines()
+                    .filter_map(|line| line.split_once(':'))
+                    .filter(|(key, _)| words(key) == field_words)
+                    .map(|(_, value)| numbers(value));
+                if let Some(value) = bound.next() {
+                    if bound.next().is_none() {
+                        return Some(value);
+                    }
+                }
+            }
+        }
+    }
     if matched.is_empty() && values.len() == 1 {
         return values.pop();
     }
