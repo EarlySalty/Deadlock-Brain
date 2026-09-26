@@ -71,7 +71,15 @@ impl<S: SnapshotReadPort> RetrievalPort for ReleaseRetriever<S> {
         query: &Query,
         context: &AuthorizedContext,
     ) -> Result<Vec<Evidence>, PortError> {
-        let records = self.records(query, context, false)?;
+        if crate::domain_port::handles(query) {
+            return crate::domain_port::retrieve(&self.store, query, context, false);
+        }
+        let mut records = self.records(query, context, false)?;
+        // Typed objects are not ordinary prose or metadata-promoted facts.
+        records.retain(|r| {
+            !r.metadata.contains_key("domain_contract")
+                && r.metadata.get("kind").map(String::as_str) != Some("domain_input")
+        });
         let hits = LexicalRetriever::new(records, self.limit).retrieve(query, context)?;
         Ok(hits.into_iter().map(canonical_id).collect())
     }
@@ -84,6 +92,15 @@ impl<S: SnapshotReadPort> RetrievalPort for ReleaseRetriever<S> {
     ) -> Result<(), PortError> {
         if evidence.is_empty() || evidence.len() > 100 {
             return Err(invalid("invalid evidence pack size"));
+        }
+        if crate::domain_port::handles(query) {
+            let canonical =
+                crate::domain_port::retrieve(&self.store, query, context, for_provider)?;
+            return if canonical == evidence {
+                Ok(())
+            } else {
+                Err(invalid("domain evidence changed or no longer authorized"))
+            };
         }
         let records = self.records(query, context, for_provider)?;
         let mut seen = std::collections::BTreeSet::new();

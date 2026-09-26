@@ -23,6 +23,7 @@ use sqlx::{
 };
 
 mod contract_port;
+mod domain_port;
 mod game_wiki;
 mod hybrid_port;
 mod release_port;

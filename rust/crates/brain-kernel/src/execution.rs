@@ -119,6 +119,57 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
             retrieval_usage,
         );
     }
+    // Canonical domain proofs exist only for explicitly typed domain requests.
+    // A source document containing lookalike JSON is ordinary source content.
+    if query.domain.is_some() && evidence.len() == 1 {
+        if let Ok(domain) =
+            serde_json::from_str::<brain_contracts::domain::DomainAnswer>(&evidence[0].content)
+        {
+            use brain_contracts::domain::{DomainRoute, DomainVerdict, DOMAIN_ANSWER_VERSION};
+            if domain.contract_version != DOMAIN_ANSWER_VERSION
+                || domain.knowledge_release != context.knowledge_release
+                || query.patch.as_deref() != Some(&domain.validity.patch)
+                || query.mode.as_deref() != Some(&domain.validity.mode)
+                || domain.inputs.is_empty()
+            {
+                return fail(
+                    AnswerStatus::InsufficientEvidence,
+                    "Domainnachweis ist unvollständig.",
+                    retrieval_usage,
+                );
+            }
+            if domain.route != DomainRoute::Card {
+                if domain.text.len() > 64 * 1024
+                    || domain.text.len() as u64 > context.budget.max_output_tokens as u64 * 4
+                {
+                    return fail(
+                        AnswerStatus::BudgetExceeded,
+                        "Domainantwort überschreitet das Ausgabelimit.",
+                        retrieval_usage,
+                    );
+                }
+                let status = match domain.verdict {
+                    DomainVerdict::Proven => AnswerStatus::Answered,
+                    DomainVerdict::Rejected if domain.route == DomainRoute::Build => {
+                        AnswerStatus::BuildRejected
+                    }
+                    _ => AnswerStatus::InsufficientEvidence,
+                };
+                return response(
+                    query,
+                    context,
+                    status,
+                    domain.text,
+                    evidence,
+                    retrieval_usage,
+                );
+            }
+        }
+    }
+    // No model can certify legality or turn incomplete domain input into a build.
+    if matches!(query.profile, brain_contracts::AnswerProfile::Build) {
+        return fail(AnswerStatus::InsufficientEvidence, "Keine geprüfte Rule-/Buildantwort vorhanden. Eine deterministische Buildanfrage mit Patch und Modus ist erforderlich.", retrieval_usage);
+    }
     if matches!(query.profile, brain_contracts::AnswerProfile::Fact) {
         let Some(fact) = evidence
             .into_iter()

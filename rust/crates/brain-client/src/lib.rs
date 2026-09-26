@@ -117,6 +117,7 @@ mod tests {
     };
     fn query() -> Query {
         Query {
+            domain: None,
             request_id: "request-1".into(),
             conversation_id: "conversation-1".into(),
             text: "Was macht Abrams?".into(),

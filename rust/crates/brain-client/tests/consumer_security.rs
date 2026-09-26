@@ -5,6 +5,7 @@ use std::{collections::BTreeSet, time::Duration};
 
 fn query() -> Query {
     Query {
+        domain: None,
         request_id: "security-1".into(),
         conversation_id: "fixture-1".into(),
         text: "Abrams".into(),

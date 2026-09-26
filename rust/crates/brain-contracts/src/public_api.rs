@@ -34,8 +34,10 @@ impl PublicAnswerResponse {
                     || c.label.is_empty()
                     || c.label.len() > 256
             })
-            || (self.status == AnswerStatus::Answered
-                && (self.text.trim().is_empty() || self.citations.is_empty()))
+            || (matches!(
+                self.status,
+                AnswerStatus::Answered | AnswerStatus::BuildRejected
+            ) && (self.text.trim().is_empty() || self.citations.is_empty()))
         {
             return Err(PortError::InvalidResponse(
                 "invalid public answer contract".into(),

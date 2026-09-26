@@ -182,6 +182,7 @@ mod tests {
 
     fn query(text: &str, patch: Option<&str>) -> Query {
         Query {
+            domain: None,
             request_id: "r1".into(),
             conversation_id: "c1".into(),
             text: text.into(),

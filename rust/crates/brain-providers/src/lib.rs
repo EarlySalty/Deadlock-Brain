@@ -242,6 +242,7 @@ mod tests {
 
     fn query() -> Query {
         Query {
+            domain: None,
             request_id: "r1".into(),
             conversation_id: "c1".into(),
             text: "Was macht Abrams?".into(),

@@ -7,6 +7,7 @@ use thiserror::Error;
 
 pub const CONTRACT_VERSION: &str = "brain.v1";
 pub mod domain;
+pub mod domain_knowledge;
 pub mod embedding;
 pub mod external;
 pub mod public_api;
@@ -60,6 +61,10 @@ pub struct Query {
     pub request_id: String,
     pub conversation_id: String,
     pub text: String,
+    /// Optional typed intent; deterministic domain requests never require an LLM
+    /// to parse a build from prose. Omitted on existing brain.v1 text requests.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain: Option<domain::DomainRequest>,
     #[serde(default)]
     pub requested_scopes: BTreeSet<String>,
     #[serde(default)]
@@ -80,6 +85,9 @@ impl Query {
         }
         if self.text.trim().is_empty() {
             return Err(ContractError::MissingQueryText);
+        }
+        if let Some(request) = &self.domain {
+            request.validate()?;
         }
         if self.text.len() > 32_768 || self.requested_scopes.len() > 64 {
             return Err(ContractError::LimitExceeded);
@@ -264,6 +272,7 @@ pub struct Usage {
 #[serde(rename_all = "snake_case")]
 pub enum AnswerStatus {
     Answered,
+    BuildRejected,
     InsufficientEvidence,
     UnauthorizedEvidence,
     ProviderError,
@@ -464,6 +473,7 @@ mod tests {
     #[test]
     fn query_rejects_empty_identity_fields() {
         let query = Query {
+            domain: None,
             request_id: String::new(),
             conversation_id: "c1".into(),
             text: "Abrams".into(),
@@ -480,6 +490,7 @@ mod tests {
         let mut scopes = BTreeSet::new();
         scopes.insert("docs.public".to_string());
         let query = Query {
+            domain: None,
             request_id: "r1".into(),
             conversation_id: "c1".into(),
             text: "Was kann Abrams?".into(),
