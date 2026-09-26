@@ -575,7 +575,11 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
     password_env.push(("BRAIN_SERVE_PG_PASSWORD", "synthetic-wrong-password"));
     let mut bad_password = Service::spawn(&password_config, &password_env);
     assert!(!bad_password.wait(Duration::from_secs(5)).success());
-    assert!(bad_password.log().contains("database_unavailable"));
+    assert!(
+        bad_password.log().contains("database_unavailable"),
+        "{}",
+        bad_password.log()
+    );
     assert!(!bad_password.log().contains("synthetic-wrong-password"));
     password_env.pop();
     password_env.push(("BRAIN_SERVE_PG_PASSWORD", common::PG_PASSWORD));

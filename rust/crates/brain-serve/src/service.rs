@@ -123,9 +123,11 @@ async fn initialize(prepared: &Prepared) -> Result<Arc<Health>, Error> {
     let release_id = prepared.config.release.id.clone();
     let knowledge_version = prepared.config.release.knowledge_version.clone();
     let snapshot = tokio::task::spawn_blocking(move || {
-        reader
-            .check_core_schema()
-            .map_err(|_| Error::SchemaIncompatible)?;
+        reader.check_core_schema().map_err(|error| match error {
+            PortError::InvalidResponse(_) => Error::SchemaIncompatible,
+            PortError::PermissionDenied(_) => Error::DatabasePermissions,
+            _ => Error::DatabaseUnavailable,
+        })?;
         reader.check_permissions().map_err(startup_database_error)?;
         let snapshot = reader
             .read_snapshot(&release_id)
