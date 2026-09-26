@@ -11,24 +11,6 @@ fn invalid(message: &str) -> PortError {
     PortError::InvalidResponse(message.into())
 }
 
-impl PgStore {
-    /// Explicit privileged operation. Never called implicitly from a query or constructor.
-    pub async fn migrate_core(&self) -> Result<(), PortError> {
-        sqlx::raw_sql(include_str!(
-            "../../../../scripts/migrations/2026-09-24-brain-contract-v1.sql"
-        ))
-        .execute(&self.pool)
-        .await
-        .map_err(database_error)?;
-        sqlx::raw_sql(include_str!(
-            "../../../../scripts/migrations/2026-09-25-brain-core-jobs-v2.sql"
-        ))
-        .execute(&self.pool)
-        .await
-        .map_err(database_error)?;
-        Ok(())
-    }
-}
 impl DocumentStorePort for PgStore {
     fn checkpoint<'a>(&'a self, source: &'a str) -> StoreFuture<'a, Option<SourceCheckpoint>> {
         Box::pin(async move {
