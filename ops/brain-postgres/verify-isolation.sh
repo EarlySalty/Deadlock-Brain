@@ -57,7 +57,7 @@ expect deny "Revision schreiben"  brain_service  $SOCKET $PORT brain "BEGIN; UPD
 expect ok   "Job-Update"          brain_ingest   $SOCKET $PORT brain "BEGIN; UPDATE brain.source_jobs_v1 SET state = state; ROLLBACK;"
 expect ok   "Checkpoint-Update"   brain_ingest   $SOCKET $PORT brain "BEGIN; UPDATE brain.source_checkpoints_v1 SET generation = generation; ROLLBACK;"
 expect deny "Revision löschen"    brain_ingest   $SOCKET $PORT brain "BEGIN; DELETE FROM brain.source_record_revisions; ROLLBACK;"
-expect deny "Owner lesen"         brain_ingest   $SOCKET $PORT brain "SELECT count(*) FROM brain.conversation_owners_v1;"
+expect deny "Owner schreiben"     brain_ingest   $SOCKET $PORT brain "BEGIN; INSERT INTO brain.conversation_owners_v1(conversation_id, actor_id) VALUES ('probe-conv','probe-actor'); ROLLBACK;"
 expect deny "Schreiben"           brain_readonly $SOCKET $PORT brain "BEGIN; UPDATE brain.source_jobs_v1 SET state = state; ROLLBACK;"
 
 privileges=$(run brain_service $SOCKET $PORT brain "SELECT has_schema_privilege(current_user,'brain','CREATE') OR has_database_privilege(current_user,current_database(),'CREATE') OR has_database_privilege(current_user,current_database(),'TEMP') OR pg_has_role(current_user,'brain_migrate','MEMBER') OR (SELECT rolsuper OR rolcreatedb OR rolcreaterole FROM pg_roles WHERE rolname=current_user) OR EXISTS (SELECT FROM pg_namespace WHERE nspowner = (SELECT oid FROM pg_roles WHERE rolname=current_user)) OR EXISTS (SELECT FROM pg_database WHERE datdba = (SELECT oid FROM pg_roles WHERE rolname=current_user));")

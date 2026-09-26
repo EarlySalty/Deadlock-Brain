@@ -53,5 +53,6 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 runuser -u "$OS_USER" -- "$PG_BIN/psql" -X -q -v ON_ERROR_STOP=1 -h /run/deadlock-brain-postgresql -p "$PORT" -d postgres < "$HERE/roles.sql"
+runuser -u "$OS_USER" -- "$PG_BIN/psql" -X -q -v ON_ERROR_STOP=1 -h /run/deadlock-brain-postgresql -p "$PORT" -d postgres -v db=brain < "$HERE/grants.sql" 2>/dev/null || echo "grants.sql erst nach brain-migrate up anwendbar"
 systemctl enable --now deadlock-brain-postgresql-backup.timer
 echo "brain-postgresql bereit: Socket /run/deadlock-brain-postgresql, Port $PORT"

@@ -33,26 +33,61 @@ const PATCH: &str = "pilot-20260925";
 const PUBLIC_TOKEN: &str = "pilot-public-token";
 const INTERNAL_TOKEN: &str = "pilot-internal-token";
 
+const ISOLATED_SOCKET: &str = "/run/deadlock-brain-postgresql";
+const ISOLATED_PORT: u16 = 5446;
+
 struct Env {
     socket: String,
+    port: u16,
+    user: String,
+    password: Option<String>,
+    service_user: String,
+    service_password: Option<String>,
+    migrate: bool,
+    isolated: bool,
     root: PathBuf,
     database: String,
     report: PathBuf,
 }
 
 fn env() -> Env {
-    let socket = std::env::var("BRAIN_CORE_TEST_PG_SOCKET").expect("scratch socket required");
-    assert!(
-        socket.ends_with("/.core-test-pg"),
-        "refusing non-scratch socket"
-    );
+    let isolated = std::env::var("BRAIN_PILOT_TARGET").as_deref() == Ok("isolated");
     let database = std::env::var("BRAIN_PILOT_DATABASE").expect("pilot database required");
-    assert!(
-        database.starts_with("pilot_"),
-        "refusing non-pilot database"
-    );
+    let (socket, port, user, password, service_user, service_password) = if isolated {
+        assert!(
+            database.starts_with("brain_pilot"),
+            "refusing non-pilot database on the isolated Brain instance"
+        );
+        let secret = |name: &str| Some(std::env::var(name).expect("role password required"));
+        (
+            ISOLATED_SOCKET.to_string(),
+            ISOLATED_PORT,
+            "brain_ingest".to_string(),
+            secret("BRAIN_PILOT_INGEST_PASSWORD"),
+            "brain_service".to_string(),
+            secret("BRAIN_PILOT_SERVICE_PASSWORD"),
+        )
+    } else {
+        let socket = std::env::var("BRAIN_CORE_TEST_PG_SOCKET").expect("scratch socket required");
+        assert!(
+            socket.ends_with("/.core-test-pg"),
+            "refusing non-scratch socket"
+        );
+        assert!(
+            database.starts_with("pilot_"),
+            "refusing non-pilot database"
+        );
+        (socket, PORT, USER.to_string(), None, USER.to_string(), None)
+    };
     Env {
         socket,
+        port,
+        user,
+        password,
+        service_user,
+        service_password,
+        migrate: !isolated,
+        isolated,
         root: std::env::var("BRAIN_PILOT_ROOT")
             .expect("pilot root required")
             .into(),
@@ -65,11 +100,14 @@ fn env() -> Env {
 
 async fn store(env: &Env) -> PgStore {
     use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
-    let options = PgConnectOptions::new()
+    let mut options = PgConnectOptions::new_without_pgpass()
         .host(&env.socket)
-        .port(PORT)
-        .username(USER)
+        .port(env.port)
+        .username(&env.user)
         .database(&env.database);
+    if let Some(password) = &env.password {
+        options = options.password(password);
+    }
     let pool = PgPoolOptions::new()
         .max_connections(3)
         .acquire_timeout(Duration::from_secs(3))
@@ -82,7 +120,11 @@ async fn store(env: &Env) -> PgStore {
         .unwrap();
     assert!(address.is_none(), "pilot cluster must not use TCP");
     let store = PgStore::new(pool);
-    store.migrate_core().await.unwrap();
+    if env.migrate {
+        store.migrate_core().await.unwrap();
+    } else {
+        store.check_core_schema().await.unwrap();
+    }
     store
 }
 
@@ -195,7 +237,18 @@ fn snapshot_digest(reader: &LocalPgReader, release_id: &str) -> (String, usize) 
 }
 
 fn reader(env: &Env) -> LocalPgReader {
-    LocalPgReader::new(&env.socket, PORT, USER, &env.database).unwrap()
+    let reader = LocalPgReader::new(&env.socket, env.port, &env.user, &env.database).unwrap();
+    match &env.password {
+        Some(password) => reader
+            .with_connection_options(
+                Some(password.clone()),
+                Duration::from_secs(2),
+                Duration::from_secs(5),
+                Duration::from_secs(1),
+            )
+            .unwrap(),
+        None => reader,
+    }
 }
 
 fn write_report(env: &Env, phase: &str, value: Value) {
@@ -269,8 +322,15 @@ async fn pilot_phase_after_restart() {
     });
     let mut service_config = common::config();
     service_config["postgres"]["socket_dir"] = json!(env.socket);
-    service_config["postgres"]["port"] = json!(PORT);
-    service_config["postgres"]["username"] = json!(USER);
+    service_config["postgres"]["port"] = json!(env.port);
+    service_config["postgres"]["username"] = json!(env.service_user);
+    if env.service_password.is_some() {
+        service_config["postgres"]["auth"] = json!("password");
+        service_config["postgres"]["password_env"] = json!("BRAIN_SERVE_PG_PASSWORD");
+    }
+    if let Ok(pool) = std::env::var("BRAIN_PILOT_SERVICE_POOL") {
+        service_config["postgres"]["max_connections"] = json!(pool.parse::<u32>().unwrap());
+    }
     service_config["postgres"]["database"] = json!(env.database);
     service_config["provider"]["base_url"] = json!(format!("http://{provider_address}"));
     service_config["timeouts"]["provider_ms"] = json!(8000);
@@ -282,14 +342,15 @@ async fn pilot_phase_after_restart() {
         {"token_env": "BRAIN_SERVE_INTERNAL_TOKEN", "actor_id": "pilot-operator", "channel": "pilot",
          "scopes": ["docs.public", "docs.internal"], "provider_egress": ["public", "private"]}
     ]);
-    let mut service = common::Service::spawn(
-        &service_config,
-        &[
-            ("BRAIN_SERVE_API_TOKEN", PUBLIC_TOKEN),
-            ("BRAIN_SERVE_INTERNAL_TOKEN", INTERNAL_TOKEN),
-            ("BRAIN_SERVE_PROVIDER_API_KEY", "pilot-loopback-provider"),
-        ],
-    );
+    let mut service_env = vec![
+        ("BRAIN_SERVE_API_TOKEN", PUBLIC_TOKEN),
+        ("BRAIN_SERVE_INTERNAL_TOKEN", INTERNAL_TOKEN),
+        ("BRAIN_SERVE_PROVIDER_API_KEY", "pilot-loopback-provider"),
+    ];
+    if let Some(password) = &env.service_password {
+        service_env.push(("BRAIN_SERVE_PG_PASSWORD", password.as_str()));
+    }
+    let mut service = common::Service::spawn(&service_config, &service_env);
     let address = service.address();
     common::assert_ready(&address);
 
@@ -484,7 +545,7 @@ async fn pilot_phase_after_restart() {
     );
     fail.store(false, Ordering::SeqCst);
 
-    let load = load(&address, service.pid());
+    let load = load(&address, service.pid(), env.isolated);
     let revoke_reader = reader(&env);
     let mut revoked = tokio::task::spawn_blocking(move || {
         revoke_reader
@@ -604,8 +665,8 @@ async fn pilot_phase_empty_rebuild() {
     );
 }
 
-fn load(address: &str, service_pid: u32) -> Value {
-    if std::env::var("BRAIN_PILOT_VARIANT").as_deref() != Ok("diagnostic") {
+fn load(address: &str, service_pid: u32, isolated: bool) -> Value {
+    if !isolated && std::env::var("BRAIN_PILOT_VARIANT").as_deref() != Ok("diagnostic") {
         return Value::Null;
     }
     let requests: usize = match std::env::var("BRAIN_PILOT_LOAD_REQUESTS") {
@@ -647,6 +708,9 @@ fn load(address: &str, service_pid: u32) -> Value {
                             .as_str()
                             .unwrap()
                             .to_string(),
+                        Err(brain_client::ClientError::HttpStatus { status, .. }) => {
+                            format!("http_{}", status.as_u16())
+                        }
                         Err(_) => "client_error".into(),
                     };
                     samples.push(t.elapsed().as_micros() as u64);

@@ -11,14 +11,17 @@ stamp=$(date -u +%Y%m%dT%H%M%SZ)
 work="$TARGET/.brain-$stamp.partial"
 mkdir -- "$work"
 trap 'rm -rf -- "$work"' EXIT
-"$PG_BIN/pg_dump" -h "$SOCKET" -p "$PORT" -d brain --format=custom --compress=6 \
-  --no-password --file "$work/brain.dump"
+DATABASES=${BRAIN_BACKUP_DATABASES:-brain}
+for db in $DATABASES; do
+  "$PG_BIN/pg_dump" -h "$SOCKET" -p "$PORT" -d "$db" --create --format=custom --compress=6 \
+    --no-password --file "$work/$db.dump"
+  "$PG_BIN/pg_restore" --list "$work/$db.dump" > "$work/$db.toc"
+done
 "$PG_BIN/pg_dumpall" -h "$SOCKET" -p "$PORT" --globals-only --no-role-passwords \
   --no-password > "$work/globals.sql"
-"$PG_BIN/pg_restore" --list "$work/brain.dump" > "$work/brain.toc"
 "$PG_BIN/psql" -X -A -t -h "$SOCKET" -p "$PORT" -d brain --no-password -c \
   "SELECT schema_version || ' ' || store_contract FROM brain.core_schema_version" > "$work/schema_version.txt"
-( cd "$work" && sha256sum brain.dump globals.sql brain.toc schema_version.txt > SHA256SUMS )
+( cd "$work" && sha256sum -- *.dump *.toc globals.sql schema_version.txt > SHA256SUMS )
 mv -- "$work" "$TARGET/brain-$stamp"
 trap - EXIT
 ls -1d "$TARGET"/brain-*/ 2>/dev/null | sort | head -n -"$KEEP" | xargs -r rm -rf --
