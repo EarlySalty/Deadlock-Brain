@@ -21,6 +21,7 @@ Ausgeführt auf der oben genannten integrierten Codebasis mit Rust **1.97.1**, `
 | `cargo check --locked --workspace` | Exit 0 |
 | `cargo clippy --locked --workspace --all-targets -- -D warnings` | Exit 0 |
 | `cargo test --locked --workspace` | Exit 0; **940 bestanden, 0 fehlgeschlagen, 71 bestehende Ignore-Markierungen**, 89 Test-/Doc-Test-Suiten |
+| `cargo build --locked --workspace --release` | Exit 0 |
 | Default-E2E nach Crash/Restart | **18/18 Fälle bestanden**; Inputbudget **12.000**, Retrieval-Limit **6**, keine Budget-/Retrieval-Overrides |
 | `legal_build` | `answered`; Begründung und Zitationen geprüft; **0 Provideraufrufe** |
 | `illegal_build` | `build_rejected`; konkreter Duplikatgrund und Zitationen geprüft; **0 Provideraufrufe** |
@@ -30,6 +31,8 @@ Ausgeführt auf der oben genannten integrierten Codebasis mit Rust **1.97.1**, `
 | Unveränderter Reimport / Delete / ACL | 0 neue Records; 1 Tombstone; aktuelle Delete- und ACL-Sperren wirksam |
 
 Alle fünf ursprünglich budgetbedingt roten Defaultfälle sind jetzt grün: `public_question`, `exact_number`, `alias_en`, `alias_de_lowercase` und `provider_error`. Die fachliche Aliasauflösung und providerfreien Zahlenantworten werden zusätzlich durch die typisierten C6-Regressionen geprüft; die lexikalischen Prosa-Pilotfälle werden nicht mit diesen deterministischen Tests gleichgesetzt.
+
+PR #48 wurde auf `migration/rust-integration` umgestellt und bleibt offen; kein Merge und kein Deployment. Aktueller vollständiger PR-Head, gegebenenfalls abweichender synthetischer CI-Merge-SHA, Run-IDs/-Versuche und deren tatsächliche Ergebnisse werden in der PR-Beschreibung festgehalten. Eine ältere grüne CI des ursprünglich gestapelten PR wird nicht als Abnahme des neuen Heads ausgegeben.
 
 Neue lokale Protokolle: `.core-test-logs/c6/integrated-acceptance-*.log` mit separaten `.exit`-Dateien sowie `.core-test-logs/c6/integrated-pilot/`. Die ursprünglichen `acceptance-*`-Logs und der alte Pilotnachweis wurden nicht überschrieben. Der Dokumentkorpus ist die bereits vorhandene, genehmigte **Kopie** unter `/tmp/brain-c6-pilot-20260926`, nicht das Originalverzeichnis.
 
