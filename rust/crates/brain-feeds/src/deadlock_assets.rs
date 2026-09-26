@@ -140,6 +140,7 @@ pub fn documents(
         });
         for (field, value) in hero_facts {
             let fact_key = format!("starting_stats.{field}.value");
+            let field_label = field.replace('_', " ");
             let source_pointer = format!("/starting_stats/{field}/value");
             let mut field_origin = origin.clone();
             field_origin.locator = format!(
@@ -153,6 +154,7 @@ pub fn documents(
                 ("asset_kind".into(), kind.into()),
                 ("http_body_sha256".into(), body_sha.clone()),
                 ("fact_key".into(), fact_key.clone()),
+                ("field".into(), field_label.clone()),
                 ("source_pointer".into(), source_pointer),
             ]);
             if let Some(name) = &name {
@@ -161,8 +163,8 @@ pub fn documents(
             out.push(CoreDocument {
                 logical_id: format!("asset/hero/{}/{fact_key}", entity.external_id),
                 content: format!(
-                    "Hero: {}\nFact key: {fact_key}\nValue: {value}\n",
-                    name.as_deref().unwrap_or("unknown")
+                    "Hero: {}\n{field_label}: {value}\n",
+                    name.as_deref().unwrap_or("unknown"),
                 ),
                 metadata: field_metadata,
                 origin: field_origin,
@@ -267,8 +269,9 @@ mod tests {
             .find(|record| record.logical_id == "asset/hero/25/starting_stats.max_health.value")
             .unwrap();
         assert!(fact.content.contains("Hero: Warden"));
-        assert!(fact.content.contains("Value: 770"));
+        assert!(fact.content.contains("max health: 770"));
         assert_eq!(fact.metadata["fact_key"], "starting_stats.max_health.value");
+        assert_eq!(fact.metadata["field"], "max health");
         assert_eq!(
             fact.metadata["source_pointer"],
             "/starting_stats/max_health/value"
