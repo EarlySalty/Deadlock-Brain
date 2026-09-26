@@ -5,9 +5,11 @@ mod local_pg_reader;
 mod memory_repository;
 mod pg_jobs;
 mod pg_release;
+mod schema;
 pub use domain_reader::DomainReader;
 pub use local_pg_reader::LocalPgReader;
 pub use memory_repository::MemoryRepository;
+pub use schema::CORE_SCHEMA_VERSION;
 
 use std::collections::BTreeMap;
 
