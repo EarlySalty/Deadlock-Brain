@@ -22,8 +22,12 @@ trap cleanup EXIT
 mv "$SCRATCH/pg_hba.conf" "$CLUSTER/pg_hba.conf"
 STARTED=1
 "$PG_BIN/pg_ctl" -D "$CLUSTER" -l "$SCRATCH/postgres.log" \
-  -o "-c listen_addresses='' -k $CLUSTER -p 55439 -c max_connections=16 -c shared_buffers=16MB" -w start
+  -o "-c listen_addresses='' -k $CLUSTER -p 55439 -c max_connections=12 -c shared_buffers=16MB" -w start
 "$PG_BIN/createdb" -h "$CLUSTER" -p 55439 -U brain_core_test brain_serve_test
 cd "$ROOT/rust"
 SQLX_OFFLINE=true BRAIN_CORE_TEST_PG_SOCKET="$CLUSTER" "$CARGO" test --locked -p brain-serve --test process_e2e \
   binary_loopback_health_readiness_shutdown_and_no_fallback -- --ignored --exact --nocapture
+if grep -Fq "too many clients already" "$SCRATCH/postgres.log"; then
+  printf '%s\n' "scratch PostgreSQL exceeded max_connections=12" >&2
+  exit 1
+fi

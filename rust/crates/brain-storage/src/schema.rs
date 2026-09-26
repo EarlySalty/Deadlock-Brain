@@ -63,7 +63,7 @@ async fn check_version(connection: &mut PgConnection) -> Result<(), PortError> {
 }
 
 // Parse/plan only. Requires SELECT, never CREATE/ALTER, and reads no corpus rows.
-const SHAPE_PROBE: &str = "SELECT r.source_id,r.logical_id,r.revision,r.content_hash,r.tombstone,r.record_json,r.created_at,
+pub(crate) const SHAPE_PROBE: &str = "SELECT r.source_id,r.logical_id,r.revision,r.content_hash,r.tombstone,r.record_json,r.created_at,
     h.source_id,h.logical_id,h.revision,h.content_hash,h.tombstone,h.record_json,h.updated_at,
     c.release_id,c.knowledge_version,c.patch,c.release_json,c.created_at,
     j.source_id,j.owner,j.fence,j.lease_until,j.state,j.updated_at,

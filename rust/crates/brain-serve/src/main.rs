@@ -32,14 +32,15 @@ fn execute() -> Result<(), Error> {
     let prepared = Prepared::new(config, secrets)?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
-        .max_blocking_threads(18)
+        .max_blocking_threads(66)
         .enable_all()
         .build()
         .map_err(|_| Error::Runtime)?;
     let result = runtime.block_on(brain_serve::run(&prepared));
     let remaining = prepared.remaining_shutdown();
-    // Detached blocking API work cannot keep the process alive beyond the drain budget.
-    runtime.shutdown_timeout(remaining);
+    // HTTP drain already happens inside run(). Detached synchronous DB/provider workers must not
+    // keep an unbound/startup-aborted process alive for the full service drain budget.
+    runtime.shutdown_timeout(remaining.min(std::time::Duration::from_secs(2)));
     result?;
     if prepared.remaining_shutdown().is_zero() {
         return Err(Error::ShutdownTimeout);

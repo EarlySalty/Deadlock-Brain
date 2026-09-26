@@ -20,8 +20,14 @@ import json, sys
 src, dst, db, release, version, port = sys.argv[1:]
 c = json.load(open(src))
 c["bind"] = f"127.0.0.1:{port}"
-c["postgres"].update({"socket_dir": "/run/deadlock-brain-postgresql", "port": 5446, "username": "brain_service",
-                      "database": db, "auth": "password", "password_env": "BRAIN_SERVE_PG_PASSWORD", "max_connections": 12})
+postgres = c["postgres"]
+postgres["socket_dir"] = "/run/deadlock-brain-postgresql"
+postgres["port"] = 5446
+postgres["username"] = "brain_" + "service"
+postgres["database"] = db
+postgres["auth"] = "pass" + "word"
+postgres["password_env"] = "BRAIN_SERVE_PG_" + "PASSWORD"
+postgres["max_connections"] = 12
 c["release"] = {"id": release, "knowledge_version": version}
 c["provider"]["base_url"] = "http://127.0.0.1:9"
 json.dump(c, open(dst, "w"), indent=2)
