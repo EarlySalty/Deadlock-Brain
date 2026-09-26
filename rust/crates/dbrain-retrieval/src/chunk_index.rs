@@ -2,8 +2,8 @@
 use brain_contracts::{
     lexical::{fact_names, terms},
     store::record_allowed,
-    AnswerProfile, AuthorizedContext, ChunkProvenance, CorpusRelease, DocumentHead,
-    DocumentRevision, Evidence, EvidenceKind, PortError, Query, SourceRecordV2,
+    AuthorizedContext, ChunkProvenance, CorpusRelease, DocumentHead, DocumentRevision, Evidence,
+    EvidenceKind, PortError, Query, SourceRecordV2,
 };
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -33,7 +33,7 @@ pub(crate) struct ChunkIndex {
     postings: BTreeMap<String, Vec<(usize, u32)>>,
     lengths: Vec<usize>,
     average_length: f64,
-    fact_name_owners: BTreeMap<Vec<String>, BTreeSet<(String, String)>>,
+    fact_name_owners: BTreeMap<Vec<String>, BTreeSet<usize>>,
 }
 
 /// No normalization of numeric literals: 6.5, 65, -6.5 and 6,5 remain distinct.
@@ -133,7 +133,7 @@ impl ChunkIndex {
                         .fact_name_owners
                         .entry(name)
                         .or_default()
-                        .insert((record.source_id.clone(), record.logical_id.clone()));
+                        .insert(document);
                 }
             }
             // Typed facts/rules are indivisible objects, not prose. Oversized objects fail
@@ -239,18 +239,6 @@ impl ChunkIndex {
                 .is_none_or(|m| record.metadata.get("mode") == Some(m))
     }
     pub fn rank(&self, query: &Query, context: &AuthorizedContext) -> Vec<(usize, f64)> {
-        // The final kernel sees at most 100 hits. Resolve alias ownership over
-        // the entire pinned release first, including owners outside that pack.
-        if query.profile == AnswerProfile::Fact {
-            let query_words = terms(&query.text);
-            if self.fact_name_owners.iter().any(|(name, owners)| {
-                owners.len() > 1
-                    && !name.is_empty()
-                    && query_words.windows(name.len()).any(|part| part == name)
-            }) {
-                return Vec::new();
-            }
-        }
         let query_terms: BTreeSet<_> = terms(&query.text).into_iter().collect();
         let numbers = numeric_terms(&query.text);
         let mut scores = BTreeMap::<usize, f64>::new();
@@ -278,6 +266,26 @@ impl ChunkIndex {
                 .then_with(|| self.chunks[*a].id.cmp(&self.chunks[*b].id))
         });
         ranked
+    }
+    pub fn matching_fact_owners<'a>(
+        &'a self,
+        query: &Query,
+        context: &AuthorizedContext,
+    ) -> Vec<&'a SourceRecordV2> {
+        let query_words = terms(&query.text);
+        let documents: BTreeSet<_> = self
+            .fact_name_owners
+            .iter()
+            .filter(|(name, _)| {
+                !name.is_empty() && query_words.windows(name.len()).any(|part| part == *name)
+            })
+            .flat_map(|(_, owners)| owners.iter().copied())
+            .collect();
+        documents
+            .into_iter()
+            .map(|document| &self.records[document])
+            .filter(|record| self.eligible(record, query, context))
+            .collect()
     }
     pub fn document(&self, chunk: usize) -> DocumentRevision {
         let record = &self.records[self.chunks[chunk].document];

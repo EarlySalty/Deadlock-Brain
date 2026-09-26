@@ -91,6 +91,38 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
         }
         Ok(result)
     }
+    fn ambiguous_fact_owner(
+        &self,
+        index: &ChunkIndex,
+        query: &Query,
+        context: &AuthorizedContext,
+    ) -> Result<bool, PortError> {
+        let owners = index.matching_fact_owners(query, context);
+        if owners.len() < 2 {
+            return Ok(false);
+        }
+        let documents: Vec<_> = owners
+            .iter()
+            .map(|record| DocumentRevision {
+                source_id: record.source_id.clone(),
+                logical_id: record.logical_id.clone(),
+                revision: record.revision,
+                content_hash: record.content_hash.clone(),
+            })
+            .collect();
+        let heads = self.heads(&documents)?;
+        let mut visible = BTreeSet::new();
+        for record in owners {
+            let head = heads.get(&(record.source_id.clone(), record.logical_id.clone()));
+            if effective_head(record, head, context, false)?.is_some() {
+                visible.insert((&record.source_id, &record.logical_id));
+                if visible.len() > 1 {
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
+    }
     fn selected(
         &self,
         index: &ChunkIndex,
@@ -212,6 +244,11 @@ impl<S: SnapshotReadPort> RetrievalPort for ReleaseRetriever<S> {
             return crate::domain_port::retrieve(&self.store, query, context, false);
         }
         let index = self.index(query, context)?;
+        if query.profile == brain_contracts::AnswerProfile::Fact
+            && self.ambiguous_fact_owner(&index, query, context)?
+        {
+            return Ok(Vec::new());
+        }
         let ranked = index.rank(query, context);
         let hits = self.selected(&index, &ranked, query, context, self.limit, false)?;
         pack(query, context, hits)

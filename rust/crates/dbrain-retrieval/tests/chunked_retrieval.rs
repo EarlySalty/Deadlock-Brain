@@ -201,6 +201,52 @@ async fn fact_alias_ambiguity_is_checked_across_the_entire_release() {
 }
 
 #[tokio::test]
+async fn ineligible_alias_owners_do_not_hide_authorized_fact() {
+    let mut first = record("entity/hero/Abrams", "hero: Abrams\nhealth: 650");
+    first.metadata.insert("kind".into(), "fact".into());
+    first
+        .metadata
+        .insert("aliases_en".into(), "Guardian".into());
+    let mut second = record("entity/hero/Warden", "hero: Warden\nhealth: 700");
+    second.metadata.insert("kind".into(), "fact".into());
+    second
+        .metadata
+        .insert("aliases_en".into(), "Guardian".into());
+    let mut request = query("Guardian health");
+    request.profile = AnswerProfile::Fact;
+    for variant in ["wrong_patch", "wrong_mode", "unauthorized"] {
+        let mut other = second.clone();
+        match variant {
+            "wrong_patch" => {
+                other.metadata.insert("patch".into(), "p0".into());
+            }
+            "wrong_mode" => {
+                other.metadata.insert("mode".into(), "casual".into());
+            }
+            "unauthorized" => {
+                other.visibility = SourceVisibility::Private;
+                other.allowed_scopes.insert("private".into());
+            }
+            _ => unreachable!(),
+        }
+        let retriever = ReleaseRetriever::new(published(vec![first.clone(), other]).await, 1);
+        let hits = retriever.retrieve(&request, &context()).unwrap();
+        assert_eq!(hits.len(), 1, "{variant}");
+        assert_eq!(hits[0].logical_id, first.logical_id, "{variant}");
+    }
+    let store = published(vec![first.clone(), second.clone()]).await;
+    let retriever = ReleaseRetriever::new(store.clone(), 1);
+    assert!(retriever.retrieve(&request, &context()).unwrap().is_empty());
+    second.revision += 1;
+    second.visibility = SourceVisibility::Private;
+    second.allowed_scopes.insert("private".into());
+    store.apply_record(second).unwrap();
+    let hits = retriever.retrieve(&request, &context()).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].logical_id, first.logical_id);
+}
+
+#[tokio::test]
 async fn live_revoke_delete_and_historical_acl_never_widen() {
     let mut original = record("restricted.md", "Abrams restricted evidence");
     original.visibility = SourceVisibility::Private;
