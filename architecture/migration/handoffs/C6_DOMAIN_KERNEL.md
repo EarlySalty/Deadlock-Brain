@@ -1,9 +1,44 @@
-# C6 — Domain-/Kernel-Verdrahtung
+# C6: Domain-/Kernel-Verdrahtung
 
 Stand: 26.09.2026. Branch: `codex/fix-c6-domain-kernel-wiring`.
 Ziel des PR: `migration/rust-integration`. **Nicht mergen, nicht deployen.**
 
-## Basis und Abhängigkeiten
+## Fortsetzung auf dem gemeinsamen Integrationsstand
+
+Bei Wiederaufnahme war `origin/migration/rust-integration` bereits auf **`3b86d3cbe5ea39a67b8b1fbd8a3d48ab935982ef`**. Dieser Stand enthält C4, C2/C3, C1 und die ursprüngliche C6-Implementierung einschließlich der gemeinsamen Integrationskorrekturen `a4921ab` und `86d2ae7`. Die C6-Commits `0cc0e707d171c2faab2d74320614348c72786557`, `01c6142f81e61e4d322db2a073dff5faf38b2262` und `cb76914c52dd301f860e6f01d7f18b206f1782fe` sind erhalten und bereits Vorfahren dieser Basis. Die Integration durch die andere Session wird hier nicht als eigene Merge-Aktion ausgegeben.
+
+Der saubere C6-Worktree wurde per Rebase ohne neue Commit-Umschreibungen auf diese Basis vorgezogen. Keine zweite Implementierung, kein Force-Push, keine Übernahme fremder uncommitteter Änderungen. PR #48 war bei Wiederaufnahme noch auf `codex/fix-c4-contract-unification` gestapelt; Ziel dieser Fortsetzung ist die Abnahme gegen `migration/rust-integration` nach C2. Da der Zielbranch den ursprünglichen C6-Code bereits enthält, besteht der verbleibende PR-Diff aus dieser aktualisierten Übergabe, nicht aus einem erneut eingebrachten Domainpfad.
+
+Der aktuelle Prozesspilot liegt unter `rust/crates/brain-serve/tests/local_pilot.rs` und startet das echte `brain-serve`-Binary. Er enthält die bisherigen 17 Fälle plus `hero_card`, insgesamt **18**. Die ursprünglichen 26 C6-Regressionen bleiben aktive Tests. Der folgende historische Einzelbranch-Nachweis bleibt zur Nachvollziehbarkeit erhalten; seine damalige C2-Blockade beschreibt nicht den heutigen Integrationsstand.
+
+### Erneute lokale Abnahme nach C2/C3
+
+Ausgeführt auf der oben genannten integrierten Codebasis mit Rust **1.97.1**, `SQLX_OFFLINE=true`, zwei Cargo-Buildjobs und isoliertem Test-HOME. Der Prozess erhält keine Anwendungs- oder Produktions-DB-Secrets. Die Aktualisierung dieses Handoffs ändert weder Rust-Code noch Fixtures, Lockfile oder Laufzeitkonfiguration.
+
+| Prüfung | Ergebnis der Fortsetzung |
+|---|---|
+| `cargo fmt --all -- --check` | Exit 0 |
+| `cargo check --locked --workspace` | Exit 0 |
+| `cargo clippy --locked --workspace --all-targets -- -D warnings` | Exit 0 |
+| `cargo test --locked --workspace` | Exit 0; **940 bestanden, 0 fehlgeschlagen, 71 bestehende Ignore-Markierungen**, 89 Test-/Doc-Test-Suiten |
+| `cargo build --locked --workspace --release` | Exit 0 |
+| Default-E2E nach Crash/Restart | **18/18 Fälle bestanden**; Inputbudget **12.000**, Retrieval-Limit **6**, keine Budget-/Retrieval-Overrides |
+| `legal_build` | `answered`; Begründung und Zitationen geprüft; **0 Provideraufrufe** |
+| `illegal_build` | `build_rejected`; konkreter Duplikatgrund und Zitationen geprüft; **0 Provideraufrufe** |
+| `hero_card` | `answered`; generative Kartenerklärung über den normalen autorisierten Providerpfad; 1 Loopback-Stub-Aufruf |
+| `scripts/run_local_pilot.sh` | Exit 0; alle vier Phasen `ingest`, `after_restart_default`, `reader_failures`, `rebuild` jeweils Exit 0 |
+| Import, Crash/Restart, leerer Rebuild | Jeweils 18 Dokumentrevisionen; identischer Snapshot-Digest `b8995efcbe7b0c4d070537a5516160547532446f58e07930d3025e462e17d32e` |
+| Unveränderter Reimport / Delete / ACL | 0 neue Records; 1 Tombstone; aktuelle Delete- und ACL-Sperren wirksam |
+
+Alle fünf ursprünglich budgetbedingt roten Defaultfälle sind jetzt grün: `public_question`, `exact_number`, `alias_en`, `alias_de_lowercase` und `provider_error`. Die fachliche Aliasauflösung und providerfreien Zahlenantworten werden zusätzlich durch die typisierten C6-Regressionen geprüft; die lexikalischen Prosa-Pilotfälle werden nicht mit diesen deterministischen Tests gleichgesetzt.
+
+PR #48 wurde auf `migration/rust-integration` umgestellt und bleibt offen; kein Merge und kein Deployment. Aktueller vollständiger PR-Head, gegebenenfalls abweichender synthetischer CI-Merge-SHA, Run-IDs/-Versuche und deren tatsächliche Ergebnisse werden in der PR-Beschreibung festgehalten. Eine ältere grüne CI des ursprünglich gestapelten PR wird nicht als Abnahme des neuen Heads ausgegeben.
+
+Neue lokale Protokolle: `.core-test-logs/c6/integrated-acceptance-*.log` mit separaten `.exit`-Dateien sowie `.core-test-logs/c6/integrated-pilot/`. Die ursprünglichen `acceptance-*`-Logs und der alte Pilotnachweis wurden nicht überschrieben. Der Dokumentkorpus ist die bereits vorhandene, genehmigte **Kopie** unter `/tmp/brain-c6-pilot-20260926`, nicht das Originalverzeichnis.
+
+**Messgrenzen:** Die Domain-/Builddaten bleiben ausdrücklich synthetische Fixtures, kein aktueller freigegebener Deadlock-Itemkatalog. Der Provider ist ausschließlich ein kontrollierter Loopback-Stub. Dieser Default-Scratch-Pilot führt keinen 600-Request-Lastlauf aus (`load: null`); daraus folgt keine Pooling-, Last-, Produktions- oder echte Providerfreigabe. Der separate DB-Pooling-Auftrag wird nicht in C6 hineingezogen.
+
+## Historische Basis und Abhängigkeiten des ursprünglichen C6-PR
 
 Der frisch geholte Integrationsbranch steht auf `087c522deda58ecf4bd6843167f51c54f681e944`. C4 ist noch nicht integriert: PR #43 enthält `ea2bd15d65df57e0d56069f3d4f7e0a8cf79c78e`. Dieser C6-Branch baut ausdrücklich auf diesem C4-Commit auf. Der PR gegen den Integrationsbranch enthält deshalb bis zur separaten C4-Integration auch dessen Vorläufercommit. Keine Änderung am Zielbranch und kein eigenmächtiger Merge.
 
@@ -90,7 +125,7 @@ Der bestehende lokale PostgreSQL-/HTTP-Pilot enthält nun zusätzlich `legal_bui
 
 **Messgrenze:** Die bestehenden lokalen Dokumente sind echte Pilotdokumente. Die neuen Domain-Eingaben sind klar benannte synthetische Fixtures, keine bestätigten aktuellen Deadlock-Stats. Der Provider ist der vorhandene kontrollierte Loopback-Stub. Weder Live-Spielvalidität noch Qualität echter Modellantworten oder Produktionsbetrieb werden daraus abgeleitet.
 
-## Prüfprotokoll
+## Historisches Prüfprotokoll des Einzelbranches
 
 Abschließend geprüfter Code-/Test-Commit: **`01c6142f81e61e4d322db2a073dff5faf38b2262`**. Danach folgt nur dieser Handoff. Alle fünf Workspacebefehle wurden nach der letzten Pilotkorrektur vollständig erneut ausgeführt; die finalen Logs heißen `acceptance-*.log` mit separaten `acceptance-*.exit`-Dateien.
 
@@ -139,7 +174,7 @@ BRAIN_PILOT_ROOT=/absoluter/pfad/zur/eigenen/pilotkopie scripts/run_local_pilot.
 
 Keine Budget-/Retrieval-Limit-Overrides für die Defaultprüfung. Lokale Ausgaben: `.core-test-logs/c6/` und `.core-test-logs/pilot/`; keine Rohtexte, Secrets oder Datenbankdateien im PR.
 
-## Übergabe an die gemeinsame Integration
+## Historische Übergabe an die gemeinsame Integration
 
 Zuerst C4 separat reviewen/integrationsseitig übernehmen. Beim anschließenden Zusammenführen mit C2/C3 müssen Domain-Dispatch und kanonische Domain-Evidenzvalidierung im neuen ReleaseRetriever erhalten bleiben; die C2/C3-Fehlerklassifikation darf nicht auf den älteren Stand zurückgesetzt werden. `Query.domain` muss im dortigen Cache-/Single-Flight-Key verbleiben. Die Enum-Ergänzungen `build_rejected` und `unavailable` sind kumulativ, keine Alternativen. Danach die **gemeinsamen** Workspacechecks und den Default-Pilot mit allen 17 Fällen erneut ausführen.
 
