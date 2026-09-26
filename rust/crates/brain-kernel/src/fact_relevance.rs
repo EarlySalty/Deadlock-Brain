@@ -82,7 +82,12 @@ pub(super) fn select<'a>(query: &Query, evidence: &'a [Evidence]) -> Option<&'a 
         {
             continue;
         }
-        matched_entities.insert(fact_entity_key(&item.source_id, &item.logical_id));
+        matched_entities.insert(fact_entity_key(
+            &item.source_id,
+            &item.logical_id,
+            &item.content,
+            &provenance.metadata,
+        ));
         if fields(item)
             .iter()
             .any(|field| contains_phrase(&query_words, field))

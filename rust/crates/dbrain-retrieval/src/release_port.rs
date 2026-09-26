@@ -125,6 +125,8 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
                     visible.insert(brain_contracts::lexical::fact_entity_key(
                         &record.source_id,
                         &record.logical_id,
+                        &record.content,
+                        &record.metadata,
                     ));
                     if visible.len() > 1 {
                         return Ok(true);

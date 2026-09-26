@@ -120,10 +120,25 @@ async fn asset_hero_entity_and_field_records_share_identity() {
         fact.content = format!("Hero: Warden\n{field}: {value}\n");
         fact.metadata.insert("kind".into(), "fact".into());
         fact.metadata.insert("name".into(), "Warden".into());
+        fact.metadata
+            .insert("connector".into(), "deadlock-assets".into());
         if field != "hero" {
             fact.metadata.insert("field".into(), field.into());
         }
         s.apply_record(fact).unwrap();
+    }
+    for (name, external_id) in [("Warden", "hero_25"), ("Other", "hero_26")] {
+        let mut legacy = record(1);
+        legacy.source_id = "legacy-entities".into();
+        legacy.logical_id = format!("entity/hero/{name}");
+        legacy.content = format!(
+            "hero: {name}\nExternal ID: {external_id}\nSource: deadlock_assets_api\nAliases: Guardian\n"
+        );
+        legacy.metadata.insert("kind".into(), "fact".into());
+        legacy
+            .metadata
+            .insert("connector".into(), "brain_legacy".into());
+        s.apply_record(legacy).unwrap();
     }
     let release = s.release_from_heads("r1", "v1", "p1").unwrap();
     s.publish(&release).await.unwrap();
@@ -145,6 +160,11 @@ async fn asset_hero_entity_and_field_records_share_identity() {
     assert_eq!(
         answer.citations[0].logical_id,
         "asset/hero/25/starting_stats.max_health.value"
+    );
+    request.text = "Guardian max health".into();
+    assert_eq!(
+        kernel.answer(&request, &context()).status,
+        AnswerStatus::InsufficientEvidence
     );
 }
 struct Provider {
