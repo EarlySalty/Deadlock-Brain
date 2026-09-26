@@ -247,6 +247,19 @@ async fn ineligible_alias_owners_do_not_hide_authorized_fact() {
 }
 
 #[tokio::test]
+async fn two_unambiguous_entities_in_one_question_are_not_alias_ambiguous() {
+    let mut abrams = record("entity/hero/Abrams", "hero: Abrams\nhealth: 650");
+    abrams.metadata.insert("kind".into(), "fact".into());
+    let mut warden = record("entity/hero/Warden", "hero: Warden\nhealth: 700");
+    warden.metadata.insert("kind".into(), "fact".into());
+    let retriever = ReleaseRetriever::new(published(vec![abrams, warden]).await, 10);
+    let mut request = query("Abrams Warden health");
+    request.profile = AnswerProfile::Fact;
+    let hits = retriever.retrieve(&request, &context()).unwrap();
+    assert_eq!(hits.len(), 2);
+}
+
+#[tokio::test]
 async fn live_revoke_delete_and_historical_acl_never_widen() {
     let mut original = record("restricted.md", "Abrams restricted evidence");
     original.visibility = SourceVisibility::Private;

@@ -267,24 +267,27 @@ impl ChunkIndex {
         });
         ranked
     }
+    /// Group owners by the specific matched name. Different unambiguous names
+    /// in one question are not themselves an alias collision.
     pub fn matching_fact_owners<'a>(
         &'a self,
         query: &Query,
         context: &AuthorizedContext,
-    ) -> Vec<&'a SourceRecordV2> {
+    ) -> Vec<Vec<&'a SourceRecordV2>> {
         let query_words = terms(&query.text);
-        let documents: BTreeSet<_> = self
-            .fact_name_owners
+        self.fact_name_owners
             .iter()
             .filter(|(name, _)| {
                 !name.is_empty() && query_words.windows(name.len()).any(|part| part == *name)
             })
-            .flat_map(|(_, owners)| owners.iter().copied())
-            .collect();
-        documents
-            .into_iter()
-            .map(|document| &self.records[document])
-            .filter(|record| self.eligible(record, query, context))
+            .map(|(_, owners)| {
+                owners
+                    .iter()
+                    .map(|document| &self.records[*document])
+                    .filter(|record| self.eligible(record, query, context))
+                    .collect::<Vec<_>>()
+            })
+            .filter(|owners| owners.len() > 1)
             .collect()
     }
     pub fn document(&self, chunk: usize) -> DocumentRevision {

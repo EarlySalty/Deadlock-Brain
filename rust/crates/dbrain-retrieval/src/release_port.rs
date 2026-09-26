@@ -97,12 +97,13 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
         query: &Query,
         context: &AuthorizedContext,
     ) -> Result<bool, PortError> {
-        let owners = index.matching_fact_owners(query, context);
-        if owners.len() < 2 {
+        let groups = index.matching_fact_owners(query, context);
+        if groups.is_empty() {
             return Ok(false);
         }
-        let documents: Vec<_> = owners
+        let documents: Vec<_> = groups
             .iter()
+            .flatten()
             .map(|record| DocumentRevision {
                 source_id: record.source_id.clone(),
                 logical_id: record.logical_id.clone(),
@@ -111,13 +112,15 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
             })
             .collect();
         let heads = self.heads(&documents)?;
-        let mut visible = BTreeSet::new();
-        for record in owners {
-            let head = heads.get(&(record.source_id.clone(), record.logical_id.clone()));
-            if effective_head(record, head, context, false)?.is_some() {
-                visible.insert((&record.source_id, &record.logical_id));
-                if visible.len() > 1 {
-                    return Ok(true);
+        for owners in groups {
+            let mut visible = BTreeSet::new();
+            for record in owners {
+                let head = heads.get(&(record.source_id.clone(), record.logical_id.clone()));
+                if effective_head(record, head, context, false)?.is_some() {
+                    visible.insert((&record.source_id, &record.logical_id));
+                    if visible.len() > 1 {
+                        return Ok(true);
+                    }
                 }
             }
         }
