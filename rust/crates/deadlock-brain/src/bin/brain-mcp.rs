@@ -85,13 +85,13 @@ fn rpc_error(id: Value, code: i64, message: &str) -> Value {
     json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}})
 }
 
-async fn handle(client: &AsyncBrainClient, scopes: &BTreeSet<String>, request: Value) -> Option<Value> {
-    let id = request.get("id").cloned();
+async fn handle(
+    client: &AsyncBrainClient,
+    scopes: &BTreeSet<String>,
+    request: Value,
+) -> Option<Value> {
+    let id = request.get("id").cloned()?;
     let method = request.get("method").and_then(Value::as_str)?;
-    if id.is_none() {
-        return None;
-    }
-    let id = id.unwrap_or(Value::Null);
     match method {
         "initialize" => {
             let protocol = request
@@ -187,11 +187,8 @@ async fn main() {
             process::exit(64);
         }
     };
-    let client = match AsyncBrainClient::new_local(
-        &config.endpoint,
-        &config.token,
-        config.timeout,
-    ) {
+    let client = match AsyncBrainClient::new_local(&config.endpoint, &config.token, config.timeout)
+    {
         Ok(client) => client,
         Err(_) => {
             eprintln!("BrainClient konnte nicht erstellt werden");
