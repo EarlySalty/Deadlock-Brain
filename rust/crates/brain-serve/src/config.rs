@@ -103,6 +103,7 @@ pub struct Timeouts {
     pub startup_ms: u64,
     pub request_ms: u64,
     pub postgres_connect_ms: u64,
+    pub postgres_pool_wait_ms: u64,
     pub postgres_statement_ms: u64,
     pub postgres_lock_ms: u64,
     pub provider_ms: u64,
@@ -276,6 +277,7 @@ impl Config {
             (1..=120_000).contains(&t.startup_ms)
                 && (1..=60_000).contains(&t.request_ms)
                 && (1..=t.startup_ms.min(t.request_ms)).contains(&t.postgres_connect_ms)
+                && (1..=t.request_ms).contains(&t.postgres_pool_wait_ms)
                 && (1..=t.request_ms).contains(&t.postgres_statement_ms)
                 && (1..=t.postgres_statement_ms).contains(&t.postgres_lock_ms)
                 && (1..=t.request_ms).contains(&t.provider_ms)

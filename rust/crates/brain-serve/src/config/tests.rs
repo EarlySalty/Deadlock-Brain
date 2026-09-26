@@ -102,6 +102,8 @@ fn numeric_limits_and_pins_are_not_silently_clamped_or_defaulted() {
         ("timeouts", "startup_ms", json!(0)),
         ("timeouts", "request_ms", json!(60001)),
         ("timeouts", "provider_ms", json!(9000)),
+        ("timeouts", "postgres_pool_wait_ms", json!(0)),
+        ("timeouts", "postgres_pool_wait_ms", json!(8001)),
         ("timeouts", "postgres_lock_ms", json!(2001)),
         ("timeouts", "shutdown_ms", json!(7999)),
     ] {

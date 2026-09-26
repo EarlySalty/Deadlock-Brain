@@ -15,6 +15,7 @@ use brain_contracts::{
 };
 use brain_ingestion::FileConnector;
 use brain_storage::{LocalPgReader, PgStore};
+use dbrain_retrieval::ReleaseRetriever;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{

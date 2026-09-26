@@ -1,5 +1,5 @@
-//! The only production composition: PgStore + LocalPgReader -> ReleaseRetriever ->
-//! domain-aware Kernel/CachedKernel -> ApiService. No migration, legacy HTTP or bridge.
+//! Production composition: one hard-bounded LocalPgReader pool is shared by startup,
+//! readiness, retrieval/evidence validation and conversation ownership.
 use crate::{
     config::{ProviderKind, RetrievalKind},
     health::{self, Health},
@@ -10,16 +10,12 @@ use axum::{
     middleware::{self, Next},
     response::Response,
 };
-use brain_contracts::SnapshotReadPort;
+use brain_contracts::{PortError, SnapshotReadPort};
 use brain_kernel::{CachedKernel, Kernel};
 use brain_policy::{CredentialRegistry, PolicyEngine};
 use brain_providers::{OpenAiCompatibleProvider, PriceCeiling, ProviderConfig};
-use brain_storage::{LocalPgReader, PgStore};
+use brain_storage::{LocalPgPoolStats, LocalPgReader};
 use dbrain_retrieval::ReleaseRetriever;
-use sqlx::{
-    postgres::{PgConnectOptions, PgPoolOptions, PgSslMode},
-    PgPool,
-};
 use std::{
     future::IntoFuture,
     sync::{atomic::Ordering, Arc, Mutex},
@@ -51,14 +47,13 @@ pub struct Prepared {
     reader: LocalPgReader,
     provider: OpenAiCompatibleProvider,
     credentials: CredentialRegistry,
-    postgres_password: Option<String>,
     shutdown: Arc<Shutdown>,
 }
 
 impl Prepared {
     pub fn new(config: Config, secrets: Secrets) -> Result<Self, Error> {
         config.validate()?;
-        // SQLx otherwise inherits arbitrary server startup options outside this config contract.
+        // Ambient PG options would bypass the explicit timeout contract.
         if std::env::var_os("PGOPTIONS").is_some_and(|value| !value.is_empty()) {
             return Err(Error::ConfigInvalid("ambient_postgres_options"));
         }
@@ -71,11 +66,13 @@ impl Prepared {
         let pg = &config.postgres;
         let reader = LocalPgReader::new(&pg.socket_dir, pg.port, &pg.username, &pg.database)
             .and_then(|reader| {
-                reader.with_connection_options(
-                    postgres_password.clone(),
+                reader.with_pool_options(
+                    postgres_password,
                     Duration::from_millis(t.postgres_connect_ms),
                     Duration::from_millis(t.postgres_statement_ms),
                     Duration::from_millis(t.postgres_lock_ms),
+                    pg.max_connections,
+                    Duration::from_millis(t.postgres_pool_wait_ms),
                 )
             })
             .map_err(|_| Error::ReaderConfig)?;
@@ -105,81 +102,50 @@ impl Prepared {
             reader,
             provider,
             credentials,
-            postgres_password,
             shutdown,
         })
     }
 
-    /// A single SIGTERM/SIGINT budget covers HTTP drain, pool close and blocking workers.
     pub fn remaining_shutdown(&self) -> Duration {
         self.shutdown.remaining()
     }
 }
 
-async fn initialize(prepared: &Prepared) -> Result<(PgPool, Arc<Health>), Error> {
-    let config = &prepared.config;
-    let pg = &config.postgres;
-    let t = &config.timeouts;
-    // Explicit socket, account, database and password override ambient PG*/DSN defaults.
-    // An empty password in peer mode intentionally does NOT read PGPASSWORD or .pgpass.
-    let options = PgConnectOptions::new_without_pgpass()
-        .host(pg.socket_dir.to_str().ok_or(Error::ReaderConfig)?)
-        .port(pg.port)
-        .username(&pg.username)
-        .database(&pg.database)
-        .password(prepared.postgres_password.as_deref().unwrap_or(""))
-        .ssl_mode(PgSslMode::Disable)
-        .application_name("brain-serve");
-    let statement_ms = t.postgres_statement_ms;
-    let lock_ms = t.postgres_lock_ms;
-    let pool = PgPoolOptions::new()
-        .max_connections(pg.max_connections)
-        .acquire_timeout(Duration::from_millis(t.postgres_connect_ms))
-        .after_connect(move |connection, _| Box::pin(async move {
-            sqlx::query("SELECT set_config('statement_timeout', $1, false), set_config('lock_timeout', $2, false)")
-                .bind(format!("{statement_ms}ms"))
-                .bind(format!("{lock_ms}ms"))
-                .execute(connection).await?;
-            Ok(())
-        }))
-        .connect_with(options).await.map_err(|_| Error::DatabaseUnavailable)?;
-    // Deployment/migrations and release publication are an explicit operator responsibility.
-    let store = PgStore::new(pool.clone());
-    store
-        .check_core_schema()
-        .await
-        .map_err(|_| Error::SchemaIncompatible)?;
-    let snapshot = store
-        .snapshot(&config.release.id)
-        .await
-        .map_err(|_| Error::ReleaseUnavailable)?;
-    if snapshot.release.knowledge_version != config.release.knowledge_version {
-        return Err(Error::KnowledgeVersion);
+fn startup_database_error(error: PortError) -> Error {
+    match error {
+        PortError::PermissionDenied(_) => Error::DatabasePermissions,
+        _ => Error::DatabaseUnavailable,
     }
-    health::validate_snapshot(&snapshot)?;
-    health::permissions(&pool).await?;
-    let expected = snapshot.release.clone();
+}
+
+async fn initialize(prepared: &Prepared) -> Result<Arc<Health>, Error> {
     let reader = prepared.reader.clone();
-    tokio::task::spawn_blocking(move || {
-        let actual = reader
-            .read_snapshot(&expected.release_id)
-            .map_err(|_| Error::ReaderUnavailable)?;
-        health::validate_snapshot(&actual)?;
-        if actual.release != expected {
-            return Err(Error::ReaderUnavailable);
+    let release_id = prepared.config.release.id.clone();
+    let knowledge_version = prepared.config.release.knowledge_version.clone();
+    let snapshot = tokio::task::spawn_blocking(move || {
+        reader
+            .check_core_schema()
+            .map_err(|_| Error::SchemaIncompatible)?;
+        reader.check_permissions().map_err(startup_database_error)?;
+        let snapshot = reader
+            .read_snapshot(&release_id)
+            .map_err(|error| match error {
+                PortError::InvalidResponse(_) => Error::ReleaseUnavailable,
+                other => startup_database_error(other),
+            })?;
+        if snapshot.release.knowledge_version != knowledge_version {
+            return Err(Error::KnowledgeVersion);
         }
-        Ok(())
+        health::validate_snapshot(&snapshot)?;
+        Ok(snapshot)
     })
     .await
     .map_err(|_| Error::ReaderUnavailable)??;
-    let health = Arc::new(Health::new(
-        store,
-        pool.clone(),
+    Ok(Arc::new(Health::new(
         snapshot.release,
-        Duration::from_millis(t.readiness_ms),
+        Duration::from_millis(prepared.config.timeouts.readiness_ms),
         prepared.reader.clone(),
-    ));
-    Ok((pool, health))
+    )))
 }
 
 async fn reject_during_drain(
@@ -194,6 +160,27 @@ async fn reject_during_drain(
     }
 }
 
+fn log_pool_stats(stats: LocalPgPoolStats) {
+    eprintln!(
+        "{}",
+        serde_json::json!({
+            "event": "postgres_pool_stats",
+            "max_connections": stats.max_connections,
+            "open_connections": stats.open_connections,
+            "connecting_connections": stats.connecting_connections,
+            "idle_connections": stats.idle_connections,
+            "checked_out_connections": stats.checked_out_connections,
+            "peak_connections": stats.peak_connections,
+            "created_connections": stats.created_connections,
+            "reused_checkouts": stats.reused_checkouts,
+            "wait_count": stats.wait_count,
+            "wait_timeout_count": stats.wait_timeout_count,
+            "wait_total_micros": stats.wait_total_micros,
+            "wait_max_micros": stats.wait_max_micros,
+        })
+    );
+}
+
 pub async fn run(prepared: &Prepared) -> Result<(), Error> {
     use tokio::signal::unix::{signal, SignalKind};
     let mut term = signal(SignalKind::terminate()).map_err(|_| Error::Signal)?;
@@ -204,9 +191,8 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
         shutdown_state.begin();
         log_event("shutdown_started");
     });
-    // Signal handlers are installed before any database work, and nothing is bound yet.
     log_event("startup_checks");
-    let (pool, health) = tokio::select! {
+    let health = tokio::select! {
         biased;
         _ = &mut shutdown => return Ok(()),
         result = tokio::time::timeout(Duration::from_millis(prepared.config.timeouts.startup_ms), initialize(prepared)) => {
@@ -218,8 +204,6 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
             ReleaseRetriever::new(prepared.reader.clone(), prepared.config.retrieval.limit)
         }
     };
-    // Kernel's existing typed Fact/Rule/Prose evidence semantics are retained. C6's solver/hero
-    // wiring is not fabricated here. Persisted ownership prevents cross-restart conversation theft.
     let kernel = CachedKernel::new(
         Kernel::new(retrieval, prepared.provider.clone()),
         prepared.config.kernel.cache_entries,
@@ -269,8 +253,6 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
     };
     health.draining.store(true, Ordering::SeqCst);
     prepared.shutdown.begin();
-    tokio::time::timeout(prepared.remaining_shutdown(), pool.close())
-        .await
-        .map_err(|_| Error::ShutdownTimeout)?;
+    log_pool_stats(prepared.reader.pool_stats());
     result
 }

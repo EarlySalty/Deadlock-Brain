@@ -86,6 +86,119 @@ async fn ask(
     .unwrap()
 }
 
+#[derive(Debug)]
+struct LoadResult {
+    requests: usize,
+    workers: usize,
+    statuses: BTreeMap<String, usize>,
+    client_errors: usize,
+    elapsed: Duration,
+}
+
+fn run_load(address: &str, workers: usize, requests: usize, label: &str) -> LoadResult {
+    let started = Instant::now();
+    let handles: Vec<_> = (0..workers)
+        .map(|worker| {
+            let address = address.to_string();
+            let label = label.to_string();
+            std::thread::spawn(move || {
+                let client = BrainClient::new(&address, API_TOKEN, Duration::from_secs(8)).unwrap();
+                let mut statuses = BTreeMap::new();
+                let mut errors = 0usize;
+                for index in (worker..requests).step_by(workers) {
+                    let id = format!("{label}-{index}");
+                    match client.answer(&query(&id)) {
+                        Ok(answer) => {
+                            let status = serde_json::to_value(answer.status)
+                                .unwrap()
+                                .as_str()
+                                .unwrap()
+                                .to_string();
+                            *statuses.entry(status).or_insert(0usize) += 1;
+                        }
+                        Err(_) => errors += 1,
+                    }
+                }
+                (statuses, errors)
+            })
+        })
+        .collect();
+    let mut statuses = BTreeMap::new();
+    let mut client_errors = 0usize;
+    for handle in handles {
+        let (worker_statuses, errors) = handle.join().unwrap();
+        client_errors += errors;
+        for (status, count) in worker_statuses {
+            *statuses.entry(status).or_insert(0usize) += count;
+        }
+    }
+    LoadResult {
+        requests,
+        workers,
+        statuses,
+        client_errors,
+        elapsed: started.elapsed(),
+    }
+}
+
+fn assert_load(result: &LoadResult) {
+    assert_eq!(
+        result.client_errors, 0,
+        "{} workers produced transport errors: {result:?}",
+        result.workers
+    );
+    assert_eq!(
+        result.statuses.values().sum::<usize>(),
+        result.requests,
+        "every request must produce a typed answer: {result:?}"
+    );
+    assert_eq!(
+        result
+            .statuses
+            .get("unauthorized_evidence")
+            .copied()
+            .unwrap_or(0),
+        0,
+        "technical pool pressure must never be misclassified: {result:?}"
+    );
+    assert!(
+        result
+            .statuses
+            .keys()
+            .all(|status| status == "answered" || status == "unavailable"),
+        "load produced an unexpected status: {result:?}"
+    );
+    assert!(
+        result.elapsed < Duration::from_secs(60),
+        "bounded load exceeded test envelope: {result:?}"
+    );
+}
+
+fn pool_stats(log: &str) -> Value {
+    log.lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .find(|value| value["event"] == "postgres_pool_stats")
+        .expect("postgres pool stats event")
+}
+
+async fn reader_connection_count(pool: &sqlx::PgPool) -> i64 {
+    sqlx::query_scalar(
+        "SELECT count(*) FROM pg_stat_activity WHERE datname='brain_serve_test' AND application_name='deadlock-brain-reader'",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+async fn reader_lock_waiters(pool: &sqlx::PgPool) -> i64 {
+    sqlx::query_scalar(
+        "SELECT count(*) FROM pg_stat_activity WHERE datname='brain_serve_test' AND application_name='deadlock-brain-reader' AND wait_event_type='Lock'",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "scripts/test_brain_serve.sh: isolated scratch PostgreSQL and real brain-serve child"]
 async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
@@ -160,9 +273,11 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
     config["postgres"]["port"] = json!(55439);
     config["postgres"]["username"] = json!("brain_core_test");
     config["postgres"]["database"] = json!("brain_serve_test");
+    config["postgres"]["max_connections"] = json!(4);
     config["provider"]["base_url"] = json!(format!("http://{provider_address}"));
     config["kernel"]["cache_entries"] = json!(0);
     config["timeouts"]["postgres_connect_ms"] = json!(500);
+    config["timeouts"]["postgres_pool_wait_ms"] = json!(150);
     config["timeouts"]["readiness_ms"] = json!(1000);
     config["credentials"].as_array_mut().unwrap().push(json!({
         "token_env": "BRAIN_SERVE_OTHER_TOKEN", "actor_id": "another-client", "channel": "pilot",
@@ -246,6 +361,88 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
     }
     assert_eq!(provider.calls.load(Ordering::SeqCst), count);
 
+    // Required bounded-load envelope. The server runs with max_connections=12 while brain-serve
+    // is hard-capped at four shared connections; all request-side DB work uses that same pool.
+    for workers in [8usize, 16, 32] {
+        let load_address = address.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            run_load(&load_address, workers, 600, &format!("load-{workers}"))
+        })
+        .await
+        .unwrap();
+        assert_load(&result);
+        let observed_connections = reader_connection_count(&pool).await;
+        assert!(
+            observed_connections <= 4,
+            "brain-serve exceeded its configured hard pool cap"
+        );
+        eprintln!(
+            "{}",
+            json!({
+                "event": "db_pool_load",
+                "requests": result.requests,
+                "workers": result.workers,
+                "statuses": result.statuses,
+                "client_errors": result.client_errors,
+                "elapsed_ms": result.elapsed.as_millis(),
+                "observed_reader_connections": observed_connections
+            })
+        );
+    }
+
+    // Saturate every pool slot behind a real table lock. The next request must wait only for the
+    // configured pool budget, return typed Unavailable, and recover after the lock is released.
+    let mut lock_tx = pool.begin().await.unwrap();
+    sqlx::query("LOCK TABLE brain.conversation_owners_v1 IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *lock_tx)
+        .await
+        .unwrap();
+    let mut blockers = Vec::new();
+    for index in 0..4 {
+        let blocker_address = address.clone();
+        blockers.push(tokio::spawn(async move {
+            ask(
+                &blocker_address,
+                API_TOKEN,
+                query(&format!("pool-blocker-{index}")),
+            )
+            .await
+        }));
+    }
+    let wait_deadline = Instant::now() + Duration::from_secs(3);
+    while reader_lock_waiters(&pool).await < 4 {
+        assert!(
+            Instant::now() < wait_deadline,
+            "all four shared pool connections did not reach the intentional lock"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(reader_connection_count(&pool).await, 4);
+    let exhausted_started = Instant::now();
+    let exhausted = ask(&address, API_TOKEN, query("pool-exhausted"))
+        .await
+        .unwrap();
+    let exhausted_elapsed = exhausted_started.elapsed();
+    assert_eq!(exhausted.status, AnswerStatus::Unavailable);
+    assert!(
+        exhausted_elapsed >= Duration::from_millis(100)
+            && exhausted_elapsed < Duration::from_secs(2),
+        "pool wait was not bounded by the configured acquire budget: {exhausted_elapsed:?}"
+    );
+    lock_tx.rollback().await.unwrap();
+    for blocker in blockers {
+        let answer = blocker.await.unwrap().unwrap();
+        assert_eq!(answer.status, AnswerStatus::Answered);
+    }
+    assert_eq!(
+        ask(&address, API_TOKEN, query("pool-recovered"))
+            .await
+            .unwrap()
+            .status,
+        AnswerStatus::Answered
+    );
+    let count = provider.calls.load(Ordering::SeqCst);
+
     // The manifest is pinned, not "whatever release currently exists"; liveness is independent.
     sqlx::query("DELETE FROM brain.corpus_releases_v1 WHERE release_id=$1")
         .bind(&release.release_id)
@@ -284,7 +481,13 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
     .unwrap();
     assert_eq!(common::get(&address, "/readyz").0, 503);
     assert_eq!(common::get(&address, "/healthz").0, 200);
-    assert!(ask(&address, API_TOKEN, query("db-down")).await.is_err());
+    assert_eq!(
+        ask(&address, API_TOKEN, query("db-down"))
+            .await
+            .unwrap()
+            .status,
+        AnswerStatus::Unavailable
+    );
     assert_eq!(provider.calls.load(Ordering::SeqCst), count);
     sqlx::query("ALTER DATABASE brain_serve_test ALLOW_CONNECTIONS true")
         .execute(&admin)
@@ -292,6 +495,24 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
         .unwrap();
     common::assert_ready(&address);
     service.stop();
+    let stats = pool_stats(&service.log());
+    assert_eq!(stats["max_connections"], 4);
+    assert_eq!(stats["peak_connections"], 4);
+    assert!(
+        stats["created_connections"].as_u64().unwrap() < 32,
+        "connections must be reused rather than created per operation: {stats}"
+    );
+    assert!(
+        stats["reused_checkouts"].as_u64().unwrap() > 1_000,
+        "load must exercise connection reuse: {stats}"
+    );
+    assert!(stats["wait_count"].as_u64().unwrap() > 0, "{stats}");
+    assert!(stats["wait_timeout_count"].as_u64().unwrap() > 0, "{stats}");
+    assert!(
+        stats["wait_max_micros"].as_u64().unwrap() >= 100_000,
+        "bounded pool wait was not observed: {stats}"
+    );
+    eprintln!("{}", json!({"event": "db_pool_metrics", "stats": stats}));
 
     // Persisted ownership survives a real process restart, unlike the former in-test policy.
     let mut service = Service::spawn(&config, &environment);
@@ -330,7 +551,7 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
     let socket: std::net::SocketAddr = address.strip_prefix("http://").unwrap().parse().unwrap();
     assert!(std::net::TcpStream::connect_timeout(&socket, Duration::from_millis(100)).is_err());
 
-    // Real SCRAM password authentication through BOTH PgStore and LocalPgReader, and an
+    // Real SCRAM password authentication through the single runtime LocalPgReader pool, and an
     // unprivileged service role: no CREATE/ALTER privileges or startup migrations are needed.
     sqlx::query("CREATE ROLE brain_serve_fixture LOGIN PASSWORD 'synthetic-c1-database-password'")
         .execute(&pool)

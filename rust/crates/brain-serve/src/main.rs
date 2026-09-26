@@ -32,7 +32,7 @@ fn execute() -> Result<(), Error> {
     let prepared = Prepared::new(config, secrets)?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
-        .max_blocking_threads(18)
+        .max_blocking_threads(66)
         .enable_all()
         .build()
         .map_err(|_| Error::Runtime)?;

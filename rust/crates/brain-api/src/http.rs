@@ -22,7 +22,9 @@ pub fn router<K: AnswerKernelPort + 'static>(service: ApiService<K>) -> Router {
         .layer(DefaultBodyLimit::max(64 * 1024))
         .with_state(Arc::new(HttpState {
             service,
-            slots: Arc::new(Semaphore::new(16)),
+            // Keep HTTP work bounded, but let the shared DB pool provide the tighter
+            // backpressure for the documented 8/16/32-worker load envelope.
+            slots: Arc::new(Semaphore::new(64)),
         }))
 }
 async fn answer<K: AnswerKernelPort + 'static>(
