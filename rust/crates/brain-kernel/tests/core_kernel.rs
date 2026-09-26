@@ -176,8 +176,9 @@ async fn assets_feed_field_answers_through_release_kernel() {
     let mut legacy = record(1);
     legacy.source_id = "legacy-entities".into();
     legacy.logical_id = "entity/hero/Warden".into();
-    legacy.content = "hero: Warden\nhealth: 700".into();
+    legacy.content = "hero: Warden\nExternal ID: 25\nSource: deadlock_assets_api\nhealth: 700".into();
     legacy.metadata.insert("kind".into(), "fact".into());
+    legacy.metadata.insert("connector".into(), "brain_legacy".into());
     store.apply_record(legacy).unwrap();
     let release = store.release_from_heads("r1", "v1", "p1").unwrap();
     store.publish(&release).await.unwrap();
