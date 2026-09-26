@@ -224,3 +224,22 @@ Keine im integrierten Code gefunden: alle bestehenden Tests grün. Verhaltensän
 ## 19. Nötige Schritte vor Production
 
 C1 bis C7 und C11 umsetzen, danach Pilot in Default-Konfiguration 15 von 15, Staging mit echtem Datenstand, echter Provider im Shadow-Betrieb, Consumer-Parität (G3), Qualitäts-, Last- und Restore-Probe unter gemischter Last (G4), dann eine gesonderte ausdrückliche Freigabe des Betreibers für S17/G5. Dieser Bericht enthält keine Freigabevorlage, weil die Antwort NEIN ist.
+
+## 20. Nachtrag 26.09.2026: Welle 1/2 integriert, eigene Brain-Instanz
+
+C4, C11, C2/C3, C1, C7/C8, C5 und C6 (PRs #41 bis #45, #47, #48) sind auf `migration/rust-integration` integriert, getesteter Code-Commit `fe41451`. Details, Konfliktauflösungen und Befunde: [WAVE1_WAVE2_LOCAL_REVIEW.md](WAVE1_WAVE2_LOCAL_REVIEW.md). Die eigene PostgreSQL-Instanz für Brain (Port 5446, eigener OS-User, eigenes PGDATA, eigene Rollen, eigene Backups) ist eingerichtet: [BRAIN_POSTGRES_ISOLATION.md](BRAIN_POSTGRES_ISOLATION.md), Datenkopie aus DL-Main: [BRAIN_DB_MIGRATION_REPORT.md](BRAIN_DB_MIGRATION_REPORT.md).
+
+Stand der Folgeaufträge aus Abschnitt 17: C1, C2, C3, C4, C6, C7, C8 und C11 sind integriert und lokal grün. C5 ist offline grün, der echte Capture wartet auf die Rechteentscheidung. C9 und der Pooling-Fix existieren noch nicht. C10 bleibt ohne freigegebene `.dem` offen.
+
+Risiken aus Abschnitt 15 nach der Integration: Risiko 2 ist behoben (`brain-serve` prüft nur noch mit `check_core_schema()`, Migration nur per `brain-migrate`). Risiko 6 ist behoben (Python-Prüfer entfernt). Neu: Der Anfragepfad öffnet über `LocalPgReader` rund 10 PostgreSQL-Verbindungen je Anfrage; nur der Rollendeckel begrenzt sie.
+
+TESTNACHWEIS[TW-1]: 940 passed, 71 ignored | Baseline: 0 rot
+
+BRAIN_DB_ISOLATED: JA
+BRAIN_DATA_MIGRATION_VERIFIED: JA
+600_REQUEST_TEST_PASSED: NEIN
+DEFAULT_E2E_PASSED: JA
+WIKI_REAL_PILOT_PASSED: NEIN
+CONSUMER_STAGING_PASSED: NEIN
+PRODUCTION_DB_CUTOVER_READY: NEIN
+PRODUCTION_CUTOVER_READY: NEIN
