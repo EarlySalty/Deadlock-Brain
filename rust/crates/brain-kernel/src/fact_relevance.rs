@@ -49,19 +49,51 @@ fn fields(evidence: &Evidence) -> Vec<Vec<String>> {
     keys
 }
 
-/// BM25 orders candidates; it cannot make a fact authoritative. Require an
-/// explicit entity/alias and an explicit field in the query. An alias that
-/// identifies more than one retrieved entity cannot select either one.
-pub(super) fn select<'a>(query: &Query, evidence: &'a [Evidence]) -> Option<&'a Evidence> {
-    let query_words = words(&query.text);
-    let query_numbers: BTreeSet<_> = query_words
-        .iter()
+fn numbers(text: &str) -> BTreeSet<String> {
+    words(text)
+        .into_iter()
         .filter(|term| {
             term.chars()
                 .next()
                 .is_some_and(|c| c.is_ascii_digit() || c == '-')
         })
-        .collect();
+        .collect()
+}
+
+fn field_value_numbers(
+    evidence: &Evidence,
+    query_words: &[String],
+    specificity: usize,
+) -> Option<BTreeSet<String>> {
+    let mut matched = Vec::new();
+    let mut values = Vec::new();
+    for line in evidence.content.lines() {
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        let key_words = words(key);
+        if key_words.len() == specificity && contains_phrase(query_words, &key_words) {
+            matched.push(numbers(value));
+        }
+        if key.eq_ignore_ascii_case("value") {
+            values.push(numbers(value));
+        }
+    }
+    if matched.len() == 1 {
+        return matched.pop();
+    }
+    if matched.is_empty() && values.len() == 1 {
+        return values.pop();
+    }
+    None
+}
+
+/// BM25 orders candidates; it cannot make a fact authoritative. Require an
+/// explicit entity/alias and an explicit field in the query. An alias that
+/// identifies more than one retrieved entity cannot select either one.
+pub(super) fn select<'a>(query: &Query, evidence: &'a [Evidence]) -> Option<&'a Evidence> {
+    let query_words = words(&query.text);
+    let query_numbers = numbers(&query.text);
     let mut matched_entities = BTreeSet::new();
     let mut candidates = Vec::new();
     for item in evidence
@@ -119,11 +151,11 @@ pub(super) fn select<'a>(query: &Query, evidence: &'a [Evidence]) -> Option<&'a 
         return None;
     }
     let fact = candidates.into_iter().next()?.0;
-    let content_words: BTreeSet<_> = words(&fact.content).into_iter().collect();
-    query_numbers
-        .iter()
-        .all(|number| content_words.contains(*number))
-        .then_some(fact)
+    if query_numbers.is_empty() {
+        return Some(fact);
+    }
+    let values = field_value_numbers(fact, &query_words, specificity)?;
+    query_numbers.is_subset(&values).then_some(fact)
 }
 
 #[cfg(test)]
@@ -192,6 +224,7 @@ mod tests {
         assert!(select(&query("unrelated health"), &evidence).is_none());
         assert!(select(&query("Abrams health 650"), &evidence).is_some());
         assert!(select(&query("Abrams health 999"), &evidence).is_none());
+        assert!(select(&query("Abrams health 42"), &evidence).is_none());
         assert!(select(&query("Abrams Gesundheit"), &evidence).is_some());
         assert!(select(&query("Abrams Lebenspunkte"), &evidence).is_some());
         assert!(select(&query("Abrams Schaden"), &evidence).is_some());

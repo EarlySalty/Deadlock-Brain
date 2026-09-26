@@ -140,10 +140,17 @@ async fn asset_hero_entity_and_field_records_share_identity() {
             .insert("connector".into(), "brain_legacy".into());
         s.apply_record(legacy).unwrap();
     }
+    for i in 0..110 {
+        let mut unrelated = record(1);
+        unrelated.logical_id = format!("entity/hero/Unrelated{i}");
+        unrelated.content = format!("hero: Unrelated{i}\nhealth: 500\n");
+        unrelated.metadata.insert("kind".into(), "fact".into());
+        s.apply_record(unrelated).unwrap();
+    }
     let release = s.release_from_heads("r1", "v1", "p1").unwrap();
     s.publish(&release).await.unwrap();
     let kernel = Kernel::new(
-        ReleaseRetriever::new(s.clone(), 10),
+        ReleaseRetriever::new(s.clone(), 1),
         Provider {
             calls: Arc::new(AtomicUsize::new(0)),
             revoke: None,

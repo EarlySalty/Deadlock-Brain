@@ -263,7 +263,18 @@ impl<S: SnapshotReadPort> RetrievalPort for ReleaseRetriever<S> {
             return Ok(Vec::new());
         }
         let ranked = index.rank(query, context);
-        let hits = self.selected(&index, &ranked, query, context, self.limit, false)?;
+        // A caller limit of one must not hide a second assertion of the same
+        // fact. The kernel receives the full bounded lexical candidate pack.
+        // More than 100 ranked candidates cannot be checked exhaustively.
+        if query.profile == brain_contracts::AnswerProfile::Fact && ranked.len() > 100 {
+            return Ok(Vec::new());
+        }
+        let limit = if query.profile == brain_contracts::AnswerProfile::Fact {
+            100
+        } else {
+            self.limit
+        };
+        let hits = self.selected(&index, &ranked, query, context, limit, false)?;
         pack(query, context, hits)
     }
     fn validate_evidence(
