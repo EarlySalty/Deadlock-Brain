@@ -72,6 +72,7 @@ fn public_visibility_cannot_override_an_explicit_object_acl() {
         visibility: SourceVisibility::Public,
         allowed_scopes: BTreeSet::from(["licensed".into()]),
         score: 1.0,
+        provenance: None,
         patch: None,
     };
     assert!(!evidence_allowed(&principal, &evidence));

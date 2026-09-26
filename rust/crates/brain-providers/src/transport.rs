@@ -89,12 +89,8 @@ impl OpenAiCompatibleProvider {
         {
             return Err(ProviderError::BudgetExceeded);
         }
-        // UTF-8 byte count plus framing is a conservative reservation for configured byte-token models.
-        // Production activation must verify this ceiling for the selected model/tokenizer.
-        let input = serde_json::to_vec(payload)
-            .map_err(|_| ProviderError::InvalidConfig)?
-            .len() as u64
-            + 64;
+        let input = brain_contracts::provider_input::transport_input_ceiling(payload, chat)
+            .map_err(|_| ProviderError::InvalidConfig)?;
         let mut attempts = self
             .config
             .retry_attempts

@@ -89,6 +89,16 @@ pub struct CorpusSnapshot {
 }
 pub trait SnapshotReadPort: Send + Sync {
     fn read_snapshot(&self, release_id: &str) -> StoreResult<CorpusSnapshot>;
+    /// Fresh bounded primary-key reads. Never fall back to a full corpus snapshot.
+    /// Missing heads are absent; database/pool/timeout failures remain Unavailable.
+    fn read_heads(
+        &self,
+        _documents: &[crate::DocumentRevision],
+    ) -> StoreResult<Vec<crate::DocumentHead>> {
+        Err(PortError::Unavailable(
+            "targeted current-head reads not implemented".into(),
+        ))
+    }
 }
 /// Ownership is immutable. Implementations must compare-and-create atomically.
 pub trait ConversationOwnershipPort: Send + Sync {

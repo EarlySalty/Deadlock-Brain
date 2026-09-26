@@ -1,5 +1,14 @@
 use super::*;
 use std::{collections::BTreeSet, time::Instant};
+/// Infrastructure/corrupt-reader failures are not claims about the caller's permissions.
+/// Both categories fail closed, but only an explicit denial is UnauthorizedEvidence.
+pub(super) fn validation_status(error: &PortError) -> AnswerStatus {
+    match error {
+        PortError::PermissionDenied(_) => AnswerStatus::UnauthorizedEvidence,
+        PortError::BudgetExceeded => AnswerStatus::BudgetExceeded,
+        PortError::Unavailable(_) | PortError::InvalidResponse(_) => AnswerStatus::Unavailable,
+    }
+}
 fn remaining(
     context: &AuthorizedContext,
     usage: &Usage,
@@ -62,6 +71,13 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
                 Usage::default(),
             )
         }
+        Err(error @ (PortError::Unavailable(_) | PortError::PermissionDenied(_))) => {
+            return fail(
+                validation_status(&error),
+                "Evidenz konnte nicht sicher geladen werden.",
+                Usage::default(),
+            );
+        }
         Err(_) => {
             return fail(
                 AnswerStatus::InsufficientEvidence,
@@ -109,13 +125,10 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
             .total_cmp(&a.score)
             .then_with(|| a.evidence_id.cmp(&b.evidence_id))
     });
-    if retrieval
-        .validate_evidence(query, context, &evidence, false)
-        .is_err()
-    {
+    if let Err(error) = retrieval.validate_evidence(query, context, &evidence, false) {
         return fail(
-            AnswerStatus::UnauthorizedEvidence,
-            "Evidenz ist nicht mehr gültig.",
+            validation_status(&error),
+            "Evidenz konnte nicht sicher bestätigt werden.",
             retrieval_usage,
         );
     }
@@ -165,14 +178,17 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
         };
         provider_egress_allowed(&context.principal, class)
     });
-    if !egress
-        || retrieval
-            .validate_evidence(query, context, &evidence, true)
-            .is_err()
-    {
+    if !egress {
         return fail(
             AnswerStatus::UnauthorizedEvidence,
             "Provider-Egress ist nicht freigegeben.",
+            retrieval_usage,
+        );
+    }
+    if let Err(error) = retrieval.validate_evidence(query, context, &evidence, true) {
+        return fail(
+            validation_status(&error),
+            "Provider-Evidenz konnte nicht sicher bestätigt werden.",
             retrieval_usage,
         );
     }
@@ -235,13 +251,10 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
     }
     evidence.retain(|item| ids.contains(&item.evidence_id));
     // Re-read canonical content/ACL after the network call; never publish stale authorized data.
-    if retrieval
-        .validate_evidence(query, context, &evidence, false)
-        .is_err()
-    {
+    if let Err(error) = retrieval.validate_evidence(query, context, &evidence, false) {
         return fail(
-            AnswerStatus::UnauthorizedEvidence,
-            "Evidenzfreigabe wurde während der Anfrage geändert.",
+            validation_status(&error),
+            "Evidenz konnte nach dem Provider-Aufruf nicht sicher bestätigt werden.",
             usage,
         );
     }

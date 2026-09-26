@@ -1,4 +1,6 @@
 //! Coalesce identical in-flight requests, including failures, without caching failures.
+#[cfg(test)]
+mod c3_shared_validation;
 use super::*;
 use std::{
     collections::BTreeMap,
@@ -142,21 +144,22 @@ impl<R: RetrievalPort, P: AnswerProviderPort> AnswerKernelPort for CachedKernel<
             }) {
             Ok((mut answer, shared)) => {
                 if shared {
-                    if answer.status == AnswerStatus::Answered
-                        && self
-                            .inner
-                            .retrieval
-                            .validate_evidence(query, context, &answer.citations, false)
-                            .is_err()
-                    {
-                        return response(
+                    if answer.status == AnswerStatus::Answered {
+                        if let Err(error) = self.inner.retrieval.validate_evidence(
                             query,
                             context,
-                            AnswerStatus::UnauthorizedEvidence,
-                            "Evidenzfreigabe wurde geändert.",
-                            Vec::new(),
-                            Usage::default(),
-                        );
+                            &answer.citations,
+                            false,
+                        ) {
+                            return response(
+                                query,
+                                context,
+                                super::execution::validation_status(&error),
+                                "Geteilte Evidenz konnte nicht sicher bestätigt werden.",
+                                Vec::new(),
+                                Usage::default(),
+                            );
+                        }
                     }
                     answer.request_id = query.request_id.clone();
                     answer.usage = Usage::default();
@@ -184,7 +187,7 @@ impl<R: RetrievalPort, P: AnswerProviderPort> AnswerKernelPort for CachedKernel<
             Err(_) => response(
                 query,
                 context,
-                AnswerStatus::ProviderError,
+                AnswerStatus::Unavailable,
                 "Request-Koordination nicht verfügbar.",
                 Vec::new(),
                 Usage::default(),

@@ -50,6 +50,7 @@ if [[ -n "${BRAIN_PILOT_DIAGNOSTIC_MAX_INPUT_TOKENS:-}" ]]; then
     BRAIN_PILOT_MAX_INPUT_TOKENS="$BRAIN_PILOT_DIAGNOSTIC_MAX_INPUT_TOKENS" \
     phase pilot_main pilot_phase_after_restart after_restart_diagnostic
 fi
+phase pilot_main pilot_phase_reader_failures reader_failures
 phase pilot_rebuild pilot_phase_empty_rebuild rebuild
 cat "$REPORT/summary.tsv"
 exit "$FAILED"

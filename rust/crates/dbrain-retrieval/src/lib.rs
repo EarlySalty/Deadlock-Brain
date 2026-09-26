@@ -22,6 +22,7 @@ use sqlx::{
     Column, Row, TypeInfo,
 };
 
+mod chunk_index;
 mod contract_port;
 mod game_wiki;
 mod hybrid_port;
