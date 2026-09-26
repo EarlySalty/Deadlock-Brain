@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use brain_contracts::{AnswerResponse, Budget, Query};
+use brain_contracts::{AnswerResponse, AnswerStatus, Budget, Query, Usage, CONTRACT_VERSION};
 use brain_kernel::AnswerKernelPort;
 use brain_policy::{PolicyEngine, PolicyError};
 use sha2::{Digest, Sha256};
@@ -81,11 +81,15 @@ where
                 | PolicyError::EvidenceDenied,
             ) => return json_error(403, "forbidden", "Anfrage ist nicht freigegeben"),
             Err(PolicyError::StatePoisoned) => {
-                return json_error(
-                    503,
-                    "policy_unavailable",
-                    "Policy Status ist nicht verfügbar",
-                )
+                return answer_response(&AnswerResponse {
+                    contract_version: CONTRACT_VERSION.into(),
+                    request_id: query.request_id.clone(),
+                    knowledge_release: self.knowledge_release.clone(),
+                    status: AnswerStatus::Unavailable,
+                    text: "Datenbankkapazität ist vorübergehend nicht verfügbar.".into(),
+                    citations: Vec::new(),
+                    usage: Usage::default(),
+                })
             }
         };
 

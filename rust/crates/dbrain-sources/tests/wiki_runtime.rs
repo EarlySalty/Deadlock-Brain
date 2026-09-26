@@ -49,20 +49,37 @@ fn request(ir: &WikiIr, id: &str) -> ReleaseRequest {
     }
 }
 // The production synchronous reader runs at a blocking-worker boundary, not
-// inside an async executor's current thread. Exercise that same boundary here.
-struct BlockingDomainReader(DomainReader<LocalPgReader>);
+// inside an async executor's current thread. Exercise that same boundary here,
+// including teardown: pooled postgres::Client values retain their own Tokio
+// runtime and must be dropped outside the async test runtime too.
+struct BlockingDomainReader(Option<DomainReader<LocalPgReader>>);
 impl BlockingDomainReader {
+    fn new(reader: LocalPgReader) -> Self {
+        Self(Some(DomainReader::new(reader)))
+    }
+
     fn read_domain(
         &self,
         context: &AuthorizedContext,
         validity: &Validity,
     ) -> Result<brain_contracts::domain::DomainSnapshot, brain_contracts::PortError> {
+        let reader = self.0.as_ref().expect("blocking domain reader available");
         std::thread::scope(|scope| {
             scope
-                .spawn(|| self.0.read_domain(context, validity))
+                .spawn(|| reader.read_domain(context, validity))
                 .join()
                 .unwrap()
         })
+    }
+}
+impl Drop for BlockingDomainReader {
+    fn drop(&mut self) {
+        let Some(reader) = self.0.take() else {
+            return;
+        };
+        std::thread::scope(|scope| {
+            scope.spawn(move || drop(reader)).join().unwrap();
+        });
     }
 }
 fn context(release: &str) -> AuthorizedContext {
@@ -250,7 +267,7 @@ async fn scratch_raw_ir_facts_release_delta_reparse_and_acl() {
     assert_eq!(metadata["source_record"]["visibility"], "internal");
     assert!(metadata["source_record"].get("content").is_none());
     let reader = LocalPgReader::new(&socket, 55441, "brain_wiki_c5", "brain_wiki_c5").unwrap();
-    let domain = BlockingDomainReader(DomainReader::new(reader));
+    let domain = BlockingDomainReader::new(reader);
     let snapshot = domain
         .read_domain(&context("c5-db-r1"), &req.validity)
         .unwrap();

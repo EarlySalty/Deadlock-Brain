@@ -31,6 +31,7 @@
     "startup_ms": 10000,
     "request_ms": 8000,
     "postgres_connect_ms": 2000,
+    "postgres_pool_wait_ms": 250,
     "postgres_statement_ms": 2000,
     "postgres_lock_ms": 1000,
     "provider_ms": 5000,

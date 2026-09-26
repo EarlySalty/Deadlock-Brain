@@ -7,8 +7,7 @@ use axum::{
     Router,
 };
 use brain_contracts::{CorpusRelease, CorpusSnapshot, Principal, SnapshotReadPort};
-use brain_storage::{LocalPgReader, PgStore};
-use sqlx::PgPool;
+use brain_storage::LocalPgReader;
 use std::{
     collections::BTreeSet,
     sync::{
@@ -21,8 +20,6 @@ use tokio::sync::Semaphore;
 
 pub(crate) struct Health {
     pub draining: AtomicBool,
-    store: PgStore,
-    pool: PgPool,
     release: CorpusRelease,
     timeout: Duration,
     slots: Arc<Semaphore>,
@@ -30,7 +27,6 @@ pub(crate) struct Health {
 }
 
 pub(crate) fn validate_snapshot(snapshot: &CorpusSnapshot) -> Result<(), Error> {
-    // authorized() validates all pinned records/current heads before applying this empty grant.
     snapshot
         .authorized(
             &Principal {
@@ -45,33 +41,10 @@ pub(crate) fn validate_snapshot(snapshot: &CorpusSnapshot) -> Result<(), Error> 
     Ok(())
 }
 
-pub(crate) async fn permissions(pool: &PgPool) -> Result<(), Error> {
-    let allowed: bool = sqlx::query_scalar(
-        "SELECT has_table_privilege(current_user, 'brain.conversation_owners_v1', 'SELECT')
-            AND has_table_privilege(current_user, 'brain.conversation_owners_v1', 'INSERT')",
-    )
-    .fetch_one(pool)
-    .await
-    .map_err(|_| Error::DatabasePermissions)?;
-    if allowed {
-        Ok(())
-    } else {
-        Err(Error::DatabasePermissions)
-    }
-}
-
 impl Health {
-    pub(crate) fn new(
-        store: PgStore,
-        pool: PgPool,
-        release: CorpusRelease,
-        timeout: Duration,
-        reader: LocalPgReader,
-    ) -> Self {
+    pub(crate) fn new(release: CorpusRelease, timeout: Duration, reader: LocalPgReader) -> Self {
         Self {
             draining: AtomicBool::new(false),
-            store,
-            pool,
             release,
             timeout,
             slots: Arc::new(Semaphore::new(1)),
@@ -86,21 +59,13 @@ impl Health {
         let Ok(permit) = self.slots.clone().try_acquire_owned() else {
             return false;
         };
-        let result = tokio::time::timeout(self.timeout, async {
-            let snapshot = self
-                .store
-                .snapshot(&self.release.release_id)
-                .await
-                .map_err(|_| Error::ReleaseUnavailable)?;
-            if snapshot.release != self.release {
-                return Err(Error::ReleaseUnavailable);
-            }
-            validate_snapshot(&snapshot)?;
-            permissions(&self.pool).await?;
-            let reader = self.reader.clone();
-            let expected = self.release.clone();
-            // Hold the permit inside the blocking job even if the HTTP probe times out.
+        let reader = self.reader.clone();
+        let expected = self.release.clone();
+        let result = tokio::time::timeout(
+            self.timeout,
             tokio::task::spawn_blocking(move || {
+                // Hold the probe slot until the blocking operation truly exits, even if the HTTP
+                // probe reaches its deadline. All checks share the request pool.
                 let _permit = permit;
                 let actual = reader
                     .read_snapshot(&expected.release_id)
@@ -108,13 +73,14 @@ impl Health {
                 if actual.release != expected {
                     return Err(Error::ReleaseUnavailable);
                 }
-                validate_snapshot(&actual)
-            })
-            .await
-            .map_err(|_| Error::ReaderUnavailable)?
-        })
+                validate_snapshot(&actual)?;
+                reader
+                    .check_permissions()
+                    .map_err(|_| Error::DatabasePermissions)
+            }),
+        )
         .await;
-        matches!(result, Ok(Ok(()))) && !self.draining.load(Ordering::SeqCst)
+        matches!(result, Ok(Ok(Ok(())))) && !self.draining.load(Ordering::SeqCst)
     }
 }
 
