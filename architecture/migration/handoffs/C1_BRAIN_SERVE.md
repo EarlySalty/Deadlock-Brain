@@ -6,6 +6,7 @@ Stand: 26.09.2026. Ausschließlich C1 aus `architecture/migration/INTEGRATION_RE
 
 - Basis: `origin/migration/rust-integration`, Commit `087c522deda58ecf4bd6843167f51c54f681e944`.
 - Branch: `codex/fix-c1-brain-serve`.
+- PR: `EarlySalty/Deadlock-Brain#42`, Ziel `migration/rust-integration`.
 - Worktree: `/home/nathanael/.worktrees/brain-fix-c1-brain-serve`.
 - Ergebniscommit der Implementierung: `9e2e7863d6d4b3f92da17fbc88ceb2d40516c4ad`.
 - Dieser Handoff wird anschließend in einem separaten Dokumentationscommit ergänzt; die obige SHA bezeichnet bewusst den Code, nicht eine unmögliche Selbstreferenz des Dokumentationscommits.
@@ -115,21 +116,33 @@ Bind-Adresse, DB-Socket/Benutzer/Datenbank, Release, Knowledge-Version, Modell, 
 
 ## Tatsächliche Verifikation
 
-Alle Cargo-Kommandos liefen im `rust/`-Workspace mit Rust/Cargo 1.97.1, `SQLX_OFFLINE=true`, `CARGO_BUILD_JOBS=2` und lokal gecachten Dependencies. Die Workspace-Prüfungen verwenden eine bereinigte Umgebung ohne Produktions-DSN und einen isolierten Test-HOME. PostgreSQL 16 und `protoc` sind auf dem Prüfhost vorhanden.
+**C1 technisch erfüllt:** Das gebaute `brain-serve` startet als eigener Prozess; sowohl der synthetische Prozess-Pilot als auch der Dokumenten-Pilot sprechen es über den typisierten BrainClient an. Die vier geforderten Workspace-Kommandos sind im abschließenden Lauf sämtlich bestanden. Der fachliche Default-Pilot ist wegen der unveränderten C2/C3-Befunde weiterhin nicht vollständig grün.
 
-| Prüfung | Tatsächlich beobachtetes Ergebnis |
-|---|---|
-| `cargo fmt --all -- --check` | Exit 0; erneuter direkter Lauf nach der Vorlagenangleichung ebenfalls Exit 0. |
-| `cargo clippy --workspace --all-targets --locked -- -D warnings` | Erster Gesamtlauf Exit 0. Wiederholung des finalen Stands separat protokolliert. |
-| `cargo test --workspace --locked` | Erster Gesamtlauf Exit 101: 14 `WorkerTimeout`-Fehler in unverändertem `dbrain-replay/tests/decoder.rs`; kein grünes Workspace-Ergebnis daraus ableiten. |
-| `cargo build --workspace --release --locked` | Gestartet; beim Verfassen dieses Zwischenstands noch kein bestätigter Exit-Status. Nicht als bestanden gewertet. |
-| `cargo test -p brain-serve --locked` | 10 Config-/Secret-Tests und 6 Prozess-Tests bestanden; die opt-in-Piloten wurden dabei erwartungsgemäß nicht ausgeführt. |
-| `bash scripts/test_brain_serve.sh` | Exit 0: echter Prozess-/Postgres-/SCRAM-/BrainClient-E2E bestanden. |
+Geprüfter Git-Stand: `1b9597f41ff2228d1f09841364db694866394f36` (Implementierung `9e2e7863d6d4b3f92da17fbc88ceb2d40516c4ad` plus ursprünglicher Handoff). Der anschließende Dokumentationscommit aktualisiert ausschließlich diesen Ergebnisbericht.
 
-**Verifikationsvorbehalt:** Die Funktionsprüfung des echten Dienstprozesses ist belegt. Ein vollständig grüner Workspace-/Release-/Dokumenten-Pilot-Nachweis liegt in diesem Zwischenstand noch nicht vor. Der erste parallele Lauf zeigte Replay-Worker-Timeouts sowie einen Timeout des Scratch-DB-Ingests und des anschließenden Recoverys. Später protokollierte die Wiederholung einen unerwartet beendeten `sccache`-Server. Deshalb werden nachfolgende lokale Prüfungen mit prozesslokal leeren `RUSTC_WRAPPER` und `RUSTC_WORKSPACE_WRAPPER` durchgeführt; keine globale Cargo-/Cache-/Produktionskonfiguration und keine Test-/Runtime-Limits wurden geändert. Die Ursache der Replay-Timeouts ist damit nicht als abschließend bewiesen auszugeben.
+Alle Cargo-Kommandos liefen im `rust/`-Workspace mit Rust/Cargo 1.97.1, `SQLX_OFFLINE=true`, `CARGO_BUILD_JOBS=2` und lokal gecachten Dependencies. Die abschließenden Läufe verwenden eine bereinigte Umgebung ohne Produktions-DSN, einen isolierten Test-HOME und prozesslokal leere `RUSTC_WRAPPER` / `RUSTC_WORKSPACE_WRAPPER`. PostgreSQL 16.14 und `protoc` sind auf dem Prüfhost vorhanden. Cargo wurde aus `/home/nathanael/.cargo/bin` verwendet.
 
-Die zusätzliche `.github/workflows/brain-serve-c1.yml` prüft exakt die vier geforderten Cargo-Kommandos und den echten Prozess-E2E auf dem PR-Stand, mit read-only GitHub-Rechten und ohne Deployment. Ein ausgelöster CI-Lauf ist erst nach einem bestätigten Ergebnis als bestanden zu bewerten.
+| Prüfung | Bestätigtes Ergebnis | Lokaler Nachweis unter `.core-test-logs/c1/` |
+|---|---|---|
+| `cargo fmt --all -- --check` | Exit 0 | `fmt-direct.log`, `fmt-direct.result.json` |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` | Exit 0 | `clippy-direct.log`, `clippy-direct.result.json` |
+| `cargo test --workspace --locked` | Exit 0: 727 bestanden, 0 fehlgeschlagen, 68 regulär ignoriert | `workspace-test-direct.log`, `workspace-test-direct.result.json` |
+| `cargo build --workspace --release --locked` | Exit 0, gesamter Release-Workspace gebaut | `release-direct.log`, `release-direct.result.json` |
+| `cargo test -p brain-serve --locked` | 10 Config-/Secret-Tests und 6 Prozess-Tests bestanden; im Workspace-Lauf erneut geprüft | `brain-serve-tests.log`, Workspace-Log |
+| `bash scripts/test_brain_serve.sh` | Exit 0, echter Prozess-/Postgres-/SCRAM-/BrainClient-E2E; abschließend wiederholt | `process-e2e-direct.log`, `process-e2e-direct.result.json` |
 
+Die regulär ignorierten Tests werden nicht als bestanden gezählt. Der C1-Prozess-E2E und die drei Phasen des opt-in-Dokumenten-Piloten wurden zusätzlich explizit ausgeführt; deren Ergebnisse stehen separat in diesem Bericht.
+
+Das Release-Binary `rust/target/release/brain-serve` wurde anschließend direkt geprüft: `--version` liefert `brain-serve 0.1.0` mit Exit 0; Start in leerer Umgebung ohne Config liefert Exit 1 und ausschließlich `service_failed/config_missing`, ohne Listener. SHA-256: `181cc46170815e54c6ec90b1bae71ef631d3a05c3104308991029bab81360050` (12 122 712 Bytes); Nachweis: `release-binary-proof.json`.
+
+**Erstläufe bleiben dokumentiert:** Der erste parallele Workspace-Lauf scheiterte an 14 `WorkerTimeout`-Fehlern im unveränderten Replay-Decoder; der erste Dokumenten-Pilot scheiterte an einem Ingest-/Recovery-Timeout. Eine Wiederholung meldete einen unerwartet beendeten `sccache`-Server. Danach wurden ausschließlich die Compiler-Wrapper der Prüfprozesse deaktiviert. Weder globale Cargo-/Cache-/Produktionskonfiguration noch Test-/Runtime-Limits wurden geändert. Zwei spätere vollständige Workspace-Läufe bestanden; die genaue Ursache jedes ursprünglichen Timeouts wird daraus nicht als abschließend bewiesen ausgegeben.
+
+Auch die GitHub-CI auf `1b9597f41ff2228d1f09841364db694866394f36` ist bestätigt erfolgreich:
+
+- `Rust Core and Offline Audit Verification`, Run `36205212052`: `success`, einschließlich des neuen Prozess-E2E in der bestehenden Matrix.
+- `Brain Serve C1 Verification`, Run `36205212264`: `success`, einschließlich exakt der vier geforderten Cargo-Kommandos und des echten Prozess-E2E.
+
+Beide Workflows haben ausschließlich Prüfaufgaben, keine Merge-/Deploy-Schritte. Ein neuer CI-Lauf für den nachfolgenden reinen Dokumentationscommit ist von diesen bestätigten Ergebnissen zu unterscheiden.
 
 Zusätzliche Nachweise:
 
@@ -146,12 +159,24 @@ Der bestehende Pilot-Test wurde von `brain-api/tests/local_pilot.rs` nach `brain
 
 Der bestehende Pfad mit PostgreSQL-Absturz/Recovery, ACL-Widerruf, Tombstone, privater Quelle und leerem Rebuild bleibt erhalten. Prozessmetriken des optionalen Lastlaufs lesen jetzt die PID des echten `brain-serve`, nicht die des Test-Harnesses. Service-Logs werden pro Variante als `brain-serve-*.log` abgelegt.
 
-Der erste Dokumenten-Pilot wurde mit einer temporären Kopie der sieben vorhandenen Dateien aus `/home/nathanael/.local/share/deadlock-brain/pilot-20260925` gestartet. SHA-256-Vergleiche bestätigten nach diesem Versuch, dass der Ursprungsbestand unverändert blieb; die temporäre Kopie wurde entfernt. Es wurde ausschließlich der lokale Provider-Fixture-Server vorgesehen, kein externer Modell-Request.
+Für beide Läufe wurden jeweils temporäre Kopien der sieben vorhandenen Dateien aus `/home/nathanael/.local/share/deadlock-brain/pilot-20260925` verwendet. SHA-256-Vergleiche bestätigten nach jedem Versuch, dass der Ursprungsbestand unverändert blieb; die temporären Kopien wurden entfernt. Alle Provider-Aufrufe gingen ausschließlich an den lokalen Fixture-Server.
 
-Dieser erste Versuch **bestand nicht**: `pilot_phase_ingest` endete mit `PoolTimedOut` (Exit 101), anschließend überschritt das Scratch-Postgres-Recovery den vorhandenen `pg_ctl`-Timeout. Das Gesamtskript lieferte Exit 1. Die 15 fachlichen Fälle wurden in diesem Versuch nicht erreicht; insbesondere werden weder 10/15 noch 15/15 als Ergebnis dieses C1-Laufs behauptet. Die früheren Ergebnisse aus dem Integrationsreview sind kein Ersatz für einen neuen Messlauf.
+Der erste Versuch endete vor den fachlichen Fällen mit `PoolTimedOut` beim Ingest und anschließendem Scratch-Recovery-Timeout. Dieser fehlgeschlagene Erstlauf bleibt unter `.core-test-logs/c1/pilot/` dokumentiert und wurde nicht als fachliches Ergebnis gewertet.
 
-Der eigenständige synthetische Prozess-Pilot `scripts/test_brain_serve.sh` hat den geforderten technischen Durchstich bereits nachgewiesen: tatsächlich gestartetes `brain-serve`, echte Scratch-Datenbank und typisierter BrainClient. Der vollständige Dokumenten-Pilot bleibt zusätzlich zu wiederholen. Standard-Budgets und Retrieval-Limit wurden nicht als Ausweichlösung erhöht.
+Die abschließende Wiederholung unter `.core-test-logs/c1/pilot-direct/` erreichte sämtliche Phasen **über das tatsächlich gestartete Binary**:
 
+| Phase | Ergebnis |
+|---|---|
+| Ingest / Release-Publikation | Exit 0 |
+| Default nach erzwungenem Scratch-DB-Neustart | **10/15** fachliche Fälle bestanden; Test-Exit 101 |
+| Explizite Diagnosevariante | **15/15** fachliche Fälle bestanden; Exit 0 |
+| Leerer Rebuild | Exit 0 |
+
+Das Gesamtskript endet korrekt mit **Exit 1**, weil der Default-Teil weiterhin fünf Fehler meldet. Die Fälle `public_question`, `exact_number`, `alias_en`, `alias_de_lowercase` und `provider_error` liefern im Standardlauf `budget_exceeded`, jeweils ohne Provider-Egress. Diese vorhandenen Budget-/Fehlerklassifikationsbefunde wurden nicht durch C1 verändert oder als Erfolg umgedeutet.
+
+Die Diagnosevariante nutzt ausschließlich die schon vorhandenen expliziten Pilot-Schalter für einen Treffer und 200 000 Input-Tokens. Die Config-Vorlage und der Standardlauf behalten sechs Treffer und das bestehende Budget von 12 000 Input-Tokens bei. **Die Diagnosewerte sind weder neue Defaults noch eine Produktionsfreigabe.**
+
+Nachweise: `summary.tsv`, `after_restart_default.json`, `after_restart_diagnostic.json`, `brain-serve-default.log`, `brain-serve-diagnostic.log`, Ingest-/Rebuild-Berichte und `pilot-direct.result.json`. Der Prozess-Pilot wurde danach ebenfalls erneut mit Exit 0 ausgeführt. Der Dokumenten-Scratch-Cluster ist abschließend nachweislich gestoppt (`pg_ctl status`: Exit 3); der separate Prozess-E2E hat seinen eigenen temporären Cluster gestoppt und entfernt. Der optionale Lastlauf wurde nicht aktiviert.
 
 Reproduktionskommando, ausschließlich mit separat bereitgestellter Arbeitskopie der genehmigten Pilot-Dokumente außerhalb des Repositorys:
 
@@ -196,7 +221,7 @@ A	architecture/migration/handoffs/C1_BRAIN_SERVE.md
 
 ## Was Claude lokal noch prüfen muss
 
-1. Zunächst die noch offenen Workspace-/Release-Prüfungen sowie den vollständigen Dokumenten-Pilot auf einer stabilen Prüfumgebung abschließen und die exakten PR-SHA-Ergebnisse dokumentieren. Die aktuell belegten Funktionstests ersetzen diese offenen Nachweise nicht.
+1. Den freizugebenden PR-SHA und dessen CI-Ergebnisse prüfen. Die hier bestätigten lokalen Prüfungen und grünen CI-Läufe beziehen sich auf den oben genannten Stand; die bekannte Default-Pilot-Lücke bleibt ein separater C2/C3-Auftrag.
 2. Operator-Konfiguration/Infisical-Mapping für die tatsächlich freigegebenen Provider-/Client-Secret-Namen prüfen, ohne Werte ins Terminal, Journal oder Git zu schreiben. Hier wurde ausschließlich mit synthetischen Credentials gearbeitet.
 3. Reale Peer-/SCRAM-Rolle, Socketpfad, SQL-Rechte und das bereits bereitgestellte Schema prüfen. Release-ID, Knowledge-Version, vollständige Pins und aktuelle ACL-Heads müssen zum vorgesehenen Datenstand passen. Keine automatische Migration durch diese Unit erwarten.
 4. Erst nach ausdrücklicher Betreiberfreigabe Modell/Endpoint/Preisobergrenzen und reale Provider-Erreichbarkeit in einer isolierten Umgebung prüfen. `/readyz` behauptet keine Modell-Verfügbarkeit; es löst keinen kostenpflichtigen Provider-Request aus.
