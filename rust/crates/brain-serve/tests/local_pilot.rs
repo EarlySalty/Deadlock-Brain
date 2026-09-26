@@ -885,7 +885,7 @@ async fn pilot_phase_reader_failures() {
     use brain_contracts::{AuthorizedContext, PortError, Principal, RetrievalPort};
     use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
     let env = env();
-    let retriever = ReleaseRetriever::new(reader(&env), 6);
+    let retriever = dbrain_retrieval::ReleaseRetriever::new(reader(&env), 6);
     let q = query("reader-failure", "Abrams", &["docs.public"], None, None);
     let context = AuthorizedContext {
         principal: Principal {

@@ -66,6 +66,7 @@ fn query(text: &str) -> Query {
         profile: AnswerProfile::Explain,
         patch: Some("p1".into()),
         mode: Some("ranked".into()),
+        domain: None,
     }
 }
 

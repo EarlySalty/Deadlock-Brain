@@ -145,6 +145,10 @@ async fn initialize(prepared: &Prepared) -> Result<(PgPool, Arc<Health>), Error>
         .connect_with(options).await.map_err(|_| Error::DatabaseUnavailable)?;
     // Deployment/migrations and release publication are an explicit operator responsibility.
     let store = PgStore::new(pool.clone());
+    store
+        .check_core_schema()
+        .await
+        .map_err(|_| Error::SchemaIncompatible)?;
     let snapshot = store
         .snapshot(&config.release.id)
         .await

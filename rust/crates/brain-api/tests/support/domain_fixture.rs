@@ -139,6 +139,7 @@ pub fn records(
             visibility: SourceVisibility::Public,
             allowed_scopes: BTreeSet::new(),
             score: 1.0,
+            provenance: None,
             patch: Some(patch.into()),
         }],
     };

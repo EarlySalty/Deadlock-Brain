@@ -358,6 +358,7 @@ dependencies = [
  "brain-policy",
  "brain-providers",
  "brain-storage",
+ "dbrain-reasoner",
  "dbrain-retrieval",
  "reqwest",
  "serde",

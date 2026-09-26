@@ -66,6 +66,7 @@ fn query(id: &str) -> Query {
         profile: AnswerProfile::Explain,
         patch: None,
         mode: None,
+        domain: None,
     }
 }
 
@@ -339,7 +340,7 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::query("GRANT SELECT ON brain.corpus_releases_v1, brain.source_record_revisions, brain.source_record_heads TO brain_serve_fixture")
+    sqlx::query("GRANT SELECT ON brain.core_schema_version, brain.corpus_releases_v1, brain.source_record_revisions, brain.source_record_heads, brain.source_jobs_v1, brain.source_checkpoints_v1 TO brain_serve_fixture")
         .execute(&pool).await.unwrap();
     sqlx::query("GRANT SELECT, INSERT ON brain.conversation_owners_v1 TO brain_serve_fixture")
         .execute(&pool)

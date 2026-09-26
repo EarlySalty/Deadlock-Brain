@@ -88,6 +88,7 @@ fn shared_answer_follower_revalidates_and_distinguishes_reader_failure_from_deni
             profile: AnswerProfile::Explain,
             patch: None,
             mode: None,
+            domain: None,
         };
         let context = AuthorizedContext {
             principal: Principal {

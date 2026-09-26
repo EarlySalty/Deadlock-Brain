@@ -89,6 +89,7 @@ fn query() -> Query {
         profile: AnswerProfile::Explain,
         patch: None,
         mode: None,
+        domain: None,
     }
 }
 fn context() -> AuthorizedContext {

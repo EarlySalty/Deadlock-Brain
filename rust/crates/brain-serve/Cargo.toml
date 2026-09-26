@@ -24,3 +24,4 @@ brain-ingestion = { path = "../brain-ingestion" }
 sha2.workspace = true
 tempfile.workspace = true
 wait-timeout.workspace = true
+dbrain-reasoner = { path = "../dbrain-reasoner" }
