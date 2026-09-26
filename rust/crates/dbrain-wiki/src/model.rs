@@ -4,6 +4,39 @@ use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const CAPTURE_VERSION: &str = "s12-capture-v1";
+pub const SCOPED_CAPTURE_VERSION: &str = "wiki-scoped-capture-v1";
+
+/// A finite selector union. A namespace is a filter, never a crawl instruction.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct WikiScope {
+    pub namespace_allowlist: BTreeSet<i64>,
+    #[serde(default)]
+    pub page_ids: BTreeSet<i64>,
+    #[serde(default)]
+    pub pages: BTreeSet<String>,
+    /// Direct members only. No recursive category or dependency traversal.
+    #[serde(default)]
+    pub categories: BTreeSet<String>,
+    #[serde(default)]
+    pub heroes: Vec<HeroScope>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct HeroScope {
+    pub title: String,
+    pub entity_id: String,
+    pub locale: String,
+    /// Explicit related titles, not a wildcard or traversal depth.
+    #[serde(default)]
+    pub pages: BTreeSet<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiscoveryScope {
+    pub selection: WikiScope,
+    pub selected_page_ids: BTreeSet<i64>,
+}
 pub const PARSER_VERSION: &str = "s12-syntax-probe-v2";
 pub const MAX_INPUT_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_CONTENT_BYTES: usize = 512 * 1024;
@@ -14,6 +47,8 @@ pub const MAX_CANDIDATES: usize = 2_000;
 #[serde(deny_unknown_fields)]
 pub struct Capture {
     pub format: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discovery_scope: Option<DiscoveryScope>,
     pub source_key: String,
     pub retrieved_at: i64,
     pub policy: CapturePolicy,
@@ -36,6 +71,12 @@ pub struct CapturePolicy {
     pub publication_allowed: bool,
     pub provider_egress_allowed: bool,
     pub media_download_allowed: bool,
+    /// Separate operator retention approval; offline inspection alone is not enough.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub raw_retention_allowed: bool,
+}
+fn is_false(value: &bool) -> bool {
+    !value
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -225,7 +266,10 @@ pub struct Report {
     pub capture_sha256: String,
     pub source_key: String,
     pub retrieved_at: i64,
+    /// Scope completeness when discovery_scope is present; never full-wiki coverage.
     pub discovery_complete: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discovery_scope: Option<DiscoveryScope>,
     pub namespace_names: BTreeMap<i64, String>,
     pub missing_namespaces: BTreeSet<i64>,
     pub continuation_pending: BTreeMap<i64, BTreeMap<String, String>>,

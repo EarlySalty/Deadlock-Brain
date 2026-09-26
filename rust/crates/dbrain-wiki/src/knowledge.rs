@@ -224,6 +224,50 @@ pub fn extract(bytes: &[u8], profile: &MappingProfile) -> Result<WikiIr> {
                 ] {
                     metadata.insert(k.into(), v.to_string());
                 }
+                if report.discovery_scope.is_some() {
+                    // prop=templates|links describes the captured HEAD, not the
+                    // older history window. Never invent historical dependency pins.
+                    metadata.insert(
+                        "dependencies".into(),
+                        if Some(id) == page.latest_revision {
+                            serde_json::json!(page.dependency_ids)
+                        } else {
+                            Value::Null
+                        }
+                        .to_string(),
+                    );
+                    metadata.insert(
+                        "dependencies_as_of_revision".into(),
+                        serde_json::json!(page.latest_revision).to_string(),
+                    );
+                    metadata.insert(
+                        "historical_dependencies_unknown".into(),
+                        serde_json::json!(Some(id) != page.latest_revision).to_string(),
+                    );
+                    metadata.insert(
+                        "unresolved_dependencies".into(),
+                        if Some(id) == page.latest_revision {
+                            serde_json::json!(page.unresolved_dependencies)
+                        } else {
+                            Value::Null
+                        }
+                        .to_string(),
+                    );
+                    metadata.insert(
+                        "source_rightsinfo_untrusted".into(),
+                        capture
+                            .siteinfo
+                            .pointer("/query/rightsinfo")
+                            .cloned()
+                            .unwrap_or(Value::Null)
+                            .to_string(),
+                    );
+                    metadata.insert(
+                        "discovery_scope".into(),
+                        serde_json::to_string(&report.discovery_scope)
+                            .map_err(|_| "scope encoding")?,
+                    );
+                }
                 let source = SourceRecordV2 {
                     source_id: report.source_key.clone(),
                     logical_id: page.source_id.clone(),
@@ -723,11 +767,26 @@ fn wiki_origin(
         raw_sha256: source.content_hash.clone(),
         locator: page
             .upstream_url
-            .clone()
+            .as_ref()
+            .map(|url| {
+                let url = url.split('#').next().unwrap_or(url);
+                format!(
+                    "{url}{}oldid={}",
+                    if url.contains('?') { "&" } else { "?" },
+                    source.revision
+                )
+            })
             .unwrap_or_else(|| format!("{}:revision:{}", source.logical_id, source.revision)),
         parser_revision: report.parser_version.clone(),
         parser_family: "dbrain-wiki".into(),
-        schema_version: Observed::known(CAPTURE_VERSION.into()),
+        schema_version: Observed::known(
+            if report.discovery_scope.is_some() {
+                SCOPED_CAPTURE_VERSION
+            } else {
+                CAPTURE_VERSION
+            }
+            .into(),
+        ),
         schema_sha256: Observed::unknown(UnknownReason::NotPresent),
         retrieved_at: Observed::known(SourceTimestamp::UnixSeconds(report.retrieved_at)),
         source_time: observed_option(revision.source_time.map(SourceTimestamp::UnixSeconds)),
@@ -741,8 +800,7 @@ fn wiki_origin(
             license: observed_option(report.source_policy.source_license.clone()),
             publication_allowed: report.source_policy.publication_allowed,
             provider_egress_allowed: report.source_policy.provider_egress_allowed,
-            // Capture grants offline review, not an independently established retention policy.
-            raw_retention_allowed: false,
+            raw_retention_allowed: report.source_policy.raw_retention_allowed,
         },
         validity: GameValidity::unknown(),
     }

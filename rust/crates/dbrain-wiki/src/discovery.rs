@@ -51,7 +51,23 @@ pub(crate) fn discover(capture: &Capture) -> Result<Discovery> {
     if !namespaces.contains_key(&0) {
         return Err("siteinfo does not contain the main namespace".into());
     }
-    let required: BTreeSet<_> = namespaces.keys().copied().filter(|id| *id >= 0).collect();
+    let required: BTreeSet<_> = match &capture.discovery_scope {
+        Some(scope) => {
+            crate::capture::validate_scope(&scope.selection)?;
+            if scope
+                .selection
+                .namespace_allowlist
+                .iter()
+                .any(|id| !namespaces.contains_key(id))
+            {
+                return Err("namespace allowlist contains an unknown namespace".into());
+            }
+            scope.selection.namespace_allowlist.clone()
+        }
+        // Compatibility for archived, OFFLINE v1 captures only. The network
+        // collector never falls back to this inventory mode.
+        None => namespaces.keys().copied().filter(|id| *id >= 0).collect(),
+    };
     let mut completed = BTreeSet::new();
     let mut pending = BTreeMap::<i64, BTreeMap<String, String>>::new();
     let mut seen_tokens = BTreeSet::new();
@@ -77,9 +93,13 @@ pub(crate) fn discover(capture: &Capture) -> Result<Discovery> {
         }
         let entries = batch
             .response
-            .pointer("/query/allpages")
+            .pointer(if capture.discovery_scope.is_some() {
+                "/query/selected_pages"
+            } else {
+                "/query/allpages"
+            })
             .and_then(Value::as_array)
-            .ok_or("discovery response lacks query.allpages array")?;
+            .ok_or("discovery response lacks the expected inventory array")?;
         for page in entries {
             let page_id = page
                 .get("pageid")
@@ -147,6 +167,20 @@ pub(crate) fn discover(capture: &Capture) -> Result<Discovery> {
                 }
                 pending.insert(batch.namespace, token);
             }
+        }
+    }
+    if let Some(scope) = &capture.discovery_scope {
+        if pages.keys().copied().collect::<BTreeSet<_>>() != scope.selected_page_ids
+            || capture
+                .pages
+                .iter()
+                .map(|p| p.page_id)
+                .collect::<BTreeSet<_>>()
+                != scope.selected_page_ids
+            || !pending.is_empty()
+            || scope.selected_page_ids.len() > crate::capture::MAX_PILOT_PAGES
+        {
+            return Err("selected-page manifest/capture mismatch or incomplete scope".into());
         }
     }
     let mut classified = BTreeSet::new();

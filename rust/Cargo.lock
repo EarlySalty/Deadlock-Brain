@@ -796,6 +796,7 @@ name = "dbrain-sources"
 version = "0.1.0"
 dependencies = [
  "brain-contracts",
+ "brain-storage",
  "dbrain-normalize",
  "dbrain-s12-wiki-probe",
  "deadlock-brain-core",

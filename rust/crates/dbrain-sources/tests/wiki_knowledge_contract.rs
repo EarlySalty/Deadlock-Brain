@@ -49,10 +49,18 @@ fn network_adapter_defaults_to_disabled_and_cannot_enable_itself_from_capture_po
         source_key: ir.report().source_key.clone(),
         retrieved_at: ir.report().retrieved_at,
         policy: ir.report().source_policy.clone(),
-        page_ids: [101].into(),
+        scope: dbrain_s12_wiki_probe::model::WikiScope {
+            namespace_allowlist: [0].into(),
+            page_ids: [101].into(),
+            pages: Default::default(),
+            categories: Default::default(),
+            heroes: Vec::new(),
+        },
         max_requests: 1,
         max_pages: 1,
         max_total_bytes: 1024,
+        request_interval_ms: 5_000,
+        deadline_ms: 10_000,
     };
     let result = capture_with_http(&http, &WikiCaptureAccess::default(), &options);
     assert!(result.unwrap_err().to_string().contains("disabled"));

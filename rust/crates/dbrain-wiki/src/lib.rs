@@ -116,8 +116,12 @@ pub fn parse_json(bytes: &[u8]) -> Result<Value> {
 pub fn analyze(bytes: &[u8]) -> Result<Report> {
     let capture: Capture = serde_json::from_value(parse_json(bytes)?)
         .map_err(|_| "invalid capture schema (s12-capture-v1 required)".to_string())?;
-    if capture.format != CAPTURE_VERSION {
-        return Err("unsupported capture version".into());
+    if !matches!(
+        capture.format.as_str(),
+        CAPTURE_VERSION | SCOPED_CAPTURE_VERSION
+    ) || (capture.format == SCOPED_CAPTURE_VERSION) != capture.discovery_scope.is_some()
+    {
+        return Err("unsupported capture version or missing/mismatched scope".into());
     }
     if capture.source_key.is_empty()
         || capture.source_key.len() > 128
@@ -214,6 +218,7 @@ pub fn analyze(bytes: &[u8]) -> Result<Report> {
         source_key: capture.source_key,
         retrieved_at: capture.retrieved_at,
         discovery_complete: complete,
+        discovery_scope: capture.discovery_scope,
         namespace_names: discovered.namespaces,
         missing_namespaces: discovered.missing,
         continuation_pending: discovered.pending,
