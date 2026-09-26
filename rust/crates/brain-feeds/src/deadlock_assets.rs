@@ -16,6 +16,14 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const SOURCE: &str = "deadlock-assets";
 pub const PARSER_REVISION: &str = "brain-feeds-assets.v1";
 pub const MAX_FACT_BYTES: usize = 6 * 1024;
+// Required numeric fields in the pinned Deadlock API Hero.StartingStats schema.
+const HERO_STARTING_FACTS: &[&str] = &[
+    "max_health",
+    "max_move_speed",
+    "sprint_speed",
+    "stamina",
+    "base_health_regen",
+];
 
 fn scalar(value: &Value) -> Option<String> {
     match value {
@@ -24,6 +32,29 @@ fn scalar(value: &Value) -> Option<String> {
         Value::Bool(b) => Some(b.to_string()),
         _ => None,
     }
+}
+
+fn hero_starting_facts(payload: &Value) -> Result<Vec<(&'static str, String)>> {
+    let stats = payload
+        .get("starting_stats")
+        .and_then(Value::as_object)
+        .ok_or_else(|| FeedError::Quarantined("hero starting_stats missing or invalid".into()))?;
+    HERO_STARTING_FACTS
+        .iter()
+        .map(|field| {
+            let number = stats
+                .get(*field)
+                .and_then(Value::as_object)
+                .and_then(|stat| stat.get("value"))
+                .and_then(Value::as_number)
+                .ok_or_else(|| {
+                    FeedError::Quarantined(format!(
+                        "hero starting_stats.{field}.value missing or not numeric"
+                    ))
+                })?;
+            Ok((*field, number.to_string()))
+        })
+        .collect()
 }
 
 pub fn documents(
@@ -52,6 +83,11 @@ pub fn documents(
     };
     let mut out = Vec::with_capacity(entities.len());
     for entity in entities {
+        let hero_facts = if entity.entity_type == "hero" {
+            hero_starting_facts(&entity.payload)?
+        } else {
+            Vec::new()
+        };
         let name = entity.canonical_name.as_deref().map(clean);
         let logical_id = format!("asset/{}/{}", entity.entity_type, entity.external_id);
         let mut content = format!(
@@ -93,15 +129,45 @@ pub fn documents(
             ("asset_kind".into(), kind.into()),
             ("http_body_sha256".into(), body_sha.clone()),
         ]);
-        if let Some(name) = name {
-            metadata.insert("name".into(), name);
+        if let Some(name) = &name {
+            metadata.insert("name".into(), name.clone());
         }
         out.push(CoreDocument {
             logical_id,
             content,
             metadata,
-            origin,
+            origin: origin.clone(),
         });
+        for (field, value) in hero_facts {
+            let fact_key = format!("starting_stats.{field}.value");
+            let source_pointer = format!("/starting_stats/{field}/value");
+            let mut field_origin = origin.clone();
+            field_origin.locator = format!(
+                "{}#/{}/starting_stats/{field}/value",
+                provenance.locator, entity.external_id
+            );
+            let mut field_metadata = BTreeMap::from([
+                ("connector".into(), SOURCE.into()),
+                ("kind".into(), "fact".into()),
+                ("locator".into(), field_origin.locator.clone()),
+                ("asset_kind".into(), kind.into()),
+                ("http_body_sha256".into(), body_sha.clone()),
+                ("fact_key".into(), fact_key.clone()),
+                ("source_pointer".into(), source_pointer),
+            ]);
+            if let Some(name) = &name {
+                field_metadata.insert("name".into(), name.clone());
+            }
+            out.push(CoreDocument {
+                logical_id: format!("asset/hero/{}/{fact_key}", entity.external_id),
+                content: format!(
+                    "Hero: {}\nFact key: {fact_key}\nValue: {value}\n",
+                    name.as_deref().unwrap_or("unknown")
+                ),
+                metadata: field_metadata,
+                origin: field_origin,
+            });
+        }
     }
     Ok(out)
 }
@@ -189,5 +255,65 @@ mod tests {
         )
         .is_err());
         assert!(prepare_batch("heroes", response("{not json"), None, &policy(), None).is_err());
+    }
+
+    #[test]
+    fn typed_hero_numbers_become_field_bound_records() {
+        let heroes = include_str!("../tests/fixtures/heroes.json");
+        let batch = prepare_batch("heroes", response(heroes), None, &policy(), None).unwrap();
+        let fact = batch
+            .records
+            .iter()
+            .find(|record| record.logical_id == "asset/hero/25/starting_stats.max_health.value")
+            .unwrap();
+        assert!(fact.content.contains("Hero: Warden"));
+        assert!(fact.content.contains("Value: 770"));
+        assert_eq!(fact.metadata["fact_key"], "starting_stats.max_health.value");
+        assert_eq!(
+            fact.metadata["source_pointer"],
+            "/starting_stats/max_health/value"
+        );
+        let origin = origin_from_record(fact).unwrap();
+        assert!(origin
+            .locator
+            .ends_with("#/25/starting_stats/max_health/value"));
+        assert!(origin
+            .origin_artifacts
+            .iter()
+            .all(|artifact| artifact.contains("@sha256:")));
+        assert_eq!(batch.records.len(), 12);
+    }
+
+    #[test]
+    fn missing_or_non_numeric_hero_stat_quarantines_the_whole_batch() {
+        let original: Value =
+            serde_json::from_str(include_str!("../tests/fixtures/heroes.json")).unwrap();
+        for bad in [Value::Null, Value::String("770".into())] {
+            let mut changed = original.clone();
+            changed[0]["starting_stats"]["max_health"]["value"] = bad;
+            let result = prepare_batch(
+                "heroes",
+                response(&changed.to_string()),
+                None,
+                &policy(),
+                None,
+            );
+            assert!(matches!(result, Err(FeedError::Quarantined(_))));
+        }
+        let mut missing = original;
+        missing[0]["starting_stats"]
+            .as_object_mut()
+            .unwrap()
+            .remove("stamina");
+        assert!(matches!(
+            prepare_batch(
+                "heroes",
+                response(&missing.to_string()),
+                None,
+                &policy(),
+                None
+            ),
+            Err(FeedError::Quarantined(_))
+        ));
     }
 }
