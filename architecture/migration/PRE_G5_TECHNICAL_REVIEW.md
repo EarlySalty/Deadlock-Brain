@@ -240,7 +240,7 @@ Das Tombstone-Skript ist auf PR #52 inzwischen mit Commit `97333f6` auf einen ei
 | `sheet_hero_rankings` | Subjektive Community-Wertungen wie Carry und Support | Historisch/deferred; kein kanonischer Spielwert |
 | `sheet_shop_bonuses` | Sheet-exklusive Souls-Kosten-zu-Bonus-Reihe ohne belegten V1-Core-Leser | Historisch/deferred; kein V1-Import |
 
-Damit ist keine pauschale Migration der sieben Tabellen gerechtfertigt. Kein Sheet-exklusiver Fakt ist als erforderlicher V1-Core-Fakt belegt; `brain_legacy` bleibt keine Laufzeitquelle. Der vorhandene Assets-Adapter serialisiert allerdings nur skalare Top-Level-Felder und lässt verschachtelte Heldenwerte wie `starting_stats.max_health.value` aus. Ein begrenzter, typisierter Nested-Field-Adapter mit API-Provenienz ist nötig, bevor HP und andere kanonische Heldenfakten im Core als bereit gelten. Ein später gewünschter Economy-Fakt braucht einen eigenen typisierten Quellenvertrag statt eines Imports aus `sheet_tab_rows`.
+Damit ist keine pauschale Migration der sieben Tabellen gerechtfertigt. Kein Sheet-exklusiver Fakt ist als erforderlicher V1-Core-Fakt belegt; `brain_legacy` bleibt keine Laufzeitquelle. Zum Zeitpunkt dieser Bestandsaufnahme serialisierte der Assets-Adapter nur skalare Top-Level-Felder und ließ verschachtelte Heldenwerte wie `starting_stats.max_health.value` aus. Die fünf für V1 belegten `starting_stats`-Felder wurden anschließend in PR #55 typisiert und mit API-Provenienz angebunden; weitere abgeleitete Sheet-Werte wie DPS und Falloff sind damit nicht pauschal Core-Fakten. Ein später gewünschter Economy-Fakt braucht einen eigenen typisierten Quellenvertrag statt eines Imports aus `sheet_tab_rows`.
 
 ### Match, Meta, Population und YouTube
 
@@ -269,7 +269,7 @@ Die nachfolgenden Fix-Commits `81dc89e`, `efa782c` und `9b8c79a` schließen die 
 
 Auf `9b8c79a` bestanden `cargo fmt --all -- --check`, Workspace-Clippy mit `-D warnings`, `cargo test --workspace --locked --offline` und `cargo build --workspace --release --locked --offline` mit der im Repo gepinnten Rust-Version 1.97.1. Das sind Code- und Fixture-Nachweise, keine Wiederholung des Default-E2E oder der Last gegen die getrennte Brain-PG.
 
-Konkreter Grund für die weiterhin ausgelassenen Pilot-, E2E- und Last-Echtläufe: `run_isolated_pilot.sh` und `run_isolated_legacy_import.sh` exportieren DB-Passwörter als Environment-Variablen; `test_brain_serve.sh` setzt Environment-Konfiguration für den Testprozess. Die Workspace-Startanweisung verbietet Environment-Variablen für Config und Secrets im Klartext. Das Tombstone-Skript in PR #52 nutzt diesen Pfad seit `97333f6` nicht mehr und ist erneut real gelaufen; der historische Komplettimport aus Abschnitt 3 ist kein erneuter Lauf des neuen Fakten-Commits. Vor einer vollständigen Wiederholung der anderen Skripte ist ein zulässiger Secret-/Config-Transport nötig.
+Konkreter Grund für die weiterhin ausgelassenen **lokalen** Pilot-, E2E- und Last-Echtläufe: `run_isolated_pilot.sh` und `run_isolated_legacy_import.sh` exportieren DB-Passwörter als Environment-Variablen; `test_brain_serve.sh` setzt Environment-Konfiguration für den Testprozess. Die Workspace-Startanweisung verbietet Environment-Variablen für Config und Secrets im Klartext. Das Tombstone-Skript in PR #52 nutzt diesen Pfad seit `97333f6` nicht mehr und ist erneut real gelaufen; der historische Komplettimport aus Abschnitt 3 ist kein erneuter Lauf des neuen Fakten-Commits. Die spätere C1-CI erbrachte den 600-Request-Nachweis auf dem finalen Head. Vor einer vollständigen lokalen Wiederholung der anderen Skripte ist ein zulässiger Secret-/Config-Transport nötig.
 
 ### Steam-Publish-Provider
 
@@ -295,7 +295,7 @@ Der finale Steam-Head `c12e9ab` ergänzt gegenüber dem zuvor geprüften `42df79
 
 ### Maßgebliche Bewertung dieser Fortsetzung
 
-Die folgenden Marker gelten für den Integrationsstand nach PR #55 und ersetzen die gleichnamigen historischen Marker weiter oben. „Bereit“ meint hier nur den belegten technischen Pfad, keine G5- oder Produktionsfreigabe. Die Patchnotes-Security-Jobs wurden von GitHub wegen Billing gar nicht gestartet; die Steam-Vollsuite verlangt eine nach Workspace-Regel unzulässige Environment-Konfiguration. Match, Meta, Population und YouTube sind dokumentiert, aber ohne Betreiberentscheidung und vollständige Implementierung nicht G5-fertig. PR #40 bleibt Draft, der supersedete Cutover-Branch bleibt unberührt, und kein Consumer wurde aktiviert.
+Die folgenden Marker gelten für den Integrationsstand nach PR #55 und ersetzen die gleichnamigen historischen Marker weiter oben. „Bereit“ meint hier nur den belegten technischen Pfad, keine G5- oder Produktionsfreigabe; `SHEET_CORE_PATH_READY` bezieht sich auf die fünf erforderlichen V1-`starting_stats`-Felder, nicht auf sämtliche abgeleiteten Sheet-Kennzahlen. Die Patchnotes-Security-Jobs wurden von GitHub wegen Billing gar nicht gestartet; die Steam-Vollsuite verlangt eine nach Workspace-Regel unzulässige Environment-Konfiguration. Match, Meta, Population und YouTube sind dokumentiert, aber ohne Betreiberentscheidung und vollständige Implementierung nicht G5-fertig. PR #40 bleibt Draft, der supersedete Cutover-Branch bleibt unberührt, und kein Consumer wurde aktiviert.
 
 AUTHORITATIVE_INTEGRATION_COMMIT: ee4889eae837ebe40ca06543e326824b915ace27
 
