@@ -116,6 +116,12 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
                 )
             })
             .collect();
+        // The production reader caps one head snapshot at 256 keys. An excess
+        // of possible owners is ambiguous rather than a reader error or an
+        // inconsistent sequence of ACL snapshots.
+        if documents.len() > 256 {
+            return Ok(true);
+        }
         let heads = self.heads(&documents.into_values().collect::<Vec<_>>())?;
         for owners in groups {
             let mut visible = BTreeSet::new();

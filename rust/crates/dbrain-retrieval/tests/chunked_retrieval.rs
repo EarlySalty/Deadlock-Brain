@@ -286,6 +286,25 @@ async fn repeated_owner_across_ambiguous_names_is_deduplicated_before_head_read(
 }
 
 #[tokio::test]
+async fn hundreds_of_alias_owners_fail_closed_without_exceeding_head_batch_limit() {
+    let records = (0..300)
+        .map(|number| {
+            let mut owner = record(
+                &format!("entity/hero/Hero{number}"),
+                &format!("hero: Hero{number}\nhealth: 650"),
+            );
+            owner.metadata.insert("kind".into(), "fact".into());
+            owner.metadata.insert("aliases_en".into(), "Shared".into());
+            owner
+        })
+        .collect();
+    let retriever = ReleaseRetriever::new(published(records).await, 1);
+    let mut request = query("Shared health");
+    request.profile = AnswerProfile::Fact;
+    assert!(retriever.retrieve(&request, &context()).unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn live_revoke_delete_and_historical_acl_never_widen() {
     let mut original = record("restricted.md", "Abrams restricted evidence");
     original.visibility = SourceVisibility::Private;
