@@ -239,7 +239,20 @@ impl ChunkIndex {
                 .is_none_or(|m| record.metadata.get("mode") == Some(m))
     }
     pub fn rank(&self, query: &Query, context: &AuthorizedContext) -> Vec<(usize, f64)> {
-        let query_terms: BTreeSet<_> = terms(&query.text).into_iter().collect();
+        let query_words = terms(&query.text);
+        let query_terms: BTreeSet<_> = query_words.iter().cloned().collect();
+        let fact_documents: Option<BTreeSet<usize>> =
+            (query.profile == AnswerProfile::Fact).then(|| {
+                self.fact_name_owners
+                    .iter()
+                    .filter(|(name, _)| {
+                        !name.is_empty()
+                            && query_words.windows(name.len()).any(|part| part == *name)
+                    })
+                    .flat_map(|(_, owners)| owners.iter().copied())
+                    .filter(|document| self.eligible(&self.records[*document], query, context))
+                    .collect()
+            });
         let numbers = numeric_terms(&query.text);
         let mut scores = BTreeMap::<usize, f64>::new();
         for term in &query_terms {
@@ -250,7 +263,10 @@ impl ChunkIndex {
             let idf = (1.0 + (self.chunks.len() as f64 - df + 0.5) / (df + 0.5)).ln();
             for &(chunk, frequency) in postings {
                 let entry = &self.chunks[chunk];
-                if (query.profile != AnswerProfile::Fact && !numbers.is_subset(&entry.numbers))
+                if fact_documents
+                    .as_ref()
+                    .is_some_and(|documents| !documents.contains(&entry.document))
+                    || (query.profile != AnswerProfile::Fact && !numbers.is_subset(&entry.numbers))
                     || !self.eligible(&self.records[entry.document], query, context)
                 {
                     continue;
