@@ -251,6 +251,12 @@ async fn assets_feed_field_answers_through_release_kernel() {
     legacy
         .metadata
         .insert("connector".into(), "brain_legacy".into());
+    legacy
+        .metadata
+        .insert("entity_source".into(), "deadlock_assets_api".into());
+    legacy
+        .metadata
+        .insert("entity_external_id".into(), "hero_25".into());
     store.apply_record(legacy).unwrap();
     let release = store.release_from_heads("r1", "v1", "p1").unwrap();
     store.publish(&release).await.unwrap();
