@@ -1,0 +1,187 @@
+{
+  "approved_fields": {
+    "wiki-field:1091192bcab7f8676b42080fb8357f716e169659a8b0db41c9d6548814d365d8": {
+      "content_hash": "1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+      "logical_id": "synthetic_wiki:page:101",
+      "revision": 10101,
+      "source_id": "synthetic_wiki"
+    },
+    "wiki-field:290695bd600758f319d5eadf7ccf3f7a461968a366adefeeed46a398ef0a7587": {
+      "content_hash": "1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+      "logical_id": "synthetic_wiki:page:101",
+      "revision": 10101,
+      "source_id": "synthetic_wiki"
+    },
+    "wiki-field:2a1a6a2b971900aafa13df508d63baaf4f75ec32192aff8b044597524a7b5645": {
+      "content_hash": "1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+      "logical_id": "synthetic_wiki:page:101",
+      "revision": 10101,
+      "source_id": "synthetic_wiki"
+    },
+    "wiki-field:2b6969da6e5d2b1d7735f698e353f8385c1784150ea62534e4fcffe26cfbb7af": {
+      "content_hash": "1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+      "logical_id": "synthetic_wiki:page:101",
+      "revision": 10101,
+      "source_id": "synthetic_wiki"
+    },
+    "wiki-field:2cc106bbc0a7cdb93faa4951d304757912ee4c90a3558878374b27e24ddf451b": {
+      "content_hash": "1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+      "logical_id": "synthetic_wiki:page:101",
+      "revision": 10101,
+      "source_id": "synthetic_wiki"
+    },
+    "wiki-field:78f45b5295b3ce505be1d25293e496adaacf15376cf7a8b730c32cbdc6ba555f": {
+      "content_hash": "46545288631f209ba80664ab88958b4ee3aabefabfaae86be8e695bcd5257a9c",
+      "logical_id": "synthetic_wiki:page:201",
+      "revision": 10201,
+      "source_id": "synthetic_wiki"
+    },
+    "wiki-field:7dbf6fbf31a5216b85279f852335623d19fd0b42a4b4846a2a2a0ff5dd83223f": {
+      "content_hash": "1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+      "logical_id": "synthetic_wiki:page:101",
+      "revision": 10101,
+      "source_id": "synthetic_wiki"
+    },
+    "wiki-field:834d2f5c5991ed75196eae4159542747c1514140b35e03fa53b365d4d1510440": {
+      "content_hash": "1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+      "logical_id": "synthetic_wiki:page:101",
+      "revision": 10101,
+      "source_id": "synthetic_wiki"
+    },
+    "wiki-field:af74bb27b78c64b558757bca3b046415c962d5d5cbfa993f5afd027e4f06fe40": {
+      "content_hash": "6c58660d9c8db3a320577fedb62aca10d2a7f9f8b77a57ae2db5115f4dfb3751",
+      "logical_id": "synthetic_wiki:page:402",
+      "revision": 10402,
+      "source_id": "synthetic_wiki"
+    },
+    "wiki-field:de878b859296546da05c178046ee7c906c0d5db27bd8a71b8a8e9b2701742817": {
+      "content_hash": "aacccafbb99a44fdd7b2a6295ce8abb091a9f4a96e8a2c6b79c0efd6743d2639",
+      "logical_id": "synthetic_wiki:page:401",
+      "revision": 10401,
+      "source_id": "synthetic_wiki"
+    },
+    "wiki-field:f19f92b89cff5e38336db53852b633bca3ca7d7ccc7a783e32b35ace44e6a44e": {
+      "content_hash": "1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+      "logical_id": "synthetic_wiki:page:101",
+      "revision": 10101,
+      "source_id": "synthetic_wiki"
+    }
+  },
+  "decision_ref": "synthetic-test-review-not-production",
+  "source_revisions": {
+    "synthetic_wiki:page:1001": {
+      "content_hash": "73ce2dec0915e7089c85db2516d8a52efa4f9da3f72773c5cf47dc5b487e1485",
+      "logical_id": "synthetic_wiki:page:1001",
+      "revision": 11001,
+      "source_id": "synthetic_wiki"
+    },
+    "synthetic_wiki:page:1002": {
+      "content_hash": "10ed590f748be8496876daa6311a3919b6e28b50cef2cfbe528224ee98d04461",
+      "logical_id": "synthetic_wiki:page:1002",
+      "revision": 11002,
+      "source_id": "synthetic_wiki"
+    },
+    "synthetic_wiki:page:101": {
+      "content_hash": "1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+      "logical_id": "synthetic_wiki:page:101",
+      "revision": 10101,
+      "source_id": "synthetic_wiki"
+    },
+    "synthetic_wiki:page:102": {
+      "content_hash": "1b303fb05c31c6fdcbe07d2a6a570ba830a0fabe7ef55774e1b5ed751cf7101c",
+      "logical_id": "synthetic_wiki:page:102",
+      "revision": 10102,
+      "source_id": "synthetic_wiki"
+    },
+    "synthetic_wiki:page:201": {
+      "content_hash": "46545288631f209ba80664ab88958b4ee3aabefabfaae86be8e695bcd5257a9c",
+      "logical_id": "synthetic_wiki:page:201",
+      "revision": 10201,
+      "source_id": "synthetic_wiki"
+    },
+    "synthetic_wiki:page:202": {
+      "content_hash": "8f74a1f2a1427ee6a0ab8431abbffd8c8043fa3c0b2f60d2cc9a8bdad8de1b37",
+      "logical_id": "synthetic_wiki:page:202",
+      "revision": 10202,
+      "source_id": "synthetic_wiki"
+    },
+    "synthetic_wiki:page:301": {
+      "content_hash": "a638d710ec11b7cf188aacf6744535826b5a5f2e4c3a12f8cae591abc8db09f8",
+      "logical_id": "synthetic_wiki:page:301",
+      "revision": 10301,
+      "source_id": "synthetic_wiki"
+    },
+    "synthetic_wiki:page:302": {
+      "content_hash": "92acc022d20bb60cdab710fc9d3deb1dfc221feb94d3a37e7956f7358859e07d",
+      "logical_id": "synthetic_wiki:page:302",
+      "revision": 10302,
+      "source_id": "synthetic_wiki"
+    },
+    "synthetic_wiki:page:401": {
+      "content_hash": "aacccafbb99a44fdd7b2a6295ce8abb091a9f4a96e8a2c6b79c0efd6743d2639",
+      "logical_id": "synthetic_wiki:page:401",
+      "revision": 10401,
+      "source_id": "synthetic_wiki"
+    },
+    "synthetic_wiki:page:402": {
+      "content_hash": "6c58660d9c8db3a320577fedb62aca10d2a7f9f8b77a57ae2db5115f4dfb3751",
+      "logical_id": "synthetic_wiki:page:402",
+      "revision": 10402,
+      "source_id": "synthetic_wiki"
+    },
+    "synthetic_wiki:page:501": {
+      "content_hash": "dac8ac8d08f453046d2c9ad90076ae6b8c48f1c1ab335d38cf755958f0f7762f",
+      "logical_id": "synthetic_wiki:page:501",
+      "revision": 10501,
+      "source_id": "synthetic_wiki"
+    },
+    "synthetic_wiki:page:601": {
+      "content_hash": "662dedb4ee9486d166d01945e21a5b6d1309416f6fd3a4e49c75ccd19bf6c95b",
+      "logical_id": "synthetic_wiki:page:601",
+      "revision": 10601,
+      "source_id": "synthetic_wiki"
+    },
+    "synthetic_wiki:page:701": {
+      "content_hash": "9d81139f0eac04d239eb233059637e3006fd19f704712efe95731afb3c3b9283",
+      "logical_id": "synthetic_wiki:page:701",
+      "revision": 10701,
+      "source_id": "synthetic_wiki"
+    },
+    "synthetic_wiki:page:702": {
+      "content_hash": "6b0458fca5def8edd2d81f8e0af67616e10f9a7657be28e9456adc26e35cb9c5",
+      "logical_id": "synthetic_wiki:page:702",
+      "revision": 10702,
+      "source_id": "synthetic_wiki"
+    },
+    "synthetic_wiki:page:801": {
+      "content_hash": "087976f6611523c7d94d2c58879112fdf2d323f37ed7bcc5ce018fdbbc53ba66",
+      "logical_id": "synthetic_wiki:page:801",
+      "revision": 10801,
+      "source_id": "synthetic_wiki"
+    },
+    "synthetic_wiki:page:802": {
+      "content_hash": "104134a96870682c2114d61bb05856c106fd362bf07fab6cb84d1772fa4275ae",
+      "logical_id": "synthetic_wiki:page:802",
+      "revision": 10802,
+      "source_id": "synthetic_wiki"
+    },
+    "synthetic_wiki:page:803": {
+      "content_hash": "fe38824001b637190a09490cb29a075fc2064f4868e350a8c33aefccca6e82b6",
+      "logical_id": "synthetic_wiki:page:803",
+      "revision": 10803,
+      "source_id": "synthetic_wiki"
+    },
+    "synthetic_wiki:page:804": {
+      "content_hash": "de38c95a49225b78c5b99d3d8e16b43db8d487753caf0e94682e29ebc18dc4ed",
+      "logical_id": "synthetic_wiki:page:804",
+      "revision": 10804,
+      "source_id": "synthetic_wiki"
+    },
+    "synthetic_wiki:page:901": {
+      "content_hash": "4b25142c7a73e21418705ef93243cb59ab25a2ba2f6818f5e2c89c1d1260a6bb",
+      "logical_id": "synthetic_wiki:page:901",
+      "revision": 10901,
+      "source_id": "synthetic_wiki"
+    }
+  }
+}

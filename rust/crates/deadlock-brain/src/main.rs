@@ -9,7 +9,7 @@ use std::{
     process,
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use deadlock_brain_core::{
     ai::{extract_ai_text, AiClient, AiConfig, ChatCompletionRequest, ChatMessage},
@@ -36,6 +36,10 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
+    #[command(
+        about = "Stellt eine Frage ausschließlich über den typisierten brain-serve/BrainClient-Pfad."
+    )]
+    Answer(BrainAnswerArgs),
     #[command(about = "Zeigt lokale DB- und Source-Counts.")]
     Status,
     #[command(about = "Baut einen kompakten Datenkontext fuer eine Entity-Frage.")]
@@ -148,6 +152,31 @@ enum Commands {
         #[command(subcommand)]
         target: InsightCommands,
     },
+}
+
+#[derive(Debug, Args)]
+struct BrainAnswerArgs {
+    #[arg(
+        long,
+        value_name = "LOOPBACK_URL",
+        help = "brain-serve endpoint; otherwise BRAIN_CLIENT_ENDPOINT"
+    )]
+    endpoint: Option<String>,
+    #[arg(
+        long = "scope",
+        value_name = "SCOPE",
+        required = true,
+        help = "Trusted scope binding; may be repeated."
+    )]
+    scopes: Vec<String>,
+    #[arg(long, default_value_t = 8_000)]
+    timeout_ms: u64,
+    #[arg(long)]
+    request_id: Option<String>,
+    #[arg(long)]
+    conversation_id: Option<String>,
+    #[arg(help = "Question sent to brain-serve.")]
+    question: String,
 }
 
 #[derive(Debug, Args)]
@@ -757,10 +786,71 @@ struct PullDeadlockDataArgs {
     )]
     repo_dir: Option<PathBuf>,
     #[arg(
+        long,
+        help = "Vollständiger Commitpin; alternativ DBRAIN_DEADLOCK_DATA_COMMIT. Benötigt Parserrevision."
+    )]
+    commit: Option<String>,
+    #[arg(
         long = "no-git-update",
-        help = "Nutze vorhandenen Cache ohne git pull."
+        help = "Kompatibilitätsflag; Gitimporte lesen grundsätzlich nur lokal gepinnte Objekte."
     )]
     no_git_update: bool,
+    #[arg(
+        long,
+        help = "Versionierte JSON-Quellenpins; alternativ DBRAIN_SOURCE_PINS_CONFIG. Keine Pin-Overrides bei Configdatei."
+    )]
+    source_config: Option<PathBuf>,
+    #[arg(
+        long,
+        help = "Nur lokale Pin-Konfiguration prüfen; keine Datenbank und keine Writes."
+    )]
+    check_config: bool,
+    #[arg(
+        long,
+        help = "Explizite Parserrevision; alternativ DBRAIN_DEADLOCK_DATA_PARSER_REVISION."
+    )]
+    parser_revision: Option<String>,
+    #[arg(skip)]
+    resolved: Option<Box<dbrain_sources::PullDeadlockDataOptions>>,
+}
+
+impl PullDeadlockDataArgs {
+    fn resolve(&self, settings: &Settings) -> Result<dbrain_sources::PullDeadlockDataOptions> {
+        let source_config = self
+            .source_config
+            .clone()
+            .or_else(|| std::env::var_os("DBRAIN_SOURCE_PINS_CONFIG").map(PathBuf::from));
+        let pin = if let Some(path) = source_config {
+            if self.commit.is_some()
+                || self.parser_revision.is_some()
+                || std::env::var_os("DBRAIN_DEADLOCK_DATA_COMMIT").is_some()
+                || std::env::var_os("DBRAIN_DEADLOCK_DATA_PARSER_REVISION").is_some()
+            {
+                anyhow::bail!("source-config cannot be combined with CLI/environment pin overrides; edit the explicit configuration instead");
+            }
+            dbrain_sources::source_pins::SourcePins::read(&path)?.deadlock_data
+        } else {
+            dbrain_sources::source_pins::DeadlockDataPin {
+                commit: self.commit.clone().or_else(|| std::env::var("DBRAIN_DEADLOCK_DATA_COMMIT").ok())
+                    .context("deadlock-data requires --source-config, --commit or DBRAIN_DEADLOCK_DATA_COMMIT; never implicit HEAD")?,
+                parser_revision: self.parser_revision.clone().or_else(|| std::env::var("DBRAIN_DEADLOCK_DATA_PARSER_REVISION").ok())
+                    .context("deadlock-data requires --parser-revision or DBRAIN_DEADLOCK_DATA_PARSER_REVISION")?,
+                schema_version: None,
+                data_version: None,
+            }
+        };
+        let options = dbrain_sources::PullDeadlockDataOptions {
+            repo_dir: self
+                .repo_dir
+                .clone()
+                .unwrap_or_else(|| settings.data_dir.join("external/deadlock-data")),
+            pin,
+            update_repo: false,
+        };
+        let _legacy_no_git_update = self.no_git_update;
+        dbrain_sources::deadlock_data::preflight(&options)?;
+        Ok(options)
+    }
 }
 
 #[derive(Debug, Args)]
@@ -1122,6 +1212,64 @@ struct InsightImportJsonArgs {
     dry_run: bool,
 }
 
+async fn run_brain_answer(args: &BrainAnswerArgs) -> Result<()> {
+    let endpoint = args
+        .endpoint
+        .clone()
+        .or_else(|| std::env::var("BRAIN_CLIENT_ENDPOINT").ok())
+        .filter(|value| !value.trim().is_empty())
+        .context("brain-serve endpoint fehlt (--endpoint oder BRAIN_CLIENT_ENDPOINT)")?;
+    let token = std::env::var("BRAIN_CLIENT_TOKEN")
+        .context("BRAIN_CLIENT_TOKEN fehlt; Token wird nicht als CLI-Argument akzeptiert")?;
+    let scopes: BTreeSet<String> = args
+        .scopes
+        .iter()
+        .map(|scope| scope.trim())
+        .filter(|scope| !scope.is_empty())
+        .map(ToOwned::to_owned)
+        .collect();
+    if scopes.is_empty() || scopes.len() != args.scopes.len() {
+        return Err(anyhow!(
+            "Scopes müssen explizit, nichtleer und eindeutig sein"
+        ));
+    }
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .context("Systemzeit liegt vor UNIX_EPOCH")?
+        .as_nanos();
+    let default_id = format!("brain-cli-{}-{nonce}", process::id());
+    let request_id = args
+        .request_id
+        .clone()
+        .unwrap_or_else(|| default_id.clone());
+    let conversation_id = args
+        .conversation_id
+        .clone()
+        .unwrap_or_else(|| default_id.clone());
+    let query = brain_client::Query {
+        request_id,
+        conversation_id,
+        text: args.question.clone(),
+        domain: None,
+        requested_scopes: scopes,
+        profile: brain_client::AnswerProfile::Explain,
+        patch: None,
+        mode: None,
+    };
+    query.validate().context("ungültige Brain-Anfrage")?;
+    let client = brain_client::AsyncBrainClient::new_local(
+        &endpoint,
+        &token,
+        std::time::Duration::from_millis(args.timeout_ms.max(1)),
+    )
+    .context("BrainClient konnte nicht erstellt werden")?;
+    let response = client
+        .answer(&query)
+        .await
+        .context("brain-serve Anfrage fehlgeschlagen")?;
+    print_json(&response)
+}
+
 fn main() {
     if let Err(error) = run_from_cli() {
         eprintln!("{error:#}");
@@ -1144,6 +1292,9 @@ fn run_from_cli() -> Result<()> {
 
 async fn run(cli: Cli) -> Result<()> {
     let Cli { command } = cli;
+    if let Commands::Answer(args) = &command {
+        return run_brain_answer(args).await;
+    }
     if let Commands::Wiki {
         target: WikiCommands::Refresh(args),
     } = &command
@@ -1151,7 +1302,7 @@ async fn run(cli: Cli) -> Result<()> {
         return print_json(&wiki_refresh::run(args).await?);
     }
     let settings = config::load_settings()?;
-    let command = match command {
+    let mut command = match command {
         Commands::Pg { target } => {
             // Alle `pg`-Befehle nutzen synchrone Crates (`postgres` bzw. der
             // blocking-HttpClient), die intern teils selbst einen Tokio-Runtime
@@ -1177,11 +1328,23 @@ async fn run(cli: Cli) -> Result<()> {
         }
         other => other,
     };
+    // Resolve once before side effects; the same immutable options reach the importer.
+    if let Commands::Pull {
+        source: PullCommands::DeadlockData(args),
+    } = &mut command
+    {
+        let options = args.resolve(&settings)?;
+        if args.check_config {
+            return print_json(&json!({"valid":true,"source_pin":options.pin,"writes":false}));
+        }
+        args.resolved = Some(Box::new(options));
+    }
     prepare_dirs(&settings)?;
     // Ein PgPool fuer die gesamte Befehlsausfuehrung (DSN aus DEADLOCK_CENTRAL_DSN).
     let pool = deadlock_brain_core::pg::pg_pool().await?;
 
     match command {
+        Commands::Answer(_) => unreachable!("answer is handled before local DB initialization"),
         Commands::Status => print_status(&pool, &settings).await,
         Commands::Context(args) => {
             let result = dbrain_retrieval::build_entity_context(
@@ -2217,15 +2380,13 @@ async fn run_pull(pool: &PgPool, settings: &Settings, source: PullCommands) -> R
             print_json(&result)
         }
         PullCommands::DeadlockData(args) => {
-            let repo_dir = args
-                .repo_dir
-                .unwrap_or_else(|| settings.data_dir.join("external/deadlock-data"));
-            let pull = dbrain_sources::pull_deadlock_data(
+            let options = args
+                .resolved
+                .context("deadlock-data source pin preflight was not performed")?;
+            let pull = dbrain_sources::deadlock_data::pull_deadlock_data_with_pool(
+                pool,
                 &settings.raw_dir,
-                dbrain_sources::PullDeadlockDataOptions {
-                    repo_dir,
-                    update_repo: !args.no_git_update,
-                },
+                *options,
             )
             .await?;
             let patch_events = dbrain_normalize::parse_patchnotes(pool, false).await?;
@@ -3679,6 +3840,25 @@ mod tests {
                 panic!("expected analysis run ai for {command_name}");
             };
             assert_eq!(args.query, "Lady Geist");
+        }
+    }
+
+    #[test]
+    fn cli_json_preserves_current_wire_statuses() {
+        for (status, expected) in [
+            (brain_client::AnswerStatus::BuildRejected, "build_rejected"),
+            (brain_client::AnswerStatus::Unavailable, "unavailable"),
+        ] {
+            let response = brain_client::PublicAnswerResponse {
+                contract_version: brain_client::PUBLIC_API_VERSION.into(),
+                request_id: "request-1".into(),
+                knowledge_release: "release-1".into(),
+                status,
+                text: "fixture".into(),
+                citations: vec![],
+            };
+            let value = serde_json::to_value(response).expect("public response must serialize");
+            assert_eq!(value["status"], expected);
         }
     }
 

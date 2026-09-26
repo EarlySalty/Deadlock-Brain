@@ -12,6 +12,11 @@ data/youtube_audio/
 data/youtube_transcripts/
 data/gemini_profile/
 rust/target/
+# Isolated Core integration cluster and test output (never production data).
+.core-test-pg/
+.core-test-logs/
+.consumer-test-logs/
+.consumer-ci-reports/
 
 .env
 
@@ -26,3 +31,9 @@ data/backups/
 # Laufzeitbericht des letzten Patchnotes-Syncs: der Timer schreibt ihn alle fuenf Minuten
 # neu (Zaehlerstaende, teils unsortierte Listen), das Repo war dadurch dauerhaft dirty.
 data/last_patchnotes_sync_quality.json
+
+# Replay inputs are private local artifacts, never a public fixture corpus.
+*.dem
+*.dem.bz2
+*.dem.gz
+*.dem.zst

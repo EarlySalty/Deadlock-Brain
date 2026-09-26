@@ -1,6 +1,18 @@
 [workspace]
 resolver = "2"
 members = [
+  "crates/brain-contracts",
+  "crates/brain-policy",
+  "crates/brain-storage",
+  "crates/brain-ingestion",
+  "crates/brain-legacy-import",
+  "crates/brain-feeds",
+  "crates/brain-providers",
+  "crates/brain-jev",
+  "crates/brain-kernel",
+  "crates/brain-api",
+  "crates/brain-serve",
+  "crates/brain-client",
   "crates/deadlock-brain",
   "crates/deadlock-brain-core",
   "crates/deadlock-brain-yt",
@@ -12,6 +24,8 @@ members = [
   "crates/dbrain-retrieval",
   "crates/dbrain-reasoner",
   "crates/dbrain-sources",
+  "crates/dbrain-wiki",
+  "crates/dbrain-replay",
 ]
 
 [workspace.package]

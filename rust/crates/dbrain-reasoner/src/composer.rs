@@ -978,7 +978,10 @@ mod tests {
     #[test]
     fn population_staple_stays_situational_without_same_hero_core_evidence() {
         let mut contextual = item(1, "Situational staple", 1_000_000.0, true, &["resist"]);
-        contextual.item.properties.insert("BulletResist".into(), 60.0);
+        contextual
+            .item
+            .properties
+            .insert("BulletResist".into(), 60.0);
         let identity = item(2, "Identity", 10.0, false, &[]);
         let mut meta = population_context();
         meta.population = crate::PopulationPrior::from_items([
@@ -1004,7 +1007,14 @@ mod tests {
             &meta,
         )
         .unwrap();
-        assert_eq!(build.core.iter().map(|item| item.item_id).collect::<Vec<_>>(), vec![2]);
+        assert_eq!(
+            build
+                .core
+                .iter()
+                .map(|item| item.item_id)
+                .collect::<Vec<_>>(),
+            vec![2]
+        );
         assert!(build
             .situations
             .iter()

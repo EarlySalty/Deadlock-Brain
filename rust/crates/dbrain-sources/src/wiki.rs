@@ -9,7 +9,9 @@ use deadlock_brain_core::http::{HttpClient, HttpGetOptions};
 use serde_json::{json, Value};
 
 use crate::{
-    store::{complete_run, json_bytes, open_pool, EntitySnapshotInput, SourceDocumentInput, SourceStore},
+    store::{
+        complete_run, json_bytes, open_pool, EntitySnapshotInput, SourceDocumentInput, SourceStore,
+    },
     util::form_urlencode,
     Result, SourcesError,
 };
@@ -137,6 +139,36 @@ pub(crate) struct WikiRateLimiter {
 }
 
 impl WikiRateLimiter {
+    /// C5 bounded capture: a stale/future limiter state must never sleep past
+    /// the caller's remaining deadline. The legacy path keeps its own behavior.
+    pub(crate) fn wait_bounded(&self, timeout: Duration) -> Result<()> {
+        let last = match fs::read_to_string(&self.state_path) {
+            Ok(value) => value
+                .trim()
+                .parse::<f64>()
+                .map_err(|_| SourcesError::invalid_input("invalid Wiki limiter state"))?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0.0,
+            Err(error) => return Err(error.into()),
+        };
+        if !last.is_finite() || last < 0.0 {
+            return Err(SourcesError::invalid_input("invalid Wiki limiter state"));
+        }
+        let wait = (self.min_delay_seconds - (now_seconds_f64()? - last)).max(0.0);
+        if !wait.is_finite() || wait >= timeout.as_secs_f64() {
+            return Err(SourcesError::invalid_input(
+                "Wiki pacing would exceed capture deadline",
+            ));
+        }
+        if wait > 0.0 {
+            thread::sleep(Duration::from_secs_f64(wait));
+        }
+        if let Some(parent) = self.state_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&self.state_path, now_seconds_f64()?.to_string())?;
+        Ok(())
+    }
+
     pub(crate) fn wait(&self) -> Result<()> {
         if let Some(parent) = self.state_path.parent() {
             fs::create_dir_all(parent)?;

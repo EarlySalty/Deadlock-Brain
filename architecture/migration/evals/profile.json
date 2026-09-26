@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "approved": false,
+  "approval_reference": null,
+  "versions": {
+    "baseline_commit": "30326512568b7370524956839100462ba71bdb92",
+    "candidate_commit": null, "contract": null, "db_schema": null,
+    "knowledge": null, "corpus_sha256": null, "answer_model": null,
+    "embedding": null, "search": null, "jev": null
+  },
+  "dataset_sha256": "ed2b8a87e891c7dc93605f77c25b90aa71e86e7ac469521aa22017f8807f6b52",
+  "hardware_fingerprint": null,
+  "workload": {
+    "seed": 20260924, "repetitions": 3, "cache_states": ["cold", "warm"],
+    "target_arrivals_per_second": null, "target_concurrency": null,
+    "duration_seconds": null, "background_load": null
+  },
+  "acceptance": {
+    "p95_ms": null, "p99_ms": null, "error_rate_max": null,
+    "ram_mib_max": null, "cost_per_accepted_answer_max": null,
+    "ingest_lag_seconds_max": null, "recall_noninferiority_margin": null,
+    "answer_quality_noninferiority_margin": null, "rpo_seconds": null, "rto_seconds": null
+  },
+  "g0_evidence_sha256": null, "g1_evidence_sha256": null,
+  "g2_evidence_sha256": null, "g3_evidence_sha256": null
+}

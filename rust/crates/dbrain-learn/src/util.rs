@@ -183,7 +183,9 @@ pub(crate) fn value_to_non_empty_string(value: &Value) -> Option<String> {
 
 pub(crate) fn int_or_none(value: Option<&Value>) -> Option<i64> {
     value.and_then(|item| match item {
-        Value::Number(number) => number.as_i64().or_else(|| number.as_f64().map(|value| value as i64)),
+        Value::Number(number) => number
+            .as_i64()
+            .or_else(|| number.as_f64().map(|value| value as i64)),
         Value::String(text) => text.trim().parse::<f64>().ok().map(|value| value as i64),
         Value::Bool(flag) => Some(i64::from(*flag)),
         Value::Null | Value::Array(_) | Value::Object(_) => None,
@@ -298,7 +300,11 @@ pub(crate) fn sorted_counts(values: Vec<String>) -> Value {
     }
     let mut rows: Vec<_> = counts.into_iter().collect();
     rows.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
-    Value::Object(rows.into_iter().map(|(key, count)| (key, json!(count))).collect())
+    Value::Object(
+        rows.into_iter()
+            .map(|(key, count)| (key, json!(count)))
+            .collect(),
+    )
 }
 
 pub(crate) fn extract_insights(text: &str) -> Value {
@@ -368,16 +374,14 @@ fn parse_insights_candidate(raw: &str) -> Option<Value> {
 }
 
 fn parse_json_tolerant(raw: &str) -> Option<Value> {
-    serde_json::from_str::<Value>(raw)
-        .ok()
-        .or_else(|| {
-            let cleaned = strip_trailing_json_commas(raw);
-            if cleaned == raw {
-                None
-            } else {
-                serde_json::from_str::<Value>(&cleaned).ok()
-            }
-        })
+    serde_json::from_str::<Value>(raw).ok().or_else(|| {
+        let cleaned = strip_trailing_json_commas(raw);
+        if cleaned == raw {
+            None
+        } else {
+            serde_json::from_str::<Value>(&cleaned).ok()
+        }
+    })
 }
 
 fn strip_trailing_json_commas(raw: &str) -> String {
@@ -456,7 +460,9 @@ pub(crate) fn statlocker_key(value: &str) -> String {
         .collect()
 }
 
-pub(crate) fn prompt_text_from_request(request: &deadlock_brain_core::ai::ChatCompletionRequest) -> String {
+pub(crate) fn prompt_text_from_request(
+    request: &deadlock_brain_core::ai::ChatCompletionRequest,
+) -> String {
     request
         .messages
         .iter()

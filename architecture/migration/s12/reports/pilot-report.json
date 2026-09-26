@@ -1,0 +1,1723 @@
+{
+  "source_policy": {
+    "offline_review_allowed": true,
+    "decision_ref": "synthetic-fixture-authored-S12-20260924",
+    "source_license": "Synthetic test data authored for S12; not upstream wiki content",
+    "publication_allowed": false,
+    "provider_egress_allowed": false,
+    "media_download_allowed": false
+  },
+  "site_default_language": "en",
+  "report_version": "s12-offline-report-v1",
+  "parser_version": "s12-syntax-probe-v1",
+  "capture_sha256": "a3c3d64c99c764652bea7709f630d8b4599bf13de4dc79f5a3a243153141ee83",
+  "source_key": "synthetic_wiki",
+  "retrieved_at": 1790280000,
+  "discovery_complete": true,
+  "namespace_names": {
+    "-1": "Special",
+    "0": "",
+    "6": "File",
+    "10": "Template",
+    "828": "Module",
+    "3000": "Data"
+  },
+  "missing_namespaces": [],
+  "continuation_pending": {},
+  "pages": [
+    {
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/101",
+      "page_id": 101,
+      "source_id": "synthetic_wiki:page:101",
+      "namespace": 0,
+      "title": "Fixture Ranger",
+      "kind": "hero",
+      "build_critical": true,
+      "stage": "parsed",
+      "revisions": [
+        {
+          "revision_id": 9101,
+          "source_time": 1790157600,
+          "retrieved_at": 1790280000,
+          "content_model": "json",
+          "raw_sha256": "4cac43c371190da850676fe3d8e0687bd599470940870d2989435876641c2348",
+          "candidates": [
+            {
+              "locator": "json:/entity_id",
+              "value": "fixture:hero:one"
+            },
+            {
+              "locator": "json:/optional_value",
+              "value": null
+            },
+            {
+              "locator": "json:/stats/0/id",
+              "value": "health"
+            },
+            {
+              "locator": "json:/stats/0/unit",
+              "value": "health"
+            },
+            {
+              "locator": "json:/stats/0/value",
+              "value": "900.0"
+            },
+            {
+              "locator": "json:/stats/1/id",
+              "value": "resist"
+            },
+            {
+              "locator": "json:/stats/1/unit",
+              "value": "percent"
+            },
+            {
+              "locator": "json:/stats/1/value",
+              "value": "10"
+            },
+            {
+              "locator": "json:/stats/2/id",
+              "value": "resist_delta"
+            },
+            {
+              "locator": "json:/stats/2/unit",
+              "value": "percentage_point"
+            },
+            {
+              "locator": "json:/stats/2/value",
+              "value": "2"
+            },
+            {
+              "locator": "json:/stats/3/id",
+              "value": "multiplier"
+            },
+            {
+              "locator": "json:/stats/3/unit",
+              "value": "multiplier"
+            },
+            {
+              "locator": "json:/stats/3/value",
+              "value": "1.05"
+            }
+          ],
+          "diagnostics": [
+            {
+              "code": "syntactic_values_not_validated_facts",
+              "locator": "revision/slots/main/content"
+            }
+          ],
+          "syntax_parsed": true
+        },
+        {
+          "revision_id": 10101,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "content_model": "json",
+          "raw_sha256": "1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+          "candidates": [
+            {
+              "locator": "json:/entity_id",
+              "value": "fixture:hero:one"
+            },
+            {
+              "locator": "json:/optional_value",
+              "value": null
+            },
+            {
+              "locator": "json:/stats/0/id",
+              "value": "health"
+            },
+            {
+              "locator": "json:/stats/0/unit",
+              "value": "health"
+            },
+            {
+              "locator": "json:/stats/0/value",
+              "value": "1000.0"
+            },
+            {
+              "locator": "json:/stats/1/id",
+              "value": "resist"
+            },
+            {
+              "locator": "json:/stats/1/unit",
+              "value": "percent"
+            },
+            {
+              "locator": "json:/stats/1/value",
+              "value": "10"
+            },
+            {
+              "locator": "json:/stats/2/id",
+              "value": "resist_delta"
+            },
+            {
+              "locator": "json:/stats/2/unit",
+              "value": "percentage_point"
+            },
+            {
+              "locator": "json:/stats/2/value",
+              "value": "2"
+            },
+            {
+              "locator": "json:/stats/3/id",
+              "value": "multiplier"
+            },
+            {
+              "locator": "json:/stats/3/unit",
+              "value": "multiplier"
+            },
+            {
+              "locator": "json:/stats/3/value",
+              "value": "1.05"
+            }
+          ],
+          "diagnostics": [
+            {
+              "code": "syntactic_values_not_validated_facts",
+              "locator": "revision/slots/main/content"
+            }
+          ],
+          "syntax_parsed": true
+        }
+      ],
+      "latest_revision": 10101,
+      "dependency_ids": [
+        201,
+        202,
+        301,
+        302,
+        501
+      ],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "diagnostics": []
+    },
+    {
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/102",
+      "page_id": 102,
+      "source_id": "synthetic_wiki:page:102",
+      "namespace": 0,
+      "title": "Other Fixture Hero",
+      "kind": "hero",
+      "build_critical": true,
+      "stage": "parsed",
+      "revisions": [
+        {
+          "revision_id": 10102,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "content_model": "json",
+          "raw_sha256": "1b303fb05c31c6fdcbe07d2a6a570ba830a0fabe7ef55774e1b5ed751cf7101c",
+          "candidates": [
+            {
+              "locator": "json:/entity_id",
+              "value": "fixture:hero:two"
+            },
+            {
+              "locator": "json:/health",
+              "value": "850"
+            }
+          ],
+          "diagnostics": [
+            {
+              "code": "syntactic_values_not_validated_facts",
+              "locator": "revision/slots/main/content"
+            }
+          ],
+          "syntax_parsed": true
+        }
+      ],
+      "latest_revision": 10102,
+      "dependency_ids": [],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "diagnostics": []
+    },
+    {
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/201",
+      "page_id": 201,
+      "source_id": "synthetic_wiki:page:201",
+      "namespace": 0,
+      "title": "Fixture Pulse",
+      "kind": "ability",
+      "build_critical": true,
+      "stage": "parsed",
+      "revisions": [
+        {
+          "revision_id": 10201,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "content_model": "json",
+          "raw_sha256": "46545288631f209ba80664ab88958b4ee3aabefabfaae86be8e695bcd5257a9c",
+          "candidates": [
+            {
+              "locator": "json:/condition",
+              "value": "while_airborne"
+            },
+            {
+              "locator": "json:/damage",
+              "value": "42.125"
+            },
+            {
+              "locator": "json:/entity_id",
+              "value": "fixture:ability:pulse"
+            },
+            {
+              "locator": "json:/mechanic_id",
+              "value": "fixture:mechanic:build_up"
+            },
+            {
+              "locator": "json:/variant",
+              "value": "charged"
+            }
+          ],
+          "diagnostics": [
+            {
+              "code": "syntactic_values_not_validated_facts",
+              "locator": "revision/slots/main/content"
+            }
+          ],
+          "syntax_parsed": true
+        }
+      ],
+      "latest_revision": 10201,
+      "dependency_ids": [
+        401,
+        601
+      ],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "diagnostics": []
+    },
+    {
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/202",
+      "page_id": 202,
+      "source_id": "synthetic_wiki:page:202",
+      "namespace": 0,
+      "title": "Fixture Stack Skill",
+      "kind": "ability",
+      "build_critical": true,
+      "stage": "parsed",
+      "revisions": [
+        {
+          "revision_id": 10202,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "content_model": "json",
+          "raw_sha256": "8f74a1f2a1427ee6a0ab8431abbffd8c8043fa3c0b2f60d2cc9a8bdad8de1b37",
+          "candidates": [
+            {
+              "locator": "json:/entity_id",
+              "value": "fixture:ability:stack"
+            },
+            {
+              "locator": "json:/mechanic_id",
+              "value": "fixture:mechanic:stack"
+            },
+            {
+              "locator": "json:/stacks",
+              "value": "3"
+            }
+          ],
+          "diagnostics": [
+            {
+              "code": "syntactic_values_not_validated_facts",
+              "locator": "revision/slots/main/content"
+            }
+          ],
+          "syntax_parsed": true
+        }
+      ],
+      "latest_revision": 10202,
+      "dependency_ids": [
+        402
+      ],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "diagnostics": []
+    },
+    {
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/301",
+      "page_id": 301,
+      "source_id": "synthetic_wiki:page:301",
+      "namespace": 0,
+      "title": "Fixture Lens",
+      "kind": "item",
+      "build_critical": true,
+      "stage": "parsed",
+      "revisions": [
+        {
+          "revision_id": 10301,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "content_model": "json",
+          "raw_sha256": "a638d710ec11b7cf188aacf6744535826b5a5f2e4c3a12f8cae591abc8db09f8",
+          "candidates": [
+            {
+              "locator": "json:/entity_id",
+              "value": "fixture:item:lens"
+            },
+            {
+              "locator": "json:/price",
+              "value": "500"
+            }
+          ],
+          "diagnostics": [
+            {
+              "code": "syntactic_values_not_validated_facts",
+              "locator": "revision/slots/main/content"
+            }
+          ],
+          "syntax_parsed": true
+        }
+      ],
+      "latest_revision": 10301,
+      "dependency_ids": [],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "diagnostics": []
+    },
+    {
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/302",
+      "page_id": 302,
+      "source_id": "synthetic_wiki:page:302",
+      "namespace": 0,
+      "title": "Fixture Ward",
+      "kind": "item",
+      "build_critical": true,
+      "stage": "parsed",
+      "revisions": [
+        {
+          "revision_id": 10302,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "content_model": "json",
+          "raw_sha256": "92acc022d20bb60cdab710fc9d3deb1dfc221feb94d3a37e7956f7358859e07d",
+          "candidates": [
+            {
+              "locator": "json:/entity_id",
+              "value": "fixture:item:ward"
+            },
+            {
+              "locator": "json:/price",
+              "value": "600"
+            }
+          ],
+          "diagnostics": [
+            {
+              "code": "syntactic_values_not_validated_facts",
+              "locator": "revision/slots/main/content"
+            }
+          ],
+          "syntax_parsed": true
+        }
+      ],
+      "latest_revision": 10302,
+      "dependency_ids": [],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "diagnostics": []
+    },
+    {
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/401",
+      "page_id": 401,
+      "source_id": "synthetic_wiki:page:401",
+      "namespace": 0,
+      "title": "Fixture Build-Up",
+      "kind": "mechanic",
+      "build_critical": true,
+      "stage": "parsed",
+      "revisions": [
+        {
+          "revision_id": 10401,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "content_model": "json",
+          "raw_sha256": "aacccafbb99a44fdd7b2a6295ce8abb091a9f4a96e8a2c6b79c0efd6743d2639",
+          "candidates": [
+            {
+              "locator": "json:/entity_id",
+              "value": "fixture:mechanic:build_up"
+            },
+            {
+              "locator": "json:/unit",
+              "value": "percent"
+            }
+          ],
+          "diagnostics": [
+            {
+              "code": "syntactic_values_not_validated_facts",
+              "locator": "revision/slots/main/content"
+            }
+          ],
+          "syntax_parsed": true
+        }
+      ],
+      "latest_revision": 10401,
+      "dependency_ids": [],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "diagnostics": []
+    },
+    {
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/402",
+      "page_id": 402,
+      "source_id": "synthetic_wiki:page:402",
+      "namespace": 0,
+      "title": "Fixture Stack",
+      "kind": "mechanic",
+      "build_critical": true,
+      "stage": "parsed",
+      "revisions": [
+        {
+          "revision_id": 10402,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "content_model": "json",
+          "raw_sha256": "6c58660d9c8db3a320577fedb62aca10d2a7f9f8b77a57ae2db5115f4dfb3751",
+          "candidates": [
+            {
+              "locator": "json:/entity_id",
+              "value": "fixture:mechanic:stack"
+            },
+            {
+              "locator": "json:/unit",
+              "value": "count"
+            }
+          ],
+          "diagnostics": [
+            {
+              "code": "syntactic_values_not_validated_facts",
+              "locator": "revision/slots/main/content"
+            }
+          ],
+          "syntax_parsed": true
+        }
+      ],
+      "latest_revision": 10402,
+      "dependency_ids": [],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "diagnostics": []
+    },
+    {
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/501",
+      "page_id": 501,
+      "source_id": "synthetic_wiki:page:501",
+      "namespace": 0,
+      "title": "Fixture Inventory Rule",
+      "kind": "rule",
+      "build_critical": true,
+      "stage": "parsed",
+      "revisions": [
+        {
+          "revision_id": 10501,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "content_model": "json",
+          "raw_sha256": "dac8ac8d08f453046d2c9ad90076ae6b8c48f1c1ab335d38cf755958f0f7762f",
+          "candidates": [
+            {
+              "locator": "json:/limit",
+              "value": "2"
+            },
+            {
+              "locator": "json:/mode",
+              "value": null
+            },
+            {
+              "locator": "json:/rule_id",
+              "value": "fixture:inventory"
+            }
+          ],
+          "diagnostics": [
+            {
+              "code": "syntactic_values_not_validated_facts",
+              "locator": "revision/slots/main/content"
+            }
+          ],
+          "syntax_parsed": true
+        }
+      ],
+      "latest_revision": 10501,
+      "dependency_ids": [],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "diagnostics": []
+    },
+    {
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/601",
+      "page_id": 601,
+      "source_id": "synthetic_wiki:page:601",
+      "namespace": 3000,
+      "title": "Data:Fixture Scaling",
+      "kind": "data",
+      "build_critical": true,
+      "stage": "parsed",
+      "revisions": [
+        {
+          "revision_id": 10601,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "content_model": "json",
+          "raw_sha256": "662dedb4ee9486d166d01945e21a5b6d1309416f6fd3a4e49c75ccd19bf6c95b",
+          "candidates": [
+            {
+              "locator": "json:/scaling",
+              "value": "0.15"
+            },
+            {
+              "locator": "json:/unit",
+              "value": "multiplier"
+            }
+          ],
+          "diagnostics": [
+            {
+              "code": "syntactic_values_not_validated_facts",
+              "locator": "revision/slots/main/content"
+            }
+          ],
+          "syntax_parsed": true
+        }
+      ],
+      "latest_revision": 10601,
+      "dependency_ids": [
+        701
+      ],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "diagnostics": []
+    },
+    {
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/701",
+      "page_id": 701,
+      "source_id": "synthetic_wiki:page:701",
+      "namespace": 10,
+      "title": "Template:Fixture Scaling",
+      "kind": "template",
+      "build_critical": false,
+      "stage": "parsed",
+      "revisions": [
+        {
+          "revision_id": 10701,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "content_model": "json",
+          "raw_sha256": "9d81139f0eac04d239eb233059637e3006fd19f704712efe95731afb3c3b9283",
+          "candidates": [
+            {
+              "locator": "json:/per_tick",
+              "value": "0.5"
+            },
+            {
+              "locator": "json:/unit",
+              "value": "percent"
+            }
+          ],
+          "diagnostics": [
+            {
+              "code": "syntactic_values_not_validated_facts",
+              "locator": "revision/slots/main/content"
+            }
+          ],
+          "syntax_parsed": true
+        }
+      ],
+      "latest_revision": 10701,
+      "dependency_ids": [],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "diagnostics": []
+    },
+    {
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/702",
+      "page_id": 702,
+      "source_id": "synthetic_wiki:page:702",
+      "namespace": 828,
+      "title": "Module:Unsafe Fixture",
+      "kind": "module",
+      "build_critical": false,
+      "stage": "quarantined",
+      "revisions": [
+        {
+          "revision_id": 10702,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "content_model": "Scribunto",
+          "raw_sha256": "6b0458fca5def8edd2d81f8e0af67616e10f9a7657be28e9456adc26e35cb9c5",
+          "candidates": [],
+          "diagnostics": [
+            {
+              "code": "unsupported_content_model_no_execution",
+              "locator": "revision/slots/main/contentmodel"
+            }
+          ],
+          "syntax_parsed": false
+        }
+      ],
+      "latest_revision": 10702,
+      "dependency_ids": [],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "diagnostics": []
+    },
+    {
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/801",
+      "page_id": 801,
+      "source_id": "synthetic_wiki:page:801",
+      "namespace": 0,
+      "title": "Fixture Lore",
+      "kind": "lore",
+      "build_critical": false,
+      "stage": "parsed",
+      "revisions": [
+        {
+          "revision_id": 10801,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "content_model": "wikitext",
+          "raw_sha256": "087976f6611523c7d94d2c58879112fdf2d323f37ed7bcc5ce018fdbbc53ba66",
+          "candidates": [
+            {
+              "locator": "utf8:0..44",
+              "value": "Synthetic lore, not a current gameplay fact."
+            }
+          ],
+          "diagnostics": [
+            {
+              "code": "prose_or_redirect_not_a_game_fact",
+              "locator": "revision/slots/main/content"
+            }
+          ],
+          "syntax_parsed": true
+        }
+      ],
+      "latest_revision": 10801,
+      "dependency_ids": [],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "diagnostics": []
+    },
+    {
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/802",
+      "page_id": 802,
+      "source_id": "synthetic_wiki:page:802",
+      "namespace": 0,
+      "title": "Fixture Guide",
+      "kind": "guide",
+      "build_critical": false,
+      "stage": "parsed",
+      "revisions": [
+        {
+          "revision_id": 10802,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "content_model": "wikitext",
+          "raw_sha256": "104134a96870682c2114d61bb05856c106fd362bf07fab6cb84d1772fa4275ae",
+          "candidates": [
+            {
+              "locator": "utf8:0..52",
+              "value": "Synthetic guide: this is unvalidated strategy prose."
+            }
+          ],
+          "diagnostics": [
+            {
+              "code": "prose_or_redirect_not_a_game_fact",
+              "locator": "revision/slots/main/content"
+            }
+          ],
+          "syntax_parsed": true
+        }
+      ],
+      "latest_revision": 10802,
+      "dependency_ids": [],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "diagnostics": []
+    },
+    {
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/803",
+      "page_id": 803,
+      "source_id": "synthetic_wiki:page:803",
+      "namespace": 0,
+      "title": "Fixture Patch History",
+      "kind": "patch_history",
+      "build_critical": false,
+      "stage": "parsed",
+      "revisions": [
+        {
+          "revision_id": 10803,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "content_model": "wikitext",
+          "raw_sha256": "fe38824001b637190a09490cb29a075fc2064f4868e350a8c33aefccca6e82b6",
+          "candidates": [
+            {
+              "locator": "utf8:0..60",
+              "value": "Synthetic historical note; its revision is not a game patch."
+            }
+          ],
+          "diagnostics": [
+            {
+              "code": "prose_or_redirect_not_a_game_fact",
+              "locator": "revision/slots/main/content"
+            }
+          ],
+          "syntax_parsed": true
+        }
+      ],
+      "latest_revision": 10803,
+      "dependency_ids": [],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "diagnostics": []
+    },
+    {
+      "source_language": "de",
+      "upstream_url": "https://example.invalid/wiki/fixture/804",
+      "page_id": 804,
+      "source_id": "synthetic_wiki:page:804",
+      "namespace": 0,
+      "title": "Fixture Ranger/de",
+      "kind": "localization",
+      "build_critical": false,
+      "stage": "parsed",
+      "revisions": [
+        {
+          "revision_id": 10804,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "content_model": "wikitext",
+          "raw_sha256": "de38c95a49225b78c5b99d3d8e16b43db8d487753caf0e94682e29ebc18dc4ed",
+          "candidates": [
+            {
+              "locator": "utf8:0..58",
+              "value": "Synthetischer Held, Übersetzungsherkunft noch ungeprüft."
+            }
+          ],
+          "diagnostics": [
+            {
+              "code": "prose_or_redirect_not_a_game_fact",
+              "locator": "revision/slots/main/content"
+            }
+          ],
+          "syntax_parsed": true
+        }
+      ],
+      "latest_revision": 10804,
+      "dependency_ids": [],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "diagnostics": []
+    },
+    {
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/901",
+      "page_id": 901,
+      "source_id": "synthetic_wiki:page:901",
+      "namespace": 0,
+      "title": "Old Fixture Ranger",
+      "kind": "redirect",
+      "build_critical": false,
+      "stage": "parsed",
+      "revisions": [
+        {
+          "revision_id": 10901,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "content_model": "wikitext",
+          "raw_sha256": "4b25142c7a73e21418705ef93243cb59ab25a2ba2f6818f5e2c89c1d1260a6bb",
+          "candidates": [
+            {
+              "locator": "utf8:0..28",
+              "value": "#REDIRECT [[Fixture Ranger]]"
+            }
+          ],
+          "diagnostics": [
+            {
+              "code": "prose_or_redirect_not_a_game_fact",
+              "locator": "revision/slots/main/content"
+            }
+          ],
+          "syntax_parsed": true
+        }
+      ],
+      "latest_revision": 10901,
+      "dependency_ids": [
+        101
+      ],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": 101,
+      "diagnostics": []
+    },
+    {
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/1001",
+      "page_id": 1001,
+      "source_id": "synthetic_wiki:page:1001",
+      "namespace": 6,
+      "title": "File:Fixture.png",
+      "kind": "media_metadata",
+      "build_critical": false,
+      "stage": "parsed",
+      "revisions": [
+        {
+          "revision_id": 11001,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "content_model": "wikitext",
+          "raw_sha256": "73ce2dec0915e7089c85db2516d8a52efa4f9da3f72773c5cf47dc5b487e1485",
+          "candidates": [
+            {
+              "locator": "utf8:0..59",
+              "value": "Synthetic media description only; no binary image included."
+            }
+          ],
+          "diagnostics": [
+            {
+              "code": "prose_or_redirect_not_a_game_fact",
+              "locator": "revision/slots/main/content"
+            }
+          ],
+          "syntax_parsed": true
+        }
+      ],
+      "latest_revision": 11001,
+      "dependency_ids": [],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "diagnostics": []
+    },
+    {
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/1002",
+      "page_id": 1002,
+      "source_id": "synthetic_wiki:page:1002",
+      "namespace": 0,
+      "title": "Fixture Other",
+      "kind": "other",
+      "build_critical": false,
+      "stage": "parsed",
+      "revisions": [
+        {
+          "revision_id": 11002,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "content_model": "wikitext",
+          "raw_sha256": "10ed590f748be8496876daa6311a3919b6e28b50cef2cfbe528224ee98d04461",
+          "candidates": [
+            {
+              "locator": "utf8:0..28",
+              "value": "Synthetic independent prose."
+            }
+          ],
+          "diagnostics": [
+            {
+              "code": "prose_or_redirect_not_a_game_fact",
+              "locator": "revision/slots/main/content"
+            }
+          ],
+          "syntax_parsed": true
+        }
+      ],
+      "latest_revision": 11002,
+      "dependency_ids": [],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "diagnostics": []
+    }
+  ],
+  "coverage": {
+    "hero": {
+      "discovered": 2,
+      "fetched": 2,
+      "parsed": 2,
+      "normalized": 0,
+      "validated": 0,
+      "published": 0,
+      "quarantined": 0,
+      "unavailable": 0,
+      "policy_blocked": 0,
+      "approved_exclusion": 0,
+      "build_critical_unvalidated": 2
+    },
+    "ability": {
+      "discovered": 2,
+      "fetched": 2,
+      "parsed": 2,
+      "normalized": 0,
+      "validated": 0,
+      "published": 0,
+      "quarantined": 0,
+      "unavailable": 0,
+      "policy_blocked": 0,
+      "approved_exclusion": 0,
+      "build_critical_unvalidated": 2
+    },
+    "item": {
+      "discovered": 2,
+      "fetched": 2,
+      "parsed": 2,
+      "normalized": 0,
+      "validated": 0,
+      "published": 0,
+      "quarantined": 0,
+      "unavailable": 0,
+      "policy_blocked": 0,
+      "approved_exclusion": 0,
+      "build_critical_unvalidated": 2
+    },
+    "mechanic": {
+      "discovered": 2,
+      "fetched": 2,
+      "parsed": 2,
+      "normalized": 0,
+      "validated": 0,
+      "published": 0,
+      "quarantined": 0,
+      "unavailable": 0,
+      "policy_blocked": 0,
+      "approved_exclusion": 0,
+      "build_critical_unvalidated": 2
+    },
+    "rule": {
+      "discovered": 1,
+      "fetched": 1,
+      "parsed": 1,
+      "normalized": 0,
+      "validated": 0,
+      "published": 0,
+      "quarantined": 0,
+      "unavailable": 0,
+      "policy_blocked": 0,
+      "approved_exclusion": 0,
+      "build_critical_unvalidated": 1
+    },
+    "patch_history": {
+      "discovered": 1,
+      "fetched": 1,
+      "parsed": 1,
+      "normalized": 0,
+      "validated": 0,
+      "published": 0,
+      "quarantined": 0,
+      "unavailable": 0,
+      "policy_blocked": 0,
+      "approved_exclusion": 0,
+      "build_critical_unvalidated": 0
+    },
+    "data": {
+      "discovered": 1,
+      "fetched": 1,
+      "parsed": 1,
+      "normalized": 0,
+      "validated": 0,
+      "published": 0,
+      "quarantined": 0,
+      "unavailable": 0,
+      "policy_blocked": 0,
+      "approved_exclusion": 0,
+      "build_critical_unvalidated": 1
+    },
+    "template": {
+      "discovered": 1,
+      "fetched": 1,
+      "parsed": 1,
+      "normalized": 0,
+      "validated": 0,
+      "published": 0,
+      "quarantined": 0,
+      "unavailable": 0,
+      "policy_blocked": 0,
+      "approved_exclusion": 0,
+      "build_critical_unvalidated": 0
+    },
+    "module": {
+      "discovered": 1,
+      "fetched": 1,
+      "parsed": 0,
+      "normalized": 0,
+      "validated": 0,
+      "published": 0,
+      "quarantined": 1,
+      "unavailable": 0,
+      "policy_blocked": 0,
+      "approved_exclusion": 0,
+      "build_critical_unvalidated": 0
+    },
+    "lore": {
+      "discovered": 1,
+      "fetched": 1,
+      "parsed": 1,
+      "normalized": 0,
+      "validated": 0,
+      "published": 0,
+      "quarantined": 0,
+      "unavailable": 0,
+      "policy_blocked": 0,
+      "approved_exclusion": 0,
+      "build_critical_unvalidated": 0
+    },
+    "guide": {
+      "discovered": 1,
+      "fetched": 1,
+      "parsed": 1,
+      "normalized": 0,
+      "validated": 0,
+      "published": 0,
+      "quarantined": 0,
+      "unavailable": 0,
+      "policy_blocked": 0,
+      "approved_exclusion": 0,
+      "build_critical_unvalidated": 0
+    },
+    "localization": {
+      "discovered": 1,
+      "fetched": 1,
+      "parsed": 1,
+      "normalized": 0,
+      "validated": 0,
+      "published": 0,
+      "quarantined": 0,
+      "unavailable": 0,
+      "policy_blocked": 0,
+      "approved_exclusion": 0,
+      "build_critical_unvalidated": 0
+    },
+    "redirect": {
+      "discovered": 1,
+      "fetched": 1,
+      "parsed": 1,
+      "normalized": 0,
+      "validated": 0,
+      "published": 0,
+      "quarantined": 0,
+      "unavailable": 0,
+      "policy_blocked": 0,
+      "approved_exclusion": 0,
+      "build_critical_unvalidated": 0
+    },
+    "media_metadata": {
+      "discovered": 1,
+      "fetched": 1,
+      "parsed": 1,
+      "normalized": 0,
+      "validated": 0,
+      "published": 0,
+      "quarantined": 0,
+      "unavailable": 0,
+      "policy_blocked": 0,
+      "approved_exclusion": 0,
+      "build_critical_unvalidated": 0
+    },
+    "other": {
+      "discovered": 1,
+      "fetched": 1,
+      "parsed": 1,
+      "normalized": 0,
+      "validated": 0,
+      "published": 0,
+      "quarantined": 0,
+      "unavailable": 0,
+      "policy_blocked": 0,
+      "approved_exclusion": 0,
+      "build_critical_unvalidated": 0
+    }
+  },
+  "card_previews": [
+    {
+      "hero_source_id": "synthetic_wiki:page:101",
+      "locale": "de",
+      "patch": null,
+      "mode": null,
+      "canonical_knowledge_release": null,
+      "sections": {
+        "abilities": [
+          {
+            "source_id": "synthetic_wiki:page:201",
+            "revision_id": 10201,
+            "raw_sha256": "46545288631f209ba80664ab88958b4ee3aabefabfaae86be8e695bcd5257a9c",
+            "candidate_locators": [
+              "json:/condition",
+              "json:/damage",
+              "json:/entity_id",
+              "json:/mechanic_id",
+              "json:/variant"
+            ]
+          },
+          {
+            "source_id": "synthetic_wiki:page:202",
+            "revision_id": 10202,
+            "raw_sha256": "8f74a1f2a1427ee6a0ab8431abbffd8c8043fa3c0b2f60d2cc9a8bdad8de1b37",
+            "candidate_locators": [
+              "json:/entity_id",
+              "json:/mechanic_id",
+              "json:/stacks"
+            ]
+          }
+        ],
+        "aliases": [
+          {
+            "source_id": "synthetic_wiki:page:901",
+            "revision_id": 10901,
+            "raw_sha256": "4b25142c7a73e21418705ef93243cb59ab25a2ba2f6818f5e2c89c1d1260a6bb",
+            "candidate_locators": [
+              "utf8:0..28"
+            ]
+          }
+        ],
+        "build_rules": [
+          {
+            "source_id": "synthetic_wiki:page:501",
+            "revision_id": 10501,
+            "raw_sha256": "dac8ac8d08f453046d2c9ad90076ae6b8c48f1c1ab335d38cf755958f0f7762f",
+            "candidate_locators": [
+              "json:/limit",
+              "json:/mode",
+              "json:/rule_id"
+            ]
+          }
+        ],
+        "dependency_evidence": [
+          {
+            "source_id": "synthetic_wiki:page:101",
+            "revision_id": 10101,
+            "raw_sha256": "1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+            "candidate_locators": [
+              "json:/entity_id",
+              "json:/optional_value",
+              "json:/stats/0/id",
+              "json:/stats/0/unit",
+              "json:/stats/0/value",
+              "json:/stats/1/id",
+              "json:/stats/1/unit",
+              "json:/stats/1/value",
+              "json:/stats/2/id",
+              "json:/stats/2/unit",
+              "json:/stats/2/value",
+              "json:/stats/3/id",
+              "json:/stats/3/unit",
+              "json:/stats/3/value"
+            ]
+          },
+          {
+            "source_id": "synthetic_wiki:page:201",
+            "revision_id": 10201,
+            "raw_sha256": "46545288631f209ba80664ab88958b4ee3aabefabfaae86be8e695bcd5257a9c",
+            "candidate_locators": [
+              "json:/condition",
+              "json:/damage",
+              "json:/entity_id",
+              "json:/mechanic_id",
+              "json:/variant"
+            ]
+          },
+          {
+            "source_id": "synthetic_wiki:page:202",
+            "revision_id": 10202,
+            "raw_sha256": "8f74a1f2a1427ee6a0ab8431abbffd8c8043fa3c0b2f60d2cc9a8bdad8de1b37",
+            "candidate_locators": [
+              "json:/entity_id",
+              "json:/mechanic_id",
+              "json:/stacks"
+            ]
+          },
+          {
+            "source_id": "synthetic_wiki:page:301",
+            "revision_id": 10301,
+            "raw_sha256": "a638d710ec11b7cf188aacf6744535826b5a5f2e4c3a12f8cae591abc8db09f8",
+            "candidate_locators": [
+              "json:/entity_id",
+              "json:/price"
+            ]
+          },
+          {
+            "source_id": "synthetic_wiki:page:302",
+            "revision_id": 10302,
+            "raw_sha256": "92acc022d20bb60cdab710fc9d3deb1dfc221feb94d3a37e7956f7358859e07d",
+            "candidate_locators": [
+              "json:/entity_id",
+              "json:/price"
+            ]
+          },
+          {
+            "source_id": "synthetic_wiki:page:401",
+            "revision_id": 10401,
+            "raw_sha256": "aacccafbb99a44fdd7b2a6295ce8abb091a9f4a96e8a2c6b79c0efd6743d2639",
+            "candidate_locators": [
+              "json:/entity_id",
+              "json:/unit"
+            ]
+          },
+          {
+            "source_id": "synthetic_wiki:page:402",
+            "revision_id": 10402,
+            "raw_sha256": "6c58660d9c8db3a320577fedb62aca10d2a7f9f8b77a57ae2db5115f4dfb3751",
+            "candidate_locators": [
+              "json:/entity_id",
+              "json:/unit"
+            ]
+          },
+          {
+            "source_id": "synthetic_wiki:page:501",
+            "revision_id": 10501,
+            "raw_sha256": "dac8ac8d08f453046d2c9ad90076ae6b8c48f1c1ab335d38cf755958f0f7762f",
+            "candidate_locators": [
+              "json:/limit",
+              "json:/mode",
+              "json:/rule_id"
+            ]
+          },
+          {
+            "source_id": "synthetic_wiki:page:601",
+            "revision_id": 10601,
+            "raw_sha256": "662dedb4ee9486d166d01945e21a5b6d1309416f6fd3a4e49c75ccd19bf6c95b",
+            "candidate_locators": [
+              "json:/scaling",
+              "json:/unit"
+            ]
+          },
+          {
+            "source_id": "synthetic_wiki:page:701",
+            "revision_id": 10701,
+            "raw_sha256": "9d81139f0eac04d239eb233059637e3006fd19f704712efe95731afb3c3b9283",
+            "candidate_locators": [
+              "json:/per_tick",
+              "json:/unit"
+            ]
+          },
+          {
+            "source_id": "synthetic_wiki:page:901",
+            "revision_id": 10901,
+            "raw_sha256": "4b25142c7a73e21418705ef93243cb59ab25a2ba2f6818f5e2c89c1d1260a6bb",
+            "candidate_locators": [
+              "utf8:0..28"
+            ]
+          }
+        ],
+        "items": [
+          {
+            "source_id": "synthetic_wiki:page:301",
+            "revision_id": 10301,
+            "raw_sha256": "a638d710ec11b7cf188aacf6744535826b5a5f2e4c3a12f8cae591abc8db09f8",
+            "candidate_locators": [
+              "json:/entity_id",
+              "json:/price"
+            ]
+          },
+          {
+            "source_id": "synthetic_wiki:page:302",
+            "revision_id": 10302,
+            "raw_sha256": "92acc022d20bb60cdab710fc9d3deb1dfc221feb94d3a37e7956f7358859e07d",
+            "candidate_locators": [
+              "json:/entity_id",
+              "json:/price"
+            ]
+          }
+        ],
+        "mechanics": [
+          {
+            "source_id": "synthetic_wiki:page:401",
+            "revision_id": 10401,
+            "raw_sha256": "aacccafbb99a44fdd7b2a6295ce8abb091a9f4a96e8a2c6b79c0efd6743d2639",
+            "candidate_locators": [
+              "json:/entity_id",
+              "json:/unit"
+            ]
+          },
+          {
+            "source_id": "synthetic_wiki:page:402",
+            "revision_id": 10402,
+            "raw_sha256": "6c58660d9c8db3a320577fedb62aca10d2a7f9f8b77a57ae2db5115f4dfb3751",
+            "candidate_locators": [
+              "json:/entity_id",
+              "json:/unit"
+            ]
+          }
+        ],
+        "profile": [
+          {
+            "source_id": "synthetic_wiki:page:101",
+            "revision_id": 10101,
+            "raw_sha256": "1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+            "candidate_locators": [
+              "json:/entity_id",
+              "json:/optional_value",
+              "json:/stats/0/id",
+              "json:/stats/0/unit",
+              "json:/stats/0/value",
+              "json:/stats/1/id",
+              "json:/stats/1/unit",
+              "json:/stats/1/value",
+              "json:/stats/2/id",
+              "json:/stats/2/unit",
+              "json:/stats/2/value",
+              "json:/stats/3/id",
+              "json:/stats/3/unit",
+              "json:/stats/3/value"
+            ]
+          }
+        ]
+      },
+      "unknowns": [
+        "build_legality_not_evaluated",
+        "canonical_fact_rule_card_contract_missing",
+        "canonical_knowledge_release_unknown",
+        "localized_text_provenance_not_validated",
+        "mode_unknown",
+        "patch_unknown",
+        "source_syntax_is_not_fact_validation",
+        "strategy_and_empirical_evidence_not_validated"
+      ],
+      "publishable": false,
+      "preview_sha256": "1b12f5667eba07414fa05631335f543e7c34f60f1f1d1dab65265fd9422f36ac"
+    },
+    {
+      "hero_source_id": "synthetic_wiki:page:101",
+      "locale": "en",
+      "patch": null,
+      "mode": null,
+      "canonical_knowledge_release": null,
+      "sections": {
+        "abilities": [
+          {
+            "source_id": "synthetic_wiki:page:201",
+            "revision_id": 10201,
+            "raw_sha256": "46545288631f209ba80664ab88958b4ee3aabefabfaae86be8e695bcd5257a9c",
+            "candidate_locators": [
+              "json:/condition",
+              "json:/damage",
+              "json:/entity_id",
+              "json:/mechanic_id",
+              "json:/variant"
+            ]
+          },
+          {
+            "source_id": "synthetic_wiki:page:202",
+            "revision_id": 10202,
+            "raw_sha256": "8f74a1f2a1427ee6a0ab8431abbffd8c8043fa3c0b2f60d2cc9a8bdad8de1b37",
+            "candidate_locators": [
+              "json:/entity_id",
+              "json:/mechanic_id",
+              "json:/stacks"
+            ]
+          }
+        ],
+        "aliases": [
+          {
+            "source_id": "synthetic_wiki:page:901",
+            "revision_id": 10901,
+            "raw_sha256": "4b25142c7a73e21418705ef93243cb59ab25a2ba2f6818f5e2c89c1d1260a6bb",
+            "candidate_locators": [
+              "utf8:0..28"
+            ]
+          }
+        ],
+        "build_rules": [
+          {
+            "source_id": "synthetic_wiki:page:501",
+            "revision_id": 10501,
+            "raw_sha256": "dac8ac8d08f453046d2c9ad90076ae6b8c48f1c1ab335d38cf755958f0f7762f",
+            "candidate_locators": [
+              "json:/limit",
+              "json:/mode",
+              "json:/rule_id"
+            ]
+          }
+        ],
+        "dependency_evidence": [
+          {
+            "source_id": "synthetic_wiki:page:101",
+            "revision_id": 10101,
+            "raw_sha256": "1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+            "candidate_locators": [
+              "json:/entity_id",
+              "json:/optional_value",
+              "json:/stats/0/id",
+              "json:/stats/0/unit",
+              "json:/stats/0/value",
+              "json:/stats/1/id",
+              "json:/stats/1/unit",
+              "json:/stats/1/value",
+              "json:/stats/2/id",
+              "json:/stats/2/unit",
+              "json:/stats/2/value",
+              "json:/stats/3/id",
+              "json:/stats/3/unit",
+              "json:/stats/3/value"
+            ]
+          },
+          {
+            "source_id": "synthetic_wiki:page:201",
+            "revision_id": 10201,
+            "raw_sha256": "46545288631f209ba80664ab88958b4ee3aabefabfaae86be8e695bcd5257a9c",
+            "candidate_locators": [
+              "json:/condition",
+              "json:/damage",
+              "json:/entity_id",
+              "json:/mechanic_id",
+              "json:/variant"
+            ]
+          },
+          {
+            "source_id": "synthetic_wiki:page:202",
+            "revision_id": 10202,
+            "raw_sha256": "8f74a1f2a1427ee6a0ab8431abbffd8c8043fa3c0b2f60d2cc9a8bdad8de1b37",
+            "candidate_locators": [
+              "json:/entity_id",
+              "json:/mechanic_id",
+              "json:/stacks"
+            ]
+          },
+          {
+            "source_id": "synthetic_wiki:page:301",
+            "revision_id": 10301,
+            "raw_sha256": "a638d710ec11b7cf188aacf6744535826b5a5f2e4c3a12f8cae591abc8db09f8",
+            "candidate_locators": [
+              "json:/entity_id",
+              "json:/price"
+            ]
+          },
+          {
+            "source_id": "synthetic_wiki:page:302",
+            "revision_id": 10302,
+            "raw_sha256": "92acc022d20bb60cdab710fc9d3deb1dfc221feb94d3a37e7956f7358859e07d",
+            "candidate_locators": [
+              "json:/entity_id",
+              "json:/price"
+            ]
+          },
+          {
+            "source_id": "synthetic_wiki:page:401",
+            "revision_id": 10401,
+            "raw_sha256": "aacccafbb99a44fdd7b2a6295ce8abb091a9f4a96e8a2c6b79c0efd6743d2639",
+            "candidate_locators": [
+              "json:/entity_id",
+              "json:/unit"
+            ]
+          },
+          {
+            "source_id": "synthetic_wiki:page:402",
+            "revision_id": 10402,
+            "raw_sha256": "6c58660d9c8db3a320577fedb62aca10d2a7f9f8b77a57ae2db5115f4dfb3751",
+            "candidate_locators": [
+              "json:/entity_id",
+              "json:/unit"
+            ]
+          },
+          {
+            "source_id": "synthetic_wiki:page:501",
+            "revision_id": 10501,
+            "raw_sha256": "dac8ac8d08f453046d2c9ad90076ae6b8c48f1c1ab335d38cf755958f0f7762f",
+            "candidate_locators": [
+              "json:/limit",
+              "json:/mode",
+              "json:/rule_id"
+            ]
+          },
+          {
+            "source_id": "synthetic_wiki:page:601",
+            "revision_id": 10601,
+            "raw_sha256": "662dedb4ee9486d166d01945e21a5b6d1309416f6fd3a4e49c75ccd19bf6c95b",
+            "candidate_locators": [
+              "json:/scaling",
+              "json:/unit"
+            ]
+          },
+          {
+            "source_id": "synthetic_wiki:page:701",
+            "revision_id": 10701,
+            "raw_sha256": "9d81139f0eac04d239eb233059637e3006fd19f704712efe95731afb3c3b9283",
+            "candidate_locators": [
+              "json:/per_tick",
+              "json:/unit"
+            ]
+          },
+          {
+            "source_id": "synthetic_wiki:page:901",
+            "revision_id": 10901,
+            "raw_sha256": "4b25142c7a73e21418705ef93243cb59ab25a2ba2f6818f5e2c89c1d1260a6bb",
+            "candidate_locators": [
+              "utf8:0..28"
+            ]
+          }
+        ],
+        "items": [
+          {
+            "source_id": "synthetic_wiki:page:301",
+            "revision_id": 10301,
+            "raw_sha256": "a638d710ec11b7cf188aacf6744535826b5a5f2e4c3a12f8cae591abc8db09f8",
+            "candidate_locators": [
+              "json:/entity_id",
+              "json:/price"
+            ]
+          },
+          {
+            "source_id": "synthetic_wiki:page:302",
+            "revision_id": 10302,
+            "raw_sha256": "92acc022d20bb60cdab710fc9d3deb1dfc221feb94d3a37e7956f7358859e07d",
+            "candidate_locators": [
+              "json:/entity_id",
+              "json:/price"
+            ]
+          }
+        ],
+        "mechanics": [
+          {
+            "source_id": "synthetic_wiki:page:401",
+            "revision_id": 10401,
+            "raw_sha256": "aacccafbb99a44fdd7b2a6295ce8abb091a9f4a96e8a2c6b79c0efd6743d2639",
+            "candidate_locators": [
+              "json:/entity_id",
+              "json:/unit"
+            ]
+          },
+          {
+            "source_id": "synthetic_wiki:page:402",
+            "revision_id": 10402,
+            "raw_sha256": "6c58660d9c8db3a320577fedb62aca10d2a7f9f8b77a57ae2db5115f4dfb3751",
+            "candidate_locators": [
+              "json:/entity_id",
+              "json:/unit"
+            ]
+          }
+        ],
+        "profile": [
+          {
+            "source_id": "synthetic_wiki:page:101",
+            "revision_id": 10101,
+            "raw_sha256": "1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+            "candidate_locators": [
+              "json:/entity_id",
+              "json:/optional_value",
+              "json:/stats/0/id",
+              "json:/stats/0/unit",
+              "json:/stats/0/value",
+              "json:/stats/1/id",
+              "json:/stats/1/unit",
+              "json:/stats/1/value",
+              "json:/stats/2/id",
+              "json:/stats/2/unit",
+              "json:/stats/2/value",
+              "json:/stats/3/id",
+              "json:/stats/3/unit",
+              "json:/stats/3/value"
+            ]
+          }
+        ]
+      },
+      "unknowns": [
+        "build_legality_not_evaluated",
+        "canonical_fact_rule_card_contract_missing",
+        "canonical_knowledge_release_unknown",
+        "localized_text_provenance_not_validated",
+        "mode_unknown",
+        "patch_unknown",
+        "source_syntax_is_not_fact_validation",
+        "strategy_and_empirical_evidence_not_validated"
+      ],
+      "publishable": false,
+      "preview_sha256": "ac53f336a721a8693ae316698d0935efb0103d05eda9d99918bd4c57ac4e6942"
+    },
+    {
+      "hero_source_id": "synthetic_wiki:page:102",
+      "locale": "en",
+      "patch": null,
+      "mode": null,
+      "canonical_knowledge_release": null,
+      "sections": {
+        "abilities": [],
+        "aliases": [],
+        "build_rules": [],
+        "dependency_evidence": [
+          {
+            "source_id": "synthetic_wiki:page:102",
+            "revision_id": 10102,
+            "raw_sha256": "1b303fb05c31c6fdcbe07d2a6a570ba830a0fabe7ef55774e1b5ed751cf7101c",
+            "candidate_locators": [
+              "json:/entity_id",
+              "json:/health"
+            ]
+          }
+        ],
+        "items": [],
+        "mechanics": [],
+        "profile": [
+          {
+            "source_id": "synthetic_wiki:page:102",
+            "revision_id": 10102,
+            "raw_sha256": "1b303fb05c31c6fdcbe07d2a6a570ba830a0fabe7ef55774e1b5ed751cf7101c",
+            "candidate_locators": [
+              "json:/entity_id",
+              "json:/health"
+            ]
+          }
+        ]
+      },
+      "unknowns": [
+        "abilities:no_bound_sources",
+        "aliases:no_bound_sources",
+        "build_legality_not_evaluated",
+        "build_rules:no_bound_sources",
+        "canonical_fact_rule_card_contract_missing",
+        "canonical_knowledge_release_unknown",
+        "items:no_bound_sources",
+        "localized_text_provenance_not_validated",
+        "mechanics:no_bound_sources",
+        "mode_unknown",
+        "patch_unknown",
+        "source_syntax_is_not_fact_validation",
+        "strategy_and_empirical_evidence_not_validated"
+      ],
+      "publishable": false,
+      "preview_sha256": "18355fee8502e4fa05fd0db14eeecc6e6b96ee1efeb7266d3b60f34d20efe1e9"
+    }
+  ],
+  "diagnostics": [],
+  "blockers": [
+    "G0_not_accepted",
+    "G1_contracts_not_integrated",
+    "build_critical_facts_unvalidated",
+    "canonical_fact_rule_card_ports_missing",
+    "live_store_worker_domain_api_pilot_not_verified",
+    "offline_probe_not_a_publisher",
+    "publication_not_approved"
+  ],
+  "mode": "prepare_only",
+  "integration_verified": false,
+  "production_publishable": false
+}

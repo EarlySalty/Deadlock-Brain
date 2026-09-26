@@ -8,6 +8,8 @@ mod ai_roles;
 pub mod backtest;
 pub mod combat;
 pub mod composer;
+pub mod core_rules;
+pub mod domain_builds;
 pub mod families;
 pub mod inventory;
 pub mod lab;

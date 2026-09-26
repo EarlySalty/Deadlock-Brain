@@ -1,0 +1,10 @@
+field	patch	parser_revision	status	source_review	required_evidence
+match_id	unknown	bfb292d4798031350861ad297aa26753267a1ea6	unverified	Low-level parser candidate only	Approved replay and independent match identity reference
+patch_mode	unknown	bfb292d4798031350861ad297aa26753267a1ea6	unverified	No pilot inspected	Explicit game build patch mapping and mode provenance
+teams_heroes	unknown	bfb292d4798031350861ad297aa26753267a1ea6	unverified	Entity API is not a field guarantee	Per-player-slot team and hero reference without public player identifiers
+duration_timeline	unknown	bfb292d4798031350861ad297aa26753267a1ea6	unverified	README mentions game-time example but current API changed	Document tick origin interval pregame pauses and end-of-match semantics
+items	unknown	bfb292d4798031350861ad297aa26753267a1ea6	unverified	No observed events	Distinguish inventory snapshot purchase sale transfer and upgrade
+ability_levels	unknown	bfb292d4798031350861ad297aa26753267a1ea6	unverified	No observed events	Hero ability slot level state and upgrade event mapping
+kda	unknown	bfb292d4798031350861ad297aa26753267a1ea6	unverified	External Demo SQL fields are not local decoder verification	Curated kill death assist definitions and scoreboard reconciliation
+positions	unknown	bfb292d4798031350861ad297aa26753267a1ea6	unverified	README mentions positions but no real patch fixture	World coordinate reconstruction unit and declared sparse sampling tolerance
+objectives	unknown	bfb292d4798031350861ad297aa26753267a1ea6	unverified	No observed events	Objective identity actor attribution and completion semantics

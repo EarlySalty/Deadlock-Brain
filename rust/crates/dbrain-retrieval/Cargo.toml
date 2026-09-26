@@ -8,6 +8,8 @@ name = "dbrain_retrieval"
 path = "src/lib.rs"
 
 [dependencies]
+brain-contracts = { path = "../brain-contracts" }
+brain-storage = { path = "../brain-storage" }
 deadlock-brain-core = { path = "../deadlock-brain-core" }
 dbrain-reasoner = { path = "../dbrain-reasoner" }
 chrono = { workspace = true }

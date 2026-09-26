@@ -1,0 +1,20 @@
+[package]
+name = "brain-storage"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "brain_storage"
+path = "src/lib.rs"
+
+[dependencies]
+brain-contracts = { path = "../brain-contracts" }
+serde_json.workspace = true
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+sqlx = { workspace = true, features = ["json"] }
+postgres = { workspace = true, features = ["with-serde_json-1"] }
+thiserror.workspace = true
+
+[dev-dependencies]
+sha2.workspace = true

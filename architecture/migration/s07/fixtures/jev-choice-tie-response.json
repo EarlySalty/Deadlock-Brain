@@ -1,0 +1,18 @@
+{
+  "model": "fixture-jev-model-not-for-live",
+  "answers": {
+    "model_routing": {
+      "type": "choice",
+      "choice": "baseline_only",
+      "probabilities": {
+        "baseline_only": 0.5,
+        "approved_primary": 0.5
+      },
+      "confidence": 0.0
+    }
+  },
+  "usage": {
+    "input_tokens": 80,
+    "output_tokens": 10
+  }
+}

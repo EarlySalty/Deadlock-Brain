@@ -1,0 +1,263 @@
+{
+  "aliases": [
+    {
+      "locale": "en",
+      "source": {
+        "content_hash": "4b25142c7a73e21418705ef93243cb59ab25a2ba2f6818f5e2c89c1d1260a6bb",
+        "locator": "utf8:0..28",
+        "page_id": 901,
+        "revision_id": 10901
+      },
+      "subject_id": "fixture:hero:one",
+      "text": "Old Fixture Ranger"
+    }
+  ],
+  "card": {
+    "facts": [
+      {
+        "fact_id": "wiki-field:1091192bcab7f8676b42080fb8357f716e169659a8b0db41c9d6548814d365d8:r10101:1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+        "key": "resist",
+        "source_revision": {
+          "content_hash": "1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+          "logical_id": "synthetic_wiki:page:101",
+          "revision": 10101,
+          "source_id": "synthetic_wiki"
+        },
+        "subject_id": "fixture:hero:one",
+        "unit": "percent",
+        "value": "10"
+      },
+      {
+        "fact_id": "wiki-field:2a1a6a2b971900aafa13df508d63baaf4f75ec32192aff8b044597524a7b5645:r10101:1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+        "key": "health",
+        "source_revision": {
+          "content_hash": "1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+          "logical_id": "synthetic_wiki:page:101",
+          "revision": 10101,
+          "source_id": "synthetic_wiki"
+        },
+        "subject_id": "fixture:hero:one",
+        "unit": "health",
+        "value": "1000"
+      },
+      {
+        "fact_id": "wiki-field:7dbf6fbf31a5216b85279f852335623d19fd0b42a4b4846a2a2a0ff5dd83223f:r10101:1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+        "key": "resist_delta",
+        "source_revision": {
+          "content_hash": "1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+          "logical_id": "synthetic_wiki:page:101",
+          "revision": 10101,
+          "source_id": "synthetic_wiki"
+        },
+        "subject_id": "fixture:hero:one",
+        "unit": "percentage_point",
+        "value": "2"
+      },
+      {
+        "fact_id": "wiki-field:af74bb27b78c64b558757bca3b046415c962d5d5cbfa993f5afd027e4f06fe40:r10402:6c58660d9c8db3a320577fedb62aca10d2a7f9f8b77a57ae2db5115f4dfb3751",
+        "key": "mechanic_unit",
+        "source_revision": {
+          "content_hash": "6c58660d9c8db3a320577fedb62aca10d2a7f9f8b77a57ae2db5115f4dfb3751",
+          "logical_id": "synthetic_wiki:page:402",
+          "revision": 10402,
+          "source_id": "synthetic_wiki"
+        },
+        "subject_id": "fixture:mechanic:stack",
+        "unit": null,
+        "value": "count"
+      },
+      {
+        "fact_id": "wiki-field:de878b859296546da05c178046ee7c906c0d5db27bd8a71b8a8e9b2701742817:r10401:aacccafbb99a44fdd7b2a6295ce8abb091a9f4a96e8a2c6b79c0efd6743d2639",
+        "key": "mechanic_unit",
+        "source_revision": {
+          "content_hash": "aacccafbb99a44fdd7b2a6295ce8abb091a9f4a96e8a2c6b79c0efd6743d2639",
+          "logical_id": "synthetic_wiki:page:401",
+          "revision": 10401,
+          "source_id": "synthetic_wiki"
+        },
+        "subject_id": "fixture:mechanic:build_up",
+        "unit": null,
+        "value": "percent"
+      },
+      {
+        "fact_id": "wiki-field:f19f92b89cff5e38336db53852b633bca3ca7d7ccc7a783e32b35ace44e6a44e:r10101:1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+        "key": "multiplier",
+        "source_revision": {
+          "content_hash": "1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+          "logical_id": "synthetic_wiki:page:101",
+          "revision": 10101,
+          "source_id": "synthetic_wiki"
+        },
+        "subject_id": "fixture:hero:one",
+        "unit": "multiplier",
+        "value": "1.05"
+      }
+    ],
+    "hero_id": "fixture:hero:one",
+    "knowledge_release": "fixture-release-one",
+    "rules": [],
+    "synergies": []
+  },
+  "dependencies": [
+    {
+      "content_hash": "1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+      "logical_id": "synthetic_wiki:page:101",
+      "revision": 10101,
+      "source_id": "synthetic_wiki"
+    },
+    {
+      "content_hash": "46545288631f209ba80664ab88958b4ee3aabefabfaae86be8e695bcd5257a9c",
+      "logical_id": "synthetic_wiki:page:201",
+      "revision": 10201,
+      "source_id": "synthetic_wiki"
+    },
+    {
+      "content_hash": "8f74a1f2a1427ee6a0ab8431abbffd8c8043fa3c0b2f60d2cc9a8bdad8de1b37",
+      "logical_id": "synthetic_wiki:page:202",
+      "revision": 10202,
+      "source_id": "synthetic_wiki"
+    },
+    {
+      "content_hash": "a638d710ec11b7cf188aacf6744535826b5a5f2e4c3a12f8cae591abc8db09f8",
+      "logical_id": "synthetic_wiki:page:301",
+      "revision": 10301,
+      "source_id": "synthetic_wiki"
+    },
+    {
+      "content_hash": "92acc022d20bb60cdab710fc9d3deb1dfc221feb94d3a37e7956f7358859e07d",
+      "logical_id": "synthetic_wiki:page:302",
+      "revision": 10302,
+      "source_id": "synthetic_wiki"
+    },
+    {
+      "content_hash": "aacccafbb99a44fdd7b2a6295ce8abb091a9f4a96e8a2c6b79c0efd6743d2639",
+      "logical_id": "synthetic_wiki:page:401",
+      "revision": 10401,
+      "source_id": "synthetic_wiki"
+    },
+    {
+      "content_hash": "6c58660d9c8db3a320577fedb62aca10d2a7f9f8b77a57ae2db5115f4dfb3751",
+      "logical_id": "synthetic_wiki:page:402",
+      "revision": 10402,
+      "source_id": "synthetic_wiki"
+    },
+    {
+      "content_hash": "dac8ac8d08f453046d2c9ad90076ae6b8c48f1c1ab335d38cf755958f0f7762f",
+      "logical_id": "synthetic_wiki:page:501",
+      "revision": 10501,
+      "source_id": "synthetic_wiki"
+    },
+    {
+      "content_hash": "662dedb4ee9486d166d01945e21a5b6d1309416f6fd3a4e49c75ccd19bf6c95b",
+      "logical_id": "synthetic_wiki:page:601",
+      "revision": 10601,
+      "source_id": "synthetic_wiki"
+    },
+    {
+      "content_hash": "9d81139f0eac04d239eb233059637e3006fd19f704712efe95731afb3c3b9283",
+      "logical_id": "synthetic_wiki:page:701",
+      "revision": 10701,
+      "source_id": "synthetic_wiki"
+    },
+    {
+      "content_hash": "4b25142c7a73e21418705ef93243cb59ab25a2ba2f6818f5e2c89c1d1260a6bb",
+      "logical_id": "synthetic_wiki:page:901",
+      "revision": 10901,
+      "source_id": "synthetic_wiki"
+    }
+  ],
+  "generator_version": "wiki-contract-projector-v1",
+  "knowledge_version": "fixture-knowledge-v1",
+  "locale": "de",
+  "locators": {
+    "wiki-field:1091192bcab7f8676b42080fb8357f716e169659a8b0db41c9d6548814d365d8:r10101:1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722": [
+      {
+        "content_hash": "1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+        "locator": "json:/stats/1/value",
+        "page_id": 101,
+        "revision_id": 10101
+      },
+      {
+        "content_hash": "1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+        "locator": "json:/stats/1/unit",
+        "page_id": 101,
+        "revision_id": 10101
+      }
+    ],
+    "wiki-field:2a1a6a2b971900aafa13df508d63baaf4f75ec32192aff8b044597524a7b5645:r10101:1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722": [
+      {
+        "content_hash": "1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+        "locator": "json:/stats/0/value",
+        "page_id": 101,
+        "revision_id": 10101
+      },
+      {
+        "content_hash": "1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+        "locator": "json:/stats/0/unit",
+        "page_id": 101,
+        "revision_id": 10101
+      }
+    ],
+    "wiki-field:7dbf6fbf31a5216b85279f852335623d19fd0b42a4b4846a2a2a0ff5dd83223f:r10101:1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722": [
+      {
+        "content_hash": "1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+        "locator": "json:/stats/2/value",
+        "page_id": 101,
+        "revision_id": 10101
+      },
+      {
+        "content_hash": "1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+        "locator": "json:/stats/2/unit",
+        "page_id": 101,
+        "revision_id": 10101
+      }
+    ],
+    "wiki-field:af74bb27b78c64b558757bca3b046415c962d5d5cbfa993f5afd027e4f06fe40:r10402:6c58660d9c8db3a320577fedb62aca10d2a7f9f8b77a57ae2db5115f4dfb3751": [
+      {
+        "content_hash": "6c58660d9c8db3a320577fedb62aca10d2a7f9f8b77a57ae2db5115f4dfb3751",
+        "locator": "json:/unit",
+        "page_id": 402,
+        "revision_id": 10402
+      }
+    ],
+    "wiki-field:de878b859296546da05c178046ee7c906c0d5db27bd8a71b8a8e9b2701742817:r10401:aacccafbb99a44fdd7b2a6295ce8abb091a9f4a96e8a2c6b79c0efd6743d2639": [
+      {
+        "content_hash": "aacccafbb99a44fdd7b2a6295ce8abb091a9f4a96e8a2c6b79c0efd6743d2639",
+        "locator": "json:/unit",
+        "page_id": 401,
+        "revision_id": 10401
+      }
+    ],
+    "wiki-field:f19f92b89cff5e38336db53852b633bca3ca7d7ccc7a783e32b35ace44e6a44e:r10101:1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722": [
+      {
+        "content_hash": "1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+        "locator": "json:/stats/3/value",
+        "page_id": 101,
+        "revision_id": 10101
+      },
+      {
+        "content_hash": "1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+        "locator": "json:/stats/3/unit",
+        "page_id": 101,
+        "revision_id": 10101
+      }
+    ]
+  },
+  "mapping_review_ref": "synthetic-mapping-review-not-live-approval",
+  "mapping_version": "synthetic-pilot-mapping-v1",
+  "published": false,
+  "rebuild_sha256": "f83153e0865cc02372cd05f38291d390d2255f91e1d788200c47ad64f8a77808",
+  "review_ref": "synthetic-test-review-not-production",
+  "source_policy_sha256": "1a6fdc0bdac16935e93a023a7ae2d1cbb738ce2d700d4ed6b690c0d0173ef0e0",
+  "unknowns": [
+    "game_patch_not_inferred_from_wiki_revision",
+    "mode_not_representable_in_brain_v1_card",
+    "not_published",
+    "rules_and_synergies_require_domain_validation",
+    "wiki-field:290695bd600758f319d5eadf7ccf3f7a461968a366adefeeed46a398ef0a7587:unknown_or_context_not_representable_in_brain_v1_fact",
+    "wiki-field:2b6969da6e5d2b1d7735f698e353f8385c1784150ea62534e4fcffe26cfbb7af:unknown_or_context_not_representable_in_brain_v1_fact",
+    "wiki-field:2cc106bbc0a7cdb93faa4951d304757912ee4c90a3558878374b27e24ddf451b:unknown_or_context_not_representable_in_brain_v1_fact",
+    "wiki-field:78f45b5295b3ce505be1d25293e496adaacf15376cf7a8b730c32cbdc6ba555f:unknown_or_context_not_representable_in_brain_v1_fact",
+    "wiki-field:834d2f5c5991ed75196eae4159542747c1514140b35e03fa53b365d4d1510440:unknown_or_context_not_representable_in_brain_v1_fact"
+  ]
+}

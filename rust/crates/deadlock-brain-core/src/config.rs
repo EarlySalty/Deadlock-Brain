@@ -54,10 +54,7 @@ impl fmt::Debug for Settings {
             .field("ai_base_url", &self.ai_base_url)
             .field("ai_model", &self.ai_model)
             .field("ai_timeout_seconds", &self.ai_timeout_seconds)
-            .field(
-                "ai_max_completion_tokens",
-                &self.ai_max_completion_tokens,
-            )
+            .field("ai_max_completion_tokens", &self.ai_max_completion_tokens)
             .field("ai_temperature", &self.ai_temperature)
             .field("ai_top_p", &self.ai_top_p)
             .field("ai_use_token_plan", &self.ai_use_token_plan)

@@ -8,6 +8,8 @@ name = "dbrain_reasoner"
 path = "src/lib.rs"
 
 [dependencies]
+brain-contracts = { path = "../brain-contracts" }
+dbrain-normalize = { path = "../dbrain-normalize" }
 deadlock-brain-core = { path = "../deadlock-brain-core" }
 dbrain-builds = { path = "../dbrain-builds" }
 dbrain-population = { path = "../dbrain-population" }

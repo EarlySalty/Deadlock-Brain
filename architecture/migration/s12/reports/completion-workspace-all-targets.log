@@ -1,0 +1,4 @@
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-wiki-completion-20260925/rust/crates/dbrain-reasoner)
+    Checking dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-wiki-completion-20260925/rust/crates/dbrain-retrieval)
+    Checking deadlock-brain v0.1.0 (/home/nathanael/.worktrees/brain-wiki-completion-20260925/rust/crates/deadlock-brain)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 8.60s

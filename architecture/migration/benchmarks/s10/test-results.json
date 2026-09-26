@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "record_kind": "observed_command_results",
+  "tested_code_commit": "a14340f8b1b8db9657255be2ec05672e9d562cba",
+  "base_commit": "30326512568b7370524956839100462ba71bdb92",
+  "pull_request": 27,
+  "toolchain": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+  "manifest": "architecture/migration/evals/Cargo.toml",
+  "tests": {
+    "command": "cargo test --manifest-path architecture/migration/evals/Cargo.toml --locked --offline -j2 -- --quiet",
+    "exit_code": 0,
+    "passed": 85,
+    "failed": 0,
+    "ignored": 0,
+    "groups": {
+      "existing_population_metric_tests": 7,
+      "cli_tests": 9,
+      "quality_and_evidence_tests": 69
+    },
+    "rerun_after_code_commit": true
+  },
+  "format": {
+    "command": "cargo fmt --manifest-path architecture/migration/evals/Cargo.toml --check",
+    "exit_code": 0
+  },
+  "lint": {
+    "command": "cargo clippy --manifest-path architecture/migration/evals/Cargo.toml --all-targets --locked --offline -j2 -- -D warnings",
+    "exit_code": 0
+  },
+  "release_build": {
+    "command": "cargo build --release --manifest-path architecture/migration/evals/Cargo.toml --locked --offline -j2",
+    "exit_code": 0
+  },
+  "counterprobes": [
+    {
+      "scope": "Initial quality suite against unimplemented evaluation functions",
+      "passed_before": 2,
+      "failed_before": 63,
+      "ignored_before": 0,
+      "passed_after": 65,
+      "raw_log": "red-tests.log"
+    },
+    {
+      "scope": "Insufficient offered load, shortened duration, inverted p95/p99 limits, overflowing rate target",
+      "passed_before": 65,
+      "failed_before": 4,
+      "ignored_before": 0,
+      "passed_after": 69,
+      "raw_log": null,
+      "evidence_kind": "observed tool output, no separately saved raw log"
+    }
+  ],
+  "not_executed": [
+    "full product workspace test suite",
+    "224 real support answers",
+    "40 real end-to-end security/domain/fault scenarios",
+    "legacy versus Rust retrieval comparison",
+    "interactive service latency under ingestion or replay load",
+    "production database queries or mutations",
+    "restore, writer cutover, rollback and blocked legacy runtime",
+    "G0-G4 approval"
+  ],
+  "ci_scope_gap": "Existing CI does not execute the standalone S10 workspace; CR-S10-001 requests integration by owners 00/02",
+  "release_approved": false
+}

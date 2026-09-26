@@ -1,0 +1,93 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.24s
+     Running unittests src/lib.rs (rust/target/debug/deps/brain_contracts-fcf0c429634ff473)
+
+running 3 tests
+test tests::evidence_rejects_non_finite_score ... ok
+test tests::contract_roundtrip_keeps_release_and_scopes ... ok
+test tests::query_rejects_empty_identity_fields ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (rust/target/debug/deps/dbrain_sources-4027cbc78fe94dc9)
+
+running 70 tests
+test assets_api::tests::resolve_kinds_defaults_to_supported_endpoints ... ok
+test assets_api::tests::snapshots_for_maps_kind_to_entity_type ... ok
+test assets_api::tests::resolve_kinds_rejects_retired_and_unknown_kinds ... ok
+test deadlock_api::tests::demo_economy_query_filters_user_events_by_lobby_player_slot ... ok
+test deadlock_api::tests::demo_economy_query_uses_the_metadata_player_slot_literal ... ok
+test assets_api::tests::snapshots_for_items_derives_external_ids_and_names ... ok
+test deadlock_api::tests::demo_identity_rejects_mismatched_account_and_steam_ids ... ok
+test deadlock_api::tests::demo_normalize_rows_adds_versioned_evidence_id ... ok
+test deadlock_api::tests::demo_metadata_resolves_the_target_player_slot ... ok
+test deadlock_api::tests::demo_normalize_rows_rejects_malformed_ndjson_line ... ok
+test deadlock_api::tests::demo_parse_job_status_accepts_done_with_result_url ... ok
+test deadlock_api::tests::demo_player_state_must_not_be_empty ... ok
+test deadlock_api::tests::demo_parse_job_status_preserves_failed_error ... ok
+test deadlock_api::tests::demo_player_state_uses_an_unambiguous_join_tick ... ok
+test deadlock_data::tests::patchnote_events_do_not_duplicate_when_commit_metadata_changes ... ignored, cross-crate PG-Integration: needs scratch Postgres via DEADLOCK_CENTRAL_DSN
+test deadlock_api::tests::rejects_non_array_match_history ... ok
+test deadlock_api::tests::rejects_non_object_match_history_row ... ok
+test deadlock_data::tests::upsert_domain_entity_roundtrip_is_idempotent_and_cleans_up ... ignored, needs scratch Postgres via DEADLOCK_CENTRAL_DSN
+test deadlock_api::tests::demo_result_url_allows_only_the_extract_origin ... ok
+test deadlock_api::tests::filters_every_requested_hero_match ... ok
+test deadlock_api::tests::rejects_match_history_row_without_valid_hero_id ... ok
+test deadlock_api::tests::rejects_match_history_row_without_non_empty_match_id ... ok
+test deadlock_data::tests::version_parser_accepts_crlf ... ok
+test deadlock_api::tests::demo_target_queries_use_source2_14_bit_pawn_entity_index ... ok
+test forum::tests::thread_url_parser_ignores_non_threads_and_extracts_numeric_suffix ... ok
+test patchnotes_db::tests::patchnotes_source_is_readable_when_present ... ignored, needs scratch Postgres via DEADLOCK_CENTRAL_DSN with patchnotes.changelog_posts
+test patchnotes_db::tests::classify_source_kind_maps_known_hosts ... ok
+test deadlock_api::tests::demo_query_bundle_has_three_quoted_queries ... ok
+test patchnotes_db::tests::posted_at_falls_back_to_patch_title_date ... ok
+test reddit::tests::created_utc_becomes_rfc3339_utc ... ok
+test google_sheet::tests::csv_parsing_and_record_derivation_from_sheet ... ok
+test reddit::tests::defaults_match_the_gentle_ingest_profile ... ok
+test reddit::tests::negative_delay_seconds_are_rejected ... ok
+test reddit::tests::request_urls_target_the_public_json_and_rss_endpoints ... ok
+test reddit::tests::empty_subreddits_fall_back_to_deadlock ... ok
+test reddit::tests::skip_existing_only_applies_without_refresh ... ok
+test reddit::tests::refresh_existing_bypasses_the_http_cache ... ok
+test reddit::tests::thread_permalink_parser_rejects_non_thread_urls ... ok
+test reddit::tests::parse_thread_extracts_post_and_comments_and_ignores_more ... ok
+test reddit::tests::parse_listing_extracts_thread_id_title_selftext_author_and_permalink ... ok
+test statlocker::tests::game_mode_value_maps_known_modes ... ok
+test reddit::tests::listing_rss_fallback_parses_title_link_and_content ... ok
+test statlocker::tests::normalize_patch_prefixes_only_when_needed ... ok
+test statlocker::tests::extract_rows_reads_arrays_and_keyed_objects ... ok
+test reddit::tests::thread_rss_fallback_parses_submission_and_comment_entries ... ok
+test statlocker::tests::match_and_hero_id_from_payload_prefer_direct_keys ... ok
+test store::tests::patch_changes_view_deduplicates_holliday_powder_keg_scaling ... ignored, needs central Postgres via DEADLOCK_CENTRAL_DSN
+test store::tests::store_roundtrip_writes_reads_back_and_cleans_up ... ignored, needs scratch Postgres via DEADLOCK_CENTRAL_DSN
+test util::tests::python_or_string_treats_zero_as_falsy_for_or_expressions ... ok
+test statlocker::tests::normalize_hero_handles_all_and_separators ... ok
+test reddit::tests::thread_rss_keeps_comments_that_precede_the_submission_entry ... ok
+test util::tests::form_urlencode_matches_urllib_quote_plus_for_used_values ... ok
+test store::tests::json_string_matches_python_default_spacing_and_ascii_for_common_values ... ok
+test store::tests::write_raw_uses_sanitized_external_id_and_content_hash_prefix ... ok
+test reddit::tests::thread_rss_without_submission_entry_is_rejected ... ok
+test wiki_corpus::tests::disabled_network_makes_no_requests ... ok
+test wiki_corpus::tests::blank_rendered_pages_are_not_silently_imported ... ok
+test forum::tests::parse_thread_html_extracts_title_posts_text_and_attachments ... ok
+test wiki_corpus::tests::empty_filtered_batches_continue_and_icon_labels_are_preserved ... ok
+test wiki_corpus::tests::pagination_and_exact_revision_are_used ... ok
+test wiki_corpus::tests::duplicate_pages_limits_and_repeated_cursors_do_not_claim_completeness ... ok
+test wiki_corpus::tests::tables_percentages_unicode_and_nested_history_survive_without_scripts ... ok
+test wiki_corpus::tests::template_stamp_changes_parse_cache_key_without_article_edit ... ok
+test wiki_corpus::tests::errors_missing_license_and_partial_results_fail_closed ... ok
+test deadlock_api::tests::demo_poll_wait_yields_to_the_async_runtime ... ok
+test deadlock_api::tests::demo_404_is_visible_and_an_incomplete_batch_cannot_be_snapshotted ... ok
+test deadlock_api::tests::demo_failed_and_timeout_jobs_are_visible ... ok
+test google_sheet::tests::discover_sheet_tabs_decodes_pubhtml_items ... ok
+test deadlock_api::tests::demo_poll_total_timeout_caps_the_next_sleep ... ok
+test deadlock_api::tests::demo_poll_total_timeout_caps_the_status_request ... ok
+
+test result: ok. 65 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
+     Running tests/wiki_knowledge_contract.rs (rust/target/debug/deps/wiki_knowledge_contract-e636de122c308081)
+
+running 2 tests
+test network_adapter_defaults_to_disabled_and_cannot_enable_itself_from_capture_policy ... ok
+test source_crate_projects_the_same_shared_card_with_exact_source_references ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s

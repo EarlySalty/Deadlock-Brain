@@ -107,7 +107,8 @@ async fn pull_forum_inner(
             break;
         }
 
-        if !options.refresh_existing && thread_document_exists(store.pool(), thread.thread_id).await?
+        if !options.refresh_existing
+            && thread_document_exists(store.pool(), thread.thread_id).await?
         {
             skipped_existing += 1;
             continue;
@@ -633,7 +634,14 @@ mod tests {
 
     #[test]
     fn parse_thread_html_extracts_title_posts_text_and_attachments() {
-        let html = thread_html(2, "Older thread", 2, "Yoshi", "Valve Developer", "Older body");
+        let html = thread_html(
+            2,
+            "Older thread",
+            2,
+            "Yoshi",
+            "Valve Developer",
+            "Older body",
+        );
         let parsed = parse_thread_html(&html).expect("parse thread");
         assert_eq!(parsed.title.as_deref(), Some("Older thread"));
         assert_eq!(parsed.posts.len(), 1);

@@ -9,20 +9,44 @@ use serde_json::{json, Value};
 use sqlx::PgPool;
 
 use crate::{
-    store::{
-        complete_run, json_bytes, EntitySnapshotInput, SourceDocumentInput, SourceStore,
-    },
+    store::{complete_run, json_bytes, EntitySnapshotInput, SourceDocumentInput, SourceStore},
     util::form_urlencode,
     wiki::{WikiRateLimiter, DEFAULT_API_URL, SOURCE},
     Result, SourcesError,
 };
 
 pub const RUN_SOURCE: &str = "deadlock_wiki_corpus";
+pub const PARSER_REVISION: &str = "dbrain-wiki-corpus/1";
+
+/// oldid alone does not pin transcluded templates. A rendered-response hash
+/// mismatch fails closed; no new revision or inventory is discovered at runtime.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct WikiCorpusPin {
+    pub parser_revision: String,
+    pub schema_version: Option<u32>,
+    pub license_text: String,
+    pub license_url: String,
+    pub pages: Vec<WikiPagePin>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct WikiPagePin {
+    pub page_id: i64,
+    pub revision_id: i64,
+    pub title: String,
+    pub revision_timestamp: String,
+    pub page_touched: String,
+    /// external::normalized_hash(parse_response), not the HTTP byte hash.
+    pub response_sha256: String,
+}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct WikiCorpusOptions {
     pub enabled: bool,
+    pub source_pin: Option<WikiCorpusPin>,
     pub min_delay_seconds: f64,
     pub cache_ttl_seconds: u64,
     pub max_pages: usize,
@@ -34,6 +58,7 @@ impl Default for WikiCorpusOptions {
     fn default() -> Self {
         Self {
             enabled: false,
+            source_pin: None,
             min_delay_seconds: 5.0,
             cache_ttl_seconds: 604_800,
             max_pages: 20_000,
@@ -44,6 +69,52 @@ impl Default for WikiCorpusOptions {
 }
 
 impl WikiCorpusOptions {
+    pub fn validate_pinned(&self) -> Result<()> {
+        self.validate()?;
+        let pin = self.source_pin.as_ref().ok_or_else(|| SourcesError::invalid_input(
+            "wiki.source_pin requires exact revisions, response hashes and parser_revision; no latest discovery"
+        ))?;
+        if pin.parser_revision != PARSER_REVISION || pin.schema_version.is_some_and(|v| v != 1) {
+            return Err(SourcesError::invalid_input(
+                "unsupported wiki parser_revision or schema_version",
+            ));
+        }
+        let text = |value: &str| {
+            !value.trim().is_empty() && value.len() <= 4096 && !value.chars().any(char::is_control)
+        };
+        if !text(&pin.license_text)
+            || !text(&pin.license_url)
+            || !pin.license_url.starts_with("https://")
+            || pin.pages.is_empty()
+            || pin.pages.len() > self.max_pages
+        {
+            return Err(SourcesError::invalid_input(
+                "invalid pinned Wiki license or page inventory",
+            ));
+        }
+        let mut ids = BTreeSet::new();
+        for page in &pin.pages {
+            if page.page_id <= 0
+                || page.revision_id <= 0
+                || !ids.insert(page.page_id)
+                || !text(&page.title)
+                || page.title.contains(['<', '>'])
+                || !text(&page.revision_timestamp)
+                || !text(&page.page_touched)
+                || page.response_sha256.len() != 64
+                || !page
+                    .response_sha256
+                    .bytes()
+                    .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+            {
+                return Err(SourcesError::invalid_input(
+                    "invalid or duplicate Wiki page/revision/hash pin",
+                ));
+            }
+        }
+        Ok(())
+    }
+
     fn validate(&self) -> Result<()> {
         if !self.enabled {
             return Err(SourcesError::invalid_input(
@@ -56,7 +127,9 @@ impl WikiCorpusOptions {
             || self.max_response_bytes == 0
             || self.max_total_bytes < self.max_response_bytes
         {
-            return Err(SourcesError::invalid_input("Ungültige Wiki-Grenzen; mindestens fünf Sekunden Abrufabstand sind erforderlich"));
+            return Err(SourcesError::invalid_input(
+                "Ungültige Wiki-Grenzen; mindestens fünf Sekunden Abrufabstand sind erforderlich",
+            ));
         }
         Ok(())
     }
@@ -69,7 +142,7 @@ pub async fn pull_wiki_corpus_with_pool(
     http: &HttpClient,
     options: &WikiCorpusOptions,
 ) -> Result<Value> {
-    options.validate()?;
+    options.validate_pinned()?;
     let lock = OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -136,7 +209,8 @@ pub async fn pull_wiki_corpus_with_pool(
             }, Some(document_id)).await?);
         }
         Ok(json!({
-            "schema_version": 1, "scope": "main_namespace_nonredirect_articles",
+            "schema_version": 1, "scope": "explicitly_pinned_main_namespace_articles",
+            "source_pin": options.source_pin,
             "complete": true, "pages": pages.len(), "snapshot_ids": snapshot_ids,
             "license": pages.first().map(|page| &page["_wiki"]["license"]),
             "limitations": ["Text einschließlich gerenderter Vorlagen und Tabellen; keine Medien-Dateien.", "Ein Wiki-Revisionsdatum bestätigt keinen aktuellen Spiel-Patch."]
@@ -151,22 +225,27 @@ fn collect_corpus(
     mut get: impl FnMut(&[(&str, String)]) -> Result<Value>,
 ) -> Result<Vec<Value>> {
     options.validate()?;
-    let site = get(&[
-        ("action", "query".into()),
-        ("format", "json".into()),
-        ("formatversion", "2".into()),
-        ("meta", "siteinfo".into()),
-        ("siprop", "rightsinfo".into()),
-        ("maxlag", "5".into()),
-    ])?;
+    if options.source_pin.is_some() {
+        options.validate_pinned()?;
+    }
+    let site = if let Some(pin) = &options.source_pin {
+        json!({"query":{"rightsinfo":{"text":pin.license_text,"url":pin.license_url}}})
+    } else {
+        get(&[
+            ("action", "query".into()),
+            ("format", "json".into()),
+            ("formatversion", "2".into()),
+            ("meta", "siteinfo".into()),
+            ("siprop", "rightsinfo".into()),
+            ("maxlag", "5".into()),
+        ])?
+    };
     api_ok(&site)?;
     let license = site
         .pointer("/query/rightsinfo")
         .filter(|rights| nonempty(rights.get("text")) && nonempty(rights.get("url")))
         .ok_or_else(|| {
-            SourcesError::invalid_input(
-                "Wiki-Lizenzangaben fehlen; kein unattribuierter Import",
-            )
+            SourcesError::invalid_input("Wiki-Lizenzangaben fehlen; kein unattribuierter Import")
         })?
         .clone();
     let mut continuation = None::<Value>;
@@ -194,13 +273,20 @@ fn collect_corpus(
                 }
             }
         }
-        let listing = get(&params)?;
+        let listing = if let Some(pin) = &options.source_pin {
+            json!({"query":{"pages":pin.pages.iter().map(|page| json!({
+                "pageid":page.page_id,"ns":0,"title":page.title,"touched":page.page_touched,
+                "revisions":[{"revid":page.revision_id,"timestamp":page.revision_timestamp}]
+            })).collect::<Vec<_>>()}})
+        } else {
+            get(&params)?
+        };
         api_ok(&listing)?;
         let empty = Vec::new();
         let batch = match listing.pointer("/query/pages") {
-            Some(value) => value.as_array().ok_or_else(|| {
-                SourcesError::invalid_input("Ungültige Wiki-Seitenliste")
-            })?,
+            Some(value) => value
+                .as_array()
+                .ok_or_else(|| SourcesError::invalid_input("Ungültige Wiki-Seitenliste"))?,
             None if listing.get("continue").is_some()
                 || (!pages.is_empty() && listing["batchcomplete"] == true) =>
             {
@@ -219,10 +305,7 @@ fn collect_corpus(
                             .any(|ch| ch.is_control() || matches!(ch, '<' | '>'))
                 })
                 .ok_or_else(|| SourcesError::invalid_input("Wiki-Titel fehlt"))?;
-            if page["ns"].as_i64() != Some(0)
-                || page.get("missing").is_some()
-                || !ids.insert(id)
-            {
+            if page["ns"].as_i64() != Some(0) || page.get("missing").is_some() || !ids.insert(id) {
                 return Err(SourcesError::invalid_input(
                     "Ungültige oder doppelte Wiki-Seite",
                 ));
@@ -237,9 +320,7 @@ fn collect_corpus(
             let timestamp = revision["timestamp"]
                 .as_str()
                 .filter(|s| !s.is_empty())
-                .ok_or_else(|| {
-                    SourcesError::invalid_input("Wiki-Revisionsdatum fehlt")
-                })?;
+                .ok_or_else(|| SourcesError::invalid_input("Wiki-Revisionsdatum fehlt"))?;
             // Vorlagen können sich ohne neue Artikelrevision ändern. touched
             // wird deshalb Teil des Cache-Schlüssels über den API-requestid.
             let touched = page["touched"]
@@ -257,6 +338,19 @@ fn collect_corpus(
                 ("maxlag", "5".into()),
             ])?;
             api_ok(&parsed)?;
+            let response_sha256 = crate::external::normalized_hash(&parsed);
+            if let Some(pin) = &options.source_pin {
+                let expected = pin
+                    .pages
+                    .iter()
+                    .find(|page| page.page_id == id)
+                    .ok_or_else(|| {
+                        SourcesError::invariant("Wiki page absent from explicit inventory")
+                    })?;
+                if response_sha256 != expected.response_sha256 {
+                    return Err(SourcesError::invalid_input("Wiki pinned response hash mismatch (including templates); review an explicit config change"));
+                }
+            }
             if parsed["parse"]["revid"].as_i64() != Some(revid)
                 || parsed["parse"]["pageid"].as_i64() != Some(id)
                 || parsed["parse"]["title"].as_str() != Some(title)
@@ -265,9 +359,9 @@ fn collect_corpus(
                     "Wiki-Seite änderte sich während des Imports; erneut synchronisieren",
                 ));
             }
-            let html = parsed["parse"]["text"].as_str().ok_or_else(|| {
-                SourcesError::invalid_input("Gerenderter Wiki-Text fehlt")
-            })?;
+            let html = parsed["parse"]["text"]
+                .as_str()
+                .ok_or_else(|| SourcesError::invalid_input("Gerenderter Wiki-Text fehlt"))?;
             if html.len() > options.max_response_bytes {
                 return Err(SourcesError::invalid_input(
                     "Wiki-Text überschreitet das Größenlimit",
@@ -284,8 +378,7 @@ fn collect_corpus(
                 })
                 .map(str::to_string)
                 .collect::<Vec<_>>();
-            let historical =
-                is_historical(title) || categories.iter().any(|c| is_historical(c));
+            let historical = is_historical(title) || categories.iter().any(|c| is_historical(c));
             let sections = extract_sections(html);
             if sections.iter().all(|section| section.text.is_empty()) {
                 return Err(SourcesError::invalid_input(
@@ -298,6 +391,9 @@ fn collect_corpus(
                     "schema_version": 1, "page_id": id, "revision_id": revid,
                     "revision_timestamp": timestamp, "page_touched": touched,
                     "rendered_templates_pinned": false,
+                    "rendered_content_hash_pinned": options.source_pin.is_some(),
+                    "rendered_response_sha256": response_sha256,
+                    "parser_revision": PARSER_REVISION,
                     "url": format!("https://deadlock.wiki/index.php?{}", form_urlencode(&[("title", title.to_string())])),
                     "revision_url": format!("https://deadlock.wiki/index.php?oldid={revid}"),
                     "license": license, "attribution": "Deadlock Wiki contributors",
@@ -306,8 +402,7 @@ fn collect_corpus(
                 }
             });
             // Auch Kategorien, Lizenz und Provenienz belegen Korpusspeicher.
-            total_bytes =
-                total_bytes.saturating_add(serde_json::to_vec(&normalized)?.len());
+            total_bytes = total_bytes.saturating_add(serde_json::to_vec(&normalized)?.len());
             if total_bytes > options.max_total_bytes {
                 return Err(SourcesError::invalid_input(
                     "Normalisierter Wiki-Korpus überschreitet das Größenlimit",
@@ -523,12 +618,75 @@ mod tests {
             Ok(replies.pop_front().expect("unexpected network request"))
         })
     }
+    fn pinned_options() -> WikiCorpusOptions {
+        WikiCorpusOptions {
+            source_pin: Some(WikiCorpusPin {
+                parser_revision: PARSER_REVISION.into(),
+                schema_version: Some(1),
+                license_text: "Test license".into(),
+                license_url: "https://example.test/license".into(),
+                pages: vec![WikiPagePin {
+                    page_id: 1,
+                    revision_id: 101,
+                    title: "Hero 1".into(),
+                    revision_timestamp: "2026-09-20T00:00:00Z".into(),
+                    page_touched: "2026-09-24T00:00:00Z".into(),
+                    response_sha256: crate::external::normalized_hash(&parsed(1)),
+                }],
+            }),
+            ..options()
+        }
+    }
+
+    #[test]
+    fn pinned_corpus_is_reproducible_without_latest_discovery() {
+        let options = pinned_options();
+        options.validate_pinned().unwrap();
+        let get = |params: &[(&str, String)]| {
+            assert!(params.contains(&("oldid", "101".into())));
+            assert!(!params
+                .iter()
+                .any(|(key, _)| matches!(*key, "generator" | "meta")));
+            Ok(parsed(1))
+        };
+        let first = collect_corpus(&options, get).unwrap();
+        let again = collect_corpus(&options, get).unwrap();
+        assert_eq!(first, again);
+        assert_eq!(first[0]["_wiki"]["rendered_content_hash_pinned"], true);
+    }
+
+    #[test]
+    fn template_drift_requires_an_explicit_pin_change() {
+        let mut options = pinned_options();
+        let mut updated = parsed(1);
+        updated["parse"]["text"] = json!("<p>Changed transcluded template</p>");
+        assert!(collect_corpus(&options, |_| Ok(updated.clone())).is_err());
+        options.source_pin.as_mut().unwrap().pages[0].response_sha256 =
+            crate::external::normalized_hash(&updated);
+        assert!(collect_corpus(&options, |_| Ok(updated.clone())).is_ok());
+        assert!(collect_corpus(&options, |_| Ok(parsed(2))).is_err());
+    }
+
+    #[test]
+    fn runtime_requires_wiki_revision_and_parser_pins() {
+        assert!(options().validate_pinned().is_err());
+        let mut opts = pinned_options();
+        opts.source_pin.as_mut().unwrap().parser_revision = "unknown".into();
+        assert!(collect_corpus(&opts, |_| panic!("network before validation")).is_err());
+        let mut opts = pinned_options();
+        opts.source_pin.as_mut().unwrap().pages[0].response_sha256 = "HEAD".into();
+        assert!(opts.validate_pinned().is_err());
+        let mut opts = pinned_options();
+        let page = opts.source_pin.as_ref().unwrap().pages[0].clone();
+        opts.source_pin.as_mut().unwrap().pages.push(page);
+        assert!(opts.validate_pinned().is_err());
+    }
+
     #[test]
     fn pagination_and_exact_revision_are_used() {
         let mut first = listing(1);
         first["continue"] = json!({"continue":"||","gapcontinue":"Hero 2"});
-        let mut replies =
-            VecDeque::from(vec![site(), first, parsed(1), listing(2), parsed(2)]);
+        let mut replies = VecDeque::from(vec![site(), first, parsed(1), listing(2), parsed(2)]);
         let mut requests = Vec::new();
         let pages = collect_corpus(&options(), |p| {
             requests.push(
@@ -589,10 +747,9 @@ mod tests {
     }
     #[test]
     fn disabled_network_makes_no_requests() {
-        assert!(collect_corpus(&WikiCorpusOptions::default(), |_| panic!(
-            "network called"
-        ))
-        .is_err());
+        assert!(
+            collect_corpus(&WikiCorpusOptions::default(), |_| panic!("network called")).is_err()
+        );
     }
     #[test]
     fn duplicate_pages_limits_and_repeated_cursors_do_not_claim_completeness() {
@@ -613,9 +770,7 @@ mod tests {
         .is_err());
         let mut second = listing(2);
         second["continue"] = first["continue"].clone();
-        assert!(
-            run(vec![site(), first, parsed(1), second, parsed(2)], options()).is_err()
-        );
+        assert!(run(vec![site(), first, parsed(1), second, parsed(2)], options()).is_err());
         assert!(run(
             vec![site(), listing(1), parsed(1)],
             WikiCorpusOptions {
