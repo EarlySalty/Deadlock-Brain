@@ -284,7 +284,25 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "brain-feeds"
+version = "0.1.0"
+dependencies = [
+ "brain-contracts",
+ "brain-ingestion",
+ "brain-storage",
+ "dbrain-sources",
+ "hex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 1.0.69",
+ "tokio",
 ]
 
 [[package]]
@@ -320,6 +338,22 @@ dependencies = [
  "brain-storage",
  "dbrain-retrieval",
  "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "brain-legacy-import"
+version = "0.1.0"
+dependencies = [
+ "brain-contracts",
+ "brain-ingestion",
+ "brain-storage",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "thiserror 1.0.69",
  "tokio",
 ]
 

@@ -63,13 +63,15 @@ Anpassung beim Import: Spaltendefaults `public.gen_random_uuid()` (pgcrypto in D
 
 Keine dieser Stellen wurde mit einem zweiten Credential an DL-Main angebunden.
 
+Stand Pre-G5-Review: Die Brain-Seite der Verträge ist gebaut (`brain.feed.patchnotes.v1` mit Adapter, `brain.build_publish.v1` mit HTTP-Client und Fixture, Deadlock-Assets-API direkt in den Kern statt Bot-Writer; Crate `brain-feeds`). Es fehlen die Provider-Seiten (Export im Patchnotes-Bot, Publish-Endpunkt im Steam-Bot) und die Abschaltung der alten Direktpfade, die zu G5 gehört. Details: [PRE_G5_TECHNICAL_REVIEW.md](PRE_G5_TECHNICAL_REVIEW.md), Abschnitt 4.
+
 ## Vergleich Kernmodell (Records, Revisionen, ACL, Tombstones, Releases, Checkpoints)
 
 DL-Main enthält **keine** Tabellen des neuen Kernmodells (`source_record_revisions`, `source_record_heads`, `corpus_releases_v1`, `source_jobs_v1`, `source_checkpoints_v1`, `conversation_owners_v1`, `core_schema_version`). Es gibt dort also keine Releases, Checkpoints, Tombstones oder Knowledge-Versionen, die zu vergleichen wären. Im Ziel ist das Kernschema leer und auf Version 2 geprüft.
 
 Die Kernsemantik wurde stattdessen an echten Pilotdokumenten in `brain_pilot` und per Backup/Restore geprüft: 20 Revisionen, 18 Heads, 1 Tombstone, 2 private Heads nach Revoke, Release `pilot-r1@pilot-knowledge-v1`, 3 Checkpoints, 279 Conversation-Owner; nach Restore in eine Wegwerf-Instanz identisch inklusive ACLs.
 
-Offen: Es gibt keinen Konverter von den Alttabellen in `SourceRecordV2`. Welche Alttabellen als Quellen in den Kern-Store übernommen werden (und mit welcher Provenienz, Sichtbarkeit und Gültigkeit), ist eine eigene Aufgabe vor dem Cutover.
+Nachtrag Pre-G5-Review: Der Konverter existiert (`rust/crates/brain-legacy-import`). Alle 49 Tabellen sind eingeordnet; Patchnotes und Entitäten sind als `SourceRecordV2` mit Provenienz, Sichtbarkeit und unknown-Gültigkeit in `brain_pilot_legacy` importiert und über `brain-serve` beantwortbar. Einordnung, Feldabbildung und Echtlauf: [LEGACY_CORE_MIGRATION.md](LEGACY_CORE_MIGRATION.md). In die produktive DB `brain` wurde nichts importiert.
 
 ## Abweichungen
 

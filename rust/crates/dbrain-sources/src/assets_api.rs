@@ -194,6 +194,26 @@ fn endpoint_path(kind: &str) -> Option<&'static str> {
         .iter()
         .find_map(|(candidate, path)| (*candidate == kind).then_some(*path))
 }
+#[derive(Debug, Clone, PartialEq)]
+pub struct AssetEntity {
+    pub entity_type: String,
+    pub external_id: String,
+    pub canonical_name: Option<String>,
+    pub payload: Value,
+}
+
+pub fn asset_entities(kind: &str, payload: &Value) -> Result<Vec<AssetEntity>> {
+    Ok(snapshots_for(kind, payload)?
+        .into_iter()
+        .map(|s| AssetEntity {
+            entity_type: s.entity_type,
+            external_id: s.external_id,
+            canonical_name: s.canonical_name,
+            payload: s.payload,
+        })
+        .collect())
+}
+
 fn snapshots_for(kind: &str, payload: &Value) -> Result<Vec<EntitySnapshotInput>> {
     let entity_type = match kind {
         "items" => "item_or_ability",

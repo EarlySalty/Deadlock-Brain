@@ -8,7 +8,8 @@ use brain_contracts::{
     },
     source::{origin_from_record, Versioned},
     wiki::IrValue,
-    CorpusRelease, DocumentRevision, SourceRecordV2,
+    CorpusRelease, DocumentRevision, DocumentStorePort, SourceBatch, SourceCheckpoint,
+    SourceRecordV2,
 };
 use brain_storage::{ApplyOutcome, PgStore};
 use dbrain_s12_wiki_probe::{
@@ -551,6 +552,162 @@ impl ScratchWikiStore {
             "scratch_release_written":true,"provider_calls":0}),
         )
     }
+}
+
+pub const CORE_STAGE_CONFIGURATION: &str = "brain-wiki-core-stage.v1";
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WikiCoreCheckpoint {
+    pub configuration: String,
+    pub documents: BTreeMap<String, BTreeMap<u64, String>>,
+}
+
+pub async fn stage_into_store<S: DocumentStorePort + ?Sized>(
+    store: &S,
+    ir: &WikiIr,
+    request: &ReleaseRequest,
+    owner: &str,
+) -> Result<Value> {
+    let plan = plan_release(ir, request)?;
+    let mut records: Vec<&SourceRecordV2> = plan
+        .raw_records
+        .iter()
+        .chain(plan.ir_records.iter())
+        .chain(plan.fact_records.iter())
+        .collect();
+    let source_id = records
+        .first()
+        .map(|r| r.source_id.clone())
+        .ok_or_else(|| invalid("empty wiki plan"))?;
+    if records.iter().any(|r| r.source_id != source_id) {
+        return Err(invalid("wiki plan spans several sources"));
+    }
+    let previous = store
+        .checkpoint(&source_id)
+        .await
+        .map_err(|_| invalid("checkpoint unavailable"))?;
+    let (mut generation, mut state) = match &previous {
+        None => (
+            0,
+            WikiCoreCheckpoint {
+                configuration: CORE_STAGE_CONFIGURATION.into(),
+                documents: BTreeMap::new(),
+            },
+        ),
+        Some(cp) => {
+            let state: WikiCoreCheckpoint = serde_json::from_value(cp.state.clone())?;
+            if cp.configuration != CORE_STAGE_CONFIGURATION
+                || state.configuration != CORE_STAGE_CONFIGURATION
+            {
+                return Err(invalid("foreign checkpoint for wiki source"));
+            }
+            (cp.generation, state)
+        }
+    };
+    let mut incoming_heads = BTreeMap::<&str, u64>::new();
+    for raw in &plan.raw_records {
+        let head = incoming_heads
+            .entry(&raw.logical_id)
+            .or_insert(raw.revision);
+        *head = (*head).max(raw.revision);
+    }
+    for (logical_id, head) in &incoming_heads {
+        if state
+            .documents
+            .get(*logical_id)
+            .and_then(|h| h.keys().next_back())
+            .is_some_and(|stored| stored > head)
+        {
+            return Err(invalid(
+                "stale capture: a newer Wiki revision is already stored",
+            ));
+        }
+    }
+    records.sort_by_key(|r| (r.logical_id.clone(), r.revision));
+    let mut pending: BTreeMap<&str, Vec<&SourceRecordV2>> = BTreeMap::new();
+    let mut unchanged = 0usize;
+    for record in records {
+        let history = state.documents.get(&record.logical_id);
+        match history.and_then(|h| h.get(&record.revision)) {
+            Some(hash) if hash == &record.content_hash => {
+                unchanged += 1;
+                continue;
+            }
+            Some(_) => {
+                return Err(invalid(
+                    "immutable Wiki revision conflict; explicit reconciliation required",
+                ))
+            }
+            None => {}
+        }
+        if history
+            .and_then(|h| h.keys().next_back())
+            .is_some_and(|head| *head > record.revision)
+        {
+            return Err(invalid(
+                "stale capture or missing older history; no partial release",
+            ));
+        }
+        pending.entry(&record.logical_id).or_default().push(record);
+    }
+    let rounds = pending.values().map(Vec::len).max().unwrap_or(0);
+    let mut committed = 0usize;
+    for round in 0..rounds {
+        let batch_records: Vec<SourceRecordV2> = pending
+            .values()
+            .filter_map(|list| list.get(round).map(|r| (*r).clone()))
+            .collect();
+        for record in &batch_records {
+            state
+                .documents
+                .entry(record.logical_id.clone())
+                .or_default()
+                .insert(record.revision, record.content_hash.clone());
+        }
+        let batch = SourceBatch {
+            expected_generation: generation,
+            checkpoint: SourceCheckpoint {
+                source_id: source_id.clone(),
+                configuration: CORE_STAGE_CONFIGURATION.into(),
+                generation: generation
+                    .checked_add(1)
+                    .ok_or_else(|| invalid("generation exhausted"))?,
+                state: serde_json::to_value(&state)?,
+            },
+            records: batch_records,
+        };
+        batch
+            .validate()
+            .map_err(|e| invalid(format!("invalid wiki batch: {e:?}")))?;
+        let lease = store
+            .claim(&source_id, owner, 60_000)
+            .await
+            .map_err(|e| invalid(format!("lease unavailable: {e:?}")))?;
+        store
+            .commit(&batch, &lease)
+            .await
+            .map_err(|e| invalid(format!("canonical store commit failed: {e:?}")))?;
+        committed += batch.records.len();
+        generation = batch.checkpoint.generation;
+    }
+    store
+        .publish(&plan.release)
+        .await
+        .map_err(|e| invalid(format!("release publication failed: {e:?}")))?;
+    Ok(json!({
+        "source_id": source_id,
+        "committed_records": committed,
+        "unchanged_records": unchanged,
+        "batches": rounds,
+        "raw_records": plan.raw_records.len(),
+        "ir_records": plan.ir_records.len(),
+        "fact_records": plan.fact_records.len(),
+        "withheld_fields": plan.withheld_fields,
+        "release": plan.release,
+        "second_store": false,
+        "provider_calls": 0,
+    }))
 }
 
 #[cfg(test)]

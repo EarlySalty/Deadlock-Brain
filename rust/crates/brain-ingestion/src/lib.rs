@@ -293,6 +293,7 @@ fn next_revision(previous: u64) -> Result<u64> {
         .ok_or_else(|| IngestionError::InvalidState("revision exhausted".into()))
 }
 
+pub mod document_set;
 mod durable;
 
 fn digest(content: &[u8]) -> String {

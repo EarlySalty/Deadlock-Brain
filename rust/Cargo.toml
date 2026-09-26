@@ -5,6 +5,8 @@ members = [
   "crates/brain-policy",
   "crates/brain-storage",
   "crates/brain-ingestion",
+  "crates/brain-legacy-import",
+  "crates/brain-feeds",
   "crates/brain-providers",
   "crates/brain-jev",
   "crates/brain-kernel",

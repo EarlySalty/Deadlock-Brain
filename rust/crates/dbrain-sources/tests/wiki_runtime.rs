@@ -415,3 +415,46 @@ async fn scratch_raw_ir_facts_release_delta_reparse_and_acl() {
     )
     .unwrap();
 }
+
+#[tokio::test]
+async fn normal_store_stage_is_idempotent_versioned_and_needs_no_second_store() {
+    use brain_contracts::SnapshotReadPort;
+    use brain_storage::MemoryRepository;
+    use dbrain_sources::wiki_runtime::stage_into_store;
+    let store = MemoryRepository::default();
+    let mapping = fixture::mapping();
+    let ir = knowledge::extract(&fixture::bytes(101, 201), &mapping).unwrap();
+    let req = request(&ir, "c5-core-r1");
+    let first = stage_into_store(&store, &ir, &req, "wiki-core")
+        .await
+        .unwrap();
+    assert_eq!(first["committed_records"], 15);
+    assert_eq!(first["fact_records"], 3);
+    assert_eq!(first["second_store"], false);
+    assert!(first["batches"].as_u64().unwrap() >= 2);
+    let snapshot = store.read_snapshot("c5-core-r1").unwrap();
+    let facts = snapshot
+        .revisions
+        .iter()
+        .filter(|r| r.metadata.contains_key("wiki_field"))
+        .count();
+    assert_eq!(facts, 3);
+    let again = stage_into_store(&store, &ir, &req, "wiki-core")
+        .await
+        .unwrap();
+    assert_eq!(again["committed_records"], 0);
+    assert_eq!(again["unchanged_records"], 15);
+    let changed = knowledge::extract(&fixture::bytes(102, 201), &mapping).unwrap();
+    let changed_req = request(&changed, "c5-core-r2");
+    let delta = stage_into_store(&store, &changed, &changed_req, "wiki-core")
+        .await
+        .unwrap();
+    assert!(delta["committed_records"].as_u64().unwrap() > 0);
+    assert!(delta["unchanged_records"].as_u64().unwrap() > 0);
+    assert!(store.read_snapshot("c5-core-r2").is_ok());
+    assert!(
+        stage_into_store(&store, &ir, &request(&ir, "c5-core-stale"), "wiki-core")
+            .await
+            .is_err()
+    );
+}

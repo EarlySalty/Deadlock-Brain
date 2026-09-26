@@ -10,6 +10,7 @@ pub mod domain;
 pub mod domain_knowledge;
 pub mod embedding;
 pub mod external;
+pub mod feeds;
 pub mod provider_input;
 pub mod public_api;
 pub mod replay;
