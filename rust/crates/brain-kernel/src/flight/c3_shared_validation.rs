@@ -1,6 +1,8 @@
 //! Regression: a single-flight follower must classify its OWN fresh validation failure.
 use super::*;
-use brain_contracts::{AnswerProfile, Budget, Principal, ProviderAnswer, SourceVisibility};
+use brain_contracts::{
+    AnswerProfile, Budget, EvidenceKind, Principal, ProviderAnswer, SourceVisibility,
+};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     mpsc,
