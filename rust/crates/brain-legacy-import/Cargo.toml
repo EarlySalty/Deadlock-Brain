@@ -1,0 +1,26 @@
+[package]
+name = "brain-legacy-import"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "brain_legacy_import"
+path = "src/lib.rs"
+
+[[bin]]
+name = "brain-legacy-import"
+path = "src/bin/brain-legacy-import.rs"
+
+[dependencies]
+brain-contracts = { path = "../brain-contracts" }
+brain-storage = { path = "../brain-storage" }
+hex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+sqlx = { workspace = true, features = ["json"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
