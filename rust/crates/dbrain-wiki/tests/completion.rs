@@ -4,7 +4,10 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 fn fixture() -> Value {
-    serde_json::from_str(include_str!("../fixtures/pilot.capture.json")).unwrap()
+    serde_json::from_str(include_str!(
+        "../../../../architecture/migration/s12/fixtures/pilot.capture.json"
+    ))
+    .unwrap()
 }
 fn raw_page(v: &mut Value, id: i64) -> &mut Value {
     &mut v["pages"]
@@ -28,7 +31,10 @@ fn content(v: &mut Value, id: i64, value: Value) {
     latest(v, id)["slots"]["main"]["content"] = json!(value.to_string());
 }
 fn mapping() -> MappingProfile {
-    serde_json::from_str(include_str!("../fixtures/completion.mapping.json")).unwrap()
+    serde_json::from_str(include_str!(
+        "../../../../architecture/migration/s12/fixtures/completion.mapping.json"
+    ))
+    .unwrap()
 }
 fn ir(v: &Value) -> WikiIr {
     extract(&serde_json::to_vec(v).unwrap(), &mapping()).unwrap()
@@ -327,7 +333,7 @@ fn global_policy_revocation_invalidates_cards_without_reembedding_raw_bytes() {
 }
 #[test]
 fn static_lua_data_has_exact_utf8_locators_and_no_executable_grammar() {
-    let text = include_str!("../fixtures/literal-data.lua");
+    let text = include_str!("../../../../architecture/migration/s12/fixtures/literal-data.lua");
     let values = literal::lua(text).unwrap();
     assert!(values.iter().any(|c| c.value == json!(false)));
     assert!(values.iter().any(|c| c.value.is_null()));
@@ -357,7 +363,8 @@ fn static_lua_data_has_exact_utf8_locators_and_no_executable_grammar() {
 }
 #[test]
 fn flat_templates_are_data_parameters_not_executed_programs() {
-    let text = include_str!("../fixtures/literal-template.wiki");
+    let text =
+        include_str!("../../../../architecture/migration/s12/fixtures/literal-template.wiki");
     let values = literal::template(text).unwrap();
     assert_eq!(values.len(), 3);
     for c in values {
@@ -433,7 +440,9 @@ fn unreviewed_profiles_and_duplicate_fields_are_rejected() {
 #[test]
 fn shared_contract_card_matches_the_reviewed_synthetic_golden() {
     let projected = card(&ir(&fixture()));
-    let expected: Value =
-        serde_json::from_str(include_str!("../fixtures/completion-card.golden.json")).unwrap();
+    let expected: Value = serde_json::from_str(include_str!(
+        "../../../../architecture/migration/s12/fixtures/completion-card.golden.json"
+    ))
+    .unwrap();
     assert_eq!(serde_json::to_value(projected).unwrap(), expected);
 }

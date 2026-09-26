@@ -5,6 +5,7 @@ edition = "2024"
 rust-version = "1.88"
 
 [dependencies]
+brain-contracts = { path = "../brain-contracts" }
 deadlock-brain-core = { path = "../deadlock-brain-core" }
 haste_core = { git = "https://github.com/deadlock-api/haste", rev = "bfb292d4798031350861ad297aa26753267a1ea6", default-features = false }
 # EXACT transitive schema used by haste; do not substitute the upstream default branch.

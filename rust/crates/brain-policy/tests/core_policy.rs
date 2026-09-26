@@ -9,6 +9,7 @@ use std::{
 };
 fn query(scopes: &[&str]) -> Query {
     Query {
+        domain: None,
         request_id: "q1".into(),
         conversation_id: "c1".into(),
         text: "Abrams".into(),

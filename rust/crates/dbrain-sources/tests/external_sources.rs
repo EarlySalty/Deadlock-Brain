@@ -85,6 +85,19 @@ fn status_type_encoding_and_schema_version_gate_preserve_quarantine() {
         report.quarantined_dependencies,
         BTreeSet::from(["items".into()])
     );
+    assert_eq!(
+        ir.contract().data.schema_version,
+        brain_contracts::value::Observed::known("2".into())
+    );
+    assert_eq!(
+        ir.provenance().source_revision,
+        dbrain_sources::external::SourceRevision::Http {
+            body_sha256: sha256(raw),
+            etag: None,
+            last_modified: None
+        }
+    );
+    assert_ne!(ir.provenance().parser_revision, "2");
 }
 
 #[test]

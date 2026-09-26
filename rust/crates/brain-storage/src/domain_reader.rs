@@ -3,11 +3,22 @@ use crate::memory_repository::validate_release;
 use brain_contracts::{
     domain::{
         DomainObject, DomainSnapshot, DomainStorePort, StoredDomainObject, Validity,
-        DOMAIN_CONTRACT_VERSION,
+        DOMAIN_CONTRACT_VERSION, LEGACY_DOMAIN_CONTRACT_VERSION,
     },
     AuthorizedContext, DocumentRevision, PortError, SnapshotReadPort, SourceRecordV2,
 };
 use std::collections::{BTreeMap, BTreeSet};
+#[path = "domain_knowledge.rs"]
+mod knowledge;
+impl<S: SnapshotReadPort> DomainStorePort for DomainReader<S> {
+    fn read_domain(
+        &self,
+        context: &AuthorizedContext,
+        validity: &Validity,
+    ) -> Result<DomainSnapshot, PortError> {
+        self.read_with_egress(context, validity, false)
+    }
+}
 
 #[derive(Clone)]
 pub struct DomainReader<S> {
@@ -40,11 +51,12 @@ fn source_visible(
     }
     Ok(true)
 }
-impl<S: SnapshotReadPort> DomainStorePort for DomainReader<S> {
-    fn read_domain(
+impl<S: SnapshotReadPort> DomainReader<S> {
+    pub fn read_with_egress(
         &self,
         context: &AuthorizedContext,
         validity: &Validity,
+        for_provider: bool,
     ) -> Result<DomainSnapshot, PortError> {
         if !(1..=60000).contains(&context.deadline_ms)
             || !stable(&validity.patch)
@@ -59,7 +71,14 @@ impl<S: SnapshotReadPort> DomainStorePort for DomainReader<S> {
         {
             return Err(invalid("domain release or patch mismatch"));
         }
-        let visible = snapshot.authorized(&context.principal, false)?;
+        let visible: Vec<_> = snapshot
+            .authorized(&context.principal, for_provider)?
+            .into_iter()
+            .filter(|r| knowledge::validity_matches(r, validity))
+            .collect();
+        let mut cards = BTreeMap::new();
+        let mut catalogs = BTreeMap::new();
+        let mut object_sources = BTreeMap::new();
         let mut facts = BTreeMap::new();
         let mut rules = BTreeMap::new();
         let mut predicates = BTreeMap::new();
@@ -68,7 +87,9 @@ impl<S: SnapshotReadPort> DomainStorePort for DomainReader<S> {
             let Some(schema) = record.metadata.get("domain_contract") else {
                 continue;
             };
-            if schema != DOMAIN_CONTRACT_VERSION || record.content.len() > 256 * 1024 {
+            if ![DOMAIN_CONTRACT_VERSION, LEGACY_DOMAIN_CONTRACT_VERSION].contains(&schema.as_str())
+                || record.content.len() > 256 * 1024
+            {
                 return Err(invalid("unsupported or oversized domain object"));
             }
             let stored: StoredDomainObject = serde_json::from_str(&record.content)
@@ -101,6 +122,10 @@ impl<S: SnapshotReadPort> DomainStorePort for DomainReader<S> {
                             return Err(invalid("conflicting verified domain facts"));
                         }
                     }
+                    object_sources.insert(
+                        format!("fact:{}", fact.fact_id),
+                        knowledge::reference(record),
+                    );
                     facts.insert(fact.fact_id.clone(), fact);
                 }
                 DomainObject::Rule(rule) => {
@@ -116,7 +141,70 @@ impl<S: SnapshotReadPort> DomainStorePort for DomainReader<S> {
                     if !seen.insert(("rule", rule.rule_id.clone())) {
                         return Err(invalid("ambiguous rule identity"));
                     }
+                    object_sources.insert(
+                        format!("rule:{}", rule.rule_id),
+                        knowledge::reference(record),
+                    );
                     rules.insert(rule.rule_id.clone(), rule);
+                }
+                DomainObject::HeroCard(card) => {
+                    let card = *card;
+                    if schema != DOMAIN_CONTRACT_VERSION {
+                        return Err(invalid("v2 card in legacy envelope"));
+                    }
+                    if card.validity != *validity {
+                        continue;
+                    }
+                    if card.card.knowledge_release != snapshot.release.release_id {
+                        return Err(invalid("card release mismatch"));
+                    }
+                    let Some(refs) = knowledge::card_sources(&card, &visible)? else {
+                        continue;
+                    };
+                    if !refs
+                        .iter()
+                        .map(|r| source_visible(r, &visible))
+                        .collect::<Result<Vec<_>, _>>()?
+                        .into_iter()
+                        .all(|v| v)
+                    {
+                        continue;
+                    }
+                    if !seen.insert(("card", card.card.hero_id.clone())) {
+                        return Err(invalid("ambiguous hero revision"));
+                    }
+                    object_sources.insert(
+                        format!("card:{}", card.card.hero_id),
+                        knowledge::reference(record),
+                    );
+                    cards.insert(card.card.hero_id.clone(), card);
+                }
+                DomainObject::BuildCatalog(catalog) => {
+                    let catalog = *catalog;
+                    if schema != DOMAIN_CONTRACT_VERSION {
+                        return Err(invalid("v2 catalog in legacy envelope"));
+                    }
+                    if catalog.validity != *validity {
+                        continue;
+                    }
+                    let refs = knowledge::catalog_sources(&catalog)?;
+                    if !refs
+                        .iter()
+                        .map(|r| source_visible(r, &visible))
+                        .collect::<Result<Vec<_>, _>>()?
+                        .into_iter()
+                        .all(|v| v)
+                    {
+                        continue;
+                    }
+                    if !seen.insert(("catalog", catalog.catalog_id.clone())) {
+                        return Err(invalid("ambiguous build catalog"));
+                    }
+                    object_sources.insert(
+                        format!("catalog:{}", catalog.catalog_id),
+                        knowledge::reference(record),
+                    );
+                    catalogs.insert(catalog.catalog_id.clone(), catalog);
                 }
             }
         }
@@ -125,6 +213,10 @@ impl<S: SnapshotReadPort> DomainStorePort for DomainReader<S> {
             validity: validity.clone(),
             facts: facts.into_values().collect(),
             rules: rules.into_values().collect(),
+            cards: cards.into_values().collect(),
+            catalogs: catalogs.into_values().collect(),
+            records: visible,
+            object_sources,
         })
     }
 }
@@ -290,11 +382,30 @@ mod tests {
         assert!(reader.read_domain(&context(), &v).is_err());
     }
     #[tokio::test]
+    async fn legacy_v1_numeric_facts_remain_readable_without_value_or_identity_changes() {
+        let expected = fact();
+        let mut legacy = typed("fact", DomainObject::NumericFact(expected.clone()));
+        legacy.content = serde_json::to_string(&StoredDomainObject {
+            contract_version: LEGACY_DOMAIN_CONTRACT_VERSION.into(),
+            object: DomainObject::NumericFact(expected.clone()),
+        })
+        .unwrap();
+        legacy.metadata.insert(
+            "domain_contract".into(),
+            LEGACY_DOMAIN_CONTRACT_VERSION.into(),
+        );
+        let view = DomainReader::new(store(vec![legacy]).await)
+            .read_domain(&context(), &validity())
+            .unwrap();
+        assert_eq!(view.facts, vec![expected]);
+    }
+
+    #[tokio::test]
     async fn future_contract_and_malformed_domain_payload_are_rejected() {
         let mut future = typed("fact", DomainObject::NumericFact(fact()));
         future
             .metadata
-            .insert("domain_contract".into(), "brain.domain.v2".into());
+            .insert("domain_contract".into(), "brain.domain.v999".into());
         assert!(DomainReader::new(store(vec![future]).await)
             .read_domain(&context(), &validity())
             .is_err());

@@ -47,9 +47,9 @@ def main() -> int:
         if run.returncode:
             print(run.stdout[-8000:], flush=True)
     paths = set()
-    for relative in ("architecture/migration/s12/src", "architecture/migration/s12/tests", "architecture/migration/s12/examples", "architecture/migration/s12/fixtures", "rust/crates/brain-contracts"):
+    for relative in ("rust/crates/dbrain-wiki/src", "rust/crates/dbrain-wiki/tests", "rust/crates/dbrain-wiki/examples", "architecture/migration/s12/fixtures", "rust/crates/brain-contracts"):
         paths.update(p for p in (ROOT / relative).rglob("*") if p.is_file())
-    for relative in ("architecture/migration/s12/Cargo.toml", "architecture/migration/s12/Cargo.lock", "architecture/migration/s12/check.sh", "architecture/migration/s12/check-completion.py", "rust/Cargo.toml", "rust/Cargo.lock", "rust/crates/dbrain-sources/Cargo.toml", "rust/crates/dbrain-sources/src/lib.rs", "rust/crates/dbrain-sources/src/wiki_capture_io.rs", "rust/crates/dbrain-sources/tests/wiki_knowledge_contract.rs"):
+    for relative in ("rust/crates/dbrain-wiki/Cargo.toml", "architecture/migration/s12/Cargo.lock", "architecture/migration/s12/check.sh", "architecture/migration/s12/check-completion.py", "rust/Cargo.toml", "rust/Cargo.lock", "rust/crates/dbrain-sources/Cargo.toml", "rust/crates/dbrain-sources/src/lib.rs", "rust/crates/dbrain-sources/src/wiki_capture_io.rs", "rust/crates/dbrain-sources/tests/wiki_knowledge_contract.rs"):
         paths.add(ROOT / relative)
     result["source_sha256"] = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(paths)}
     result["complete"] = True

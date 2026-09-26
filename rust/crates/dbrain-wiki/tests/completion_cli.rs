@@ -3,7 +3,9 @@ use serde_json::Value;
 use std::{path::Path, process::Command};
 fn cli(args: &[&str]) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_dbrain-s12-wiki-probe"))
-        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .current_dir(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../architecture/migration/s12"),
+        )
         .env_remove("DATABASE_URL")
         .env_remove("DEADLOCK_CENTRAL_DSN")
         .args(args)
@@ -19,10 +21,10 @@ fn extract_cli_returns_common_ir_without_publication() {
     ]);
     assert!(out.status.success());
     let ir: Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(ir["version"], "wiki-ir-v1");
+    assert_eq!(ir["contract"]["contract_version"], "brain.ir.v1");
     assert_eq!(ir["report"]["production_publishable"], false);
     assert_eq!(
-        ir["sources"]
+        ir["contract"]["data"]["sources"]
             .as_array()
             .unwrap()
             .iter()
@@ -47,8 +49,10 @@ fn project_cli_is_byte_deterministic_and_matches_shared_contract_golden() {
     assert!(a.status.success(), "{}", String::from_utf8_lossy(&a.stderr));
     assert_eq!(a.stdout, b.stdout);
     let card: Value = serde_json::from_slice(&a.stdout).unwrap();
-    let golden: Value =
-        serde_json::from_str(include_str!("../fixtures/completion-card.golden.json")).unwrap();
+    let golden: Value = serde_json::from_str(include_str!(
+        "../../../../architecture/migration/s12/fixtures/completion-card.golden.json"
+    ))
+    .unwrap();
     assert_eq!(card, golden);
 }
 #[test]
@@ -98,9 +102,12 @@ fn unchanged_ir_delta_cli_schedules_no_work() {
 }
 #[test]
 fn changing_one_field_mapping_only_reprojects_its_bound_hero() {
-    let bytes = include_bytes!("../fixtures/pilot.capture.json");
-    let mut profile: MappingProfile =
-        serde_json::from_str(include_str!("../fixtures/completion.mapping.json")).unwrap();
+    let bytes =
+        include_bytes!("../../../../architecture/migration/s12/fixtures/pilot.capture.json");
+    let mut profile: MappingProfile = serde_json::from_str(include_str!(
+        "../../../../architecture/migration/s12/fixtures/completion.mapping.json"
+    ))
+    .unwrap();
     let a = extract(bytes, &profile).unwrap();
     profile.fields[0].kind = ValueKind::Text;
     let b = extract(bytes, &profile).unwrap();
@@ -126,7 +133,9 @@ fn changing_one_field_mapping_only_reprojects_its_bound_hero() {
 }
 #[test]
 fn documentation_check_script_resolves_its_own_directory() {
-    let script =
-        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("check.sh")).unwrap();
+    let script = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../architecture/migration/s12/check.sh"),
+    )
+    .unwrap();
     assert!(script.contains("${BASH_SOURCE[0]}"));
 }

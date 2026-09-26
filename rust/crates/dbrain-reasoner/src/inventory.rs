@@ -32,6 +32,18 @@ impl Inventory {
         rules: &InventoryRules,
         sale_ids: &[i64],
     ) -> Result<PurchaseTransition> {
+        self.preview_purchase_with_active_limit(item, catalog, rules, sale_ids, 4)
+    }
+    /// The release-bound answer path supplies the verified active-slot rule.
+    /// Existing callers retain their historical four-active-item scenario.
+    pub fn preview_purchase_with_active_limit(
+        &self,
+        item: &ItemModel,
+        catalog: &[ItemModel],
+        rules: &InventoryRules,
+        sale_ids: &[i64],
+        max_active_items: usize,
+    ) -> Result<PurchaseTransition> {
         let error = |message: &str| ReasonerError::Data(message.into());
         if !item.shopable
             || item.disabled
@@ -109,10 +121,10 @@ impl Inventory {
                         .any(|candidate| candidate.item_id == **id && candidate.is_active)
             })
             .count();
-        if active_count > 4 {
-            return Err(error(
-                "Szenario erlaubt höchstens vier aktive Items im Inventar",
-            ));
+        if active_count > max_active_items {
+            return Err(error(&format!(
+                "Szenario erlaubt höchstens {max_active_items} aktive Items im Inventar"
+            )));
         }
         let purchase_cost = item.cost - component_credit;
         let net_cost = purchase_cost - sale_return;

@@ -17,11 +17,13 @@ axum = { version = "0.8", default-features = false, features = ["http1", "tokio"
 tokio = { workspace = true, features = ["sync"] }
 
 [dev-dependencies]
+serde.workspace = true
 brain-ingestion = { path = "../brain-ingestion" }
 brain-providers = { path = "../brain-providers" }
 tempfile.workspace = true
 brain-client = { path = "../brain-client" }
 brain-storage = { path = "../brain-storage" }
 dbrain-retrieval = { path = "../dbrain-retrieval" }
+dbrain-reasoner = { path = "../dbrain-reasoner" }
 sqlx = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

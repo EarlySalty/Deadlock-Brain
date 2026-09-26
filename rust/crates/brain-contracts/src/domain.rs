@@ -58,7 +58,9 @@ pub struct RuleEvaluation {
     pub knowledge_release: String,
     pub input_fact_ids: BTreeSet<String>,
 }
-pub const DOMAIN_CONTRACT_VERSION: &str = "brain.domain.v1";
+pub const LEGACY_DOMAIN_CONTRACT_VERSION: &str = "brain.domain.v1";
+pub const DOMAIN_CONTRACT_VERSION: &str = "brain.domain.v2";
+pub use crate::domain_knowledge::*;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
@@ -70,6 +72,8 @@ pub const DOMAIN_CONTRACT_VERSION: &str = "brain.domain.v1";
 pub enum DomainObject {
     NumericFact(NumericFact),
     Rule(TypedRule),
+    HeroCard(Box<DomainKnowledgeCard>),
+    BuildCatalog(Box<BuildCatalogRef>),
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -84,6 +88,15 @@ pub struct DomainSnapshot {
     pub validity: Validity,
     pub facts: Vec<NumericFact>,
     pub rules: Vec<TypedRule>,
+    #[serde(default)]
+    pub cards: Vec<DomainKnowledgeCard>,
+    #[serde(default)]
+    pub catalogs: Vec<BuildCatalogRef>,
+    /// Effective historical AND current ACLs, used only inside the trusted domain path.
+    #[serde(skip)]
+    pub records: Vec<crate::SourceRecordV2>,
+    #[serde(skip)]
+    pub object_sources: std::collections::BTreeMap<String, DocumentRevision>,
 }
 /// Implementations authorize BOTH the typed object and its canonical source revision.
 pub trait DomainStorePort: Send + Sync {

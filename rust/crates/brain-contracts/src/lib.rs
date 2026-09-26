@@ -7,12 +7,18 @@ use thiserror::Error;
 
 pub const CONTRACT_VERSION: &str = "brain.v1";
 pub mod domain;
+pub mod domain_knowledge;
 pub mod embedding;
+pub mod external;
 pub mod provider_input;
 pub mod public_api;
+pub mod replay;
 pub mod retrieval;
+pub mod source;
 pub use retrieval::{ChunkProvenance, DocumentHead};
 pub mod store;
+pub mod value;
+pub mod wiki;
 pub use embedding::{EmbeddingIdentity, EmbeddingOutput, EmbeddingProviderPort};
 pub use public_api::{
     ApiErrorDetail, ApiErrorEnvelope, PublicAnswerResponse, PublicCitation, PUBLIC_API_VERSION,
@@ -58,6 +64,10 @@ pub struct Query {
     pub request_id: String,
     pub conversation_id: String,
     pub text: String,
+    /// Optional typed intent; deterministic domain requests never require an LLM
+    /// to parse a build from prose. Omitted on existing brain.v1 text requests.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain: Option<domain::DomainRequest>,
     #[serde(default)]
     pub requested_scopes: BTreeSet<String>,
     #[serde(default)]
@@ -78,6 +88,9 @@ impl Query {
         }
         if self.text.trim().is_empty() {
             return Err(ContractError::MissingQueryText);
+        }
+        if let Some(request) = &self.domain {
+            request.validate()?;
         }
         if self.text.len() > 32_768 || self.requested_scopes.len() > 64 {
             return Err(ContractError::LimitExceeded);
@@ -264,6 +277,7 @@ pub struct Usage {
 #[serde(rename_all = "snake_case")]
 pub enum AnswerStatus {
     Answered,
+    BuildRejected,
     InsufficientEvidence,
     UnauthorizedEvidence,
     Unavailable,
@@ -356,6 +370,7 @@ pub struct HeroKnowledgeCard {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Legacy brain.v1 summary DTO. New ingestion uses `replay::ReplayArtifact`.
 pub struct ReplayArtifact {
     pub replay_id: String,
     pub source_id: String,
@@ -365,6 +380,8 @@ pub struct ReplayArtifact {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Legacy brain.v1 known-time summary. Unknown time has NO conversion to this DTO.
+/// New ingestion uses `replay::ReplayObservation` and its explicit Observed time.
 pub struct ReplayObservation {
     pub observation_id: String,
     pub replay_id: String,
@@ -464,6 +481,7 @@ mod tests {
     #[test]
     fn query_rejects_empty_identity_fields() {
         let query = Query {
+            domain: None,
             request_id: String::new(),
             conversation_id: "c1".into(),
             text: "Abrams".into(),
@@ -480,6 +498,7 @@ mod tests {
         let mut scopes = BTreeSet::new();
         scopes.insert("docs.public".to_string());
         let query = Query {
+            domain: None,
             request_id: "r1".into(),
             conversation_id: "c1".into(),
             text: "Was kann Abrams?".into(),

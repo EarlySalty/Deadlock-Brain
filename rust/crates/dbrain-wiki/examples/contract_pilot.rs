@@ -4,9 +4,15 @@ use brain_contracts::{CorpusRelease, DocumentRevision};
 use dbrain_s12_wiki_probe::knowledge::{extract, project_card, MappingProfile, ProjectionReview};
 use std::collections::BTreeMap;
 fn main() {
-    let mapping: MappingProfile =
-        serde_json::from_str(include_str!("../fixtures/completion.mapping.json")).unwrap();
-    let ir = extract(include_bytes!("../fixtures/pilot.capture.json"), &mapping).unwrap();
+    let mapping: MappingProfile = serde_json::from_str(include_str!(
+        "../../../../architecture/migration/s12/fixtures/completion.mapping.json"
+    ))
+    .unwrap();
+    let ir = extract(
+        include_bytes!("../../../../architecture/migration/s12/fixtures/pilot.capture.json"),
+        &mapping,
+    )
+    .unwrap();
     let release = CorpusRelease {
         release_id: "fixture-release-one".into(),
         knowledge_version: "fixture-knowledge-v1".into(),
