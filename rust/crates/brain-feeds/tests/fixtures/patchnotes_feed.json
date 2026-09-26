@@ -1,7 +1,7 @@
 {
  "contract_version": "brain.feed.patchnotes.v1",
  "provider": "deadlock-patchnotes-bot",
- "export_revision": "export-fc392928d1d3560d",
+ "export_revision": "export-218341e3bb9ba662",
  "exported_at": 1790450000,
  "posts": [
   {
@@ -12,7 +12,7 @@
    "language": null,
    "raw_text": "- [Heroes] Warden: Alchemical Flask projectical range and speed reduced by 30%\n- [Heroes] Infernus: Flame Wall damage rescaled\n",
    "raw_sha256": "7352ca0c372615318eb00ce55ec36ce8221316a943a8293094d4d9635124a17f",
-   "source_revision": "changelog-posts/41@7352ca0c3726"
+   "source_revision": "changelog-posts/41@f99c1c9d2fc9"
   },
   {
    "post_id": "changelog-42",
@@ -22,7 +22,7 @@
    "language": null,
    "raw_text": "Hero visual updates for Warden and Infernus, plus general bug fixes.\n",
    "raw_sha256": "8f60d0d928cf10771ad5be267635e0e237dfa896e554c9624cb31622158120f5",
-   "source_revision": "changelog-posts/42@8f60d0d928cf"
+   "source_revision": "changelog-posts/42@5a328cf6ad8b"
   }
  ]
 }
