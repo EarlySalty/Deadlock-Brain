@@ -9,6 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
+brain-client = { path = "../brain-client" }
 chrono.workspace = true
 clap.workspace = true
 deadlock-brain-core = { path = "../deadlock-brain-core" }

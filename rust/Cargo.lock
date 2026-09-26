@@ -826,6 +826,7 @@ name = "deadlock-brain"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "brain-client",
  "chrono",
  "clap",
  "dbrain-builds",
