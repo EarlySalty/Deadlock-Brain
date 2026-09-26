@@ -15,9 +15,9 @@ Es wurden keine Bots gestartet, keine Nachrichten gesendet und keine Deployments
 | Repo | Branch | Commit | PR | Verifikation |
 | --- | --- | --- | --- | --- |
 | EarlySalty/Deadlock-Twitch-Bot | `codex/fix-c9-consumer-wiring` | `8e6ee4c7c35172bafa5e5f47799d2aea72cdb1ab` | #984 | Brain-Offline `knowledge`: fmt/test/clippy grün; `self-explainer`: fmt/test grün; `tb-knowledge` komplett grün (23 Unit + 3 Load + 5 Seed); Merge-Policy-Tests 4/4 grün. |
-| EarlySalty/Deadlock-Bots | `codex/fix-c9-consumer-wiring` | `e6ec9925dcd462c4204c269dd0a82a6fb7beb716` | #459 | `rust/scripts/check-brain-consumer.sh`: fmt/test/clippy grün; `dl-brain` 12/12; Mode- und blockierende-Shadow-Regressions grün; vollständiges `dl-bot` clippy `-D warnings` grün. |
+| EarlySalty/Deadlock-Bots | `codex/fix-c9-consumer-wiring` | `0e3cf65a579eb0190039778c7a203d093ac607e9` | #459 | `rust/scripts/check-brain-consumer.sh`: fmt/test/clippy grün; `dl-brain` 12/12; Mode-, Typed/Open-Test- und blockierende-Shadow-Regressions grün; vollständiges `dl-bot` clippy `-D warnings` grün; Release-Gate-Policytest 2/2 grün. |
 | EarlySalty/Deadlock-Docs | `codex/fix-c9-consumer-wiring` | `ba4143f8ce30621d993574ccd4d3e2c66b46f5a7` | #4 | `tools/brain-adapter/check.sh`: fmt/test/clippy grün, locked/offline. |
-| EarlySalty/Deadlock-2nd-Brain | `codex/fix-c9-consumer-wiring` | `46aa2d37e4564e9d314847f52320016c10f6c47e` | #2 | `tools/brain-adapter/check.sh`: fmt/test/clippy grün, locked/offline. GitHub-Job 36217479678 scheiterte vor jedem Step: `runner_id=0`, leerer Runnername, `steps=[]`; kein belegter Repo-Codefehler. |
+| EarlySalty/Deadlock-2nd-Brain | `codex/fix-c9-consumer-wiring` | `46aa2d37e4564e9d314847f52320016c10f6c47e` | #2 | `tools/brain-adapter/check.sh`: fmt/test/clippy grün, locked/offline. GitHub-Jobs 36217479678 und 36221372865 scheiterten vor jedem Step: `runner_id=0`, leerer Runnername, `steps=[]`; kein belegter Repo-Codefehler. |
 | EarlySalty/Deadlock-Brain CLI/MCP | `codex/fix-c9-consumer-wiring` | `7fd5ee13da60d6035beda49fec8f2c0f1545542c` | #50 | `deadlock-brain --all-targets`: 58 Tests grün; `clippy -D warnings` grün. MCP testet `build_rejected` als Domain-Ergebnis und `unavailable` als Error-Result; CLI testet die unveränderte JSON-Statusprojektion beider Wire-Statuswerte. |
 
 ## Verdrahtung und Review-Befunde
@@ -30,7 +30,7 @@ Der echte `brain`-Command-Composition-Root unterstützt ausschließlich:
 - `typed`
 - `shadow`
 
-Nicht gesetzter Modus behält den dokumentierten Legacy-Default. Ein gesetzter unbekannter oder leerer `BRAIN_CLIENT_MODE` ist ein Startup-/Konfigurationsfehler und fällt nicht still auf Legacy zurück.
+Nicht gesetzter Modus behält den dokumentierten Legacy-Default. Ein gesetzter unbekannter oder leerer `BRAIN_CLIENT_MODE` ist ein Startup-/Konfigurationsfehler und fällt nicht still auf Legacy zurück. `typed` zusammen mit `BRAIN_OPEN_TEST_MODE=true` wird ebenfalls explizit abgelehnt, damit der bestehende Legacy-Review-Build-Testpfad nicht still umgangen wird; `shadow + open-test` bleibt möglich, weil der sichtbare Legacy-Pfad erhalten bleibt.
 
 `BrainApiAnswerer` verwendet einen collision-resistenten per-instance Namespace: zum vertrauenswürdigen lokalen Namespace kommt pro Adapterkonstruktion ein zufälliger 128-Bit-Wert, danach erst der lokale Sequenzzähler. Zwei Adapterinstanzen mit gleicher PID bzw. zwei Restarts erzeugen dadurch keine gleichen Request-/Conversation-IDs.
 
@@ -42,6 +42,8 @@ Shadow ist report-only:
 - blockierendes oder fehlschlagendes Typed-Backend verzögert bzw. verändert die sichtbare Legacyantwort nicht
 
 Scopes, Channel-Allowlist, Cooldowns, Fragenlänge, Auth und bestehendes Discord-Ausgabeformat bleiben im bisherigen Pfad.
+
+Der unabhängige Semantic Review fand zusätzlich im bereits vorhandenen direkten Bots-Mergepfad eine Base-SHA-TOCTOU-Race. Zur Einhaltung des C9-Vertrags „report-only/sicher“ wurde der mutierende Pfad vollständig entfernt: `.github/workflows/pr-release-gate.yml` hat nur noch Leserechte, führt weder `updateBranch` noch `pulls.merge` aus und meldet lediglich den Gate-Stand. Branch-Update und Merge bleiben manuell. Ein Regressionstest sichert diese Invariante.
 
 ### Twitch
 
