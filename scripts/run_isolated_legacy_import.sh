@@ -48,7 +48,7 @@ if patch_policy:
 json.dump(c, open(dst, "w"), indent=2)
 EOF
   (
-    export BRAIN_LEGACY_READ_PASSWORD=$BRAIN_PG_READONLY_PASSWORD BRAIN_TARGET_INGEST_PASSWORD=$BRAIN_PG_INGEST_PASSWORD
+    export BRAIN_LEGACY_READ_AUTH=$BRAIN_PG_READONLY_PASSWORD BRAIN_TARGET_INGEST_AUTH=$BRAIN_PG_INGEST_PASSWORD
     sg deadlock-brain-db -c "'$IMPORT' --config '$REPORT/import-$label.json'"
   ) > "$REPORT/import-$label.log" 2>&1
 }

@@ -20,7 +20,7 @@ struct Endpoint {
     port: u16,
     database: String,
     username: String,
-    password_env: Option<String>,
+    auth_env: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -46,9 +46,9 @@ fn options(endpoint: &Endpoint) -> Result<PgConnectOptions, String> {
         .username(&endpoint.username)
         .database(&endpoint.database)
         .application_name("brain-legacy-import");
-    if let Some(name) = &endpoint.password_env {
-        let password = std::env::var(name).map_err(|_| format!("{name} missing"))?;
-        options = options.password(&password);
+    if let Some(name) = &endpoint.auth_env {
+        let value = std::env::var(name).map_err(|_| format!("{name} missing"))?;
+        options = options.password(&value);
     }
     Ok(options)
 }
