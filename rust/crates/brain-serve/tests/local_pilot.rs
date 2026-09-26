@@ -1,3 +1,4 @@
+mod common;
 use axum::{
     body::Bytes,
     extract::State,
@@ -11,11 +12,7 @@ use brain_contracts::{
     Query, SnapshotReadPort, SourceBatch, SourceVisibility,
 };
 use brain_ingestion::FileConnector;
-use brain_kernel::{CachedKernel, Kernel};
-use brain_policy::{AuthGrant, CredentialRegistry, PolicyEngine};
-use brain_providers::{OpenAiCompatibleProvider, ProviderConfig};
 use brain_storage::{LocalPgReader, PgStore};
-use dbrain_retrieval::ReleaseRetriever;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
@@ -230,58 +227,31 @@ async fn pilot_phase_after_restart() {
             .await
             .unwrap();
     });
-    let transport = tokio::task::spawn_blocking(move || {
-        OpenAiCompatibleProvider::new(ProviderConfig::new(
-            "pilot-loopback-provider",
-            format!("http://{provider_address}"),
-            "pilot-loopback-model",
-        ))
-        .unwrap()
-    })
-    .await
-    .unwrap();
-    let kernel = CachedKernel::new(
-        Kernel::new(
-            ReleaseRetriever::new(reader(&env), retrieval_limit()),
-            transport,
-        ),
-        8,
-        Duration::from_millis(1),
-    );
-    let credentials = CredentialRegistry::new(vec![
-        AuthGrant::from_secret(
-            PUBLIC_TOKEN,
-            "pilot-public",
-            "pilot",
-            BTreeSet::from(["docs.public".into()]),
-            BTreeSet::from(["public".into()]),
-        ),
-        AuthGrant::from_secret(
-            INTERNAL_TOKEN,
-            "pilot-operator",
-            "pilot",
-            BTreeSet::from(["docs.public".into(), "docs.internal".into()]),
-            BTreeSet::from(["public".into(), "private".into()]),
-        ),
+    let mut service_config = common::config();
+    service_config["postgres"]["socket_dir"] = json!(env.socket);
+    service_config["postgres"]["port"] = json!(PORT);
+    service_config["postgres"]["username"] = json!(USER);
+    service_config["postgres"]["database"] = json!(env.database);
+    service_config["provider"]["base_url"] = json!(format!("http://{provider_address}"));
+    service_config["timeouts"]["provider_ms"] = json!(8000);
+    service_config["retrieval"]["limit"] = json!(retrieval_limit());
+    service_config["budgets"] = serde_json::to_value(budget()).unwrap();
+    service_config["credentials"] = json!([
+        {"token_env": "BRAIN_SERVE_API_TOKEN", "actor_id": "pilot-public", "channel": "pilot",
+         "scopes": ["docs.public"], "provider_egress": ["public"]},
+        {"token_env": "BRAIN_SERVE_INTERNAL_TOKEN", "actor_id": "pilot-operator", "channel": "pilot",
+         "scopes": ["docs.public", "docs.internal"], "provider_egress": ["public", "private"]}
     ]);
-    let service = brain_api::ApiService::new(
-        PolicyEngine::new(credentials),
-        kernel,
-        "pilot-r1",
-        8000,
-        budget(),
+    let mut service = common::Service::spawn(
+        &service_config,
+        &[
+            ("BRAIN_SERVE_API_TOKEN", PUBLIC_TOKEN),
+            ("BRAIN_SERVE_INTERNAL_TOKEN", INTERNAL_TOKEN),
+            ("BRAIN_SERVE_PROVIDER_API_KEY", "pilot-loopback-provider"),
+        ],
     );
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = format!("http://{}", listener.local_addr().unwrap());
-    let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
-    let api_task = tokio::spawn(async move {
-        axum::serve(listener, brain_api::router(service))
-            .with_graceful_shutdown(async {
-                let _ = stopped.await;
-            })
-            .await
-            .unwrap();
-    });
+    let address = service.address();
+    common::assert_ready(&address);
 
     let exact_value = exact_number(&env);
     let mut cases = Vec::new();
@@ -438,7 +408,7 @@ async fn pilot_phase_after_restart() {
     );
     fail.store(false, Ordering::SeqCst);
 
-    let load = load(&address);
+    let load = load(&address, service.pid());
     let revoke_reader = reader(&env);
     let mut revoked = tokio::task::spawn_blocking(move || {
         revoke_reader
@@ -482,8 +452,13 @@ async fn pilot_phase_after_restart() {
     );
 
     let calls_total = calls.load(Ordering::SeqCst);
-    stop.send(()).unwrap();
-    api_task.await.unwrap();
+    service.stop();
+    let variant = std::env::var("BRAIN_PILOT_VARIANT").unwrap_or_else(|_| "default".into());
+    std::fs::write(
+        env.report.join(format!("brain-serve-{variant}.log")),
+        service.log(),
+    )
+    .unwrap();
     provider_stop.send(()).unwrap();
     provider_task.await.unwrap();
     let failed: Vec<_> = cases
@@ -498,6 +473,7 @@ async fn pilot_phase_after_restart() {
             std::env::var("BRAIN_PILOT_VARIANT").unwrap_or_else(|_| "default".into())
         ),
         json!({
+            "service": "brain-serve child process",
             "retrieval_limit": retrieval_limit(),
             "budget_max_input_tokens": budget().max_input_tokens,
             "snapshot_digest_after_restart": digest,
@@ -534,7 +510,7 @@ async fn pilot_phase_empty_rebuild() {
     );
 }
 
-fn load(address: &str) -> Value {
+fn load(address: &str, service_pid: u32) -> Value {
     if std::env::var("BRAIN_PILOT_VARIANT").as_deref() != Ok("diagnostic") {
         return Value::Null;
     }
@@ -596,7 +572,7 @@ fn load(address: &str) -> Value {
         }
     }
     let wall = started.elapsed();
-    let process = process_usage();
+    let process = process_usage(service_pid);
     samples.sort_unstable();
     let pct = |p: f64| {
         samples[((samples.len() as f64 * p).ceil() as usize).saturating_sub(1)] as f64 / 1000.0
@@ -615,8 +591,8 @@ fn load(address: &str) -> Value {
     })
 }
 
-fn process_usage() -> Value {
-    let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+fn process_usage(pid: u32) -> Value {
+    let status = std::fs::read_to_string(format!("/proc/{pid}/status")).unwrap_or_default();
     let field = |name: &str| {
         status
             .lines()
@@ -624,13 +600,13 @@ fn process_usage() -> Value {
             .and_then(|l| l.split_whitespace().nth(1))
             .and_then(|v| v.parse::<u64>().ok())
     };
-    let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
     let fields: Vec<&str> = stat
         .rsplit_once(')')
         .map(|(_, rest)| rest.split_whitespace().collect())
         .unwrap_or_default();
     let ticks = |i: usize| fields.get(i).and_then(|v| v.parse::<u64>().ok());
-    let io = std::fs::read_to_string("/proc/self/io").unwrap_or_default();
+    let io = std::fs::read_to_string(format!("/proc/{pid}/io")).unwrap_or_default();
     let io_field = |name: &str| {
         io.lines()
             .find(|l| l.starts_with(name))

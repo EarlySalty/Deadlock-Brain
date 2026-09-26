@@ -15,6 +15,10 @@ pub struct LocalPgReader {
     port: u16,
     user: String,
     database: String,
+    password: Option<String>,
+    connect_timeout: Duration,
+    statement_timeout: Duration,
+    lock_timeout: Duration,
 }
 impl std::fmt::Debug for LocalPgReader {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -49,8 +53,41 @@ impl LocalPgReader {
             port,
             user: user.into(),
             database: database.into(),
+            password: None,
+            connect_timeout: Duration::from_secs(2),
+            statement_timeout: Duration::from_secs(2),
+            lock_timeout: Duration::from_secs(1),
         })
     }
+
+    /// Explicit service configuration; the existing socket-only constructor retains its defaults.
+    /// Passwords are supplied by the composition root's environment port, never a DSN/file.
+    pub fn with_connection_options(
+        mut self,
+        password: Option<String>,
+        connect_timeout: Duration,
+        statement_timeout: Duration,
+        lock_timeout: Duration,
+    ) -> Result<Self, PortError> {
+        if [connect_timeout, statement_timeout, lock_timeout]
+            .iter()
+            .any(|timeout| {
+                *timeout < Duration::from_millis(1) || *timeout > Duration::from_secs(60)
+            })
+            || lock_timeout > statement_timeout
+            || password
+                .as_ref()
+                .is_some_and(|value| value.is_empty() || value.contains('\0'))
+        {
+            return Err(invalid("invalid local PostgreSQL connection options"));
+        }
+        self.password = password;
+        self.connect_timeout = connect_timeout;
+        self.statement_timeout = statement_timeout;
+        self.lock_timeout = lock_timeout;
+        Ok(self)
+    }
+
     fn connect(&self) -> Result<postgres::Client, PortError> {
         let mut config = Config::new();
         config
@@ -58,10 +95,17 @@ impl LocalPgReader {
             .port(self.port)
             .user(&self.user)
             .dbname(&self.database)
-            .connect_timeout(Duration::from_secs(2));
+            .connect_timeout(self.connect_timeout);
+        if let Some(password) = &self.password {
+            config.password(password);
+        }
         let mut client = config.connect(NoTls).map_err(error)?;
         client
-            .batch_execute("SET statement_timeout='2000ms'; SET lock_timeout='1000ms'")
+            .batch_execute(&format!(
+                "SET statement_timeout='{}ms'; SET lock_timeout='{}ms'",
+                self.statement_timeout.as_millis(),
+                self.lock_timeout.as_millis()
+            ))
             .map_err(error)?;
         Ok(client)
     }

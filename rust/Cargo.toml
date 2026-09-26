@@ -9,6 +9,7 @@ members = [
   "crates/brain-jev",
   "crates/brain-kernel",
   "crates/brain-api",
+  "crates/brain-serve",
   "crates/brain-client",
   "crates/deadlock-brain",
   "crates/deadlock-brain-core",

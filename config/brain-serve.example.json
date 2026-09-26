@@ -1,0 +1,61 @@
+{
+  "bind": "127.0.0.1:8787",
+  "postgres": {
+    "socket_dir": "/run/postgresql",
+    "port": 5432,
+    "username": "brain_serve",
+    "database": "brain_pilot",
+    "auth": "peer",
+    "max_connections": 3
+  },
+  "release": {
+    "id": "pilot-r1",
+    "knowledge_version": "pilot-knowledge-v1"
+  },
+  "provider": {
+    "kind": "openai_compatible",
+    "base_url": "http://127.0.0.1:18080",
+    "model": "pilot-loopback-model",
+    "api_key_env": "BRAIN_SERVE_PROVIDER_API_KEY",
+    "retry_attempts": 3,
+    "retry_backoff_ms": 250,
+    "max_response_bytes": 2097152
+  },
+  "budgets": {
+    "max_network_rounds": 4,
+    "max_input_tokens": 12000,
+    "max_output_tokens": 2000,
+    "max_cost_micros": 50000
+  },
+  "timeouts": {
+    "startup_ms": 10000,
+    "request_ms": 8000,
+    "postgres_connect_ms": 2000,
+    "postgres_statement_ms": 2000,
+    "postgres_lock_ms": 1000,
+    "provider_ms": 5000,
+    "readiness_ms": 3000,
+    "shutdown_ms": 12000
+  },
+  "retrieval": {
+    "kind": "release_lexical",
+    "limit": 6
+  },
+  "kernel": {
+    "cache_entries": 8,
+    "cache_ttl_ms": 1
+  },
+  "credentials": [
+    {
+      "token_env": "BRAIN_SERVE_API_TOKEN",
+      "actor_id": "pilot-client",
+      "channel": "pilot",
+      "scopes": [
+        "docs.public"
+      ],
+      "provider_egress": [
+        "public"
+      ]
+    }
+  ]
+}
