@@ -187,6 +187,10 @@ impl ClientPool {
         let mut waited = false;
         loop {
             let mut state = self.lock()?;
+            let before = state.idle.len();
+            state.idle.retain(|client| !client.is_closed());
+            let discarded = (before - state.idle.len()) as u32;
+            state.open = state.open.saturating_sub(discarded);
             if let Some(client) = state.idle.pop() {
                 state.checked_out += 1;
                 state.reused = state.reused.saturating_add(1);
