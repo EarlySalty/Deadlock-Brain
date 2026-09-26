@@ -17,7 +17,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 
-pub const PARSER_REVISION: &str = "brain-legacy-import.v1";
+pub const PARSER_REVISION: &str = "brain-legacy-import.v2";
 pub const PARSER_FAMILY: &str = "brain_legacy";
 pub const ARCHIVE_API_VERSION: &str = "brain_legacy.archive.v1";
 pub const PATCHNOTES_SOURCE: &str = "legacy-patchnotes";
@@ -266,6 +266,7 @@ fn metadata_value(value: &serde_json::Value) -> Option<String> {
 
 pub fn entity_documents(rows: &[EntityRow]) -> Result<LegacySource> {
     let mut seen = BTreeSet::new();
+    let mut seen_external = BTreeSet::new();
     let mut documents = Vec::with_capacity(rows.len());
     let mut sorted: Vec<&EntityRow> = rows.iter().collect();
     sorted.sort_by(|a, b| {
@@ -287,10 +288,26 @@ pub fn entity_documents(rows: &[EntityRow]) -> Result<LegacySource> {
         }
         let mut content = format!("{entity_type}: {name}\n");
         let external = present(&row.primary_external_id);
+        let source = present(&row.source);
+        if source.as_deref() == Some("deadlock_assets_api") {
+            if let Some(id) = &external {
+                let normalized = id
+                    .strip_prefix("hero_")
+                    .unwrap_or(id)
+                    .parse::<u64>()
+                    .map(|number| number.to_string())
+                    .unwrap_or_else(|_| id.clone());
+                if !seen_external.insert((entity_type.clone(), normalized)) {
+                    return Err(invalid(format!(
+                        "duplicate external id for legacy entity type {entity_type}"
+                    )));
+                }
+            }
+        }
         if let Some(id) = &external {
             content.push_str(&format!("External ID: {id}\n"));
         }
-        if let Some(source) = present(&row.source) {
+        if let Some(source) = &source {
             content.push_str(&format!("Source: {source}\n"));
         }
         let aliases: BTreeSet<String> = row
@@ -308,12 +325,32 @@ pub fn entity_documents(rows: &[EntityRow]) -> Result<LegacySource> {
         if let serde_json::Value::Object(map) = &row.metadata {
             let sorted: BTreeMap<_, _> = map.iter().collect();
             for (key, value) in sorted {
+                let rendered_key = clean(key);
+                let normalized_key = rendered_key
+                    .split(':')
+                    .next()
+                    .unwrap_or_default()
+                    .trim()
+                    .to_ascii_lowercase();
+                if ["external id", "source", "aliases", "alias"].contains(&normalized_key.as_str())
+                {
+                    return Err(invalid(format!(
+                        "reserved metadata key in legacy entity {logical_id}"
+                    )));
+                }
+                // Historical rows contain an auxiliary `hero` field. It is not
+                // an authoritative name and must not become a query alias.
+                if ["hero", "item", "entity"].contains(&normalized_key.as_str()) {
+                    continue;
+                }
+                if rendered_key.contains(':') {
+                    continue;
+                }
                 if let Some(value) = metadata_value(value) {
-                    content.push_str(&format!("{}: {value}\n", clean(key)));
+                    content.push_str(&format!("{rendered_key}: {value}\n"));
                 }
             }
         }
-        let source = present(&row.source);
         documents.push(LegacyDocument {
             locator: format!(
                 "brain_legacy.entities#{}",
@@ -358,6 +395,16 @@ fn core_document(
         ("legacy_rows".into(), document.legacy_rows.to_string()),
         ("legacy_snapshot".into(), context.snapshot_label.clone()),
     ]);
+    if source_id == ENTITIES_SOURCE {
+        if let Some(artifact) = document.origin_artifacts.iter().next() {
+            if document.origin_artifacts.len() == 1 {
+                if let Some((source, id)) = artifact.split_once(':') {
+                    metadata.insert("entity_source".into(), source.into());
+                    metadata.insert("entity_external_id".into(), id.into());
+                }
+            }
+        }
+    }
     if let Observed::Known { value } = &document.patch {
         metadata.insert("legacy_patch".into(), value.clone());
     }

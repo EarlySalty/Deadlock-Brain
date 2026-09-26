@@ -173,6 +173,138 @@ async fn aliases_german_english_umlauts_and_metadata_filters() {
 }
 
 #[tokio::test]
+async fn fact_alias_ambiguity_is_checked_across_the_entire_release() {
+    let mut records = Vec::new();
+    for i in 0..110 {
+        let mut other = record(&format!("entity/hero/Other{i}"), "hero: Other\nhealth: 500");
+        other.metadata.insert("kind".into(), "fact".into());
+        records.push(other);
+    }
+    let mut first = record("entity/hero/Abrams", "hero: Abrams\nhealth: 650");
+    first.metadata.insert("kind".into(), "fact".into());
+    first
+        .metadata
+        .insert("aliases_de".into(), "Guardian; Wächter".into());
+    records.push(first);
+    let mut second = record("entity/hero/Warden", "hero: Warden\nhealth: 700");
+    second.metadata.insert("kind".into(), "fact".into());
+    second
+        .metadata
+        .insert("aliases_en".into(), "Guardian".into());
+    records.push(second);
+    let retriever = ReleaseRetriever::new(published(records).await, 1);
+    let mut request = query("Guardian health");
+    request.profile = AnswerProfile::Fact;
+    assert!(retriever.retrieve(&request, &context()).unwrap().is_empty());
+    request.text = "Wächter Gesundheit".into();
+    assert_eq!(retriever.retrieve(&request, &context()).unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn ineligible_alias_owners_do_not_hide_authorized_fact() {
+    let mut first = record("entity/hero/Abrams", "hero: Abrams\nhealth: 650");
+    first.metadata.insert("kind".into(), "fact".into());
+    first
+        .metadata
+        .insert("aliases_en".into(), "Guardian".into());
+    let mut second = record("entity/hero/Warden", "hero: Warden\nhealth: 700");
+    second.metadata.insert("kind".into(), "fact".into());
+    second
+        .metadata
+        .insert("aliases_en".into(), "Guardian".into());
+    let mut request = query("Guardian health");
+    request.profile = AnswerProfile::Fact;
+    for variant in ["wrong_patch", "wrong_mode", "unauthorized"] {
+        let mut other = second.clone();
+        match variant {
+            "wrong_patch" => {
+                other.metadata.insert("patch".into(), "p0".into());
+            }
+            "wrong_mode" => {
+                other.metadata.insert("mode".into(), "casual".into());
+            }
+            "unauthorized" => {
+                other.visibility = SourceVisibility::Private;
+                other.allowed_scopes.insert("private".into());
+            }
+            _ => unreachable!(),
+        }
+        let retriever = ReleaseRetriever::new(published(vec![first.clone(), other]).await, 1);
+        let hits = retriever.retrieve(&request, &context()).unwrap();
+        assert_eq!(hits.len(), 1, "{variant}");
+        assert_eq!(hits[0].logical_id, first.logical_id, "{variant}");
+    }
+    let store = published(vec![first.clone(), second.clone()]).await;
+    let retriever = ReleaseRetriever::new(store.clone(), 1);
+    assert!(retriever.retrieve(&request, &context()).unwrap().is_empty());
+    second.revision += 1;
+    second.visibility = SourceVisibility::Private;
+    second.allowed_scopes.insert("private".into());
+    store.apply_record(second).unwrap();
+    let hits = retriever.retrieve(&request, &context()).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].logical_id, first.logical_id);
+}
+
+#[tokio::test]
+async fn two_unambiguous_entities_in_one_question_are_not_alias_ambiguous() {
+    let mut abrams = record("entity/hero/Abrams", "hero: Abrams\nhealth: 650");
+    abrams.metadata.insert("kind".into(), "fact".into());
+    let mut warden = record("entity/hero/Warden", "hero: Warden\nhealth: 700");
+    warden.metadata.insert("kind".into(), "fact".into());
+    let retriever = ReleaseRetriever::new(published(vec![abrams, warden]).await, 10);
+    let mut request = query("Abrams Warden health");
+    request.profile = AnswerProfile::Fact;
+    let hits = retriever.retrieve(&request, &context()).unwrap();
+    assert_eq!(hits.len(), 2);
+}
+
+#[tokio::test]
+async fn repeated_owner_across_ambiguous_names_is_deduplicated_before_head_read() {
+    let mut abrams = record("entity/hero/Abrams", "hero: Abrams\nhealth: 650");
+    abrams.metadata.insert("kind".into(), "fact".into());
+    abrams
+        .metadata
+        .insert("aliases_en".into(), "Abraham".into());
+    let mut same_canonical = record("entity/hero/Other", "hero: Other\nhealth: 700");
+    same_canonical.metadata.insert("kind".into(), "fact".into());
+    same_canonical
+        .metadata
+        .insert("aliases_en".into(), "Abrams".into());
+    let mut same_alias = record("entity/hero/Third", "hero: Third\nhealth: 800");
+    same_alias.metadata.insert("kind".into(), "fact".into());
+    same_alias
+        .metadata
+        .insert("aliases_en".into(), "Abraham".into());
+    let retriever = ReleaseRetriever::new(
+        published(vec![abrams, same_canonical, same_alias]).await,
+        10,
+    );
+    let mut request = query("Abrams Abraham health");
+    request.profile = AnswerProfile::Fact;
+    assert!(retriever.retrieve(&request, &context()).unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn hundreds_of_alias_owners_fail_closed_without_exceeding_head_batch_limit() {
+    let records = (0..300)
+        .map(|number| {
+            let mut owner = record(
+                &format!("entity/hero/Hero{number}"),
+                &format!("hero: Hero{number}\nhealth: 650"),
+            );
+            owner.metadata.insert("kind".into(), "fact".into());
+            owner.metadata.insert("aliases_en".into(), "Shared".into());
+            owner
+        })
+        .collect();
+    let retriever = ReleaseRetriever::new(published(records).await, 1);
+    let mut request = query("Shared health");
+    request.profile = AnswerProfile::Fact;
+    assert!(retriever.retrieve(&request, &context()).unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn live_revoke_delete_and_historical_acl_never_widen() {
     let mut original = record("restricted.md", "Abrams restricted evidence");
     original.visibility = SourceVisibility::Private;

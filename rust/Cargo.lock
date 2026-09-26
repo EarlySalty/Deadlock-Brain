@@ -282,6 +282,7 @@ dependencies = [
 name = "brain-contracts"
 version = "0.1.0"
 dependencies = [
+ "regex",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -334,9 +335,11 @@ name = "brain-kernel"
 version = "0.1.0"
 dependencies = [
  "brain-contracts",
+ "brain-feeds",
  "brain-policy",
  "brain-storage",
  "dbrain-retrieval",
+ "dbrain-sources",
  "serde_json",
  "tokio",
 ]

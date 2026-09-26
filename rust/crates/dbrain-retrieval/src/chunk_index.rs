@@ -1,14 +1,12 @@
 //! Release-local inverted BM25 index. Query work traverses postings, not corpus documents.
 use brain_contracts::{
-    store::record_allowed, AuthorizedContext, ChunkProvenance, CorpusRelease, DocumentHead,
+    lexical::{fact_names, terms},
+    store::record_allowed,
+    AnswerProfile, AuthorizedContext, ChunkProvenance, CorpusRelease, DocumentHead,
     DocumentRevision, Evidence, EvidenceKind, PortError, Query, SourceRecordV2,
 };
-use regex::Regex;
 use sha2::{Digest, Sha256};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::OnceLock,
-};
+use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) const CHUNKER_VERSION: &str = "utf8-window-v1-1024-overlap192";
 const TARGET_BYTES: usize = 1024;
@@ -35,37 +33,10 @@ pub(crate) struct ChunkIndex {
     postings: BTreeMap<String, Vec<(usize, u32)>>,
     lengths: Vec<usize>,
     average_length: f64,
+    fact_name_owners: BTreeMap<Vec<String>, BTreeSet<usize>>,
 }
 
 /// No normalization of numeric literals: 6.5, 65, -6.5 and 6,5 remain distinct.
-pub(crate) fn terms(text: &str) -> Vec<String> {
-    static TOKEN: OnceLock<Regex> = OnceLock::new();
-    let regex = TOKEN.get_or_init(|| {
-        Regex::new(r"-?\d+(?:[.,]\d+)*%?|[\p{L}_][\p{L}\p{N}_]*").expect("constant tokenizer")
-    });
-    regex
-        .find_iter(text)
-        .map(|m| {
-            let word = m
-                .as_str()
-                .to_lowercase()
-                .replace('ä', "ae")
-                .replace('ö', "oe")
-                .replace('ü', "ue")
-                .replace('ß', "ss");
-            // Small explicit DE/EN vocabulary, versioned with the index. Source-provided aliases
-            // are indexed separately; no provider or speculative entity resolution is involved.
-            match word.as_str() {
-                "lebenspunkte" | "gesundheit" => "health".into(),
-                "schaden" => "damage".into(),
-                "abklingzeit" => "cooldown".into(),
-                "reichweite" => "range".into(),
-                "faehigkeit" => "ability".into(),
-                _ => word,
-            }
-        })
-        .collect()
-}
 pub(crate) fn numeric_terms(text: &str) -> BTreeSet<String> {
     terms(text)
         .into_iter()
@@ -150,10 +121,20 @@ impl ChunkIndex {
             postings: BTreeMap::new(),
             lengths: Vec::new(),
             average_length: 1.0,
+            fact_name_owners: BTreeMap::new(),
         };
         for (document, record) in index.records.iter().enumerate() {
             if record.tombstone {
                 continue;
+            }
+            if record.metadata.get("kind").map(String::as_str) == Some("fact") {
+                for name in fact_names(&record.logical_id, &record.content, &record.metadata) {
+                    index
+                        .fact_name_owners
+                        .entry(name)
+                        .or_default()
+                        .insert(document);
+                }
             }
             // Typed facts/rules are indivisible objects, not prose. Oversized objects fail
             // explicitly at packing rather than turning fragments into authoritative facts.
@@ -258,7 +239,20 @@ impl ChunkIndex {
                 .is_none_or(|m| record.metadata.get("mode") == Some(m))
     }
     pub fn rank(&self, query: &Query, context: &AuthorizedContext) -> Vec<(usize, f64)> {
-        let query_terms: BTreeSet<_> = terms(&query.text).into_iter().collect();
+        let query_words = terms(&query.text);
+        let query_terms: BTreeSet<_> = query_words.iter().cloned().collect();
+        let fact_documents: Option<BTreeSet<usize>> =
+            (query.profile == AnswerProfile::Fact).then(|| {
+                self.fact_name_owners
+                    .iter()
+                    .filter(|(name, _)| {
+                        !name.is_empty()
+                            && query_words.windows(name.len()).any(|part| part == *name)
+                    })
+                    .flat_map(|(_, owners)| owners.iter().copied())
+                    .filter(|document| self.eligible(&self.records[*document], query, context))
+                    .collect()
+            });
         let numbers = numeric_terms(&query.text);
         let mut scores = BTreeMap::<usize, f64>::new();
         for term in &query_terms {
@@ -269,7 +263,10 @@ impl ChunkIndex {
             let idf = (1.0 + (self.chunks.len() as f64 - df + 0.5) / (df + 0.5)).ln();
             for &(chunk, frequency) in postings {
                 let entry = &self.chunks[chunk];
-                if !numbers.is_subset(&entry.numbers)
+                if fact_documents
+                    .as_ref()
+                    .is_some_and(|documents| !documents.contains(&entry.document))
+                    || (query.profile != AnswerProfile::Fact && !numbers.is_subset(&entry.numbers))
                     || !self.eligible(&self.records[entry.document], query, context)
                 {
                     continue;
@@ -285,6 +282,29 @@ impl ChunkIndex {
                 .then_with(|| self.chunks[*a].id.cmp(&self.chunks[*b].id))
         });
         ranked
+    }
+    /// Group owners by the specific matched name. Different unambiguous names
+    /// in one question are not themselves an alias collision.
+    pub fn matching_fact_owners<'a>(
+        &'a self,
+        query: &Query,
+        context: &AuthorizedContext,
+    ) -> Vec<Vec<&'a SourceRecordV2>> {
+        let query_words = terms(&query.text);
+        self.fact_name_owners
+            .iter()
+            .filter(|(name, _)| {
+                !name.is_empty() && query_words.windows(name.len()).any(|part| part == *name)
+            })
+            .map(|(_, owners)| {
+                owners
+                    .iter()
+                    .map(|document| &self.records[*document])
+                    .filter(|record| self.eligible(record, query, context))
+                    .collect::<Vec<_>>()
+            })
+            .filter(|owners| owners.len() > 1)
+            .collect()
     }
     pub fn document(&self, chunk: usize) -> DocumentRevision {
         let record = &self.records[self.chunks[chunk].document];

@@ -184,10 +184,7 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
         return fail(AnswerStatus::InsufficientEvidence, "Keine geprüfte Rule-/Buildantwort vorhanden. Eine deterministische Buildanfrage mit Patch und Modus ist erforderlich.", retrieval_usage);
     }
     if matches!(query.profile, brain_contracts::AnswerProfile::Fact) {
-        let Some(fact) = evidence
-            .into_iter()
-            .find(|item| item.kind == EvidenceKind::Fact)
-        else {
+        let Some(fact) = super::fact_relevance::select(query, &evidence) else {
             return fail(
                 AnswerStatus::InsufficientEvidence,
                 "Keine geprüfte Faktenantwort vorhanden.",
@@ -208,7 +205,7 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
             context,
             AnswerStatus::Answered,
             fact.content.clone(),
-            vec![fact],
+            vec![fact.clone()],
             retrieval_usage,
         );
     }

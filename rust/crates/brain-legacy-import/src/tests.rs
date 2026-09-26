@@ -120,6 +120,85 @@ fn entity_documents_sort_metadata_and_reject_duplicates() {
     assert!(!doc.content.contains("n: "));
     assert_eq!(doc.patch, Observed::unknown(UnknownReason::NotPresent));
     assert!(entity_documents(&[entity(1, "Abrams"), entity(2, "Abrams")]).is_err());
+    let mut duplicate_external = entity(2, "Warden");
+    duplicate_external.primary_external_id = Some("hero_1".into());
+    assert!(entity_documents(&[entity(1, "Abrams"), duplicate_external]).is_err());
+    let mut spoofed = entity(3, "Seven");
+    spoofed.metadata = serde_json::json!({"External ID": "hero_25"});
+    assert!(entity_documents(&[spoofed]).is_err());
+    let mut spoofed_source = entity(3, "Seven");
+    spoofed_source.metadata = serde_json::json!({"Source": "other"});
+    assert!(entity_documents(&[spoofed_source]).is_err());
+    let mut spoofed_alias = entity(3, "Seven");
+    spoofed_alias.metadata = serde_json::json!({"Aliases:": "Warden"});
+    assert!(entity_documents(&[spoofed_alias]).is_err());
+    let mut spaced_alias = entity(3, "Seven");
+    spaced_alias.metadata = serde_json::json!({"Aliases :": "Warden"});
+    assert!(entity_documents(&[spaced_alias]).is_err());
+    let mut double_colon_alias = entity(3, "Seven");
+    double_colon_alias.metadata = serde_json::json!({"Aliases::": "Warden"});
+    assert!(entity_documents(&[double_colon_alias]).is_err());
+    let mut spoofed_external = entity(3, "Seven");
+    spoofed_external.metadata = serde_json::json!({"External\tID": "hero_25"});
+    assert!(entity_documents(&[spoofed_external]).is_err());
+    let mut spoofed_name = entity(3, "Seven");
+    spoofed_name.metadata = serde_json::json!({"hero": "Warden"});
+    let imported = entity_documents(&[spoofed_name]).unwrap();
+    assert!(imported.documents[0].content.starts_with("hero: Seven\n"));
+    assert!(!imported.documents[0].content.contains("hero: Warden"));
+    let mut spoofed_colon_name = entity(3, "Seven");
+    spoofed_colon_name.metadata = serde_json::json!({"hero :": "Warden"});
+    assert!(
+        !entity_documents(&[spoofed_colon_name]).unwrap().documents[0]
+            .content
+            .contains("hero :")
+    );
+    let mut unrelated_colon = entity(3, "Seven");
+    unrelated_colon.metadata = serde_json::json!({"other: hero": "Warden"});
+    assert!(!entity_documents(&[unrelated_colon]).unwrap().documents[0]
+        .content
+        .contains("other: hero"));
+    let mut historical = entity(3, "Seven");
+    historical.metadata = serde_json::json!({"hero": 25});
+    assert!(!entity_documents(&[historical]).unwrap().documents[0]
+        .content
+        .contains("hero: 25"));
+    let batch = prepare_batch(&source, &public_policy(), &context(), None).unwrap();
+    assert_eq!(
+        batch.records[0]
+            .metadata
+            .get("entity_source")
+            .map(String::as_str),
+        Some("deadlock_assets_api")
+    );
+    assert_eq!(
+        batch.records[0]
+            .metadata
+            .get("entity_external_id")
+            .map(String::as_str),
+        Some("hero_2")
+    );
+}
+
+#[test]
+fn changed_parser_configuration_reissues_unchanged_entity_with_structured_identity() {
+    let source = entity_documents(&[entity(25, "Warden")]).unwrap();
+    let first = prepare_batch(&source, &public_policy(), &context(), None).unwrap();
+    let mut old_checkpoint = first.checkpoint;
+    old_checkpoint.configuration = "previous-parser-configuration".into();
+    old_checkpoint.state["configuration"] =
+        serde_json::Value::String(old_checkpoint.configuration.clone());
+    let refreshed =
+        prepare_batch(&source, &public_policy(), &context(), Some(&old_checkpoint)).unwrap();
+    assert_eq!(refreshed.records.len(), 1);
+    assert_eq!(refreshed.records[0].revision, 2);
+    assert_eq!(
+        refreshed.records[0]
+            .metadata
+            .get("entity_external_id")
+            .map(String::as_str),
+        Some("hero_25")
+    );
 }
 
 #[tokio::test]

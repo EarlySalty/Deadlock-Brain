@@ -91,6 +91,57 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
         }
         Ok(result)
     }
+    fn ambiguous_fact_owner(
+        &self,
+        index: &ChunkIndex,
+        query: &Query,
+        context: &AuthorizedContext,
+    ) -> Result<bool, PortError> {
+        let groups = index.matching_fact_owners(query, context);
+        if groups.is_empty() {
+            return Ok(false);
+        }
+        let documents: BTreeMap<_, _> = groups
+            .iter()
+            .flatten()
+            .map(|record| {
+                (
+                    (record.source_id.clone(), record.logical_id.clone()),
+                    DocumentRevision {
+                        source_id: record.source_id.clone(),
+                        logical_id: record.logical_id.clone(),
+                        revision: record.revision,
+                        content_hash: record.content_hash.clone(),
+                    },
+                )
+            })
+            .collect();
+        // The production reader caps one head snapshot at 256 keys. An excess
+        // of possible owners is ambiguous rather than a reader error or an
+        // inconsistent sequence of ACL snapshots.
+        if documents.len() > 256 {
+            return Ok(true);
+        }
+        let heads = self.heads(&documents.into_values().collect::<Vec<_>>())?;
+        for owners in groups {
+            let mut visible = BTreeSet::new();
+            for record in owners {
+                let head = heads.get(&(record.source_id.clone(), record.logical_id.clone()));
+                if effective_head(record, head, context, false)?.is_some() {
+                    visible.insert(brain_contracts::lexical::fact_entity_key(
+                        &record.source_id,
+                        &record.logical_id,
+                        &record.content,
+                        &record.metadata,
+                    ));
+                    if visible.len() > 1 {
+                        return Ok(true);
+                    }
+                }
+            }
+        }
+        Ok(false)
+    }
     fn selected(
         &self,
         index: &ChunkIndex,
@@ -212,8 +263,24 @@ impl<S: SnapshotReadPort> RetrievalPort for ReleaseRetriever<S> {
             return crate::domain_port::retrieve(&self.store, query, context, false);
         }
         let index = self.index(query, context)?;
+        if query.profile == brain_contracts::AnswerProfile::Fact
+            && self.ambiguous_fact_owner(&index, query, context)?
+        {
+            return Ok(Vec::new());
+        }
         let ranked = index.rank(query, context);
-        let hits = self.selected(&index, &ranked, query, context, self.limit, false)?;
+        // A caller limit of one must not hide a second assertion of the same
+        // fact. The kernel receives the full bounded lexical candidate pack.
+        // More than 100 ranked candidates cannot be checked exhaustively.
+        if query.profile == brain_contracts::AnswerProfile::Fact && ranked.len() > 100 {
+            return Ok(Vec::new());
+        }
+        let limit = if query.profile == brain_contracts::AnswerProfile::Fact {
+            100
+        } else {
+            self.limit
+        };
+        let hits = self.selected(&index, &ranked, query, context, limit, false)?;
         pack(query, context, hits)
     }
     fn validate_evidence(
