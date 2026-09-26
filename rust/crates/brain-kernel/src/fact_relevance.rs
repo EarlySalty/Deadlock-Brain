@@ -54,6 +54,14 @@ fn fields(evidence: &Evidence) -> Vec<Vec<String>> {
 /// identifies more than one retrieved entity cannot select either one.
 pub(super) fn select<'a>(query: &Query, evidence: &'a [Evidence]) -> Option<&'a Evidence> {
     let query_words = words(&query.text);
+    let query_numbers: BTreeSet<_> = query_words
+        .iter()
+        .filter(|term| {
+            term.chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_digit() || c == '-')
+        })
+        .collect();
     let mut matched_entities = BTreeSet::new();
     let mut candidates = Vec::new();
     for item in evidence
@@ -98,7 +106,18 @@ pub(super) fn select<'a>(query: &Query, evidence: &'a [Evidence]) -> Option<&'a 
     if matched_entities.len() != 1 {
         return None;
     }
-    candidates.into_iter().next()
+    // A second record asserting the same entity and field is a conflicting
+    // fact source until explicitly reconciled. Numbers in the question cannot
+    // hide that conflict through the lexical index's numeric prefilter.
+    if candidates.len() != 1 {
+        return None;
+    }
+    let fact = candidates.into_iter().next()?;
+    let content_words: BTreeSet<_> = words(&fact.content).into_iter().collect();
+    query_numbers
+        .iter()
+        .all(|number| content_words.contains(*number))
+        .then_some(fact)
 }
 
 #[cfg(test)]
@@ -166,6 +185,7 @@ mod tests {
         assert!(select(&query("Abrams hero"), &evidence).is_none());
         assert!(select(&query("unrelated health"), &evidence).is_none());
         assert!(select(&query("Abrams health 650"), &evidence).is_some());
+        assert!(select(&query("Abrams health 999"), &evidence).is_none());
         assert!(select(&query("Abrams Gesundheit"), &evidence).is_some());
         assert!(select(&query("Abrams Lebenspunkte"), &evidence).is_some());
         assert!(select(&query("Abrams Schaden"), &evidence).is_some());
@@ -189,6 +209,18 @@ mod tests {
         let mut b = fact("Warden", "health: 700", "Guardian");
         b.score = 1.0;
         assert!(select(&query("Guardian health"), &[a, b]).is_none());
+    }
+    #[test]
+    fn same_entity_field_with_two_sources_is_not_selected_by_score() {
+        let mut a = fact("Warden", "max health: 770", "");
+        a.source_id = "deadlock-assets-heroes".into();
+        a.logical_id = "asset/hero/25/starting_stats.max_health.value".into();
+        let mut b = fact("Warden", "max health: 700", "");
+        b.source_id = a.source_id.clone();
+        b.logical_id = "asset/hero/25/legacy_max_health".into();
+        b.score = 1.0;
+        assert!(select(&query("Warden max health"), &[a.clone(), b.clone()]).is_none());
+        assert!(select(&query("Warden max health 770"), &[a, b]).is_none());
     }
     #[test]
     fn patch_mode_and_provenance_are_required_when_requested() {

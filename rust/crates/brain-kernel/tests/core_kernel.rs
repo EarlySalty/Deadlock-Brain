@@ -74,7 +74,7 @@ async fn release_pinned_patch_agnostic_fact_and_mode_fail_closed() {
     let release = s.release_from_heads("r1", "v1", "p1").unwrap();
     s.publish(&release).await.unwrap();
     let kernel = Kernel::new(
-        ReleaseRetriever::new(s, 10),
+        ReleaseRetriever::new(s.clone(), 10),
         Provider {
             calls: Arc::new(AtomicUsize::new(0)),
             revoke: None,
@@ -143,7 +143,7 @@ async fn asset_hero_entity_and_field_records_share_identity() {
     let release = s.release_from_heads("r1", "v1", "p1").unwrap();
     s.publish(&release).await.unwrap();
     let kernel = Kernel::new(
-        ReleaseRetriever::new(s, 10),
+        ReleaseRetriever::new(s.clone(), 10),
         Provider {
             calls: Arc::new(AtomicUsize::new(0)),
             revoke: None,
@@ -165,6 +165,34 @@ async fn asset_hero_entity_and_field_records_share_identity() {
     assert_eq!(
         kernel.answer(&request, &context()).status,
         AnswerStatus::InsufficientEvidence
+    );
+    let mut conflicting = record(2);
+    conflicting.source_id = "legacy-entities".into();
+    conflicting.logical_id = "entity/hero/Warden".into();
+    conflicting.content = "hero: Warden\nExternal ID: hero_25\nSource: deadlock_assets_api\nAliases: Guardian\nmax health: 700\n".into();
+    conflicting.metadata.insert("kind".into(), "fact".into());
+    conflicting
+        .metadata
+        .insert("connector".into(), "brain_legacy".into());
+    s.apply_record(conflicting).unwrap();
+    let release = s.release_from_heads("r2", "v2", "p1").unwrap();
+    s.publish(&release).await.unwrap();
+    let mut updated_context = context();
+    updated_context.knowledge_release = "r2".into();
+    request.text = "Warden max health".into();
+    assert_eq!(
+        kernel.answer(&request, &updated_context).status,
+        AnswerStatus::InsufficientEvidence
+    );
+    request.text = "Warden max health 770".into();
+    assert_eq!(
+        kernel.answer(&request, &updated_context).status,
+        AnswerStatus::InsufficientEvidence
+    );
+    request.text = "Warden stamina 3".into();
+    assert_eq!(
+        kernel.answer(&request, &updated_context).status,
+        AnswerStatus::Answered
     );
 }
 struct Provider {

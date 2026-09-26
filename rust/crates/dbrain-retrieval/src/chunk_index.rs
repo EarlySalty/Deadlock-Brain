@@ -2,8 +2,8 @@
 use brain_contracts::{
     lexical::{fact_names, terms},
     store::record_allowed,
-    AuthorizedContext, ChunkProvenance, CorpusRelease, DocumentHead, DocumentRevision, Evidence,
-    EvidenceKind, PortError, Query, SourceRecordV2,
+    AnswerProfile, AuthorizedContext, ChunkProvenance, CorpusRelease, DocumentHead,
+    DocumentRevision, Evidence, EvidenceKind, PortError, Query, SourceRecordV2,
 };
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -250,7 +250,7 @@ impl ChunkIndex {
             let idf = (1.0 + (self.chunks.len() as f64 - df + 0.5) / (df + 0.5)).ln();
             for &(chunk, frequency) in postings {
                 let entry = &self.chunks[chunk];
-                if !numbers.is_subset(&entry.numbers)
+                if (query.profile != AnswerProfile::Fact && !numbers.is_subset(&entry.numbers))
                     || !self.eligible(&self.records[entry.document], query, context)
                 {
                     continue;
