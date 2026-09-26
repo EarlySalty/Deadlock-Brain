@@ -18,6 +18,12 @@ Die drei Variablen müssen auf eigene, zugriffsbegrenzte Dateien außerhalb des 
 
 `raw_object_ref` bezeichnet die bereits archivierte, berechtigte Originaldatei im gemeinsamen Raw-Store. Der Decoder lädt diesen Verweis niemals aus dem Netz. Er prüft die lokale Datei, erzeugt eine private temporäre Momentaufnahme, hasht genau diese Bytes und lässt das Original unverändert. `source_revision`, Inhalts-Hash, Schema-Pin, Parserrevision und Extraktionsrevision bleiben getrennt. Dauerhafte Aufbewahrung, Löschung und ACLs bleiben Aufgabe des bestehenden Raw-Stores. Nach einem harten Absturz des Elternprozesses können private temporäre Dateien zurückbleiben; sie gehören in dessen vorhandene Bereinigung, nicht in einen neuen Replay-Scheduler.
 
+## C10-Prüflauf für genau eine freigegebene Datei
+
+`dbrain-replay-worker validate "$AUTHORIZED_DEM" "$PRIVATE_REQUEST_JSON"` verwendet denselben Decoder in frischen Workerprozessen für Determinismus, Auswahl-Reparse, beschädigte Headerkopie und engere Ressourcenprofile. Der Modus verlangt einen SHA-256-Pin. Eingaben, Berechtigungsmanifest und temporärer Speicher müssen außerhalb von Git liegen. Stdout enthält ausschließlich gesäuberte Statuswerte, Hashes und aggregierte Feldzähler, keine rohen Observations oder personenbezogenen Werte.
+
+**Exit 2 bleibt auch nach erfolgreicher technischer Prüfung bestehen:** unabhängige Realmatch-Referenz, gemeinsamer Contract-Bridge-, Postgres- und Domain-/Learning-Nachweis werden nicht durch Codec-Erfolg ersetzt. `technical_validation_passed` ist separat von `status=blocked` und den stets falschen Realmatch-/Integrations-/Coachingfreigaben auszuwerten. Der vollständige Ablauf und die offene feldweise Abnahme stehen in `architecture/migration/handoffs/C10_REAL_REPLAY.md`.
+
 ## Belegte Ausgaben und Grenzen
 
 Decodiert werden Containerbefehle, Snappy-komprimierte Befehle, SendTables, Klassen, Netzwerkpakete, Stringtable-Aktualisierungen, vorbereitete FullPackets und ausgewählte Entity-Zustände. Entity-Mapping verwendet beobachtete Klassen und Netzwerkindizes. Eine lokale CREATE-Ordnung verhindert das Verwechseln wiederverwendeter Indizes; sie ist **keine Netzwerkserial und keine Spieleridentität**. Der gepinnte Parser stellt die echte Serial nicht bereit.
