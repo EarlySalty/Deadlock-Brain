@@ -22,7 +22,7 @@ deadlock-brain pull deadlock-data --source-config /absolute/source-pins.json \
   --repo-dir /absolute/deadlock-data --check-config
 ```
 
-Beide prüfen lokale Gitobjekte und die Config vor Credentials, Pool, HTTP und Schreibzugriffen. Erfolgsantwort: `valid:true`, `writes:false`. Ein normaler Job führt dieselbe Prüfung aus und reicht dieselben geladenen Optionen an den Import weiter. Beim Pull wird danach auch die vorhandene Patchnote-Normalisierung unverändert ausgeführt.
+Beide prüfen lokale Gitobjekte und die Config vor Poolaufbau, HTTP-Import und Schreibzugriffen. Der neue Preflight ruft keinen Credential-Provider auf; beim Pull werden weiterhin die bisherigen lokalen Settings geladen. Erfolgsantwort: `valid:true`, `writes:false`. Ein normaler Job führt dieselbe Prüfung aus und reicht dieselben geladenen Optionen an den Import weiter. Beim Pull wird danach auch die vorhandene Patchnote-Normalisierung unverändert ausgeführt.
 
 `wiki refresh --skip-source-update` bleibt ein ausdrücklicher **Export des vorhandenen Datenbankstands**, kein gepinnter Reimport und keine Reproduzierbarkeitszusage für den DB-Inhalt. Die Config bleibt syntaktisch verpflichtend. Der lokale Quellcache muss für diesen reinen Export nicht verfügbar sein. `--check-config` und `--skip-source-update` sind deshalb nicht kombinierbar.
 

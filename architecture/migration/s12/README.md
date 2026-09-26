@@ -6,7 +6,7 @@ Die ursprüngliche Offline-Suite aus PR #30 bleibt erhalten und wurde erweitert.
 
 Neue Offline-Kommandos: `extract`, `project` und `ir-delta`. Release- und Review-Dateien sind explizite Eingaben; aus Parsererfolg wird keine automatische Freigabe. Der optionale Netzwerkadapter bleibt standardmäßig deaktiviert. Der einzige Live-Metadatencheck ergab HTTP 403, ohne Umgehung oder weitere Abrufe.
 
-Aktuelle Implementierung, Grenzen, Befehle, tatsächlich ausgeführte Tests und lokale Claude-Prüfung: [CODEX_WIKI_COMPLETION.md](../handoffs/CODEX_WIKI_COMPLETION.md). Reproduktion: `bash architecture/migration/s12/check-completion.sh` vom Repository aus, mit Rust 1.97.1 auf PATH. Die neuen Ergebnisdateien heißen `reports/completion-*`.
+Aktuelle Implementierung, Grenzen, Befehle, tatsächlich ausgeführte Tests und lokale Claude-Prüfung: [CODEX_WIKI_COMPLETION.md](../handoffs/CODEX_WIKI_COMPLETION.md). Reproduktion: `bash architecture/migration/s12/check-completion.sh` vom Repository aus, mit Rust 1.97.1 auf PATH. Die versionierten `reports/completion-*` sind historische Nachweise. Aktuelle Läufe schreiben ausschließlich nach `rust/target/wiki-completion.*/`; die Änderungen an Konfiguration und Tooling stehen in [C7_C8_RUNTIME_TOOLING.md](../handoffs/C7_C8_RUNTIME_TOOLING.md).
 
 Die folgenden Abschnitte und die ursprünglichen Reports dokumentieren den **historischen prepare-only-Stand aus PR #30**. Aussagen über damals fehlende Contracts, unveränderte Workspaces und fehlende Card-Projektion sind keine Beschreibung der neuen Adapter. Liveabdeckung, Gatefreigaben und kanonische Produktion bleiben dennoch unbewiesen.
 
