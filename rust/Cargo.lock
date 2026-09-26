@@ -335,9 +335,11 @@ name = "brain-kernel"
 version = "0.1.0"
 dependencies = [
  "brain-contracts",
+ "brain-feeds",
  "brain-policy",
  "brain-storage",
  "dbrain-retrieval",
+ "dbrain-sources",
  "serde_json",
  "tokio",
 ]

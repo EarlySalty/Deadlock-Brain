@@ -3,9 +3,11 @@ use brain_contracts::{
     Evidence, PortError, Principal, ProviderAnswer, Query, RetrievalPort, SourceRecordV2,
     SourceVisibility, Usage,
 };
+use brain_feeds::{deadlock_assets, FeedPolicy};
 use brain_kernel::{AnswerKernelPort, CachedKernel, Kernel};
 use brain_storage::MemoryRepository;
 use dbrain_retrieval::ReleaseRetriever;
+use dbrain_sources::core::http::SourceHttpResponse;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::{
@@ -141,6 +143,59 @@ async fn asset_hero_entity_and_field_records_share_identity() {
     let answer = kernel.answer(&request, &context());
     assert_eq!(answer.status, AnswerStatus::Answered);
     assert!(answer.text.contains("770"));
+    assert_eq!(answer.citations.len(), 1);
+    assert_eq!(
+        answer.citations[0].logical_id,
+        "asset/hero/25/starting_stats.max_health.value"
+    );
+}
+
+#[tokio::test]
+async fn assets_feed_field_answers_through_release_kernel() {
+    let body = include_str!("../../brain-feeds/tests/fixtures/heroes.json");
+    let response = SourceHttpResponse {
+        url: "https://api.deadlock-api.com/v1/assets/heroes?only_active=true".into(),
+        status: 200,
+        content: body.as_bytes().to_vec(),
+        headers: BTreeMap::from([("content-type".into(), "application/json".into())]),
+        observed_at: 1_790_000_000,
+        attempts: 1,
+    };
+    let policy = FeedPolicy {
+        visibility: SourceVisibility::Public,
+        allowed_scopes: BTreeSet::new(),
+        provider_egress_allowed: false,
+        publication_allowed: false,
+        raw_retention_allowed: false,
+    };
+    let batch = deadlock_assets::prepare_batch("heroes", response, None, &policy, None).unwrap();
+    let store = MemoryRepository::default();
+    for record in batch.records {
+        store.apply_record(record).unwrap();
+    }
+    let mut legacy = record(1);
+    legacy.source_id = "legacy-entities".into();
+    legacy.logical_id = "entity/hero/Warden".into();
+    legacy.content = "hero: Warden\nhealth: 700".into();
+    legacy.metadata.insert("kind".into(), "fact".into());
+    store.apply_record(legacy).unwrap();
+    let release = store.release_from_heads("r1", "v1", "p1").unwrap();
+    store.publish(&release).await.unwrap();
+    let kernel = Kernel::new(
+        ReleaseRetriever::new(store, 10),
+        Provider {
+            calls: Arc::new(AtomicUsize::new(0)),
+            revoke: None,
+            forged: false,
+        },
+    );
+    let mut request = query();
+    request.profile = AnswerProfile::Fact;
+    request.text = "Warden max health".into();
+    request.patch = Some("p1".into());
+    let answer = kernel.answer(&request, &context());
+    assert_eq!(answer.status, AnswerStatus::Answered);
+    assert!(answer.text.contains("max health: 770"));
     assert_eq!(answer.citations.len(), 1);
     assert_eq!(
         answer.citations[0].logical_id,
