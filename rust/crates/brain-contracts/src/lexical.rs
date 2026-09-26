@@ -79,14 +79,51 @@ pub fn fact_names(
     names
 }
 
-/// Several field records from one asset share the upstream entity ID. Other
-/// sources retain their full logical document identity until they define one.
-pub fn fact_entity_key(source_id: &str, logical_id: &str) -> (String, String) {
+/// Several field records from one asset share the upstream entity ID. The
+/// reviewed legacy Assets mirror may join that identity only with its explicit
+/// source label and external ID; names alone never merge entities.
+pub fn fact_entity_key(
+    source_id: &str,
+    logical_id: &str,
+    content: &str,
+    metadata: &BTreeMap<String, String>,
+) -> (String, String) {
     let mut parts = logical_id.split('/');
     if parts.next() == Some("asset") {
         if let (Some(kind), Some(id)) = (parts.next(), parts.next()) {
             if !kind.is_empty() && !id.is_empty() {
+                if source_id == "deadlock-assets-heroes"
+                    && metadata.get("connector").map(String::as_str) == Some("deadlock-assets")
+                    && kind == "hero"
+                {
+                    if let Ok(number) = id.parse::<u64>() {
+                        return ("deadlock_assets_api".into(), format!("hero/{number}"));
+                    }
+                }
                 return (source_id.to_owned(), format!("asset/{kind}/{id}"));
+            }
+        }
+    }
+    if source_id == "legacy-entities"
+        && metadata.get("connector").map(String::as_str) == Some("brain_legacy")
+        && logical_id.starts_with("entity/hero/")
+    {
+        let mut external = None;
+        let mut source_matches = false;
+        for line in content.lines() {
+            if let Some(value) = line.strip_prefix("External ID: ") {
+                external = Some(value.trim());
+            }
+            if line == "Source: deadlock_assets_api" {
+                source_matches = true;
+            }
+        }
+        if source_matches {
+            if let Some(id) = external {
+                let id = id.strip_prefix("hero_").unwrap_or(id);
+                if let Ok(number) = id.parse::<u64>() {
+                    return ("deadlock_assets_api".into(), format!("hero/{number}"));
+                }
             }
         }
     }
