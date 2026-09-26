@@ -96,23 +96,29 @@ pub(super) fn select<'a>(query: &Query, evidence: &'a [Evidence]) -> Option<&'a 
             &item.content,
             &provenance.metadata,
         ));
-        if fields(item)
+        if let Some(specificity) = fields(item)
             .iter()
-            .any(|field| contains_phrase(&query_words, field))
+            .filter(|field| contains_phrase(&query_words, field))
+            .map(Vec::len)
+            .max()
         {
-            candidates.push(item);
+            candidates.push((item, specificity));
         }
     }
     if matched_entities.len() != 1 {
         return None;
     }
+    // Prefer the most specific field explicitly named in the question:
+    // "max health" excludes a generic "health" claim from conflict detection.
+    let specificity = candidates.iter().map(|(_, length)| *length).max()?;
+    candidates.retain(|(_, length)| *length == specificity);
     // A second record asserting the same entity and field is a conflicting
     // fact source until explicitly reconciled. Numbers in the question cannot
     // hide that conflict through the lexical index's numeric prefilter.
     if candidates.len() != 1 {
         return None;
     }
-    let fact = candidates.into_iter().next()?;
+    let fact = candidates.into_iter().next()?.0;
     let content_words: BTreeSet<_> = words(&fact.content).into_iter().collect();
     query_numbers
         .iter()
@@ -221,6 +227,20 @@ mod tests {
         b.score = 1.0;
         assert!(select(&query("Warden max health"), &[a.clone(), b.clone()]).is_none());
         assert!(select(&query("Warden max health 770"), &[a, b]).is_none());
+    }
+    #[test]
+    fn specific_field_outranks_generic_field_for_one_entity() {
+        let mut specific = fact("Warden", "max health: 770", "");
+        specific.source_id = "deadlock-assets-heroes".into();
+        specific.logical_id = "asset/hero/25/starting_stats.max_health.value".into();
+        let mut generic = fact("Warden", "health: 700", "");
+        generic.source_id = specific.source_id.clone();
+        generic.logical_id = "asset/hero/25".into();
+        generic.score = 20.0;
+        let evidence = [generic.clone(), specific.clone()];
+        let selected = select(&query("Warden max health"), &evidence).unwrap();
+        assert_eq!(selected.logical_id, specific.logical_id);
+        assert!(select(&query("Warden max health 770"), &[generic, specific]).is_some());
     }
     #[test]
     fn patch_mode_and_provenance_are_required_when_requested() {
