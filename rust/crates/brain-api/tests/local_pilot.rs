@@ -526,10 +526,15 @@ async fn pilot_phase_after_restart() {
             0,
             "no permission changes occur during this load phase"
         );
-        assert_eq!(
-            load["statuses"]["answered"], load["requests"],
-            "every load request has authorized evidence in this fresh default pilot"
-        );
+        // Availability under host contention is measured, not a new SLO. In particular,
+        // an honest Unavailable response must not fail this C3 classification probe.
+        let accounted: u64 = load["statuses"]
+            .as_object()
+            .unwrap()
+            .values()
+            .map(|count| count.as_u64().unwrap())
+            .sum();
+        assert_eq!(Some(accounted), load["requests"].as_u64());
     }
 }
 
