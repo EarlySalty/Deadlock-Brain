@@ -132,7 +132,7 @@ async fn asset_hero_entity_and_field_records_share_identity() {
         legacy.source_id = "legacy-entities".into();
         legacy.logical_id = format!("entity/hero/{name}");
         legacy.content = format!(
-            "hero: {name}\nExternal ID: {external_id}\nSource: deadlock_assets_api\nAliases: Guardian\n"
+            "hero: {name}\nExternal ID: {external_id}\nSource: deadlock_assets_api\nAliases: Guardian\nhealth: 700\n"
         );
         legacy.metadata.insert("kind".into(), "fact".into());
         legacy
