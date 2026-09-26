@@ -42,6 +42,12 @@ impl SourceBatch {
             record
                 .validate()
                 .map_err(|e| PortError::InvalidResponse(e.to_string()))?;
+            if record
+                .metadata
+                .contains_key(crate::source::ORIGIN_METADATA_KEY)
+            {
+                crate::source::origin_from_record(record).map_err(PortError::InvalidResponse)?;
+            }
             if record.source_id != self.checkpoint.source_id || !keys.insert(&record.logical_id) {
                 return Err(PortError::InvalidResponse(
                     "cross-source or duplicate batch record".into(),
@@ -154,12 +160,54 @@ impl CorpusSnapshot {
                 }
                 _ => SourceVisibility::Public,
             };
+            // Preserve current restrictions with the immutable raw/source identity.
+            if record
+                .metadata
+                .contains_key(crate::source::ORIGIN_METADATA_KEY)
+            {
+                let mut origin = crate::source::origin_from_record(record)
+                    .map_err(PortError::InvalidResponse)?;
+                origin.policy.visibility = visible.visibility;
+                origin.policy.allowed_scopes = visible.allowed_scopes.clone();
+                if head
+                    .metadata
+                    .contains_key(crate::source::ORIGIN_METADATA_KEY)
+                {
+                    let current = crate::source::origin_from_record(head)
+                        .map_err(PortError::InvalidResponse)?;
+                    origin.policy.provider_egress_allowed &= current.policy.provider_egress_allowed;
+                    origin.policy.publication_allowed &= current.policy.publication_allowed;
+                    origin.policy.raw_retention_allowed &= current.policy.raw_retention_allowed;
+                } else {
+                    // A legacy head cannot assert current rights for a versioned origin.
+                    origin.policy.provider_egress_allowed = false;
+                    origin.policy.publication_allowed = false;
+                }
+                origin
+                    .bind_record(&mut visible)
+                    .map_err(PortError::InvalidResponse)?;
+            }
+            // Effective provenance may deny egress when a legacy head has no current grant.
+            if !record_allowed(&visible, principal, provider) {
+                continue;
+            }
             records.push(visible);
         }
         Ok(records)
     }
 }
 pub fn record_allowed(record: &SourceRecordV2, principal: &Principal, provider: bool) -> bool {
+    if record
+        .metadata
+        .contains_key(crate::source::ORIGIN_METADATA_KEY)
+    {
+        let Ok(origin) = crate::source::origin_from_record(record) else {
+            return false;
+        };
+        if provider && !origin.policy.provider_egress_allowed {
+            return false;
+        }
+    }
     let visibility = match record.visibility {
         SourceVisibility::Public => "public",
         SourceVisibility::Internal => "internal",

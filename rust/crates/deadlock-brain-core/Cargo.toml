@@ -8,6 +8,7 @@ name = "deadlock_brain_core"
 path = "src/lib.rs"
 
 [dependencies]
+brain-contracts = { path = "../brain-contracts" }
 anyhow.workspace = true
 chrono.workspace = true
 dbrain-builds = { path = "../dbrain-builds" }

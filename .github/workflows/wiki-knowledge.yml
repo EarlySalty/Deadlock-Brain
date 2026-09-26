@@ -28,12 +28,9 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          workspaces: |
-            rust
-            architecture/migration/s12
+          workspaces: rust
       - name: Fetch locked build dependencies only
         run: |
-          cargo fetch --manifest-path architecture/migration/s12/Cargo.toml --locked
           cargo fetch --manifest-path rust/Cargo.toml --locked
       - name: Existing S12 suite, extended parser and contracts
         run: bash architecture/migration/s12/check.sh

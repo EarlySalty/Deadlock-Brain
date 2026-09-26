@@ -1,11 +1,17 @@
 //! Shared source -> IR staging, not a second facts store or public wire contract.
 //! The existing SourceStore persists raw documents and validated projections.
 use crate::{Result, SourcesError};
+use brain_contracts::{
+    external::ExternalSourceIr,
+    source::Versioned,
+    value::{Observed, UnknownReason},
+    SourceVisibility,
+};
 use deadlock_brain_core::http::SourceHttpResponse;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 mod strict_json;
 pub(crate) fn parse_json_strict(raw: &[u8]) -> std::result::Result<Value, serde_json::Error> {
@@ -34,52 +40,11 @@ pub fn normalized_hash(value: &Value) -> String {
     sha256(ordered(value).to_string().as_bytes())
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum SourceRevision {
-    /// A content-addressed observation, not an inferred deployment/game version.
-    Http {
-        body_sha256: String,
-        etag: Option<String>,
-        last_modified: Option<String>,
-    },
-    Git {
-        commit: String,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Provenance {
-    pub source: String,
-    pub locator: String,
-    pub source_revision: SourceRevision,
-    pub parser_revision: String,
-    pub parser_family: String,
-    pub raw_sha256: String,
-    pub schema_sha256: Option<String>,
-    pub observed_at: i64,
-    /// Explicit shared upstream artifacts, not source/portal names. Empty means unknown.
-    pub origin_artifacts: BTreeSet<String>,
-    pub derivation_family: Option<String>,
-    /// Permissions are not inferred from public availability or a code license.
-    pub publication_authorized: bool,
-    pub provider_egress_authorized: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "state", rename_all = "snake_case")]
-pub enum Validation {
-    Validated { extra_fields: Vec<String> },
-    Quarantined { reasons: Vec<String> },
-}
-
+pub use brain_contracts::external::{Provenance, SourceRevision, Validation};
 #[derive(Debug, Clone)]
 pub struct SourceIr {
     raw: Vec<u8>,
-    payload: Option<Value>,
-    provenance: Provenance,
-    validation: Validation,
-    transport: Value,
+    contract: ExternalSourceIr,
 }
 impl SourceIr {
     pub fn from_http(
@@ -101,11 +66,11 @@ impl SourceIr {
             response.observed_at,
             response.content,
         )?;
-        ir.transport = json!({"status":response.status,"headers":response.headers,"attempts":response.attempts,"from_cache":false,"raw_representation":"http_entity_bytes"});
+        ir.contract.transport = json!({"status":response.status,"headers":response.headers,"attempts":response.attempts,"from_cache":false,"raw_representation":"http_entity_bytes"});
         if response.status != 200 {
             ir.quarantine(format!("http_status:{}", response.status));
         }
-        let content_type = ir.transport["headers"]["content-type"]
+        let content_type = ir.contract.transport["headers"]["content-type"]
             .as_str()
             .unwrap_or("")
             .split(';')
@@ -118,7 +83,7 @@ impl SourceIr {
         {
             ir.quarantine("unexpected_content_type");
         }
-        let encoding = ir.transport["headers"]["content-encoding"]
+        let encoding = ir.contract.transport["headers"]["content-encoding"]
             .as_str()
             .unwrap_or("identity");
         if !encoding.eq_ignore_ascii_case("identity") {
@@ -161,20 +126,19 @@ impl SourceIr {
         let parsed = parse_json_strict(&raw);
         let (payload, validation) = match parsed {
             Ok(payload) => (
-                Some(payload),
+                Observed::known(payload),
                 Validation::Validated {
                     extra_fields: Vec::new(),
                 },
             ),
             Err(_) => (
-                None,
+                Observed::unknown(UnknownReason::Quarantined),
                 Validation::Quarantined {
                     reasons: vec!["malformed_json_or_utf8".into()],
                 },
             ),
         };
-        Ok(Self {
-            raw,
+        let mut contract = ExternalSourceIr {
             payload,
             validation,
             provenance: Provenance {
@@ -192,7 +156,18 @@ impl SourceIr {
                 provider_egress_authorized: false,
             },
             transport: Value::Null,
-        })
+            schema_version: Observed::unknown(UnknownReason::NotPresent),
+            field_provenance: BTreeMap::new(),
+            visibility: SourceVisibility::Internal,
+            allowed_scopes: BTreeSet::from([format!("source.review:{source}")]),
+            license: Observed::unknown(UnknownReason::NotPresent),
+        };
+        contract.refresh_field_provenance();
+        contract
+            .origin_artifact()
+            .validate()
+            .map_err(SourcesError::invalid_input)?;
+        Ok(Self { raw, contract })
     }
     /// Text/proto inputs retain their exact blob bytes; UTF-8 is checked without
     /// lossy conversion. They use the same provenance and quarantine envelope.
@@ -208,43 +183,57 @@ impl SourceIr {
         let mut ir = Self::from_json(source, locator, parser_revision, revision, observed_at, raw)?;
         match text {
             Ok(text) => {
-                ir.payload = Some(Value::String(text));
-                ir.validation = Validation::Validated {
+                ir.contract.payload = Observed::known(Value::String(text));
+                ir.contract.validation = Validation::Validated {
                     extra_fields: Vec::new(),
                 };
             }
             Err(_) => {
-                ir.payload = None;
-                ir.validation = Validation::Quarantined {
+                ir.contract.payload = Observed::unknown(UnknownReason::Quarantined);
+                ir.contract.validation = Validation::Quarantined {
                     reasons: vec!["invalid_text_utf8".into()],
                 };
             }
         }
+        ir.contract.refresh_field_provenance();
         Ok(ir)
+    }
+    pub fn contract(&self) -> Versioned<&ExternalSourceIr> {
+        Versioned::new(&self.contract)
+    }
+    pub fn pin_schema_version(&mut self, version: &str) -> Result<()> {
+        if version.trim().is_empty() {
+            return Err(SourcesError::invalid_input("empty schema version"));
+        }
+        self.contract.schema_version = Observed::known(version.into());
+        Ok(())
     }
     pub fn raw(&self) -> &[u8] {
         &self.raw
     }
     pub fn provenance(&self) -> &Provenance {
-        &self.provenance
+        &self.contract.provenance
     }
     pub fn validation(&self) -> &Validation {
-        &self.validation
+        &self.contract.validation
     }
     pub fn is_quarantined(&self) -> bool {
-        matches!(self.validation, Validation::Quarantined { .. })
+        matches!(self.contract.validation, Validation::Quarantined { .. })
     }
     pub fn payload(&self) -> Result<&Value> {
         if self.is_quarantined() {
             return Err(SourcesError::invalid_input("source is quarantined"));
         }
-        self.payload
-            .as_ref()
-            .ok_or_else(|| SourcesError::invariant("validated source lacks payload"))
+        match &self.contract.payload {
+            Observed::Known { value } => Ok(value),
+            Observed::Unknown { .. } => {
+                Err(SourcesError::invariant("validated source lacks payload"))
+            }
+        }
     }
     pub fn quarantine(&mut self, reason: impl Into<String>) {
         let reason = reason.into();
-        match &mut self.validation {
+        match &mut self.contract.validation {
             Validation::Quarantined { reasons } => {
                 if !reasons.contains(&reason) {
                     reasons.push(reason);
@@ -252,40 +241,47 @@ impl SourceIr {
                 }
             }
             _ => {
-                self.validation = Validation::Quarantined {
+                self.contract.validation = Validation::Quarantined {
                     reasons: vec![reason],
                 }
             }
         }
     }
     pub fn note_extra_fields(&mut self, fields: Vec<String>) {
-        if let Validation::Validated { extra_fields } = &mut self.validation {
+        if let Validation::Validated { extra_fields } = &mut self.contract.validation {
             extra_fields.extend(fields);
             extra_fields.sort();
             extra_fields.dedup();
         }
     }
     pub fn pin_schema(&mut self, hash: &str) {
-        self.provenance.schema_sha256 = Some(hash.into());
+        self.contract.provenance.schema_sha256 = Some(hash.into());
     }
     pub fn add_origin(&mut self, artifact: &str) -> Result<()> {
         if artifact.trim().is_empty() {
             return Err(SourcesError::invalid_input("empty origin artifact"));
         }
-        self.provenance.origin_artifacts.insert(artifact.into());
+        self.contract
+            .provenance
+            .origin_artifacts
+            .insert(artifact.into());
         Ok(())
     }
     pub fn set_derivation_family(&mut self, family: &str) {
-        self.provenance.derivation_family = (!family.trim().is_empty()).then(|| family.to_owned());
+        self.contract.provenance.derivation_family =
+            (!family.trim().is_empty()).then(|| family.to_owned());
     }
     /// Distinguishes parser-only reprocessing and source observations in the
     /// existing document unique key, without changing source/entity identities.
     pub fn document_key(&self, external_id: &str) -> String {
-        let derivation = json!({"source_revision":self.provenance.source_revision,"parser_revision":self.provenance.parser_revision,"schema_sha256":self.provenance.schema_sha256,"validation":self.validation,"http_status":self.transport.get("status")});
+        let mut derivation = json!({"source_revision":self.contract.provenance.source_revision,"parser_revision":self.contract.provenance.parser_revision,"schema_sha256":self.contract.provenance.schema_sha256,"validation":self.contract.validation,"http_status":self.contract.transport.get("status")});
+        if let Observed::Known { value } = &self.contract.schema_version {
+            derivation["schema_version"] = json!(value);
+        }
         format!("{external_id}@{}", normalized_hash(&derivation))
     }
     pub fn metadata(&self) -> Value {
-        json!({"source_ir_version":IR_VERSION,"provenance":self.provenance,"validation":self.validation,"normalized_sha256":self.payload.as_ref().map(normalized_hash),"transport":self.transport})
+        json!({"contract":Versioned::new(&self.contract),"source_ir_version":IR_VERSION,"provenance":self.contract.provenance,"validation":self.contract.validation,"normalized_sha256":match &self.contract.payload { Observed::Known { value } => Some(normalized_hash(value)), Observed::Unknown { .. } => None },"transport":self.contract.transport})
     }
 }
 
@@ -380,7 +376,10 @@ mod tests {
     fn raw_hash_is_not_normalized_hash() {
         let a = ir(b" {\"a\": 1}\n", "v1");
         let b = ir(b"{\"a\":1}", "v1");
-        assert_ne!(a.provenance.raw_sha256, b.provenance.raw_sha256);
+        assert_ne!(
+            a.contract.provenance.raw_sha256,
+            b.contract.provenance.raw_sha256
+        );
         assert_eq!(
             a.metadata()["normalized_sha256"],
             b.metadata()["normalized_sha256"]
@@ -391,13 +390,16 @@ mod tests {
     fn parser_revision_is_not_a_game_or_source_revision() {
         let a = ir(b"{}", "v1");
         let b = ir(b"{}", "v2");
-        assert_eq!(a.provenance.source_revision, b.provenance.source_revision);
+        assert_eq!(
+            a.contract.provenance.source_revision,
+            b.contract.provenance.source_revision
+        );
         assert_ne!(a.document_key("record"), b.document_key("record"));
         assert_eq!(
             a.document_key("record"),
             ir(b"{}", "v1").document_key("record")
         );
-        assert!(!a.provenance.publication_authorized);
+        assert!(!a.contract.provenance.publication_authorized);
     }
     #[test]
     fn malformed_preserved_but_cannot_be_projected() {
@@ -424,15 +426,15 @@ mod tests {
         let mut b = ir(b"{\"mirror\":true}", "other-parser");
         b.add_origin("game-state:commit:artifact").unwrap();
         let groups = group_provenance(&[
-            a.provenance.clone(),
-            a.provenance.clone(),
-            b.provenance.clone(),
+            a.contract.provenance.clone(),
+            a.contract.provenance.clone(),
+            b.contract.provenance.clone(),
         ]);
         assert_eq!(groups.correlated_groups.len(), 1);
         assert_eq!(groups.correlated_groups[0].len(), 2);
         assert!(groups.unknown_origin_records.is_empty());
         assert_eq!(
-            group_provenance(&[ir(b"{}", "v1").provenance])
+            group_provenance(&[ir(b"{}", "v1").contract.provenance])
                 .unknown_origin_records
                 .len(),
             1
@@ -447,7 +449,11 @@ mod tests {
         let mut c = ir(b"3", "v1");
         c.add_origin("x").unwrap();
         c.add_origin("y").unwrap();
-        let records = vec![a.provenance, b.provenance, c.provenance];
+        let records = vec![
+            a.contract.provenance,
+            b.contract.provenance,
+            c.contract.provenance,
+        ];
         assert_eq!(group_provenance(&records).correlated_groups.len(), 1);
         let mut reversed = records.clone();
         reversed.reverse();

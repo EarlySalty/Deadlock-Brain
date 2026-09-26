@@ -719,6 +719,7 @@ dependencies = [
 name = "dbrain-replay"
 version = "0.1.0"
 dependencies = [
+ "brain-contracts",
  "deadlock-brain-core",
  "haste_core",
  "libc",
@@ -768,6 +769,7 @@ dependencies = [
 name = "dbrain-sources"
 version = "0.1.0"
 dependencies = [
+ "brain-contracts",
  "dbrain-normalize",
  "dbrain-s12-wiki-probe",
  "deadlock-brain-core",
@@ -814,6 +816,7 @@ name = "deadlock-brain-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "brain-contracts",
  "chrono",
  "dbrain-builds",
  "filedescriptor",

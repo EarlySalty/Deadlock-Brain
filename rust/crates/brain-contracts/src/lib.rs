@@ -8,8 +8,13 @@ use thiserror::Error;
 pub const CONTRACT_VERSION: &str = "brain.v1";
 pub mod domain;
 pub mod embedding;
+pub mod external;
 pub mod public_api;
+pub mod replay;
+pub mod source;
 pub mod store;
+pub mod value;
+pub mod wiki;
 pub use embedding::{EmbeddingIdentity, EmbeddingOutput, EmbeddingProviderPort};
 pub use public_api::{
     ApiErrorDetail, ApiErrorEnvelope, PublicAnswerResponse, PublicCitation, PUBLIC_API_VERSION,
@@ -350,6 +355,7 @@ pub struct HeroKnowledgeCard {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Legacy brain.v1 summary DTO. New ingestion uses `replay::ReplayArtifact`.
 pub struct ReplayArtifact {
     pub replay_id: String,
     pub source_id: String,
@@ -359,6 +365,8 @@ pub struct ReplayArtifact {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Legacy brain.v1 known-time summary. Unknown time has NO conversion to this DTO.
+/// New ingestion uses `replay::ReplayObservation` and its explicit Observed time.
 pub struct ReplayObservation {
     pub observation_id: String,
     pub replay_id: String,

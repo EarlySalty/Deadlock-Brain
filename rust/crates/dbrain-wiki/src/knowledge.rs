@@ -12,84 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const IR_VERSION: &str = "wiki-ir-v1";
 pub const PROJECTOR_VERSION: &str = "wiki-contract-projector-v1";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ValueKind {
-    Quantity,
-    Boolean,
-    Text,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Unit {
-    Health,
-    Damage,
-    Seconds,
-    Meters,
-    Count,
-    Souls,
-    Percent,
-    PercentagePoint,
-    Multiplier,
-}
-impl Unit {
-    pub fn parse(s: &str) -> Option<Self> {
-        match s.trim() {
-            "health" => Some(Self::Health),
-            "damage" => Some(Self::Damage),
-            "seconds" | "s" => Some(Self::Seconds),
-            "meters" | "m" => Some(Self::Meters),
-            "count" => Some(Self::Count),
-            "souls" => Some(Self::Souls),
-            "percent" | "%" => Some(Self::Percent),
-            "percentage_point" | "pp" => Some(Self::PercentagePoint),
-            "multiplier" => Some(Self::Multiplier),
-            _ => None,
-        }
-    }
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Health => "health",
-            Self::Damage => "damage",
-            Self::Seconds => "seconds",
-            Self::Meters => "meters",
-            Self::Count => "count",
-            Self::Souls => "souls",
-            Self::Percent => "percent",
-            Self::PercentagePoint => "percentage_point",
-            Self::Multiplier => "multiplier",
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum IrValue {
-    /// Exact base-ten value, at most 9 fractional digits; no floating point math.
-    Quantity {
-        decimal: String,
-        unit: Unit,
-    },
-    Boolean {
-        value: bool,
-    },
-    Text {
-        value: String,
-    },
-    Unknown {
-        reason: String,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct SourceLocator {
-    pub page_id: i64,
-    pub revision_id: i64,
-    pub content_hash: String,
-    pub locator: String,
-}
-
+pub use brain_contracts::wiki::{Alias, IrField, IrValue, SourceLocator, Unit, ValueKind};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FieldMapping {
@@ -114,58 +37,36 @@ pub struct MappingProfile {
     pub fields: Vec<FieldMapping>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct IrField {
-    pub id: String,
-    pub subject_id: String,
-    pub predicate: String,
-    pub value: IrValue,
-    /// Conditions/variants remain source expressions, NOT executable predicates.
-    pub condition: Option<String>,
-    pub variant: Option<String>,
-    pub source_revision: DocumentRevision,
-    pub locators: Vec<SourceLocator>,
-    pub unknowns: BTreeSet<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Alias {
-    pub text: String,
-    pub locale: Option<String>,
-    pub subject_id: String,
-    pub source: SourceLocator,
-}
-
 /// Constructible only through extraction; callers cannot inject deserialized
 /// "approved" fields into the projector. Serialize is for diagnostics, not import.
 #[derive(Debug, Serialize)]
 pub struct WikiIr {
-    version: &'static str,
-    mapping_version: String,
-    mapping_review_ref: String,
     report: Report,
-    sources: Vec<SourceRecordV2>,
-    fields: Vec<IrField>,
-    aliases: Vec<Alias>,
-    entities: BTreeMap<i64, String>,
+    contract: brain_contracts::source::Versioned<brain_contracts::wiki::WikiIr>,
 }
 impl WikiIr {
+    pub fn contract(&self) -> &brain_contracts::source::Versioned<brain_contracts::wiki::WikiIr> {
+        &self.contract
+    }
+
     pub fn report(&self) -> &Report {
         &self.report
     }
     pub fn fields(&self) -> &[IrField] {
-        &self.fields
+        &self.contract.data.fields
     }
     pub fn sources(&self) -> &[SourceRecordV2] {
-        &self.sources
+        &self.contract.data.sources
     }
     pub fn aliases(&self) -> &[Alias] {
-        &self.aliases
+        &self.contract.data.aliases
     }
     /// Ambiguity is unknown, never a fuzzy choice of another hero.
     pub fn resolve_alias(&self, text: &str, locale: &str) -> Option<&str> {
         let key = alias_key(text);
         let subjects: BTreeSet<_> = self
+            .contract
+            .data
             .aliases
             .iter()
             .filter(|a| a.locale.as_deref() == Some(locale) && alias_key(&a.text) == key)
@@ -490,16 +391,68 @@ pub fn extract(bytes: &[u8], profile: &MappingProfile) -> Result<WikiIr> {
     aliases.sort_by(|a, b| {
         (&a.text, &a.locale, &a.subject_id).cmp(&(&b.text, &b.locale, &b.subject_id))
     });
-    Ok(WikiIr {
-        version: IR_VERSION,
+    let mut artifacts = Vec::new();
+    for ((page_id, revision_id), source) in &mut sources {
+        let page = pages[page_id];
+        let revision = page
+            .revisions
+            .iter()
+            .find(|r| r.revision_id == *revision_id)
+            .ok_or("missing source revision")?;
+        let origin = wiki_origin(source, page, revision, &report);
+        origin.bind_record(source)?;
+        artifacts.push(origin);
+    }
+    let mut dependencies = Vec::new();
+    for page in &report.pages {
+        for target_id in &page.dependency_ids {
+            let target = pages.get(target_id);
+            dependencies.push(brain_contracts::wiki::Dependency {
+                dependent: identity(&report.source_key, &page.source_id),
+                target: brain_contracts::source::observed_option(
+                    target.map(|t| identity(&report.source_key, &t.source_id)),
+                ),
+                target_revision: brain_contracts::source::observed_option(
+                    target.and_then(|t| t.latest()).map(|r| {
+                        brain_contracts::source::SourceRevision::Wiki {
+                            page_id: *target_id,
+                            revision_id: r.revision_id,
+                        }
+                    }),
+                ),
+                raw_reference: format!("page:{target_id}"),
+            });
+        }
+        for reference in &page.unresolved_dependencies {
+            dependencies.push(brain_contracts::wiki::Dependency {
+                dependent: identity(&report.source_key, &page.source_id),
+                target: brain_contracts::value::Observed::unknown(
+                    brain_contracts::value::UnknownReason::Unmapped,
+                ),
+                target_revision: brain_contracts::value::Observed::unknown(
+                    brain_contracts::value::UnknownReason::NotPresent,
+                ),
+                raw_reference: reference.clone(),
+            });
+        }
+    }
+    let contract = brain_contracts::source::Versioned::new(brain_contracts::wiki::WikiIr {
+        source_id: report.source_key.clone(),
         mapping_version: profile.version.clone(),
         mapping_review_ref: profile.review_ref.clone(),
-        report,
         sources: sources.into_values().collect(),
         fields,
         aliases,
         entities: profile.entities.clone(),
-    })
+        artifacts,
+        dependencies,
+        dependency_completeness: report
+            .pages
+            .iter()
+            .map(|p| (p.source_id.clone(), p.dependencies_complete))
+            .collect(),
+    });
+    Ok(WikiIr { report, contract })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -551,6 +504,8 @@ pub fn project_card(
         .find(|p| p.page_id == hero_page_id && p.kind == PageKind::Hero)
         .ok_or("unknown hero")?;
     let hero_id = ir
+        .contract
+        .data
         .entities
         .get(&hero_page_id)
         .ok_or("unknown persistent hero ID")?;
@@ -603,7 +558,7 @@ pub fn project_card(
     let mut facts = Vec::new();
     let mut locators = BTreeMap::new();
     let mut slots = BTreeSet::new();
-    for field in &ir.fields {
+    for field in &ir.contract.data.fields {
         if !allowed_sources.contains(field.source_revision.logical_id.as_str()) {
             continue;
         }
@@ -668,16 +623,18 @@ pub fn project_card(
         locale: locale.into(),
         generator_version: PROJECTOR_VERSION,
         review_ref: review.decision_ref.clone(),
-        mapping_review_ref: ir.mapping_review_ref.clone(),
+        mapping_review_ref: ir.contract.data.mapping_review_ref.clone(),
         source_policy_sha256: sha256(
             &serde_json::to_vec(&ir.report.source_policy).map_err(|_| "policy encoding")?,
         ),
         knowledge_version: release.knowledge_version.clone(),
-        mapping_version: ir.mapping_version.clone(),
+        mapping_version: ir.contract.data.mapping_version.clone(),
         unknowns,
         locators,
         dependencies: dependencies.into_values().collect(),
         aliases: ir
+            .contract
+            .data
             .aliases
             .iter()
             .filter(|a| a.subject_id == *hero_id && referenced_pages.contains(&a.source.page_id))
@@ -694,20 +651,27 @@ pub fn project_card(
 /// a pure invalidation result, not a queue or a second rebuild implementation.
 pub fn compare_ir(before: &WikiIr, after: &WikiIr) -> Result<Impact> {
     let mut impact = crate::compare(&before.report, &after.report)?;
-    let metadata_changed = before.version != after.version
-        || before.mapping_version != after.mapping_version
-        || before.mapping_review_ref != after.mapping_review_ref;
+    let metadata_changed = before.contract.contract_version != after.contract.contract_version
+        || before.contract.data.mapping_version != after.contract.data.mapping_version
+        || before.contract.data.mapping_review_ref != after.contract.data.mapping_review_ref;
     let mut sources = BTreeSet::new();
     for ir in [before, after] {
-        for field in &ir.fields {
-            let old = before.fields.iter().find(|f| f.id == field.id);
-            let new = after.fields.iter().find(|f| f.id == field.id);
+        for field in &ir.contract.data.fields {
+            let old = before
+                .contract
+                .data
+                .fields
+                .iter()
+                .find(|f| f.id == field.id);
+            let new = after.contract.data.fields.iter().find(|f| f.id == field.id);
             if old != new {
                 sources.insert(field.source_revision.logical_id.clone());
             }
         }
-        for page_id in ir.entities.keys() {
-            if before.entities.get(page_id) != after.entities.get(page_id) {
+        for page_id in ir.contract.data.entities.keys() {
+            if before.contract.data.entities.get(page_id)
+                != after.contract.data.entities.get(page_id)
+            {
                 if let Some(page) = ir.report.pages.iter().find(|p| p.page_id == *page_id) {
                     sources.insert(page.source_id.clone());
                 }
@@ -732,4 +696,54 @@ pub fn compare_ir(before: &WikiIr, after: &WikiIr) -> Result<Impact> {
         }
     }
     Ok(impact)
+}
+
+fn identity(source: &str, logical_id: &str) -> brain_contracts::source::SourceIdentity {
+    brain_contracts::source::SourceIdentity {
+        source_id: source.into(),
+        logical_id: logical_id.into(),
+    }
+}
+fn wiki_origin(
+    source: &SourceRecordV2,
+    page: &PageProbe,
+    revision: &RevisionProbe,
+    report: &Report,
+) -> brain_contracts::source::OriginArtifact {
+    use brain_contracts::{
+        source::*,
+        value::{Observed, UnknownReason},
+    };
+    OriginArtifact {
+        identity: identity(&source.source_id, &source.logical_id),
+        source_revision: SourceRevision::Wiki {
+            page_id: page.page_id,
+            revision_id: revision.revision_id,
+        },
+        raw_sha256: source.content_hash.clone(),
+        locator: page
+            .upstream_url
+            .clone()
+            .unwrap_or_else(|| format!("{}:revision:{}", source.logical_id, source.revision)),
+        parser_revision: report.parser_version.clone(),
+        parser_family: "dbrain-wiki".into(),
+        schema_version: Observed::known(CAPTURE_VERSION.into()),
+        schema_sha256: Observed::unknown(UnknownReason::NotPresent),
+        retrieved_at: Observed::known(SourceTimestamp::UnixSeconds(report.retrieved_at)),
+        source_time: observed_option(revision.source_time.map(SourceTimestamp::UnixSeconds)),
+        language: observed_option(page.source_language.clone()),
+        origin_artifacts: BTreeSet::new(),
+        derivation_family: Observed::known("wiki-capture".into()),
+        policy: SourcePolicy {
+            visibility: source.visibility,
+            allowed_scopes: source.allowed_scopes.clone(),
+            authorization_ref: observed_option(report.source_policy.decision_ref.clone()),
+            license: observed_option(report.source_policy.source_license.clone()),
+            publication_allowed: report.source_policy.publication_allowed,
+            provider_egress_allowed: report.source_policy.provider_egress_allowed,
+            // Capture grants offline review, not an independently established retention policy.
+            raw_retention_allowed: false,
+        },
+        validity: GameValidity::unknown(),
+    }
 }

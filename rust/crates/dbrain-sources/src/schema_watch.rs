@@ -61,6 +61,9 @@ pub struct DriftReport {
 impl DriftReport {
     pub fn gate(&self, dependency: &str, ir: &mut SourceIr) {
         ir.pin_schema(&self.new_schema_sha256);
+        if ir.pin_schema_version(&self.new_api_version).is_err() {
+            ir.quarantine("missing_api_schema_version");
+        }
         if self.quarantined_dependencies.contains(dependency) {
             ir.quarantine(format!("schema_drift:{dependency}"));
         }

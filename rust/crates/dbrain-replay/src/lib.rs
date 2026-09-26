@@ -2,7 +2,7 @@
 //! Local-only Source 2 replay decoding through a resource-limited Rust child process.
 //! No downloader, external service, population writer, or coaching inference exists here.
 
-pub use deadlock_brain_core::replay::*;
+pub use brain_contracts::replay::*;
 use sha2::{Digest, Sha256};
 
 mod decode;
@@ -40,7 +40,9 @@ pub fn parser_revision() -> String {
             include_bytes!("../../../Cargo.lock"),
             include_bytes!("../Cargo.toml"),
             include_bytes!("../../../Cargo.toml"),
-            include_bytes!("../../deadlock-brain-core/src/replay.rs"),
+            include_bytes!("../../brain-contracts/src/replay.rs"),
+            include_bytes!("../../brain-contracts/src/source.rs"),
+            include_bytes!("../../brain-contracts/src/value.rs"),
         ])
     )
 }

@@ -8,7 +8,8 @@ use std::{
 };
 
 fn fixture() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures/pilot.capture.json")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../architecture/migration/s12/fixtures/pilot.capture.json")
 }
 fn command() -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_dbrain-s12-wiki-probe"));

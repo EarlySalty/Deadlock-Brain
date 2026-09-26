@@ -281,6 +281,8 @@ fn validate_report(
         || report.parser_revision != parser_revision()
         || report.schema_revision != SCHEMA_REVISION
         || report.extraction_revision != EXTRACTION_REVISION
+        || report.validity != brain_contracts::source::GameValidity::unknown()
+        || !report.entity_mapping.is_empty()
         || report.selection != request.selection
         || report.generation_id != generation_id(artifact, &request.selection)?
         || report.real_replay_verified
@@ -304,7 +306,8 @@ fn validate_report(
                 .is_none_or(|end| end > artifact.byte_length)
             || o.raw.command_index >= report.commands
             || o.raw.payload_sha256.len() != 64
-            || o.time.tick < -1
+            || matches!(o.time.tick, Observed::Known { value } if value > i32::MAX as u32)
+            || matches!(o.time.tick, Observed::Unknown { reason } if reason != UnknownReason::InitializationTick)
             || matches!(o.time.game_time_seconds, Observed::Known { .. })
         {
             return Err(bad);

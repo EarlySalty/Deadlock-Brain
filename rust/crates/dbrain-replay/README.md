@@ -24,7 +24,7 @@ Decodiert werden Containerbefehle, Snappy-komprimierte Befehle, SendTables, Klas
 
 Die ausgewählten numerischen Netzwerkfelder enthalten unter anderem Health, Team-ID, rohe Pawn-Handles, getrennte Loading-/Spawned-Hero-ID-Pfade sowie rohe Zell-/Vektorkomponenten. Fehlende Werte bleiben `Unknown`, beobachtete Null bleibt Null. Einheiten, Weltkoordinaten, Matchidentität aus dem Demo, KDA, Käufe, Objectives und Coaching werden nicht aus Feldnamen erfunden. Andere Pakettypen erscheinen als begrenzte opaque Marker, nicht als erratene Spielereignisse.
 
-Ticks bleiben vorzeichenbehaftete Quellticks. `-1` ist Initialisierung. Ein tatsächlich empfangenes `tick_interval` ist dokumentiert; es gibt keinen angenommenen 60-Hz-Wert. Spielzeit bleibt ohne belegten Ursprung `Unknown`, insbesondere bei Vorlauf, Pause oder Tickwechseln. `LEAVE` bedeutet Sichtbarkeitswechsel, nicht Tod.
+Der gemeinsame Vertrag ist `brain.replay.v2` in `brain_contracts::replay`. Ticks werden als `Observed<u32>` übertragen. Der Quellsentinel `-1` wird beim Decodieren zu `Unknown(InitializationTick)`; echte Tick-Null bleibt `Known(0)`. Archivierte v1-Berichte brauchen den expliziten Import `migrate_v1_report`: fehlende/null-Ticks werden `Unknown(NotPresent)`, andere negative Werte sind ungültig. Dieser Import ändert keine ursprüngliche Parserrevision und ist keine neue validierte Worker-Generation. Ein tatsächlich empfangenes `tick_interval` ist dokumentiert; es gibt keinen angenommenen 60-Hz-Wert. Spielzeit bleibt ohne belegten Ursprung `Unknown`, insbesondere bei Vorlauf, Pause oder Tickwechseln. `LEAVE` bedeutet Sichtbarkeitswechsel, nicht Tod.
 
 Raw-Locators enthalten den Dateibereich des auslösenden Befehls, dessen Kompressionsstatus und den Hash des decodierten Befehls beziehungsweise Netzwerkpakets. Paket- und Entity-Ordinale sind keine vorgetäuschten Bytepositionen in komprimierten Daten. Entity-Zustände tragen `requires_state_prefix=true`: Für ihren Nachweis muss der gehashte Raw-Präfix ab Dateianfang einschließlich Baselines und früherer Deltas erneut abgespielt werden.
 
@@ -40,7 +40,7 @@ Ein `WorkerDecoder` wird vom bestehenden Scheduler wiederverwendet; dessen Klone
 
 ## Gemeinsamer Port statt zweiter Infrastruktur
 
-`deadlock_brain_core::replay` enthält `ReplayDecoder`, `ObservationStore`, `decode_into_store` und die deterministische Dublettenklassifikation. Gleiche Generationen sind idempotent. Derselbe extern belegte Match unter derselben Decoderkonfiguration wird nicht als zweites Sample gezählt. Andere Parser-/Schema-/Auswahlgenerationen werden als Reparse behandelt. Andere Sichtbarkeitsscopes werden niemals durch Deduplication freigegeben.
+`brain_contracts::replay` enthält `ReplayDecoder`, `ObservationStore`, `decode_into_store` und die deterministische Dublettenklassifikation. Gleiche Generationen sind idempotent. Derselbe extern belegte Match unter derselben Decoderkonfiguration wird nicht als zweites Sample gezählt. Andere Parser-/Schema-/Auswahlgenerationen werden als Reparse behandelt. Andere Sichtbarkeitsscopes werden niemals durch Deduplication freigegeben.
 
 Der produktive Store muss die Entscheidung und das Umschalten vollständiger Generationen in seiner bestehenden Transaktion ausführen und beide Raw-Provenienzen erhalten. Der Port ist mit dem echten Worker gegen einen **Test-Store** ausgeführt. Ein neuer Postgres-Store oder ein bereits erfolgter Produktionsanschluss wird damit nicht behauptet.
 
@@ -58,3 +58,5 @@ Die Fixtures werden ausschließlich als eigene synthetische Byte-/Bitstreams im 
 **Kein echter Replaytest ist dadurch bestanden.** Alle Laufzeit-Capabilities behalten `real_replay_verified=false`; `coaching_eligible=false`. Die verbindliche lokale Abnahmeliste steht in `architecture/migration/handoffs/CODEX_REPLAY_DECODER_COMPLETION.md`.
 
 Die BSD-3-Lizenz und Attribution des verwendeten Haste-Codes stehen in `THIRD_PARTY_HASTE_BSD3.txt`. Auch die kleine synthetische Huffman-Encodierung bezieht sich auf dessen dokumentierten Wire-Algorithmus. Abhängigkeiten und deren Lizenzhinweise müssen bei einer späteren Binary-Distribution erhalten und geprüft werden.
+
+Der alte Importpfad `deadlock_brain_core::replay` re-exportiert nur noch dieselben gemeinsamen Typen. `ReplayReport::observation_provenance` liefert für eine tatsächlich enthaltene Observation den Raw-Locator einschließlich State-Prefix, Replay-/Generationsidentität, Parser-/Schema-/Extraktionsrevision, Rechte und ein explizites Unknown oder eine hinterlegte kanonische Entity-Zuordnung. Der Decoder erfindet weder kanonische Entity-IDs noch Patch/Mode; sein Supervisor lehnt solche vom Worker injizierten Angaben ab.

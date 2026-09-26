@@ -136,7 +136,9 @@ pub fn prepare_assets(
     let contract = consumed_contract(kind)?;
     let mut ir = SourceIr::from_http(SOURCE, PARSER_REVISION, response)?;
     ir.set_derivation_family("deadlock-game-assets");
-    ir.pin_schema(&OpenApiSnapshot::pinned()?.schema_sha256);
+    let schema = OpenApiSnapshot::pinned()?;
+    ir.pin_schema(&schema.schema_sha256);
+    ir.pin_schema_version(&schema.api_version)?;
     if let Ok(payload) = ir.payload() {
         let validation = validate_consumed(&contract, payload);
         let identities = snapshots_for(kind, payload);
