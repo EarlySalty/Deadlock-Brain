@@ -3,7 +3,7 @@
 # leerer Import toetboardet nicht, Herkunft eindeutig.
 # Quelle: brain_pilot_tombstone_src (Legacy-Kopie), Ziel: brain_pilot_tombstone_tgt.
 set -uo pipefail
-ROOT=/home/nathanael/.worktrees/brain-g5-pre-integration
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PG_BIN=/usr/lib/postgresql/16/bin
 SOCKET=/run/deadlock-brain-postgresql
 PORT=5446
