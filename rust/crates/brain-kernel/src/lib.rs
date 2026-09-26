@@ -1,12 +1,13 @@
 #![forbid(unsafe_code)]
 
 use brain_contracts::{
-    AnswerProviderPort, AnswerResponse, AnswerStatus, AuthorizedContext, Evidence, EvidenceKind,
-    PortError, Query, RetrievalPort, Usage, CONTRACT_VERSION,
+    AnswerProviderPort, AnswerResponse, AnswerStatus, AuthorizedContext, Evidence, PortError,
+    Query, RetrievalPort, Usage, CONTRACT_VERSION,
 };
 use brain_policy::{evidence_allowed, provider_egress_allowed};
 mod cache;
 mod execution;
+mod fact_relevance;
 mod flight;
 pub use cache::CachedKernel;
 
@@ -80,7 +81,7 @@ mod tests {
     };
 
     use brain_contracts::{
-        AnswerProfile, Budget, PortError, Principal, ProviderAnswer, SourceVisibility,
+        AnswerProfile, Budget, EvidenceKind, PortError, Principal, ProviderAnswer, SourceVisibility,
     };
 
     use super::*;
@@ -197,18 +198,36 @@ mod tests {
     #[test]
     fn fact_path_does_not_call_provider() {
         let calls = Arc::new(AtomicUsize::new(0));
+        let mut fact = evidence("fact", EvidenceKind::Fact, SourceVisibility::Public, &[]);
+        fact.logical_id = "entity/hero/Abrams".into();
+        fact.content = "hero: Abrams\nhealth: 650".into();
+        fact.provenance = Some(brain_contracts::ChunkProvenance {
+            document: brain_contracts::DocumentRevision {
+                source_id: fact.source_id.clone(),
+                logical_id: fact.logical_id.clone(),
+                revision: fact.revision,
+                content_hash: "fixture".into(),
+            },
+            chunker_version: "fixture".into(),
+            ordinal: 0,
+            byte_start: 0,
+            byte_end: fact.content.len(),
+            source_locator: "fixture".into(),
+            release_id: "k1".into(),
+            knowledge_version: "v1".into(),
+            valid_from: None,
+            valid_to: None,
+            metadata: Default::default(),
+        });
         let kernel = Kernel::new(
-            FixedRetrieval(vec![evidence(
-                "fact",
-                EvidenceKind::Fact,
-                SourceVisibility::Public,
-                &[],
-            )]),
+            FixedRetrieval(vec![fact]),
             CountingProvider {
                 calls: calls.clone(),
             },
         );
-        let answer = kernel.answer(&query(AnswerProfile::Fact), &context(&[], &["public"]));
+        let mut request = query(AnswerProfile::Fact);
+        request.text = "Abrams health".into();
+        let answer = kernel.answer(&request, &context(&[], &["public"]));
         assert_eq!(answer.status, AnswerStatus::Answered);
         assert_eq!(calls.load(Ordering::SeqCst), 0);
         assert_eq!(answer.citations.len(), 1);
