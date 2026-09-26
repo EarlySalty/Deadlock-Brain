@@ -58,7 +58,7 @@ impl Collector {
         }
         let raw = self.raw.clone().ok_or(ReplayFailure::ParserFailure)?;
         let time = ReplayTime {
-            tick: ctx.tick(),
+            tick: tick_from_legacy(ctx.tick())?,
             tick_interval_seconds: self.interval.clone(),
             game_time_seconds: Observed::unknown(if ctx.tick() == -1 {
                 UnknownReason::InitializationTick
@@ -511,6 +511,8 @@ pub(crate) fn decode_stream(
         parser_revision: parser_revision(),
         schema_revision: SCHEMA_REVISION.into(),
         extraction_revision: EXTRACTION_REVISION.into(),
+        validity: brain_contracts::source::GameValidity::unknown(),
+        entity_mapping: BTreeMap::new(),
         selection: request.selection,
         generation_id: generation,
         commands: state.commands,

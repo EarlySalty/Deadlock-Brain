@@ -18,7 +18,10 @@ fn minimal_authored_source2_container_decodes_through_real_worker() {
     assert_eq!(report.commands, 2);
     assert_eq!(report.observations.len(), 1);
     assert_eq!(report.observations[0].raw.file_byte_offset, 16);
-    assert_eq!(report.observations[0].time.tick, -1);
+    assert_eq!(
+        report.observations[0].time.tick,
+        Observed::unknown(UnknownReason::InitializationTick)
+    );
     assert!(matches!(
         report.observations[0].time.game_time_seconds,
         Observed::Unknown {
@@ -41,7 +44,7 @@ fn snappy_outer_command_preserves_observed_values_not_raw_identity() {
 fn observed_server_interval_never_becomes_an_assumed_game_clock() {
     let report = decode(&container(&[server(42, Some(0.02))], false), &request()).unwrap();
     let o = &report.observations[1];
-    assert_eq!(o.time.tick, 42);
+    assert_eq!(o.time.tick, Observed::known(42));
     assert_eq!(o.time.tick_interval_seconds, Observed::known(0.02));
     assert!(matches!(
         o.time.game_time_seconds,

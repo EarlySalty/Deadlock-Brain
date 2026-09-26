@@ -1087,7 +1087,9 @@ pub fn prepare_match_response(
     history: bool,
 ) -> Result<crate::external::SourceIr> {
     let mut ir = crate::external::SourceIr::from_http(SOURCE, "dbrain-match-api/2", response)?;
-    ir.pin_schema(&crate::schema_watch::OpenApiSnapshot::pinned()?.schema_sha256);
+    let schema = crate::schema_watch::OpenApiSnapshot::pinned()?;
+    ir.pin_schema(&schema.schema_sha256);
+    ir.pin_schema_version(&schema.api_version)?;
     ir.set_derivation_family("deadlock-api-match-observations");
     if let Ok(payload) = ir.payload() {
         let mut errors = Vec::new();

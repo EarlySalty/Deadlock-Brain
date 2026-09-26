@@ -3,7 +3,10 @@ use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
 fn fixture() -> Value {
-    serde_json::from_str(include_str!("../fixtures/pilot.capture.json")).unwrap()
+    serde_json::from_str(include_str!(
+        "../../../../architecture/migration/s12/fixtures/pilot.capture.json"
+    ))
+    .unwrap()
 }
 fn inspect(value: &Value) -> Report {
     analyze(&serde_json::to_vec(value).unwrap()).unwrap()
@@ -789,8 +792,10 @@ fn a_new_revision_with_unchanged_raw_bytes_does_not_change_embedding_input() {
 
 #[test]
 fn hero_preview_matches_reviewed_golden_fixture() {
-    let expected: Value =
-        serde_json::from_str(include_str!("../fixtures/hero-preview.golden.json")).unwrap();
+    let expected: Value = serde_json::from_str(include_str!(
+        "../../../../architecture/migration/s12/fixtures/hero-preview.golden.json"
+    ))
+    .unwrap();
     let report = inspect(&fixture());
     assert_eq!(
         serde_json::to_value(&report.card_previews[0]).unwrap(),

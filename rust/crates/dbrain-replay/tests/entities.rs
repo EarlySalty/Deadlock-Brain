@@ -238,7 +238,7 @@ fn entity_sampling_keeps_lifecycle_and_does_not_reset_missing_fields_to_zero() {
         .filter(|o| matches!(o.event, ObservationKind::EntityState { .. }))
         .collect();
     assert_eq!(entities.len(), 3);
-    assert_eq!(entities[1].time.tick, 121);
+    assert_eq!(entities[1].time.tick, Observed::known(121));
     let ObservationKind::EntityState { fields, .. } = &entities[1].event else {
         unreachable!()
     };

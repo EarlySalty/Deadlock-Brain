@@ -1,5 +1,8 @@
 # S12 — Wiki-/Knowledge-Pfad
 
+> C4-Pfadwechsel: Aktiver Parser und Tests liegen jetzt unter `rust/crates/dbrain-wiki` im Hauptworkspace. Die historische Darstellung unten und die gespeicherten Fixtures/Berichte bleiben erhalten. `Cargo.toml.historical` und `Cargo.lock` sind Nachweise, keine aktive Crate. Siehe [aktuellen Parser](../../../rust/crates/dbrain-wiki/README.md).
+
+
 ## Aktueller Stand: 25.09.2026
 
 Die ursprüngliche Offline-Suite aus PR #30 bleibt erhalten und wurde erweitert. `capture` bietet begrenzte Discovery/Continuation mit injiziertem Transport, `literal` liest ausschließlich sichere Datenliterale, und `knowledge` bindet die gemeinsame IR an die **vorhandene** `brain-contracts`-Crate. `dbrain-sources` verwendet dieselbe Bibliothek und seinen bestehenden SourceStore; keine zweite Facts-Datenbank.
