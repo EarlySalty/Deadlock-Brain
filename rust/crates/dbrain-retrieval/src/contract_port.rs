@@ -78,6 +78,7 @@ impl RetrievalPort for LexicalRetriever {
                     visibility: record.visibility,
                     allowed_scopes: record.allowed_scopes.clone(),
                     score,
+                    provenance: None,
                     patch: record.metadata.get("patch").cloned(),
                 };
                 Some(evidence)

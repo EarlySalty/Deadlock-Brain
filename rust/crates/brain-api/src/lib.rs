@@ -207,6 +207,7 @@ mod tests {
                     visibility: brain_contracts::SourceVisibility::Public,
                     allowed_scopes: BTreeSet::new(),
                     score: 1.0,
+                    provenance: None,
                     patch: None,
                 }],
                 usage: Usage::default(),

@@ -310,6 +310,7 @@ mod tests {
             visibility: SourceVisibility::Private,
             allowed_scopes: scope_set(&["docs.internal"]),
             score: 1.0,
+            provenance: None,
             patch: None,
         };
         assert!(!evidence_allowed(&principal, &evidence));
@@ -334,6 +335,7 @@ mod tests {
             visibility: SourceVisibility::Internal,
             allowed_scopes: BTreeSet::new(),
             score: 1.0,
+            provenance: None,
             patch: None,
         };
         assert!(!evidence_allowed(&principal, &evidence));

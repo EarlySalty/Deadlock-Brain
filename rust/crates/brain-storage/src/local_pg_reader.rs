@@ -67,6 +67,33 @@ impl LocalPgReader {
     }
 }
 impl SnapshotReadPort for LocalPgReader {
+    fn read_heads(
+        &self,
+        documents: &[brain_contracts::DocumentRevision],
+    ) -> Result<Vec<brain_contracts::DocumentHead>, PortError> {
+        if documents.len() > 256 {
+            return Err(invalid("head batch too large"));
+        }
+        if documents.is_empty() {
+            return Ok(Vec::new());
+        }
+        let keys = serde_json::to_value(documents).map_err(|_| invalid("invalid head keys"))?;
+        let mut client = self.connect()?;
+        // A single statement snapshot, bounded key lookup; never fetch record bodies or release pins.
+        let rows = client.query(
+            "SELECT jsonb_build_object('source_id',h.source_id,'logical_id',h.logical_id,'revision',h.revision,'visibility',h.record_json->'visibility','allowed_scopes',h.record_json->'allowed_scopes','tombstone',h.record_json->'tombstone','metadata',h.record_json->'metadata') FROM jsonb_to_recordset($1::jsonb) AS k(source_id text, logical_id text) JOIN brain.source_record_heads h ON h.source_id=k.source_id AND h.logical_id=k.logical_id ORDER BY h.source_id,h.logical_id",
+            &[&keys],
+        ).map_err(error)?;
+        rows.iter()
+            .map(|row| {
+                let head: brain_contracts::DocumentHead =
+                    serde_json::from_value(row.try_get(0).map_err(error)?)
+                        .map_err(|_| invalid("invalid current head JSON"))?;
+                head.validate()?;
+                Ok(head)
+            })
+            .collect()
+    }
     fn read_snapshot(&self, release_id: &str) -> Result<CorpusSnapshot, PortError> {
         let mut client = self.connect()?;
         let mut tx = client
