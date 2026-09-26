@@ -131,7 +131,14 @@ fn entity_documents_sort_metadata_and_reject_duplicates() {
     assert!(entity_documents(&[spoofed_source]).is_err());
     let mut spoofed_name = entity(3, "Seven");
     spoofed_name.metadata = serde_json::json!({"hero": "Warden"});
-    assert!(entity_documents(&[spoofed_name]).is_err());
+    let imported = entity_documents(&[spoofed_name]).unwrap();
+    assert!(imported.documents[0].content.starts_with("hero: Seven\n"));
+    assert!(!imported.documents[0].content.contains("hero: Warden"));
+    let mut historical = entity(3, "Seven");
+    historical.metadata = serde_json::json!({"hero": 25});
+    assert!(!entity_documents(&[historical]).unwrap().documents[0]
+        .content
+        .contains("hero: 25"));
     let batch = prepare_batch(&source, &public_policy(), &context(), None).unwrap();
     assert_eq!(
         batch.records[0]

@@ -325,20 +325,17 @@ pub fn entity_documents(rows: &[EntityRow]) -> Result<LegacySource> {
         if let serde_json::Value::Object(map) = &row.metadata {
             let sorted: BTreeMap<_, _> = map.iter().collect();
             for (key, value) in sorted {
-                if [
-                    "external id",
-                    "source",
-                    "aliases",
-                    "alias",
-                    "hero",
-                    "item",
-                    "entity",
-                ]
-                .contains(&key.trim().to_ascii_lowercase().as_str())
+                let normalized_key = key.trim().to_ascii_lowercase();
+                if ["external id", "source", "aliases", "alias"].contains(&normalized_key.as_str())
                 {
                     return Err(invalid(format!(
                         "reserved metadata key in legacy entity {logical_id}"
                     )));
+                }
+                // Historical rows contain an auxiliary `hero` field. It is not
+                // an authoritative name and must not become a query alias.
+                if ["hero", "item", "entity"].contains(&normalized_key.as_str()) {
+                    continue;
                 }
                 if let Some(value) = metadata_value(value) {
                     content.push_str(&format!("{}: {value}\n", clean(key)));
