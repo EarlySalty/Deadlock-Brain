@@ -243,6 +243,7 @@ pub(crate) fn retrieve<S: SnapshotReadPort>(
         visibility: proof.visibility,
         allowed_scopes: proof.scopes,
         score: 100.0,
+        provenance: None,
         patch: Some(snapshot.validity.patch),
     }])
 }
