@@ -101,17 +101,22 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
         if groups.is_empty() {
             return Ok(false);
         }
-        let documents: Vec<_> = groups
+        let documents: BTreeMap<_, _> = groups
             .iter()
             .flatten()
-            .map(|record| DocumentRevision {
-                source_id: record.source_id.clone(),
-                logical_id: record.logical_id.clone(),
-                revision: record.revision,
-                content_hash: record.content_hash.clone(),
+            .map(|record| {
+                (
+                    (record.source_id.clone(), record.logical_id.clone()),
+                    DocumentRevision {
+                        source_id: record.source_id.clone(),
+                        logical_id: record.logical_id.clone(),
+                        revision: record.revision,
+                        content_hash: record.content_hash.clone(),
+                    },
+                )
             })
             .collect();
-        let heads = self.heads(&documents)?;
+        let heads = self.heads(&documents.into_values().collect::<Vec<_>>())?;
         for owners in groups {
             let mut visible = BTreeSet::new();
             for record in owners {

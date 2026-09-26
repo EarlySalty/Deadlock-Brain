@@ -260,6 +260,32 @@ async fn two_unambiguous_entities_in_one_question_are_not_alias_ambiguous() {
 }
 
 #[tokio::test]
+async fn repeated_owner_across_ambiguous_names_is_deduplicated_before_head_read() {
+    let mut abrams = record("entity/hero/Abrams", "hero: Abrams\nhealth: 650");
+    abrams.metadata.insert("kind".into(), "fact".into());
+    abrams
+        .metadata
+        .insert("aliases_en".into(), "Abraham".into());
+    let mut same_canonical = record("entity/hero/Other", "hero: Other\nhealth: 700");
+    same_canonical.metadata.insert("kind".into(), "fact".into());
+    same_canonical
+        .metadata
+        .insert("aliases_en".into(), "Abrams".into());
+    let mut same_alias = record("entity/hero/Third", "hero: Third\nhealth: 800");
+    same_alias.metadata.insert("kind".into(), "fact".into());
+    same_alias
+        .metadata
+        .insert("aliases_en".into(), "Abraham".into());
+    let retriever = ReleaseRetriever::new(
+        published(vec![abrams, same_canonical, same_alias]).await,
+        10,
+    );
+    let mut request = query("Abrams Abraham health");
+    request.profile = AnswerProfile::Fact;
+    assert!(retriever.retrieve(&request, &context()).unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn live_revoke_delete_and_historical_acl_never_widen() {
     let mut original = record("restricted.md", "Abrams restricted evidence");
     original.visibility = SourceVisibility::Private;
