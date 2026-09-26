@@ -1,0 +1,28 @@
+{
+ "contract_version": "brain.feed.patchnotes.v1",
+ "provider": "deadlock-patchnotes-bot",
+ "export_revision": "export-fc392928d1d3560d",
+ "exported_at": 1790450000,
+ "posts": [
+  {
+   "post_id": "changelog-41",
+   "title": "09-18-2026 Update",
+   "url": "https://forums.playdeadlock.com/threads/09-18-2026-update.4271/",
+   "published_at": 1789754640,
+   "language": null,
+   "raw_text": "- [Heroes] Warden: Alchemical Flask projectical range and speed reduced by 30%\n- [Heroes] Infernus: Flame Wall damage rescaled\n",
+   "raw_sha256": "7352ca0c372615318eb00ce55ec36ce8221316a943a8293094d4d9635124a17f",
+   "source_revision": "changelog-posts/41@7352ca0c3726"
+  },
+  {
+   "post_id": "changelog-42",
+   "title": "Winter Visual Update",
+   "url": "https://steamcommunity.com/games/1422450/announcements/detail/698776157349216435",
+   "published_at": 1768237200,
+   "language": null,
+   "raw_text": "Hero visual updates for Warden and Infernus, plus general bug fixes.\n",
+   "raw_sha256": "8f60d0d928cf10771ad5be267635e0e237dfa896e554c9624cb31622158120f5",
+   "source_revision": "changelog-posts/42@8f60d0d928cf"
+  }
+ ]
+}

@@ -192,4 +192,24 @@ mod tests {
         assert!(parse_feed(&serde_json::to_vec(&value).unwrap()).is_err());
         assert!(parse_feed(&feed(Vec::new())).is_err());
     }
+
+    #[test]
+    fn provider_export_fixture_is_accepted_and_prepares_a_batch() {
+        // Echter Export des Patchnotes-Providers (test_brain_feed.py):
+        // gleicher Vertrag, inhaltsgebundene Export-Revision, gueltige Raw-Hashes.
+        let bytes = include_str!("../tests/fixtures/patchnotes_feed.json").as_bytes();
+        let parsed = parse_feed(bytes).unwrap();
+        assert_eq!(parsed.provider, "deadlock-patchnotes-bot");
+        assert_eq!(parsed.posts.len(), 2);
+        assert!(parsed
+            .posts
+            .iter()
+            .all(|p| p.raw_sha256 == crate::sha256_hex(p.raw_text.as_bytes())));
+        let batch = prepare_batch(&parsed, &policy(), None).unwrap();
+        assert_eq!(batch.records.len(), 2);
+        assert!(batch
+            .records
+            .iter()
+            .all(|r| r.logical_id.starts_with("post/changelog-")));
+    }
 }
