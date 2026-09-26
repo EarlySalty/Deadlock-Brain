@@ -16,6 +16,7 @@ pub mod patchnotes_db;
 pub mod reddit;
 pub mod schema_signal;
 pub mod schema_watch;
+pub mod source_pins;
 pub mod statlocker;
 pub use dbrain_s12_wiki_probe::{capture as wiki_capture, knowledge as wiki_knowledge};
 pub mod wiki;

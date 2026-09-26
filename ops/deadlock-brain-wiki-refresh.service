@@ -3,6 +3,8 @@ Description=Deadlock-Spieldaten importieren und geprüften Wiki-Snapshot veröff
 
 [Service]
 Type=oneshot
+# Read-only pin validation before credential-consuming import. This is a template only.
+ExecStartPre=%h/.local/share/deadlock-brain/wiki-refresh/deadlock-brain wiki refresh --config %h/.local/share/deadlock-brain/wiki-refresh/wiki-refresh.json --check-config
 LoadCredential=infisical-token:%h/.config/infisical-tokens/infisical-token-bots
 ExecStart=/bin/bash -c 'exec 5<"$${CREDENTIALS_DIRECTORY}/infisical-token"; exec %h/.local/share/deadlock-brain/wiki-refresh/deadlock-brain wiki refresh --config %h/.local/share/deadlock-brain/wiki-refresh/wiki-refresh.json'
 TimeoutStartSec=30min

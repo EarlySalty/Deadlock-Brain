@@ -226,8 +226,16 @@ impl<R: RuntimeReader> Context<'_, R> {
         Ok(groups)
     }
 
-    fn identity(&mut self, pid: u32, group: &str) -> AuditResult<(u64, String)> {
-        let start = start_time(pid, &self.text(&format!("/proc/{pid}/stat"))?)?;
+    fn identity(&mut self, pid: u32, group: &str) -> AuditResult<(u64, String, bool)> {
+        let stat = self.text(&format!("/proc/{pid}/stat"))?;
+        let start = start_time(pid, &stat)?;
+        // comm is already present in stat. Never read cmdline or environ.
+        let comm = stat
+            .split_once('(')
+            .and_then(|(_, rest)| rest.rsplit_once(") "))
+            .map(|(comm, _)| comm)
+            .ok_or("invalid_process_stat")?;
+        let named_python = python_executable_name(comm);
         let memberships = self.text(&format!("/proc/{pid}/cgroup"))?;
         let mut selected = memberships.lines().filter_map(|line| {
             let mut fields = line.splitn(3, ':');
@@ -251,7 +259,7 @@ impl<R: RuntimeReader> Context<'_, R> {
         if !exe.starts_with('/') || exe.ends_with('/') || exe.contains(['\n', '\r', '\0']) {
             return Err("invalid_executable_identity");
         }
-        Ok((start, exe))
+        Ok((start, exe, named_python))
     }
 }
 
@@ -312,13 +320,48 @@ fn start_time(pid: u32, value: &str) -> AuditResult<u64> {
     value.parse().map_err(|_| "invalid_process_start_time")
 }
 
+fn python_executable_name(name: &str) -> bool {
+    ["python", "pypy"].iter().any(|prefix| {
+        let Some(suffix) = name.strip_prefix(prefix) else {
+            return false;
+        };
+        if suffix.is_empty() {
+            return true;
+        }
+        let end = suffix
+            .find(|c: char| !c.is_ascii_digit() && c != '.')
+            .unwrap_or(suffix.len());
+        let (version, flags) = suffix.split_at(end);
+        !version.is_empty()
+            && version
+                .split('.')
+                .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+            && flags.len() <= 4
+            && flags.bytes().all(|b| b"dmut".contains(&b))
+    })
+}
+
+fn python_library_name(name: &str) -> bool {
+    let Some((stem, version)) = name.split_once(".so") else {
+        return false;
+    };
+    let Some(interpreter) = stem.strip_prefix("lib") else {
+        return false;
+    };
+    // PyPy libraries commonly use a '-c' suffix.
+    let interpreter = interpreter.strip_suffix("-c").unwrap_or(interpreter);
+    python_executable_name(interpreter)
+        && (version.is_empty()
+            || version.strip_prefix('.').is_some_and(|v| {
+                v.split('.')
+                    .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+            }))
+}
+
 fn runtime_name(exe: &str) -> &'static str {
     let exe = exe.strip_suffix(" (deleted)").unwrap_or(exe);
     let name = exe.rsplit('/').next().unwrap_or_default();
-    if ["python", "pypy"].iter().any(|prefix| {
-        name.strip_prefix(prefix)
-            .is_some_and(|suffix| suffix.bytes().all(|b| b.is_ascii_digit() || b == b'.'))
-    }) {
+    if python_executable_name(name) {
         "python_candidate"
     } else if ["sh", "bash", "dash", "zsh", "ksh", "fish", "env"].contains(&name) {
         "shell_unverified"
@@ -367,7 +410,8 @@ fn mapped_runtime(value: &str) -> AuditResult<(bool, bool)> {
         deleted |= path.ends_with(" (deleted)");
         let path = path.strip_suffix(" (deleted)").unwrap_or(&path);
         let name = path.rsplit('/').next().unwrap_or_default();
-        python |= name.starts_with("libpython") || name.starts_with("libpypy");
+        python |=
+            python_library_name(name) || (permissions[2] == b'x' && python_executable_name(name));
     }
     Ok((python, deleted))
 }
@@ -422,19 +466,23 @@ pub fn collect_runtime(
                 if !all_pids.insert(pid) || all_pids.len() > MAX_PROCESSES {
                     return Err("duplicate_or_excessive_runtime_processes");
                 }
-                let (start, exe) = context.identity(pid, subgroup)?;
+                let (start, exe, named_python) = context.identity(pid, subgroup)?;
                 let (embedded_python, deleted_mapping) =
                     mapped_runtime(&context.text(&format!("/proc/{pid}/maps"))?)?;
                 result.processes.push(Process {
                     unit: unit.name.clone(),
                     pid,
                     start,
-                    runtime: runtime_name(&exe),
+                    runtime: if named_python {
+                        "python_candidate"
+                    } else {
+                        runtime_name(&exe)
+                    },
                     embedded_python,
                     deleted_executable: exe.ends_with(" (deleted)"),
                     deleted_mapping,
                 });
-                identities.push((pid, subgroup, start, exe));
+                identities.push((pid, subgroup, start, exe, named_python));
             }
         }
         if identities.is_empty() {
@@ -443,8 +491,8 @@ pub fn collect_runtime(
         if before != context.groups(group)? {
             return Err("cgroup_changed_during_observation");
         }
-        for (pid, subgroup, start, exe) in identities {
-            if context.identity(pid, subgroup)? != (start, exe) {
+        for (pid, subgroup, start, exe, named_python) in identities {
+            if context.identity(pid, subgroup)? != (start, exe, named_python) {
                 return Err("process_changed_during_observation");
             }
         }
@@ -470,7 +518,7 @@ pub fn render_runtime(report: &RuntimeReport) -> String {
             p.start,
             p.runtime,
             if p.embedded_python {
-                "embedded_python_candidate"
+                "mapped_python_candidate"
             } else {
                 "no_named_python_mapping_observed"
             },

@@ -1,5 +1,7 @@
 # Quellen und aktuelle Wiki-Projektion
 
+Vor jedem späteren Deploy gilt [Explizite Quellenpins (C7)](source-pinning.md): Commit und Parserrevision gehören in die JSON-Config. Der read-only Prüfmodus `--check-config` testet die lokalen Pins ohne Import.
+
 `deadlock-brain wiki refresh --config config/wiki-refresh.json` benutzt eine normale JSON-Konfiguration und den vorhandenen Infisical-Pool. Der neue Einstieg wird vor der Legacy-Konfiguration verarbeitet. Das Credential wird als ausdrücklich konfigurierter Dateideskriptor übergeben; es wird weder ausgegeben noch in einer Datei gespeichert.
 
 Der Ablauf importiert die vorhandene öffentliche Deadlock-Data-Quelle und baut anschließend einen vollständig neuen Wiki-Snapshot. Der Export verwendet ausschließlich den letzten erfolgreich abgeschlossenen Deadlock-Data-Import; entfernte Entities und neuere fehlgeschlagene Teilimporte werden nicht als aktuelle Daten exportiert. `DescKey` wird gegen deutsche, ersatzweise englische Localization derselben Revision aufgelöst. Fehlende Texte bleiben fehlend, Platzhalter werden nicht geraten. Original- und gerenderter Payloadhash sind getrennt.

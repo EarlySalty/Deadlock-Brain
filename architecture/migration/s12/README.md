@@ -9,7 +9,7 @@ Die ursprüngliche Offline-Suite aus PR #30 bleibt erhalten und wurde erweitert.
 
 Neue Offline-Kommandos: `extract`, `project` und `ir-delta`. Release- und Review-Dateien sind explizite Eingaben; aus Parsererfolg wird keine automatische Freigabe. Der optionale Netzwerkadapter bleibt standardmäßig deaktiviert. Der einzige Live-Metadatencheck ergab HTTP 403, ohne Umgehung oder weitere Abrufe.
 
-Aktuelle Implementierung, Grenzen, Befehle, tatsächlich ausgeführte Tests und lokale Claude-Prüfung: [CODEX_WIKI_COMPLETION.md](../handoffs/CODEX_WIKI_COMPLETION.md). Reproduktion: `python3 architecture/migration/s12/check-completion.py` vom Repository aus, mit Rust 1.97.1 auf PATH. Die neuen Ergebnisdateien heißen `reports/completion-*`.
+Aktuelle Implementierung, Grenzen, Befehle, tatsächlich ausgeführte Tests und lokale Claude-Prüfung: [CODEX_WIKI_COMPLETION.md](../handoffs/CODEX_WIKI_COMPLETION.md). Reproduktion: `bash architecture/migration/s12/check-completion.sh` vom Repository aus, mit Rust 1.97.1 auf PATH. Die versionierten `reports/completion-*` sind historische Nachweise. Aktuelle Läufe schreiben ausschließlich nach `rust/target/wiki-completion.*/`; die Änderungen an Konfiguration und Tooling stehen in [C7_C8_RUNTIME_TOOLING.md](../handoffs/C7_C8_RUNTIME_TOOLING.md).
 
 Die folgenden Abschnitte und die ursprünglichen Reports dokumentieren den **historischen prepare-only-Stand aus PR #30**. Aussagen über damals fehlende Contracts, unveränderte Workspaces und fehlende Card-Projektion sind keine Beschreibung der neuen Adapter. Liveabdeckung, Gatefreigaben und kanonische Produktion bleiben dennoch unbewiesen.
 
@@ -81,3 +81,5 @@ PR #13 (`3aae8e0`) enthält bereits einen Wiki-Korpus-/Hero-Dossier-Ansatz. Die 
 ## Abnahme
 
 `reports/WIKI_COVERAGE.csv`, `reports/pilot-report.json`, Golden-Fixture und Testprotokoll sind **nur synthetische Offline-Nachweise**. Die tatsächlichen offenen S12-Leistungen und deren Besitzer stehen in `CR-S12-001.md` und `../handoffs/12-wiki-wissenskarten.md`. Der Gesamtauftrag S12 bleibt bis zur echten Integration und Abnahme offen.
+
+Aktuelle Check-Artefakte werden pro Lauf in `rust/target/wiki-completion.*/` geschrieben (TSV-Befehls-/Exitprotokoll, Logs, Quellhashes, Abschlussstatus). Die versionierten `reports/` bleiben historische Nachweise und werden nicht aktualisiert. Der Checker benötigt Bash, Rust und die üblichen GNU-Coreutils, kein Python.
