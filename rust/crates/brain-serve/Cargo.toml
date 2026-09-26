@@ -1,0 +1,26 @@
+[package]
+name = "brain-serve"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+brain-api = { path = "../brain-api" }
+brain-contracts = { path = "../brain-contracts" }
+brain-kernel = { path = "../brain-kernel" }
+brain-policy = { path = "../brain-policy" }
+brain-providers = { path = "../brain-providers" }
+brain-storage = { path = "../brain-storage" }
+dbrain-retrieval = { path = "../dbrain-retrieval" }
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tokio = { workspace = true, features = ["macros", "signal", "sync"] }
+
+[dev-dependencies]
+brain-client = { path = "../brain-client" }
+brain-ingestion = { path = "../brain-ingestion" }
+sha2.workspace = true
+tempfile.workspace = true
+wait-timeout.workspace = true

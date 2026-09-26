@@ -37,7 +37,7 @@ jobs:
           - suite: provider-jev
             packages: '-p brain-providers -p brain-jev'
           - suite: kernel-api-consumer
-            packages: '-p brain-kernel -p brain-api -p brain-client'
+            packages: '-p brain-kernel -p brain-api -p brain-client -p brain-serve'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -67,6 +67,15 @@ jobs:
           test -x "$(pg_config --bindir)/pg_ctl"
           env -i PATH="$PATH" HOME="$PWD/.consumer-ci-reports/test-home" CARGO_HOME="$HOME/.cargo" RUSTUP_HOME="$HOME/.rustup" CARGO_BUILD_JOBS=2 CARGO_NET_OFFLINE=true \
             bash scripts/test_brain_core_postgres.sh 2>&1 | tee .consumer-ci-reports/postgres.log
+      - name: Real brain-serve process and isolated PostgreSQL pilot
+        if: matrix.suite == 'kernel-api-consumer'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x "$(pg_config --bindir)/initdb"
+          test -x "$(pg_config --bindir)/pg_ctl"
+          env -i PATH="$PATH" HOME="$PWD/.consumer-ci-reports/test-home" CARGO_HOME="$HOME/.cargo" RUSTUP_HOME="$HOME/.rustup" SQLX_OFFLINE=true CARGO_BUILD_JOBS=2 CARGO_NET_OFFLINE=true \
+            bash scripts/test_brain_serve.sh 2>&1 | tee .consumer-ci-reports/brain-serve-process.log
       - name: Consumer lint and synthetic release measurement
         if: matrix.suite == 'kernel-api-consumer'
         shell: bash
