@@ -1,6 +1,6 @@
 # Eigene PostgreSQL-Instanz für Deadlock Brain
 
-Stand: 26.09.2026, Branch `migration/rust-integration`. Staging und Vorbereitung, kein Cutover.
+Stand: 26.09.2026, Branch `migration/rust-integration`, zuletzt bereinigt im Pre-G5-Review (`PRE_G5_TECHNICAL_REVIEW.md`). Staging und Vorbereitung, kein Cutover.
 Alle Angaben sind am Host `v50671` gemessen. Secretwerte stehen nirgends in diesem Dokument.
 
 ## Ergebnis
@@ -9,7 +9,8 @@ Alle Angaben sind am Host `v50671` gemessen. Secretwerte stehen nirgends in dies
 |---|---|
 | BRAIN_DB_ISOLATED | JA |
 | BRAIN_DATA_MIGRATION_VERIFIED | JA (Alttabellen als Archivkopie `brain_legacy`, 49 Tabellen, 653 476 Zeilen, Zeilenzahl und md5 je Tabelle gleich) |
-| 600_REQUEST_TEST_PASSED | NEIN (kein "too many clients", aber rund 10 neue PostgreSQL-Verbindungen je Anfrage; Pooling-Fix fehlt) |
+| DB_POOLING_VERIFIED | JA (PR #49, `LocalPgReader` als gemeinsamer begrenzter Pool; Nachweis in `FINAL_LOCAL_INTEGRATION_REVIEW.md`, Abschnitt 5) |
+| 600_REQUEST_TEST_PASSED | JA (nach PR #49: 600 Requests je 8/16/32 Worker, Peak-Pool 4, 8 Neuverbindungen je Stufe, 0 „too many clients"). Der frühere Wert NEIN gilt nur für den Stand vor PR #49, siehe unten. |
 | PRODUCTION_DB_CUTOVER_READY | NEIN |
 | PRODUCTION_CUTOVER_READY | NEIN |
 
@@ -40,6 +41,7 @@ Startwerte für Staging, kein Produktions-SLO: `max_connections = 40`, `superuse
 |---|---|---|
 | `brain` | `brain_migrate` | Zielbestand: Kernschema v2 (`brain.*`, leer) und Archivkopie `brain_legacy.*` |
 | `brain_pilot` | `brain_migrate` | Wegwerf-DB für Pilot, Last und Betriebsprüfungen; wird bei jedem Pilotlauf neu angelegt |
+| `brain_pilot_legacy` | `brain_migrate` | Wegwerf-DB für den Legacy-Kernimport (`scripts/run_isolated_legacy_import.sh`), echte Altdaten als `SourceRecordV2`; wird bei jedem Lauf neu angelegt |
 
 Erweiterungen in beiden Datenbanken: nur `plpgsql`. Kein `postgres_fdw`, kein `dblink`, kein Foreign Server, kein User Mapping. `pgcrypto`, `vector` und `timescaledb` aus DL-Main werden nicht gebraucht (siehe Migrationsbericht).
 
@@ -67,16 +69,22 @@ Schema-Version `2`, Store-Contract `brain.store.v2`, aufgebaut ausschließlich m
 
 ## Connection-Architektur und Pool
 
-Ist-Zustand im integrierten Code:
+Aktueller Stand (seit PR #49, `ed06e13`): `LocalPgReader` ist ein gemeinsamer, hart begrenzter Pool (`postgres.max_connections` 1 bis 64, Service-Default 4, begrenzte Acquire-Wartezeit `postgres_pool_wait_ms`, Erschöpfung als `AnswerStatus::Unavailable`). Readiness, Snapshot-, Head-, Retrieval-, Evidenz- und Ownership-Zugriffe teilen ihn; kein connect-per-operation mehr im Anfragepfad. Nachweis: `FINAL_LOCAL_INTEGRATION_REVIEW.md`, Abschnitte 1 und 5.
+
+Historischer Stand vor PR #49 (nur noch Herkunft, nicht mehr gültig):
 
 - `brain-serve` baut genau einen `sqlx`-Pool (`postgres.max_connections`, Validierung 1 bis 16; im Staging 12) für Release-Snapshot, Readiness und Rechteprüfung.
 - Der Anfragepfad liest aber über `LocalPgReader` (synchrones `postgres`-Crate). Jede Operation (`read_heads`, `read_snapshot`, Ownership-Claim) öffnet eine **neue** Verbindung und schließt sie wieder. Das ist die connect-per-operation-Semantik, die der Auftrag ausschließt.
 - Gegen Überlast gibt es zwei Bremsen: 16 HTTP-Slots in `brain-api` (danach HTTP 429 `overloaded`) und den Verbindungsdeckel 16 der Rolle `brain_service` (danach meldet PostgreSQL `too many connections for role`, die API antwortet 503 `policy_unavailable` oder mit Status `unavailable`).
 - Pool-Wartezeit ist nicht instrumentiert; es gibt keine Metrik dafür.
 
-Der Zweig `DB_POOLING_BACKPRESSURE` existiert noch nicht (weder lokal noch auf `origin`). Deshalb wurde der Reader nicht selbst umgebaut. Ziel bleibt: HTTP, dann `brain-serve`, dann **ein** begrenzter gemeinsamer Pool, dann PostgreSQL.
+Damals existierte der Zweig `DB_POOLING_BACKPRESSURE` noch nicht; er kam später als PR #49 und ist integriert.
 
 ## Lasttest (600 Requests, neue Instanz, DB `brain_pilot`)
+
+Aktuelles Ergebnis nach PR #49: bestanden, Zahlen in `FINAL_LOCAL_INTEGRATION_REVIEW.md`, Abschnitt 5 (je Stufe 600 answered, Peak-Pool 4 = Limit, 8 neue `brain_service`-Verbindungen, 0 „too many clients", 0 falsche `unauthorized_evidence`, p99 27 / 111 / 174 ms).
+
+### Historische Messung vor PR #49 (nicht mehr gültig)
 
 Aufbau: echter `brain-serve` (Release-Build), echter HTTP-Client (`BrainClient`), Loopback-Provider-Stub, Pool 12, Default-Budget, Retrieval-Limit Default. `pg_stat_activity` alle 50 ms abgetastet, CPU und Speicher aus der systemd-Cgroup der Instanz, neue Verbindungen aus dem Serverlog (`log_connections`). Skripte: `scripts/run_isolated_load.sh`, `scripts/sample_brain_pg.sh`.
 
@@ -89,7 +97,7 @@ Aufbau: echter `brain-serve` (Release-Build), echter HTTP-Client (`BrainClient`)
 
 In allen Stufen: 0 × `too many clients already`, 0 × `unauthorized_evidence`, keine DB-Fehler als Rechteproblem klassifiziert. `brain-serve` selbst: rund 30 MiB RSS, 21 Threads, rund 250 CPU-Sekunden je 600 Anfragen (Retrieval ist CPU-lastig). Die 13 HTTP-Fehler im ersten 16er-Lauf wurden vor der Statuserfassung gezählt; der Wiederholungslauf mit Statuserfassung ordnet die 32er-Fehler vollständig ein (429 aus der Slot-Bremse, 503 aus dem Rollendeckel).
 
-Bewertung: Die Instanz bleibt stabil und `max_connections` musste nicht erhöht werden. Der Test ist trotzdem **nicht bestanden**, weil Verbindungen nicht wiederverwendet werden (rund 10 Neuverbindungen je Anfrage) und nur der Rollendeckel die Zahl begrenzt. Nach dem Pooling-Fix wird derselbe Lauf wiederholt; erwartet sind dann höchstens Poolgröße plus Reserve und null Neuverbindungen im eingeschwungenen Zustand.
+Bewertung damals (vor PR #49): Die Instanz bleibt stabil und `max_connections` musste nicht erhöht werden. Der Test war **nicht bestanden**, weil Verbindungen nicht wiederverwendet werden (rund 10 Neuverbindungen je Anfrage) und nur der Rollendeckel die Zahl begrenzt. Nach dem Pooling-Fix wird derselbe Lauf wiederholt; erwartet sind dann höchstens Poolgröße plus Reserve und null Neuverbindungen im eingeschwungenen Zustand.
 
 ## Backup und Restore
 
@@ -112,7 +120,7 @@ Siehe Migrationsbericht. Kurz: `patchnotes.changelog_posts` (Lesen), `steam.stea
 
 1. ~~`DB_POOLING_BACKPRESSURE` fehlt~~ Behoben: PR #49 integriert (`ed06e13`), Pool nachgewiesen (600×3 Stufen gegen diese Instanz, Peak 4, 0 „too many clients"); siehe `FINAL_LOCAL_INTEGRATION_REVIEW.md`.
 2. ~~C9-Consumer-Wiring fehlt~~ Behoben: PR #50 integriert (`ed06e13`); Consumer-Staging lokal gegen brain-serve-Staging bestanden (Twitch-Shadow-Fix `d877a9d` in PR #984).
-3. Echter Wiki-Pilot: Rechte- und Lizenzentscheidung für Capture und Raw-Aufbewahrung liegt beim Betreiber; der C5-Store ist nur an seinen eigenen Scratch-Cluster gebunden (Marker, Superuser-Rolle `brain_wiki_c5`, Zusatztabellen `source_runs`/`source_documents` außerhalb von `brain-migrate`).
-4. Kein freigegebener Provider und Modell, keine freigegebene `.dem`.
-5. Legacy-Datenmodell ist nicht in den Kern-Store überführt; es gibt keinen Konverter Alttabellen nach `SourceRecordV2`. `brain_legacy` ist Archiv, keine Laufzeitquelle.
-6. Feeds für Patchnotes, Steam-Build-Publish und die Deadlock-Bots-Writer sind nicht gebaut.
+3. Echter Wiki-Pilot: Rechte- und Lizenzentscheidung für Capture und Raw-Aufbewahrung liegt beim Betreiber. Der Adapter in den normalen Store (`wiki_runtime::stage_into_store`, Batches mit Checkpoint und Lease, kein `wiki_scratch.sql`) ist gebaut; der Scratch-Pfad bleibt nur als Offline-Regression.
+4. Kein freigegebener Provider und Modell, keine freigegebene `.dem` (Produktentscheidung zu Replay in V1 offen).
+5. ~~Kein Konverter Alttabellen nach `SourceRecordV2`~~ Gebaut (`brain-legacy-import`): Patchnotes und Entitäten aus `brain_legacy` als `SourceRecordV2`, Release `legacy-core-f07ea85c09010285` in `brain_pilot_legacy`, `brain-serve` antwortet daraus. Nicht in die produktive DB `brain` importiert (G5). Übrige Tabellen sind nach `PRE_G5_TECHNICAL_REVIEW.md`, Abschnitt 3, eingeordnet.
+6. Brain-Seite der Feeds gebaut (`brain.feed.patchnotes.v1`, `brain.build_publish.v1`, Deadlock-Assets-API nach Kern statt Bot-Writer, Crate `brain-feeds`). Die Provider-Seiten (Export im Patchnotes-Bot, Publish-Endpunkt im Steam-Bot) fehlen noch; die alten Direktpfade laufen bis G5 unverändert.

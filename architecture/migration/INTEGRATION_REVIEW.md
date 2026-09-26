@@ -7,7 +7,9 @@ Nichts wurde gemergt, deployt oder neu gestartet. Keine produktive Datenbank, ke
 
 **PRODUCTION_CUTOVER_READY: NEIN**
 
-Begründung in einem Satz: Der neue Kern läuft lokal mit echten Daten, aber es gibt keinen lauffähigen Dienst, echte Dokumente scheitern am Default-Budget, Wiki-, Replay- und Build-Pfade sind nicht an den Antwortpfad angeschlossen, und es gibt weder Staging noch einen freigegebenen Provider.
+Aktueller Stand: Dieser Bericht ist ein datiertes Protokoll. Maßgeblich für den heutigen Stand ist [PRE_G5_TECHNICAL_REVIEW.md](PRE_G5_TECHNICAL_REVIEW.md); Aussagen in den Abschnitten 1 bis 20 zu fehlendem Pooling, fehlendem C9, fehlendem Legacy-Konverter und fehlenden Feeds sind dort und in den Abschnitten 21 und 22 ersetzt.
+
+Begründung (Stand 25.09.2026) in einem Satz: Der neue Kern läuft lokal mit echten Daten, aber es gibt keinen lauffähigen Dienst, echte Dokumente scheitern am Default-Budget, Wiki-, Replay- und Build-Pfade sind nicht an den Antwortpfad angeschlossen, und es gibt weder Staging noch einen freigegebenen Provider.
 
 ## 1. Eingänge und Entscheidung
 
@@ -235,9 +237,11 @@ Risiken aus Abschnitt 15 nach der Integration: Risiko 2 ist behoben (`brain-serv
 
 TESTNACHWEIS[TW-1]: 940 passed, 71 ignored | Baseline: 0 rot
 
+Marker dieses Abschnitts gelten für den Stand vor PR #49 und sind durch Abschnitt 21 ersetzt.
+
 BRAIN_DB_ISOLATED: JA
 BRAIN_DATA_MIGRATION_VERIFIED: JA
-600_REQUEST_TEST_PASSED: NEIN
+600_REQUEST_TEST_PASSED: NEIN (vor PR #49, ersetzt)
 DEFAULT_E2E_PASSED: JA
 WIKI_REAL_PILOT_PASSED: NEIN
 CONSUMER_STAGING_PASSED: NEIN
@@ -273,3 +277,7 @@ G2_READY: NEIN
 G3_READY: NEIN
 G4_READY: JA
 PRODUCTION_CUTOVER_READY: NEIN
+
+## 22. Nachtrag 26.09.2026: Pre-G5-Review
+
+Legacy-Kernimport (`brain-legacy-import`), Brain-Seite der Feeds (`brain-feeds`: Patchnotes-Feed, Build-Publish-Port, Assets-API nach Kern) und die Wiki-Anbindung an den normalen `DocumentStorePort` sind gebaut und lokal verifiziert. Consumer-PR Deadlock-Bots #459 wurde auf Draft gesetzt, weil die Auto-Merge-Automation auf dessen `main` sonst nach Rückkehr des Semantic-Review-Kontingents gemergt hätte. Alle Zahlen, Gates und die verbleibenden G5-Blocker: [PRE_G5_TECHNICAL_REVIEW.md](PRE_G5_TECHNICAL_REVIEW.md).

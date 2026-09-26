@@ -148,3 +148,11 @@ Kein Production-Cutover ausgeführt; G5/G6 bleiben der Betreiberfreigabe vorbeha
 - „C9 fehlt/nicht integriert" ebenda ersetzt.
 - Remote-Zahlen aus den PR-Beschreibungen (#49: 600/8/16/32 auf Scratch) wurden nicht als lokale Abnahme übernommen, sondern gegen die echte Instanz neu gemessen (Abschnitt 5).
 - Der frühere lokale Arbeitsstand `integration/final-local-20260926` (Worktree `brain-final-local-20260926`, uncommittete Idle-Prune-Änderung) wird hiermit ersetzt; die Prune-Idee ist überflüssig, weil defekte Sessions beim Drop bereits aus dem Pool entfernt werden und Recovery nachweislich funktioniert.
+
+## 12. Nachtrag Pre-G5-Review (26.09.2026)
+
+- Maßgeblicher aktueller Stand, Gates und G5-Blocker: [PRE_G5_TECHNICAL_REVIEW.md](PRE_G5_TECHNICAL_REVIEW.md).
+- G3-Aussage „Gesamtdatenübernahme fehlt" ist präzisiert: Patchnotes und Entitäten sind per `brain-legacy-import` im Kernmodell (nur Pilot-DB), Sheet- und YouTube-Daten sowie die Provider-Seiten der Feeds fehlen weiter.
+- Deadlock-Bots #459 ist seit dem Pre-G5-Review Draft: Die Auto-Merge-Automation auf `main` von Deadlock-Bots hätte den PR nach Rückkehr des Semantic-Review-Kontingents gemergt. Das widerspricht dem PR-first-Testbetrieb.
+- Deadlock-2nd-Brain #2: Die Annotation des Jobs lautet „recent account payments have failed or your spending limit needs to be increased"; ein erneuter Lauf (Versuch 2) scheiterte identisch. Abrechnungsblocker, kein Codefehler.
+
