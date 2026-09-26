@@ -1,7 +1,7 @@
 # DB Pooling / Backpressure Handoff
 
-Stand: 2026-09-26  
-Branch: `codex/fix-brain-db-pooling`  
+Stand: 2026-09-26
+Branch: `codex/fix-brain-db-pooling`
 Base: aktueller `origin/migration/rust-integration` nach Integration der offenen Welle-1-Arbeit, insbesondere C1/`brain-serve` und C2/C3 Retrieval.
 
 ## Ziel
