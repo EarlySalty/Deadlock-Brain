@@ -1,14 +1,12 @@
 //! Release-local inverted BM25 index. Query work traverses postings, not corpus documents.
 use brain_contracts::{
-    store::record_allowed, AuthorizedContext, ChunkProvenance, CorpusRelease, DocumentHead,
+    lexical::{fact_names, terms},
+    store::record_allowed,
+    AnswerProfile, AuthorizedContext, ChunkProvenance, CorpusRelease, DocumentHead,
     DocumentRevision, Evidence, EvidenceKind, PortError, Query, SourceRecordV2,
 };
-use regex::Regex;
 use sha2::{Digest, Sha256};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::OnceLock,
-};
+use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) const CHUNKER_VERSION: &str = "utf8-window-v1-1024-overlap192";
 const TARGET_BYTES: usize = 1024;
@@ -35,37 +33,10 @@ pub(crate) struct ChunkIndex {
     postings: BTreeMap<String, Vec<(usize, u32)>>,
     lengths: Vec<usize>,
     average_length: f64,
+    fact_name_owners: BTreeMap<Vec<String>, BTreeSet<(String, String)>>,
 }
 
 /// No normalization of numeric literals: 6.5, 65, -6.5 and 6,5 remain distinct.
-pub(crate) fn terms(text: &str) -> Vec<String> {
-    static TOKEN: OnceLock<Regex> = OnceLock::new();
-    let regex = TOKEN.get_or_init(|| {
-        Regex::new(r"-?\d+(?:[.,]\d+)*%?|[\p{L}_][\p{L}\p{N}_]*").expect("constant tokenizer")
-    });
-    regex
-        .find_iter(text)
-        .map(|m| {
-            let word = m
-                .as_str()
-                .to_lowercase()
-                .replace('ä', "ae")
-                .replace('ö', "oe")
-                .replace('ü', "ue")
-                .replace('ß', "ss");
-            // Small explicit DE/EN vocabulary, versioned with the index. Source-provided aliases
-            // are indexed separately; no provider or speculative entity resolution is involved.
-            match word.as_str() {
-                "lebenspunkte" | "gesundheit" => "health".into(),
-                "schaden" => "damage".into(),
-                "abklingzeit" => "cooldown".into(),
-                "reichweite" => "range".into(),
-                "faehigkeit" => "ability".into(),
-                _ => word,
-            }
-        })
-        .collect()
-}
 pub(crate) fn numeric_terms(text: &str) -> BTreeSet<String> {
     terms(text)
         .into_iter()
@@ -150,10 +121,20 @@ impl ChunkIndex {
             postings: BTreeMap::new(),
             lengths: Vec::new(),
             average_length: 1.0,
+            fact_name_owners: BTreeMap::new(),
         };
         for (document, record) in index.records.iter().enumerate() {
             if record.tombstone {
                 continue;
+            }
+            if record.metadata.get("kind").map(String::as_str) == Some("fact") {
+                for name in fact_names(&record.logical_id, &record.content, &record.metadata) {
+                    index
+                        .fact_name_owners
+                        .entry(name)
+                        .or_default()
+                        .insert((record.source_id.clone(), record.logical_id.clone()));
+                }
             }
             // Typed facts/rules are indivisible objects, not prose. Oversized objects fail
             // explicitly at packing rather than turning fragments into authoritative facts.
@@ -258,6 +239,18 @@ impl ChunkIndex {
                 .is_none_or(|m| record.metadata.get("mode") == Some(m))
     }
     pub fn rank(&self, query: &Query, context: &AuthorizedContext) -> Vec<(usize, f64)> {
+        // The final kernel sees at most 100 hits. Resolve alias ownership over
+        // the entire pinned release first, including owners outside that pack.
+        if query.profile == AnswerProfile::Fact {
+            let query_words = terms(&query.text);
+            if self.fact_name_owners.iter().any(|(name, owners)| {
+                owners.len() > 1
+                    && !name.is_empty()
+                    && query_words.windows(name.len()).any(|part| part == name)
+            }) {
+                return Vec::new();
+            }
+        }
         let query_terms: BTreeSet<_> = terms(&query.text).into_iter().collect();
         let numbers = numeric_terms(&query.text);
         let mut scores = BTreeMap::<usize, f64>::new();

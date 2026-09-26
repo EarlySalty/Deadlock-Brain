@@ -62,6 +62,45 @@ fn context() -> AuthorizedContext {
         budget: Budget::default(),
     }
 }
+
+#[tokio::test]
+async fn release_pinned_patch_agnostic_fact_and_mode_fail_closed() {
+    let s = MemoryRepository::default();
+    let mut fact = record(1);
+    fact.logical_id = "entity/hero/Abrams".into();
+    fact.content = "hero: Abrams\nhealth: 650".into();
+    fact.metadata.insert("kind".into(), "fact".into());
+    s.apply_record(fact).unwrap();
+    let release = s.release_from_heads("r1", "v1", "p1").unwrap();
+    s.publish(&release).await.unwrap();
+    let kernel = Kernel::new(
+        ReleaseRetriever::new(s, 10),
+        Provider {
+            calls: Arc::new(AtomicUsize::new(0)),
+            revoke: None,
+            forged: false,
+        },
+    );
+    let mut request = query();
+    request.profile = AnswerProfile::Fact;
+    request.text = "Abrams Gesundheit".into();
+    request.patch = Some("p1".into());
+    assert_eq!(
+        kernel.answer(&request, &context()).status,
+        AnswerStatus::Answered
+    );
+    request.patch = Some("p0".into());
+    assert_eq!(
+        kernel.answer(&request, &context()).status,
+        AnswerStatus::InsufficientEvidence
+    );
+    request.patch = Some("p1".into());
+    request.mode = Some("ranked".into());
+    assert_eq!(
+        kernel.answer(&request, &context()).status,
+        AnswerStatus::InsufficientEvidence
+    );
+}
 struct Provider {
     calls: Arc<AtomicUsize>,
     revoke: Option<MemoryRepository>,

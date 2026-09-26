@@ -173,6 +173,34 @@ async fn aliases_german_english_umlauts_and_metadata_filters() {
 }
 
 #[tokio::test]
+async fn fact_alias_ambiguity_is_checked_across_the_entire_release() {
+    let mut records = Vec::new();
+    for i in 0..110 {
+        let mut other = record(&format!("entity/hero/Other{i}"), "hero: Other\nhealth: 500");
+        other.metadata.insert("kind".into(), "fact".into());
+        records.push(other);
+    }
+    let mut first = record("entity/hero/Abrams", "hero: Abrams\nhealth: 650");
+    first.metadata.insert("kind".into(), "fact".into());
+    first
+        .metadata
+        .insert("aliases_de".into(), "Guardian; Wächter".into());
+    records.push(first);
+    let mut second = record("entity/hero/Warden", "hero: Warden\nhealth: 700");
+    second.metadata.insert("kind".into(), "fact".into());
+    second
+        .metadata
+        .insert("aliases_en".into(), "Guardian".into());
+    records.push(second);
+    let retriever = ReleaseRetriever::new(published(records).await, 1);
+    let mut request = query("Guardian health");
+    request.profile = AnswerProfile::Fact;
+    assert!(retriever.retrieve(&request, &context()).unwrap().is_empty());
+    request.text = "Wächter Gesundheit".into();
+    assert_eq!(retriever.retrieve(&request, &context()).unwrap().len(), 1);
+}
+
+#[tokio::test]
 async fn live_revoke_delete_and_historical_acl_never_widen() {
     let mut original = record("restricted.md", "Abrams restricted evidence");
     original.visibility = SourceVisibility::Private;

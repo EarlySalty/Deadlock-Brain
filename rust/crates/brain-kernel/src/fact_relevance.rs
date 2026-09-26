@@ -1,14 +1,13 @@
 //! Deterministic anchors for the release-backed, text-only fact path. Typed
 //! domain facts are resolved by the domain retriever before this path runs.
-use brain_contracts::{Evidence, EvidenceKind, Query};
+use brain_contracts::{
+    lexical::{fact_names, terms},
+    Evidence, EvidenceKind, Query,
+};
 use std::collections::BTreeSet;
 
 fn words(text: &str) -> Vec<String> {
-    text.to_lowercase()
-        .split(|c: char| !c.is_alphanumeric() && c != '_')
-        .filter(|word| !word.is_empty())
-        .map(str::to_owned)
-        .collect()
+    terms(text)
 }
 
 fn contains_phrase(haystack: &[String], needle: &[String]) -> bool {
@@ -19,44 +18,11 @@ fn identity(evidence: &Evidence) -> Vec<Vec<String>> {
     let Some(provenance) = &evidence.provenance else {
         return Vec::new();
     };
-    let mut names = Vec::new();
-    for key in [
-        "name",
-        "canonical_name",
-        "title",
-        "aliases",
-        "aliases_de",
-        "aliases_en",
-    ] {
-        if let Some(value) = provenance.metadata.get(key) {
-            for name in value.split(',') {
-                names.push(words(name));
-            }
-        }
-    }
-    if let Some((_, name)) = evidence.logical_id.rsplit_once('/') {
-        names.push(words(name));
-    }
-    for line in evidence.content.lines() {
-        let Some((key, value)) = line.split_once(':') else {
-            continue;
-        };
-        if matches!(
-            key.trim().to_ascii_lowercase().as_str(),
-            "aliases" | "alias"
-        ) {
-            names.extend(value.split(',').map(words));
-        } else if matches!(
-            key.trim().to_ascii_lowercase().as_str(),
-            "hero" | "item" | "entity"
-        ) {
-            names.push(words(value));
-        }
-    }
-    names.retain(|name| !name.is_empty());
-    names.sort();
-    names.dedup();
-    names
+    fact_names(
+        &evidence.logical_id,
+        &evidence.content,
+        &provenance.metadata,
+    )
 }
 
 fn fields(evidence: &Evidence) -> Vec<Vec<String>> {
@@ -98,7 +64,11 @@ pub(super) fn select<'a>(query: &Query, evidence: &'a [Evidence]) -> Option<&'a 
             continue;
         };
         if query.patch.as_ref().is_some_and(|patch| {
-            provenance.metadata.get("patch") != Some(patch) || item.patch.as_ref() != Some(patch)
+            item.patch.as_ref() != Some(patch)
+                || provenance
+                    .metadata
+                    .get("patch")
+                    .is_some_and(|value| value != patch)
         }) || query
             .mode
             .as_ref()
@@ -191,6 +161,22 @@ mod tests {
         assert!(select(&query("Abrams hero"), &evidence).is_none());
         assert!(select(&query("unrelated health"), &evidence).is_none());
         assert!(select(&query("Abrams health 650"), &evidence).is_some());
+        assert!(select(&query("Abrams Gesundheit"), &evidence).is_some());
+        assert!(select(&query("Abrams Lebenspunkte"), &evidence).is_some());
+        assert!(select(&query("Abrams Schaden"), &evidence).is_some());
+    }
+    #[test]
+    fn metadata_aliases_use_release_tokenizer_and_real_delimiters() {
+        let mut geist = fact("Lady Geist", "health: 650", "");
+        geist
+            .provenance
+            .as_mut()
+            .unwrap()
+            .metadata
+            .insert("aliases_de".into(), "Geisterdame; Grüne Lady".into());
+        assert!(select(&query("GRUENE LADY Gesundheit"), &[geist.clone()]).is_some());
+        assert!(select(&query("Grüne Lady Gesundheit"), &[geist.clone()]).is_some());
+        assert!(select(&query("Geisterdame health"), &[geist]).is_some());
     }
     #[test]
     fn ambiguous_alias_does_not_select_highest_bm25_score() {
@@ -214,6 +200,15 @@ mod tests {
         assert!(select(&query, &[a.clone()]).is_none());
         query.patch = Some("p1".into());
         query.mode = Some("casual".into());
+        assert!(select(&query, &[a.clone()]).is_none());
+        query.mode = Some("ranked".into());
+        a.provenance.as_mut().unwrap().metadata.remove("patch");
+        assert!(select(&query, &[a.clone()]).is_some());
+        a.provenance
+            .as_mut()
+            .unwrap()
+            .metadata
+            .insert("patch".into(), "p0".into());
         assert!(select(&query, &[a.clone()]).is_none());
         a.provenance = None;
         query.patch = None;
