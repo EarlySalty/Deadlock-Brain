@@ -1,0 +1,10 @@
+[Unit]
+Description=Tägliches Backup der Deadlock-Brain-PostgreSQL-Instanz
+
+[Timer]
+OnCalendar=*-*-* 02:40:00
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

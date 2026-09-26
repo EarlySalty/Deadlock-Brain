@@ -1,0 +1,19 @@
+[Unit]
+Description=Backup der Deadlock-Brain-PostgreSQL-Instanz
+Requires=deadlock-brain-postgresql.service
+After=deadlock-brain-postgresql.service
+
+[Service]
+Type=oneshot
+User=deadlock-brain-pg
+Group=deadlock-brain-pg
+SupplementaryGroups=deadlock-brain-db
+UMask=0077
+ExecStart=/usr/local/lib/deadlock-brain/postgresql-backup.sh
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/backups/deadlock-brain/postgresql
