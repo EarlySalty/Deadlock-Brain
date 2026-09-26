@@ -67,7 +67,9 @@ impl<R: RetrievalPort, P: AnswerProviderPort> CachedKernel<R, P> {
             if let Ok(mut entries) = self.entries.lock() {
                 entries.remove(&key);
             }
-            if let Err(error) = validation {
+            let recompute_domain =
+                query.domain.is_some() && matches!(validation, Err(PortError::PermissionDenied(_)));
+            if let (Err(error), false) = (validation, recompute_domain) {
                 return response(
                     query,
                     context,
