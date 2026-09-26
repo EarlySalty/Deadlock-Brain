@@ -268,19 +268,25 @@ async fn pilot_phase_after_restart() {
         .join()
         .unwrap();
         let elapsed = started.elapsed().as_millis() as u64;
-        let egress: Vec<String> = sent
-            .lock()
-            .unwrap()
-            .iter()
-            .flatten()
-            .map(|h| {
-                files
-                    .get(h)
-                    .cloned()
-                    .unwrap_or_else(|| format!("unknown:{h}"))
-            })
-            .collect();
-        let (status, result) = evaluate(&outcome, &egress, &env, check);
+        // Capture actual model-visible text in memory only. Resolve every chunk against the
+        // independently loaded raw sources; never infer authorization from a supplied label.
+        let captured: Vec<SentEvidence> = sent.lock().unwrap().iter().flatten().cloned().collect();
+        let mut mapped = true;
+        let mut egress = Vec::new();
+        for chunk in &captured {
+            let matches: Vec<_> = files
+                .iter()
+                .filter(|(_, text)| !chunk.content.is_empty() && text.contains(&chunk.content))
+                .map(|(name, _)| name.clone())
+                .collect();
+            if matches.is_empty() {
+                mapped = false;
+            }
+            // Include ALL matches: ambiguity cannot hide a private source behind a public one.
+            egress.extend(matches);
+        }
+        let (status, result) = evaluate(&outcome, &egress, &captured, check);
+        let result = result && mapped;
         cases.push(json!({"case": name, "status": status, "passed": result, "elapsed_ms": elapsed, "provider_egress": egress}));
     };
 
@@ -488,6 +494,24 @@ async fn pilot_phase_after_restart() {
         }),
     );
     assert!(failed.is_empty(), "pilot cases failed: {failed:?}");
+    if !load.is_null() {
+        assert_eq!(
+            load["statuses"]["unauthorized_evidence"]
+                .as_u64()
+                .unwrap_or(0),
+            0,
+            "no permission changes occur during this load phase"
+        );
+        // Availability under host contention is measured, not a new SLO. In particular,
+        // an honest Unavailable response must not fail this C3 classification probe.
+        let accounted: u64 = load["statuses"]
+            .as_object()
+            .unwrap()
+            .values()
+            .map(|count| count.as_u64().unwrap())
+            .sum();
+        assert_eq!(Some(accounted), load["requests"].as_u64());
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -669,7 +693,7 @@ enum Check {
 fn evaluate(
     outcome: &Result<PublicAnswerResponse, brain_client::ClientError>,
     egress: &[String],
-    env: &Env,
+    captured: &[SentEvidence],
     check: Check,
 ) -> (String, bool) {
     let response = match outcome {
@@ -689,10 +713,15 @@ fn evaluate(
         Check::NoLogical(name) => egress.iter().all(|f| !f.ends_with(name)),
         Check::CitationLogical(name) => answered && first.is_some_and(|f| f.ends_with(name)),
         Check::CitationContains(needles) => {
+            // The cited provider payload itself must contain BOTH the key and exact value.
+            // Finding them elsewhere in the parent dossier is not sufficient anymore.
             answered
-                && first.is_some_and(|f| {
-                    let text = std::fs::read_to_string(env.root.join(f)).unwrap_or_default();
-                    needles.iter().all(|n| text.contains(n.as_str()))
+                && response.citations.iter().any(|citation| {
+                    captured.iter().any(|chunk| {
+                        format!("cite-{:x}", Sha256::digest(chunk.id.as_bytes()))
+                            == citation.citation_id
+                            && needles.iter().all(|n| chunk.content.contains(n))
+                    })
                 })
         }
         Check::NotAnswered => !answered,
@@ -702,7 +731,12 @@ fn evaluate(
     (status, passed)
 }
 
-type Sent = Arc<Mutex<Vec<Vec<String>>>>;
+#[derive(Clone)]
+struct SentEvidence {
+    id: String,
+    content: String,
+}
+type Sent = Arc<Mutex<Vec<Vec<SentEvidence>>>>;
 
 fn pilot_files(env: &Env) -> BTreeMap<String, String> {
     let mut files = BTreeMap::new();
@@ -711,7 +745,7 @@ fn pilot_files(env: &Env) -> BTreeMap<String, String> {
             let path = entry.unwrap().path();
             let bytes = std::fs::read(&path).unwrap();
             let name = format!("{dir}/{}", path.file_name().unwrap().to_string_lossy());
-            files.insert(format!("{:x}", Sha256::digest(&bytes)), name);
+            files.insert(name, String::from_utf8(bytes).unwrap());
         }
     }
     files
@@ -742,11 +776,9 @@ async fn provider(
             .as_array()
             .unwrap()
             .iter()
-            .map(|e| {
-                format!(
-                    "{:x}",
-                    Sha256::digest(e["content"].as_str().unwrap().as_bytes())
-                )
+            .map(|e| SentEvidence {
+                id: e["id"].as_str().unwrap().into(),
+                content: e["content"].as_str().unwrap().into(),
             })
             .collect(),
     );
@@ -766,4 +798,72 @@ async fn provider(
         [(header::CONTENT_TYPE, "application/json")],
         json!({"model":"pilot-loopback-model","choices":[{"message":{"content":answer}}],"usage":{"prompt_tokens":16,"completion_tokens":10}}).to_string(),
     )
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "local scratch pilot: real PostgreSQL lock timeout, never a production database"]
+async fn pilot_phase_reader_failures() {
+    use brain_contracts::{AuthorizedContext, PortError, Principal, RetrievalPort};
+    use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+    let env = env();
+    let retriever = ReleaseRetriever::new(reader(&env), 6);
+    let q = query("reader-failure", "Abrams", &["docs.public"], None, None);
+    let context = AuthorizedContext {
+        principal: Principal {
+            actor_id: "pilot-reader-failure".into(),
+            channel: "pilot".into(),
+            scopes: BTreeSet::from(["docs.public".into()]),
+            provider_egress: BTreeSet::from(["public".into()]),
+        },
+        conversation_id: q.conversation_id.clone(),
+        knowledge_release: "pilot-r1".into(),
+        deadline_ms: 8000,
+        budget: Budget::default(),
+    };
+    let (retriever, q, context, evidence) = tokio::task::spawn_blocking(move || {
+        let evidence = retriever.retrieve(&q, &context).unwrap();
+        assert!(!evidence.is_empty());
+        (retriever, q, context, evidence)
+    })
+    .await
+    .unwrap();
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(
+            PgConnectOptions::new()
+                .host(&env.socket)
+                .port(PORT)
+                .username(USER)
+                .database(&env.database),
+        )
+        .await
+        .unwrap();
+    let address: Option<String> = sqlx::query_scalar("SELECT inet_server_addr()::text")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(address.is_none());
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("LOCK TABLE brain.source_record_heads IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let error = tokio::task::spawn_blocking(move || {
+        retriever
+            .validate_evidence(&q, &context, &evidence, false)
+            .unwrap_err()
+    })
+    .await
+    .unwrap();
+    tx.rollback().await.unwrap();
+    pool.close().await;
+    assert!(
+        matches!(error, PortError::Unavailable(_)),
+        "lock timeout must not become a permission denial"
+    );
+    write_report(
+        &env,
+        "reader_failures",
+        json!({"fault":"scratch_postgres_head_table_lock_timeout", "port_status":"unavailable", "passed":true}),
+    );
 }

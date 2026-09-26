@@ -186,6 +186,23 @@ impl DocumentStorePort for MemoryRepository {
     }
 }
 impl SnapshotReadPort for MemoryRepository {
+    fn read_heads(
+        &self,
+        documents: &[brain_contracts::DocumentRevision],
+    ) -> Result<Vec<brain_contracts::DocumentHead>, PortError> {
+        if documents.len() > 256 {
+            return Err(error("head batch too large"));
+        }
+        let state = self
+            .inner
+            .lock()
+            .map_err(|_| PortError::Unavailable("store lock unavailable".into()))?;
+        Ok(documents
+            .iter()
+            .filter_map(|doc| state.records.head(&doc.source_id, &doc.logical_id))
+            .map(brain_contracts::DocumentHead::from)
+            .collect())
+    }
     fn read_snapshot(&self, release_id: &str) -> Result<CorpusSnapshot, PortError> {
         let state = self.inner.lock().map_err(|_| error("store poisoned"))?;
         let release = state

@@ -55,19 +55,27 @@ impl<R: RetrievalPort, P: AnswerProviderPort> CachedKernel<R, P> {
             entries.get(&key).map(|(_, answer)| answer.clone())
         });
         if let Some(mut answer) = hit {
-            if self
-                .inner
-                .retrieval
-                .validate_evidence(query, context, &answer.citations, false)
-                .is_ok()
-                && started.elapsed().as_millis() < context.deadline_ms as u128
-            {
+            let validation =
+                self.inner
+                    .retrieval
+                    .validate_evidence(query, context, &answer.citations, false);
+            if validation.is_ok() && started.elapsed().as_millis() < context.deadline_ms as u128 {
                 answer.request_id = query.request_id.clone();
                 answer.usage = Usage::default();
                 return answer;
             }
             if let Ok(mut entries) = self.entries.lock() {
                 entries.remove(&key);
+            }
+            if let Err(error) = validation {
+                return response(
+                    query,
+                    context,
+                    super::execution::validation_status(&error),
+                    "Cache-Evidenz konnte nicht sicher bestätigt werden.",
+                    Vec::new(),
+                    Usage::default(),
+                );
             }
         }
         let elapsed = started.elapsed().as_millis() as u64;

@@ -161,6 +161,7 @@ mod tests {
             visibility,
             allowed_scopes: scopes.iter().map(|scope| (*scope).to_string()).collect(),
             score: 1.0,
+            provenance: None,
             patch: None,
         }
     }

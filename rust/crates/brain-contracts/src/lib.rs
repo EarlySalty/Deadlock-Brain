@@ -8,7 +8,10 @@ use thiserror::Error;
 pub const CONTRACT_VERSION: &str = "brain.v1";
 pub mod domain;
 pub mod embedding;
+pub mod provider_input;
 pub mod public_api;
+pub mod retrieval;
+pub use retrieval::{ChunkProvenance, DocumentHead};
 pub mod store;
 pub use embedding::{EmbeddingIdentity, EmbeddingOutput, EmbeddingProviderPort};
 pub use public_api::{
@@ -222,6 +225,8 @@ pub struct Evidence {
     #[serde(default)]
     pub allowed_scopes: BTreeSet<String>,
     pub score: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<ChunkProvenance>,
     #[serde(default)]
     pub patch: Option<String>,
 }
@@ -261,6 +266,7 @@ pub enum AnswerStatus {
     Answered,
     InsufficientEvidence,
     UnauthorizedEvidence,
+    Unavailable,
     ProviderError,
     BudgetExceeded,
 }
@@ -401,6 +407,8 @@ pub struct KnowledgeExport {
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum PortError {
+    #[error("permission denied: {0}")]
+    PermissionDenied(String),
     #[error("port nicht verfuegbar: {0}")]
     Unavailable(String),
     #[error("ungueltige Portantwort: {0}")]
@@ -434,7 +442,7 @@ pub trait RetrievalPort: Send + Sync {
         _evidence: &[Evidence],
         _for_provider: bool,
     ) -> std::result::Result<(), PortError> {
-        Err(PortError::InvalidResponse(
+        Err(PortError::Unavailable(
             "canonical evidence validation unavailable".into(),
         ))
     }
@@ -498,6 +506,7 @@ mod tests {
             visibility: SourceVisibility::Public,
             allowed_scopes: BTreeSet::new(),
             score: f64::NAN,
+            provenance: None,
             patch: None,
         };
         assert_eq!(

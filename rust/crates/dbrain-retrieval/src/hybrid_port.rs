@@ -1,4 +1,7 @@
-use crate::release_port::{evidence_for_record, invalid, ReleaseRetriever};
+use crate::{
+    chunk_index::numeric_terms,
+    release_port::{invalid, pack, ReleaseRetriever},
+};
 use brain_contracts::{
     AuthorizedContext, DocumentRevision, EmbeddingIdentity, EmbeddingProviderPort, Evidence,
     PortError, Query, RetrievalPort, SnapshotReadPort, Usage,
@@ -38,8 +41,8 @@ impl DenseIndex {
         Ok(())
     }
 }
-/// Lexical-only remains available by constructing ReleaseRetriever directly.
-/// Dense errors are not hidden: unknown remote usage cannot safely be charged as zero.
+/// Dense remains an optional typed port. Facts AND queries with exact numeric literals
+/// bypass it entirely; semantic similarity cannot displace an exact number.
 pub struct HybridRetriever<S, E> {
     lexical: ReleaseRetriever<S>,
     embedding: E,
@@ -66,6 +69,15 @@ impl<S: SnapshotReadPort, E: EmbeddingProviderPort> HybridRetriever<S, E> {
         }
         let lexical = self.lexical.retrieve(query, context)?;
         if matches!(query.profile, brain_contracts::AnswerProfile::Fact)
+            || !numeric_terms(&query.text).is_empty()
+            // Exact stat/code identifiers and canonical facts are not semantic paraphrases.
+            || query.text.split_whitespace().any(|term| {
+                term.contains('_')
+                    || (term.chars().filter(|c| c.is_uppercase()).count() > 1
+                        && term.chars().any(char::is_lowercase))
+            })
+            || lexical.iter().any(|item| matches!(item.kind,
+                brain_contracts::EvidenceKind::Fact | brain_contracts::EvidenceKind::Rule))
             || context.budget.max_network_rounds == 0
             || !context.principal.provider_egress.contains("public")
         {
@@ -74,33 +86,22 @@ impl<S: SnapshotReadPort, E: EmbeddingProviderPort> HybridRetriever<S, E> {
                 Usage::default(),
             ));
         }
-        let records = self.lexical.records(query, context, false)?;
-        let selected: Vec<_> = self
+        let documents: Vec<_> = self
             .index
             .entries
             .iter()
-            .filter_map(|entry| {
-                records
-                    .iter()
-                    .find(|r| {
-                        r.source_id == entry.document.source_id
-                            && r.logical_id == entry.document.logical_id
-                            && r.revision == entry.document.revision
-                    })
-                    .map(|record| (entry, record))
-            })
+            .map(|entry| (entry.document.clone(), 0.0))
             .collect();
-        if selected.is_empty() {
+        // Resolve pins, hashes, patch, mode and CURRENT ACL before any embedding egress.
+        if self
+            .lexical
+            .dense_evidence(query, context, &documents)?
+            .is_empty()
+        {
             return Ok((
                 lexical.into_iter().take(self.limit).collect(),
                 Usage::default(),
             ));
-        }
-        if selected
-            .iter()
-            .any(|(entry, record)| entry.document.content_hash != record.content_hash)
-        {
-            return Err(invalid("dense index content hash mismatch"));
         }
         let output = self.embedding.embed(
             &[format!(
@@ -122,18 +123,25 @@ impl<S: SnapshotReadPort, E: EmbeddingProviderPort> HybridRetriever<S, E> {
         }
         let q = &output.vectors[0];
         let qnorm = q.iter().map(|x| x * x).sum::<f64>().sqrt();
-        let dense = selected
-            .into_iter()
-            .map(|(entry, record)| {
+        let documents: Vec<_> = self
+            .index
+            .entries
+            .iter()
+            .map(|entry| {
                 let norm = entry.vector.iter().map(|x| x * x).sum::<f64>().sqrt();
                 let cosine =
                     q.iter().zip(&entry.vector).map(|(a, b)| a * b).sum::<f64>() / (qnorm * norm);
-                // [0,1] cosine transformation permits shared nonnegative score validation.
-                evidence_for_record(record, ((cosine.clamp(-1.0, 1.0)) + 1.0) / 2.0)
+                (
+                    entry.document.clone(),
+                    (cosine.clamp(-1.0, 1.0) + 1.0) / 2.0,
+                )
             })
             .collect();
+        let dense = self.lexical.dense_evidence(query, context, &documents)?;
         let fused = fuse_ranked(&[lexical, dense], &[1, 1], 60, self.limit)?;
-        Ok((fused, output.usage))
+        let mut remaining = context.clone();
+        remaining.budget.max_input_tokens -= output.usage.input_tokens as u32;
+        Ok((pack(query, &remaining, fused)?, output.usage))
     }
 }
 impl<S: SnapshotReadPort, E: EmbeddingProviderPort> RetrievalPort for HybridRetriever<S, E> {
@@ -162,7 +170,8 @@ impl<S: SnapshotReadPort, E: EmbeddingProviderPort> RetrievalPort for HybridRetr
             .validate_evidence(query, context, evidence, provider)
     }
 }
-/// Deterministic weighted reciprocal-rank fusion. No duplicate boosts or score-scale mixing.
+/// Deterministic weighted reciprocal rank fusion. Contribution order is canonical as well,
+/// so permuting lists (with their weights) cannot change floating point addition order.
 pub fn fuse_ranked(
     lists: &[Vec<Evidence>],
     weights: &[u32],
@@ -176,7 +185,7 @@ pub fn fuse_ranked(
     {
         return Err(invalid("invalid fusion configuration"));
     }
-    let mut result: BTreeMap<String, (Evidence, f64)> = BTreeMap::new();
+    let mut result: BTreeMap<String, (Evidence, Vec<(usize, u32)>)> = BTreeMap::new();
     for (list, weight) in lists.iter().zip(weights) {
         if list.len() > 10000 {
             return Err(invalid("fusion list too large"));
@@ -203,19 +212,22 @@ pub fn fuse_ranked(
                 continue;
             }
             rank += 1;
-            let contribution = *weight as f64 / (rank_constant as f64 + rank as f64);
-            let entry = result
+            result
                 .entry(item.evidence_id.clone())
-                .or_insert((item, 0.0));
-            entry.1 += contribution;
+                .or_insert((item, Vec::new()))
+                .1
+                .push((rank, *weight));
         }
     }
     let mut result: Vec<_> = result
         .into_values()
-        .filter(|(_, score)| *score > 0.0)
-        .map(|(mut item, score)| {
-            item.score = score;
-            item
+        .filter_map(|(mut item, mut contributions)| {
+            contributions.sort_unstable();
+            item.score = contributions
+                .iter()
+                .map(|(rank, weight)| *weight as f64 / (rank_constant as f64 + *rank as f64))
+                .sum();
+            (item.score > 0.0).then_some(item)
         })
         .collect();
     result.sort_by(|a, b| {
