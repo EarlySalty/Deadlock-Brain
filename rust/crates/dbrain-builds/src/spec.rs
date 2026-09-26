@@ -72,6 +72,24 @@ pub struct CandidateSet {
     pub name_to_id: BTreeMap<String, i64>,
 }
 
+impl CandidateSet {
+    /// Strict counterpart to the optional LLM assembler: never silently drop an
+    /// unknown item and preserve duplicate requests for the inventory validator.
+    /// Keys must use the same normalization as this candidate set's producer.
+    pub fn resolve_required_keys(&self, keys: &[String]) -> std::result::Result<Vec<i64>, String> {
+        let known: BTreeSet<_> = self.items.iter().map(|item| item.id).collect();
+        keys.iter()
+            .map(|key| {
+                self.name_to_id
+                    .get(key)
+                    .copied()
+                    .filter(|id| known.contains(id))
+                    .ok_or_else(|| "required item is not in the candidate set".to_string())
+            })
+            .collect()
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct LlmBuildSpec {
     pub name: String,

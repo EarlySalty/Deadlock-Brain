@@ -110,6 +110,7 @@ pub(super) fn cache_key(
         &context.knowledge_release,
         &context.budget,
         &query.text,
+        &query.domain,
         &query.profile,
         &query.patch,
         &query.mode,
@@ -144,7 +145,7 @@ impl<R: RetrievalPort, P: AnswerProviderPort> AnswerKernelPort for CachedKernel<
             }) {
             Ok((mut answer, shared)) => {
                 if shared {
-                    if answer.status == AnswerStatus::Answered {
+                    if !answer.citations.is_empty() {
                         if let Err(error) = self.inner.retrieval.validate_evidence(
                             query,
                             context,

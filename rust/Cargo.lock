@@ -257,7 +257,9 @@ dependencies = [
  "brain-policy",
  "brain-providers",
  "brain-storage",
+ "dbrain-reasoner",
  "dbrain-retrieval",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
  "sqlx",
@@ -731,6 +733,7 @@ version = "0.1.0"
 dependencies = [
  "brain-contracts",
  "dbrain-builds",
+ "dbrain-normalize",
  "dbrain-population",
  "deadlock-brain-core",
  "serde",
@@ -785,10 +788,15 @@ name = "dbrain-s12-wiki-probe"
 version = "0.1.0"
 dependencies = [
  "brain-contracts",
+ "brain-kernel",
+ "brain-storage",
  "chrono",
+ "dbrain-normalize",
+ "dbrain-retrieval",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "tokio",
 ]
 
 [[package]]

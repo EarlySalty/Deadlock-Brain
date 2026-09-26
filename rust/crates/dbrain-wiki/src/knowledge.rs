@@ -76,11 +76,7 @@ impl WikiIr {
     }
 }
 fn alias_key(text: &str) -> String {
-    text.replace('_', " ")
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .to_lowercase()
+    dbrain_normalize::normalize_alias(text)
 }
 fn selector(locator: &str) -> &str {
     locator
@@ -689,6 +685,120 @@ pub fn project_card(
     };
     result.rebuild_sha256 = sha256(&serde_json::to_vec(&result).map_err(|_| "card encoding")?);
     Ok(result)
+}
+
+/// Project through the existing reviewed card generator into the shared domain
+/// envelope. Explicit reviewed game validity is required; wiki timestamps and
+/// parser versions are never substituted for a game patch or mode.
+pub fn project_domain_card(
+    ir: &WikiIr,
+    hero_page_id: i64,
+    locale: &str,
+    release: &CorpusRelease,
+    validity: &brain_contracts::domain::Validity,
+    review: &ProjectionReview,
+) -> Result<brain_contracts::domain::DomainKnowledgeCard> {
+    use brain_contracts::domain::{DomainKnowledgeCard, LocalizedAlias, LocatedRevision};
+    if validity.patch != release.patch
+        || [validity.patch.as_str(), validity.mode.as_str()]
+            .iter()
+            .any(|v| v.trim().is_empty() || matches!(*v, "unknown" | "current" | "latest"))
+    {
+        return Err("domain projection requires explicit reviewed patch and mode".into());
+    }
+    let projection = project_card(ir, hero_page_id, locale, release, review)?;
+    let hero = ir
+        .report
+        .pages
+        .iter()
+        .find(|p| p.page_id == hero_page_id)
+        .ok_or("unknown hero")?;
+    let main = projection
+        .dependencies
+        .iter()
+        .find(|d| d.logical_id == hero.source_id)
+        .ok_or("hero dependency is not pinned")?;
+    let located = |source: &DocumentRevision, locator: String| LocatedRevision {
+        source: source.clone(),
+        locator,
+        parser_revision: ir.report.parser_version.clone(),
+    };
+    let source = located(main, format!("page:{hero_page_id}"));
+    let mut aliases = Vec::new();
+    for alias in &projection.aliases {
+        let page = ir
+            .report
+            .pages
+            .iter()
+            .find(|p| p.page_id == alias.source.page_id)
+            .ok_or("alias page missing")?;
+        let revision = review
+            .source_revisions
+            .get(&page.source_id)
+            .ok_or("alias revision not reviewed")?;
+        if revision.revision != alias.source.revision_id as u64
+            || revision.content_hash != alias.source.content_hash
+            || release
+                .source_revisions
+                .get(&revision.source_id)
+                .and_then(|s| s.get(&revision.logical_id))
+                != Some(&revision.revision)
+        {
+            return Err("alias provenance does not match release/review".into());
+        }
+        let Some(locale) = &alias.locale else {
+            continue;
+        };
+        if matches!(locale.as_str(), "de" | "en") {
+            aliases.push(LocalizedAlias {
+                text: alias.text.clone(),
+                locale: locale.clone(),
+                provenance: located(revision, alias.source.locator.clone()),
+            });
+        }
+    }
+    // A page title keeps its source language; requesting DE never translates
+    // or silently relabels an EN alias.
+    if let Some(language) = &hero.source_language {
+        if matches!(language.as_str(), "de" | "en") {
+            aliases.push(LocalizedAlias {
+                text: hero.title.clone(),
+                locale: language.clone(),
+                provenance: source.clone(),
+            });
+        }
+    }
+    let mut fields: Vec<_> = ir
+        .fields()
+        .iter()
+        .filter(|f| {
+            projection
+                .dependencies
+                .iter()
+                .any(|d| d == &f.source_revision)
+        })
+        .cloned()
+        .collect();
+    for field in &mut fields {
+        if review.approved_fields.get(&field.id) != Some(&field.source_revision) {
+            field.unknowns.insert("unreviewed_revision".into());
+        }
+    }
+    Ok(DomainKnowledgeCard {
+        card: projection.card,
+        validity: validity.clone(),
+        source,
+        dependencies: projection
+            .dependencies
+            .iter()
+            .map(|d| located(d, "document".into()))
+            .collect(),
+        aliases,
+        fields,
+        effects: Vec::new(),
+        unknowns: projection.unknowns,
+        review_ref: review.decision_ref.clone(),
+    })
 }
 
 /// Extend the existing dependency delta with mapping/IR changes. This is still

@@ -44,6 +44,7 @@ async fn provider(
 }
 fn query(id: &str) -> Query {
     Query {
+        domain: None,
         request_id: id.into(),
         conversation_id: "http-conversation".into(),
         text: "Abrams".into(),

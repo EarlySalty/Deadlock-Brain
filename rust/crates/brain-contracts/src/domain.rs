@@ -58,10 +58,9 @@ pub struct RuleEvaluation {
     pub knowledge_release: String,
     pub input_fact_ids: BTreeSet<String>,
 }
-pub const DOMAIN_CONTRACT_VERSION: &str = "brain.domain.v1";
-/// Optional versioned Vec<DocumentRevision> in SourceRecordV2 metadata. Derived
-/// Wiki facts must authorize their exact dependency revisions as well as `source`.
-/// Uses the common source::Versioned envelope, not a second Wiki contract.
+pub const LEGACY_DOMAIN_CONTRACT_VERSION: &str = "brain.domain.v1";
+pub const DOMAIN_CONTRACT_VERSION: &str = "brain.domain.v2";
+pub use crate::domain_knowledge::*;
 pub const DOMAIN_DEPENDENCIES_METADATA_KEY: &str = "brain.domain.dependencies";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -74,6 +73,8 @@ pub const DOMAIN_DEPENDENCIES_METADATA_KEY: &str = "brain.domain.dependencies";
 pub enum DomainObject {
     NumericFact(NumericFact),
     Rule(TypedRule),
+    HeroCard(Box<DomainKnowledgeCard>),
+    BuildCatalog(Box<BuildCatalogRef>),
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -88,6 +89,15 @@ pub struct DomainSnapshot {
     pub validity: Validity,
     pub facts: Vec<NumericFact>,
     pub rules: Vec<TypedRule>,
+    #[serde(default)]
+    pub cards: Vec<DomainKnowledgeCard>,
+    #[serde(default)]
+    pub catalogs: Vec<BuildCatalogRef>,
+    /// Effective historical AND current ACLs, used only inside the trusted domain path.
+    #[serde(skip)]
+    pub records: Vec<crate::SourceRecordV2>,
+    #[serde(skip)]
+    pub object_sources: std::collections::BTreeMap<String, DocumentRevision>,
 }
 /// Implementations authorize BOTH the typed object and its canonical source revision.
 pub trait DomainStorePort: Send + Sync {

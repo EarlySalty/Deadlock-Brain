@@ -56,7 +56,15 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
         // Validate ALL pins/revisions/heads; indexing is not scoped to the first caller.
         // The result is deliberately discarded. No mutable head/authorization is cached.
         snapshot.authorized(&context.principal, false)?;
-        let index = Arc::new(ChunkIndex::build(snapshot.release, snapshot.revisions)?);
+        let prose: Vec<_> = snapshot
+            .revisions
+            .into_iter()
+            .filter(|r| {
+                !r.metadata.contains_key("domain_contract")
+                    && r.metadata.get("kind").map(String::as_str) != Some("domain_input")
+            })
+            .collect();
+        let index = Arc::new(ChunkIndex::build(snapshot.release, prose)?);
         if indexes.len() >= 4 {
             if let Some(key) = indexes.keys().next().cloned() {
                 indexes.remove(&key);
@@ -200,6 +208,9 @@ impl<S: SnapshotReadPort> RetrievalPort for ReleaseRetriever<S> {
         query: &Query,
         context: &AuthorizedContext,
     ) -> Result<Vec<Evidence>, PortError> {
+        if crate::domain_port::handles(query) {
+            return crate::domain_port::retrieve(&self.store, query, context, false);
+        }
         let index = self.index(query, context)?;
         let ranked = index.rank(query, context);
         let hits = self.selected(&index, &ranked, query, context, self.limit, false)?;
@@ -214,6 +225,15 @@ impl<S: SnapshotReadPort> RetrievalPort for ReleaseRetriever<S> {
     ) -> Result<(), PortError> {
         if evidence.is_empty() || evidence.len() > 100 {
             return Err(denied("invalid evidence pack size"));
+        }
+        if crate::domain_port::handles(query) {
+            let canonical =
+                crate::domain_port::retrieve(&self.store, query, context, for_provider)?;
+            return if canonical == evidence {
+                Ok(())
+            } else {
+                Err(denied("domain evidence changed or no longer authorized"))
+            };
         }
         let index = self.index(query, context)?;
         let mut seen = BTreeSet::new();

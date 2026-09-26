@@ -1,4 +1,6 @@
 mod common;
+#[path = "../../brain-api/tests/support/domain_fixture.rs"]
+mod domain_fixture;
 use axum::{
     body::Bytes,
     extract::State,
@@ -113,6 +115,39 @@ async fn ingest(store: &PgStore, env: &Env, owner: &str) -> (Vec<SourceBatch>, V
         replayed.push(receipt.replayed);
         batches.push(batch);
     }
+    // Synthetic domain adapter fixture, explicitly separate from the approved
+    // real documents. It follows the same transactional PostgreSQL release path.
+    let previous = store.checkpoint(domain_fixture::SOURCE).await.unwrap();
+    if let Some(checkpoint) = &previous {
+        assert_eq!(checkpoint.configuration, "c6-synthetic-domain-v1");
+    }
+    let generation = previous
+        .as_ref()
+        .map_or(0, |checkpoint| checkpoint.generation);
+    let batch = SourceBatch {
+        expected_generation: generation,
+        checkpoint: brain_contracts::SourceCheckpoint {
+            source_id: domain_fixture::SOURCE.into(),
+            configuration: "c6-synthetic-domain-v1".into(),
+            generation: generation.checked_add(1).unwrap(),
+            state: json!({"fixture":"synthetic-domain-adapter-not-game-stats-v1"}),
+        },
+        // Like FileConnector, each new job advances its checkpoint. Reusing an
+        // old committed batch with a NEW lease would only replay the receipt,
+        // leaving that new lease active. Unchanged sources need no new records.
+        records: if previous.is_none() {
+            domain_fixture::records("pilot-r1", PATCH, 1, "500")
+        } else {
+            Vec::new()
+        },
+    };
+    let lease = store
+        .claim(domain_fixture::SOURCE, owner, 30_000)
+        .await
+        .unwrap();
+    let receipt = store.commit(&batch, &lease).await.unwrap();
+    replayed.push(receipt.replayed);
+    batches.push(batch);
     (batches, replayed)
 }
 
@@ -207,7 +242,12 @@ async fn pilot_phase_after_restart() {
             .await
             .unwrap();
     let (again, replayed) = ingest(&store, &env, "pilot-after-restart").await;
-    let unchanged_records: usize = again.iter().map(|b| b.records.len()).sum();
+    let unchanged_records: usize = again
+        .iter()
+        .zip(&replayed)
+        .filter(|(_, replayed)| !**replayed)
+        .map(|(b, _)| b.records.len())
+        .sum();
 
     let calls = Arc::new(AtomicUsize::new(0));
     let fail = Arc::new(AtomicBool::new(false));
@@ -260,6 +300,8 @@ async fn pilot_phase_after_restart() {
         let token = token.to_string();
         sent.lock().unwrap().clear();
         let started = Instant::now();
+        let calls_before = calls.load(Ordering::SeqCst);
+        let domain_case = matches!(check, Check::Domain(_, _));
         let outcome = std::thread::spawn(move || {
             BrainClient::new(&address, &token, Duration::from_secs(10))
                 .unwrap()
@@ -287,7 +329,9 @@ async fn pilot_phase_after_restart() {
         }
         let (status, result) = evaluate(&outcome, &egress, &captured, check);
         let result = result && mapped;
-        cases.push(json!({"case": name, "status": status, "passed": result, "elapsed_ms": elapsed, "provider_egress": egress}));
+        let provider_calls = calls.load(Ordering::SeqCst) - calls_before;
+        let passed = result && (!domain_case || provider_calls == 0);
+        cases.push(json!({"case": name, "status": status, "passed": passed, "elapsed_ms": elapsed, "provider_egress": egress, "provider_calls": provider_calls}));
     };
 
     run(
@@ -404,6 +448,32 @@ async fn pilot_phase_after_restart() {
         query("x1", "Abrams", &["docs.public"], None, None),
         Check::Rejected,
     );
+    for (name, items, status, reason) in [
+        (
+            "legal_build",
+            vec!["101", "102", "103"],
+            AnswerStatus::Answered,
+            "Build legal",
+        ),
+        (
+            "illegal_build",
+            vec!["101", "101"],
+            AnswerStatus::BuildRejected,
+            "bereits im Inventar",
+        ),
+    ] {
+        let mut q =
+            domain_fixture::query(&domain_fixture::build("Fixture Hero", "en", &items), PATCH);
+        q.request_id = name.into();
+        q.conversation_id = format!("pilot-{name}");
+        run(
+            &mut cases,
+            name,
+            PUBLIC_TOKEN,
+            q,
+            Check::Domain(status, reason),
+        );
+    }
     fail.store(true, Ordering::SeqCst);
     run(
         &mut cases,
@@ -688,6 +758,7 @@ enum Check {
     NotAnswered,
     Rejected,
     Status(AnswerStatus),
+    Domain(AnswerStatus, &'static str),
 }
 
 fn evaluate(
@@ -727,6 +798,13 @@ fn evaluate(
         Check::NotAnswered => !answered,
         Check::Rejected => false,
         Check::Status(expected) => response.status == expected,
+        Check::Domain(expected, reason) => {
+            response.status == expected
+                && egress.is_empty()
+                && response.text.contains(reason)
+                && !response.citations.is_empty()
+                && response.text.contains(&response.citations[0].label)
+        }
     };
     (status, passed)
 }
@@ -753,6 +831,7 @@ fn pilot_files(env: &Env) -> BTreeMap<String, String> {
 
 fn query(id: &str, text: &str, scopes: &[&str], patch: Option<&str>, mode: Option<&str>) -> Query {
     Query {
+        domain: None,
         request_id: id.into(),
         conversation_id: format!("pilot-conversation-{id}"),
         text: text.into(),
