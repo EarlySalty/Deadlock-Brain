@@ -2,79 +2,105 @@
 
 Stand: 2026-09-26
 
-C9 verdrahtet die Consumer gegen den aktuellen typisierten `BrainClient` / `brain-serve`-Vertrag. Die offenen C2/C3- und C6-Vertragsänderungen sind im Brain-C9-Branch enthalten, damit `AnswerStatus::Unavailable` und `AnswerStatus::BuildRejected` Bestandteil desselben Wire-Vertrags sind.
+C9 verdrahtet die Consumer gegen den aktuellen typisierten `BrainClient` / `brain-serve`-Vertrag aus `migration/rust-integration`.
 
-Es wurden keine Bots gestartet, keine Nachrichten gesendet, keine Produktivkonfiguration geändert und keine Deployments ausgeführt. Legacy-Pfade bleiben Default bzw. verfügbar; Umschaltung erfolgt nur explizit über Test-/Shadow-/Typed-Konfiguration.
+Aktuelle Vertragsbasis:
 
-| Repo | Branch | Commit | PR | Tests |
+- `origin/migration/rust-integration`: `3b86d3cbe5ea39a67b8b1fbd8a3d48ab935982ef`
+- enthält insbesondere `AnswerStatus::Unavailable` und `AnswerStatus::BuildRejected`
+- PR #50 wurde auf diesen Stand neu aufgebaut; die früher mitgeschleppten C2/C3-/C6-Dependency-Merge-Commits sind nicht mehr Bestandteil des C9-Diffs
+
+Es wurden keine Bots gestartet, keine Nachrichten gesendet und keine Deployments ausgeführt. Legacy-Pfade bleiben verfügbar; Typed-/Shadow-Nutzung erfolgt nur über explizite Konfiguration.
+
+| Repo | Branch | Commit | PR | Verifikation |
 | --- | --- | --- | --- | --- |
-| EarlySalty/Deadlock-Twitch-Bot | `codex/fix-c9-consumer-wiring` | `43d7f83a3661e30bf672605da32bdae49432e5bd` | #984 | Self-Explainer fokussiert: 19/19 grün. `tb-knowledge`: 23 Unit + 3 Load grün; bekannter Seed-Altfehler `stoerung_stream_info_felder_findet_uplink_stoerungen` bleibt unverändert 1/5 rot. |
-| EarlySalty/Deadlock-Bots | `codex/fix-c9-consumer-wiring` | `98a7b37c89b0ab8ff6e6c4f8bdb3331debed8ca9` | #459 | `rust/scripts/check-brain-consumer.sh`: fmt/test/clippy grün. |
-| EarlySalty/Deadlock-Docs | `codex/fix-c9-consumer-wiring` | `da32813bc8b58394b166db7baf3d35224d5b43db` | #4 | `tools/brain-adapter/check.sh`: fmt/test/clippy grün. |
-| EarlySalty/Deadlock-2nd-Brain | `codex/fix-c9-consumer-wiring` | `a958e619fd82ac4ce0b0579aed6ac5286d959f5c` | #2 | `tools/brain-adapter/check.sh`: fmt/test/clippy grün. |
-| EarlySalty/Deadlock-Brain CLI/MCP | `codex/fix-c9-consumer-wiring` | `5d2fad67e8304e17bd0569ac60df66669aa76d1a` | #50 | `brain-client --all-targets`: 14/14 grün; `brain-mcp`: 2/2 grün; `deadlock-brain` CLI binary `cargo check` grün. |
+| EarlySalty/Deadlock-Twitch-Bot | `codex/fix-c9-consumer-wiring` | `8e6ee4c7c35172bafa5e5f47799d2aea72cdb1ab` | #984 | Brain-Offline `knowledge`: fmt/test/clippy grün; `self-explainer`: fmt/test grün; `tb-knowledge` komplett grün (23 Unit + 3 Load + 5 Seed); Merge-Policy-Tests 4/4 grün. |
+| EarlySalty/Deadlock-Bots | `codex/fix-c9-consumer-wiring` | `e6ec9925dcd462c4204c269dd0a82a6fb7beb716` | #459 | `rust/scripts/check-brain-consumer.sh`: fmt/test/clippy grün; `dl-brain` 12/12; Mode- und blockierende-Shadow-Regressions grün; vollständiges `dl-bot` clippy `-D warnings` grün. |
+| EarlySalty/Deadlock-Docs | `codex/fix-c9-consumer-wiring` | `ba4143f8ce30621d993574ccd4d3e2c66b46f5a7` | #4 | `tools/brain-adapter/check.sh`: fmt/test/clippy grün, locked/offline. |
+| EarlySalty/Deadlock-2nd-Brain | `codex/fix-c9-consumer-wiring` | `46aa2d37e4564e9d314847f52320016c10f6c47e` | #2 | `tools/brain-adapter/check.sh`: fmt/test/clippy grün, locked/offline. GitHub-Job 36217479678 scheiterte vor jedem Step: `runner_id=0`, leerer Runnername, `steps=[]`; kein belegter Repo-Codefehler. |
+| EarlySalty/Deadlock-Brain CLI/MCP | `codex/fix-c9-consumer-wiring` | `7fd5ee13da60d6035beda49fec8f2c0f1545542c` | #50 | `deadlock-brain --all-targets`: 58 Tests grün; `clippy -D warnings` grün. MCP testet `build_rejected` als Domain-Ergebnis und `unavailable` als Error-Result; CLI testet die unveränderte JSON-Statusprojektion beider Wire-Statuswerte. |
 
-## Verdrahtung
-
-### Twitch
-
-Die echte öffentliche Self-Explainer-Route installiert `SelfExplainerBrainRuntime`.
-
-- `legacy` bleibt Default.
-- `typed` verwendet für die sichtbare Antwort ausschließlich `AsyncBrainClient -> brain-serve`.
-- `shadow` lässt Legacy sichtbar antworten und wertet den typisierten Pfad nur report-only aus.
-- Historie wird im typed/shadow-Pfad als begrenzter, ausdrücklich untrusted Conversation-Kontext im typisierten Query mitgeführt; sie bleibt nicht still auf dem alten Brain-Pfad.
-- Scopes stammen ausschließlich aus vertrauenswürdiger Runtime-Konfiguration.
-- `build_rejected` bleibt sichtbarer erklärender Antworttext.
-- `unavailable`, ACL-, Provider- und Budgetfehler lösen im typed-Pfad keinen Legacy-Modell-/RAG-Fallback aus.
-- Bestehende JSON-Form, `parts`, Grounding-/Source-Felder, Rate-Limit und nachgelagerte Logging-Wege bleiben erhalten.
+## Verdrahtung und Review-Befunde
 
 ### Deadlock-Bots
 
-Der echte `brain`-Command-Composition-Root kann den vorhandenen `AiAnswerer` jetzt explizit als `legacy`, `typed` oder `shadow` verdrahten.
+Der echte `brain`-Command-Composition-Root unterstützt ausschließlich:
 
-- Legacy bleibt Default.
-- Typed verwendet `BrainApiAnswerer -> AsyncBrainClient -> brain-serve`.
-- Channel-Allowlist, Open-Test-Grenzen, Cooldown, Fragenlänge und Discord-Ausgabe bleiben im bestehenden Command-Pfad.
-- `build_rejected` wird über das bestehende Antwortformat ausgegeben.
-- `unavailable` wird als Backendfehler behandelt, ohne stillen Legacy-Fallback im typed-Modus.
-- Der Shadow-Wrapper protokolliert nur Ergebnisarten; der typed Adapter enthält keinen direkten Modell-/RAG-Pfad.
-- Das bestehende `.github/workflows/pr-release-gate.yml` hat im finalen C9-Diff **keine Änderung**. C9 aktiviert keine Merge-Automatik.
+- `legacy`
+- `typed`
+- `shadow`
+
+Nicht gesetzter Modus behält den dokumentierten Legacy-Default. Ein gesetzter unbekannter oder leerer `BRAIN_CLIENT_MODE` ist ein Startup-/Konfigurationsfehler und fällt nicht still auf Legacy zurück.
+
+`BrainApiAnswerer` verwendet einen collision-resistenten per-instance Namespace: zum vertrauenswürdigen lokalen Namespace kommt pro Adapterkonstruktion ein zufälliger 128-Bit-Wert, danach erst der lokale Sequenzzähler. Zwei Adapterinstanzen mit gleicher PID bzw. zwei Restarts erzeugen dadurch keine gleichen Request-/Conversation-IDs.
+
+Shadow ist report-only:
+
+- sichtbarer Legacy-Pfad antwortet unabhängig
+- Typed-Probe läuft in einem separaten Task
+- Typed-Probe besitzt eine eigene harte Timeout-Grenze
+- blockierendes oder fehlschlagendes Typed-Backend verzögert bzw. verändert die sichtbare Legacyantwort nicht
+
+Scopes, Channel-Allowlist, Cooldowns, Fragenlänge, Auth und bestehendes Discord-Ausgabeformat bleiben im bisherigen Pfad.
+
+### Twitch
+
+Die echte öffentliche Self-Explainer-Route verwendet den neuen Typed-Brain-Port in `typed` bzw. report-only in `shadow`. Conversation-Historie wird im neuen Query mitgeführt und nicht still auf dem Legacy-Brain-Pfad belassen.
+
+Der zuvor bekannte Basisfehler
+`stoerung_stream_info_felder_findet_uplink_stoerungen`
+wurde unverändert reproduziert und minimal repariert: `uplink-stoerungen.md` besitzt jetzt die vom bestehenden lexikalischen Selektor vorgesehenen `tip_flags` für Uplink-/Störungs-/OBS-/Stream-Info-Begriffe. Der Test wurde nicht abgeschwächt.
+
+Die Merge-Policy wurde entsprechend dem vorhandenen Vertrauensmodell verschärft:
+
+- `.github/workflows/pr-release-gate.yml` verlangt beide Typed-Brain-Fixture-Checks
+- `.github/workflows/dependabot-auto-merge.yml` verlangt dieselben Checks als von GitHub Actions serverseitig erzwungene Required Checks
+- Repository-Ruleset `14377032` auf `main` ist aktiv und enthält `required_status_checks` mit `strict_required_status_checks_policy=true`
+- zusätzlich zu den bisherigen sechs Release-Checks sind serverseitig erforderlich:
+  - `Typed Brain fixtures (knowledge)`
+  - `Typed Brain fixtures (self-explainer)`
+- `integration_id=15368` bindet diese Required Checks an GitHub Actions
+- kein Bypass-Actor ist konfiguriert
+
+Damit kann Native/Dependabot-Auto-Merge nicht aktiviert bzw. durchgeführt werden, wenn die Typed-Brain-Fixtures fehlen oder fehlschlagen.
 
 ### Docs
 
-`tools/brain-adapter query ...` ist ein tatsächlich nutzbarer Query-Pfad und verwendet ausschließlich den gepinnten typisierten BrainClient.
+`tools/brain-adapter query ...` verwendet ausschließlich den typisierten BrainClient.
 
-- Scope fest `docs.public`.
-- Bearer-Token nicht als CLI-Argument.
-- Loopback-only Endpoint und Client-Timeouts.
-- Kein Corpus-Import, kein Publishing, kein lokales RAG/Modell.
+- Scope fest `docs.public`
+- Bearer-Token nicht als CLI-Argument
+- Loopback-only Endpoint und Client-Timeouts
+- kein lokales Modell/RAG, kein Corpus-Publishing
+- BrainClient-Pin auf `3b86d3cbe5ea39a67b8b1fbd8a3d48ab935982ef`
 
 ### 2nd-Brain
 
-`tools/brain-adapter query ...` ist der tatsächliche interne Query-Pfad.
+Der interne Query-Pfad verwendet ausschließlich den typisierten BrainClient.
 
-- Interne Scopes müssen explizit und vertrauenswürdig gebunden werden.
-- Public-/Wildcard-Bindungen werden lokal abgewiesen; serverseitige ACL bleibt autoritativ.
-- Kein Corpus-Export, Publishing, lokales RAG oder Modell-Fallback.
+- interne Scopes explizit und vertrauenswürdig gebunden
+- Public-/Wildcard-Bindungen lokal abgewiesen
+- kein Corpus-Export, Publishing, lokales RAG oder Modell-Fallback
+- BrainClient-Pin auf `3b86d3cbe5ea39a67b8b1fbd8a3d48ab935982ef`
+
+Der GitHub-Actions-Fehler von PR #2 ist von der Codeverifikation getrennt zu behandeln: Run `36217479678` erhielt keinen Hosted Runner (`runner_id=0`) und führte keinen Step aus (`steps=[]`). Derselbe Checkout ist lokal mit Rust 1.97.1, locked/offline, für fmt/test/clippy grün.
 
 ### Brain CLI/MCP
 
-- `deadlock-brain answer` erzeugt einen typisierten `Query` und verwendet `AsyncBrainClient::new_local`.
-- Token kommt ausschließlich aus `BRAIN_CLIENT_TOKEN`; Scopes müssen explizit angegeben werden.
-- `brain-mcp` stellt `brain_answer` bereit und bindet Scopes ausschließlich aus der MCP-Runtime-Konfiguration.
-- MCP kennzeichnet `unavailable`, ACL-, Provider- und Budgetfehler als Error-Result; `build_rejected` bleibt ein typisiertes, erfolgreich transportiertes Domain-Ergebnis.
+- `deadlock-brain answer` erzeugt einen typisierten `Query` und verwendet `AsyncBrainClient::new_local`
+- Token ausschließlich aus `BRAIN_CLIENT_TOKEN`
+- Scopes explizit
+- `brain-mcp` bindet Scopes nur aus Runtime-Konfiguration
+- MCP: `build_rejected` bleibt erfolgreich transportiertes Domain-Ergebnis; `unavailable`, ACL-, Provider- und Budgetfehler sind Error-Results
+- CLI: `build_rejected` und `unavailable` bleiben im öffentlichen JSON-Wireformat unverändert erhalten
 
-## Noch nötige lokale Tests
+## Sicherheits-/Betriebsgrenzen
 
-Diese Tests wurden bewusst **nicht** gegen Produktion ausgeführt:
+Für diese C9-Abschlussrunde gilt:
 
-1. Twitch: isolierte `brain-serve`-Instanz mit nichtproduktivem Public-Token; `legacy/shadow/typed`, History-Auflösung, Timeout, ACL-Widerruf und Ausgabeparität über die echte HTTP-Route prüfen.
-2. Deadlock-Bots: isolierte Command-Composition mit Fake-/Test-Discord-Transport und nichtproduktivem Brain-Token; Allowlist, Cooldown, `build_rejected`, `unavailable` und Shadow-Latenz prüfen. Vollständige DB-Integration nur mit separatem `CENTRAL_TEST_DSN`.
-3. Docs: einen echten nichtproduktiven `docs.public`-Token gegen isoliertes `brain-serve` prüfen, inklusive ACL-Fehler, Timeout und Citation-Ausgabe.
-4. 2nd-Brain: isolierte interne ACL-, Rollenwechsel-/Widerrufs-, Conversation-Isolation- und Provider-Egress-Prüfung mit ausschließlich freigegebenen Testdaten.
-5. Brain CLI/MCP: End-to-End gegen isoliertes `brain-serve` für `answered`, `insufficient_evidence`, `build_rejected`, `unavailable`, falsche Scopes und Timeout.
-
-## Bekannter nicht-C9-Fehler
-
-Im Twitch-Repo bleibt `tb-knowledge/tests/seed.rs::stoerung_stream_info_felder_findet_uplink_stoerungen` auf dem aktuellen Basisstand rot. Die C9-spezifischen Knowledge-Unit-/Load-Tests und die Self-Explainer-Routenregressionen sind grün; C9 ändert den Seed-Selector bzw. Corpus nicht.
+- kein Bot gestartet
+- keine Discord-/Twitch-/sonstige Nachricht gesendet
+- kein Deployment ausgeführt
+- keine Produktiv-Credentials für Antworttests verwendet
+- keine alten Legacy-Pfade produktiv abgeschaltet
+- keine neue Modell-/RAG-Schattenimplementierung eingeführt
