@@ -120,15 +120,29 @@ async fn ingest(store: &PgStore, env: &Env, owner: &str) -> (Vec<SourceBatch>, V
     }
     // Synthetic domain adapter fixture, explicitly separate from the approved
     // real documents. It follows the same transactional PostgreSQL release path.
+    let previous = store.checkpoint(domain_fixture::SOURCE).await.unwrap();
+    if let Some(checkpoint) = &previous {
+        assert_eq!(checkpoint.configuration, "c6-synthetic-domain-v1");
+    }
+    let generation = previous
+        .as_ref()
+        .map_or(0, |checkpoint| checkpoint.generation);
     let batch = SourceBatch {
-        expected_generation: 0,
+        expected_generation: generation,
         checkpoint: brain_contracts::SourceCheckpoint {
             source_id: domain_fixture::SOURCE.into(),
             configuration: "c6-synthetic-domain-v1".into(),
-            generation: 1,
+            generation: generation.checked_add(1).unwrap(),
             state: json!({"fixture":"synthetic-domain-adapter-not-game-stats-v1"}),
         },
-        records: domain_fixture::records("pilot-r1", PATCH, 1, "500"),
+        // Like FileConnector, each new job advances its checkpoint. Reusing an
+        // old committed batch with a NEW lease would only replay the receipt,
+        // leaving that new lease active. Unchanged sources need no new records.
+        records: if previous.is_none() {
+            domain_fixture::records("pilot-r1", PATCH, 1, "500")
+        } else {
+            Vec::new()
+        },
     };
     let lease = store
         .claim(domain_fixture::SOURCE, owner, 30_000)
