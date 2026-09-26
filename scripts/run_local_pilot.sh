@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Local-only pilot. Dedicated Unix-socket scratch cluster, no TCP, no production DSN, no secrets.
 # BRAIN_PILOT_ROOT must contain public/ and internal/ with locally approved documents outside Git.
+# The pilot test starts the real brain-serve executable and talks to it via BrainClient.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PG_BIN="${BRAIN_TEST_PG_BIN:-$(pg_config --bindir)}"
@@ -34,8 +35,12 @@ done
 FAILED=0
 phase() {
   local database="$1" test="$2" label="$3"
-  (cd "$ROOT/rust" && "$CARGO" test --locked -p brain-api --test local_pilot --no-run) >"$REPORT/$label.build.log" 2>&1
-  (cd "$ROOT/rust" && BRAIN_PILOT_DATABASE="$database" "$CARGO" test --locked -p brain-api --test local_pilot "$test" -- --ignored --exact --nocapture) >"$REPORT/$label.log" 2>&1
+  if ! (cd "$ROOT/rust" && "$CARGO" test --locked -p brain-serve --test local_pilot --no-run) >"$REPORT/$label.build.log" 2>&1; then
+    printf '%s_build\t1\n' "$label" >>"$REPORT/summary.tsv"
+    FAILED=1
+    return
+  fi
+  (cd "$ROOT/rust" && BRAIN_PILOT_DATABASE="$database" "$CARGO" test --locked -p brain-serve --test local_pilot "$test" -- --ignored --exact --nocapture) >"$REPORT/$label.log" 2>&1
   local result=$?
   printf '%s\t%s\n' "$label" "$result" >>"$REPORT/summary.tsv"
   ((result == 0)) || FAILED=1

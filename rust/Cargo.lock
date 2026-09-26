@@ -344,6 +344,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "brain-serve"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "brain-api",
+ "brain-client",
+ "brain-contracts",
+ "brain-ingestion",
+ "brain-kernel",
+ "brain-policy",
+ "brain-providers",
+ "brain-storage",
+ "dbrain-retrieval",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tempfile",
+ "tokio",
+ "wait-timeout",
+]
+
+[[package]]
 name = "brain-storage"
 version = "0.1.0"
 dependencies = [
