@@ -192,4 +192,49 @@ mod tests {
         assert!(parse_feed(&serde_json::to_vec(&value).unwrap()).is_err());
         assert!(parse_feed(&feed(Vec::new())).is_err());
     }
+
+    #[test]
+    fn provider_export_fixture_is_accepted_and_prepares_a_batch() {
+        // Echter Export des Patchnotes-Providers (test_brain_feed.py):
+        // gleicher Vertrag, inhaltsgebundene Export-Revision, gueltige Raw-Hashes.
+        let bytes = include_str!("../tests/fixtures/patchnotes_feed.json").as_bytes();
+        let parsed = parse_feed(bytes).unwrap();
+        assert_eq!(parsed.provider, "deadlock-patchnotes-bot");
+        assert_eq!(parsed.posts.len(), 2);
+        assert!(parsed
+            .posts
+            .iter()
+            .all(|p| p.raw_sha256 == crate::sha256_hex(p.raw_text.as_bytes())));
+        // Der Export bindet auch Metadaten an die Source-Revision. Die
+        // Fixture muss nach einer Provider-Aenderung erneut echt passen.
+        for post in &parsed.posts {
+            let fields = serde_json::json!({
+                "title": post.title,
+                "url": post.url,
+                "published_at": post.published_at,
+                "language": post.language,
+                "raw_sha256": post.raw_sha256,
+            });
+            let digest = crate::sha256_hex(&serde_json::to_vec(&fields).unwrap());
+            let id = post.post_id.strip_prefix("changelog-").unwrap();
+            assert_eq!(
+                post.source_revision,
+                format!("changelog-posts/{id}@{}", &digest[..12])
+            );
+        }
+        let mut posts = parsed.posts.clone();
+        posts.sort_by(|left, right| left.post_id.cmp(&right.post_id));
+        let canonical: Vec<serde_json::Value> = posts
+            .into_iter()
+            .map(|post| serde_json::to_value(post).unwrap())
+            .collect();
+        let digest = crate::sha256_hex(&serde_json::to_vec(&canonical).unwrap());
+        assert_eq!(parsed.export_revision, format!("export-{}", &digest[..16]));
+        let batch = prepare_batch(&parsed, &policy(), None).unwrap();
+        assert_eq!(batch.records.len(), 2);
+        assert!(batch
+            .records
+            .iter()
+            .all(|r| r.logical_id.starts_with("post/changelog-")));
+    }
 }
