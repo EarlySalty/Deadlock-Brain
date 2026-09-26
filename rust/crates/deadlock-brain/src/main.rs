@@ -36,6 +36,10 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
+    #[command(
+        about = "Stellt eine Frage ausschließlich über den typisierten brain-serve/BrainClient-Pfad."
+    )]
+    Answer(BrainAnswerArgs),
     #[command(about = "Zeigt lokale DB- und Source-Counts.")]
     Status,
     #[command(about = "Baut einen kompakten Datenkontext fuer eine Entity-Frage.")]
@@ -148,6 +152,31 @@ enum Commands {
         #[command(subcommand)]
         target: InsightCommands,
     },
+}
+
+#[derive(Debug, Args)]
+struct BrainAnswerArgs {
+    #[arg(
+        long,
+        value_name = "LOOPBACK_URL",
+        help = "brain-serve endpoint; otherwise BRAIN_CLIENT_ENDPOINT"
+    )]
+    endpoint: Option<String>,
+    #[arg(
+        long = "scope",
+        value_name = "SCOPE",
+        required = true,
+        help = "Trusted scope binding; may be repeated."
+    )]
+    scopes: Vec<String>,
+    #[arg(long, default_value_t = 8_000)]
+    timeout_ms: u64,
+    #[arg(long)]
+    request_id: Option<String>,
+    #[arg(long)]
+    conversation_id: Option<String>,
+    #[arg(help = "Question sent to brain-serve.")]
+    question: String,
 }
 
 #[derive(Debug, Args)]
@@ -1183,6 +1212,64 @@ struct InsightImportJsonArgs {
     dry_run: bool,
 }
 
+async fn run_brain_answer(args: &BrainAnswerArgs) -> Result<()> {
+    let endpoint = args
+        .endpoint
+        .clone()
+        .or_else(|| std::env::var("BRAIN_CLIENT_ENDPOINT").ok())
+        .filter(|value| !value.trim().is_empty())
+        .context("brain-serve endpoint fehlt (--endpoint oder BRAIN_CLIENT_ENDPOINT)")?;
+    let token = std::env::var("BRAIN_CLIENT_TOKEN")
+        .context("BRAIN_CLIENT_TOKEN fehlt; Token wird nicht als CLI-Argument akzeptiert")?;
+    let scopes: BTreeSet<String> = args
+        .scopes
+        .iter()
+        .map(|scope| scope.trim())
+        .filter(|scope| !scope.is_empty())
+        .map(ToOwned::to_owned)
+        .collect();
+    if scopes.is_empty() || scopes.len() != args.scopes.len() {
+        return Err(anyhow!(
+            "Scopes müssen explizit, nichtleer und eindeutig sein"
+        ));
+    }
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .context("Systemzeit liegt vor UNIX_EPOCH")?
+        .as_nanos();
+    let default_id = format!("brain-cli-{}-{nonce}", process::id());
+    let request_id = args
+        .request_id
+        .clone()
+        .unwrap_or_else(|| default_id.clone());
+    let conversation_id = args
+        .conversation_id
+        .clone()
+        .unwrap_or_else(|| default_id.clone());
+    let query = brain_client::Query {
+        request_id,
+        conversation_id,
+        text: args.question.clone(),
+        domain: None,
+        requested_scopes: scopes,
+        profile: brain_client::AnswerProfile::Explain,
+        patch: None,
+        mode: None,
+    };
+    query.validate().context("ungültige Brain-Anfrage")?;
+    let client = brain_client::AsyncBrainClient::new_local(
+        &endpoint,
+        &token,
+        std::time::Duration::from_millis(args.timeout_ms.max(1)),
+    )
+    .context("BrainClient konnte nicht erstellt werden")?;
+    let response = client
+        .answer(&query)
+        .await
+        .context("brain-serve Anfrage fehlgeschlagen")?;
+    print_json(&response)
+}
+
 fn main() {
     if let Err(error) = run_from_cli() {
         eprintln!("{error:#}");
@@ -1205,6 +1292,9 @@ fn run_from_cli() -> Result<()> {
 
 async fn run(cli: Cli) -> Result<()> {
     let Cli { command } = cli;
+    if let Commands::Answer(args) = &command {
+        return run_brain_answer(args).await;
+    }
     if let Commands::Wiki {
         target: WikiCommands::Refresh(args),
     } = &command
@@ -1254,6 +1344,7 @@ async fn run(cli: Cli) -> Result<()> {
     let pool = deadlock_brain_core::pg::pg_pool().await?;
 
     match command {
+        Commands::Answer(_) => unreachable!("answer is handled before local DB initialization"),
         Commands::Status => print_status(&pool, &settings).await,
         Commands::Context(args) => {
             let result = dbrain_retrieval::build_entity_context(
@@ -3749,6 +3840,25 @@ mod tests {
                 panic!("expected analysis run ai for {command_name}");
             };
             assert_eq!(args.query, "Lady Geist");
+        }
+    }
+
+    #[test]
+    fn cli_json_preserves_current_wire_statuses() {
+        for (status, expected) in [
+            (brain_client::AnswerStatus::BuildRejected, "build_rejected"),
+            (brain_client::AnswerStatus::Unavailable, "unavailable"),
+        ] {
+            let response = brain_client::PublicAnswerResponse {
+                contract_version: brain_client::PUBLIC_API_VERSION.into(),
+                request_id: "request-1".into(),
+                knowledge_release: "release-1".into(),
+                status,
+                text: "fixture".into(),
+                citations: vec![],
+            };
+            let value = serde_json::to_value(response).expect("public response must serialize");
+            assert_eq!(value["status"], expected);
         }
     }
 
