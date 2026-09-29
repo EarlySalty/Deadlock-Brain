@@ -8,8 +8,8 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
-    collections::{BTreeMap, BTreeSet},
-    time::Duration,
+    collections::BTreeMap,
+    time::{Duration, Instant},
 };
 
 pub const SOURCE: &str = "deadlock_analytics_api";
@@ -18,6 +18,7 @@ pub const BASE_URL: &str = "https://api.deadlock-api.com";
 const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 const MAX_WINDOW_SECONDS: i64 = 31 * 86_400;
 const MAX_ROWS: usize = 256;
+const UPSTREAM_HOUR_SECONDS: i64 = 3_600;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -30,7 +31,7 @@ impl AnalyticsKind {
     fn dependency(self) -> SchemaDependency {
         let (id, path) = match self {
             Self::Meta => ("analytics_meta", "/v1/analytics/hero-stats"),
-            Self::Population => ("analytics_population", "/v1/analytics/build-item-stats"),
+            Self::Population => ("analytics_population", "/v1/analytics/hero-stats"),
         };
         SchemaDependency {
             id: id.into(),
@@ -42,7 +43,7 @@ impl AnalyticsKind {
     fn path(self) -> &'static str {
         match self {
             Self::Meta => "/v1/analytics/hero-stats",
-            Self::Population => "/v1/analytics/build-item-stats",
+            Self::Population => "/v1/analytics/hero-stats",
         }
     }
 }
@@ -52,6 +53,8 @@ impl AnalyticsKind {
 pub struct AnalyticsLookupRequest {
     pub kind: AnalyticsKind,
     pub hero_id: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_id: Option<u32>,
     pub patch: String,
     pub min_unix_timestamp: i64,
     pub max_unix_timestamp: i64,
@@ -59,9 +62,24 @@ pub struct AnalyticsLookupRequest {
 }
 
 impl AnalyticsLookupRequest {
+    fn effective_window(&self) -> Option<(i64, i64)> {
+        let min = self
+            .min_unix_timestamp
+            .checked_add(UPSTREAM_HOUR_SECONDS - 1)?
+            / UPSTREAM_HOUR_SECONDS
+            * UPSTREAM_HOUR_SECONDS;
+        let max =
+            self.max_unix_timestamp - self.max_unix_timestamp.rem_euclid(UPSTREAM_HOUR_SECONDS);
+        (min >= 0 && max > min).then_some((min, max))
+    }
+
     pub fn validate(&self) -> Result<()> {
         let patch = self.patch.trim();
         if self.hero_id == 0
+            || !matches!(
+                (self.kind, self.item_id),
+                (AnalyticsKind::Meta, None) | (AnalyticsKind::Population, Some(1..))
+            )
             || patch.is_empty()
             || patch != self.patch
             || patch.len() > 128
@@ -71,6 +89,7 @@ impl AnalyticsLookupRequest {
             || self.min_unix_timestamp < 0
             || self.max_unix_timestamp <= self.min_unix_timestamp
             || self.max_unix_timestamp - self.min_unix_timestamp > MAX_WINDOW_SECONDS
+            || self.effective_window().is_none()
             || !(1..=MAX_ROWS).contains(&self.max_rows)
         {
             return Err(SourcesError::invalid_input(
@@ -108,6 +127,8 @@ pub struct AnalyticsProvenance {
 pub struct AnalyticsObservation {
     pub kind: AnalyticsKind,
     pub hero_id: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_id: Option<u32>,
     pub rows: Vec<Value>,
     pub provenance: AnalyticsProvenance,
 }
@@ -133,7 +154,7 @@ impl DeadlockAnalyticsClient {
         })
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "analytics-fixtures"))]
     pub fn with_base_url(
         http: HttpClient,
         base_url: impl Into<String>,
@@ -156,15 +177,30 @@ impl DeadlockAnalyticsClient {
     }
 
     pub fn lookup(&self, request: &AnalyticsLookupRequest) -> Result<AnalyticsObservation> {
+        self.lookup_with_deadline(
+            request,
+            Instant::now() + self.request_timeout.saturating_mul(2),
+        )
+    }
+
+    pub fn lookup_with_deadline(
+        &self,
+        request: &AnalyticsLookupRequest,
+        deadline: Instant,
+    ) -> Result<AnalyticsObservation> {
         request.validate()?;
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(SourcesError::invalid_input("analytics deadline exhausted"));
+        }
         let url = self.url(request);
         let response = self.http.get_bounded(
             &url,
             SourceHttpOptions {
                 max_bytes: MAX_RESPONSE_BYTES,
                 attempts: 2,
-                request_timeout: self.request_timeout,
-                total_timeout: self.request_timeout.saturating_mul(2),
+                request_timeout: self.request_timeout.min(remaining),
+                total_timeout: self.request_timeout.saturating_mul(2).min(remaining),
                 backoff: Duration::from_millis(200),
                 max_retry_wait: Duration::from_secs(2),
                 headers: vec![("Accept".into(), "application/json".into())],
@@ -174,45 +210,54 @@ impl DeadlockAnalyticsClient {
     }
 
     fn url(&self, request: &AnalyticsLookupRequest) -> String {
+        let (min, max) = request
+            .effective_window()
+            .expect("validated analytics window");
+        let upstream_max = max - UPSTREAM_HOUR_SECONDS;
         match request.kind {
             AnalyticsKind::Meta => format!(
-                "{}{path}?bucket=no_bucket&game_mode=normal&match_mode=ranked%2Cunranked&min_unix_timestamp={min}&max_unix_timestamp={max}",
+                "{}{path}?bucket=no_bucket&game_mode=normal&match_mode=ranked%2Cunranked&min_match_id=0&min_unix_timestamp={min}&max_unix_timestamp={upstream_max}",
                 self.base_url,
                 path = request.kind.path(),
-                min = request.min_unix_timestamp,
-                max = request.max_unix_timestamp,
             ),
             AnalyticsKind::Population => format!(
-                "{}{path}?hero_id={hero}&min_last_updated_unix_timestamp={min}&max_last_updated_unix_timestamp={max}",
+                "{}{path}?bucket=no_bucket&game_mode=normal&match_mode=ranked%2Cunranked&min_match_id=0&include_item_ids={item}&min_unix_timestamp={min}&max_unix_timestamp={upstream_max}",
                 self.base_url,
                 path = request.kind.path(),
-                hero = request.hero_id,
-                min = request.min_unix_timestamp,
-                max = request.max_unix_timestamp,
+                item = request.item_id.expect("validated population item"),
             ),
         }
     }
 }
 
 fn expected_query(request: &AnalyticsLookupRequest) -> BTreeMap<&'static str, String> {
+    let (min, max) = request
+        .effective_window()
+        .expect("validated analytics window");
+    let upstream_max = max - UPSTREAM_HOUR_SECONDS;
     match request.kind {
         AnalyticsKind::Meta => BTreeMap::from([
             ("bucket", "no_bucket".into()),
             ("game_mode", "normal".into()),
             ("match_mode", "ranked,unranked".into()),
-            ("min_unix_timestamp", request.min_unix_timestamp.to_string()),
-            ("max_unix_timestamp", request.max_unix_timestamp.to_string()),
+            ("min_match_id", "0".into()),
+            ("min_unix_timestamp", min.to_string()),
+            ("max_unix_timestamp", upstream_max.to_string()),
         ]),
         AnalyticsKind::Population => BTreeMap::from([
-            ("hero_id", request.hero_id.to_string()),
+            ("bucket", "no_bucket".into()),
+            ("game_mode", "normal".into()),
+            ("match_mode", "ranked,unranked".into()),
+            ("min_match_id", "0".into()),
             (
-                "min_last_updated_unix_timestamp",
-                request.min_unix_timestamp.to_string(),
+                "include_item_ids",
+                request
+                    .item_id
+                    .expect("validated population item")
+                    .to_string(),
             ),
-            (
-                "max_last_updated_unix_timestamp",
-                request.max_unix_timestamp.to_string(),
-            ),
+            ("min_unix_timestamp", min.to_string()),
+            ("max_unix_timestamp", upstream_max.to_string()),
         ]),
     }
 }
@@ -223,7 +268,7 @@ fn validate_response_locator(request: &AnalyticsLookupRequest, value: &str) -> R
     let production = url.scheme() == "https"
         && url.host_str() == Some("api.deadlock-api.com")
         && matches!(url.port(), None | Some(443));
-    #[cfg(test)]
+    #[cfg(any(test, feature = "analytics-fixtures"))]
     let loopback = url.scheme() == "http"
         && url.port().is_some_and(|port| port != 0)
         && url.host_str().is_some_and(|host| {
@@ -233,7 +278,7 @@ fn validate_response_locator(request: &AnalyticsLookupRequest, value: &str) -> R
                     .parse::<std::net::IpAddr>()
                     .is_ok_and(|address| address.is_loopback())
         });
-    #[cfg(not(test))]
+    #[cfg(not(any(test, feature = "analytics-fixtures")))]
     let loopback = false;
     if !(production || loopback)
         || !url.username().is_empty()
@@ -268,7 +313,7 @@ fn validate_response_locator(request: &AnalyticsLookupRequest, value: &str) -> R
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "analytics-fixtures"))]
 fn loopback_origin(value: &str) -> bool {
     let Some(authority) = value.strip_prefix("http://") else {
         return false;
@@ -294,6 +339,9 @@ pub fn prepare_analytics_response(
     response: SourceHttpResponse,
 ) -> Result<AnalyticsObservation> {
     request.validate()?;
+    let (effective_min, effective_max) = request
+        .effective_window()
+        .expect("validated analytics window");
     validate_response_locator(request, &response.url)?;
     if response.content.len() > MAX_RESPONSE_BYTES {
         return Err(SourcesError::invalid_input(
@@ -343,40 +391,29 @@ pub fn prepare_analytics_response(
             "analytics raw response exceeds row limit",
         ));
     }
-    let rows: Vec<Value> = match request.kind {
-        AnalyticsKind::Meta => {
-            let matching: Vec<_> = rows
-                .iter()
-                .filter(|row| {
-                    row.get("hero_id").and_then(Value::as_u64) == Some(request.hero_id.into())
-                })
-                .cloned()
-                .collect();
-            if matching.len() > 1
-                || matching
-                    .iter()
-                    .any(|row| row.get("bucket").and_then(Value::as_i64) != Some(0))
-            {
-                return Err(SourcesError::invalid_input(
-                    "analytics hero aggregation identity drift",
-                ));
-            }
-            matching
-        }
-        AnalyticsKind::Population => {
-            let mut seen = BTreeSet::new();
-            if rows.iter().any(|row| {
-                !row.get("item_id")
-                    .and_then(Value::as_u64)
-                    .is_some_and(|id| id > 0 && seen.insert(id))
-            }) {
-                return Err(SourcesError::invalid_input(
-                    "analytics item identity missing or repeated",
-                ));
-            }
-            rows.to_vec()
-        }
-    };
+    let matching: Vec<Value> = rows
+        .iter()
+        .filter(|row| row.get("hero_id").and_then(Value::as_u64) == Some(request.hero_id.into()))
+        .cloned()
+        .collect();
+    if matching.len() > 1
+        || matching.iter().any(|row| {
+            let matches = row.get("matches").and_then(Value::as_u64);
+            let total = row
+                .get("wins")
+                .and_then(Value::as_u64)
+                .zip(row.get("losses").and_then(Value::as_u64))
+                .and_then(|(wins, losses)| wins.checked_add(losses));
+            row.get("bucket").and_then(Value::as_i64) != Some(0)
+                || total != matches
+                || row.get("matches_per_bucket").and_then(Value::as_u64) != matches
+        })
+    {
+        return Err(SourcesError::invalid_input(
+            "analytics hero aggregation identity drift",
+        ));
+    }
+    let rows = matching;
     if rows.len() > request.max_rows {
         return Err(SourcesError::invalid_input(
             "analytics response exceeds row limit",
@@ -397,6 +434,7 @@ pub fn prepare_analytics_response(
     Ok(AnalyticsObservation {
         kind: request.kind,
         hero_id: request.hero_id,
+        item_id: request.item_id,
         rows,
         provenance: AnalyticsProvenance {
             source: SOURCE.into(),
@@ -407,8 +445,8 @@ pub fn prepare_analytics_response(
             api_version,
             parser_revision: PARSER_REVISION.into(),
             patch_membership: PatchMembership::Unverified,
-            min_unix_timestamp: request.min_unix_timestamp,
-            max_unix_timestamp: request.max_unix_timestamp,
+            min_unix_timestamp: effective_min,
+            max_unix_timestamp: effective_max,
             attempts,
         },
     })
@@ -424,6 +462,7 @@ mod tests {
         AnalyticsLookupRequest {
             kind,
             hero_id: 18,
+            item_id: (kind == AnalyticsKind::Population).then_some(42),
             patch: "2026-09-24".into(),
             min_unix_timestamp: 1_790_000_000,
             max_unix_timestamp: 1_790_086_400,
@@ -479,37 +518,49 @@ mod tests {
     }
 
     #[test]
-    fn population_lookup_is_bounded_and_schema_checked() {
-        let mut request = request(AnalyticsKind::Population);
-        request.max_rows = 1;
+    fn population_uses_item_filtered_hero_matches_not_purchase_counts() {
+        let request = request(AnalyticsKind::Population);
         let good = prepare_analytics_response(
             &request,
-            response(&request, json!([{"item_id":1,"builds":42}])),
+            response(&request, json!([hero_row(7), hero_row(18)])),
         )
         .unwrap();
-        assert_eq!(good.rows[0]["builds"], 42);
+        assert_eq!(good.rows.len(), 1);
+        assert_eq!(good.rows[0]["matches"], 15);
+        assert_eq!(good.item_id, Some(42));
+        assert!(good
+            .provenance
+            .locator
+            .contains("/v1/analytics/hero-stats?"));
+        assert!(good.provenance.locator.contains("include_item_ids=42"));
+        assert!(good
+            .provenance
+            .locator
+            .contains("min_unix_timestamp=1790002800"));
+        assert_eq!(good.provenance.min_unix_timestamp, 1_790_002_800);
+        assert_eq!(good.provenance.max_unix_timestamp, 1_790_085_600);
         assert!(prepare_analytics_response(
             &request,
-            response(
-                &request,
-                json!([{"item_id":1,"builds":42},{"item_id":2,"builds":9}]),
-            ),
+            response(&request, json!([hero_row(18), hero_row(18)])),
         )
         .is_err());
-        assert!(prepare_analytics_response(
-            &request,
-            response(&request, json!([{"item_id":"wrong","builds":42}])),
-        )
-        .is_err());
-        request.max_rows = 2;
-        assert!(prepare_analytics_response(
-            &request,
-            response(
-                &request,
-                json!([{"item_id":1,"builds":42},{"item_id":1,"builds":9}])
-            ),
-        )
-        .is_err());
+        let mut drift = hero_row(18);
+        drift["bucket"] = json!(12);
+        assert!(prepare_analytics_response(&request, response(&request, json!([drift]))).is_err());
+        let mut inconsistent = hero_row(18);
+        inconsistent["matches"] = json!(16);
+        assert!(
+            prepare_analytics_response(&request, response(&request, json!([inconsistent])))
+                .is_err()
+        );
+        let mut wrong_item = response(&request, json!([hero_row(18)]));
+        wrong_item.url = wrong_item
+            .url
+            .replace("include_item_ids=42", "include_item_ids=43");
+        assert!(prepare_analytics_response(&request, wrong_item).is_err());
+        let mut missing_item = request.clone();
+        missing_item.item_id = None;
+        assert!(missing_item.validate().is_err());
     }
 
     #[test]
@@ -525,8 +576,8 @@ mod tests {
 
         let mut wrong_window = response(&request, json!([hero_row(18)]));
         wrong_window.url = wrong_window.url.replace(
-            "max_unix_timestamp=1790086400",
-            "max_unix_timestamp=1790086401",
+            "max_unix_timestamp=1790082000",
+            "max_unix_timestamp=1790082001",
         );
         assert!(prepare_analytics_response(&request, wrong_window).is_err());
 
@@ -579,6 +630,18 @@ mod tests {
         let mut invalid = request(AnalyticsKind::Meta);
         invalid.max_unix_timestamp = invalid.min_unix_timestamp + MAX_WINDOW_SECONDS + 1;
         assert!(invalid.validate().is_err());
+        invalid.max_unix_timestamp = invalid.min_unix_timestamp + 1;
+        assert!(invalid.validate().is_err());
+    }
+
+    #[test]
+    fn expired_deadline_never_starts_http() {
+        let http = HttpClient::new("analytics-test", tempfile::tempdir().unwrap().path()).unwrap();
+        let client = DeadlockAnalyticsClient::new(http, Duration::from_secs(1)).unwrap();
+        let error = client
+            .lookup_with_deadline(&request(AnalyticsKind::Meta), Instant::now())
+            .unwrap_err();
+        assert!(matches!(error, SourcesError::InvalidInput(_)));
     }
 
     #[test]
@@ -598,8 +661,9 @@ mod tests {
             let count = stream.read(&mut request_bytes).unwrap();
             let request = String::from_utf8_lossy(&request_bytes[..count]);
             assert!(request.starts_with("GET /v1/analytics/hero-stats?"));
-            assert!(request.contains("min_unix_timestamp=1790000000"));
-            assert!(request.contains("max_unix_timestamp=1790086400"));
+            assert!(request.contains("min_match_id=0"));
+            assert!(request.contains("min_unix_timestamp=1790002800"));
+            assert!(request.contains("max_unix_timestamp=1790082000"));
             write!(
                 stream,
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",

@@ -7,6 +7,9 @@ edition.workspace = true
 name = "dbrain_sources"
 path = "src/lib.rs"
 
+[features]
+analytics-fixtures = []
+
 [dependencies]
 brain-contracts = { path = "../brain-contracts" }
 brain-storage = { path = "../brain-storage" }

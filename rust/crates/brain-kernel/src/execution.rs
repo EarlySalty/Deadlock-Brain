@@ -1,4 +1,5 @@
 use super::*;
+use brain_contracts::EvidenceKind;
 use std::{collections::BTreeSet, time::Instant};
 /// Infrastructure/corrupt-reader failures are not claims about the caller's permissions.
 /// Both categories fail closed, but only an explicit denial is UnauthorizedEvidence.
@@ -129,6 +130,46 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
         return fail(
             validation_status(&error),
             "Evidenz konnte nicht sicher bestätigt werden.",
+            retrieval_usage,
+        );
+    }
+    if matches!(
+        &query.domain,
+        Some(brain_contracts::domain::DomainRequest::Fact { predicate, .. })
+            if predicate.starts_with("analytics.")
+    ) {
+        if query.profile != brain_contracts::AnswerProfile::Fact
+            || query.patch.is_some()
+            || query.mode.is_some()
+            || evidence.len() != 1
+            || evidence[0].patch.is_some()
+            || evidence[0].source_id != "deadlock_analytics_api"
+            || !matches!(
+                evidence[0].kind,
+                EvidenceKind::Fact | EvidenceKind::Population
+            )
+        {
+            return fail(
+                AnswerStatus::InsufficientEvidence,
+                "Keine patchunabhängige Analytics-Beobachtung belegt.",
+                retrieval_usage,
+            );
+        }
+        if evidence[0].content.len() > 64 * 1024
+            || evidence[0].content.len() as u64 > context.budget.max_output_tokens as u64 * 4
+        {
+            return fail(
+                AnswerStatus::BudgetExceeded,
+                "Analytics-Antwort überschreitet das Ausgabelimit.",
+                retrieval_usage,
+            );
+        }
+        return response(
+            query,
+            context,
+            AnswerStatus::Answered,
+            evidence[0].content.clone(),
+            evidence,
             retrieval_usage,
         );
     }
