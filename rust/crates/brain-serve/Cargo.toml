@@ -4,24 +4,27 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
 brain-api = { path = "../brain-api" }
 brain-contracts = { path = "../brain-contracts" }
 brain-kernel = { path = "../brain-kernel" }
 brain-policy = { path = "../brain-policy" }
 brain-providers = { path = "../brain-providers" }
 brain-storage = { path = "../brain-storage" }
+dbrain-reasoner = { path = "../dbrain-reasoner" }
 dbrain-retrieval = { path = "../dbrain-retrieval" }
+dbrain-sources = { path = "../dbrain-sources" }
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 sqlx.workspace = true
+tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "signal", "sync"] }
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
 brain-client = { path = "../brain-client" }
 brain-ingestion = { path = "../brain-ingestion" }
-sha2.workspace = true
-tempfile.workspace = true
+dbrain-sources = { path = "../dbrain-sources", features = ["analytics-fixtures"] }
 wait-timeout.workspace = true
-dbrain-reasoner = { path = "../dbrain-reasoner" }
