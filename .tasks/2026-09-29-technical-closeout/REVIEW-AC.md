@@ -1,13 +1,66 @@
-status: Zwischenbericht A, BLOCK
+status: Zwischenbericht A und vorläufige C-Wechselwirkung, BLOCK
 Datum: 2026-09-29
 
 # R-AC: unabhängige Abnahme des gemeinsamen Brain-Pfads
 
-## Urteil
+## Fortsetzung nach Freigabe des vorläufigen C-Stands
+
+A-Bericht zuerst als `e5de1dd` committed und auf den eigenen Reviewbranch gepusht. Danach erlaubte der Orchestrator ausdrücklich die lokale Zusammenführung mit C `e540e979a2a91b613887913d9a3791d2b30b47b6` (Produktcode `db35673` und `f83e01f`). Prüfmerge im eigenen Reviewbaum: `f5570646b9d37a523dbbd01481d1e4e5b35e2b68`. Kein Merge oder Push nach `migration/rust-integration` oder `main`. A `34a2507` wurde als reine Berichtpflege angekündigt, nicht als behobener Produktstand.
+
+**Gesamturteil weiterhin BLOCK.** Die vier A-Befunde bleiben offen. C hat zusätzlich die unten beschriebene Abnahmelücke R-AC-C1. Der endgültige C-Delta wurde für diese Fortsetzung noch nicht übermittelt; daraus folgt keine finale gemeinsame Freigabe. Die nachfolgenden A-Abschnitte dokumentieren den vorherigen, unveränderten A-Prüfstand.
+
+### R-AC-C1: P1, sicherer Ersatzrunner erhält nicht den vollständigen Prozess-Abnahmevertrag
+
+**Stelle:** `scripts/run_isolated_serve_checks.sh:1-4`, Ersatzaufruf `scripts/test_brain_serve.sh:65-66`, Szenarien `rust/crates/brain-serve/tests/process_e2e.rs:397-424`, `:472-549` und `:806-835`. Fehlerklasse F10, Vertragsverlust beim Austausch des Prüfpfads.
+
+**Szenario:** Der neue sichere Runner kann grün werden, obwohl `brain-serve` bei inkompatiblem oder fehlendem Schema fälschlich startet oder selbst migriert. Der alte Runner prüfte dies ausdrücklich in `305df2d:scripts/run_isolated_serve_checks.sh:118-126`; er ist jetzt gesperrt. Im Ersatz-Prozesslauf wird die Datenbank vor jedem Service-Start korrekt migriert, es gibt keinen Start gegen Schema-Version 99 oder eine leere Datenbank und keine Prüfung auf unerlaubtes Anlegen des Schemas. Die Suche über die übrigen `brain-serve/tests` fand dafür ebenfalls keinen gleichwertigen Prozessersatz. Das Sperren des unsicheren Altrunners ist richtig, ersetzt aber die geforderten erhaltenen Abnahmefälle nicht.
+
+Auch neue verlangte Prozessnachweise fehlen: kein englischer Alias-Aufruf `Guardian`, keine wirklich unbekannte Entity und kein Konfliktfall mit Retrieval-Limit 1. `Haze max health` verwendet eine vorhandene, nur anders berechtigte Entity und ist deshalb kein Ersatz für eine unbekannte Entity. Der Rückrichtungs-ACL-Test in Zeilen 542-548 akzeptiert jedes `ClientError` über `.is_err()`, also auch HTTP 503 oder einen Transportfehler, statt die Rechteablehnung präzise nachzuweisen. Nach dem DB-Ausfall wird zunächst nur Readiness geprüft und der Prozess beendet, nicht eine fachlich erfolgreiche Antwort desselben wiederhergestellten Prozesses.
+
+**Beleg und Zwillingssuche:** Alter Wrapper gegen den gesamten neuen `process_e2e.rs` und die übrigen Serve-Tests abgeglichen. Die vorhandene Bibliotheksregression `dbrain-retrieval/tests/chunked_retrieval.rs:176-200` prüft Alias-Konflikt bei Limit 1 korrekt; sie ist kein echter Prozessnachweis. Die fachliche Umsetzung wird daher nicht als fehlend behauptet, sondern die ausdrücklich geforderte Ende-zu-Ende-Abdeckung. Der tatsächlich grüne eigene Lauf unten zeigt, dass diese Lücke auch bei erfolgreichem Runner bestehen bleibt.
+
+**Minimaler Fix:** Die fehlenden ursprünglichen Start-/Nichtmigrationsprüfungen und die genannten Pflichtfälle im geschützten Wegwerf-Cluster ergänzen. Rückrichtungs-ACL auf die vorgesehene Berechtigungsantwort prüfen; nach DB-Recovery vor Neustart eine normale Anfrage erfolgreich beantworten lassen. Bestehende Bibliotheksfälle wiederverwenden, weder Budgets erhöhen noch unsichere historische Wrapper wieder freischalten.
+
+### Eigene vorläufige A+C-Prozess- und Lastmessung
+
+`./scripts/test_brain_serve.sh > .tasks/2026-09-29-technical-closeout/REVIEW-AC-provisional-serve.log 2>&1` auf Prüfmerge `f5570646b9d37a523dbbd01481d1e4e5b35e2b68`: **Exit 0**, drei explizit aktivierte Tests bestanden, null fehlgeschlagen, null ignoriert. Zwei Legacy-Tests prüfen echten CLI-Import beziehungsweise Store/Release/Tombstone/Revoke; der dritte startet den echten Serve-Prozess mit synthetischem Loopback-Provider und echtem Wegwerf-PostgreSQL.
+
+| Worker | Requests | answered | Clientfehler | Laufzeit | Beobachtete Reader-Verbindungen |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 8 | 600 | 600 | 0 | 2694 ms | 4 |
+| 16 | 600 | 600 | 0 | 4653 ms | 4 |
+| 32 | 600 | 600 | 0 | 2466 ms | 4 |
+
+Poolbericht: Maximum 4, Peak 4, 5 insgesamt erzeugte Verbindungen einschließlich Ausfall/Recovery, 9106 Wiederverwendungen, 3165 Warteereignisse. Genau eine absichtlich ausgelöste Pool-Wartezeitüberschreitung im separaten Sättigungstest, `wait_max_micros=150876`; keine falsche `unauthorized_evidence` und kein HTTP-/Clientfehler in den drei Laststufen. Pool-Wartebudget blieb 150 ms, Serverlimit blieb 12. Der Runner prüfte das PostgreSQL-Log auf Verbindungsüberlauf und räumte seinen eigenen Cluster auf.
+
+Dies ersetzt weder den vom Autor gemeldeten roten C-Lauf noch die vorgeschriebene Schlussmessung nach endgültiger Integration. Es ist eine unabhängige positive Vorabmessung genau des genannten Prüfmerges. Der Prozessharness konfiguriert die neue Analytics-Route nicht und führt keinen Match-API-Ingest aus; sein Erfolg widerlegt A1 oder A3 deshalb nicht. Hostlast wird nicht als Ausnahme vom Abnahmekriterium verwendet. Shellcheck der neun geänderten Runner: Exit 0. Die vier gesperrten historischen Wrapper zusätzlich in bereinigter Umgebung ausgeführt: jeweils Exit 2 mit Sperrhinweis, ohne Produktionszugriff.
+
+Die auf demselben Prüfmerge anschließend ausgeführten Wrapper `./scripts/test_brain_core_postgres.sh` und `./scripts/test_brain_storage_upgrade.sh` bestanden jeweils ihren expliziten PostgreSQL-Test: je Exit 0, 1 passed, 0 failed, 0 ignored. Upgrade-Evidenz umfasst v1 nach v2, DDL-freien Servicezugriff, Checkpoint-Replay, konkurrierendes Upgrade/Fencing, tatsächliches pg_dump/pg_restore sowie atomare Ablehnung beschädigter oder zukünftiger Schemas. Das ersetzt nicht die in R-AC-C1 fehlenden separaten Startprüfungen des Serve-Prozesses.
+
+`./scripts/test_wiki_runtime.sh` ebenfalls Exit 0: 294 passed, 0 failed, 9 zunächst ignored in den summierten Cargo-Ergebnisgruppen, darunter der anschließend explizit bestandene Scratch-Test. Zusätzlich liefen die tatsächlichen CLI-Unterbefehle `brain-wiki-pilot plan` und `stage` erfolgreich mit lokalen Fixture-Artefakten. Kein Wiki-Netzabruf. Zusammen ergeben die vier eigenen A+C-Wrapper 299 bestandene unterschiedliche Tests; drei der neun zunächst ignorierten Fälle wurden in den expliziten Store-, Upgrade- und Wiki-Läufen ausgeführt, sechs blieben nicht ausgeführt.
+
+TESTNACHWEIS[TW-1]: 299 passed, 6 ignored | Baseline: nicht erhoben, kein Altfehlerurteil
+
+Wörtliche Folge nach dem Serve-Runner:
+
+```sh
+./scripts/test_brain_core_postgres.sh > .tasks/2026-09-29-technical-closeout/REVIEW-AC-core.log 2>&1 && ./scripts/test_brain_storage_upgrade.sh > .tasks/2026-09-29-technical-closeout/REVIEW-AC-upgrade.log 2>&1 && ./scripts/test_wiki_runtime.sh > .tasks/2026-09-29-technical-closeout/REVIEW-AC-wiki.log 2>&1
+```
+
+Gesamtexit 0. Rohlogs bleiben lokale Reviewbelege. Die Wrapper stoppten und entfernten ihre eigenen erfolgreichen Wegwerf-Cluster; die separat angelegte A-Scratchinstanz bleibt gestoppt erhalten.
+
+Protokoll bis einschließlich Prüfmerge:
+
+MERGEPROTOKOLL[MS-1]: 4 Git-Schritte einzeln | Anläufe: 1 | Gate: kein main-Merge beantragt; A-Bericht add/commit/push, danach ausdrücklich erlaubter lokaler C-Prüfmerge
+
+WIRKUNGSPRUEFUNG[WP-1]: 5 Befunde | Zwillingssuche: grep-belegt | Fremddienst-Pfade: 3/3 geprüft
+
+
+## Urteil der A-Einzelprüfung vor der C-Fortsetzung
 
 **Fertig: N. Fix nötig: J. A: BLOCK. Gemeinsame Freigabe A/C: nicht erteilt.**
 
-A wurde unabhängig auf `799c68b266555951248c408466f3834ff06eef37` gegen `305df2d36ec7b5d0513d6c0769051b41538d6a1b` geprüft. Letzter Produktcodecommit: `84888918f529f8502e2731d8b09b16d0ee7dbe5b`. C hat in diesem Auftrag noch keinen freigegebenen Prüf-SHA; C und die integrierte Schlussmessung sind nicht geprüft. Dieser Zwischenbericht beendet die A-Runde, ohne C zu pollen.
+A wurde unabhängig auf `799c68b266555951248c408466f3834ff06eef37` gegen `305df2d36ec7b5d0513d6c0769051b41538d6a1b` geprüft. Letzter Produktcodecommit: `84888918f529f8502e2731d8b09b16d0ee7dbe5b`. Zum Abschluss der A-Einzelprüfung lag noch kein freigegebener C-Prüf-SHA vor. Der A-Zwischenbericht wurde deshalb ohne C-Prüfung und ohne gemeinsame Freigabe zuerst abgegeben. Die inzwischen erlaubte vorläufige C-Wechselwirkungsprüfung steht am Anfang dieses Dokuments.
 
 - `MATCH_RUNTIME_PATH_READY=NEIN`: Die erzeugte API-Anfrage fordert die anschließend zwingend benötigten Spielerfelder nicht an.
 - `META_RUNTIME_PATH_READY=NEIN`, `POPULATION_RUNTIME_PATH_READY=NEIN`: Beobachtungsroute vorhanden, aber keine nachgewiesene Anbindung an den fachlichen Brain-Antwortpfad und keine verifizierte Patch-Zuordnung.
@@ -16,9 +69,9 @@ A wurde unabhängig auf `799c68b266555951248c408466f3834ff06eef37` gegen `305df2
 
 Die Befunde R-AC-A1 bis A4 sind technische beziehungsweise auftragsrelevante Lücken. Keine davon wird zu einer ausstehenden Betreiberfreigabe umbenannt. Die tatsächlichen Freigabegrenzen für Wiki, Provider, Replay und G5 bleiben davon getrennt.
 
-WIRKUNGSPRUEFUNG[WP-1]: 4 Befunde | Zwillingssuche: grep-belegt | Fremddienst-Pfade: 3/3 geprüft
+A-Einzelprüfung: 4 Befunde, Zwillingssuche grep-belegt, 3/3 Fremddienst-Pfade geprüft.
 
-TEXTNACHWEIS[DR-1]: Gedankenstriche 0 | ae/oe/ue/ss-Ersatz 0 | Absolutwörter 18 belegt | Senke: interner Reviewbericht im Taskordner
+TEXTNACHWEIS[DR-1]: Gedankenstriche 0 | ae/oe/ue/ss-Ersatz 0 | Absolutwörter 20 belegt | Senke: interner Reviewbericht im Taskordner
 
 ## Prüfstand und Vorgehen
 
