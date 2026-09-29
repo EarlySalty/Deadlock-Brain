@@ -16,7 +16,7 @@ started=0
 cleanup() {
   local status=$?
   trap - EXIT
-  if [[ "$started" == 1 ]]; then
+  if [[ "$started" == 1 && -f "$WORK/pg/postmaster.pid" ]]; then
     if ! "${PG_ENV[@]}" "$PG_BIN/pg_ctl" -D "$WORK/pg" -m fast -w stop >/dev/null; then
       printf 'Scratch PostgreSQL could not be stopped: %s\n' "$WORK" >&2
       exit 1
@@ -42,9 +42,9 @@ if [[ ! "$OS_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
 fi
 printf 'brain_scratch %s brain_wiki_c5\n' "$OS_USER" > "$WORK/pg/pg_ident.conf"
 printf 'local all all peer map=brain_scratch\nhost all all all reject\n' > "$WORK/pg/pg_hba.conf"
+started=1
 "${PG_ENV[@]}" "$PG_BIN/pg_ctl" -D "$WORK/pg" -l "$WORK/server.log" \
   -o "-c listen_addresses='' -k $WORK -p 55441 -c max_connections=12 -c shared_buffers=16MB" -w start
-started=1
 "${PG_ENV[@]}" "$PG_BIN/createdb" -h "$WORK" -p 55441 -U brain_wiki_c5 brain_wiki_c5
 # Isolate HOME and all application credentials. Preserve only explicit tool/cache
 # locations, not any service configuration. No Infisical invocation is needed.

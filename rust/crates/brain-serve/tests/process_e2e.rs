@@ -599,6 +599,13 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
         })
         .await
         .unwrap();
+        if result.statuses.get("answered") != Some(&result.requests) {
+            service.stop();
+            panic!(
+                "load failed: {result:?}; pool: {}",
+                pool_stats(&service.log())
+            );
+        }
         assert_load(&result);
         let observed_connections = reader_connection_count(&pool).await;
         assert!(

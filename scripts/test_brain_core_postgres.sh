@@ -15,7 +15,7 @@ STARTED=0
 cleanup() {
   local status=$?
   trap - EXIT
-  if (( STARTED == 1 )); then
+  if (( STARTED == 1 )) && [[ -f "$CLUSTER/postmaster.pid" ]]; then
     if ! "${PG_ENV[@]}" "$PG_BIN/pg_ctl" -D "$CLUSTER" -m fast -w stop >/dev/null; then
       printf 'Scratch PostgreSQL could not be stopped: %s\n' "$SCRATCH" >&2
       exit 1
@@ -39,9 +39,9 @@ if [[ ! "$OS_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
 fi
 printf 'brain_scratch %s brain_core_test\n' "$OS_USER" > "$CLUSTER/pg_ident.conf"
 printf 'local all all peer map=brain_scratch\nhost all all all reject\n' > "$CLUSTER/pg_hba.conf"
+STARTED=1
 "${PG_ENV[@]}" "$PG_BIN/pg_ctl" -D "$CLUSTER" -l "$SCRATCH/postgres.log" \
   -o "-c listen_addresses='' -k $CLUSTER -p 55439 -c max_connections=12 -c shared_buffers=16MB" -w start
-STARTED=1
 cd "$ROOT/rust"
 env -i "PATH=$PATH" "HOME=$SCRATCH" "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" \
   "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" "CARGO_TARGET_DIR=$ROOT/rust/target" \
