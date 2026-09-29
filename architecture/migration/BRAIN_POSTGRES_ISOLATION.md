@@ -1,21 +1,23 @@
 # Eigene PostgreSQL-Instanz für Deadlock Brain
 
-Stand: 29.09.2026. Dieses Dokument bewahrt Nachweise der isolierten Staging-Instanz und früherer Prüfstände. Es ist keine aktuelle Abschlussabnahme des integrierten Codeheads `022f8a981c2164f6d8d4302bae2194e100c4f65c`. Der vollständige Workspace-, Release-, PostgreSQL- und Lastlauf dieses Heads wartet auf `FINAL-VERIFICATION.md`.
-Alle Hostmessungen stammen vom Host `v50671`. Secretwerte stehen nirgends in diesem Dokument.
+Stand: 29.09.2026. Die Angaben zur dedizierten Staging-Instanz und zu früheren Prüfständen bleiben an ihren jeweiligen Messzeitpunkt gebunden. Die finale Verifikation auf `022f8a981c2164f6d8d4302bae2194e100c4f65c` lief separat mit isolierten Wegwerf-Clustern und belegt keine Produktionsfreigabe.
+Alle Hostmessungen zur dedizierten Instanz stammen vom Host `v50671`. Secretwerte stehen nirgends in diesem Dokument.
 
-## Ergebnis und Geltungsbereich
+## Abschlussnachweis und Geltungsbereich
 
 | Marker | Wert |
 |---|---|
-| BRAIN_DB_ISOLATED | JA, Infrastrukturprüfung vom 26.09.2026 |
+| BRAIN_DB_ISOLATED | JA, Infrastrukturprüfung der dedizierten Instanz vom 26.09.2026 |
 | BRAIN_DATA_MIGRATION_VERIFIED | JA, Snapshot vom 26.09.2026: Archivkopie `brain_legacy`, 49 Tabellen, 653 476 Zeilen, Zeilenzahl und md5 je Tabelle gleich |
-| DB_POOLING_VERIFIED | Historisch JA, früherer Codehead `ed06e13`; kein erneuter Abschlussnachweis auf `022f8a9` |
-| 600_REQUEST_TEST_PASSED | Historisch JA, frühere Codeheads; nicht als Test auf `022f8a9` verwenden |
-| FINAL_022F8A9_VERIFICATION | AUSSTEHEND, tatsächlicher Bericht fehlt |
+| DB_POOLING_VERIFIED | JA, Prozess-E2E auf `022f8a9`; beobachtetes Poolmaximum 4 |
+| 600_REQUEST_TEST_PASSED | JA, `022f8a9`: 600/600 Antworten bei 8, 16 und 32 Workern, Poolmaximum 4 |
+| FINAL_022F8A9_WORKSPACE_GATES | JA, Format, Clippy, Tests und Release-Build jeweils Exit 0 |
+| FINAL_022F8A9_WORKSPACE_TESTS | 1.011 passed, 0 failed, 75 ignored, 0 filtered |
+| FINAL_022F8A9_TARGETED_IGNORED_TESTS | 8 bestanden, separat geprüft und nicht zur Workspace-Summe addiert |
 | PRODUCTION_DB_CUTOVER_READY | NEIN |
 | PRODUCTION_CUTOVER_READY | NEIN |
 
-Die folgenden Pool-, Last-, Restore-, Serve- und E2E-Angaben beschreiben ihre jeweils genannten historischen Prüfstände. Frühere Werte 18/18 und 600 Requests sind keine finale Abnahme von `022f8a9`.
+Die folgenden Konfigurations-, Rollen-, Backup- und Restore-Details beschreiben den dokumentierten Staging-Stand. Die finale Verifikation nutzte temporäre PostgreSQL-16.15-Cluster und prüfte keine Produktionsdatenbank. Historische Werte 18/18 und ältere 600-Request-Messungen sind nicht die aktuellen Werte für `022f8a9`.
 
 ## Instanz
 

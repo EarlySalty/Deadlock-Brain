@@ -1,28 +1,28 @@
-status: aktiv
+status: erledigt
 Datum: 29.09.2026
 
 # F2: Abschlussdokumentation
 
-## Prüfstand
+## Finale Verifikation
 
-Dokumentationsbasis ist der integrierte Codehead `022f8a981c2164f6d8d4302bae2194e100c4f65c`. PR #59 wurde regulär nach `migration/rust-integration` integriert. Die unabhängige R5-Abnahme A+C mit GO und das lokale Gesamtgate mit ALLOW gelten für `72db816056fb0ed53810ab77ea4417dc0812e7ca`.
+Codehead: `022f8a981c2164f6d8d4302bae2194e100c4f65c`, regulär über PR #59 nach `migration/rust-integration` integriert. Laut Koordinationsbericht `FINAL-VERIFICATION.md` bestanden Format, Clippy mit `-D warnings`, Workspace-Tests und Release-Build jeweils mit Exit 0. Die Workspace-Suite meldete 1.011 passed, 0 failed, 75 ignored und 0 filtered. Acht gezielt aktivierte ignorierte Tests bestanden separat und sind nicht zur Workspace-Summe addiert.
 
-Der vollständige Workspace-, Release-, PostgreSQL- und Lastlauf auf `022f8a9` ist noch nicht durch `FINAL-VERIFICATION.md` belegt. Daher enthält dieser Zwischenstand keine finalen Testmarker oder Pass-Zahlen für diesen Codehead. Abschluss und finale Verifikation bleiben offen.
+Der Prozess-E2E beantwortete bei 8, 16 und 32 Workern jeweils 600 von 600 Anfragen. Beobachtetes Poolmaximum: 4. Die acht separaten Fälle und die Lastwerte stammen aus `FINAL-VERIFICATION.md` samt `final-logs/`; sie wurden in diesem Dokumentationsauftrag nicht erneut ausgeführt.
 
-## Dokumentierte Änderungen
+## F2-Nachprüfung
 
-- `architecture/migration/PRE_G5_TECHNICAL_REVIEW.md`: aktueller Integrationshead, R5-Geltungsbereich, CI-Pin-Fetchfehler auf `022f8a9`, Produktgrenzen und ausstehende Gesamtverifikation ergänzt; alte Gates, Blocker und Marker datiert, alter Integrationshead als historisch gekennzeichnet und ein einzelner aktueller Markerblock ans Dokumentende gesetzt.
-- `architecture/migration/STATUS.md`: Stand 29.09., aktueller Produkt- und Gate-Status, externe Freigabegrenzen und historische Kennzeichnung früherer Testwerte.
-- `architecture/migration/GATES.csv`: aktuelle R5-Abnahme von historischer Evidenz getrennt; G4-Abschlusslauf für `022f8a9` als ausstehend eingetragen.
-- `architecture/migration/PFAD_OWNER.csv`: `base_commit` auf den integrierten Codehead gesetzt.
-- `architecture/migration/BRAIN_DB_MIGRATION_REPORT.md`: Snapshot vom 26.09. als stichtagsbezogenen Datenbeleg eingeordnet, nicht als aktuelle Code- oder Cutoverabnahme.
-- `architecture/migration/BRAIN_POSTGRES_ISOLATION.md`: historische Pool-, Last- und Infrastrukturwerte von der ausstehenden Verifikation auf `022f8a9` abgegrenzt.
-- `architecture/migration/FINAL_LOCAL_INTEGRATION_REVIEW.md`: Prüfung auf `ed06e13` und die zugehörigen Testwerte als historischen Stand gekennzeichnet.
+1. `PRE_G5_TECHNICAL_REVIEW.md` kennzeichnet frühere Gate-, Blocker- und Markerabschnitte als historisch. `ee4889e` ist als historischer Codehead benannt. Am Dokumentende steht ein einzelner aktueller Markerblock für `022f8a9` mit Test-, Last- und Betriebsgrenzen.
+2. `PFAD_OWNER.csv` bildet Providerstatus und Betriebsgrenze ab. Brain-Adapter sind integriert. Patchnotes bleibt Python-Legacy, ohne behaupteten Rust-Provider. Steam-Build-Publish-Provider und Diagnosefix sind integriert und separat offline geprüft, nicht ausgerollt und nicht publiziert.
+3. `STATUS.md`, `GATES.csv` und `PFAD_OWNER.csv` trennen implementierte Providerpfade von Produktionsaktivierung und Legacy-Writer-Abschaltung.
+4. Twitch #984 war vor F2 gemergt und erhielt hier eine Regressionprüfung. Bots #459, Docs #4 und 2nd-Brain #2 bleiben ungemergt.
+5. Die aktuelle GitHub-CI ist getrennt von der lokalen Verifikation ausgewiesen. Core-, Wiki-, Source- und Replay-Jobs scheiterten beim Fetch der exakten `haste_core`-Revision `bfb292d4798031350861ad297aa26753267a1ea6`, nicht wegen Billing. Consumer Offline Gate und GitGuardian meldeten FAILURE; Semantic Review wurde übersprungen. GitHub Actions sind kein Merge-Gate. Quelle: `FINAL-CI.md`.
 
-Produktcode wurde nicht geändert. In diesem Dokumentationszwischenstand wurden keine Builds oder Tests ausgeführt. Die finale Aktualisierung benötigt den tatsächlichen `FINAL-VERIFICATION.md`-Bericht mit Head, Befehlen, Passed/Ignored-Werten und Lastwerten.
+## Geänderte Dokumente und Freigabegrenzen
 
-## Externe und Produktgrenzen
+Aktualisiert wurden die sieben angeforderten Architekturdateien: `PRE_G5_TECHNICAL_REVIEW.md`, `STATUS.md`, `GATES.csv`, `PFAD_OWNER.csv`, `BRAIN_DB_MIGRATION_REPORT.md`, `BRAIN_POSTGRES_ISOLATION.md` und `FINAL_LOCAL_INTEGRATION_REVIEW.md`.
 
-Frische GitHub-CI auf `022f8a9` ist nicht vollständig grün. Core-Matrix und integrierte Wiki-, Source- und Replay-Suiten scheiterten vor Teststart beim Fetch des exakten `haste_core`-Pins `bfb292d4798031350861ad297aa26753267a1ea6`. Das ist ein Pin-Fetchfehler, kein Billing-Fehler; fehlende Artefakte waren Folgefehler. Scratch-Pilot, Migration composition, Rust compile, Wiki contracts and offline regression sowie Integrated audit tooling liefen erfolgreich. Semantic Review wurde übersprungen; Consumer Offline Gate und GitGuardian meldeten FAILURE. GitHub Actions sind kein Merge-Gate. Einzelne frühere Consumer-CI-Läufe starteten wegen Billing nicht, ein anderer Sachverhalt. Die `dungers`-Lizenz ist unbelegt. Quelle: Koordinationsbericht `FINAL-CI.md`. Steam-Build-Publish-Provider PR #73 und Diagnosefix PR #82 sind integriert; kein Deployment, Neustart oder Publish. Wiki-Realpilot, Provider-Shadow und Production-Cutover bleiben nicht freigegeben. Replay bleibt Betreiberentscheidung.
+Produktcode wurde nicht geändert. In diesem Dokumentationsauftrag wurden keine Builds oder Tests ausgeführt. Kein Cutover, Deployment, Neustart oder produktiver Publish. Wiki-Realpilot, Provider-Shadow und Replay mit echtem Korpus bleiben ungeprüft und nicht freigegeben. G5 bleibt NEIN. Historische Snapshot-, Test- und Lastwerte sind an ihre damaligen Heads und Datenstände gebunden.
+
+Die unabhängige Schlussabnahme folgt separat.
 
 TEXTNACHWEIS[DR-1]: Gedankenstriche 0 | ae/oe/ue/ss-Ersatz 0 | Absolutwörter 0 belegt | Senke: .tasks/2026-09-29-technical-closeout/F2-REPORT.md

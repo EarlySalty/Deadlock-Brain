@@ -4,7 +4,7 @@ Stand des Daten-Snapshots: 26.09.2026. Die folgende Kopie ist ein stichtagsbezog
 
 ## Aktuelle Einordnung zum integrierten Codehead
 
-Der Migrationssnapshot belegt weiterhin nur den Bestand vom 26.09.2026. Der integrierte Brain-Code enthält inzwischen den privaten, accountgebundenen Matchpfad über API-Adapter, `SourceRecordV2`, normalen Store und Release. Assets-Core deckt V1-Startwerte ab, ohne Sheet-Fallback. Meta und Population sind typisierte Fakten; ihre Quellen belegen keine Patchzugehörigkeit. Das ändert weder den Snapshotbestand noch die offene Cutover-Grenze. Der vollständige Workspace-, Release-, PostgreSQL- und Lastlauf auf `022f8a9` wartet auf `FINAL-VERIFICATION.md`.
+Der Migrationssnapshot belegt weiterhin den Bestand vom 26.09.2026. Der integrierte Brain-Code enthält den privaten, accountgebundenen Matchpfad über API-Adapter, `SourceRecordV2`, normalen Store und Release. Assets-Core deckt V1-Startwerte ab, ohne Sheet-Fallback. Meta und Population sind typisierte Fakten; ihre Quellen belegen keine Patchzugehörigkeit. Die finale Verifikation des Codeheads `022f8a981c2164f6d8d4302bae2194e100c4f65c` ist abgeschlossen: vier Workspace-Gates bestanden, 1.011 passed, 75 ignored; Last 600/600 bei 8, 16 und 32 Workern, Poolmaximum 4. Diese Tests liefen gegen synthetische Fixtures und isolierte Wegwerf-PostgreSQL-Cluster. Sie aktualisieren den DL-Main-Snapshot nicht und erteilen keine Cutover-Freigabe.
 
 ## Quelle und Ziel
 

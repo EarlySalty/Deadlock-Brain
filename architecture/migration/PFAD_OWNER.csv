@@ -4,7 +4,7 @@ brain_contracts,rust/crates/brain-contracts/**;rust/crates/brain-policy/**;rust/
 brain_storage_and_schema,rust/crates/brain-storage/**;scripts/migrations/**,03,integrated_C11_schema_only_via_brain-migrate,022f8a981c2164f6d8d4302bae2194e100c4f65c,brain.store.v2 (core schema v2),active_integrated
 brain_postgres_instance,ops/brain-postgres/**;scripts/run_isolated_*.sh;scripts/sample_brain_pg.sh,03/11,staging_only_no_cutover,022f8a981c2164f6d8d4302bae2194e100c4f65c,brain.store.v2,active_staging
 ingestion_and_legacy_import,rust/crates/brain-ingestion/**;rust/crates/brain-legacy-import/**,03/04,pilot_databases_only_brain_pilot*,022f8a981c2164f6d8d4302bae2194e100c4f65c,brain.store.v2;brain_legacy.archive.v1,active_pilot
-feeds_and_provider_boundaries,rust/crates/brain-feeds/**,04/13,brain_side_contracts_fixture_transport_only,022f8a981c2164f6d8d4302bae2194e100c4f65c,brain.feed.patchnotes.v1;brain.build_publish.v1,active_provider_sides_missing
+feeds_and_provider_boundaries,rust/crates/brain-feeds/**,04/13,brain_adapters_integrated_patchnotes_provider_is_python_legacy_steam_build_publish_provider_offline_tested_no_production_activation,022f8a981c2164f6d8d4302bae2194e100c4f65c,brain.feed.patchnotes.v1;brain.build_publish.v1,implemented_offline_only_not_production_activated
 answer_kernel_and_api,rust/crates/brain-kernel/**;rust/crates/brain-api/**,08,integrated_C1,022f8a981c2164f6d8d4302bae2194e100c4f65c,brain.v1;brain.public.v1,active_integrated
 brain_serve,rust/crates/brain-serve/**,08,staging_only,022f8a981c2164f6d8d4302bae2194e100c4f65c,brain.public.v1,active_staging
 retrieval,rust/crates/dbrain-retrieval/**,06,integrated_C2_C3_and_pool_PR49,022f8a981c2164f6d8d4302bae2194e100c4f65c,brain.store.v2,active_integrated
@@ -13,7 +13,7 @@ domain_rules_builds,rust/crates/dbrain-builds/**;rust/crates/dbrain-reasoner/**;
 dbrain_wiki,rust/crates/dbrain-wiki/**;rust/crates/dbrain-sources/src/wiki*,12,adapter_into_normal_store_real_capture_blocked,022f8a981c2164f6d8d4302bae2194e100c4f65c,brain.ir.v1,blocked_operator_rights_decision
 external_sources,rust/crates/dbrain-sources/**,13,adapters_integrated_legacy_writers_still_DL-Main,022f8a981c2164f6d8d4302bae2194e100c4f65c,brain.ir.v1,active_integrated
 replay,rust/crates/dbrain-replay/**,14,decoder_offline_only,022f8a981c2164f6d8d4302bae2194e100c4f65c,brain.ir.v1,blocked_operator_replay_decision
-consumer,rust/crates/brain-client/**;rust/crates/deadlock-brain/**;Deadlock-Twitch-Bot#984;Deadlock-Bots#459;Deadlock-Docs#4;Deadlock-2nd-Brain#2,09,integrated_C9_consumer_PRs_open_not_activated,022f8a981c2164f6d8d4302bae2194e100c4f65c,brain.public.v1,active_prs_open
+consumer,rust/crates/brain-client/**;rust/crates/deadlock-brain/**;Deadlock-Twitch-Bot#984;Deadlock-Bots#459;Deadlock-Docs#4;Deadlock-2nd-Brain#2,09,integrated_C9;Twitch_984_merged_before_F2_regression_only;Bots_459_Docs_4_2nd_Brain_2_unmerged;none_activated,022f8a981c2164f6d8d4302bae2194e100c4f65c,brain.public.v1,mixed_merged_unmerged_not_production_activated
 legacy_runtime,rust/crates/deadlock-brain-core/**;rust/crates/deadlock-brain-yt/**;src/deadlock_brain/**,11,unchanged_until_G5,022f8a981c2164f6d8d4302bae2194e100c4f65c,,legacy_active_in_production
 quality_and_performance,architecture/migration/evals/**;architecture/migration/benchmarks/**,10,local_evidence_only,022f8a981c2164f6d8d4302bae2194e100c4f65c,,active
 runtime_and_cutover,ops/brain-postgres/**;architecture/migration/PRE_G5_TECHNICAL_REVIEW.md,11,no_cutover_before_G5_operator_approval,022f8a981c2164f6d8d4302bae2194e100c4f65c,,blocked_G5

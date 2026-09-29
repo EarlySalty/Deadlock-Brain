@@ -4,7 +4,7 @@ Historischer Stand: 26.09.2026. Integrator: lokale Integrationssession.
 
 ## Aktueller Geltungsbereich
 
-Der hier dokumentierte Integrations- und Testhead ist `ed06e13`, nicht der aktuelle Codehead `022f8a981c2164f6d8d4302bae2194e100c4f65c`. Der spätere R5-Review erhielt auf `72db816056fb0ed53810ab77ea4417dc0812e7ca` ein unabhängiges A+C-GO und das lokale Gesamtgate ein ALLOW. PR #59 wurde danach regulär zu `022f8a9` integriert. Das ist keine vollständige Workspace-, Release-, PostgreSQL- oder Lastabnahme von `022f8a9`; der tatsächliche Abschlussbericht steht aus.
+Der hier dokumentierte Integrations- und Testhead ist `ed06e13`, nicht der aktuelle Codehead `022f8a981c2164f6d8d4302bae2194e100c4f65c`. Der spätere R5-Review erhielt auf `72db816056fb0ed53810ab77ea4417dc0812e7ca` ein unabhängiges A+C-GO und das lokale Gesamtgate ein ALLOW. PR #59 wurde danach regulär zu `022f8a9` integriert. Die finale lokale Verifikation auf `022f8a9` bestand: vier Workspace-Gates Exit 0, 1.011 passed, 0 failed, 75 ignored, 0 filtered; acht zuvor ignorierte Tests separat bestanden; Prozess-E2E 600/600 bei 8, 16 und 32 Workern, Poolmaximum 4. Das ist keine G5- oder Produktionsfreigabe. Frische GitHub-CI blieb separat wegen des nicht abrufbaren exakten `haste_core`-Pins fehlgeschlagen, nicht wegen Billing. GitHub Actions sind kein Merge-Gate.
 
 Alle folgenden Abschnitte sind historische Evidenz ihres jeweiligen Prüfstands. Insbesondere 943 Workspace-Tests, 18/18 E2E und 600-Request-Messungen gelten nicht als aktuelle finale Abnahme.
 
