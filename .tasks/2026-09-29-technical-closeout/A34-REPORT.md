@@ -1,0 +1,39 @@
+status: erledigt
+Datum: 2026-09-29
+
+# A34: Analytics im normalen Brain-Pfad und eine Lookup-Deadline
+
+Branch: `integration/pre-g5-finalize-20260929`; PR: https://github.com/EarlySalty/Deadlock-Brain/pull/59 gegen `migration/rust-integration`. Basis dieses Fixpakets: `34a2507`. Implementierung: `2403274` und `38cacca`. Kein Merge, Deploy, Produktivaufruf, Consumer-Cutover oder echter Match-/Replay-Download. Unabhängige Nachprüfung durch den Orchestrator steht aus.
+
+## Wirkung und Aufrufer
+
+- `rust/crates/brain-serve/src/service.rs:228` setzt `AnalyticsRetriever` zwischen den vorhandenen `ReleaseRetriever` und `Kernel -> CachedKernel -> ApiService`. Normale typisierte `Fact`-Anfragen mit `analytics.hero_matches` oder `analytics.item_matches.<item_id>`, numerischer Held-ID, Locale `de`, ohne Patch/Modus und mit ausdrücklich angefordertem und gewährtem `analytics.internal` führen die begrenzten API-Lookups aus. Die reale Loopback-HTTP-Fixture in `rust/crates/brain-serve/src/analytics.rs:603` durchläuft `ApiService`, Cache und Kernel. Der Provider wird nicht aufgerufen. Unbekannte Analytics-Prädikate und patchbezogene Analytics-Anfragen erhalten keine Analytics-Evidenz.
+- `rust/crates/brain-serve/src/analytics.rs:234` fragt den aktuellen Release-Snapshot ab, teilt die vier vorhandenen Slots mit der Beobachtungsroute und benutzt eine Deadline für beide sequenziellen Meta-/Population-Lookups. Höchstens zwei HTTP-Versuche je Lookup und die vorhandenen Netzwerk-, Zeit- und Größenbudgets bleiben unverändert. Validierte Evidenz wird maximal 60 Sekunden und 128 Einträge gehalten; Query, Principal und Release werden auch beim Cache-Handoff erneut geprüft. `rust/crates/brain-kernel/src/execution.rs:136` gibt diese eine geprüfte, patchlose Faktenevidenz ohne Provider-Egress aus. Gewöhnliche Build-Anfragen behalten den bestehenden Guard und bekommen daraus keine unbewiesene Build-Empfehlung.
+- `rust/crates/brain-serve/src/analytics.rs:461` setzt eine absolute Tokio-Deadline vor Autorisierung und Slot-Warten. Nach dem Warten übergibt die Route die gleiche Deadline an den Worker und an `DeadlockAnalyticsClient::lookup_with_deadline`; der HTTP-Client erhält nur die Restzeit, begrenzt durch die bisherigen Einzel- und Gesamtlimits. Die Tests `fifth_lookup_expires_on_one_deadline_while_four_slots_are_occupied` und `delayed_fifth_lookup_keeps_original_deadline_after_slot_release` belegen Ablauf ohne Slot und bei verzögerter Freigabe eines der vier Slots. Diagnoseklassen enthalten keine Anfragen oder Fehlerstrings.
+
+## Daten- und Patchvertrag
+
+- Geprüfter Upstream-Stand: `deadlock-api/deadlock-api@290cedba6cca7d8a07015e9feefecd22de27643c`. `build-item-stats` zählt veröffentlichte Builds. Bei `item-stats` kann der Item-Array-Join mehrfach gekaufte Gegenstände mehrfach zählen. Deshalb nutzt die Population in `rust/crates/dbrain-sources/src/analytics_runtime.rs:31` dieselben `/v1/analytics/hero-stats` wie Meta, einmal ohne Itemfilter für den Nenner und einmal mit `include_item_ids=<item_id>` für den Zähler. Held, Bucket, Siege/Niederlagen/Matches und Nennervergleich werden geprüft. Die vorhandene `PopulationPrior`-Implementierung (`rust/crates/dbrain-reasoner/src/population_prior.rs:21`) liefert die beobachtete Item-Matchquote, auch 0 % bei einer expliziten Nullzeile. Fehlende oder widersprüchliche Zeilen liefern keine Quote.
+- Die Upstream-Funktion `round_timestamps` rundet das Minimum auf die vorherige volle Stunde ab und das Maximum auf die nächste volle Stunde auf, auch bei bereits glatter Grenze. Für das beantragte Fenster sendet der Adapter daher `ceil(min/3600)*3600` und `floor(max/3600)*3600-3600`, dokumentiert das tatsächlich wirksame Stundenfenster und verweigert ein dadurch leeres Fenster. `min_match_id=0` erzwingt die Basistabelle statt der tagesgranularen materialisierten Ansicht. Exakter Locator, Parameter, gepinnte OpenAPI-Antwortstruktur, Rohhash, beobachteter Zeitpunkt, Rohzeilenlimit 256 und 1 MiB bleiben geprüft. Der finale Gate-Hinweis zur Schema-Zuordnung ist durch den ausgeführten Population-Fixturetest mit gepinnter `analytics_population`-Abhängigkeit geprüft.
+- Keine Quelle attestiert Spielpatch-Mitgliedschaft. `patch_membership` bleibt `unverified`, Antworten nennen das Beobachtungsfenster und verneinen eine Patch-Zuordnung. Eine angefragte Patch-Bindung erhält `InsufficientEvidence`; weder `PopulationSlice` mit zwingendem Patchfeld noch die SQL-basierte `MetaIndexWithSources` werden aus Zeitfenstern als Matchbeobachtung gefüllt. Patchgebundene Build-Empfehlungen sind damit weiterhin nicht verfügbar, bis eine autoritative Zuordnung unabhängig geprüft wird.
+
+## Verifikation
+
+Alle Befehle liefen in `/home/nathanael/.worktrees/brain-pre-g5-finalize-20260929`; Cargo ist `/home/nathanael/.cargo/bin/cargo +stable`. Jeder erfolgreiche Eintrag endete mit Exit-Code 0. Ein erster Format-Check nach der Gate-Nachbesserung endete mit Exit 1 wegen Testformatierung; die Stellen wurden korrigiert und die vollständige Prüfung danach erneut erfolgreich ausgeführt.
+
+| Befehl | Exit | Ergebnis |
+| --- | ---: | --- |
+| `CARGO_BUILD_JOBS=2 cargo +stable check --manifest-path rust/Cargo.toml --workspace --all-targets --locked --offline` | 0 | Gesamter Workspace kompiliert; danach nur eine lokale Nullzeilen-Nachbesserung in `brain-serve`, die durch Test und Clippy ebenfalls kompiliert wurde |
+| `cargo +stable fmt --manifest-path rust/Cargo.toml --all -- --check` | 0 | Finaler Format-Check |
+| `CARGO_BUILD_JOBS=2 cargo +stable test --manifest-path rust/Cargo.toml -p brain-kernel -p brain-serve -p dbrain-sources --locked --offline` | 0 | Final: 174 passed, 0 failed, 12 ignored, 0 filtered; ignorierte PostgreSQL-/Pilot-/Live-Tests wurden nicht gestartet |
+| `CARGO_BUILD_JOBS=2 cargo +stable clippy --manifest-path rust/Cargo.toml -p brain-kernel -p brain-serve -p dbrain-sources --all-targets --locked --offline -- -D warnings` | 0 | Strenge Lints auf allen betroffenen Targets |
+| `git diff --check` | 0 | Keine Whitespace-Fehler |
+| `python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-pre-g5-finalize-20260929 --base 34a2507 --head 2403274 --timeout 900` | 0 | ALLOW; Hinweis auf Nullzeilen-Population wurde in `38cacca` behoben |
+| `python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-pre-g5-finalize-20260929 --base 34a2507 --head 38cacca --timeout 900` | 0 | ALLOW; nur Hinweis zur bereits durch Population-Fixture geprüften Schema-Zuordnung |
+
+TESTNACHWEIS[TW-1]: 174 passed, 12 ignored | Baseline: nicht erhoben
+BESTAND[BS-1]: teilweise | Fundort: rust/crates/brain-serve/src/analytics.rs:84 | Anknüpfung: vorhandene isolierte Route, ReleaseRetriever, Kernel und PopulationPrior in den normalen Antwortpfad eingebunden
+WIRKUNGSPRUEFUNG[WP-1]: 0 Befunde | Zwillingssuche: grep-belegt | Fremddienst-Pfade: 2/2 geprüft
+ORCHESTRIERUNG[OR-1]: Stufe groß | Schritt review | Artefakt: .tasks/2026-09-29-technical-closeout/A34-REPORT.md
+
+Geänderte Pfade: `rust/crates/brain-kernel/src/execution.rs`, `rust/crates/brain-serve/Cargo.toml`, `rust/crates/brain-serve/src/analytics.rs`, `rust/crates/brain-serve/src/service.rs`, `rust/crates/dbrain-sources/Cargo.toml`, `rust/crates/dbrain-sources/src/analytics_runtime.rs`, dieses Berichtsartefakt. A1/A2-Matchdateien, Storage und C-Harness bleiben unangetastet.
