@@ -1,9 +1,25 @@
 # Pre-G5 Technical Review: Deadlock Brain
 
-Stand: 26.09.2026. Rolle: lokaler finaler Integrator und Cutover-Vorbereiter.
+Stand: 29.09.2026. Autoritativer integrierter Codehead: `022f8a981c2164f6d8d4302bae2194e100c4f65c`, regulär über PR #59 nach `migration/rust-integration` gemergt.
+
+## Aktueller Abschlussstand
+
+R5-Codeabnahme A+C: GO; lokales Gesamtgate: ALLOW. Beide Befunde gelten für `72db816056fb0ed53810ab77ea4417dc0812e7ca`, nicht als finale Workspace-, Release-, PostgreSQL- oder Lastabnahme des integrierten Heads `022f8a9`. Der vollständige Lauf wartet auf den tatsächlichen Bericht `FINAL-VERIFICATION.md`. Bis dahin sind keine finalen Testmarker oder Pass-Zahlen für `022f8a9` gesetzt.
+
+- Matchdaten sind privat und accountgebunden. Der integrierte Pfad geht über den API-Adapter, `SourceRecordV2`, den normalen Store und Release. Identität, Hashprojektion und atomarer Revoke gehören zum Pfad. Code: `rust/crates/brain-feeds/src/bin/brain-match-ingest.rs:96-107,141-168,170-218` und `rust/crates/brain-feeds/src/deadlock_match.rs:30-80,403-495`.
+- Assets-Core deckt V1-Startwerte ab. Es gibt keinen Sheet-Fallback. Code: `rust/crates/brain-feeds/src/deadlock_assets.rs:19-26,41-62,64-92`.
+- Meta und Population werden als typisierte Fakten behandelt. Die Item-Matchquote stammt aus `hero-stats`; die Quelle attestiert keine Patchzugehörigkeit. Patchgebundene Anfragen bleiben fail-closed. Code: `rust/crates/dbrain-sources/src/analytics_runtime.rs:23-48,103-123,186-213` und `rust/crates/dbrain-retrieval/src/contract_port.rs:106-114`.
+- Gemeinsame Deadline und finaler Kernel-Guard sind im R5-Delta unabhängig geprüft. Der echte lokale Zweitsnapshot-Nachweis und die R5-Suiten gelten für `72db816`, nicht für den später integrierten Gesamtstand. Codebeleg: `rust/crates/brain-kernel/src/execution.rs:62,143-150`; unabhängiger R5-Prüfbericht im Koordinationsartefakt `REVIEW-AC-R5.md`.
+- Der Wiki-Pfad über normalen Store und Release ist offline geprüft. `WIKI_REAL_PILOT_PASSED=NEIN` mangels Quellen-, Lizenz- und Aufbewahrungsfreigabe.
+- `PROVIDER_SHADOW_PASSED=NEIN` mangels Anbieter-, Modell-, Egress- und Budgetfreigabe. Kein freigegebener `.dem`; Replay V1 oder später ist Betreiberentscheidung.
+- Kein Production-Cutover, G5 bleibt `NEIN`. Consumer sind nicht aktiviert. Steam-Publish wurde nicht ausgeführt.
+
+Die folgenden nummerierten Abschnitte dokumentieren frühere Prüfstände. Sie sind historische Evidenz, keine finale Abnahme von `022f8a9`. Dazu gehören insbesondere 943, 958 und 980 Workspace-Tests, 18/18 E2E sowie frühere 600-Request-Werte.
+
+Historischer Stand: 26.09.2026. Rolle: lokaler Integrator und Cutover-Vorbereiter.
 Kein Production-Cutover, kein Merge nach `main`, keine produktiven Consumer oder Bots aktiviert, keine öffentlichen Nachrichten, keine Policy oder Pflichtprüfung umgangen, keine fremden Worktrees verändert.
 
-## 1. Autoritativer Commit
+## 1. Historische Review-Commitbasis
 
 | | Wert |
 |---|---|
@@ -244,9 +260,9 @@ Damit ist keine pauschale Migration der sieben Tabellen gerechtfertigt. Kein She
 
 ### Match, Meta, Population und YouTube
 
-- Match — **A (Core-Ingest)**: konkrete Match-Metadaten und zitierbare Demo-Evidenz als `SourceRecordV2` aus der Deadlock API, mit Account-Scope für personenbezogene Werte. Eine interaktive Abfrage beliebiger aktueller Spieler-Matches ist ein eigener späterer Runtime-Pfad, kein Ersatz für den V1-Faktenimport. Brain erhält weder `DEADLOCK_CENTRAL_DSN` noch eine direkte ClickHouse-Verbindung.
-- Meta — **B (Runtime-Lookup)**: zeitabhängige Aggregation aus der vorhandenen Deadlock-API-Analytics, begrenzt nach Patch, Zeitfenster und Umfang und mit Provenienz. Eingefrorene, ausdrücklich als Release-Fakt benötigte Aggregate wären ein späterer separater Import.
-- Population — **B (Runtime-Lookup)**: aktuelle Raten und Aggregationen aus derselben Deadlock-API-Analytics, begrenzt und mit Provenienz; keine zweite ClickHouse-Instanz und kein neuer Brain-DB-Pfad.
+- Match (A, Core-Ingest): konkrete Match-Metadaten und zitierbare Demo-Evidenz als `SourceRecordV2` aus der Deadlock API, mit Account-Scope für personenbezogene Werte. Eine interaktive Abfrage beliebiger aktueller Spieler-Matches ist ein eigener späterer Runtime-Pfad, kein Ersatz für den V1-Faktenimport. Brain erhält weder `DEADLOCK_CENTRAL_DSN` noch eine direkte ClickHouse-Verbindung.
+- Meta (B, Runtime-Lookup): zeitabhängige Aggregation aus der vorhandenen Deadlock-API-Analytics, begrenzt nach Patch, Zeitfenster und Umfang und mit Provenienz. Eingefrorene, ausdrücklich als Release-Fakt benötigte Aggregate wären ein späterer separater Import.
+- Population (B, Runtime-Lookup): aktuelle Raten und Aggregationen aus derselben Deadlock-API-Analytics, begrenzt und mit Provenienz; keine zweite ClickHouse-Instanz und kein neuer Brain-DB-Pfad.
 - YouTube: Für V1 ist kein technisch zwingender Kern-Fakt belegt. Transkripte bleiben deferred, bis der Betreiber Scope, Lizenz und Aufbewahrung entscheidet. Es gibt keinen Legacy-Fallback.
 
 Diese Pfadentscheidungen sind technisch dokumentiert, aber noch nicht vollständig implementiert oder gegen die betreffenden API-Antworten geprüft. Deshalb bleibt `MATCH_META_PATH_READY` vorerst `NEIN`.
