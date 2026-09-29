@@ -315,7 +315,7 @@ Der finale Steam-Head `c12e9ab` ergänzt gegenüber dem zuvor geprüften `42df79
 
 ### Historische maßgebliche Bewertung nach PR #55, Stand ee4889e vom 29.09.2026
 
-Dieser Abschnitt bewahrt die damalige Bewertung und ihre Marker. Sie gelten für den Zwischenstand nach PR #55, Codehead `ee4889eae837ebe40ca06543e326824b915ace27`, und nicht für den heutigen integrierten Head `022f8a981c2164f6d8d4302bae2194e100c4f65c`. Die historischen `NEIN`-Werte zu `MATCH_META_PATH_READY` und Steam-Tests beschreiben den damaligen Scope. Der Match- und Analytics-Pfad ist im aktuellen Code implementiert; der Steam-Diagnosefix ist integriert, aber weder deployed noch veröffentlicht. Die finale Workspace-, Release-, PostgreSQL- und Lastverifikation auf `022f8a9` ist noch ausstehend.
+Dieser Abschnitt bewahrt die damalige Bewertung und ihre Marker. Sie gelten für den Zwischenstand nach PR #55, Codehead `ee4889eae837ebe40ca06543e326824b915ace27`, und nicht für den heutigen integrierten Head `022f8a981c2164f6d8d4302bae2194e100c4f65c`. Die historischen `NEIN`-Werte zu `MATCH_META_PATH_READY` und Steam-Tests beschreiben den damaligen Scope. Der Match- und Analytics-Pfad ist im aktuellen Code implementiert; der Steam-Diagnosefix ist integriert, aber weder deployed noch veröffentlicht. **Zum Zeitpunkt dieser damaligen Bewertung, vor Abschluss der finalen Verifikation, standen Workspace-, Release-, PostgreSQL- und Lastverifikation auf `022f8a9` noch aus. Sie sind inzwischen abgeschlossen; der Nachweis steht in `FINAL-VERIFICATION.md` und im aktuellen Markerblock.**
 
 HISTORICAL_INTEGRATION_COMMIT: ee4889eae837ebe40ca06543e326824b915ace27
 
