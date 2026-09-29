@@ -2,7 +2,7 @@
 
 Stand: 29.09.2026. Autoritativer integrierter Codehead: `022f8a981c2164f6d8d4302bae2194e100c4f65c` auf `migration/rust-integration`, integriert über PR #59.
 
-Die unabhängige R5-Codeabnahme A+C und das lokale Gesamtgate meldeten GO beziehungsweise ALLOW auf `72db816056fb0ed53810ab77ea4417dc0812e7ca`. Das ist keine vollständige Workspace-, Release-, PostgreSQL- oder Lastabnahme des integrierten Heads. Der tatsächliche Abschlusslauf auf `022f8a9` ist noch nicht durch `FINAL-VERIFICATION.md` belegt. Bis dieser Bericht vorliegt, bleiben die finalen Testmarker offen.
+Die unabhängige R5-Codeabnahme A+C und das lokale Gesamtgate meldeten GO beziehungsweise ALLOW auf `72db816056fb0ed53810ab77ea4417dc0812e7ca`. Die vollständige lokale Verifikation auf `022f8a981c2164f6d8d4302bae2194e100c4f65c` ist abgeschlossen: Format, Clippy, Workspace-Tests und Release-Build jeweils Exit 0; 1.011 passed, 0 failed, 75 ignored, 0 filtered. Acht zuvor ignorierte Tests wurden separat gezielt bestanden und sind nicht in den 1.011 enthalten. Im Prozess-E2E antworteten bei 8, 16 und 32 Workern jeweils 600/600 Anfragen; Poolmaximum 4. G5-Freigabe bleibt NEIN. Details: Koordinationsbericht `FINAL-VERIFICATION.md`.
 
 Kein Production-Cutover, keine produktiven Consumer aktiviert, kein Brain-Merge nach `main`. PR #40 bleibt Draft. Der neue Kern ist nicht produktiv aktiv; der Bestandspfad läuft weiter.
 
@@ -17,7 +17,7 @@ Kein Production-Cutover, keine produktiven Consumer aktiviert, kein Brain-Merge 
 | Wiki | Normaler Store- und Releasepfad offline geprüft. | `WIKI_REAL_PILOT_PASSED=NEIN`, da Quellen-, Lizenz- und Aufbewahrungsfreigabe fehlen. |
 | Provider | Kein freigegebener Provider-Shadow. | `PROVIDER_SHADOW_PASSED=NEIN`, da Anbieter-, Modell-, Egress- und Budgetfreigabe fehlen. |
 | Replay | Kein freigegebenes `.dem`; Decoder und Reportpfad bleiben offline. | Replay V1 oder später ist Betreiberentscheidung. |
-| Consumer | Lokale Brain-Consumer-Verträge sind integriert. Twitch #984 ist Regression, keine Aktivierung. Bots #459, Docs #4 und 2nd-Brain #2 sind nicht gemergt. | Kein produktiver Consumer aktiv. Private Consumer-CI startete teilweise wegen Billing nicht. |
+| Consumer | Lokale Brain-Consumer-Verträge sind integriert. Twitch #984 war vor F2 gemergt und wurde hier nur regressionsgeprüft. Bots #459, Docs #4 und 2nd-Brain #2 sind ungemergt. | Kein produktiver Consumer aktiv. Einzelne frühere Consumer-CI-Läufe starteten wegen Billing nicht. |
 | Patchnotes und Steam | Patchnotes-Provider bleibt der bestehende Python-Legacy-Dienst. Steam-Build-Publish-Provider PR #73 und Diagnosefix PR #82 (`f509f85e`) sind integriert. | Kein Deployment, Neustart oder echter Publish; kein Production-Cutover. |
 
 ## Gate-Status
@@ -25,14 +25,16 @@ Kein Production-Cutover, keine produktiven Consumer aktiviert, kein Brain-Merge 
 | Gate | Status | Begründung |
 |---|---|---|
 | G0 | teilweise belegt | Das Inventar und der DL-Main-Snapshot vom 26.09. bleiben stichtagsbezogene Nachweise. SLO, Lastprofil und externe Rechte sind nicht freigegeben. |
-| G1 | teilweise belegt | Verträge und Kernpfade sind im integrierten Code vorhanden. R5-GO gilt für das geprüfte Delta auf `72db816`; die Abschlussverifikation des gesamten Heads `022f8a9` steht aus. |
+| G1 | bestanden (lokal) | Verträge und Kernpfade sind im integrierten Code vorhanden. Abschlussverifikation auf `022f8a9`: alle vier Workspace-Gates Exit 0; Details in `PRE_G5_TECHNICAL_REVIEW.md`. |
 | G2 | teilweise | Offline-Prüfungen und ein lokaler Legacy-Release liegen vor. Wiki-Realpilot, Providerfreigabe und Replayentscheidung fehlen. |
-| G3 | teilweise | Match-, Assets- und Analytics-Pfade sind im Brain-Kern vorhanden. Consumer sind nicht aktiviert. Steam-Build-Publish-Provider ist integriert, aber nicht ausgerollt oder publiziert. Patchnotes bleibt der bestehende Python-Legacy-Dienst; Legacy-Writer bleiben bis G5 aktiv. |
-| G4 | ausstehend für `022f8a9` | Frühere Isolation-, Backup/Restore-, E2E- und Lastwerte sind historische Nachweise. Keine davon gilt als Abschlusslauf auf `022f8a9`. |
+| G3 | teilweise | Match-, Assets- und Analytics-Pfade sind im Brain-Kern vorhanden. Twitch #984 ist gemergt und nur regressionsgeprüft; Bots #459, Docs #4 und 2nd-Brain #2 sind ungemergt. Steam-Build-Publish-Provider ist offline geprüft und integriert, aber nicht ausgerollt oder publiziert. Patchnotes bleibt Python-Legacy; Legacy-Writer bleiben bis G5 aktiv. |
+| G4 | bestanden (lokal) | Verifikation auf `022f8a9`: vier Workspace-Gates Exit 0, 1.011 passed, 75 ignored; acht ignorierte Fälle separat bestanden. Last 600/600 bei 8/16/32 Workern, Poolmaximum 4. GitHub-CI ist separat nicht vollständig grün und kein Merge-Gate. |
 | G5 | NEIN | Kein Production-Cutover und keine Betreiberfreigabe. |
 | G6 | offen | Betriebskontrolle und Legacy-Ende wurden nicht gestartet. |
 
-## Historische Nachweise
+## Finale Verifikation und historische Nachweise
+
+Die finale Verifikation lief auf `022f8a981c2164f6d8d4302bae2194e100c4f65c`. Die vier Workspace-Gates waren erfolgreich: Format, Clippy mit `-D warnings`, Workspace-Tests und Release-Build, jeweils Exit 0. Ergebnis: 1.011 passed, 0 failed, 75 ignored, 0 filtered. Acht gezielt aktivierte ignorierte Fälle bestanden separat und sind nicht zu den 1.011 addiert. Im Prozess-E2E wurden bei 8, 16 und 32 Workern jeweils 600/600 Antworten erzielt, bei beobachtetem Poolmaximum 4.
 
 Die Werte 943, 958 und 980 Workspace-Tests, 18/18 E2E sowie frühere 600-Request-Läufe gehören zu früheren Codeheads. Sie sind keine finale Abnahme von `022f8a9`. Einzelne historische Prüfungen bleiben als damalige Evidenz in [PRE_G5_TECHNICAL_REVIEW.md](PRE_G5_TECHNICAL_REVIEW.md), [FINAL_LOCAL_INTEGRATION_REVIEW.md](FINAL_LOCAL_INTEGRATION_REVIEW.md) und [BRAIN_POSTGRES_ISOLATION.md](BRAIN_POSTGRES_ISOLATION.md) dokumentiert.
 
