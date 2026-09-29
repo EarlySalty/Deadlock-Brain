@@ -6,13 +6,15 @@ Stand: 29.09.2026. Autoritativer integrierter Codehead: `022f8a981c2164f6d8d4302
 
 R5-Codeabnahme A+C: GO; lokales Gesamtgate: ALLOW. Beide Befunde gelten für `72db816056fb0ed53810ab77ea4417dc0812e7ca`, nicht als finale Workspace-, Release-, PostgreSQL- oder Lastabnahme des integrierten Heads `022f8a9`. Der vollständige Lauf wartet auf den tatsächlichen Bericht `FINAL-VERIFICATION.md`. Bis dahin sind keine finalen Testmarker oder Pass-Zahlen für `022f8a9` gesetzt.
 
+Die frische GitHub-CI auf `022f8a9` ist nicht vollständig grün. Im Lauf `36591388159` scheiterten Core-Matrix und integrierte Wiki-, Source- und Replay-Suiten bei der Abhängigkeitsbeschaffung. Die erneute Prüfung des Core-Jobs `109485085537` zeigt, dass die exakte `haste_core`-Revision `bfb292d4798031350861ad297aa26753267a1ea6` nicht gefunden wurde. Das ist ein Pin-Fetchfehler, kein Billing-Fehler; fehlende Artefakte waren Folgefehler vor Teststart. Weitere Checks waren erfolgreich, Semantic Review wurde übersprungen, Consumer Offline Gate und GitGuardian meldeten FAILURE. GitHub Actions bleiben laut Projektregel außerhalb des lokalen Merge-Gates. Details: Koordinationsbericht `FINAL-CI.md`.
+
 - Matchdaten sind privat und accountgebunden. Der integrierte Pfad geht über den API-Adapter, `SourceRecordV2`, den normalen Store und Release. Identität, Hashprojektion und atomarer Revoke gehören zum Pfad. Code: `rust/crates/brain-feeds/src/bin/brain-match-ingest.rs:96-107,141-168,170-218` und `rust/crates/brain-feeds/src/deadlock_match.rs:30-80,403-495`.
 - Assets-Core deckt V1-Startwerte ab. Es gibt keinen Sheet-Fallback. Code: `rust/crates/brain-feeds/src/deadlock_assets.rs:19-26,41-62,64-92`.
 - Meta und Population werden als typisierte Fakten behandelt. Die Item-Matchquote stammt aus `hero-stats`; die Quelle attestiert keine Patchzugehörigkeit. Patchgebundene Anfragen bleiben fail-closed. Code: `rust/crates/dbrain-sources/src/analytics_runtime.rs:23-48,103-123,186-213` und `rust/crates/dbrain-retrieval/src/contract_port.rs:106-114`.
 - Gemeinsame Deadline und finaler Kernel-Guard sind im R5-Delta unabhängig geprüft. Der echte lokale Zweitsnapshot-Nachweis und die R5-Suiten gelten für `72db816`, nicht für den später integrierten Gesamtstand. Codebeleg: `rust/crates/brain-kernel/src/execution.rs:62,143-150`; unabhängiger R5-Prüfbericht im Koordinationsartefakt `REVIEW-AC-R5.md`.
 - Der Wiki-Pfad über normalen Store und Release ist offline geprüft. `WIKI_REAL_PILOT_PASSED=NEIN` mangels Quellen-, Lizenz- und Aufbewahrungsfreigabe.
 - `PROVIDER_SHADOW_PASSED=NEIN` mangels Anbieter-, Modell-, Egress- und Budgetfreigabe. Kein freigegebener `.dem`; Replay V1 oder später ist Betreiberentscheidung.
-- Kein Production-Cutover, G5 bleibt `NEIN`. Consumer sind nicht aktiviert. Steam-Publish wurde nicht ausgeführt.
+- Kein Production-Cutover, G5 bleibt `NEIN`. Consumer sind nicht aktiviert. Der Steam-Build-Publish-Provider aus PR #73 und der Diagnosefix #82 (`f509f85e`) sind integriert; kein Deployment, Neustart oder Publish wurde ausgeführt.
 
 Die folgenden nummerierten Abschnitte dokumentieren frühere Prüfstände. Sie sind historische Evidenz, keine finale Abnahme von `022f8a9`. Dazu gehören insbesondere 943, 958 und 980 Workspace-Tests, 18/18 E2E sowie frühere 600-Request-Werte.
 
@@ -152,7 +154,7 @@ Kein Required Check wurde umgangen, kein Consumer lokal gemergt, Twitch hat nur 
 
 Keine Branches oder Worktrees gelöscht.
 
-## 11. Aktuelle Gates
+## 11. Historische Gates, Prüfstand 26.09.2026
 
 Regression auf diesem Stand (`scripts/run_isolated_load.sh`, Pool 4, Instanz 5446, `max_connections=40` unverändert, Bericht `~/.local/share/deadlock-brain/loadtest-20260926-pre-g5/`):
 
@@ -176,7 +178,7 @@ Die Latenzen liegen über denen des Laufs vom Vormittag (p99 27 / 111 / 174 ms).
 | G4 | bereit (lokal) | Last, Isolation, Pool und E2E auf diesem Stand erneut grün; Backup/Restore unverändert belegt |
 | G5 | nicht selbst freigegeben | Betreiberentscheidung |
 
-## 12. Konkrete G5-Blocker
+## 12. Historische G5-Blocker, Prüfstand 26.09.2026
 
 Technisch:
 
@@ -197,7 +199,7 @@ Betreiberentscheidungen und externe Blocker:
 12. Semantic-Review-Kontingent für Twitch #984 und Bots #459; GitHub-Abrechnung für 2nd-Brain #2.
 13. Deadlock-Bots: Auto-Merge-Automation auf `main` pausieren oder auf report-only umstellen, bevor #459 wieder aus Draft kommt (Aufgabe der Bots-Repo-Session laut PR-first-Entscheidung).
 
-## Marker
+## Historische Marker, Prüfstand 26.09.2026
 
 LEGACY_CORE_MIGRATION_READY: JA
 
@@ -309,11 +311,11 @@ Während dieses Reviews wurden Patchnotes-PR #49, Steam-PR #73 und Schema-PR #46
 
 Der finale Steam-Head `c12e9ab` ergänzt gegenüber dem zuvor geprüften `42df79c` ausschließlich die Ablehnung von `payload.hero_build_id` mit HTTP 422 vor dem Queue-Insert und den zugehörigen Test. Persistente Transaktion/Unique Constraint, Auth, Body-Grenze, Status und Zeitstempel blieben unverändert; der Squash-Merge-Baum entspricht dem PR-Head. Auf dem gemergten Stand bestanden Formatierung, Clippy und zwölf fokussierte HTTP-Tests. Der DB-abhängige Volltest ohne Environment-Konfiguration und der echte PostgreSQL-Race-/Restart-Test auf diesem **neuen** Head sind nicht erneut belegt. Der Schema-Merge enthält dieselbe Migration wie PR #461. Kein Build wurde von dieser Arbeit in Steam veröffentlicht.
 
-### Maßgebliche Bewertung dieser Fortsetzung
+### Historische maßgebliche Bewertung nach PR #55, Stand ee4889e vom 29.09.2026
 
-Die folgenden Marker gelten für den Integrationsstand nach PR #55 und ersetzen die gleichnamigen historischen Marker weiter oben. „Bereit“ meint hier nur den belegten technischen Pfad, keine G5- oder Produktionsfreigabe; `SHEET_CORE_PATH_READY` bezieht sich auf die fünf erforderlichen V1-`starting_stats`-Felder, nicht auf sämtliche abgeleiteten Sheet-Kennzahlen. Die Patchnotes-Security-Jobs wurden von GitHub wegen Billing gar nicht gestartet; die Steam-Vollsuite verlangt eine nach Workspace-Regel unzulässige Environment-Konfiguration. Match, Meta, Population und YouTube sind dokumentiert, aber ohne Betreiberentscheidung und vollständige Implementierung nicht G5-fertig. PR #40 bleibt Draft, der supersedete Cutover-Branch bleibt unberührt, und kein Consumer wurde aktiviert.
+Dieser Abschnitt bewahrt die damalige Bewertung und ihre Marker. Sie gelten für den Zwischenstand nach PR #55, Codehead `ee4889eae837ebe40ca06543e326824b915ace27`, und nicht für den heutigen integrierten Head `022f8a981c2164f6d8d4302bae2194e100c4f65c`. Die historischen `NEIN`-Werte zu `MATCH_META_PATH_READY` und Steam-Tests beschreiben den damaligen Scope. Der Match- und Analytics-Pfad ist im aktuellen Code implementiert; der Steam-Diagnosefix ist integriert, aber weder deployed noch veröffentlicht. Die finale Workspace-, Release-, PostgreSQL- und Lastverifikation auf `022f8a9` ist noch ausstehend.
 
-AUTHORITATIVE_INTEGRATION_COMMIT: ee4889eae837ebe40ca06543e326824b915ace27
+HISTORICAL_INTEGRATION_COMMIT: ee4889eae837ebe40ca06543e326824b915ace27
 
 DETACHED_44B5A59_PRESERVED: JA
 
@@ -342,3 +344,33 @@ G4_READY: NEIN
 
 TECHNICALLY_READY_FOR_G5_REVIEW: NEIN
 PRODUCTION_CUTOVER_READY: NEIN
+
+## Aktueller Markerblock am Dokumentende
+
+Geltungsstand: `migration/rust-integration` bei `022f8a981c2164f6d8d4302bae2194e100c4f65c`, Stand 29.09.2026. Der vollständige Workspace-, Release-, PostgreSQL- und Lastlauf ist noch offen. Dieser Block ist der einzige aktuelle Markerblock in diesem Dokument.
+
+AUTHORITATIVE_INTEGRATION_COMMIT: 022f8a981c2164f6d8d4302bae2194e100c4f65c
+R5_CODE_REVIEW: GO_ON_72db816
+LOCAL_MERGE_GATE: ALLOW_ON_72db816
+FINAL_WORKSPACE_RELEASE_POSTGRES_LOAD: PENDING_FINAL_VERIFICATION
+FRESH_GITHUB_CI_ON_022F8A9: FAILED_HASTE_CORE_PIN_FETCH
+GITHUB_CI_FULLY_GREEN: NEIN
+GITHUB_CI_SEMANTIC_REVIEW: SKIPPED
+GITHUB_CI_CONSUMER_OFFLINE_GATE: FAILURE
+GITGUARDIAN_STATUS: FAILURE_UNRESOLVED
+
+MATCH_INGEST_PATH: IMPLEMENTED_PRIVATE_ACCOUNT_BOUND
+MATCH_META_PATH: IMPLEMENTED_TYPED_FACTS_PATCH_MEMBERSHIP_UNVERIFIED
+ANALYTICS_META_POPULATION_PATH: IMPLEMENTED_TYPED_FACTS_PATCH_MEMBERSHIP_UNVERIFIED
+ANALYTICS_ITEM_MATCHQUOTE_SOURCE: HERO_STATS
+ASSETS_CORE_V1_STARTING_STATS: IMPLEMENTED_NO_SHEET_FALLBACK
+STEAM_BUILD_PUBLISH_PROVIDER_PR73_INTEGRATED: JA
+STEAM_DIAGNOSTIC_FIX_82_INTEGRATED: JA
+STEAM_DEPLOYMENT_RESTART_OR_PUBLISH: NEIN
+
+WIKI_REAL_PILOT_PASSED: NEIN
+PROVIDER_SHADOW_PASSED: NEIN
+REPLAY_V1_DECISION: BETREIBER_OFFEN_NO_APPROVED_DEM
+CONSUMERS_PRODUCTION_ACTIVE: NEIN
+PRODUCTION_CUTOVER_READY: NEIN
+G5_READY: NEIN
