@@ -1,9 +1,11 @@
 //! Opt-in real process + scratch PostgreSQL + loopback provider; never a production DSN.
 mod common;
+#[path = "../../brain-api/tests/support/domain_fixture.rs"]
+mod domain_fixture;
 use axum::{
     body::Bytes,
     extract::State,
-    http::{header, HeaderMap},
+    http::{header, HeaderMap, StatusCode},
     routing::post,
     Router,
 };
@@ -18,7 +20,7 @@ use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::{
-        atomic::{AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
         Arc,
     },
     time::{Duration, Instant},
@@ -27,6 +29,7 @@ use std::{
 #[derive(Clone)]
 struct Provider {
     calls: Arc<AtomicUsize>,
+    fail: Arc<AtomicBool>,
     delay_ms: Arc<AtomicU64>,
     started: Arc<tokio::sync::Notify>,
 }
@@ -35,7 +38,7 @@ async fn answer(
     State(state): State<Provider>,
     headers: HeaderMap,
     body: Bytes,
-) -> ([(header::HeaderName, &'static str); 1], String) {
+) -> (StatusCode, [(header::HeaderName, &'static str); 1], String) {
     assert_eq!(
         headers.get(header::AUTHORIZATION).unwrap(),
         &format!("Bearer {}", common::PROVIDER_TOKEN)
@@ -45,9 +48,17 @@ async fn answer(
         serde_json::from_str(request["messages"][1]["content"].as_str().unwrap()).unwrap();
     state.calls.fetch_add(1, Ordering::SeqCst);
     state.started.notify_one();
+    if state.fail.load(Ordering::SeqCst) {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            [(header::CONTENT_TYPE, "application/json")],
+            "{\"error\":\"fixture unavailable\"}".into(),
+        );
+    }
     tokio::time::sleep(Duration::from_millis(state.delay_ms.load(Ordering::SeqCst))).await;
     let grounded = json!({"text": "Abrams has a verified fixture.", "cited_evidence_ids": [input["evidence"][0]["id"]]}).to_string();
     (
+        StatusCode::OK,
         [(header::CONTENT_TYPE, "application/json")],
         json!({
             "model": request["model"], "choices": [{"message": {"content": grounded}}],
@@ -68,6 +79,14 @@ fn query(id: &str) -> Query {
         mode: None,
         domain: None,
     }
+}
+
+fn fact_query(id: &str, text: &str, scope: &str) -> Query {
+    let mut request = query(id);
+    request.text = text.into();
+    request.profile = AnswerProfile::Fact;
+    request.requested_scopes = BTreeSet::from([scope.into()]);
+    request
 }
 
 async fn ask(
@@ -91,6 +110,7 @@ struct LoadResult {
     requests: usize,
     workers: usize,
     statuses: BTreeMap<String, usize>,
+    errors: BTreeMap<String, usize>,
     client_errors: usize,
     elapsed: Duration,
 }
@@ -104,7 +124,7 @@ fn run_load(address: &str, workers: usize, requests: usize, label: &str) -> Load
             std::thread::spawn(move || {
                 let client = BrainClient::new(&address, API_TOKEN, Duration::from_secs(8)).unwrap();
                 let mut statuses = BTreeMap::new();
-                let mut errors = 0usize;
+                let mut errors = BTreeMap::new();
                 for index in (worker..requests).step_by(workers) {
                     let id = format!("{label}-{index}");
                     match client.answer(&query(&id)) {
@@ -116,7 +136,12 @@ fn run_load(address: &str, workers: usize, requests: usize, label: &str) -> Load
                                 .to_string();
                             *statuses.entry(status).or_insert(0usize) += 1;
                         }
-                        Err(_) => errors += 1,
+                        Err(brain_client::ClientError::HttpStatus { status, .. }) => {
+                            *errors
+                                .entry(format!("http_{}", status.as_u16()))
+                                .or_insert(0usize) += 1;
+                        }
+                        Err(_) => *errors.entry("client_error".to_string()).or_insert(0usize) += 1,
                     }
                 }
                 (statuses, errors)
@@ -124,10 +149,12 @@ fn run_load(address: &str, workers: usize, requests: usize, label: &str) -> Load
         })
         .collect();
     let mut statuses = BTreeMap::new();
-    let mut client_errors = 0usize;
+    let mut errors = BTreeMap::new();
     for handle in handles {
-        let (worker_statuses, errors) = handle.join().unwrap();
-        client_errors += errors;
+        let (worker_statuses, worker_errors) = handle.join().unwrap();
+        for (error, count) in worker_errors {
+            *errors.entry(error).or_insert(0usize) += count;
+        }
         for (status, count) in worker_statuses {
             *statuses.entry(status).or_insert(0usize) += count;
         }
@@ -136,7 +163,8 @@ fn run_load(address: &str, workers: usize, requests: usize, label: &str) -> Load
         requests,
         workers,
         statuses,
-        client_errors,
+        client_errors: errors.values().sum(),
+        errors,
         elapsed: started.elapsed(),
     }
 }
@@ -161,12 +189,10 @@ fn assert_load(result: &LoadResult) {
         0,
         "technical pool pressure must never be misclassified: {result:?}"
     );
-    assert!(
-        result
-            .statuses
-            .keys()
-            .all(|status| status == "answered" || status == "unavailable"),
-        "load produced an unexpected status: {result:?}"
+    assert_eq!(
+        result.statuses.get("answered").copied().unwrap_or(0),
+        result.requests,
+        "all load requests must be answered: {result:?}"
     );
     assert!(
         result.elapsed < Duration::from_secs(60),
@@ -205,7 +231,7 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
     let socket = std::env::var("BRAIN_CORE_TEST_PG_SOCKET").expect("scratch socket required");
     assert!(socket.ends_with("/.core-test-pg") && std::path::Path::new(&socket).is_absolute());
     // Fixed database name created only by the dedicated disposable cluster wrapper.
-    let options = PgConnectOptions::new()
+    let options = PgConnectOptions::new_without_pgpass()
         .host(&socket)
         .port(55439)
         .username("brain_core_test")
@@ -238,19 +264,95 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
         })
         .await
         .unwrap();
+    let facts = [
+        (
+            "fixture-game",
+            "asset/hero/25/starting_stats.max_health.value",
+            "Hero: Warden\nAliases: Guardian\nmax health: 770\n",
+            SourceVisibility::Public,
+            "game.public",
+            "Warden",
+            "max health",
+        ),
+        (
+            "fixture-game",
+            "asset/hero/25/starting_stats.stamina.value",
+            "Hero: Warden\nstamina: 3\n",
+            SourceVisibility::Public,
+            "game.public",
+            "Warden",
+            "stamina",
+        ),
+        (
+            "fixture-game",
+            "asset/hero/25/health",
+            "Hero: Warden\nhealth: 700\n",
+            SourceVisibility::Public,
+            "game.public",
+            "Warden",
+            "health",
+        ),
+        (
+            "fixture-internal",
+            "entity/hero/Haze",
+            "Hero: Haze\ninternal code: 98765\n",
+            SourceVisibility::Internal,
+            "brain.internal",
+            "Haze",
+            "internal code",
+        ),
+    ];
+    let mut source_revisions =
+        BTreeMap::from([("c1-fixture".into(), BTreeMap::from([("abrams".into(), 1)]))]);
+    for (source, id, content, visibility, scope, name, field) in facts {
+        let metadata = BTreeMap::from([
+            ("kind".into(), "fact".into()),
+            ("name".into(), name.into()),
+            ("field".into(), field.into()),
+            (
+                "aliases_de".into(),
+                if name == "Warden" { "Der Wächter" } else { "" }.into(),
+            ),
+        ]);
+        store
+            .apply(&SourceRecordV2 {
+                source_id: source.into(),
+                logical_id: id.into(),
+                revision: 1,
+                content_hash: format!("fixture-{id}"),
+                content: content.into(),
+                visibility,
+                allowed_scopes: BTreeSet::from([scope.into()]),
+                tombstone: false,
+                valid_from: None,
+                valid_to: None,
+                metadata,
+            })
+            .await
+            .unwrap();
+        source_revisions
+            .entry(source.into())
+            .or_insert_with(BTreeMap::new)
+            .insert(id.into(), 1);
+    }
+    for record in domain_fixture::records("pilot-r1", "c1-patch", 1, "500") {
+        store.apply(&record).await.unwrap();
+        source_revisions
+            .entry(record.source_id)
+            .or_insert_with(BTreeMap::new)
+            .insert(record.logical_id, record.revision);
+    }
     let release = CorpusRelease {
         release_id: "pilot-r1".into(),
         knowledge_version: "pilot-knowledge-v1".into(),
         patch: "c1-patch".into(),
         created_at_epoch: 1,
-        source_revisions: BTreeMap::from([(
-            "c1-fixture".into(),
-            BTreeMap::from([("abrams".into(), 1)]),
-        )]),
+        source_revisions,
     };
     store.publish_release(&release).await.unwrap();
     let provider = Provider {
         calls: Arc::new(AtomicUsize::new(0)),
+        fail: Arc::new(AtomicBool::new(false)),
         delay_ms: Arc::new(AtomicU64::new(0)),
         started: Arc::new(tokio::sync::Notify::new()),
     };
@@ -274,6 +376,7 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
     config["postgres"]["username"] = json!("brain_core_test");
     config["postgres"]["database"] = json!("brain_serve_test");
     config["postgres"]["max_connections"] = json!(4);
+    config["credentials"][0]["scopes"] = json!(["docs.public", "game.public"]);
     config["provider"]["base_url"] = json!(format!("http://{provider_address}"));
     config["kernel"]["cache_entries"] = json!(0);
     config["timeouts"]["postgres_connect_ms"] = json!(500);
@@ -283,8 +386,13 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
         "token_env": "BRAIN_SERVE_OTHER_TOKEN", "actor_id": "another-client", "channel": "pilot",
         "scopes": ["docs.public"], "provider_egress": ["public"]
     }));
+    config["credentials"].as_array_mut().unwrap().push(json!({
+        "token_env": "BRAIN_SERVE_INTERNAL_TOKEN", "actor_id": "internal-client", "channel": "pilot",
+        "scopes": ["brain.internal"], "provider_egress": ["public", "internal"]
+    }));
     let mut environment = common::credentials();
     environment.push(("BRAIN_SERVE_OTHER_TOKEN", OTHER_TOKEN));
+    environment.push(("BRAIN_SERVE_INTERNAL_TOKEN", "synthetic-internal-token"));
 
     // Unknown/mismatched releases and a occupied bind fail before announcing readiness.
     for (field, invalid, expected) in [
@@ -361,6 +469,127 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
     }
     assert_eq!(provider.calls.load(Ordering::SeqCst), count);
 
+    for (text, expected, needle) in [
+        ("Warden max health", AnswerStatus::Answered, "770"),
+        ("Der Wächter max health", AnswerStatus::Answered, "770"),
+        ("Warden max health 770", AnswerStatus::Answered, "770"),
+        ("Warden stamina 3", AnswerStatus::Answered, "stamina: 3"),
+        (
+            "Warden max health 700",
+            AnswerStatus::InsufficientEvidence,
+            "",
+        ),
+        (
+            "Warden max health 3",
+            AnswerStatus::InsufficientEvidence,
+            "",
+        ),
+        ("Haze max health", AnswerStatus::InsufficientEvidence, ""),
+        (
+            "Warden unknown field",
+            AnswerStatus::InsufficientEvidence,
+            "",
+        ),
+    ] {
+        let answer = ask(&address, API_TOKEN, fact_query(text, text, "game.public"))
+            .await
+            .unwrap();
+        assert_eq!(answer.status, expected, "{text}");
+        if expected == AnswerStatus::Answered {
+            assert!(answer.text.contains(needle), "{text}: {}", answer.text);
+            assert_eq!(answer.citations.len(), 1, "{text}");
+        } else {
+            assert!(answer.citations.is_empty(), "{text}");
+        }
+    }
+    let mut wrong_patch = fact_query("wrong-patch", "Warden max health", "game.public");
+    wrong_patch.patch = Some("different-patch".into());
+    assert_eq!(
+        ask(&address, API_TOKEN, wrong_patch).await.unwrap().status,
+        AnswerStatus::InsufficientEvidence
+    );
+    let mut wrong_mode = fact_query("wrong-mode", "Warden max health", "game.public");
+    wrong_mode.mode = Some("ranked".into());
+    assert_eq!(
+        ask(&address, API_TOKEN, wrong_mode).await.unwrap().status,
+        AnswerStatus::InsufficientEvidence
+    );
+    assert_eq!(
+        ask(
+            &address,
+            API_TOKEN,
+            fact_query("internal-leak", "Haze internal code", "game.public")
+        )
+        .await
+        .unwrap()
+        .status,
+        AnswerStatus::InsufficientEvidence
+    );
+    let internal = ask(
+        &address,
+        "synthetic-internal-token",
+        fact_query(
+            "internal-fact",
+            "Haze internal code 98765",
+            "brain.internal",
+        ),
+    )
+    .await
+    .unwrap();
+    assert_eq!(internal.status, AnswerStatus::Answered);
+    assert!(internal.text.contains("98765"));
+    assert_eq!(internal.citations.len(), 1);
+    assert!(ask(
+        &address,
+        "synthetic-internal-token",
+        fact_query("reverse-leak", "Warden max health", "game.public")
+    )
+    .await
+    .is_err());
+    assert_eq!(provider.calls.load(Ordering::SeqCst), count);
+    for (id, items, status, needle) in [
+        (
+            "legal-build",
+            vec!["101", "102", "103"],
+            AnswerStatus::Answered,
+            "Build legal",
+        ),
+        (
+            "illegal-build",
+            vec!["101", "101"],
+            AnswerStatus::BuildRejected,
+            "bereits im Inventar",
+        ),
+    ] {
+        let mut request = domain_fixture::query(
+            &domain_fixture::build("Fixture Hero", "en", &items),
+            "c1-patch",
+        );
+        request.request_id = id.into();
+        request.conversation_id = format!("domain-{id}");
+        let answer = ask(&address, API_TOKEN, request).await.unwrap();
+        assert_eq!(answer.status, status, "{id}");
+        assert!(answer.text.contains(needle), "{id}: {}", answer.text);
+    }
+    assert_eq!(provider.calls.load(Ordering::SeqCst), count);
+    let mut card = domain_fixture::query(
+        &brain_contracts::domain::DomainRequest::Card {
+            hero: "Fixture Hero".into(),
+            locale: "en".into(),
+        },
+        "c1-patch",
+    );
+    card.request_id = "hero-card".into();
+    card.conversation_id = "domain-hero-card".into();
+    let card_answer = ask(&address, API_TOKEN, card).await.unwrap();
+    assert_eq!(
+        card_answer.status,
+        AnswerStatus::Answered,
+        "{}",
+        card_answer.text
+    );
+    assert!(!card_answer.citations.is_empty());
+
     // Required bounded-load envelope. The server runs with max_connections=12 while brain-serve
     // is hard-capped at four shared connections; all request-side DB work uses that same pool.
     for workers in [8usize, 16, 32] {
@@ -383,12 +612,30 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
                 "requests": result.requests,
                 "workers": result.workers,
                 "statuses": result.statuses,
+                "errors": result.errors,
                 "client_errors": result.client_errors,
                 "elapsed_ms": result.elapsed.as_millis(),
                 "observed_reader_connections": observed_connections
             })
         );
     }
+
+    provider.fail.store(true, Ordering::SeqCst);
+    assert_eq!(
+        ask(&address, API_TOKEN, query("provider-down"))
+            .await
+            .unwrap()
+            .status,
+        AnswerStatus::ProviderError
+    );
+    provider.fail.store(false, Ordering::SeqCst);
+    assert_eq!(
+        ask(&address, API_TOKEN, query("provider-recovered"))
+            .await
+            .unwrap()
+            .status,
+        AnswerStatus::Answered
+    );
 
     // Saturate every pool slot behind a real table lock. The next request must wait only for the
     // configured pool budget, return typed Unavailable, and recover after the lock is released.
@@ -441,6 +688,66 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
             .status,
         AnswerStatus::Answered
     );
+    let provider_calls = provider.calls.load(Ordering::SeqCst);
+    store
+        .apply(&SourceRecordV2 {
+            source_id: "fixture-game".into(),
+            logical_id: "asset/hero/25/starting_stats.max_health.value".into(),
+            revision: 2,
+            content_hash: "fixture-revoked-health".into(),
+            content: "Hero: Warden\nmax health: 770\n".into(),
+            visibility: SourceVisibility::Private,
+            allowed_scopes: BTreeSet::from(["brain.internal".into()]),
+            tombstone: false,
+            valid_from: None,
+            valid_to: None,
+            metadata: BTreeMap::from([
+                ("kind".into(), "fact".into()),
+                ("name".into(), "Warden".into()),
+                ("field".into(), "max health".into()),
+            ]),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        ask(
+            &address,
+            API_TOKEN,
+            fact_query("revoked", "Warden max health 770", "game.public")
+        )
+        .await
+        .unwrap()
+        .status,
+        AnswerStatus::InsufficientEvidence
+    );
+    store
+        .apply(&SourceRecordV2 {
+            source_id: "fixture-game".into(),
+            logical_id: "asset/hero/25/starting_stats.stamina.value".into(),
+            revision: 2,
+            content_hash: "fixture-deleted-stamina".into(),
+            content: String::new(),
+            visibility: SourceVisibility::Public,
+            allowed_scopes: BTreeSet::from(["game.public".into()]),
+            tombstone: true,
+            valid_from: None,
+            valid_to: None,
+            metadata: BTreeMap::new(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        ask(
+            &address,
+            API_TOKEN,
+            fact_query("deleted", "Warden stamina 3", "game.public")
+        )
+        .await
+        .unwrap()
+        .status,
+        AnswerStatus::InsufficientEvidence
+    );
+    assert_eq!(provider.calls.load(Ordering::SeqCst), provider_calls);
     let count = provider.calls.load(Ordering::SeqCst);
 
     // The manifest is pinned, not "whatever release currently exists"; liveness is independent.
@@ -551,9 +858,11 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
     let socket: std::net::SocketAddr = address.strip_prefix("http://").unwrap().parse().unwrap();
     assert!(std::net::TcpStream::connect_timeout(&socket, Duration::from_millis(100)).is_err());
 
-    // Real SCRAM password authentication through the single runtime LocalPgReader pool, and an
-    // unprivileged service role: no CREATE/ALTER privileges or startup migrations are needed.
-    sqlx::query("CREATE ROLE brain_serve_fixture LOGIN PASSWORD 'synthetic-c1-database-password'")
+    sqlx::query("CREATE ROLE brain_serve_fixture LOGIN")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("GRANT CONNECT ON DATABASE brain_serve_test TO brain_serve_fixture")
         .execute(&pool)
         .await
         .unwrap();
@@ -567,40 +876,30 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
         .execute(&pool)
         .await
         .unwrap();
-    let mut password_config = config.clone();
-    password_config["postgres"]["username"] = json!("brain_serve_fixture");
-    password_config["postgres"]["auth"] = json!("password");
-    password_config["postgres"]["password_env"] = json!("BRAIN_SERVE_PG_PASSWORD");
-    let mut password_env = environment.clone();
-    password_env.push(("BRAIN_SERVE_PG_PASSWORD", "synthetic-wrong-password"));
-    let mut bad_password = Service::spawn(&password_config, &password_env);
-    assert!(!bad_password.wait(Duration::from_secs(5)).success());
-    assert!(
-        bad_password.log().contains("database_unavailable"),
-        "{}",
-        bad_password.log()
-    );
-    assert!(!bad_password.log().contains("synthetic-wrong-password"));
-    password_env.pop();
-    password_env.push(("BRAIN_SERVE_PG_PASSWORD", common::PG_PASSWORD));
-    let mut service = Service::spawn(&password_config, &password_env);
+    let mut peer_config = config.clone();
+    peer_config["postgres"]["username"] = json!("brain_serve_fixture");
+    let mut denied_config = peer_config.clone();
+    denied_config["postgres"]["username"] = json!("brain_serve_denied");
+    let mut denied = Service::spawn(&denied_config, &environment);
+    assert!(!denied.wait(Duration::from_secs(5)).success());
+    assert!(denied.log().contains("database_unavailable"));
+    assert!(!denied.log().contains("listening"));
+    let mut service = Service::spawn(&peer_config, &environment);
     let address = service.address();
     common::assert_ready(&address);
     assert_eq!(
-        ask(&address, API_TOKEN, query("scram"))
+        ask(&address, API_TOKEN, query("peer"))
             .await
             .unwrap()
             .status,
         AnswerStatus::Answered
     );
-    assert!(!service.log().contains(common::PG_PASSWORD));
-    // Removing a required privilege makes readiness fail closed without granting itself rights.
     sqlx::query("REVOKE INSERT ON brain.conversation_owners_v1 FROM brain_serve_fixture")
         .execute(&pool)
         .await
         .unwrap();
     assert_eq!(common::get(&address, "/readyz").0, 503);
-    let mut missing_permission = Service::spawn(&password_config, &password_env);
+    let mut missing_permission = Service::spawn(&peer_config, &environment);
     assert!(!missing_permission.wait(Duration::from_secs(5)).success());
     assert!(missing_permission
         .log()
