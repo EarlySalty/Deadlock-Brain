@@ -164,7 +164,7 @@ fn hero_matches(observation: &AnalyticsObservation) -> Option<(u64, u64, u64)> {
     let wins = row.get("wins")?.as_u64()?;
     let losses = row.get("losses")?.as_u64()?;
     let matches = row.get("matches")?.as_u64()?;
-    (matches > 0 && wins.checked_add(losses)? == matches).then_some((wins, losses, matches))
+    (wins.checked_add(losses)? == matches).then_some((wins, losses, matches))
 }
 
 fn analytics_content(
@@ -196,7 +196,7 @@ fn analytics_content(
                 return None;
             }
             let (_, _, item_matches) = hero_matches(population)?;
-            if item_matches > matches {
+            if matches == 0 || item_matches > matches {
                 return None;
             }
             let prior = PopulationPrior::from_items([PopulationItem {
@@ -756,6 +756,30 @@ mod tests {
                 item_id: 42
             },
             &meta,
+            Some(&population),
+        )
+        .is_none());
+        population.provenance.max_unix_timestamp = meta.provenance.max_unix_timestamp;
+        population.rows[0] = json!({"hero_id":18,"bucket":0,"wins":0,"losses":0,"matches":0});
+        let content = analytics_content(
+            &AnalyticsTarget::Population {
+                hero_id: 18,
+                item_id: 42,
+            },
+            &meta,
+            Some(&population),
+        )
+        .unwrap();
+        assert!(content.contains("0 von 20"));
+        assert!(content.contains("0.0 %"));
+        let mut empty_meta = meta.clone();
+        empty_meta.rows[0] = json!({"hero_id":18,"bucket":0,"wins":0,"losses":0,"matches":0});
+        assert!(analytics_content(
+            &AnalyticsTarget::Population {
+                hero_id: 18,
+                item_id: 42
+            },
+            &empty_meta,
             Some(&population),
         )
         .is_none());
