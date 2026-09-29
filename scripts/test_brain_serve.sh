@@ -41,15 +41,16 @@ if [[ ! "$OS_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
   exit 2
 fi
 printf 'brain_scratch %s brain_core_test\nbrain_scratch %s brain_serve_fixture\n' "$OS_USER" "$OS_USER" > "$CLUSTER/pg_ident.conf"
-printf 'local all all peer map=brain_scratch\nhost all all all reject\n' > "$CLUSTER/pg_hba.conf"
+printf 'local all brain_scram_fixture scram-sha-256\nlocal all all peer map=brain_scratch\nhost all all all reject\n' > "$CLUSTER/pg_hba.conf"
 STARTED=1
 "${PG_ENV[@]}" "$PG_BIN/pg_ctl" -D "$CLUSTER" -l "$SCRATCH/postgres.log" \
-  -o "-c listen_addresses='' -k $CLUSTER -p 55439 -c max_connections=12 -c shared_buffers=16MB" -w start
+  -o "-c listen_addresses='' -k $CLUSTER -p 55439 -c max_connections=12 -c shared_buffers=16MB -c password_encryption=scram-sha-256" -w start
 "${PG_ENV[@]}" "$PG_BIN/createdb" -h "$CLUSTER" -p 55439 -U brain_core_test brain_serve_test
 "${PG_ENV[@]}" "$PG_BIN/createdb" -h "$CLUSTER" -p 55439 -U brain_core_test brain_legacy_test
 "${PG_ENV[@]}" "$PG_BIN/createdb" -h "$CLUSTER" -p 55439 -U brain_core_test brain_pilot_test
 "${PG_ENV[@]}" "$PG_BIN/createdb" -h "$CLUSTER" -p 55439 -U brain_core_test brain_schema_test
 "${PG_ENV[@]}" "$PG_BIN/createdb" -h "$CLUSTER" -p 55439 -U brain_core_test brain_empty_schema_test
+"${PG_ENV[@]}" "$PG_BIN/createdb" -h "$CLUSTER" -p 55439 -U brain_core_test brain_scram_test
 cd "$ROOT/rust"
 env -i "PATH=$PATH" "HOME=$SCRATCH" "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" \
   "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" "CARGO_TARGET_DIR=$ROOT/rust/target" \
@@ -66,6 +67,21 @@ env -i "PATH=$PATH" "HOME=$SCRATCH" "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" \
   "CARGO_BUILD_JOBS=2" "SQLX_OFFLINE=true" "BRAIN_CORE_TEST_PG_SOCKET=$CLUSTER" \
   "$CARGO" test --locked --offline --jobs 2 -p brain-serve --test process_e2e \
   binary_loopback_health_readiness_shutdown_and_no_fallback -- --ignored --exact --nocapture
+env -i "PATH=$PATH" "HOME=$SCRATCH" "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" \
+  "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" "CARGO_TARGET_DIR=$ROOT/rust/target" \
+  "CARGO_BUILD_JOBS=2" "SQLX_OFFLINE=true" "BRAIN_CORE_TEST_PG_SOCKET=$CLUSTER" \
+  "$CARGO" test --locked --offline --jobs 2 -p brain-serve --test process \
+  private_scratch_scram_accepts_runtime_password_and_rejects_wrong_password -- --ignored --exact --nocapture
+env -i "PATH=$PATH" "HOME=$SCRATCH" "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" \
+  "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" "CARGO_TARGET_DIR=$ROOT/rust/target" \
+  "CARGO_BUILD_JOBS=2" "SQLX_OFFLINE=true" \
+  "$CARGO" test --locked --offline --jobs 2 -p brain-serve --test process \
+  incomplete_configuration_and_inline_secrets_never_reach_startup -- --exact --nocapture
+env -i "PATH=$PATH" "HOME=$SCRATCH" "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" \
+  "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" "CARGO_TARGET_DIR=$ROOT/rust/target" \
+  "CARGO_BUILD_JOBS=2" "SQLX_OFFLINE=true" \
+  "$CARGO" test --locked --offline --jobs 2 -p brain-serve --test process \
+  missing_config_and_bad_arguments_exit_without_echoing_input -- --exact --nocapture
 if grep -Eq 'too many clients already|too many connections for role' "$SCRATCH/postgres.log"; then
   printf 'Scratch PostgreSQL exceeded its connection limit.\n' >&2
   exit 1

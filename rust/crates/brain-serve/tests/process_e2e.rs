@@ -793,6 +793,40 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
         AnswerStatus::Answered
     );
     let provider_calls = provider.calls.load(Ordering::SeqCst);
+    let mut limited_config = config.clone();
+    limited_config["release"]["id"] = json!(conflict_release.release_id);
+    limited_config["retrieval"]["limit"] = json!(1);
+    let mut limited_service = Service::spawn(&limited_config, &environment);
+    let limited_address = limited_service.address();
+    common::assert_ready(&limited_address);
+    for (id, text, expected) in [
+        ("guardian-warden", "Warden max health", "770"),
+        ("guardian-abrams", "Abrams max health", "650"),
+    ] {
+        let answer = ask(
+            &limited_address,
+            API_TOKEN,
+            fact_query(id, text, "game.public"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(answer.status, AnswerStatus::Answered, "{id}");
+        assert!(answer.text.contains(expected), "{id}: {}", answer.text);
+        assert_eq!(answer.citations.len(), 1, "{id}");
+    }
+    assert_eq!(
+        ask(
+            &limited_address,
+            API_TOKEN,
+            fact_query("guardian-limit-one", "Guardian max health", "game.public")
+        )
+        .await
+        .unwrap()
+        .status,
+        AnswerStatus::InsufficientEvidence
+    );
+    limited_service.stop();
+    assert_eq!(provider.calls.load(Ordering::SeqCst), provider_calls);
     store
         .apply(&SourceRecordV2 {
             source_id: "fixture-game".into(),
@@ -970,25 +1004,6 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
     }
     let socket: std::net::SocketAddr = address.strip_prefix("http://").unwrap().parse().unwrap();
     assert!(std::net::TcpStream::connect_timeout(&socket, Duration::from_millis(100)).is_err());
-
-    let mut limited_config = config.clone();
-    limited_config["release"]["id"] = json!(conflict_release.release_id);
-    limited_config["retrieval"]["limit"] = json!(1);
-    let mut limited_service = Service::spawn(&limited_config, &environment);
-    let limited_address = limited_service.address();
-    common::assert_ready(&limited_address);
-    assert_eq!(
-        ask(
-            &limited_address,
-            API_TOKEN,
-            fact_query("guardian-limit-one", "Guardian max health", "game.public")
-        )
-        .await
-        .unwrap()
-        .status,
-        AnswerStatus::InsufficientEvidence
-    );
-    limited_service.stop();
 
     sqlx::query("CREATE ROLE brain_serve_fixture LOGIN")
         .execute(&pool)
