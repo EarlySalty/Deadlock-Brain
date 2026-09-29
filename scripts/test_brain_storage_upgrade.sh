@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # C11: disposable cluster, Unix socket only. No existing cluster, DSN or production role.
 set -euo pipefail
+umask 077
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if (( $# > 1 )); then
   echo 'Usage: test_brain_storage_upgrade.sh [cargo-executable]' >&2
   exit 2
 fi
-CARGO="${1:-cargo}"
+CARGO="${1:-$HOME/.cargo/bin/cargo}"
 PG_BIN="$(pg_config --bindir)"
 for binary in initdb pg_ctl pg_dump pg_restore; do
   test -x "$PG_BIN/$binary"
@@ -19,12 +20,13 @@ fi
 unset DATABASE_URL PGHOST PGHOSTADDR PGPORT PGUSER PGDATABASE PGPASSWORD PGPASSFILE PGSERVICE PGSERVICEFILE PGOPTIONS
 SCRATCH="$(mktemp -d /tmp/brain-c11.XXXXXXXXXX)"
 readonly SCRATCH
+PG_ENV=(env -i "PATH=$PATH" "HOME=$SCRATCH")
 STARTED=false
 cleanup() {
   local status=$?
   trap - EXIT
   if [[ "$STARTED" == true && -f "$SCRATCH/data/postmaster.pid" ]]; then
-    if ! "$PG_BIN/pg_ctl" -D "$SCRATCH/data" -m fast -w stop; then
+    if ! "${PG_ENV[@]}" "$PG_BIN/pg_ctl" -D "$SCRATCH/data" -m fast -w stop; then
       echo "Scratch shutdown failed; retained $SCRATCH for inspection." >&2
       exit 1
     fi
@@ -39,14 +41,24 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-mkdir "$SCRATCH/socket"
+mkdir "$SCRATCH/socket" "$SCRATCH/home"
 printf 'brain-c11-scratch-v1\n' > "$SCRATCH/marker"
 printf '%s\n' "$PG_BIN" > "$SCRATCH/pg-bin"
-"$PG_BIN/initdb" -D "$SCRATCH/data" --username=brain_c11_owner \
-  --auth-local=trust --auth-host=reject --no-locale --encoding=UTF8 >/dev/null
+"${PG_ENV[@]}" "$PG_BIN/initdb" -D "$SCRATCH/data" --username=brain_c11_owner \
+  --auth-local=peer --auth-host=reject --no-locale --encoding=UTF8 >/dev/null
+OS_USER="$(id -un)"
+if [[ ! "$OS_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
+  printf 'Unsupported local account name.\n' >&2
+  exit 2
+fi
+printf 'brain_scratch %s brain_c11_owner\nbrain_scratch %s brain_c11_runtime\n' "$OS_USER" "$OS_USER" > "$SCRATCH/data/pg_ident.conf"
+printf 'local all all peer map=brain_scratch\nhost all all all reject\n' > "$SCRATCH/data/pg_hba.conf"
 STARTED=true
-"$PG_BIN/pg_ctl" -D "$SCRATCH/data" -l "$SCRATCH/server.log" \
+"${PG_ENV[@]}" "$PG_BIN/pg_ctl" -D "$SCRATCH/data" -l "$SCRATCH/server.log" \
   -o "-c listen_addresses='' -k $SCRATCH/socket -p 55441 -c max_connections=24 -c shared_buffers=16MB" -w start
-BRAIN_C11_SCRATCH="$SCRATCH" "$CARGO" test --manifest-path "$ROOT/rust/Cargo.toml" \
+env -i "PATH=$PATH" "HOME=$SCRATCH/home" "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" \
+  "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" "CARGO_TARGET_DIR=$ROOT/rust/target" \
+  "CARGO_BUILD_JOBS=2" "SQLX_OFFLINE=true" "BRAIN_C11_SCRATCH=$SCRATCH" \
+  "$CARGO" test --manifest-path "$ROOT/rust/Cargo.toml" \
   --locked --offline --jobs 2 -p brain-storage --test storage_upgrade \
   v1_upgrade_restore_and_least_privilege -- --ignored --exact --nocapture
