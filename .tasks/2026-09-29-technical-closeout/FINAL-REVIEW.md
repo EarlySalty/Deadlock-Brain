@@ -1,25 +1,25 @@
-status: Zwischenprüfung, Schlussabnahme ausstehend
+status: Schlussprüfung abgeschlossen, Dokumentationskorrektur erforderlich
 Datum: 2026-09-29
 
-# Unabhängige Schlussabnahme: vorläufiger Nachweisabgleich
+# Unabhängige Schlussabnahme: Verifikation und Abschlussdokumentation
 
-**Zwischenurteil zum Verifikationspaket: konsistent. Technischer Abschluss fertig: N. Produktfix nötig: N nach dem geprüften Nachweisstand. Keine finale Abgabe.**
+**Urteil auf 315d846: Verifikationspaket GO, Dokumentationsabgabe BLOCK. Erlaubter technischer Abschluss fertig: N. Fix nötig: J, ausschließlich Dokumentation. Produktfix nötig: N.**
 
-Der abschließende Dokustand der sieben Architekturdateien ist noch nicht zur Prüfung übergeben. Dieses Zwischenurteil gibt weder die Dokumentationsabgabe noch G5, Produktion oder einen Merge frei. Das lokale Gate folgt separat durch die Hauptsession.
+Die Schlussprüfung der sieben Architekturdateien ist abgeschlossen. Ein bestätigter Dokumentationsbefund an zwei Stellen verhindert die widerspruchsfreie Abgabe: Die bereits abgeschlossene Verifikation auf `022f8a9` wird weiterhin als ausstehend bezeichnet. Kein neuer Produktdefekt und keine neue Testlücke werden daraus abgeleitet. Keine G5-/Produktionsfreigabe und kein Merge. Das lokale Gate folgt separat durch die Hauptsession.
 
 ## Prüfgrundlage und Bindung
 
 Auftrag: `FINAL-REVIEW-BRIEFING.md`, Intent `562a877b-0939-440a-964d-1145d9e9431a`, bestehender unabhängiger Review-Thread `52c34332`.
 
-- Eingefrorener Koordinationshead: `54b1302ce7599ac083a9858d34dd2c3b4fc3cfbd`.
+- Finaler Koordinationshead: `315d84646e7bd0d43996614e20ab57b30a009407`; darin enthaltene F2-Abgabe: `afd7671706a0c10c17dd7f1a9bc4aa0e4b516d76`.
 - Integrierter Produktcode: `022f8a981c2164f6d8d4302bae2194e100c4f65c`.
 - Eigener Reviewbaum bleibt auf dem bestehenden Branch `review/pre-g5-core-abnahme-20260929`; kein lokaler Merge des Koordinationsheads.
-- Zuerst `git diff --stat 022f8a9 54b1302` geprüft: 65 geänderte Dateien, ausschließlich unter `.tasks/2026-09-29-technical-closeout/`, keine Architektur- oder Produktänderung in diesem Delta. Auch die vollständige Pfadliste enthält keine Datei außerhalb dieses Taskordners.
-- `FINAL-VERIFICATION.md` aus dem Koordinationsworktree stimmt bytegleich mit dem Blob an `54b1302` überein. Logauswertungen beziehen sich auf `git show 54b1302:<Pfad>`, nicht auf möglicherweise fortgeschriebene Arbeitsdateien.
+- Erstprüfung auf `54b1302ce7599ac083a9858d34dd2c3b4fc3cfbd`: 65 geänderte Dateien ausschließlich im Taskordner. Vor der Schlussprüfung erneut `git diff --stat 022f8a9 315d846` geprüft: außerhalb des Taskordners ausschließlich die sieben erlaubten Architekturdateien, keine Produktänderung. Architekturstand von `afd7671` und `315d846` ist identisch.
+- `FINAL-VERIFICATION.md`, `FINAL-CI.md`, `F2-NACHPRUEFUNG.md` und der gesamte Ordner `final-logs/` sind zwischen `54b1302` und `315d846` unverändert. Die nachfolgenden selbst nachgezählten Belege bleiben damit an den Schlussstand gebunden. `FINAL-VERIFICATION.md` war bei der Erstprüfung zudem bytegleich mit der gelesenen Koordinationsdatei.
 
-Zusätzlich identische Git-Tree-IDs an beiden Heads:
+Zusätzlich erneut identische Git-Tree-IDs am geprüften Produkthead und finalen Koordinationshead:
 
-| Verzeichnis | Tree-ID an 022f8a9 und 54b1302 |
+| Verzeichnis | Tree-ID an 022f8a9 und 315d846 |
 | --- | --- |
 | rust | `09569dd0fbb4b818871b084ce1dc3666c03638f5` |
 | config | `8c5b64ccaaa8c685af439e786feb35b6f917772f` |
@@ -93,11 +93,38 @@ Der Verifikationsbranch steht inzwischen auf `5c7e5b23550cb90b9d525240c052d9641f
 
 Die bekannten nichtblockierenden Claim-Lease-/Usage-Grenzen bleiben aus dem unabhängigen R5-Bericht und dem Gesamtgate erhalten. Hier wurden sie weder als behoben erklärt noch ohne neuen Befund wieder als Produktblocker eröffnet.
 
-## Noch ausstehende Schlussprüfung
+## Schlussprüfung der sieben Architekturdateien
 
-Nach Übergabe des eingefrorenen finalen Dokustands werden ausschließlich die sieben Architekturdateien und deren Bindung an diese Nachweise geprüft. Offen sind insbesondere die sachliche Erledigung von `F2-NACHPRUEFUNG.md`, eindeutige historische gegenüber aktuellen Markern, implementierte Provider gegenüber ausstehender Betriebsaktivierung und bereits vor diesem Auftrag gemergtes Twitch #984 gegenüber den weiterhin offenen Consumer-PRs. Auf `54b1302` wurden diese finalen Korrekturen nicht als abgeschlossen bewertet.
+Geprüft wurden die aktuellen Einordnungen, Marker und Änderungen gegenüber `54b1302` an `315d846`, abgeglichen mit den unveränderten Verifikations-/CI-Belegen sowie `F2-REPORT.md`, `F2-NACHPRUEFUNG.md`, `D-REPORT.md`, `E-REPORT.md` und `REVIEW-E.md`. Graphify wurde vor der gezielten Dokumentensuche befragt und lieferte keine passenden Knoten.
 
-**Zwischenstand: kein Widerspruch in den geprüften Verifikationszahlen; keine nachgewiesene Produktänderung; keine finale technische Schlussabnahme vor dem Doku-Nachtrag.**
+| Architekturdatei | Urteil |
+| --- | --- |
+| `PRE_G5_TECHNICAL_REVIEW.md` | Aktueller Header und einzelner aktueller Schlussmarkerblock enthalten die richtigen Heads, 1011/75, acht getrennte Fälle, 600×3/Pool4, offene CI und Betriebsgrenzen. Frühere Marker und `ee4889e` sind historisch gekennzeichnet. **Restwiderspruch in Zeile 318, siehe FR-1.** |
+| `STATUS.md` | Aktuelle Testzahlen, Gates, Provider- und Consumerstatus stimmen mit den Berichten überein. **Die aktuelle Deadline-Zeile 16 bezeichnet den finalen Lauf noch als ausstehend, siehe FR-1.** |
+| `GATES.csv` | G1/G4 lokal bestanden, G2/G3 teilweise, G5 nicht freigegeben. Getrennte acht Fälle, Pool4 und externe CI-Grenzen stimmen. Providerimplementierung ist nicht mit Produktionsaktivierung verwechselt. |
+| `PFAD_OWNER.csv` | Basis `022f8a9`; Steam-Provider implementiert/offline geprüft, Patchnotes Python-Legacy ohne behaupteten Rust-Nachfolger. Twitch #984 gemergt, andere benannte Consumer ungemergt; keine Aktivierung behauptet. |
+| `BRAIN_DB_MIGRATION_REPORT.md` | Snapshot vom 26.09. ausdrücklich getrennt von der synthetischen finalen Codeverifikation; keine erneuerte Bestandskopie oder Cutover-Freigabe daraus abgeleitet. |
+| `BRAIN_POSTGRES_ISOLATION.md` | Dedizierte Instanz und Archivkopie bleiben historische Infrastrukturbelege. Neue Tests laufen gegen Wegwerfcluster; ältere Lastmessung und 18/18 sind nicht als aktuelle Ergebnisse ausgewiesen. |
+| `FINAL_LOCAL_INTEGRATION_REVIEW.md` | `ed06e13` und folgende frühere Abschnitte ausdrücklich historisch; aktuelle Einordnung nennt `022f8a9`, richtige Ergebnisse und keine G5-/Produktionsfreigabe. |
+
+`D-REPORT.md` bestätigt Twitch #984 als Merge vom 26.09. vor diesem Auftrag. `REVIEW-E.md`, Runde 2 und Integrationsabschnitt, bestätigt den Diagnosefix mit Merge `f509f85e4ec32da589c0f46aedc10fa3953b21fc`, ohne Deploy oder Publish. Die aktuelle Architektur stellt diese Implementierungen nicht mehr als fehlend dar. Frühere gegenteilige Aussagen unter eindeutig historischen Überschriften wurden nicht als neue Befunde gewertet.
+
+### FR-1: abgeschlossene Verifikation wird an zwei Stellen weiter als ausstehend dargestellt
+
+**Bestätigter Dokumentationsdefekt, blockiert die widerspruchsfreie Schlussdokumentation, nicht den geprüften Produktcode.**
+
+1. `architecture/migration/STATUS.md:16`, Tabelle unter **Aktueller Produkt- und Freigabestand**: „Dieser Reviewnachweis ersetzt nicht den ausstehenden vollständigen Lauf auf `022f8a9`.“ Der Lauf ist laut demselben Dokument und dem nachgezählten `FINAL-VERIFICATION.md` abgeschlossen. Ein Leser der aktuellen Deadline-Zeile erhält dadurch einen falschen Arbeitsstand.
+2. Zwillingsstelle `architecture/migration/PRE_G5_TECHNICAL_REVIEW.md:318`: „Die finale Workspace-, Release-, PostgreSQL- und Lastverifikation auf `022f8a9` ist noch ausstehend.“ Der Absatz steht zwar unter einem historischen Titel, spricht aber ausdrücklich vom heutigen integrierten Head und vom aktuellen Code. Der letzte Satz ist weder als damalige Aussage zitiert noch zeitlich an den Zwischenstand gebunden. Er widerspricht Header und aktuellem Schlussmarkerblock.
+
+Minimale Korrektur durch F2: In der aktuellen STATUS-Zeile die abgeschlossene separate Verifikation mit Verweis auf `FINAL-VERIFICATION.md` nennen. In der historischen PRE_G5-Einordnung den damaligen offenen Stand in Vergangenheitsform binden und die inzwischen abgeschlossene Verifikation klar davon abgrenzen, oder den überholten letzten Satz entfernen. Den R5-Nachweis weiterhin auf `72db816` begrenzen; keinen neuen Lauf oder Produktfix verlangen.
+
+Zwillingsprüfung über die sieben beauftragten Dateien bestätigt diese beiden verbliebenen Aussagen zur noch ausstehenden finalen Verifikation. Die eigentlichen historischen NEIN-Marker sowie die weiterhin offenen Realpilot-/Provider-/Replay- und Betriebsnachweise bleiben unverändert berechtigt. `F2-NACHPRUEFUNG.md` ist in Provider-, Consumer- und CI-Abgrenzung sachlich umgesetzt; die Trennung von aktuellem und historischem Verifikationsstand ist wegen FR-1 noch nicht vollständig widerspruchsfrei.
+
+## Endgültiges Urteil für diesen Prüfstand
+
+**Verifikationsnachweise technisch GO. Dokumentationsabgabe auf `315d846` noch nicht abgenommen. Fertig N, Fix nötig J (FR-1, zwei Dokumentationsstellen), Produktfix nötig N.**
+
+Die unabhängige Prüfung ist abgeschlossen. Nach der begrenzten Textkorrektur genügt eine Nachprüfung des Deltas und der Codegleichheit; die unveränderten Testergebnisse müssen nicht allein wegen dieser Textstellen neu erzeugt werden. Keine Implementierung, kein Merge, Deploy, Neustart oder G5-/Produktionsentscheid durch diesen Reviewer. Externe CI-/GitGuardian-Probleme und Betreiberentscheidungen bleiben getrennt von FR-1 sichtbar.
 
 ### Belegfingerprints
 
@@ -120,5 +147,6 @@ c6c4e1438597918d3097de98cf2ad2ecd5fe952d0420c6d2f3da3d388245ef45  client/test.lo
 5f64242c26457ef3618a2276e9f514c4ad0d0e190f40b7d19edf80b5958daf62  cutover/test.log
 ```
 
+WIRKUNGSPRUEFUNG[WP-1]: 1 Befund | Zwillingssuche: grep-belegt | Fremddienst-Pfade: 0/0 geprüft (Dokumentations- und Nachweisreview, keine neue Produktpfadprüfung)
 TESTNACHWEIS[TW-1]: 1011 passed, 75 ignored | Baseline: keine Altfehlerbehauptung; vorhandenen Fremdlauf selbst nachgezählt, 0 neue eigene Testläufe; 8 gezielte Fälle separat belegt
-TEXTNACHWEIS[DR-1]: Gedankenstriche 0 | ae/oe/ue/ss-Ersatz 0 | Absolutwörter 0 belegt | Senke: interner vorläufiger Reviewbericht
+TEXTNACHWEIS[DR-1]: Gedankenstriche 0 | ae/oe/ue/ss-Ersatz 0 | Absolutwörter 0 belegt | Senke: interner endgültiger Reviewbericht für 315d846
