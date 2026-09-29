@@ -1,56 +1,43 @@
 # Projektstatus: Deadlock Brain Rust, Wiki und Daten
 
-Stand: 26.09.2026, Integrationsbranch `migration/rust-integration`.
-Maßgeblicher aktueller Bericht mit Gates und G5-Blockern: [PRE_G5_TECHNICAL_REVIEW.md](PRE_G5_TECHNICAL_REVIEW.md). Weitere Nachweise: [LEGACY_CORE_MIGRATION.md](LEGACY_CORE_MIGRATION.md), [FINAL_LOCAL_INTEGRATION_REVIEW.md](FINAL_LOCAL_INTEGRATION_REVIEW.md), [INTEGRATION_REVIEW.md](INTEGRATION_REVIEW.md), Nachtrag Welle 1/2: [WAVE1_WAVE2_LOCAL_REVIEW.md](WAVE1_WAVE2_LOCAL_REVIEW.md), eigene Datenbankinstanz: [BRAIN_POSTGRES_ISOLATION.md](BRAIN_POSTGRES_ISOLATION.md), Datenkopie: [BRAIN_DB_MIGRATION_REPORT.md](BRAIN_DB_MIGRATION_REPORT.md).
+Stand: 29.09.2026. Autoritativer integrierter Codehead: `022f8a981c2164f6d8d4302bae2194e100c4f65c` auf `migration/rust-integration`, integriert über PR #59.
 
-Planversion: 1.0 (Planpaket unter `deadlock-brain-rust-planpaket-v1.0/`).
-Die im Auftrag genannte Datei `14_SESSION_ABLAUF_OHNE_ORCHESTRATOR.md` existiert weder im Repository (alle Refs geprüft) noch in den lokalen Planpaket-Kopien oder T3-Anhängen. Grundlage dieses Stands ist deshalb das Planpaket v1.0; die S000/Chat-Zuordnung bleibt als Herkunft erhalten, die Arbeit läuft seit 25.09.2026 als Codex-Completion-Aufträge plus lokale Integration.
+Die unabhängige R5-Codeabnahme A+C und das lokale Gesamtgate meldeten GO beziehungsweise ALLOW auf `72db816056fb0ed53810ab77ea4417dc0812e7ca`. Die vollständige lokale Verifikation auf `022f8a981c2164f6d8d4302bae2194e100c4f65c` ist abgeschlossen: Format, Clippy, Workspace-Tests und Release-Build jeweils Exit 0; 1.011 passed, 0 failed, 75 ignored, 0 filtered. Acht zuvor ignorierte Tests wurden separat gezielt bestanden und sind nicht in den 1.011 enthalten. Im Prozess-E2E antworteten bei 8, 16 und 32 Workern jeweils 600/600 Anfragen; Poolmaximum 4. G5-Freigabe bleibt NEIN. Details: Koordinationsbericht `FINAL-VERIFICATION.md`.
 
-Contract Version: `brain.v1` (intern), `brain.public.v1` (öffentliche API).
-DB Schema: Kernschema v2 (`brain.store.v2`) aus `scripts/migrations/2026-09-24-brain-contract-v1.sql`, `2026-09-25-brain-core-jobs-v2.sql` und `2026-09-26-brain-core-compatibility-v2.sql`, nur per `brain-migrate`. Staging-Instanz: eigene PostgreSQL-Instanz `deadlock-brain-postgresql` (Port 5446, nur Unix-Socket), DB `brain` mit leerem Kern und Archivkopie `brain_legacy`, Pilot-DBs `brain_pilot` und `brain_pilot_legacy` (Legacy-Kernimport, Release `legacy-core-f07ea85c09010285`).
-Aktives Knowledge oder Corpus Release in Produktion: keins aus dem neuen Kern. Produktiv läuft weiterhin der Bestandspfad (siehe Runtime).
-Letzte geprüfte Runtime: 25.09.2026 23:45 CEST, unverändert gegenüber S01 (siehe INTEGRATION_REVIEW.md, Abschnitt Runtime).
+Kein Production-Cutover, keine produktiven Consumer aktiviert, kein Brain-Merge nach `main`. PR #40 bleibt Draft. Der neue Kern ist nicht produktiv aktiv; der Bestandspfad läuft weiter.
 
-## Nachweisstufen
+## Aktueller Produkt- und Freigabestand
 
-Jede Zeile nennt die höchste tatsächlich erreichte Stufe. Eine höhere Stufe gilt nur mit eigenem Nachweis.
+| Bereich | Aktueller Stand | Grenze oder offener Nachweis |
+|---|---|---|
+| Match | Private, accountgebundene Daten laufen über den API-Adapter, `SourceRecordV2`, den normalen Store und Release. Identität, Hashprojektion und atomarer Revoke sind Teil des Pfads (`rust/crates/brain-feeds/src/bin/brain-match-ingest.rs:96-107,141-168,170-218`; `rust/crates/brain-feeds/src/deadlock_match.rs:30-80,403-495`). | Kein Production-Cutover. |
+| Assets | Assets-Core deckt die V1-Startwerte ab (`rust/crates/brain-feeds/src/deadlock_assets.rs:19-26,41-62,64-92). | Kein Sheet-Fallback. |
+| Meta und Population | Typisierte Fakten; die Item-Matchquote stammt aus `hero-stats` (`rust/crates/dbrain-sources/src/analytics_runtime.rs:23-48,103-123,186-213`). | Die Quelle attestiert keine Patchzugehörigkeit. Patchgebundene Anfragen bleiben fail-closed. Keine automatisch freigegebene Buildempfehlung. |
+| Deadline und Antwort | Gemeinsames Requestbudget mit abschließendem Kernel-Guard. | Der R5-Nachweis auf `72db816` umfasst positive und negative lokale Prüfungen. Der gezielte Zweitsnapshot-Test bleibt ein separater Befund dieses Heads. Die finale Verifikation des integrierten Heads `022f8a9` ist abgeschlossen; Details stehen in `FINAL-VERIFICATION.md`. |
+| Wiki | Normaler Store- und Releasepfad offline geprüft. | `WIKI_REAL_PILOT_PASSED=NEIN`, da Quellen-, Lizenz- und Aufbewahrungsfreigabe fehlen. |
+| Provider | Kein freigegebener Provider-Shadow. | `PROVIDER_SHADOW_PASSED=NEIN`, da Anbieter-, Modell-, Egress- und Budgetfreigabe fehlen. |
+| Replay | Kein freigegebenes `.dem`; Decoder und Reportpfad bleiben offline. | Replay V1 oder später ist Betreiberentscheidung. |
+| Consumer | Lokale Brain-Consumer-Verträge sind integriert. Twitch #984 war vor F2 gemergt und wurde hier nur regressionsgeprüft. Bots #459, Docs #4 und 2nd-Brain #2 sind ungemergt. | Kein produktiver Consumer aktiv. Einzelne frühere Consumer-CI-Läufe starteten wegen Billing nicht. |
+| Patchnotes und Steam | Patchnotes-Provider bleibt der bestehende Python-Legacy-Dienst. Steam-Build-Publish-Provider PR #73 und Diagnosefix PR #82 (`f509f85e`) sind integriert. | Kein Deployment, Neustart oder echter Publish; kein Production-Cutover. |
 
-1. Code implementiert
-2. offline getestet (Fixtures, lokale Fault-Server, isolierte Wegwerf-DB)
-3. lokal integriert (auf `migration/rust-integration` zusammen gebaut und getestet)
-4. echter Datenpilot (echte Daten, lokal, begrenzt)
-5. staging validiert
-6. production freigegeben
-
-| Bereich | Chat | Quelle der Arbeit | Stufe | Offener Kernpunkt |
-|---|---|---|---|---|
-| Contracts, Policy | 02 | Core Completion, C4 (PR #43), C9 (PR #50) | 3 | Wiki-, Source-, Replay- und Domain-v2-Verträge vereinheitlicht; Consumer über typed BrainClient angebunden |
-| Storage, Migration | 03 | Core Completion, C11 (PR #41), Pre-G5 | 5 | eigene Instanz, Rollen getrennt, Backup/Restore gleich; Legacy-Konverter gebaut, Patchnotes und Entitäten nur in `brain_pilot_legacy` |
-| Ingestion, Feeder | 04 | Core Completion, Pre-G5 | 4 | Datei-, Legacy- und Dokumentmengen-Pfad im Kern; Patchnotes-Feed und Assets-Adapter Brain-seitig gebaut, Provider-Export fehlt; Altpfade laufen bis G5 |
-| Domain, Regeln, Builds | 05 | C6 (PR #48) | 4 | Build-Legalität und Hero-Card im Kernel; E2E nur mit synthetischem Domain-Adapter, echte Spielwerte fehlen |
-| Retrieval | 06 | C2/C3 (PR #45), Pooling (PR #49) | 5 | Chunking/BM25 bestanden; Lesepfad läuft seit PR #49 über einen gemeinsamen, hart begrenzten Pool |
-| Provider, Jev | 07 | Core Completion | 2 | kein freigegebener Provider/Modell für den neuen Kernel; Jev Standard `Disabled` |
-| Answer Kernel, API | 08 | C1 (PR #42), Pooling (PR #49) | 5 | `brain-serve` gegen eigene Instanz 18/18 E2E und 16/16 Betriebsprüfungen; 600-Request-Test nach Pooling bestanden |
-| Consumer | 09 | C9 (PR #50) + Consumer-PRs in vier Repos | 3 | CLI/MCP/Docs/2nd-Brain lokal gegen brain-serve-Staging verifiziert; Twitch-Shadow-Probe entkoppelt; Adapter nicht aktiviert; Vertragslücken für Historie, Persona, Quellen-URLs |
-| Qualität, Performance | 10 | PR #27, Lasttest 26.09. (nach PR #49) | 5 | 600 Requests 8/16/32 Worker ohne too many clients; Peak-Pool 4, 8 Neuverbindungen je Stufe, 0 falsche unauthorized_evidence |
-| Cutover, Legacy-Ende | 11 | PR #26 via Consumer/CI | 3 | Audit-Werkzeug lokal gelaufen; keine Restore-/Writer-Probe mit Produktionsdaten |
-| Wiki, Wissenskarten | 12 | Wiki Completion, C5 (PR #47), Pre-G5 | 3 | Adapter in den normalen Store (`stage_into_store`) gebaut; echter Capture wartet auf Rechteentscheidung |
-| Externe Quellen | 13 | External Sources Completion (PR #36), Pre-G5 | 4 | Assets-API jetzt auch in den Kern; Match-/Meta-Adapter schreiben weiter nur in den Altstore auf DL-Main |
-| Replays | 14 | Replay Decoder Completion (PR #37) | 3 | keine freigegebene echte Replaydatei; Produktentscheidung Replay in V1 oder danach offen |
-
-## Gates
+## Gate-Status
 
 | Gate | Status | Begründung |
 |---|---|---|
-| G0 | teilweise belegt | S01-Inventar auf `main`, Runtime am 25.09.2026 erneut geprüft; SLO/Lastprofil weiterhin nicht freigegeben |
-| G1 | bestanden (lokal) | C4-Verträge integriert und von C5/C6 genutzt; C9 (PR #50) integriert, Consumer lokal gestaget; Details in `FINAL_LOCAL_INTEGRATION_REVIEW.md` |
-| G2 | teilweise | Default-E2E 18/18; echter Legacy-Release beantwortbar; echter Wiki-Pilot, echter Provider und Replay-Entscheidung fehlen; Fakt-Profil ohne Relevanzschwelle |
-| G3 | teilweise | Consumer-Parität lokal belegt; Patchnotes und Entitäten im Kern (Pilot-DB); Sheet/YouTube, Provider-Exporte und Abschaltung der Direkt-Writer fehlen |
-| G4 | bestanden (lokal) | Lasttest nach Pooling bestanden und im Pre-G5-Review auf neuem Stand wiederholt (600×3 Stufen, Peak 4, 8 Neuverbindungen, 0 too many clients, E2E 18/18); Isolation 54/54; Backup/Restore unverändert belegt |
-| G5, G6 | offen | keine Freigabe, kein Cutover |
+| G0 | teilweise belegt | Das Inventar und der DL-Main-Snapshot vom 26.09. bleiben stichtagsbezogene Nachweise. SLO, Lastprofil und externe Rechte sind nicht freigegeben. |
+| G1 | bestanden (lokal) | Verträge und Kernpfade sind im integrierten Code vorhanden. Abschlussverifikation auf `022f8a9`: alle vier Workspace-Gates Exit 0; Details in `PRE_G5_TECHNICAL_REVIEW.md`. |
+| G2 | teilweise | Offline-Prüfungen und ein lokaler Legacy-Release liegen vor. Wiki-Realpilot, Providerfreigabe und Replayentscheidung fehlen. |
+| G3 | teilweise | Match-, Assets- und Analytics-Pfade sind im Brain-Kern vorhanden. Twitch #984 ist gemergt und nur regressionsgeprüft; Bots #459, Docs #4 und 2nd-Brain #2 sind ungemergt. Steam-Build-Publish-Provider ist offline geprüft und integriert, aber nicht ausgerollt oder publiziert. Patchnotes bleibt Python-Legacy; Legacy-Writer bleiben bis G5 aktiv. |
+| G4 | bestanden (lokal) | Verifikation auf `022f8a9`: vier Workspace-Gates Exit 0, 1.011 passed, 75 ignored; acht ignorierte Fälle separat bestanden. Last 600/600 bei 8/16/32 Workern, Poolmaximum 4. GitHub-CI ist separat nicht vollständig grün und kein Merge-Gate. |
+| G5 | NEIN | Kein Production-Cutover und keine Betreiberfreigabe. |
+| G6 | offen | Betriebskontrolle und Legacy-Ende wurden nicht gestartet. |
 
-`offen` ist nicht `bestanden`. Kein Gate wurde durch Remote-Mocks oder synthetische Fixtures auf bestanden gesetzt.
+## Finale Verifikation und historische Nachweise
 
-## Historie
+Die finale Verifikation lief auf `022f8a981c2164f6d8d4302bae2194e100c4f65c`. Die vier Workspace-Gates waren erfolgreich: Format, Clippy mit `-D warnings`, Workspace-Tests und Release-Build, jeweils Exit 0. Ergebnis: 1.011 passed, 0 failed, 75 ignored, 0 filtered. Acht gezielt aktivierte ignorierte Fälle bestanden separat und sind nicht zu den 1.011 addiert. Im Prozess-E2E wurden bei 8, 16 und 32 Workern jeweils 600/600 Antworten erzielt, bei beobachtetem Poolmaximum 4.
 
-S000 (Chat 00) hat am 24.09.2026 Basis `55776c7` dokumentiert und die Koordinationsartefakte angelegt (`S000_BOOTSTRAP.md`, `handoffs/00-s000-koordination.md`). Die Vorbereitungs-PRs #16 bis #22 und #25 bis #30 sind vollständig in den Completion-Branches bzw. im Integrationsbranch enthalten; ihre Handoffs bleiben als Herkunft unverändert erhalten.
+Die Werte 943, 958 und 980 Workspace-Tests, 18/18 E2E sowie frühere 600-Request-Läufe gehören zu früheren Codeheads. Sie sind keine finale Abnahme von `022f8a9`. Einzelne historische Prüfungen bleiben als damalige Evidenz in [PRE_G5_TECHNICAL_REVIEW.md](PRE_G5_TECHNICAL_REVIEW.md), [FINAL_LOCAL_INTEGRATION_REVIEW.md](FINAL_LOCAL_INTEGRATION_REVIEW.md) und [BRAIN_POSTGRES_ISOLATION.md](BRAIN_POSTGRES_ISOLATION.md) dokumentiert.
+
+Die frische GitHub-CI auf `022f8a9` ist nicht vollständig grün. Im Lauf `36591388159` scheiterten Core-Matrix und integrierte Wiki-, Source- und Replay-Suiten vor Teststart beim Fetch des exakten `haste_core`-Pins `bfb292d4798031350861ad297aa26753267a1ea6`; Core-Job `109485085537` bestätigt den Revision-Fetchfehler. Das ist kein Billing-Fehler. Fehlende Artefakte waren Folgefehler. Scratch-Pilot, Migration composition, Rust compile, Wiki contracts and offline regression sowie integrierte Audit-Checks liefen erfolgreich; Semantic Review wurde übersprungen. Consumer Offline Gate und GitGuardian meldeten FAILURE. Details stehen im Koordinationsbericht `FINAL-CI.md`. GitHub Actions sind kein Merge-Gate. Die `dungers`-Lizenz bleibt unbelegt; lokale Offline-Gates sind keine frische Reproduzierbarkeit.
+
+Datenkopie und Instanzdetails: [BRAIN_DB_MIGRATION_REPORT.md](BRAIN_DB_MIGRATION_REPORT.md), [BRAIN_POSTGRES_ISOLATION.md](BRAIN_POSTGRES_ISOLATION.md). Pfadverantwortung: [PFAD_OWNER.csv](PFAD_OWNER.csv). Genaue Gates: [GATES.csv](GATES.csv).

@@ -1,6 +1,10 @@
 # Brain-Datenmigration aus DL-Main: Bericht
 
-Stand: 26.09.2026. Kopie in die eigene Brain-Instanz, kein Cutover. In DL-Main wurde nichts gelöscht, geändert oder umgestellt.
+Stand des Daten-Snapshots: 26.09.2026. Die folgende Kopie ist ein stichtagsbezogener Migrationsnachweis, kein Cutover und keine Testabnahme des Codeheads `022f8a981c2164f6d8d4302bae2194e100c4f65c`. In DL-Main wurde nichts gelöscht, geändert oder umgestellt.
+
+## Aktuelle Einordnung zum integrierten Codehead
+
+Der Migrationssnapshot belegt weiterhin den Bestand vom 26.09.2026. Der integrierte Brain-Code enthält den privaten, accountgebundenen Matchpfad über API-Adapter, `SourceRecordV2`, normalen Store und Release. Assets-Core deckt V1-Startwerte ab, ohne Sheet-Fallback. Meta und Population sind typisierte Fakten; ihre Quellen belegen keine Patchzugehörigkeit. Die finale Verifikation des Codeheads `022f8a981c2164f6d8d4302bae2194e100c4f65c` ist abgeschlossen: vier Workspace-Gates bestanden, 1.011 passed, 75 ignored; Last 600/600 bei 8, 16 und 32 Workern, Poolmaximum 4. Diese Tests liefen gegen synthetische Fixtures und isolierte Wegwerf-PostgreSQL-Cluster. Sie aktualisieren den DL-Main-Snapshot nicht und erteilen keine Cutover-Freigabe.
 
 ## Quelle und Ziel
 
@@ -51,9 +55,9 @@ Anpassung beim Import: Spaltendefaults `public.gen_random_uuid()` (pgcrypto in D
 | Schema `knowledge` | gehört `dl-knowledge` in Deadlock-Bots |
 | Community-, Discord-, Twitch-, Steam- und Nutzertabellen | nicht Brain |
 
-## Abhängigkeiten zu DL-Main, die einen Vertrag brauchen
+## Historische DL-Main-Abhängigkeiten im Snapshotstand vom 26.09.2026
 
-| Stelle | Richtung | Heute | Nötiger Vertrag |
+| Stelle | Richtung | Stand 26.09.2026 | Nötiger Vertrag |
 |---|---|---|---|
 | `rust/crates/deadlock-brain/src/pg_patchnotes.rs`, `rust/crates/dbrain-sources/src/patchnotes_db.rs`, `dbrain-sources/src/store.rs`, View `patch_changes` | Brain liest `patchnotes.changelog_posts` | direkter SQL-Zugriff mit DL-Main-Credential | Patchnotes-Feed als Source (Export oder API des Patchnotes-Bots mit Post-ID, Titel, URL, Zeitpunkt, Rohtext, Hash) |
 | `rust/crates/dbrain-reasoner/src/publish.rs`, `rust/crates/deadlock-brain/src/main.rs` | Brain schreibt `steam.steam_tasks` (`BUILD_PUBLISH_ORIGINAL`) und liest Status/`hero_build_id` | direkter SQL-Zugriff | Build-Publish-API des Steam-Bots (Auftrag anlegen, Status abfragen, idempotent über Auftrags-ID) |
@@ -63,7 +67,9 @@ Anpassung beim Import: Spaltendefaults `public.gen_random_uuid()` (pgcrypto in D
 
 Keine dieser Stellen wurde mit einem zweiten Credential an DL-Main angebunden.
 
-Stand Pre-G5-Review: Die Brain-Seite der Verträge ist gebaut (`brain.feed.patchnotes.v1` mit Adapter, `brain.build_publish.v1` mit HTTP-Client und Fixture, Deadlock-Assets-API direkt in den Kern statt Bot-Writer; Crate `brain-feeds`). Es fehlen die Provider-Seiten (Export im Patchnotes-Bot, Publish-Endpunkt im Steam-Bot) und die Abschaltung der alten Direktpfade, die zu G5 gehört. Details: [PRE_G5_TECHNICAL_REVIEW.md](PRE_G5_TECHNICAL_REVIEW.md), Abschnitt 4.
+Historischer Stand des Pre-G5-Reviews: Die Brain-Seite der Verträge war gebaut (`brain.feed.patchnotes.v1` mit Adapter, `brain.build_publish.v1` mit HTTP-Client und Fixture, Deadlock-Assets-API direkt in den Kern statt Bot-Writer; Crate `brain-feeds`). Zu diesem Prüfzeitpunkt fehlten die Provider-Seiten (Export im Patchnotes-Bot, Publish-Endpunkt im Steam-Bot) und die Abschaltung der alten Direktpfade, die zu G5 gehört. Details: [PRE_G5_TECHNICAL_REVIEW.md](PRE_G5_TECHNICAL_REVIEW.md), Abschnitt 4.
+
+Aktueller Providerstand vom 29.09.2026: Der Steam-Build-Publish-Provider ist integriert und separat offline geprüft. Patchnotes bleibt Python-Legacy, ein Rust-Provider-Nachfolger ist nicht umgesetzt. Kein Provider wurde ausgerollt oder produktiv aktiviert; die alten Direktpfade bleiben bis G5 bestehen.
 
 ## Vergleich Kernmodell (Records, Revisionen, ACL, Tombstones, Releases, Checkpoints)
 

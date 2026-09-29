@@ -1,0 +1,5 @@
+SQLX_OFFLINE=true
+credential_environment=excluded
+rustc 1.97.1 (8bab26f4f 2026-07-14)
+cargo 1.97.1 (c980f4866 2026-06-30)
+022f8a981c2164f6d8d4302bae2194e100c4f65c

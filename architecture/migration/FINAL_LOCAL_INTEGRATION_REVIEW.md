@@ -1,9 +1,14 @@
-# Finale lokale Integrations- und Review-Notiz (DB-Pooling #49, C9 #50, Consumer)
+# Historische lokale Integrations- und Review-Notiz (Pool, Consumer und frühere Lastläufe)
 
-Stand: 26.09.2026. Integrator: lokale Integrationssession.
-Integrationsbranch: `migration/rust-integration`, eigener Worktree `~/.worktrees/brain-final-local-review-20260926`, Branch `integration/final-local-review-20260926`.
+Historischer Stand: 26.09.2026. Integrator: lokale Integrationssession.
 
-Integrierter Code-Commit: **`ed06e13`** (`a24c80d` = Merge PR #49, `ed06e13` = Merge PR #50, beide auf Basis `3b86d3c`). Dokumentations-Commit: siehe Historie des Branches.
+## Aktueller Geltungsbereich
+
+Der hier dokumentierte Integrations- und Testhead ist `ed06e13`, nicht der aktuelle Codehead `022f8a981c2164f6d8d4302bae2194e100c4f65c`. Der spätere R5-Review erhielt auf `72db816056fb0ed53810ab77ea4417dc0812e7ca` ein unabhängiges A+C-GO und das lokale Gesamtgate ein ALLOW. PR #59 wurde danach regulär zu `022f8a9` integriert. Die finale lokale Verifikation auf `022f8a9` bestand: vier Workspace-Gates Exit 0, 1.011 passed, 0 failed, 75 ignored, 0 filtered; acht zuvor ignorierte Tests separat bestanden; Prozess-E2E 600/600 bei 8, 16 und 32 Workern, Poolmaximum 4. Das ist keine G5- oder Produktionsfreigabe. Frische GitHub-CI blieb separat wegen des nicht abrufbaren exakten `haste_core`-Pins fehlgeschlagen, nicht wegen Billing. GitHub Actions sind kein Merge-Gate.
+
+Alle folgenden Abschnitte sind historische Evidenz ihres jeweiligen Prüfstands. Insbesondere 943 Workspace-Tests, 18/18 E2E und 600-Request-Messungen gelten nicht als aktuelle finale Abnahme.
+
+Integrierter Code-Commit des historischen Reviews: **`ed06e13`** (`a24c80d` = Merge PR #49, `ed06e13` = Merge PR #50, beide auf Basis `3b86d3c`). Dokumentations-Commit: siehe Historie des Branches.
 
 Kein Production-Cutover, keine produktiven Bots/Consumer aktiviert, keine öffentlichen Nachrichten gesendet.
 
@@ -110,7 +115,7 @@ Keine echten Discord-/Twitch-Nachrichten gesendet.
 
 ## 8. DB-Isolation und Backup/Restore
 
-- `ops/brain-postgres/verify-isolation.sh` am 26.09. (nach Integration) erneut: alle Proben PASS, 0 Fehlschläge — `brain_service`/`brain_ingest`/`brain_readonly` erreichen DL-Main weder per Socket noch TCP, kein `postgres_fdw`/`dblink`/Foreign-Server, DL-Main kennt keine Brain-Rolle, DDL-/Owner-/Rollenrechte getrennt.
+- `ops/brain-postgres/verify-isolation.sh` am 26.09. (nach Integration) erneut: alle Proben PASS, 0 Fehlschläge. `brain_service`/`brain_ingest`/`brain_readonly` erreichen DL-Main weder per Socket noch TCP, kein `postgres_fdw`/`dblink`/Foreign-Server, DL-Main kennt keine Brain-Rolle, DDL-/Owner-/Rollenrechte getrennt.
 - Instanz: eigener Prozess (systemd `deadlock-brain-postgresql`), eigener OS-User, eigenes PGDATA `/var/lib/deadlock-brain/postgresql`, eigener Socket `/run/deadlock-brain-postgresql`, Port 5446, eigene Rollen mit Connection-Limits, nur Unix-Socket.
 - Backup: täglich (`deadlock-brain-postgresql-backup.timer`, letzter Lauf Exit 0), Basebacks im `brain-20260926T031943Z`.
 - Restore-Probe frisch ausgeführt: `brain` fingerprint-gleich; `brain_pilot` weicht erwartbar ab, weil der Wegwerf-Pilot heute nach der Sicherung neu befüllt wurde (Runtime-Tabelle `conversation_owners_v1` 279 => 629 durch Last-/Staging-Conversations); Schema-, ACL-, Release-, Tombstone- und übrige Zeilen-Hashes identisch.

@@ -1,0 +1,14 @@
+status: aktiv
+Datum: 2026-09-29
+
+# R5: Gesamtgate-Nachträge abschließend prüfen
+
+Derselbe unabhängige Astra-Reviewer 52c34332 im bestehenden Reviewworktree, keine Unterthreads, keine Produktfixes. Intent 562a877b-0939-440a-964d-1145d9e9431a. Alle Grenzen des AUFTRAG.md gelten. Graphify zuerst. Keine Produktion, Nachrichten, echten APIs, Replays, Secrets oder Integrations-/Main-Merges.
+
+R4 war GO für den bekannten ersten Snapshotbefund. Das lokale Gesamtgate BLOCK auf 6ddeb6c nannte einen zweiten Snapshot nach validate_evidence, der vor Answered die Deadline überschreiten konnte. Nachweis/Scope in MERGE-GATE-A.md im Koordinationsworktree. A34 hat systematisch korrigiert, Head628fc76 mit Code7217246: gemeinsamer finaler Deadlineguard aller erfolgreichen Kernelzweige, Prüfung nach validate_evidence, Wiederverwendung von AnalyticsLookupRequest::validate beim Configladen für effective_window. Neue deterministische Proben prüfen direkten Kernel, CachedKernel/ApiService und HTTP sowie gewöhnliche Fact-/Domain-/Providerzweige. Autor229 Tests grün/13ignoriert, Gesamtgate gegen migration ALLOW. Keine falsche Behauptung, dass HTTP504 allein inneres Answered ausschließt.
+
+A12 zusätzlich abgegeben auf fd89bd0, Code9a33f29: physische NDJSON-Zeilen für Locator erhalten, logische IDs unverändert fortlaufend. Hauptsession hat Delta komplett gelesen und genaue Fixture selbst ausgeführt (1 passed,0failed,0ignored,18filtered). A12-Autor22 Tests einschließlich privatem PG grün. Keine realen Replayabfragen.
+
+Final kombiniert und gepusht im PR59: 72db816056fb0ed53810ab77ea4417dc0812e7ca. Lokaler Reviewmerge dieses Heads ausdrücklich erlaubt. Auf diesem festen Stand die drei Gesamtgate-Nachträge prüfen: (1) langsamer zweiter Snapshot kann keinen erfolgreichen inneren Kernelstatus mehr erzeugen, (2) leeres wirksames Stundenfenster schon beim Configladen abgewiesen, (3) physische NDJSON-Locators mit Leerzeilen stimmen. Für Deadline eine eigene Gegenprobe mit kontrolliert langsamer zweiter Validierung am direkten Kernel und normalen Antwortpfad; nicht nur Autor-Uhrtest wiederholen. Bestehende unabhängige 15Analytics-Fälle beibehalten. Gemeinsame Erfolgszweige/Cache/Flight gegen Regression sichten, keine unbeteiligten Altsysteme erneut auditieren. Scope-/Budget-/Patchgrenzen bleiben wie abgenommen.
+
+Bericht REVIEW-AC-R5.md mit festem SHA, Urteil fertig J/N/Fix nötig J/N und genauen eigenen Läufen. Bei konkretem Defekt blockieren, nicht aufgrund Rundenzahl durchwinken. Bei GO ist das technische Codeabnahme, nicht G5 und nicht finale Workspace-Verifikation. Hauptsession führt zusätzlich lokales Gesamtgate aus und integriert nur nach migration/rust-integration. Bericht nur eigenen Branch committen/pushen. Keine Policyumgehung.

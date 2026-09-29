@@ -1,18 +1,23 @@
 # Eigene PostgreSQL-Instanz für Deadlock Brain
 
-Stand: 26.09.2026, Branch `migration/rust-integration`, zuletzt bereinigt im Pre-G5-Review (`PRE_G5_TECHNICAL_REVIEW.md`). Staging und Vorbereitung, kein Cutover.
-Alle Angaben sind am Host `v50671` gemessen. Secretwerte stehen nirgends in diesem Dokument.
+Stand: 29.09.2026. Die Angaben zur dedizierten Staging-Instanz und zu früheren Prüfständen bleiben an ihren jeweiligen Messzeitpunkt gebunden. Die finale Verifikation auf `022f8a981c2164f6d8d4302bae2194e100c4f65c` lief separat mit isolierten Wegwerf-Clustern und belegt keine Produktionsfreigabe.
+Alle Hostmessungen zur dedizierten Instanz stammen vom Host `v50671`. Secretwerte stehen nirgends in diesem Dokument.
 
-## Ergebnis
+## Abschlussnachweis und Geltungsbereich
 
 | Marker | Wert |
 |---|---|
-| BRAIN_DB_ISOLATED | JA |
-| BRAIN_DATA_MIGRATION_VERIFIED | JA (Alttabellen als Archivkopie `brain_legacy`, 49 Tabellen, 653 476 Zeilen, Zeilenzahl und md5 je Tabelle gleich) |
-| DB_POOLING_VERIFIED | JA (PR #49, `LocalPgReader` als gemeinsamer begrenzter Pool; Nachweis in `FINAL_LOCAL_INTEGRATION_REVIEW.md`, Abschnitt 5) |
-| 600_REQUEST_TEST_PASSED | JA (nach PR #49: 600 Requests je 8/16/32 Worker, Peak-Pool 4, 8 Neuverbindungen je Stufe, 0 „too many clients"). Der frühere Wert NEIN gilt nur für den Stand vor PR #49, siehe unten. |
+| BRAIN_DB_ISOLATED | JA, Infrastrukturprüfung der dedizierten Instanz vom 26.09.2026 |
+| BRAIN_DATA_MIGRATION_VERIFIED | JA, Snapshot vom 26.09.2026: Archivkopie `brain_legacy`, 49 Tabellen, 653 476 Zeilen, Zeilenzahl und md5 je Tabelle gleich |
+| DB_POOLING_VERIFIED | JA, Prozess-E2E auf `022f8a9`; beobachtetes Poolmaximum 4 |
+| 600_REQUEST_TEST_PASSED | JA, `022f8a9`: 600/600 Antworten bei 8, 16 und 32 Workern, Poolmaximum 4 |
+| FINAL_022F8A9_WORKSPACE_GATES | JA, Format, Clippy, Tests und Release-Build jeweils Exit 0 |
+| FINAL_022F8A9_WORKSPACE_TESTS | 1.011 passed, 0 failed, 75 ignored, 0 filtered |
+| FINAL_022F8A9_TARGETED_IGNORED_TESTS | 8 bestanden, separat geprüft und nicht zur Workspace-Summe addiert |
 | PRODUCTION_DB_CUTOVER_READY | NEIN |
 | PRODUCTION_CUTOVER_READY | NEIN |
+
+Die folgenden Konfigurations-, Rollen-, Backup- und Restore-Details beschreiben den dokumentierten Staging-Stand. Die finale Verifikation nutzte temporäre PostgreSQL-16.15-Cluster und prüfte keine Produktionsdatenbank. Historische Werte 18/18 und ältere 600-Request-Messungen sind nicht die aktuellen Werte für `022f8a9`.
 
 ## Instanz
 
@@ -69,7 +74,7 @@ Schema-Version `2`, Store-Contract `brain.store.v2`, aufgebaut ausschließlich m
 
 ## Connection-Architektur und Pool
 
-Aktueller Stand (seit PR #49, `ed06e13`): `LocalPgReader` ist ein gemeinsamer, hart begrenzter Pool (`postgres.max_connections` 1 bis 64, Service-Default 4, begrenzte Acquire-Wartezeit `postgres_pool_wait_ms`, Erschöpfung als `AnswerStatus::Unavailable`). Readiness, Snapshot-, Head-, Retrieval-, Evidenz- und Ownership-Zugriffe teilen ihn; kein connect-per-operation mehr im Anfragepfad. Nachweis: `FINAL_LOCAL_INTEGRATION_REVIEW.md`, Abschnitte 1 und 5.
+Prüfstand `ed06e13` nach PR #49: `LocalPgReader` war ein gemeinsamer, hart begrenzter Pool (`postgres.max_connections` 1 bis 64, Service-Default 4, begrenzte Acquire-Wartezeit `postgres_pool_wait_ms`, Erschöpfung als `AnswerStatus::Unavailable`). Readiness, Snapshot-, Head-, Retrieval-, Evidenz- und Ownership-Zugriffe teilten ihn. Das ist historische Evidenz und kein erneuter Abschlussnachweis auf `022f8a9`; siehe `FINAL_LOCAL_INTEGRATION_REVIEW.md`, Abschnitte 1 und 5.
 
 Historischer Stand vor PR #49 (nur noch Herkunft, nicht mehr gültig):
 
@@ -80,9 +85,9 @@ Historischer Stand vor PR #49 (nur noch Herkunft, nicht mehr gültig):
 
 Damals existierte der Zweig `DB_POOLING_BACKPRESSURE` noch nicht; er kam später als PR #49 und ist integriert.
 
-## Lasttest (600 Requests, neue Instanz, DB `brain_pilot`)
+## Historische Lastmessung auf dem früheren Prüfstand (600 Requests, eigene Instanz, DB `brain_pilot`)
 
-Aktuelles Ergebnis nach PR #49: bestanden, Zahlen in `FINAL_LOCAL_INTEGRATION_REVIEW.md`, Abschnitt 5 (je Stufe 600 answered, Peak-Pool 4 = Limit, 8 neue `brain_service`-Verbindungen, 0 „too many clients", 0 falsche `unauthorized_evidence`, p99 27 / 111 / 174 ms).
+Ergebnis nach PR #49: bestanden. Die Zahlen in `FINAL_LOCAL_INTEGRATION_REVIEW.md`, Abschnitt 5, dokumentieren je Stufe 600 answered, Peak-Pool 4, 8 neue `brain_service`-Verbindungen und 0 „too many clients“. Diese Messung ist keine aktuelle Abnahme von `022f8a9`.
 
 ### Historische Messung vor PR #49 (nicht mehr gültig)
 
@@ -116,11 +121,11 @@ Default-E2E (`scripts/run_isolated_pilot.sh`, echte freigegebene Pilotdokumente 
 
 Siehe Migrationsbericht. Kurz: `patchnotes.changelog_posts` (Lesen), `steam.steam_tasks` (Schreiben und Lesen für Build-Publish) und die Deadlock-Bots-Writer in das Schema `brain` brauchen explizite Feeds oder APIs, bevor Brain nur noch die eigene Instanz nutzt. Es gibt keinen zweiten DL-Main-Zugang für Brain-Rollen.
 
-## Bekannte Blocker
+## Bekannte Blocker und Betriebsgrenzen, Stand 29.09.2026
 
 1. ~~`DB_POOLING_BACKPRESSURE` fehlt~~ Behoben: PR #49 integriert (`ed06e13`), Pool nachgewiesen (600×3 Stufen gegen diese Instanz, Peak 4, 0 „too many clients"); siehe `FINAL_LOCAL_INTEGRATION_REVIEW.md`.
 2. ~~C9-Consumer-Wiring fehlt~~ Behoben: PR #50 integriert (`ed06e13`); Consumer-Staging lokal gegen brain-serve-Staging bestanden (Twitch-Shadow-Fix `d877a9d` in PR #984).
 3. Echter Wiki-Pilot: Rechte- und Lizenzentscheidung für Capture und Raw-Aufbewahrung liegt beim Betreiber. Der Adapter in den normalen Store (`wiki_runtime::stage_into_store`, Batches mit Checkpoint und Lease, kein `wiki_scratch.sql`) ist gebaut; der Scratch-Pfad bleibt nur als Offline-Regression.
-4. Kein freigegebener Provider und Modell, keine freigegebene `.dem` (Produktentscheidung zu Replay in V1 offen).
+4. Kein freigegebener KI-Provider oder Modell für Provider-Shadow und keine freigegebene `.dem`; die Replay-Produktentscheidung bleibt offen.
 5. ~~Kein Konverter Alttabellen nach `SourceRecordV2`~~ Gebaut (`brain-legacy-import`): Patchnotes und Entitäten aus `brain_legacy` als `SourceRecordV2`, Release `legacy-core-f07ea85c09010285` in `brain_pilot_legacy`, `brain-serve` antwortet daraus. Nicht in die produktive DB `brain` importiert (G5). Übrige Tabellen sind nach `PRE_G5_TECHNICAL_REVIEW.md`, Abschnitt 3, eingeordnet.
-6. Brain-Seite der Feeds gebaut (`brain.feed.patchnotes.v1`, `brain.build_publish.v1`, Deadlock-Assets-API nach Kern statt Bot-Writer, Crate `brain-feeds`). Die Provider-Seiten (Export im Patchnotes-Bot, Publish-Endpunkt im Steam-Bot) fehlen noch; die alten Direktpfade laufen bis G5 unverändert.
+6. Providerstatus: Brain-Feed-Verträge und Adapter sind integriert. Die Patchnotes-Providerseite bleibt Python-Legacy, ein Rust-Provider-Nachfolger ist nicht behauptet. Der Steam-Build-Publish-Provider ist integriert und separat offline geprüft. Kein Deployment und kein echter Publish; die Legacy-Direktpfade laufen bis G5 weiter.

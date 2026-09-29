@@ -1,0 +1,20 @@
+Wiki completion artifacts: /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target/wiki-completion.maNj9f
+RUN offline-suite
+EXIT 0 offline-suite
+RUN contracts-source-tests
+EXIT 0 contracts-source-tests
+RUN contracts-source-clippy
+EXIT 0 contracts-source-clippy
+RUN contracts-source-release
+EXIT 0 contracts-source-release
+RUN retained-hero-tests
+EXIT 0 retained-hero-tests
+RUN workspace-all-targets
+EXIT 0 workspace-all-targets
+RUN changed-source-format
+EXIT 0 changed-source-format
+RUN contracts-format
+EXIT 0 contracts-format
+RUN diff-whitespace
+EXIT 0 diff-whitespace
+Wiki completion artifacts: /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target/wiki-completion.maNj9f

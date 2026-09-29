@@ -1,0 +1,90 @@
+    Checking s14-replay-audit v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/architecture/migration/replays/s14/audit)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.25s
+   Compiling s14-replay-audit v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/architecture/migration/replays/s14/audit)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.10s
+     Running unittests src/lib.rs (rust/target/debug/deps/s14_replay_audit-3b2a5e9d109ae356)
+
+running 46 tests
+test tests::absent_capabilities_block ... ok
+test tests::errors_do_not_echo_secret_values ... ok
+test tests::denied_rights_block ... ok
+test tests::holdout_must_be_future_match ... ok
+test tests::derived_requires_algorithm_reference ... ok
+test tests::availability_cannot_precede_match ... ok
+test tests::initially_unknown_patch_cannot_hide_later_conflict ... ok
+test tests::empty_corpus_is_blocked_not_vacuously_green ... ok
+test tests::invalid_enum_rejected ... ok
+test tests::duplicate_case_rejected ... ok
+test tests::invalid_hash_rejected ... ok
+test tests::derived_with_provenance_is_metadata_complete ... ok
+test tests::malformed_columns_rejected ... ok
+test tests::cutoff_is_required ... ok
+test tests::complete_metadata_never_authorizes_integration ... ok
+test tests::crlf_is_supported ... ok
+test tests::conflicting_patch_rejected ... ok
+test tests::duplicate_matches_do_not_expand_population ... ok
+test tests::deterministic_report_under_row_reordering ... ok
+test tests::knowledge_available_after_cutoff_is_leakage ... ok
+test tests::duplicate_capability_rejected ... ok
+test tests::missing_files_block ... ok
+test tests::missing_parser_pin_blocks ... ok
+test tests::oversized_manifest_rejected ... ok
+test tests::parser_upgrade_does_not_create_new_match ... ok
+test tests::correlated_reference_is_not_independent ... ok
+test tests::corrupted_files_block ... ok
+test tests::raw_hash_conflicts_rejected ... ok
+test tests::public_raw_storage_blocks ... ok
+test tests::partial_parser_versions_cannot_be_combined_into_complete_match ... ok
+test tests::missing_patch_is_not_guessed ... ok
+test tests::numeric_overflow_rejected ... ok
+test tests::wrong_header_rejected ... ok
+test tests::synthetic_never_counts_as_real ... ok
+test tests::timeline_requires_time_basis ... ok
+test tests::unavailable_is_not_zero ... ok
+test tests::report_contains_no_match_ids_or_hashes ... ok
+test tests::unknown_case_rejected ... ok
+test tests::match_cannot_cross_holdout_boundary ... ok
+test tests::reference_locator_is_required ... ok
+test tests::unverified_is_not_supported ... ok
+test tests::unknown_time_is_not_epoch_zero ... ok
+test tests::unknown_matches_are_not_reported_as_duplicates ... ok
+test tests::unknown_rights_block ... ok
+test tests::unknown_field_rejected ... ok
+test tests::unknown_units_are_not_guessed ... ok
+
+test result: ok. 46 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/main.rs (rust/target/debug/deps/s14_replay_audit-f84af68fb8a38c6d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cli.rs (rust/target/debug/deps/cli-bc5ad0e3f682ff39)
+
+running 10 tests
+test directory_is_rejected ... ok
+test missing_file_has_redacted_error ... ok
+test help_describes_evidence_boundary ... ok
+test empty_manifest_exits_two_without_false_authorization ... ok
+test invalid_cutoff_is_rejected_before_io ... ok
+test invalid_utf8_is_not_lossily_accepted ... ok
+test malformed_manifest_is_invalid_not_only_blocked ... ok
+test unknown_argument_is_rejected ... ok
+test symlink_is_rejected ... ok
+test oversized_manifest_is_rejected ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+   Doc-tests s14_replay_audit
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Compiling s14-replay-audit v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/architecture/migration/replays/s14/audit)
+    Finished `release` profile [optimized] target(s) in 1.68s
+    Finished `release` profile [optimized] target(s) in 0.02s
+     Running `rust/target/release/s14-replay-audit /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/architecture/migration/replays/s14/audit/../CORPUS.tsv /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/architecture/migration/replays/s14/audit/../CAPABILITIES.tsv`
+{"audit_version":"s14.inventory.v1","status":"blocked","implementation_authorized":false,"integration_verified":false,"manifest_rows":0,"real_matches":0,"complete_matches":0,"synthetic_cases":0,"repeated_match_rows":0,"missing_capabilities":0,"blockers":["both_holdout_partitions_required","corpus_empty","golden_corpus_below_minimum","holdout_cutoff_missing"]}
+S14 preparation checks passed; real replay integration remains blocked.
