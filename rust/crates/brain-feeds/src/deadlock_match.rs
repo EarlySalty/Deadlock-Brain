@@ -656,14 +656,16 @@ pub fn demo_evidence_documents(
         let contract = ir.contract().data;
         let lines: Vec<_> = text
             .lines()
-            .filter(|line| !line.trim().is_empty())
+            .enumerate()
+            .filter(|(_, line)| !line.trim().is_empty())
             .collect();
         if lines.is_empty() || documents.len() + lines.len() > MAX_DEMO_ROWS {
             return Err(FeedError::Quarantined(
                 "demo row count outside bounds".into(),
             ));
         }
-        for (line_index, line) in lines.into_iter().enumerate() {
+        let mut ordinal = 0;
+        for (line_index, line) in lines {
             if line.len() > MAX_DEMO_ROW_BYTES {
                 return Err(FeedError::Quarantined("demo row exceeds byte limit".into()));
             }
@@ -679,7 +681,8 @@ pub fn demo_evidence_documents(
                     )));
                 }
             }
-            let ordinal = line_index + 1;
+            ordinal += 1;
+            let line_number = line_index + 1;
             object.insert("match_id".into(), Value::String(match_id.clone()));
             object.insert("account_id".into(), Value::String(account_id.clone()));
             object.insert("query_name".into(), Value::String(query_name.clone()));
@@ -696,7 +699,7 @@ pub fn demo_evidence_documents(
                 api_version: DEMO_QUERY_VERSION.into(),
                 original_revision: Some(format!("sha256:{}", contract.provenance.raw_sha256)),
             };
-            origin.locator = format!("{}#L{ordinal}", contract.provenance.locator);
+            origin.locator = format!("{}#L{line_number}", contract.provenance.locator);
             origin.parser_revision = DEMO_PARSER_REVISION.into();
             origin.origin_artifacts = BTreeSet::from([format!(
                 "{}@sha256:{}",
@@ -1005,6 +1008,62 @@ mod tests {
             .headers
             .insert("content-type".into(), "text/plain".into());
         assert!(match_metadata_documents(&scope(), wrong_type, &policy()).is_err());
+    }
+
+    #[test]
+    fn demo_ndjson_locators_preserve_physical_line_numbers_across_blank_lines() {
+        let body = b"\n{\"match_id\":92685682,\"account_id\":281768392,\"tick\":10}\n \n{\"match_id\":92685682,\"account_id\":281768392,\"tick\":20}\n";
+        let documents = demo_evidence_documents(
+            &scope(),
+            vec![DemoEvidenceResponse {
+                query_name: "player_state".into(),
+                response: response(
+                    "https://demo-extracts.deadlock-api.com/jobs/blank-lines/result.ndjson",
+                    "application/x-ndjson",
+                    body,
+                ),
+            }],
+            &policy(),
+        )
+        .unwrap();
+
+        assert_eq!(documents.len(), 2);
+        assert_eq!(
+            documents[0].metadata["locator"],
+            "https://demo-extracts.deadlock-api.com/jobs/blank-lines/result.ndjson#L2"
+        );
+        assert_eq!(
+            documents[1].metadata["locator"],
+            "https://demo-extracts.deadlock-api.com/jobs/blank-lines/result.ndjson#L4"
+        );
+        assert_eq!(
+            documents[0].logical_id,
+            "match/92685682/demo/player_state/000001"
+        );
+        assert_eq!(
+            documents[1].logical_id,
+            "match/92685682/demo/player_state/000002"
+        );
+        let first_row: Value = serde_json::from_str(
+            documents[0]
+                .content
+                .split_once("Evidence: ")
+                .unwrap()
+                .1
+                .trim(),
+        )
+        .unwrap();
+        let second_row: Value = serde_json::from_str(
+            documents[1]
+                .content
+                .split_once("Evidence: ")
+                .unwrap()
+                .1
+                .trim(),
+        )
+        .unwrap();
+        assert_eq!(first_row["evidence_id"], "player_state:92685682:000001");
+        assert_eq!(second_row["evidence_id"], "player_state:92685682:000002");
     }
 
     #[test]
