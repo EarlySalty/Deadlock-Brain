@@ -3,7 +3,7 @@ Datum: 2026-09-29
 
 # Review-Register
 
-A+C sind nach unabhängiger R5-Abnahme und lokalem Gesamtgate nach migration/rust-integration integriert (022f8a981c2164f6d8d4302bae2194e100c4f65c). B/D sind technisch abgenommen und bleiben ausdrücklich ungemergt. Steam-Diagnosefix E ist unabhängig abgenommen und ohne Deployment integriert. Vollständige finale Workspaceprüfung läuft noch; G5 und Produktion bleiben gesperrt. Nicht gestartete oder ignorierte Tests zählen nicht als bestanden.
+A+C sind nach unabhängiger R5-Abnahme und lokalem Gesamtgate nach migration/rust-integration integriert (022f8a981c2164f6d8d4302bae2194e100c4f65c). B/D sind technisch abgenommen und bleiben ausdrücklich ungemergt. Steam-Diagnosefix E ist unabhängig abgenommen und ohne Deployment integriert. Vollständige finale Workspaceprüfung ist lokal bestanden; unabhängige Schlussprüfung von Nachweisen und Dokumentation läuft. G5 und Produktion bleiben gesperrt. Nicht gestartete oder ignorierte Tests zählen nicht als bestanden.
 
 ## Aktuelle Nachweise
 
@@ -13,7 +13,7 @@ A+C sind nach unabhängiger R5-Abnahme und lokalem Gesamtgate nach migration/rus
 - REVIEW-C1-NACHTRAG.md: sechs eigene Scratch-/Prozesstests, drei Laststufen600/600, C60-Merge4c962b83; SCRAM-Grenze sichtbar.
 - MERGE-GATE-A.md: Gesamtgate-BLOCK wurde korrigiert, erneutes Gesamtgate auf72db816 ALLOW. Keine Übersteuerung.
 - REVIEW-E.md: ungefilterte Diagnoselogs blockiert, typisierten Fix unabhängig geprüft, Steam82-Mergef509f85e ohne Betriebsänderung.
-- FINAL-VERIFICATION.md folgt vom tatsächlichen Integrationshead022f8a9. Historische grüne Zahlen ersetzen diese Prüfung nicht.
+- FINAL-VERIFICATION.md auf tatsächlichem Integrationshead022f8a9: vier Workspacegates grün,1011Tests/75ignoriert; acht ignorierte Fälle gezielt erfolgreich ausgeführt. Last600/600 je8/16/32,Pool4. Eigene Auswertung der vollständigen Ergebnisblöcke und JSON-Lastwerte bestätigt diese Zahlen. Produktdiff der Abgabe5c7e5b2 leer; übernommen als54b1302. FINAL-REVIEW folgt unabhängig.
 
 ## Bisherige Prüfungen
 
