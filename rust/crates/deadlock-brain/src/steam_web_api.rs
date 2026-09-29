@@ -22,6 +22,7 @@ const TOKEN_ENV_NAMES: [&str; 4] = [
 const CALLER_CLASS: &str = "standard";
 const LEDGER_TIMEOUT: Duration = Duration::from_secs(10);
 const JOURNAL_TABLE: &str = "brain.steam_web_api_pending_observations";
+const JOURNAL_GUARD_ID: i64 = i64::MIN;
 const JOURNAL_LOCK_KEY: i64 = 0x5354_4541_4d4c_4447;
 const JOURNAL_LOCK_WAIT: Duration = Duration::from_secs(120);
 
@@ -132,6 +133,8 @@ impl PendingObservation {
 pub trait ObservationJournal {
     fn lock(&mut self) -> Result<(), String>;
     fn pending(&mut self) -> Result<Vec<PendingObservation>, String>;
+    fn arm(&mut self) -> Result<(), String>;
+    fn disarm(&mut self) -> Result<(), String>;
     fn reserved(&mut self, reservation_id: i64, caller: &str) -> Result<(), String>;
     fn dispatched(&mut self, reservation_id: i64) -> Result<(), String>;
     fn answered(&mut self, observation: &Observation) -> Result<(), String>;
@@ -218,6 +221,32 @@ impl ObservationJournal for PgObservationJournal<'_> {
                 retry_after: row.get(4),
             })
             .collect())
+    }
+
+    fn arm(&mut self) -> Result<(), String> {
+        self.client
+            .execute(
+                "INSERT INTO brain.steam_web_api_pending_observations \
+                 (reservation_id, caller, dispatch_started) VALUES ($1, 'deadlock-brain-guard', true)",
+                &[&JOURNAL_GUARD_ID],
+            )
+            .map(|_| ())
+            .map_err(|_| "Reservierungs-Sperrvermerk nicht speicherbar".to_string())
+    }
+
+    fn disarm(&mut self) -> Result<(), String> {
+        let removed = self
+            .client
+            .execute(
+                "DELETE FROM brain.steam_web_api_pending_observations WHERE reservation_id = $1",
+                &[&JOURNAL_GUARD_ID],
+            )
+            .map_err(|_| "Reservierungs-Sperrvermerk nicht löschbar".to_string())?;
+        if removed == 1 {
+            Ok(())
+        } else {
+            Err("Reservierungs-Sperrvermerk fehlt".to_string())
+        }
     }
 
     fn reserved(&mut self, reservation_id: i64, caller: &str) -> Result<(), String> {
@@ -378,7 +407,7 @@ impl SteamLedger {
                 granted: true,
                 reservation_id: Some(id),
                 ..
-            } => Ok(id),
+            } if id > 0 => Ok(id),
             ReserveResponse {
                 ok: true,
                 granted: false,
@@ -442,6 +471,15 @@ pub fn flush_pending(
     journal: &mut impl ObservationJournal,
 ) -> Result<usize, SteamWebApiError> {
     let pending = journal.pending().map_err(SteamWebApiError::Journal)?;
+    if pending
+        .iter()
+        .any(|entry| entry.reservation_id == JOURNAL_GUARD_ID)
+    {
+        return Err(SteamWebApiError::Journal(
+            "Reservierung ohne bestätigten Journaleintrag; vor weiteren Aufrufen manuell klären"
+                .to_string(),
+        ));
+    }
     if let Some(entry) = pending
         .iter()
         .find(|entry| entry.dispatch_started && !entry.answered)
@@ -478,14 +516,25 @@ pub fn fetch(
         }
     }
 
-    let reservation_id = ledger.reserve(http)?;
+    journal.arm().map_err(SteamWebApiError::Journal)?;
+    let reservation_id = match ledger.reserve(http) {
+        Ok(id) => id,
+        Err(error) => {
+            journal.disarm().map_err(SteamWebApiError::Journal)?;
+            return Err(error);
+        }
+    };
     if let Err(message) = journal.reserved(reservation_id, ledger.caller) {
         let released = ledger.observe(http, &Observation::transport_failure(reservation_id));
         return Err(match released {
-            Ok(()) => SteamWebApiError::Journal(message),
+            Ok(()) => {
+                journal.disarm().map_err(SteamWebApiError::Journal)?;
+                SteamWebApiError::Journal(message)
+            }
             Err(error) => error,
         });
     }
+    journal.disarm().map_err(SteamWebApiError::Journal)?;
 
     journal
         .dispatched(reservation_id)
@@ -554,6 +603,34 @@ mod tests {
 
         fn pending(&mut self) -> Result<Vec<PendingObservation>, String> {
             Ok(self.rows.clone())
+        }
+
+        fn arm(&mut self) -> Result<(), String> {
+            if self
+                .rows
+                .iter()
+                .any(|row| row.reservation_id == JOURNAL_GUARD_ID)
+            {
+                return Err("guard already armed".to_string());
+            }
+            self.rows.push(PendingObservation {
+                reservation_id: JOURNAL_GUARD_ID,
+                dispatch_started: true,
+                answered: false,
+                http_status: None,
+                retry_after: None,
+            });
+            Ok(())
+        }
+
+        fn disarm(&mut self) -> Result<(), String> {
+            let index = self
+                .rows
+                .iter()
+                .position(|row| row.reservation_id == JOURNAL_GUARD_ID)
+                .ok_or_else(|| "guard missing".to_string())?;
+            self.rows.remove(index);
+            Ok(())
         }
 
         fn reserved(&mut self, reservation_id: i64, _caller: &str) -> Result<(), String> {
@@ -1333,6 +1410,21 @@ mod tests {
             .unwrap()
             .iter()
             .all(|row| row.reservation_id >= 0));
+        journal.arm().unwrap();
+        drop(journal);
+        drop(second);
+
+        let mut restarted = Client::connect(&dsn, postgres::NoTls).unwrap();
+        let mut journal = PgObservationJournal::open(&mut restarted).unwrap();
+        journal.lock().unwrap();
+        let error = flush_pending(&http, &ledger(&closed_url()), &mut journal).unwrap_err();
+        assert!(matches!(error, SteamWebApiError::Journal(_)));
+        assert!(journal
+            .pending()
+            .unwrap()
+            .iter()
+            .any(|row| row.reservation_id == JOURNAL_GUARD_ID));
+        journal.disarm().unwrap();
     }
 
     #[test]
@@ -1361,6 +1453,44 @@ mod tests {
             json(&ledger_mock.finish()[1].body),
             json(r#"{"reservation_id":31,"http_status":200}"#)
         );
+    }
+
+    #[test]
+    fn failed_reservation_write_and_observation_leave_a_restart_guard() {
+        let (http, _dir) = client();
+        let failing = Mock::start(vec![granted(32)]);
+        let steam = Mock::start(Vec::new());
+        let url = format!("{}/news", steam.url);
+        let mut journal = MemoryJournal {
+            fail_reserved: true,
+            ..MemoryJournal::default()
+        };
+
+        let error = fetch(
+            &http,
+            &ledger(&failing.url),
+            &mut journal,
+            &url,
+            &steam_options(),
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, SteamWebApiError::Ledger(_)));
+        assert_eq!(failing.finish().len(), 1);
+        assert!(steam.finish().is_empty());
+        assert_eq!(journal.rows.len(), 1);
+        assert_eq!(journal.rows[0].reservation_id, JOURNAL_GUARD_ID);
+
+        let after_restart = fetch(
+            &http,
+            &ledger(&closed_url()),
+            &mut journal,
+            &url,
+            &steam_options(),
+        )
+        .unwrap_err();
+        assert!(matches!(after_restart, SteamWebApiError::Journal(_)));
+        assert_eq!(journal.rows[0].reservation_id, JOURNAL_GUARD_ID);
     }
 
     #[test]
