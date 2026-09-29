@@ -189,12 +189,12 @@ impl DeadlockAnalyticsClient {
         deadline: Instant,
     ) -> Result<AnalyticsObservation> {
         request.validate()?;
+        let url = self.url(request);
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             return Err(SourcesError::invalid_input("analytics deadline exhausted"));
         }
-        let url = self.url(request);
-        let response = self.http.get_bounded(
+        let response = self.http.get_bounded_until(
             &url,
             SourceHttpOptions {
                 max_bytes: MAX_RESPONSE_BYTES,
@@ -205,8 +205,13 @@ impl DeadlockAnalyticsClient {
                 max_retry_wait: Duration::from_secs(2),
                 headers: vec![("Accept".into(), "application/json".into())],
             },
+            deadline,
         )?;
-        prepare_analytics_response(request, response)
+        let observation = prepare_analytics_response(request, response)?;
+        if Instant::now() >= deadline {
+            return Err(SourcesError::invalid_input("analytics deadline exhausted"));
+        }
+        Ok(observation)
     }
 
     fn url(&self, request: &AnalyticsLookupRequest) -> String {

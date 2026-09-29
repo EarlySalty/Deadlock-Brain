@@ -79,6 +79,24 @@ impl HttpClient {
     /// Uses the common client, without the URL-only legacy cache (which cannot
     /// represent request headers, source validators and original fetch time).
     pub fn get_bounded(&self, url: &str, options: SourceHttpOptions) -> Result<SourceHttpResponse> {
+        self.get_bounded_inner(url, options, None)
+    }
+
+    pub fn get_bounded_until(
+        &self,
+        url: &str,
+        options: SourceHttpOptions,
+        deadline: Instant,
+    ) -> Result<SourceHttpResponse> {
+        self.get_bounded_inner(url, options, Some(deadline))
+    }
+
+    fn get_bounded_inner(
+        &self,
+        url: &str,
+        options: SourceHttpOptions,
+        deadline: Option<Instant>,
+    ) -> Result<SourceHttpResponse> {
         if options.max_bytes == 0
             || options.max_bytes > 64 * 1024 * 1024
             || !(1..=8).contains(&options.attempts)
@@ -98,32 +116,51 @@ impl HttpClient {
                 "source URL must be HTTP(S), without credentials or fragment",
             ));
         }
-        run_on_http_thread(|| self.fetch_bounded(url, &options))
+        run_on_http_thread(|| self.fetch_bounded(url, &options, deadline))
     }
 
-    fn fetch_bounded(&self, url: &str, options: &SourceHttpOptions) -> Result<SourceHttpResponse> {
-        let started = Instant::now();
+    fn fetch_bounded(
+        &self,
+        url: &str,
+        options: &SourceHttpOptions,
+        deadline: Option<Instant>,
+    ) -> Result<SourceHttpResponse> {
+        self.fetch_bounded_with_clock(url, options, deadline, Instant::now)
+    }
+
+    fn fetch_bounded_with_clock(
+        &self,
+        url: &str,
+        options: &SourceHttpOptions,
+        deadline: Option<Instant>,
+        now: impl Fn() -> Instant,
+    ) -> Result<SourceHttpResponse> {
+        let started = now();
         for attempt in 1..=options.attempts {
-            let remaining = options.total_timeout.saturating_sub(started.elapsed());
+            let remaining = remaining_budget(started, options, deadline, now());
             if remaining.is_zero() {
                 return Err(bounded_error("source HTTP total timeout"));
             }
-            let mut request = self
-                .bounded_source_client
-                .get(url)
-                .timeout(options.request_timeout.min(remaining));
+            let mut request = self.bounded_source_client.get(url);
             for (name, value) in &options.headers {
                 request = request.header(name, value);
             }
             // The bounded source policy has all transparent decoding disabled.
             request = request.header(ACCEPT_ENCODING, "identity");
-            let response = match request.send() {
+            let remaining = remaining_budget(started, options, deadline, now());
+            if remaining.is_zero() {
+                return Err(bounded_error("source HTTP total timeout"));
+            }
+            let response = match request
+                .timeout(options.request_timeout.min(remaining))
+                .send()
+            {
                 Ok(response) => response,
                 Err(error) => {
                     let delay = options.backoff.saturating_mul(attempt as u32);
                     if attempt == options.attempts
                         || !(error.is_timeout() || error.is_connect())
-                        || !can_wait(delay, started, options)
+                        || !can_wait(delay, started, options, deadline, now())
                     {
                         return Err(error.into());
                     }
@@ -190,7 +227,7 @@ impl HttpClient {
                 },
                 None => options.backoff.saturating_mul(attempt as u32),
             };
-            if !can_wait(delay, started, options) {
+            if !can_wait(delay, started, options, deadline, now()) {
                 return Ok(result);
             }
             thread::sleep(delay);
@@ -199,9 +236,28 @@ impl HttpClient {
     }
 }
 
-fn can_wait(delay: Duration, started: Instant, options: &SourceHttpOptions) -> bool {
-    delay <= options.max_retry_wait
-        && delay < options.total_timeout.saturating_sub(started.elapsed())
+fn remaining_budget(
+    started: Instant,
+    options: &SourceHttpOptions,
+    deadline: Option<Instant>,
+    now: Instant,
+) -> Duration {
+    let remaining = options
+        .total_timeout
+        .saturating_sub(now.saturating_duration_since(started));
+    deadline.map_or(remaining, |deadline| {
+        remaining.min(deadline.saturating_duration_since(now))
+    })
+}
+
+fn can_wait(
+    delay: Duration,
+    started: Instant,
+    options: &SourceHttpOptions,
+    deadline: Option<Instant>,
+    now: Instant,
+) -> bool {
+    delay <= options.max_retry_wait && delay < remaining_budget(started, options, deadline, now)
 }
 
 fn retry_after(value: &str, now: i64) -> Option<Duration> {
@@ -217,7 +273,14 @@ fn retry_after(value: &str, now: i64) -> Option<Duration> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{io::Write, net::TcpListener};
+    use std::{
+        io::Write,
+        net::TcpListener,
+        sync::{
+            atomic::{AtomicU64, Ordering},
+            Arc,
+        },
+    };
     fn serve(responses: Vec<Vec<u8>>) -> (String, thread::JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
@@ -320,6 +383,62 @@ mod tests {
             assert!(result.ensure_success().is_err());
         }
     }
+    #[test]
+    fn expired_absolute_deadline_never_connects() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let url = format!("http://{}/source", listener.local_addr().unwrap());
+        let (_dir, http) = client();
+        assert!(http
+            .get_bounded_until(&url, SourceHttpOptions::default(), Instant::now())
+            .is_err());
+        assert!(matches!(
+            listener.accept(),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock
+        ));
+    }
+
+    #[test]
+    fn absolute_deadline_blocks_retry_after_first_response() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/source", listener.local_addr().unwrap());
+        let elapsed_ms = Arc::new(AtomicU64::new(0));
+        let observed = elapsed_ms.clone();
+        let options = SourceHttpOptions {
+            backoff: Duration::ZERO,
+            ..Default::default()
+        };
+        let advance_ms = options.total_timeout.as_millis() as u64 + 1;
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut bytes = [0u8; 4096];
+            assert!(stream.read(&mut bytes).unwrap() > 0);
+            observed.store(advance_ms, Ordering::SeqCst);
+            stream
+                .write_all(&response("503 Service Unavailable", "", b"busy"))
+                .unwrap();
+            listener.set_nonblocking(true).unwrap();
+            listener
+        });
+        let (_dir, http) = client();
+        let started = Instant::now();
+        let result = http
+            .fetch_bounded_with_clock(
+                &url,
+                &options,
+                Some(started + options.total_timeout),
+                || started + Duration::from_millis(elapsed_ms.load(Ordering::SeqCst)),
+            )
+            .unwrap();
+        let listener = server.join().unwrap();
+        assert_eq!(result.status, 503);
+        assert_eq!(result.attempts, 1);
+        assert!(matches!(
+            listener.accept(),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock
+        ));
+    }
+
     #[test]
     fn redirects_and_client_errors_are_not_retried() {
         for status in ["302 Found", "404 Not Found"] {

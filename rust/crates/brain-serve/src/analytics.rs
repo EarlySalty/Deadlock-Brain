@@ -237,9 +237,25 @@ impl<S: SnapshotReadPort> AnalyticsRetriever<S> {
         context: &AuthorizedContext,
         target: AnalyticsTarget,
     ) -> Result<(Vec<Evidence>, Usage), PortError> {
+        self.retrieve_analytics_with_clock(query, context, target, Instant::now)
+    }
+
+    fn retrieve_analytics_with_clock(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        target: AnalyticsTarget,
+        now: impl Fn() -> Instant,
+    ) -> Result<(Vec<Evidence>, Usage), PortError> {
         let Some(runtime) = self.analytics.as_ref() else {
             return Ok((Vec::new(), Usage::default()));
         };
+        let deadline = now()
+            + Duration::from_millis(
+                context
+                    .deadline_ms
+                    .min(runtime.config.request_timeout_ms.saturating_mul(2)),
+            );
         if !query.requested_scopes.contains("analytics.internal")
             || !context.principal.scopes.contains("analytics.internal")
         {
@@ -248,6 +264,9 @@ impl<S: SnapshotReadPort> AnalyticsRetriever<S> {
             ));
         }
         let release = self.release.snapshot(query, context)?;
+        if now() >= deadline {
+            return Err(PortError::BudgetExceeded);
+        }
         if release.release.patch != runtime.config.patch {
             return Ok((Vec::new(), Usage::default()));
         }
@@ -263,12 +282,9 @@ impl<S: SnapshotReadPort> AnalyticsRetriever<S> {
             .clone()
             .try_acquire_owned()
             .map_err(|_| PortError::Unavailable("analytics capacity unavailable".into()))?;
-        let deadline = Instant::now()
-            + Duration::from_millis(
-                context
-                    .deadline_ms
-                    .min(runtime.config.request_timeout_ms.saturating_mul(2)),
-            );
+        if now() >= deadline {
+            return Err(PortError::BudgetExceeded);
+        }
         let hero_id = match target {
             AnalyticsTarget::Meta { hero_id } | AnalyticsTarget::Population { hero_id, .. } => {
                 hero_id
@@ -287,6 +303,9 @@ impl<S: SnapshotReadPort> AnalyticsRetriever<S> {
             .client
             .lookup_with_deadline(&request(AnalyticsKind::Meta, None), deadline)
             .map_err(|_| PortError::Unavailable("analytics meta lookup failed".into()))?;
+        if now() >= deadline {
+            return Err(PortError::BudgetExceeded);
+        }
         let population = if let AnalyticsTarget::Population { item_id, .. } = target {
             Some(
                 runtime
@@ -302,6 +321,9 @@ impl<S: SnapshotReadPort> AnalyticsRetriever<S> {
         } else {
             None
         };
+        if now() >= deadline {
+            return Err(PortError::BudgetExceeded);
+        }
         let usage = Usage {
             network_rounds: (meta.provenance.attempts
                 + population
@@ -472,6 +494,16 @@ async fn lookup(
             Json(json!({"error": "analytics_request_rejected"})),
         );
     }
+    if tokio::time::Instant::now() >= deadline {
+        eprintln!(
+            "{}",
+            json!({"event": "analytics_lookup", "class": "deadline"})
+        );
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "analytics_unavailable"})),
+        );
+    }
     let Ok(Ok(permit)) =
         tokio::time::timeout_at(deadline, runtime.slots.clone().acquire_owned()).await
     else {
@@ -484,13 +516,35 @@ async fn lookup(
             Json(json!({"error": "analytics_busy"})),
         );
     };
+    if tokio::time::Instant::now() >= deadline {
+        eprintln!(
+            "{}",
+            json!({"event": "analytics_lookup", "class": "deadline"})
+        );
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "analytics_unavailable"})),
+        );
+    }
     let client = runtime.client.clone();
     let task = tokio::task::spawn_blocking(move || {
         let _permit = permit;
         client.lookup_with_deadline(&request, deadline.into_std())
     });
     match tokio::time::timeout_at(deadline, task).await {
-        Ok(Ok(Ok(observation))) => (StatusCode::OK, Json(json!(observation))),
+        Ok(Ok(Ok(observation))) if tokio::time::Instant::now() < deadline => {
+            (StatusCode::OK, Json(json!(observation)))
+        }
+        Ok(Ok(Ok(_))) => {
+            eprintln!(
+                "{}",
+                json!({"event": "analytics_lookup", "class": "deadline"})
+            );
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({"error": "analytics_unavailable"})),
+            )
+        }
         result => {
             let class = match result {
                 Err(_) => "deadline",
@@ -511,8 +565,8 @@ async fn lookup(
 mod tests {
     use super::*;
     use brain_contracts::{
-        AnswerProviderPort, AnswerStatus, Budget, CorpusRelease, CorpusSnapshot, ProviderAnswer,
-        PublicAnswerResponse,
+        AnswerProviderPort, AnswerStatus, Budget, CorpusRelease, CorpusSnapshot, Principal,
+        ProviderAnswer, PublicAnswerResponse,
     };
     use brain_kernel::{CachedKernel, Kernel};
     use brain_policy::{AuthGrant, PolicyEngine};
@@ -521,7 +575,7 @@ mod tests {
         collections::BTreeSet,
         io::{Read, Write},
         net::TcpListener,
-        sync::atomic::{AtomicUsize, Ordering},
+        sync::atomic::{AtomicU64, AtomicUsize, Ordering},
         thread,
     };
 
@@ -566,6 +620,20 @@ mod tests {
         }
     }
 
+    struct AdvancingSnapshot {
+        elapsed_ms: Arc<AtomicU64>,
+        advance_ms: u64,
+        reads: Arc<AtomicUsize>,
+    }
+
+    impl SnapshotReadPort for AdvancingSnapshot {
+        fn read_snapshot(&self, release_id: &str) -> Result<CorpusSnapshot, PortError> {
+            self.reads.fetch_add(1, Ordering::SeqCst);
+            self.elapsed_ms.store(self.advance_ms, Ordering::SeqCst);
+            FixedSnapshot.read_snapshot(release_id)
+        }
+    }
+
     struct DeniedProvider(Arc<AtomicUsize>);
 
     impl AnswerProviderPort for DeniedProvider {
@@ -597,6 +665,74 @@ mod tests {
             patch: None,
             mode: None,
         }
+    }
+
+    #[test]
+    fn snapshot_exhaustion_never_starts_meta_or_population_http() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let mut runtime = runtime();
+        let budget_ms = runtime.config.request_timeout_ms.saturating_mul(2);
+        let http = dbrain_sources::core::http::HttpClient::new(
+            "brain-serve-snapshot-deadline-fixture",
+            runtime._scratch.path(),
+        )
+        .unwrap();
+        runtime.client = DeadlockAnalyticsClient::with_base_url(
+            http,
+            format!("http://{}", listener.local_addr().unwrap()),
+            Duration::from_millis(runtime.config.request_timeout_ms),
+        )
+        .unwrap();
+        let analytics = Arc::new(runtime);
+        let elapsed_ms = Arc::new(AtomicU64::new(0));
+        let reads = Arc::new(AtomicUsize::new(0));
+        let context = AuthorizedContext {
+            principal: Principal {
+                actor_id: "fixture-actor".into(),
+                channel: "fixture-channel".into(),
+                scopes: BTreeSet::from(["analytics.internal".into()]),
+                provider_egress: BTreeSet::new(),
+            },
+            conversation_id: "fixture-conversation".into(),
+            knowledge_release: "fixture-release".into(),
+            deadline_ms: budget_ms,
+            budget: Budget::default(),
+        };
+        for target in [
+            AnalyticsTarget::Meta { hero_id: 18 },
+            AnalyticsTarget::Population {
+                hero_id: 18,
+                item_id: 42,
+            },
+        ] {
+            elapsed_ms.store(0, Ordering::SeqCst);
+            let retrieval = AnalyticsRetriever::new(
+                ReleaseRetriever::new(
+                    AdvancingSnapshot {
+                        elapsed_ms: elapsed_ms.clone(),
+                        advance_ms: budget_ms + 1,
+                        reads: reads.clone(),
+                    },
+                    8,
+                ),
+                Some(analytics.clone()),
+            );
+            let started = Instant::now();
+            let result = retrieval.retrieve_analytics_with_clock(
+                &answer_query(META_PREDICATE),
+                &context,
+                target,
+                || started + Duration::from_millis(elapsed_ms.load(Ordering::SeqCst)),
+            );
+            assert!(matches!(result, Err(PortError::BudgetExceeded)));
+            assert_eq!(analytics.slots.available_permits(), 4);
+            assert!(matches!(
+                listener.accept(),
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock
+            ));
+        }
+        assert_eq!(reads.load(Ordering::SeqCst), 2);
     }
 
     #[test]
