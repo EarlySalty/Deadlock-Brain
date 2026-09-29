@@ -3,6 +3,14 @@ Datum: 2026-09-29
 
 # A34: fachliche Analytics-Anbindung und Gesamtdeadline
 
+## Nachtrag R3: Deadline nach langsamem Snapshot
+
+Reviewer meldet am 2026-09-29 um 13:42 UTC eine unabhängige reproduzierte Restlücke A4: Nach einer langsamen Snapshot-Abfrage, die das gesamte Requestbudget verbraucht hat, startet Analytics trotzdem einen neuen HTTP-Request. Quellenfilter, Zählersemantik, normale Antworten, Patch-Ablehnung, Scope-Isolation und Cachewechsel haben die ersten unabhängigen Gegenproben bestanden. Konkreter R3-Bericht folgt im Reviewworktree /home/nathanael/.worktrees/brain-pre-g5-core-review-20260929/.tasks/2026-09-29-technical-closeout/REVIEW-AC-R3.md.
+
+Diesen verbleibenden Deadlinepfad systematisch prüfen und korrigieren, nicht nur den beobachteten Einzelaufruf. Deadline vor jeder möglicherweise blockierenden Vorarbeit setzen und dieselbe Restzeit weitergeben. Nach Ablauf keine neue Netzwerkanfrage oder Retry starten. Langsamen Release-/Snapshot-Leseweg in deterministischer lokaler Gegenprobe nachbilden; keinen echten DB-Ausfall oder Produktionsaufruf verwenden. Vorhandene Queuefälle und positive Antworten müssen bestehen bleiben. Keine Budgeterhöhung, keine neue Timeout-Konstante.
+
+Weiterarbeit auf demselben Worktree/Branch, jetzt c424566dcac4d050fb2426f352703fb2b2a42dea: Orchestrator hat nach deiner Abgabe A12 8a865d3 konfliktfrei in deinen Branch aufgenommen und gepusht. A12-Dateien bleiben unverändert. Nur A4 korrigieren, Bericht ergänzen, passende Tests/Selbstgate und Push; nicht eigenständig mergen.
+
 Sol, Fortsetzung des bestehenden A-Threads 66adf9ee. Kein Neubeginn. Einziger schreibender Thread für A34, keine Unterthreads oder Unteragenten. Intent 562a877b-0939-440a-964d-1145d9e9431a. Hauptauftrag AUFTRAG.md gilt, keine Code-Kommentare, Graphify zuerst. Keine Produktion, echten personenbezogenen API-Abfragen, Downloads oder neuen Modellanbieter. Keine Erhöhung von Budgets/Verbindungen. Nur eigener Branch committen/pushen, PR #59 bleibt gegen migration/rust-integration, nicht selbst mergen.
 
 Bestehender eigener Worktree /home/nathanael/.worktrees/brain-pre-g5-finalize-20260929, Branch integration/pre-g5-finalize-20260929, zuletzt clean auf 34a2507. Unabhängiger Review e5de1dd in /home/nathanael/.worktrees/brain-technical-closeout-20260929/.tasks/2026-09-29-technical-closeout/REVIEW-AC.md. A ist BLOCK trotz vorigem Selbst-ALLOW. Bearbeite ausschließlich R-AC-A3 und A4; A1/A2 gehen gleichzeitig an Luna auf getrenntem Match-Branch.
