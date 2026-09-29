@@ -7,7 +7,7 @@ use std::{
 
 use reqwest::{
     blocking::{Client, RequestBuilder},
-    header::{HeaderName, HeaderValue, CONTENT_TYPE},
+    header::{HeaderName, HeaderValue, CONTENT_TYPE, RETRY_AFTER},
     StatusCode,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -69,6 +69,13 @@ impl HttpResult {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HttpAttempt {
+    pub status: StatusCode,
+    pub retry_after: Option<String>,
+    pub result: Option<HttpResult>,
+}
+
 #[derive(Debug, Clone)]
 pub struct HttpClient {
     client: Client,
@@ -126,6 +133,39 @@ impl HttpClient {
         self.get(url, options)?.json()
     }
 
+    pub fn get_single_attempt(&self, url: &str, options: &HttpGetOptions) -> Result<HttpAttempt> {
+        run_on_http_thread(|| {
+            let mut request = self.no_redirect_client.get(url).timeout(options.timeout);
+            for (name, value) in &options.headers {
+                let (name, value) = header_pair(name, value)?;
+                request = request.header(name, value);
+            }
+            let response = request.send()?;
+            let status = response.status();
+            let retry_after = response
+                .headers()
+                .get(RETRY_AFTER)
+                .map(|value| String::from_utf8_lossy(value.as_bytes()).into_owned());
+            let content_type = response
+                .headers()
+                .get(CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+            let result = response.bytes().ok().map(|content| HttpResult {
+                url: url.to_string(),
+                content: content.to_vec(),
+                from_cache: false,
+                content_type,
+            });
+            Ok(HttpAttempt {
+                status,
+                retry_after,
+                result,
+            })
+        })
+    }
+
     pub fn get_no_redirect(&self, url: &str, options: HttpGetOptions) -> Result<HttpResult> {
         run_on_http_thread(|| {
             self.fetch_with_retry(url, &options, || self.no_redirect_client.get(url))
@@ -142,6 +182,23 @@ impl HttpClient {
         run_on_http_thread(|| {
             self.fetch_with_retry(url, &options, || {
                 self.client
+                    .post(url)
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(body.clone())
+            })
+        })
+    }
+
+    pub fn post_json_no_redirect<T: Serialize>(
+        &self,
+        url: &str,
+        body: &T,
+        options: HttpGetOptions,
+    ) -> Result<HttpResult> {
+        let body = serde_json::to_vec(body)?;
+        run_on_http_thread(|| {
+            self.fetch_with_retry(url, &options, || {
+                self.no_redirect_client
                     .post(url)
                     .header(CONTENT_TYPE, "application/json")
                     .body(body.clone())
@@ -194,17 +251,7 @@ impl HttpClient {
     ) -> Result<HttpResult> {
         let mut request = request.timeout(options.timeout);
         for (name, value) in &options.headers {
-            let header_name = HeaderName::from_bytes(name.as_bytes()).map_err(|error| {
-                CoreError::InvalidHeader {
-                    name: name.clone(),
-                    message: error.to_string(),
-                }
-            })?;
-            let header_value =
-                HeaderValue::from_str(value).map_err(|error| CoreError::InvalidHeader {
-                    name: name.clone(),
-                    message: error.to_string(),
-                })?;
+            let (header_name, header_value) = header_pair(name, value)?;
             request = request.header(header_name, header_value);
         }
 
@@ -261,7 +308,7 @@ impl HttpClient {
         }))
     }
 
-    fn write_cache(&self, result: &HttpResult) -> Result<()> {
+    pub fn write_cache(&self, result: &HttpResult) -> Result<()> {
         let cache_path = self.cache_path(&result.url);
         fs::write(&cache_path, &result.content)?;
         fs::write(
@@ -279,6 +326,21 @@ impl HttpClient {
         let digest = hex::encode(Sha256::digest(url.as_bytes()));
         self.cache_dir.join(format!("{digest}.bin"))
     }
+}
+
+fn header_pair(name: &str, value: &str) -> Result<(HeaderName, HeaderValue)> {
+    let header_name =
+        HeaderName::from_bytes(name.as_bytes()).map_err(|error| CoreError::InvalidHeader {
+            name: name.to_string(),
+            message: error.to_string(),
+        })?;
+    let mut header_value =
+        HeaderValue::from_str(value).map_err(|error| CoreError::InvalidHeader {
+            name: name.to_string(),
+            message: error.to_string(),
+        })?;
+    header_value.set_sensitive(true);
+    Ok((header_name, header_value))
 }
 
 fn run_on_http_thread<T>(operation: impl FnOnce() -> Result<T> + Send) -> Result<T>
@@ -374,7 +436,8 @@ mod tests {
             let (mut stream, _) = listener.accept().unwrap();
             let mut request = [0_u8; 1024];
             assert!(stream.read(&mut request).unwrap() > 0);
-            let body = "<feed xmlns=\"http://www.w3.org/2005/Atom\"><title>r/Deadlock</title></feed>";
+            let body =
+                "<feed xmlns=\"http://www.w3.org/2005/Atom\"><title>r/Deadlock</title></feed>";
             write!(
                 stream,
                 "HTTP/1.1 403 Forbidden\r\nContent-Type: application/atom+xml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -396,7 +459,10 @@ mod tests {
             .unwrap();
         server.join().unwrap();
         assert!(result.text().contains("r/Deadlock"));
-        assert!(std::fs::read_dir(cache_dir.path()).unwrap().next().is_none());
+        assert!(std::fs::read_dir(cache_dir.path())
+            .unwrap()
+            .next()
+            .is_none());
     }
 
     #[test]
