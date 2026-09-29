@@ -3,12 +3,22 @@ Datum: 2026-09-29
 
 # Review-Register
 
-Kein Paket ist bisher zur Integration freigegeben. Ein nicht gestarteter oder ignorierter Test zählt nicht als bestanden. Alle späteren Urteile müssen den exakt geprüften Head und die Basis nennen.
+A+C sind nach unabhängiger R5-Abnahme und lokalem Gesamtgate nach migration/rust-integration integriert (022f8a981c2164f6d8d4302bae2194e100c4f65c). B/D sind technisch abgenommen und bleiben ausdrücklich ungemergt. Steam-Diagnosefix E ist unabhängig abgenommen und ohne Deployment integriert. Vollständige finale Workspaceprüfung läuft noch; G5 und Produktion bleiben gesperrt. Nicht gestartete oder ignorierte Tests zählen nicht als bestanden.
+
+## Aktuelle Nachweise
+
+- REVIEW-BD.md: unabhängiges GO, 106 eigene Tests, keine Consumer-Mergefreigabe.
+- REVIEW-AC.md und REVIEW-AC-R2.md: ursprüngliche A1 bis A4 und C1, bestätigte Gegenproben und Reparaturen.
+- REVIEW-AC-R3.md bis REVIEW-AC-R5.md: tatsächlicher API-Vertrag, normale Analytics-Anbindung, Deadline vor erstem und nach zweitem Snapshot, Quellenzeilen; finales R5-GO auf72db816 mit182Tests/5ignoriert plus26eigenen Gegenprüfungen.
+- REVIEW-C1-NACHTRAG.md: sechs eigene Scratch-/Prozesstests, drei Laststufen600/600, C60-Merge4c962b83; SCRAM-Grenze sichtbar.
+- MERGE-GATE-A.md: Gesamtgate-BLOCK wurde korrigiert, erneutes Gesamtgate auf72db816 ALLOW. Keine Übersteuerung.
+- REVIEW-E.md: ungefilterte Diagnoselogs blockiert, typisierten Fix unabhängig geprüft, Steam82-Mergef509f85e ohne Betriebsänderung.
+- FINAL-VERIFICATION.md folgt vom tatsächlichen Integrationshead022f8a9. Historische grüne Zahlen ersetzen diese Prüfung nicht.
 
 ## Bisherige Prüfungen
 
 - Koordinationscommit 80129bd gegen origin/migration/rust-integration: lokales gate_hook.py --review --codex-astra, Exit 0, Ausgabe `ALLOW: no reviewable changes`. Das ist KEIN inhaltliches unabhängiges Code-Review.
-- PR #57 ist Draft. Neue CI-Läufe 36550365750 und 36550365924 scheitern beim Bezug von haste_core bfb292d4798031350861ad297aa26753267a1ea6 aus einem Repository mit HTTP 404. Kein Billing-Befund. Paket G repariert die Reproduzierbarkeit bei unveränderten Pins.
+- PR #57 ist Draft. Neue CI-Läufe 36550365750 und 36550365924 scheitern beim Bezug von haste_core bfb292d4798031350861ad297aa26753267a1ea6 aus einem Repository mit HTTP 404. Kein Billing-Befund. Die anschließende G-Prüfung belegt eine externe Quellzugangs-/Lizenzgrenze bei unveränderten Pins, siehe G-REPORT.md. FINAL-CI.md bestätigt den Erwerbfehler auf dem integrierten Codehead 022f8a9 erneut.
 - Keine Branch Protection und keine Branch Rules für migration/rust-integration von GitHub gemeldet. Diese Beobachtung hebt weder Nutzergrenzen noch lokalen Merge-Gate noch die unabhängige Reviewpflicht auf. Kein --admin/Policy-Bypass.
 
 ## Annahmekriterien für die unabhängigen Reviews

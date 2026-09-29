@@ -19,7 +19,9 @@ Gemeinsamer Vertrag: AUFTRAG.md. Nur Orchestrator integriert nach unabhängigem 
 
 Paket C bekommt nach V genaue dateidisjunkte Grenzen. Finale Tests und Release-Build erst auf tatsächlich integriertem endgültigem Code-Head. Keine zwei schreibenden Worker pro Worktree. Keine globalen Formatierungsänderungen. Dauerhafte technische Blocker nicht als Betreiberentscheidung etikettieren.
 
-## Nach unabhängiger Reviewrunde 1
+## Nach unabhängiger Reviewrunde 1 (historischer Verteilungsstand)
+
+Aktueller Abschlussstand: A12/A34/C1 nach R5-GO und lokalem Gesamtgate in022f8a9 integriert. FINAL/Sol wiederholt alle Workspace- und gezielten Scratchprüfungen auf genau diesem Codehead. F2/Luna aktualisiert die sieben verbindlichen Architekturdateien aus diesen Belegen. B/D bleiben technisch abgenommen und ungemergt. E ist als Steam82 ohne Deployment integriert. Details und lebende Threadzustände stehen in REGISTER.md.
 
 - B/D: technisches GO in REVIEW-BD.md, Consumer-PRs bleiben ungemergt. E: Diagnosefix nach E-R1 korrigiert und unabhängig mit drei Gegenproben geprüft; Steam #82 bleibt Draft, Review in REVIEW-E.md.
 - A12/Luna, eigener Match-Fixworktree auf 34a2507: R-AC-A1/A2, korrekte Spielerprojektion und strikter Match-Inhaltsvertrag. Exklusiv Matchadapter, Match-CLI und Match-Fixtures; kein Analytics-/Serve-Code.
