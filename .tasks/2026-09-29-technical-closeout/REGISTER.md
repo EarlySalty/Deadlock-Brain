@@ -16,11 +16,11 @@ Basis: 305df2d36ec7b5d0513d6c0769051b41538d6a1b
 | A12 | afa412f2-0c21-4c4c-9bd7-dba7550239bc | Luna | /home/nathanael/.worktrees/brain-pre-g5-match-fix-20260929 | zweite Fixrunde läuft | Weiterführung auf 93468b0: A2 unabhängig behoben, A1 wegen include_info-Default weiter BLOCK; vollständigen Projektionsvertrag korrigieren |
 | B | 1580ebbc-23cb-49e8-8415-81e064667598 | Sol | /home/nathanael/.worktrees/bots-c9-consumer-wiring | technisch abgenommen, gesettelt | 46edc102 gepusht, PR #459 Draft; erhaltener Merge 00a4e1d7, unabhängiges GO in REVIEW-BD.md |
 | C | 6b53c923-e4da-498a-b08e-254407b452ff | Sol | /home/nathanael/.worktrees/brain-pre-g5-harness-20260929 | abgegeben, gesettelt | e671c5b, PR #60; Nachfolger C1 übernimmt allein denselben sauberen Baum |
-| C1 | 534bac3b-b6d9-468a-b3c6-94e33f7ce777 | Luna | /home/nathanael/.worktrees/brain-pre-g5-harness-20260929 | abgegeben, gesettelt | ead4a791, Codefix 1882419; Prozessrunner samt drei 600er-Stufen grün. Nachprüfung R-AC Runde 2 läuft |
+| C1 | 534bac3b-b6d9-468a-b3c6-94e33f7ce777 | Luna | /home/nathanael/.worktrees/brain-pre-g5-harness-20260929 | gezielter Testnachtrag läuft | ead4a791 unabhängig abgenommen und Gate ALLOW; Gate-Nits zu Konflikt vor Widerruf und SCRAM-/Redaktionsregressionen vor finalem Merge klären |
 | D | 11bd4637-c96a-47a6-9bf7-7b118d76c388 | Luna | /home/nathanael/.worktrees/brain-pre-g5-consumers-20260929 und zugewiesene Consumer-Worktrees | fertig, gesettelt | Bericht 934b891 geprüft/übernommen; Code unverändert, 68 Tests berichtet, 2nd-Brain-Billing konkret belegt |
 | E | 56885dac-a9c2-46b1-968d-c5f3d32621b2 | Luna | /home/nathanael/.worktrees/brain-pre-g5-providers-20260929 und eigener Steam-Testworktree | integriert ohne Deployment, gesettelt | #82 nach unabhängigem Review und lokalem ALLOW regulär gemergt als f509f85e; keine Betriebsumschaltung oder realer Publish |
 
-| F1 | acf0ba88-85fe-45ff-a4aa-98496c68eeb3 | Luna | /home/nathanael/.worktrees/brain-pre-g5-docs-20260929 | fertig, gesettelt | Audit 54bb97e korrigiert/übernommen, offene Gleichwertigkeitsfragen ausdrücklich erhalten |
+| F1 | acf0ba88-85fe-45ff-a4aa-98496c68eeb3 | Luna | /home/nathanael/.worktrees/brain-pre-g5-docs-20260929 | abschließende Einordnung läuft | Auf 54bb97e fortgesetzt, nur neun noch offene historische PRs; vollständige #25-Dateiliste und semantische Nachfolgebelege |
 
 | G | 5402923c-922c-4901-b7fc-14f8e0a3300d | Luna | /home/nathanael/.worktrees/brain-pre-g5-dependencies-20260929 | extern blockiert, gesettelt | Bericht 1aff547 geprüft/übernommen; korrekte Toolchain bestätigt Fetch-Ausfall, dungers-Lizenz ungeklärt |
 

@@ -3,6 +3,14 @@ Datum: 2026-09-29
 
 # Paket F1: einzelne alte PRs auf enthaltene oder ersetzte Inhalte prüfen
 
+## Fortsetzung nach erstem Bericht
+
+Deinen bestehenden sauberen Berichtsbranch fortsetzen. Geschlossen sind inzwischen #7, #16 bis #19, #21, #22 und #26 bis #29 sowie die zuvor genannten #35 bis #39/#48. Diese nicht erneut prüfen.
+
+Noch #3, #4, #5, #6, #8, #9, #10, #25, #30 einzeln abschließend einordnen. #25 enthält über 100 Dateien, das gh-pr-files-JSON war abgeschnitten: vollständige paginierte REST-Dateiliste oder lokaler Git-Diff statt unvollständigem Beleg verwenden. Zu #8/#25/#30 fehlten dem Orchestrator noch vollständige semantische Ersatzbelege; für #3 bis #6/#9/#10 blieb die Zuordnung offen. Nicht auf bloße Dateilisten beschränken: pro weiterhin relevantem Verhalten die konkrete Rust-Nachfolgefunktion oder einen tatsächlich fehlenden Pflichtpunkt benennen. Unsicherheit ehrlich erhalten. #46 bleibt mit einzigartigem Replay-Prüfhelfer offen, keine reale Replay-Freigabe daraus ableiten.
+
+Nur F1-PR-AUDIT.md fortschreiben und committen/pushen. Keine Codeänderung, kein PR schließen oder mergen, keine finalen Gate-Marker. Aktuelle Basis origin/migration/rust-integration lesen und benennen. Keine künstliche Vollständigkeit, kein Modellwechsel.
+
 Luna, einziger Thread F1, keine Unteragenten. Intent 562a877b-0939-440a-964d-1145d9e9431a. Gemeinsame Grenzen in AUFTRAG.md daneben. Keine Codeänderungen und keine fremden Worktrees ändern. Du prüfst konkrete historische Diffs, keine allgemeine Architekturarbeit.
 
 Eigener Worktree /home/nathanael/.worktrees/brain-pre-g5-docs-20260929, Branch docs/pre-g5-closeout-20260929, clean auf 305df2d36ec7b5d0513d6c0769051b41538d6a1b. Nur .tasks/2026-09-29-technical-closeout/F1-PR-AUDIT.md schreiben. Später kann derselbe Thread die finale Doku übernehmen, jetzt noch KEINE finalen Gate-Marker ändern.

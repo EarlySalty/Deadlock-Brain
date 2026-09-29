@@ -3,6 +3,14 @@ Datum: 2026-09-29
 
 # C1: fehlende Prozess-Abnahmefälle ergänzen
 
+## Nachtrag nach lokalem Gate auf ead4a791
+
+R-AC-R2 hat C1 akzeptiert. Das zusätzliche lokale Gate meldet ALLOW, aber zwei konkrete Testlücken, die vor Schlussmessung zu klären sind:
+1. process_e2e.rs:974: Alias-Konflikt wird erst nach Widerruf der konkurrierenden Warden-Evidenz geprüft. Damit beweist der Fall nicht sauber zwei gleichzeitig berechtigte widersprüchliche Kandidaten bei Limit 1. Reihenfolge/Zustand am Code prüfen und diesen Pflichtfall vor dem Widerruf mit zwei zugänglichen Konfliktwerten ausführen. Widerruf und ursprüngliche Lastfälle behalten.
+2. process_e2e.rs:993: Peer-Ersatz entfernte SCRAM-Erfolg, Ablehnung falscher Passwörter und Log-Redaktion. Vorhandene sichere Regressionen dafür suchen. Falls nicht vorhanden, getrennte Scratch-Abdeckung mit ausschließlich synthetischen, zur Laufzeit erzeugten Testwerten ergänzen, ohne Produktionspasswörter, ENV-Konfiguration oder alten unsicheren Wrapper. Bevorzugten Unix-Socket/Peer-Hauptpfad nicht ersetzen. Wenn die sichere Zusatzabdeckung die Briefinggrenzen überschreitet, präzisen Befund liefern statt still weglassen.
+
+Auf demselben Branch weiterarbeiten, keine neuen Threads/PRs. Bericht um echte Ergebnisse ergänzen, passender Runner und Selbst-Gate erneut. Keine Budgetänderung und kein Merge.
+
 Luna als gezielter Fixer. C-Autor Sol (6b53c923) ist nach Abgabe gesettelt; du übernimmst seinen sauberen Worktree, kein Neubeginn. Du bist der einzige schreibende Thread für C1, keine Unterthreads oder Unteragenten. Intent 562a877b-0939-440a-964d-1145d9e9431a. AUFTRAG.md gilt, Graphify zuerst, keine Code-Kommentare, keine Produktion und keine echten Daten/Secrets. Nur eigenen Branch committen/pushen, nicht mergen/deployen.
 
 Worktree /home/nathanael/.worktrees/brain-pre-g5-harness-20260929, Branch fix/pre-g5-harness-20260929, sauberer Abgabehead e671c5b, bestehender Draft-PR #60 gegen migration/rust-integration. Exklusiver Scope: Prozess-E2E und seine vorhandenen Testhelfer/Runner; keine Assets-/Match-/Analytics-/Storage-Produktdateien, Manifeste oder Lockfiles. Kein pauschales Refactoring/Formatieren. A12 und A34 ändern andere Produktpfade parallel.
