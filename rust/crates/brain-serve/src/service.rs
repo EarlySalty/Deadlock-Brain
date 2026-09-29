@@ -1,7 +1,7 @@
 //! Production composition: one hard-bounded LocalPgReader pool is shared by startup,
 //! readiness, retrieval/evidence validation and conversation ownership.
 use crate::{
-    analytics::AnalyticsRuntime,
+    analytics::{AnalyticsRetriever, AnalyticsRuntime},
     config::{ProviderKind, RetrievalKind},
     health::{self, Health},
     log_event, Config, Error, Secrets,
@@ -225,6 +225,7 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
             ReleaseRetriever::new(prepared.reader.clone(), prepared.config.retrieval.limit)
         }
     };
+    let retrieval = AnalyticsRetriever::new(retrieval, prepared.analytics.clone());
     let kernel = CachedKernel::new(
         Kernel::new(retrieval, prepared.provider.clone()),
         prepared.config.kernel.cache_entries,
