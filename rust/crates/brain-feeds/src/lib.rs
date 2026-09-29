@@ -2,6 +2,7 @@
 
 pub mod build_publish;
 pub mod deadlock_assets;
+pub mod deadlock_match;
 pub mod patchnotes;
 
 use brain_contracts::SourceVisibility;
@@ -18,6 +19,8 @@ pub enum FeedError {
     Quarantined(String),
     #[error(transparent)]
     Ingestion(#[from] brain_ingestion::IngestionError),
+    #[error(transparent)]
+    Store(#[from] brain_contracts::PortError),
     #[error(transparent)]
     Json(#[from] serde_json::Error),
 }

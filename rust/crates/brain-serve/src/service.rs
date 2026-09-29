@@ -1,6 +1,7 @@
 //! Production composition: one hard-bounded LocalPgReader pool is shared by startup,
 //! readiness, retrieval/evidence validation and conversation ownership.
 use crate::{
+    analytics::{AnalyticsRetriever, AnalyticsRuntime},
     config::{ProviderKind, RetrievalKind},
     health::{self, Health},
     log_event, Config, Error, Secrets,
@@ -47,6 +48,7 @@ pub struct Prepared {
     reader: LocalPgReader,
     provider: OpenAiCompatibleProvider,
     credentials: CredentialRegistry,
+    analytics: Option<Arc<AnalyticsRuntime>>,
     shutdown: Arc<Shutdown>,
 }
 
@@ -93,6 +95,11 @@ impl Prepared {
             ProviderKind::OpenaiCompatible => OpenAiCompatibleProvider::new(provider_config),
         }
         .map_err(|_| Error::ProviderConfig)?;
+        let analytics = config
+            .analytics
+            .clone()
+            .map(|analytics| AnalyticsRuntime::new(analytics, credentials.clone()).map(Arc::new))
+            .transpose()?;
         let shutdown = Arc::new(Shutdown {
             deadline: Mutex::new(None),
             budget: Duration::from_millis(t.shutdown_ms),
@@ -102,6 +109,7 @@ impl Prepared {
             reader,
             provider,
             credentials,
+            analytics,
             shutdown,
         })
     }
@@ -122,6 +130,11 @@ async fn initialize(prepared: &Prepared) -> Result<Arc<Health>, Error> {
     let reader = prepared.reader.clone();
     let release_id = prepared.config.release.id.clone();
     let knowledge_version = prepared.config.release.knowledge_version.clone();
+    let analytics_patch = prepared
+        .config
+        .analytics
+        .as_ref()
+        .map(|value| value.patch.clone());
     let snapshot = tokio::task::spawn_blocking(move || {
         reader.check_core_schema().map_err(|error| match error {
             PortError::InvalidResponse(_) => Error::SchemaIncompatible,
@@ -137,6 +150,12 @@ async fn initialize(prepared: &Prepared) -> Result<Arc<Health>, Error> {
             })?;
         if snapshot.release.knowledge_version != knowledge_version {
             return Err(Error::KnowledgeVersion);
+        }
+        if analytics_patch
+            .as_deref()
+            .is_some_and(|patch| patch != snapshot.release.patch)
+        {
+            return Err(Error::ConfigInvalid("analytics_patch"));
         }
         health::validate_snapshot(&snapshot)?;
         Ok(snapshot)
@@ -206,6 +225,7 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
             ReleaseRetriever::new(prepared.reader.clone(), prepared.config.retrieval.limit)
         }
     };
+    let retrieval = AnalyticsRetriever::new(retrieval, prepared.analytics.clone());
     let kernel = CachedKernel::new(
         Kernel::new(retrieval, prepared.provider.clone()),
         prepared.config.kernel.cache_entries,
@@ -222,12 +242,23 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
         prepared.config.timeouts.request_ms,
         (&prepared.config.budgets).into(),
     );
-    let router = brain_api::router(api)
+    let mut router = brain_api::router(api)
         .layer(middleware::from_fn_with_state(
             health.clone(),
             reject_during_drain,
         ))
         .merge(health::router(health.clone()));
+    if let Some(analytics) = &prepared.analytics {
+        router = router.merge(
+            analytics
+                .clone()
+                .router()
+                .layer(middleware::from_fn_with_state(
+                    health.clone(),
+                    reject_during_drain,
+                )),
+        );
+    }
     let listener = tokio::net::TcpListener::bind(prepared.config.bind)
         .await
         .map_err(|_| Error::Bind)?;

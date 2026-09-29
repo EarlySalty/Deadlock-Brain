@@ -1,6 +1,7 @@
 mod common;
 use common::{config, credentials, Service};
 use serde_json::json;
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use std::{
     process::Command,
     time::{Duration, Instant},
@@ -116,6 +117,76 @@ fn unavailable_database_is_bounded_and_ignores_legacy_and_ambient_dsns() {
         trap.accept().is_err(),
         "no legacy or ambient TCP connection allowed"
     );
+}
+
+#[tokio::test]
+#[ignore = "scripts/test_brain_serve.sh: private scratch PostgreSQL SCRAM check"]
+async fn private_scratch_scram_accepts_runtime_password_and_rejects_wrong_password() {
+    let socket = std::env::var("BRAIN_CORE_TEST_PG_SOCKET").expect("scratch socket required");
+    assert!(socket.ends_with("/.core-test-pg") && std::path::Path::new(&socket).is_absolute());
+    assert!(std::env::var_os("PGPASSWORD").is_none());
+    assert!(std::env::var_os("BRAIN_SERVE_PG_PASSWORD").is_none());
+    let options = PgConnectOptions::new_without_pgpass()
+        .host(&socket)
+        .port(55439)
+        .username("brain_core_test")
+        .database("brain_scram_test");
+    let admin = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(options.clone())
+        .await
+        .unwrap();
+    let secret_scratch = tempfile::tempdir().unwrap();
+    let password = format!(
+        "synthetic-c1-{}",
+        secret_scratch.path().file_name().unwrap().to_string_lossy()
+    );
+    let escaped_password = password.replace('\'', "''");
+    let create_role =
+        format!("CREATE ROLE brain_scram_fixture LOGIN PASSWORD '{escaped_password}'");
+    sqlx::raw_sql(&create_role).execute(&admin).await.unwrap();
+    let stored_password: String =
+        sqlx::query_scalar("SELECT rolpassword FROM pg_authid WHERE rolname='brain_scram_fixture'")
+            .fetch_one(&admin)
+            .await
+            .unwrap();
+    assert!(stored_password.starts_with("SCRAM-SHA-256$"));
+
+    let authenticated = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(
+            options
+                .clone()
+                .username("brain_scram_fixture")
+                .password(&password),
+        )
+        .await
+        .unwrap();
+    let current_user: String = sqlx::query_scalar("SELECT current_user")
+        .fetch_one(&authenticated)
+        .await
+        .unwrap();
+    assert_eq!(current_user, "brain_scram_fixture");
+    authenticated.close().await;
+
+    let wrong_password = format!("{password}-wrong");
+    let rejected = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(
+            options
+                .username("brain_scram_fixture")
+                .password(&wrong_password),
+        )
+        .await;
+    assert!(matches!(
+        rejected,
+        Err(sqlx::Error::Database(error)) if error.code().as_deref() == Some("28P01")
+    ));
+    sqlx::query("DROP ROLE brain_scram_fixture")
+        .execute(&admin)
+        .await
+        .unwrap();
+    admin.close().await;
 }
 
 #[test]
