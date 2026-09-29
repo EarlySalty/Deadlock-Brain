@@ -3,6 +3,14 @@ Datum: 2026-09-29
 
 # A34: fachliche Analytics-Anbindung und Gesamtdeadline
 
+## Nachtrag aus lokalem Gesamtgate auf 6ddeb6c
+
+R4 hat den bekannten ersten Snapshotbefund geschlossen (keine späte Netzwerkanfrage). Das zusätzliche lokale Gesamtgate BLOCKIERT aber den Antwortpfad: `brain-kernel/src/execution.rs:167` gibt Meta/Population nach `validate_evidence` als Answered zurück, obwohl diese Prüfung einen zweiten synchronen Release-Snapshot liest und dabei die restliche Deadline verbrauchen kann. Der frühere Check vor der Validierung reicht nicht. Nach erfolgreicher Evidenzvalidierung vor der Antwort dieselbe bestehende Deadline kontrollieren. Deterministische Gegenprobe mit schnellem ersten und langsamem zweitem Snapshot, sowohl direkter Kernel als auch normaler ApiService/HTTP-Pfad; äußeren HTTP504 nicht als Beweis für korrektes inneres Urteil ausgeben. Alle Erfolgsabzweige und Cache-/Validierungszwillinge systematisch prüfen, statt wieder nur ersten Snapshot reparieren. Genaue Belege und ggf. begründete False-Positive-Anteile dokumentieren; Gate nicht umgehen.
+
+Gate-NIT zur Konfiguration: brain-serve/config.rs:309 lässt Fenster [3601,7199] zu, obwohl keine volle Upstream-Stunde darin liegt. Bestehende effective_window-Validierung beim Laden wiederverwenden und negative Konfigprobe ergänzen, keine zweite Fensterlogik. Usage-NIT bleibt bereits dokumentierte Anzeigegrenze, kein Budgetpfad-Neubau.
+
+Aktueller sauberer Arbeitsstand ist 6ddeb6c068d3997375f9e60a1bf2272272319e7f, enthält deinen abgegebenen A4-Fix plus C60-Harness. Nur diese Deadline-/Konfigkorrektur, gleicher A-Branch/PR59, kein Merge. Matchdateien bleiben unangetastet. Nach Codefix vollständige relevante Tests und lokales Gesamtgate gegen origin/migration/rust-integration, nicht nur kleinen letzten Diff, ausführen und Ergebnis mit abgeben.
+
 ## Nachtrag R3: Deadline nach langsamem Snapshot
 
 Reviewer meldet am 2026-09-29 um 13:42 UTC eine unabhängige reproduzierte Restlücke A4: Nach einer langsamen Snapshot-Abfrage, die das gesamte Requestbudget verbraucht hat, startet Analytics trotzdem einen neuen HTTP-Request. Quellenfilter, Zählersemantik, normale Antworten, Patch-Ablehnung, Scope-Isolation und Cachewechsel haben die ersten unabhängigen Gegenproben bestanden. Konkreter R3-Bericht folgt im Reviewworktree /home/nathanael/.worktrees/brain-pre-g5-core-review-20260929/.tasks/2026-09-29-technical-closeout/REVIEW-AC-R3.md.

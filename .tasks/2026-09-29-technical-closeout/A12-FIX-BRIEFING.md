@@ -3,6 +3,10 @@ Datum: 2026-09-29
 
 # A12: Match-Vertragsfixes aus unabhängiger Abnahme
 
+## Kleiner Provenienz-Nachtrag aus Gesamtgate
+
+A1/A2 sind unabhängig geschlossen. Auf dem kombinierten Gesamtstand fand das Gate einen zusätzlichen konkreten Provenienzfehler in demo_evidence_documents: Leerzeilen werden vor Berechnung von #L{ordinal} entfernt. Akzeptiertes NDJSON mit Leerzeilen erzeugt dadurch falsche physische Zeilenreferenzen. Auf deinem bestehenden eigenen Branch 8a865d3 nur diesen Fehler korrigieren: physische Zeilennummer beim Enumerieren erhalten, danach leere Zeilen überspringen. Gebundene Match-/Account-Prüfungen unverändert lassen. Lokale Fixture mit führenden und mittleren Leerzeilen muss den exakten Locator belegen. Keine echten Replays. Dateizaun weiter nur deadlock_match.rs/zugehörige Matchtests und A12-REPORT. Kein neues PR/Merge, unabhängiger Review danach. Kleiner eigener Fixcommit und Bericht, Tests/Selbstgate/Push.
+
 Luna, einzig schreibender Thread dieses Pakets. Keine Unterthreads oder Unteragenten. Intent 562a877b-0939-440a-964d-1145d9e9431a. AUFTRAG.md gilt, keine Code-Kommentare, Graphify zuerst. Keine Produktion, echten Matchabfragen, Downloads oder Merges. Nur eigener Branch committen/pushen. Weder Tests abschwächen noch Quarantäne umgehen.
 
 Eigener Worktree /home/nathanael/.worktrees/brain-pre-g5-match-fix-20260929, Branch fix/pre-g5-match-contract-20260929, clean auf 34a2507. Relevanter A-Produktcode 8488891, Bericht in A-REPORT.md. Unabhängige Mängelliste /home/nathanael/.worktrees/brain-technical-closeout-20260929/.tasks/2026-09-29-technical-closeout/REVIEW-AC.md, eingefrorener Reviewcommit e5de1dd.
