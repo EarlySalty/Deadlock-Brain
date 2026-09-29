@@ -1,18 +1,21 @@
 # Eigene PostgreSQL-Instanz für Deadlock Brain
 
-Stand: 26.09.2026, Branch `migration/rust-integration`, zuletzt bereinigt im Pre-G5-Review (`PRE_G5_TECHNICAL_REVIEW.md`). Staging und Vorbereitung, kein Cutover.
-Alle Angaben sind am Host `v50671` gemessen. Secretwerte stehen nirgends in diesem Dokument.
+Stand: 29.09.2026. Dieses Dokument bewahrt Nachweise der isolierten Staging-Instanz und früherer Prüfstände. Es ist keine aktuelle Abschlussabnahme des integrierten Codeheads `022f8a981c2164f6d8d4302bae2194e100c4f65c`. Der vollständige Workspace-, Release-, PostgreSQL- und Lastlauf dieses Heads wartet auf `FINAL-VERIFICATION.md`.
+Alle Hostmessungen stammen vom Host `v50671`. Secretwerte stehen nirgends in diesem Dokument.
 
-## Ergebnis
+## Ergebnis und Geltungsbereich
 
 | Marker | Wert |
 |---|---|
-| BRAIN_DB_ISOLATED | JA |
-| BRAIN_DATA_MIGRATION_VERIFIED | JA (Alttabellen als Archivkopie `brain_legacy`, 49 Tabellen, 653 476 Zeilen, Zeilenzahl und md5 je Tabelle gleich) |
-| DB_POOLING_VERIFIED | JA (PR #49, `LocalPgReader` als gemeinsamer begrenzter Pool; Nachweis in `FINAL_LOCAL_INTEGRATION_REVIEW.md`, Abschnitt 5) |
-| 600_REQUEST_TEST_PASSED | JA (nach PR #49: 600 Requests je 8/16/32 Worker, Peak-Pool 4, 8 Neuverbindungen je Stufe, 0 „too many clients"). Der frühere Wert NEIN gilt nur für den Stand vor PR #49, siehe unten. |
+| BRAIN_DB_ISOLATED | JA, Infrastrukturprüfung vom 26.09.2026 |
+| BRAIN_DATA_MIGRATION_VERIFIED | JA, Snapshot vom 26.09.2026: Archivkopie `brain_legacy`, 49 Tabellen, 653 476 Zeilen, Zeilenzahl und md5 je Tabelle gleich |
+| DB_POOLING_VERIFIED | Historisch JA, früherer Codehead `ed06e13`; kein erneuter Abschlussnachweis auf `022f8a9` |
+| 600_REQUEST_TEST_PASSED | Historisch JA, frühere Codeheads; nicht als Test auf `022f8a9` verwenden |
+| FINAL_022F8A9_VERIFICATION | AUSSTEHEND, tatsächlicher Bericht fehlt |
 | PRODUCTION_DB_CUTOVER_READY | NEIN |
 | PRODUCTION_CUTOVER_READY | NEIN |
+
+Die folgenden Pool-, Last-, Restore-, Serve- und E2E-Angaben beschreiben ihre jeweils genannten historischen Prüfstände. Frühere Werte 18/18 und 600 Requests sind keine finale Abnahme von `022f8a9`.
 
 ## Instanz
 
@@ -69,7 +72,7 @@ Schema-Version `2`, Store-Contract `brain.store.v2`, aufgebaut ausschließlich m
 
 ## Connection-Architektur und Pool
 
-Aktueller Stand (seit PR #49, `ed06e13`): `LocalPgReader` ist ein gemeinsamer, hart begrenzter Pool (`postgres.max_connections` 1 bis 64, Service-Default 4, begrenzte Acquire-Wartezeit `postgres_pool_wait_ms`, Erschöpfung als `AnswerStatus::Unavailable`). Readiness, Snapshot-, Head-, Retrieval-, Evidenz- und Ownership-Zugriffe teilen ihn; kein connect-per-operation mehr im Anfragepfad. Nachweis: `FINAL_LOCAL_INTEGRATION_REVIEW.md`, Abschnitte 1 und 5.
+Prüfstand `ed06e13` nach PR #49: `LocalPgReader` war ein gemeinsamer, hart begrenzter Pool (`postgres.max_connections` 1 bis 64, Service-Default 4, begrenzte Acquire-Wartezeit `postgres_pool_wait_ms`, Erschöpfung als `AnswerStatus::Unavailable`). Readiness, Snapshot-, Head-, Retrieval-, Evidenz- und Ownership-Zugriffe teilten ihn. Das ist historische Evidenz und kein erneuter Abschlussnachweis auf `022f8a9`; siehe `FINAL_LOCAL_INTEGRATION_REVIEW.md`, Abschnitte 1 und 5.
 
 Historischer Stand vor PR #49 (nur noch Herkunft, nicht mehr gültig):
 
@@ -80,9 +83,9 @@ Historischer Stand vor PR #49 (nur noch Herkunft, nicht mehr gültig):
 
 Damals existierte der Zweig `DB_POOLING_BACKPRESSURE` noch nicht; er kam später als PR #49 und ist integriert.
 
-## Lasttest (600 Requests, neue Instanz, DB `brain_pilot`)
+## Historische Lastmessung auf dem früheren Prüfstand (600 Requests, eigene Instanz, DB `brain_pilot`)
 
-Aktuelles Ergebnis nach PR #49: bestanden, Zahlen in `FINAL_LOCAL_INTEGRATION_REVIEW.md`, Abschnitt 5 (je Stufe 600 answered, Peak-Pool 4 = Limit, 8 neue `brain_service`-Verbindungen, 0 „too many clients", 0 falsche `unauthorized_evidence`, p99 27 / 111 / 174 ms).
+Ergebnis nach PR #49: bestanden. Die Zahlen in `FINAL_LOCAL_INTEGRATION_REVIEW.md`, Abschnitt 5, dokumentieren je Stufe 600 answered, Peak-Pool 4, 8 neue `brain_service`-Verbindungen und 0 „too many clients“. Diese Messung ist keine aktuelle Abnahme von `022f8a9`.
 
 ### Historische Messung vor PR #49 (nicht mehr gültig)
 

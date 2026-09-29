@@ -1,6 +1,10 @@
 # Brain-Datenmigration aus DL-Main: Bericht
 
-Stand: 26.09.2026. Kopie in die eigene Brain-Instanz, kein Cutover. In DL-Main wurde nichts gelöscht, geändert oder umgestellt.
+Stand des Daten-Snapshots: 26.09.2026. Die folgende Kopie ist ein stichtagsbezogener Migrationsnachweis, kein Cutover und keine Testabnahme des Codeheads `022f8a981c2164f6d8d4302bae2194e100c4f65c`. In DL-Main wurde nichts gelöscht, geändert oder umgestellt.
+
+## Aktuelle Einordnung zum integrierten Codehead
+
+Der Migrationssnapshot belegt weiterhin nur den Bestand vom 26.09.2026. Der integrierte Brain-Code enthält inzwischen den privaten, accountgebundenen Matchpfad über API-Adapter, `SourceRecordV2`, normalen Store und Release. Assets-Core deckt V1-Startwerte ab, ohne Sheet-Fallback. Meta und Population sind typisierte Fakten; ihre Quellen belegen keine Patchzugehörigkeit. Das ändert weder den Snapshotbestand noch die offene Cutover-Grenze. Der vollständige Workspace-, Release-, PostgreSQL- und Lastlauf auf `022f8a9` wartet auf `FINAL-VERIFICATION.md`.
 
 ## Quelle und Ziel
 
