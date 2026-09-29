@@ -122,12 +122,37 @@ fn allowed_http_origin(url: &Url, production_host: &str) -> bool {
     production || loopback
 }
 
+fn match_metadata_query_params(match_id: &str, account_id: &str) -> BTreeMap<String, String> {
+    BTreeMap::from([
+        ("account_ids".into(), account_id.into()),
+        ("format".into(), "json".into()),
+        ("include_info".into(), "false".into()),
+        ("include_mid_boss".into(), "false".into()),
+        ("include_more_info".into(), "false".into()),
+        ("include_objectives".into(), "false".into()),
+        ("include_player_death_details".into(), "false".into()),
+        ("include_player_final_stats".into(), "false".into()),
+        ("include_player_info".into(), "false".into()),
+        ("include_player_items".into(), "false".into()),
+        ("include_player_kda".into(), "true".into()),
+        ("include_player_stats".into(), "false".into()),
+        ("limit".into(), "1".into()),
+        ("match_ids".into(), match_id.into()),
+        ("only_filtered_players".into(), "true".into()),
+    ])
+}
+
 pub fn match_metadata_url(scope: &MatchScope) -> Result<String> {
     let account_id = numeric_id(&scope.account_id, "account_id")?;
     let match_id = numeric_id(&scope.match_id, "match_id")?;
-    Ok(format!(
-        "https://api.deadlock-api.com/v1/matches/metadata?match_ids={match_id}&account_ids={account_id}&include_player_kda=true&only_filtered_players=true&limit=1&format=json"
-    ))
+    let mut url = Url::parse("https://api.deadlock-api.com/v1/matches/metadata")
+        .map_err(|_| FeedError::Invalid("invalid match metadata endpoint".into()))?;
+    url.query_pairs_mut().extend_pairs(
+        match_metadata_query_params(&match_id, &account_id)
+            .iter()
+            .map(|(key, value)| (key.as_str(), value.as_str())),
+    );
+    Ok(url.to_string())
 }
 
 fn validate_match_locator(value: &str, expected_match_id: &str, account_id: &str) -> Result<()> {
@@ -154,14 +179,7 @@ fn validate_match_locator(value: &str, expected_match_id: &str, account_id: &str
             ));
         }
     }
-    let expected = BTreeMap::from([
-        ("match_ids".into(), expected_match_id.into()),
-        ("account_ids".into(), account_id.into()),
-        ("include_player_kda".into(), "true".into()),
-        ("only_filtered_players".into(), "true".into()),
-        ("limit".into(), "1".into()),
-        ("format".into(), "json".into()),
-    ]);
+    let expected = match_metadata_query_params(expected_match_id, account_id);
     if actual != expected {
         return Err(FeedError::Quarantined(
             "match metadata locator does not bind the requested identity".into(),
@@ -782,10 +800,52 @@ mod tests {
     }
 
     #[test]
+    fn match_metadata_url_pins_the_complete_upstream_projection() {
+        let url = Url::parse(&match_metadata_url(&scope()).unwrap()).unwrap();
+        let actual: BTreeMap<String, String> = url
+            .query_pairs()
+            .map(|(key, value)| (key.into_owned(), value.into_owned()))
+            .collect();
+        assert_eq!(
+            actual,
+            BTreeMap::from([
+                ("account_ids".into(), "281768392".into()),
+                ("format".into(), "json".into()),
+                ("include_info".into(), "false".into()),
+                ("include_mid_boss".into(), "false".into()),
+                ("include_more_info".into(), "false".into()),
+                ("include_objectives".into(), "false".into()),
+                ("include_player_death_details".into(), "false".into()),
+                ("include_player_final_stats".into(), "false".into()),
+                ("include_player_info".into(), "false".into()),
+                ("include_player_items".into(), "false".into()),
+                ("include_player_kda".into(), "true".into()),
+                ("include_player_stats".into(), "false".into()),
+                ("limit".into(), "1".into()),
+                ("match_ids".into(), "92685682".into()),
+                ("only_filtered_players".into(), "true".into()),
+            ])
+        );
+    }
+
+    #[test]
+    fn match_metadata_rejects_default_match_info_fields() {
+        let body = br#"[{"match_id":92685682,"start_time":1790000000,"winning_team":0,"duration_s":1200,"match_outcome":1,"match_mode":"ranked","game_mode":"normal","average_badge_team0":10,"average_badge_team1":11,"average_badge":105,"not_scored":false,"players":[{"account_id":281768392,"hero_id":18,"player_slot":0,"team":0,"hero_build_id":0,"pregame_hero_id":18,"kills":7,"deaths":2,"assists":5}]}]"#;
+        assert!(match_metadata_documents(&scope(), match_response(body), &policy()).is_err());
+
+        let response = match_response(body);
+        let legacy_default_url = response.url.replace("&include_info=false", "");
+        assert_ne!(legacy_default_url, response.url);
+        let legacy_default_response = SourceHttpResponse {
+            url: legacy_default_url,
+            ..response
+        };
+        assert!(match_metadata_documents(&scope(), legacy_default_response, &policy()).is_err());
+    }
+
+    #[test]
     fn match_metadata_becomes_account_scoped_core_record_with_raw_provenance() {
         let body = br#"[{"match_id":92685682,"players":[{"account_id":281768392,"hero_id":18,"player_slot":0,"team":0,"hero_build_id":0,"pregame_hero_id":18,"kills":7,"deaths":2,"assists":5}]}]"#;
-        let generated_url = match_metadata_url(&scope()).unwrap();
-        assert!(generated_url.contains("include_player_kda=true"));
         let batch =
             prepare_match_metadata_batch(&scope(), match_response(body), &policy(), None).unwrap();
         assert_eq!(batch.records.len(), 1);
