@@ -47,7 +47,7 @@ Wörtliche Folge nach dem Serve-Runner:
 ./scripts/test_brain_core_postgres.sh > .tasks/2026-09-29-technical-closeout/REVIEW-AC-core.log 2>&1 && ./scripts/test_brain_storage_upgrade.sh > .tasks/2026-09-29-technical-closeout/REVIEW-AC-upgrade.log 2>&1 && ./scripts/test_wiki_runtime.sh > .tasks/2026-09-29-technical-closeout/REVIEW-AC-wiki.log 2>&1
 ```
 
-Gesamtexit 0. Rohlogs bleiben lokale Reviewbelege. Die Wrapper stoppten und entfernten ihre eigenen erfolgreichen Wegwerf-Cluster; die separat angelegte A-Scratchinstanz bleibt gestoppt erhalten.
+Gesamtexit 0. Die fünf Cargo-/Wrapper-Rohlogs und `review_probe.rs` wurden nach Abschluss unverändert aus dem Taskordner nach `/tmp/brain-rac-pg.ebzixc/` verschoben. Dort liegen auch das Gegenproben-Executable und die gestoppte A-Scratchinstanz. Die oben angegebenen Befehle dokumentieren die ursprünglichen Ausführungspfade. Die Wrapper stoppten und entfernten ihre eigenen erfolgreichen Wegwerf-Cluster. Der Reviewbaum enthält damit keine uncommitteten Arbeitsbelege.
 
 Protokoll bis einschließlich Prüfmerge:
 
