@@ -11,9 +11,13 @@ Steam #82 nach unabhängigem Diagnose-Review und lokalem ALLOW regulär gemergt.
 
 C/C1 in PR #60 nach unabhängiger Prüfung, sechs eigenen Scratch-/Prozesstests und lokalem ALLOW regulär nach migration/rust-integration gemergt. Merge 4c962b83cc3e17c5525e91f90da8ed3ca718d01f, 2026-09-29 13:53:25 UTC. Last je 600/600 bei 8/16/32, Peak4. Ausführlicher Nachweis REVIEW-C1-NACHTRAG.md. Kein Merge nach main. NIT: Service-Passwortstart weiterhin nicht durch den passwortfreien Peer-Harness bewiesen, SQLx-SCRAM separat geprüft.
 
-## Paket A vor Integration
+## Paket A integriert
 
-A12 8a865d3 nach Abgabe von A34 fded2ba konfliktfrei im bestehenden A-Branch kombiniert, Merge c424566dcac4d050fb2426f352703fb2b2a42dea und Push auf PR #59. Das ist kein Merge in migration/main. Unabhängiger R3-Bericht schließt A1/A2/A3; A4-Restlücke bleibt bis zur erneuten Korrektur/Abnahme offen.
+A12/A34 und C wurden im A-PR59 auf 72db816056fb0ed53810ab77ea4417dc0812e7ca kombiniert. Die unabhängige R5-Abnahme bestätigt GO, alle Gesamtgate-Nachträge sind geschlossen. Erneutes lokales Gesamtgate ALLOW mit den dokumentierten nichtblockierenden Lease-/Usage-Hinweisen. Regulärer PR59-Merge ausschließlich nach migration/rust-integration am 2026-09-29 um15:35:35UTC: 022f8a981c2164f6d8d4302bae2194e100c4f65c. Kein Override, keine Policyänderung, kein Deploy.
+
+Die vollständige Schlussverifikation läuft auf exakt diesem Integrationshead im bisherigen Harnessworktree auf neuem Branch verification/pre-g5-final-20260929. F2 aktualisiert die sieben verbindlichen Architekturdateien, endgültige Testmarker erst aus dem tatsächlichen Ergebnis.
+
+MERGEPROTOKOLL[MS-1]: 1 Git-Schritt einzeln | Anläufe: 1 | Gate: Gesamtgate ALLOW und unabhängiges R5-GO nach behobenem vorherigem BLOCK
 
 ## Historische PRs
 

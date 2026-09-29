@@ -3,7 +3,9 @@ Datum: 2026-09-29
 
 # Finale lokale Verifikation auf dem integrierten Codehead
 
-Noch nicht gestartet. Der Orchestrator trägt den finalen unveränderlichen Head und Worktree bei Dispatch ein. Kein Neubau und keine Produktfixes in diesem Paket. Einziger Thread für die Verifikation, keine Unterthreads/Unteragenten. Intent 562a877b-0939-440a-964d-1145d9e9431a. AUFTRAG.md und alle G5-/Produktionsgrenzen gelten. Graphify vor Bestandssuche, keine Code-Kommentare. Bei einem echten Fehler exakte Gegenprobe melden, nicht Tests/Budgets/Verbindungen verändern.
+Startfreigabe: finaler Codehead 022f8a981c2164f6d8d4302bae2194e100c4f65c (tatsächlicher PR59-Merge nach migration/rust-integration nach R5-GO und lokalem Gesamtgate-ALLOW). Verifikationsworktree /home/nathanael/.worktrees/brain-pre-g5-harness-20260929, sauberer neuer Branch verification/pre-g5-final-20260929 auf diesem Head. Voriger C1-Thread ist gesettelt. Originaler C-Thread 6b53c923 übernimmt allein die finale Prüfung; ausschließlich FINAL-VERIFICATION.md und zugehörige kleine Nachweisartefakte schreiben/committen/pushen. Kein eigener PR nötig, Bericht geht in bestehenden Koordinations-PR57. Produktcode unverändert lassen.
+
+Kein Neubau und keine Produktfixes in diesem Paket. Einziger Thread für die Verifikation, keine Unterthreads/Unteragenten. Intent 562a877b-0939-440a-964d-1145d9e9431a. AUFTRAG.md und alle G5-/Produktionsgrenzen gelten. Graphify vor Bestandssuche, keine Code-Kommentare. Bei einem echten Fehler exakte Gegenprobe melden, nicht Tests/Budgets/Verbindungen verändern.
 
 Ziel: vollständiger Abschlussnachweis auf genau einem integrierten A+C-Codehead, nicht zusammengesetzte grüne Zahlen verschiedener Branches. Eigene vorhandene Cargo-Toolchain samt rustc nutzen, Offline-Gitobjekte sind lokal vorhanden; frische CI-Abhängigkeiten bleiben separat extern blockiert. Kein Fetch von Ersatzquellen, kein Vendoring ohne Lizenz, kein Modellwechsel. Release im eigenen Worktree und vorhandene hostweite Buildmechanik verwenden; keine Koordination mit fremden Sessions.
 
