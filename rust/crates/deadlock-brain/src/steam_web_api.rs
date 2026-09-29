@@ -471,31 +471,32 @@ pub fn flush_pending(
     journal: &mut impl ObservationJournal,
 ) -> Result<usize, SteamWebApiError> {
     let pending = journal.pending().map_err(SteamWebApiError::Journal)?;
-    if pending
-        .iter()
-        .any(|entry| entry.reservation_id == JOURNAL_GUARD_ID)
-    {
-        return Err(SteamWebApiError::Journal(
-            "Reservierung ohne bestätigten Journaleintrag; vor weiteren Aufrufen manuell klären"
-                .to_string(),
-        ));
-    }
-    if let Some(entry) = pending
-        .iter()
-        .find(|entry| entry.dispatch_started && !entry.answered)
-    {
+    if let Some(entry) = pending.iter().find(|entry| {
+        entry.reservation_id != JOURNAL_GUARD_ID && entry.dispatch_started && !entry.answered
+    }) {
         return Err(SteamWebApiError::Journal(format!(
             "Ausgang der Steam-Anfrage für Reservierung {} unbekannt; vor weiteren Aufrufen manuell klären",
             entry.reservation_id
         )));
     }
-    for entry in &pending {
+    if pending
+        .iter()
+        .any(|entry| entry.reservation_id == JOURNAL_GUARD_ID)
+    {
+        journal.disarm().map_err(SteamWebApiError::Journal)?;
+    }
+    let mut delivered = 0;
+    for entry in pending
+        .iter()
+        .filter(|entry| entry.reservation_id != JOURNAL_GUARD_ID)
+    {
         ledger.observe(http, &entry.observation())?;
         journal
             .delivered(entry.reservation_id)
             .map_err(SteamWebApiError::Journal)?;
+        delivered += 1;
     }
-    Ok(pending.len())
+    Ok(delivered)
 }
 
 pub fn fetch(
@@ -1417,14 +1418,15 @@ mod tests {
         let mut restarted = Client::connect(&dsn, postgres::NoTls).unwrap();
         let mut journal = PgObservationJournal::open(&mut restarted).unwrap();
         journal.lock().unwrap();
-        let error = flush_pending(&http, &ledger(&closed_url()), &mut journal).unwrap_err();
-        assert!(matches!(error, SteamWebApiError::Journal(_)));
+        assert_eq!(
+            flush_pending(&http, &ledger(&closed_url()), &mut journal).unwrap(),
+            0
+        );
         assert!(journal
             .pending()
             .unwrap()
             .iter()
-            .any(|row| row.reservation_id == JOURNAL_GUARD_ID));
-        journal.disarm().unwrap();
+            .all(|row| row.reservation_id != JOURNAL_GUARD_ID));
     }
 
     #[test]
@@ -1456,7 +1458,35 @@ mod tests {
     }
 
     #[test]
-    fn failed_reservation_write_and_observation_leave_a_restart_guard() {
+    fn restart_guard_replays_known_reservation_before_next_request() {
+        let (http, _dir) = client();
+        let ledger_mock = Mock::start(vec![observed(false), granted(41), observed(false)]);
+        let steam = Mock::start(vec![reply("200 OK", "", r#"{"appnews":{}}"#)]);
+        let mut journal = MemoryJournal::default();
+        journal.arm().unwrap();
+        journal.reserved(40, "deadlock-brain-test").unwrap();
+
+        fetch(
+            &http,
+            &ledger(&ledger_mock.url),
+            &mut journal,
+            &format!("{}/news", steam.url),
+            &steam_options(),
+        )
+        .unwrap();
+
+        let calls = ledger_mock.finish();
+        assert_eq!(
+            json(&calls[0].body),
+            json(r#"{"reservation_id":40,"http_status":null}"#)
+        );
+        assert!(calls[1].head.starts_with("POST /steam-web-api/reserve "));
+        assert_eq!(steam.finish().len(), 1);
+        assert!(journal.rows.is_empty());
+    }
+
+    #[test]
+    fn failed_reservation_write_and_observation_recover_unused_guard() {
         let (http, _dir) = client();
         let failing = Mock::start(vec![granted(32)]);
         let steam = Mock::start(Vec::new());
@@ -1489,8 +1519,8 @@ mod tests {
             &steam_options(),
         )
         .unwrap_err();
-        assert!(matches!(after_restart, SteamWebApiError::Journal(_)));
-        assert_eq!(journal.rows[0].reservation_id, JOURNAL_GUARD_ID);
+        assert!(matches!(after_restart, SteamWebApiError::Ledger(_)));
+        assert!(journal.rows.is_empty());
     }
 
     #[test]
