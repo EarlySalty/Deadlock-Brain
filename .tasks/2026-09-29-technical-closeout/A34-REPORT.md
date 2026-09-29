@@ -30,10 +30,13 @@ Alle Befehle liefen in `/home/nathanael/.worktrees/brain-pre-g5-finalize-2026092
 | `git diff --check` | 0 | Keine Whitespace-Fehler |
 | `python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-pre-g5-finalize-20260929 --base 34a2507 --head 2403274 --timeout 900` | 0 | ALLOW; Hinweis auf Nullzeilen-Population wurde in `38cacca` behoben |
 | `python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-pre-g5-finalize-20260929 --base 34a2507 --head 38cacca --timeout 900` | 0 | ALLOW; nur Hinweis zur bereits durch Population-Fixture geprüften Schema-Zuordnung |
+| `python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-pre-g5-finalize-20260929 --base 34a2507 --head 373725e --timeout 900` | 0 | ALLOW; ein nicht blockierender Hinweis zur Verbrauchsanzeige bei fehlgeschlagenen Lookups |
+
+1. NIT, `rust/crates/brain-serve/src/analytics.rs:286`: Die vorhandene `RetrievalPort`-Fehlersignatur trägt bei einem HTTP-Fehler keinen `Usage`-Wert zum Kernel. Die abgewiesene Antwort zeigt daher null Netzwerk-Runden, auch wenn Versuche stattfanden. Zwillingssuche: Meta und Population nutzen denselben Fehlerpfad (`analytics.rs:286-300`); die direkte Beobachtungsroute (`analytics.rs:461-508`) meldet Fehlerklassen statt Netzwerkverbrauch. Weder startet dadurch ein weiterer Lookup oder Provideraufruf noch verlängert sich die absolute Deadline. Eine Korrektur der portübergreifenden Fehlerabrechnung ist nicht Teil von A34.
 
 TESTNACHWEIS[TW-1]: 174 passed, 12 ignored | Baseline: nicht erhoben
 BESTAND[BS-1]: teilweise | Fundort: rust/crates/brain-serve/src/analytics.rs:84 | Anknüpfung: vorhandene isolierte Route, ReleaseRetriever, Kernel und PopulationPrior in den normalen Antwortpfad eingebunden
-WIRKUNGSPRUEFUNG[WP-1]: 0 Befunde | Zwillingssuche: grep-belegt | Fremddienst-Pfade: 2/2 geprüft
+WIRKUNGSPRUEFUNG[WP-1]: 1 Befund | Zwillingssuche: grep-belegt | Fremddienst-Pfade: 2/2 geprüft
 ORCHESTRIERUNG[OR-1]: Stufe groß | Schritt review | Artefakt: .tasks/2026-09-29-technical-closeout/A34-REPORT.md
 
 Geänderte Pfade: `rust/crates/brain-kernel/src/execution.rs`, `rust/crates/brain-serve/Cargo.toml`, `rust/crates/brain-serve/src/analytics.rs`, `rust/crates/brain-serve/src/service.rs`, `rust/crates/dbrain-sources/Cargo.toml`, `rust/crates/dbrain-sources/src/analytics_runtime.rs`, dieses Berichtsartefakt. A1/A2-Matchdateien, Storage und C-Harness bleiben unangetastet.
