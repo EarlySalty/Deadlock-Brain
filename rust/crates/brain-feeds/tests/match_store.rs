@@ -4,8 +4,9 @@ use brain_contracts::{
 };
 use brain_feeds::{
     deadlock_match::{
-        commit_match_batch, match_release_from_batches, prepare_match_metadata_batch,
-        prepare_revoke_match_batch, MatchScope,
+        commit_match_batch, demo_source_id, match_release_from_batches,
+        prepare_demo_evidence_batch, prepare_match_metadata_batch, prepare_revoke_demo_batch,
+        prepare_revoke_match_batch, DemoEvidenceResponse, MatchScope,
     },
     FeedPolicy,
 };
@@ -34,6 +35,20 @@ fn response() -> SourceHttpResponse {
         headers: BTreeMap::from([("content-type".into(), "application/json".into())]),
         observed_at: 1_790_000_000,
         attempts: 1,
+    }
+}
+
+fn demo_response() -> DemoEvidenceResponse {
+    DemoEvidenceResponse {
+        query_name: "player_state".into(),
+        response: SourceHttpResponse {
+            url: "https://demo-extracts.deadlock-api.com/jobs/fixture/result.ndjson".into(),
+            status: 200,
+            content: b"{\"match_id\":92685682,\"account_id\":281768392,\"tick\":10}\n".to_vec(),
+            headers: BTreeMap::from([("content-type".into(), "application/x-ndjson".into())]),
+            observed_at: 1_790_000_000,
+            attempts: 1,
+        },
     }
 }
 
@@ -207,6 +222,14 @@ async fn postgres_match_commit_release_readback_replay_and_revoke() {
             .unwrap();
     assert_eq!(replay.source_revisions, published.source_revisions);
     store.publish(&replay).await.unwrap();
+    let demo = prepare_demo_evidence_batch(&scope, vec![demo_response()], &policy, None).unwrap();
+    commit_match_batch(&store, &demo, "fixture-owner")
+        .await
+        .unwrap();
+    let with_demo =
+        match_release_from_batches(&replay, &[demo], "match-fixture-r2-demo", 1_790_000_003)
+            .unwrap();
+    store.publish(&with_demo).await.unwrap();
 
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("revoke.json");
@@ -220,9 +243,9 @@ async fn postgres_match_commit_release_readback_replay_and_revoke() {
             "owner": "fixture-owner",
             "account_id": scope.account_id,
             "match_id": scope.match_id,
-            "base_release_id": "match-fixture-r2",
+            "base_release_id": "match-fixture-r2-demo",
             "release_id": "match-fixture-r3",
-            "created_at_epoch": 1_790_000_003,
+            "created_at_epoch": 1_790_000_004,
             "schema_sha256": dbrain_sources::schema_watch::OpenApiSnapshot::pinned().unwrap().schema_sha256,
             "expected_raw_sha256": null,
         }))
@@ -245,7 +268,12 @@ async fn postgres_match_commit_release_readback_replay_and_revoke() {
     );
     let report: serde_json::Value = serde_json::from_slice(&command.stdout).unwrap();
     assert_eq!(report["release_id"], "match-fixture-r3");
-    assert_eq!(report["sources"][0]["tombstones"], 1);
+    assert_eq!(report["sources"].as_array().unwrap().len(), 2);
+    assert!(report["sources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|source| source["tombstones"] == 1));
     tokio::task::block_in_place(|| {
         assert!(reader
             .read_snapshot("match-fixture-r3")
@@ -254,6 +282,12 @@ async fn postgres_match_commit_release_readback_replay_and_revoke() {
             .is_empty());
         assert!(reader
             .read_snapshot("match-fixture-r1")
+            .unwrap()
+            .authorized(&principal(&["account:281768392"]), false)
+            .unwrap()
+            .is_empty());
+        assert!(reader
+            .read_snapshot("match-fixture-r2-demo")
             .unwrap()
             .authorized(&principal(&["account:281768392"]), false)
             .unwrap()
@@ -270,7 +304,64 @@ async fn postgres_match_commit_release_readback_replay_and_revoke() {
         .unwrap();
     let repeated = prepare_revoke_match_batch(&scope, &policy, &new_checkpoint).unwrap();
     assert!(repeated.records.is_empty());
+    let demo_id = demo_source_id(&scope).unwrap();
+    let demo_checkpoint = store.checkpoint(&demo_id).await.unwrap().unwrap();
+    assert!(prepare_revoke_demo_batch(&scope, &policy, &demo_checkpoint)
+        .unwrap()
+        .records
+        .is_empty());
+
+    let renewed_match =
+        prepare_match_metadata_batch(&scope, response(), &policy, Some(&new_checkpoint)).unwrap();
+    let renewed_demo = prepare_demo_evidence_batch(
+        &scope,
+        vec![demo_response()],
+        &policy,
+        Some(&demo_checkpoint),
+    )
+    .unwrap();
+    let revoked_release = store.snapshot("match-fixture-r3").await.unwrap().release;
+    let rollback_release = match_release_from_batches(
+        &revoked_release,
+        &[renewed_match.clone(), renewed_demo.clone()],
+        "match-fixture-rollback",
+        1_790_000_005,
+    )
+    .unwrap();
+    let match_lease = store
+        .claim(&renewed_match.checkpoint.source_id, "fixture-owner", 60_000)
+        .await
+        .unwrap();
+    let mut bad_demo_lease = store
+        .claim(&renewed_demo.checkpoint.source_id, "fixture-owner", 60_000)
+        .await
+        .unwrap();
+    bad_demo_lease.fence += 1;
+    assert!(store
+        .commit_batches_and_publish(
+            &[
+                (&renewed_match, &match_lease),
+                (&renewed_demo, &bad_demo_lease),
+            ],
+            &rollback_release,
+        )
+        .await
+        .is_err());
+    assert_eq!(
+        store.checkpoint(&new_checkpoint.source_id).await.unwrap(),
+        Some(new_checkpoint)
+    );
+    assert_eq!(
+        store.checkpoint(&demo_id).await.unwrap(),
+        Some(demo_checkpoint)
+    );
+    assert!(store.snapshot("match-fixture-rollback").await.is_err());
     tokio::task::block_in_place(|| {
+        assert!(reader
+            .read_snapshot("match-fixture-r3")
+            .unwrap()
+            .revisions
+            .is_empty());
         drop(retriever);
         drop(reader);
     });

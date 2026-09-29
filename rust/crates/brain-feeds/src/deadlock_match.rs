@@ -216,7 +216,8 @@ fn contains_account(row: &Value, expected_account_id: &str) -> bool {
                 let id = account.as_ref().or(alias.as_ref());
                 !(account.is_some() && alias.is_some() && account != alias)
                     && id.is_some_and(|id| seen.insert(id.clone()))
-            }) && seen.contains(expected_account_id)
+            }) && seen.len() == 1
+                && seen.contains(expected_account_id)
         })
 }
 
@@ -810,6 +811,7 @@ mod tests {
             br#"[{"match_id":1,"players":[{"account_id":281768392}]}]"#.as_slice(),
             br#"[{"match_id":92685682,"players":[{"account_id":281768392}]},{"match_id":1,"players":[]}]"#.as_slice(),
             br#"[{"match_id":92685682,"players":[{"account_id":1}]}]"#.as_slice(),
+            br#"[{"match_id":92685682,"players":[{"account_id":281768392},{"account_id":1}]}]"#.as_slice(),
             br#"[{"match_id":92685682,"players":[{"account_id":281768392},{"account_id":281768392}]}]"#.as_slice(),
             br#"[{"match_id":92685682,"players":[{"account_id":281768392,"accountId":1}]}]"#.as_slice(),
         ] {
@@ -853,6 +855,16 @@ mod tests {
             match_response(br#"[{"match_id":92685682,"players":[{"account_id":281768392}]}]"#);
         stale.observed_at = 0;
         assert!(match_metadata_documents(&scope(), stale, &policy()).is_err());
+        let mut error_status =
+            match_response(br#"[{"match_id":92685682,"players":[{"account_id":281768392}]}]"#);
+        error_status.status = 500;
+        assert!(match_metadata_documents(&scope(), error_status, &policy()).is_err());
+        let mut wrong_type =
+            match_response(br#"[{"match_id":92685682,"players":[{"account_id":281768392}]}]"#);
+        wrong_type
+            .headers
+            .insert("content-type".into(), "text/plain".into());
+        assert!(match_metadata_documents(&scope(), wrong_type, &policy()).is_err());
     }
 
     #[test]

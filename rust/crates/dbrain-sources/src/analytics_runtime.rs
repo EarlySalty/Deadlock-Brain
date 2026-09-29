@@ -551,6 +551,14 @@ mod tests {
         assert!(
             prepare_analytics_response(&request, response(&request, json!([unknown]))).is_err()
         );
+        let mut error_status = response(&request, json!([hero_row(18)]));
+        error_status.status = 500;
+        assert!(prepare_analytics_response(&request, error_status).is_err());
+        let mut wrong_type = response(&request, json!([hero_row(18)]));
+        wrong_type
+            .headers
+            .insert("content-type".into(), "text/plain".into());
+        assert!(prepare_analytics_response(&request, wrong_type).is_err());
     }
 
     #[test]

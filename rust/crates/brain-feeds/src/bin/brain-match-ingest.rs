@@ -1,9 +1,9 @@
 use brain_contracts::{DocumentStorePort, SourceBatch, SourceVisibility};
 use brain_feeds::{
     deadlock_match::{
-        commit_match_batch, demo_source_id, match_metadata_url, match_release_from_batches,
-        match_source_id, prepare_match_metadata_batch, prepare_revoke_demo_batch,
-        prepare_revoke_match_batch, MatchScope,
+        demo_source_id, match_metadata_url, match_release_from_batches, match_source_id,
+        prepare_match_metadata_batch, prepare_revoke_demo_batch, prepare_revoke_match_batch,
+        MatchScope,
     },
     FeedPolicy,
 };
@@ -199,40 +199,36 @@ async fn run(config: Config, action: &str, http: &HttpClient) -> Result<serde_js
         }
         _ => return Err("action must be ingest or revoke".into()),
     };
-    let mut changes = Vec::new();
-    for batch in &batches {
-        let receipt = commit_match_batch(&store, batch, &config.owner)
-            .await
-            .map_err(|_| "match batch commit failed")?;
-        changes.push(json!({
-            "source_id": batch.checkpoint.source_id,
-            "generation": receipt.generation,
-            "replayed": receipt.replayed,
-            "records": batch.records.len(),
-            "tombstones": batch.records.iter().filter(|r| r.tombstone).count(),
-        }));
-    }
     let release =
         match_release_from_batches(&base, &batches, &config.release_id, config.created_at_epoch)
             .map_err(|_| "match release rejected by contract")?;
-    store
-        .publish(&release)
-        .await
-        .map_err(|_| "match release publish failed")?;
-    let readback = store
-        .snapshot(&config.release_id)
-        .await
-        .map_err(|_| "match release readback failed")?;
-    if readback.release != release
-        || readback.revisions.len()
-            != release
-                .source_revisions
-                .values()
-                .map(std::collections::BTreeMap::len)
-                .sum::<usize>()
-    {
-        return Err("match release readback mismatch".into());
+    let mut leases = Vec::with_capacity(batches.len());
+    for batch in &batches {
+        leases.push(
+            store
+                .claim(&batch.checkpoint.source_id, &config.owner, 60_000)
+                .await
+                .map_err(|_| "match source lease unavailable")?,
+        );
     }
+    let paired: Vec<_> = batches.iter().zip(&leases).collect();
+    let (receipts, release_documents) = store
+        .commit_batches_and_publish(&paired, &release)
+        .await
+        .map_err(|_| "atomic match commit and release failed")?;
+    let changes: Vec<_> = batches
+        .iter()
+        .zip(receipts)
+        .map(|(batch, receipt)| {
+            json!({
+                "source_id": batch.checkpoint.source_id,
+                "generation": receipt.generation,
+                "replayed": receipt.replayed,
+                "records": batch.records.len(),
+                "tombstones": batch.records.iter().filter(|r| r.tombstone).count(),
+            })
+        })
+        .collect();
     Ok(json!({
         "release_id": release.release_id,
         "knowledge_version": release.knowledge_version,
@@ -241,7 +237,7 @@ async fn run(config: Config, action: &str, http: &HttpClient) -> Result<serde_js
         "match_id": scope.match_id,
         "observed_raw_sha256": observed_sha256,
         "sources": changes,
-        "release_documents": readback.revisions.len(),
+        "release_documents": release_documents,
     }))
 }
 
