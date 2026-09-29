@@ -180,6 +180,16 @@ fn analytics_window_and_schema_are_explicit_when_runtime_is_configured() {
     value["analytics"]["max_unix_timestamp"] = json!(1790086400);
     value["analytics"]["request_timeout_ms"] = json!(5000);
     assert!(parse(&value).is_err());
+    value["analytics"]["request_timeout_ms"] = json!(2000);
+    value["analytics"]["min_unix_timestamp"] = json!(3601);
+    value["analytics"]["max_unix_timestamp"] = json!(7199);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("analytics-empty-window.json");
+    std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+    assert!(matches!(
+        Config::load(&path),
+        Err(Error::ConfigInvalid("analytics"))
+    ));
 }
 
 #[test]
