@@ -23,6 +23,6 @@ Aktualisiert wurden die sieben angeforderten Architekturdateien: `PRE_G5_TECHNIC
 
 Produktcode wurde nicht geändert. In diesem Dokumentationsauftrag wurden keine Builds oder Tests ausgeführt. Kein Cutover, Deployment, Neustart oder produktiver Publish. Wiki-Realpilot, Provider-Shadow und Replay mit echtem Korpus bleiben ungeprüft und nicht freigegeben. G5 bleibt NEIN. Historische Snapshot-, Test- und Lastwerte sind an ihre damaligen Heads und Datenstände gebunden.
 
-Die unabhängige Schlussabnahme folgt separat.
+Die unabhängige Schlussabnahme meldete Dokumentation BLOCK wegen zweier veralteter Aussagen zu `022f8a9`. Beide Aussagen wurden am 29.09.2026 korrigiert. Der zuständige Schlussnachreview folgt nach diesem Push.
 
 TEXTNACHWEIS[DR-1]: Gedankenstriche 0 | ae/oe/ue/ss-Ersatz 0 | Absolutwörter 0 belegt | Senke: .tasks/2026-09-29-technical-closeout/F2-REPORT.md

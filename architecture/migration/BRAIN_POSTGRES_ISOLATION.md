@@ -121,11 +121,11 @@ Default-E2E (`scripts/run_isolated_pilot.sh`, echte freigegebene Pilotdokumente 
 
 Siehe Migrationsbericht. Kurz: `patchnotes.changelog_posts` (Lesen), `steam.steam_tasks` (Schreiben und Lesen für Build-Publish) und die Deadlock-Bots-Writer in das Schema `brain` brauchen explizite Feeds oder APIs, bevor Brain nur noch die eigene Instanz nutzt. Es gibt keinen zweiten DL-Main-Zugang für Brain-Rollen.
 
-## Bekannte Blocker
+## Bekannte Blocker und Betriebsgrenzen, Stand 29.09.2026
 
 1. ~~`DB_POOLING_BACKPRESSURE` fehlt~~ Behoben: PR #49 integriert (`ed06e13`), Pool nachgewiesen (600×3 Stufen gegen diese Instanz, Peak 4, 0 „too many clients"); siehe `FINAL_LOCAL_INTEGRATION_REVIEW.md`.
 2. ~~C9-Consumer-Wiring fehlt~~ Behoben: PR #50 integriert (`ed06e13`); Consumer-Staging lokal gegen brain-serve-Staging bestanden (Twitch-Shadow-Fix `d877a9d` in PR #984).
 3. Echter Wiki-Pilot: Rechte- und Lizenzentscheidung für Capture und Raw-Aufbewahrung liegt beim Betreiber. Der Adapter in den normalen Store (`wiki_runtime::stage_into_store`, Batches mit Checkpoint und Lease, kein `wiki_scratch.sql`) ist gebaut; der Scratch-Pfad bleibt nur als Offline-Regression.
-4. Kein freigegebener Provider und Modell, keine freigegebene `.dem` (Produktentscheidung zu Replay in V1 offen).
+4. Kein freigegebener KI-Provider oder Modell für Provider-Shadow und keine freigegebene `.dem`; die Replay-Produktentscheidung bleibt offen.
 5. ~~Kein Konverter Alttabellen nach `SourceRecordV2`~~ Gebaut (`brain-legacy-import`): Patchnotes und Entitäten aus `brain_legacy` als `SourceRecordV2`, Release `legacy-core-f07ea85c09010285` in `brain_pilot_legacy`, `brain-serve` antwortet daraus. Nicht in die produktive DB `brain` importiert (G5). Übrige Tabellen sind nach `PRE_G5_TECHNICAL_REVIEW.md`, Abschnitt 3, eingeordnet.
-6. Brain-Seite der Feeds gebaut (`brain.feed.patchnotes.v1`, `brain.build_publish.v1`, Deadlock-Assets-API nach Kern statt Bot-Writer, Crate `brain-feeds`). Die Provider-Seiten (Export im Patchnotes-Bot, Publish-Endpunkt im Steam-Bot) fehlen noch; die alten Direktpfade laufen bis G5 unverändert.
+6. Providerstatus: Brain-Feed-Verträge und Adapter sind integriert. Die Patchnotes-Providerseite bleibt Python-Legacy, ein Rust-Provider-Nachfolger ist nicht behauptet. Der Steam-Build-Publish-Provider ist integriert und separat offline geprüft. Kein Deployment und kein echter Publish; die Legacy-Direktpfade laufen bis G5 weiter.
