@@ -408,7 +408,9 @@ mod tests {
             backoff: Duration::ZERO,
             ..Default::default()
         };
-        let advance_ms = options.total_timeout.as_millis() as u64 + 1;
+        let deadline_offset = options.total_timeout / 2;
+        let advance_ms = deadline_offset.as_millis() as u64 + 1;
+        assert!(Duration::from_millis(advance_ms) < options.total_timeout);
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
             let mut bytes = [0u8; 4096];
@@ -423,12 +425,9 @@ mod tests {
         let (_dir, http) = client();
         let started = Instant::now();
         let result = http
-            .fetch_bounded_with_clock(
-                &url,
-                &options,
-                Some(started + options.total_timeout),
-                || started + Duration::from_millis(elapsed_ms.load(Ordering::SeqCst)),
-            )
+            .fetch_bounded_with_clock(&url, &options, Some(started + deadline_offset), || {
+                started + Duration::from_millis(elapsed_ms.load(Ordering::SeqCst))
+            })
             .unwrap();
         let listener = server.join().unwrap();
         assert_eq!(result.status, 503);
