@@ -3,6 +3,26 @@ Datum: 2026-09-29
 
 # A34: Analytics im normalen Brain-Pfad und eine Lookup-Deadline
 
+## R4-Nachtrag: zweiter Snapshot und Konfigurationsfenster
+
+- Ausgangspunkt: `6ddeb6c068d3997375f9e60a1bf2272272319e7f` mit integriertem C60-Harness. Codefix: `7217246`. Nach dem erfolgreichen `validate_evidence(..., false)` prüft der Kernel die bestehende Deadline erneut. Alle vier potentiell erfolgreichen Rückgaben aus Analytics, typisiertem Domainnachweis, gewöhnlichem Fact und Provider gehen zusätzlich durch denselben finalen Deadline-Guard. Eine verspätete Antwort wird `BudgetExceeded` ohne Belege; Budgets, Anbieter und Lookup-Konstanten bleiben unverändert.
+- Gegenprobe `second_snapshot_exhaustion_rejects_direct_kernel_service_and_http_answers`: Der echte `AnalyticsRetriever` liest einen ersten Release-Snapshot bei 0 ms, führt je Aufruf einen validierten lokalen Loopback-HTTP-Lookup aus und liest bei `validate_evidence` einen zweiten Snapshot. Dieser schiebt die injizierte monotone Kernel-Uhr deterministisch auf 2001 ms bei 2000 ms Deadline. Direkter `Kernel::answer` liefert intern `BudgetExceeded` ohne Belege. Der normale `CachedKernel -> ApiService` liefert HTTP 200 mit öffentlichem Status `BudgetExceeded`; die echte Axum-Route `/v1/answer` liefert ebenfalls HTTP 200 mit diesem Status. Drei Loopback-GETs, je zwei Snapshot-Lesevorgänge, null Provider-Aufrufe und vier wieder freie Slots sind assertiert. Ein äußeres HTTP 504 wird ausdrücklich nicht als Beleg für den inneren Kernel-Status verwendet.
+- Zusätzliche Kernel-Probe `successful_fact_domain_and_provider_paths_reject_late_validation` verschiebt dieselbe Uhr bei gewöhnlicher Fact- und Domain-Validierung über die Deadline und bei der Provider-Nachvalidierung nach dem Aufruf; alle drei liefern `BudgetExceeded` ohne Belege. Zwillingsprüfung: Cache-Treffer haben in `brain-kernel/src/cache.rs:58-96` bereits den Guard nach der Evidenzvalidierung und vor einer Neuberechnung. Geteilte Antworten werden in `brain-kernel/src/flight.rs:147-178` erneut validiert und danach vor der Rückgabe auf Deadline geprüft. Der Providerzweig prüft nach seinem zweiten `validate_evidence` und nun auch am gemeinsamen Publikationspunkt. Diese Stellen waren keine weiteren offenen R4-Befunde und wurden nicht umgebaut.
+- Konfiguration verwendet jetzt unmittelbar `AnalyticsLookupRequest::validate()` einschließlich der bestehenden `effective_window`-Prüfung. `Config::load` weist `[3601,7199]` mit `analytics` zurück; eine zweite Rundungsregel wurde nicht eingeführt. Der bereits dokumentierte Usage-NIT blieb unangetastet. Matchdateien, C60-Harness und produktive Daten bleiben unverändert.
+
+| R4-Prüfung, Arbeitsverzeichnis Repo-Root | Exit | Ergebnis |
+| --- | ---: | --- |
+| `CARGO_BUILD_JOBS=2 /home/nathanael/.cargo/bin/cargo +stable test --manifest-path rust/Cargo.toml -p brain-kernel -p brain-serve -p brain-api -p dbrain-sources -p deadlock-brain-core --locked --offline` | 0 | 229 passed, 0 failed, 13 ignored, 0 filtered; keine Live-Abfragen oder produktive Datenbank |
+| `CARGO_BUILD_JOBS=2 /home/nathanael/.cargo/bin/cargo +stable check --manifest-path rust/Cargo.toml --workspace --all-targets --locked --offline` | 0 | Vollständiger Workspace inklusive integriertem A12/C60-Stand |
+| `CARGO_BUILD_JOBS=2 /home/nathanael/.cargo/bin/cargo +stable clippy --manifest-path rust/Cargo.toml -p brain-kernel -p brain-serve -p brain-api -p dbrain-sources -p deadlock-brain-core --all-targets --locked --offline -- -D warnings` | 0 | Strenge Lints der betroffenen Crates |
+| `/home/nathanael/.cargo/bin/cargo +stable fmt --manifest-path rust/Cargo.toml --all -- --check` und `git diff --check` | 0 / 0 | Format und Whitespace |
+| `python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-pre-g5-finalize-20260929 --base origin/migration/rust-integration --head 7217246 --timeout 900` | 0 | ALLOW für den gesamten A12/A34/C60-Diff ab `4c962b8`; kein Merge-Blocker. Drei NITs: zwei A12-Matchpunkte außerhalb dieses Auftrags (`deadlock_match.rs:76`, `brain-match-ingest.rs:205`) und der bereits dokumentierte A34-Usage-Hinweis (`analytics.rs:302`). Kein Gate übersprungen. |
+
+TESTNACHWEIS[TW-1]: 229 passed, 13 ignored | Baseline: nicht erhoben
+BESTAND[BS-1]: teilweise | Fundort: rust/crates/brain-kernel/src/execution.rs:145 | Anknüpfung: bestehende Deadline und `AnalyticsLookupRequest::validate()` wiederverwendet
+WIRKUNGSPRUEFUNG[WP-1]: 1 Befund | Zwillingssuche: grep-belegt | Fremddienst-Pfade: 2/2 geprüft
+ORCHESTRIERUNG[OR-1]: Stufe groß | Schritt review | Artefakt: .tasks/2026-09-29-technical-closeout/A34-REPORT.md
+
 Branch: `integration/pre-g5-finalize-20260929`; PR: https://github.com/EarlySalty/Deadlock-Brain/pull/59 gegen `migration/rust-integration`. Basis des ersten Fixpakets: `34a2507`. Implementierung: `2403274`, `38cacca`; R3-Nachtrag auf der vom Orchestrator mit A12 integrierten Basis `c424566`: `a5504d3`. Kein Merge, Deploy, Produktivaufruf, Consumer-Cutover oder echter Match-/Replay-Download. Unabhängige R3-Nachprüfung steht aus.
 
 ## R3-Nachtrag: verbleibender Snapshot-Deadlinepfad
