@@ -87,6 +87,21 @@ fn each_pinned_hero_has_exactly_five_field_bound_starting_stats() {
 fn any_missing_or_non_numeric_pinned_stat_quarantines_the_entire_batch() {
     let original: Value = serde_json::from_str(include_str!("fixtures/heroes.json")).unwrap();
     for field in FIELDS {
+        let mut missing = original.clone();
+        missing[0]["starting_stats"][field]
+            .as_object_mut()
+            .unwrap()
+            .remove("value");
+        assert!(matches!(
+            deadlock_assets::prepare_batch(
+                "heroes",
+                response(&missing.to_string()),
+                None,
+                &policy(),
+                None
+            ),
+            Err(FeedError::Quarantined(_))
+        ));
         for invalid in [Value::Null, Value::String("3".into())] {
             let mut changed = original.clone();
             changed[0]["starting_stats"][field]["value"] = invalid;

@@ -201,12 +201,45 @@ async fn cli_reads_archive_and_replays_tombstones_and_revokes() {
     );
     let internal = Principal {
         scopes: BTreeSet::from(["brain.internal".into()]),
-        ..game
+        ..game.clone()
     };
     assert_eq!(
         snapshot(&socket, revoked["release_id"].as_str().unwrap())
             .await
             .authorized(&internal, false)
+            .unwrap()
+            .len(),
+        1
+    );
+    sqlx::query("DELETE FROM brain_legacy.patch_event_enrichments")
+        .execute(&legacy)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM brain_legacy.patch_events")
+        .execute(&legacy)
+        .await
+        .unwrap();
+    let empty_path = config_path.clone();
+    let empty = tokio::task::spawn_blocking(move || {
+        Command::new(env!("CARGO_BIN_EXE_brain-legacy-import"))
+            .env_clear()
+            .arg("--config")
+            .arg(empty_path)
+            .output()
+            .unwrap()
+    })
+    .await
+    .unwrap();
+    assert!(!empty.status.success());
+    assert!(String::from_utf8_lossy(&empty.stderr).contains("legacy import failed"));
+    assert_eq!(
+        serde_json::from_slice::<Value>(&std::fs::read(&report_path).unwrap()).unwrap(),
+        revoked
+    );
+    assert_eq!(
+        snapshot(&socket, &release)
+            .await
+            .authorized(&game, false)
             .unwrap()
             .len(),
         1

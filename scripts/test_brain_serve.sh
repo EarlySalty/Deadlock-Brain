@@ -48,6 +48,8 @@ STARTED=1
 "${PG_ENV[@]}" "$PG_BIN/createdb" -h "$CLUSTER" -p 55439 -U brain_core_test brain_serve_test
 "${PG_ENV[@]}" "$PG_BIN/createdb" -h "$CLUSTER" -p 55439 -U brain_core_test brain_legacy_test
 "${PG_ENV[@]}" "$PG_BIN/createdb" -h "$CLUSTER" -p 55439 -U brain_core_test brain_pilot_test
+"${PG_ENV[@]}" "$PG_BIN/createdb" -h "$CLUSTER" -p 55439 -U brain_core_test brain_schema_test
+"${PG_ENV[@]}" "$PG_BIN/createdb" -h "$CLUSTER" -p 55439 -U brain_core_test brain_empty_schema_test
 cd "$ROOT/rust"
 env -i "PATH=$PATH" "HOME=$SCRATCH" "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" \
   "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" "CARGO_TARGET_DIR=$ROOT/rust/target" \

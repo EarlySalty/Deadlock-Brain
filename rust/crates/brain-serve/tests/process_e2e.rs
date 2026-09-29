@@ -313,6 +313,10 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
                 "aliases_de".into(),
                 if name == "Warden" { "Der Wächter" } else { "" }.into(),
             ),
+            (
+                "aliases_en".into(),
+                if name == "Warden" { "Guardian" } else { "" }.into(),
+            ),
         ]);
         store
             .apply(&SourceRecordV2 {
@@ -350,6 +354,38 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
         source_revisions,
     };
     store.publish_release(&release).await.unwrap();
+    let conflict_record = SourceRecordV2 {
+        source_id: "fixture-game".into(),
+        logical_id: "asset/hero/1/starting_stats.max_health.value".into(),
+        revision: 1,
+        content_hash: "fixture-guardian-conflict".into(),
+        content: "Hero: Abrams\nAliases: Guardian\nmax health: 650\n".into(),
+        visibility: SourceVisibility::Public,
+        allowed_scopes: BTreeSet::from(["game.public".into()]),
+        tombstone: false,
+        valid_from: None,
+        valid_to: None,
+        metadata: BTreeMap::from([
+            ("kind".into(), "fact".into()),
+            ("name".into(), "Abrams".into()),
+            ("field".into(), "max health".into()),
+            ("aliases_en".into(), "Guardian".into()),
+        ]),
+    };
+    store.apply(&conflict_record).await.unwrap();
+    let mut conflict_revisions = release.source_revisions.clone();
+    conflict_revisions
+        .entry(conflict_record.source_id.clone())
+        .or_default()
+        .insert(conflict_record.logical_id.clone(), conflict_record.revision);
+    let conflict_release = CorpusRelease {
+        release_id: "pilot-r2".into(),
+        knowledge_version: "pilot-knowledge-v1".into(),
+        patch: "c1-patch".into(),
+        created_at_epoch: 2,
+        source_revisions: conflict_revisions,
+    };
+    store.publish_release(&conflict_release).await.unwrap();
     let provider = Provider {
         calls: Arc::new(AtomicUsize::new(0)),
         fail: Arc::new(AtomicBool::new(false)),
@@ -394,7 +430,60 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
     environment.push(("BRAIN_SERVE_OTHER_TOKEN", OTHER_TOKEN));
     environment.push(("BRAIN_SERVE_INTERNAL_TOKEN", "synthetic-internal-token"));
 
-    // Unknown/mismatched releases and a occupied bind fail before announcing readiness.
+    let incompatible_admin = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(options.clone().database("brain_schema_test"))
+        .await
+        .unwrap();
+    sqlx::raw_sql(
+        "CREATE SCHEMA brain; \
+         CREATE TABLE brain.core_schema_version(singleton boolean PRIMARY KEY, schema_version integer NOT NULL, store_contract text NOT NULL); \
+         INSERT INTO brain.core_schema_version(singleton, schema_version, store_contract) VALUES(true, 99, 'fixture-contract')",
+    )
+    .execute(&incompatible_admin)
+    .await
+    .unwrap();
+    let mut incompatible_config = config.clone();
+    incompatible_config["postgres"]["database"] = json!("brain_schema_test");
+    let mut incompatible = Service::spawn(&incompatible_config, &environment);
+    let incompatible_status = incompatible.wait(Duration::from_secs(8));
+    assert_eq!(incompatible_status.code(), Some(1));
+    assert!(incompatible.log().contains("core_schema_incompatible"));
+    assert!(!incompatible.log().contains("listening"));
+    let schema_version: i32 =
+        sqlx::query_scalar("SELECT schema_version FROM brain.core_schema_version WHERE singleton")
+            .fetch_one(&incompatible_admin)
+            .await
+            .unwrap();
+    assert_eq!(schema_version, 99);
+    let schema_relations: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='brain' AND c.relkind IN ('r','p','v','m','S')",
+    )
+    .fetch_one(&incompatible_admin)
+    .await
+    .unwrap();
+    assert_eq!(schema_relations, 1);
+    incompatible_admin.close().await;
+
+    let empty_admin = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(options.clone().database("brain_empty_schema_test"))
+        .await
+        .unwrap();
+    let mut empty_config = config.clone();
+    empty_config["postgres"]["database"] = json!("brain_empty_schema_test");
+    let mut empty = Service::spawn(&empty_config, &environment);
+    let empty_status = empty.wait(Duration::from_secs(8));
+    assert_eq!(empty_status.code(), Some(1));
+    assert!(empty.log().contains("database_unavailable"));
+    assert!(!empty.log().contains("listening"));
+    let empty_schema: bool = sqlx::query_scalar("SELECT to_regnamespace('brain') IS NOT NULL")
+        .fetch_one(&empty_admin)
+        .await
+        .unwrap();
+    assert!(!empty_schema);
+    empty_admin.close().await;
+
     for (field, invalid, expected) in [
         ("id", "missing-release", "release_unavailable"),
         (
@@ -471,6 +560,7 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
 
     for (text, expected, needle) in [
         ("Warden max health", AnswerStatus::Answered, "770"),
+        ("Guardian max health", AnswerStatus::Answered, "770"),
         ("Der Wächter max health", AnswerStatus::Answered, "770"),
         ("Warden max health 770", AnswerStatus::Answered, "770"),
         ("Warden stamina 3", AnswerStatus::Answered, "stamina: 3"),
@@ -484,7 +574,11 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
             AnswerStatus::InsufficientEvidence,
             "",
         ),
-        ("Haze max health", AnswerStatus::InsufficientEvidence, ""),
+        (
+            "Unlisted Hero max health",
+            AnswerStatus::InsufficientEvidence,
+            "",
+        ),
         (
             "Warden unknown field",
             AnswerStatus::InsufficientEvidence,
@@ -539,13 +633,16 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
     assert_eq!(internal.status, AnswerStatus::Answered);
     assert!(internal.text.contains("98765"));
     assert_eq!(internal.citations.len(), 1);
-    assert!(ask(
-        &address,
-        "synthetic-internal-token",
-        fact_query("reverse-leak", "Warden max health", "game.public")
-    )
-    .await
-    .is_err());
+    assert!(matches!(
+        ask(
+            &address,
+            "synthetic-internal-token",
+            fact_query("reverse-leak", "Warden max health", "game.public")
+        )
+        .await,
+        Err(brain_client::ClientError::HttpStatus { status, body })
+            if status.as_u16() == 403 && body == "forbidden"
+    ));
     assert_eq!(provider.calls.load(Ordering::SeqCst), count);
     for (id, items, status, needle) in [
         (
@@ -755,7 +852,7 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
         AnswerStatus::InsufficientEvidence
     );
     assert_eq!(provider.calls.load(Ordering::SeqCst), provider_calls);
-    let count = provider.calls.load(Ordering::SeqCst);
+    let mut count = provider.calls.load(Ordering::SeqCst);
 
     // The manifest is pinned, not "whatever release currently exists"; liveness is independent.
     sqlx::query("DELETE FROM brain.corpus_releases_v1 WHERE release_id=$1")
@@ -808,6 +905,15 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
         .await
         .unwrap();
     common::assert_ready(&address);
+    assert_eq!(
+        ask(&address, API_TOKEN, query("db-recovered"))
+            .await
+            .unwrap()
+            .status,
+        AnswerStatus::Answered
+    );
+    count += 1;
+    assert_eq!(provider.calls.load(Ordering::SeqCst), count);
     service.stop();
     let stats = pool_stats(&service.log());
     assert_eq!(stats["max_connections"], 4);
@@ -864,6 +970,25 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
     }
     let socket: std::net::SocketAddr = address.strip_prefix("http://").unwrap().parse().unwrap();
     assert!(std::net::TcpStream::connect_timeout(&socket, Duration::from_millis(100)).is_err());
+
+    let mut limited_config = config.clone();
+    limited_config["release"]["id"] = json!(conflict_release.release_id);
+    limited_config["retrieval"]["limit"] = json!(1);
+    let mut limited_service = Service::spawn(&limited_config, &environment);
+    let limited_address = limited_service.address();
+    common::assert_ready(&limited_address);
+    assert_eq!(
+        ask(
+            &limited_address,
+            API_TOKEN,
+            fact_query("guardian-limit-one", "Guardian max health", "game.public")
+        )
+        .await
+        .unwrap()
+        .status,
+        AnswerStatus::InsufficientEvidence
+    );
+    limited_service.stop();
 
     sqlx::query("CREATE ROLE brain_serve_fixture LOGIN")
         .execute(&pool)
