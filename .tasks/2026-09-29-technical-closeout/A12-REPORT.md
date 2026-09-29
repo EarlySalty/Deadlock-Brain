@@ -8,7 +8,7 @@ Datum: 2026-09-29
 - Worktree: `/home/nathanael/.worktrees/brain-pre-g5-match-fix-20260929`
 - Branch: `fix/pre-g5-match-contract-20260929`
 - Basis: `34a2507`
-- Codecommits R1/R2: `8e8ce76`, `7023076`, `cd91de5`
+- Codecommits R1/R2/R3: `8e8ce76`, `7023076`, `cd91de5`, `9a33f29`
 
 ## Änderungen
 
@@ -41,9 +41,20 @@ Ausgeführt im zugewiesenen Worktree. `CARGO_HOME` und `CARGO_TARGET_DIR` zeigte
 - `unset DATABASE_URL PGPASSWORD; BRAIN_MATCH_TEST_PG_SOCKET=/tmp/brain-match-r2.QBCGMY/.match-test-pg BRAIN_MATCH_TEST_PG_PORT=55493 CARGO_HOME=/home/nathanael/.cargo CARGO_TARGET_DIR=/home/nathanael/.worktrees/brain-pre-g5-match-fix-20260929/rust/target /home/nathanael/.cargo/bin/cargo +stable test --manifest-path rust/Cargo.toml --locked --offline -p brain-feeds -- --include-ignored > /tmp/brain-match-r2.QBCGMY/cargo-test-final.log 2>&1`: Exit 0, 21 passed, 0 failed, 0 ignored, 0 filtered. Die PostgreSQL-Store-, Release-, Replay- und Revoke-Fixture lief gegen ein Wegwerf-PostgreSQL per Unix-Socket und Peer-Auth. Der Cluster wurde gestoppt. Keine echte Matchabfrage oder Produktion wurde verwendet.
 - `/home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-pre-g5-match-fix-20260929 --base 34a2507` vor Commit: `ALLOW: No merge-blocking defect is established by the supplied diff.` mit einem nicht blockierenden Hinweis zur Parserrevision. Nach Codecommit: `ALLOW: The supplied diff and source snapshots establish no merge-blocking defect.` Nach Berichtcommit `ec28a72`: `ALLOW: No merge-blocking defect is established by the supplied diff.` mit Hinweis, die neun ausgewählten Spielerfelder nicht als durchgehend verpflichtend darzustellen. Die Formulierung wurde korrigiert; nach `ffbcdc9`: `ALLOW: No merge-blocking defect is established by the supplied diff and source snapshots.` Nach `e4f054f` meldete das Gate einen nicht blockierenden Befund, dass Locator-Negativtests ungültige Antwortkörper nutzten. Die Regressionen verwenden jetzt gültige Antwortkörper; nach `cd91de5`: `ALLOW: No merge-blocking defect is established by the supplied diff and source snapshots.` Nach Berichtcommit `9f7b5ab`: `ALLOW: The supplied diff establishes no merge-blocking defect.`
 
+## Provenienz-Nachtrag: NDJSON-Zeilenlocator
+
+`demo_evidence_documents` erfasst die physische Zeilennummer vor dem Überspringen leerer oder reiner Whitespace-Zeilen. Die physische Nummer wird im `#L`-Locator verwendet. `logical_id` und `evidence_id` behalten den fortlaufenden Datensatzindex. Match- und Account-Prüfungen bleiben unverändert. Die Regression enthält eine führende und eine mittlere Leerzeile und prüft exakt `#L2` und `#L4` sowie die fortlaufenden IDs `000001` und `000002`. Die Zwillingssuche fand `normalize_demo_rows` in `rust/crates/dbrain-sources/src/deadlock_api.rs:588`; dort bleibt die physische Zeilennummer bereits beim Überspringen leerer Zeilen erhalten, während `evidence_id` fortlaufend bleibt.
+
+- Geändert: `rust/crates/brain-feeds/src/deadlock_match.rs` und diese Berichtdatei. Keine echten Replays oder API-Abfragen.
+- `CARGO_HOME=/home/nathanael/.cargo /home/nathanael/.cargo/bin/rustfmt --edition 2021 rust/crates/brain-feeds/src/deadlock_match.rs`: Exit 0.
+- `/home/nathanael/.cargo/bin/cargo +stable fmt --manifest-path rust/Cargo.toml -p brain-feeds -- --check`: Exit 0.
+- `unset DATABASE_URL PGPASSWORD; CARGO_HOME=/home/nathanael/.cargo CARGO_TARGET_DIR=/home/nathanael/.worktrees/brain-pre-g5-match-fix-20260929/rust/target /home/nathanael/.cargo/bin/cargo +stable clippy --manifest-path rust/Cargo.toml --locked --offline -p brain-feeds --all-targets -- -D warnings > /tmp/brain-match-r2.QBCGMY/cargo-clippy-physical-line.log 2>&1`: Exit 0, 0 Warnungen.
+- `unset DATABASE_URL PGPASSWORD; BRAIN_MATCH_TEST_PG_SOCKET=/tmp/brain-match-r2.QBCGMY/.match-test-pg BRAIN_MATCH_TEST_PG_PORT=55493 CARGO_HOME=/home/nathanael/.cargo CARGO_TARGET_DIR=/home/nathanael/.worktrees/brain-pre-g5-match-fix-20260929/rust/target /home/nathanael/.cargo/bin/cargo +stable test --manifest-path rust/Cargo.toml --locked --offline -p brain-feeds -- --include-ignored > /tmp/brain-match-r2.QBCGMY/cargo-test-physical-line.log 2>&1`: Exit 0, 22 passed, 0 failed, 0 ignored, 0 filtered. Die ignorierte PostgreSQL-Store-, Release-, Replay- und Revoke-Fixture lief gegen das Wegwerf-PostgreSQL per Unix-Socket und Peer-Auth; der Cluster wurde gestoppt.
+- `/home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-pre-g5-match-fix-20260929 --base 8a865d3`: `ALLOW: Locators now use physical NDJSON line numbers, and the added test covers blank lines. No findings.` Codecommit: `9a33f29`.
+
 WIRKUNGSPRUEFUNG[WP-1]: 0 Befunde | Zwillingssuche: grep-belegt | Fremddienst-Pfade: 1/1 geprüft
-TESTNACHWEIS[TW-1]: 21 passed, 0 ignored | Baseline: nicht erhoben, kein Altfehlerurteil
+TESTNACHWEIS[TW-1]: 22 passed, 0 ignored | Baseline: nicht erhoben, kein Altfehlerurteil
 TEXTNACHWEIS[DR-1]: Gedankenstriche 0 | ae/oe/ue/ss-Ersatz 0 | Absolutwörter 0 belegt | Senke: interner Taskbericht im Taskordner
 ORCHESTRIERUNG[OR-1]: Stufe mittel | Schritt done | Artefakt: .tasks/2026-09-29-technical-closeout/A12-REPORT.md
 INTENT[IA-1]: Stufe mittel | Modell Luna | Thread 562a877b-0939-440a-964d-1145d9e9431a | Register: /home/nathanael/.worktrees/brain-technical-closeout-20260929/.tasks/2026-09-29-technical-closeout/REGISTER.md
-MERGEPROTOKOLL[MS-1]: Eigene R1/R2-Code- und Berichtcommits einzeln auf Branch gepusht | Gate: ALLOW | kein Merge angefordert
+MERGEPROTOKOLL[MS-1]: 5 Git-Schritte einzeln | Anläufe: 3 | Gate: ALLOW, kein Merge angefordert
