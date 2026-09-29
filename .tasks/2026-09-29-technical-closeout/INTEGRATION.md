@@ -1,4 +1,4 @@
-status: aktiv
+status: erledigt
 Datum: 2026-09-29
 
 # Integrationsprotokoll der Hauptsession
@@ -15,7 +15,7 @@ C/C1 in PR #60 nach unabhängiger Prüfung, sechs eigenen Scratch-/Prozesstests 
 
 A12/A34 und C wurden im A-PR59 auf 72db816056fb0ed53810ab77ea4417dc0812e7ca kombiniert. Die unabhängige R5-Abnahme bestätigt GO, alle Gesamtgate-Nachträge sind geschlossen. Erneutes lokales Gesamtgate ALLOW mit den dokumentierten nichtblockierenden Lease-/Usage-Hinweisen. Regulärer PR59-Merge ausschließlich nach migration/rust-integration am 2026-09-29 um15:35:35UTC: 022f8a981c2164f6d8d4302bae2194e100c4f65c. Kein Override, keine Policyänderung, kein Deploy.
 
-Die vollständige Schlussverifikation läuft auf exakt diesem Integrationshead im bisherigen Harnessworktree auf neuem Branch verification/pre-g5-final-20260929. F2 aktualisiert die sieben verbindlichen Architekturdateien, endgültige Testmarker erst aus dem tatsächlichen Ergebnis.
+Die vollständige lokale Schlussverifikation ist auf exakt diesem Integrationshead bestanden: 1011Tests,75ignoriert,acht davon gezielt erfolgreich ausgeführt; vier Workspacegates, Last600x3 beiPool4. F2 hat die sieben Architekturdateien aktualisiert. Unabhängige Schlussabnahme7eb844d und lokales Abschlussgate aufe3b4496 geben GO beziehungsweise ALLOW. PR57 führt nur Dokumentation und Nachweise nach migration/rust-integration zusammen; tatsächlicher Merge-SHA und Zeitpunkt sind den PR-Metadaten zu entnehmen. Produktcode bleibt zu022f8a9 unverändert.
 
 MERGEPROTOKOLL[MS-1]: 1 Git-Schritt einzeln | Anläufe: 1 | Gate: Gesamtgate ALLOW und unabhängiges R5-GO nach behobenem vorherigem BLOCK
 

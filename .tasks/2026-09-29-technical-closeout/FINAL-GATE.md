@@ -1,4 +1,4 @@
-status: aktiv
+status: erledigt
 Datum: 2026-09-29
 
 # Lokales Abschlussgate und Dokunachträge
@@ -16,4 +16,10 @@ Zwei nichtblockierende Dokumentationshinweise werden dennoch vor Abschluss korri
 
 Eigene Diffprüfung fand außerdem drei zusätzliche Leerzeilen am Dateiende in A12-FIX-BRIEFING.md, PAKETE.md und REVIEW-E.md. Diese reinen Formatfehler wurden korrigiert, keine Test- oder Produktdatei geändert.
 
-Unabhängige Schlussabnahme und tatsächlicher PR57-Merge stehen noch aus. Das ALLOW allein ist keine G5- oder Produktionsfreigabe.
+## Endgültiger Gatelauf
+
+Die Textkorrektur ist in e3b4496 integriert. Derselbe Aufruf mit `--head e3b4496` endete mit Exit0:
+
+`ALLOW: The supplied diff changes only documentation and logs; no merge-blocking defect found. Local verification, historical evidence, failed CI, and outstanding production approvals remain clearly distinguished.`
+
+Unabhängige Schlussabnahme7eb844d bestätigt auf demselben Stand technisches GO, fertig J, Fix nötig N. Code zu022f8a9 und Logs zu315d846 sind unverändert. Danach werden ausschließlich diese Urteile und das Abschlussregister dokumentiert. PR57 ist der vorgesehene reguläre Integrationsweg nach migration/rust-integration; kein Main-Merge und keine G5-/Produktionsfreigabe.

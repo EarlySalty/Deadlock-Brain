@@ -1,4 +1,4 @@
-status: aktiv
+status: erledigt
 Datum: 2026-09-29
 
 # Deadlock Brain technisch vor G5 abschließen
