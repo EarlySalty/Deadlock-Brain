@@ -15,10 +15,20 @@ pub trait AnswerKernelPort: Send + Sync {
     fn answer(&self, query: &Query, context: &AuthorizedContext) -> AnswerResponse;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Kernel<R, P> {
     retrieval: R,
     provider: P,
+    clock: std::sync::Arc<dyn Fn() -> std::time::Instant + Send + Sync>,
+}
+
+impl<R: std::fmt::Debug, P: std::fmt::Debug> std::fmt::Debug for Kernel<R, P> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Kernel")
+            .field("retrieval", &self.retrieval)
+            .field("provider", &self.provider)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<R, P> Kernel<R, P> {
@@ -26,7 +36,16 @@ impl<R, P> Kernel<R, P> {
         Self {
             retrieval,
             provider,
+            clock: std::sync::Arc::new(std::time::Instant::now),
         }
+    }
+
+    pub fn with_clock(
+        mut self,
+        clock: impl Fn() -> std::time::Instant + Send + Sync + 'static,
+    ) -> Self {
+        self.clock = std::sync::Arc::new(clock);
+        self
     }
 }
 
@@ -47,7 +66,13 @@ where
             );
         }
 
-        execution::answer(&self.retrieval, &self.provider, query, context)
+        execution::answer(
+            &self.retrieval,
+            &self.provider,
+            query,
+            context,
+            self.clock.as_ref(),
+        )
     }
 }
 
@@ -75,7 +100,7 @@ mod tests {
     use std::{
         collections::BTreeSet,
         sync::{
-            atomic::{AtomicUsize, Ordering},
+            atomic::{AtomicU64, AtomicUsize, Ordering},
             Arc,
         },
     };
@@ -111,6 +136,38 @@ mod tests {
                     "fixture evidence mismatch".into(),
                 ))
             }
+        }
+    }
+
+    struct AdvancingValidation {
+        evidence: FixedRetrieval,
+        elapsed_ms: Arc<AtomicU64>,
+        validations: Arc<AtomicUsize>,
+        advance_on: usize,
+    }
+
+    impl RetrievalPort for AdvancingValidation {
+        fn retrieve(
+            &self,
+            query: &Query,
+            context: &AuthorizedContext,
+        ) -> Result<Vec<Evidence>, PortError> {
+            self.evidence.retrieve(query, context)
+        }
+
+        fn validate_evidence(
+            &self,
+            query: &Query,
+            context: &AuthorizedContext,
+            evidence: &[Evidence],
+            provider: bool,
+        ) -> Result<(), PortError> {
+            self.evidence
+                .validate_evidence(query, context, evidence, provider)?;
+            if self.validations.fetch_add(1, Ordering::SeqCst) + 1 == self.advance_on {
+                self.elapsed_ms.store(1_001, Ordering::SeqCst);
+            }
+            Ok(())
         }
     }
 
@@ -195,9 +252,7 @@ mod tests {
         }
     }
 
-    #[test]
-    fn fact_path_does_not_call_provider() {
-        let calls = Arc::new(AtomicUsize::new(0));
+    fn canonical_fact() -> Evidence {
         let mut fact = evidence("fact", EvidenceKind::Fact, SourceVisibility::Public, &[]);
         fact.logical_id = "entity/hero/Abrams".into();
         fact.content = "hero: Abrams\nhealth: 650".into();
@@ -219,6 +274,13 @@ mod tests {
             valid_to: None,
             metadata: Default::default(),
         });
+        fact
+    }
+
+    #[test]
+    fn fact_path_does_not_call_provider() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let fact = canonical_fact();
         let kernel = Kernel::new(
             FixedRetrieval(vec![fact]),
             CountingProvider {
@@ -231,6 +293,89 @@ mod tests {
         assert_eq!(answer.status, AnswerStatus::Answered);
         assert_eq!(calls.load(Ordering::SeqCst), 0);
         assert_eq!(answer.citations.len(), 1);
+    }
+
+    #[test]
+    fn successful_fact_domain_and_provider_paths_reject_late_validation() {
+        use brain_contracts::domain::{
+            DomainAnswer, DomainRequest, DomainRoute, DomainVerdict, LocatedRevision, Validity,
+            DOMAIN_ANSWER_VERSION,
+        };
+
+        let run = |request: Query, source: Evidence, advance_on: usize, provider_count: usize| {
+            let elapsed_ms = Arc::new(AtomicU64::new(0));
+            let validations = Arc::new(AtomicUsize::new(0));
+            let calls = Arc::new(AtomicUsize::new(0));
+            let origin = std::time::Instant::now();
+            let observed = elapsed_ms.clone();
+            let kernel = Kernel::new(
+                AdvancingValidation {
+                    evidence: FixedRetrieval(vec![source]),
+                    elapsed_ms,
+                    validations: validations.clone(),
+                    advance_on,
+                },
+                CountingProvider {
+                    calls: calls.clone(),
+                },
+            )
+            .with_clock(move || {
+                origin + std::time::Duration::from_millis(observed.load(Ordering::SeqCst))
+            });
+            let answer = kernel.answer(&request, &context(&[], &["public"]));
+            assert_eq!(answer.status, AnswerStatus::BudgetExceeded);
+            assert!(answer.citations.is_empty());
+            assert_eq!(validations.load(Ordering::SeqCst), advance_on);
+            assert_eq!(calls.load(Ordering::SeqCst), provider_count);
+        };
+
+        let mut fact = query(AnswerProfile::Fact);
+        fact.text = "Abrams health".into();
+        run(fact, canonical_fact(), 1, 0);
+
+        let mut domain = query(AnswerProfile::Build);
+        domain.patch = Some("p1".into());
+        domain.mode = Some("ranked".into());
+        domain.domain = Some(DomainRequest::Build {
+            hero: "hero:fixture".into(),
+            locale: "en".into(),
+            catalog_id: "fixture".into(),
+            items: vec!["101".into()],
+        });
+        let mut source = evidence("domain", EvidenceKind::Fact, SourceVisibility::Public, &[]);
+        source.content = serde_json::to_string(&DomainAnswer {
+            contract_version: DOMAIN_ANSWER_VERSION.into(),
+            route: DomainRoute::Build,
+            verdict: DomainVerdict::Proven,
+            text: "geprüfter Build".into(),
+            knowledge_release: "k1".into(),
+            validity: Validity {
+                patch: "p1".into(),
+                mode: "ranked".into(),
+            },
+            inputs: vec![LocatedRevision {
+                source: brain_contracts::DocumentRevision {
+                    source_id: "fixture".into(),
+                    logical_id: "domain".into(),
+                    revision: 1,
+                    content_hash: "fixture-hash".into(),
+                },
+                locator: "document".into(),
+                parser_revision: "fixture".into(),
+            }],
+            input_fact_ids: BTreeSet::new(),
+            rule_evaluation: None,
+            build_evaluation: None,
+        })
+        .unwrap();
+        run(domain, source, 1, 0);
+
+        run(
+            query(AnswerProfile::Explain),
+            evidence("prose", EvidenceKind::Prose, SourceVisibility::Public, &[]),
+            3,
+            1,
+        );
     }
 
     #[test]

@@ -568,7 +568,7 @@ mod tests {
         AnswerProviderPort, AnswerStatus, Budget, CorpusRelease, CorpusSnapshot, Principal,
         ProviderAnswer, PublicAnswerResponse,
     };
-    use brain_kernel::{CachedKernel, Kernel};
+    use brain_kernel::{AnswerKernelPort, CachedKernel, Kernel};
     use brain_policy::{AuthGrant, PolicyEngine};
     use dbrain_sources::AnalyticsKind;
     use std::{
@@ -630,6 +630,23 @@ mod tests {
         fn read_snapshot(&self, release_id: &str) -> Result<CorpusSnapshot, PortError> {
             self.reads.fetch_add(1, Ordering::SeqCst);
             self.elapsed_ms.store(self.advance_ms, Ordering::SeqCst);
+            FixedSnapshot.read_snapshot(release_id)
+        }
+    }
+
+    struct SecondSnapshotAdvancesClock {
+        elapsed_ms: Arc<AtomicU64>,
+        advance_ms: u64,
+        reads: Arc<AtomicUsize>,
+    }
+
+    impl SnapshotReadPort for SecondSnapshotAdvancesClock {
+        fn read_snapshot(&self, release_id: &str) -> Result<CorpusSnapshot, PortError> {
+            match self.reads.fetch_add(1, Ordering::SeqCst) {
+                0 => assert_eq!(self.elapsed_ms.load(Ordering::SeqCst), 0),
+                1 => self.elapsed_ms.store(self.advance_ms, Ordering::SeqCst),
+                read => panic!("unexpected snapshot read: {read}"),
+            }
             FixedSnapshot.read_snapshot(release_id)
         }
     }
@@ -846,6 +863,159 @@ mod tests {
         assert_eq!(seen.lock().unwrap().len(), 3);
         assert_eq!(calls.load(Ordering::SeqCst), 0);
         drop(api);
+    }
+
+    #[test]
+    fn second_snapshot_exhaustion_rejects_direct_kernel_service_and_http_answers() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let requests = Arc::new(AtomicUsize::new(0));
+        let observed = requests.clone();
+        let server = thread::spawn(move || {
+            for _ in 0..3 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut bytes = [0u8; 4096];
+                let count = stream.read(&mut bytes).unwrap();
+                assert!(bytes[..count].starts_with(b"GET /v1/analytics/hero-stats?"));
+                observed.fetch_add(1, Ordering::SeqCst);
+                let body = json!([{
+                    "hero_id":18,"bucket":0,"wins":10,"losses":10,"matches":20,
+                    "matches_per_bucket":20,"total_kills":100,"total_deaths":50,
+                    "total_assists":200,"total_net_worth":300000,"total_last_hits":1000,
+                    "total_denies":10,"total_player_damage":500000,
+                    "total_player_damage_taken":400000,"total_boss_damage":10000,
+                    "total_creep_damage":200000,"total_neutral_damage":50000,
+                    "total_max_health":30000,"total_shots_hit":1000,"total_shots_missed":500
+                }]);
+                let bytes = serde_json::to_vec(&body).unwrap();
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    bytes.len()
+                )
+                .unwrap();
+                stream.write_all(&bytes).unwrap();
+            }
+        });
+        let mut runtime = runtime();
+        runtime.config.request_timeout_ms = 500;
+        let http = dbrain_sources::core::http::HttpClient::new(
+            "brain-serve-second-snapshot-fixture",
+            runtime._scratch.path(),
+        )
+        .unwrap();
+        runtime.client = DeadlockAnalyticsClient::with_base_url(
+            http,
+            format!("http://{address}"),
+            Duration::from_millis(500),
+        )
+        .unwrap();
+        let analytics = Arc::new(runtime);
+        let provider_calls = Arc::new(AtomicUsize::new(0));
+        let make_kernel = || {
+            let elapsed_ms = Arc::new(AtomicU64::new(0));
+            let reads = Arc::new(AtomicUsize::new(0));
+            let origin = Instant::now();
+            let clock_elapsed = elapsed_ms.clone();
+            let retrieval = AnalyticsRetriever::new(
+                ReleaseRetriever::new(
+                    SecondSnapshotAdvancesClock {
+                        elapsed_ms,
+                        advance_ms: 2_001,
+                        reads: reads.clone(),
+                    },
+                    8,
+                ),
+                Some(analytics.clone()),
+            );
+            let kernel = Kernel::new(retrieval, DeniedProvider(provider_calls.clone())).with_clock(
+                move || origin + Duration::from_millis(clock_elapsed.load(Ordering::SeqCst)),
+            );
+            (kernel, reads)
+        };
+        let request = answer_query(META_PREDICATE);
+        let context = AuthorizedContext {
+            principal: Principal {
+                actor_id: "fixture-actor".into(),
+                channel: "fixture-channel".into(),
+                scopes: BTreeSet::from(["analytics.internal".into()]),
+                provider_egress: BTreeSet::new(),
+            },
+            conversation_id: "fixture-conversation".into(),
+            knowledge_release: "fixture-release".into(),
+            deadline_ms: 2_000,
+            budget: Budget::default(),
+        };
+        let (kernel, reads) = make_kernel();
+        let direct = kernel.answer(&request, &context);
+        assert_eq!(direct.status, AnswerStatus::BudgetExceeded);
+        assert!(direct.citations.is_empty());
+        assert_eq!(reads.load(Ordering::SeqCst), 2);
+
+        let make_service = || {
+            let (kernel, reads) = make_kernel();
+            let cached = CachedKernel::new(kernel, 4, Duration::from_secs(30));
+            let policy = PolicyEngine::new(CredentialRegistry::new(vec![AuthGrant::from_secret(
+                "fixture-secret",
+                "fixture-actor",
+                "fixture-channel",
+                BTreeSet::from(["analytics.internal".into()]),
+                BTreeSet::new(),
+            )]));
+            (
+                brain_api::ApiService::new(
+                    policy,
+                    cached,
+                    "fixture-release",
+                    2_000,
+                    Budget::default(),
+                ),
+                reads,
+            )
+        };
+        let (service, reads) = make_service();
+        let handled = service.handle_answer(
+            Some("Bearer fixture-secret"),
+            &serde_json::to_vec(&request).unwrap(),
+        );
+        assert_eq!(handled.status, 200);
+        let public: PublicAnswerResponse = serde_json::from_str(&handled.body).unwrap();
+        assert_eq!(public.status, AnswerStatus::BudgetExceeded);
+        assert!(public.citations.is_empty());
+        assert_eq!(reads.load(Ordering::SeqCst), 2);
+
+        let (service, reads) = make_service();
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                axum::serve(listener, brain_api::router(service))
+                    .await
+                    .unwrap();
+            });
+            let response = reqwest::Client::new()
+                .post(format!("http://{address}/v1/answer"))
+                .bearer_auth("fixture-secret")
+                .json(&request)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), reqwest::StatusCode::OK);
+            let public: PublicAnswerResponse = response.json().await.unwrap();
+            assert_eq!(public.status, AnswerStatus::BudgetExceeded);
+            assert!(public.citations.is_empty());
+            server.abort();
+            server.await.unwrap_err();
+        });
+        assert_eq!(reads.load(Ordering::SeqCst), 2);
+        server.join().unwrap();
+        assert_eq!(requests.load(Ordering::SeqCst), 3);
+        assert_eq!(provider_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(analytics.slots.available_permits(), 4);
     }
 
     #[test]

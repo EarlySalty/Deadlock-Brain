@@ -305,12 +305,17 @@ impl Config {
         if let Some(analytics) = &self.analytics {
             let pinned = dbrain_sources::schema_watch::OpenApiSnapshot::pinned()
                 .map_err(|_| Error::ConfigInvalid("analytics_schema"))?;
+            let request = dbrain_sources::AnalyticsLookupRequest {
+                kind: dbrain_sources::AnalyticsKind::Meta,
+                hero_id: 1,
+                item_id: None,
+                patch: analytics.patch.clone(),
+                min_unix_timestamp: analytics.min_unix_timestamp,
+                max_unix_timestamp: analytics.max_unix_timestamp,
+                max_rows: analytics.max_rows,
+            };
             require(
-                identifier(&analytics.patch, 128)
-                    && analytics.min_unix_timestamp >= 0
-                    && analytics.max_unix_timestamp > analytics.min_unix_timestamp
-                    && analytics.max_unix_timestamp - analytics.min_unix_timestamp <= 31 * 86_400
-                    && (1..=256).contains(&analytics.max_rows)
+                request.validate().is_ok()
                     && (1..=5_000).contains(&analytics.request_timeout_ms)
                     && analytics.request_timeout_ms.saturating_mul(2) <= t.request_ms
                     && analytics.schema_sha256 == pinned.schema_sha256,

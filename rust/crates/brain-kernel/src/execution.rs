@@ -1,6 +1,9 @@
 use super::*;
 use brain_contracts::EvidenceKind;
-use std::{collections::BTreeSet, time::Instant};
+use std::{
+    collections::BTreeSet,
+    time::{Duration, Instant},
+};
 /// Infrastructure/corrupt-reader failures are not claims about the caller's permissions.
 /// Both categories fail closed, but only an explicit denial is UnauthorizedEvidence.
 pub(super) fn validation_status(error: &PortError) -> AnswerStatus {
@@ -47,10 +50,25 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
     provider: &P,
     query: &Query,
     context: &AuthorizedContext,
+    now: &dyn Fn() -> Instant,
 ) -> AnswerResponse {
-    let started = Instant::now();
+    let started = now();
+    let elapsed_ms = || now().saturating_duration_since(started).as_millis() as u64;
+    let expired =
+        || now().saturating_duration_since(started) >= Duration::from_millis(context.deadline_ms);
     let fail = |status, message: &str, usage: Usage| {
         response(query, context, status, message, Vec::new(), usage)
+    };
+    let publish = |status, text: String, citations: Vec<Evidence>, usage: Usage| {
+        if expired() {
+            fail(
+                AnswerStatus::BudgetExceeded,
+                "Request Deadline erreicht.",
+                usage,
+            )
+        } else {
+            response(query, context, status, text, citations, usage)
+        }
     };
     if context.deadline_ms == 0
         || context.deadline_ms > 60000
@@ -87,11 +105,7 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
             )
         }
     };
-    let Some(provider_context) = remaining(
-        context,
-        &retrieval_usage,
-        started.elapsed().as_millis() as u64,
-    ) else {
+    let Some(provider_context) = remaining(context, &retrieval_usage, elapsed_ms()) else {
         return fail(
             AnswerStatus::BudgetExceeded,
             "Retrieval überschreitet das Request Budget.",
@@ -133,6 +147,13 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
             retrieval_usage,
         );
     }
+    if expired() {
+        return fail(
+            AnswerStatus::BudgetExceeded,
+            "Request Deadline erreicht.",
+            retrieval_usage,
+        );
+    }
     if matches!(
         &query.domain,
         Some(brain_contracts::domain::DomainRequest::Fact { predicate, .. })
@@ -164,9 +185,7 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
                 retrieval_usage,
             );
         }
-        return response(
-            query,
-            context,
+        return publish(
             AnswerStatus::Answered,
             evidence[0].content.clone(),
             evidence,
@@ -209,14 +228,7 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
                     }
                     _ => AnswerStatus::InsufficientEvidence,
                 };
-                return response(
-                    query,
-                    context,
-                    status,
-                    domain.text,
-                    evidence,
-                    retrieval_usage,
-                );
+                return publish(status, domain.text, evidence, retrieval_usage);
             }
         }
     }
@@ -241,9 +253,7 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
                 retrieval_usage,
             );
         }
-        return response(
-            query,
-            context,
+        return publish(
             AnswerStatus::Answered,
             fact.content.clone(),
             vec![fact.clone()],
@@ -281,11 +291,7 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
             retrieval_usage,
         );
     }
-    let Some(provider_context) = remaining(
-        context,
-        &retrieval_usage,
-        started.elapsed().as_millis() as u64,
-    ) else {
+    let Some(provider_context) = remaining(context, &retrieval_usage, elapsed_ms()) else {
         return fail(
             AnswerStatus::BudgetExceeded,
             "Request Deadline erreicht.",
@@ -316,7 +322,7 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
             retrieval_usage,
         );
     };
-    if remaining(context, &usage, started.elapsed().as_millis() as u64).is_none() {
+    if remaining(context, &usage, elapsed_ms()).is_none() {
         return fail(
             AnswerStatus::BudgetExceeded,
             "Provider überschreitet das Request Budget.",
@@ -347,19 +353,12 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
             usage,
         );
     }
-    if started.elapsed().as_millis() >= context.deadline_ms as u128 {
+    if expired() {
         return fail(
             AnswerStatus::BudgetExceeded,
             "Request Deadline erreicht.",
             usage,
         );
     }
-    response(
-        query,
-        context,
-        AnswerStatus::Answered,
-        answer.text,
-        evidence,
-        usage,
-    )
+    publish(AnswerStatus::Answered, answer.text, evidence, usage)
 }
