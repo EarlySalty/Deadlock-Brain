@@ -833,13 +833,12 @@ mod tests {
         let body = br#"[{"match_id":92685682,"start_time":1790000000,"winning_team":0,"duration_s":1200,"match_outcome":1,"match_mode":"ranked","game_mode":"normal","average_badge_team0":10,"average_badge_team1":11,"average_badge":105,"not_scored":false,"players":[{"account_id":281768392,"hero_id":18,"player_slot":0,"team":0,"hero_build_id":0,"pregame_hero_id":18,"kills":7,"deaths":2,"assists":5}]}]"#;
         assert!(match_metadata_documents(&scope(), match_response(body), &policy()).is_err());
 
-        let response = match_response(body);
-        let legacy_default_url = response.url.replace("&include_info=false", "");
-        assert_ne!(legacy_default_url, response.url);
-        let legacy_default_response = SourceHttpResponse {
-            url: legacy_default_url,
-            ..response
-        };
+        let valid_body = br#"[{"match_id":92685682,"players":[{"account_id":281768392,"hero_id":18,"player_slot":0,"team":0,"hero_build_id":0,"pregame_hero_id":18,"kills":7,"deaths":2,"assists":5}]}]"#;
+        let mut legacy_default_response = match_response(valid_body);
+        legacy_default_response.url = legacy_default_response
+            .url
+            .replace("&include_info=false", "");
+        assert!(!legacy_default_response.url.contains("include_info="));
         assert!(match_metadata_documents(&scope(), legacy_default_response, &policy()).is_err());
     }
 
@@ -945,7 +944,7 @@ mod tests {
         let wrong_locator = response(
             "https://api.deadlock-api.com/v1/matches/metadata?match_ids=1",
             "application/json",
-            br#"[{"match_id":92685682,"players":[{"account_id":281768392}]}]"#,
+            br#"[{"match_id":92685682,"players":[{"account_id":281768392,"hero_id":18,"player_slot":0,"team":0,"hero_build_id":0,"pregame_hero_id":18,"kills":7,"deaths":2,"assists":5}]}]"#,
         );
         assert!(match_metadata_documents(&scope(), wrong_locator, &policy()).is_err());
         let mut wrong_account_filter = match_response(
@@ -964,7 +963,7 @@ mod tests {
         let wrong_origin = response(
             "https://api.deadlock-api.com.evil.test/v1/matches/metadata?match_ids=92685682",
             "application/json",
-            br#"[{"match_id":92685682,"players":[{"account_id":281768392}]}]"#,
+            br#"[{"match_id":92685682,"players":[{"account_id":281768392,"hero_id":18,"player_slot":0,"team":0,"hero_build_id":0,"pregame_hero_id":18,"kills":7,"deaths":2,"assists":5}]}]"#,
         );
         assert!(match_metadata_documents(&scope(), wrong_origin, &policy()).is_err());
     }
@@ -982,7 +981,8 @@ mod tests {
         ] {
             assert!(match_metadata_documents(&scope(), match_response(body), &policy()).is_err());
         }
-        let mut missing_projection = match_response(br#"[{"match_id":92685682}]"#);
+        let valid_body = br#"[{"match_id":92685682,"players":[{"account_id":281768392,"hero_id":18,"player_slot":0,"team":0,"hero_build_id":0,"pregame_hero_id":18,"kills":7,"deaths":2,"assists":5}]}]"#;
+        let mut missing_projection = match_response(valid_body);
         missing_projection.url = missing_projection
             .url
             .replace("&include_player_kda=true", "");
