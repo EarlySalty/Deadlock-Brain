@@ -4,6 +4,7 @@
 
 pub use deadlock_brain_core as core;
 
+pub mod analytics_runtime;
 pub mod assets_api;
 pub mod deadlock_api;
 pub mod deadlock_data;
@@ -27,6 +28,10 @@ pub mod wiki_runtime;
 mod store;
 mod util;
 
+pub use analytics_runtime::{
+    AnalyticsKind, AnalyticsLookupRequest, AnalyticsObservation, AnalyticsProvenance,
+    DeadlockAnalyticsClient,
+};
 pub use assets_api::{pull_assets, PullAssetsOptions};
 pub use deadlock_api::{
     pull_demo_evidence, pull_match_metadata, pull_player_match_history, DemoJobState,

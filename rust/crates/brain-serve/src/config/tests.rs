@@ -157,6 +157,32 @@ fn provider_endpoint_is_explicit_https_or_loopback_and_priced() {
 }
 
 #[test]
+fn analytics_window_and_schema_are_explicit_when_runtime_is_configured() {
+    let mut value = example();
+    value["analytics"] = json!({
+        "patch": "2026-09-24",
+        "min_unix_timestamp": 1790000000,
+        "max_unix_timestamp": 1790086400,
+        "max_rows": 8,
+        "request_timeout_ms": 2000,
+        "schema_sha256": dbrain_sources::schema_watch::OpenApiSnapshot::pinned().unwrap().schema_sha256,
+    });
+    assert!(parse(&value).is_ok());
+    value["analytics"]["schema_sha256"] = json!("unreviewed");
+    assert!(parse(&value).is_err());
+    value["analytics"]["schema_sha256"] = json!(
+        dbrain_sources::schema_watch::OpenApiSnapshot::pinned()
+            .unwrap()
+            .schema_sha256
+    );
+    value["analytics"]["max_unix_timestamp"] = json!(1790000000 + 32 * 86400);
+    assert!(parse(&value).is_err());
+    value["analytics"]["max_unix_timestamp"] = json!(1790086400);
+    value["analytics"]["request_timeout_ms"] = json!(5000);
+    assert!(parse(&value).is_err());
+}
+
+#[test]
 fn missing_malformed_and_oversized_config_are_sanitized() {
     let dir = tempfile::tempdir().unwrap();
     assert_eq!(

@@ -13,6 +13,7 @@ brain-storage = { path = "../brain-storage" }
 dbrain-s12-wiki-probe = { path = "../dbrain-wiki" }
 deadlock-brain-core = { path = "../deadlock-brain-core" }
 regex.workspace = true
+reqwest.workspace = true
 roxmltree.workspace = true
 scraper.workspace = true
 serde.workspace = true

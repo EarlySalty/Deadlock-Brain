@@ -10,14 +10,18 @@ path = "src/lib.rs"
 [dependencies]
 brain-contracts = { path = "../brain-contracts" }
 brain-ingestion = { path = "../brain-ingestion" }
+brain-storage = { path = "../brain-storage" }
+deadlock-brain-core = { path = "../deadlock-brain-core" }
 dbrain-sources = { path = "../dbrain-sources" }
 hex.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+sqlx.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [dev-dependencies]
-brain-storage = { path = "../brain-storage" }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+dbrain-retrieval = { path = "../dbrain-retrieval" }

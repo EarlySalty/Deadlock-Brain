@@ -15,6 +15,7 @@ pub struct Config {
     pub timeouts: Timeouts,
     pub retrieval: Retrieval,
     pub kernel: Kernel,
+    pub analytics: Option<Analytics>,
     pub credentials: Vec<Credential>,
 }
 
@@ -129,6 +130,17 @@ pub enum RetrievalKind {
 pub struct Kernel {
     pub cache_entries: usize,
     pub cache_ttl_ms: u64,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Analytics {
+    pub patch: String,
+    pub min_unix_timestamp: i64,
+    pub max_unix_timestamp: i64,
+    pub max_rows: usize,
+    pub request_timeout_ms: u64,
+    pub schema_sha256: String,
 }
 
 #[derive(Clone, Deserialize)]
@@ -290,6 +302,21 @@ impl Config {
             self.kernel.cache_entries <= 1024 && self.kernel.cache_ttl_ms <= 60_000,
             "kernel",
         )?;
+        if let Some(analytics) = &self.analytics {
+            let pinned = dbrain_sources::schema_watch::OpenApiSnapshot::pinned()
+                .map_err(|_| Error::ConfigInvalid("analytics_schema"))?;
+            require(
+                identifier(&analytics.patch, 128)
+                    && analytics.min_unix_timestamp >= 0
+                    && analytics.max_unix_timestamp > analytics.min_unix_timestamp
+                    && analytics.max_unix_timestamp - analytics.min_unix_timestamp <= 31 * 86_400
+                    && (1..=256).contains(&analytics.max_rows)
+                    && (1..=5_000).contains(&analytics.request_timeout_ms)
+                    && analytics.request_timeout_ms.saturating_mul(2) <= t.request_ms
+                    && analytics.schema_sha256 == pinned.schema_sha256,
+                "analytics",
+            )?;
+        }
         require(
             !self.credentials.is_empty() && self.credentials.len() <= 128,
             "credentials",

@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 //! Composition root for the integrated Rust core. No legacy transports or schema writes.
 
+mod analytics;
 pub mod config;
 mod health;
 mod secrets;
