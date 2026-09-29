@@ -349,3 +349,171 @@ fn release_id_is_deterministic_and_content_addressed() {
     let c = release_from_checkpoints(&[changed.checkpoint], &config, 5).unwrap();
     assert_ne!(a.release_id, c.release_id);
 }
+
+async fn scratch_snapshot(
+    reader: &brain_storage::LocalPgReader,
+    release: &str,
+) -> brain_contracts::CorpusSnapshot {
+    let reader = reader.clone();
+    let release = release.to_owned();
+    tokio::task::spawn_blocking(move || reader.read_snapshot(&release).unwrap())
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+#[ignore = "scripts/test_brain_serve.sh: synthetic legacy records in disposable peer-auth PostgreSQL"]
+async fn scratch_import_release_tombstone_and_revoke() {
+    use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+
+    let socket = std::env::var("BRAIN_CORE_TEST_PG_SOCKET").expect("scratch socket required");
+    assert!(socket.ends_with("/.core-test-pg") && std::path::Path::new(&socket).is_absolute());
+    let pool = PgPoolOptions::new()
+        .max_connections(3)
+        .connect_with(
+            PgConnectOptions::new_without_pgpass()
+                .host(&socket)
+                .port(55439)
+                .username("brain_core_test")
+                .database("brain_legacy_test"),
+        )
+        .await
+        .unwrap();
+    let address: Option<String> = sqlx::query_scalar("SELECT inet_server_addr()::text")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(address.is_none());
+    let store = brain_storage::PgStore::new(pool.clone());
+    store.migrate_core().await.unwrap();
+    let patches = patch_documents(&[
+        line(1, "p1", 0, "Abrams: first"),
+        line(2, "p2", 0, "Warden: second"),
+    ])
+    .unwrap();
+    let entities = entity_documents(&[entity(25, "Warden")]).unwrap();
+    let patches_first = prepare_batch(&patches, &public_policy(), &context(), None).unwrap();
+    let entities_first = prepare_batch(&entities, &public_policy(), &context(), None).unwrap();
+    for batch in [&patches_first, &entities_first] {
+        let lease = store
+            .claim(&batch.checkpoint.source_id, "initial", 30_000)
+            .await
+            .unwrap();
+        assert!(!store.commit(batch, &lease).await.unwrap().replayed);
+        assert!(store.commit(batch, &lease).await.unwrap().replayed);
+    }
+    let patch_checkpoint = store.checkpoint(PATCHNOTES_SOURCE).await.unwrap().unwrap();
+    let entity_checkpoint = store.checkpoint(ENTITIES_SOURCE).await.unwrap().unwrap();
+    let same = prepare_batch(
+        &patches,
+        &public_policy(),
+        &context(),
+        Some(&patch_checkpoint),
+    )
+    .unwrap();
+    assert!(same.records.is_empty());
+    let config = ReleaseConfig {
+        id_prefix: "legacy-fixture".into(),
+        knowledge_version: "v1".into(),
+        patch: "p1".into(),
+    };
+    let r1 = release_from_checkpoints(
+        &[patch_checkpoint.clone(), entity_checkpoint.clone()],
+        &config,
+        1,
+    )
+    .unwrap();
+    store.publish(&r1).await.unwrap();
+    let reader =
+        brain_storage::LocalPgReader::new(&socket, 55439, "brain_core_test", "brain_legacy_test")
+            .unwrap();
+    let snapshot = scratch_snapshot(&reader, &r1.release_id).await;
+    assert_eq!(snapshot.revisions.len(), 3);
+    let game = Principal {
+        actor_id: "game-fixture".into(),
+        channel: "test".into(),
+        scopes: BTreeSet::from(["game.public".into()]),
+        provider_egress: BTreeSet::new(),
+    };
+    assert_eq!(snapshot.authorized(&game, false).unwrap().len(), 3);
+    let docs = Principal {
+        scopes: BTreeSet::from(["docs.public".into()]),
+        ..game.clone()
+    };
+    assert!(snapshot.authorized(&docs, false).unwrap().is_empty());
+    let remaining = patch_documents(&[line(1, "p1", 0, "Abrams: first")]).unwrap();
+    let removed = prepare_batch(
+        &remaining,
+        &public_policy(),
+        &context(),
+        Some(&patch_checkpoint),
+    )
+    .unwrap();
+    assert_eq!(
+        removed
+            .records
+            .iter()
+            .filter(|record| record.tombstone)
+            .count(),
+        1
+    );
+    let lease = store
+        .claim(PATCHNOTES_SOURCE, "removed", 30_000)
+        .await
+        .unwrap();
+    store.commit(&removed, &lease).await.unwrap();
+    let patch_checkpoint = store.checkpoint(PATCHNOTES_SOURCE).await.unwrap().unwrap();
+    let r2 = release_from_checkpoints(
+        &[patch_checkpoint.clone(), entity_checkpoint.clone()],
+        &config,
+        2,
+    )
+    .unwrap();
+    store.publish(&r2).await.unwrap();
+    assert_eq!(
+        scratch_snapshot(&reader, &r2.release_id)
+            .await
+            .revisions
+            .len(),
+        2
+    );
+    let tombstones: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM brain.source_record_heads WHERE source_id=$1 AND logical_id=$2 AND tombstone AND revision=2",
+    )
+    .bind(PATCHNOTES_SOURCE)
+    .bind("patch/p2")
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(tombstones, 1);
+    let unchanged = prepare_batch(
+        &remaining,
+        &public_policy(),
+        &context(),
+        Some(&patch_checkpoint),
+    )
+    .unwrap();
+    assert!(unchanged.records.is_empty());
+    let restricted = SourcePolicyConfig {
+        visibility: SourceVisibility::Private,
+        allowed_scopes: BTreeSet::from(["brain.legacy.review".into()]),
+        ..public_policy()
+    };
+    let revoke =
+        prepare_batch(&entities, &restricted, &context(), Some(&entity_checkpoint)).unwrap();
+    assert_eq!(revoke.records.len(), 1);
+    let lease = store
+        .claim(ENTITIES_SOURCE, "revoke", 30_000)
+        .await
+        .unwrap();
+    store.commit(&revoke, &lease).await.unwrap();
+    let current = scratch_snapshot(&reader, &r2.release_id).await;
+    assert_eq!(current.authorized(&game, false).unwrap().len(), 1);
+    assert!(current.authorized(&docs, false).unwrap().is_empty());
+    let pinned = scratch_snapshot(&reader, &r1.release_id).await;
+    assert_eq!(pinned.authorized(&game, false).unwrap().len(), 1);
+    tokio::task::spawn_blocking(move || drop(reader))
+        .await
+        .unwrap();
+    pool.close().await;
+}

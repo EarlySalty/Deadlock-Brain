@@ -2,7 +2,9 @@
 //! Test-only process harness. Each child has a cleared environment and only synthetic credentials.
 use serde_json::{json, Value};
 use std::{
-    fs::File,
+    fs::{File, OpenOptions},
+    io::Write,
+    os::unix::fs::OpenOptionsExt,
     path::PathBuf,
     process::{Child, Command, ExitStatus, Stdio},
     thread,
@@ -41,7 +43,15 @@ impl Service {
     pub fn spawn(config: &Value, environment: &[(&str, &str)]) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let config_path = directory.path().join("service.json");
-        std::fs::write(&config_path, serde_json::to_vec_pretty(config).unwrap()).unwrap();
+        let mut config_file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&config_path)
+            .unwrap();
+        config_file
+            .write_all(&serde_json::to_vec_pretty(config).unwrap())
+            .unwrap();
         let log = directory.path().join("service.log");
         let output = File::create(&log).unwrap();
         let child = Command::new(env!("CARGO_BIN_EXE_brain-serve"))
