@@ -87,7 +87,7 @@ fn load_config(path: &Path) -> Result<Config, String> {
 
 fn verify_raw_hash(expected: Option<&str>, bytes: &[u8]) -> Result<String, String> {
     let digest = sha256(bytes);
-    if expected.is_some_and(|value| value != digest) {
+    if expected.is_some_and(|value| !value.eq_ignore_ascii_case(&digest)) {
         return Err("match body hash differs from configured expectation".into());
     }
     Ok(digest)
@@ -286,6 +286,10 @@ mod tests {
         let body = b"fixture-match-response";
         let digest = sha256(body);
         assert_eq!(verify_raw_hash(Some(&digest), body).unwrap(), digest);
+        assert_eq!(
+            verify_raw_hash(Some(&digest.to_ascii_uppercase()), body).unwrap(),
+            digest
+        );
         assert!(verify_raw_hash(Some(&"0".repeat(64)), body).is_err());
         assert_eq!(verify_raw_hash(None, body).unwrap(), digest);
     }

@@ -81,6 +81,12 @@ impl AnalyticsLookupRequest {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PatchMembership {
+    Unverified,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AnalyticsProvenance {
@@ -91,7 +97,7 @@ pub struct AnalyticsProvenance {
     pub schema_sha256: String,
     pub api_version: String,
     pub parser_revision: String,
-    pub patch: String,
+    pub patch_membership: PatchMembership,
     pub min_unix_timestamp: i64,
     pub max_unix_timestamp: i64,
     pub attempts: usize,
@@ -400,7 +406,7 @@ pub fn prepare_analytics_response(
             schema_sha256,
             api_version,
             parser_revision: PARSER_REVISION.into(),
-            patch: request.patch.clone(),
+            patch_membership: PatchMembership::Unverified,
             min_unix_timestamp: request.min_unix_timestamp,
             max_unix_timestamp: request.max_unix_timestamp,
             attempts,
@@ -451,13 +457,20 @@ mod tests {
     }
 
     #[test]
-    fn meta_lookup_filters_hero_and_carries_patch_window_and_schema_provenance() {
+    fn meta_lookup_filters_hero_and_carries_window_and_schema_provenance() {
         let request = request(AnalyticsKind::Meta);
         let raw = json!([hero_row(7), hero_row(18)]);
         let observation = prepare_analytics_response(&request, response(&request, raw)).unwrap();
         assert_eq!(observation.rows.len(), 1);
         assert_eq!(observation.rows[0]["hero_id"], 18);
-        assert_eq!(observation.provenance.patch, "2026-09-24");
+        assert_eq!(
+            observation.provenance.patch_membership,
+            PatchMembership::Unverified
+        );
+        assert!(serde_json::to_value(&observation.provenance)
+            .unwrap()
+            .get("patch")
+            .is_none());
         assert!(!observation.provenance.schema_sha256.is_empty());
         assert!(!observation.provenance.raw_sha256.is_empty());
         assert_eq!(observation.provenance.api_version, "0.1.0");

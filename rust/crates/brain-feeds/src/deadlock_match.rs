@@ -590,12 +590,10 @@ pub fn demo_evidence_documents(
                 .as_object_mut()
                 .ok_or_else(|| FeedError::Quarantined("demo row is not an object".into()))?;
             for (field, expected) in [("match_id", &match_id), ("account_id", &account_id)] {
-                if let Some(value) = object.get(field) {
-                    if value_id(value).as_deref() != Some(expected.as_str()) {
-                        return Err(FeedError::Quarantined(format!(
-                            "demo row {field} identity mismatch"
-                        )));
-                    }
+                if object.get(field).and_then(value_id).as_deref() != Some(expected.as_str()) {
+                    return Err(FeedError::Quarantined(format!(
+                        "demo row {field} identity mismatch"
+                    )));
                 }
             }
             let ordinal = line_index + 1;
@@ -859,7 +857,7 @@ mod tests {
 
     #[test]
     fn demo_ndjson_becomes_citable_rows_and_rejects_identity_drift() {
-        let body = b"{\"tick\":10}\n{\"tick\":20}\n";
+        let body = b"{\"match_id\":92685682,\"account_id\":281768392,\"tick\":10}\n{\"match_id\":92685682,\"account_id\":281768392,\"tick\":20}\n";
         let batch = prepare_demo_evidence_batch(
             &scope(),
             vec![DemoEvidenceResponse {
@@ -888,7 +886,7 @@ mod tests {
             response: response(
                 "https://demo-extracts.deadlock-api.com/jobs/x/result.ndjson",
                 "application/x-ndjson",
-                b"{\"match_id\":1}\n",
+                b"{\"match_id\":1,\"account_id\":281768392}\n",
             ),
         };
         assert!(demo_evidence_documents(&scope(), vec![wrong], &policy()).is_err());
@@ -898,10 +896,20 @@ mod tests {
             response: response(
                 "https://demo-extracts.deadlock-api.com/jobs/x/result.ndjson",
                 "application/x-ndjson",
-                b"{\"account_id\":1}\n",
+                b"{\"match_id\":92685682,\"account_id\":1}\n",
             ),
         };
         assert!(demo_evidence_documents(&scope(), vec![wrong_account], &policy()).is_err());
+
+        let missing_identity = DemoEvidenceResponse {
+            query_name: "player_state".into(),
+            response: response(
+                "https://demo-extracts.deadlock-api.com/jobs/x/result.ndjson",
+                "application/x-ndjson",
+                b"{\"tick\":10}\n",
+            ),
+        };
+        assert!(demo_evidence_documents(&scope(), vec![missing_identity], &policy()).is_err());
 
         let wrong_origin = DemoEvidenceResponse {
             query_name: "player_state".into(),
@@ -923,7 +931,7 @@ mod tests {
                 response: response(
                     "https://demo-extracts.deadlock-api.com/jobs/x/result.ndjson",
                     "application/x-ndjson",
-                    b"{\"tick\":10}\n{\"tick\":20}\n",
+                    b"{\"match_id\":92685682,\"account_id\":281768392,\"tick\":10}\n{\"match_id\":92685682,\"account_id\":281768392,\"tick\":20}\n",
                 ),
             }],
             &policy(),
@@ -937,7 +945,7 @@ mod tests {
                 response: response(
                     "https://demo-extracts.deadlock-api.com/jobs/y/result.ndjson",
                     "application/x-ndjson",
-                    b"{\"tick\":10}\n",
+                    b"{\"match_id\":92685682,\"account_id\":281768392,\"tick\":10}\n",
                 ),
             }],
             &policy(),

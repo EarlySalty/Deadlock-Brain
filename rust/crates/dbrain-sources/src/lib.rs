@@ -30,7 +30,7 @@ mod util;
 
 pub use analytics_runtime::{
     AnalyticsKind, AnalyticsLookupRequest, AnalyticsObservation, AnalyticsProvenance,
-    DeadlockAnalyticsClient,
+    DeadlockAnalyticsClient, PatchMembership,
 };
 pub use assets_api::{pull_assets, PullAssetsOptions};
 pub use deadlock_api::{
