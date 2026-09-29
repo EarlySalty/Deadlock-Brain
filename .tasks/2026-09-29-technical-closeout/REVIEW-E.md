@@ -34,4 +34,3 @@ Das Main-Verbot des Nutzerauftrags gilt Deadlock Brain; die zusätzlich ausdrüc
 MERGEPROTOKOLL[MS-1]: 2 Git-Schritte einzeln | Anläufe: 1 | Gate: ALLOW, Fehlerlog begrenzt und HTTP unverändert
 
 TESTNACHWEIS[TW-1]: 3 passed, 0 ignored | Baseline: bestätigter Fehler aus Runde 1 geschlossen
-

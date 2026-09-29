@@ -29,4 +29,3 @@ Aktueller Abschlussstand: A12/A34/C1 nach R5-GO und lokalem Gesamtgate in022f8a9
 - C1/Luna übernimmt den abgegebenen C-Worktree auf e671c5b und PR #60: R-AC-C1 ergänzt fehlende ursprüngliche und neue Prozess-Abnahmefälle. C/Sol ist beendet, keine parallelen Schreiber in diesem Baum.
 - R-AC/Astra hat Runde 1 als fde7d5d beendet. Vier A-Befunde und eine C-Abnahmelücke sind bestätigt. Der positive Vorablastlauf auf f557064 (je 600/600, Peak 4) ist keine finale Messung und überschreibt den früheren roten C-Lauf nicht.
 - G bleibt extern blockiert: exakte Git-Quellen nicht öffentlich erreichbar, dungers ohne belegte Lizenz. Keine Pins geändert und kein fremder Code ungeklärt weiterverteilt.
-

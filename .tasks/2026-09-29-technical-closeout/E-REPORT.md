@@ -1,9 +1,11 @@
 status: erledigt
 Datum: 2026-09-29
 
-# Paket E: Provider- und Fixture-Prüfung
+# Paket E: historische Provider- und Fixture-Prüfung
 
-## Stand
+Dieser Autorenbericht dokumentiert die erste Abgabe vor dem unabhängigen Review. Die darin als behoben beschriebene Steam-Diagnose wurde anschließend wegen ungefilterter Fehlerstrings zurückgewiesen, mit typisiertem `PersistenceError` korrigiert und erneut unabhängig geprüft. Maßgeblich ist REVIEW-E.md: akzeptierter Head923f6a8, lokales ALLOW, regulärer Merge von Steam #82 alsf509f85e am29.09.2026 um12:51UTC. Kein Deploy, Neustart oder Publish. Die folgenden Testwerte gelten für ihren historischen Prüfstand, nicht für die spätere Korrektur.
+
+## Historischer Stand
 
 - Patchnotes-Basis: `db1d36398d70e64b501d4a720bcfa2ba1b25ab10` (`origin/main` zum Prüfzeitpunkt).
 - Steam-Basis: `8c3fc6e0e8f5ab1c33a43a181c1eee5667818837`; Fix-Commits `0bb39a34bfa2b4b57f2a55e8cc3ff95308799bdd` und `6ead49768008208aac6851dbe12706ddc6820d8c` auf `review/brain-provider-20260929`.
