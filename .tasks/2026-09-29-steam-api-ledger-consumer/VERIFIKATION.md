@@ -1,0 +1,13 @@
+status: aktiv | 2026-09-29
+
+# C1: Prüfung und Betriebsgrenze
+
+Der Brain-Import und `dl-bot` laufen auf demselben Diensthost. Die lokale Dienstliste zeigte `deadlock-brain-patchnotes-sync.service`; `ss -ltnp` zeigte `dl-bot` auf `127.0.0.1:8901`. Es ist kein öffentlicher Proxy erforderlich. Die Ledger-Routen selbst wurden nicht produktiv aufgerufen.
+
+Die beiden Rust-Einstiegspunkte sind `rust/crates/deadlock-brain/src/pg_patchnotes.rs` und `rust/crates/deadlock-brain/src/pg_steam_news.rs`. Beide verwenden die Standardklasse und dasselbe Postgres-Journal. Der interne Schlüssel wird aus der vorhandenen Infisical-Umgebung gelesen; bei fehlendem Schlüssel oder nicht verfügbarem Dienst erfolgt kein Steam-Aufruf.
+
+Ein gespeicherter Reservierungseintrag ohne begonnenen Steam-Aufruf darf nach einem Neustart als Transportfehler gemeldet werden. Sobald der Versand begonnen hat, blockiert eine fehlende Antwort im Journal weitere Steam-Aufrufe, auch bei vorhandenem Cache. Ein unbekannter HTTP-Status darf nicht als Transportfehler gemeldet werden: Vor einer manuellen Freigabe müssen Ledger und verfügbare Upstream-Protokolle für die betroffene Reservierungs-ID abgeglichen werden. Lässt sich insbesondere ein mögliches HTTP 429 samt `Retry-After` nicht klären, bleibt der Import gesperrt. Journalzeilen nicht ohne bestätigte Beobachtung entfernen.
+
+Geprüft: 17 Ledger-Tests einschließlich echter isolierter PostgreSQL-Instanz mit `--include-ignored`; vollständige Rust-Workspace-Suite 541 bestanden, 62 ignoriert, 0 fehlgeschlagen; `cargo clippy --workspace --all-targets -- -D warnings` erfolgreich. Der globale Format-Check scheitert bereits an unveränderten Altdateien wie `dbrain-enrich/src/lib.rs`. Die neuen und gezielt geänderten Ledger-Dateien wurden geprüft, ohne fremde Format-Hunks einzubringen.
+
+Keine produktive Migration, kein Merge, kein Neustart und kein Live-Aufruf in diesem Paket. Vor Aktivierung sind die Ledger-Implementierung, alle Verbraucher und der gemeinsame Cutover unabhängig zu prüfen.
