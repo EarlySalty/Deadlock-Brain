@@ -47,7 +47,10 @@ Bots #459 Draft/DIRTY bei Remote-Head 74cc114; lokaler Main-Merge staged. Docs #
 | #48 | Zwei noch nicht enthaltene Commits ändern nur C6_DOMAIN_KERNEL.md mit Tests auf 3b86d3c. C6-Code bereits integriert, neuere kombinierte Abnahmen vorhanden | geschlossen mit begründetem superseded-Kommentar, Branch erhalten |
 | #46 | Eindeutig NICHT vollständig enthalten: validation.rs, validation-Tests und CLI validate fehlen in Integration. Vertrag im alten Stand teilweise überholt | offen lassen, gezielten technischen Nutzen und Integration prüfen; keine falsche superseded-Behauptung |
 | #16/17/18/19/21/22/27/28 | Je PR unabhängig im Orchestrator nachgerechnet: 5/5, 3/3, 6/6, 5/5, 60/60, 10/10, 27/27, 7/7 geänderte Dateien blob-identisch im Integrationsstand | einzeln mit konkretem Nachweis geschlossen, Branches erhalten |
-| #3/4/5/6/7/8/9/10/25/26/29/30 | F1 hat jeden PR geprüft; Ersatzbelege werden gezielt nachgebessert, unklare Gleichwertigkeit wird nicht behauptet | noch keine Schließung aus bloßer Ähnlichkeit |
+| #7 | Verbindlich abgelöster Cutover-Ansatz; konkreter gemeinsamer Rust-Kernpfad durch F1 belegt | mit superseded-Kommentar geschlossen; feat/brain-rust-cutover-20260919 ausdrücklich erhalten |
+| #26 | 16/18 Dateien blob-identisch; zwei Runtime-Audit-Dateien im Orchestrator gelesen, gleicher Pfad um sicherere Erkennung und Regressionen ergänzt | mit Einzelbeleg geschlossen, Branch erhalten |
+| #29 | 11/16 Dateien blob-identisch; die fünf übrigen historischen S14-Dokumente haben je zwei ergänzende Zeilen | geschlossen, keine Realreplay-Abnahme oder V1-Entscheidung daraus abgeleitet |
+| #3/4/5/6/8/9/10/25/30 | F1 hat jeden PR geprüft; #3-6/9/10 haben offene Gleichwertigkeitsfragen, #8/25/30 sind dokumentierte Ersatzkandidaten | offen; keine weitere Schließung ohne hinreichenden Einzelbeleg |
 
 ## GitGuardian
 
