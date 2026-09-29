@@ -16,3 +16,10 @@ Exklusiver Dateiscope: rust/crates/brain-feeds/src/deadlock_match.rs, src/bin/br
 Beweisziel: upstreamgetreuer Query-zu-Antwort-Test positiv mit Spielerprojektion; fehlende Projektion oder fremde/ungültige Spielerstruktur geschlossen abgewiesen; alle im Review angegebenen Drift-Gegenfälle rot im alten und abgewiesen im korrigierten Pfad; bestehender privater Store-/Release-/Revoke-Vertrag weiter grün. Lokale Fixtures/Wegwerf-PG statt echter Spieler. Passende cargo fmt/clippy/test locked offline und eigener gate_hook.py --review gegen Basis 34a2507 vor Abgabe, exakte Befehle/Exitcodes im A12-REPORT.md unter .tasks/2026-09-29-technical-closeout/.
 
 Abgabe: eigener Branch gepusht, Commits und Bericht. Keinen separaten PR eröffnen: Orchestrator übernimmt nur diese Fixcommits in den bestehenden A-PR #59. Niemals in den A-Worktree schreiben, nicht eigenständig mergen. Bump-up bei größerer Grenze: [Bump-up] Paket A12: Grund: ... Erledigt: ... Worktree: ... Offen: ...
+
+## Nachprüfung Runde 2
+
+Reviewer 52c34332 meldet nach eigener Gegenprobe am 2026-09-29 um 13:03 UTC: A1 bleibt BLOCK. Die erzeugte URL aktiviert zusätzlich standardmäßige Match-Infofelder, die dein strikter Projektionsvalidator verwirft. A2 weist die drei ursprünglichen Drift-Gegenfälle jetzt korrekt ab. A1 auf deinem bestehenden Stand 93468b0 weiter beheben.
+
+Nicht erneut nur einen positiven Fixture-Row von Hand schreiben. Sämtliche tatsächlich wirksamen Auswahlparameter samt Upstream-Defaults am bereits belegten API-Pin prüfen und die vollständige resultierende SELECT-/Antwortform mit dem Validator abgleichen. Unbenötigte Match-Infofelder explizit per echtem API-Parameter abwählen oder ihre vertraglich belegte Projektion strikt validieren. Querybuilder, Locator und Tests müssen dieselbe Projektion beschreiben. Keine Unknown-Field-Prüfung abschwächen. Regression für den vom Reviewer reproduzierten Default-Feldfall ergänzen; keine echte Matchabfrage. Derselbe Dateizaun, Test-/Gate-/Pushweg, kein neuer Thread/PR und kein Merge.
+

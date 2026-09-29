@@ -23,7 +23,15 @@ Drei unabhängige Gegenproben in der Hauptsession bestanden jeweils mit Exit 0 a
 
 Frische GitHub-Prüfung des Heads: GitGuardian SUCCESS. Acht fehlgeschlagene Job-Annotationen melden ausdrücklich nicht gestartete Jobs wegen Kontozahlungen/Ausgabenlimit; Rust-Build-Job SKIPPED. Daraus wird kein Rust-/Security-Codefehler abgeleitet und keine vollständig grüne CI behauptet. Keine Policy geändert.
 
-Urteil für E-R1: behoben. Technischer Diagnosefix GO, Fix nötig N. PR #82 bleibt bis zur zulässigen Integration offen und ungemergt; kein Deploy oder echter Publish.
+Urteil für E-R1: behoben. Technischer Diagnosefix GO, Fix nötig N.
+
+## Integration ohne Betriebsumschaltung
+
+Nach frischem Fetch lief das lokale Gate separat gegen origin/main und den festgelegten Head 923f6a8. Exit 0: `ALLOW: No blocking defects found in the supplied diff; error logging is bounded and HTTP error responses remain unchanged.` Danach PR #82 regulär auf ready gesetzt und mit `gh pr merge --merge --match-head-commit 923f6a8702e4f277a06f823d6b82bc8621c6ef70` integriert. Kein Admin-Override, keine Policyänderung. GitHub bestätigt MERGED am 2026-09-29 um 12:51:12 UTC, Mergecommit f509f85e4ec32da589c0f46aedc10fa3953b21fc.
+
+Das Main-Verbot des Nutzerauftrags gilt Deadlock Brain; die zusätzlich ausdrücklich gesperrten Consumer-PRs bleiben unberührt. Dieser ausschließlich technische Steam-Providerfix wurde nicht deployt, kein Service neu gestartet und kein echter Publish durchgeführt. Vor dem Merge geprüfte Steam-Workflows enthalten Tests/Scans, keinen Produktionsdeploy. Die eigene Aufgabenakte wurde um diese präzise Abgrenzung korrigiert, keine Nutzerfreigabe hinzuerfunden.
+
+MERGEPROTOKOLL[MS-1]: 2 Git-Schritte einzeln | Anläufe: 1 | Gate: ALLOW, Fehlerlog begrenzt und HTTP unverändert
 
 TESTNACHWEIS[TW-1]: 3 passed, 0 ignored | Baseline: bestätigter Fehler aus Runde 1 geschlossen
 
