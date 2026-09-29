@@ -122,12 +122,37 @@ fn allowed_http_origin(url: &Url, production_host: &str) -> bool {
     production || loopback
 }
 
+fn match_metadata_query_params(match_id: &str, account_id: &str) -> BTreeMap<String, String> {
+    BTreeMap::from([
+        ("account_ids".into(), account_id.into()),
+        ("format".into(), "json".into()),
+        ("include_info".into(), "false".into()),
+        ("include_mid_boss".into(), "false".into()),
+        ("include_more_info".into(), "false".into()),
+        ("include_objectives".into(), "false".into()),
+        ("include_player_death_details".into(), "false".into()),
+        ("include_player_final_stats".into(), "false".into()),
+        ("include_player_info".into(), "false".into()),
+        ("include_player_items".into(), "false".into()),
+        ("include_player_kda".into(), "true".into()),
+        ("include_player_stats".into(), "false".into()),
+        ("limit".into(), "1".into()),
+        ("match_ids".into(), match_id.into()),
+        ("only_filtered_players".into(), "true".into()),
+    ])
+}
+
 pub fn match_metadata_url(scope: &MatchScope) -> Result<String> {
     let account_id = numeric_id(&scope.account_id, "account_id")?;
     let match_id = numeric_id(&scope.match_id, "match_id")?;
-    Ok(format!(
-        "https://api.deadlock-api.com/v1/matches/metadata?match_ids={match_id}&account_ids={account_id}&only_filtered_players=true&limit=1&format=json"
-    ))
+    let mut url = Url::parse("https://api.deadlock-api.com/v1/matches/metadata")
+        .map_err(|_| FeedError::Invalid("invalid match metadata endpoint".into()))?;
+    url.query_pairs_mut().extend_pairs(
+        match_metadata_query_params(&match_id, &account_id)
+            .iter()
+            .map(|(key, value)| (key.as_str(), value.as_str())),
+    );
+    Ok(url.to_string())
 }
 
 fn validate_match_locator(value: &str, expected_match_id: &str, account_id: &str) -> Result<()> {
@@ -154,13 +179,7 @@ fn validate_match_locator(value: &str, expected_match_id: &str, account_id: &str
             ));
         }
     }
-    let expected = BTreeMap::from([
-        ("match_ids".into(), expected_match_id.into()),
-        ("account_ids".into(), account_id.into()),
-        ("only_filtered_players".into(), "true".into()),
-        ("limit".into(), "1".into()),
-        ("format".into(), "json".into()),
-    ]);
+    let expected = match_metadata_query_params(expected_match_id, account_id);
     if actual != expected {
         return Err(FeedError::Quarantined(
             "match metadata locator does not bind the requested identity".into(),
@@ -198,27 +217,95 @@ fn value_id(value: &Value) -> Option<String> {
     })
 }
 
-fn match_id(row: &Value) -> Option<String> {
-    let object = row.as_object()?;
-    ["match_id", "matchId"]
-        .iter()
-        .find_map(|key| object.get(*key).and_then(value_id))
-}
-
-fn contains_account(row: &Value, expected_account_id: &str) -> bool {
-    row.get("players")
+fn projected_match_row(
+    row: &Value,
+    expected_match_id: &str,
+    expected_account_id: &str,
+) -> Result<Value> {
+    let object = row
+        .as_object()
+        .ok_or_else(|| FeedError::Quarantined("match metadata row is not an object".into()))?;
+    if object
+        .keys()
+        .any(|field| !["match_id", "players"].contains(&field.as_str()))
+    {
+        return Err(FeedError::Quarantined(
+            "match metadata contains fields outside the requested projection".into(),
+        ));
+    }
+    if object
+        .get("match_id")
+        .and_then(Value::as_u64)
+        .map(|id| id.to_string())
+        .as_deref()
+        != Some(expected_match_id)
+    {
+        return Err(FeedError::Quarantined(
+            "match metadata match_id is missing, invalid or mismatched".into(),
+        ));
+    }
+    let players = object
+        .get("players")
         .and_then(Value::as_array)
-        .is_some_and(|players| {
-            let mut seen = BTreeSet::new();
-            players.iter().all(|player| {
-                let account = player.get("account_id").and_then(value_id);
-                let alias = player.get("accountId").and_then(value_id);
-                let id = account.as_ref().or(alias.as_ref());
-                !(account.is_some() && alias.is_some() && account != alias)
-                    && id.is_some_and(|id| seen.insert(id.clone()))
-            }) && seen.len() == 1
-                && seen.contains(expected_account_id)
-        })
+        .filter(|players| players.len() == 1)
+        .ok_or_else(|| {
+            FeedError::Quarantined("match metadata players projection is invalid".into())
+        })?;
+    let player = players[0]
+        .as_object()
+        .ok_or_else(|| FeedError::Quarantined("match player is not an object".into()))?;
+    const PLAYER_FIELDS: &[&str] = &[
+        "account_id",
+        "hero_id",
+        "player_slot",
+        "team",
+        "hero_build_id",
+        "pregame_hero_id",
+        "kills",
+        "deaths",
+        "assists",
+    ];
+    if player
+        .keys()
+        .any(|field| !PLAYER_FIELDS.contains(&field.as_str()))
+    {
+        return Err(FeedError::Quarantined(
+            "match player contains fields outside the requested projection".into(),
+        ));
+    }
+    let account_id = player
+        .get("account_id")
+        .and_then(Value::as_u64)
+        .map(|id| id.to_string());
+    if account_id.as_deref() != Some(expected_account_id) {
+        return Err(FeedError::Quarantined(
+            "match player account_id is missing, invalid or mismatched".into(),
+        ));
+    }
+    if player.get("hero_id").and_then(Value::as_u64).is_none() {
+        return Err(FeedError::Quarantined(
+            "match player hero_id is missing or invalid".into(),
+        ));
+    }
+    let mut projected_player = serde_json::Map::new();
+    for field in PLAYER_FIELDS {
+        if let Some(value) = player.get(*field) {
+            if *field != "account_id"
+                && *field != "hero_id"
+                && !value.is_null()
+                && value.as_u64().is_none()
+            {
+                return Err(FeedError::Quarantined(format!(
+                    "match player field {field} has an invalid type"
+                )));
+            }
+            projected_player.insert((*field).into(), value.clone());
+        }
+    }
+    Ok(serde_json::json!({
+        "match_id": expected_match_id.parse::<u64>().map_err(|_| FeedError::Invalid("invalid match identity".into()))?,
+        "players": [projected_player],
+    }))
 }
 
 pub fn match_metadata_documents(
@@ -248,17 +335,12 @@ pub fn match_metadata_documents(
         .map_err(|error| FeedError::Invalid(error.to_string()))?
         .as_array()
         .ok_or_else(|| FeedError::Quarantined("match metadata is not an array".into()))?;
-    if rows.len() != 1 || match_id(&rows[0]).as_deref() != Some(expected_match_id.as_str()) {
+    if rows.len() != 1 {
         return Err(FeedError::Quarantined(
             "match metadata must contain exactly the requested match".into(),
         ));
     }
-    let (index, row) = (0, &rows[0]);
-    if !contains_account(row, &account_id) {
-        return Err(FeedError::Quarantined(
-            "match metadata does not bind the requested account".into(),
-        ));
-    }
+    let row = projected_match_row(&rows[0], &expected_match_id, &account_id)?;
     let contract = ir.contract().data;
     let schema_version = match &contract.schema_version {
         Observed::Known { value } => value.clone(),
@@ -273,7 +355,7 @@ pub fn match_metadata_documents(
         api_version: schema_version.clone(),
         original_revision: Some(format!("sha256:{}", contract.provenance.raw_sha256)),
     };
-    origin.locator = format!("{}#/{index}", contract.provenance.locator);
+    origin.locator = format!("{}#/0", contract.provenance.locator);
     origin.parser_revision = MATCH_PARSER_REVISION.into();
     origin.origin_artifacts = BTreeSet::from([format!(
         "{}@sha256:{}",
@@ -289,7 +371,7 @@ pub fn match_metadata_documents(
     let content = format!(
         "Match ID: {expected_match_id}\nAccount ID: {account_id}\nRaw SHA256: {}\nMetadata: {}\n",
         contract.provenance.raw_sha256,
-        serde_json::to_string(row)?
+        serde_json::to_string(&row)?
     );
     Ok(vec![CoreDocument {
         logical_id: format!("match/{expected_match_id}/metadata"),
@@ -711,26 +793,60 @@ mod tests {
 
     fn match_response(body: &[u8]) -> SourceHttpResponse {
         response(
-            "https://api.deadlock-api.com/v1/matches/metadata?match_ids=92685682&account_ids=281768392&only_filtered_players=true&limit=1&format=json",
+            &match_metadata_url(&scope()).unwrap(),
             "application/json",
             body,
         )
     }
 
     #[test]
+    fn match_metadata_url_pins_the_complete_upstream_projection() {
+        let url = Url::parse(&match_metadata_url(&scope()).unwrap()).unwrap();
+        let actual: BTreeMap<String, String> = url
+            .query_pairs()
+            .map(|(key, value)| (key.into_owned(), value.into_owned()))
+            .collect();
+        assert_eq!(
+            actual,
+            BTreeMap::from([
+                ("account_ids".into(), "281768392".into()),
+                ("format".into(), "json".into()),
+                ("include_info".into(), "false".into()),
+                ("include_mid_boss".into(), "false".into()),
+                ("include_more_info".into(), "false".into()),
+                ("include_objectives".into(), "false".into()),
+                ("include_player_death_details".into(), "false".into()),
+                ("include_player_final_stats".into(), "false".into()),
+                ("include_player_info".into(), "false".into()),
+                ("include_player_items".into(), "false".into()),
+                ("include_player_kda".into(), "true".into()),
+                ("include_player_stats".into(), "false".into()),
+                ("limit".into(), "1".into()),
+                ("match_ids".into(), "92685682".into()),
+                ("only_filtered_players".into(), "true".into()),
+            ])
+        );
+    }
+
+    #[test]
+    fn match_metadata_rejects_default_match_info_fields() {
+        let body = br#"[{"match_id":92685682,"start_time":1790000000,"winning_team":0,"duration_s":1200,"match_outcome":1,"match_mode":"ranked","game_mode":"normal","average_badge_team0":10,"average_badge_team1":11,"average_badge":105,"not_scored":false,"players":[{"account_id":281768392,"hero_id":18,"player_slot":0,"team":0,"hero_build_id":0,"pregame_hero_id":18,"kills":7,"deaths":2,"assists":5}]}]"#;
+        assert!(match_metadata_documents(&scope(), match_response(body), &policy()).is_err());
+
+        let valid_body = br#"[{"match_id":92685682,"players":[{"account_id":281768392,"hero_id":18,"player_slot":0,"team":0,"hero_build_id":0,"pregame_hero_id":18,"kills":7,"deaths":2,"assists":5}]}]"#;
+        let mut legacy_default_response = match_response(valid_body);
+        legacy_default_response.url = legacy_default_response
+            .url
+            .replace("&include_info=false", "");
+        assert!(!legacy_default_response.url.contains("include_info="));
+        assert!(match_metadata_documents(&scope(), legacy_default_response, &policy()).is_err());
+    }
+
+    #[test]
     fn match_metadata_becomes_account_scoped_core_record_with_raw_provenance() {
-        let body = br#"[{"match_id":92685682,"players":[{"account_id":281768392,"hero_id":18}]}]"#;
-        let batch = prepare_match_metadata_batch(
-            &scope(),
-            response(
-                "https://api.deadlock-api.com/v1/matches/metadata?match_ids=92685682&account_ids=281768392&only_filtered_players=true&limit=1&format=json",
-                "application/json",
-                body,
-            ),
-            &policy(),
-            None,
-        )
-        .unwrap();
+        let body = br#"[{"match_id":92685682,"players":[{"account_id":281768392,"hero_id":18,"player_slot":0,"team":0,"hero_build_id":0,"pregame_hero_id":18,"kills":7,"deaths":2,"assists":5}]}]"#;
+        let batch =
+            prepare_match_metadata_batch(&scope(), match_response(body), &policy(), None).unwrap();
         assert_eq!(batch.records.len(), 1);
         let record = &batch.records[0];
         assert_eq!(record.logical_id, "match/92685682/metadata");
@@ -743,6 +859,11 @@ mod tests {
         assert!(record.metadata["locator"].ends_with("#/0"));
         assert!(record.metadata.contains_key("schema_sha256"));
         assert_eq!(record.metadata["schema_version"], "0.1.0");
+        let stored: Value =
+            serde_json::from_str(record.content.split_once("Metadata: ").unwrap().1.trim())
+                .unwrap();
+        assert_eq!(stored.as_object().unwrap().len(), 2);
+        assert_eq!(stored["players"][0].as_object().unwrap().len(), 9);
         let origin = origin_from_record(record).unwrap();
         assert_eq!(origin.parser_revision, MATCH_PARSER_REVISION);
         assert!(origin
@@ -753,7 +874,7 @@ mod tests {
 
     #[test]
     fn match_raw_revision_changes_on_byte_drift_but_not_on_identical_retry() {
-        let body = br#"[{"match_id":92685682,"players":[{"account_id":281768392}]}]"#;
+        let body = br#"[{"match_id":92685682,"players":[{"account_id":281768392,"hero_id":18}]}]"#;
         let first =
             prepare_match_metadata_batch(&scope(), match_response(body), &policy(), None).unwrap();
         let replay = prepare_match_metadata_batch(
@@ -766,7 +887,9 @@ mod tests {
         assert!(replay.records.is_empty());
         let changed = prepare_match_metadata_batch(
             &scope(),
-            match_response(br#"[ {"match_id":92685682,"players":[{"account_id":281768392}]} ]"#),
+            match_response(
+                br#"[ {"match_id":92685682,"players":[{"account_id":281768392,"hero_id":18}]} ]"#,
+            ),
             &policy(),
             Some(&first.checkpoint),
         )
@@ -783,7 +906,7 @@ mod tests {
     fn match_metadata_requires_private_exact_account_scope() {
         let mut public = policy();
         public.visibility = SourceVisibility::Public;
-        let body = br#"[{"match_id":92685682,"players":[{"account_id":281768392}]}]"#;
+        let body = br#"[{"match_id":92685682,"players":[{"account_id":281768392,"hero_id":18}]}]"#;
         assert!(match_metadata_documents(&scope(), match_response(body), &public).is_err());
 
         let mut internal = policy();
@@ -821,46 +944,63 @@ mod tests {
         let wrong_locator = response(
             "https://api.deadlock-api.com/v1/matches/metadata?match_ids=1",
             "application/json",
-            br#"[{"match_id":92685682,"players":[{"account_id":281768392}]}]"#,
+            br#"[{"match_id":92685682,"players":[{"account_id":281768392,"hero_id":18,"player_slot":0,"team":0,"hero_build_id":0,"pregame_hero_id":18,"kills":7,"deaths":2,"assists":5}]}]"#,
         );
         assert!(match_metadata_documents(&scope(), wrong_locator, &policy()).is_err());
-        let mut wrong_account_filter =
-            match_response(br#"[{"match_id":92685682,"players":[{"account_id":281768392}]}]"#);
+        let mut wrong_account_filter = match_response(
+            br#"[{"match_id":92685682,"players":[{"account_id":281768392,"hero_id":18}]}]"#,
+        );
         wrong_account_filter.url = wrong_account_filter
             .url
             .replace("account_ids=281768392", "account_ids=1");
         assert!(match_metadata_documents(&scope(), wrong_account_filter, &policy()).is_err());
-        let mut repeated_match =
-            match_response(br#"[{"match_id":92685682,"players":[{"account_id":281768392}]}]"#);
+        let mut repeated_match = match_response(
+            br#"[{"match_id":92685682,"players":[{"account_id":281768392,"hero_id":18}]}]"#,
+        );
         repeated_match.url.push_str("&match_ids=92685682");
         assert!(match_metadata_documents(&scope(), repeated_match, &policy()).is_err());
 
         let wrong_origin = response(
             "https://api.deadlock-api.com.evil.test/v1/matches/metadata?match_ids=92685682",
             "application/json",
-            br#"[{"match_id":92685682,"players":[{"account_id":281768392}]}]"#,
+            br#"[{"match_id":92685682,"players":[{"account_id":281768392,"hero_id":18,"player_slot":0,"team":0,"hero_build_id":0,"pregame_hero_id":18,"kills":7,"deaths":2,"assists":5}]}]"#,
         );
         assert!(match_metadata_documents(&scope(), wrong_origin, &policy()).is_err());
     }
 
     #[test]
     fn match_schema_drift_is_quarantined() {
-        assert!(match_metadata_documents(
-            &scope(),
-            match_response(br#"[{"match_id":92685682,"players":"changed"}]"#),
-            &policy(),
-        )
-        .is_err());
-        let mut stale =
-            match_response(br#"[{"match_id":92685682,"players":[{"account_id":281768392}]}]"#);
+        for body in [
+            br#"[{"match_id":92685682,"players":"changed"}]"#.as_slice(),
+            br#"[{"match_id":92685682,"players":[{"account_id":281768392,"hero_id":{"drift":true}}]}]"#.as_slice(),
+            br#"[{"match_id":92685682,"players":[{"account_id":281768392,"hero_id":18,"new_private_players":[{"account_id":999}]}]}]"#.as_slice(),
+            br#"[{"match_id":92685682,"players":[{"account_id":281768392,"accountId":{"drift":true},"hero_id":18}]}]"#.as_slice(),
+            br#"[{"match_id":92685682,"players":[{"account_id":281768392,"hero_id":18,"kills":"7"}]}]"#.as_slice(),
+            br#"[{"match_id":92685682,"players":[{"account_id":281768392,"hero_id":18,"new_field":1}]}]"#.as_slice(),
+            br#"[{"match_id":92685682,"unexpected":true,"players":[{"account_id":281768392,"hero_id":18}]}]"#.as_slice(),
+        ] {
+            assert!(match_metadata_documents(&scope(), match_response(body), &policy()).is_err());
+        }
+        let valid_body = br#"[{"match_id":92685682,"players":[{"account_id":281768392,"hero_id":18,"player_slot":0,"team":0,"hero_build_id":0,"pregame_hero_id":18,"kills":7,"deaths":2,"assists":5}]}]"#;
+        let mut missing_projection = match_response(valid_body);
+        missing_projection.url = missing_projection
+            .url
+            .replace("&include_player_kda=true", "");
+        assert!(match_metadata_documents(&scope(), missing_projection, &policy()).is_err());
+
+        let mut stale = match_response(
+            br#"[{"match_id":92685682,"players":[{"account_id":281768392,"hero_id":18}]}]"#,
+        );
         stale.observed_at = 0;
         assert!(match_metadata_documents(&scope(), stale, &policy()).is_err());
-        let mut error_status =
-            match_response(br#"[{"match_id":92685682,"players":[{"account_id":281768392}]}]"#);
+        let mut error_status = match_response(
+            br#"[{"match_id":92685682,"players":[{"account_id":281768392,"hero_id":18}]}]"#,
+        );
         error_status.status = 500;
         assert!(match_metadata_documents(&scope(), error_status, &policy()).is_err());
-        let mut wrong_type =
-            match_response(br#"[{"match_id":92685682,"players":[{"account_id":281768392}]}]"#);
+        let mut wrong_type = match_response(
+            br#"[{"match_id":92685682,"players":[{"account_id":281768392,"hero_id":18}]}]"#,
+        );
         wrong_type
             .headers
             .insert("content-type".into(), "text/plain".into());
