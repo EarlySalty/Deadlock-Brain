@@ -24,8 +24,8 @@ use std::{
     time::Duration,
 };
 
-const BODY: &[u8] = br#"[{"match_id":92685682,"players":[{"account_id":281768392,"hero_id":18}]}]"#;
-const URL: &str = "https://api.deadlock-api.com/v1/matches/metadata?match_ids=92685682&account_ids=281768392&only_filtered_players=true&limit=1&format=json";
+const BODY: &[u8] = br#"[{"match_id":92685682,"players":[{"account_id":281768392,"hero_id":18,"player_slot":0,"team":0,"hero_build_id":0,"pregame_hero_id":18,"kills":7,"deaths":2,"assists":5}]}]"#;
+const URL: &str = "https://api.deadlock-api.com/v1/matches/metadata?match_ids=92685682&account_ids=281768392&include_player_kda=true&only_filtered_players=true&limit=1&format=json";
 
 fn response() -> SourceHttpResponse {
     SourceHttpResponse {
