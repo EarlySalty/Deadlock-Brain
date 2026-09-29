@@ -3,6 +3,7 @@ CREATE SCHEMA IF NOT EXISTS brain;
 CREATE TABLE IF NOT EXISTS brain.steam_web_api_pending_observations (
   reservation_id bigint PRIMARY KEY,
   caller text NOT NULL,
+  dispatch_started boolean NOT NULL DEFAULT false,
   answered boolean NOT NULL DEFAULT false,
   http_status smallint,
   retry_after text,
