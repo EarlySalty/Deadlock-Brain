@@ -1222,6 +1222,36 @@ mod tests {
             ))
             .unwrap();
         first
+            .batch_execute(
+                "ALTER TABLE brain.steam_web_api_pending_observations DROP COLUMN dispatch_started",
+            )
+            .unwrap();
+        first
+            .execute(
+                "INSERT INTO brain.steam_web_api_pending_observations (reservation_id, caller) VALUES (-9, 'deadlock-brain-test')",
+                &[],
+            )
+            .unwrap();
+        first
+            .batch_execute(include_str!(
+                "../../../../scripts/migrations/2026-09-29-steam-web-api-journal.sql"
+            ))
+            .unwrap();
+        let old_pending: bool = first
+            .query_one(
+                "SELECT dispatch_started FROM brain.steam_web_api_pending_observations WHERE reservation_id = -9",
+                &[],
+            )
+            .unwrap()
+            .get(0);
+        assert!(old_pending);
+        first
+            .execute(
+                "DELETE FROM brain.steam_web_api_pending_observations WHERE reservation_id = -9",
+                &[],
+            )
+            .unwrap();
+        first
             .execute(
                 "DELETE FROM brain.steam_web_api_pending_observations WHERE reservation_id < 0",
                 &[],

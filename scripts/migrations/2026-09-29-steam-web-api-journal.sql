@@ -11,3 +11,8 @@ CREATE TABLE IF NOT EXISTS brain.steam_web_api_pending_observations (
   answered_at timestamptz,
   CHECK (answered OR (http_status IS NULL AND retry_after IS NULL AND answered_at IS NULL))
 );
+
+ALTER TABLE brain.steam_web_api_pending_observations
+  ADD COLUMN IF NOT EXISTS dispatch_started boolean NOT NULL DEFAULT true;
+ALTER TABLE brain.steam_web_api_pending_observations
+  ALTER COLUMN dispatch_started SET DEFAULT false;
