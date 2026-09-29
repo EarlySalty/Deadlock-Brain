@@ -8,4 +8,4 @@ status: aktiv | 2026-09-29
 
 Runde 2 bestätigte die ersten drei Punkte als behoben. Neuer Befund: `scripts/migrations/2026-09-29-steam-web-api-journal.sql:6` ergänzte `dispatch_started` nicht in einer bereits vorhandenen Journal-Tabelle. Die Migration ergänzt die Spalte jetzt wiederholbar, markiert Altzeilen mit unbekanntem Versand konservativ als begonnen und stellt den Standard für neue Zeilen auf `false`. Der Test prüft die Aktualisierung einer alten Tabelle und das Verhalten nach erneutem Verbinden.
 
-Dritte Gate-Runde steht aus.
+Runde 3: `ALLOW`. Der Kritiker bestätigte die Aktualisierung bestehender Tabellen und keine blockierende Regression im Fix-Diff. Eine unabhängige Paketabnahme bleibt vor dem gemeinsamen Cutover ausstehend.
