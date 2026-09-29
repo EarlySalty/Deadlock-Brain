@@ -11,7 +11,7 @@ Der vollständige Workspace-, Release-, PostgreSQL- und Lastlauf auf `022f8a9` i
 
 ## Dokumentierte Änderungen
 
-- `architecture/migration/PRE_G5_TECHNICAL_REVIEW.md`: aktueller Integrationshead, R5-Geltungsbereich, Produktgrenzen und ausstehende Gesamtverifikation ergänzt; frühere Prüfabschnitte als historische Evidenz bezeichnet.
+- `architecture/migration/PRE_G5_TECHNICAL_REVIEW.md`: aktueller Integrationshead, R5-Geltungsbereich, CI-Pin-Fetchfehler auf `022f8a9`, Produktgrenzen und ausstehende Gesamtverifikation ergänzt; alte Gates, Blocker und Marker datiert, alter Integrationshead als historisch gekennzeichnet und ein einzelner aktueller Markerblock ans Dokumentende gesetzt.
 - `architecture/migration/STATUS.md`: Stand 29.09., aktueller Produkt- und Gate-Status, externe Freigabegrenzen und historische Kennzeichnung früherer Testwerte.
 - `architecture/migration/GATES.csv`: aktuelle R5-Abnahme von historischer Evidenz getrennt; G4-Abschlusslauf für `022f8a9` als ausstehend eingetragen.
 - `architecture/migration/PFAD_OWNER.csv`: `base_commit` auf den integrierten Codehead gesetzt.
@@ -23,6 +23,6 @@ Produktcode wurde nicht geändert. In diesem Dokumentationszwischenstand wurden 
 
 ## Externe und Produktgrenzen
 
-Frischer CI-Fetch scheiterte an nicht erreichbaren exakten Git-Pins; die `dungers`-Lizenz ist unbelegt. Teilweise startete private Consumer-CI wegen Billing nicht. Das ist kein Codefehlernachweis und kein grüner CI-Lauf. Wiki-Realpilot, Provider-Shadow und Production-Cutover bleiben nicht freigegeben. Replay bleibt Betreiberentscheidung.
+Frische GitHub-CI auf `022f8a9` ist nicht vollständig grün. Core-Matrix und integrierte Wiki-, Source- und Replay-Suiten scheiterten vor Teststart beim Fetch des exakten `haste_core`-Pins `bfb292d4798031350861ad297aa26753267a1ea6`. Das ist ein Pin-Fetchfehler, kein Billing-Fehler; fehlende Artefakte waren Folgefehler. Scratch-Pilot, Migration composition, Rust compile, Wiki contracts and offline regression sowie Integrated audit tooling liefen erfolgreich. Semantic Review wurde übersprungen; Consumer Offline Gate und GitGuardian meldeten FAILURE. GitHub Actions sind kein Merge-Gate. Einzelne frühere Consumer-CI-Läufe starteten wegen Billing nicht, ein anderer Sachverhalt. Die `dungers`-Lizenz ist unbelegt. Quelle: Koordinationsbericht `FINAL-CI.md`. Steam-Build-Publish-Provider PR #73 und Diagnosefix PR #82 sind integriert; kein Deployment, Neustart oder Publish. Wiki-Realpilot, Provider-Shadow und Production-Cutover bleiben nicht freigegeben. Replay bleibt Betreiberentscheidung.
 
 TEXTNACHWEIS[DR-1]: Gedankenstriche 0 | ae/oe/ue/ss-Ersatz 0 | Absolutwörter 0 belegt | Senke: .tasks/2026-09-29-technical-closeout/F2-REPORT.md
