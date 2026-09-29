@@ -14,3 +14,16 @@ Konkreter Fehlerfall: Ein Storefehler enthält einen Nutzwert oder eine Verbindu
 Minimaler Fix: sichere Operation und kontrollierte Fehlerklasse protokollieren; falls aus dem typisierten Ursprung verfügbar, validierten SQLSTATE ohne Freitext verwenden. Keine beliebige Display-/Debug-Darstellung und keine fragile Ersetzung bekannter Secretmuster. Unbekannter Fehler fällt auf eine konstante Klasse zurück. Den bestehenden Test erweitern, sodass Payload-/Adress-/Detailmarker weder in HTTP noch in den erfassten Logereignissen stehen, während die drei Operationen unterscheidbar bleiben. Keine neue Retry-/Tasklogik und kein API-Vertragswechsel.
 
 Fertig N, Fix nötig J. Kein Merge/Deploy oder echter Publish. Nach Fix dieselbe Datei, passende fmt/clippy/Tests und lokale Selbstprüfung erneut; danach unabhängige Nachprüfung dieses Befunds.
+
+## Runde 2: E-R1 behoben
+
+Geprüfter Head: 923f6a8702e4f277a06f823d6b82bc8621c6ef70. Änderungen 205bcf1, f623516 und 923f6a8 gelesen. Der Port erhält jetzt den vorhandenen typisierten PersistenceError statt beliebiger Strings. Logfelder sind Operation, feste Fehlerklasse und ein auf fünf ASCII-Großbuchstaben/Ziffern beschränkter SQLSTATE. Fehlernachrichten, Display/Debug des Fehlerobjekts und Requestinhalte werden nicht geloggt. SQLx wird dafür von Test- zur normalen bestehenden Workspace-Abhängigkeit; keine neue Version oder neue Quelle.
+
+Drei unabhängige Gegenproben in der Hauptsession bestanden jeweils mit Exit 0 auf exakt diesem Head: `store_failures_keep_generic_http_responses_and_log_distinct_operations`, `store_error_diagnostic_keeps_only_a_validated_sqlstate`, `sqlstate_must_be_five_uppercase_ascii_alphanumeric_bytes`. Aufruf aus dem Steam-rust-Verzeichnis: `cargo +1.97.1 test -p steam-web --features testing --locked --offline -- routes::builds::tests::<testname> --exact`. Bereinigte Kindprozessumgebung enthielt ausschließlich HOME, PATH, CARGO_BUILD_JOBS=2 und SQLX_OFFLINE=true. Je ein Test ausgeführt, 87 gefiltert, kein ignorierter oder fehlgeschlagener Test; kein DB-/GC-Aufruf dieser Fixturetests. Arbeitsbaum blieb sauber. Die 88 Tests der Autorensuite sind separate Evidenz.
+
+Frische GitHub-Prüfung des Heads: GitGuardian SUCCESS. Acht fehlgeschlagene Job-Annotationen melden ausdrücklich nicht gestartete Jobs wegen Kontozahlungen/Ausgabenlimit; Rust-Build-Job SKIPPED. Daraus wird kein Rust-/Security-Codefehler abgeleitet und keine vollständig grüne CI behauptet. Keine Policy geändert.
+
+Urteil für E-R1: behoben. Technischer Diagnosefix GO, Fix nötig N. PR #82 bleibt bis zur zulässigen Integration offen und ungemergt; kein Deploy oder echter Publish.
+
+TESTNACHWEIS[TW-1]: 3 passed, 0 ignored | Baseline: bestätigter Fehler aus Runde 1 geschlossen
+
