@@ -1,0 +1,11 @@
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-reasoner)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-retrieval)
+   Compiling brain-feeds v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-feeds)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.25s
+     Running tests/assets_starting_stats.rs (rust/target/debug/deps/assets_starting_stats-f65af7401ee8cdd3)
+
+running 2 tests
+test each_pinned_hero_has_exactly_five_field_bound_starting_stats ... ok
+test any_missing_or_non_numeric_pinned_stat_quarantines_the_entire_batch ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s

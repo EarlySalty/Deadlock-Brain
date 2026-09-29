@@ -1,0 +1,100 @@
+waiting for server to start.... done
+server started
+   Compiling brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-storage)
+   Compiling brain-ingestion v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-ingestion)
+   Compiling brain-legacy-import v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-legacy-import)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.51s
+     Running tests/cli_scratch.rs (target/debug/deps/cli_scratch-6048b6ee33aebf4b)
+
+running 1 test
+test cli_reads_archive_and_replays_tombstones_and_revokes ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.38s
+
+   Compiling brain-legacy-import v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-legacy-import)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.21s
+     Running unittests src/lib.rs (target/debug/deps/brain_legacy_import-574ae6647c9e492e)
+
+running 1 test
+test tests::scratch_import_release_tombstone_and_revoke ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.11s
+
+   Compiling tokio v1.52.3
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-reasoner)
+   Compiling serde_path_to_error v0.1.20
+   Compiling brain-kernel v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-kernel)
+   Compiling tokio-util v0.7.18
+   Compiling hyper v1.10.1
+   Compiling tower v0.5.3
+   Compiling tokio-rustls v0.26.4
+   Compiling hyper-util v0.1.20
+   Compiling async-compression v0.4.42
+   Compiling tokio-stream v0.1.18
+   Compiling sqlx-core v0.8.6
+   Compiling hyper-rustls v0.27.9
+   Compiling tower-http v0.6.11
+   Compiling reqwest v0.12.28
+   Compiling sqlx-postgres v0.8.6
+   Compiling uplink-infisical-transport v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/vendor/uplink-infisical-transport)
+   Compiling tokio-postgres v0.7.18
+   Compiling postgres v0.19.14
+   Compiling sqlx v0.8.6
+   Compiling dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-builds)
+   Compiling brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-storage)
+   Compiling deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/deadlock-brain-core)
+   Compiling dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-normalize)
+   Compiling dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-population)
+   Compiling axum v0.8.9
+   Compiling dbrain-s12-wiki-probe v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-wiki)
+   Compiling dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-sources)
+   Compiling brain-api v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-api)
+   Compiling brain-providers v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-providers)
+   Compiling brain-ingestion v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-ingestion)
+   Compiling brain-client v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-client)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-retrieval)
+   Compiling brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-serve)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 50.66s
+     Running tests/process_e2e.rs (target/debug/deps/process_e2e-d824bf1016eb76e4)
+
+running 1 test
+{"client_errors":0,"elapsed_ms":1148,"errors":{},"event":"db_pool_load","observed_reader_connections":4,"requests":600,"statuses":{"answered":600},"workers":8}
+{"client_errors":0,"elapsed_ms":772,"errors":{},"event":"db_pool_load","observed_reader_connections":4,"requests":600,"statuses":{"answered":600},"workers":16}
+{"client_errors":0,"elapsed_ms":800,"errors":{},"event":"db_pool_load","observed_reader_connections":4,"requests":600,"statuses":{"answered":600},"workers":32}
+{"event":"db_pool_metrics","stats":{"checked_out_connections":0,"connecting_connections":0,"created_connections":5,"event":"postgres_pool_stats","idle_connections":1,"max_connections":4,"open_connections":1,"peak_connections":4,"reused_checkouts":9115,"wait_count":5351,"wait_max_micros":150070,"wait_timeout_count":1,"wait_total_micros":20231810}}
+test binary_loopback_health_readiness_shutdown_and_no_fallback ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.80s
+
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-reasoner)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-retrieval)
+   Compiling brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-serve)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.97s
+     Running tests/process.rs (target/debug/deps/process-45d402fed398c682)
+
+running 1 test
+test private_scratch_scram_accepts_runtime_password_and_rejects_wrong_password ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.11s
+
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-reasoner)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-retrieval)
+   Compiling brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-serve)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.90s
+     Running tests/process.rs (target/debug/deps/process-45d402fed398c682)
+
+running 1 test
+test incomplete_configuration_and_inline_secrets_never_reach_startup ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.01s
+
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-reasoner)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-retrieval)
+   Compiling brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-serve)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.75s
+     Running tests/process.rs (target/debug/deps/process-45d402fed398c682)
+
+running 1 test
+test missing_config_and_bad_arguments_exit_without_echoing_input ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.01s

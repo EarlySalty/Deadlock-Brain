@@ -1,0 +1,508 @@
+waiting for server to start.... done
+server started
+   Compiling brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-storage)
+   Compiling deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/deadlock-brain-core)
+   Compiling dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-normalize)
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-reasoner)
+   Compiling dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-population)
+   Compiling dbrain-s12-wiki-probe v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-wiki)
+   Compiling dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-sources)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-retrieval)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 52.04s
+     Running unittests src/lib.rs (target/debug/deps/brain_contracts-db4fc9ffed9571e0)
+
+running 10 tests
+test embedding::tests::rejects_missing_nonfinite_zero_and_unnormalized_vectors ... ok
+test embedding::tests::equal_dimension_different_model_is_incompatible ... ok
+test provider_input::tests::embedding_array_counts_each_input_and_rejects_non_text ... ok
+test tests::query_rejects_empty_identity_fields ... ok
+test tests::evidence_rejects_non_finite_score ... ok
+test feeds::tests::build_status_binds_request_identity_and_hash ... ok
+test provider_input::tests::counts_decoded_text_not_http_escaping_or_model_name ... ok
+test tests::contract_roundtrip_keeps_release_and_scopes ... ok
+test feeds::tests::feed_rejects_hash_mismatch_duplicates_unknown_fields_and_versions ... ok
+test lexical::tests::cross_source_join_requires_matching_id_and_canonical_name ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/ir_contracts.rs (target/debug/deps/ir_contracts-7f9a1650f08c5488)
+
+running 23 tests
+test invalid_original_wiki_revision_and_http_hash_are_rejected ... ok
+test stable_public_contract_is_not_replaced_by_ir_version ... ok
+test replay_time_requires_explicit_unknown_not_missing_or_null_default ... ok
+test envelope_versions_missing_null_future_and_extra_fields_fail_closed ... ok
+test external_origins_share_the_common_artifact_contract_without_revision_conflation ... ok
+test origin_version_and_policy_roundtrip ... ok
+test parser_and_source_revision_are_separate_from_schema_and_game_patch ... ok
+test replay_detached_provenance_preserves_private_scope_raw_locator_and_unknown_timestamp ... ok
+test missing_condition_is_not_an_unconditional_fact ... ok
+test unknown_is_not_zero_and_null_is_not_an_observation ... ok
+test external_quarantine_survives_serialization_and_blocks_field_access ... ok
+test replay_entity_mapping_is_explicit_not_network_index_as_hero_id ... ok
+test known_raw_null_is_not_lost_to_option_deserialization ... ok
+test wiki_conditions_variants_aliases_units_dependencies_and_locators_roundtrip ... ok
+test wiki_null_never_deserializes_as_quantity_zero ... ok
+test replay_unknown_entity_time_and_fields_roundtrip ... ok
+test store_roundtrip_preserves_exact_origin_acl_and_unknowns ... ok
+test replay_versions_reject_legacy_and_future_without_explicit_migration ... ok
+test storage_bridge_rejects_acl_expansion_revision_hash_and_identity_drift ... ok
+test external_null_missing_zero_unknown_fields_and_pointers_are_distinct ... ok
+test explicit_legacy_tick_migration_never_invents_a_time ... ok
+test legacy_invalid_ticks_or_injected_v2_fields_are_rejected ... ok
+test unsupported_origin_versions_fail_closed_at_batch_and_egress_boundaries ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/brain_storage-822dd8ff517027e3)
+
+running 10 tests
+test domain_reader::tests::unverified_wrong_mode_and_wrong_patch_are_not_promoted ... ok
+test domain_reader::tests::forged_hash_and_ambiguous_facts_fail_closed ... ok
+test domain_reader::tests::future_contract_and_malformed_domain_payload_are_rejected ... ok
+test schema::tests::embedded_migrations_have_exactly_one_outer_transaction ... ok
+test domain_reader::tests::legacy_v1_numeric_facts_remain_readable_without_value_or_identity_changes ... ok
+test domain_reader::tests::typed_facts_rules_are_pinned_and_source_acl_is_rechecked ... ok
+test tests::stale_update_cannot_resurrect_tombstone ... ok
+test tests::release_pins_each_logical_revision ... ok
+test domain_reader::tests::wiki_dependency_pins_reject_unknown_versions_forgery_and_duplicates ... ok
+test tests::duplicate_revision_is_idempotent_but_conflict_is_rejected ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/brain-migrate.rs (target/debug/deps/brain_migrate-5495bf3a083c6e3d)
+
+running 1 test
+test tests::config_is_explicit_local_and_rejects_secrets ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/core_store.rs (target/debug/deps/core_store-9f5ffc9d97184fb2)
+
+running 4 tests
+test postgres_atomicity_fences_release_and_restart_contract ... ignored, requires isolated PostgreSQL Unix socket: BRAIN_CORE_TEST_PG_SOCKET
+test wire_revisions_cannot_overflow_postgres_bigint ... ok
+test memory_atomicity_fences_release_and_restart_contract ... ok
+test expired_memory_worker_cannot_commit ... ok
+
+test result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/ir_contracts.rs (target/debug/deps/ir_contracts-593747bd39c4d8df)
+
+running 3 tests
+test actual_store_retains_common_origin_and_denies_unapproved_provider_egress ... ok
+test legacy_head_cannot_supply_missing_rights_for_versioned_origin ... ok
+test old_release_cannot_restore_revoked_egress_or_scopes ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/local_reader_config.rs (target/debug/deps/local_reader_config-4ea1234dfdd83ab5)
+
+running 2 tests
+test invalid_reader_timeouts_fail_before_connecting ... ok
+test explicit_reader_options_retain_socket_boundary_and_redact_passwords ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/storage_upgrade.rs (target/debug/deps/storage_upgrade-63f3acd1a7123fee)
+
+running 2 tests
+test v1_upgrade_restore_and_least_privilege ... ignored, requires scripts/test_brain_storage_upgrade.sh; never a production DSN
+test historical_fixture_checksums_and_hashes_are_pinned ... ok
+
+test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/dbrain_s12_wiki_probe-c2d96709742ec23e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/dbrain_s12_wiki_probe-f4510390e6cde68e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/alias_pin.rs (target/debug/deps/alias_pin-c22ca2eb10cf2eec)
+
+running 1 test
+test an_unbound_alias_cannot_escape_the_release_and_dependency_review ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/capture_transport.rs (target/debug/deps/capture_transport-e9dcb3d189e46c79)
+
+running 16 tests
+test empty_scope_or_allowlist_is_rejected_before_transport ... ok
+test continuation_cannot_override_identity_action_namespace_or_execution ... ok
+test max_pages_is_not_silent_truncation_and_no_bodies_are_requested ... ok
+test bytes_are_counted_before_json_whitespace_normalization ... ok
+test errors_warnings_and_network_denials_are_not_retried ... ok
+test outside_namespace_and_unknown_namespace_are_rejected ... ok
+test dependency_continuation_merges_both_tokens_and_rejects_head_race ... ok
+test max_requests_counts_siteinfo_identity_history_and_dependencies ... ok
+test revision_continuation_fetches_exactly_two_not_all_history ... ok
+test deadline_includes_transport_and_pacing ... ok
+test category_continuation_handles_empty_batches_and_all_tokens_without_recursion ... ok
+test scoped_manifest_cannot_be_relabelled_as_full_inventory ... ok
+test changed_scope_is_not_deletion_and_missing_dependencies_remain_unknown ... ok
+test explicit_union_preserves_two_revisions_locators_dependencies_and_namespace_filter ... ok
+test unchanged_changed_delta_and_selective_template_invalidation ... ok
+test request_interval_is_enforced ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/cli.rs (target/debug/deps/cli-fe1ca5221e63840e)
+
+running 9 tests
+test symlinks_are_not_followed_by_the_offline_cli ... ok
+test invalid_capture_errors_do_not_echo_untrusted_source_content ... ok
+test directories_are_not_input_captures ... ok
+test oversized_regular_input_is_rejected_before_parsing ... ok
+test help_explains_that_zero_is_not_production_acceptance ... ok
+test analyze_works_without_runtime_environment_and_returns_nonacceptance ... ok
+test unchanged_delta_is_deterministic_and_schedules_nothing ... ok
+test production_readiness_fails_even_on_a_valid_fixture ... ok
+test invalid_arguments_cannot_activate_live_network_or_publishing ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/completion.rs (target/debug/deps/completion-27925bb8bfe770e5)
+
+running 17 tests
+test flat_templates_are_data_parameters_not_executed_programs ... ok
+test static_lua_data_has_exact_utf8_locators_and_no_executable_grammar ... ok
+test global_policy_revocation_invalidates_cards_without_reembedding_raw_bytes ... ok
+test current_acl_denial_erases_raw_ir_and_canonical_facts ... ok
+test unreviewed_profiles_and_duplicate_fields_are_rejected ... ok
+test missing_null_and_false_remain_distinct_and_unknown_units_do_not_become_zero ... ok
+test stale_release_and_unknown_hero_or_locale_are_rejected ... ok
+test a_canonical_card_roundtrips_existing_contract_and_every_fact_is_grounded ... ok
+test alias_locale_is_source_locale_not_the_requested_card_locale ... ok
+test conditions_and_variants_survive_ir_but_cannot_be_flattened_into_legacy_facts ... ok
+test dynamic_dependencies_quarantine_dependent_facts_not_just_the_bad_page ... ok
+test shared_source_contract_keeps_both_revisions_and_does_not_invent_game_validity ... ok
+test shared_contract_card_matches_the_reviewed_synthetic_golden ... ok
+test exact_decimals_preserve_units_without_rounding_or_float_coercion ... ok
+test safe_literal_formats_feed_the_same_ir_and_shared_card_adapter ... ok
+test rebuild_hash_is_independent_of_mapping_order_and_retrieval_time ... ok
+test newer_revision_needs_new_review_even_when_field_id_is_stable ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests/completion_cli.rs (target/debug/deps/completion_cli-9380823c1b89fa8e)
+
+running 6 tests
+test documentation_check_script_resolves_its_own_directory ... ok
+test projection_requires_a_review_and_a_real_bound_hero ... ok
+test changing_one_field_mapping_only_reprojects_its_bound_hero ... ok
+test extract_cli_returns_common_ir_without_publication ... ok
+test project_cli_is_byte_deterministic_and_matches_shared_contract_golden ... ok
+test unchanged_ir_delta_cli_schedules_no_work ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/domain_projection.rs (target/debug/deps/domain_projection-91bc63610797b52e)
+
+running 2 tests
+test wiki_timestamps_are_not_accepted_as_implicit_patch_or_mode ... ok
+test reviewed_wiki_card_is_retrievable_as_an_exact_source_authorized_fact ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/probe.rs (target/debug/deps/probe-c9936df20a6dbea0)
+
+running 64 tests
+test discovery_api_errors_do_not_look_like_zero_pages ... ok
+test absent_advertised_head_is_not_invented_from_returned_revisions ... ok
+test condition_variant_and_mechanic_identity_survive_as_uninterpreted_candidates ... ok
+test continuation_must_preserve_the_entire_token ... ok
+test a_move_during_capture_is_quarantined_until_reconcile ... ok
+test a_consistent_rename_keeps_stable_source_identity_and_raw_hash ... ok
+test all_preview_locators_and_hashes_are_grounded_in_exact_source_revisions ... ok
+test excessive_nesting_and_unknown_capture_fields_are_rejected ... ok
+test hero_preview_matches_reviewed_golden_fixture ... ok
+test alias_requires_matching_redirect_evidence ... ok
+test future_source_revision_is_quarantined_not_treated_as_current_patch ... ok
+test fetch_failure_and_missing_page_remain_visible ... ok
+test historical_allow_cannot_override_current_denial ... ok
+test invalid_source_time_does_not_get_replaced_by_fetch_time ... ok
+test duplicate_discovered_pageids_are_not_silently_deduplicated ... ok
+test incomplete_continuation_is_never_a_complete_corpus ... ok
+test legacy_mediawiki_page_map_and_main_slot_star_are_supported ... ok
+test locale_never_creates_another_numeric_source ... ok
+test duplicate_json_keys_rejected_at_capture_and_content_depth ... ok
+test a_new_revision_with_unchanged_raw_bytes_does_not_change_embedding_input ... ok
+test missing_dynamic_namespace_prevents_complete_inventory ... ok
+test nonfinite_numbers_are_not_valid_json_candidates ... ok
+test null_missing_percent_percentage_point_and_multiplier_are_not_conflated ... ok
+test capture_review_requires_permission_and_decision ... ok
+test current_denial_removes_candidates_and_all_dependent_preview_references ... ok
+test missing_content_is_not_an_empty_success ... ok
+test raw_hash_uses_the_standard_sha256_bytes_not_parsed_json ... ok
+test incomplete_dependencies_force_reconcile_not_optimistic_selective_delta ... ok
+test out_of_order_revision_array_preserves_head_and_history ... ok
+test dependency_cycles_terminate_without_losing_transitive_invalidation ... ok
+test pilot_covers_dynamic_namespaces_categories_and_revision_history ... ok
+test empty_batch_with_continuation_is_supported ... ok
+test lua_and_html_have_no_execution_or_silent_fallback ... ok
+test raw_json_pointers_escape_slashes_and_tildes_and_keep_false ... ok
+test repeated_continuation_is_rejected ... ok
+test deletion_is_only_inferred_from_complete_snapshots ... ok
+test parser_change_reparses_without_changing_patch_or_raw_embedding_inputs ... ok
+test report_format_mismatch_cannot_be_compared_as_compatible ... ok
+test same_revision_cannot_change_content_model_between_captures ... ok
+test same_revision_is_idempotent ... ok
+test preview_is_rebuildable_reference_only_and_has_no_invented_versions ... ok
+test same_revision_cannot_change_source_time_between_captures ... ok
+test source_key_cannot_be_a_path_or_url ... ok
+test siteinfo_api_error_is_not_a_namespace_manifest ... ok
+test same_revision_cannot_change_raw_content_between_captures ... ok
+test source_rightsinfo_is_not_a_publication_permission ... ok
+test source_language_policy_and_url_are_preserved_not_derived_from_preview_locale ... ok
+test suppressed_latest_revision_never_falls_back_to_old_stats ... ok
+test syntax_success_never_becomes_canonical_validation_or_publication ... ok
+test same_revision_with_different_content_is_quarantined ... ok
+test unbound_or_wrong_kind_abilities_are_reported_as_unknown ... ok
+test exclusions_are_explicit_and_cannot_hide_build_critical_pages ... ok
+test unclassified_pages_are_counted_not_silently_dropped ... ok
+test dependency_continuation_or_absent_arrays_cannot_be_declared_complete ... ok
+test unchanged_content_and_new_fetch_time_do_not_require_reparsing ... ok
+test unknown_wikitext_has_exact_utf8_diagnostic_and_no_numeric_inference ... ok
+test removing_a_dependency_invalidates_its_users ... ok
+test wrong_fetched_page_identity_is_rejected ... ok
+test unknown_entities_or_wrong_bindings_cannot_invent_a_hero ... ok
+test unresolved_dependency_remains_a_visible_blocker ... ok
+test template_delta_selectively_invalidates_transitive_dependants ... ok
+test stale_capture_and_stale_page_revision_are_rejected ... ok
+test input_content_and_candidate_budgets_fail_closed ... ok
+test preview_fanout_is_bounded_without_silent_truncation ... ok
+
+test result: ok. 64 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+
+     Running tests/shared_contracts.rs (target/debug/deps/shared_contracts-7008954bf1b210aa)
+
+running 2 tests
+test actual_extractor_keeps_conditional_fields_out_of_bare_fact_semantics ... ok
+test actual_extractor_exports_shared_ir_with_exact_sources_and_policy ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/lib.rs (target/debug/deps/dbrain_sources-ad74685f3c9262d9)
+
+running 108 tests
+test analytics_runtime::tests::runtime_module_has_no_database_or_central_dsn_dependency ... ok
+test assets_api::tests::current_paths_and_retired_kinds ... ok
+test deadlock_api::tests::demo_identity_rejects_mismatched_account_and_steam_ids ... ok
+test deadlock_api::tests::demo_economy_query_uses_the_metadata_player_slot_literal ... ok
+test deadlock_api::tests::demo_economy_query_filters_user_events_by_lobby_player_slot ... ok
+test deadlock_api::tests::demo_metadata_resolves_the_target_player_slot ... ok
+test deadlock_api::tests::demo_parse_job_status_accepts_done_with_result_url ... ok
+test deadlock_api::tests::demo_normalize_rows_adds_versioned_evidence_id ... ok
+test deadlock_api::tests::demo_normalize_rows_rejects_malformed_ndjson_line ... ok
+test deadlock_api::tests::demo_parse_job_status_preserves_failed_error ... ok
+test deadlock_api::tests::demo_player_state_must_not_be_empty ... ok
+test deadlock_api::tests::demo_player_state_uses_an_unambiguous_join_tick ... ok
+test deadlock_api::tests::demo_query_bundle_has_three_quoted_queries ... ok
+test analytics_runtime::tests::expired_deadline_never_starts_http ... ok
+test deadlock_api::tests::demo_result_url_allows_only_the_extract_origin ... ok
+test deadlock_api::tests::demo_target_queries_use_source2_14_bit_pawn_entity_index ... ok
+test deadlock_api::tests::rejects_match_history_row_without_non_empty_match_id ... ok
+test deadlock_api::tests::filters_every_requested_hero_match ... ok
+test deadlock_api::tests::rejects_non_array_match_history ... ok
+test deadlock_api::tests::rejects_match_history_row_without_valid_hero_id ... ok
+test deadlock_api::tests::rejects_non_object_match_history_row ... ok
+test deadlock_data::tests::patchnote_events_do_not_duplicate_when_commit_metadata_changes ... ignored, cross-crate PG-Integration: needs scratch Postgres via DEADLOCK_CENTRAL_DSN
+test deadlock_data::tests::upsert_domain_entity_roundtrip_is_idempotent_and_cleans_up ... ignored, needs scratch Postgres via DEADLOCK_CENTRAL_DSN
+test deadlock_data::tests::version_parser_accepts_crlf ... ok
+test deadlock_data::tests::entity_ids_never_fall_back_to_position ... ok
+test external::tests::malformed_preserved_but_cannot_be_projected ... ok
+test external::tests::mirrors_and_shared_origin_are_not_independent ... ok
+test external::tests::parser_revision_is_not_a_game_or_source_revision ... ok
+test external::tests::transitive_origins_merge_deterministically ... ok
+test external::tests::raw_hash_is_not_normalized_hash ... ok
+test forum::tests::parse_thread_html_extracts_title_posts_text_and_attachments ... ok
+test deadlock_api::tests::demo_poll_wait_yields_to_the_async_runtime ... ok
+test forum::tests::thread_url_parser_ignores_non_threads_and_extracts_numeric_suffix ... ok
+test analytics_runtime::tests::request_and_origin_policy_fail_closed ... ok
+test git_source::tests::rejects_implicit_and_abbreviated_revisions ... ok
+test deadlock_api::tests::demo_404_is_visible_and_an_incomplete_batch_cannot_be_snapshotted ... ok
+test deadlock_api::tests::demo_failed_and_timeout_jobs_are_visible ... ok
+test git_source::tests::worktree_git_file_is_supported ... ok
+test git_source::tests::rejects_symlink_and_blob_instead_of_commit ... ok
+test git_source::tests::source_adapter_requires_the_declared_origin ... ok
+test google_sheet::tests::csv_parsing_and_record_derivation_from_sheet ... ok
+test patchnotes_db::tests::patchnotes_source_is_readable_when_present ... ignored, needs scratch Postgres via DEADLOCK_CENTRAL_DSN with patchnotes.changelog_posts
+test patchnotes_db::tests::classify_source_kind_maps_known_hosts ... ok
+test patchnotes_db::tests::posted_at_falls_back_to_patch_title_date ... ok
+test reddit::tests::defaults_match_the_gentle_ingest_profile ... ok
+test reddit::tests::created_utc_becomes_rfc3339_utc ... ok
+test reddit::tests::empty_subreddits_fall_back_to_deadlock ... ok
+test reddit::tests::listing_rss_fallback_parses_title_link_and_content ... ok
+test reddit::tests::negative_delay_seconds_are_rejected ... ok
+test reddit::tests::parse_listing_extracts_thread_id_title_selftext_author_and_permalink ... ok
+test reddit::tests::parse_thread_extracts_post_and_comments_and_ignores_more ... ok
+test reddit::tests::refresh_existing_bypasses_the_http_cache ... ok
+test reddit::tests::skip_existing_only_applies_without_refresh ... ok
+test reddit::tests::request_urls_target_the_public_json_and_rss_endpoints ... ok
+test reddit::tests::thread_permalink_parser_rejects_non_thread_urls ... ok
+test reddit::tests::thread_rss_fallback_parses_submission_and_comment_entries ... ok
+test reddit::tests::thread_rss_keeps_comments_that_precede_the_submission_entry ... ok
+test schema_signal::tests::comment_changes_are_not_schema_changes ... ok
+test schema_signal::tests::json_signal_only_invalidates_consumed_dependency ... ok
+test reddit::tests::thread_rss_without_submission_entry_is_rejected ... ok
+test git_source::tests::dirty_worktree_is_never_read_and_raw_is_exact ... ok
+test schema_signal::tests::unsupported_proto_is_quarantined_not_silently_ignored ... ok
+test schema_signal::tests::unresolved_types_and_invalid_proto3_enum_are_quarantined ... ok
+test schema_watch::tests::consumed_missing_extra_malformed_and_unknown_fields ... ok
+test schema_signal::tests::proto_add_remove_retag_type_and_raw_bytes ... ok
+test schema_watch::tests::refs_cannot_fetch_external_or_loop ... ok
+test schema_watch::tests::unit_changes_are_unknown_and_targeted ... ok
+test source_pins::tests::configuration_is_bounded_and_rejects_duplicate_keys ... ok
+test source_pins::tests::invalid_and_missing_pins_fail_closed ... ok
+test schema_watch::tests::detects_breaking_nonbreaking_and_version_changes ... ok
+test source_pins::tests::valid_pin_roundtrips_and_version_checks_are_enforced ... ok
+test statlocker::tests::extract_rows_reads_arrays_and_keyed_objects ... ok
+test statlocker::tests::game_mode_value_maps_known_modes ... ok
+test statlocker::tests::normalize_hero_handles_all_and_separators ... ok
+test statlocker::tests::match_and_hero_id_from_payload_prefer_direct_keys ... ok
+test statlocker::tests::normalize_patch_prefixes_only_when_needed ... ok
+test store::tests::patch_changes_view_deduplicates_holliday_powder_keg_scaling ... ignored, needs central Postgres via DEADLOCK_CENTRAL_DSN
+test store::tests::json_string_matches_python_default_spacing_and_ascii_for_common_values ... ok
+test store::tests::store_roundtrip_writes_reads_back_and_cleans_up ... ignored, needs scratch Postgres via DEADLOCK_CENTRAL_DSN
+test util::tests::form_urlencode_matches_urllib_quote_plus_for_used_values ... ok
+test util::tests::python_or_string_treats_zero_as_falsy_for_or_expressions ... ok
+test google_sheet::tests::discover_sheet_tabs_decodes_pubhtml_items ... ok
+test store::tests::raw_artifacts_are_atomic_full_hash_verified_and_non_overwriting ... ok
+test wiki_corpus::tests::blank_rendered_pages_are_not_silently_imported ... ok
+test wiki_corpus::tests::disabled_network_makes_no_requests ... ok
+test wiki_corpus::tests::duplicate_pages_limits_and_repeated_cursors_do_not_claim_completeness ... ok
+test wiki_corpus::tests::empty_filtered_batches_continue_and_icon_labels_are_preserved ... ok
+test wiki_corpus::tests::errors_missing_license_and_partial_results_fail_closed ... ok
+test wiki_corpus::tests::pagination_and_exact_revision_are_used ... ok
+test wiki_corpus::tests::pinned_corpus_is_reproducible_without_latest_discovery ... ok
+test wiki_corpus::tests::runtime_requires_wiki_revision_and_parser_pins ... ok
+test wiki_corpus::tests::template_stamp_changes_parse_cache_key_without_article_edit ... ok
+test wiki_corpus::tests::tables_percentages_unicode_and_nested_history_survive_without_scripts ... ok
+test wiki_corpus::tests::template_drift_requires_an_explicit_pin_change ... ok
+test wiki_runtime::tests::domain_numeric_projection_is_exact_or_withheld ... ok
+test git_source::tests::bounded_history_diff_rename_delete_and_missing_pin ... ok
+test git_source::tests::merge_parents_and_shallow_boundary_are_reported ... ok
+test deadlock_api::tests::demo_poll_total_timeout_caps_the_next_sleep ... ok
+test deadlock_api::tests::demo_poll_total_timeout_caps_the_status_request ... ok
+test assets_api::tests::zero_is_an_id_not_a_fallback_and_parser_preserves_bytes ... ok
+test assets_api::tests::current_color_map_and_rank_tier_have_stable_identities ... ok
+test analytics_runtime::tests::meta_lookup_filters_hero_and_carries_window_and_schema_provenance ... ok
+test analytics_runtime::tests::bounded_lookup_uses_only_requested_origin_and_returns_validated_observation ... ok
+test schema_watch::tests::current_assets_routes_are_pinned_and_resolvable ... ok
+test analytics_runtime::tests::response_origin_bytes_raw_rows_and_requested_window_are_bounded ... ok
+test analytics_runtime::tests::schema_drift_is_quarantined ... ok
+test analytics_runtime::tests::population_uses_item_filtered_hero_matches_not_purchase_counts ... ok
+test assets_api::tests::malformed_missing_wrong_container_and_duplicate_quarantine ... ok
+
+test result: ok. 103 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 1.08s
+
+     Running unittests src/bin/brain-wiki-pilot.rs (target/debug/deps/brain_wiki_pilot-dd6a37a499405510)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/external_sources.rs (target/debug/deps/external_sources-f34467887b889449)
+
+running 7 tests
+test live_small_current_assets_contract ... ignored, explicit small public contract test; never part of deterministic CI
+test removing_enum_is_breaking_and_missing_route_fails_closed ... ok
+test duplicate_json_keys_never_become_last_key_wins_evidence ... ok
+test fixture_manifest_is_exact_and_current_paths_are_contract_covered ... ok
+test same_derivation_merges_new_origin_evidence_without_an_extra_vote ... ok
+test status_type_encoding_and_schema_version_gate_preserve_quarantine ... ok
+test match_api_rejects_malformed_missing_ambiguous_and_duplicate_without_losing_raw ... ok
+
+test result: ok. 6 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 1.04s
+
+     Running tests/shared_contracts.rs (target/debug/deps/shared_contracts-84905abfba7010bc)
+
+running 3 tests
+test source_parser_persists_the_shared_versioned_contract ... ok
+test quarantine_and_literal_null_roundtrip_without_fabricated_values ... ok
+test reprocessing_separates_parser_schema_and_original_source_revision ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/source_pins.rs (target/debug/deps/source_pins-04300ae7d23d4058)
+
+running 3 tests
+test update_only_occurs_after_explicit_configuration_change ... ok
+test absent_commit_noncommit_wrong_origin_and_version_are_errors ... ok
+test valid_pin_and_same_pin_are_reproducible_despite_head_and_worktree_changes ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests/wiki_knowledge_contract.rs (target/debug/deps/wiki_knowledge_contract-fe2fe811243daefb)
+
+running 2 tests
+test network_adapter_defaults_to_disabled_and_cannot_enable_itself_from_capture_policy ... ok
+test source_crate_projects_the_same_shared_card_with_exact_source_references ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/wiki_runtime.rs (target/debug/deps/wiki_runtime-a9753942818433a9)
+
+running 8 tests
+test scratch_raw_ir_facts_release_delta_reparse_and_acl ... ignored, dedicated Unix-socket scratch cluster; run scripts/test_wiki_runtime.sh
+test scratch_guard_rejects_arbitrary_paths_before_a_database_connection ... ok
+test quarantined_template_blocks_dependent_facts_without_executing_source ... ok
+test raw_retention_and_scope_are_mandatory_for_store_plan ... ok
+test lua_programs_and_template_expressions_are_not_executed_or_promoted ... ok
+test transitive_template_changes_leave_unrelated_ir_and_facts_unchanged ... ok
+test shared_ir_fact_release_plan_is_loss_aware_and_review_pinned ... ok
+test normal_store_stage_is_idempotent_versioned_and_needs_no_second_store ... ok
+
+test result: ok. 7 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+   Doc-tests brain_contracts
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests brain_storage
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests dbrain_s12_wiki_probe
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests dbrain_sources
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Compiling deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/deadlock-brain-core)
+   Compiling brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-storage)
+   Compiling dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-normalize)
+   Compiling dbrain-s12-wiki-probe v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-wiki)
+   Compiling dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-sources)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 23.01s
+     Running tests/wiki_runtime.rs (target/debug/deps/wiki_runtime-9592fe49e9ae968b)
+
+running 1 test
+test scratch_raw_ir_facts_release_delta_reparse_and_acl ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.49s
+
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running `target/debug/brain-wiki-pilot plan /tmp/brain-c5-pg.o7mwew/artifacts/fixture.capture.json /tmp/brain-c5-pg.o7mwew/artifacts/fixture.mapping.json /tmp/brain-c5-pg.o7mwew/artifacts/fixture.release.json /tmp/brain-c5-pg.o7mwew/cli-plan`
+ir_records=4 fact_records=3 published=false
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.21s
+     Running `target/debug/brain-wiki-pilot stage /tmp/brain-c5-pg.o7mwew/artifacts/fixture.capture.json /tmp/brain-c5-pg.o7mwew/artifacts/fixture.mapping.json /tmp/brain-c5-pg.o7mwew/artifacts/fixture.release.json /tmp/brain-c5-pg.o7mwew /tmp/brain-c5-pg.o7mwew/cli-stage`
+scratch_release_written=true fact_records=3 provider_calls=0
+C5 offline mocks, scratch DB and CLI: PASS (no live capture performed)
