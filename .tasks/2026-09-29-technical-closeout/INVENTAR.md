@@ -23,7 +23,7 @@ Fremde Arbeitsstände wurden nicht geändert. C9-MERGE_HEAD und Brain-Dirty-Adap
 
 Ermittelt über Brain-Code, Live-API-Dokumentation und GitHub-Metadaten: https://github.com/deadlock-api/deadlock-api, öffentlicher Defaultbranch master. Kein EarlySalty-API-Repository geraten. Origin https://api.deadlock-api.com. Aktuelles read-only OpenAPI https://api.deadlock-api.com/openapi.json am 2026-09-29 geladen, OpenAPI 3.1.0, info.version 0.1.0. Keine Match-/Account-Produktdaten abgefragt.
 
-Eigener Referenzklon ohne Checkout: /home/nathanael/.worktrees/brain-deadlock-api-reference-20260929. Nach Clone zusätzlich fetch --all --prune ausgeführt. Kein produktiver API-Dienst und keine Analytics-Kopie eingerichtet.
+Eigener Referenzklon ohne Checkout: /home/nathanael/.worktrees/brain-deadlock-api-reference-20260929. Nach Clone zusätzlich fetch --all --prune ausgeführt. origin/master: 2a3cbd17b2d6524505414eb0da8f83b200f06ae0. Sechs offene Upstream-PRs inventarisiert, kein Eingriff in dieses Fremdprojekt. Kein produktiver API-Dienst und keine Analytics-Kopie eingerichtet.
 
 Für A relevante Contractdetails: /v1/matches/metadata bietet match_ids, account_ids, only_filtered_players, hero_ids, limit und format. /v1/analytics/hero-stats liefert AnalyticsHeroStats-Array, hat Zeitfensterparameter, aber keinen hero_ids-Queryparameter. /v1/analytics/item-stats hat hero_id/hero_ids. Ein Hero-Filter bei hero-stats muss deshalb tatsächlich nach Responsevalidierung erfolgen und darf nicht durch einen wirkungslosen Queryparameter behauptet werden. Schema-/Patch-Pins müssen den realen Vertrag abbilden, keine erfundenen Serverantwortfelder.
 
