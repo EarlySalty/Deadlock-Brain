@@ -1,0 +1,17 @@
+waiting for server to start.... done
+server started
+   Compiling brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-storage)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.84s
+     Running tests/storage_upgrade.rs (rust/target/debug/deps/storage_upgrade-ac0c01998d94e312)
+
+running 1 test
+PASS historical v1 -> v2: IDs, hashes, provenance, ACLs, tombstones, release pins and all original row values
+PASS DDL-free service preflight/read/write, native reader, checkpoint resume/replay, concurrent upgrade idempotence and stale-writer fencing
+PASS actual pg_dump/pg_restore to a fresh v1 database: post-cutover writes excluded, restorepoint and release/ACL semantics exact
+PASS atomic rejection: ambiguous early-v1 release maxima, missing revision, corrupt identity, partial DDL, live writer lock, future version
+test v1_upgrade_restore_and_least_privilege ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 6.67s
+
+waiting for server to shut down.... done
+server stopped

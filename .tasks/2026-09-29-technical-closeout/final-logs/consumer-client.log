@@ -1,0 +1,3 @@
+client fmt exit=0
+client test exit=0
+client clippy exit=0

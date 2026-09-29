@@ -1,0 +1,10 @@
+name	exit_code	log	argv
+offline-suite	0	completion-offline-suite.log	bash architecture/migration/s12/check.sh
+contracts-source-tests	0	completion-contracts-source-tests.log	cargo test --manifest-path rust/Cargo.toml -p brain-contracts -p dbrain-sources --all-targets --locked --offline -j2
+contracts-source-clippy	0	completion-contracts-source-clippy.log	cargo clippy --manifest-path rust/Cargo.toml -p brain-contracts -p dbrain-sources --all-targets --no-deps --locked --offline -- -D warnings
+contracts-source-release	0	completion-contracts-source-release.log	cargo build --manifest-path rust/Cargo.toml -p brain-contracts -p dbrain-sources --release --locked --offline -j2
+retained-hero-tests	0	completion-retained-hero-tests.log	cargo test --manifest-path rust/Cargo.toml -p dbrain-retrieval --lib --locked --offline -j2 hero_dossier
+workspace-all-targets	0	completion-workspace-all-targets.log	cargo check --manifest-path rust/Cargo.toml --workspace --all-targets --locked --offline -j2
+changed-source-format	0	completion-changed-source-format.log	rustfmt --check --edition 2021 --config skip_children=true rust/crates/dbrain-sources/src/lib.rs rust/crates/dbrain-sources/src/wiki_capture_io.rs rust/crates/dbrain-sources/tests/wiki_knowledge_contract.rs
+contracts-format	0	completion-contracts-format.log	cargo fmt --manifest-path rust/Cargo.toml -p brain-contracts -- --check
+diff-whitespace	0	completion-diff-whitespace.log	git diff --check

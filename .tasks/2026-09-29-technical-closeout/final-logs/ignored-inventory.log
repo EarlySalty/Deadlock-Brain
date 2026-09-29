@@ -1,0 +1,301 @@
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-reasoner)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-retrieval)
+   Compiling brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-serve)
+   Compiling dbrain-s12-wiki-probe v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-wiki)
+   Compiling deadlock-brain v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/deadlock-brain)
+   Compiling brain-feeds v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-feeds)
+   Compiling brain-kernel v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-kernel)
+   Compiling brain-api v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-api)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 37s
+     Running unittests src/lib.rs (target/debug/deps/brain_api-5a69f0c9b8e9d975)
+0 tests, 0 benchmarks
+     Running tests/core_http.rs (target/debug/deps/core_http-e503ad4455ad8a2b)
+0 tests, 0 benchmarks
+     Running tests/domain_kernel.rs (target/debug/deps/domain_kernel-5611b108db644271)
+0 tests, 0 benchmarks
+     Running unittests src/lib.rs (target/debug/deps/brain_client-1605f692316b08da)
+0 tests, 0 benchmarks
+     Running tests/consumer_http.rs (target/debug/deps/consumer_http-4fac00fda04c93b2)
+0 tests, 0 benchmarks
+     Running tests/consumer_security.rs (target/debug/deps/consumer_security-de15d89c63d581c5)
+0 tests, 0 benchmarks
+     Running unittests src/lib.rs (target/debug/deps/brain_contracts-db4fc9ffed9571e0)
+0 tests, 0 benchmarks
+     Running tests/ir_contracts.rs (target/debug/deps/ir_contracts-7f9a1650f08c5488)
+0 tests, 0 benchmarks
+     Running unittests src/lib.rs (target/debug/deps/brain_feeds-6890218ff5e48d39)
+0 tests, 0 benchmarks
+     Running unittests src/bin/brain-match-ingest.rs (target/debug/deps/brain_match_ingest-384a29129db36207)
+0 tests, 0 benchmarks
+     Running tests/assets_starting_stats.rs (target/debug/deps/assets_starting_stats-f820e84f1fb721d1)
+0 tests, 0 benchmarks
+     Running tests/match_store.rs (target/debug/deps/match_store-d69bb18affdded90)
+postgres_match_commit_release_readback_replay_and_revoke: test
+
+1 test, 0 benchmarks
+     Running unittests src/lib.rs (target/debug/deps/brain_ingestion-769e7ef3ec73bcbd)
+0 tests, 0 benchmarks
+     Running unittests src/lib.rs (target/debug/deps/brain_jev-26a91d9d021b87f2)
+0 tests, 0 benchmarks
+     Running unittests src/lib.rs (target/debug/deps/brain_kernel-bbdf36cce15ae42d)
+0 tests, 0 benchmarks
+     Running tests/core_kernel.rs (target/debug/deps/core_kernel-c032d01994cc0d3b)
+0 tests, 0 benchmarks
+     Running tests/evidence_errors.rs (target/debug/deps/evidence_errors-44282a35c3878250)
+0 tests, 0 benchmarks
+     Running unittests src/lib.rs (target/debug/deps/brain_legacy_import-93517bec28063b5d)
+tests::scratch_import_release_tombstone_and_revoke: test
+
+1 test, 0 benchmarks
+     Running unittests src/bin/brain-legacy-import.rs (target/debug/deps/brain_legacy_import-572609137ee6be59)
+0 tests, 0 benchmarks
+     Running tests/cli_scratch.rs (target/debug/deps/cli_scratch-2da68b809dc0572b)
+cli_reads_archive_and_replays_tombstones_and_revokes: test
+
+1 test, 0 benchmarks
+     Running unittests src/lib.rs (target/debug/deps/brain_policy-8ddc65bbad3e50ef)
+0 tests, 0 benchmarks
+     Running tests/core_policy.rs (target/debug/deps/core_policy-4ce7a11f75fd97ed)
+0 tests, 0 benchmarks
+     Running unittests src/lib.rs (target/debug/deps/brain_providers-f939070b55798c6f)
+0 tests, 0 benchmarks
+     Running tests/faults.rs (target/debug/deps/faults-45289bb4fa7695ba)
+0 tests, 0 benchmarks
+     Running unittests src/lib.rs (target/debug/deps/brain_serve-5896dd42cf891f51)
+0 tests, 0 benchmarks
+     Running unittests src/main.rs (target/debug/deps/brain_serve-a38d7bda08ac33c9)
+0 tests, 0 benchmarks
+     Running tests/local_pilot.rs (target/debug/deps/local_pilot-0f82e1523559e528)
+pilot_phase_after_restart: test
+pilot_phase_empty_rebuild: test
+pilot_phase_ingest: test
+pilot_phase_reader_failures: test
+
+4 tests, 0 benchmarks
+     Running tests/process.rs (target/debug/deps/process-23c171a7e902094c)
+private_scratch_scram_accepts_runtime_password_and_rejects_wrong_password: test
+
+1 test, 0 benchmarks
+     Running tests/process_e2e.rs (target/debug/deps/process_e2e-02ade6419f834f6a)
+binary_loopback_health_readiness_shutdown_and_no_fallback: test
+
+1 test, 0 benchmarks
+     Running unittests src/lib.rs (target/debug/deps/brain_storage-1ead9b36ac036430)
+0 tests, 0 benchmarks
+     Running unittests src/bin/brain-migrate.rs (target/debug/deps/brain_migrate-87b4272a44127407)
+0 tests, 0 benchmarks
+     Running tests/core_store.rs (target/debug/deps/core_store-0d4801d85aa12b3f)
+postgres_atomicity_fences_release_and_restart_contract: test
+
+1 test, 0 benchmarks
+     Running tests/ir_contracts.rs (target/debug/deps/ir_contracts-4d9465a127a8d74c)
+0 tests, 0 benchmarks
+     Running tests/local_reader_config.rs (target/debug/deps/local_reader_config-5271bca282a8d7b6)
+0 tests, 0 benchmarks
+     Running tests/storage_upgrade.rs (target/debug/deps/storage_upgrade-206f94e8e5f77c84)
+v1_upgrade_restore_and_least_privilege: test
+
+1 test, 0 benchmarks
+     Running unittests src/lib.rs (target/debug/deps/dbrain_builds-85399f4df93776b6)
+engine::tests::build_context_for_known_hero_yields_typed_evidence: test
+engine::tests::load_item_rows_matches_direct_sql_count: test
+engine::tests::playstyle_selects_requested_path: test
+engine::tests::resolve_hero_id_matches_numeric_and_name: test
+sync::tests::sync_upsert_roundtrip_writes_and_reads_back: test
+
+5 tests, 0 benchmarks
+     Running unittests src/lib.rs (target/debug/deps/dbrain_enrich-62720b3134b0d647)
+tests::builds_patch_event_enrichments_incrementally_and_rebuilds: test
+tests::meta_trends_use_core_schema_table: test
+tests::patch_impact_context_and_note_roundtrip: test
+
+3 tests, 0 benchmarks
+     Running unittests src/lib.rs (target/debug/deps/dbrain_learn-88098174f7c7f0cd)
+tests::analyze_build_dry_run_inserts_note: test
+tests::analyze_match_dry_run_inserts_note: test
+tests::build_hero_build_context_for_real_hero: test
+tests::list_builds_matches_learned_builds_count: test
+tests::player_list_matches_runs: test
+
+5 tests, 0 benchmarks
+     Running unittests src/lib.rs (target/debug/deps/dbrain_normalize-3b39d662bf21dde5)
+tests::enrich_legacy_entities_is_count_stable: test
+tests::enrich_lineage_is_count_stable_and_idempotent: test
+tests::normalize_entities_is_count_stable: test
+tests::normalize_sheet_stats_is_count_stable: test
+tests::normalize_sheet_tabs_is_count_stable: test
+tests::parse_patchnotes_is_count_stable_and_idempotent: test
+tests::resolve_gaps_dry_run_reads_without_writing: test
+
+7 tests, 0 benchmarks
+     Running unittests src/lib.rs (target/debug/deps/dbrain_population-4a2bc6048404678a)
+0 tests, 0 benchmarks
+     Running unittests src/lib.rs (target/debug/deps/dbrain_reasoner-64f0d2b8d2ddb561)
+data::tests::author_builds_use_real_timestamps_and_expose_schema_errors: test
+data::tests::hero_stats_resolve_external_id_to_profile_entity: test
+data::tests::loads_warden_and_reference_items_from_real_snapshot: test
+data::tests::missing_ability_snapshot_is_an_error_instead_of_shifting_slots: test
+data::tests::patch_events_resolve_allowed_aliases_for_external_hero_id: test
+data::tests::snapshot_prefers_canonical_exact_match_before_newer_fuzzy_match: test
+fix_tests::fix2_backtest_no_persist_on_read_only_connection: test
+fix_tests::fix2_build_no_persist_on_read_only_connection: test
+fix_tests::fix2_patch_impact_no_persist_on_read_only_connection: test
+fix_tests::fix_build_write_failure_rolls_back_and_reaches_caller: test
+fix_tests::fix_e_live_warden_evidence: test
+fix_tests::fix_e_loader_keeps_exact_field_dates_and_current_hero_scaling: test
+fix_tests::fix_facade_build_persists_scores_and_keeps_patch_history: test
+fix_tests::fix_facade_patch_impact_and_backtest_persist_idempotently: test
+fix_tests::fix_patch_tag_fallback_matches_sync_without_valid_patch: test
+item::tests::scores_warden_reference_items_from_real_snapshot: test
+
+16 tests, 0 benchmarks
+     Running unittests src/lib.rs (target/debug/deps/dbrain_replay-9d24c28ea696825a)
+supervisor::tests::sandbox_probe: test
+
+1 test, 0 benchmarks
+     Running unittests src/main.rs (target/debug/deps/dbrain_replay_worker-eab471895f28d714)
+0 tests, 0 benchmarks
+     Running tests/decoder.rs (target/debug/deps/decoder-525a5e1cc1da49ed)
+0 tests, 0 benchmarks
+     Running tests/entities.rs (target/debug/deps/entities-ff80104edb87a397)
+0 tests, 0 benchmarks
+     Running tests/nested_snappy.rs (target/debug/deps/nested_snappy-f01c0cd6bf7f9c6a)
+0 tests, 0 benchmarks
+     Running tests/ports.rs (target/debug/deps/ports-9e083fbdf6941472)
+0 tests, 0 benchmarks
+     Running tests/regressions.rs (target/debug/deps/regressions-de38db637e54e321)
+0 tests, 0 benchmarks
+     Running unittests src/lib.rs (target/debug/deps/dbrain_retrieval-4df55d5794ab76a3)
+game_wiki::tests::live_wiki_hero_archetype_roster_is_compact_and_item_free: test
+game_wiki::tests::live_wiki_hero_bundle_and_nonhero_search: test
+game_wiki::wiki_manifest_tests::successful_manifest_excludes_partial_deleted_and_renamed_pages: test
+tests::analysis_list_returns_array: test
+tests::analyze_query_resolves_known_hero: test
+tests::ask_context_changelog_meta_question_includes_patch_overview_in_rendered_prompt: test
+tests::ask_context_keeps_unrelated_question_out_of_domain: test
+tests::ask_context_returns_structured_bundle: test
+tests::build_review_context_returns_summary: test
+tests::context_loads_patch_events_for_known_hero: test
+tests::load_known_item_names_matches_catalog: test
+tests::quality_reports_required_tables_present: test
+tests::save_review_roundtrip_inserts_and_cleans_up: test
+tests::status_reports_core_counts: test
+tests::timeline_patch_events_keep_best_match_entity_type: test
+
+15 tests, 0 benchmarks
+     Running tests/chunked_retrieval.rs (target/debug/deps/chunked_retrieval-1364ec1536bfa71c)
+0 tests, 0 benchmarks
+     Running tests/core_retrieval.rs (target/debug/deps/core_retrieval-22b7ae3ef1c1e342)
+0 tests, 0 benchmarks
+     Running unittests src/lib.rs (target/debug/deps/dbrain_s12_wiki_probe-c61b03f7bb605647)
+0 tests, 0 benchmarks
+     Running unittests src/main.rs (target/debug/deps/dbrain_s12_wiki_probe-653ba5572ea81e00)
+0 tests, 0 benchmarks
+     Running tests/alias_pin.rs (target/debug/deps/alias_pin-b96b1109f812a63a)
+0 tests, 0 benchmarks
+     Running tests/capture_transport.rs (target/debug/deps/capture_transport-5f4e9f54f37a3a73)
+0 tests, 0 benchmarks
+     Running tests/cli.rs (target/debug/deps/cli-e0622aa47db074e3)
+0 tests, 0 benchmarks
+     Running tests/completion.rs (target/debug/deps/completion-366841aaa8ac44d1)
+0 tests, 0 benchmarks
+     Running tests/completion_cli.rs (target/debug/deps/completion_cli-0cd4b973c45459da)
+0 tests, 0 benchmarks
+     Running tests/domain_projection.rs (target/debug/deps/domain_projection-bb58aac5dd1ede61)
+0 tests, 0 benchmarks
+     Running tests/probe.rs (target/debug/deps/probe-4a68d21a059628c0)
+0 tests, 0 benchmarks
+     Running tests/shared_contracts.rs (target/debug/deps/shared_contracts-e0c6585314bf41ca)
+0 tests, 0 benchmarks
+     Running unittests src/lib.rs (target/debug/deps/dbrain_sources-f74684f61b4dbb6d)
+deadlock_data::tests::patchnote_events_do_not_duplicate_when_commit_metadata_changes: test
+deadlock_data::tests::upsert_domain_entity_roundtrip_is_idempotent_and_cleans_up: test
+patchnotes_db::tests::patchnotes_source_is_readable_when_present: test
+store::tests::patch_changes_view_deduplicates_holliday_powder_keg_scaling: test
+store::tests::store_roundtrip_writes_reads_back_and_cleans_up: test
+
+5 tests, 0 benchmarks
+     Running unittests src/bin/brain-wiki-pilot.rs (target/debug/deps/brain_wiki_pilot-63c37d25f5658f9b)
+0 tests, 0 benchmarks
+     Running tests/external_sources.rs (target/debug/deps/external_sources-2cf34989ffbe1b62)
+live_small_current_assets_contract: test
+
+1 test, 0 benchmarks
+     Running tests/shared_contracts.rs (target/debug/deps/shared_contracts-914e7b69664e5cdd)
+0 tests, 0 benchmarks
+     Running tests/source_pins.rs (target/debug/deps/source_pins-5756665cb37a8b03)
+0 tests, 0 benchmarks
+     Running tests/wiki_knowledge_contract.rs (target/debug/deps/wiki_knowledge_contract-ec0b62ef3c67d486)
+0 tests, 0 benchmarks
+     Running tests/wiki_runtime.rs (target/debug/deps/wiki_runtime-d7f0724218cbc46f)
+scratch_raw_ir_facts_release_delta_reparse_and_acl: test
+
+1 test, 0 benchmarks
+     Running unittests src/bin/brain-mcp.rs (target/debug/deps/brain_mcp-2c282ba49d0fb0e4)
+0 tests, 0 benchmarks
+     Running unittests src/main.rs (target/debug/deps/deadlock_brain-fe49f6e2059d8249)
+0 tests, 0 benchmarks
+     Running unittests src/bin/deadlock-brain-secret-exec.rs (target/debug/deps/deadlock_brain_secret_exec-075c8bc37ef08e8d)
+0 tests, 0 benchmarks
+     Running tests/runtime_tooling.rs (target/debug/deps/runtime_tooling-7818992c1f82c4c3)
+0 tests, 0 benchmarks
+     Running unittests src/lib.rs (target/debug/deps/deadlock_brain_core-7c3abe2e99fb8379)
+0 tests, 0 benchmarks
+     Running unittests src/main.rs (target/debug/deps/deadlock_brain_yt-6c0c8467a2045f75)
+claims::tests::query_claims_returns_rows_for_known_entity_parity: test
+queue::tests::select_next_videos_and_mark_status_round_trip_pg: test
+transcript_claims::tests::ingest_inserts_maps_verdicts_and_is_idempotent_pg: test
+transcript_claims::tests::prepare_selects_untreated_verbal_video_then_excludes_it_pg: test
+transcripts::tests::save_transcript_is_idempotent_and_sets_ready_pg: test
+
+5 tests, 0 benchmarks
+     Running unittests src/lib.rs (target/debug/deps/uplink_infisical_transport-1be6b0236e11ad05)
+0 tests, 0 benchmarks
+   Doc-tests brain_api
+0 tests, 0 benchmarks
+   Doc-tests brain_client
+0 tests, 0 benchmarks
+   Doc-tests brain_contracts
+0 tests, 0 benchmarks
+   Doc-tests brain_feeds
+0 tests, 0 benchmarks
+   Doc-tests brain_ingestion
+0 tests, 0 benchmarks
+   Doc-tests brain_jev
+0 tests, 0 benchmarks
+   Doc-tests brain_kernel
+0 tests, 0 benchmarks
+   Doc-tests brain_legacy_import
+0 tests, 0 benchmarks
+   Doc-tests brain_policy
+0 tests, 0 benchmarks
+   Doc-tests brain_providers
+0 tests, 0 benchmarks
+   Doc-tests brain_serve
+0 tests, 0 benchmarks
+   Doc-tests brain_storage
+0 tests, 0 benchmarks
+   Doc-tests dbrain_builds
+0 tests, 0 benchmarks
+   Doc-tests dbrain_enrich
+0 tests, 0 benchmarks
+   Doc-tests dbrain_learn
+0 tests, 0 benchmarks
+   Doc-tests dbrain_normalize
+0 tests, 0 benchmarks
+   Doc-tests dbrain_population
+0 tests, 0 benchmarks
+   Doc-tests dbrain_reasoner
+0 tests, 0 benchmarks
+   Doc-tests dbrain_replay
+0 tests, 0 benchmarks
+   Doc-tests dbrain_retrieval
+0 tests, 0 benchmarks
+   Doc-tests dbrain_s12_wiki_probe
+0 tests, 0 benchmarks
+   Doc-tests dbrain_sources
+0 tests, 0 benchmarks
+   Doc-tests deadlock_brain_core
+0 tests, 0 benchmarks
+   Doc-tests uplink_infisical_transport
+0 tests, 0 benchmarks

@@ -1,0 +1,10 @@
+waiting for server to start.... done
+server started
+   Compiling brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-storage)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.72s
+     Running tests/core_store.rs (target/debug/deps/core_store-bd1965d99114f69c)
+
+running 1 test
+test postgres_atomicity_fences_release_and_restart_contract ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.14s
