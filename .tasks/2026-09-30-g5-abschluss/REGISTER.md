@@ -1,4 +1,4 @@
-status: aktiv, statische Abnahme und Metadaten abgeschlossen; Compiler-Slot angefragt
+status: aktiv, statische Abnahme, Metadaten und einzeln zugeteilter Clippy-Lauf bestanden; weitere Prüfungen nicht zugeteilt
 Datum: 2026-09-30
 
 # G5-Fortsetzungsregister
@@ -22,7 +22,7 @@ Ursprüngliche gemeinsame Basis: 1c362bca6d35e7fec10125b2b159e7513a299243. Keine
 | --- | --- | --- | --- |
 | V1 ohne Replay | 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 | bestehender Sol, gpt-6-sol | Produkt 86a0bd6 und korrigierter Bericht 0c290809 gepusht; bereit, kein aktiver Quellauftrag; Merge noch offen |
 | Statische Abnahme und Locknachtrag | 52c34332-8cdf-4772-9e1f-42aba432c6cf | bestehender Astra | Fertig, Bericht 035e2a99 gelesen, GO auf 9a29b81; gesettelt, Sequenz 1149318 |
-| Finale Compiler-/Prozessprüfung | 6b53c923-e4da-498a-b08e-254407b452ff | Sol | Nicht wiederaufgenommen; Compiler-Slot noch nicht zugeteilt |
+| Finale Compiler-/Prozessprüfung | 6b53c923-e4da-498a-b08e-254407b452ff | Sol | Nicht wiederaufgenommen; einzeln zugeteilter Clippy-Lauf durch Hauptsession abgeschlossen, keine Prozessprüfung |
 | Consumerabnahme | 533115bf-554f-4457-86b4-2944fef19c63 | Astra | Nicht wiederaufgenommen |
 
 Keine neuen Unterthreads. Autor und Reviewer unabhängig. Wache f09492d8 nach abgeschlossener statischer Nachabnahme gelöscht, kein neuer periodischer Job.
@@ -33,13 +33,15 @@ Keine neuen Unterthreads. Autor und Reviewer unabhängig. Wache f09492d8 nach ab
 - Statische unabhängige Abnahme auf 0c290809 und Nachreview des echten Lockdiffs auf 9a29b81: fertig J, Fix N, GO. ENV-/j2-Berichtsmangel vor GO korrigiert. Die geprüften V1-Verwendungen benötigen chrono/serde nicht.
 - Erste einzeln zugeteilte Offline-Auflösung: Exit 0, 562 ms. Lockdiff mit Beleg als 9a29b81 gepusht.
 - Zusätzlich zugeteilter Kontrolllauf `cargo +1.97.1 metadata --locked --offline --format-version 1`: Exit 0, 607 ms auf sauberem 9a29b81. Lockhash vorher/nachher identisch. 386 Pakete und Resolve-Nodes, keine Gitquellen, 25 Cargo-Member. Metadata-Hash identisch zum ersten Lauf.
-- Kein rust/target vor oder nach beiden Metadatenläufen, kein neuer Targetcache. Keine Compiler-, Test-, Benchmark-, Fetch- oder Dienstaktion. Kein neuer Livebeweis.
+- Kein rust/target vor oder nach beiden Metadatenläufen, kein neuer Targetcache.
+- Anschließend exakt einzeln zugeteilter Workspace-Clippy-Lauf mit allen Targets, `--jobs 1`, `--locked --offline` und `-D warnings` bestanden, Exitcode 0. Start 10:14:31 UTC, PID 3534342, Hintergrundauftrag bu52n1xr5. Sauberer Quellhead nach Abschluss unverändert 9a29b81. Vollständiger Log `/tmp/brain-g5-clippy-9a29b81-20260930.log` bleibt lokal. Nur vorhandenen Targetcache verwendet, keine zusätzliche Konfiguration.
+- Keine Test-, Benchmark-, Fetch-, Release- oder Dienstaktion. Kein neuer Livebeweis.
 
 ## Nächster Freigabepunkt
 
-Der konkrete nächste Clippy-Befehl mit `--jobs 1` und vorhandenem Targetcache ist in BRAIN-G5-BUILD-REQUEST.txt eingetragen. Hostweite Originaldatei: /home/nathanael/Documents/.tasks/2026-09-30-twitch-alles-live/BRAIN-G5-BUILD-REQUEST.txt. Identische Kopie liegt in dieser Akte.
+Clippy ist abgeschlossen. Root wurde über Ende und Exitcode informiert und kann den Cargo-Slot zurückgeben. Keine zweite Cargo-Aktion oder automatischer Folgelauf. Die hostweite BRAIN-G5-BUILD-REQUEST.txt enthält den Abschluss; identische Kopie liegt in dieser Akte.
 
-Compiler und Tests benötigen weiterhin die konkrete Zuteilung des Integrators. Beide Metadatenbefehle sind abgeschlossen und benötigen keine erneute Zuteilung. SQLx-Makros und 114 versionierte Offline-Metadatendateien bleiben erhalten; tatsächliche Kompilierung ohne zusätzliche Konfiguration steht aus. Keine neue ENV-Konfiguration oder Produktions-DB als stiller Ersatz.
+Weitere Compiler-/Format-/Test- oder Prozessschritte benötigen eine eigene konkrete Zuteilung. SQLx-Makros und 114 versionierte Offline-Metadatendateien bleiben erhalten. Der zugeteilte Clippy-Aufruf bestand ohne neue ENV-Einstellungen; damit wird kein vollständiger Neuaufbau ohne vorhandenen Cache behauptet.
 
 Kein Main-Merge oder Deploy vor den noch fehlenden Nachweisen. Typed POST /v1/answer noch nicht live nachgewiesen. Replay bleibt später. Schutz-Hooks unverändert.
 

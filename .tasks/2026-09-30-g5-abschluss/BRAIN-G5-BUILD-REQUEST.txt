@@ -1,4 +1,4 @@
-status: statische Abnahme GO und beide Metadatenläufe erfolgreich; Compiler-Slot angefragt, nicht zugeteilt
+status: zugeteilter Clippy-Lauf beendet, Exitcode 0; keine weitere Cargo-Aktion gestartet
 Datum: 2026-09-30
 Intent-Thread: 562a877b-0939-440a-964d-1145d9e9431a
 
@@ -35,11 +35,11 @@ Bericht gepusht als 035e2a99a167b98c2838e4bd25a90fda89a3d96d auf review/pre-g5-c
 Eigenständiger semantischer Lockvergleich bestätigt 41 entfernte Pakete, keine Versions-/Quellen-/Checksummentausche und null Gitquellen. Die geprüften V1-Verwendungen benötigen chrono/serde nicht: Daten werden vor JSON in Strings oder Zeitstempel umgewandelt. Kein Compilerbeweis aus der statischen Abnahme.
 Der Bericht entstand vor dem unmittelbar danach ausgeführten Metadaten-Kontrolllauf; dessen inzwischen erfüllte Zuteilung und Ergebnis stehen oben.
 
-NÄCHSTER KONKRETER COMPILERBEFEHL, NICHT AUSGEFÜHRT
+AKTUELL EINZELN ZUGETEILTER COMPILERLAUF
 
 /home/nathanael/.cargo/bin/cargo +1.97.1 clippy --workspace --all-targets --locked --offline --jobs 1 --target-dir /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target -- -D warnings
 
-Anfrage an pr_inventory: genau diesen seriellen Compilerlauf samt exklusiver Nutzung des vorhandenen Targets zuteilen. Die metadata-only-Zuteilung erlaubt ihn nicht. Keine neue Nutzerfreigabe nötig.
+Integrator hat exakt diesen einen Lauf zugeteilt. Startprüfung 2026-09-30T10:13:51Z: eigener Quellworktree sauber auf 9a29b81d230c01e5c03423cc34ba34c1074eab69, vorhandener Targetcache bestätigt, 195 GiB frei. Lokaler vollständiger Log: /tmp/brain-g5-clippy-9a29b81-20260930.log, vor Start nicht vorhanden. Tatsächlicher Start 2026-09-30T10:14:31Z, PID 3534342, Hintergrundauftrag bu52n1xr5. Exakter Quell-SHA: 9a29b81d230c01e5c03423cc34ba34c1074eab69. Vollständiger Compilerlog bleibt unter dem genannten lokalen Pfad; keine ungeprüfte Rohlogausgabe. Kein Fetch, keine neuen ENV-Einstellungen oder Caches, keine Datenbank-/Test-/Modell-/Dienst-/Releaseaktion. Keine zweite Cargo-Aktion und kein automatischer Folgelauf. DL/Twitch dürfen unabhängig regulär deployen; ihre Units bleiben unangetastet. Abschluss vom Hintergrundauftrag bu52n1xr5 bestätigt: completed, Exitcode 0. Abschluss und unveränderter sauberer Quellhead 9a29b81d230c01e5c03423cc34ba34c1074eab69 am 2026-09-30T10:18:26Z dokumentiert; dies ist die Nachweiszeit, keine gemessene Prozess-Endzeit. Der exakt zugeteilte Workspace-Clippy-Lauf mit allen Targets und -D warnings ist bestanden. Keine weitere Cargo-Aktion gestartet; Root kann den Cargo-Slot an den Integrator zurückgeben. Keine Test-, Release-, Cutover- oder Dienstfreigabe daraus abgeleitet. Vollständiger Log bleibt lokal erhalten. Die zusätzliche Logauswertung durch ctx_execute_file wurde wegen dessen Projektwurzelgrenze abgelehnt und nicht über einen Ersatzpfad wiederholt; Erfolgsbeleg ist der tatsächliche Exitcode des per exec gestarteten Compilerbefehls, kein erfundener Logbefund.
 
 Vorhandener Cargo-Cache: /home/nathanael/.cargo
 Vorhandener Targetcache, Existenz erneut bestätigt: /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target
@@ -47,7 +47,7 @@ Toolchain: 1.97.1, im Metadatenlauf tatsächlich verwendet.
 Freier Speicher bei read-only-Prüfung: 195 GiB laut df -h, Dateisystem 88 Prozent belegt. Vor Ausführung erneut prüfen.
 Ressourcen: ein Cargo-Job, keine Testausführung und kein Releasebuild. Linker/Buildskripte können weitere Threads benutzen. RAM grob 2 bis 6 GiB, keine gemessene Obergrenze. Targetwachstum ausschließlich im vorhandenen Cache. Keine Dienste betroffen, kein Zugriff auf Produktmodelle beauftragt.
 
-SQLx: 114 versionierte Offline-Metadatendateien unter rust/.sqlx vorhanden; typgeprüfte Query-Makros bleiben erhalten. Kein ENV-Präfix, keine ENV-Datei, kein neuer Secret- oder DB-Konfigurationsweg. Die tatsächliche Offline-Kompilierung ohne zusätzliche Konfiguration ist noch nicht bewiesen. Bei Konfigurationsfehler Lauf anhalten und Ursache konkret melden, nicht still auf Produktions-DB, neue ENV-Konfiguration oder Runtime-Queries ausweichen.
+SQLx: 114 versionierte Offline-Metadatendateien unter rust/.sqlx vorhanden; typgeprüfte Query-Makros bleiben erhalten. Kein ENV-Präfix, keine ENV-Datei, kein neuer Secret- oder DB-Konfigurationsweg. Der zugeteilte Clippy-Aufruf bestand ohne zusätzliche ENV-Einstellungen und ohne Konfigurationsänderung. Keine Aussage über die Vollständigkeit der Offline-Dateien bei einem vollständig leeren Buildcache; der vorhandene Cache wurde wie beauftragt wiederverwendet.
 
 WEITERE SCHRITTE, WEITERHIN NICHT ZUGETEILT
 
@@ -67,7 +67,7 @@ Prozess-/PostgreSQL-Harness weiterhin nicht startbereit: bestehenden Harness zue
 
 Serve-Cutover weiterhin nicht startbereit. Tatsächliche Unit, Config, Endpoint, revisionsgebundenes Artefakt und Rückweg müssen belegt sein. Beispielport 127.0.0.1:8787 und Port 8789 sind belegt; keine blinde Übernahme. Brain-PostgreSQL bleibt ohne Neustart. Twitch-/DL-Wechsel ausschließlich durch den Integrator. Keine Veröffentlichung parallel zu dessen Cutover.
 
-Kein neuer Build-, Test- oder Livebeweis behauptet. Typed POST /v1/answer ist noch nicht als live nachgewiesen. Replay bleibt außerhalb V1. Keine Community-Nachricht, kein Steam-Build-Publish.
+Neuer Compilerbeleg: der oben dokumentierte Clippy-Lauf, Exitcode 0. Keine Tests oder Releasebuilds ausgeführt, kein neuer Livebeweis. Typed POST /v1/answer ist noch nicht als live nachgewiesen. Replay bleibt außerhalb V1. Keine Community-Nachricht, kein Steam-Build-Publish.
 
 Belege:
 .tasks/2026-09-30-g5-abschluss/SLOT-A-ERGEBNIS.md und SLOT-B-METADATA.md auf dem Quellbranch.
