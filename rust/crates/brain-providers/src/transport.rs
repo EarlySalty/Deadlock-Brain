@@ -1,5 +1,5 @@
 use super::{
-    hardening, thread, ChatRequest, ChatResponse, Duration, Instant, OpenAiCompatibleProvider,
+    hardening, ChatRequest, ChatResponse, Duration, Instant, OpenAiCompatibleProvider,
     ProviderAnswer, ProviderError, Result, StatusCode, Usage,
 };
 use brain_contracts::AuthorizedContext;
@@ -81,6 +81,20 @@ impl OpenAiCompatibleProvider {
         context: &AuthorizedContext,
         chat: bool,
     ) -> Result<(Vec<u8>, Charge)> {
+        let bound = context.with_request_deadline();
+        let context = &bound;
+        let lifetime = context
+            .request_deadline
+            .as_ref()
+            .expect("bound request deadline");
+        let deadline = Instant::now()
+            .checked_add(
+                context
+                    .remaining_time()
+                    .map_err(|_| ProviderError::BudgetExceeded)?,
+            )
+            .ok_or(ProviderError::BudgetExceeded)?
+            .min(lifetime.expires_at());
         let budget = &context.budget;
         if context.deadline_ms == 0
             || context.deadline_ms > 60000
@@ -118,26 +132,34 @@ impl OpenAiCompatibleProvider {
         if reserved_cost > budget.max_cost_micros {
             return Err(ProviderError::BudgetExceeded);
         }
-        let deadline = Instant::now() + Duration::from_millis(context.deadline_ms);
         let url = format!("{}/{}", self.config.base_url.trim_end_matches('/'), route);
         let mut last_status = StatusCode::SERVICE_UNAVAILABLE;
         for attempt in 0..attempts {
+            lifetime
+                .check()
+                .map_err(|_| ProviderError::BudgetExceeded)?;
+            let request = self
+                .client
+                .post(&url)
+                .bearer_auth(&self.config.api_key)
+                .json(payload);
+            // Payload encoding and retries spend time from the same original lifetime.
+            lifetime
+                .check()
+                .map_err(|_| ProviderError::BudgetExceeded)?;
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 return Err(ProviderError::BudgetExceeded);
             }
-            let result = self
-                .client
-                .post(&url)
-                .timeout(self.config.timeout.min(remaining))
-                .bearer_auth(&self.config.api_key)
-                .json(payload)
-                .send();
+            let result = request.timeout(self.config.timeout.min(remaining)).send();
+            lifetime
+                .check()
+                .map_err(|_| ProviderError::BudgetExceeded)?;
             let mut requested_delay = Duration::ZERO;
             match result {
                 Ok(response) if response.status().is_success() => {
                     let bytes = hardening::read_bounded(response, self.config.max_response_bytes)?;
-                    if Instant::now() >= deadline {
+                    if Instant::now() >= deadline || lifetime.check().is_err() {
                         return Err(ProviderError::BudgetExceeded);
                     }
                     return Ok((
@@ -186,7 +208,9 @@ impl OpenAiCompatibleProvider {
                 if delay >= deadline.saturating_duration_since(Instant::now()) {
                     return Err(ProviderError::BudgetExceeded);
                 }
-                thread::sleep(delay);
+                lifetime
+                    .wait(delay)
+                    .map_err(|_| ProviderError::BudgetExceeded)?;
             }
         }
         Err(ProviderError::HttpStatus {

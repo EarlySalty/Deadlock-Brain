@@ -43,6 +43,25 @@ where
     }
 
     pub fn handle_answer(&self, authorization: Option<&str>, body: &[u8]) -> ApiResponse {
+        let deadline = brain_contracts::RequestDeadline::after(std::time::Duration::from_millis(
+            self.deadline_ms.clamp(1, 60000),
+        ));
+        self.handle_answer_until(authorization, body, deadline)
+    }
+
+    fn authenticate_header(&self, authorization: Option<&str>) -> bool {
+        bearer_token(authorization).is_some_and(|token| self.policy.authenticate(token).is_ok())
+    }
+
+    fn handle_answer_until(
+        &self,
+        authorization: Option<&str>,
+        body: &[u8],
+        deadline: brain_contracts::RequestDeadline,
+    ) -> ApiResponse {
+        if deadline.check().is_err() {
+            return deadline_response();
+        }
         if body.len() > 64 * 1024 {
             return json_error(413, "payload_too_large", "Request ist zu groß");
         }
@@ -64,14 +83,15 @@ where
             return json_error(400, "invalid_request", "Query Contract ist ungültig");
         }
 
-        let context = match self.policy.authorize_query(
+        let context = match self.policy.authorize_query_until(
             token,
             &query,
             self.knowledge_release.clone(),
-            self.deadline_ms,
+            deadline.clone(),
             self.budget.clone(),
         ) {
             Ok(context) => context,
+            Err(PolicyError::BudgetExceeded) => return deadline_response(),
             Err(PolicyError::InvalidCredentials) => {
                 return json_error(401, "unauthorized", "Zugangsdaten sind ungültig")
             }
@@ -93,7 +113,13 @@ where
             }
         };
 
+        if deadline.check().is_err() {
+            return deadline_response();
+        }
         let answer = self.kernel.answer(&query, &context);
+        if deadline.check().is_err() {
+            return deadline_response();
+        }
         if answer.contract_version != brain_contracts::CONTRACT_VERSION
             || answer.request_id != query.request_id
             || answer.knowledge_release != context.knowledge_release
@@ -105,6 +131,10 @@ where
         }
         answer_response(&answer)
     }
+}
+
+fn deadline_response() -> ApiResponse {
+    json_error(504, "deadline_exceeded", "Request Deadline erreicht")
 }
 
 fn bearer_token(header: Option<&str>) -> Option<&str> {

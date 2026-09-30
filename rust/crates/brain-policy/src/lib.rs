@@ -21,6 +21,8 @@ pub enum PolicyError {
     EvidenceDenied,
     #[error("Policy Status konnte nicht gesperrt werden")]
     StatePoisoned,
+    #[error("Request Deadline erreicht")]
+    BudgetExceeded,
 }
 
 pub type Result<T> = std::result::Result<T, PolicyError>;
@@ -125,6 +127,11 @@ impl PolicyEngine {
         engine
     }
 
+    /// Credential-only admission. This performs no ownership or database work.
+    pub fn authenticate(&self, bearer_token: &str) -> Result<Principal> {
+        self.credentials.authenticate(bearer_token)
+    }
+
     pub fn authorize_query(
         &self,
         bearer_token: &str,
@@ -133,6 +140,27 @@ impl PolicyEngine {
         deadline_ms: u64,
         budget: Budget,
     ) -> Result<AuthorizedContext> {
+        if !(1..=60000).contains(&deadline_ms) {
+            return Err(PolicyError::BudgetExceeded);
+        }
+        self.authorize_query_until(
+            bearer_token,
+            query,
+            knowledge_release,
+            brain_contracts::RequestDeadline::after(std::time::Duration::from_millis(deadline_ms)),
+            budget,
+        )
+    }
+
+    pub fn authorize_query_until(
+        &self,
+        bearer_token: &str,
+        query: &Query,
+        knowledge_release: impl Into<String>,
+        deadline: brain_contracts::RequestDeadline,
+        budget: Budget,
+    ) -> Result<AuthorizedContext> {
+        deadline.check().map_err(|_| PolicyError::BudgetExceeded)?;
         let mut principal = self.credentials.authenticate(bearer_token)?;
         for requested in &query.requested_scopes {
             if !principal.scopes.contains(requested) {
@@ -145,13 +173,15 @@ impl PolicyEngine {
             principal.scopes = query.requested_scopes.clone();
         }
 
+        deadline.check().map_err(|_| PolicyError::BudgetExceeded)?;
         if let Some(store) = &self.ownership_store {
             store
-                .claim_conversation(&query.conversation_id, &principal.actor_id)
+                .claim_conversation_until(&query.conversation_id, &principal.actor_id, &deadline)
                 .map_err(|error| match error {
                     brain_contracts::PortError::InvalidResponse(_) => {
                         PolicyError::ConversationOwnerMismatch
                     }
+                    brain_contracts::PortError::BudgetExceeded => PolicyError::BudgetExceeded,
                     _ => PolicyError::StatePoisoned,
                 })?;
         } else {
@@ -159,6 +189,7 @@ impl PolicyEngine {
                 .conversation_owners
                 .lock()
                 .map_err(|_| PolicyError::StatePoisoned)?;
+            deadline.check().map_err(|_| PolicyError::BudgetExceeded)?;
             match owners.get(&query.conversation_id) {
                 Some(owner) if owner != &principal.actor_id => {
                     return Err(PolicyError::ConversationOwnerMismatch)
@@ -173,12 +204,21 @@ impl PolicyEngine {
             }
         }
 
+        let deadline_ms = deadline
+            .remaining()
+            .map_err(|_| PolicyError::BudgetExceeded)?
+            .as_millis()
+            .min(60000) as u64;
+        if deadline_ms == 0 {
+            return Err(PolicyError::BudgetExceeded);
+        }
         Ok(AuthorizedContext {
             principal,
             conversation_id: query.conversation_id.clone(),
             knowledge_release: knowledge_release.into(),
             deadline_ms,
             budget,
+            request_deadline: Some(deadline),
         })
     }
 }

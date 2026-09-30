@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub const CONTRACT_VERSION: &str = "brain.v1";
+mod deadline;
+pub use deadline::RequestDeadline;
 pub mod domain;
 pub mod domain_knowledge;
 pub mod embedding;
@@ -148,6 +150,9 @@ pub struct AuthorizedContext {
     pub knowledge_release: String,
     pub deadline_ms: u64,
     pub budget: Budget,
+    /// Trusted in-process lifetime; never supplied or renewed by a wire request.
+    #[serde(skip)]
+    pub request_deadline: Option<RequestDeadline>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

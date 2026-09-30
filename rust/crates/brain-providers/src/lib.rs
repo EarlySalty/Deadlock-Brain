@@ -1,9 +1,6 @@
 #![forbid(unsafe_code)]
 
-use std::{
-    thread,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 use brain_contracts::provider_input::{grounded_messages, ChatMessage};
 use brain_contracts::{
@@ -160,6 +157,9 @@ impl OpenAiCompatibleProvider {
         context: &AuthorizedContext,
         evidence: &[Evidence],
     ) -> Result<ProviderAnswer> {
+        context
+            .check_deadline()
+            .map_err(|_| ProviderError::BudgetExceeded)?;
         let payload = ChatRequest {
             model: self.config.model.clone(),
             messages: grounded_messages(query, evidence),
@@ -179,6 +179,9 @@ impl AnswerProviderPort for OpenAiCompatibleProvider {
         context: &AuthorizedContext,
         evidence: &[Evidence],
     ) -> std::result::Result<ProviderAnswer, PortError> {
+        let bound = context.with_request_deadline();
+        let context = &bound;
+        context.check_deadline()?;
         if context.budget.max_network_rounds == 0 || context.budget.max_output_tokens == 0 {
             return Err(PortError::BudgetExceeded);
         }
@@ -227,6 +230,7 @@ mod tests {
 
     fn context() -> AuthorizedContext {
         AuthorizedContext {
+            request_deadline: None,
             principal: Principal {
                 actor_id: "test".into(),
                 channel: "test".into(),

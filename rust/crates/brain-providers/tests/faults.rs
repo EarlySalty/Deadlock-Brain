@@ -25,6 +25,7 @@ fn query() -> Query {
 }
 fn context() -> AuthorizedContext {
     AuthorizedContext {
+        request_deadline: None,
         principal: Principal {
             actor_id: "fixture".into(),
             channel: "test".into(),
@@ -228,4 +229,96 @@ fn embeddings_restore_indices_and_reject_duplicates_or_dimension_errors() {
             assert_eq!(result.vectors, vec![vec![1.0, 0.0], vec![0.0, 1.0]]);
         }
     }
+}
+
+#[test]
+fn cancelled_provider_and_embedding_calls_never_open_a_connection() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let config = ProviderConfig::new(
+        "fixture-token",
+        format!("http://{}", listener.local_addr().unwrap()),
+        "fixture-model",
+    );
+    let provider = OpenAiCompatibleProvider::new(config).unwrap();
+    let mut c = context();
+    let deadline = RequestDeadline::after(Duration::from_secs(5));
+    deadline.cancel();
+    c.request_deadline = Some(deadline);
+    assert_eq!(
+        provider.answer(&query(), &c, &[]),
+        Err(PortError::BudgetExceeded)
+    );
+    assert_eq!(
+        provider.embed(&["fixture".into()], &identity(), &c),
+        Err(PortError::BudgetExceeded)
+    );
+    assert_eq!(
+        listener.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+}
+
+#[test]
+fn cancellation_during_first_provider_attempt_prevents_a_retry() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let config = ProviderConfig::new(
+        "fixture-token",
+        format!("http://{}", listener.local_addr().unwrap()),
+        "fixture-model",
+    );
+    let provider = OpenAiCompatibleProvider::new(config).unwrap();
+    let mut c = context();
+    c.deadline_ms = 5000;
+    let deadline = RequestDeadline::after(Duration::from_secs(5));
+    c.request_deadline = Some(deadline.clone());
+    let worker = thread::spawn(move || provider.answer(&query(), &c, &[]));
+    let started = Instant::now();
+    let mut stream = loop {
+        match listener.accept() {
+            Ok((stream, _)) => break stream,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                assert!(started.elapsed() < Duration::from_secs(2));
+                thread::yield_now();
+            }
+            Err(error) => panic!("{error}"),
+        }
+    };
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    let mut bytes = Vec::new();
+    let mut buffer = [0; 4096];
+    loop {
+        let count = stream.read(&mut buffer).unwrap();
+        assert!(count > 0);
+        bytes.extend_from_slice(&buffer[..count]);
+        assert!(bytes.len() <= 65536);
+        if let Some(end) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+            let headers = String::from_utf8_lossy(&bytes[..end]);
+            let length = headers
+                .lines()
+                .filter_map(|line| line.split_once(':'))
+                .find(|(key, _)| key.eq_ignore_ascii_case("content-length"))
+                .unwrap()
+                .1
+                .trim()
+                .parse::<usize>()
+                .unwrap();
+            if bytes.len() >= end + 4 + length {
+                break;
+            }
+        }
+    }
+    deadline.cancel();
+    stream
+        .write_all(json_response("503 Unavailable", "{}").as_bytes())
+        .unwrap();
+    assert_eq!(worker.join().unwrap(), Err(PortError::BudgetExceeded));
+    assert!(Instant::now() < deadline.expires_at());
+    assert_eq!(
+        listener.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
 }

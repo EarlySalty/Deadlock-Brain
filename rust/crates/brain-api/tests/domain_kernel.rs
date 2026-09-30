@@ -30,6 +30,7 @@ impl AnswerProviderPort for NoProvider {
 }
 fn context(release: &str) -> AuthorizedContext {
     AuthorizedContext {
+        request_deadline: None,
         principal: Principal {
             actor_id: "fixture".into(),
             channel: "test".into(),

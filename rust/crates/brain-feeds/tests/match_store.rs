@@ -172,6 +172,7 @@ async fn postgres_match_commit_release_readback_replay_and_revoke() {
             mode: None,
         };
         let context = AuthorizedContext {
+            request_deadline: None,
             principal: principal(&["account:281768392"]),
             conversation_id: query.conversation_id.clone(),
             knowledge_release: "match-fixture-r1".into(),

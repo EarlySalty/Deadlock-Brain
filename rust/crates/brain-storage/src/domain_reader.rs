@@ -58,13 +58,19 @@ impl<S: SnapshotReadPort> DomainReader<S> {
         validity: &Validity,
         for_provider: bool,
     ) -> Result<DomainSnapshot, PortError> {
+        let bound = context.with_request_deadline();
+        let context = &bound;
         if !(1..=60000).contains(&context.deadline_ms)
             || !stable(&validity.patch)
             || !stable(&validity.mode)
         {
             return Err(invalid("invalid domain context"));
         }
-        let snapshot = self.store.read_snapshot(&context.knowledge_release)?;
+        context.check_deadline()?;
+        let snapshot = self.store.read_snapshot_until(
+            &context.knowledge_release,
+            context.request_deadline.as_ref(),
+        )?;
         validate_release(&snapshot.release)?;
         if snapshot.release.release_id != context.knowledge_release
             || snapshot.release.patch != validity.patch
@@ -84,6 +90,7 @@ impl<S: SnapshotReadPort> DomainReader<S> {
         let mut predicates = BTreeMap::new();
         let mut seen = BTreeSet::new();
         for record in &visible {
+            context.check_deadline()?;
             let Some(schema) = record.metadata.get("domain_contract") else {
                 continue;
             };
@@ -286,6 +293,7 @@ mod tests {
             conversation_id: "fixture".into(),
             knowledge_release: "r1".into(),
             deadline_ms: 1000,
+            request_deadline: None,
             budget: Budget::default(),
         }
     }

@@ -20,6 +20,13 @@ impl<S: SnapshotReadPort> SnapshotReadPort for Reader<'_, S> {
     fn read_snapshot(&self, id: &str) -> Result<CorpusSnapshot, PortError> {
         self.0.read_snapshot(id)
     }
+    fn read_snapshot_until(
+        &self,
+        id: &str,
+        deadline: Option<&brain_contracts::RequestDeadline>,
+    ) -> Result<CorpusSnapshot, PortError> {
+        self.0.read_snapshot_until(id, deadline)
+    }
 }
 fn invalid(message: &str) -> PortError {
     PortError::InvalidResponse(message.into())

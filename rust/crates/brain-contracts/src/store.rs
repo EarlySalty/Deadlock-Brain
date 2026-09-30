@@ -89,6 +89,35 @@ pub struct CorpusSnapshot {
 }
 pub trait SnapshotReadPort: Send + Sync {
     fn read_snapshot(&self, release_id: &str) -> StoreResult<CorpusSnapshot>;
+    /// Request adapters override this to bound pool/statement waits as well as handoffs.
+    fn read_snapshot_until(
+        &self,
+        release_id: &str,
+        deadline: Option<&crate::RequestDeadline>,
+    ) -> StoreResult<CorpusSnapshot> {
+        if let Some(deadline) = deadline {
+            deadline.check()?;
+        }
+        let result = self.read_snapshot(release_id);
+        if let Some(deadline) = deadline {
+            deadline.check()?;
+        }
+        result
+    }
+    fn read_heads_until(
+        &self,
+        documents: &[crate::DocumentRevision],
+        deadline: Option<&crate::RequestDeadline>,
+    ) -> StoreResult<Vec<crate::DocumentHead>> {
+        if let Some(deadline) = deadline {
+            deadline.check()?;
+        }
+        let result = self.read_heads(documents);
+        if let Some(deadline) = deadline {
+            deadline.check()?;
+        }
+        result
+    }
     /// Fresh bounded primary-key reads. Never fall back to a full corpus snapshot.
     /// Missing heads are absent; database/pool/timeout failures remain Unavailable.
     fn read_heads(
@@ -103,6 +132,17 @@ pub trait SnapshotReadPort: Send + Sync {
 /// Ownership is immutable. Implementations must compare-and-create atomically.
 pub trait ConversationOwnershipPort: Send + Sync {
     fn claim_conversation(&self, conversation: &str, actor: &str) -> StoreResult<()>;
+    fn claim_conversation_until(
+        &self,
+        conversation: &str,
+        actor: &str,
+        deadline: &crate::RequestDeadline,
+    ) -> StoreResult<()> {
+        deadline.check()?;
+        let result = self.claim_conversation(conversation, actor);
+        deadline.check()?;
+        result
+    }
 }
 impl CorpusSnapshot {
     pub fn authorized(

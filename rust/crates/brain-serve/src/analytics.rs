@@ -247,6 +247,9 @@ impl<S: SnapshotReadPort> AnalyticsRetriever<S> {
         target: AnalyticsTarget,
         now: impl Fn() -> Instant,
     ) -> Result<(Vec<Evidence>, Usage), PortError> {
+        let bound = context.with_request_deadline();
+        let context: &AuthorizedContext = bound.as_ref();
+        context.check_deadline()?;
         let Some(runtime) = self.analytics.as_ref() else {
             return Ok((Vec::new(), Usage::default()));
         };
@@ -256,6 +259,13 @@ impl<S: SnapshotReadPort> AnalyticsRetriever<S> {
                     .deadline_ms
                     .min(runtime.config.request_timeout_ms.saturating_mul(2)),
             );
+        let deadline = deadline.min(
+            context
+                .request_deadline
+                .as_ref()
+                .expect("bound request deadline")
+                .expires_at(),
+        );
         if !query.requested_scopes.contains("analytics.internal")
             || !context.principal.scopes.contains("analytics.internal")
         {
@@ -264,7 +274,7 @@ impl<S: SnapshotReadPort> AnalyticsRetriever<S> {
             ));
         }
         let release = self.release.snapshot(query, context)?;
-        if now() >= deadline {
+        if now() >= deadline || context.check_deadline().is_err() {
             return Err(PortError::BudgetExceeded);
         }
         if release.release.patch != runtime.config.patch {
@@ -282,7 +292,7 @@ impl<S: SnapshotReadPort> AnalyticsRetriever<S> {
             .clone()
             .try_acquire_owned()
             .map_err(|_| PortError::Unavailable("analytics capacity unavailable".into()))?;
-        if now() >= deadline {
+        if now() >= deadline || context.check_deadline().is_err() {
             return Err(PortError::BudgetExceeded);
         }
         let hero_id = match target {
@@ -303,7 +313,7 @@ impl<S: SnapshotReadPort> AnalyticsRetriever<S> {
             .client
             .lookup_with_deadline(&request(AnalyticsKind::Meta, None), deadline)
             .map_err(|_| PortError::Unavailable("analytics meta lookup failed".into()))?;
-        if now() >= deadline {
+        if now() >= deadline || context.check_deadline().is_err() {
             return Err(PortError::BudgetExceeded);
         }
         let population = if let AnalyticsTarget::Population { item_id, .. } = target {
@@ -321,7 +331,7 @@ impl<S: SnapshotReadPort> AnalyticsRetriever<S> {
         } else {
             None
         };
-        if now() >= deadline {
+        if now() >= deadline || context.check_deadline().is_err() {
             return Err(PortError::BudgetExceeded);
         }
         let usage = Usage {
@@ -387,6 +397,7 @@ impl<S: SnapshotReadPort> AnalyticsRetriever<S> {
             .evidence
             .lock()
             .map_err(|_| PortError::Unavailable("analytics evidence lock unavailable".into()))?;
+        context.check_deadline()?;
         cache.retain(|_, (observed, _, _)| observed.elapsed() < EVIDENCE_LIFETIME);
         if cache.len() >= 128 {
             if let Some(oldest) = cache
@@ -714,6 +725,7 @@ mod tests {
             conversation_id: "fixture-conversation".into(),
             knowledge_release: "fixture-release".into(),
             deadline_ms: budget_ms,
+            request_deadline: None,
             budget: Budget::default(),
         };
         for target in [
@@ -944,6 +956,7 @@ mod tests {
             conversation_id: "fixture-conversation".into(),
             knowledge_release: "fixture-release".into(),
             deadline_ms: 2_000,
+            request_deadline: None,
             budget: Budget::default(),
         };
         let (kernel, reads) = make_kernel();

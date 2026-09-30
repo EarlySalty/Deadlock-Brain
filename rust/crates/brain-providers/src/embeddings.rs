@@ -25,6 +25,9 @@ impl EmbeddingProviderPort for OpenAiCompatibleProvider {
         identity: &EmbeddingIdentity,
         context: &AuthorizedContext,
     ) -> Result<EmbeddingOutput, PortError> {
+        let bound = context.with_request_deadline();
+        let context = &bound;
+        context.check_deadline()?;
         identity.validate()?;
         if identity.model != self.config.model
             || inputs.is_empty()

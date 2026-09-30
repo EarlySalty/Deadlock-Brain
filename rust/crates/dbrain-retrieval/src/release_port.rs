@@ -32,8 +32,13 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
         query: &Query,
         context: &AuthorizedContext,
     ) -> Result<CorpusSnapshot, PortError> {
+        let bound = context.with_request_deadline();
+        let context = &bound;
         check_context(query, context)?;
-        let snapshot = self.store.read_snapshot(&context.knowledge_release)?;
+        let snapshot = self.store.read_snapshot_until(
+            &context.knowledge_release,
+            context.request_deadline.as_ref(),
+        )?;
         check_release(&snapshot.release, query, context)?;
         Ok(snapshot)
     }
@@ -48,6 +53,7 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
             .indexes
             .lock()
             .map_err(|_| PortError::Unavailable("retrieval index lock unavailable".into()))?;
+        context.check_deadline()?;
         if let Some(index) = indexes.get(&context.knowledge_release) {
             check_release(&index.release, query, context)?;
             return Ok(index.clone());
@@ -65,6 +71,7 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
             })
             .collect();
         let index = Arc::new(ChunkIndex::build(snapshot.release, prose)?);
+        context.check_deadline()?;
         if indexes.len() >= 4 {
             if let Some(key) = indexes.keys().next().cloned() {
                 indexes.remove(&key);
@@ -76,13 +83,18 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
     fn heads(
         &self,
         documents: &[DocumentRevision],
+        context: &AuthorizedContext,
     ) -> Result<BTreeMap<(String, String), DocumentHead>, PortError> {
+        context.check_deadline()?;
         let requested: BTreeSet<_> = documents
             .iter()
             .map(|d| (d.source_id.clone(), d.logical_id.clone()))
             .collect();
         let mut result = BTreeMap::new();
-        for head in self.store.read_heads(documents)? {
+        for head in self
+            .store
+            .read_heads_until(documents, context.request_deadline.as_ref())?
+        {
             head.validate()?;
             let key = (head.source_id.clone(), head.logical_id.clone());
             if !requested.contains(&key) || result.insert(key, head).is_some() {
@@ -122,7 +134,7 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
         if documents.len() > 256 {
             return Ok(true);
         }
-        let heads = self.heads(&documents.into_values().collect::<Vec<_>>())?;
+        let heads = self.heads(&documents.into_values().collect::<Vec<_>>(), context)?;
         for owners in groups {
             let mut visible = BTreeSet::new();
             for record in owners {
@@ -158,7 +170,7 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
                 let doc = index.document(chunk);
                 documents.insert((doc.source_id.clone(), doc.logical_id.clone()), doc);
             }
-            let heads = self.heads(&documents.into_values().collect::<Vec<_>>())?;
+            let heads = self.heads(&documents.into_values().collect::<Vec<_>>(), context)?;
             for &(chunk, score) in batch {
                 let record = &index.records[index.chunks[chunk].document];
                 if !index.eligible(record, query, context) {
@@ -182,6 +194,8 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
         context: &AuthorizedContext,
         provider: bool,
     ) -> Result<Vec<SourceRecordV2>, PortError> {
+        let bound = context.with_request_deadline();
+        let context = &bound;
         let index = self.index(query, context)?;
         let mut records = Vec::new();
         for batch in index.records.chunks(128) {
@@ -194,7 +208,7 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
                     content_hash: r.content_hash.clone(),
                 })
                 .collect();
-            let heads = self.heads(&docs)?;
+            let heads = self.heads(&docs, context)?;
             for record in batch {
                 if !index.eligible(record, query, context) {
                     continue;
@@ -259,6 +273,9 @@ impl<S: SnapshotReadPort> RetrievalPort for ReleaseRetriever<S> {
         query: &Query,
         context: &AuthorizedContext,
     ) -> Result<Vec<Evidence>, PortError> {
+        let bound = context.with_request_deadline();
+        let context = &bound;
+        check_context(query, context)?;
         if crate::domain_port::handles(query) {
             return crate::domain_port::retrieve(&self.store, query, context, false);
         }
@@ -290,6 +307,9 @@ impl<S: SnapshotReadPort> RetrievalPort for ReleaseRetriever<S> {
         evidence: &[Evidence],
         for_provider: bool,
     ) -> Result<(), PortError> {
+        let bound = context.with_request_deadline();
+        let context = &bound;
+        check_context(query, context)?;
         if evidence.is_empty() || evidence.len() > 100 {
             return Err(denied("invalid evidence pack size"));
         }
@@ -320,7 +340,7 @@ impl<S: SnapshotReadPort> RetrievalPort for ReleaseRetriever<S> {
             canonical.push((item, chunk));
         }
         // Only bounded current heads, never a full release scan or historical document fetch.
-        let heads = self.heads(&documents.into_values().collect::<Vec<_>>())?;
+        let heads = self.heads(&documents.into_values().collect::<Vec<_>>(), context)?;
         for (item, chunk) in canonical {
             let record = &index.records[index.chunks[chunk].document];
             if !index.eligible(record, query, context) {
@@ -343,9 +363,7 @@ impl<S: SnapshotReadPort> RetrievalPort for ReleaseRetriever<S> {
 
 fn check_context(query: &Query, context: &AuthorizedContext) -> Result<(), PortError> {
     query.validate().map_err(|_| invalid("invalid query"))?;
-    if context.deadline_ms == 0 {
-        return Err(PortError::BudgetExceeded);
-    }
+    context.check_deadline()?;
     if query.conversation_id != context.conversation_id
         || !query.requested_scopes.is_subset(&context.principal.scopes)
     {

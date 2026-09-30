@@ -6,6 +6,8 @@ use brain_contracts::{
     CorpusRelease, CorpusSnapshot, PortError, SnapshotReadPort,
 };
 use postgres::{Client, Config, IsolationLevel, NoTls, Row};
+#[cfg(test)]
+mod review_deadline;
 mod wait_queue;
 use std::{
     ops::{Deref, DerefMut},
@@ -69,6 +71,60 @@ struct ClientPool {
 struct PooledClient {
     client: Option<Client>,
     pool: Arc<ClientPool>,
+}
+
+impl PooledClient {
+    fn prepare(
+        &mut self,
+        deadline: Option<&brain_contracts::RequestDeadline>,
+    ) -> Result<(), PortError> {
+        prepare_budget(
+            self.client
+                .as_mut()
+                .expect("pooled PostgreSQL client missing before drop"),
+            &self.pool.config,
+            deadline,
+        )
+    }
+}
+
+fn request_check(deadline: Option<&brain_contracts::RequestDeadline>) -> Result<(), PortError> {
+    if let Some(deadline) = deadline {
+        deadline.check()?;
+    }
+    Ok(())
+}
+
+fn bounded_timeout(
+    configured: Duration,
+    deadline: Option<&brain_contracts::RequestDeadline>,
+) -> Result<Duration, PortError> {
+    let remaining = match deadline {
+        Some(deadline) => configured.min(deadline.remaining()?),
+        None => configured,
+    };
+    // PostgreSQL's zero means unlimited, not expired. Never round a sub-ms budget to zero.
+    if remaining.as_millis() == 0 {
+        return Err(PortError::BudgetExceeded);
+    }
+    Ok(remaining)
+}
+
+fn prepare_budget(
+    client: &mut impl postgres::GenericClient,
+    config: &ConnectionConfig,
+    deadline: Option<&brain_contracts::RequestDeadline>,
+) -> Result<(), PortError> {
+    let statement = bounded_timeout(config.statement_timeout, deadline)?;
+    let lock = bounded_timeout(config.lock_timeout, deadline)?.min(statement);
+    client
+        .batch_execute(&format!(
+            "SET statement_timeout='{}ms'; SET lock_timeout='{}ms'",
+            statement.as_millis(),
+            lock.as_millis()
+        ))
+        .map_err(error)?;
+    request_check(deadline)
 }
 
 impl Deref for PooledClient {
@@ -159,7 +215,10 @@ impl ClientPool {
         state.wait_max_micros = state.wait_max_micros.max(elapsed);
     }
 
-    fn connect(&self) -> Result<Client, PortError> {
+    fn connect(
+        &self,
+        deadline: Option<&brain_contracts::RequestDeadline>,
+    ) -> Result<Client, PortError> {
         let mut config = Config::new();
         config
             .host_path(&self.config.socket)
@@ -167,26 +226,38 @@ impl ClientPool {
             .user(&self.config.user)
             .dbname(&self.config.database)
             .application_name("deadlock-brain-reader")
-            .connect_timeout(self.config.connect_timeout);
+            .connect_timeout(bounded_timeout(self.config.connect_timeout, deadline)?);
         if let Some(password) = &self.config.password {
             config.password(password);
         }
-        let mut client = config.connect(NoTls).map_err(error)?;
-        client
-            .batch_execute(&format!(
-                "SET statement_timeout='{}ms'; SET lock_timeout='{}ms'",
-                self.config.statement_timeout.as_millis(),
-                self.config.lock_timeout.as_millis()
-            ))
-            .map_err(error)?;
+        request_check(deadline)?;
+        let client = config.connect(NoTls).map_err(error)?;
+        request_check(deadline)?;
         Ok(client)
     }
 
     fn acquire(self: &Arc<Self>) -> Result<PooledClient, PortError> {
+        self.acquire_until(None)
+    }
+
+    fn acquire_until(
+        self: &Arc<Self>,
+        deadline: Option<&brain_contracts::RequestDeadline>,
+    ) -> Result<PooledClient, PortError> {
         let started = Instant::now();
+        request_check(deadline)?;
         let mut waiter: Option<Arc<Condvar>> = None;
         let mut state = self.lock()?;
         loop {
+            if request_check(deadline).is_err() {
+                state.waiting.remove(waiter.as_ref());
+                if waiter.is_some() {
+                    state.wait_timeout_count = state.wait_timeout_count.saturating_add(1);
+                    Self::record_wait(&mut state, started.elapsed());
+                }
+                state.waiting.notify_front();
+                return Err(PortError::BudgetExceeded);
+            }
             // Once queued, preserve the original deadline even across notifications.
             if waiter.is_some() && started.elapsed() >= self.acquire_timeout {
                 state.waiting.remove(waiter.as_ref());
@@ -207,10 +278,13 @@ impl ClientPool {
                         Self::record_wait(&mut state, started.elapsed());
                     }
                     state.waiting.notify_front();
-                    return Ok(PooledClient {
+                    drop(state);
+                    let mut client = PooledClient {
                         client: Some(client),
                         pool: self.clone(),
-                    });
+                    };
+                    client.prepare(deadline)?;
+                    return Ok(client);
                 }
 
                 if state.open + state.connecting < self.max_connections {
@@ -220,7 +294,7 @@ impl ClientPool {
                     state.waiting.remove(waiter.as_ref());
                     state.waiting.notify_front();
                     drop(state);
-                    let connected = self.connect();
+                    let connected = self.connect(deadline);
                     let mut state = self.lock()?;
                     state.connecting = state.connecting.saturating_sub(1);
                     match connected {
@@ -233,10 +307,13 @@ impl ClientPool {
                                 Self::record_wait(&mut state, started.elapsed());
                             }
                             state.waiting.notify_front();
-                            return Ok(PooledClient {
+                            drop(state);
+                            let mut client = PooledClient {
                                 client: Some(client),
                                 pool: self.clone(),
-                            });
+                            };
+                            client.prepare(deadline)?;
+                            return Ok(client);
                         }
                         Err(error) => {
                             state.waiting.notify_front();
@@ -250,7 +327,13 @@ impl ClientPool {
                 state.wait_count = state.wait_count.saturating_add(1);
                 waiter = Some(state.waiting.push());
             }
-            let remaining = self.acquire_timeout.saturating_sub(started.elapsed());
+            let mut remaining = self.acquire_timeout.saturating_sub(started.elapsed());
+            if let Some(deadline) = deadline {
+                // Observe HTTP cancellation promptly without a new thread or runtime.
+                remaining = remaining
+                    .min(deadline.remaining().unwrap_or(Duration::ZERO))
+                    .min(Duration::from_millis(10));
+            }
             let signal = waiter.as_ref().expect("queued PostgreSQL waiter missing");
             let (next, _) = signal
                 .wait_timeout(state, remaining)
@@ -440,6 +523,38 @@ impl SnapshotReadPort for LocalPgReader {
         &self,
         documents: &[brain_contracts::DocumentRevision],
     ) -> Result<Vec<brain_contracts::DocumentHead>, PortError> {
+        self.read_heads_bounded(documents, None)
+    }
+    fn read_snapshot(&self, release_id: &str) -> Result<CorpusSnapshot, PortError> {
+        self.read_snapshot_bounded(release_id, None)
+    }
+    fn read_heads_until(
+        &self,
+        documents: &[brain_contracts::DocumentRevision],
+        deadline: Option<&brain_contracts::RequestDeadline>,
+    ) -> Result<Vec<brain_contracts::DocumentHead>, PortError> {
+        request_check(deadline)?;
+        let result = self.read_heads_bounded(documents, deadline);
+        request_check(deadline)?;
+        result
+    }
+    fn read_snapshot_until(
+        &self,
+        release_id: &str,
+        deadline: Option<&brain_contracts::RequestDeadline>,
+    ) -> Result<CorpusSnapshot, PortError> {
+        request_check(deadline)?;
+        let result = self.read_snapshot_bounded(release_id, deadline);
+        request_check(deadline)?;
+        result
+    }
+}
+impl LocalPgReader {
+    fn read_heads_bounded(
+        &self,
+        documents: &[brain_contracts::DocumentRevision],
+        deadline: Option<&brain_contracts::RequestDeadline>,
+    ) -> Result<Vec<brain_contracts::DocumentHead>, PortError> {
         if documents.len() > 256 {
             return Err(invalid("head batch too large"));
         }
@@ -447,7 +562,8 @@ impl SnapshotReadPort for LocalPgReader {
             return Ok(Vec::new());
         }
         let keys = serde_json::to_value(documents).map_err(|_| invalid("invalid head keys"))?;
-        let mut client = self.pool.acquire()?;
+        let mut client = self.pool.acquire_until(deadline)?;
+        request_check(deadline)?;
         // A single statement snapshot, bounded key lookup; never fetch record bodies or release pins.
         let rows = client
             .query(
@@ -466,14 +582,20 @@ impl SnapshotReadPort for LocalPgReader {
             .collect()
     }
 
-    fn read_snapshot(&self, release_id: &str) -> Result<CorpusSnapshot, PortError> {
-        let mut client = self.pool.acquire()?;
+    fn read_snapshot_bounded(
+        &self,
+        release_id: &str,
+        deadline: Option<&brain_contracts::RequestDeadline>,
+    ) -> Result<CorpusSnapshot, PortError> {
+        let mut client = self.pool.acquire_until(deadline)?;
+        request_check(deadline)?;
         let mut tx = client
             .build_transaction()
             .isolation_level(IsolationLevel::RepeatableRead)
             .read_only(true)
             .start()
             .map_err(error)?;
+        prepare_budget(&mut tx, &self.pool.config, deadline)?;
         let row = tx
             .query_opt(
                 "SELECT release_json FROM brain.corpus_releases_v1 WHERE release_id=$1",
@@ -488,10 +610,12 @@ impl SnapshotReadPort for LocalPgReader {
         }
         let pins = serde_json::to_value(&release.source_revisions)
             .map_err(|_| invalid("invalid release pins"))?;
+        prepare_budget(&mut tx, &self.pool.config, deadline)?;
         let rows=tx.query("SELECT r.record_json,h.record_json FROM jsonb_each($1::jsonb) s CROSS JOIN LATERAL jsonb_each_text(s.value) d JOIN brain.source_record_revisions r ON r.source_id=s.key AND r.logical_id=d.key AND r.revision=d.value::bigint JOIN brain.source_record_heads h ON h.source_id=r.source_id AND h.logical_id=r.logical_id ORDER BY r.source_id,r.logical_id",&[&pins]).map_err(error)?;
         let mut revisions = Vec::new();
         let mut heads = Vec::new();
         for row in rows {
+            request_check(deadline)?;
             revisions.push(
                 serde_json::from_value(row.try_get(0).map_err(error)?)
                     .map_err(|_| invalid("invalid revision JSON"))?,
@@ -510,7 +634,9 @@ impl SnapshotReadPort for LocalPgReader {
         {
             return Err(invalid("incomplete release snapshot"));
         }
+        request_check(deadline)?;
         tx.commit().map_err(error)?;
+        request_check(deadline)?;
         Ok(CorpusSnapshot {
             release,
             revisions,
@@ -521,15 +647,39 @@ impl SnapshotReadPort for LocalPgReader {
 
 impl ConversationOwnershipPort for LocalPgReader {
     fn claim_conversation(&self, conversation: &str, actor: &str) -> Result<(), PortError> {
+        self.claim_conversation_bounded(conversation, actor, None)
+    }
+    fn claim_conversation_until(
+        &self,
+        conversation: &str,
+        actor: &str,
+        deadline: &brain_contracts::RequestDeadline,
+    ) -> Result<(), PortError> {
+        deadline.check()?;
+        let result = self.claim_conversation_bounded(conversation, actor, Some(deadline));
+        deadline.check()?;
+        result
+    }
+}
+impl LocalPgReader {
+    fn claim_conversation_bounded(
+        &self,
+        conversation: &str,
+        actor: &str,
+        deadline: Option<&brain_contracts::RequestDeadline>,
+    ) -> Result<(), PortError> {
         if [conversation, actor]
             .iter()
             .any(|v| v.trim().is_empty() || v.len() > 512 || v.chars().any(char::is_control))
         {
             return Err(invalid("invalid conversation identity"));
         }
-        let mut client = self.pool.acquire()?;
+        let mut client = self.pool.acquire_until(deadline)?;
+        request_check(deadline)?;
         let mut tx = client.transaction().map_err(error)?;
+        prepare_budget(&mut tx, &self.pool.config, deadline)?;
         tx.execute("INSERT INTO brain.conversation_owners_v1(conversation_id,actor_id) VALUES($1,$2) ON CONFLICT(conversation_id) DO NOTHING",&[&conversation,&actor]).map_err(error)?;
+        prepare_budget(&mut tx, &self.pool.config, deadline)?;
         let owner: String = tx
             .query_one(
                 "SELECT actor_id FROM brain.conversation_owners_v1 WHERE conversation_id=$1",
@@ -541,7 +691,8 @@ impl ConversationOwnershipPort for LocalPgReader {
         if owner != actor {
             return Err(invalid("conversation owner mismatch"));
         }
+        request_check(deadline)?;
         tx.commit().map_err(error)?;
-        Ok(())
+        request_check(deadline)
     }
 }

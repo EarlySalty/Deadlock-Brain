@@ -94,6 +94,7 @@ fn query() -> Query {
 }
 fn context() -> AuthorizedContext {
     AuthorizedContext {
+        request_deadline: None,
         principal: Principal {
             actor_id: "actor".into(),
             channel: "fixture".into(),
