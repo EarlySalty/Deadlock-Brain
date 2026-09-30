@@ -723,7 +723,8 @@ mod tests {
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
             let mut bytes = [0; 4096];
-            stream.read(&mut bytes).unwrap();
+            let count = stream.read(&mut bytes).unwrap();
+            assert!(count > 0, "fixture must receive the first HTTP request");
             seen.fetch_add(1, Ordering::SeqCst);
             // Cancellation is synchronized with an actual first upstream request,
             // before the retryable response is delivered.
@@ -739,7 +740,8 @@ mod tests {
             while Instant::now() < end {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
-                        stream.read(&mut bytes).unwrap();
+                        let count = stream.read(&mut bytes).unwrap();
+                        assert!(count > 0, "fixture must receive the retried HTTP request");
                         seen.fetch_add(1, Ordering::SeqCst);
                         stream.write_all(b"HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
                     }
