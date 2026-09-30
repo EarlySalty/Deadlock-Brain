@@ -5,16 +5,15 @@ repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 root=$(mktemp -d)
 trap 'rm -rf -- "$root"' EXIT
 mkdir -- "$root/stubs"
-# Inject only the executable directory into a COPY of the actual script. This also tests
-# the original implementation safely, without introducing a production test-mode switch.
-sed 's|^PG_BIN=.*$|PG_BIN=${TEST_BACKUP_PG_BIN:?isolated stub directory required}|' \
-  "$repo/ops/brain-postgres/backup.sh" > "$root/backup.sh"
-[[ $(grep -c '^PG_BIN=${TEST_BACKUP_PG_BIN:' "$root/backup.sh") == 1 ]]
 cat > "$root/stubs/pg-stub" <<'STUB'
 #!/usr/bin/env bash
 set -euo pipefail
 name=${0##*/}
-[[ ${TEST_FAIL:-} != "$name" ]] || exit 42
+if [[ -f "$(dirname "$0")/fail-$name" ]]; then
+  # psql reports SQL errors with status 0 unless ON_ERROR_STOP is configured.
+  if [[ $name == psql && " $* " != *' ON_ERROR_STOP=1 '* ]]; then exit 0; fi
+  exit 42
+fi
 case "$name" in
   pg_dump)
     while (($#)); do
@@ -30,15 +29,14 @@ esac
 STUB
 cat > "$root/stubs/date" <<'STUB'
 #!/usr/bin/env bash
-printf '%s\n' '20300101T000000Z'
+cat "$(dirname "$0")/date-value"
 STUB
+printf '%s\n' '20300101T000000Z' > "$root/stubs/date-value"
 chmod +x -- "$root/stubs/pg-stub" "$root/stubs/date"
 for binary in pg_dump pg_restore pg_dumpall psql; do
   ln -s -- pg-stub "$root/stubs/$binary"
 done
-export TEST_BACKUP_PG_BIN="$root/stubs"
 export PATH="$root/stubs:$PATH"
-export BRAIN_BACKUP_DATABASES=brain
 cd -- "$root"
 
 completed() {
@@ -51,7 +49,7 @@ completed() {
   (cd -- "$path" && sha256sum -- brain.dump brain.toc globals.sql schema_version.txt > SHA256SUMS)
 }
 run_backup() {
-  BRAIN_BACKUP_DIR=$1 BRAIN_BACKUP_KEEP=$2 bash "$root/backup.sh" > "$root/output" 2> "$root/error"
+  bash "$repo/ops/brain-postgres/backup.sh" "$1" "$2" "$root/stubs" "${@:3}" > "$root/output" 2> "$root/error"
 }
 check() {
   [[ -f $1 ]] || { printf 'FAIL: missing protected file: %q\n' "$1" >&2; exit 1; }
@@ -70,6 +68,11 @@ for variant in space special; do
   printf unexpected > "$target/brain-unexpected/sentinel"
   printf incomplete > "$target/brain-20200105T000000Z/sentinel"
   ln -s -- "$base/backup" "$target/brain-20200106T000000Z"
+  completed "$target/brain-20200107T000000Z"
+  rm -- "$target/brain-20200107T000000Z/brain.dump"
+  ln -s -- "$base/backup/sentinel" "$target/brain-20200107T000000Z/brain.dump"
+  completed "$target/brain-20200108T000000Z"
+  rm -- "$target/brain-20200108T000000Z/brain.toc"
   run_backup "$target" 2
   check "$base/backup/sentinel"
   check "$target/brain-20300101T000000Z/SHA256SUMS"
@@ -79,6 +82,7 @@ for variant in space special; do
   check "$target/brain-unexpected/sentinel"
   check "$target/brain-20200105T000000Z/sentinel"
   [[ -L "$target/brain-20200106T000000Z" ]]
+  [[ -L "$target/brain-20200107T000000Z/brain.dump" && -d "$target/brain-20200108T000000Z" ]]
   printf 'PASS: path %s, retention, outside sentinel, partials, unexpected entries and symlinks\n' "$variant"
 done
 
@@ -109,7 +113,9 @@ for failure in pg_dump pg_restore pg_dumpall psql; do
   target="$root/failure-$failure"
   mkdir -- "$target"
   for day in 01 02 03; do completed "$target/brain-202001${day}T000000Z"; done
-  if TEST_FAIL=$failure run_backup "$target" 1; then printf 'FAIL: backup failure ignored\n' >&2; exit 1; fi
+  touch "$root/stubs/fail-$failure"
+  if run_backup "$target" 1; then printf 'FAIL: backup failure ignored\n' >&2; exit 1; fi
+  rm -- "$root/stubs/fail-$failure"
   for day in 01 02 03; do check "$target/brain-202001${day}T000000Z/SHA256SUMS"; done
   [[ ! -e "$target/brain-20300101T000000Z" && ! -e "$target/.brain-20300101T000000Z.partial" ]]
 done
@@ -118,6 +124,16 @@ printf 'PASS: failed dump, restore validation, globals or schema never rotate ba
 # Invalid database identifiers must not escape the partial directory via a dump filename.
 target="$root/database-path"
 mkdir -- "$target"
-if BRAIN_BACKUP_DATABASES='../escape' run_backup "$target" 1; then exit 1; fi
+if run_backup "$target" 1 '../escape'; then exit 1; fi
 [[ ! -e "$target/escape.dump" && ! -e "$root/escape.dump" ]]
 printf 'PASS: database names cannot become path traversal\n'
+
+target="$root/backward clock"
+mkdir -- "$target"
+for day in 01 02 03; do completed "$target/brain-202001${day}T000000Z"; done
+printf '%s\n' '19991231T000000Z' > "$root/stubs/date-value"
+run_backup "$target" 1
+check "$target/brain-19991231T000000Z/SHA256SUMS"
+backups=("$target"/brain-*)
+[[ ${#backups[@]} == 1 ]]
+printf 'PASS: backward clock preserves the new backup and honors KEEP\n'

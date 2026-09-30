@@ -1,30 +1,28 @@
 #!/usr/bin/env bash
 # Eigenes Backup der Brain-Instanz, unabhängig vom DL-Main-Cluster.
+# Optional: backup.sh <Ziel> [Anzahl] [PostgreSQL-bin] [Datenbank ...]
+# Ohne Argumente gelten die bestehenden Werte der System-Unit.
 set -euo pipefail
 export LC_ALL=C
-PG_BIN=/usr/lib/postgresql/16/bin
+PG_BIN=${3-/usr/lib/postgresql/16/bin}
 SOCKET=/run/deadlock-brain-postgresql
 PORT=5446
-TARGET=${BRAIN_BACKUP_DIR:-/var/backups/deadlock-brain/postgresql}
-KEEP=${BRAIN_BACKUP_KEEP-14}
-DATABASES=${BRAIN_BACKUP_DATABASES-brain}
+TARGET=${1-/var/backups/deadlock-brain/postgresql}
+KEEP=${2-14}
 # Bound arithmetic before creating files or installing a destructive cleanup trap.
 if [[ ! $KEEP =~ ^[1-9][0-9]*$ || ${#KEEP} -gt 9 ]]; then
-  printf '%s\n' 'BRAIN_BACKUP_KEEP must be an integer from 1 to 999999999' >&2
+  printf '%s\n' 'Backup-Anzahl muss eine positive Ganzzahl bis 999999999 sein.' >&2
   exit 1
 fi
-if [[ $DATABASES == *$'\n'* ]]; then
-  printf '%s\n' 'BRAIN_BACKUP_DATABASES must be a space-separated list of database names' >&2
+if [[ $PG_BIN != /* || ! -d $PG_BIN ]]; then
+  printf '%s\n' 'PostgreSQL-bin muss ein vorhandener absoluter Pfad sein.' >&2
   exit 1
 fi
-read -r -a databases <<< "$DATABASES"
-if ((${#databases[@]} == 0)); then
-  printf '%s\n' 'BRAIN_BACKUP_DATABASES must not be empty' >&2
-  exit 1
-fi
+databases=(brain)
+if (( $# > 3 )); then databases=("${@:4}"); fi
 for db in "${databases[@]}"; do
   if [[ ! $db =~ ^[A-Za-z0-9_][A-Za-z0-9_-]{0,62}$ ]]; then
-    printf '%s\n' 'Unsafe database name in BRAIN_BACKUP_DATABASES' >&2
+    printf '%s\n' 'Ungültiger Datenbankname.' >&2
     exit 1
   fi
 done
@@ -52,7 +50,7 @@ for db in "${databases[@]}"; do
 done
 "$PG_BIN/pg_dumpall" -h "$SOCKET" -p "$PORT" --globals-only --no-role-passwords \
   --no-password > "$work/globals.sql"
-"$PG_BIN/psql" -X -A -t -h "$SOCKET" -p "$PORT" -d brain --no-password -c \
+"$PG_BIN/psql" -X -A -t -v ON_ERROR_STOP=1 -h "$SOCKET" -p "$PORT" -d brain --no-password -c \
   "SELECT schema_version || ' ' || store_contract FROM brain.core_schema_version" > "$work/schema_version.txt"
 ( cd "$work" && sha256sum -- *.dump *.toc globals.sql schema_version.txt > SHA256SUMS )
 # Never nest a partial backup in an existing destination (including a symlink).
