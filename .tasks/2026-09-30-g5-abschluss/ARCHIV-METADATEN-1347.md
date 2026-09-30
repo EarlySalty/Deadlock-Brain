@@ -58,6 +58,21 @@ Sechs weitere begrenzte Read-only-Transaktionen aufbrain, bestehender Zugriff un
 
 Die vorhandene Doku architecture/migration/BRAIN_POSTGRES_ISOLATION.md:10-20 belegt eine historische Archivkopie vom26.09. mit49 Tabellen und653476 Zeilen sowie damaligem Tabellenvergleich. Ihre Marker sind an diesen alten Snapshot gebunden und nennen Produktionsbereitschaft ausdrücklich NEIN. Das ersetzt keinen neu gebundenen Importerfingerprint oder aktuelle Rechteinventare. Die neue Prüfung schließt die Herkunftslink-Lücke für den betrachteten Teilbestand, nicht die Freigabe-/Widerrufslücke.
 
+## Ergänzung: verschachtelte Rechtefelder und Zeitgrenzen ab14:56UTC
+
+Die begrenzte Struktur-/Rollenabfrage14:56:24 endete mit ROLLBACK. brain_migrate ist weder Mitglied von brain_readonly noch brain_ingest. Deshalb keine scheinbare Leserrollenprobe durch SET ROLE und keine Rechteänderung; der spätere tatsächliche Leserzugriff bleibt über den vorhandenen Secret-Exec-Vertrag nachzuweisen.
+
+Zwei weitere abgeschlossene Read-only-Transaktionen14:57:21 und14:58:12 wurden mit explizitem Prozess-Exit0 und ROLLBACK geprüft, weiterhin2s/1s-Grenzen:
+
+- Rekursive Schlüsselsuche in den Metadaten der5 Entity- und428 Patchquelldokumente, ausschließlich Objektknoten: unter policy/licen/right/approv/authoriz/revok/delet/tomb/scope/visibility findet sich genau policy in136 Patchdokumenten. Auch auf verschachtelter Schlüsselebene kein weiterer Treffer für diese Begriffe. Kein Schluss auf unbekannte externe Widerrufe oder beliebige andere Metadatenfelder.
+- Kein referenziertes Quelldokument hat einen leeren oder fehlenden content_hash. Das ist nur ein Vollständigkeitsmerkmal, keine Prüfung gegen die ursprüngliche Rohdatei.
+- fetched_at der fünf Entityquelldokumente reicht vom02.05. bis30.06.2026; bei428 Patchquelldokumenten vom02.05. bis16.09.2026. Die Entityverknüpfung läuft über first_snapshot_id und beweist gerade nicht automatisch den neuesten Datenstand einer Entität.
+-118 Patchquelldokumente haben fetched_at nach ihrem gespeicherten imported_at. imported_at reicht bereits bis01.07.2026 zurück und ist deshalb nicht gleichbedeutend mit dem Archivkopierzeitpunkt26.09. Dies ist kein belegter Cutover- oder Datenfehler. Weder dieses Feld noch das maximale fetched_at als neuen Archivsnapshot-Epoch übernehmen.
+
+Ein vorheriger kombinierter Aufruf14:56:55 lieferte die Zeitaggregate, aber im Werkzeugauszug weder den zweiten Ergebnisblock noch ROLLBACK oder einen Prozess-Exit. Er wird nicht als erfolgreicher vollständiger Nachweis gezählt. Die nachfolgenden getrennten Aufrufe prüfen dieselben Zeitaggregate und eine explizit auf Objektknoten begrenzte rekursive Schlüsselsuche mit vollständigem Exitbeleg. Locale-Fallbackwarnung war harmlos; keine ENV-/Locale-Konfiguration geändert.
+
+Zusätzlich gelesen: architecture/migration/LEGACY_CORE_MIGRATION.md, historischer Stand26.09.2026. Zeilen81 bis86 und106 bis116 nennen Lizenz/Autorisierung unknown, ursprüngliche Pilot-Policies, danach den experimentellen Policywechsel und den privaten Patchnoteswiderruf. Der genannte Snapshot legacy-import-20260926T025758Z und damalige Digest sind historische Belege, keine automatisch gültige neue B2-Freigabe. Die vorhandene Quelle liefert damit Herkunft und frühere Policytests, aber keine heutige vollständige Rechte-/Widerrufsklassifikation. Keine Rohdatei oder Dokumentinhalte gelesen.
+
 ## Sachlich offen
 
 Tatsächlich gebundener Archivsnapshot mit Label/Epoch und Importerfingerprint, belegte Herkunfts-/Policyentscheidung, vollständige aktive/widerrufene/tombstonierte ID-Klassifikation und deren aktueller Geltungsnachweis. Die konservative private Patchnotessperre ist nun am gesamten aktuellen Pilotbestand belegt. Keine Freigabe aus Platzhaltern, OIDs oder bloßer Hashkonsistenz ableiten. Die bereits erteilte Cutoverbeauftragung bleibt gültig; fehlende Belege werden ermittelt, nicht durch eine neue pauschale Erlaubnisfrage ersetzt.
