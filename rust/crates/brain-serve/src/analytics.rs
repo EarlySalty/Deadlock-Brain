@@ -630,6 +630,50 @@ mod tests {
         .unwrap()
     }
 
+    fn fixture_request_headers(reader: &mut impl Read) -> std::io::Result<Vec<u8>> {
+        let mut headers = Vec::new();
+        while !headers.ends_with(b"\r\n\r\n") {
+            if headers.len() == 8192 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "fixture request headers exceed limit",
+                ));
+            }
+            let mut byte = [0];
+            reader.read_exact(&mut byte)?;
+            headers.push(byte[0]);
+        }
+        Ok(headers)
+    }
+
+    #[test]
+    fn fixture_waits_for_complete_fragmented_request_headers() {
+        struct Fragmented(std::io::Cursor<Vec<u8>>);
+        impl Read for Fragmented {
+            fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+                let count = bytes.len().min(3);
+                self.0.read(&mut bytes[..count])
+            }
+        }
+        let headers = b"GET /v1/analytics/hero-stats?hero=18 HTTP/1.1\r\nHost: localhost\r\n\r\n";
+        let mut request = Fragmented(std::io::Cursor::new(headers.to_vec()));
+        assert_eq!(fixture_request_headers(&mut request).unwrap(), headers);
+    }
+
+    #[test]
+    fn fixture_rejects_truncated_or_unbounded_request_headers() {
+        let mut truncated = std::io::Cursor::new(b"GET / HTTP/1.1\r\nHost: localhost\r\n".to_vec());
+        assert_eq!(
+            fixture_request_headers(&mut truncated).unwrap_err().kind(),
+            std::io::ErrorKind::UnexpectedEof
+        );
+        let mut oversized = std::io::Cursor::new(vec![b'x'; 8193]);
+        assert_eq!(
+            fixture_request_headers(&mut oversized).unwrap_err().kind(),
+            std::io::ErrorKind::InvalidData
+        );
+    }
+
     struct FixedSnapshot;
 
     impl SnapshotReadPort for FixedSnapshot {
@@ -874,9 +918,11 @@ mod tests {
         let server = thread::spawn(move || {
             for item_filter in [false, false, true] {
                 let (mut stream, _) = listener.accept().unwrap();
-                let mut bytes = [0u8; 4096];
-                let count = stream.read(&mut bytes).unwrap();
-                let request = String::from_utf8_lossy(&bytes[..count]);
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
+                let bytes = fixture_request_headers(&mut stream).unwrap();
+                let request = String::from_utf8_lossy(&bytes);
                 assert!(request.starts_with("GET /v1/analytics/hero-stats?"));
                 assert_eq!(request.contains("include_item_ids=42"), item_filter);
                 assert!(request.contains("min_match_id=0"));
@@ -987,9 +1033,11 @@ mod tests {
         let server = thread::spawn(move || {
             for _ in 0..3 {
                 let (mut stream, _) = listener.accept().unwrap();
-                let mut bytes = [0u8; 4096];
-                let count = stream.read(&mut bytes).unwrap();
-                assert!(bytes[..count].starts_with(b"GET /v1/analytics/hero-stats?"));
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
+                let bytes = fixture_request_headers(&mut stream).unwrap();
+                assert!(bytes.starts_with(b"GET /v1/analytics/hero-stats?"));
                 observed.fetch_add(1, Ordering::SeqCst);
                 let body = json!([{
                     "hero_id":18,"bucket":0,"wins":10,"losses":10,"matches":20,
