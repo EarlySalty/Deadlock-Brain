@@ -1,4 +1,4 @@
-status: aktiv, zugeteilter serieller Workspace-Test läuft; Servevorbereitung ohne Startfreigabe
+status: aktiv, Workspace-Test bestanden und Slot zurückgegeben; Typed-Consumerbindung und G5-Nachweisabgleich laufen
 Datum: 2026-09-30
 
 # G5-Fortsetzungsregister
@@ -11,7 +11,7 @@ Vorgängerregister: .tasks/2026-09-29-technical-closeout/REGISTER.md
 | Zweck | Worktree | Branch | Stand |
 | --- | --- | --- | --- |
 | Koordination | /home/nathanael/.worktrees/brain-technical-closeout-20260929 | integration/technical-closeout-20260929 | Aktueller Nachweis und Buildanfrage auf diesem eigenen Branch |
-| Quelle | /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930 | fix/g5-replay-deferred-20260930 | 9a29b81d230c01e5c03423cc34ba34c1074eab69, gepusht und sauber |
+| Quelle | /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930 | fix/g5-replay-deferred-20260930 | ca4a8f236a75ba89ce60d2140c735acd5d1f5bee, gepusht und sauber; Produkt-/Lockbasis 9a29b81 unverändert |
 | Reviewbericht | /home/nathanael/.worktrees/brain-pre-g5-core-review-20260929 | review/pre-g5-core-abnahme-20260929 | 035e2a99a167b98c2838e4bd25a90fda89a3d96d, statisches GO auf 9a29b81 |
 
 Ursprüngliche gemeinsame Basis: 1c362bca6d35e7fec10125b2b159e7513a299243. Keine fremden Arbeitsbäume verändert. Frühere abgewiesene komplexe Lock-Schreibversuche fanden im richtigen cwd statt; keine fehlenden Commits. Die einzeln erlaubte Cargo-Auflösung schrieb anschließend ohne Guardumgehung.
@@ -20,8 +20,8 @@ Ursprüngliche gemeinsame Basis: 1c362bca6d35e7fec10125b2b159e7513a299243. Keine
 
 | Paket | Thread-ID | Modell | Stand |
 | --- | --- | --- | --- |
-| V1 ohne Replay | 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 | bestehender Sol, gpt-6-sol | Statische Test-Safety mit ca4a8f236a75ba89ce60d2140c735acd5d1f5bee gepusht und gelesen; nur Berichtsdatei, Produkt 9a29b81 unverändert. Fertig, gesettelt, Sequenz 1154744. Keine Tests durch Worker |
-| Statische Abnahme und Locknachtrag | 52c34332-8cdf-4772-9e1f-42aba432c6cf | bestehender Astra | Lockreview 035e2a99 und Servevorbereitung 54a779393a80459ba727b5f2be035d8c487fb45a statisch GO; Bericht gelesen und Thread gesettelt, Sequenz 1153025. Kein Start-GO |
+| V1 ohne Replay | 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 | bestehender Sol, gpt-6-sol | Test-Safety ca4a8f2 abgeschlossen. Erneut aktiv für B1-Harnessquellvorbereitung nach B1-HARNESS-BRIEFING.md, Sequenz1157631. Nur vorhandene Runner, kein Cargo-/DB-/Last-/Dienstlauf |
+| Statische Abnahme und Locknachtrag | 52c34332-8cdf-4772-9e1f-42aba432c6cf | bestehender Astra | Lockreview035e2a99, Servevorbereitung54a7793 und Nachweismatrixae2abe1 gelesen. MatrixGO, aktueller G5-/Startbeweis noch BLOCK. Fertig, gesettelt Sequenz1157915. Für unabhängige B1-Abnahme weiterverwenden |
 | Finale Compiler-/Prozessprüfung | 6b53c923-e4da-498a-b08e-254407b452ff | Sol | Nicht wiederaufgenommen; einzeln zugeteilter Clippy-Lauf durch Hauptsession abgeschlossen, keine Prozessprüfung |
 | Consumerabnahme | 533115bf-554f-4457-86b4-2944fef19c63 | Astra | Nicht wiederaufgenommen |
 
@@ -45,9 +45,15 @@ Aktive Pakete: `TESTVORBEREITUNG-SOL.md` verlangt belegte Nebenwirkungsprüfung 
 
 Der G5-Gesamtauftrag bleibt aktiv. Der Testbericht ca4a8f2 belegt lokale Prozess-/Loopback-/Dateiwirkungen und kein zusätzliches Betreiber-Secretsetup in den geprüften Standardpfaden. Die Hauptsession prüfte die beiden verschachtelten S12-Skripte zusätzlich: Cargo/Rustwerkzeuge und Probe sind im Test temporäre Stubs, keine echten verschachtelten Builds. Berichtsverzeichnisse unter rust/target/wiki-completion.* sind angemeldet, kein zusätzlicher Compiler-Cache. 74 statische Ignoreattribute bleiben getrennte spätere Nachweise.
 
-Integrator /root/pr_inventory hat daraufhin genau den dokumentierten seriellen Workspace-Test zugeteilt. Start 2026-09-30T11:08:51Z, PID 3794497, Hintergrundauftrag bi8uvp8u8. Sauberer HEAD ca4a8f236a75ba89ce60d2140c735acd5d1f5bee, Produktbasis 9a29b81 unverändert. Vollständiger Log: /home/nathanael/Documents/.tasks/2026-09-30-twitch-alles-live/brain-g5-workspace-test-ca4a8f2.log. Vorhandener Cache, 193 GiB frei vor Start. Kein --ignored und kein automatischer Folgelauf. Exitcode und Testzahlen stehen noch aus; Slot unmittelbar nach Ende zurückgeben.
+Integrator /root/pr_inventory teilte genau den dokumentierten seriellen Workspace-Test zu. Start 2026-09-30T11:08:51Z, PID3794497, Hintergrundauftrag bi8uvp8u8. Tatsächlicher Abschluss Exit0: **954 passed, 0 failed, 74 ignored**, 91 Ergebnisblöcke, keine gefilterten Fälle. Sauberer HEAD ca4a8f236a75ba89ce60d2140c735acd5d1f5bee blieb unverändert; Produktbasis9a29b81. Vollständiger Log lokal erhalten, Hash und Ignoreaufteilung stehen in SLOT-C-WORKSPACE-NACHWEIS.md. Slot sofort zurückgegeben und vom Nutzer bestätigt; Integrator baut vier Twitch-Releasebinaries. Kein weiterer Cargo-Aufruf.
 
-Clippy ist abgeschlossen, dessen Slot wurde bereits zurückgegeben. Die hostweite BRAIN-G5-BUILD-REQUEST.txt ist die aktuelle Laufkoordination; die Kopie dieser Akte wird nach dem Testabschluss synchronisiert.
+Aktuelle Consumerbasis ist der vom Integrator vorbereitete isolierte Head fdd7a5d2de07e718dcf5509a2d12e3db6770d276 im Worktree twitch-chat-brain-live-20260930 auf Release1-Basis9f6f291d. TYPED-CONSUMER-BINDUNG.md belegt den vorhandenen Pin3b86d3cb, unverändertes öffentliches Wireformat und bestehenden internen Schlüsselpfad. Kein Neubau aus einer alten Main-Momentaufnahme, kein Legacyfallback und keine künstlichen Chatnachrichten.
+
+Rollen-/DB-Metadatenprüfung ist ausdrücklich zugeteilt und tatsächlich bestanden. Erste Verbindung scheiterte an veralteten Sessiongruppen, nicht an DB-Auth. Mit demselben Konto und dessen vorhandener Gruppe979 über sudo -u nathanael -g deadlock-brain-db: Exit0, READ ONLY und ROLLBACK. Schema2/storev2 und begrenzte brain_service-Grants bestätigt. **brain enthält keine Sources/Releases**, Archivschema vorhanden. Pilotstichproben: entities öffentlich game.public, Patchnotes privat brain.legacy.review. DB-BINDUNG-IST.md dokumentiert Grenzen und notwendige Änderungen: vorhandener Importer erlaubt bislang nur brain_pilot und verschiedene Datenbanken, Produktivpfad braucht eine enge abgesicherte Erweiterung, keinen Neubau. Usermanager hat ebenfalls keine Gruppe979; kein Restart der Userverwaltung, stattdessen vorhandene Servevorlage mit expliziter Dienstgruppenbindung für den koordinierten Start vorbereiten. Keine schreibende DB-/Dienständerung.
+
+B1 läuft als nächste Quellvorbereitung im vorhandenen Sol-Thread. Danach bestehender unabhängiger Reviewer, erst anschließend konkreter Harness-/Lastslot. Die acht früheren gezielten PG-/Restorefälle bleiben unveränderte Vertragsevidenz, kein aktueller Lauf; alle74 ignorierten Fälle sind nicht pauschal nachzuholen. Keine Standardtestwiederholung allein wegen der Replay-Zähldifferenz.
+
+Clippy und Workspace-Test sind abgeschlossen, beide Slots zurückgegeben. Die hostweite BRAIN-G5-BUILD-REQUEST.txt enthält Ergebnis, Consumerbindung und nächsten Prüfbedarf; die Kopie dieser Akte wird vor Sicherung synchronisiert.
 
 Weitere Compiler-, Test-, Fetch- oder Produktprozessschritte benötigen eine eigene konkrete Zuteilung. Reine Quell- und Formatprüfung ist ausdrücklich erlaubt. SQLx-Makros und 114 versionierte Offline-Metadatendateien bleiben erhalten. Der zugeteilte Clippy-Aufruf bestand ohne neue ENV-Einstellungen; damit wird kein vollständiger Neuaufbau ohne vorhandenen Cache behauptet.
 

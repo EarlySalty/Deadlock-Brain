@@ -1,82 +1,68 @@
-status: Clippy-Slot zurückgegeben; statische Test-Safety und Servevorbereitung aktiv, keine neue Laufzuteilung
+status: Brain-Compiler-Slot zurückgegeben; Workspace-Test und DB-Metadatenprüfung bestanden; B1-Quellvorbereitung läuft, kein weiterer Lauf zugeteilt
 Datum: 2026-09-30
 Intent-Thread: 562a877b-0939-440a-964d-1145d9e9431a
 
-BRAIN G5: AKTUELLER BEDARF AN DIE HOSTKOORDINATION
+BRAIN G5: AKTUELLER STAND FÜR DIE HOSTKOORDINATION
 
-Produkt-/Lockhead: 9a29b81d230c01e5c03423cc34ba34c1074eab69, gepusht.
+BINDUNG
+Produkt-/Lockbasis: 9a29b81d230c01e5c03423cc34ba34c1074eab69.
+Zuletzt getesteter Quellhead: ca4a8f236a75ba89ce60d2140c735acd5d1f5bee, zusätzlich nur statischer Testbericht.
 Quellworktree: /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930
 Branch: fix/g5-replay-deferred-20260930
-Arbeitsverzeichnis für Cargo: /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930/rust
-Koordination: /home/nathanael/.worktrees/brain-technical-closeout-20260929
-Koordinationsbranch: integration/technical-closeout-20260929
+Cargo-cwd: /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930/rust
+Koordination: /home/nathanael/.worktrees/brain-technical-closeout-20260929, integration/technical-closeout-20260929, .tasks/2026-09-30-g5-abschluss/.
+
+Nutzerfreigabe für den bestehenden Typed-Serve-Cutover nach Nachweisen gilt. Replay bleibt später. Keine erneute pauschale Deployfrage. Compiler/Release, Last, DB-Schreiben, Dienste und Cutover weiterhin konkret beim Integrator koordinieren. Kleine reine Metadaten-/Datei-/Quellprüfungen sind inzwischen ausdrücklich ohne Einzelrückfrage erlaubt. Keine konkurrierende Auslieferung während Twitch. Keine neuen Modelle, kein Backendneubau, kein Legacyfallback, keine künstlichen Chat-/Communitynachrichten oder Steam-Veröffentlichung.
 
 ABGESCHLOSSENE ZUTEILUNGEN
 
-Slot A: bestehender Sol-Thread 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 bereitete die Replay-Abtrennung vor. Produktcommit 86a0bd6, korrigierter Autorenbericht 0c290809. Kein neues Produktmodell, kein neuer Dienst, keine Unterthreads.
-
-Einzeln zugeteilt und ausgeführt:
-/home/nathanael/.cargo/bin/cargo +1.97.1 metadata --offline --format-version 1
-Exit 0, 562 ms. Rootlock von 427 auf 386 Pakete bereinigt, 41 entfernt, keine neuen Paketversionen, Quellen oder Checksummen. Echter Lockdiff mit Beleg als 9a29b81 gepusht.
-
-Anschließend ausdrücklich ebenfalls zugeteilt und ausgeführt auf demselben sauberen Head:
-/home/nathanael/.cargo/bin/cargo +1.97.1 metadata --locked --offline --format-version 1
-Exit 0, 607 ms, kein Fehlertext. 386 Pakete und Resolve-Nodes, 25 Cargo-Member, keine Gitquellen, keine Replaypakete. Die 24 expliziten Root-Einträge plus uplink-infisical-transport ergeben die 25 Member.
-Lock-SHA256 vor und nach dem Lauf identisch:
-2f3dd52e2fee3be8ee03f99e9969e2b56629384b118730956f9637b0198cb291
-Metadata-SHA256 in beiden Läufen identisch:
-f143b11277a256d4d66278318ff1e7d014b1521d3b01154ffa4aec5ffdd1cf71
-Worktree vor und nach dem Kontrolllauf sauber; rust/target existierte vorher und nachher nicht. Kein Fetch, Compiler, Test oder neuer Cache.
-
-UNABHÄNGIGE ABNAHME
-
-Bestehender Reviewer 52c34332-8cdf-4772-9e1f-42aba432c6cf: Fertig J, Fix N, statisches GO auf 9a29b81.
-Bericht gepusht als 035e2a99a167b98c2838e4bd25a90fda89a3d96d auf review/pre-g5-core-abnahme-20260929.
-Eigenständiger semantischer Lockvergleich bestätigt 41 entfernte Pakete, keine Versions-/Quellen-/Checksummentausche und null Gitquellen. Die geprüften V1-Verwendungen benötigen chrono/serde nicht: Daten werden vor JSON in Strings oder Zeitstempel umgewandelt. Kein Compilerbeweis aus der statischen Abnahme.
-Der Bericht entstand vor dem unmittelbar danach ausgeführten Metadaten-Kontrolllauf; dessen inzwischen erfüllte Zuteilung und Ergebnis stehen oben.
-
-AKTUELL EINZELN ZUGETEILTER COMPILERLAUF
-
-/home/nathanael/.cargo/bin/cargo +1.97.1 clippy --workspace --all-targets --locked --offline --jobs 1 --target-dir /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target -- -D warnings
-
-Integrator hat exakt diesen einen Lauf zugeteilt. Startprüfung 2026-09-30T10:13:51Z: eigener Quellworktree sauber auf 9a29b81d230c01e5c03423cc34ba34c1074eab69, vorhandener Targetcache bestätigt, 195 GiB frei. Lokaler vollständiger Log: /tmp/brain-g5-clippy-9a29b81-20260930.log, vor Start nicht vorhanden. Tatsächlicher Start 2026-09-30T10:14:31Z, PID 3534342, Hintergrundauftrag bu52n1xr5. Exakter Quell-SHA: 9a29b81d230c01e5c03423cc34ba34c1074eab69. Vollständiger Compilerlog bleibt unter dem genannten lokalen Pfad; keine ungeprüfte Rohlogausgabe. Kein Fetch, keine neuen ENV-Einstellungen oder Caches, keine Datenbank-/Test-/Modell-/Dienst-/Releaseaktion. Keine zweite Cargo-Aktion und kein automatischer Folgelauf. DL/Twitch dürfen unabhängig regulär deployen; ihre Units bleiben unangetastet. Abschluss vom Hintergrundauftrag bu52n1xr5 bestätigt: completed, Exitcode 0. Abschluss und unveränderter sauberer Quellhead 9a29b81d230c01e5c03423cc34ba34c1074eab69 am 2026-09-30T10:18:26Z dokumentiert; dies ist die Nachweiszeit, keine gemessene Prozess-Endzeit. Der exakt zugeteilte Workspace-Clippy-Lauf mit allen Targets und -D warnings ist bestanden. Keine weitere Cargo-Aktion gestartet; Root kann den Cargo-Slot an den Integrator zurückgeben. Keine Test-, Release-, Cutover- oder Dienstfreigabe daraus abgeleitet. Vollständiger Log bleibt lokal erhalten. Die zusätzliche Logauswertung durch ctx_execute_file wurde wegen dessen Projektwurzelgrenze abgelehnt und nicht über einen Ersatzpfad wiederholt; Erfolgsbeleg ist der tatsächliche Exitcode des per exec gestarteten Compilerbefehls, kein erfundener Logbefund.
-
-Vorhandener Cargo-Cache: /home/nathanael/.cargo
-Vorhandener Targetcache, Existenz erneut bestätigt: /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target
-Toolchain: 1.97.1, im Metadatenlauf tatsächlich verwendet.
-Freier Speicher bei read-only-Prüfung: 195 GiB laut df -h, Dateisystem 88 Prozent belegt. Vor Ausführung erneut prüfen.
-Ressourcen: ein Cargo-Job, keine Testausführung und kein Releasebuild. Linker/Buildskripte können weitere Threads benutzen. RAM grob 2 bis 6 GiB, keine gemessene Obergrenze. Targetwachstum ausschließlich im vorhandenen Cache. Keine Dienste betroffen, kein Zugriff auf Produktmodelle beauftragt.
-
-SQLx: 114 versionierte Offline-Metadatendateien unter rust/.sqlx vorhanden; typgeprüfte Query-Makros bleiben erhalten. Kein ENV-Präfix, keine ENV-Datei, kein neuer Secret- oder DB-Konfigurationsweg. Der zugeteilte Clippy-Aufruf bestand ohne zusätzliche ENV-Einstellungen und ohne Konfigurationsänderung. Keine Aussage über die Vollständigkeit der Offline-Dateien bei einem vollständig leeren Buildcache; der vorhandene Cache wurde wie beauftragt wiederverwendet.
-
-AKTUELLE STATISCHE FORTSETZUNG
-
-Root hat Clippy übernommen und den Cargo-Slot zurückgegeben. Neue Nutzerzuteilung erlaubt reine Quellprüfung, git diff --check und Formatcheck ohne separaten Compiler-Slot. Genau ausgeführt:
-/home/nathanael/.cargo/bin/cargo +1.97.1 fmt --all -- --check
-Exit 0, 1307 ms auf Produktbasis 9a29b81. Kein Test/Build/Fetch.
-
-Bestehender Sol-Thread 66adf9ee prüft den nachstehenden Workspace-Standard statisch bis zu seinen Helpern: Produktmodelle, echte Dienste/DBs, ENV-/Secret-Setup, lokale Mockserver/Prozesse, Doc-/Integrationstests und bedingte Skips. Ergebnis und Laufzeitklassen folgen; bis dahin ist der Standardlauf NICHT als nebenwirkungsarm abgenommen. Keine neue Wache.
-
-Servevorbereitung ist konkret am bestehenden Vertrag und Quellstand dokumentiert; unabhängiger bestehender Reviewer 52c34332 prüft sie. Ports 8787 (python3) und 8789 (devfeed-api) sind belegt. Beispiel-Config-/Binary-/Unitpfade existieren nicht an den geprüften Stellen. Bestehender Secret-Exec-/LoadCredentialpfad kann weitergenutzt werden; keine neue ENV-Konfiguration, kein neues Modell oder neuer API-Kern. Reale Endpoint-/Release-/Rollenbindung und belastbarer Rückweg bleiben Startvoraussetzungen. Keine DL-/Twitch-Unit verändert.
-
-TESTANFORDERUNG IN STATISCHER PRÜFUNG, NICHT ZUGETEILT
-
-Workspace-Tests, ausdrücklich erst eigener Slot; Testharness seriell:
+1. Metadata offline: Exit0, 562ms, Rootlock427 auf386 Pakete. 41 entfernt, keine neuen Versionen/Quellen/Checksummen; keine Gitquellen oder Replaypakete in V1. Produktcommit9a29b81.
+2. Metadata locked/offline: Exit0, 607ms; 386 Pakete/Resolve-Nodes, 25 Workspace-Member (24 explizit plus lokaler uplink-infisical-transport). Lock vorher/nachher SHA256 2f3dd52e2fee3be8ee03f99e9969e2b56629384b118730956f9637b0198cb291. Metadata-Hash f143b11277a256d4d66278318ff1e7d014b1521d3b01154ffa4aec5ffdd1cf71. Kein neuer Cache.
+3. Clippy workspace/all-targets, locked/offline, jobs1, -D warnings: Exit0. Start10:14:31UTC, PID3534342, Auftragbu52n1xr5. Vollständiger lokaler Log /tmp/brain-g5-clippy-9a29b81-20260930.log. Slot zurückgegeben. Zusätzliche Loglesung an context-mode-Pfadgrenze abgewiesen, nicht umgangen; Erfolg aus tatsächlichem Harness-Exit.
+4. cargo +1.97.1 fmt --all -- --check: Exit0, 1307ms, unveränderte Dateien.
+5. Genau zugeteilter Workspace-Test, abgeschlossen mit tatsächlichem Exit0:
 /home/nathanael/.cargo/bin/cargo +1.97.1 test --workspace --locked --offline --jobs 1 --target-dir /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target -- --test-threads=1
+Start2026-09-30T11:08:51Z, PID3794497, Auftragbi8uvp8u8, tatsächlicher HEADca4a8f236a75ba89ce60d2140c735acd5d1f5bee. Vor/nach sauber, Produktbasis9a29b81 unverändert. Cargo per exec ohne Pipeline, kein automatischer Folgelauf. Slot unmittelbar nach Abschluss zurückgegeben, Nutzer hat Übernahme bestätigt; Integrator baut seine vier Twitch-Releasebinaries.
 
-Kein Fetch als unmittelbarer nächster Schritt: Offline-Metadaten sind erfolgreich. Ein späterer Quellenbeschaffungsnachweis braucht eigene Zuteilung; vorhandener Cache beweist keinen frischen Quellenzugang.
+TESTERGEBNIS UND LOG
+954 passed, 0 failed, 74 ignored, 0 measured, 0 filtered out, 91 Ergebnisblöcke. 74 einzelne Ignorezeilen stimmen mit der Summe überein. Keine Compilerfehler-/FAILED-Marker. Cargo-Testprofil dauerte laut Log5m31s, keine Aussage zur exakten Gesamtprozessdauer.
+Log vollständig lokal erhalten: /home/nathanael/Documents/.tasks/2026-09-30-twitch-alles-live/brain-g5-workspace-test-ca4a8f2.log
+116489 Bytes, SHA256 87f607c2796023977bc5d29e59f028a33ef66ca5ca36ffdb16fe1ec0334f2f6e. Keine Rohlogveröffentlichung.
+Tatsächlich ignoriert je Paket: brain-feeds1, brain-legacy-import2, brain-serve6, brain-storage2, dbrain-builds5, dbrain-enrich3, dbrain-learn5, dbrain-normalize7, dbrain-reasoner16, dbrain-retrieval15, dbrain-sources7, deadlock-brain-yt5. Namen/Ressourcenklassen in WORKSPACE-TESTVORBEREITUNG.md auf ca4a8f2. Ignoriert ist nicht bestanden. Kein pauschales --ignored.
+Lokale Kindprozesse, HTTP-/Unix-Socket-Mocks, Git-Fixtures und temporäre Dateien waren ausdrücklich zugeteilt. Completion-Harness erzeugt rust/target/wiki-completion.*-Berichte, verwendet dabei Cargo-/Rust-/Probe-Stubs, keinen zweiten Compiler-Cache. Vorhandene synthetische interne Test-ENV ist kein Betreiber-ENV-/Secret-Setup. Kein Produktmodell-/Dienst-/DB-Start angeordnet, kein lückenloser Laufzeit-Egressbeweis aus dem Log behauptet.
 
-Release erst nach Compiler-/Testnachweisen und separater hostweiter Zuteilung, höchstens ein Releasebuild auf dem Host. Geplanter Befehl:
+UNABHÄNGIGE ABNAHMEN
+Lock-GO035e2a99, Servevorbereitung statischGO54a7793, aktuelle Nachweismatrixae2abe1a954eca03d863b1370df4a03496eac9b0. Alle gelesen und gepusht im bestehenden Reviewbranch review/pre-g5-core-abnahme-20260929. Reviewer52c34332 wieder gesettelt, Sequenz1157915.
+Matrix bestätigt unabhängig954/74. Unterschied zum historischen1011/75 ist exakt Replay, kein verlorener V1-Test. V1-Fachverträge und vorhandene Harnesses gegenüber022f8a9 unverändert. Historische PG-/Restore-/Pilotdaten bleiben brauchbare Vertragsevidenz, kein neuer Build-/Produktionsnachweis. MatrixGO, aktueller G5-/Startbeweis noch BLOCK. Keine neue Vollprüfung oder Wiederholung des Standardtests allein zur Zählung.
+
+TATSÄCHLICHE DB-BINDUNG
+Begrenzte Metadatenprüfung ausdrücklich zugeteilt und ausgeführt. Erster psql-Aufruf Exit2 vor DB-Anmeldung: Session ohne vorhandene Kontogruppe979. id/stat belegen vorhandene Mitgliedschaft deadlock-brain-db, Socket0770 mit dieser Gruppe. Keine Rechte verändert. Zweiter Aufruf über sudo -n -u nathanael -g deadlock-brain-db, weiterhin vorhandene Peer-Rolle brain_migrate, bestand mit Exit0/ROLLBACK. Kein DB-Superuser oder Secretlesen.
+
+Exakter erfolgreicher Hauptaufruf:
+sudo -n -u nathanael -g deadlock-brain-db /usr/bin/psql -X -w -h /run/deadlock-brain-postgresql -p 5446 -U brain_migrate -d brain -v ON_ERROR_STOP=1 -P pager=off -c "BEGIN READ ONLY; SET LOCAL statement_timeout='2s'; SET LOCAL lock_timeout='1s'; SELECT current_database(),current_user,current_setting('port'); SELECT schema_version,store_contract FROM brain.core_schema_version; SELECT rolname,rolcanlogin,rolsuper,rolcreatedb,rolcreaterole,rolreplication,rolbypassrls,rolconnlimit FROM pg_roles WHERE rolname IN ('brain_migrate','brain_ingest','brain_service','brain_readonly') ORDER BY rolname; SELECT t,has_table_privilege('brain_service',t,'SELECT') AS can_select,has_table_privilege('brain_service',t,'INSERT') AS can_insert,has_table_privilege('brain_service',t,'UPDATE') AS can_update,has_table_privilege('brain_service',t,'DELETE') AS can_delete FROM unnest(ARRAY['brain.core_schema_version','brain.source_record_revisions','brain.source_record_heads','brain.corpus_releases_v1','brain.source_jobs_v1','brain.source_checkpoints_v1','brain.conversation_owners_v1']) AS t; SELECT release_id,knowledge_version,patch,created_at FROM brain.corpus_releases_v1 ORDER BY created_at DESC,release_id LIMIT 20; ROLLBACK;"
+
+Ergebnis: Zielbrain/Port5446, genau Schema2/brain.store.v2. Rollen brain_ingest/migrate/readonly/service ohne erhöhte Rollenflags, Deckel4/3/2/16. brain_service hat SELECT auf alle sieben geprüften Tabellen und INSERT nur auf conversation_owners_v1, keine UPDATE-/DELETE-Rechte. Vorhandene SCRAM-Referenz BRAIN_PG_SERVICE_PASSWORD bleibt. Keine neue Rolle brain_serve bauen.
+Weitere zugeteilte kurze Leseproben: brain hat KEINE CorpusReleases, KEINE Source-Heads und KEINE Revisionen (EXISTS, keine Vollzählung), Schema brain_legacy besteht. brain_pilot_legacy enthält drei historische Releases. Je eine Kopfstichprobe: legacy-entities public/game.public, legacy-patchnotes private/brain.legacy.review, beide nicht tombstoned. Kein Vollkorpusnachweis, keine blinde Pilotkopie nach Produktion. Erste falsche JSONprojektion policy ergab NULL; tatsächlicher SourceRecordV2 nutzt visibility/allowed_scopes auf oberster Ebene, korrigiert statt Datenfehler behauptet.
+
+KONKRETER CONSUMER UND CONFIGVERTRAG
+Maßgeblich: /home/nathanael/.worktrees/twitch-chat-brain-live-20260930, HEADfdd7a5d2de07e718dcf5509a2d12e3db6770d276, Basis9f6f291de56b9304f95c3d8d1566c601ecd85de9. CHAT-BRAIN-HANDOVER.txt gelesen. Fünf Eigencommits von tb-chat-brain-fragen@be402985 plus Formatkorrektur. Consumer-Merge/Config/Deploy ausschließlich Twitch-Integrator.
+Bestehender brain-client-Pin3b86d3cbe5ea39a67b8b1fbd8a3d48ab935982ef, unveränderter Client und öffentliches Antwortschema gegenüber9a29b81. Neu verwendeter vorhandener typed Unavailable-Status wird im Adapter bereits als Backendfehler behandelt. Statisch kompatibel, echter Durchstich bleibt offen. Adapter/Chat-Wiring/BrainChatOptions gegenüberbe402985 unverändert.
+Normale bot.brain_client-Config: typed, tatsächliche lokale Basis-URL ohne angehängtes /v1/answer, tatsächlich freigegebene public_scopes, bestehender Timeout. brain_chat.enabled=true ist vorhandener Default, Limits60s/20 je Kanalstunde/500 je UTC-Tag. Bestehendes settings.internal_api.token, Referenz TWITCH_INTERNAL_API_TOKEN, derselbe bestehende Schlüssel im Servegrant. Kein Secretwert gelesen. Kein Legacy-/Shadow-Chat-Port, kein Legacyfallback. Interne Probe ohne Chatversand oder natürliche Laufzeitereignisse; öffentlicher Replypfad bleibt bis dahin unbelegt.
+
+UNIT UND RÜCKWEG
+Vorhandene Systemunit deadlock-brain-postgresql, OS-User deadlock-brain-pg, Socket5446 bestätigt. Kein Neustart. Typed Serveunit bisher nicht installiert nach geprüften Namensfamilien. 8787/8789 sind belegt. 127.0.0.1:8788 ist nur ein ungebundener Kandidat, keine Reservierung oder fertige Produktkonfiguration.
+Auch UsermanagerPID933 hat Gruppe979 noch nicht. Kein Restart der Userverwaltung. Empfohlene separat zu prüfende Installationsbindung: bestehende Servevorlage als Systemunit brain-serve.service unter vorhandener Identität nathanael mit SupplementaryGroups=deadlock-brain-db, absolute revisionsgebundene Binary-/Configpfade, vorhandene LoadCredential-/Infisical-Kette, keine Environment-Konfiguration. Noch keine Unit erstellt/installiert. Namespace-/UID-0-Socketsicht und Dienstgruppen müssen beim Start wirklich geprüft werden.
+DBconfig ist gebunden an /run/deadlock-brain-postgresql:5446, databasebrain, usernamebrain_service, vorhandene Passwortreferenz. Release/Knowledgeversion fehlen real im Zielbestand. Tatsächliche Quellen-/Provider-/Egress-/Budgetbindung nicht durch Beispielwerte ersetzen. Keine Modellwahl.
+Serve-Rückweg: Serve deaktivieren und beim Integrator Chat-Port deaktivieren, kein Legacyfallback, keine Daten/Ownership/ACL/Tombstones zurückdrehen. Vollständiger G5-Rückweg zusätzlich revisionsgebundenes kompatibles Rückfallartefakt, echtes Backup/Restore und aktuelle Deltas. Bei Fachwriterwechsel tatsächliches Fencing, nicht bloß Timerstop. Keine alten Jobs für einen API-Smoke abschalten.
+
+NÄCHSTE AUSFÜHRBARE STUFE
+B1-Quellvorbereitung läuft im bestehenden Sol66adf9ee, Sequenz1157631, Briefing B1-HARNESS-BRIEFING.md. Nur fünf vorhandene Test-/Buildrunner an expliziten vorhandenen Targetcache, jobs1 und locked/offline binden. Keine Rustprodukt-/Lockänderung, kein Cargo-/Harness-/DB-/Last-/Modell-/Dienstlauf. Danach vorhandener unabhängiger Reviewer52c34332. Keine neue Wache oder Unterthreads.
+Nächster Harnessbedarf danach: acht bekannte gezielte PG-/Store-/SCRAM-/Restorefälle, getrennt vier Pilotphasen. Serve-E2E führt fest600 Anfragen je8/16/32 Worker aus und braucht deshalb ausdrücklich Lastzuteilung. Exakte Befehle aus der B1-Abgabe erst statisch abnehmen. Kein pauschales Nachholen aller74.
+Zusätzlich direkt vom Nutzer beauftragte Produktänderung B2: vorhandener Rust-Importer brain-legacy-import.rs:56-62 erlaubt nur brain_pilot* und verbietet identische Quell-/Zieldatenbank. Autorisierter Cutover braucht enge explizite und fail-closed Bindung brain.brain_legacy nach brain.brain unter bestehenden getrennten Rollen. Sperren gegen identische logische Quelle/Ziel und falsche Ziele bleiben. Kein neuer Importer, kein pauschales Entfernen der Guards, kein direktes SQL am Importpfad vorbei. Quelle/ACL/Tombstones/Egress-/Publikationsrechte erhalten; mindestens20 begrenzt geprüfte private Patchnotesköpfe im Pilot nicht öffentlich freigeben. B2-IMPORT-BRIEFING.md ist vorbereitet, bestehender Sol setzt nach eigener B1-Abgabe fort; unabhängige Deltaabnahme und gezielte Gegenbeweise vor jedem produktiven Import. Noch kein Produktionsschreiben oder Cutover zugeteilt/ausgeführt. Neue Rusttests sind zunächst nur Quellarbeit; Compiler-/DB-Slots gesondert koordinieren, Twitch-Release1-Gate hat Vorrang.
+
+SEPARATER SPÄTERER RELEASEBEDARF, NICHT ZUGETEILT
 flock -w 600 /tmp/deadlock-brain-release-build.lock /home/nathanael/.cargo/bin/cargo +1.97.1 build --workspace --release --locked --offline --jobs 1 --target-dir /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target
-Der Lock allein ist keine Zuteilung.
+cwd wie oben. Vorhandene Caches ausschließlich /home/nathanael/.cargo und genannter Targetcache. Letzte Kapazität vor Standardtest193GiB frei, vor Release neu prüfen. Ein Cargojob, Linker/Buildskripte können intern Threads nutzen, keine gemessene RAMobergrenze; bisherige grobe Planung2-6GiB nicht als Garantie. Lock ist keine Zuteilung. Höchstens ein hostweiter Releasebuild. Kein Fetch oder neuer Cache, keine zusätzliche ENV-Konfiguration.
 
-Prozess-/PostgreSQL-Harness weiterhin nicht startbereit: bestehenden Harness zuerst auf Cache-Reuse, ENV-Konfiguration und versteckte Compilerphase prüfen. Keine Änderungen oder Neustarts an der laufenden PostgreSQL-Instanz, kein Lastbenchmark.
-
-Serve-Cutover weiterhin nicht startbereit. Tatsächliche Unit, Config, Endpoint, revisionsgebundenes Artefakt und Rückweg müssen belegt sein. Beispielport 127.0.0.1:8787 und Port 8789 sind belegt; keine blinde Übernahme. Brain-PostgreSQL bleibt ohne Neustart. Twitch-/DL-Wechsel ausschließlich durch den Integrator. Keine Veröffentlichung parallel zu dessen Cutover.
-
-Neuer Compilerbeleg: der oben dokumentierte Clippy-Lauf, Exitcode 0. Keine Tests oder Releasebuilds ausgeführt, kein neuer Livebeweis. Typed POST /v1/answer ist noch nicht als live nachgewiesen. Replay bleibt außerhalb V1. Keine Community-Nachricht, kein Steam-Build-Publish.
-
-Belege:
-.tasks/2026-09-30-g5-abschluss/SLOT-A-ERGEBNIS.md und SLOT-B-METADATA.md auf dem Quellbranch.
-.tasks/2026-09-30-g5-abschluss/SLOT-A-REVIEW.md auf dem Reviewbranch.
-Aktueller Kontrollnachweis und Register in .tasks/2026-09-30-g5-abschluss/ auf dem Koordinationsbranch.
+BELEGE IM KOORDINATIONSREPO
+SLOT-B-LOCKED-NACHWEIS.md, SLOT-B-CLIPPY-NACHWEIS.md, SLOT-C-WORKSPACE-NACHWEIS.md, SERVE-VORBEREITUNG.md, SERVE-PG-VORAUSSETZUNGEN.md, TYPED-CONSUMER-BINDUNG.md, DB-BINDUNG-IST.md und REGISTER.md. Alte Vorbereitungsstände sind historisch; diese zentrale Datei hält den aktuellen Ressourcen-/Betriebsstand. G5 bleibt aktiv, noch kein Brain-Main-Merge, Release, produktiver Import oder Typed-Serve-Livebeweis.
