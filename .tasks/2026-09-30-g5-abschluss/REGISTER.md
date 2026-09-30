@@ -1,4 +1,4 @@
-status: aktiv, Testfix8949198 statisch GO mit gepushtem Reviewdcfee1d; Laufheadb3523fa sauber, Clippy beantragt aber nicht zugeteilt; aktive Worktrees geschützt
+status: aktiv, ClippyExit101 und Slot zurück; Zweistellenfixd35a11c/Berichtc809b629 mit ReviewGO9070ba9 abgeschlossen; identischer Einzellauf vorbereitet, keine neue Startfreigabe
 Datum: 2026-09-30
 
 # G5-Fortsetzungsregister
@@ -11,15 +11,15 @@ Vorgängerregister: .tasks/2026-09-29-technical-closeout/REGISTER.md
 | Zweck | Worktree | Branch | Stand |
 | --- | --- | --- | --- |
 | Koordination | /home/nathanael/.worktrees/brain-technical-closeout-20260929 | integration/technical-closeout-20260929 | Eigene Akte und synchronisierte zentrale Buildanfrage |
-| Quelle | /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930 | fix/g5-replay-deferred-20260930 | B2e878530/8c31b09 und CI0c56f85/392267b enthalten; enger Testfix8949198 und Berichtb3523fa gepusht, sauber |
+| Quelle | /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930 | fix/g5-replay-deferred-20260930 | B2e878530/CI0c56f85/Test8949198 enthalten; mechanischer Auto-Deref-Fixd35a11c gepusht, noch kein wiederholter Compilerlauf |
 | Reviewbericht | /home/nathanael/.worktrees/brain-pre-g5-core-review-20260929 | review/pre-g5-core-abnahme-20260929 | dcfee1d gelesen, sauber/gepusht; enger R1-Synchronisationsrest statisch GO,0 Befunde |
 
 ## Thread-Register (T3)
 
 | Paket | Thread-ID | Modell | Stand |
 | --- | --- | --- | --- |
-| Autor B2 und B1-R1 | 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 | bestehender Sol, gpt-6-sol | Testfix89491987a52053c94f98a7d3430d7139570caa95 um15:10:22UTC gepusht, ausschließlich273 Zeilen im ignorierten Importertest. Berichtb3523fa246c39249f42cd58343f1785445da0323 gelesen, gepusht, sauber. Tatsächlichen Index-/Commitfortschritt beobachtet, keine Unterbrechung. Keine Laufzeitaktion |
-| Unabhängige Abnahme | 52c34332-8cdf-4772-9e1f-42aba432c6cf | bestehender Astra | Nachreview1175579 abgeschlossen, GOdcfee1d81abb5d3e85d1cdd0fe3e167d89d3a462 gelesen/gepusht,0 Befunde. Ready bestätigt, gesettelt1177803. Keine zusätzliche Integration trotz Abschluss-Hook; Branch/Worktree bleiben geschützt |
+| Autor B2 und B1-R1 | 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 | bestehender Sol, gpt-6-sol | Zweistellenfixd35a11c um15:41:39UTC, Berichtc809b629 um15:43:15UTC gepusht, sauber. Zwei mechanische Auto-Deref-Stellen, Bericht gelesen, kein weiterer Cargo-Aufruf |
+| Unabhängige Abnahme | 52c34332-8cdf-4772-9e1f-42aba432c6cf | bestehender Astra | Enger Zweistellenreview1179269 abgeschlossen: GO9070ba94d0730c94ed1ce63c6e0b3be6fb597aac gelesen/gepusht,0 Befunde, sauber. Gesettelt1179862. Verbindung/Transaktion/Sperrwirkung unverändert, keine Compiler-/Runtimeaktion |
 | Finale Compiler-/Prozessprüfung | 6b53c923-e4da-498a-b08e-254407b452ff | Sol | Nicht wiederaufgenommen; historische Teilaufgabe |
 | Consumerabnahme | 533115bf-554f-4457-86b4-2944fef19c63 | Astra | Nicht wiederaufgenommen |
 
@@ -62,6 +62,12 @@ Review dcfee1d um15:24:45UTC gepusht, gelesen,0 Befunde; letzter R1-Testquellenr
 Die vier eigenen Arbeitsbäume sind per git worktree lock geschützt und im vom Nutzer benannten Cleanup-Register als aktiv vermerkt; Details AKTIVER-BESTAND.md. Nutzer nennt Timerauftrag662fd521/PaketB und Commitfd6e157. Gegenprüfung zeigt auch API-Backoffänderungen, nicht nur Units; beobachteter origin/main noch25c6ed6. Beim späteren Merge aktuelle Mainentwicklung erhalten.
 
 Fremder Cargo1366750 ist ein Workspace-Releasebuild in eigenem Cleanroom-Target, bestehende codex-job-Unit, kein eigener G5-Lauf. Tatsächliche Targets haben verschiedene Realpaths/Inodes. Hoststichprobe16 CPUs, Load21,79, rund8,2GiB verfügbar, kein Swap; zusätzlich Steam-Core-Check und zwei Testläufe. Keine Prozesse gestoppt oder eigene Builds gestartet. CLEANROOM-RESSOURCEN.md enthält sichere Flags, Unit, Targetbelege und Aussagegrenzen.
+
+## Einziger zugeteilter Clippy-Lauf ab15:35:58UTC
+
+Eigener sauberer Headb3523fa enthält gegenüber geprüftem8949198 nur Berichte. Genau zugeteilter Paket-Clippy lief als Harnessb1o05m5vm/PID1461889, tatsächlicher Exit101. Slot sofort bei Completionmeldung zurückgegeben, Nutzer bestätigt Weitergabe15:37. Keine weitere Compiler-/Test-/DB-/Runtimeaktion. Log2430 Bytes/SHA2561299d7d298a3cc1645f76d275cf516cbd904db53fb26adbfbb784c0594811371, Details SLOT-D-CLIPPY-NACHWEIS.md.
+
+Zwei konkrete explicit_auto_deref-Lints, beide durch e878530 eingeführt: pg_jobs.rs:36 und pg_release.rs:132. Derselbe Autor1178780 korrigiert ausschließlich die unnötigen Dereferenzen, keine Sperr-/Transaktionsänderung oder Lintunterdrückung. Neuer gemeinsamer Produktdelta-Head danach eng unabhängig nachreviewen. Engster Folgecompilerbedarf wäre derselbe Paket-Clippy, aber erst nach neuer konkreter Zuteilung.
 
 ## Bereits belegte Basis, nicht als neue Fixprüfung übertragen
 

@@ -1,7 +1,11 @@
-status: konkrete Compileranfrage, Testfix8949198 statisch GO; vollständiger Quellstandb3523fa sauber/gepusht, kein Slot ausgeführt
+status: identischer einzelner Clippy-Folgelauf auf sauberemc809b629 vorbereitet; Zweistellenfixd35a11c gepusht, Slot weiterhin nicht zugeteilt
 Datum: 2026-09-30
 
 # Nächster begrenzter G5-Lauf nach B2-Fixabnahme
+
+Aktueller vorbereiteter Laufhead c809b629d34e01087601db31c23fea2acd3fc088, sauber und gepusht. Er enthält den mechanischen Zweistellenfix d35a11ccfa790d2835e45ed8409910154ac13375 und danach ausschließlich CLIPPY-ZWEISTELLEN-ERGEBNIS.md. Vollständiges Produktdelta gelesen: bestehende mutable Transaktion wird direkt beziehungsweise als &mut tx an denselben lock_source-Aufruf übergeben; die Auto-Deref-Coercion erreicht dieselbe PgConnection. Quell-ID, Advisory-Key, Reihenfolge, await/map_err und Transaktionsgrenze bleiben unverändert. Enges unabhängiges Nachreview1179269 abgeschlossen mit GO9070ba94d0730c94ed1ce63c6e0b3be6fb597aac,0 Befunde, gelesen und sauber/gepusht. Keine Gesamtquellrunde; derselbe Reviewer nach Abschluss gesettelt1179862.
+
+Der vorige einzelne Clippy b1o05m5vm aufb3523fa endete mit101, Slot unmittelbar zurückgegeben. Beleg SLOT-D-CLIPPY-NACHWEIS.md einschließlich Baselinezuordnung e878530 und vollständigem Loghash. Für den vorbereiteten Folgehead wird exakt derselbe unten genannte Clippy benötigt, kein Zusatzcheck und keine weitere Befehlsfolge. Der aktuelle Clipprüfslot gehört dem Integrator; bisher keine neue Brain-Startfreigabe. Keine Tests, DB oder Runtime mit hineinpacken. Vor Start erneut tatsächlichen Head und reines Berichtsdelta binden; danach echten Exit sichern und Slot sofort zurückgeben.
 
 Adressat: Integrator/Root über die bestehende zentrale BRAIN-G5-BUILD-REQUEST.txt, keine Session-zu-Session-Nachricht. Twitch ist laut Nutzer13:44:20UTC mit7/7 Quellen/Engine gesund, alle vier ELFs a82, Opsa685/main und Migration155. Reihenfolge des Integrators bleibt STT, Chat/Titel, Clip-Social/Context; keine eigenmächtige Konkurrenz durch Brain.
 
