@@ -1,10 +1,10 @@
-status: wartet auf Slotzuteilung
+status: Slot A zugeteilt und aktiv; Slots B bis E gesperrt
 Datum: 2026-09-30
 Intent-Thread: 562a877b-0939-440a-964d-1145d9e9431a
 
 BRAIN G5: ANFRAGE AN DIE HOSTWEITE BUILD-/DEPLOYKOORDINATION
 
-Keine der nachstehenden Aktionen wurde gestartet. Keine Pause des Nutzerauftrags. Die konkrete Slotzuteilung steht aus. Keine neue Nutzerfreigabe angefordert.
+Slot A wurde vom Nutzer ausdrücklich zugeteilt. Sol-Thread 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 mit statischem Briefing fortgesetzt (T3-Sequenz 1144183, bestehendes Modell gpt-6-sol). Unabhängige statische Abnahme folgt im vorhandenen Reviewerthread. Slots B bis E bleiben bis zur konkreten Zuteilung durch pr_inventory gesperrt. Keine neue Nutzerfreigabe angefordert.
 
 Bestätigte Bindung:
 Koordination: /home/nathanael/.worktrees/brain-technical-closeout-20260929
@@ -13,7 +13,7 @@ HEAD: 1c362bca6d35e7fec10125b2b159e7513a299243
 Worker: /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930
 Branch: fix/g5-replay-deferred-20260930
 HEAD: 1c362bca6d35e7fec10125b2b159e7513a299243
-Worker ist bei der Aufnahme sauber. Koordination enthält den unversionierten G5-Auftrag.
+Koordination gesichert mit a9eeb9e; Worker bei Slot-A-Start weiterhin sauber auf 1c362bc. Der nächste Produkt-SHA wird erst nach tatsächlicher Abgabe eingetragen.
 
 Vorhandene, nicht neu anzulegende Caches:
 Cargo: /home/nathanael/.cargo
@@ -22,7 +22,7 @@ Dort sind release/brain-serve und release/deadlock-brain-secret-exec vorhanden. 
 Toolchain 1.97.1-x86_64-unknown-linux-gnu ist installiert.
 
 Slot A: Quellvorbereitung und unabhängiger Review
-Vorhandenen Sol-Thread 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 nach read mit neuem Worktree-Briefing fortsetzen. Keine Unterthreads, kein Compiler, kein Modellwechsel. Das ist ein Modellaufruf und wird deshalb ebenfalls erst nach konkreter Zuteilung gestartet. Reviewer danach separat, nicht gleichzeitig. Keine neuen Produktmodelle oder Provider.
+Vorhandener Sol-Thread 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 nach Statusprüfung mit neuem Worktree-Briefing fortgesetzt. Keine Unterthreads, kein Compiler, kein Produktmodellwechsel. Bestehende Coding-Agenten und unabhängige statische Reviewer sind im zugeteilten Slot ausdrücklich erlaubt. Reviewer danach separat. Keine produktive/lokale Inferenz oder neuen kostenpflichtigen Routen.
 Ziel: Replay als getrennten, ausdrücklich zurückgestellten Workspace erhalten; keine Replay-Gitquellen in der V1-Auflösung; CI-/Prüfskript-Aufrufer konsistent nachziehen. Keine Quelländerung oder Lockfile-Bereinigung bereits behauptet.
 Ressourcen: ein bestehender T3-Worker, keine lokale Modellinferenz, keine Benchmarks. Vorhandenes Agentenkontingent; keine neue kostenpflichtige Modellroute.
 
@@ -59,7 +59,7 @@ Aktuelle Nachweise:
 - Statische Cargo.lock-Analyse: 25 Workspacewurzeln, nach Replay-Abtrennung 24; 427 Lockpakete, davon 386 aus den 24 V1-Wurzeln erreichbar, keine unaufgelösten Kanten in dieser Analyse, keine Gitquelle im verbleibenden Graphen. Noch kein Cargo-/Compilerbeweis.
 - Rootmanifest bindet Replay weiterhin als Member ein. V1-Abtrennung noch nicht implementiert.
 - Die geladenen System-/Userunits enthalten keinen nachgewiesenen typed Brain-Serve-Dienst. Brain-PostgreSQL läuft. Vorgegebene Serve-Beispielpfade sind nicht installiert.
-- Kein Build, Modellaufruf, Benchmark, Restart, Deploy oder Community-Post durch diese Fortsetzung.
+- Kein Build, Benchmark, Modellserver, Restart, Deploy oder Community-Post. Nur die ausdrücklich zugeteilte bestehende Coding-Agentenarbeit läuft.
 
 Plan und Quellen:
 /home/nathanael/.worktrees/brain-technical-closeout-20260929/.tasks/2026-09-30-g5-abschluss/PRUEF-SERVE-CUTOVERPLAN.md

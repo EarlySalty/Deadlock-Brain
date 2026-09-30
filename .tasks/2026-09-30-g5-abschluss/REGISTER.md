@@ -1,4 +1,4 @@
-status: aktiv, Ressourcenslot ausstehend
+status: aktiv, Slot A zugeteilt; Slots B bis E gesperrt
 Datum: 2026-09-30
 
 # G5-Fortsetzungsregister
@@ -19,12 +19,12 @@ Beide Orte mit `rev-parse --show-toplevel`, Branch, HEAD und `status --short` be
 
 | Paket | Vorhandene Thread-ID | Modell aus Vorgängerregister | Neuer Arbeitsort | Stand |
 |---|---|---|---|---|
-| V1 ohne Replay | 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 | Sol | Bestätigter Quellworktree oben | Wiederaufnahme geplant, nicht gesendet; Modellslot fehlt |
+| V1 ohne Replay | 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 | Sol (bestehender Thread: gpt-6-sol) | Bestätigter Quellworktree oben | Slot A aktiv; Briefing SLOT-A-SOL.md gesendet, Sequenz 1144183; keine Compilerfreigabe |
 | Finale Prüfungen | 6b53c923-e4da-498a-b08e-254407b452ff | Sol | Cache aus dessen abgeschlossenem Harnessbaum nur nach exklusiver Zuteilung | Nicht wiederaufgenommen; kein Compiler gestartet |
 | Unabhängige Kernabnahme | 52c34332-8cdf-4772-9e1f-42aba432c6cf | Astra | Nach finalem Diff festzulegen | Nicht wiederaufgenommen; Reviewslot fehlt |
 | Consumerabnahme | 533115bf-554f-4457-86b4-2944fef19c63 | Astra | Bestehender Reviewbaum, vor Verwendung neu prüfen | Nicht wiederaufgenommen |
 
-Die alten abgeschlossenen Worker werden nicht als laufend ausgegeben. Vor jeder Wiederaufnahme Status lesen, Briefing laden und Arbeitsort ausdrücklich zuweisen. Kein automatischer Threadstart, kein neuer Cron.
+Nur die ausdrücklich wiederaufgenommenen Threads gelten als aktiv. Vor jeder Wiederaufnahme Status lesen, Briefing laden und Arbeitsort ausdrücklich zuweisen. Der bestehende Kernreviewer wird nach der Sol-Abgabe für die statische Abnahme fortgesetzt; die übrigen alten Worker bleiben beendet.
 
 ## Artefakte und nächste mechanische Grenze
 
@@ -32,7 +32,7 @@ Die alten abgeschlossenen Worker werden nicht als laufend ausgegeben. Vor jeder 
 - `PRUEF-SERVE-CUTOVERPLAN.md`: statische Quellbefunde, konkreter Änderungsschnitt, Prüfung und Serve-Cutover mit offenen Beweisen.
 - Externe Koordinationsdatei, vom Nutzer ausdrücklich beauftragt: `/home/nathanael/Documents/.tasks/2026-09-30-twitch-alles-live/BRAIN-G5-BUILD-REQUEST.txt`.
 
-Die Anfrage wurde in diesem Thread gemeldet. Bis zu einer konkreten Zuteilung keine Builds, Compiler, Benchmarks, Modelle oder Dienstwechsel. Keine neue Nutzerfreigabe nötig.
+Slot A ist ausdrücklich zugeteilt und umfasst den vorhandenen Coding-Agenten sowie die anschließende unabhängige statische Abnahme. Keine weiteren Unterthreads. Wache f09492d8 alle 25 Minuten, sitzungsgebunden, automatische Höchstdauer sieben Tage; nach Slot-A-Abschluss löschen. Slots B bis E bleiben bis konkreter Zuteilung durch pr_inventory gesperrt: keine Compiler, Benchmarks, Releasebuilds, Modellserver, Prozessharness oder Dienstwechsel. Keine neue Nutzerfreigabe nötig.
 
 ## Nachweisstand
 
