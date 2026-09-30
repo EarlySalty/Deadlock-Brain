@@ -1,4 +1,4 @@
-status: aktiv, Workspace-Test bestanden und Slot zurückgegeben; Typed-Consumerbindung und G5-Nachweisabgleich laufen
+status: aktiv, Twitch-Cutover hat Vorrang; Brain nur Quell-/Metadatenarbeit, B1 gepusht und im Review, B2 beauftragt
 Datum: 2026-09-30
 
 # G5-Fortsetzungsregister
@@ -11,7 +11,7 @@ Vorgängerregister: .tasks/2026-09-29-technical-closeout/REGISTER.md
 | Zweck | Worktree | Branch | Stand |
 | --- | --- | --- | --- |
 | Koordination | /home/nathanael/.worktrees/brain-technical-closeout-20260929 | integration/technical-closeout-20260929 | Aktueller Nachweis und Buildanfrage auf diesem eigenen Branch |
-| Quelle | /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930 | fix/g5-replay-deferred-20260930 | ca4a8f236a75ba89ce60d2140c735acd5d1f5bee, gepusht und sauber; Produkt-/Lockbasis 9a29b81 unverändert |
+| Quelle | /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930 | fix/g5-replay-deferred-20260930 | B1-Code0a6e095, separater B1-Bericht35673e7, sauber und HEAD/Upstream0/0; noch kein B2-Quellhead bestätigt |
 | Reviewbericht | /home/nathanael/.worktrees/brain-pre-g5-core-review-20260929 | review/pre-g5-core-abnahme-20260929 | 035e2a99a167b98c2838e4bd25a90fda89a3d96d, statisches GO auf 9a29b81 |
 
 Ursprüngliche gemeinsame Basis: 1c362bca6d35e7fec10125b2b159e7513a299243. Keine fremden Arbeitsbäume verändert. Frühere abgewiesene komplexe Lock-Schreibversuche fanden im richtigen cwd statt; keine fehlenden Commits. Die einzeln erlaubte Cargo-Auflösung schrieb anschließend ohne Guardumgehung.
@@ -51,7 +51,9 @@ Aktuelle Consumerbasis ist der vom Integrator vorbereitete isolierte Head fdd7a5
 
 Rollen-/DB-Metadatenprüfung ist ausdrücklich zugeteilt und tatsächlich bestanden. Erste Verbindung scheiterte an veralteten Sessiongruppen, nicht an DB-Auth. Mit demselben Konto und dessen vorhandener Gruppe979 über sudo -u nathanael -g deadlock-brain-db: Exit0, READ ONLY und ROLLBACK. Schema2/storev2 und begrenzte brain_service-Grants bestätigt. **brain enthält keine Sources/Releases**, Archivschema vorhanden. Pilotstichproben: entities öffentlich game.public, Patchnotes privat brain.legacy.review. DB-BINDUNG-IST.md dokumentiert Grenzen und notwendige Änderungen: vorhandener Importer erlaubt bislang nur brain_pilot und verschiedene Datenbanken, Produktivpfad braucht eine enge abgesicherte Erweiterung, keinen Neubau. Usermanager hat ebenfalls keine Gruppe979; kein Restart der Userverwaltung, stattdessen vorhandene Servevorlage mit expliziter Dienstgruppenbindung für den koordinierten Start vorbereiten. Keine schreibende DB-/Dienständerung.
 
-B1 läuft als nächste Quellvorbereitung im vorhandenen Sol-Thread. Danach bestehender unabhängiger Reviewer, erst anschließend konkreter Harness-/Lastslot. Die acht früheren gezielten PG-/Restorefälle bleiben unveränderte Vertragsevidenz, kein aktueller Lauf; alle74 ignorierten Fälle sind nicht pauschal nachzuholen. Keine Standardtestwiederholung allein wegen der Replay-Zähldifferenz.
+B1-Code0a6e095 und separater Bericht35673e7 sind gepusht, Quellbranch sauber und HEAD/Upstream0/0. Bestehender unabhängiger Reviewer prüft den eingefrorenen B1-Code; letzte Threadlesung running, kein neues Urteil. Sol ebenfalls running mit anschließendem B2-Auftrag, noch kein B2-Quellhead bestätigt. Hauptsession konnte B1-HARNESS-ERGEBNIS.md wegen context-mode-Projektgrenze nicht lesen, kein Alternativzugriff auf den gesperrten Inhalt. Erst nach Abnahme konkrete Harness-/Lastanforderung aus dem belegten Vertrag. Die acht früheren gezielten PG-/Restorefälle bleiben unveränderte Vertragsevidenz, kein aktueller Lauf; alle74 ignorierten Fälle sind nicht pauschal nachzuholen. Keine Standardtestwiederholung allein wegen der Replay-Zähldifferenz.
+
+Nutzer meldet Twitch-Originalgate ALLOW auf9f6f291d und Beginn des Produktionscutovers durch den Integrator. Bis zu dessen ausdrücklicher Slotrückgabe bleiben Compiler, PostgreSQL-Rollenfixtures, DB-Schreibvorgänge, Produktprozesse und Deployaktionen gesperrt. Quell-/Metadatenarbeit am vorhandenen Importer und statischer Review laufen ohne neue Warteschleife weiter. Keine DL-/Twitch-Dienständerung. B2-REVIEW-BRIEFING.md bereitet die unabhängige Deltaabnahme vor, wird erst nach eingefrorener B2-Abgabe beauftragt.
 
 Clippy und Workspace-Test sind abgeschlossen, beide Slots zurückgegeben. Die hostweite BRAIN-G5-BUILD-REQUEST.txt enthält Ergebnis, Consumerbindung und nächsten Prüfbedarf; die Kopie dieser Akte wird vor Sicherung synchronisiert.
 
