@@ -1,7 +1,17 @@
-status: aktiv, Quellvorbereitung und Prüfung warten auf Ressourcenslot
+status: historischer Vorbereitungsplan mit aktuellem Nachtrag; Compiler- und Betriebsnachweise offen
 Datum: 2026-09-30
 
 # Bestehenden typed Servepfad bis zum belegten Cutover führen
+
+## Aktueller Nachtrag vom 30.09.2026
+
+Die Abschnitte 1 bis 7 darunter sind der historische Vorbereitungsstand vor Slot A. Ihre Aussagen „nicht implementiert“, „keine Cargo-Ausführung“ und „kein Slot“ gelten nicht mehr als aktueller Status.
+
+Replay ist inzwischen auf dem gepushten Produkt-/Lockhead `9a29b81d230c01e5c03423cc34ba34c1074eab69` aus V1 abgetrennt. Die unabhängige statische Abnahme einschließlich Lockdiff ist GO, Bericht `035e2a99a167b98c2838e4bd25a90fda89a3d96d`. Beide einzeln zugeteilten Offline-Metadatenläufe bestanden; der zweite mit `--locked` nach 607 ms, ohne Lockänderung oder neuen Targetcache. 386 Pakete, 25 Cargo-Member, keine Gitquellen. Die ursprünglichen 24 V1-Wurzeln bezeichneten ausschließlich die expliziten Rootmanifest-Einträge.
+
+Nächster konkret angefragter Schritt ist Clippy für Workspace und alle Targets mit einem Cargo-Job und dem vorhandenen Harness-Targetcache. Kein Compiler-Slot zugeteilt. SQLx-Offline-Dateien sind vorhanden; tatsächliche Kompilierung ohne zusätzliche Konfiguration noch offen. Exakter Befehl, Ressourcen und Folgegrenzen stehen in `BRAIN-G5-BUILD-REQUEST.txt`; Bindungen und Threads in `REGISTER.md`.
+
+Die Betriebs-, Consumer-, G2/G3-, GitGuardian- und Rollbacknachweise bleiben offen. Keine Compiler, Tests, Dienstwechsel oder neue Produktmodellaufrufe aus den Metadatenfreigaben ableiten. Kein Main-Merge, Deploy oder typed Serve-Livebeweis.
 
 ## 1. Arbeitsort und Stand
 

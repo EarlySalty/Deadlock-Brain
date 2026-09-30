@@ -1,65 +1,75 @@
-status: Slot A zugeteilt und aktiv; Slots B bis E gesperrt
+status: statische Abnahme GO und beide Metadatenläufe erfolgreich; Compiler-Slot angefragt, nicht zugeteilt
 Datum: 2026-09-30
 Intent-Thread: 562a877b-0939-440a-964d-1145d9e9431a
 
-BRAIN G5: ANFRAGE AN DIE HOSTWEITE BUILD-/DEPLOYKOORDINATION
+BRAIN G5: AKTUELLER BEDARF AN DIE HOSTKOORDINATION
 
-Slot A wurde vom Nutzer ausdrücklich zugeteilt. Sol-Thread 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 mit statischem Briefing fortgesetzt (T3-Sequenz 1144183, bestehendes Modell gpt-6-sol). Unabhängige statische Abnahme folgt im vorhandenen Reviewerthread. Slots B bis E bleiben bis zur konkreten Zuteilung durch pr_inventory gesperrt. Keine neue Nutzerfreigabe angefordert.
-
-Bestätigte Bindung:
-Koordination: /home/nathanael/.worktrees/brain-technical-closeout-20260929
-Branch: integration/technical-closeout-20260929
-HEAD: 1c362bca6d35e7fec10125b2b159e7513a299243
-Worker: /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930
+Produkt-/Lockhead: 9a29b81d230c01e5c03423cc34ba34c1074eab69, gepusht.
+Quellworktree: /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930
 Branch: fix/g5-replay-deferred-20260930
-HEAD: 1c362bca6d35e7fec10125b2b159e7513a299243
-Koordination gesichert mit a9eeb9e; Worker bei Slot-A-Start weiterhin sauber auf 1c362bc. Der nächste Produkt-SHA wird erst nach tatsächlicher Abgabe eingetragen.
+Arbeitsverzeichnis für Cargo: /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930/rust
+Koordination: /home/nathanael/.worktrees/brain-technical-closeout-20260929
+Koordinationsbranch: integration/technical-closeout-20260929
 
-Vorhandene, nicht neu anzulegende Caches:
-Cargo: /home/nathanael/.cargo
-Target: /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target
-Dort sind release/brain-serve und release/deadlock-brain-secret-exec vorhanden. Diese Dateien sind kein Nachweis für den noch nicht implementierten G5-Stand. Keine Nutzung eines fremden laufenden Builds. Exklusive Cache-Zuteilung erforderlich.
-Toolchain 1.97.1-x86_64-unknown-linux-gnu ist installiert.
+ABGESCHLOSSENE ZUTEILUNGEN
 
-Slot A: Quellvorbereitung und unabhängiger Review
-Vorhandener Sol-Thread 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 nach Statusprüfung mit neuem Worktree-Briefing fortgesetzt. Keine Unterthreads, kein Compiler, kein Produktmodellwechsel. Bestehende Coding-Agenten und unabhängige statische Reviewer sind im zugeteilten Slot ausdrücklich erlaubt. Reviewer danach separat. Keine produktive/lokale Inferenz oder neuen kostenpflichtigen Routen.
-Ziel: Replay als getrennten, ausdrücklich zurückgestellten Workspace erhalten; keine Replay-Gitquellen in der V1-Auflösung; CI-/Prüfskript-Aufrufer konsistent nachziehen. Keine Quelländerung oder Lockfile-Bereinigung bereits behauptet.
-Ressourcen: ein bestehender T3-Worker, keine lokale Modellinferenz, keine Benchmarks. Vorhandenes Agentenkontingent; keine neue kostenpflichtige Modellroute.
+Slot A: bestehender Sol-Thread 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 bereitete die Replay-Abtrennung vor. Produktcommit 86a0bd6, korrigierter Autorenbericht 0c290809. Kein neues Produktmodell, kein neuer Dienst, keine Unterthreads.
 
-Slot B: Auflösung und serielle Compiler-/Testprüfung
-Arbeitsverzeichnis für alle Befehle:
-/home/nathanael/.worktrees/brain-g5-replay-deferred-20260930/rust
-
-Geplante Befehle, nicht ausgeführt:
+Einzeln zugeteilt und ausgeführt:
 /home/nathanael/.cargo/bin/cargo +1.97.1 metadata --offline --format-version 1
+Exit 0, 562 ms. Rootlock von 427 auf 386 Pakete bereinigt, 41 entfernt, keine neuen Paketversionen, Quellen oder Checksummen. Echter Lockdiff mit Beleg als 9a29b81 gepusht.
+
+Anschließend ausdrücklich ebenfalls zugeteilt und ausgeführt auf demselben sauberen Head:
 /home/nathanael/.cargo/bin/cargo +1.97.1 metadata --locked --offline --format-version 1
-/home/nathanael/.cargo/bin/cargo +1.97.1 fetch --locked
-/home/nathanael/.cargo/bin/cargo +1.97.1 fmt --all -- --check
+Exit 0, 607 ms, kein Fehlertext. 386 Pakete und Resolve-Nodes, 25 Cargo-Member, keine Gitquellen, keine Replaypakete. Die 24 expliziten Root-Einträge plus uplink-infisical-transport ergeben die 25 Member.
+Lock-SHA256 vor und nach dem Lauf identisch:
+2f3dd52e2fee3be8ee03f99e9969e2b56629384b118730956f9637b0198cb291
+Metadata-SHA256 in beiden Läufen identisch:
+f143b11277a256d4d66278318ff1e7d014b1521d3b01154ffa4aec5ffdd1cf71
+Worktree vor und nach dem Kontrolllauf sauber; rust/target existierte vorher und nachher nicht. Kein Fetch, Compiler, Test oder neuer Cache.
+
+UNABHÄNGIGE ABNAHME
+
+Bestehender Reviewer 52c34332-8cdf-4772-9e1f-42aba432c6cf: Fertig J, Fix N, statisches GO auf 9a29b81.
+Bericht gepusht als 035e2a99a167b98c2838e4bd25a90fda89a3d96d auf review/pre-g5-core-abnahme-20260929.
+Eigenständiger semantischer Lockvergleich bestätigt 41 entfernte Pakete, keine Versions-/Quellen-/Checksummentausche und null Gitquellen. Die geprüften V1-Verwendungen benötigen chrono/serde nicht: Daten werden vor JSON in Strings oder Zeitstempel umgewandelt. Kein Compilerbeweis aus der statischen Abnahme.
+Der Bericht entstand vor dem unmittelbar danach ausgeführten Metadaten-Kontrolllauf; dessen inzwischen erfüllte Zuteilung und Ergebnis stehen oben.
+
+NÄCHSTER KONKRETER COMPILERBEFEHL, NICHT AUSGEFÜHRT
+
 /home/nathanael/.cargo/bin/cargo +1.97.1 clippy --workspace --all-targets --locked --offline --jobs 1 --target-dir /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target -- -D warnings
-/home/nathanael/.cargo/bin/cargo +1.97.1 test --workspace --locked --offline --jobs 1 --target-dir /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target
 
-Metadata wird zur Lockfile-Aktualisierung und zum vollständigen Abhängigkeitsnachweis genutzt. Keine pauschale Aktualisierung von Paketversionen. Fetch im vorhandenen Cache ist ausdrücklich kein vollständiger Cold-Cache-Nachweis. Kein neuer Cache ohne Slot-/Ressourcenentscheidung. SQLx-Offlineanforderungen müssen vor Compilerbeginn im vorhandenen Konfigurationsweg ohne neue ENV-Konfiguration geklärt sein; die obigen Befehle sind noch nicht auf dem geänderten Stand validiert.
+Anfrage an pr_inventory: genau diesen seriellen Compilerlauf samt exklusiver Nutzung des vorhandenen Targets zuteilen. Die metadata-only-Zuteilung erlaubt ihn nicht. Keine neue Nutzerfreigabe nötig.
 
-Erwartete Ressourcen: seriell, ein Cargo-Job; Compiler überwiegend ein Kern, Linker kann abweichen. Geschätzt 2 bis 6 GiB RAM, nicht gemessen und keine zugesicherte Obergrenze. Tests können intern parallel laufen; Threadgrenze vor Zuteilung festlegen. Kein Benchmark. Targetwachstum nur im genannten vorhandenen Cache; freies Volumen vor Start prüfen. Keine Dienste betroffen.
+Vorhandener Cargo-Cache: /home/nathanael/.cargo
+Vorhandener Targetcache, Existenz erneut bestätigt: /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target
+Toolchain: 1.97.1, im Metadatenlauf tatsächlich verwendet.
+Freier Speicher bei read-only-Prüfung: 195 GiB laut df -h, Dateisystem 88 Prozent belegt. Vor Ausführung erneut prüfen.
+Ressourcen: ein Cargo-Job, keine Testausführung und kein Releasebuild. Linker/Buildskripte können weitere Threads benutzen. RAM grob 2 bis 6 GiB, keine gemessene Obergrenze. Targetwachstum ausschließlich im vorhandenen Cache. Keine Dienste betroffen, kein Zugriff auf Produktmodelle beauftragt.
 
-Slot C: genau ein Releasebuild nach geprüfter Quelländerung
-Geplant aus demselben Arbeitsverzeichnis und vorhandenen Cache:
+SQLx: 114 versionierte Offline-Metadatendateien unter rust/.sqlx vorhanden; typgeprüfte Query-Makros bleiben erhalten. Kein ENV-Präfix, keine ENV-Datei, kein neuer Secret- oder DB-Konfigurationsweg. Die tatsächliche Offline-Kompilierung ohne zusätzliche Konfiguration ist noch nicht bewiesen. Bei Konfigurationsfehler Lauf anhalten und Ursache konkret melden, nicht still auf Produktions-DB, neue ENV-Konfiguration oder Runtime-Queries ausweichen.
+
+WEITERE SCHRITTE, WEITERHIN NICHT ZUGETEILT
+
+Formatprüfung:
+/home/nathanael/.cargo/bin/cargo +1.97.1 fmt --all -- --check
+
+Workspace-Tests, ausdrücklich erst eigener Slot; Testharness seriell:
+/home/nathanael/.cargo/bin/cargo +1.97.1 test --workspace --locked --offline --jobs 1 --target-dir /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target -- --test-threads=1
+
+Kein Fetch als unmittelbarer nächster Schritt: Offline-Metadaten sind erfolgreich. Ein späterer Quellenbeschaffungsnachweis braucht eigene Zuteilung; vorhandener Cache beweist keinen frischen Quellenzugang.
+
+Release erst nach Compiler-/Testnachweisen und separater hostweiter Zuteilung, höchstens ein Releasebuild auf dem Host. Geplanter Befehl:
 flock -w 600 /tmp/deadlock-brain-release-build.lock /home/nathanael/.cargo/bin/cargo +1.97.1 build --workspace --release --locked --offline --jobs 1 --target-dir /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target
+Der Lock allein ist keine Zuteilung.
 
-Der Lock allein ist keine Slotzuteilung. Start erst nach ausdrücklicher hostweiter Zuteilung und nach dem Twitch-/DL-Cutover. Kein zweiter Releasebuild parallel. Ressourcen wie Slot B, längere Linkphase möglich. Keine Dienständerung.
+Prozess-/PostgreSQL-Harness weiterhin nicht startbereit: bestehenden Harness zuerst auf Cache-Reuse, ENV-Konfiguration und versteckte Compilerphase prüfen. Keine Änderungen oder Neustarts an der laufenden PostgreSQL-Instanz, kein Lastbenchmark.
 
-Slot D: isolierte Prozess-/PostgreSQL-Nachweise
-Bestehende serve/core-postgres/storage-upgrade/wiki-Prüfpfade wiederverwenden. Noch kein exakter neuer Aufruf freigegeben: Harness muss zuerst auf Cache-Reuse, keine ENV-Konfiguration und keine eigene versteckte Compilerphase geprüft werden. Vor jedem solchen Lauf diese Anfrage um exakten Befehl und Ressourcen ergänzen. Keine Änderungen an der laufenden PostgreSQL-Instanz, keine produktiven Secrets. Kein Lastbenchmark ohne eigene Slotzuteilung.
+Serve-Cutover weiterhin nicht startbereit. Tatsächliche Unit, Config, Endpoint, revisionsgebundenes Artefakt und Rückweg müssen belegt sein. Beispielport 127.0.0.1:8787 und Port 8789 sind belegt; keine blinde Übernahme. Brain-PostgreSQL bleibt ohne Neustart. Twitch-/DL-Wechsel ausschließlich durch den Integrator. Keine Veröffentlichung parallel zu dessen Cutover.
 
-Slot E: Serve-Cutover, derzeit NICHT startbereit
-Kein Dienstbefehl angefordert oder freigegeben. Tatsächlicher Unitname, revisionsgebundener Releasepfad, sichere Config, Port und Rückweg müssen zunächst nachgewiesen sein. Die vorhandene Beispielunit ist keine installierte Serve-Unit. Ihre Beispieladresse 127.0.0.1:8787 ist belegt; nicht verwenden. 8789 ist ebenfalls belegt. Keine Portwahl nur nach einem zufällig freien Socket.
-Später betroffen: neue/zu bestätigende Brain-Serve-Unit. Brain-PostgreSQL bleibt ohne Neustart. Twitch-/DL-Dienste ausschließlich durch den Integrator; kein eigener Neustart. Vor jedem tatsächlichen Start/Wechsel separaten exakten Befehl mit Artefakt-SHA, Ressourcen, Diensten und Rollback hier ergänzen.
+Kein neuer Build-, Test- oder Livebeweis behauptet. Typed POST /v1/answer ist noch nicht als live nachgewiesen. Replay bleibt außerhalb V1. Keine Community-Nachricht, kein Steam-Build-Publish.
 
-Aktuelle Nachweise:
-- Statische Cargo.lock-Analyse: 25 Workspacewurzeln, nach Replay-Abtrennung 24; 427 Lockpakete, davon 386 aus den 24 V1-Wurzeln erreichbar, keine unaufgelösten Kanten in dieser Analyse, keine Gitquelle im verbleibenden Graphen. Noch kein Cargo-/Compilerbeweis.
-- Rootmanifest bindet Replay weiterhin als Member ein. V1-Abtrennung noch nicht implementiert.
-- Die geladenen System-/Userunits enthalten keinen nachgewiesenen typed Brain-Serve-Dienst. Brain-PostgreSQL läuft. Vorgegebene Serve-Beispielpfade sind nicht installiert.
-- Kein Build, Benchmark, Modellserver, Restart, Deploy oder Community-Post. Nur die ausdrücklich zugeteilte bestehende Coding-Agentenarbeit läuft.
-
-Plan und Quellen:
-/home/nathanael/.worktrees/brain-technical-closeout-20260929/.tasks/2026-09-30-g5-abschluss/PRUEF-SERVE-CUTOVERPLAN.md
+Belege:
+.tasks/2026-09-30-g5-abschluss/SLOT-A-ERGEBNIS.md und SLOT-B-METADATA.md auf dem Quellbranch.
+.tasks/2026-09-30-g5-abschluss/SLOT-A-REVIEW.md auf dem Reviewbranch.
+Aktueller Kontrollnachweis und Register in .tasks/2026-09-30-g5-abschluss/ auf dem Koordinationsbranch.
