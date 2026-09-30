@@ -3,11 +3,25 @@
 set -euo pipefail
 umask 077
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-if (( $# > 1 )); then
-  echo 'Usage: test_brain_storage_upgrade.sh [cargo-executable]' >&2
+if (( $# < 1 || $# > 2 )); then
+  printf 'Usage: test_brain_storage_upgrade.sh [cargo-executable] <absolute-existing-target-dir>\n' >&2
   exit 2
 fi
-CARGO="${1:-$HOME/.cargo/bin/cargo}"
+if (( $# == 2 )); then
+  CARGO="$1"
+  TARGET_DIR="$2"
+else
+  CARGO="$HOME/.cargo/bin/cargo"
+  TARGET_DIR="$1"
+fi
+if [[ "$TARGET_DIR" != /* || ! -d "$TARGET_DIR" ]]; then
+  printf 'Target cache must be an existing absolute directory: %s\n' "$TARGET_DIR" >&2
+  exit 2
+fi
+if ! command -v "$CARGO" >/dev/null 2>&1; then
+  printf 'Cargo executable not found: %s\n' "$CARGO" >&2
+  exit 2
+fi
 PG_BIN="$(pg_config --bindir)"
 for binary in initdb pg_ctl pg_dump pg_restore; do
   test -x "$PG_BIN/$binary"
@@ -57,8 +71,8 @@ STARTED=true
 "${PG_ENV[@]}" "$PG_BIN/pg_ctl" -D "$SCRATCH/data" -l "$SCRATCH/server.log" \
   -o "-c listen_addresses='' -k $SCRATCH/socket -p 55441 -c max_connections=24 -c shared_buffers=16MB" -w start
 env -i "PATH=$PATH" "HOME=$SCRATCH/home" "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" \
-  "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" "CARGO_TARGET_DIR=$ROOT/rust/target" \
-  "CARGO_BUILD_JOBS=2" "SQLX_OFFLINE=true" "BRAIN_C11_SCRATCH=$SCRATCH" \
-  "$CARGO" test --manifest-path "$ROOT/rust/Cargo.toml" \
-  --locked --offline --jobs 2 -p brain-storage --test storage_upgrade \
+  "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" \
+  "CARGO_BUILD_JOBS=1" "SQLX_OFFLINE=true" "BRAIN_C11_SCRATCH=$SCRATCH" \
+  "$CARGO" +1.97.1 test --manifest-path "$ROOT/rust/Cargo.toml" \
+  --locked --offline --jobs 1 --target-dir "$TARGET_DIR" -p brain-storage --test storage_upgrade \
   v1_upgrade_restore_and_least_privilege -- --ignored --exact --nocapture

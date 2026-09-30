@@ -4,6 +4,15 @@
 # The pilot test starts the real brain-serve executable and talks to it via BrainClient.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if (( $# != 1 )); then
+  printf 'Usage: run_local_pilot.sh <absolute-existing-target-dir>\n' >&2
+  exit 2
+fi
+TARGET_DIR="$1"
+if [[ "$TARGET_DIR" != /* || ! -d "$TARGET_DIR" ]]; then
+  printf 'Target cache must be an existing absolute directory: %s\n' "$TARGET_DIR" >&2
+  exit 2
+fi
 PG_BIN="${BRAIN_TEST_PG_BIN:-$(pg_config --bindir)}"
 CARGO="${BRAIN_TEST_CARGO:-cargo}"
 CLUSTER="$ROOT/.core-test-pg"
@@ -35,12 +44,12 @@ done
 FAILED=0
 phase() {
   local database="$1" test="$2" label="$3"
-  if ! (cd "$ROOT/rust" && "$CARGO" test --locked -p brain-serve --test local_pilot --no-run) >"$REPORT/$label.build.log" 2>&1; then
+  if ! (cd "$ROOT/rust" && "$CARGO" +1.97.1 test --locked --offline --jobs 1 --target-dir "$TARGET_DIR" -p brain-serve --test local_pilot --no-run) >"$REPORT/$label.build.log" 2>&1; then
     printf '%s_build\t1\n' "$label" >>"$REPORT/summary.tsv"
     FAILED=1
     return
   fi
-  (cd "$ROOT/rust" && BRAIN_PILOT_DATABASE="$database" "$CARGO" test --locked -p brain-serve --test local_pilot "$test" -- --ignored --exact --nocapture) >"$REPORT/$label.log" 2>&1
+  (cd "$ROOT/rust" && BRAIN_PILOT_DATABASE="$database" "$CARGO" +1.97.1 test --locked --offline --jobs 1 --target-dir "$TARGET_DIR" -p brain-serve --test local_pilot "$test" -- --ignored --exact --nocapture) >"$REPORT/$label.log" 2>&1
   local result=$?
   printf '%s\t%s\n' "$label" "$result" >>"$REPORT/summary.tsv"
   ((result == 0)) || FAILED=1
