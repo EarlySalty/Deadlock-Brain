@@ -1,4 +1,20 @@
-status: aktiv, Quellabschluss efb56023/Bericht c5951b6 übernommen; Folgepakete und Cutover-Lücken vorbereitet, weiterhin keine dritte Slotzuteilung
+status: aktiv, Clippy/U1/U2/PG1 aufc5951b6 tatsächlich grün, Slots zurück; PG2 und produktive Läufe nicht zugeteilt
+
+PG1 zusätzlich abgeschlossen: b77f29612/PID1761901 ab16:26:57UTC, tatsächlicher Exit0,1 bestanden/0 Fehler. Echter isolierter Upgrade-/Restore-/Minimalrollenfall; Log0600/1142Bytes/SHA256716de6827349f368f3ff416afe2ae021a27c10228ce5d5f4042b5ca919fa5b9b. server stopped geloggt, RunnerPID weg, kein eigenes brain-c11.*-Verzeichnis verblieben. Slot sofort zurück, keine Folgeaktion. DetailsSLOT-I-PG1-NACHWEIS.md. PG2 bleibt genau vorhandener siebenstufiger Serve-/Cutover-/Lastwrapper und braucht seine eigene Zuteilung.
+
+## Aktuelle Einzelläufe und weiterer Scope
+
+Clippybnqo5hhln:Exit0. U1b6sdg0hdh/PID1716785 ab16:19:54UTC:Exit0,3 bestanden/0 fehlgeschlagen/1 PG ignoriert. U2bzvyx60ym/PID1737437 ab16:24:04UTC:Exit0,20 bestanden/0 fehlgeschlagen/1 PG ignoriert. Alle auf unverändertemc5951b610aa2545d2c0b43b33b5fe1906198b292, locked/offline/jobs1, bestehender separater Cache. Slots jeweils unmittelbar vor Bericht/Logauswertung zurückgegeben. Belege SLOT-F-CLIPPY-NACHWEIS.md, SLOT-G-U1-NACHWEIS.md, SLOT-H-U2-NACHWEIS.md mit vollständigen Logpfaden/Hashes. Kein Folgelauf.
+
+PG1/PG2 bleiben separat vorzumerkende vorhandene Runner. Nutzerpräzisierung: interne Übernahme/Bereitstellung bereits beauftragt, private Grenzen erhalten, keine neue Publikation/Egress. Echte Auftrags-/Quellenbelege berücksichtigen, tatsächliche Snapshot-/Status-/Widerrufsbindung nachweisen. Falls nur der ausführbare lesende Fingerprintmodus fehlt, engsten Zusatz am bestehenden Importer vorbereiten, aber eingefrorenen Prüfkopf nicht verändern. Keine neue Wache, kein neues Modell und keine Gesamtquellreviewrunde.
+
+U1 läuft alsb6sdg0hdh/PID1716785 auf erneut sauber gebundenemc5951b610aa2545d2c0b43b33b5fe1906198b292. Nutzer meldet11,95GiB verfügbar und getrennten Twitch-Releasejobs2. Genau ein Importer-Binärtestlauf mit locked/offline/jobs1/test-threads1, vorhandener Cache; keine PG-/Serve-/Lastkette. Log brain-g5-u1-c5951b6-slot-20260930.log in der zentralen Taskakte. Tatsächlicher Exit noch offen. Bestehende Aufgaben-/Quellenverträge werden bei der späteren Produktionsbindung ausdrücklich als vorhandene Evidenz berücksichtigt, siehe Ergänzung NACHWEISFOLGE-UND-CUTOVER.md.
+
+## Grüner Paket-Clippy16:17UTC
+
+Harnessbnqo5hhln/PID1702718 startete16:17:01UTC auf zuvor sauber gebundenemc5951b610aa2545d2c0b43b33b5fe1906198b292. Genau zugeteilter Paket-Clippy mit all-targets/locked/offline/jobs1, tatsächlicher Exit0, beide Pakete im dev-Profil geprüft. Vollständiger Log330Bytes/SHA256aad7bdfd2075645e65a1d32ca25977e14a3801687f9d4e57bafcb72d11432a2d. Slot vor Bericht sofort zurückgegeben; Nutzer bestätigt16:17:31 und Integrator informiert. BelegSLOT-F-CLIPPY-NACHWEIS.md.
+
+Nächster kleinster Einzelbedarf U1 mit exaktem Befehl an Nutzer und Zentraldatei gemeldet: drei normale Importer-Binärunits, ein ignorierterPG-Fall. Keine Tests/PG/Runtime/Import/Serve gestartet; kein automatischer Folgelauf. Weitere Klassen nach NACHWEISFOLGE-UND-CUTOVER.md getrennt, reale Policy-/Snapshot-/Cutoverlücken bleiben offen.
 
 ## Konkrete Vorbereitung ohne Lauf
 

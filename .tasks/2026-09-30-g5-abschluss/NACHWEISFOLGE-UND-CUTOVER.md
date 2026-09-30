@@ -1,5 +1,17 @@
-status: aktiv, konkrete Folgepakete vorbereitet; nichts ausgeführt oder zugeteilt
+status: aktiv, Clippy/U1/U2/PG1 tatsächlich grün; PG2 und produktive Läufe nicht zugeteilt
 Datum: 2026-09-30
+
+Aktueller Stand: SLOT-F-CLIPPY-NACHWEIS.md Exit0, SLOT-G-U1-NACHWEIS.md drei bestanden/einPGignoriert, SLOT-H-U2-NACHWEIS.md20 bestanden/einPGignoriert, SLOT-I-PG1-NACHWEIS.md ein isolierter Upgrade-/Restore-/Minimalrollenfall bestanden plus Cleanup. Jeweils eigene ausdrückliche Zuteilung und sofortige Slotrückgabe. Eingefrorener Quellheadc5951b6 unverändert. PG2 nicht gestartet, historische Startformulierungen im Verlauf unten nicht als aktuelle Läufe lesen.
+
+Nutzerpräzisierung: bestehender Auftrag autorisiert interne technische Übernahme und Bereitstellung unter Erhalt privater Grenzen, keine neue Veröffentlichung und kein Provider-Egress. Leere allgemeine Freigabevorlagen erzwingen keine erneute pauschale Bestätigung. Vorhandene echte Aufgaben-/Quellenreferenzen sind zu prüfen und zu verwenden; Sachlücken bleiben Snapshot-/Status-/Widerrufsmetadaten. Falls deren kanonischer Fingerprint nur mangels ausführbarem Read-only-Modus nicht erhebbar ist, Vorbereitung eines engen Zusatzes am bestehenden Rust-Importer erlaubt, derselbe Leser/Config/Secretpfad, keine Zielmutationen und Ausgabe nur Hash/Counts/ID-Inventar. Der eingefrorene Prüfkopf bleibt dabei unverändert; keine Import-/Serve-/Policyänderung beauftragt.
+
+Aktualisierung16:19UTC: Clippy aufc5951b6 beendet mit tatsächlichem Exit0, BelegSLOT-F-CLIPPY-NACHWEIS.md. U1 nach eigener ausdrücklicher Zuteilung alsb6sdg0hdh/PID1716785 seit16:19:54UTC gestartet. Kein Start der restlichen unten vorbereiteten Pakete.
+
+## Bestehende Aufträge als Evidenz, keine neuen Formalfreigaben
+
+AUFTRAG.md:12-16 dokumentiert den Gesamtabschluss einschließlich produktiver Aktivierung nach erfüllten Nachweisen sowie Replay außerhalbV1. B2-IMPORT-BRIEFING.md:8-14 enthält den ausdrücklich bereits autorisierten Archiv-zu-Core-Cutover; :29-37 bindet vorhandene Rollen, private Patchnotes und das Verbot einer stillen Veröffentlichung. Das sind vorhandene Aufgaben-/Scopebelege und keine erneut offenen Nutzerentscheidungen. Diese Vorgaben werden beim Auflösen der Produktionsbindung berücksichtigt, nicht wegen einer leeren Configvorlage verworfen.
+
+Die weiterhin konkrete Lücke ist die nachprüfbare Zuordnung dieser geltenden Vorgaben und der tatsächlichen Quellen-/Rechtebelege zu exakt dem importierten Snapshot und seinen vollständigen Zustandslisten. Ein approval_ref muss auf einen solchen vorhandenen, inhaltlich passenden Beleg verweisen; eine beliebige Hashzeichenfolge oder eine vom Agenten neu behauptete Rechtefreigabe ist kein Ersatz. Publikations-/Egressrechte werden weder aus dem Auftrag noch aus historischen public-Heads zusätzlich abgeleitet. Nach den unabhängigen Laufproben zuerst die vorhandenen Quellenverträge mit der tatsächlichen Datenbindung zusammenführen; nur eine dann belegte echte Produktentscheidung an den Nutzer zurückgeben.
 
 # Kleinste nächste Nachweise und tatsächliche Cutover-Lücken
 
