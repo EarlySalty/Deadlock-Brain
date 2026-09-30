@@ -111,7 +111,7 @@ async fn kernel_must_not_start_after_http_deadline_during_ownership_check() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn incomplete_request_body_must_be_covered_by_request_deadline() {
+async fn unauthenticated_incomplete_body_is_rejected_before_body_read() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let (calls, _observed) = mpsc::channel();
     let registry = CredentialRegistry::new(vec![AuthGrant::from_secret(
@@ -142,10 +142,22 @@ async fn incomplete_request_body_must_be_covered_by_request_deadline() {
     let mut stream = tokio::net::TcpStream::connect(address).await.unwrap();
     // The client intentionally withholds two body bytes; one local connection only.
     stream.write_all(b"POST /v1/answer HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n").await.unwrap();
-    let mut bytes = [0u8; 512];
-    let result = tokio::time::timeout(Duration::from_millis(500), stream.read(&mut bytes)).await;
+    let mut bytes = Vec::new();
+    let count = tokio::time::timeout(Duration::from_millis(500), stream.read_to_end(&mut bytes))
+        .await
+        .expect("authentication must reject the unfinished body within the test bound")
+        .expect("read the HTTP response");
     drop(stream);
     stop.send(()).unwrap();
     server.await.unwrap();
-    assert!(result.is_ok(), "an unauthenticated incomplete body remains open more than 10x beyond the 50 ms request deadline, before the admission semaphore is acquired");
+    assert!(count > 0);
+    let response = std::str::from_utf8(&bytes).unwrap();
+    assert!(response.starts_with("HTTP/1.1 401 "), "{response}");
+    let (_, body) = response.split_once("\r\n\r\n").unwrap();
+    let error: serde_json::Value = serde_json::from_str(body).unwrap();
+    assert_eq!(error["error"]["code"], "unauthorized");
+    assert_eq!(
+        error["error"]["message"],
+        "Genau ein Bearer-Header erforderlich"
+    );
 }
