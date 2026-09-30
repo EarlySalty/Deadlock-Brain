@@ -1,0 +1,37 @@
+status: aktiv, Quellabgabe ohne Compiler- oder Laufzeitnachweis
+Datum: 2026-09-30
+
+# B2-R1 bis R3: gemeinsame Fixabgabe
+
+Quellhead `e878530a476431ff844d22f70cd86780d3cc3de4` auf `fix/g5-replay-deferred-20260930`, getrennt vom ursprünglichen B2-Quellhead `c5d2b1f4f18eb8fd360641b3e66fa7453cafb4d2`. Der Quellhead ist gepusht. Dieser Bericht und die sachliche Korrektur von `B2-IMPORT-ERGEBNIS.md` folgen als eigener Berichtcommit. Kein Compiler, Clippy, Test, Harness, Datenbankzugriff oder Produktlauf wurde für den Fix ausgeführt.
+
+## Befunde und geschriebene Gegenbeweise
+
+1. **R1, konkurrierende Schreiber:** `rust/crates/brain-legacy-import/src/bin/brain-legacy-import.rs:234-255,384-410` bildet aus den vorab geprüften Heads und den vorbereiteten Batches den erwarteten vollständigen Zielzustand. `rust/crates/brain-storage/src/pg_release.rs:71-211` schreibt beide Batches und vergleicht innerhalb derselben Transaktion unter gehaltenen Quellsperren die kompletten gespeicherten Heads und die beiden Checkpoints mit diesem Zustand. Erst dann wird der unveränderliche Release eingefügt und zurückgelesen. Ein Vergleichsfehler rollt Batch- und Releaseänderungen zurück. Der geschriebene Scratchgegenbeweis in `bin/brain-legacy-import.rs:880-997` setzt nach der Baseline einen konkurrierenden Patch-Tombstone per Batch und einen Entity-Scopewiderruf per direktem `PgStore::apply`. Auch beim Batch ohne geänderte Records darf daraus kein neuer Release entstehen. Die Zustände, Checkpoints und Tabellenzahlen werden geprüft; der Test ist noch nicht gelaufen.
+2. **R2, fertiger Releasevertrag:** `bin/brain-legacy-import.rs:370-403` ruft den unveränderten vorhandenen Storevalidator bereits auf dem fertig abgeleiteten Release vor dem ersten Claim auf. `brain-storage/src/memory_repository.rs:241-265` behält die Grenze von 512 UTF-8-Bytes für Release-ID, Version und Patch; sie wurde nicht angehoben. Der reine Test `bin/brain-legacy-import.rs:606-644` deckt Präfix 495/496 ASCII-Bytes, 495/496 UTF-8-Präfixbytes mit `é` und die Version-/Patchgrenzen 512/513 ab. Der noch nicht ausgeführte Scratchgegenbeweis `bin/brain-legacy-import.rs:823-845` verlangt bei unzulässigen Werten unveränderte Zähler für Jobs, Heads, Revisionen, Checkpoints und Releases; die zulässigen Grenzwerte werden danach importiert.
+3. **R3, isoliertes Fixture:** `scripts/test_brain_serve.sh:57-83` legt `brain_cutover_test` im bestehenden wegwerfbaren PostgreSQL-Cluster an und ruft den ignorierten Binärtest mit `tests::same_database_archive_to_core_requires_bound_private_snapshot -- --ignored --exact` vor den Serve-Prozesstests auf. Das Fixture verwendet ausschließlich diese Datenbank und prüft am Ende, dass `brain_schema_test` noch keine `brain`- oder `brain_legacy`-Schemas hat (`bin/brain-legacy-import.rs:679-715,998-1015`). Der bisherige Schema99-Test behält seine separate leere Datenbank und das bestehende Cluster-Cleanup bleibt bestehen. Der ganze Serve-Runner enthält weiterhin einen Lastfall mit 1.800 Requests. Das ist kein leichter Smoke-Test.
+
+## Sperr- und Transaktionsgrenze
+
+`brain-storage/src/pg_jobs.rs:7-16,24-96` nimmt eine transaktionsgebundene Advisory-Sperre je Quell-ID vor Job-, Checkpoint- und Recordarbeit. Das gilt auch bei Batch-Replay und ohne geänderte Records. `brain-storage/src/lib.rs:164-180` nimmt dieselbe Sperre vor der Record-Sperre bei direktem `PgStore::apply`; `commit_batch_tx` und `apply_connection` teilen damit die unterste Schreibgrenze. Der gebundene Releasepfad nimmt die zwei Quellsperren in sortierter Reihenfolge zu Beginn seiner einen Transaktion, hält sie durch beide Batchcommits, Baselinevergleich, Veröffentlichung und Readback bis zum Commit (`pg_release.rs:130-211`). Ein Store-Schreiber vor dem Sperrerwerb wird durch den Vergleich oder den Checkpoint-CAS erkannt; ein Schreiber nach Sperrerwerb wartet auf den Transaktionsabschluss. Die Linearisation des gebundenen Veröffentlichens liegt am Transaktionscommit. Rohe SQL-Schreiber außerhalb dieser Storepfade sind damit nicht gesperrt und werden hier nicht als abgesichert behauptet. Der Pilotpfad und die allgemeinen `publish_release`-Aufrufe behalten ihr bisheriges Verhalten.
+
+## Unveränderte Betreiberinputs und Grenzen
+
+Die Produktionsvorlage bleibt gesperrt. Erforderlich bleiben die freigegebene Archivprobe samt Label, Epoch, Schema- und Importerfingerprint, OIDs und Tabellenzahlen, die vollständige ID-Klassifikation und geprüften Policybelege, private Patchnotes, eine tatsächlich belegte Approval-Referenz, getrennte Rollen und bisherige Secretreferenzen, ein bestehender privater Berichtsort und der geprüfte Secret-Exec-Transport. Der Snapshotfingerprint umfasst projizierte `LegacyRead`-Daten und daraus gebaute Dokumente, nicht jedes Rohmetadatenfeld. Ein noch aktiver widerrufener oder tombstonierter Zielhead blockiert bei der Vorprüfung; ein leeres Ziel bekommt durchs Weglassen keinen historischen Tombstonerecord. Die read-only beobachteten 905 Entities, 348 Patch-IDs und 348 privaten Pilotpatchheads sind keine Importerfingerprints oder Cutoverfreigaben. Weder Produktivimport noch Merge, Consumeraktivierung, Lastlauf, Service oder Deploy sind freigegeben.
+
+## Spätere Prüfungen, noch nicht ausgeführt
+
+Nur im separat freigegebenen Compiler- und Scratchslot, mit vorhandenem Targetcache `/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target`, Rust 1.97.1, Lockfile, Offline-Modus und einem Cargo-Job:
+
+```sh
+/home/nathanael/.cargo/bin/cargo +1.97.1 check --manifest-path /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930/rust/Cargo.toml -p brain-legacy-import -p brain-storage --all-targets --locked --offline --jobs 1 --target-dir /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target
+/home/nathanael/.cargo/bin/cargo +1.97.1 clippy --manifest-path /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930/rust/Cargo.toml -p brain-legacy-import -p brain-storage --all-targets --locked --offline --jobs 1 --target-dir /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target -- -D warnings
+/home/nathanael/.cargo/bin/cargo +1.97.1 test --manifest-path /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930/rust/Cargo.toml -p brain-legacy-import -p brain-storage --locked --offline --jobs 1 --target-dir /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target
+bash /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930/scripts/test_brain_serve.sh /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target
+```
+
+Der letzte Befehl enthält den ignorierten positiven Importtest und die Serve-Prozess- und Lasttests. Nicht außerhalb eines genehmigten Scratch-, Prozess- und Lastfensters ausführen. Bisher erfolgten nur Rust 1.97.1 `rustfmt --check` der fünf betroffenen Rustdateien, `bash -n` des Runners, statische Quellprüfung sowie `git diff --check` und `git diff --cached --check`, jeweils Exit 0. Die geschriebenen Tests liefern noch keinen Laufzeitbeweis. Die unabhängige Nachprüfung der drei Befunde bleibt der separate nächste Review-Schritt.
+
+BESTAND[BS-1]: ja | Fundort: rust/crates/brain-storage/src/pg_release.rs:62 | Anknüpfung: bestehende atomare Batch- und Release-Transaktion und Releasevalidator
+TEXTNACHWEIS[DR-1]: Gedankenstriche 0 | ae/oe/ue/ss-Ersatz 0 | Absolutwörter 0 belegt | Senke: B2-R1-R3-FIX-ERGEBNIS.md
+ORCHESTRIERUNG[OR-1]: Stufe groß | Schritt bau | Artefakt: .tasks/2026-09-30-g5-abschluss/B2-R1-R3-FIX-ERGEBNIS.md
