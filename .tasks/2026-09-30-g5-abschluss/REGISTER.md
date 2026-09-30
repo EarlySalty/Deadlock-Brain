@@ -1,4 +1,4 @@
-status: aktiv, B2-R1-R3-Storagefix im WIP; B1-PflichtargumentfixGO und Cargo-Dreistellenrest beim Autor; Read-only-Nachweise aktualisiert, nächste Läufe zur Zuteilung vorbereitet
+status: aktiv, Nachreview eceb14c gelesen; CI GO, R2/R3 geschlossen, enger R1-Konkurrenztestrest beim bestehenden Autor1172680; kein Laufslot
 Datum: 2026-09-30
 
 # G5-Fortsetzungsregister
@@ -11,15 +11,15 @@ Vorgängerregister: .tasks/2026-09-29-technical-closeout/REGISTER.md
 | Zweck | Worktree | Branch | Stand |
 | --- | --- | --- | --- |
 | Koordination | /home/nathanael/.worktrees/brain-technical-closeout-20260929 | integration/technical-closeout-20260929 | Eigene Akte und synchronisierte zentrale Buildanfrage |
-| Quelle | /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930 | fix/g5-replay-deferred-20260930 | B2c5d2b1f/e2cb154, B1-R1a427be3/4ee56de gepusht; vor neuem Dispatch sauber, HEAD/Upstream0/0 |
-| Reviewbericht | /home/nathanael/.worktrees/brain-pre-g5-core-review-20260929 | review/pre-g5-core-abnahme-20260929 | B2-BLOCK854825b gelesen; B1-R1-Nachprüfung aktiv |
+| Quelle | /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930 | fix/g5-replay-deferred-20260930 | B2e878530/8c31b09 und CI0c56f85/392267b gepusht, vor engem Testfix sauber |
+| Reviewbericht | /home/nathanael/.worktrees/brain-pre-g5-core-review-20260929 | review/pre-g5-core-abnahme-20260929 | eceb14c gelesen, sauber/gepusht; CI GO, ein R1-Testquellenrest |
 
 ## Thread-Register (T3)
 
 | Paket | Thread-ID | Modell | Stand |
 | --- | --- | --- | --- |
-| Autor B2 und B1-R1 | 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 | bestehender Sol, gpt-6-sol | B2-R1-R3 seit1166046 aktiv; WIP inzwischen sechs Dateien: Importerbin, vier Storage-Dateien und Serve-Harness,439 Einfügungen/73 Löschungen. Nachtrag1167206: nach B2 separat drei Cargo-Weitergaben R1-N1. HEAD4ee56de/Upstream0/0, noch kein gemeinsamer Fixhead oder frische Abnahme. Tatsächlicher Fortschritt, kein erneuter Interrupt |
-| Unabhängige Abnahme | 52c34332-8cdf-4772-9e1f-42aba432c6cf | bestehender Astra | B1-Nachreview11cd23e gelesen: PflichtargumentfixGO, drei CI-Cargo-Pfadreste R1-N1. Gesettelt1167086; für konkreten neuen B2-/CI-Fixhead wiederverwenden |
+| Autor B2 und B1-R1 | 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 | bestehender Sol, gpt-6-sol | Abgabe14:27: B2e878530, CI0c56f85, Berichte8c31b09/392267b, sauber/gepusht. Nach bestätigtem Reviewrest mit1172680 fortgesetzt: deterministischer R1-Konkurrenznachweis nach B2-R1-SYNCHRONISATION-BRIEFING.md. Erneut read=ready vor bewusstem force bei widersprüchlichem send-Marker. Keine Laufzeitaktion |
+| Unabhängige Abnahme | 52c34332-8cdf-4772-9e1f-42aba432c6cf | bestehender Astra | Nachreview1170225 abgeschlossen14:42, eceb14c gelesen/gepusht. CI GO; R2/R3 geschlossen, R1-Produktkorrektur statisch akzeptiert; ein Testquellenrest. Gesettelt1172747, für neuen engen Fixhead wiederverwenden |
 | Finale Compiler-/Prozessprüfung | 6b53c923-e4da-498a-b08e-254407b452ff | Sol | Nicht wiederaufgenommen; historische Teilaufgabe |
 | Consumerabnahme | 533115bf-554f-4457-86b4-2944fef19c63 | Astra | Nicht wiederaufgenommen |
 
@@ -33,13 +33,17 @@ B2-Quellcommit c5d2b1f4f18eb8fd360641b3e66fa7453cafb4d2, Bericht e2cb15486f9816a
 2. B2-R2: Ungültige fertige Release-ID/Version/Patch werden erst nach Quellenwrites verworfen. Fertigen Releasevertrag vor erstem Claim validieren, negative Fälle ohne Zielmutationen beweisen.
 3. B2-R3: Neuer Scratchtest kollidiert mit der vorhandenen brain_schema_test-/Schema99-Fixture. Eigene isolierte Fixture im bestehenden Runner anschließen, alten Test erhalten.
 
-Direkter Nutzerauftrag: alle drei zusammen im selben Autor beheben. Eng nötige bestehende Storage-Schnittstelle und Serve-Harness im Fixbriefing enthalten, keine neue Gesamtarchitektur. Gemeinsamer neuer Fixhead noch ausstehend. Autorbericht muss außerdem Fingerprintumfang und konservatives Blockieren aktiver widerrufener Heads korrekt beschreiben. Reale Policy-/Snapshot-/ID-Inventare und Runtimegegenbeweise bleiben getrennte offene Nachweise.
+Gemeinsame Korrektur e878530 auf bestehendem Autorbranch gepusht, sechs Dateien456 Einfügungen/73 Löschungen; Bericht8c31b09. Nachreview eceb14c2d7b9bf0dc6eae0d37da3f5c7aa94d1da schließt R2/R3 statisch und akzeptiert R1-Produktkorrektur. Verbleibender BLOCK betrifft ausschließlich zwei serielle Testabläufe: competing_delete.await und competing_scope.await (Importer928/976 aufe878530) enden vor Veröffentlichung; damit fehlt ein Gegenbeweis gegen entfernte Quellsperren. Derselbe Autor ergänzt deterministische Überlappung, keine neue Produktarchitektur oder Vollinventur. Reale Policy-/Snapshot-/ID-Inventare und Runtimegegenbeweise bleiben getrennt offen.
 
-B1-R1 separat fertig: a427be3099d9bb4d93dad8ce43cfe4c1820d4596, Bericht4ee56de1ef465b4b29633a543c3e2930b3003303. Zwei Wrapper, drei Workflows, ein Reproduktionsbeispiel;45 Einfügungen/23 Löschungen. Nachreview11cd23e schließt Pflichtargumentbefund; R1-N1 bleibt an drei vorhandenen CI-Aufrufen, die Cargo nicht vor HOME-Isolation weitergeben. Lokale Wrapper unauffällig, GitHub Actions kein Gate. Dreistellenrest an denselben Autor gegeben, getrennt nach gemeinsamer B2-Abgabe.
+B1-R1a427be3 mit Bericht4ee56de wurde in11cd23e bezüglich Pflichtargumentweitergabe abgenommen. Der getrennte Dreistellen-Cargo-Fix0c56f85 mit Bericht392267b hat in eceb14c ebenfalls statisches GO. Lokale Wrapper unauffällig, kein eigener zusätzlicher Cargo-Bedarf aus CI-Fix; GitHub Actions kein Gate.
 
 Read-only-Nachweise um13:47UTC durchgeführt: viermalExit0/ROLLBACK, kein Schreib-/Produktprozess. Ziel weiter leer; OIDs, Schemahash und Leserrechte bestätigt,905 Entities/348 Patch-IDs, alle348 aktuellen Pilotpatchheads privat. Vollständiger begrenzter Befund samt Hashdefinitionen in ARCHIV-METADATEN-1347.md. Keine Rohinhalte/Secrets ausgegeben, keine leeren Widerrufslisten oder Produktionsfreigaben erfunden.
 
+Zusätzliche sechs Read-only-Transaktionen ab14:35 jeweilsExit0/ROLLBACK: vorhandene Herkunftslinks aller905 Entities und32821 Patchzeilen,5 beziehungsweise428 referenzierte Quelldokumente. Policy-Key bei0/5 Entities und136/428 Patchdokumenten, vorhandene Freitextwerte nur gehasht. Keine Freigabe daraus ableiten. Fachliche removed-Events sind keine Dokumentdeletes; historische running-Quellläufe keine Prozessbelege. Ergebnisse und Grenzen in ARCHIV-METADATEN-1347.md.
+
 ## Ressourcen und fortgeltender Nutzerauftrag
+
+Jüngster Nutzerstand: Chat/Titel63e3 GateALLOW samt neuem Reader-Probe-Build, Clip-ID-Fix in letzten gezielten Checks. Für Brain weiterhin keine neue Compiler-, PG-/Last- oder Produktivzuteilung; anschließender enger Nachreview vor konkreter serieller Compileranfrage.
 
 Twitch laut Nutzer13:44:20UTC mit7/7 Quellen/Engine gesund, frische Läufe13:44:01, vier ELFs a82, Opsa685/main, Migration155. Integrator taktet STT, Chat/Titel und Clip-Social/Context. Brain weiterhin ohne Compiler-/Test-/DB-Schreib-/Import-/Dienstslot. Read-only-Metadaten/Snapshot-/Rechte-/Tombstoneprüfungen ausdrücklich erlaubt, nur Counts/Hashes/Metadaten, keine Rohinhalte/Secrets. Keine neue pauschale Genehmigungsschleife.
 

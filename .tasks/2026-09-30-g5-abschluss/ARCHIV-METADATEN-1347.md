@@ -44,6 +44,20 @@ Metadaten-Auditfingerprint je Quelle: SHA256 über LF-verbundene jsonb_build_arr
 
 Diese beiden Fingerprints sind selbst beschriebene Metadaten-Auditwerte, ausdrücklich nicht die B2-Felder snapshot_sha256 oder policy_sha256.905/348 stimmt zahlenmäßig mit aktuellem Archivbestand überein, beweist aber weder Inhaltsgleichheit noch historische Deletevollständigkeit. Kein blindes Kopieren des Piloten nach Produktion.
 
+## Ergänzung: tatsächliche Herkunfts- und Policyabdeckung ab14:35UTC
+
+Sechs weitere begrenzte Read-only-Transaktionen aufbrain, bestehender Zugriff und dieselben2s/1s-Grenzen, jeweilsExit0/ROLLBACK. Keine Rohdokumente, Payloads, Quell-URLs oder Secrets ausgegeben. Die vorhandenen Metadaten wurden gezielt entlang der Snapshotverknüpfung geprüft, nicht als neue Freigaben erzeugt.
+
+- Archiv hat49 Tabellen; darunter37123 entity_snapshots,7308 source_documents,558 source_runs,810 entity_lineage und26685 knowledge_events. Diese Bestände existieren bereits, keine neue Herkunftsablage nötig.
+- Alle905 Entityzeilen haben first_snapshot_id mit vorhandenem Snapshot. Alle32821 Patchzeilen haben patch_snapshot_id mit vorhandenem Snapshot. Keine fehlenden referenzierten Snapshots oder Quelldokumente in diesen Joinprüfungen.
+- Entitäten hängen an5 unterschiedlichen vorhandenen Quelldokumenten, Patches an428; keine NULL-Verknüpfungen. Das sind428 Quelldokumente für348 Patch-IDs, ausdrücklich kein Eins-zu-eins-Snapshot oder Beweis aktueller Lizenzrechte.
+- Keines der5 Entityquelldokumente hat den obersten Metadatenkey policy.136 der428 Patchquelldokumente haben policy,292 nicht. robots_policy kommt in diesen beiden verknüpften Teilbeständen nicht vor. Im gesamten source_documents-Bestand existiert policy146-mal und robots_policy600-mal; diese weiteren Zeilen nicht blind auf den B2-Teilbestand übertragen.
+- Die136 relevanten policy-Werte sind zwei vorhandene Freitextwerte, keine strukturierte Scope-/Egress-/Publikationsfreigabe. Wortlaut nicht ausgegeben. Wert-SHA256 `1777afc11bbb316b18522027165266456dbffeb8312ca6dccad3ae4caf1abb39`:117 Dokumente,74 Zeichen. Wert-SHA256 `2b6c0beec78ca73174f72f3a18e1c48524857917d008ba06ae8b2dc4220e2fb6`:19 Dokumente,76 Zeichen. Beide erwähnen history, die geprüften Begriffe robots/disallow/public/private/auth/archive nicht. Wortvorkommen sind ausdrücklich keine Rechteentscheidung; aus diesen Tests wird kein allow/deny abgeleitet. Diese Werte sind nicht der B2-policy_sha256.
+- knowledge_events enthält unter anderem1637 Ereignisse removed mit validity_status patch_history und currentness historical_patch_event. Das bezeichnet vorhandene fachliche Patchhistorie, nicht automatisch1637 gelöschte Dokumente oder Widerrufe. Keine Tombstoneliste daraus erzeugen.
+- source_runs enthält548 ok,8 error und2 running mit historischen imported_at-Zeitpunkten. Ein historisches running ist kein Nachweis eines aktuell laufenden Writers. Keine Dienste oder Jobs deshalb verändert.
+
+Die vorhandene Doku architecture/migration/BRAIN_POSTGRES_ISOLATION.md:10-20 belegt eine historische Archivkopie vom26.09. mit49 Tabellen und653476 Zeilen sowie damaligem Tabellenvergleich. Ihre Marker sind an diesen alten Snapshot gebunden und nennen Produktionsbereitschaft ausdrücklich NEIN. Das ersetzt keinen neu gebundenen Importerfingerprint oder aktuelle Rechteinventare. Die neue Prüfung schließt die Herkunftslink-Lücke für den betrachteten Teilbestand, nicht die Freigabe-/Widerrufslücke.
+
 ## Sachlich offen
 
 Tatsächlich gebundener Archivsnapshot mit Label/Epoch und Importerfingerprint, belegte Herkunfts-/Policyentscheidung, vollständige aktive/widerrufene/tombstonierte ID-Klassifikation und deren aktueller Geltungsnachweis. Die konservative private Patchnotessperre ist nun am gesamten aktuellen Pilotbestand belegt. Keine Freigabe aus Platzhaltern, OIDs oder bloßer Hashkonsistenz ableiten. Die bereits erteilte Cutoverbeauftragung bleibt gültig; fehlende Belege werden ermittelt, nicht durch eine neue pauschale Erlaubnisfrage ersetzt.

@@ -1,4 +1,4 @@
-status: vorbereitet, Ressourcenbedarf zur Zuteilung; noch kein geprüfter gemeinsamer Fixhead
+status: vorbereitet, B2e878530 nachgeprüft; enger R1-Testrest vor vollständiger Quellabnahme, kein Lauf zugeteilt
 Datum: 2026-09-30
 
 # Nächster begrenzter G5-Lauf nach B2-Fixabnahme
@@ -7,9 +7,9 @@ Adressat: Integrator/Root über die bestehende zentrale BRAIN-G5-BUILD-REQUEST.t
 
 ## Quellbindung und tatsächlicher Stand
 
-Letzter gepushter vollständiger Quellstand4ee56de1ef465b4b29633a543c3e2930b3003303: B2c5d2b1f und B1-R1a427be3 enthalten. Kein neuer gemeinsamer B2-Fixhead und keine frische Fixabnahme. Aktuelle uncommittierte Fixarbeit jetzt in Importerbin, brain-storage/src/lib.rs, memory_repository.rs, pg_jobs.rs, pg_release.rs und bestehendem scripts/test_brain_serve.sh: sechs Dateien,439 Einfügungen/73 Löschungen. Tatsächlicher Fortschritt, kein neuer Hänger belegt. Diese Befehle jetzt ausdrücklich nicht ausführen. Vor Zuteilung tatsächlichen Fixhead und unabhängige Nachabnahme des Deltas binden; zusätzliche geänderte Produktcrates würden eine Anpassung erfordern. Der erste Clippy-Aufruf ist compiler-only und könnte erst nach dieser Bindung in den vom Integrator genannten seriellen Slot während Clip-Originalgate passen; Unit- und PG-/Runtimeklassen bleiben davon getrennt.
+Letzter gepushter vollständiger Quellstand392267b133a9a5a8a91602247a441ff7bf609c4b enthält gemeinsamen B2-Fix e878530 und getrennten CI-Fix0c56f85 sowie deren Berichte. Nachreview eceb14c2d7b9bf0dc6eae0d37da3f5c7aa94d1da seit14:42 abgeschlossen, gelesen und gepusht: CI GO, R2/R3 geschlossen, R1-Produktkorrektur statisch akzeptiert. Vollständiger R1-Abschluss noch BLOCK, weil beide Writer in den Testquellen vor Publish beendet werden. Nur diesen deterministischen Konkurrenznachweis zieht derselbe Autor mit Dispatch1172680 nach. Kein Neuaufbau akzeptierter Produktteile.
 
-B2-BLOCK854825b: Race zwischen Prüfung und publish, zu späte Releasefeldvalidierung, Scratchfixturekollision. Gemeinsame Korrektur im vorhandenen Sol1166046 aktiv. B1-Nachreview11cd23e: PflichtargumentfixGO, verbleibender historischer Cargo-Pfadrest an drei CI-Aufrufen. Dieser Rest betrifft die untenstehenden lokalen absoluten Cargoaufrufe nicht; kein GitHub-Actions-Merge-Gate.
+Vor Zuteilung endgültigen engen Fixhead und unabhängige Nachabnahme binden. Der Reviewer nennt als engste Alternative einen Paket-Check. Hier bleibt zur Vermeidung doppelter Compilerarbeit das vorbereitete Paket-Clippy der erste beantragte Aufruf; keinen zusätzlichen Check davor automatisch starten. Beide sind compiler-only, Tests und PG-/Lastläufe bleiben getrennt. Die drei CI-Aufrufe sind abgenommen und erzeugen keinen eigenen zusätzlichen Cargo-Bedarf. Jüngster Nutzerstand: Chat/Titel63e3 GateALLOW, neuer Reader-Probe-Build, Clip-ID-Fix in letzten Checks. Kein Brain-Slot aus dieser Meldung ableiten.
 
 ## Angefragte erste Klasse: Compiler, danach getrennte Unitläufe
 
@@ -43,7 +43,7 @@ Vorhandener Serve-Harness, kein neuer Runner:
 bash /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930/scripts/test_brain_serve.sh /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target
 ```
 
-Nur nach unabhängiger Abnahme von R3, der vollständigen Fixtureisolierung und den tatsächlichen R1-/R2-Gegenproben zuteilen. Enthält echte private PostgreSQL-Schreibvorgänge, mögliche getrennte Testrollen, lokale Importer-/Serve-/Providerfixtures und1800 Lastanfragen bei8/16/32 Workern. Bisher Port55439, max_connections12 und shared_buffers16MB; Fix darf Budgets nicht ungefragt erhöhen. Neue Rollen, Testselektoren, Zielnamen, Cleanup und Reihenfolge müssen aus fertiger Abgabe ergänzt werden, bevor dies als ausführbarer Gesamtvertrag gilt. Kein Zugriff auf produktive DB/Dienste, kein freistehender Zusatzaufruf gegen eine zufällig vorhandene Fixture.
+R3 ist aufe878530 statisch abgenommen: separate brain_cutover_test-Datenbank, ignorierter Binärtest tests::same_database_archive_to_core_requires_bound_private_snapshot exakt vor Serve-E2E, abschließende Prüfung der unverändert leeren brain_schema_test-Fixture, bestehendes Clustercleanup. Sieben serielle Cargoaufrufe. Der ganze Runner enthält echte private PostgreSQL-Schreibvorgänge, lokale Importer-/Serve-/Provider-/SCRAM-Fixtures und 1.800 Lastanfragen, je600 bei8/16/32 Workern. Port55439, max_connections12 und shared_buffers16MB unverändert. Der Cutoverfall verwendet eine synthetische privilegierte Testrolle mit require_auth=false, ersetzt also keine getrennten produktiven Minimalrollen-/Secret-Exec-Beweise. Vor Zuteilung zusätzlich den neuen R1-Synchronisationsfix samt tatsächlicher Testwirkung abnehmen; keine Budgeterhöhung, kein Produktzugriff und kein freistehender Zusatzaufruf gegen eine zufällig vorhandene Fixture.
 
 ## Sachliche Datenbelege, getrennt von Laufzuteilung
 
