@@ -1,0 +1,10 @@
+[package]
+name = "dbrain-session-store"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+postgres.workspace = true
+serde_json.workspace = true
+tb-crypto = { path = "../../../../Deadlock-Twitch-Bot/rust/crates/tb-crypto" }
