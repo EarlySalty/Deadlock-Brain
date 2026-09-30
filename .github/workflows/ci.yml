@@ -14,6 +14,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  backup-regressions:
+    name: "Backup path safety"
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check backup shell syntax
+        run: |
+          bash -n ops/brain-postgres/backup.sh
+          bash -n scripts/test_brain_backup.sh
+      - name: Exercise retention with isolated PostgreSQL stubs
+        run: bash scripts/test_brain_backup.sh
+
   migration-contracts:
     name: "Migration composition"
     if: github.event_name == 'pull_request'
