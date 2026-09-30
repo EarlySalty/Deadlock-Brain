@@ -1,4 +1,4 @@
-status: aktiv, gemeinsame B2-Fixrunde R1 bis R3 beauftragt; B1-R1 unabhängig im Nachreview; Brain-Laufzeithalt unverändert
+status: aktiv, B2-R1-R3-Storagefix im WIP; B1-PflichtargumentfixGO und Cargo-Dreistellenrest beim Autor; Read-only-Nachweise aktualisiert, nächste Läufe zur Zuteilung vorbereitet
 Datum: 2026-09-30
 
 # G5-Fortsetzungsregister
@@ -18,8 +18,8 @@ Vorgängerregister: .tasks/2026-09-29-technical-closeout/REGISTER.md
 
 | Paket | Thread-ID | Modell | Stand |
 | --- | --- | --- | --- |
-| Autor B2 und B1-R1 | 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 | bestehender Sol, gpt-6-sol | Wiederaufgenommen1166046: drei B2-Befunde gemeinsam nach B2-R1-R3-FIX-BRIEFING.md korrigieren und tatsächlichen Fixhead liefern. read bestätigte ready samt Abgabe13:23, erster send meldete running; erneut read=ready, danach bewusst force. Kein neuer Fehler behauptet, kein WIP verworfen |
-| Unabhängige Abnahme | 52c34332-8cdf-4772-9e1f-42aba432c6cf | bestehender Astra | Nach tatsächlich gelesenem stopped und B2-BLOCK wiederaufgenommen1166111 für B1-R1-Delta e2cb154..a427be3, Bericht4ee56de. Nur eingefrorene Gitblobs, nicht bewegliche B2-Fixarbeit. Danach B2-Nachprüfung auf konkretem Fixhead |
+| Autor B2 und B1-R1 | 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 | bestehender Sol, gpt-6-sol | B2-R1-R3 seit1166046 aktiv; tatsächliches WIP in brain-storage lib.rs/memory_repository.rs/pg_jobs.rs/pg_release.rs. Enger Nachtrag1167206: nach B2 separat drei Cargo-Weitergaben R1-N1 korrigieren. Kein neuer gemeinsamer Fixhead, kein Neubeginn |
+| Unabhängige Abnahme | 52c34332-8cdf-4772-9e1f-42aba432c6cf | bestehender Astra | B1-Nachreview11cd23e gelesen: PflichtargumentfixGO, drei CI-Cargo-Pfadreste R1-N1. Gesettelt1167086; für konkreten neuen B2-/CI-Fixhead wiederverwenden |
 | Finale Compiler-/Prozessprüfung | 6b53c923-e4da-498a-b08e-254407b452ff | Sol | Nicht wiederaufgenommen; historische Teilaufgabe |
 | Consumerabnahme | 533115bf-554f-4457-86b4-2944fef19c63 | Astra | Nicht wiederaufgenommen |
 
@@ -35,13 +35,15 @@ B2-Quellcommit c5d2b1f4f18eb8fd360641b3e66fa7453cafb4d2, Bericht e2cb15486f9816a
 
 Direkter Nutzerauftrag: alle drei zusammen im selben Autor beheben. Eng nötige bestehende Storage-Schnittstelle und Serve-Harness im Fixbriefing enthalten, keine neue Gesamtarchitektur. Gemeinsamer neuer Fixhead noch ausstehend. Autorbericht muss außerdem Fingerprintumfang und konservatives Blockieren aktiver widerrufener Heads korrekt beschreiben. Reale Policy-/Snapshot-/ID-Inventare und Runtimegegenbeweise bleiben getrennte offene Nachweise.
 
-B1-R1 separat fertig: a427be3099d9bb4d93dad8ce43cfe4c1820d4596, Bericht4ee56de1ef465b4b29633a543c3e2930b3003303. Zwei Wrapper, drei Workflows, ein Reproduktionsbeispiel;45 Einfügungen/23 Löschungen. Noch kein unabhängiges Nachreviewurteil.
+B1-R1 separat fertig: a427be3099d9bb4d93dad8ce43cfe4c1820d4596, Bericht4ee56de1ef465b4b29633a543c3e2930b3003303. Zwei Wrapper, drei Workflows, ein Reproduktionsbeispiel;45 Einfügungen/23 Löschungen. Nachreview11cd23e schließt Pflichtargumentbefund; R1-N1 bleibt an drei vorhandenen CI-Aufrufen, die Cargo nicht vor HOME-Isolation weitergeben. Lokale Wrapper unauffällig, GitHub Actions kein Gate. Dreistellenrest an denselben Autor gegeben, getrennt nach gemeinsamer B2-Abgabe.
+
+Read-only-Nachweise um13:47UTC durchgeführt: viermalExit0/ROLLBACK, kein Schreib-/Produktprozess. Ziel weiter leer; OIDs, Schemahash und Leserrechte bestätigt,905 Entities/348 Patch-IDs, alle348 aktuellen Pilotpatchheads privat. Vollständiger begrenzter Befund samt Hashdefinitionen in ARCHIV-METADATEN-1347.md. Keine Rohinhalte/Secrets ausgegeben, keine leeren Widerrufslisten oder Produktionsfreigaben erfunden.
 
 ## Ressourcen und fortgeltender Nutzerauftrag
 
-Twitcha82 laut Nutzer live stabil; Ranglisten-Readiness nach Rollenfix4/7. Letzter gemessener Blocker ist HBA-Include-Layout im bestehenden Installer, Bashpatch wird geprüft. Bis tatsächlicher Slotrückgabe keine Brain-Compiler, Tests, DB-Verbindungen/Schreibvorgänge, Rollenfixtures, Produktprozesse, Dienste oder Deployaktionen. Nur Quellarbeit und statische Prüfung. Keine Secrets/ENV-Ausgabe. Keine neue pauschale Genehmigungsschleife für den bereits autorisierten Importerauftrag.
+Twitch laut Nutzer13:44:20UTC mit7/7 Quellen/Engine gesund, frische Läufe13:44:01, vier ELFs a82, Opsa685/main, Migration155. Integrator taktet STT, Chat/Titel und Clip-Social/Context. Brain weiterhin ohne Compiler-/Test-/DB-Schreib-/Import-/Dienstslot. Read-only-Metadaten/Snapshot-/Rechte-/Tombstoneprüfungen ausdrücklich erlaubt, nur Counts/Hashes/Metadaten, keine Rohinhalte/Secrets. Keine neue pauschale Genehmigungsschleife.
 
-Zentrale Koordination: /home/nathanael/Documents/.tasks/2026-09-30-twitch-alles-live/BRAIN-G5-BUILD-REQUEST.txt; Kopie hier vor Sicherung synchronisieren. Vorbereitete Compiler-/Testbefehle sind nicht zugeteilt. Serve-Harness enthält1800 Lastanfragen, kein leichter Smoke. Neues B2-Fixdelta und Fixtureanschluss müssen vor Run neu gebunden werden.
+Ressourcenanforderung NAECHSTER-G5-LAUF.md: nach tatsächlichem Fixhead und unabhängiger Abnahme zuerst Paket-Clippy brain-storage/brain-legacy-import, danach getrennte Library-/Importer-Binärtests. Genau beschriebene Befehle mit vorhandenem Cache, locked/offline/jobs1, keine Kette. Erweiterter bestehender Serve-/PG-/1800-Request-Harness erst nach R3-Abnahme separat zuteilen. Zentrale Koordination BRAIN-G5-BUILD-REQUEST.txt synchronisiert. Kein Start aus dieser Anfrage; neue Testwirkungen vor Lauf prüfen.
 
 ## Bereits belegte Basis, nicht als neue Fixprüfung übertragen
 
