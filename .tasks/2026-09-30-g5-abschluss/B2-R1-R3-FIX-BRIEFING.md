@@ -1,0 +1,26 @@
+status: aktiv, drei geprüfte B2-Befunde gemeinsam korrigieren
+Datum: 2026-09-30
+
+# B2-Fixrunde R1 bis R3
+
+Intent562a877b-0939-440a-964d-1145d9e9431a. Einziger Autor66adf9ee-bc03-4ff3-91da-73cd8efc5e72, vorhandener Worktree /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930, Branch fix/g5-replay-deferred-20260930. Ausgang4ee56de mit gepushtem B2c5d2b1f/e2cb154 und getrenntem B1-R1a427be3/4ee56de; vor Wiederaufnahme sauber. Keine Unterthreads, neue Arbeitskopie, Modellwechsel, Reset oder neue Gesamtarchitektur. Keine Code-Kommentare.
+
+## Direkter Nutzerauftrag und Reviewbasis
+
+Nutzer hat die gemeinsame Korrektur aller drei Befunde ausdrücklich beauftragt. Keine zusätzliche Genehmigungsschleife. Vollständiger unabhängiger Bericht854825b im bestehenden Reviewworktree /home/nathanael/.worktrees/brain-pre-g5-core-review-20260929 unter .tasks/2026-09-30-g5-abschluss/B2-IMPORT-REVIEW.md ist maßgeblich. Die Hauptsession hat ihn gelesen. B1-R1 bleibt getrennt und wird parallel nur anhand seiner eingefrorenen Blobs geprüft.
+
+1. **B2-R1:** Importer:381-407 aufc5d2b1f prüft Heads/Checkpoints vor publish ohne gemeinsame wirksame Schreibsperre. Gültiger konkurrierender Writer kann danach tombstonieren oder Scopes widerrufen; historische Revisionen existieren weiter, deshalb meldet der Importer trotzdem Erfolg. Baselineprüfung und Veröffentlichung unter derselben wirksamen Transaktions-/Writergrenze absichern, nicht bloß danach nochmals lesen. Vorhandenen PgStore::commit_batches_and_publish in brain-storage/src/pg_release.rs:62-109 prüfen und wiederverwenden/eng erweitern. Direkter PgStore::apply bei unveränderten Records darf keine Lücke lassen. Deterministische synchronisierte Konkurrenz-Testquellen für Tombstone und Scopewiderruf ergänzen. Kein falscher gebundener Erfolgsrelease aus überholter Prüfung.
+2. **B2-R2:** release.id_prefix mit496 ASCII-Bytes wird erst nach beiden Quellencommits als513-Byte-Release-ID verworfen. knowledge_version und patch haben dieselbe512-Byte-Grenze. Den fertig erzeugten Releasevertrag vor erstem Claim validieren, vorhandene Regeln wiederverwenden, Grenze nicht erhöhen. Präfix495/496 und Version/Patch512/513 sowie Byte-/Zeichenunterschied berücksichtigen. Negativer Scratchgegenbeweis prüft unveränderte Jobs, Records/Revisionen, Checkpoints und Releases, nicht bloß Exitstatus.
+3. **B2-R3:** Neuer ignorierter Test verwendet brain_schema_test, die der bestehende Schema99-Test leer benötigt. An bestehenden Serve-Harness anschließen mit eigenem isoliertem Fixtureziel und passendem Cleanup; kein paralleler Runner. Schema99-Test unverändert aussagekräftig lassen. Vollständigen späteren Runneraufruf und tatsächliche Laufklasse liefern. Bestehende1800-Request-Last bleibt sichtbar, nicht als Smoke verkaufen.
+
+## Scope und Beweisgrenzen
+
+Bestehender Rust-Importer samt Tests, für R1/R2 belegbar notwendige engste bestehende brain-storage-Transaktions-/Validierungsschnittstelle und deren Tests, für R3 bestehender scripts/test_brain_serve.sh sowie eigener Fixbericht. Keine zweite Import-/Policyablage, kein eigener Store, keine Locks nur in einem Eintrittspfad, die andere Writer nicht beachten. Keine Dependencies, Migrationen, Rollenneuanlage oder Änderungen an produktiven Grants/Configs/Diensten. Falls ein weitergehender Architekturbruch tatsächlich nötig erscheint, konkreten technischen Blocker statt Nebenumbau melden.
+
+Autorbericht zugleich sachlich korrigieren: Snapshotfingerprint erfasst die projizierten LegacyRead-Daten, nicht sämtliche Rohmetadaten; aktive widerrufene Zielheads blockieren vor Batchvorbereitung, werden im bisherigen Pfad nicht automatisch tombstoniert. Leeres Ziel erhält durch Weglassen keinen historischen Tombstonerecord. Reale Policy-/Snapshotinventare nicht erfinden und nicht als erledigt erklären. Der vorhandene Cutoverauftrag bleibt autorisiert; tatsächliche Pflichtinputs und gezielte Nachweise sind keine neue pauschale Freigabefrage.
+
+Jetzt ausschließlich Quellarbeit, rustfmt-/bash-n-/Diff-/statische Prüfung und Testquellen. Keine Cargo-Compiler, Testausführung, DB-Verbindungen/Schreibvorgänge, Rollenfixtures, Produktprozesse, Services oder Deploys. Keine Secrets/ENV-Ausgabe oder neue Betreiber-ENV-Konfiguration. Twitcha82 laut Nutzer live stabil; Readiness4/7, Installer-HBA-Includepatch noch in Prüfung. Brain-Ressourcenhalt unverändert bis tatsächlichem Slot. Keine Änderungen in Twitch oder an dessen Betrieb.
+
+## Abgabe
+
+Alle drei Befunde in einer gemeinsamen Fixabgabe auf bestehendem Branch; tatsächlich prüfbaren Quellhead separat von Bericht nennen und eigene Dateien pushen. B2-R1-R3-FIX-ERGEBNIS.md mit Zuordnung Befund zu Quellstelle/Gegenbeweis, Atomaritäts-/Sperrvertrag für jeden Writerpfad, vollständigem Fixtureanschluss, unverändert geltenden Pflichtinputs und exakten späteren Compiler-/Clippy-/Test-/Harnessbefehlen. Kein Test als bestanden melden, der nur geschrieben ist. Vorhandener Targetcache /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target, Rust1.97.1, locked/offline/jobs1. Danach unabhängige Nachprüfung genau dieser drei Befunde im bestehenden Reviewerthread; keine automatische Ausführung oder Mergefreigabe.

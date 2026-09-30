@@ -1,4 +1,4 @@
-status: B2-Quellheadc5d2b1f und Bericht e2cb154 gepusht; unabhängiger B2-Review aktiv, B1-R1 im Bau; Brain-Compiler-/DB-/Servicehalt unverändert
+status: B2-BLOCK854825b gelesen; gemeinsame R1-R3-Fixrunde im selben Sol aktiv1166046; B1-R1 separat im Nachreview1166111; Brain-Laufzeithalt unverändert
 Datum: 2026-09-30
 Intent-Thread: 562a877b-0939-440a-964d-1145d9e9431a
 
@@ -14,9 +14,14 @@ Koordination: /home/nathanael/.worktrees/brain-technical-closeout-20260929, inte
 
 Nutzerfreigabe für den bestehenden Typed-Serve-Cutover nach Nachweisen gilt. Replay bleibt später. Keine erneute pauschale Deployfrage. Compiler/Release, Last, DB-Schreiben, Dienste und Cutover weiterhin konkret beim Integrator koordinieren. Kleine reine Metadaten-/Datei-/Quellprüfungen sind inzwischen ausdrücklich ohne Einzelrückfrage erlaubt. Keine konkurrierende Auslieferung während Twitch. Keine neuen Modelle, kein Backendneubau, kein Legacyfallback, keine künstlichen Chat-/Communitynachrichten oder Steam-Veröffentlichung.
 
+AKTUELLER BEARBEITUNGSSTAND NACH NUTZERUPDATE13:35UTC
+Autor ready und Reviewer stopped tatsächlich gelesen, beide Arbeitsbäume vor Wiederaufnahme sauber, gepusht. B2c5d2b1f/e2cb154 und B1-R1a427be3099d9bb4d93dad8ce43cfe4c1820d4596/4ee56de1ef465b4b29633a543c3e2930b3003303 vorhanden. B2-Review854825b vollständig gelesen: BLOCK wegen R1 Race zwischen Baselineprüfung und Veröffentlichung, R2 Releasevalidierung nach Zielwrites, R3 Kollision des neuen Scratchtests mit vorhandener brain_schema_test-/Schema99-Fixture.
+Direkter Nutzerauftrag ohne neue Genehmigung: dieselben drei Befunde gemeinsam im bestehenden Sol beheben, Briefing B2-R1-R3-FIX-BRIEFING.md. Erster send meldete running trotz read=ready; erneut read=ready samt abgeschlossener Abgabe13:23, deshalb bewusst force. Fortsetzung1166046 bestätigt, keine neue Arbeitskopie/Thread/Modell, kein Reset. Konkreter gemeinsamer Fixhead noch ausstehend. Bestehender Reviewer parallel1166111 auf eingefrorenes separates B1-R1-Deltae2cb154..a427be3 angesetzt, nicht auf bewegliches B2-Fix-WIP.
+Bis zur unabhängigen Fixabnahme sind untenstehende c5d2b1f-Befehle und Vertragsbeschreibungen nur Vorbereitungsstand, kein freigegebener Lauf. Insbesondere Scratchfixtureanschluss und Writergrenzen müssen gegen den neuen Fixhead gebunden werden.
+
 AKTUELLES TWITCH-FENSTER
-Aktueller Nutzerstand: a82-Programme wirklich live, vier Dienste stabil, tatsächliche ELFs passend und Caddy-Routen live. Noch genau zwei bestehende lokale DB-Verbindungen und drei fehlende SELECTs für Effort-Bereitschaft offen. Ops-Candidatef9353454 statisch akzeptiert, isolierte Rollenprobe und Originalgate folgen, dann Anwendung ohne neuen Produktbuild. Keine tatsächliche Brain-Slotrückgabe.
-Brain-Compiler, PostgreSQL-Rollenfixtures, DB-Schreibvorgänge, Produktprozesse und Deployaktionen bleiben gesperrt. Quell-/Metadatenarbeit und statische Abnahme bleiben erlaubt. Kein neuer Thread, keine Arbeitskopie, Modellwahl oder zusätzliche Architektur. Keine Secrets/ENV-Ausgabe. Kein neuer Fortsetzungsdispatch an den Autor nötig: tatsächlicher Gitfortschritt nach Wiederaufnahme ist jetzt belegt.
+Aktueller Nutzerstand13:35UTC: Twitcha82 live stabil, Ranglisten-Readiness nach Rollenfix4/7. Letzter gemessener Blocker ist das HBA-Include-Layout im bestehenden Installer; Bashpatch liegt vor und wird geprüft. Keine tatsächliche Brain-Slotrückgabe.
+Brain-Compiler, Tests, PostgreSQL-Rollenfixtures, DB-Verbindungen/Schreibvorgänge, Produktprozesse und Deployaktionen bleiben gesperrt. Quellarbeit und statische Abnahme bleiben erlaubt. Keine neue Arbeitskopie, Modellwahl oder zusätzliche Architektur. Keine Secrets/ENV-Ausgabe. Autor und Reviewer sind für die konkreten Quellaufgaben wieder aktiv beauftragt.
 
 ABGESCHLOSSENE ZUTEILUNGEN
 
