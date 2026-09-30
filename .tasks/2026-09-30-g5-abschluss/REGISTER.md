@@ -1,4 +1,4 @@
-status: aktiv, statische Test-Safety und Servevorbereitung laufen; kein Compiler-/Testslot belegt
+status: aktiv, zugeteilter serieller Workspace-Test läuft; Servevorbereitung ohne Startfreigabe
 Datum: 2026-09-30
 
 # G5-Fortsetzungsregister
@@ -20,8 +20,8 @@ Ursprüngliche gemeinsame Basis: 1c362bca6d35e7fec10125b2b159e7513a299243. Keine
 
 | Paket | Thread-ID | Modell | Stand |
 | --- | --- | --- | --- |
-| V1 ohne Replay | 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 | bestehender Sol, gpt-6-sol | Produkt 9a29b81 unverändert; erneut aktiv für statische Workspace-Test-Safety, Sequenz 1150979; kein Cargo-/Teststart erlaubt |
-| Statische Abnahme und Locknachtrag | 52c34332-8cdf-4772-9e1f-42aba432c6cf | bestehender Astra | Abgeschlossener Lockreview 035e2a99, GO auf 9a29b81; erneut aktiv für statische Servevorbereitung, Sequenz 1151676 |
+| V1 ohne Replay | 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 | bestehender Sol, gpt-6-sol | Statische Test-Safety mit ca4a8f236a75ba89ce60d2140c735acd5d1f5bee gepusht und gelesen; nur Berichtsdatei, Produkt 9a29b81 unverändert. Fertig, gesettelt, Sequenz 1154744. Keine Tests durch Worker |
+| Statische Abnahme und Locknachtrag | 52c34332-8cdf-4772-9e1f-42aba432c6cf | bestehender Astra | Lockreview 035e2a99 und Servevorbereitung 54a779393a80459ba727b5f2be035d8c487fb45a statisch GO; Bericht gelesen und Thread gesettelt, Sequenz 1153025. Kein Start-GO |
 | Finale Compiler-/Prozessprüfung | 6b53c923-e4da-498a-b08e-254407b452ff | Sol | Nicht wiederaufgenommen; einzeln zugeteilter Clippy-Lauf durch Hauptsession abgeschlossen, keine Prozessprüfung |
 | Consumerabnahme | 533115bf-554f-4457-86b4-2944fef19c63 | Astra | Nicht wiederaufgenommen |
 
@@ -41,13 +41,15 @@ Keine neuen Unterthreads. Autor und Reviewer unabhängig. Wache f09492d8 nach ab
 
 Nutzer hat reine Quellprüfungen, `git diff --check` und Formatprüfung ausdrücklich erlaubt. `cargo +1.97.1 fmt --all -- --check` auf der Produktbasis 9a29b81 bestanden, Exit 0, 1307 ms. Kein Compiler-/Test-/Fetchlauf gestartet.
 
-Aktive Pakete: `TESTVORBEREITUNG-SOL.md` verlangt belegte Nebenwirkungsprüfung des gesamten Workspace-Standards inklusive Integration-/Doc-Tests und getrenntes Inventar ignorierter DB-/Livefälle. `SERVE-VORBEREITUNG.md` prüft vorhandenen Vertrag, Portkonflikte, normale Config, bestehenden Secretweg, Unit und Rückweg; unabhängiger Review nach `SERVE-REVIEW-BRIEFING.md` läuft. Keine neue Architektur und keine zusätzliche Wache.
+Aktive Pakete: `TESTVORBEREITUNG-SOL.md` verlangt belegte Nebenwirkungsprüfung des gesamten Workspace-Standards inklusive Integration-/Doc-Tests und getrenntes Inventar ignorierter DB-/Livefälle. `SERVE-VORBEREITUNG.md` prüft vorhandenen Vertrag, Portkonflikte, normale Config, bestehenden Secretweg, Unit und Rückweg; unabhängiger Review 54a7793 gibt statisches GO für die Vorbereitung, keine Startabnahme. `SERVE-PG-VORAUSSETZUNGEN.md` konkretisiert Socket 5446, Schema/Storeversion, Ownership-Schreibrechte und die spätere Namespace-/Socketprüfung. Keine neue Architektur und keine zusätzliche Wache.
 
-Der G5-Gesamtauftrag bleibt aktiv. Testbedarf wird erst mit konkreten Laufzeitklassen und dem Safety-Ergebnis als startreife Anforderung gemeldet; die Slotdatei ist kein Aufgabenabschluss.
+Der G5-Gesamtauftrag bleibt aktiv. Der Testbericht ca4a8f2 belegt lokale Prozess-/Loopback-/Dateiwirkungen und kein zusätzliches Betreiber-Secretsetup in den geprüften Standardpfaden. Die Hauptsession prüfte die beiden verschachtelten S12-Skripte zusätzlich: Cargo/Rustwerkzeuge und Probe sind im Test temporäre Stubs, keine echten verschachtelten Builds. Berichtsverzeichnisse unter rust/target/wiki-completion.* sind angemeldet, kein zusätzlicher Compiler-Cache. 74 statische Ignoreattribute bleiben getrennte spätere Nachweise.
 
-Clippy ist abgeschlossen. Root wurde über Ende und Exitcode informiert und kann den Cargo-Slot zurückgeben. Keine zweite Cargo-Aktion oder automatischer Folgelauf. Die hostweite BRAIN-G5-BUILD-REQUEST.txt enthält den Abschluss; identische Kopie liegt in dieser Akte.
+Integrator /root/pr_inventory hat daraufhin genau den dokumentierten seriellen Workspace-Test zugeteilt. Start 2026-09-30T11:08:51Z, PID 3794497, Hintergrundauftrag bi8uvp8u8. Sauberer HEAD ca4a8f236a75ba89ce60d2140c735acd5d1f5bee, Produktbasis 9a29b81 unverändert. Vollständiger Log: /home/nathanael/Documents/.tasks/2026-09-30-twitch-alles-live/brain-g5-workspace-test-ca4a8f2.log. Vorhandener Cache, 193 GiB frei vor Start. Kein --ignored und kein automatischer Folgelauf. Exitcode und Testzahlen stehen noch aus; Slot unmittelbar nach Ende zurückgeben.
 
-Weitere Compiler-/Format-/Test- oder Prozessschritte benötigen eine eigene konkrete Zuteilung. SQLx-Makros und 114 versionierte Offline-Metadatendateien bleiben erhalten. Der zugeteilte Clippy-Aufruf bestand ohne neue ENV-Einstellungen; damit wird kein vollständiger Neuaufbau ohne vorhandenen Cache behauptet.
+Clippy ist abgeschlossen, dessen Slot wurde bereits zurückgegeben. Die hostweite BRAIN-G5-BUILD-REQUEST.txt ist die aktuelle Laufkoordination; die Kopie dieser Akte wird nach dem Testabschluss synchronisiert.
+
+Weitere Compiler-, Test-, Fetch- oder Produktprozessschritte benötigen eine eigene konkrete Zuteilung. Reine Quell- und Formatprüfung ist ausdrücklich erlaubt. SQLx-Makros und 114 versionierte Offline-Metadatendateien bleiben erhalten. Der zugeteilte Clippy-Aufruf bestand ohne neue ENV-Einstellungen; damit wird kein vollständiger Neuaufbau ohne vorhandenen Cache behauptet.
 
 Kein Main-Merge oder Deploy vor den noch fehlenden Nachweisen. Typed POST /v1/answer noch nicht live nachgewiesen. Replay bleibt später. Schutz-Hooks unverändert.
 
