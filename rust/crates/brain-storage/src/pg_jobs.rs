@@ -33,7 +33,7 @@ pub(crate) async fn commit_batch_tx(
     {
         return Err(invalid("invalid batch lease"));
     }
-    lock_source(&mut **tx, &lease.source_id)
+    lock_source(tx, &lease.source_id)
         .await
         .map_err(database_error)?;
     let batch_json = serde_json::to_value(batch).map_err(|_| invalid("invalid batch JSON"))?;

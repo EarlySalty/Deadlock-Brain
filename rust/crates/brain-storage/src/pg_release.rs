@@ -129,9 +129,7 @@ impl PgStore {
         };
         let mut tx = self.pool.begin().await.map_err(database_error)?;
         for source in &sources {
-            lock_source(&mut *tx, source)
-                .await
-                .map_err(database_error)?;
+            lock_source(&mut tx, source).await.map_err(database_error)?;
         }
         let mut receipts = Vec::with_capacity(batches.len());
         for (batch, lease) in batches {
