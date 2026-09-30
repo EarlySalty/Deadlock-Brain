@@ -87,3 +87,45 @@ fn evidence_bytes(e: &Evidence) -> usize {
     }
     bytes
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn uncited_dependency_pack_is_shared_accounted_and_absent_from_wire_response() {
+        let dependency = Evidence {
+            evidence_id: "uncited".into(),
+            source_id: "fixture".into(),
+            logical_id: "uncited".into(),
+            revision: 1,
+            kind: brain_contracts::EvidenceKind::Prose,
+            content: "x".repeat(256 * 1024),
+            citation: "fixture".into(),
+            visibility: brain_contracts::SourceVisibility::Public,
+            allowed_scopes: Default::default(),
+            score: 1.0,
+            provenance: None,
+            patch: None,
+        };
+        let bytes = dependency.content.capacity();
+        let outcome = KernelAnswer {
+            answer: AnswerResponse {
+                contract_version: CONTRACT_VERSION.into(),
+                request_id: "test".into(),
+                knowledge_release: "release".into(),
+                status: AnswerStatus::Answered,
+                text: "answer".into(),
+                citations: Vec::new(),
+                usage: Usage::default(),
+            },
+            dependencies: vec![dependency].into(),
+        };
+        assert!(outcome.retained_bytes() >= bytes);
+        let reused = outcome.clone();
+        assert!(Arc::ptr_eq(&outcome.dependencies, &reused.dependencies));
+        assert_eq!(Arc::strong_count(&outcome.dependencies), 2);
+        let public = serde_json::to_value(&outcome.answer).unwrap();
+        assert!(public.get("dependencies").is_none());
+        assert!(!public.to_string().contains("uncited"));
+    }
+}

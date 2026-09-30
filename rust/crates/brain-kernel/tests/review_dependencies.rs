@@ -320,6 +320,15 @@ async fn fresh_fact_selection_reuses_the_release_index_and_bounds_head_reads() {
     a.content = "hero: Abrams\nhealth: 650".into();
     a.metadata.insert("kind".into(), "fact".into());
     store.apply_record(a).unwrap();
+    // Include enough unrelated pinned facts to exercise the release index,
+    // rather than measuring a one-document special case.
+    for index in 1..256 {
+        let mut unrelated = record(&format!("unrelated-{index}"), 1);
+        unrelated.logical_id = format!("entity/hero/Unrelated{index}");
+        unrelated.content = format!("hero: Unrelated{index}\nhealth: 650");
+        unrelated.metadata.insert("kind".into(), "fact".into());
+        store.apply_record(unrelated).unwrap();
+    }
     publish(&store).await;
     let snapshots = Arc::new(AtomicUsize::new(0));
     let heads = Arc::new(AtomicUsize::new(0));
@@ -348,7 +357,7 @@ async fn fresh_fact_selection_reuses_the_release_index_and_bounds_head_reads() {
         128 * 2,
         "a unique fact needs selection and final ACL head batches"
     );
-    println!("fact reuse: 128 requests, 1 release snapshot, 256 bounded head batches, no providers, elapsed {:?}", started.elapsed());
+    println!("fact reuse: 128 requests, 256 pinned facts, 1 release snapshot, 256 bounded head batches, no providers, elapsed {:?}", started.elapsed());
 }
 
 struct GatedFactRetrieval {
