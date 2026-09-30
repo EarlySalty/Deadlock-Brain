@@ -9,6 +9,10 @@ use std::{
     sync::{Arc, Condvar, Mutex},
     time::{Duration, Instant},
 };
+// A single result must not keep an arbitrarily large uncited source pack alive
+// while followers validate it. At most 128 coordinator entries are active;
+// HTTP worker permits additionally bound followers through actual completion.
+const MAX_SHARED_RESULT_BYTES: usize = 1024 * 1024;
 #[derive(Default)]
 pub(super) struct Coordinator {
     flights: Mutex<BTreeMap<String, Arc<Flight>>>,
@@ -85,7 +89,22 @@ impl Coordinator {
             let result = operation();
             {
                 let mut state = flight.state.lock().map_err(|_| unavailable())?;
-                state.result = Some(result.clone());
+                state.result = Some(if result.retained_bytes() <= MAX_SHARED_RESULT_BYTES {
+                    result.clone()
+                } else {
+                    // The leader owns the complete validated result. Do not
+                    // strip dependencies and then share its sensitive text.
+                    AnswerResponse {
+                        contract_version: result.answer.contract_version.clone(),
+                        request_id: result.answer.request_id.clone(),
+                        knowledge_release: result.answer.knowledge_release.clone(),
+                        status: AnswerStatus::Unavailable,
+                        text: "Antwort ist für die sichere Wiederverwendung zu groß.".into(),
+                        citations: Vec::new(),
+                        usage: Usage::default(),
+                    }
+                    .into()
+                });
                 state.done = true;
             }
             flight.ready.notify_all();
@@ -311,5 +330,88 @@ mod tests {
         assert_eq!(a, b);
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert!(c.flights.lock().unwrap().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod retained_pack_tests {
+    use super::*;
+    use std::sync::mpsc;
+
+    #[test]
+    fn oversized_uncited_pack_is_not_retained_for_single_flight_followers() {
+        let coordinator = Arc::new(Coordinator::default());
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let leader_coordinator = coordinator.clone();
+        let leader = std::thread::spawn(move || {
+            leader_coordinator
+                .run("large".into(), Duration::from_secs(3), None, || {
+                    ready_tx.send(()).unwrap();
+                    release_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+                    KernelAnswer {
+                        answer: AnswerResponse {
+                            contract_version: CONTRACT_VERSION.into(),
+                            request_id: "leader".into(),
+                            knowledge_release: "release".into(),
+                            status: AnswerStatus::Answered,
+                            text: "leader-only text".into(),
+                            citations: Vec::new(),
+                            usage: Usage::default(),
+                        },
+                        dependencies: vec![Evidence {
+                            evidence_id: "uncited".into(),
+                            source_id: "fixture".into(),
+                            logical_id: "uncited".into(),
+                            revision: 1,
+                            kind: brain_contracts::EvidenceKind::Prose,
+                            // Retained capacity counts too; reserving needs no huge test payload.
+                            content: String::with_capacity(1024 * 1024 + 1),
+                            citation: "fixture".into(),
+                            visibility: brain_contracts::SourceVisibility::Public,
+                            allowed_scopes: Default::default(),
+                            score: 1.0,
+                            provenance: None,
+                            patch: None,
+                        }]
+                        .into(),
+                    }
+                })
+                .unwrap()
+        });
+        ready_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let follower_coordinator = coordinator.clone();
+        let follower = std::thread::spawn(move || {
+            follower_coordinator
+                .run("large".into(), Duration::from_secs(3), None, || {
+                    panic!("follower must not start another operation")
+                })
+                .unwrap()
+        });
+        let started = Instant::now();
+        loop {
+            let flight = coordinator
+                .flights
+                .lock()
+                .unwrap()
+                .get("large")
+                .unwrap()
+                .clone();
+            if flight.state.lock().unwrap().waiters == 1 {
+                break;
+            }
+            assert!(started.elapsed() < Duration::from_secs(2));
+            std::thread::yield_now();
+        }
+        release_tx.send(()).unwrap();
+        let (leader_answer, leader_shared) = leader.join().unwrap();
+        let (follower_answer, follower_shared) = follower.join().unwrap();
+        assert!(!leader_shared);
+        assert_eq!(leader_answer.answer.status, AnswerStatus::Answered);
+        assert!(follower_shared);
+        assert_eq!(follower_answer.answer.status, AnswerStatus::Unavailable);
+        assert!(follower_answer.dependencies.is_empty());
+        assert!(follower_answer.answer.citations.is_empty());
+        assert!(!follower_answer.answer.text.contains("leader-only"));
     }
 }
