@@ -1,13 +1,15 @@
-status: statische Prüfung abgeschlossen, Slot-A-Vorbereitung GO
+status: statische Prüfung einschließlich echtem Locknachtrag abgeschlossen, GO auf 9a29b81
 Datum: 2026-09-30
 
-# Slot A: unabhängige statische Abnahme
+# Slot A: unabhängige statische Abnahme mit Locknachtrag
 
-**Fertig: J für die statische Slot-A-Vorbereitung. Fix nötig: N. Statisches Gesamturteil auf 0c290809: GO mit ausdrücklich offenem Lock-/Cargo-Nachweis in Slot B.**
+**Fertig: J für die beauftragte statische Abnahme einschließlich Delta 0c290809..9a29b81. Fix nötig: N. Statisches Gesamturteil auf 9a29b81: GO.**
 
-Der im ursprünglichen Bericht bestätigte ENV-/j2-Abgabemangel SA-1 ist im ausdrücklich nachgereichten Berichtscommit korrigiert. Im unveränderten Produktdiff ist kein weiterer konkreter Quellfehler nachgewiesen. Der Manifest-/CI-Schnitt ist statisch nachvollziehbar; die Root-Lockbereinigung und Cargo-Auflösung sind noch nicht abgeschlossen. Dieses GO akzeptiert die zulässige statische Vorbereitung und ihren ehrlichen Übergabestand, nicht eine fertige Git-freie Cargo-Auflösung. **Compilerprüfung NICHT AUSGEFÜHRT. G5-Livebeweis NICHT ERBRACHT.** Keine G5-/Deployfreigabe.
+Die Root-Lockbereinigung ist inzwischen committed und unabhängig statisch bestätigt: 386 Pakete, 41 entfernt, keine Gitquellen, keine neuen Paketidentitäten oder geänderten Versionen, Quellen und Checksummen. Die entfernte chrono-serde-Kante ergibt in den geprüften V1-Verwendungen keinen konkreten Quellfehler. Der einzelne Offline-Metadatenlauf stammt von der Hauptsession, nicht vom Reviewer. Der gesperrte Metadaten-Kontrolllauf und die Compilerprüfung bleiben offen. **Compilerprüfung NICHT AUSGEFÜHRT. G5-Livebeweis NICHT ERBRACHT.** Sonstige Slots B bis E bleiben gesperrt. Keine G5-/Deployfreigabe.
 
-## Exakte Bindung
+Die folgenden Abschnitte bis zum historischen Schlussurteil dokumentieren die ursprüngliche Slot-A-Abnahme auf `0c290809`. Aussagen zum damals unveränderten Rootlock gelten ausschließlich für diesen Stand. Der aktuelle Nachtrag auf `9a29b81` steht am Ende; die frühere Zahl 24 bezeichnet explizite Manifestwurzeln, nicht sämtliche Cargo-Member.
+
+## Exakte Bindung der ursprünglichen Slot-A-Abnahme
 
 - Basis: `1c362bca6d35e7fec10125b2b159e7513a299243`.
 - Geprüfter Produktcommit: `86a0bd6e52e5704db2d50901c918db02b4b3eb64`.
@@ -45,7 +47,7 @@ Read-only Auswertung der Git-Blobs mit Node, ohne Dateischreibvorgang oder Cargo
 | Eigenschaft | Eigenes Ergebnis |
 | --- | ---: |
 | Paketknoten im bisherigen und aktuellen Rootlock | 427 |
-| Rootmitglieder vorher / nachher | 25 / 24 |
+| Explizite Manifestwurzeln vorher / nachher | 25 / 24 |
 | Entfernte Rootwurzel | ausschließlich dbrain-replay |
 | Aufgelöste Paketkanten | 1289 |
 | Versionsqualifizierte Kanten | 222 |
@@ -98,7 +100,9 @@ Der Nachtrag beschreibt außerdem den Bindungsfehler konkret: tatsächliche cwd 
 
 **SA-1 geschlossen. Keine weitere Berichtskorrektur für Slot A erforderlich.** Die Vorschläge im Autorenbericht ersetzen nicht die vom Integrator zuzuteilenden exakten Befehle für Slots B bis E. Das Verbot von Compiler-, Prozess- und Dienstläufen in Slot A bleibt unverändert.
 
-## Noch benötigte Schritte, keine Ausführungsfreigabe
+## Historische Slotplanung auf 0c290809, keine Ausführungsfreigabe
+
+Aktualisierung auf `9a29b81`: Nur der erste unten aufgeführte Metadatenbefehl wurde anschließend einzeln zugeteilt und von der Hauptsession ausgeführt. Alle weiteren Befehle bleiben unzugeteilt und wurden vom Reviewer nicht gestartet.
 
 Vorhandene Caches: Cargo `/home/nathanael/.cargo`; exklusiv zuzuteilender Targetcache `/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target`. In Slot A wurde keiner beschrieben oder neu angelegt.
 
@@ -125,7 +129,7 @@ flock -w 600 /tmp/deadlock-brain-release-build.lock /home/nathanael/.cargo/bin/c
 
 **Slot E:** Noch kein startbereiter Dienstbefehl. Tatsächliche Unit, Config, Endpoint, revisionsgebundenes Artefakt und Rückweg müssen belegt und vom Integrator einem Fenster zugeordnet werden. Kein neuer Modellpfad und kein eigener Twitch-/DL-Neustart.
 
-## Schlussurteil
+## Historisches Schlussurteil auf 0c290809
 
 Der Replay-Manifest-/CI-Schnitt ist statisch nachvollziehbar; vorhandener Replaybestand und V1-Wurzeln bleiben erhalten. Die abschließend zugewiesene Abgabe **Produkt 86a0bd6, Gesamtstand 0c290809** erhält **statisches GO für die Slot-A-Vorbereitung**. SA-1 ist geschlossen. Die noch unveränderte Rootlockdatei und der kopierte Replaylock bleiben konkrete offene Cargo-Arbeit im späteren Slot, keine bereits verifizierte Git-freie Lockauflösung.
 
@@ -134,3 +138,67 @@ Der Replay-Manifest-/CI-Schnitt ist statisch nachvollziehbar; vorhandener Replay
 WIRKUNGSPRUEFUNG[WP-1]: 0 Befunde | Zwillingssuche: grep-belegt | Fremddienst-Pfade: 0/0 geprüft (statische Abnahme, keine echten Fremdaufrufe; SA-1 im Berichtsdelta geschlossen)
 TESTNACHWEIS[TW-1]: 0 passed, 0 ignored | Baseline: kein Testlauf angefordert oder ausgeführt; statische Graphanalyse und Shell-Syntaxprüfung sind keine Tests
 TEXTNACHWEIS[DR-1]: Gedankenstriche 0 | ae/oe/ue/ss-Ersatz 0 | Absolutwörter 0 belegt | Senke: unabhängiger Slot-A-Bericht
+
+## Nachtrag: tatsächlicher Root-Lockdiff auf 9a29b81
+
+### Auftrag und Nachweisbindung
+
+Am 30.09.2026 ausdrücklich zugewiesen: ausschließlich statisches Delta `0c290809bb259a06dfe3c5d0e8eac9c0008c6e7f..9a29b81d230c01e5c03423cc34ba34c1074eab69` im bisherigen Quellworktree. Eigener Berichtsausgangspunkt: `fde282438433ebb58c526fda1c83480aab5c4656`. Keine erneute Vollprüfung des bereits abgenommenen Manifest-/CI-Schnitts.
+
+Der eingefrorene Diff enthält genau `rust/Cargo.lock` und den neuen Beleg `.tasks/2026-09-30-g5-abschluss/SLOT-B-METADATA.md`. Rustquellen, Manifeste, CI, Replaylock und Parserpins haben in diesem Delta keine Änderung. `git diff --check` auf den beiden vollständigen Ziel-SHAs: Exit 0.
+
+`SLOT-B-METADATA.md:18-29` dokumentiert den einzeln zugeteilten Aufruf der Hauptsession: `/home/nathanael/.cargo/bin/cargo +1.97.1 metadata --offline --format-version 1`, cwd `/home/nathanael/.worktrees/brain-g5-replay-deferred-20260930/rust`, Exit 0, 562 ms, kein Fehlertext und kein `rust/target` vor oder nach dem Lauf. Der Beleg nennt 386 Pakete/Resolve-Nodes und 25 Cargo-Member. Das sind berichtete Laufdaten, keine eigene Wiederholung. Die Metadata-Rohdatei liegt nicht zur unabhängigen Wiederzählung vor; ihr dokumentierter SHA256 `f143b11277a256d4d66278318ff1e7d014b1521d3b01154ffa4aec5ffdd1cf71` ist daher ebenfalls übernommene Provenienz. Unabhängig nachgeprüft ist der committed Lockgraph.
+
+### Eigener semantischer Lockvergleich
+
+Beide eingefrorenen Lockblobs wurden vollständig wie in Abschnitt 3 zerlegt. Jede Dependencyreferenz wurde innerhalb ihres jeweiligen alten oder neuen Graphen auf Name, Version und Quelle aufgelöst. Dadurch werden entfernte Versionsqualifizierungen nicht mit geänderten Abhängigkeiten verwechselt. Keine mehrdeutige oder unaufgelöste Referenz, kein unverständlicher Blockrest.
+
+| Eigenschaft | Eigenes Ergebnis |
+| --- | ---: |
+| Paketidentitäten vorher / nachher | 427 / 386 |
+| Entfernte / neue Paketidentitäten | 41 / 0 |
+| Geänderte Versions-, Quellen- oder Checksummentupel erhaltener Pakete | 0 |
+| Kanten im vollständigen alten / neuen Lockgraphen | 1289 / 1166 |
+| Erhaltene Pakete mit semantischer Kantenänderung | 1 |
+| Gitpakete im neuen Rootlock | 0 |
+| Von den 24 expliziten V1-Wurzeln erreichbar | 386 |
+| Lokale Pakete im neuen Rootlock | 25 |
+
+Die neue Paketmenge entspricht exakt den bereits auf `0c290809` statisch erreichbaren 386 V1-Paketen. Die 41 entfernten Einträge sind exakt die zuvor außerhalb dieser Menge verbliebenen Pakete, einschließlich `dbrain-replay`, der sieben Gitpakete und der Replay-spezifischen Protobuf-/Testabhängigkeiten. Alle 24 expliziten V1-Wurzeln sind erhalten. Die übrigen Änderungen an Dependencystrings sind reine Entqualifizierungen; die einzige semantische Änderung an einem erhaltenen Paket ist `chrono 0.4.45 -> serde 1.0.228`, entfernt in `rust/Cargo.lock:467-478`.
+
+SHA256 des unabhängig gelesenen neuen Rootlocks:
+
+```text
+2f3dd52e2fee3be8ee03f99e9969e2b56629384b118730956f9637b0198cb291
+```
+
+Der separate Replaylock ist bytegleich zum bisherigen Stand. Seine ausstehende eigene Bereinigung und die alten Replay-Nachweisgrenzen bleiben bestehen; sie sind kein im neuen V1-Lock verbliebener Gitbedarf.
+
+### 24 explizite Wurzeln, 25 Cargo-Member
+
+`rust/Cargo.toml:3-29` enthält 24 explizite Memberpfade. `rust/crates/deadlock-brain-core/Cargo.toml:25` bindet zusätzlich `../../vendor/uplink-infisical-transport` ein. Dessen Manifest `rust/vendor/uplink-infisical-transport/Cargo.toml:1-11` liegt innerhalb des Rootworkspaces, hat keinen eigenen Workspace und wird nicht ausgeschlossen. Die automatische Aufnahme dieser lokalen Pfadabhängigkeit erklärt den gemeldeten 25. Cargo-Member. Derselbe Baustein ist im alten und neuen Lock enthalten. Kein neu hinzugefügtes Produktpaket und kein fehlender expliziter V1-Eintrag. Der Paketname des expliziten Pfades `crates/dbrain-wiki` lautet weiterhin `dbrain-s12-wiki-probe`.
+
+### chrono ohne serde: statische Verwendungsprüfung
+
+Graphify wurde vor der Suche nach chrono-/Serde-Verwendungen und dem lokalen Transportbaustein abgefragt. Anschließend wurden die eingefrorenen Rustmanifeste und Quellen nach chrono, DateTime und NaiveDate-/NaiveTime-Typen durchsucht und die gefundenen Datenpfade einschließlich Beispiele und Tests nachgelesen. Im geprüften V1-Code ist kein Bedarf für direkte Serde-Serialisierung oder -Deserialisierung eines chrono-Typs belegt:
+
+- `dbrain-retrieval/src/game_wiki.rs:501-516`: `SnapshotRow` mit `Option<DateTime<Utc>>` hat nur Debug-/Clone-Derives. JSON erhält Strings über `to_rfc3339()` in `:117,527-533`; Markdown und Index formatieren ebenfalls ausdrücklich (`:854-857,967-1011`). `game_wiki_localization.rs:9-16,132-135` hält den Zeitpunkt ohne Serde-Derive und wandelt ihn vor `json!` um.
+- `dbrain-retrieval/src/lib.rs:7321-7337`: SQLx dekodiert `DateTime`, `NaiveDateTime` und `NaiveDate`, danach entstehen ausdrücklich `JsonValue::String`-Werte. Das in `dbrain-retrieval/Cargo.toml:20` aktivierte SQLx-Feature `chrono` ist die DB-Typanbindung, keine Anforderung an chrono/serde. Die Beispiele `ask_latency.rs:140-156` und `ask_publish_smoke.rs:173` geben RFC3339-Strings aus.
+- `deadlock-brain/src/pg_patchnotes.rs:90-104,144-155`: Die chrono-haltigen Strukturen `PreparedPatch` und `EventParseContext` besitzen keinen Serialize-/Deserialize-Derive. JSON erhält `posted_at_text` nach `to_rfc3339()` (`:528-566`) beziehungsweise eine ausdrücklich umgewandelte Option (`:1069`). Der DB-Schreibpfad verwendet ebenfalls einen String (`:1373-1386`), nicht chrono-Serde.
+- `dbrain-wiki/src/pages.rs:238-245` und `deadlock-brain-core/src/http/bounded.rs:263-270` parsen RFC-Daten und entnehmen Integer-Zeitstempel. `deadlock-brain/src/pg_steam_news.rs:224-247` verwendet das Datum nur für Filterzeit und Vergleiche. `pg_insights.rs:191-201`, `main.rs:1829` und `wiki_refresh.rs:100,149-152` formatieren ausdrücklich Strings.
+
+**Kein chrono-Feature-Fix aus diesem statischen Befund erforderlich.** Die entfernte Serde-Kante ist für diese Verwendungen nicht nötig. Daraus folgt kein Compilerbeweis; insbesondere wurde keine Traitauflösung durch rustc geprüft und keine erfolgreiche Workspaceprüfung behauptet.
+
+### Aktuelles Urteil und verbleibende Grenze
+
+**Fertig J, Fix N, statisches GO auf `9a29b81d230c01e5c03423cc34ba34c1074eab69`.** Die bisher offene committed Root-Lockbereinigung ist statisch geschlossen. SA-1 bleibt geschlossen. Keine neue Produkt- oder Berichtskorrektur verlangt.
+
+Der Reviewer hat weder Cargo noch Compiler, Tests, Fetch, Prozessharness, Modellserver oder Dienste gestartet. Keine neuen Caches, ENV-Konfiguration, Secretlesung, Unterthreads, Produktänderung, Merge oder Deployment. Der einzelne berichtete Offline-Metadatenlauf aus vorhandenem Cargo-Cache belegt weder frischen Quellenzugang noch einen Build ohne vorhandenen Cache, erfolgreiche Tests oder Livebetrieb. **Compilerprüfung NICHT AUSGEFÜHRT. G5-Livebeweis NICHT ERBRACHT. Sonstige Slots B bis E weiter gesperrt.**
+
+Nächster Freigabepunkt beim Integrator ist ausschließlich der bereits vorgeschlagene Kontrolllauf `cargo +1.97.1 metadata --locked --offline --format-version 1` mit Prüfung eines unveränderten Rootlocks. Dieser Bericht teilt ihn nicht zu; der Reviewer führt ihn nicht aus.
+
+Werkzeuggrenze beim abschließenden Textcheck: `ctx_execute_file` verweigerte die eigene Berichtsdatei unter `/home/nathanael/.worktrees/brain-pre-g5-core-review-20260929`, da der Server noch `/home/nathanael/repos/Deadlock-Brain` als Projektwurzel bindet: „resolves outside the project root“. Kein Wiederholungsversuch über einen anderen Dateilesepfad, keine Regeländerung. Textkontrolle manuell; der reguläre `git diff --check` im zugewiesenen Reviewworktree bestand.
+
+WIRKUNGSPRUEFUNG[WP-1]: 0 Befunde | Zwillingssuche: grep-belegt | Fremddienst-Pfade: 0/0 geprüft (statischer Lock-/Feature-Nachtrag, keine echten Fremdaufrufe)
+TESTNACHWEIS[TW-1]: 0 passed, 0 ignored | Baseline: kein Testlauf angefordert oder ausgeführt; kein Compiler- oder Livebeweis
+TEXTNACHWEIS[DR-1]: Gedankenstriche 0 | ae/oe/ue/ss-Ersatz 0 | Absolutwörter 0 belegt | Senke: statischer Locknachtrag im bestehenden Reviewbericht
