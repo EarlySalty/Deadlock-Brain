@@ -1,4 +1,4 @@
-status: zugeteilter Clippy-Lauf beendet, Exitcode 0; keine weitere Cargo-Aktion gestartet
+status: Clippy-Slot zurückgegeben; statische Test-Safety und Servevorbereitung aktiv, keine neue Laufzuteilung
 Datum: 2026-09-30
 Intent-Thread: 562a877b-0939-440a-964d-1145d9e9431a
 
@@ -49,10 +49,17 @@ Ressourcen: ein Cargo-Job, keine Testausführung und kein Releasebuild. Linker/B
 
 SQLx: 114 versionierte Offline-Metadatendateien unter rust/.sqlx vorhanden; typgeprüfte Query-Makros bleiben erhalten. Kein ENV-Präfix, keine ENV-Datei, kein neuer Secret- oder DB-Konfigurationsweg. Der zugeteilte Clippy-Aufruf bestand ohne zusätzliche ENV-Einstellungen und ohne Konfigurationsänderung. Keine Aussage über die Vollständigkeit der Offline-Dateien bei einem vollständig leeren Buildcache; der vorhandene Cache wurde wie beauftragt wiederverwendet.
 
-WEITERE SCHRITTE, WEITERHIN NICHT ZUGETEILT
+AKTUELLE STATISCHE FORTSETZUNG
 
-Formatprüfung:
+Root hat Clippy übernommen und den Cargo-Slot zurückgegeben. Neue Nutzerzuteilung erlaubt reine Quellprüfung, git diff --check und Formatcheck ohne separaten Compiler-Slot. Genau ausgeführt:
 /home/nathanael/.cargo/bin/cargo +1.97.1 fmt --all -- --check
+Exit 0, 1307 ms auf Produktbasis 9a29b81. Kein Test/Build/Fetch.
+
+Bestehender Sol-Thread 66adf9ee prüft den nachstehenden Workspace-Standard statisch bis zu seinen Helpern: Produktmodelle, echte Dienste/DBs, ENV-/Secret-Setup, lokale Mockserver/Prozesse, Doc-/Integrationstests und bedingte Skips. Ergebnis und Laufzeitklassen folgen; bis dahin ist der Standardlauf NICHT als nebenwirkungsarm abgenommen. Keine neue Wache.
+
+Servevorbereitung ist konkret am bestehenden Vertrag und Quellstand dokumentiert; unabhängiger bestehender Reviewer 52c34332 prüft sie. Ports 8787 (python3) und 8789 (devfeed-api) sind belegt. Beispiel-Config-/Binary-/Unitpfade existieren nicht an den geprüften Stellen. Bestehender Secret-Exec-/LoadCredentialpfad kann weitergenutzt werden; keine neue ENV-Konfiguration, kein neues Modell oder neuer API-Kern. Reale Endpoint-/Release-/Rollenbindung und belastbarer Rückweg bleiben Startvoraussetzungen. Keine DL-/Twitch-Unit verändert.
+
+TESTANFORDERUNG IN STATISCHER PRÜFUNG, NICHT ZUGETEILT
 
 Workspace-Tests, ausdrücklich erst eigener Slot; Testharness seriell:
 /home/nathanael/.cargo/bin/cargo +1.97.1 test --workspace --locked --offline --jobs 1 --target-dir /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target -- --test-threads=1

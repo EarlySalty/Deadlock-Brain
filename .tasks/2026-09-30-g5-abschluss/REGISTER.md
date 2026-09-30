@@ -1,4 +1,4 @@
-status: aktiv, statische Abnahme, Metadaten und einzeln zugeteilter Clippy-Lauf bestanden; weitere Prüfungen nicht zugeteilt
+status: aktiv, statische Test-Safety und Servevorbereitung laufen; kein Compiler-/Testslot belegt
 Datum: 2026-09-30
 
 # G5-Fortsetzungsregister
@@ -20,8 +20,8 @@ Ursprüngliche gemeinsame Basis: 1c362bca6d35e7fec10125b2b159e7513a299243. Keine
 
 | Paket | Thread-ID | Modell | Stand |
 | --- | --- | --- | --- |
-| V1 ohne Replay | 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 | bestehender Sol, gpt-6-sol | Produkt 86a0bd6 und korrigierter Bericht 0c290809 gepusht; bereit, kein aktiver Quellauftrag; Merge noch offen |
-| Statische Abnahme und Locknachtrag | 52c34332-8cdf-4772-9e1f-42aba432c6cf | bestehender Astra | Fertig, Bericht 035e2a99 gelesen, GO auf 9a29b81; gesettelt, Sequenz 1149318 |
+| V1 ohne Replay | 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 | bestehender Sol, gpt-6-sol | Produkt 9a29b81 unverändert; erneut aktiv für statische Workspace-Test-Safety, Sequenz 1150979; kein Cargo-/Teststart erlaubt |
+| Statische Abnahme und Locknachtrag | 52c34332-8cdf-4772-9e1f-42aba432c6cf | bestehender Astra | Abgeschlossener Lockreview 035e2a99, GO auf 9a29b81; erneut aktiv für statische Servevorbereitung, Sequenz 1151676 |
 | Finale Compiler-/Prozessprüfung | 6b53c923-e4da-498a-b08e-254407b452ff | Sol | Nicht wiederaufgenommen; einzeln zugeteilter Clippy-Lauf durch Hauptsession abgeschlossen, keine Prozessprüfung |
 | Consumerabnahme | 533115bf-554f-4457-86b4-2944fef19c63 | Astra | Nicht wiederaufgenommen |
 
@@ -38,6 +38,12 @@ Keine neuen Unterthreads. Autor und Reviewer unabhängig. Wache f09492d8 nach ab
 - Keine Test-, Benchmark-, Fetch-, Release- oder Dienstaktion. Kein neuer Livebeweis.
 
 ## Nächster Freigabepunkt
+
+Nutzer hat reine Quellprüfungen, `git diff --check` und Formatprüfung ausdrücklich erlaubt. `cargo +1.97.1 fmt --all -- --check` auf der Produktbasis 9a29b81 bestanden, Exit 0, 1307 ms. Kein Compiler-/Test-/Fetchlauf gestartet.
+
+Aktive Pakete: `TESTVORBEREITUNG-SOL.md` verlangt belegte Nebenwirkungsprüfung des gesamten Workspace-Standards inklusive Integration-/Doc-Tests und getrenntes Inventar ignorierter DB-/Livefälle. `SERVE-VORBEREITUNG.md` prüft vorhandenen Vertrag, Portkonflikte, normale Config, bestehenden Secretweg, Unit und Rückweg; unabhängiger Review nach `SERVE-REVIEW-BRIEFING.md` läuft. Keine neue Architektur und keine zusätzliche Wache.
+
+Der G5-Gesamtauftrag bleibt aktiv. Testbedarf wird erst mit konkreten Laufzeitklassen und dem Safety-Ergebnis als startreife Anforderung gemeldet; die Slotdatei ist kein Aufgabenabschluss.
 
 Clippy ist abgeschlossen. Root wurde über Ende und Exitcode informiert und kann den Cargo-Slot zurückgeben. Keine zweite Cargo-Aktion oder automatischer Folgelauf. Die hostweite BRAIN-G5-BUILD-REQUEST.txt enthält den Abschluss; identische Kopie liegt in dieser Akte.
 
