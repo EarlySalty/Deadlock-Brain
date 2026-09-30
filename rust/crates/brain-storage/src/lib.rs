@@ -8,6 +8,7 @@ mod pg_release;
 mod schema;
 pub use domain_reader::DomainReader;
 pub use local_pg_reader::{LocalPgPoolStats, LocalPgReader};
+pub use memory_repository::validate_release;
 pub use memory_repository::MemoryRepository;
 pub use schema::CORE_SCHEMA_VERSION;
 
@@ -172,6 +173,7 @@ impl PgStore {
         record: &SourceRecordV2,
     ) -> Result<ApplyOutcome> {
         record.validate()?;
+        pg_jobs::lock_source(tx, &record.source_id).await?;
         let lock_key = serde_json::to_string(&(&record.source_id, &record.logical_id))?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)")
             .bind(lock_key)

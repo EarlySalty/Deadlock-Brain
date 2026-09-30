@@ -238,7 +238,7 @@ impl SnapshotReadPort for MemoryRepository {
         })
     }
 }
-pub(crate) fn validate_release(release: &CorpusRelease) -> Result<(), PortError> {
+pub fn validate_release(release: &CorpusRelease) -> Result<(), PortError> {
     if [
         &release.release_id,
         &release.knowledge_version,

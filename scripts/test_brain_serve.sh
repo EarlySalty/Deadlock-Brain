@@ -58,6 +58,7 @@ STARTED=1
 "${PG_ENV[@]}" "$PG_BIN/createdb" -h "$CLUSTER" -p 55439 -U brain_core_test brain_legacy_test
 "${PG_ENV[@]}" "$PG_BIN/createdb" -h "$CLUSTER" -p 55439 -U brain_core_test brain_pilot_test
 "${PG_ENV[@]}" "$PG_BIN/createdb" -h "$CLUSTER" -p 55439 -U brain_core_test brain_schema_test
+"${PG_ENV[@]}" "$PG_BIN/createdb" -h "$CLUSTER" -p 55439 -U brain_core_test brain_cutover_test
 "${PG_ENV[@]}" "$PG_BIN/createdb" -h "$CLUSTER" -p 55439 -U brain_core_test brain_empty_schema_test
 "${PG_ENV[@]}" "$PG_BIN/createdb" -h "$CLUSTER" -p 55439 -U brain_core_test brain_scram_test
 cd "$ROOT/rust"
@@ -71,6 +72,11 @@ env -i "PATH=$PATH" "HOME=$SCRATCH" "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" \
   "CARGO_BUILD_JOBS=1" "SQLX_OFFLINE=true" "BRAIN_CORE_TEST_PG_SOCKET=$CLUSTER" \
   "$CARGO" +1.97.1 test --locked --offline --jobs 1 --target-dir "$TARGET_DIR" -p brain-legacy-import --lib \
   scratch_import_release_tombstone_and_revoke -- --ignored --nocapture
+env -i "PATH=$PATH" "HOME=$SCRATCH" "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" \
+  "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" \
+  "CARGO_BUILD_JOBS=1" "SQLX_OFFLINE=true" "BRAIN_CORE_TEST_PG_SOCKET=$CLUSTER" \
+  "$CARGO" +1.97.1 test --locked --offline --jobs 1 --target-dir "$TARGET_DIR" -p brain-legacy-import --bin brain-legacy-import \
+  tests::same_database_archive_to_core_requires_bound_private_snapshot -- --ignored --exact --nocapture
 env -i "PATH=$PATH" "HOME=$SCRATCH" "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" \
   "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" \
   "CARGO_BUILD_JOBS=1" "SQLX_OFFLINE=true" "BRAIN_CORE_TEST_PG_SOCKET=$CLUSTER" \

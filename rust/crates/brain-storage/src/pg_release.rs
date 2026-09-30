@@ -1,13 +1,13 @@
 use crate::{
     memory_repository::validate_release,
-    pg_jobs::{commit_batch_tx, database_error},
+    pg_jobs::{commit_batch_tx, database_error, lock_source},
     PgStore,
 };
 use brain_contracts::{
     BatchReceipt, CorpusRelease, CorpusSnapshot, Lease, PortError, SourceBatch, SourceRecordV2,
 };
 use sqlx::{Postgres, Row, Transaction};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 fn invalid(message: &str) -> PortError {
     PortError::InvalidResponse(message.into())
 }
@@ -64,12 +64,32 @@ impl PgStore {
         batches: &[(&SourceBatch, &Lease)],
         release: &CorpusRelease,
     ) -> Result<(Vec<BatchReceipt>, usize), PortError> {
+        self.commit_batches_and_publish_inner(batches, release, None)
+            .await
+    }
+
+    pub async fn commit_batches_and_publish_checked(
+        &self,
+        batches: &[(&SourceBatch, &Lease)],
+        release: &CorpusRelease,
+        expected_heads: &[SourceRecordV2],
+    ) -> Result<(Vec<BatchReceipt>, usize), PortError> {
+        self.commit_batches_and_publish_inner(batches, release, Some(expected_heads))
+            .await
+    }
+
+    async fn commit_batches_and_publish_inner(
+        &self,
+        batches: &[(&SourceBatch, &Lease)],
+        release: &CorpusRelease,
+        expected_heads: Option<&[SourceRecordV2]>,
+    ) -> Result<(Vec<BatchReceipt>, usize), PortError> {
         if batches.is_empty() || batches.len() > 2 {
             return Err(invalid("atomic release requires one or two source batches"));
         }
         let mut sources = BTreeSet::new();
         for (batch, lease) in batches {
-            if !sources.insert(&batch.checkpoint.source_id)
+            if !sources.insert(batch.checkpoint.source_id.clone())
                 || lease.source_id != batch.checkpoint.source_id
             {
                 return Err(invalid("duplicate or mismatched atomic source"));
@@ -77,10 +97,92 @@ impl PgStore {
             batch.validate()?;
         }
         validate_release(release)?;
+        let expected = if let Some(heads) = expected_heads {
+            let mut records = BTreeMap::new();
+            let mut pins: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
+            for record in heads {
+                record
+                    .validate()
+                    .map_err(|_| invalid("invalid expected source head"))?;
+                if !sources.contains(&record.source_id)
+                    || records
+                        .insert(
+                            (record.source_id.clone(), record.logical_id.clone()),
+                            record.clone(),
+                        )
+                        .is_some()
+                {
+                    return Err(invalid("duplicate or unrelated expected source head"));
+                }
+                if !record.tombstone {
+                    pins.entry(record.source_id.clone())
+                        .or_default()
+                        .insert(record.logical_id.clone(), record.revision);
+                }
+            }
+            if pins != release.source_revisions {
+                return Err(invalid("expected source heads differ from release pins"));
+            }
+            Some(records)
+        } else {
+            None
+        };
         let mut tx = self.pool.begin().await.map_err(database_error)?;
+        for source in &sources {
+            lock_source(&mut *tx, source)
+                .await
+                .map_err(database_error)?;
+        }
         let mut receipts = Vec::with_capacity(batches.len());
         for (batch, lease) in batches {
             receipts.push(commit_batch_tx(&mut tx, batch, lease).await?);
+        }
+        if let Some(expected) = expected {
+            for (batch, _) in batches {
+                let stored: Option<serde_json::Value> = sqlx::query_scalar(
+                    "SELECT checkpoint_json FROM brain.source_checkpoints_v1 WHERE source_id=$1",
+                )
+                .bind(&batch.checkpoint.source_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(database_error)?;
+                let checkpoint = serde_json::to_value(&batch.checkpoint)
+                    .map_err(|_| invalid("invalid expected checkpoint JSON"))?;
+                if stored != Some(checkpoint) {
+                    return Err(invalid("source checkpoint changed before release"));
+                }
+            }
+            let source_ids: Vec<String> = sources.into_iter().collect();
+            let rows = sqlx::query("SELECT source_id,logical_id,revision,content_hash,tombstone,record_json FROM brain.source_record_heads WHERE source_id=ANY($1)")
+                .bind(source_ids)
+                .fetch_all(&mut *tx)
+                .await
+                .map_err(database_error)?;
+            let mut actual = BTreeMap::new();
+            for row in rows {
+                let source: String = row.try_get("source_id").map_err(database_error)?;
+                let logical: String = row.try_get("logical_id").map_err(database_error)?;
+                let revision: i64 = row.try_get("revision").map_err(database_error)?;
+                let content_hash: String = row.try_get("content_hash").map_err(database_error)?;
+                let tombstone: bool = row.try_get("tombstone").map_err(database_error)?;
+                let value: serde_json::Value =
+                    row.try_get("record_json").map_err(database_error)?;
+                let record: SourceRecordV2 = serde_json::from_value(value)
+                    .map_err(|_| invalid("invalid stored source head"))?;
+                if revision <= 0
+                    || record.source_id != source
+                    || record.logical_id != logical
+                    || record.revision != revision as u64
+                    || record.content_hash != content_hash
+                    || record.tombstone != tombstone
+                    || actual.insert((source, logical), record).is_some()
+                {
+                    return Err(invalid("stored source head columns disagree"));
+                }
+            }
+            if actual != expected {
+                return Err(invalid("source heads changed before release"));
+            }
         }
         publish_release_tx(&mut tx, release).await?;
         let readback = sqlx::query_scalar::<_, serde_json::Value>(

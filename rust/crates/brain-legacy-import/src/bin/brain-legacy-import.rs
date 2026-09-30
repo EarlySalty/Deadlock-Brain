@@ -1,16 +1,16 @@
-use brain_contracts::{DocumentStorePort, SourceCheckpoint, SourceRecordV2};
+use brain_contracts::{DocumentStorePort, SourceBatch, SourceCheckpoint, SourceRecordV2};
 use brain_ingestion::document_set::DocumentSetCheckpoint;
 use brain_legacy_import::{
-    ENTITIES_SOURCE, ImportContext, PATCHNOTES_SOURCE, ReleaseConfig, SourcePolicyConfig,
     cutover::CutoverBinding, entity_documents, patch_documents, pg::read_legacy, prepare_batch,
-    release_from_checkpoints, snapshot_digest,
+    release_from_checkpoints, snapshot_digest, ImportContext, ReleaseConfig, SourcePolicyConfig,
+    ENTITIES_SOURCE, PATCHNOTES_SOURCE,
 };
 use brain_storage::PgStore;
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::{
-    ConnectOptions, Connection, Row,
     postgres::{PgConnectOptions, PgConnection, PgPoolOptions},
+    ConnectOptions, Connection, Row,
 };
 use std::{collections::BTreeMap, path::PathBuf, time::Duration};
 
@@ -231,6 +231,30 @@ async fn target_heads(
     Ok(heads)
 }
 
+fn expected_cutover_heads(
+    mut heads: BTreeMap<String, BTreeMap<String, SourceRecordV2>>,
+    prepared: &[SourceBatch],
+    binding: &CutoverBinding,
+    sources: &[brain_legacy_import::LegacySource; 2],
+    policies: &BTreeMap<String, SourcePolicyConfig>,
+    context: &ImportContext,
+) -> Result<Vec<SourceRecordV2>, String> {
+    for batch in prepared {
+        let source_heads = heads.entry(batch.checkpoint.source_id.clone()).or_default();
+        for record in &batch.records {
+            binding
+                .verify_head(record, sources, policies, context)
+                .map_err(|e| e.to_string())?;
+            source_heads.insert(record.logical_id.clone(), record.clone());
+        }
+        verify_checkpoint(Some(&batch.checkpoint), source_heads)?;
+    }
+    Ok(heads
+        .into_values()
+        .flat_map(BTreeMap::into_values)
+        .collect())
+}
+
 async fn run(config: Config) -> Result<serde_json::Value, String> {
     run_with_destination(config, PRODUCTION).await
 }
@@ -349,6 +373,7 @@ async fn run_with_destination(
         .collect();
     let release = release_from_checkpoints(&checkpoints, &config.release, config.snapshot_epoch)
         .map_err(|e| e.to_string())?;
+    brain_storage::validate_release(&release).map_err(|e| format!("{e:?}"))?;
     let documents: usize = release.source_revisions.values().map(BTreeMap::len).sum();
     if let Some(binding) = binding {
         let approved: usize = binding.active_ids.values().map(|ids| ids.len()).sum();
@@ -356,16 +381,52 @@ async fn run_with_destination(
             return Err("cutover release pins differ from approved inventory".into());
         }
     }
+    let expected_heads = binding
+        .map(|binding| {
+            expected_cutover_heads(
+                current_heads,
+                &prepared,
+                binding,
+                &sources,
+                &config.sources,
+                &context,
+            )
+        })
+        .transpose()?;
+    let mut leases = Vec::new();
+    for source in &sources {
+        leases.push(
+            store
+                .claim(source.source_id, &config.owner, 60_000)
+                .await
+                .map_err(|e| format!("{e:?}"))?,
+        );
+    }
+    let pairs: Vec<_> = prepared.iter().zip(leases.iter()).collect();
+    let receipts = if let Some(heads) = expected_heads {
+        store
+            .commit_batches_and_publish_checked(&pairs, &release, &heads)
+            .await
+            .map_err(|e| format!("{e:?}"))?
+            .0
+    } else {
+        let mut receipts = Vec::new();
+        for (batch, lease) in &pairs {
+            receipts.push(
+                store
+                    .commit(batch, lease)
+                    .await
+                    .map_err(|e| format!("{e:?}"))?,
+            );
+        }
+        store
+            .publish(&release)
+            .await
+            .map_err(|e| format!("{e:?}"))?;
+        receipts
+    };
     let mut batches = Vec::new();
-    for (source, batch) in sources.iter().zip(prepared.iter()) {
-        let lease = store
-            .claim(source.source_id, &config.owner, 60_000)
-            .await
-            .map_err(|e| format!("{e:?}"))?;
-        let receipt = store
-            .commit(batch, &lease)
-            .await
-            .map_err(|e| format!("{e:?}"))?;
+    for ((source, batch), receipt) in sources.iter().zip(prepared.iter()).zip(receipts) {
         let inserted = batch.records.iter().filter(|r| !r.tombstone).count();
         let tombstoned = batch.records.len() - inserted;
         batches.push(json!({
@@ -378,27 +439,6 @@ async fn run_with_destination(
             "replayed": receipt.replayed,
         }));
     }
-    if let Some(binding) = binding {
-        let final_heads = target_heads(&pool, binding, &sources, &config.sources, &context).await?;
-        for checkpoint in &checkpoints {
-            let stored = store
-                .checkpoint(&checkpoint.source_id)
-                .await
-                .map_err(|e| format!("{e:?}"))?;
-            if stored.as_ref() != Some(checkpoint) {
-                return Err("cutover checkpoint changed before release".into());
-            }
-            let empty = BTreeMap::new();
-            verify_checkpoint(
-                stored.as_ref(),
-                final_heads.get(&checkpoint.source_id).unwrap_or(&empty),
-            )?;
-        }
-    }
-    store
-        .publish(&release)
-        .await
-        .map_err(|e| format!("{e:?}"))?;
     let snapshot = store
         .snapshot(&release.release_id)
         .await
@@ -544,37 +584,102 @@ mod tests {
         };
         let approved = config();
         let binding = approved.production_binding.as_ref().unwrap();
-        assert!(
-            identity
-                .verify(PRODUCTION, "brain_readonly", binding)
-                .is_ok()
-        );
+        assert!(identity
+            .verify(PRODUCTION, "brain_readonly", binding)
+            .is_ok());
         identity.archive_oid = Some(4);
-        assert!(
-            identity
-                .verify(PRODUCTION, "brain_readonly", binding)
-                .is_err()
-        );
+        assert!(identity
+            .verify(PRODUCTION, "brain_readonly", binding)
+            .is_err());
         identity.archive_oid = Some(2);
         identity.address = Some("127.0.0.1".into());
-        assert!(
-            identity
-                .verify(PRODUCTION, "brain_readonly", binding)
-                .is_err()
-        );
+        assert!(identity
+            .verify(PRODUCTION, "brain_readonly", binding)
+            .is_err());
         identity.address = None;
         identity.username = "brain_service".into();
-        assert!(
-            identity
-                .verify(PRODUCTION, "brain_readonly", binding)
-                .is_err()
-        );
+        assert!(identity
+            .verify(PRODUCTION, "brain_readonly", binding)
+            .is_err());
+    }
+
+    #[test]
+    fn complete_release_is_validated_by_byte_length_before_claim() {
+        let checkpoint = SourceCheckpoint {
+            source_id: ENTITIES_SOURCE.into(),
+            configuration: "fixture".into(),
+            generation: 1,
+            state: json!({
+                "configuration": "fixture",
+                "documents": {"entity/hero/Warden": {
+                    "revision": 1, "content_hash": "a".repeat(64), "tombstone": false
+                }}
+            }),
+        };
+        let mut release_config = ReleaseConfig {
+            id_prefix: "a".repeat(495),
+            knowledge_version: "v".repeat(512),
+            patch: "p".repeat(512),
+        };
+        let release = |config: &ReleaseConfig| {
+            release_from_checkpoints(std::slice::from_ref(&checkpoint), config, 1).unwrap()
+        };
+        assert_eq!(release(&release_config).release_id.len(), 512);
+        assert!(brain_storage::validate_release(&release(&release_config)).is_ok());
+        release_config.id_prefix.push('a');
+        assert_eq!(release(&release_config).release_id.len(), 513);
+        assert!(brain_storage::validate_release(&release(&release_config)).is_err());
+        release_config.id_prefix = format!("{}x", "é".repeat(247));
+        assert_eq!(release(&release_config).release_id.len(), 512);
+        assert!(brain_storage::validate_release(&release(&release_config)).is_ok());
+        release_config.id_prefix = "é".repeat(248);
+        assert_eq!(release(&release_config).release_id.len(), 513);
+        assert!(brain_storage::validate_release(&release(&release_config)).is_err());
+        release_config.id_prefix = "fixture".into();
+        release_config.knowledge_version.push('v');
+        assert!(brain_storage::validate_release(&release(&release_config)).is_err());
+        release_config.knowledge_version.pop();
+        release_config.patch.push('p');
+        assert!(brain_storage::validate_release(&release(&release_config)).is_err());
+    }
+
+    async fn target_counts(pool: &sqlx::PgPool) -> [i64; 5] {
+        let mut counts = [0_i64; 5];
+        for (index, table) in [
+            "source_jobs_v1",
+            "source_record_heads",
+            "source_record_revisions",
+            "source_checkpoints_v1",
+            "corpus_releases_v1",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            counts[index] = sqlx::query_scalar(&format!("SELECT count(*) FROM brain.{table}"))
+                .fetch_one(pool)
+                .await
+                .unwrap();
+        }
+        counts
+    }
+
+    async fn heads_for(pool: &sqlx::PgPool, source: &str) -> Vec<SourceRecordV2> {
+        let rows: Vec<serde_json::Value> = sqlx::query_scalar(
+            "SELECT record_json FROM brain.source_record_heads WHERE source_id=$1 ORDER BY logical_id",
+        )
+        .bind(source)
+        .fetch_all(pool)
+        .await
+        .unwrap();
+        rows.into_iter()
+            .map(|value| serde_json::from_value(value).unwrap())
+            .collect()
     }
 
     #[tokio::test]
-    #[ignore = "requires a disposable brain_schema_test database from the isolated brain-serve harness"]
+    #[ignore = "requires a disposable brain_cutover_test database from the isolated brain-serve harness"]
     async fn same_database_archive_to_core_requires_bound_private_snapshot() {
-        use brain_contracts::{SourceVisibility, source::origin_from_record};
+        use brain_contracts::{source::origin_from_record, SourceVisibility};
         use brain_legacy_import::{
             cutover::snapshot_sha256, entity_documents, patch_documents, pg::LEGACY_TABLES,
         };
@@ -582,7 +687,7 @@ mod tests {
 
         let socket = std::env::var("BRAIN_CORE_TEST_PG_SOCKET").expect("scratch socket required");
         assert!(socket.ends_with("/.core-test-pg") && Path::new(&socket).is_absolute());
-        let database = "brain_schema_test";
+        let database = "brain_cutover_test";
         let fixture = Destination {
             socket: &socket,
             port: 55439,
@@ -637,6 +742,11 @@ mod tests {
             entity_documents(&read.entities).unwrap(),
             patch_documents(&read.patch_lines).unwrap(),
         ];
+        let context = ImportContext {
+            snapshot_label: config.snapshot_label.clone(),
+            snapshot_epoch: config.snapshot_epoch,
+            schema_sha256: read.schema_sha256.clone(),
+        };
         let approval = format!("sha256:{}", "a".repeat(64));
         config.sources = BTreeMap::from([
             (
@@ -710,12 +820,29 @@ mod tests {
             .unwrap()
             .archive_schema_oid += 1;
         assert!(run_with_destination(wrong_schema, fixture).await.is_err());
-        let empty: i64 = sqlx::query_scalar("SELECT count(*) FROM brain.source_record_heads")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        assert_eq!(empty, 0);
+        let before = target_counts(&pool).await;
+        assert_eq!(before, [0; 5]);
+        let mut invalid = config.clone();
+        invalid.release.id_prefix = "a".repeat(496);
+        assert!(run_with_destination(invalid, fixture).await.is_err());
+        assert_eq!(target_counts(&pool).await, before);
+        let mut invalid = config.clone();
+        invalid.release.id_prefix = "é".repeat(248);
+        assert!(run_with_destination(invalid, fixture).await.is_err());
+        assert_eq!(target_counts(&pool).await, before);
+        let mut invalid = config.clone();
+        invalid.release.knowledge_version = "v".repeat(513);
+        assert!(run_with_destination(invalid, fixture).await.is_err());
+        assert_eq!(target_counts(&pool).await, before);
+        let mut invalid = config.clone();
+        invalid.release.patch = "p".repeat(513);
+        assert!(run_with_destination(invalid, fixture).await.is_err());
+        assert_eq!(target_counts(&pool).await, before);
+        config.release.id_prefix = "a".repeat(495);
+        config.release.knowledge_version = "v".repeat(512);
+        config.release.patch = "p".repeat(512);
         let first = run_with_destination(config.clone(), fixture).await.unwrap();
+        assert_eq!(target_counts(&pool).await, [2, 3, 3, 2, 1]);
         assert_eq!(first["release_documents"], 3);
         let private_head: serde_json::Value = sqlx::query_scalar(
             "SELECT record_json FROM brain.source_record_heads WHERE source_id=$1 AND logical_id=$2",
@@ -735,23 +862,156 @@ mod tests {
         );
         let repeated = run_with_destination(config.clone(), fixture).await.unwrap();
         assert_eq!(first["release_id"], repeated["release_id"]);
-        assert!(
-            repeated["sources"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .all(|source| source["changed_records"] == 0)
-        );
+        assert!(repeated["sources"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|source| source["changed_records"] == 0));
         sqlx::query("INSERT INTO brain_legacy.patch_events VALUES (3, 'p3', 'Update p3', 'https://example.invalid/p3', to_timestamp(1700000002), 'steam', 0, NULL, 'Warden', 'new', '{}')")
             .execute(&pool)
             .await
             .unwrap();
-        assert!(run_with_destination(config, fixture).await.is_err());
+        assert!(run_with_destination(config.clone(), fixture).await.is_err());
         let releases: i64 = sqlx::query_scalar("SELECT count(*) FROM brain.corpus_releases_v1")
             .fetch_one(&pool)
             .await
             .unwrap();
         assert_eq!(releases, 1);
+        let store = PgStore::new(pool.clone());
+        let patch_previous = store.checkpoint(PATCHNOTES_SOURCE).await.unwrap().unwrap();
+        let patch_batch = prepare_batch(
+            &sources[1],
+            &config.sources[PATCHNOTES_SOURCE],
+            &context,
+            Some(&patch_previous),
+        )
+        .unwrap();
+        assert!(patch_batch.records.is_empty());
+        let patch_release = release_from_checkpoints(
+            std::slice::from_ref(&patch_batch.checkpoint),
+            &ReleaseConfig {
+                id_prefix: "race-tombstone".into(),
+                knowledge_version: "v1".into(),
+                patch: "p1".into(),
+            },
+            context.snapshot_epoch,
+        )
+        .unwrap();
+        let approved_patch_heads = heads_for(&pool, PATCHNOTES_SOURCE).await;
+        let remaining = brain_legacy_import::LegacySource {
+            source_id: PATCHNOTES_SOURCE,
+            documents: vec![sources[1].documents[0].clone()],
+        };
+        let removal = prepare_batch(
+            &remaining,
+            &config.sources[PATCHNOTES_SOURCE],
+            &context,
+            Some(&patch_previous),
+        )
+        .unwrap();
+        assert_eq!(
+            removal
+                .records
+                .iter()
+                .filter(|record| record.tombstone)
+                .count(),
+            1
+        );
+        let writer = store.clone();
+        let competing_delete = tokio::spawn(async move {
+            let lease = writer
+                .claim(PATCHNOTES_SOURCE, "competing-delete", 60_000)
+                .await
+                .unwrap();
+            writer.commit(&removal, &lease).await.unwrap();
+        });
+        competing_delete.await.unwrap();
+        let lease = store
+            .claim(PATCHNOTES_SOURCE, "cutover-delete", 60_000)
+            .await
+            .unwrap();
+        assert!(store
+            .commit_batches_and_publish_checked(
+                &[(&patch_batch, &lease)],
+                &patch_release,
+                &approved_patch_heads,
+            )
+            .await
+            .is_err());
+        assert_eq!(target_counts(&pool).await, [2, 3, 4, 2, 1]);
+        assert!(heads_for(&pool, PATCHNOTES_SOURCE).await[1].tombstone);
+
+        let entity_previous = store.checkpoint(ENTITIES_SOURCE).await.unwrap().unwrap();
+        let entity_batch = prepare_batch(
+            &sources[0],
+            &config.sources[ENTITIES_SOURCE],
+            &context,
+            Some(&entity_previous),
+        )
+        .unwrap();
+        assert!(entity_batch.records.is_empty());
+        let entity_release = release_from_checkpoints(
+            std::slice::from_ref(&entity_batch.checkpoint),
+            &ReleaseConfig {
+                id_prefix: "race-scope".into(),
+                knowledge_version: "v1".into(),
+                patch: "p1".into(),
+            },
+            context.snapshot_epoch,
+        )
+        .unwrap();
+        let approved_entity_heads = heads_for(&pool, ENTITIES_SOURCE).await;
+        let mut restricted = approved_entity_heads[0].clone();
+        restricted.revision += 1;
+        restricted.visibility = SourceVisibility::Private;
+        restricted.allowed_scopes = BTreeSet::from(["brain.legacy.review".into()]);
+        let mut origin = origin_from_record(&approved_entity_heads[0]).unwrap();
+        origin.policy.visibility = restricted.visibility;
+        origin.policy.allowed_scopes = restricted.allowed_scopes.clone();
+        origin.bind_record(&mut restricted).unwrap();
+        let writer = store.clone();
+        let competing_scope = tokio::spawn(async move {
+            writer.apply(&restricted).await.unwrap();
+        });
+        competing_scope.await.unwrap();
+        let lease = store
+            .claim(ENTITIES_SOURCE, "cutover-scope", 60_000)
+            .await
+            .unwrap();
+        assert!(store
+            .commit_batches_and_publish_checked(
+                &[(&entity_batch, &lease)],
+                &entity_release,
+                &approved_entity_heads,
+            )
+            .await
+            .is_err());
+        assert_eq!(
+            store.checkpoint(ENTITIES_SOURCE).await.unwrap(),
+            Some(entity_previous)
+        );
+        assert_eq!(target_counts(&pool).await, [2, 3, 5, 2, 1]);
+        assert_eq!(
+            heads_for(&pool, ENTITIES_SOURCE).await[0].visibility,
+            SourceVisibility::Private
+        );
+        let schema_fixture = PgPoolOptions::new()
+            .max_connections(1)
+            .connect_with(
+                options(&config.target)
+                    .unwrap()
+                    .database("brain_schema_test"),
+            )
+            .await
+            .unwrap();
+        let touched: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_namespace WHERE nspname IN ('brain','brain_legacy')",
+        )
+        .fetch_one(&schema_fixture)
+        .await
+        .unwrap();
+        assert_eq!(touched, 0);
+        schema_fixture.close().await;
         pool.close().await;
     }
 }

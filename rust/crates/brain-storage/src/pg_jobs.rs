@@ -3,7 +3,17 @@ use brain_contracts::{
     BatchReceipt, CorpusRelease, DocumentStorePort, Lease, PortError, SourceBatch,
     SourceCheckpoint, StoreFuture,
 };
-use sqlx::{Postgres, Row, Transaction};
+use sqlx::{PgConnection, Postgres, Row, Transaction};
+pub(crate) async fn lock_source(
+    connection: &mut PgConnection,
+    source: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)")
+        .bind(format!("core-source:{source}"))
+        .execute(connection)
+        .await?;
+    Ok(())
+}
 pub(crate) fn database_error(_: sqlx::Error) -> PortError {
     PortError::Unavailable("Postgres storage operation failed".into())
 }
@@ -23,6 +33,9 @@ pub(crate) async fn commit_batch_tx(
     {
         return Err(invalid("invalid batch lease"));
     }
+    lock_source(&mut **tx, &lease.source_id)
+        .await
+        .map_err(database_error)?;
     let batch_json = serde_json::to_value(batch).map_err(|_| invalid("invalid batch JSON"))?;
     let job = sqlx::query("SELECT owner,fence,(lease_until>clock_timestamp() AND state='running') AS active FROM brain.source_jobs_v1 WHERE source_id=$1 FOR UPDATE")
         .bind(&lease.source_id).fetch_optional(&mut **tx).await.map_err(database_error)?.ok_or_else(|| invalid("lease missing"))?;
