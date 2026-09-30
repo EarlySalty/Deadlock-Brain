@@ -1,0 +1,44 @@
+{
+  "legacy": {
+    "socket": "/run/deadlock-brain-postgresql",
+    "port": 5446,
+    "database": "brain",
+    "username": "brain_readonly",
+    "auth_env": "BRAIN_LEGACY_READ_AUTH"
+  },
+  "target": {
+    "socket": "/run/deadlock-brain-postgresql",
+    "port": 5446,
+    "database": "brain",
+    "username": "brain_ingest",
+    "auth_env": "BRAIN_TARGET_INGEST_AUTH"
+  },
+  "snapshot_label": "",
+  "snapshot_epoch": 0,
+  "owner": "brain-legacy-import",
+  "release": {
+    "id_prefix": "",
+    "knowledge_version": "",
+    "patch": ""
+  },
+  "sources": {
+    "legacy-entities": {
+      "visibility": "public",
+      "allowed_scopes": ["game.public"],
+      "provider_egress_allowed": false,
+      "publication_allowed": false,
+      "raw_retention_allowed": true,
+      "authorization_ref": null
+    },
+    "legacy-patchnotes": {
+      "visibility": "private",
+      "allowed_scopes": ["brain.legacy.review"],
+      "provider_egress_allowed": false,
+      "publication_allowed": false,
+      "raw_retention_allowed": true,
+      "authorization_ref": null
+    }
+  },
+  "production_binding": null,
+  "report": "/DO_NOT_RUN/APPROVED_PRIVATE_REPORT.json"
+}

@@ -1,16 +1,17 @@
 #![forbid(unsafe_code)]
 
+pub mod cutover;
 pub mod pg;
 
 use brain_contracts::{
+    CorpusRelease, SourceBatch, SourceCheckpoint, SourceRecordV2, SourceVisibility,
     source::{
         GameValidity, OriginArtifact, SourceIdentity, SourcePolicy, SourceRevision, SourceTimestamp,
     },
     value::{Observed, UnknownReason},
-    CorpusRelease, SourceBatch, SourceCheckpoint, SourceRecordV2, SourceVisibility,
 };
 use brain_ingestion::document_set::{
-    current_pins, prepare_document_batch, CoreDocument, DocumentSetSource,
+    CoreDocument, DocumentSetSource, current_pins, prepare_document_batch,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -50,6 +51,8 @@ pub struct SourcePolicyConfig {
     pub provider_egress_allowed: bool,
     pub publication_allowed: bool,
     pub raw_retention_allowed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorization_ref: Option<String>,
 }
 
 impl SourcePolicyConfig {
@@ -64,6 +67,11 @@ impl SourcePolicyConfig {
         {
             return Err(invalid("invalid scope"));
         }
+        if self.authorization_ref.as_ref().is_some_and(|reference| {
+            reference.trim().is_empty() || reference.chars().any(char::is_control)
+        }) {
+            return Err(invalid("invalid source authorization reference"));
+        }
         Ok(())
     }
 }
@@ -75,7 +83,7 @@ pub struct ImportContext {
     pub schema_sha256: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct LegacyDocument {
     pub logical_id: String,
     pub content: String,
@@ -89,13 +97,13 @@ pub struct LegacyDocument {
     pub legacy_rows: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct LegacySource {
     pub source_id: &'static str,
     pub documents: Vec<LegacyDocument>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PatchLineRow {
     pub event_id: i64,
     pub patch_external_id: String,
@@ -115,7 +123,7 @@ pub struct PatchLineRow {
     pub unit: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct EntityRow {
     pub entity_id: i64,
     pub entity_type: String,
@@ -438,7 +446,10 @@ fn core_document(
             policy: SourcePolicy {
                 visibility: policy.visibility,
                 allowed_scopes: policy.allowed_scopes.clone(),
-                authorization_ref: Observed::unknown(UnknownReason::NotPresent),
+                authorization_ref: policy.authorization_ref.clone().map_or_else(
+                    || Observed::unknown(UnknownReason::NotPresent),
+                    Observed::known,
+                ),
                 license: Observed::unknown(UnknownReason::NotPresent),
                 publication_allowed: policy.publication_allowed,
                 provider_egress_allowed: policy.provider_egress_allowed,
