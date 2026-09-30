@@ -21,7 +21,7 @@ Ursprüngliche gemeinsame Basis: 1c362bca6d35e7fec10125b2b159e7513a299243. Keine
 | Paket | Thread-ID | Modell | Stand |
 | --- | --- | --- | --- |
 | V1 ohne Replay | 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 | bestehender Sol, gpt-6-sol | Aktiv: B1 zuerst getrennt sichern, anschließend direkt beauftragtes B2-Rust-Importerdelta im selben Worktree. Nutzererweiterung bewusst in laufenden Thread gegeben, Sequenz1158928, ohne WIP-Verwerfen. Briefings B1-HARNESS-BRIEFING.md und B2-IMPORT-BRIEFING.md; keinerlei Compiler-/DB-/Last-/Dienstlauf |
-| Statische Abnahme und Locknachtrag | 52c34332-8cdf-4772-9e1f-42aba432c6cf | bestehender Astra | Lockreview035e2a99, Servevorbereitung54a7793 und Nachweismatrixae2abe1 gelesen. MatrixGO, aktueller G5-/Startbeweis noch BLOCK. Fertig, gesettelt Sequenz1157915. Für unabhängige B1-Abnahme weiterverwenden |
+| Statische Abnahme und Locknachtrag | 52c34332-8cdf-4772-9e1f-42aba432c6cf | bestehender Astra | Aktive unabhängige B1-Abnahme: eingefroren ca4a8f2..0a6e09517770c0a016594c3580ed34bd20f96d37, Sequenz1159175. Berichtworktree zuletzt ae2abe1. Keine Prüfung des parallelen beweglichen B2-Arbeitsbaums, keine Laufzeitaktion |
 | Finale Compiler-/Prozessprüfung | 6b53c923-e4da-498a-b08e-254407b452ff | Sol | Nicht wiederaufgenommen; einzeln zugeteilter Clippy-Lauf durch Hauptsession abgeschlossen, keine Prozessprüfung |
 | Consumerabnahme | 533115bf-554f-4457-86b4-2944fef19c63 | Astra | Nicht wiederaufgenommen |
 
