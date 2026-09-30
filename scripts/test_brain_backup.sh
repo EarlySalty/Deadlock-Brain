@@ -3,12 +3,17 @@
 set -euo pipefail
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 root=$(mktemp -d)
-trap 'rm -rf -- "$root"' EXIT
+trap 'if [[ -n ${backup_pid-} ]]; then printf "continue\n" >&7; wait "$backup_pid" || true; fi; rm -rf -- "$root"' EXIT
 mkdir -- "$root/stubs"
 cat > "$root/stubs/pg-stub" <<'STUB'
 #!/usr/bin/env bash
 set -euo pipefail
 name=${0##*/}
+stub_dir=$(dirname "$0")
+if [[ $name == pg_dump && -f $stub_dir/pause-first-dump ]] && mkdir "$stub_dir/first-dump-paused" 2>/dev/null; then
+  printf 'ready\n' > "$stub_dir/dump-ready"
+  read -r _ < "$stub_dir/dump-release"
+fi
 if [[ -f "$(dirname "$0")/fail-$name" ]]; then
   # psql reports SQL errors with status 0 unless ON_ERROR_STOP is configured.
   if [[ $name == psql && " $* " != *' ON_ERROR_STOP=1 '* ]]; then exit 0; fi
@@ -137,3 +142,32 @@ check "$target/brain-19991231T000000Z/SHA256SUMS"
 backups=("$target"/brain-*)
 [[ ${#backups[@]} == 1 ]]
 printf 'PASS: backward clock preserves the new backup and honors KEEP\n'
+
+# A FIFO handshake holds the first backup inside pg_dump. The contending run must
+# fail before publishing or rotating, irrespective of its distinct timestamp.
+target="$root/concurrent backups"
+mkdir -- "$target"
+completed "$target/brain-20200101T000000Z"
+mkfifo "$root/stubs/dump-ready" "$root/stubs/dump-release"
+exec 8<> "$root/stubs/dump-ready"
+exec 7<> "$root/stubs/dump-release"
+touch "$root/stubs/pause-first-dump"
+printf '%s\n' '20310101T000000Z' > "$root/stubs/date-value"
+bash "$repo/ops/brain-postgres/backup.sh" "$target" 1 "$root/stubs" > "$root/first-output" 2> "$root/first-error" &
+backup_pid=$!
+read -r -t 5 ready <&8
+[[ $ready == ready ]]
+printf '%s\n' '20310102T000000Z' > "$root/stubs/date-value"
+if run_backup "$target" 1; then rejected=0; else rejected=1; fi
+protected=0
+[[ -f "$target/brain-20200101T000000Z/SHA256SUMS" ]] && protected=1
+printf 'continue\n' >&7
+wait "$backup_pid"
+unset backup_pid
+[[ $rejected == 1 ]] || { printf 'FAIL: concurrent backup was admitted\n' >&2; exit 1; }
+[[ $protected == 1 ]] || { printf 'FAIL: contending backup rotated an existing backup\n' >&2; exit 1; }
+check "$target/brain-20310101T000000Z/SHA256SUMS"
+[[ ! -e "$target/brain-20310102T000000Z" ]]
+backups=("$target"/brain-*)
+[[ ${#backups[@]} == 1 ]]
+printf 'PASS: concurrent KEEP=1 run fails without publication or rotation\n'

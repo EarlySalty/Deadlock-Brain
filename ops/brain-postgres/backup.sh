@@ -35,6 +35,13 @@ fi
 # command substitution of pwd/realpath would not. No pathname is parsed as text.
 cd -P -- "$TARGET"
 TARGET=$PWD
+# Lock the opened directory inode, avoiding a mutable lockfile or pathname race.
+# Keep ownership through backup creation, publication and the entire rotation.
+exec 9< .
+if ! flock --exclusive --nonblock 9; then
+  printf '%s\n' 'Für dieses Ziel läuft bereits ein Backup.' >&2
+  exit 1
+fi
 umask 077
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 [[ $stamp =~ ^[0-9]{8}T[0-9]{6}Z$ ]]
