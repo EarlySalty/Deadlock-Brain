@@ -18,6 +18,7 @@ fn remaining(
     usage: &Usage,
     elapsed: u64,
 ) -> Option<AuthorizedContext> {
+    context.check_deadline().ok()?;
     let mut next = context.clone();
     next.deadline_ms = next.deadline_ms.checked_sub(elapsed).filter(|v| *v > 0)?;
     next.budget.max_network_rounds = next
@@ -51,13 +52,16 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
     query: &Query,
     context: &AuthorizedContext,
     now: &dyn Fn() -> Instant,
-) -> AnswerResponse {
+) -> KernelAnswer {
     let started = now();
     let elapsed_ms = || now().saturating_duration_since(started).as_millis() as u64;
-    let expired =
-        || now().saturating_duration_since(started) >= Duration::from_millis(context.deadline_ms);
+    let expired = || {
+        context.check_deadline().is_err()
+            || now().saturating_duration_since(started)
+                >= Duration::from_millis(context.deadline_ms)
+    };
     let fail = |status, message: &str, usage: Usage| {
-        response(query, context, status, message, Vec::new(), usage)
+        KernelAnswer::from(response(query, context, status, message, Vec::new(), usage))
     };
     let publish = |status, text: String, citations: Vec<Evidence>, usage: Usage| {
         if expired() {
@@ -67,7 +71,7 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
                 usage,
             )
         } else {
-            response(query, context, status, text, citations, usage)
+            KernelAnswer::from(response(query, context, status, text, citations, usage))
         }
     };
     if context.deadline_ms == 0
@@ -78,6 +82,13 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
         return fail(
             AnswerStatus::UnauthorizedEvidence,
             "Anfragekontext ist ungültig.",
+            Usage::default(),
+        );
+    }
+    if expired() {
+        return fail(
+            AnswerStatus::BudgetExceeded,
+            "Request Deadline erreicht.",
             Usage::default(),
         );
     }
@@ -344,7 +355,7 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
             usage,
         );
     }
-    evidence.retain(|item| ids.contains(&item.evidence_id));
+    // Every provider input is a dependency, not just the model-selected citations.
     // Re-read canonical content/ACL after the network call; never publish stale authorized data.
     if let Err(error) = retrieval.validate_evidence(query, context, &evidence, false) {
         return fail(
@@ -360,5 +371,20 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
             usage,
         );
     }
-    publish(AnswerStatus::Answered, answer.text, evidence, usage)
+    let citations = evidence
+        .iter()
+        .filter(|item| ids.contains(&item.evidence_id))
+        .cloned()
+        .collect();
+    KernelAnswer {
+        answer: response(
+            query,
+            context,
+            AnswerStatus::Answered,
+            answer.text,
+            citations,
+            usage,
+        ),
+        dependencies: evidence.into(),
+    }
 }

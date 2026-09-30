@@ -5,10 +5,12 @@ use std::{
     sync::Mutex,
     time::{Duration, Instant},
 };
+// A count limit alone does not bound uncited source bodies retained by answers.
+const MAX_RETAINED_BYTES: usize = 32 * 1024 * 1024;
 pub struct CachedKernel<R, P> {
     pub(super) inner: Kernel<R, P>,
     pub(super) flights: super::flight::Coordinator,
-    entries: Mutex<BTreeMap<String, (Instant, AnswerResponse)>>,
+    entries: Mutex<BTreeMap<String, (Instant, KernelAnswer, usize)>>,
     capacity: usize,
     ttl: Duration,
 }
@@ -24,12 +26,19 @@ impl<R, P> CachedKernel<R, P> {
     }
 }
 impl<R: RetrievalPort, P: AnswerProviderPort> CachedKernel<R, P> {
-    pub(super) fn answer_cached(
-        &self,
-        query: &Query,
-        context: &AuthorizedContext,
-    ) -> AnswerResponse {
+    pub(super) fn answer_cached(&self, query: &Query, context: &AuthorizedContext) -> KernelAnswer {
         let started = Instant::now();
+        if context.check_deadline().is_err() {
+            return response(
+                query,
+                context,
+                AnswerStatus::BudgetExceeded,
+                "Request Deadline erreicht.",
+                Vec::new(),
+                Usage::default(),
+            )
+            .into();
+        }
         if query.validate().is_err()
             || query.conversation_id != context.conversation_id
             || context.deadline_ms == 0
@@ -43,25 +52,29 @@ impl<R: RetrievalPort, P: AnswerProviderPort> CachedKernel<R, P> {
                 "Ungültiger Anfragekontext.",
                 Vec::new(),
                 Usage::default(),
-            );
+            )
+            .into();
         }
         // Never include request_id: it is rebound on each hit. All authorization/semantic inputs are included.
         let key = match super::flight::cache_key(query, context) {
             Ok(key) => key,
-            Err(_) => return self.inner.answer(query, context),
+            Err(_) => return self.inner.answer_internal(query, context),
         };
         let hit = self.entries.lock().ok().and_then(|mut entries| {
-            entries.retain(|_, (created, _)| created.elapsed() < self.ttl);
-            entries.get(&key).map(|(_, answer)| answer.clone())
+            entries.retain(|_, (created, _, _)| created.elapsed() < self.ttl);
+            entries.get(&key).map(|(_, answer, _)| answer.clone())
         });
         if let Some(mut answer) = hit {
             let validation =
                 self.inner
                     .retrieval
-                    .validate_evidence(query, context, &answer.citations, false);
-            if validation.is_ok() && started.elapsed().as_millis() < context.deadline_ms as u128 {
-                answer.request_id = query.request_id.clone();
-                answer.usage = Usage::default();
+                    .validate_evidence(query, context, &answer.dependencies, false);
+            if validation.is_ok()
+                && context.check_deadline().is_ok()
+                && started.elapsed().as_millis() < context.deadline_ms as u128
+            {
+                answer.answer.request_id = query.request_id.clone();
+                answer.answer.usage = Usage::default();
                 return answer;
             }
             if let Ok(mut entries) = self.entries.lock() {
@@ -77,7 +90,8 @@ impl<R: RetrievalPort, P: AnswerProviderPort> CachedKernel<R, P> {
                     "Cache-Evidenz konnte nicht sicher bestätigt werden.",
                     Vec::new(),
                     Usage::default(),
-                );
+                )
+                .into();
             }
         }
         let elapsed = started.elapsed().as_millis() as u64;
@@ -89,27 +103,35 @@ impl<R: RetrievalPort, P: AnswerProviderPort> CachedKernel<R, P> {
                 "Request Deadline erreicht.",
                 Vec::new(),
                 Usage::default(),
-            );
+            )
+            .into();
         };
         let mut next = context.clone();
         next.deadline_ms = remaining;
-        let answer = self.inner.answer(query, &next);
-        if answer.status == AnswerStatus::Answered
-            && !answer.citations.is_empty()
+        let answer = self.inner.answer_internal(query, &next);
+        let weight = answer.retained_bytes();
+        if answer.answer.status == AnswerStatus::Answered
+            && !answer.answer.citations.is_empty()
             && self.capacity > 0
             && !self.ttl.is_zero()
+            && weight <= MAX_RETAINED_BYTES
         {
             if let Ok(mut entries) = self.entries.lock() {
-                if entries.len() >= self.capacity {
+                let mut retained: usize = entries.values().map(|entry| entry.2).sum();
+                while entries.len() >= self.capacity
+                    || retained.saturating_add(weight) > MAX_RETAINED_BYTES
+                {
                     let oldest = entries
                         .iter()
                         .min_by_key(|(_, entry)| entry.0)
                         .map(|(key, _)| key.clone());
                     if let Some(oldest) = oldest {
-                        entries.remove(&oldest);
+                        if let Some((_, _, removed)) = entries.remove(&oldest) {
+                            retained = retained.saturating_sub(removed);
+                        }
                     }
                 }
-                entries.insert(key, (Instant::now(), answer.clone()));
+                entries.insert(key, (Instant::now(), answer.clone(), weight));
             }
         }
         answer

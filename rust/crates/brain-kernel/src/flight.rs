@@ -1,6 +1,8 @@
 //! Coalesce identical in-flight requests, including failures, without caching failures.
 #[cfg(test)]
 mod c3_shared_validation;
+#[cfg(test)]
+mod review_dependencies;
 use super::*;
 use std::{
     collections::BTreeMap,
@@ -19,7 +21,7 @@ struct Flight {
 #[derive(Default)]
 struct FlightState {
     done: bool,
-    result: Option<AnswerResponse>,
+    result: Option<KernelAnswer>,
     waiters: usize,
 }
 fn unavailable() -> PortError {
@@ -51,8 +53,13 @@ impl Coordinator {
         &self,
         key: String,
         timeout: Duration,
-        operation: impl FnOnce() -> AnswerResponse,
-    ) -> Result<(AnswerResponse, bool), PortError> {
+        deadline: Option<&brain_contracts::RequestDeadline>,
+        operation: impl FnOnce() -> KernelAnswer,
+    ) -> Result<(KernelAnswer, bool), PortError> {
+        let started = Instant::now();
+        if let Some(deadline) = deadline {
+            deadline.check()?;
+        }
         let (flight, leader) = {
             let mut flights = self.flights.lock().map_err(|_| unavailable())?;
             if let Some(flight) = flights.get(&key) {
@@ -72,6 +79,9 @@ impl Coordinator {
                 key,
                 flight: flight.clone(),
             };
+            if started.elapsed() >= timeout || deadline.is_some_and(|d| d.check().is_err()) {
+                return Err(PortError::BudgetExceeded);
+            }
             let result = operation();
             {
                 let mut state = flight.state.lock().map_err(|_| unavailable())?;
@@ -83,14 +93,28 @@ impl Coordinator {
         } else {
             let mut state = flight.state.lock().map_err(|_| unavailable())?;
             state.waiters += 1;
-            let (mut state, _) = flight
-                .ready
-                .wait_timeout_while(state, timeout, |s| !s.done)
-                .map_err(|_| unavailable())?;
-            state.waiters -= 1;
-            if !state.done {
-                return Err(PortError::BudgetExceeded);
+            loop {
+                let mut remaining = timeout.saturating_sub(started.elapsed());
+                if let Some(deadline) = deadline {
+                    remaining = remaining.min(deadline.remaining().unwrap_or(Duration::ZERO));
+                }
+                if remaining.is_zero() {
+                    state.waiters -= 1;
+                    return Err(PortError::BudgetExceeded);
+                }
+                if state.done {
+                    break;
+                }
+                if deadline.is_some() {
+                    remaining = remaining.min(Duration::from_millis(10));
+                }
+                let (next, _) = flight
+                    .ready
+                    .wait_timeout(state, remaining)
+                    .map_err(|_| unavailable())?;
+                state = next;
             }
+            state.waiters -= 1;
             state
                 .result
                 .clone()
@@ -119,6 +143,8 @@ pub(super) fn cache_key(
 }
 impl<R: RetrievalPort, P: AnswerProviderPort> AnswerKernelPort for CachedKernel<R, P> {
     fn answer(&self, query: &Query, context: &AuthorizedContext) -> AnswerResponse {
+        let bound = context.with_request_deadline();
+        let context = &bound;
         let start = Instant::now();
         if query.validate().is_err()
             || query.conversation_id != context.conversation_id
@@ -134,22 +160,49 @@ impl<R: RetrievalPort, P: AnswerProviderPort> AnswerKernelPort for CachedKernel<
                 Usage::default(),
             );
         }
+        if context.check_deadline().is_err() {
+            return response(
+                query,
+                context,
+                AnswerStatus::BudgetExceeded,
+                "Request Deadline erreicht.",
+                Vec::new(),
+                Usage::default(),
+            );
+        }
+        // Fact uniqueness depends on the complete currently visible candidate set, not
+        // just on an old winning citation. Reuse the existing fresh selection path for
+        // every fact request, including would-be single-flight followers.
+        if query.profile == brain_contracts::AnswerProfile::Fact {
+            return self.inner.answer(query, context);
+        }
         let key = match cache_key(query, context) {
             Ok(key) => key,
             Err(_) => return self.inner.answer(query, context),
         };
-        match self
-            .flights
-            .run(key, Duration::from_millis(context.deadline_ms), || {
-                self.answer_cached(query, context)
-            }) {
+        match self.flights.run(
+            key,
+            Duration::from_millis(context.deadline_ms),
+            context.request_deadline.as_ref(),
+            || self.answer_cached(query, context),
+        ) {
             Ok((mut answer, shared)) => {
+                if context.check_deadline().is_err() {
+                    return response(
+                        query,
+                        context,
+                        AnswerStatus::BudgetExceeded,
+                        "Request Deadline erreicht.",
+                        Vec::new(),
+                        Usage::default(),
+                    );
+                }
                 if shared {
-                    if !answer.citations.is_empty() {
+                    if !answer.dependencies.is_empty() {
                         if let Err(error) = self.inner.retrieval.validate_evidence(
                             query,
                             context,
-                            &answer.citations,
+                            &answer.dependencies,
                             false,
                         ) {
                             return response(
@@ -162,10 +215,12 @@ impl<R: RetrievalPort, P: AnswerProviderPort> AnswerKernelPort for CachedKernel<
                             );
                         }
                     }
-                    answer.request_id = query.request_id.clone();
-                    answer.usage = Usage::default();
+                    answer.answer.request_id = query.request_id.clone();
+                    answer.answer.usage = Usage::default();
                 }
-                if start.elapsed().as_millis() >= context.deadline_ms as u128 {
+                if context.check_deadline().is_err()
+                    || start.elapsed().as_millis() >= context.deadline_ms as u128
+                {
                     return response(
                         query,
                         context,
@@ -175,7 +230,7 @@ impl<R: RetrievalPort, P: AnswerProviderPort> AnswerKernelPort for CachedKernel<
                         Usage::default(),
                     );
                 }
-                answer
+                answer.answer
             }
             Err(PortError::BudgetExceeded) => response(
                 query,
@@ -213,7 +268,7 @@ mod tests {
         let leader_calls = calls.clone();
         let leader = std::thread::spawn(move || {
             leader_c
-                .run("same".into(), Duration::from_secs(3), || {
+                .run("same".into(), Duration::from_secs(3), None, || {
                     leader_calls.fetch_add(1, Ordering::SeqCst);
                     ready_tx.send(()).unwrap();
                     release_rx.recv().unwrap();
@@ -226,6 +281,7 @@ mod tests {
                         citations: Vec::new(),
                         usage: Usage::default(),
                     }
+                    .into()
                 })
                 .unwrap()
         });
@@ -233,7 +289,7 @@ mod tests {
         let follower_c = c.clone();
         let follower = std::thread::spawn(move || {
             follower_c
-                .run("same".into(), Duration::from_secs(3), || {
+                .run("same".into(), Duration::from_secs(3), None, || {
                     panic!("must share leader")
                 })
                 .unwrap()

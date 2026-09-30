@@ -9,7 +9,9 @@ mod cache;
 mod execution;
 mod fact_relevance;
 mod flight;
+mod outcome;
 pub use cache::CachedKernel;
+use outcome::KernelAnswer;
 
 pub trait AnswerKernelPort: Send + Sync {
     fn answer(&self, query: &Query, context: &AuthorizedContext) -> AnswerResponse;
@@ -49,12 +51,15 @@ impl<R, P> Kernel<R, P> {
     }
 }
 
-impl<R, P> AnswerKernelPort for Kernel<R, P>
-where
-    R: RetrievalPort,
-    P: AnswerProviderPort,
-{
+impl<R: RetrievalPort, P: AnswerProviderPort> AnswerKernelPort for Kernel<R, P> {
     fn answer(&self, query: &Query, context: &AuthorizedContext) -> AnswerResponse {
+        self.answer_internal(query, context).answer
+    }
+}
+impl<R: RetrievalPort, P: AnswerProviderPort> Kernel<R, P> {
+    fn answer_internal(&self, query: &Query, context: &AuthorizedContext) -> KernelAnswer {
+        let bound = context.with_request_deadline();
+        let context = &bound;
         if query.validate().is_err() || query.conversation_id != context.conversation_id {
             return response(
                 query,
@@ -63,7 +68,8 @@ where
                 "Anfragekontext ist ungültig.",
                 Vec::new(),
                 Usage::default(),
-            );
+            )
+            .into();
         }
 
         execution::answer(

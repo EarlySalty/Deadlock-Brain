@@ -64,12 +64,19 @@ impl<S: SnapshotReadPort, E: EmbeddingProviderPort> HybridRetriever<S, E> {
         query: &Query,
         context: &AuthorizedContext,
     ) -> Result<(Vec<Evidence>, Usage), PortError> {
+        let bound = context.with_request_deadline();
+        let context: &AuthorizedContext = bound.as_ref();
+        context.check_deadline()?;
         if self.index.release_id != context.knowledge_release {
             return Err(invalid("dense release mismatch"));
         }
         let lexical = self.lexical.retrieve(query, context)?;
-        if matches!(query.profile, brain_contracts::AnswerProfile::Fact)
-            || !numeric_terms(&query.text).is_empty()
+        // The lexical fact pack contains every bounded competing assertion. A generic
+        // top-k limit must not hide a contradiction before the shared fact selector.
+        if matches!(query.profile, brain_contracts::AnswerProfile::Fact) {
+            return Ok((lexical, Usage::default()));
+        }
+        if !numeric_terms(&query.text).is_empty()
             // Exact stat/code identifiers and canonical facts are not semantic paraphrases.
             || query.text.split_whitespace().any(|term| {
                 term.contains('_')
@@ -103,14 +110,21 @@ impl<S: SnapshotReadPort, E: EmbeddingProviderPort> HybridRetriever<S, E> {
                 Usage::default(),
             ));
         }
+        context.check_deadline()?;
+        let mut embedding_context = context.clone();
+        embedding_context.deadline_ms = context.remaining_time()?.as_millis() as u64;
+        if embedding_context.deadline_ms == 0 {
+            return Err(PortError::BudgetExceeded);
+        }
         let output = self.embedding.embed(
             &[format!(
                 "{}{}",
                 self.index.identity.query_prefix, query.text
             )],
             &self.index.identity,
-            context,
+            &embedding_context,
         )?;
+        context.check_deadline()?;
         if output.identity != self.index.identity || output.vectors.len() != 1 {
             return Err(invalid("embedding identity or result count mismatch"));
         }
