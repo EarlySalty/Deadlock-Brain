@@ -18,7 +18,7 @@ Vorgängerregister: .tasks/2026-09-29-technical-closeout/REGISTER.md
 
 | Paket | Thread-ID | Modell | Stand |
 | --- | --- | --- | --- |
-| Autor B2 und B1-R1 | 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 | bestehender Sol, gpt-6-sol | B2-R1-R3 seit1166046 aktiv; tatsächliches WIP in brain-storage lib.rs/memory_repository.rs/pg_jobs.rs/pg_release.rs. Enger Nachtrag1167206: nach B2 separat drei Cargo-Weitergaben R1-N1 korrigieren. Kein neuer gemeinsamer Fixhead, kein Neubeginn |
+| Autor B2 und B1-R1 | 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 | bestehender Sol, gpt-6-sol | B2-R1-R3 seit1166046 aktiv; WIP inzwischen sechs Dateien: Importerbin, vier Storage-Dateien und Serve-Harness,439 Einfügungen/73 Löschungen. Nachtrag1167206: nach B2 separat drei Cargo-Weitergaben R1-N1. HEAD4ee56de/Upstream0/0, noch kein gemeinsamer Fixhead oder frische Abnahme. Tatsächlicher Fortschritt, kein erneuter Interrupt |
 | Unabhängige Abnahme | 52c34332-8cdf-4772-9e1f-42aba432c6cf | bestehender Astra | B1-Nachreview11cd23e gelesen: PflichtargumentfixGO, drei CI-Cargo-Pfadreste R1-N1. Gesettelt1167086; für konkreten neuen B2-/CI-Fixhead wiederverwenden |
 | Finale Compiler-/Prozessprüfung | 6b53c923-e4da-498a-b08e-254407b452ff | Sol | Nicht wiederaufgenommen; historische Teilaufgabe |
 | Consumerabnahme | 533115bf-554f-4457-86b4-2944fef19c63 | Astra | Nicht wiederaufgenommen |
