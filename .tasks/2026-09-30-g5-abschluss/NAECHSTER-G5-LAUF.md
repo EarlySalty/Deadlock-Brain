@@ -1,4 +1,6 @@
-status: aktiv, zweiter Clippy aufc809b629 tatsächlich Exit101; Slot zurück; engster Importfix in Arbeit, dritter Lauf nicht zugeteilt
+status: aktiv, korrigierter Head c5951b610aa2545d2c0b43b33b5fe1906198b292 geprüft; genau derselbe einzelne Clippy vorgemerkt, noch keine Startzuteilung
+
+Quellabschluss16:04:24UTC übernommen: efb56023deda07ae2c273883d617f2f26b263fc8 entfernt ausschließlich PgConnection aus der bestehenden Importliste. Danach enthältc5951b6 ausschließlich den separaten Bericht. Vollständiges Delta, sauberer Status und eigener Diffcheck geprüft. Bestehende Produktabnahmen gelten weiter, keine neue Gesamtquellenrunde. Genau ein unveränderter Paket-Clippy aus Abschnitt1 ist der nächste Bedarf; alle folgenden Test-/DB-/Runtimeklassen bleiben gesondert zuzuteilen. Vor Start tatsächlichen Head erneut binden und danach echten Exit samt sofortiger Slotrückgabe sichern. Kein Lauf gestartet. Die folgenden älteren Abschnitte sind Verlauf, keine neue Ausführungserlaubnis.
 
 Der unten zuvor vorbereitete Folgelauf wurde ausdrücklich zugeteilt und ist als ba0n8pidy am2026-09-30T15:52:18Z gestartet. Tatsächlicher Exit101, Slotrückgabe vom Nutzer für15:52:37UTC bestätigt. Neuer Fehler ausschließlich unused import PgConnection, brain-legacy-import.rs:12. Quellursprungc5d2b1f4, keine Verwendung außer dem Import, historischer grüner Headca4a8f2 ohne diesen Namen. Bestehender Autor1180821 entfernt genau den Import. BelegSLOT-E-CLIPPY-NACHWEIS.md, AuftragCLIPPY-IMPORT-FIX.md.
 
