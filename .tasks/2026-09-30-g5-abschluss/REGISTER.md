@@ -1,4 +1,4 @@
-status: aktiv, Twitch-Hotfix/Rollout hat Vorrang; Brain-Laufzeithalt unverändert, B2 im Bau, B1-R1-Anschlussfix beauftragt
+status: aktiv, Twitch-Releasebuild hat Vorrang; Brain-Laufzeithalt unverändert, B2/B1-R1 nach belegtem API-Fehler im selben Sol wiederaufgenommen
 Datum: 2026-09-30
 
 # G5-Fortsetzungsregister
@@ -20,7 +20,7 @@ Ursprüngliche gemeinsame Basis: 1c362bca6d35e7fec10125b2b159e7513a299243. Keine
 
 | Paket | Thread-ID | Modell | Stand |
 | --- | --- | --- | --- |
-| V1 ohne Replay | 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 | bestehender Sol, gpt-6-sol | Aktiv: B2-WIP separat abschließen und danach B1-R1-Aufruferfix. Fortsetzung Sequenz1161746, kein WIP-Verwerfen. HEAD35673e7 gepusht; Importer-WIP in bin/brain-legacy-import.rs, lib.rs, tests.rs und neuer cutover.rs. Kein neuer B2-Head bestätigt, keinerlei Compiler-/DB-/Last-/Dienstlauf |
+| V1 ohne Replay | 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 | bestehender Sol, gpt-6-sol | Nach gelesenem API-Fehler12:46:42.176UTC trotz running-Marker bewusst im selben Thread fortgesetzt, Sequenz1163013. Vorhandenes B2-WIP bewahrt: bin/brain-legacy-import.rs, lib.rs, tests.rs, neue cutover.rs und legacy-core-cutover.json. HEAD35673e7/Upstream0/0, kein B2-Quellhead. B2 zuerst getrennt abschließen, danach B1-R1. Keine Laufzeitaktion |
 | Statische Abnahme und Locknachtrag | 52c34332-8cdf-4772-9e1f-42aba432c6cf | bestehender Astra | B1-Review eb6ac35 gepusht, gelesen und gesettelt1161758: fünf Runner statisch korrekt, Integration BLOCK wegen fehlender Argumentweitergabe B1-R1. Bestehenden Thread erst für eingefrorenes B2-/Anschlussdelta wiederverwenden |
 | Finale Compiler-/Prozessprüfung | 6b53c923-e4da-498a-b08e-254407b452ff | Sol | Nicht wiederaufgenommen; einzeln zugeteilter Clippy-Lauf durch Hauptsession abgeschlossen, keine Prozessprüfung |
 | Consumerabnahme | 533115bf-554f-4457-86b4-2944fef19c63 | Astra | Nicht wiederaufgenommen |
@@ -53,7 +53,9 @@ Rollen-/DB-Metadatenprüfung ist ausdrücklich zugeteilt und tatsächlich bestan
 
 B1-Code0a6e095 und Bericht35673e7 sind gepusht. Unabhängiger Review eb6ac35 gelesen: fünf Runner statisch korrekt, aber Integration BLOCK wegen fehlender Cacheargumente in zwei Wrappern, drei Workflows und einem Reproduktionsbeispiel. Hauptsession hat die eingefrorenen Aufrufstellen bestätigt. B1-R1-FIX-BRIEFING.md an denselben Sol übergeben, Sequenz1161746: zuerst laufendes B2 separat sichern, danach Anschlussfix getrennt abgeben. Keine weitere Abnahme des beweglichen B2-WIP. B2-REVIEW-BRIEFING.md bleibt für den tatsächlichen Quellhead vorbereitet. Die historischen PG-/Restorefälle sind keine aktuellen Läufe; alle74 ignorierten Fälle nicht pauschal nachholen.
 
-Nutzerstand30.09./12:25UTC: Twitch-Originalgate ALLOW, normaler Merge PR1023/main9f6f; Rollout wegen SQLx0.9-Peer/anonymous gescheitert, Runtime auf593cfb6c zurückgerollt. Enger Hotfixa82cbe5f aktiviert laut Nutzer whoami2/std in vier Produktgraphen, echte Dienstkonto-Proben laufen beim Integrator. Bis zur ausdrücklichen Slotrückgabe bleiben Brain-Compiler, PostgreSQL-Rollenfixtures, DB-Schreibvorgänge, Produktprozesse und Deployaktionen gesperrt. Quellarbeit und statische Reviews bleiben aktiv. Keine neue Session, Modellwahl oder Zusatzarchitektur; keine Secrets/ENV-Ausgabe. Keine ungeprüfte Übernahme des Twitch-Hotfixes in Brain.
+Nutzerfortschreibung nach12:46UTC: Twitch-Hotfixa82 hat Originalgate ALLOW und ist als PR1025/main normal gemergt. Vierbinary-Releasebuild läuft regulär, Runtime weiterhin gesund auf593. Keine Slotrückgabe; Brain-Compiler, PostgreSQL-Rollenfixtures, DB-Schreibvorgänge, Produktprozesse und Deployaktionen bleiben gesperrt. Quellarbeit und statische Reviews bleiben aktiv. Keine neue Session, Modellwahl oder Zusatzarchitektur; keine Secrets/ENV-Ausgabe. Keine ungeprüfte Übernahme des Twitch-Hotfixes in Brain.
+
+Workerfehler tatsächlich gelesen: API Error: Server error mid-response am30.09./12:46:42.176UTC bei weiter running angezeigter Session. Nutzer verlangte Wiederaufnahme desselben Threads. WIP zuerst rein lesend geprüft und anschließend send --force mit konkreten Fortsetzungspunkten, Sequenz1163013, Modell unverändert gpt-6-sol. Keine zweite Arbeitskopie und kein Reset. Wiederaufnahme bestätigt nur den Dispatch, noch keinen fertigen B2-Head.
 
 Clippy und Workspace-Test sind abgeschlossen, beide Slots zurückgegeben. Die hostweite BRAIN-G5-BUILD-REQUEST.txt enthält Ergebnis, Consumerbindung und nächsten Prüfbedarf; die Kopie dieser Akte wird vor Sicherung synchronisiert.
 
