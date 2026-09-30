@@ -1,0 +1,37 @@
+status: erledigt
+Datum: 2026-09-30
+
+# B1: bestehende Testharnesses an den Cachevertrag gebunden
+
+Ausgangshead `ca4a8f236a75ba89ce60d2140c735acd5d1f5bee`, Quellcommit `0a6e09517770c0a016594c3580ed34bd20f96d37` auf `fix/g5-replay-deferred-20260930` im Worktree `/home/nathanael/.worktrees/brain-g5-replay-deferred-20260930`. Die geprüfte Rust- und Lockbasis `9a29b81d230c01e5c03423cc34ba34c1074eab69` sowie Testquellen blieben in B1 unverändert. Dieser Bericht erhält einen eigenen Commit; dessen SHA steht in der Branchhistorie. B1 ist Quellvorbereitung, keine G5-Freigabe.
+
+## Quelländerung und Laufzeitgrenze
+
+Die fünf vorhandenen Runner verlangen vor `initdb` einen expliziten absoluten, bereits existierenden Cacheordner als CLI-Argument; falsche Anzahl, relative Pfade und fehlende Verzeichnisse enden mit Status 2. Es gibt keinen stillen Rückfall auf `rust/target` und keine Cacheerzeugung (`scripts/test_brain_serve.sh:5-13`, `scripts/test_brain_core_postgres.sh:5-13`, `scripts/test_brain_storage_upgrade.sh:6-24`, `scripts/test_wiki_runtime.sh:7-15`, `scripts/run_local_pilot.sh:7-15`). Der Upgrade-Runner erhält sein bisheriges optionales Cargo-Executable als erstes Argument; mit zwei Argumenten folgt der Cachepfad an zweiter Stelle. Jeder explizite Cargo-Aufruf verwendet `+1.97.1`, `--locked --offline --jobs 1 --target-dir "$TARGET_DIR"`; bestehende isolierte Cargo-Umgebungen setzen `CARGO_BUILD_JOBS=1` und reichen die synthetischen Testkoordinaten weiter (`scripts/test_brain_serve.sh:64-93`, `scripts/test_brain_core_postgres.sh:55-59`, `scripts/test_brain_storage_upgrade.sh:73-78`, `scripts/test_wiki_runtime.sh:60-70`, `scripts/run_local_pilot.sh:46-53`). Pilotvorbau und Phasentest bleiben nacheinander ausgeführt, nicht parallel. Testnamen, `--ignored`-Filter, Assertions und Clustergrenzen blieben unverändert.
+
+- **Serve:** `initdb`, `pg_ctl`, `createdb` und Testbinaries verwenden einen privaten Unix-Socket auf Port 55439 mit Peer-/SCRAM-Fixtures; `BRAIN_CORE_TEST_PG_SOCKET` ist ausschließlich eine interne synthetische Übergabe an die isolierten Cargo-Kinder (`scripts/test_brain_serve.sh:37-63,64-83`). Der enthaltene E2E-Fall erzeugt tatsächlich **600 Anfragen bei je 8, 16 und 32 Workern**, insgesamt 1800, und braucht daher eine getrennte Lastzuteilung (`rust/crates/brain-serve/tests/process_e2e.rs:692-695`). Erfolgreiche Scratchdaten werden nach dem Stop entfernt, bei Fehlern bleiben Logs/Scratch zur Diagnose (`scripts/test_brain_serve.sh:19-42`).
+- **Core-PG:** Privater Peer-Unix-Socket auf Port 55439, `BRAIN_CORE_TEST_PG_SOCKET` nur im Testkind; der Test prüft die Scratchidentität, bevor er Schemas verändert (`scripts/test_brain_core_postgres.sh:20-50`, `rust/crates/brain-storage/tests/core_store.rs:159-195`). `pg_ctl` stoppt bei Ende; erfolgreicher Scratch wird gelöscht, fehlgeschlagener bleibt mit Log erhalten (`scripts/test_brain_core_postgres.sh:24-39`). Kein produktiver Socket ist zulässig.
+- **Upgrade:** Privater Peer-Unix-Socket auf Port 55441, synthetische Rollen, `BRAIN_C11_SCRATCH` nur für das isolierte Testkind; der Runner hält `initdb`, `pg_ctl` sowie die verfügbaren `pg_dump`-/`pg_restore`-Werkzeuge vor (`scripts/test_brain_storage_upgrade.sh:25-27,44-78`). Der Stop erfolgt vor dem Entfernen des eigenen Scratchordners auch bei Testfehlern (`scripts/test_brain_storage_upgrade.sh:39-57`).
+- **Wiki:** Privater Peer-Unix-Socket auf Port 55441, synthetische Artefakte, `BRAIN_C5_TEST_SOCKET` und `BRAIN_C5_TEST_OUTPUT` nur für isolierte Test-/CLI-Kinder; die zwei lokalen CLI-Aufrufe bleiben erhalten (`scripts/test_wiki_runtime.sh:19-60,64-70`). Der Scratchordner wird nach erfolgreichem Stop entfernt, bei Fehlern zur Diagnose erhalten (`scripts/test_wiki_runtime.sh:25-40`). Kein Wiki-Netzcapture wird dadurch belegt.
+- **Pilot:** Der vorhandene Cluster unter `.core-test-pg` läuft auf einem Unix-Socket mit Port 55439. Der Runner verweigert die Wiederverwendung eines bereits laufenden Clusters, startet und stoppt nur den eigenen, erzwingt einen Stop/Neustart zwischen Phasen und behält seinen Bericht unter `.core-test-logs/pilot` (`scripts/run_local_pilot.sh:16-43,58-70`). `BRAIN_PILOT_ROOT` mit freigegebenem `public/` und `internal/` außerhalb des Repos bleibt bestehende Pflichtvoraussetzung; `BRAIN_PILOT_DATABASE` und Berichtspfad sind interne Phasenkoordination (`scripts/run_local_pilot.sh:3,20-23,31,52`). Der Runner entfernt vorab den vorhandenen Berichtspfad und behält Clusterdateien. Vor einer späteren Ausführung sind deshalb Pilotdaten, Berichtspfad und Scratchcluster gesondert zu prüfen. Kein Dienst oder produktives PostgreSQL ist für B1 gestartet worden.
+
+Die älteren Wrapper `scripts/check_brain_core.sh:39,46` und `scripts/run_isolated_load.sh:4` reichen noch keinen Cacheparameter durch. Ihr bisheriger argumentloser Aufruf erreicht jetzt bewusst den Usage-Fehler. Die fünf direkten Befehle unten sind der B1-Vertrag; Wrapperanpassungen gehören nicht zum freigegebenen Änderungsscope. Test-/Clusterläufe wurden für diesen Bericht nicht gestartet.
+
+## Spätere direkte Befehle, heute nicht ausgeführt
+
+Erst nach getrennter Freigabe für isolierte PostgreSQL-, Prozess- und gegebenenfalls Lastläufe. Der Cache `/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target` und Cargo-Home `/home/nathanael/.cargo` sind vorgegeben; die Runner prüfen den Cache als absolutes bestehendes Verzeichnis. Jeder der folgenden Runner pinnt Cargo intern auf Rust 1.97.1, locked/offline und einen Job.
+
+```sh
+bash /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930/scripts/test_brain_core_postgres.sh /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target
+bash /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930/scripts/test_brain_storage_upgrade.sh /home/nathanael/.cargo/bin/cargo /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target
+bash /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930/scripts/test_brain_serve.sh /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target
+bash /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930/scripts/test_wiki_runtime.sh /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target
+bash /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930/scripts/run_local_pilot.sh /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target
+```
+
+Der letzte Befehl setzt die **bereits vorhandene** Belegung von `BRAIN_PILOT_ROOT` mit einem gesondert freigegebenen Dokumentbestand voraus; hier wird keine neue ENV-/Secretkonfiguration angelegt. Die fünf Befehle sind keine Aufforderung, sie jetzt zu starten. Insbesondere darf der Serve-E2E nicht in einen ausschließlich für leichte Proben zugeteilten Slot rutschen. Core, Serve und Pilot brauchen getrennte Cluster-/Port- und Laufzeitfenster; Wiki und Upgrade ebenso.
+
+Verifikation von B1: ausschließlich Quell- und Argumentpfadprüfung, `bash -n` für alle fünf geänderten Runner und `git diff --check` sowie `git diff --cached --check`, jeweils Exit 0. Kein Cargo, Compiler, Harness, Test, DB, Last, Modell, Dienst oder Deploy gestartet; keine Secrets gelesen, kein Produktcode oder Lockstand geändert. Die unabhängige statische Abnahme und jede spätere Laufzuteilung bleiben offen.
+
+BESTAND[BS-1]: ja | Fundort: scripts/test_brain_serve.sh:4 | Anknüpfung: fünf vorhandene isolierte Runner statt eines neuen Harnesses
+TEXTNACHWEIS[DR-1]: Gedankenstriche 0 | ae/oe/ue/ss-Ersatz 0 | Absolutwörter 8 belegt | Senke: B1-HARNESS-ERGEBNIS.md
