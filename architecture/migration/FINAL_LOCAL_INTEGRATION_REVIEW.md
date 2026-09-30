@@ -160,4 +160,3 @@ Kein Production-Cutover ausgeführt; G5/G6 bleiben der Betreiberfreigabe vorbeha
 - G3-Aussage „Gesamtdatenübernahme fehlt" ist präzisiert: Patchnotes und Entitäten sind per `brain-legacy-import` im Kernmodell (nur Pilot-DB), Sheet- und YouTube-Daten sowie die Provider-Seiten der Feeds fehlen weiter.
 - Deadlock-Bots #459 ist seit dem Pre-G5-Review Draft: Die Auto-Merge-Automation auf `main` von Deadlock-Bots hätte den PR nach Rückkehr des Semantic-Review-Kontingents gemergt. Das widerspricht dem PR-first-Testbetrieb.
 - Deadlock-2nd-Brain #2: Die Annotation des Jobs lautet „recent account payments have failed or your spending limit needs to be increased"; ein erneuter Lauf (Versuch 2) scheiterte identisch. Abrechnungsblocker, kein Codefehler.
-
