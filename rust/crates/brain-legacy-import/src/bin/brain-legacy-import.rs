@@ -9,7 +9,7 @@ use brain_storage::PgStore;
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::{
-    postgres::{PgConnectOptions, PgConnection, PgPoolOptions},
+    postgres::{PgConnectOptions, PgPoolOptions},
     ConnectOptions, Connection, Row,
 };
 use std::{collections::BTreeMap, path::PathBuf, time::Duration};
