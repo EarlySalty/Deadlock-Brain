@@ -311,8 +311,19 @@ impl<S: SnapshotReadPort> AnalyticsRetriever<S> {
         };
         let meta = runtime
             .client
-            .lookup_with_deadline(&request(AnalyticsKind::Meta, None), deadline)
-            .map_err(|_| PortError::Unavailable("analytics meta lookup failed".into()))?;
+            .lookup_with_request_deadline(
+                &request(AnalyticsKind::Meta, None),
+                deadline,
+                context
+                    .request_deadline
+                    .as_ref()
+                    .expect("bound request deadline"),
+            )
+            .map_err(|_| {
+                context.check_deadline().err().unwrap_or_else(|| {
+                    PortError::Unavailable("analytics meta lookup failed".into())
+                })
+            })?;
         if now() >= deadline || context.check_deadline().is_err() {
             return Err(PortError::BudgetExceeded);
         }
@@ -320,12 +331,18 @@ impl<S: SnapshotReadPort> AnalyticsRetriever<S> {
             Some(
                 runtime
                     .client
-                    .lookup_with_deadline(
+                    .lookup_with_request_deadline(
                         &request(AnalyticsKind::Population, Some(item_id)),
                         deadline,
+                        context
+                            .request_deadline
+                            .as_ref()
+                            .expect("bound request deadline"),
                     )
                     .map_err(|_| {
-                        PortError::Unavailable("analytics population lookup failed".into())
+                        context.check_deadline().err().unwrap_or_else(|| {
+                            PortError::Unavailable("analytics population lookup failed".into())
+                        })
                     })?,
             )
         } else {
@@ -693,6 +710,88 @@ mod tests {
             patch: None,
             mode: None,
         }
+    }
+
+    #[test]
+    fn cancelled_analytics_request_cannot_start_an_http_retry() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let deadline = brain_contracts::RequestDeadline::after(Duration::from_secs(3));
+        let cancellation = deadline.clone();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let seen = calls.clone();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut bytes = [0; 4096];
+            stream.read(&mut bytes).unwrap();
+            seen.fetch_add(1, Ordering::SeqCst);
+            // Cancellation is synchronized with an actual first upstream request,
+            // before the retryable response is delivered.
+            cancellation.cancel();
+            stream
+                .write_all(
+                    b"HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .unwrap();
+            drop(stream);
+            listener.set_nonblocking(true).unwrap();
+            let end = Instant::now() + Duration::from_millis(500);
+            while Instant::now() < end {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        stream.read(&mut bytes).unwrap();
+                        seen.fetch_add(1, Ordering::SeqCst);
+                        stream.write_all(b"HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::park_timeout(Duration::from_millis(2))
+                    }
+                    Err(error) => panic!("fixture listener: {error}"),
+                }
+            }
+        });
+        let mut runtime = runtime();
+        let http = dbrain_sources::core::http::HttpClient::new(
+            "cancelled-analytics-fixture",
+            runtime._scratch.path(),
+        )
+        .unwrap();
+        runtime.client = DeadlockAnalyticsClient::with_base_url(
+            http,
+            format!("http://{address}"),
+            Duration::from_millis(1000),
+        )
+        .unwrap();
+        runtime.config.request_timeout_ms = 1000;
+        let retrieval = AnalyticsRetriever::new(
+            ReleaseRetriever::new(FixedSnapshot, 8),
+            Some(Arc::new(runtime)),
+        );
+        let context = AuthorizedContext {
+            principal: Principal {
+                actor_id: "fixture-actor".into(),
+                channel: "fixture-channel".into(),
+                scopes: BTreeSet::from(["analytics.internal".into()]),
+                provider_egress: BTreeSet::new(),
+            },
+            conversation_id: "fixture-conversation".into(),
+            knowledge_release: "fixture-release".into(),
+            deadline_ms: 3000,
+            request_deadline: Some(deadline),
+            budget: Budget::default(),
+        };
+        let result = retrieval.retrieve_analytics(
+            &answer_query(META_PREDICATE),
+            &context,
+            AnalyticsTarget::Meta { hero_id: 18 },
+        );
+        server.join().unwrap();
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "a cancelled request started a second external HTTP operation"
+        );
+        assert!(matches!(result, Err(PortError::BudgetExceeded)));
     }
 
     #[test]

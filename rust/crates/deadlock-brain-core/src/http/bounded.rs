@@ -79,7 +79,7 @@ impl HttpClient {
     /// Uses the common client, without the URL-only legacy cache (which cannot
     /// represent request headers, source validators and original fetch time).
     pub fn get_bounded(&self, url: &str, options: SourceHttpOptions) -> Result<SourceHttpResponse> {
-        self.get_bounded_inner(url, options, None)
+        self.get_bounded_inner(url, options, None, None)
     }
 
     pub fn get_bounded_until(
@@ -88,7 +88,24 @@ impl HttpClient {
         options: SourceHttpOptions,
         deadline: Instant,
     ) -> Result<SourceHttpResponse> {
-        self.get_bounded_inner(url, options, Some(deadline))
+        self.get_bounded_inner(url, options, Some(deadline), None)
+    }
+
+    /// Preserve the caller's original expiry and cancellation across source retries
+    /// and the existing scoped HTTP worker thread.
+    pub fn get_bounded_until_cancellable(
+        &self,
+        url: &str,
+        options: SourceHttpOptions,
+        deadline: Instant,
+        lifetime: &brain_contracts::RequestDeadline,
+    ) -> Result<SourceHttpResponse> {
+        self.get_bounded_inner(
+            url,
+            options,
+            Some(deadline.min(lifetime.expires_at())),
+            Some(lifetime),
+        )
     }
 
     fn get_bounded_inner(
@@ -96,7 +113,9 @@ impl HttpClient {
         url: &str,
         options: SourceHttpOptions,
         deadline: Option<Instant>,
+        lifetime: Option<&brain_contracts::RequestDeadline>,
     ) -> Result<SourceHttpResponse> {
+        check_lifetime(lifetime)?;
         if options.max_bytes == 0
             || options.max_bytes > 64 * 1024 * 1024
             || !(1..=8).contains(&options.attempts)
@@ -116,7 +135,7 @@ impl HttpClient {
                 "source URL must be HTTP(S), without credentials or fragment",
             ));
         }
-        run_on_http_thread(|| self.fetch_bounded(url, &options, deadline))
+        run_on_http_thread(|| self.fetch_bounded(url, &options, deadline, lifetime))
     }
 
     fn fetch_bounded(
@@ -124,8 +143,9 @@ impl HttpClient {
         url: &str,
         options: &SourceHttpOptions,
         deadline: Option<Instant>,
+        lifetime: Option<&brain_contracts::RequestDeadline>,
     ) -> Result<SourceHttpResponse> {
-        self.fetch_bounded_with_clock(url, options, deadline, Instant::now)
+        self.fetch_bounded_with_clock(url, options, deadline, lifetime, Instant::now)
     }
 
     fn fetch_bounded_with_clock(
@@ -133,10 +153,12 @@ impl HttpClient {
         url: &str,
         options: &SourceHttpOptions,
         deadline: Option<Instant>,
+        lifetime: Option<&brain_contracts::RequestDeadline>,
         now: impl Fn() -> Instant,
     ) -> Result<SourceHttpResponse> {
         let started = now();
         for attempt in 1..=options.attempts {
+            check_lifetime(lifetime)?;
             let remaining = remaining_budget(started, options, deadline, now());
             if remaining.is_zero() {
                 return Err(bounded_error("source HTTP total timeout"));
@@ -151,6 +173,7 @@ impl HttpClient {
             if remaining.is_zero() {
                 return Err(bounded_error("source HTTP total timeout"));
             }
+            check_lifetime(lifetime)?;
             let response = match request
                 .timeout(options.request_timeout.min(remaining))
                 .send()
@@ -164,11 +187,12 @@ impl HttpClient {
                     {
                         return Err(error.into());
                     }
-                    thread::sleep(delay);
+                    wait_with_lifetime(delay, lifetime)?;
                     continue;
                 }
             };
             let status = response.status();
+            check_lifetime(lifetime)?;
             if response
                 .headers()
                 .get(CONTENT_LENGTH)
@@ -214,6 +238,7 @@ impl HttpClient {
                 observed_at: crate::now_epoch_seconds()?,
                 attempts: attempt,
             };
+            check_lifetime(lifetime)?;
             if !(status.is_server_error() || status == reqwest::StatusCode::TOO_MANY_REQUESTS)
                 || attempt == options.attempts
             {
@@ -230,10 +255,33 @@ impl HttpClient {
             if !can_wait(delay, started, options, deadline, now()) {
                 return Ok(result);
             }
-            thread::sleep(delay);
+            wait_with_lifetime(delay, lifetime)?;
         }
         Err(bounded_error("exhausted source HTTP budget"))
     }
+}
+
+fn check_lifetime(lifetime: Option<&brain_contracts::RequestDeadline>) -> Result<()> {
+    if let Some(lifetime) = lifetime {
+        lifetime
+            .check()
+            .map_err(|_| bounded_error("source request cancelled or expired"))?;
+    }
+    Ok(())
+}
+
+fn wait_with_lifetime(
+    delay: Duration,
+    lifetime: Option<&brain_contracts::RequestDeadline>,
+) -> Result<()> {
+    if let Some(lifetime) = lifetime {
+        lifetime
+            .wait(delay)
+            .map_err(|_| bounded_error("source request cancelled or expired"))?;
+    } else {
+        thread::sleep(delay);
+    }
+    Ok(())
 }
 
 fn remaining_budget(
@@ -425,9 +473,13 @@ mod tests {
         let (_dir, http) = client();
         let started = Instant::now();
         let result = http
-            .fetch_bounded_with_clock(&url, &options, Some(started + deadline_offset), || {
-                started + Duration::from_millis(elapsed_ms.load(Ordering::SeqCst))
-            })
+            .fetch_bounded_with_clock(
+                &url,
+                &options,
+                Some(started + deadline_offset),
+                None,
+                || started + Duration::from_millis(elapsed_ms.load(Ordering::SeqCst)),
+            )
             .unwrap();
         let listener = server.join().unwrap();
         assert_eq!(result.status, 503);

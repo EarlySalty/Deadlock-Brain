@@ -188,27 +188,48 @@ impl DeadlockAnalyticsClient {
         request: &AnalyticsLookupRequest,
         deadline: Instant,
     ) -> Result<AnalyticsObservation> {
+        self.lookup_until(request, deadline, None)
+    }
+
+    pub fn lookup_with_request_deadline(
+        &self,
+        request: &AnalyticsLookupRequest,
+        deadline: Instant,
+        lifetime: &brain_contracts::RequestDeadline,
+    ) -> Result<AnalyticsObservation> {
+        self.lookup_until(request, deadline.min(lifetime.expires_at()), Some(lifetime))
+    }
+
+    fn lookup_until(
+        &self,
+        request: &AnalyticsLookupRequest,
+        deadline: Instant,
+        lifetime: Option<&brain_contracts::RequestDeadline>,
+    ) -> Result<AnalyticsObservation> {
         request.validate()?;
         let url = self.url(request);
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             return Err(SourcesError::invalid_input("analytics deadline exhausted"));
         }
-        let response = self.http.get_bounded_until(
-            &url,
-            SourceHttpOptions {
-                max_bytes: MAX_RESPONSE_BYTES,
-                attempts: 2,
-                request_timeout: self.request_timeout.min(remaining),
-                total_timeout: self.request_timeout.saturating_mul(2).min(remaining),
-                backoff: Duration::from_millis(200),
-                max_retry_wait: Duration::from_secs(2),
-                headers: vec![("Accept".into(), "application/json".into())],
-            },
-            deadline,
-        )?;
+        let options = SourceHttpOptions {
+            max_bytes: MAX_RESPONSE_BYTES,
+            attempts: 2,
+            request_timeout: self.request_timeout.min(remaining),
+            total_timeout: self.request_timeout.saturating_mul(2).min(remaining),
+            backoff: Duration::from_millis(200),
+            max_retry_wait: Duration::from_secs(2),
+            headers: vec![("Accept".into(), "application/json".into())],
+        };
+        let response = match lifetime {
+            Some(lifetime) => self
+                .http
+                .get_bounded_until_cancellable(&url, options, deadline, lifetime),
+            None => self.http.get_bounded_until(&url, options, deadline),
+        }?;
         let observation = prepare_analytics_response(request, response)?;
-        if Instant::now() >= deadline {
+        if Instant::now() >= deadline || lifetime.is_some_and(|lifetime| lifetime.check().is_err())
+        {
             return Err(SourcesError::invalid_input("analytics deadline exhausted"));
         }
         Ok(observation)
