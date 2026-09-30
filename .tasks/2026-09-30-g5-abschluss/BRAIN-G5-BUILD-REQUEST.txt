@@ -1,4 +1,8 @@
-status: Slot zurück; Zweistellenfixd35a11c plus Berichtc809b629 sauber/gepusht; identischer einzelner Clippy-Folgelauf vorbereitet, KEINE neue Startfreigabe
+status: FOLGESLOT ZURÜCK, Eingang15:52:37UTC vom Nutzer bestätigt; zweiter Clippy ba0n8pidy aufc809b629 Exit101; PgConnection-Importfix beim bestehenden Autor1180821, KEIN dritter Lauf zugeteilt
+
+Aktueller Befund des zweiten Laufs: brain-legacy-import.rs:12:34, unused import PgConnection. Im aktuellen Quellkopf c809b629d34e01087601db31c23fea2acd3fc088 ausschließlich als Import vorhanden, eingeführt durchc5d2b1f4 und nicht Teil der historischen grünen Basisca4a8f2. Kein Rückfall der beiden Auto-Deref-Lints. Engster Fix entfernt genau den unbenutzten Import, keine Wirkung auf Transaktionen oder Sperren; bestehender Autor66adf9ee arbeitet im bestehenden Worktree und Modell. Nach tatsächlicher Abgabe und enger statischer Deltaprüfung Bedarf exakt derselbe EINZELNE Paket-Clippy, locked/offline/jobs1, bestehender Targetcache. Keine Tests/Medien/DB/Runtime/Import/Serve oder automatische Wiederholung. Start erst nach neuer eindeutiger Slotzuteilung.
+
+Zweiter Lauf: Start2026-09-30T15:52:18Z, PID1576901, Harnessba0n8pidy, Sessionb23bbb03-c6d0-4d44-b3e3-99631ddd89e3. Tatsächlicher Exit101, Post-Lauf-Head sauber und unverändert. Log /home/nathanael/Documents/.tasks/2026-09-30-twitch-alles-live/brain-g5-clippy-c809b629-slot-20260930.log,845 Bytes,SHA256f36b58ec7c5ced332b4aa230e3f952fa0c2b6b9624ecc1be2ef214b3d75f64ef. Beleg im Koordinationsworktree: .tasks/2026-09-30-g5-abschluss/SLOT-E-CLIPPY-NACHWEIS.md. Frühere Abschnitte darunter sind historische Anfragen und keine neue Zuteilung.
 Datum: 2026-09-30
 Intent-Thread: 562a877b-0939-440a-964d-1145d9e9431a
 

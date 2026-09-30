@@ -1,4 +1,8 @@
-status: identischer einzelner Clippy-Folgelauf auf sauberemc809b629 vorbereitet; Zweistellenfixd35a11c gepusht, Slot weiterhin nicht zugeteilt
+status: aktiv, zweiter Clippy aufc809b629 tatsächlich Exit101; Slot zurück; engster Importfix in Arbeit, dritter Lauf nicht zugeteilt
+
+Der unten zuvor vorbereitete Folgelauf wurde ausdrücklich zugeteilt und ist als ba0n8pidy am2026-09-30T15:52:18Z gestartet. Tatsächlicher Exit101, Slotrückgabe vom Nutzer für15:52:37UTC bestätigt. Neuer Fehler ausschließlich unused import PgConnection, brain-legacy-import.rs:12. Quellursprungc5d2b1f4, keine Verwendung außer dem Import, historischer grüner Headca4a8f2 ohne diesen Namen. Bestehender Autor1180821 entfernt genau den Import. BelegSLOT-E-CLIPPY-NACHWEIS.md, AuftragCLIPPY-IMPORT-FIX.md.
+
+Präziser nächster Bedarf nach tatsächlicher Abgabe und enger statischer Deltaprüfung: unverändert genau der einzelne Paket-Clippy aus Abschnitt1, kein vorausgehender Check, keine Tests/DB/Medien/Runtime. Finalen Fixhead vor Start neu binden. Bisher KEINE dritte Slotzuteilung; die älteren Planabschnitte darunter erlauben keine Ausführung.
 Datum: 2026-09-30
 
 # Nächster begrenzter G5-Lauf nach B2-Fixabnahme

@@ -1,4 +1,10 @@
-status: aktiv, ClippyExit101 und Slot zurück; Zweistellenfixd35a11c/Berichtc809b629 mit ReviewGO9070ba9 abgeschlossen; identischer Einzellauf vorbereitet, keine neue Startfreigabe
+status: aktiv, zweiter Clippy aufc809b629 Exit101; Slotrückgabe15:52:37UTC bestätigt; unbenutzter PgConnection-Import beim selben Autor1180821, kein weiterer Lauf zugeteilt
+
+## Neuester Stand: zweiter Clippy
+
+Harnessba0n8pidy/PID1576901, Start15:52:18UTC, tatsächlicher Exit101. Genau zugeteilter identischer Paket-Clippy, keine Zusatzprüfung. Slot sofort zurückgegeben, Nutzer bestätigt Eingang15:52:37UTC. Vollständiger Log845 Bytes/SHA256f36b58ec7c5ced332b4aa230e3f952fa0c2b6b9624ecc1be2ef214b3d75f64ef. Post-Lauf-Headc809b629 sauber. Details SLOT-E-CLIPPY-NACHWEIS.md.
+
+Einziger neuer Fehler: unbenutzter Import PgConnection in brain-legacy-import.rs:12, eingeführt durchc5d2b1f4, nicht historische grüne Basisca4a8f2. Genau diesen Import entfernt der bestehende Autor66adf9ee, Dispatch1180821, BriefingCLIPPY-IMPORT-FIX.md. Keine Unterdrückung, kein Refactoring, keine Compiler/Tests/DB/Medien/Runtime. Bei reinem Importdelta enge statische Deltaprüfung, keine neue Gesamtquellrunde. Danach präziser Bedarf derselbe einzelne Clippy; keine Startfreigabe. Sessionwache47bb16ad alle20Minuten, endet nach Quellabschluss oder spätestens nach7Tagen. Ältere Abschnitte unten dokumentieren vorherige Zustände.
 Datum: 2026-09-30
 
 # G5-Fortsetzungsregister
