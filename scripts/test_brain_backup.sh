@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Destructive operations are confined to a fresh temporary root. PostgreSQL is NEVER contacted.
 set -euo pipefail
-repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+script_dir=$(dirname -- "${BASH_SOURCE[0]}")
+[[ $script_dir == /* ]] || script_dir="./$script_dir"
+repo=$(cd -- "$script_dir/.." && pwd)
 root=$(mktemp -d)
 trap 'if [[ -n ${backup_pid-} ]]; then printf "continue\n" >&7; wait "$backup_pid" || true; fi; rm -rf -- "$root"' EXIT
 mkdir -- "$root/stubs"
@@ -171,3 +173,18 @@ check "$target/brain-20310101T000000Z/SHA256SUMS"
 backups=("$target"/brain-*)
 [[ ${#backups[@]} == 1 ]]
 printf 'PASS: concurrent KEEP=1 run fails without publication or rotation\n'
+
+# CDPATH must not redirect a relative target to an existing directory elsewhere.
+mkdir -p -- "$root/cdpath/work/backups" "$root/cdpath/elsewhere/backups"
+completed "$root/cdpath/work/backups/brain-20200101T000000Z"
+completed "$root/cdpath/elsewhere/backups/brain-20200101T000000Z"
+(
+  cd -- "$root/cdpath/work"
+  CDPATH="$root/cdpath/elsewhere"
+  export CDPATH
+  run_backup backups 1
+)
+check "$root/cdpath/elsewhere/backups/brain-20200101T000000Z/globals.sql"
+check "$root/cdpath/work/backups/brain-20310102T000000Z/SHA256SUMS"
+[[ ! -e "$root/cdpath/work/backups/brain-20200101T000000Z" ]]
+printf 'PASS: inherited CDPATH cannot redirect relative target or outside retention\n'

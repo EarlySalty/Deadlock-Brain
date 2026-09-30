@@ -33,6 +33,7 @@ if [[ ! -d $TARGET || -L $TARGET || $TARGET == / ]]; then
 fi
 # Anchor all mutations to the opened directory. $PWD preserves embedded/trailing newlines;
 # command substitution of pwd/realpath would not. No pathname is parsed as text.
+[[ $TARGET == /* ]] || TARGET="./$TARGET"
 cd -P -- "$TARGET"
 TARGET=$PWD
 # Lock the opened directory inode, avoiding a mutable lockfile or pathname race.
