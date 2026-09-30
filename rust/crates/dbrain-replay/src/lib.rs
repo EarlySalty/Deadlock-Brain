@@ -37,7 +37,7 @@ pub fn parser_revision() -> String {
             include_bytes!("decode.rs"),
             include_bytes!("supervisor.rs"),
             include_bytes!("stringtable.rs"),
-            include_bytes!("../../../Cargo.lock"),
+            include_bytes!("../Cargo.lock"),
             include_bytes!("../Cargo.toml"),
             include_bytes!("../../../Cargo.toml"),
             include_bytes!("../../brain-contracts/src/replay.rs"),

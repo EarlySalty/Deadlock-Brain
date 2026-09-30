@@ -153,8 +153,7 @@ jobs:
           retention-days: 7
 
   reference:
-    # Wiki/Sources/Replay are merged in migration/rust-integration; these suites run on the composed checkout.
-    name: Integrated suite (${{ matrix.suite }})
+    name: V1 source suite (${{ matrix.suite }})
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
@@ -163,7 +162,6 @@ jobs:
         include:
           - suite: wiki
           - suite: sources
-          - suite: replay
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -182,12 +180,6 @@ jobs:
           mkdir -p .consumer-ci-reports/test-home
           { printf 'composed_checkout=true\n'; git rev-parse HEAD; rustc --version; cargo --version; } > .consumer-ci-reports/provenance.txt
           cargo fetch --manifest-path rust/Cargo.toml --locked
-      - name: Install decoder build dependency for the composed workspace
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends protobuf-compiler libprotobuf-dev
-          test -r /usr/include/google/protobuf/descriptor.proto
-          protoc --version | tee .consumer-ci-reports/protoc.txt
       - name: Wiki offline and typed source integration
         if: matrix.suite == 'wiki'
         shell: bash
@@ -210,14 +202,6 @@ jobs:
           set -euo pipefail
           env -i PATH="$PATH" HOME="$PWD/.consumer-ci-reports/test-home" CARGO_HOME="$HOME/.cargo" RUSTUP_HOME="$HOME/.rustup" CARGO_BUILD_JOBS=2 SQLX_OFFLINE=true \
             cargo test --manifest-path rust/Cargo.toml -p dbrain-sources -p deadlock-brain-core --all-targets --locked --offline 2>&1 | tee .consumer-ci-reports/sources.log
-      - name: Synthetic decoder and blocked real-corpus audit
-        if: matrix.suite == 'replay'
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo fetch --manifest-path architecture/migration/replays/s14/audit/Cargo.toml --locked
-          env -i PATH="$PATH" HOME="$PWD/.consumer-ci-reports/test-home" CARGO_HOME="$HOME/.cargo" RUSTUP_HOME="$HOME/.rustup" CARGO_BUILD_JOBS=2 SQLX_OFFLINE=true \
-            bash architecture/migration/replays/s14/check-decoder.sh 2>&1 | tee .consumer-ci-reports/replay.log
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -252,7 +236,7 @@ jobs:
           for result in "$CORE" "$TOOLING" "$REFERENCE"; do
             test "$result" = success
           done
-      - name: Require all eleven current-attempt suite artifacts
+      - name: Require all ten current-attempt V1 suite artifacts
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         with:
           script: |
@@ -261,7 +245,7 @@ jobs:
               ...['core', 'storage', 'ingestion', 'retrieval', 'provider-jev', 'kernel-api-consumer']
                 .map(name => `core-${name}-${context.sha}-${attempt}`),
               ...['quality-pr27', 'cutover-audit'].map(name => `audit-${name}-${context.sha}-${attempt}`),
-              ...['wiki', 'sources', 'replay'].map(name => `integrated-${name}-${context.sha}-${attempt}`),
+              ...['wiki', 'sources'].map(name => `integrated-${name}-${context.sha}-${attempt}`),
             ];
             const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
               ...context.repo, run_id: context.runId, per_page: 100,
@@ -272,4 +256,4 @@ jobs:
               core.setFailed(`Missing, duplicate or expired suite artifacts: ${missing.join(', ')}`);
               return;
             }
-            await core.summary.addRaw('All eleven declared offline suites passed. Wiki/Sources/Replay ran on the composed checkout; offline evidence is not runtime or production approval. No merge or deployment.').write();
+            await core.summary.addRaw('All ten declared V1 offline suites passed. Wiki and Sources ran on the composed checkout; Replay remains deferred and was not tested here. Offline evidence is not runtime or production approval. No merge or deployment.').write();

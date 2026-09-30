@@ -4,13 +4,13 @@ Dieser Adapter decodiert Source-2-`.dem`-Container mit `haste_core` im eigenen b
 
 ## Nutzung
 
-Voraussetzungen für den geprüften Build: Linux x86_64, Rust 1.97.1, `protoc` 3.21.12. AArch64 ist im Sandboxcode vorgesehen, aber hier nicht ausgeführt. Andere Plattformen werden nicht unterstützt.
+Die frühere Prüfung im gemeinsamen Workspace lief auf Linux x86_64 mit Rust 1.97.1 und `protoc` 3.21.12. Der eigenständige Replay-Workspace ist zurückgestellt und nach der Abtrennung noch nicht gebaut oder getestet. AArch64 ist im Sandboxcode vorgesehen, aber hier nicht ausgeführt. Andere Plattformen werden nicht unterstützt. Nach der separaten Lockfile-Aktualisierung und Prüfung gilt für den eigenständigen Workspace:
 
 ```sh
-cargo +1.97.1 build --manifest-path rust/Cargo.toml -p dbrain-replay --release --locked
-rust/target/release/dbrain-replay-worker manifest
+cargo +1.97.1 build --manifest-path rust/crates/dbrain-replay/Cargo.toml -p dbrain-replay --release --locked
+rust/crates/dbrain-replay/target/release/dbrain-replay-worker manifest
 umask 077
-rust/target/release/dbrain-replay-worker decode \
+rust/crates/dbrain-replay/target/release/dbrain-replay-worker decode \
   "$AUTHORIZED_DEM" "$PRIVATE_REQUEST_JSON" > "$PRIVATE_RESULT_JSON"
 ```
 
@@ -46,12 +46,15 @@ Der produktive Store muss die Entscheidung und das Umschalten vollständiger Gen
 
 ## Reproduzierbarkeit und Tests
 
-Die drei Gitrevisionen sind vollständig gepinnt; Registry-Auflösung und Checksummen stehen in `rust/Cargo.lock`. `parser_revision()` hasht die kompilierten Adapterquellen, den gemeinsamen Replayvertrag, Cargo-Manifeste und Lockfile. Weder README noch Git-HEAD bestimmen diese Revision. Externe Quellrevisionen ändern nicht still die Parseridentität.
+Die drei Gitrevisionen bleiben vollständig gepinnt. Der kopierte Replay-Lockstand liegt in `rust/crates/dbrain-replay/Cargo.lock`; seine eigenständige Auflösung muss bei der späteren Replay-Prüfung mit Cargo aktualisiert und verifiziert werden. `parser_revision()` hasht die kompilierten Adapterquellen, den gemeinsamen Replayvertrag, Cargo-Manifeste und den Replay-Lockstand. Weder README noch Git-HEAD bestimmen diese Revision. Externe Quellrevisionen ändern nicht still die Parseridentität.
 
 ```sh
-cargo +1.97.1 fetch --manifest-path rust/Cargo.toml --locked
+cargo +1.97.1 metadata --manifest-path rust/crates/dbrain-replay/Cargo.toml --format-version 1 > /dev/null
+cargo +1.97.1 fetch --manifest-path rust/crates/dbrain-replay/Cargo.toml --locked
 RUSTUP_TOOLCHAIN=1.97.1 bash architecture/migration/replays/s14/check-decoder.sh
 ```
+
+Diese Befehle sind für die spätere separate Replay-Prüfung vorgesehen und wurden bei der statischen V1-Abtrennung nicht ausgeführt.
 
 Die Fixtures werden ausschließlich als eigene synthetische Byte-/Bitstreams im Test erzeugt und nach dem Test gelöscht. Sie durchlaufen den echten Parser und Worker, einschließlich Entity-Lebenszyklen. Der mit `ignored` markierte Sandbox-Helper ist nur ein gezielt von vier aktiven Tests aufgerufener Unterprozess. Er ist nicht im Produktionsbinary enthalten.
 

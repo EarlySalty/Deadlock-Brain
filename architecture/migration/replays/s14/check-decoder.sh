@@ -3,7 +3,7 @@ set -euo pipefail
 here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd -- "$here/../../../.." && pwd)"
 cargo_bin="${CARGO:-cargo}"
-manifest="$root/rust/Cargo.toml"
+manifest="$root/rust/crates/dbrain-replay/Cargo.toml"
 export SQLX_OFFLINE=true
 "$cargo_bin" fmt --manifest-path "$manifest" -p dbrain-replay -- --check
 "${RUSTFMT:-rustfmt}" --edition 2021 --check "$root/rust/crates/deadlock-brain-core/src/replay.rs"
