@@ -71,8 +71,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          env -i PATH="$PATH" HOME="$GITHUB_WORKSPACE/.core-test-logs/c1/ci-home" CARGO_HOME="$HOME/.cargo" RUSTUP_HOME="$HOME/.rustup" SQLX_OFFLINE=true CARGO_BUILD_JOBS=2 CARGO_NET_OFFLINE=true \
-            bash scripts/test_brain_serve.sh 2>&1 | tee .core-test-logs/c1/process-e2e.log
+          test -d "$GITHUB_WORKSPACE/rust/target"
+          env -i PATH="$PATH" HOME="$GITHUB_WORKSPACE/.core-test-logs/c1/ci-home" CARGO_HOME="$HOME/.cargo" RUSTUP_HOME="$HOME/.rustup" SQLX_OFFLINE=true CARGO_BUILD_JOBS=1 CARGO_NET_OFFLINE=true \
+            bash scripts/test_brain_serve.sh "$GITHUB_WORKSPACE/rust/target" 2>&1 | tee .core-test-logs/c1/process-e2e.log
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

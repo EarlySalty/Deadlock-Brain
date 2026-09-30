@@ -19,7 +19,9 @@ The scratch test also persists this earlier shape (`{"wiki":4,"docs":3,"private"
 From the repository root, as a non-root user with PostgreSQL tools and the workspace Rust toolchain:
 
 ```sh
-bash scripts/test_brain_storage_upgrade.sh /path/to/cargo
+bash scripts/test_brain_storage_upgrade.sh /path/to/cargo /absolute/existing/path/to/target
 ```
+
+The second argument must name an absolute target cache directory that already exists. The runner does not create a fallback cache.
 
 The runner creates a unique Unix-socket-only PostgreSQL cluster under `/tmp/brain-c11.*`, proves the connection identity and data directory before writes, creates fresh databases, executes the real migration binary, and removes only its own cluster on exit. It accepts no database address or DSN. The opt-in Rust test never silently skips a missing cluster.

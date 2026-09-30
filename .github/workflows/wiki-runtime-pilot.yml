@@ -45,4 +45,7 @@ jobs:
       - name: Mock discovery, real scratch staging, domain readback and CLI
         # This script has NO live capture option. Live-network flags belong only
         # to the separate, manually invoked run_wiki_pilot.sh operator script.
-        run: bash scripts/test_wiki_runtime.sh
+        run: |
+          set -euo pipefail
+          test -d "$CARGO_TARGET_DIR"
+          bash scripts/test_wiki_runtime.sh "$CARGO_TARGET_DIR"
