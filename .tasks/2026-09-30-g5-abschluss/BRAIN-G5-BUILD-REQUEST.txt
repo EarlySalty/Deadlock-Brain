@@ -1,8 +1,32 @@
-status: B2-Fix e878530 geprüft, CI-Fix 0c56f85 GO; Nachreview eceb14c lässt engen R1-Konkurrenztestrest offen, Autor mit1172680 fortgesetzt; kein Slot gestartet
+status: Testfix8949198 statisch GO, vollständiger Headb3523fa sauber/gepusht; konkreter Paket-Clippy-Slot beantragt, noch nicht gestartet; G5-Arbeitsbäume geschützt
 Datum: 2026-09-30
 Intent-Thread: 562a877b-0939-440a-964d-1145d9e9431a
 
 BRAIN G5: AKTUELLER STAND FÜR DIE HOSTKOORDINATION
+
+AKTUELLE RESSOURCENHALTUNG NACH CLEANROOM-ZUORDNUNG
+Keine Startfreigabe, kein eigener Cargo-Lauf gestartet. Fremder CargoPID1366750 eindeutig Workspace-Releasebuild in brain-independent-cleanroom-20260930-continued/rust, User-Unit codex-job-j-1790781891-22802.service, Parentsh1366743 unter Usermanager933, Start15:24:51UTC. Nicht von dieser G5-Kette gestartet, keine fremde Sitzung kontaktiert. Sicher ausgewertete Flags build/workspace/release/locked/offline, kein jobs-Flag gesehen, zwei gleichzeitige sccache-Kinder. Effektive jobs-Konfiguration nicht aus ENV gelesen oder geraten.
+Target über offene Cargo-Lockdateien und Compiler-out-dir belegt: brain-independent-cleanroom-20260930-continued/rust/target/release. Realpath/Inodes unterscheiden sich von unserem brain-pre-g5-harness-20260929/rust/target; keine direkte Targetkollision, aber gemeinsames Cargo-Home und Hostressourcen. Stichprobe16 CPUs, Load21,79/21,20/20,84, rund8,2GiB MemAvailable bei48GiB total, kein Swap. Zusätzlich Steam-Core-Check/jobs2 und zwei Cargo-Testläufe sichtbar; genau ein sichtbarer Cargo--release-Lauf. Keine Peak-/Kapazitätszusage. Details CLEANROOM-RESSOURCEN.md. Nichts gestoppt; untenstehender konkrete Clippy-Antrag bleibt ohne Selbstzuteilung.
+
+JETZT KONKRET BEANTRAGTER SERIELLER COMPILERLAUF
+Unabhängiger Abschluss dcfee1d81abb5d3e85d1cdd0fe3e167d89d3a462 um15:24:45UTC, gelesen, sauber/gepusht, statisches GO mit0 Befunden für Testfix89491987a52053c94f98a7d3430d7139570caa95. Vollständiger sauberer/gepushter Laufhead b3523fa246c39249f42cd58343f1785445da0323 enthält diesen Fix und ausschließlich nachfolgenden Bericht. Kein weiterer Quellfix beauftragt.
+/home/nathanael/.cargo/bin/cargo +1.97.1 clippy --manifest-path /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930/rust/Cargo.toml -p brain-storage -p brain-legacy-import --all-targets --locked --offline --jobs 1 --target-dir /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target -- -D warnings
+Cwd /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930/rust; vorhandenes Cargo-Home /home/nathanael/.cargo. Genau ein compiler-only Paket-Clippy, kein vorgeschalteter Check, keine automatische Kette. Keine Testfunktion, PG-/Rollenfixture, Import, Serve oder Dienste ausführen. Kein Fetch, neuer Cache oder Releasebuild. Vor tatsächlichem Start Head/Sauberkeit und Kapazität binden, vollständigen lokalen Log sowie tatsächlichen Exit sichern und Slot sofort zurückgeben. Slot noch nicht zugeteilt oder gestartet; TwitchClip laut jüngster Nutzermeldung im kurzen all-targets-Check.
+Laufzeit-/Verbindungsspitze bleiben ungemessen. Reguläre Library-/Binärtests und der siebenstufige PG-/Serve-Harness mit1800 Lastanfragen separat zuteilen. Synchronisationsfälle benötigen planmäßig fünf gleichzeitig genutzte Verbindungen, keine gemessene Peakgarantie; bestehendes max_connections12 unverändert.
+
+AKTIVER BESTAND GESCHÜTZT
+Quellworktree brain-g5-replay-deferred-20260930, Reviewworktree brain-pre-g5-core-review-20260929, Cacheworktree brain-pre-g5-harness-20260929 und Koordinationsworktree brain-technical-closeout-20260929 sind per git worktree lock mit G5-Begründung geschützt. Schutz auch im vom Nutzer genannten lokalen claude-config/.tasks/2026-09-30-aufraeumen-gesamtstand/REGISTER.md ausdrücklich eingetragen; kein Prozess-cwd als alleinige Absicherung. Vorhandenen rust/target-Cache und /home/nathanael/.cargo nicht räumen. Keine fremde Cleanup-Arbeit committet oder deren Checkout gewechselt.
+Nutzer hat Bestandslauf1280937 dem reparierten PaketB-Timer zugeordnet. Gemeldeter Commitfd6e157622e283cf4ff007c3c355348681c20e99 existiert; tatsächlicher Diff umfasst zusätzlich zu zwei Units auch dbrain-builds/src/api.rs (Retry/Backoff). Zum Zeitpunkt der eigenen Gegenprüfung lag er auf fix/paket-b-timer-20260930, origin/main und brain-live-main noch25c6ed6. Beim späteren G5-Merge aktuellen Main erneut binden und diese Arbeit erhalten; keine fremde Integration vorwegnehmen.
+
+DRINGENDE PROZESSZUORDNUNG15:13 BIS15:15UTC
+PID1280937 und ParentBash1280909 gehören laut cgroup zur bestehenden User-Unit deadlock-brain-build-data.service, Type=oneshot, Start15:11:31UTC, aus brain-live-main. Kein von dieser G5-Kette gestarteter Importer oder Typed-Serve. Laufklasse: bestehender Datenrefresh mit DB-/Netzwerk-I/O und statisch vorhandenen Schreibpfaden, kein Compiler. Tatsächlich PID-eigen vier TCP-Verbindungen zu lokal5432, eine externe443; keine Argumente/ENV/Secrets/Payloads gelesen. Erfolgreiche Writes oder Abschluss nicht daraus behauptet. Timer gehört zur Unit, letzte reguläre Auslösung aber01:30:04UTC, nicht15:11; aktuellen Auslöser nicht erfunden. Keine fremde Sitzung kontaktiert oder Prozesse gestoppt.
+Dedizierte G5-DB5446 um15:15:15UTC rein lesend geprüft, Exit0/ROLLBACK: weiterhin keine Heads, Revisionen oder Releases. Bestehender Lauf ist kein G5-Cutover. Detailbeleg BESTANDSLAUF-1511.md in der eigenen Akte. Gitstand des sauberen fremden Checkouts25c6ed6 ist keine ELF-Provenienz.
+
+NEUE TATSÄCHLICHE QUELLABGABE15:10UTC
+Autor hat89491987a52053c94f98a7d3430d7139570caa95 gepusht, ausschließlich273 Zeilen im bestehenden ignorierten Importertest. Zwei synchronisierte Szenarien mit PostgreSQL-Blockierbeziehung am Advisory-Lock für Batch-Tombstone und direkten Scope-Apply, zwei leere Quellbatches, Commit und Rollback. Produktteile unverändert. Berichtb3523fa246c39249f42cd58343f1785445da0323 gepusht und gelesen, Quellbranch sauber. Nicht aus running abgeleitet, sondern tatsächlichen Commit-/Indexfortschritt beobachtet; Autor nicht unterbrochen.
+Derselbe unabhängige Reviewer52c34332 mit1175579 reaktiviert, Auftrag B2-R1-SYNCHRONISATION-REVIEW-BRIEFING.md. Enges Urteil noch ausstehend, keine neue Quellrunde ohne Befund. Vorbereitet bleibt Paket-Clippy brain-storage/brain-legacy-import all-targets, locked/offline/jobs1, vorhandener Cache, genaue Befehle in NAECHSTER-G5-LAUF.md; nach GO tatsächlichen Head für konkrete Zuteilung binden. Compiler laut Nutzer gerade frei, aber noch kein Brain-Aufruf zugeteilt oder gestartet. Kein DB-Schreibfixture/Import/Serve.
+
+Die darunterliegenden Abschnitte dokumentieren frühere Stände und bleiben als Verlauf erhalten.
 
 BINDUNG
 Produkt-/Lockbasis: 9a29b81d230c01e5c03423cc34ba34c1074eab69.

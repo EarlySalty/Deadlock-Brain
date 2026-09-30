@@ -1,4 +1,4 @@
-status: aktiv, Nachreview eceb14c gelesen; CI GO, R2/R3 geschlossen, enger R1-Konkurrenztestrest beim bestehenden Autor1172680; kein Laufslot
+status: aktiv, Testfix8949198 statisch GO mit gepushtem Reviewdcfee1d; Laufheadb3523fa sauber, Clippy beantragt aber nicht zugeteilt; aktive Worktrees geschützt
 Datum: 2026-09-30
 
 # G5-Fortsetzungsregister
@@ -11,15 +11,15 @@ Vorgängerregister: .tasks/2026-09-29-technical-closeout/REGISTER.md
 | Zweck | Worktree | Branch | Stand |
 | --- | --- | --- | --- |
 | Koordination | /home/nathanael/.worktrees/brain-technical-closeout-20260929 | integration/technical-closeout-20260929 | Eigene Akte und synchronisierte zentrale Buildanfrage |
-| Quelle | /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930 | fix/g5-replay-deferred-20260930 | B2e878530/8c31b09 und CI0c56f85/392267b gepusht, vor engem Testfix sauber |
-| Reviewbericht | /home/nathanael/.worktrees/brain-pre-g5-core-review-20260929 | review/pre-g5-core-abnahme-20260929 | eceb14c gelesen, sauber/gepusht; CI GO, ein R1-Testquellenrest |
+| Quelle | /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930 | fix/g5-replay-deferred-20260930 | B2e878530/8c31b09 und CI0c56f85/392267b enthalten; enger Testfix8949198 und Berichtb3523fa gepusht, sauber |
+| Reviewbericht | /home/nathanael/.worktrees/brain-pre-g5-core-review-20260929 | review/pre-g5-core-abnahme-20260929 | dcfee1d gelesen, sauber/gepusht; enger R1-Synchronisationsrest statisch GO,0 Befunde |
 
 ## Thread-Register (T3)
 
 | Paket | Thread-ID | Modell | Stand |
 | --- | --- | --- | --- |
-| Autor B2 und B1-R1 | 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 | bestehender Sol, gpt-6-sol | Abgabe14:27: B2e878530, CI0c56f85, Berichte8c31b09/392267b, sauber/gepusht. Nach bestätigtem Reviewrest mit1172680 fortgesetzt: deterministischer R1-Konkurrenznachweis nach B2-R1-SYNCHRONISATION-BRIEFING.md. Erneut read=ready vor bewusstem force bei widersprüchlichem send-Marker. Keine Laufzeitaktion |
-| Unabhängige Abnahme | 52c34332-8cdf-4772-9e1f-42aba432c6cf | bestehender Astra | Nachreview1170225 abgeschlossen14:42, eceb14c gelesen/gepusht. CI GO; R2/R3 geschlossen, R1-Produktkorrektur statisch akzeptiert; ein Testquellenrest. Gesettelt1172747, für neuen engen Fixhead wiederverwenden |
+| Autor B2 und B1-R1 | 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 | bestehender Sol, gpt-6-sol | Testfix89491987a52053c94f98a7d3430d7139570caa95 um15:10:22UTC gepusht, ausschließlich273 Zeilen im ignorierten Importertest. Berichtb3523fa246c39249f42cd58343f1785445da0323 gelesen, gepusht, sauber. Tatsächlichen Index-/Commitfortschritt beobachtet, keine Unterbrechung. Keine Laufzeitaktion |
+| Unabhängige Abnahme | 52c34332-8cdf-4772-9e1f-42aba432c6cf | bestehender Astra | Nachreview1175579 abgeschlossen, GOdcfee1d81abb5d3e85d1cdd0fe3e167d89d3a462 gelesen/gepusht,0 Befunde. Ready bestätigt, gesettelt1177803. Keine zusätzliche Integration trotz Abschluss-Hook; Branch/Worktree bleiben geschützt |
 | Finale Compiler-/Prozessprüfung | 6b53c923-e4da-498a-b08e-254407b452ff | Sol | Nicht wiederaufgenommen; historische Teilaufgabe |
 | Consumerabnahme | 533115bf-554f-4457-86b4-2944fef19c63 | Astra | Nicht wiederaufgenommen |
 
@@ -48,6 +48,20 @@ Jüngster Nutzerstand: Chat/Titel63e3 GateALLOW samt neuem Reader-Probe-Build, C
 Twitch laut Nutzer13:44:20UTC mit7/7 Quellen/Engine gesund, frische Läufe13:44:01, vier ELFs a82, Opsa685/main, Migration155. Integrator taktet STT, Chat/Titel und Clip-Social/Context. Brain weiterhin ohne Compiler-/Test-/DB-Schreib-/Import-/Dienstslot. Read-only-Metadaten/Snapshot-/Rechte-/Tombstoneprüfungen ausdrücklich erlaubt, nur Counts/Hashes/Metadaten, keine Rohinhalte/Secrets. Keine neue pauschale Genehmigungsschleife.
 
 Ressourcenanforderung NAECHSTER-G5-LAUF.md: nach tatsächlichem Fixhead und unabhängiger Abnahme zuerst Paket-Clippy brain-storage/brain-legacy-import, danach getrennte Library-/Importer-Binärtests. Genau beschriebene Befehle mit vorhandenem Cache, locked/offline/jobs1, keine Kette. Erweiterter bestehender Serve-/PG-/1800-Request-Harness erst nach R3-Abnahme separat zuteilen. Zentrale Koordination BRAIN-G5-BUILD-REQUEST.txt synchronisiert. Kein Start aus dieser Anfrage; neue Testwirkungen vor Lauf prüfen.
+
+## Stand15:15UTC
+
+Der enge Testrest liegt jetzt als8949198 vor: zwei leere Quellbatches, Publikationsstopp nach geschütztem Vergleich am bestehenden Release-Advisory-Key, beide Writer müssen PostgreSQL-seitig genau auf den Publisher warten, danach Commit-/Rollbackfolgen. Autorberichtb3523fa gelesen. Keine Laufbehauptung aus Testquellen. Neuer Nachreview1175579 läuft; weitere Quellarbeit nur bei konkretem Befund.
+
+Dringende Nutzeranfrage zu PID1280937 rein lesend beantwortet: bestehende User-Oneshot-Unit deadlock-brain-build-data.service aus brain-live-main, ParentBash1280909 unter Usermanager933, Start15:11:31UTC. Vier bestehende lokale5432-Verbindungen und eine externe443-Verbindung; statischer Bestandswrapper mit Build-Daten-/Populationsrefresh und Schreibpfaden. Kein Compiler, kein eigener G5-Start. Tatsächlicher Auslöser und konkrete erfolgte Writes nicht belegt. Dedizierte DB5446 um15:15:15 weiter ohne Heads/Revisionen/Releases, Exit0/ROLLBACK. Keine Argumente/ENV/Secrets/Payloads gelesen, nichts gestoppt. Beleg BESTANDSLAUF-1511.md.
+
+## Aktueller Abschluss des Quellrests und Ressourcenhalt
+
+Review dcfee1d um15:24:45UTC gepusht, gelesen,0 Befunde; letzter R1-Testquellenrest statisch geschlossen. Autor8949198 samt Berichtb3523fa sauber/gepusht. Genau ein Paket-Clippy für brain-storage und brain-legacy-import mit all-targets, locked/offline/jobs1 und bestehendem Target beantragt; Root bestätigt Eingang, aber ausdrücklich keine Startfreigabe. Keine neue Quellrunde ohne Befund.
+
+Die vier eigenen Arbeitsbäume sind per git worktree lock geschützt und im vom Nutzer benannten Cleanup-Register als aktiv vermerkt; Details AKTIVER-BESTAND.md. Nutzer nennt Timerauftrag662fd521/PaketB und Commitfd6e157. Gegenprüfung zeigt auch API-Backoffänderungen, nicht nur Units; beobachteter origin/main noch25c6ed6. Beim späteren Merge aktuelle Mainentwicklung erhalten.
+
+Fremder Cargo1366750 ist ein Workspace-Releasebuild in eigenem Cleanroom-Target, bestehende codex-job-Unit, kein eigener G5-Lauf. Tatsächliche Targets haben verschiedene Realpaths/Inodes. Hoststichprobe16 CPUs, Load21,79, rund8,2GiB verfügbar, kein Swap; zusätzlich Steam-Core-Check und zwei Testläufe. Keine Prozesse gestoppt oder eigene Builds gestartet. CLEANROOM-RESSOURCEN.md enthält sichere Flags, Unit, Targetbelege und Aussagegrenzen.
 
 ## Bereits belegte Basis, nicht als neue Fixprüfung übertragen
 

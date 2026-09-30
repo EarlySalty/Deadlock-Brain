@@ -1,4 +1,4 @@
-status: vorbereitet, B2e878530 nachgeprüft; enger R1-Testrest vor vollständiger Quellabnahme, kein Lauf zugeteilt
+status: konkrete Compileranfrage, Testfix8949198 statisch GO; vollständiger Quellstandb3523fa sauber/gepusht, kein Slot ausgeführt
 Datum: 2026-09-30
 
 # Nächster begrenzter G5-Lauf nach B2-Fixabnahme
@@ -7,9 +7,11 @@ Adressat: Integrator/Root über die bestehende zentrale BRAIN-G5-BUILD-REQUEST.t
 
 ## Quellbindung und tatsächlicher Stand
 
-Letzter gepushter vollständiger Quellstand392267b133a9a5a8a91602247a441ff7bf609c4b enthält gemeinsamen B2-Fix e878530 und getrennten CI-Fix0c56f85 sowie deren Berichte. Nachreview eceb14c2d7b9bf0dc6eae0d37da3f5c7aa94d1da seit14:42 abgeschlossen, gelesen und gepusht: CI GO, R2/R3 geschlossen, R1-Produktkorrektur statisch akzeptiert. Vollständiger R1-Abschluss noch BLOCK, weil beide Writer in den Testquellen vor Publish beendet werden. Nur diesen deterministischen Konkurrenznachweis zieht derselbe Autor mit Dispatch1172680 nach. Kein Neuaufbau akzeptierter Produktteile.
+Letzter vollständiger sauberer und gepushter Quellstand b3523fa246c39249f42cd58343f1785445da0323. Darin B2-Produktfixe878530, CI-Fix0c56f85 und enger Testquellenfix89491987a52053c94f98a7d3430d7139570caa95. Der letztgenannte Fix ergänzt ausschließlich273 Zeilen im bestehenden ignorierten Importertest. Keine Änderung am Produktcode oder Runner. Autorbericht gelesen und separat gepusht.
 
-Vor Zuteilung endgültigen engen Fixhead und unabhängige Nachabnahme binden. Der Reviewer nennt als engste Alternative einen Paket-Check. Hier bleibt zur Vermeidung doppelter Compilerarbeit das vorbereitete Paket-Clippy der erste beantragte Aufruf; keinen zusätzlichen Check davor automatisch starten. Beide sind compiler-only, Tests und PG-/Lastläufe bleiben getrennt. Die drei CI-Aufrufe sind abgenommen und erzeugen keinen eigenen zusätzlichen Cargo-Bedarf. Jüngster Nutzerstand: Chat/Titel63e3 GateALLOW, neuer Reader-Probe-Build, Clip-ID-Fix in letzten Checks. Kein Brain-Slot aus dieser Meldung ableiten.
+Derselbe unabhängige Reviewer1175579 hat15:15:40 statisch GO gemeldet; der vollständige Bericht B2-R1-SYNCHRONISATION-NACHREVIEW.md ist gelesen,0 Befunde. Er schließt den letzten R1-Testquellenrest mit beobachteten Advisory-Blockierbeziehungen für beide Writer, Commit/Rollback, zwei Quellen und leere Batches. Abschlusscommit dcfee1d81abb5d3e85d1cdd0fe3e167d89d3a462 um15:24:45UTC, sauber und gepusht bestätigt. Keine Runtimefreigabe daraus ableiten. B1-CI und R2/R3 bleiben abgenommen.
+
+Beantragt wird genau der folgende erste Paket-Clippy-Lauf, kein vorgeschalteter Check und keine automatische Testkette. Der gemeldete freie Twitch-Compiler ist noch keine konkrete Zuteilung. User-Timer PID1280937 ist separat als vorhandener Datenrefresh eingeordnet und nicht unser G5-Lauf; Detailbeleg BESTANDSLAUF-1511.md. Die vier eigenen Worktrees samt Cache wurden gegen reguläres Git-Cleanup gesperrt und im genannten Cleanup-Register als aktiv vermerkt.
 
 ## Angefragte erste Klasse: Compiler, danach getrennte Unitläufe
 
