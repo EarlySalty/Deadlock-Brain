@@ -1,6 +1,6 @@
 use crate::{
-    ENTITIES_SOURCE, ImportContext, LegacySource, PATCHNOTES_SOURCE, Result, SourcePolicyConfig,
-    invalid, pg::LegacyRead, prepare_batch, sha256_hex,
+    invalid, pg::LegacyRead, prepare_batch, sha256_hex, ImportContext, LegacySource, Result,
+    SourcePolicyConfig, ENTITIES_SOURCE, PATCHNOTES_SOURCE,
 };
 use brain_contracts::{SourceRecordV2, SourceVisibility};
 use serde::Deserialize;

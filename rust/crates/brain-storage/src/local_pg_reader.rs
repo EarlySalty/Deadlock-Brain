@@ -6,12 +6,14 @@ use brain_contracts::{
     CorpusRelease, CorpusSnapshot, PortError, SnapshotReadPort,
 };
 use postgres::{Client, Config, IsolationLevel, NoTls, Row};
+mod wait_queue;
 use std::{
     ops::{Deref, DerefMut},
     path::{Path, PathBuf},
     sync::{Arc, Condvar, Mutex, MutexGuard},
     time::{Duration, Instant},
 };
+use wait_queue::WaitQueue;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct LocalPgPoolStats {
@@ -44,6 +46,7 @@ struct ConnectionConfig {
 #[derive(Default)]
 struct PoolState {
     idle: Vec<Client>,
+    waiting: WaitQueue,
     open: u32,
     connecting: u32,
     checked_out: u32,
@@ -61,7 +64,6 @@ struct ClientPool {
     max_connections: u32,
     acquire_timeout: Duration,
     state: Mutex<PoolState>,
-    available: Condvar,
 }
 
 struct PooledClient {
@@ -104,8 +106,7 @@ impl Drop for PooledClient {
         } else {
             state.idle.push(client);
         }
-        drop(state);
-        self.pool.available.notify_one();
+        state.waiting.notify_front();
     }
 }
 
@@ -143,7 +144,6 @@ impl ClientPool {
             max_connections,
             acquire_timeout,
             state: Mutex::new(PoolState::default()),
-            available: Condvar::new(),
         })
     }
 
@@ -184,72 +184,79 @@ impl ClientPool {
 
     fn acquire(self: &Arc<Self>) -> Result<PooledClient, PortError> {
         let started = Instant::now();
-        let mut waited = false;
+        let mut waiter: Option<Arc<Condvar>> = None;
+        let mut state = self.lock()?;
         loop {
-            let mut state = self.lock()?;
-            if let Some(client) = state.idle.pop() {
-                state.checked_out += 1;
-                state.reused = state.reused.saturating_add(1);
-                if waited {
-                    Self::record_wait(&mut state, started.elapsed());
-                }
-                return Ok(PooledClient {
-                    client: Some(client),
-                    pool: self.clone(),
-                });
+            // Once queued, preserve the original deadline even across notifications.
+            if waiter.is_some() && started.elapsed() >= self.acquire_timeout {
+                state.waiting.remove(waiter.as_ref());
+                state.wait_timeout_count = state.wait_timeout_count.saturating_add(1);
+                Self::record_wait(&mut state, started.elapsed());
+                state.waiting.notify_front();
+                return Err(unavailable("local PostgreSQL pool exhausted"));
             }
 
-            if state.open + state.connecting < self.max_connections {
-                state.connecting += 1;
-                drop(state);
-                let connected = self.connect();
-                let mut state = self.lock()?;
-                state.connecting = state.connecting.saturating_sub(1);
-                match connected {
-                    Ok(client) => {
-                        state.open += 1;
-                        state.checked_out += 1;
-                        state.created = state.created.saturating_add(1);
-                        state.peak = state.peak.max(state.open);
-                        if waited {
-                            Self::record_wait(&mut state, started.elapsed());
+            // A returned connection belongs to the oldest waiter. New callers must
+            // not steal it while the notified thread is waiting to reacquire the lock.
+            if state.waiting.may_acquire(waiter.as_ref()) {
+                if let Some(client) = state.idle.pop() {
+                    state.waiting.remove(waiter.as_ref());
+                    state.checked_out += 1;
+                    state.reused = state.reused.saturating_add(1);
+                    if waiter.is_some() {
+                        Self::record_wait(&mut state, started.elapsed());
+                    }
+                    state.waiting.notify_front();
+                    return Ok(PooledClient {
+                        client: Some(client),
+                        pool: self.clone(),
+                    });
+                }
+
+                if state.open + state.connecting < self.max_connections {
+                    // Reserve capacity before waking the next waiter; parallel
+                    // connection attempts remain inside the same hard pool limit.
+                    state.connecting += 1;
+                    state.waiting.remove(waiter.as_ref());
+                    state.waiting.notify_front();
+                    drop(state);
+                    let connected = self.connect();
+                    let mut state = self.lock()?;
+                    state.connecting = state.connecting.saturating_sub(1);
+                    match connected {
+                        Ok(client) => {
+                            state.open += 1;
+                            state.checked_out += 1;
+                            state.created = state.created.saturating_add(1);
+                            state.peak = state.peak.max(state.open);
+                            if waiter.is_some() {
+                                Self::record_wait(&mut state, started.elapsed());
+                            }
+                            state.waiting.notify_front();
+                            return Ok(PooledClient {
+                                client: Some(client),
+                                pool: self.clone(),
+                            });
                         }
-                        return Ok(PooledClient {
-                            client: Some(client),
-                            pool: self.clone(),
-                        });
-                    }
-                    Err(error) => {
-                        drop(state);
-                        self.available.notify_one();
-                        return Err(error);
+                        Err(error) => {
+                            state.waiting.notify_front();
+                            return Err(error);
+                        }
                     }
                 }
             }
 
-            if !waited {
+            if waiter.is_none() {
                 state.wait_count = state.wait_count.saturating_add(1);
-                waited = true;
+                waiter = Some(state.waiting.push());
             }
             let remaining = self.acquire_timeout.saturating_sub(started.elapsed());
-            if remaining.is_zero() {
-                state.wait_timeout_count = state.wait_timeout_count.saturating_add(1);
-                Self::record_wait(&mut state, started.elapsed());
-                return Err(unavailable("local PostgreSQL pool exhausted"));
-            }
-            let (next, result) = self
-                .available
+            let signal = waiter.as_ref().expect("queued PostgreSQL waiter missing");
+            let (next, _) = signal
                 .wait_timeout(state, remaining)
                 .map_err(|_| unavailable("local PostgreSQL pool state unavailable"))?;
+            // Keep this guard rather than dropping and competing for the mutex again.
             state = next;
-            if result.timed_out()
-                && state.idle.is_empty()
-                && state.open + state.connecting >= self.max_connections
-            {
-                state.wait_timeout_count = state.wait_timeout_count.saturating_add(1);
-                Self::record_wait(&mut state, started.elapsed());
-                return Err(unavailable("local PostgreSQL pool exhausted"));
-            }
         }
     }
 

@@ -1,5 +1,5 @@
 use super::*;
-use brain_contracts::{DocumentStorePort, Principal, SnapshotReadPort, source::origin_from_record};
+use brain_contracts::{source::origin_from_record, DocumentStorePort, Principal, SnapshotReadPort};
 use brain_storage::MemoryRepository;
 
 fn context() -> ImportContext {
@@ -156,18 +156,14 @@ fn entity_documents_sort_metadata_and_reject_duplicates() {
     );
     let mut unrelated_colon = entity(3, "Seven");
     unrelated_colon.metadata = serde_json::json!({"other: hero": "Warden"});
-    assert!(
-        !entity_documents(&[unrelated_colon]).unwrap().documents[0]
-            .content
-            .contains("other: hero")
-    );
+    assert!(!entity_documents(&[unrelated_colon]).unwrap().documents[0]
+        .content
+        .contains("other: hero"));
     let mut historical = entity(3, "Seven");
     historical.metadata = serde_json::json!({"hero": 25});
-    assert!(
-        !entity_documents(&[historical]).unwrap().documents[0]
-            .content
-            .contains("hero: 25")
-    );
+    assert!(!entity_documents(&[historical]).unwrap().documents[0]
+        .content
+        .contains("hero: 25"));
     let batch = prepare_batch(&source, &public_policy(), &context(), None).unwrap();
     assert_eq!(
         batch.records[0]
@@ -279,18 +275,14 @@ async fn reimport_is_idempotent_updates_revise_and_removals_tombstone() {
             .len(),
         1
     );
-    assert!(
-        snapshot
-            .authorized(&principal(&["docs.public"]), false)
-            .unwrap()
-            .is_empty()
-    );
-    assert!(
-        snapshot
-            .authorized(&principal(&["game.public"]), true)
-            .unwrap()
-            .is_empty()
-    );
+    assert!(snapshot
+        .authorized(&principal(&["docs.public"]), false)
+        .unwrap()
+        .is_empty());
+    assert!(snapshot
+        .authorized(&principal(&["game.public"]), true)
+        .unwrap()
+        .is_empty());
 }
 
 #[tokio::test]
@@ -604,30 +596,26 @@ fn cutover_requires_complete_private_policy_and_exact_snapshot() {
     let (read, mut sources, policies, binding) = cutover_fixture();
     let mut missing_baseline = binding.clone();
     missing_baseline.policy_sha256.clear();
-    assert!(
-        missing_baseline
-            .verify_sources(
-                &mut sources.clone(),
-                &read,
-                &context().snapshot_label,
-                context().snapshot_epoch,
-                &policies,
-            )
-            .is_err()
-    );
+    assert!(missing_baseline
+        .verify_sources(
+            &mut sources.clone(),
+            &read,
+            &context().snapshot_label,
+            context().snapshot_epoch,
+            &policies,
+        )
+        .is_err());
     let mut wrong_snapshot = binding.clone();
     wrong_snapshot.snapshot_sha256 = "0".repeat(64);
-    assert!(
-        wrong_snapshot
-            .verify_sources(
-                &mut sources.clone(),
-                &read,
-                &context().snapshot_label,
-                context().snapshot_epoch,
-                &policies,
-            )
-            .is_err()
-    );
+    assert!(wrong_snapshot
+        .verify_sources(
+            &mut sources.clone(),
+            &read,
+            &context().snapshot_label,
+            context().snapshot_epoch,
+            &policies,
+        )
+        .is_err());
     let mut changed_read = pg::LegacyRead {
         patch_lines: read.patch_lines.clone(),
         entities: read.entities.clone(),
@@ -635,30 +623,26 @@ fn cutover_requires_complete_private_policy_and_exact_snapshot() {
         table_counts: read.table_counts.clone(),
     };
     changed_read.entities[0].metadata = serde_json::json!({"hero": "unused"});
-    assert!(
-        binding
-            .verify_sources(
-                &mut sources.clone(),
-                &changed_read,
-                &context().snapshot_label,
-                context().snapshot_epoch,
-                &policies,
-            )
-            .is_err()
-    );
+    assert!(binding
+        .verify_sources(
+            &mut sources.clone(),
+            &changed_read,
+            &context().snapshot_label,
+            context().snapshot_epoch,
+            &policies,
+        )
+        .is_err());
     let mut exposed = policies.clone();
     exposed.get_mut(PATCHNOTES_SOURCE).unwrap().visibility = SourceVisibility::Public;
-    assert!(
-        binding
-            .verify_sources(
-                &mut sources.clone(),
-                &read,
-                &context().snapshot_label,
-                context().snapshot_epoch,
-                &exposed,
-            )
-            .is_err()
-    );
+    assert!(binding
+        .verify_sources(
+            &mut sources.clone(),
+            &read,
+            &context().snapshot_label,
+            context().snapshot_epoch,
+            &exposed,
+        )
+        .is_err());
     binding
         .verify_sources(
             &mut sources,
@@ -708,32 +692,24 @@ fn cutover_excludes_approved_tombstones_and_rejects_resurrection() {
         .unwrap();
     let mut resurrected = batch.records[0].clone();
     resurrected.logical_id = "patch/p2".into();
-    assert!(
-        binding
-            .verify_head(&resurrected, &sources, &policies, &context())
-            .is_err()
-    );
+    assert!(binding
+        .verify_head(&resurrected, &sources, &policies, &context())
+        .is_err());
     let mut revoked_scope = batch.records[0].clone();
     revoked_scope.visibility = SourceVisibility::Public;
-    assert!(
-        binding
-            .verify_head(&revoked_scope, &sources, &policies, &context())
-            .is_err()
-    );
+    assert!(binding
+        .verify_head(&revoked_scope, &sources, &policies, &context())
+        .is_err());
     let mut changed_origin = batch.records[0].clone();
     changed_origin
         .metadata
         .insert("locator".into(), "other".into());
-    assert!(
-        binding
-            .verify_head(&changed_origin, &sources, &policies, &context())
-            .is_err()
-    );
+    assert!(binding
+        .verify_head(&changed_origin, &sources, &policies, &context())
+        .is_err());
     let mut changed_content = batch.records[0].clone();
     changed_content.content.push_str("different");
-    assert!(
-        binding
-            .verify_head(&changed_content, &sources, &policies, &context())
-            .is_err()
-    );
+    assert!(binding
+        .verify_head(&changed_content, &sources, &policies, &context())
+        .is_err());
 }

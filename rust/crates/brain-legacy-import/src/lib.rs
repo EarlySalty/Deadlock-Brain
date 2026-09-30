@@ -4,14 +4,14 @@ pub mod cutover;
 pub mod pg;
 
 use brain_contracts::{
-    CorpusRelease, SourceBatch, SourceCheckpoint, SourceRecordV2, SourceVisibility,
     source::{
         GameValidity, OriginArtifact, SourceIdentity, SourcePolicy, SourceRevision, SourceTimestamp,
     },
     value::{Observed, UnknownReason},
+    CorpusRelease, SourceBatch, SourceCheckpoint, SourceRecordV2, SourceVisibility,
 };
 use brain_ingestion::document_set::{
-    CoreDocument, DocumentSetSource, current_pins, prepare_document_batch,
+    current_pins, prepare_document_batch, CoreDocument, DocumentSetSource,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

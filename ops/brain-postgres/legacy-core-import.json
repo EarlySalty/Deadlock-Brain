@@ -4,14 +4,14 @@
     "port": 5446,
     "database": "brain",
     "username": "brain_readonly",
-    "auth_env": "BRAIN_LEGACY_READ_AUTH"
+    "auth_env": "BRAIN_PG_READONLY_PASSWORD"
   },
   "target": {
     "socket": "/run/deadlock-brain-postgresql",
     "port": 5446,
     "database": "brain_pilot_legacy",
     "username": "brain_ingest",
-    "auth_env": "BRAIN_TARGET_INGEST_AUTH"
+    "auth_env": "BRAIN_PG_INGEST_PASSWORD"
   },
   "snapshot_label": "legacy-import-20260926T025758Z",
   "snapshot_epoch": 1790391478,
