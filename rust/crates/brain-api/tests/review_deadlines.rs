@@ -317,6 +317,42 @@ async fn invalid_auth_and_oversized_body_are_rejected_before_body_read() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unread_keepalive_bodies_close_after_auth_failure_or_timeout() {
+    let server = Server::new(100, None).await;
+    for (auth, expected) in [("wrong-token", 401), ("fixture-token", 504)] {
+        let mut stream = TcpStream::connect(server.address).await.unwrap();
+        // HTTP/1.1 defaults to keep-alive. Do not ask the server to close: prove
+        // unread-body disposal itself cannot continue outside the admission limit.
+        stream.write_all(format!("POST /v1/answer HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {auth}\r\nContent-Type: application/json\r\nContent-Length: 1024\r\n\r\n{{").as_bytes()).await.unwrap();
+        status(
+            &response(&mut stream, Duration::from_millis(400)).await,
+            expected,
+        );
+    }
+    assert_eq!(server.calls.load(Ordering::SeqCst), 0);
+    let mut normal = request(server.address, "normal").await;
+    status(&response(&mut normal, Duration::from_secs(1)).await, 200);
+    server.finish().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn chunked_body_without_content_length_keeps_the_byte_limit() {
+    let server = Server::new(1000, None).await;
+    let mut stream = TcpStream::connect(server.address).await.unwrap();
+    let body = "x".repeat(65537);
+    let encoded = format!("POST /v1/answer HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer fixture-token\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n{:x}\r\n{body}\r\n0\r\n\r\n", body.len());
+    stream.write_all(encoded.as_bytes()).await.unwrap();
+    status(
+        &response(&mut stream, Duration::from_millis(400)).await,
+        413,
+    );
+    assert_eq!(server.calls.load(Ordering::SeqCst), 0);
+    let mut normal = request(server.address, "normal").await;
+    status(&response(&mut normal, Duration::from_secs(1)).await, 200);
+    server.finish().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn all_64_body_reads_consume_admission_and_disconnect_releases_permits() {
     let server = Server::new(5000, None).await;
     let mut streams = Vec::new();
@@ -343,6 +379,32 @@ async fn all_64_body_reads_consume_admission_and_disconnect_releases_permits() {
     })
     .await
     .expect("disconnected readers must return their permits");
+    assert_eq!(server.calls.load(Ordering::SeqCst), 1);
+    server.finish().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn all_admitted_body_read_timeouts_return_their_permits() {
+    let server = Server::new(5000, None).await;
+    let admission_started = Instant::now();
+    let mut streams = Vec::new();
+    // 100 Continue proves body polling began after admission, rather than relying
+    // on write_all or socket scheduling to infer that 64 handlers hold permits.
+    for _ in 0..64 {
+        streams.push(partial(server.address, "fixture-token", 1024, true).await);
+    }
+    assert!(
+        admission_started.elapsed() < Duration::from_secs(2),
+        "fixture must admit all bodies well before the first deadline"
+    );
+    let mut excess = request(server.address, "normal").await;
+    status(&response(&mut excess, Duration::from_secs(1)).await, 429);
+    for stream in &mut streams {
+        status(&response(stream, Duration::from_secs(6)).await, 504);
+    }
+    assert_eq!(server.calls.load(Ordering::SeqCst), 0);
+    let mut normal = request(server.address, "normal").await;
+    status(&response(&mut normal, Duration::from_secs(1)).await, 200);
     assert_eq!(server.calls.load(Ordering::SeqCst), 1);
     server.finish().await;
 }
