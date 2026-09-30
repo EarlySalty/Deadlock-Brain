@@ -1,0 +1,65 @@
+status: wartet auf Slotzuteilung
+Datum: 2026-09-30
+Intent-Thread: 562a877b-0939-440a-964d-1145d9e9431a
+
+BRAIN G5: ANFRAGE AN DIE HOSTWEITE BUILD-/DEPLOYKOORDINATION
+
+Keine der nachstehenden Aktionen wurde gestartet. Keine Pause des Nutzerauftrags. Die konkrete Slotzuteilung steht aus. Keine neue Nutzerfreigabe angefordert.
+
+Bestätigte Bindung:
+Koordination: /home/nathanael/.worktrees/brain-technical-closeout-20260929
+Branch: integration/technical-closeout-20260929
+HEAD: 1c362bca6d35e7fec10125b2b159e7513a299243
+Worker: /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930
+Branch: fix/g5-replay-deferred-20260930
+HEAD: 1c362bca6d35e7fec10125b2b159e7513a299243
+Worker ist bei der Aufnahme sauber. Koordination enthält den unversionierten G5-Auftrag.
+
+Vorhandene, nicht neu anzulegende Caches:
+Cargo: /home/nathanael/.cargo
+Target: /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target
+Dort sind release/brain-serve und release/deadlock-brain-secret-exec vorhanden. Diese Dateien sind kein Nachweis für den noch nicht implementierten G5-Stand. Keine Nutzung eines fremden laufenden Builds. Exklusive Cache-Zuteilung erforderlich.
+Toolchain 1.97.1-x86_64-unknown-linux-gnu ist installiert.
+
+Slot A: Quellvorbereitung und unabhängiger Review
+Vorhandenen Sol-Thread 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 nach read mit neuem Worktree-Briefing fortsetzen. Keine Unterthreads, kein Compiler, kein Modellwechsel. Das ist ein Modellaufruf und wird deshalb ebenfalls erst nach konkreter Zuteilung gestartet. Reviewer danach separat, nicht gleichzeitig. Keine neuen Produktmodelle oder Provider.
+Ziel: Replay als getrennten, ausdrücklich zurückgestellten Workspace erhalten; keine Replay-Gitquellen in der V1-Auflösung; CI-/Prüfskript-Aufrufer konsistent nachziehen. Keine Quelländerung oder Lockfile-Bereinigung bereits behauptet.
+Ressourcen: ein bestehender T3-Worker, keine lokale Modellinferenz, keine Benchmarks. Vorhandenes Agentenkontingent; keine neue kostenpflichtige Modellroute.
+
+Slot B: Auflösung und serielle Compiler-/Testprüfung
+Arbeitsverzeichnis für alle Befehle:
+/home/nathanael/.worktrees/brain-g5-replay-deferred-20260930/rust
+
+Geplante Befehle, nicht ausgeführt:
+/home/nathanael/.cargo/bin/cargo +1.97.1 metadata --offline --format-version 1
+/home/nathanael/.cargo/bin/cargo +1.97.1 metadata --locked --offline --format-version 1
+/home/nathanael/.cargo/bin/cargo +1.97.1 fetch --locked
+/home/nathanael/.cargo/bin/cargo +1.97.1 fmt --all -- --check
+/home/nathanael/.cargo/bin/cargo +1.97.1 clippy --workspace --all-targets --locked --offline --jobs 1 --target-dir /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target -- -D warnings
+/home/nathanael/.cargo/bin/cargo +1.97.1 test --workspace --locked --offline --jobs 1 --target-dir /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target
+
+Metadata wird zur Lockfile-Aktualisierung und zum vollständigen Abhängigkeitsnachweis genutzt. Keine pauschale Aktualisierung von Paketversionen. Fetch im vorhandenen Cache ist ausdrücklich kein vollständiger Cold-Cache-Nachweis. Kein neuer Cache ohne Slot-/Ressourcenentscheidung. SQLx-Offlineanforderungen müssen vor Compilerbeginn im vorhandenen Konfigurationsweg ohne neue ENV-Konfiguration geklärt sein; die obigen Befehle sind noch nicht auf dem geänderten Stand validiert.
+
+Erwartete Ressourcen: seriell, ein Cargo-Job; Compiler überwiegend ein Kern, Linker kann abweichen. Geschätzt 2 bis 6 GiB RAM, nicht gemessen und keine zugesicherte Obergrenze. Tests können intern parallel laufen; Threadgrenze vor Zuteilung festlegen. Kein Benchmark. Targetwachstum nur im genannten vorhandenen Cache; freies Volumen vor Start prüfen. Keine Dienste betroffen.
+
+Slot C: genau ein Releasebuild nach geprüfter Quelländerung
+Geplant aus demselben Arbeitsverzeichnis und vorhandenen Cache:
+flock -w 600 /tmp/deadlock-brain-release-build.lock /home/nathanael/.cargo/bin/cargo +1.97.1 build --workspace --release --locked --offline --jobs 1 --target-dir /home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/target
+
+Der Lock allein ist keine Slotzuteilung. Start erst nach ausdrücklicher hostweiter Zuteilung und nach dem Twitch-/DL-Cutover. Kein zweiter Releasebuild parallel. Ressourcen wie Slot B, längere Linkphase möglich. Keine Dienständerung.
+
+Slot D: isolierte Prozess-/PostgreSQL-Nachweise
+Bestehende serve/core-postgres/storage-upgrade/wiki-Prüfpfade wiederverwenden. Noch kein exakter neuer Aufruf freigegeben: Harness muss zuerst auf Cache-Reuse, keine ENV-Konfiguration und keine eigene versteckte Compilerphase geprüft werden. Vor jedem solchen Lauf diese Anfrage um exakten Befehl und Ressourcen ergänzen. Keine Änderungen an der laufenden PostgreSQL-Instanz, keine produktiven Secrets. Kein Lastbenchmark ohne eigene Slotzuteilung.
+
+Slot E: Serve-Cutover, derzeit NICHT startbereit
+Kein Dienstbefehl angefordert oder freigegeben. Tatsächlicher Unitname, revisionsgebundener Releasepfad, sichere Config, Port und Rückweg müssen zunächst nachgewiesen sein. Die vorhandene Beispielunit ist keine installierte Serve-Unit. Ihre Beispieladresse 127.0.0.1:8787 ist belegt; nicht verwenden. 8789 ist ebenfalls belegt. Keine Portwahl nur nach einem zufällig freien Socket.
+Später betroffen: neue/zu bestätigende Brain-Serve-Unit. Brain-PostgreSQL bleibt ohne Neustart. Twitch-/DL-Dienste ausschließlich durch den Integrator; kein eigener Neustart. Vor jedem tatsächlichen Start/Wechsel separaten exakten Befehl mit Artefakt-SHA, Ressourcen, Diensten und Rollback hier ergänzen.
+
+Aktuelle Nachweise:
+- Statische Cargo.lock-Analyse: 25 Workspacewurzeln, nach Replay-Abtrennung 24; 427 Lockpakete, davon 386 aus den 24 V1-Wurzeln erreichbar, keine unaufgelösten Kanten in dieser Analyse, keine Gitquelle im verbleibenden Graphen. Noch kein Cargo-/Compilerbeweis.
+- Rootmanifest bindet Replay weiterhin als Member ein. V1-Abtrennung noch nicht implementiert.
+- Die geladenen System-/Userunits enthalten keinen nachgewiesenen typed Brain-Serve-Dienst. Brain-PostgreSQL läuft. Vorgegebene Serve-Beispielpfade sind nicht installiert.
+- Kein Build, Modellaufruf, Benchmark, Restart, Deploy oder Community-Post durch diese Fortsetzung.
+
+Plan und Quellen:
+/home/nathanael/.worktrees/brain-technical-closeout-20260929/.tasks/2026-09-30-g5-abschluss/PRUEF-SERVE-CUTOVERPLAN.md
