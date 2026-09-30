@@ -676,6 +676,261 @@ mod tests {
             .collect()
     }
 
+    async fn advisory_waiter(pool: &sqlx::PgPool, application: &str, blocker: i32) -> i32 {
+        tokio::time::timeout(Duration::from_secs(15), async {
+            loop {
+                let pid: Option<i32> = sqlx::query_scalar(
+                    "SELECT pid FROM pg_stat_activity WHERE datname=current_database() AND application_name=$1 AND wait_event_type='Lock' AND wait_event='advisory' AND $2::integer=ANY(pg_blocking_pids(pid))",
+                )
+                .bind(application)
+                .bind(blocker)
+                .fetch_optional(pool)
+                .await
+                .unwrap();
+                if let Some(pid) = pid {
+                    return pid;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("backend did not wait for the expected advisory lock")
+    }
+
+    async fn synchronized_cutover_writers(
+        pool: &sqlx::PgPool,
+        target: &Endpoint,
+        sources: &[brain_legacy_import::LegacySource; 2],
+        policies: &BTreeMap<String, SourcePolicyConfig>,
+        context: &ImportContext,
+        rollback: bool,
+    ) {
+        use brain_contracts::{source::origin_from_record, SourceVisibility};
+        use std::collections::BTreeSet;
+
+        let (entity_source, patch_source, release_prefix) = if rollback {
+            (
+                "cutover-sync-rollback-entities",
+                "cutover-sync-rollback-patchnotes",
+                "cutover-sync-rollback",
+            )
+        } else {
+            (
+                "cutover-sync-commit-entities",
+                "cutover-sync-commit-patchnotes",
+                "cutover-sync-commit",
+            )
+        };
+        let fixture_sources = [
+            brain_legacy_import::LegacySource {
+                source_id: entity_source,
+                documents: sources[0].documents.clone(),
+            },
+            brain_legacy_import::LegacySource {
+                source_id: patch_source,
+                documents: sources[1].documents.clone(),
+            },
+        ];
+        let store = PgStore::new(pool.clone());
+        for (source, policy) in fixture_sources
+            .iter()
+            .zip([&policies[ENTITIES_SOURCE], &policies[PATCHNOTES_SOURCE]])
+        {
+            let batch = prepare_batch(source, policy, context, None).unwrap();
+            let lease = store
+                .claim(source.source_id, "sync-seed", 60_000)
+                .await
+                .unwrap();
+            store.commit(&batch, &lease).await.unwrap();
+        }
+        let entity_previous = store.checkpoint(entity_source).await.unwrap().unwrap();
+        let patch_previous = store.checkpoint(patch_source).await.unwrap().unwrap();
+        let entity_batch = prepare_batch(
+            &fixture_sources[0],
+            &policies[ENTITIES_SOURCE],
+            context,
+            Some(&entity_previous),
+        )
+        .unwrap();
+        let patch_batch = prepare_batch(
+            &fixture_sources[1],
+            &policies[PATCHNOTES_SOURCE],
+            context,
+            Some(&patch_previous),
+        )
+        .unwrap();
+        assert!(entity_batch.records.is_empty() && patch_batch.records.is_empty());
+        let mut approved_heads = heads_for(pool, entity_source).await;
+        let entity_head = approved_heads[0].clone();
+        approved_heads.extend(heads_for(pool, patch_source).await);
+        let release = release_from_checkpoints(
+            &[
+                entity_batch.checkpoint.clone(),
+                patch_batch.checkpoint.clone(),
+            ],
+            &ReleaseConfig {
+                id_prefix: release_prefix.into(),
+                knowledge_version: "v1".into(),
+                patch: "p1".into(),
+            },
+            context.snapshot_epoch,
+        )
+        .unwrap();
+        let count_before = if rollback {
+            let mut old = release.clone();
+            old.created_at_epoch += 1;
+            store.publish_release(&old).await.unwrap();
+            target_counts(pool).await[4]
+        } else {
+            target_counts(pool).await[4]
+        };
+        let remaining = brain_legacy_import::LegacySource {
+            source_id: patch_source,
+            documents: vec![fixture_sources[1].documents[0].clone()],
+        };
+        let removal = prepare_batch(
+            &remaining,
+            &policies[PATCHNOTES_SOURCE],
+            context,
+            Some(&patch_previous),
+        )
+        .unwrap();
+        assert!(removal
+            .records
+            .iter()
+            .any(|record| record.logical_id == "patch/p2" && record.tombstone));
+        let mut restricted = entity_head.clone();
+        restricted.revision += 1;
+        restricted.visibility = SourceVisibility::Private;
+        restricted.allowed_scopes = BTreeSet::from(["brain.legacy.review".into()]);
+        let mut origin = origin_from_record(&entity_head).unwrap();
+        origin.policy.visibility = restricted.visibility;
+        origin.policy.allowed_scopes = restricted.allowed_scopes.clone();
+        origin.bind_record(&mut restricted).unwrap();
+
+        let entity_lease = store
+            .claim(entity_source, "sync-publish", 60_000)
+            .await
+            .unwrap();
+        let patch_lease = store
+            .claim(patch_source, "sync-publish", 60_000)
+            .await
+            .unwrap();
+        let blocked_lease = patch_lease.clone();
+        let mut gate = pool.begin().await.unwrap();
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)")
+            .bind(format!("core-release:{}", release.release_id))
+            .execute(&mut *gate)
+            .await
+            .unwrap();
+        let gate_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *gate)
+            .await
+            .unwrap();
+        let publisher_pool = PgPoolOptions::new()
+            .max_connections(1)
+            .connect_with(
+                options(target)
+                    .unwrap()
+                    .application_name("cutover-sync-publisher"),
+            )
+            .await
+            .unwrap();
+        let publisher = PgStore::new(publisher_pool.clone());
+        let publish_release = release.clone();
+        let publication = tokio::spawn(async move {
+            publisher
+                .commit_batches_and_publish_checked(
+                    &[(&entity_batch, &entity_lease), (&patch_batch, &patch_lease)],
+                    &publish_release,
+                    &approved_heads,
+                )
+                .await
+        });
+        let publisher_pid = advisory_waiter(pool, "cutover-sync-publisher", gate_pid).await;
+        assert!(!publication.is_finished());
+        let batch_pool = PgPoolOptions::new()
+            .max_connections(1)
+            .connect_with(
+                options(target)
+                    .unwrap()
+                    .application_name("cutover-sync-batch"),
+            )
+            .await
+            .unwrap();
+        let writer = PgStore::new(batch_pool.clone());
+        let batch_writer =
+            tokio::spawn(async move { writer.commit(&removal, &blocked_lease).await });
+        let apply_pool = PgPoolOptions::new()
+            .max_connections(1)
+            .connect_with(
+                options(target)
+                    .unwrap()
+                    .application_name("cutover-sync-apply"),
+            )
+            .await
+            .unwrap();
+        let writer = PgStore::new(apply_pool.clone());
+        let scope_writer = tokio::spawn(async move { writer.apply(&restricted).await });
+        advisory_waiter(pool, "cutover-sync-batch", publisher_pid).await;
+        advisory_waiter(pool, "cutover-sync-apply", publisher_pid).await;
+        assert!(!batch_writer.is_finished() && !scope_writer.is_finished());
+        assert_eq!(target_counts(pool).await[4], count_before);
+        gate.commit().await.unwrap();
+        let published = publication.await.unwrap();
+        if rollback {
+            assert!(published.is_err());
+            assert!(!batch_writer.await.unwrap().unwrap().replayed);
+        } else {
+            assert_eq!(published.unwrap().0.len(), 2);
+            assert!(batch_writer.await.unwrap().is_err());
+            let checkpoint = store.checkpoint(patch_source).await.unwrap().unwrap();
+            let retry = prepare_batch(
+                &remaining,
+                &policies[PATCHNOTES_SOURCE],
+                context,
+                Some(&checkpoint),
+            )
+            .unwrap();
+            let lease = store
+                .claim(patch_source, "sync-retry", 60_000)
+                .await
+                .unwrap();
+            store.commit(&retry, &lease).await.unwrap();
+        }
+        assert_eq!(
+            scope_writer.await.unwrap().unwrap(),
+            brain_storage::ApplyOutcome::Updated
+        );
+        assert_eq!(
+            target_counts(pool).await[4],
+            count_before + if rollback { 0 } else { 1 }
+        );
+        assert_eq!(
+            store
+                .checkpoint(entity_source)
+                .await
+                .unwrap()
+                .unwrap()
+                .generation,
+            entity_previous.generation + if rollback { 0 } else { 1 }
+        );
+        let snapshot = store.snapshot(&release.release_id).await.unwrap();
+        assert_eq!(snapshot.revisions.len(), 3);
+        assert_eq!(
+            snapshot.release.created_at_epoch,
+            release.created_at_epoch + if rollback { 1 } else { 0 }
+        );
+        assert!(heads_for(pool, patch_source).await[1].tombstone);
+        assert_eq!(
+            heads_for(pool, entity_source).await[0].visibility,
+            SourceVisibility::Private
+        );
+        publisher_pool.close().await;
+        batch_pool.close().await;
+        apply_pool.close().await;
+    }
+
     #[tokio::test]
     #[ignore = "requires a disposable brain_cutover_test database from the isolated brain-serve harness"]
     async fn same_database_archive_to_core_requires_bound_private_snapshot() {
@@ -995,6 +1250,24 @@ mod tests {
             heads_for(&pool, ENTITIES_SOURCE).await[0].visibility,
             SourceVisibility::Private
         );
+        synchronized_cutover_writers(
+            &pool,
+            &config.target,
+            &sources,
+            &config.sources,
+            &context,
+            false,
+        )
+        .await;
+        synchronized_cutover_writers(
+            &pool,
+            &config.target,
+            &sources,
+            &config.sources,
+            &context,
+            true,
+        )
+        .await;
         let schema_fixture = PgPoolOptions::new()
             .max_connections(1)
             .connect_with(
