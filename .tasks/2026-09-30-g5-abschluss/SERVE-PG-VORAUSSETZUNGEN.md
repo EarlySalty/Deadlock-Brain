@@ -1,5 +1,7 @@
-status: aktiv, konkrete Startvoraussetzungen statisch geprüft; keine DB-Verbindung
+status: historischer Grundlagenbeleg; aktuelle Runner und Folgepakete stehen in NACHWEISFOLGE-UND-CUTOVER.md
 Datum: 2026-09-30
+
+Aktualisierung aufc5951b6: Die unten im Abschnitt zur Grenze der DB-Harnesses beschriebene Cache-/Zwei-Job-Sperre ist inzwischen behoben und nicht mehr aktuell. Beide vorhandenen Runner verlangen den expliziten vorhandenen Targetpfad und laufen locked/offline/jobs1. Serve startet sieben serielle Cargo-Aufrufe mit echtem Cutover-/Prozess-/Lastpaket; Upgrade startet einen gezielten Fixturefall. Die tatsächlichen Kommandos, Ressourcenwirkungen und noch fehlenden Produktionsbindungen stehen in NACHWEISFOLGE-UND-CUTOVER.md. Nichts davon wurde hier ausgeführt oder neu zugeteilt.
 
 # Ergänzung: tatsächlicher PostgreSQL-Vertrag für Serve
 

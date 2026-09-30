@@ -1,4 +1,10 @@
-status: aktiv, Quellabschluss efb56023/Bericht c5951b6 übernommen und sauber/gepusht geprüft; derselbe einzelne Clippy vorgemerkt, weiterhin keine dritte Slotzuteilung
+status: aktiv, Quellabschluss efb56023/Bericht c5951b6 übernommen; Folgepakete und Cutover-Lücken vorbereitet, weiterhin keine dritte Slotzuteilung
+
+## Konkrete Vorbereitung ohne Lauf
+
+NACHWEISFOLGE-UND-CUTOVER.md bindet aufc5951b6 die tatsächlichen kleinen Unitselektoren, den bestehenden Ein-Test-PG-Upgraderunner, den ungeteilten siebenstufigen Cutover-/Serve-/Lastlauf und einen alternativen einzelnen Serve-Negativtest. Wirkung, Ressourcen, Cleanup, Beweisgrenzen und jeweilige Kommandos sind geprüft; kein Compiler, Test, PG-, Provider- oder Dienstprozess gestartet. Keine neue Wache oder Quellreviewrunde. Vorhandene Produktabnahmen bleiben gültig.
+
+Sachliche Cutover-Lücken präzisiert: kanonischer Snapshotfingerprint plus Label/Epoch; belegte Nutzungsentscheidung mit echter approval_ref und policy_sha256; vollständige active/revoked/tombstone-Listen; tatsächliche Minimalrollen/Secret-Exec, Writer-Fencing, aktueller Backup-/Restore-/Deltabeleg, revisionsgebundener Serve-/Consumeranschluss. Historische Metadaten ersetzen das nicht. Produktionsvorlage bleibt gesperrt. Alte Cache-/jobs2-Aussage in SERVE-PG-VORAUSSETZUNGEN.md als überholt markiert; heutige Runner haben expliziten Targetpfad/jobs1.
 
 ## Quellabschluss16:04:24UTC
 
