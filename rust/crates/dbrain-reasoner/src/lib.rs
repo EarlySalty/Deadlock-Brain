@@ -89,6 +89,98 @@ pub struct PlannedBuild {
     pub deltas: Vec<PatchDelta>,
 }
 
+fn spirit_feeds_weapon(hero: &HeroModel) -> bool {
+    hero.scaling.iter().any(|stat| {
+        stat.per_spirit.is_some_and(|value| value > 0.0)
+            && {
+                let name = stat.stat.to_ascii_lowercase();
+                name.contains("firerate")
+                    || name.contains("fire_rate")
+                    || name.contains("bulletdamage")
+                    || name.contains("bullet_damage")
+                    || name.contains("clipsize")
+                    || name.contains("clip_size")
+            }
+    })
+}
+
+fn playstyle_primary_match(hero: &HeroModel, item: &ItemModel, requested: &str) -> bool {
+    use families::MechanicAxis::{Defense, Spirit, Support, Sustain, Weapon};
+    let axes = families::item_axes(item);
+    match requested {
+        "weapon" => axes.contains(&Weapon) || (axes.contains(&Spirit) && spirit_feeds_weapon(hero)),
+        "spirit" => axes.contains(&Spirit),
+        "tank" => {
+            axes.contains(&Defense) || axes.contains(&Sustain) || axes.contains(&Support)
+        }
+        _ => true,
+    }
+}
+
+fn playstyle_allows_item(hero: &HeroModel, item: &ItemModel, requested: &str) -> bool {
+    use families::MechanicAxis::{Spirit, Weapon};
+    let axes = families::item_axes(item);
+    let offensive = axes.contains(&Weapon) || axes.contains(&Spirit);
+    playstyle_primary_match(hero, item, requested) || !offensive
+}
+
+fn meta_for_playstyle(
+    meta: &meta::MetaIndexWithSources,
+    hero: &HeroModel,
+    items: &[ItemModel],
+    requested: Option<&str>,
+) -> meta::MetaIndexWithSources {
+    let Some(requested) = requested else {
+        return meta.clone();
+    };
+    let by_id = items
+        .iter()
+        .map(|item| (item.item_id, item))
+        .collect::<BTreeMap<_, _>>();
+    let mut allowed = meta
+        .population
+        .staples()
+        .into_iter()
+        .filter(|id| {
+            by_id
+                .get(id)
+                .is_some_and(|item| playstyle_allows_item(hero, item, requested))
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    for id in meta
+        .population
+        .ranked_by_prevalence()
+        .into_iter()
+        .filter(|id| meta.population.prevalence(*id) >= 0.05)
+        .filter(|id| {
+            by_id
+                .get(id)
+                .is_some_and(|item| playstyle_primary_match(hero, item, requested))
+        })
+        .take(16)
+    {
+        allowed.insert(id);
+    }
+    if allowed.is_empty() {
+        return meta.clone();
+    }
+    let allowed = allowed.into_iter().collect::<Vec<_>>();
+    let imbues = allowed
+        .iter()
+        .filter_map(|id| meta.population.imbue_target(*id).map(|target| (*id, target)))
+        .collect();
+    let population = PopulationPrior::from_items(allowed.iter().map(|id| PopulationItem {
+        item_id: *id,
+        prevalence: meta.population.prevalence(*id),
+        median_position: meta.population.median_position(*id),
+        is_staple: true,
+    }))
+    .with_imbue_targets(imbues);
+    let mut conditioned = meta.clone();
+    conditioned.population = population;
+    conditioned
+}
+
 pub fn plan_build(
     hero: &HeroModel,
     items: &[ItemModel],
@@ -96,6 +188,18 @@ pub fn plan_build(
     events: &[Value],
     snapshots: &[PatchSnapshot],
     config: &ReasonerConfig,
+) -> Result<PlannedBuild> {
+    plan_build_with_playstyle(hero, items, meta, events, snapshots, config, None)
+}
+
+pub fn plan_build_with_playstyle(
+    hero: &HeroModel,
+    items: &[ItemModel],
+    meta: &meta::MetaIndexWithSources,
+    events: &[Value],
+    snapshots: &[PatchSnapshot],
+    config: &ReasonerConfig,
+    requested_playstyle: Option<&str>,
 ) -> Result<PlannedBuild> {
     let mut hero = hero.clone();
     let mut items = items.to_vec();
@@ -126,12 +230,26 @@ pub fn plan_build(
     let mut plans = Vec::new();
     let mut variant_scores = BTreeMap::new();
     for context in &contexts {
-        let mut scored = item::score_items(&hero, &items, &context.index, &[], config);
+        let planning_context = meta_for_playstyle(context, &hero, &items, requested_playstyle);
+        let mut scored = item::score_items(&hero, &items, &planning_context.index, &[], config);
         finish_scores(&mut scored);
-        let mut build =
-            composer::compose_build_with_sources(&hero, &scored, &deltas, config, &[], context)?;
-        build.family = context.family.clone();
-        if let Some(family) = &context.family {
+        let mut build = composer::compose_build_with_sources(
+            &hero,
+            &scored,
+            &deltas,
+            config,
+            &[],
+            &planning_context,
+        )?;
+        build.family = planning_context.family.clone();
+        if let Some(style) = requested_playstyle {
+            build.name = format!("{} {} Reasoner Build", hero.name, style);
+            build.rationale = append_text(
+                &build.rationale,
+                &format!("Expliziter Playstyle {style}: offensive Populations-Staples werden nach ihren aus Spieldaten abgeleiteten Mechanikachsen gefiltert; defensive, Sustain- und Utility-Käufe bleiben als Ergänzung zulässig."),
+            );
+        }
+        if let Some(family) = &planning_context.family {
             build.name = format!("{} – {}", hero.name, family.label);
             build.rationale = append_text(&build.rationale, &format!("Familie {}: {} Spieler-Matches, {} unabhängige Spieler, {} Autoren; Kohärenz {:.3}. {}", family.id, family.player_matches, family.distinct_players, family.distinct_authors, family.cohesion, family.limitations.join(" ")));
             if variant_scores
@@ -176,6 +294,15 @@ pub async fn reason_build_with_options(
     hero: &str,
     options: ReasonerOptions<'_>,
 ) -> Result<BuildObject> {
+    reason_build_for_playstyle_with_options(ctx, hero, None, options).await
+}
+
+pub async fn reason_build_for_playstyle_with_options(
+    ctx: &ReasonerCtx,
+    hero: &str,
+    requested_playstyle: Option<&str>,
+    options: ReasonerOptions<'_>,
+) -> Result<BuildObject> {
     let seed_path = options.seed_path;
     let ctx = effective_context(ctx).await?;
     let (hero_model, items, meta, snapshots) = load_reasoning_inputs(&ctx, hero, seed_path).await?;
@@ -187,10 +314,19 @@ pub async fn reason_build_with_options(
         .await
         .map_err(|error| ReasonerError::Data(format!("Buildplanung nicht verfügbar: {error}")))?;
     let calculation_ctx = ctx.clone();
+    let requested_playstyle = requested_playstyle.map(str::to_owned);
     let calculation = tokio::task::spawn_blocking(move || {
         let _permit = permit;
         let ctx = calculation_ctx;
-        let planned = plan_build(&hero_model, &items, &meta, &events, &snapshots, &ctx.config)?;
+        let planned = plan_build_with_playstyle(
+            &hero_model,
+            &items,
+            &meta,
+            &events,
+            &snapshots,
+            &ctx.config,
+            requested_playstyle.as_deref(),
+        )?;
         let PlannedBuild {
             mut build,
             scored,

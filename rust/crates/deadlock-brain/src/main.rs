@@ -48,6 +48,11 @@ enum Commands {
         about = "Baut ein vertrauenssortiertes Wissens-Buendel plus LLM-Prompt zu einer beliebigen Deadlock-Frage."
     )]
     AskContext(AskContextArgs),
+    #[command(
+        name = "review-build",
+        about = "Berechnet aus einer Build-Frage einen markierten In-Game-Review-Build und wartet optional auf die Steam-Build-ID."
+    )]
+    ReviewBuild(ReviewBuildArgs),
     #[command(about = "Fuehrt lokale Datenqualitaetschecks aus.")]
     Quality(PrettyArgs),
     #[command(about = "Erzeugt und pflegt die lokale Game-Wiki-Wissensschicht.")]
@@ -213,6 +218,13 @@ struct AskContextArgs {
     game_wiki_dir: Option<PathBuf>,
     #[arg(long)]
     pretty: bool,
+}
+
+#[derive(Debug, Args)]
+struct ReviewBuildArgs {
+    query: String,
+    #[arg(long = "wait-seconds", default_value_t = 20)]
+    wait_seconds: u64,
 }
 
 #[derive(Debug, Subcommand)]
@@ -1226,6 +1238,7 @@ async fn run(cli: Cli) -> Result<()> {
                 print_json(&result)
             }
         }
+        Commands::ReviewBuild(args) => run_review_build(&pool, args).await,
         Commands::Quality(args) => {
             let result = dbrain_retrieval::run_quality_checks(&pool).await?;
             if args.pretty {
@@ -1567,6 +1580,74 @@ async fn run_learn(settings: &Settings, target: LearnCommands) -> Result<()> {
             }
         }
     }
+}
+
+async fn run_review_build(pool: &PgPool, args: ReviewBuildArgs) -> Result<()> {
+    let context = dbrain_retrieval::ask_context(
+        pool,
+        &args.query,
+        &dbrain_retrieval::AskContextOptions {
+            limit_events: 80,
+            include_unverified: false,
+            max_claims: 12,
+            game_wiki_dir: None,
+        },
+    )
+    .await?;
+    if context
+        .pointer("/retrieval_meta/route")
+        .and_then(Value::as_str)
+        != Some("build_reasoner")
+    {
+        return Err(anyhow!("Die Frage wurde nicht als konkrete Hero-Build-Anfrage erkannt."));
+    }
+    let raw_build = context
+        .get("build_context")
+        .cloned()
+        .ok_or_else(|| anyhow!("Build-Kontext fehlt."))?;
+    let build: dbrain_reasoner::BuildObject = serde_json::from_value(raw_build)?;
+    let task_id = dbrain_reasoner::publish::enqueue_review_publish_task(pool, &build).await?;
+
+    let deadline = tokio::time::Instant::now()
+        + std::time::Duration::from_secs(args.wait_seconds.min(60));
+    let mut status = "PENDING".to_string();
+    let mut hero_build_id = None;
+    let mut version = None;
+    let mut error = None;
+    while tokio::time::Instant::now() <= deadline {
+        let row = sqlx::query_as::<_, (String, Option<String>, Option<String>)>(
+            "SELECT status, result::text, error FROM steam.steam_tasks WHERE id=$1",
+        )
+        .bind(task_id)
+        .fetch_one(pool)
+        .await?;
+        status = row.0;
+        error = row.2;
+        if let Some(raw) = row.1 {
+            if let Ok(value) = serde_json::from_str::<Value>(&raw) {
+                let response = value.get("response").unwrap_or(&value);
+                hero_build_id = response.get("hero_build_id").and_then(Value::as_i64);
+                version = response.get("version").and_then(Value::as_i64);
+            }
+        }
+        if matches!(status.as_str(), "DONE" | "FAILED" | "CANCELLED") {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+
+    print_json(&json!({
+        "status": status,
+        "task_id": task_id,
+        "hero_build_id": hero_build_id,
+        "version": version,
+        "error": error,
+        "hero_id": build.hero_id,
+        "hero_name": build.hero_name,
+        "build_name": build.name,
+        "core": build.core.iter().map(|item| json!({"item_id":item.item_id,"name":item.name})).collect::<Vec<_>>(),
+        "situations": build.situations.iter().map(|block| json!({"label":block.label,"items":block.items.iter().map(|item| json!({"item_id":item.item_id,"name":item.name})).collect::<Vec<_>>()})).collect::<Vec<_>>(),
+    }))
 }
 
 async fn run_reason(pool: &PgPool, settings: &Settings, target: ReasonCommands) -> Result<()> {

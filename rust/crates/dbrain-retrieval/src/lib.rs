@@ -1236,9 +1236,10 @@ async fn ask_build_context(pool: &PgPool, query: &str, plan: &QueryPlan) -> Resu
             ..Default::default()
         },
     };
-    let build_context = dbrain_reasoner::reason_build_with_options(
+    let build_context = dbrain_reasoner::reason_build_for_playstyle_with_options(
         &ctx,
         &hero_query,
+        playstyle.as_deref(),
         ReasonerOptions {
             seed_path: None,
             persist: false,
@@ -1269,9 +1270,9 @@ async fn ask_build_context(pool: &PgPool, query: &str, plan: &QueryPlan) -> Resu
         "retrieval_meta": {
             "route": "build_reasoner",
             "context_query": hero_query,
-            "playstyle": null,
+            "playstyle": playstyle.clone(),
             "requested_playstyle": playstyle,
-            "playstyle_applied": false,
+            "playstyle_applied": true,
         },
     }))
 }
@@ -1311,7 +1312,7 @@ fn compact_reasoner_why(item: &dbrain_reasoner::BuildItem) -> String {
 fn reasoner_prompt_context(build: &BuildObject, requested_playstyle: Option<&str>) -> JsonValue {
     let mut context = compact_reasoner_variant(build);
     context["requested_playstyle"] = json!(requested_playstyle);
-    context["playstyle_applied"] = json!(false);
+    context["playstyle_applied"] = json!(requested_playstyle.is_some());
     context["variants"] = json!(build
         .variants
         .iter()
@@ -1355,12 +1356,12 @@ fn compact_reasoner_variant(build: &BuildObject) -> JsonValue {
 
 fn explain_reasoner_build(build: &BuildObject, requested_playstyle: Option<&str>) -> String {
     let mut sections = Vec::new();
-    if requested_playstyle.is_some() {
+    if let Some(playstyle) = requested_playstyle {
         sections.push(if build.family.is_some() || !build.variants.is_empty() {
-            "Die datenbelegten Varianten stehen getrennt unten. Die gewünschte Spielweise wurde nicht automatisch einer Familie zugeordnet; Items, Skillorders und Imbues werden nicht vermischt."
+            format!("Die gewünschte Spielweise {playstyle} wurde auf die mechanischen Itemachsen jeder datenbelegten Familie angewendet. Familien, Skillorders und Imbues bleiben getrennt.")
         } else {
-            "Das ist der berechnete Meta-Build. Eine eigene Variante für die gewünschte Spielweise ist noch nicht berechnet."
-        }.to_string());
+            format!("Die gewünschte Spielweise {playstyle} wurde auf die mechanischen Itemachsen und die beobachtete Population angewendet; defensive, Sustain- und Utility-Ergänzungen dürfen den offensiven Kern absichern.")
+        });
     }
     sections.extend(
         std::iter::once(build)

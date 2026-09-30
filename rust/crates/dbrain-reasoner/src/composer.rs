@@ -196,7 +196,8 @@ fn core_candidates<'a>(
                 // Population-backed planning admits identity items, not all items
                 // with a positive score. Flex candidates are displayed separately.
                 if !population.is_empty() {
-                    return population.is_staple(id);
+                    return population.is_staple(id)
+                        && (!is_situation_item(item) || authors.core.contains(&id));
                 }
                 return authors.core.contains(&id);
             }
@@ -972,6 +973,43 @@ mod tests {
             .iter()
             .flat_map(|block| &block.items)
             .any(|item| item.item_id == 2));
+    }
+
+    #[test]
+    fn population_staple_stays_situational_without_same_hero_core_evidence() {
+        let mut contextual = item(1, "Situational staple", 1_000_000.0, true, &["resist"]);
+        contextual.item.properties.insert("BulletResist".into(), 60.0);
+        let identity = item(2, "Identity", 10.0, false, &[]);
+        let mut meta = population_context();
+        meta.population = crate::PopulationPrior::from_items([
+            crate::PopulationItem {
+                item_id: 1,
+                prevalence: 0.95,
+                median_position: Some(4.0),
+                is_staple: true,
+            },
+            crate::PopulationItem {
+                item_id: 2,
+                prevalence: 0.9,
+                median_position: Some(5.0),
+                is_staple: true,
+            },
+        ]);
+        let build = compose_build_with_sources(
+            &hero(),
+            &[contextual, identity],
+            &[],
+            &ReasonerConfig::default(),
+            &[],
+            &meta,
+        )
+        .unwrap();
+        assert_eq!(build.core.iter().map(|item| item.item_id).collect::<Vec<_>>(), vec![2]);
+        assert!(build
+            .situations
+            .iter()
+            .flat_map(|block| &block.items)
+            .any(|item| item.item_id == 1));
     }
 
     #[test]

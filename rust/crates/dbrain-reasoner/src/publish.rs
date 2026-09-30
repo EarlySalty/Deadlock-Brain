@@ -139,6 +139,38 @@ pub async fn enqueue_publish_task(pool: &PgPool, build: &BuildObject) -> Result<
         .map_err(ReasonerError::Db)
 }
 
+/// Builds the explicitly marked payload used for in-game review publishes.
+pub fn review_publish_payload(build: &BuildObject) -> Result<Value> {
+    if build.core.is_empty() {
+        return Err(ReasonerError::Data(
+            "Review-Build hat keinen berechneten Kern und wird nicht veröffentlicht.".into(),
+        ));
+    }
+    if !build.variants.is_empty() {
+        return Err(ReasonerError::Data(
+            "Review-Build enthält mehrere Varianten; zuerst muss eine konkrete Variante ausgewählt werden.".into(),
+        ));
+    }
+    let mut review = build.clone();
+    review.name = format!("Brain Review | {}", build.hero_name);
+    review.rationale = format!(
+        "Brain Review Build zur In-Game-Prüfung. Nicht als freigegebener Meta-Build behandeln. {}",
+        build.rationale
+    );
+    Ok(publish_task_payload(&review))
+}
+
+/// Publishes an explicitly marked review build for in-game inspection.
+/// This does not weaken the production publication gate above.
+pub async fn enqueue_review_publish_task(pool: &PgPool, build: &BuildObject) -> Result<i64> {
+    let payload = review_publish_payload(build)?;
+    sqlx::query_scalar::<_, i64>("INSERT INTO steam.steam_tasks(type, payload, status) VALUES('BUILD_PUBLISH_ORIGINAL', $1, 'PENDING') RETURNING id")
+        .bind(payload)
+        .fetch_one(pool)
+        .await
+        .map_err(ReasonerError::Db)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -202,5 +234,32 @@ mod tests {
         let json = publish_task_payload(&build);
         assert_eq!(json["mod_categories"][0]["mods"][0]["annotation"], "Warum");
         assert_eq!(json["mod_categories"][0]["mods"][0]["imbue"], 100);
+    }
+
+    #[test]
+    fn review_publish_is_marked_and_keeps_production_gate_separate() {
+        let mut build = BuildObject {
+            family: None,
+            variants: Vec::new(),
+            family_discovery: None,
+            hero_id: 25,
+            hero_name: "Warden".to_string(),
+            patch_tag: "current".to_string(),
+            name: "Warden Reasoner Build".to_string(),
+            core: vec![item(10, None, None)],
+            situations: Vec::new(),
+            ability_order: Vec::new(),
+            confidence: Confidence::Low,
+            rationale: "Rationale".to_string(),
+        };
+        let payload = review_publish_payload(&build).expect("review payload");
+        assert_eq!(payload["name"], "Brain Review | Warden");
+        assert!(payload["description"]
+            .as_str()
+            .is_some_and(|text| text.contains("In-Game-Prüfung")));
+        assert!(validate_publish_input(&build).is_err());
+
+        build.variants.push(build.clone());
+        assert!(review_publish_payload(&build).is_err());
     }
 }
