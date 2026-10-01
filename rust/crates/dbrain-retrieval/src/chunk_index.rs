@@ -229,10 +229,8 @@ impl ChunkIndex {
     ) -> bool {
         !record.tombstone
             && record_allowed(record, &context.principal, false)
-            && record
-                .metadata
-                .get("patch")
-                .is_none_or(|p| p == &self.release.patch)
+            && brain_contracts::source::patch_validity_for(&record.metadata, query.patch.as_deref())
+                .is_ok()
             && query
                 .mode
                 .as_ref()
@@ -346,7 +344,10 @@ impl ChunkIndex {
             visibility: effective.visibility,
             allowed_scopes: effective.allowed_scopes.clone(),
             score,
-            patch: Some(self.release.patch.clone()),
+            patch: match brain_contracts::source::patch_validity_for(&original.metadata, None) {
+                Ok(brain_contracts::value::Observed::Known { value }) => Some(value),
+                _ => None,
+            },
             provenance: Some(ChunkProvenance {
                 document: self.document(chunk),
                 chunker_version: CHUNKER_VERSION.into(),

@@ -139,7 +139,7 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
             let mut visible = BTreeSet::new();
             for record in owners {
                 let head = heads.get(&(record.source_id.clone(), record.logical_id.clone()));
-                if effective_head(record, head, context, false)?.is_some() {
+                if effective_head(record, head, query, context, false)?.is_some() {
                     visible.insert(brain_contracts::lexical::fact_entity_key(
                         &record.source_id,
                         &record.logical_id,
@@ -177,7 +177,7 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
                     continue;
                 }
                 let head = heads.get(&(record.source_id.clone(), record.logical_id.clone()));
-                if let Some(effective) = effective_head(record, head, context, provider)? {
+                if let Some(effective) = effective_head(record, head, query, context, provider)? {
                     result.push(index.evidence(chunk, &effective, score));
                     if result.len() == limit {
                         return Ok(result);
@@ -216,16 +216,13 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
                 if let Some(effective) = effective_head(
                     record,
                     heads.get(&(record.source_id.clone(), record.logical_id.clone())),
+                    query,
                     context,
                     provider,
                 )? {
                     let mut record = record.clone();
                     record.visibility = effective.visibility;
                     record.allowed_scopes = effective.allowed_scopes;
-                    record
-                        .metadata
-                        .entry("patch".into())
-                        .or_insert_with(|| index.release.patch.clone());
                     records.push(record);
                 }
             }
@@ -403,6 +400,7 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
             let effective = effective_head(
                 record,
                 heads.get(&(record.source_id.clone(), record.logical_id.clone())),
+                query,
                 context,
                 for_provider,
             )?
@@ -454,6 +452,7 @@ fn check_release(
 fn effective_head(
     record: &SourceRecordV2,
     head: Option<&DocumentHead>,
+    query: &Query,
     context: &AuthorizedContext,
     provider: bool,
 ) -> Result<Option<DocumentHead>, PortError> {
@@ -466,6 +465,8 @@ fn effective_head(
     if record.tombstone
         || !record_allowed(record, &context.principal, provider)
         || !head.allowed(&context.principal, provider)
+        || brain_contracts::source::patch_validity_for(&head.metadata, query.patch.as_deref())
+            .is_err()
     {
         return Ok(None);
     }

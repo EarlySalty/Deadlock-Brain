@@ -21,29 +21,22 @@ pub(super) fn validity_matches(record: &SourceRecordV2, validity: &Validity) -> 
         source::{origin_from_record, ORIGIN_METADATA_KEY},
         value::Observed,
     };
+    if brain_contracts::source::patch_validity_for(&record.metadata, Some(&validity.patch)).is_err()
+    {
+        return false;
+    }
     if record.metadata.contains_key(ORIGIN_METADATA_KEY) {
         let Ok(origin) = origin_from_record(record) else {
             return false;
         };
-        // An explicit reviewed projection can establish previously unknown game
-        // validity, but cannot override a contradictory known source patch/mode.
-        if matches!(origin.validity.patch, Observed::Known { value } if value != validity.patch)
-            || matches!(origin.validity.mode, Observed::Known { value } if value != validity.mode)
-        {
-            return false;
-        }
-        // C4 origin is authoritative. Legacy metadata can contain the JSON
-        // spelling "null" for unknown; it is not a literal game-patch pin.
-        return true;
+        // A reviewed projection can establish unknown validity, not override
+        // known source constraints. Patch semantics are shared with generic retrieval.
+        return !matches!(origin.validity.mode, Observed::Known { value } if value != validity.mode);
     }
     !record
         .metadata
-        .get("patch")
-        .is_some_and(|p| p != &validity.patch)
-        && !record
-            .metadata
-            .get("mode")
-            .is_some_and(|m| m != &validity.mode)
+        .get("mode")
+        .is_some_and(|m| m != &validity.mode)
 }
 pub(super) fn located_valid(value: &LocatedRevision) -> Result<(), PortError> {
     if !stable(&value.locator) || !stable(&value.parser_revision) {

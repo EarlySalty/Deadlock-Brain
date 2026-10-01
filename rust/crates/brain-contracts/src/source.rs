@@ -7,6 +7,10 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
+#[path = "source_patch.rs"]
+mod patch_validity;
+pub use patch_validity::patch_validity_for;
+
 pub const IR_VERSION: &str = "brain.ir.v1";
 pub const ORIGIN_METADATA_KEY: &str = "brain.origin";
 

@@ -126,16 +126,21 @@ pub(super) fn select<'a>(query: &Query, evidence: &'a [Evidence]) -> Option<&'a 
         let Some(provenance) = &item.provenance else {
             continue;
         };
-        if query.patch.as_ref().is_some_and(|patch| {
-            item.patch.as_ref() != Some(patch)
-                || provenance
-                    .metadata
-                    .get("patch")
-                    .is_some_and(|value| value != patch)
-        }) || query
-            .mode
+        // Unknown-patch facts remain potential competing assertions. They may
+        // prevent a direct answer, but cannot establish its requested patch.
+        if query
+            .patch
             .as_ref()
-            .is_some_and(|mode| provenance.metadata.get("mode") != Some(mode))
+            .is_some_and(|patch| item.patch.as_ref().is_some_and(|value| value != patch))
+            || brain_contracts::source::patch_validity_for(
+                &provenance.metadata,
+                query.patch.as_deref(),
+            )
+            .is_err()
+            || query
+                .mode
+                .as_ref()
+                .is_some_and(|mode| provenance.metadata.get("mode") != Some(mode))
         {
             continue;
         }
@@ -174,6 +179,13 @@ pub(super) fn select<'a>(query: &Query, evidence: &'a [Evidence]) -> Option<&'a 
         return None;
     }
     let fact = candidates.into_iter().next()?.0;
+    if query
+        .patch
+        .as_ref()
+        .is_some_and(|patch| fact.patch.as_ref() != Some(patch))
+    {
+        return None;
+    }
     if query_numbers.is_empty() {
         return Some(fact);
     }
