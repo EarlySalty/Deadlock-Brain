@@ -25,6 +25,7 @@ mod pg_entities;
 mod pg_insights;
 mod pg_patchnotes;
 mod pg_steam_news;
+mod steam_web_api;
 mod wiki_refresh;
 
 #[derive(Debug, Parser)]

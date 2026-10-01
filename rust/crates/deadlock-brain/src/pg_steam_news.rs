@@ -12,9 +12,12 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
+use crate::steam_web_api::{self, PgObservationJournal, SteamLedger};
+
 const SOURCE: &str = "steam_appnews";
 const IMPORTER: &str = "steam_appnews_pg";
 const APPNEWS_API: &str = "https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/";
+const STEAM_LEDGER_CALLER: &str = "deadlock-brain-steam-news";
 
 #[derive(Debug, Clone)]
 pub struct ImportSteamNewsOptions {
@@ -155,14 +158,30 @@ pub fn import_steam_news(http: &HttpClient, options: &ImportSteamNewsOptions) ->
     let start_date = NaiveDate::parse_from_str(&options.start_date, "%Y-%m-%d")
         .with_context(|| format!("ungueltiges --start-date: {}", options.start_date))?;
     let api_url = appnews_url(options.appid, options.count);
-    let response = http.get_json::<AppNewsResponse>(
-        &api_url,
-        HttpGetOptions {
-            cache_ttl_seconds: Some(options.cache_ttl_seconds),
-            timeout: Duration::from_secs(45),
-            ..HttpGetOptions::default()
-        },
-    )?;
+    let dsn = env::var(&options.dsn_env).map_err(|_| {
+        anyhow!(
+            "{} ist nicht gesetzt; DSN wird nicht ausgegeben.",
+            options.dsn_env
+        )
+    })?;
+    let mut client = Client::connect(&dsn, NoTls).map_err(|_| {
+        anyhow!("Konnte zentrale Postgres-DB nicht oeffnen; DSN wird nicht ausgegeben.")
+    })?;
+    let response = {
+        let mut journal = PgObservationJournal::open(&mut client)?;
+        steam_web_api::fetch(
+            http,
+            &SteamLedger::from_env(STEAM_LEDGER_CALLER),
+            &mut journal,
+            &api_url,
+            &HttpGetOptions {
+                cache_ttl_seconds: Some(options.cache_ttl_seconds),
+                timeout: Duration::from_secs(45),
+                ..HttpGetOptions::default()
+            },
+        )?
+        .json::<AppNewsResponse>()?
+    };
     let selected = select_items(
         response.appnews.newsitems,
         start_date,
@@ -182,15 +201,6 @@ pub fn import_steam_news(http: &HttpClient, options: &ImportSteamNewsOptions) ->
         ));
     }
 
-    let dsn = env::var(&options.dsn_env).map_err(|_| {
-        anyhow!(
-            "{} ist nicht gesetzt; DSN wird nicht ausgegeben.",
-            options.dsn_env
-        )
-    })?;
-    let mut client = Client::connect(&dsn, NoTls).map_err(|_| {
-        anyhow!("Konnte zentrale Postgres-DB nicht oeffnen; DSN wird nicht ausgegeben.")
-    })?;
     ensure_pg_schema(&mut client)?;
     let index = load_entity_index(&mut client)?;
     let prepared = prepare_patches(options.appid, selected, &index)?;
