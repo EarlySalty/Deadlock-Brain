@@ -1189,7 +1189,7 @@ struct PgSteamNewsArgs {
     gids: Vec<String>,
     #[arg(
         long = "dry-run",
-        help = "Nur Steam-News holen/parsen, keine PG-Verbindung, keine Schreibzugriffe."
+        help = "Kein fachlicher Import; Datenbankzugriff und Steam-Abrufjournal bleiben aktiv."
     )]
     dry_run: bool,
 }
@@ -1204,7 +1204,7 @@ struct PgImportPatchnoteArgs {
     dsn_env: String,
     #[arg(
         long = "dry-run",
-        help = "Nur Datensatz lesen/parsen; keine Schreibzugriffe in brain-Tabellen."
+        help = "Kein fachlicher Import; Datenbankzugriff und Steam-Abrufjournal bleiben aktiv."
     )]
     dry_run: bool,
 }
