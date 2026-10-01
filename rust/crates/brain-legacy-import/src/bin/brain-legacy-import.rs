@@ -20,6 +20,11 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+#[path = "../import_binding.rs"]
+mod import_binding;
+#[path = "../import_firstparty.rs"]
+mod import_firstparty;
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Endpoint {
@@ -726,6 +731,26 @@ async fn run_with_destination(
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).is_some_and(|arg| arg == "--firstparty-command") {
+        match import_firstparty::command(&args).await {
+            Ok(value) => println!("{value}"),
+            Err(error) => {
+                eprintln!("firstparty command import failed: {error}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+    if args.get(1).is_some_and(|arg| arg == "--bind-v1-config") {
+        match import_binding::bind_command(&args) {
+            Ok(()) => println!("V1_IMPORT_BOUND"),
+            Err(error) => {
+                eprintln!("V1 import binding failed: {error}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     let (mode, path) = match command(&args) {
         Some(command) => command,
         None => {
