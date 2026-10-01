@@ -336,6 +336,7 @@ dependencies = [
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
+ "zeroize",
 ]
 
 [[package]]
@@ -383,6 +384,7 @@ dependencies = [
  "brain-contracts",
  "brain-ingestion",
  "brain-storage",
+ "dl-token-secrets",
  "hex",
  "serde",
  "serde_json",
@@ -390,6 +392,7 @@ dependencies = [
  "sqlx",
  "thiserror 1.0.69",
  "tokio",
+ "zeroize",
 ]
 
 [[package]]
@@ -430,6 +433,7 @@ dependencies = [
  "dbrain-reasoner",
  "dbrain-retrieval",
  "dbrain-sources",
+ "dl-token-secrets",
  "reqwest",
  "serde",
  "serde_json",
@@ -883,6 +887,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tb-crypto",
+ "tempfile",
  "tokio",
  "zeroize",
 ]

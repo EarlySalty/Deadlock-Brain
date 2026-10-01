@@ -14,6 +14,7 @@ brain-storage = { path = "../brain-storage" }
 dbrain-reasoner = { path = "../dbrain-reasoner" }
 dbrain-retrieval = { path = "../dbrain-retrieval" }
 dbrain-sources = { path = "../dbrain-sources" }
+dl-token-secrets = { path = "../../../../Deadlock-Bots/rust/crates/dl-token-secrets" }
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

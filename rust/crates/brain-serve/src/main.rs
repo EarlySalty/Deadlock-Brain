@@ -1,35 +1,51 @@
 #![forbid(unsafe_code)]
 use brain_serve::{log_event, Config, Error, Prepared, Secrets};
-use std::{path::PathBuf, process::ExitCode};
+use std::{
+    path::PathBuf,
+    process::ExitCode,
+    time::{Duration, Instant},
+};
 
-fn config_path() -> Result<Option<PathBuf>, Error> {
+fn config_paths() -> Result<Option<(PathBuf, PathBuf)>, Error> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     match args.as_slice() {
         [arg] if arg == "--help" || arg == "-h" => {
-            println!("brain-serve --config /path/to/brain-serve.json\n\nWithout --config, BRAIN_SERVE_CONFIG is required.\nSecrets are read only from environment names declared in the configuration.\nGET /healthz, GET /readyz, POST /v1/answer. SIGTERM/SIGINT drain the service.");
+            println!("brain-serve --config /pfad/brain-serve.json --infisical-config /pfad/infisical.json\n\nBeide normalen Konfigurationsdateien sind ausdrücklich anzugeben. Geheimnisse kommen aus dem vorhandenen Infisical-Snapshot. Die historischen *_env-Felder benennen dort Geheimnisse, keine Umgebungsvariablen.\nGET /healthz, GET /readyz, POST /v1/answer. SIGTERM/SIGINT beenden den Dienst geordnet.");
             Ok(None)
         }
         [arg] if arg == "--version" => {
             println!("brain-serve {}", env!("CARGO_PKG_VERSION"));
             Ok(None)
         }
-        [arg, path] if arg == "--config" && !path.is_empty() => Ok(Some(path.into())),
-        [] => std::env::var_os("BRAIN_SERVE_CONFIG")
-            .filter(|p| !p.is_empty())
-            .map(PathBuf::from)
-            .map(Some)
-            .ok_or(Error::ConfigMissing),
+        [config, path, infisical, secret_path]
+            if config == "--config"
+                && infisical == "--infisical-config"
+                && !path.is_empty()
+                && !secret_path.is_empty() =>
+        {
+            Ok(Some((path.into(), secret_path.into())))
+        }
+        [infisical, secret_path, config, path]
+            if config == "--config"
+                && infisical == "--infisical-config"
+                && !path.is_empty()
+                && !secret_path.is_empty() =>
+        {
+            Ok(Some((path.into(), secret_path.into())))
+        }
+        [] => Err(Error::ConfigMissing),
         _ => Err(Error::Arguments),
     }
 }
 
 fn execute() -> Result<(), Error> {
-    let Some(path) = config_path()? else {
+    let Some((path, infisical_path)) = config_paths()? else {
         return Ok(());
     };
     let config = Config::load(&path)?;
-    let secrets = Secrets::from_environment(&config)?;
-    let prepared = Prepared::new(config, secrets)?;
+    let deadline = Instant::now() + Duration::from_millis(config.timeouts.startup_ms);
+    let secrets = Secrets::load_until(&config, &infisical_path, deadline)?;
+    let prepared = Prepared::new_until(config, secrets, deadline)?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .max_blocking_threads(66)

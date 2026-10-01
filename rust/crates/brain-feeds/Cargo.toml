@@ -8,6 +8,7 @@ name = "brain_feeds"
 path = "src/lib.rs"
 
 [dependencies]
+zeroize = "1"
 brain-contracts = { path = "../brain-contracts" }
 brain-ingestion = { path = "../brain-ingestion" }
 brain-storage = { path = "../brain-storage" }

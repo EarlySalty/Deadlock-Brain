@@ -34,6 +34,7 @@ pub struct Postgres {
     pub username: String,
     pub database: String,
     pub auth: DatabaseAuth,
+    /// Historical JSON key; the value is an Infisical secret name, never an ENV lookup.
     pub password_env: Option<String>,
     pub max_connections: u32,
 }
@@ -58,6 +59,7 @@ pub struct Provider {
     pub kind: ProviderKind,
     pub base_url: String,
     pub model: String,
+    /// Historical JSON key; the value names the explicit Infisical snapshot entry.
     pub api_key_env: String,
     pub retry_attempts: usize,
     pub retry_backoff_ms: u64,
@@ -146,6 +148,7 @@ pub struct Analytics {
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Credential {
+    /// Historical JSON key retained for config compatibility; names an Infisical secret.
     pub token_env: String,
     pub actor_id: String,
     pub channel: String,
@@ -161,7 +164,7 @@ fn identifier(value: &str, maximum: usize) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || b"._:/-".contains(&c))
 }
 
-fn env_name(value: &str) -> bool {
+fn secret_name(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128
         && value
@@ -225,7 +228,7 @@ impl Config {
         require(
             match pg.auth {
                 DatabaseAuth::Peer => pg.password_env.is_none(),
-                DatabaseAuth::Password => pg.password_env.as_deref().is_some_and(env_name),
+                DatabaseAuth::Password => pg.password_env.as_deref().is_some_and(secret_name),
             },
             "postgres_auth",
         )?;
@@ -255,7 +258,7 @@ impl Config {
                 && (endpoint.scheme() == "https" || (endpoint.scheme() == "http" && loopback))
                 && (loopback || p.pricing.is_some())
                 && identifier(&p.model, 512)
-                && env_name(&p.api_key_env)
+                && secret_name(&p.api_key_env)
                 && (1..=8).contains(&p.retry_attempts)
                 && p.retry_backoff_ms <= 10_000
                 && (128..=8 * 1024 * 1024).contains(&p.max_response_bytes),
@@ -332,7 +335,7 @@ impl Config {
         }
         for grant in &self.credentials {
             require(
-                env_name(&grant.token_env)
+                secret_name(&grant.token_env)
                     && names.insert(&grant.token_env)
                     && identifier(&grant.actor_id, 128)
                     && identifier(&grant.channel, 128)

@@ -34,9 +34,107 @@ fn help_does_not_require_configuration_or_credentials() {
         .output()
         .unwrap();
     assert!(output.status.success());
-    assert!(String::from_utf8(output.stdout)
-        .unwrap()
-        .contains("BRAIN_SERVE_CONFIG"));
+    let help = String::from_utf8(output.stdout).unwrap();
+    assert!(help.contains("--config"));
+    assert!(help.contains("--infisical-config"));
+    assert!(!help.contains("BRAIN_SERVE_CONFIG"));
+}
+
+#[test]
+fn ambient_config_is_not_a_startup_source() {
+    let output = Command::new(env!("CARGO_BIN_EXE_brain-serve"))
+        .env_clear()
+        .env("BRAIN_SERVE_CONFIG", "/ambient/DO-NOT-LOG-config.json")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let log = String::from_utf8(output.stderr).unwrap();
+    assert!(log.contains("config_missing"));
+    assert!(!log.contains("DO-NOT-LOG"));
+}
+
+#[test]
+fn unavailable_explicit_infisical_source_is_redacted_and_never_reaches_startup() {
+    let directory = tempfile::tempdir().unwrap();
+    let config_path = directory.path().join("service.json");
+    std::fs::write(&config_path, serde_json::to_vec(&config()).unwrap()).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_brain-serve"))
+        .env_clear()
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "--infisical-config",
+            "/missing/DO-NOT-LOG-source.json",
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let log = String::from_utf8(output.stderr).unwrap();
+    assert!(log.contains("secret_source_unavailable"));
+    assert!(!log.contains("DO-NOT-LOG"));
+    assert!(!log.contains("startup_checks"));
+}
+
+fn short_startup_config(budget_ms: u64) -> serde_json::Value {
+    let mut value = config();
+    value["timeouts"]["startup_ms"] = json!(budget_ms);
+    value["timeouts"]["postgres_connect_ms"] = json!(budget_ms);
+    value["timeouts"]["readiness_ms"] = json!(budget_ms);
+    value
+}
+
+#[test]
+fn private_snapshot_without_eof_cannot_hold_main_past_startup_deadline() {
+    let value = short_startup_config(200);
+    let started = Instant::now();
+    let mut child =
+        Service::spawn_with_snapshot_delay(&value, &credentials(), Duration::ZERO, true);
+    assert!(!child.wait(Duration::from_secs(1)).success());
+    assert!(started.elapsed() < Duration::from_secs(1));
+    let log = child.log();
+    assert!(log.contains("startup_timeout"), "{log}");
+    assert!(!log.contains("startup_checks"));
+    assert!(!log.contains("listening"));
+    assert!(!log.contains(common::API_TOKEN));
+}
+
+#[test]
+fn secret_delay_and_database_startup_share_one_absolute_budget() {
+    use std::os::unix::net::UnixListener;
+    let directory = tempfile::tempdir().unwrap();
+    let mut value = short_startup_config(800);
+    value["postgres"]["socket_dir"] = json!(directory.path());
+    let port = value["postgres"]["port"].as_u64().unwrap();
+    let listener = UnixListener::bind(directory.path().join(format!(".s.PGSQL.{port}"))).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let started = Instant::now();
+    let mut child = Service::spawn_with_snapshot_delay(
+        &value,
+        &credentials(),
+        Duration::from_millis(400),
+        false,
+    );
+    let connection = loop {
+        match listener.accept() {
+            Ok((connection, _)) => break connection,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                assert!(
+                    started.elapsed() < Duration::from_secs(1),
+                    "database startup never began"
+                );
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Err(error) => panic!("private startup socket failed: {error}"),
+        }
+    };
+    // The private peer remains silent while the original startup budget expires.
+    assert!(!child.wait(Duration::from_millis(700)).success());
+    assert!(started.elapsed() < Duration::from_millis(1100));
+    let log = child.log();
+    assert!(log.contains("startup_checks"), "{log}");
+    assert!(log.contains("startup_timeout"), "{log}");
+    assert!(!log.contains("listening"));
+    drop(connection);
 }
 
 #[test]

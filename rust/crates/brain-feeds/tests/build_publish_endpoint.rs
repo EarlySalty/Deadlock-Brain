@@ -11,7 +11,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-const TOKEN_ENV: &str = "BRAIN_FEEDS_ENDPOINT_USERINFO_TEST_TOKEN";
 const TOKEN: &str = "synthetic-endpoint-token";
 const TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -25,7 +24,6 @@ fn isolated(test_name: &str) -> bool {
 fn isolated_proxy(test_name: &str, expect_https_connect: bool) -> bool {
     const CHILD_ENV: &str = "BRAIN_FEEDS_ENDPOINT_TEST_CHILD";
     if std::env::var(CHILD_ENV).as_deref() == Ok(test_name) {
-        assert_eq!(std::env::var(TOKEN_ENV).unwrap(), TOKEN);
         return false;
     }
     let proxy = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -47,7 +45,6 @@ fn isolated_proxy(test_name: &str, expect_https_connect: bool) -> bool {
     child
         .args(["--exact", test_name, "--nocapture"])
         .env(CHILD_ENV, test_name)
-        .env(TOKEN_ENV, TOKEN)
         .env("NO_PROXY", "")
         .env("no_proxy", "");
     for name in [
@@ -83,7 +80,21 @@ fn isolated_proxy(test_name: &str, expect_https_connect: bool) -> bool {
 }
 
 fn client(endpoint: &str) -> Result<HttpBuildPublishClient, PublishError> {
-    HttpBuildPublishClient::new(endpoint, TOKEN_ENV, TIMEOUT)
+    HttpBuildPublishClient::new(endpoint, TOKEN, TIMEOUT)
+}
+
+#[test]
+fn constructor_requires_a_bounded_explicit_bearer_without_environment_lookup() {
+    for token in ["", " ", "has space", "line\nbreak", &"a".repeat(4097)] {
+        assert!(matches!(
+            HttpBuildPublishClient::new("http://127.0.0.1:9", token, TIMEOUT),
+            Err(PublishError::Unauthorized)
+        ));
+    }
+    assert!(
+        HttpBuildPublishClient::new("http://127.0.0.1:9", "synthetic-direct-token", TIMEOUT)
+            .is_ok()
+    );
 }
 
 #[test]

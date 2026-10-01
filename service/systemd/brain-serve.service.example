@@ -10,10 +10,10 @@ StartLimitBurst=3
 [Service]
 Type=simple
 WorkingDirectory=/opt/deadlock-brain-c1
-Environment=INFISICAL_CONFIG_FILE=%h/.config/deadlock-bots/infisical.conf
 LoadCredential=infisical-token:%h/.config/infisical-tokens/infisical-token-bots
-ExecStart=/opt/deadlock-brain-c1/bin/deadlock-brain-secret-exec --config %h/.config/deadlock-brain/infisical.json -- /opt/deadlock-brain-c1/bin/brain-serve --config %h/.config/deadlock-brain/brain-serve.json
-# secret-exec execs the Rust binary; signals are not trapped in a shell/Python bridge.
+# The normal Infisical config references credential_fd=5. %d is systemd's
+# credential directory; no environment config or exported secret snapshot.
+ExecStart=/bin/bash -c 'exec 5<"%d/infisical-token"; exec /opt/deadlock-brain-c1/bin/brain-serve --config "%h/.config/deadlock-brain/brain-serve.json" --infisical-config "%h/.config/deadlock-brain/infisical.json"'
 KillSignal=SIGTERM
 KillMode=control-group
 # Must exceed the configured timeouts.shutdown_ms (example: 12000 ms).

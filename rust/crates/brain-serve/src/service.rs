@@ -50,11 +50,21 @@ pub struct Prepared {
     credentials: CredentialRegistry,
     analytics: Option<Arc<AnalyticsRuntime>>,
     shutdown: Arc<Shutdown>,
+    startup_deadline: Instant,
 }
 
 impl Prepared {
     pub fn new(config: Config, secrets: Secrets) -> Result<Self, Error> {
         config.validate()?;
+        let deadline = Instant::now() + Duration::from_millis(config.timeouts.startup_ms);
+        Self::new_until(config, secrets, deadline)
+    }
+
+    pub fn new_until(config: Config, secrets: Secrets, deadline: Instant) -> Result<Self, Error> {
+        config.validate()?;
+        if Instant::now() >= deadline {
+            return Err(Error::StartupTimeout);
+        }
         // Ambient PG options would bypass the explicit timeout contract.
         if std::env::var_os("PGOPTIONS").is_some_and(|value| !value.is_empty()) {
             return Err(Error::ConfigInvalid("ambient_postgres_options"));
@@ -104,6 +114,9 @@ impl Prepared {
             deadline: Mutex::new(None),
             budget: Duration::from_millis(t.shutdown_ms),
         });
+        if Instant::now() >= deadline {
+            return Err(Error::StartupTimeout);
+        }
         Ok(Self {
             config,
             reader,
@@ -111,6 +124,7 @@ impl Prepared {
             credentials,
             analytics,
             shutdown,
+            startup_deadline: deadline,
         })
     }
 
@@ -204,6 +218,9 @@ fn log_pool_stats(stats: LocalPgPoolStats) {
 
 pub async fn run(prepared: &Prepared) -> Result<(), Error> {
     use tokio::signal::unix::{signal, SignalKind};
+    if Instant::now() >= prepared.startup_deadline {
+        return Err(Error::StartupTimeout);
+    }
     let mut term = signal(SignalKind::terminate()).map_err(|_| Error::Signal)?;
     let mut interrupt = signal(SignalKind::interrupt()).map_err(|_| Error::Signal)?;
     let shutdown_state = prepared.shutdown.clone();
@@ -216,7 +233,7 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
     let health = tokio::select! {
         biased;
         _ = &mut shutdown => return Ok(()),
-        result = tokio::time::timeout(Duration::from_millis(prepared.config.timeouts.startup_ms), initialize(prepared)) => {
+        result = tokio::time::timeout(prepared.startup_deadline.saturating_duration_since(Instant::now()), initialize(prepared)) => {
             result.map_err(|_| Error::StartupTimeout)??
         }
     };
@@ -259,9 +276,21 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
                 )),
         );
     }
-    let listener = tokio::net::TcpListener::bind(prepared.config.bind)
-        .await
-        .map_err(|_| Error::Bind)?;
+    if Instant::now() >= prepared.startup_deadline {
+        return Err(Error::StartupTimeout);
+    }
+    let listener = tokio::time::timeout(
+        prepared
+            .startup_deadline
+            .saturating_duration_since(Instant::now()),
+        tokio::net::TcpListener::bind(prepared.config.bind),
+    )
+    .await
+    .map_err(|_| Error::StartupTimeout)?
+    .map_err(|_| Error::Bind)?;
+    if Instant::now() >= prepared.startup_deadline {
+        return Err(Error::StartupTimeout);
+    }
     let address = listener.local_addr().map_err(|_| Error::Bind)?;
     eprintln!(
         "{}",

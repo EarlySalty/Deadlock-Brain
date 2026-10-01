@@ -1,12 +1,12 @@
 #![allow(dead_code)]
-//! Test-only process harness. Each child has a cleared environment and only synthetic credentials.
+//! Test-only process harness. Synthetic snapshots cross a private anonymous pipe, never files.
 use serde_json::{json, Value};
 use std::{
     fs::{File, OpenOptions},
     io::Write,
     os::unix::fs::OpenOptionsExt,
     path::PathBuf,
-    process::{Child, Command, ExitStatus, Stdio},
+    process::{Child, ChildStdin, Command, ExitStatus, Stdio},
     thread,
     time::{Duration, Instant},
 };
@@ -37,10 +37,20 @@ pub struct Service {
     child: Child,
     log: PathBuf,
     _directory: tempfile::TempDir,
+    _snapshot_pipe: Option<ChildStdin>,
 }
 
 impl Service {
     pub fn spawn(config: &Value, environment: &[(&str, &str)]) -> Self {
+        Self::spawn_with_snapshot_delay(config, environment, Duration::ZERO, false)
+    }
+
+    pub fn spawn_with_snapshot_delay(
+        config: &Value,
+        environment: &[(&str, &str)],
+        delay: Duration,
+        keep_open: bool,
+    ) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let config_path = directory.path().join("service.json");
         let mut config_file = OpenOptions::new()
@@ -52,21 +62,68 @@ impl Service {
         config_file
             .write_all(&serde_json::to_vec_pretty(config).unwrap())
             .unwrap();
+        let infisical_path = directory.path().join("infisical.json");
+        // This normal config contains only source coordinates and a pipe FD.
+        // The existing shared loader validates FIFO type, bounds and EOF.
+        std::fs::write(
+            &infisical_path,
+            serde_json::to_vec(&json!({
+                "project_id": "synthetic-project",
+                "environment": "synthetic",
+                "secret_path": "/",
+                "socket_path": directory.path().join("unused-infisical.sock"),
+                "secret_values_fd": 3
+            }))
+            .unwrap(),
+        )
+        .unwrap();
         let log = directory.path().join("service.log");
         let output = File::create(&log).unwrap();
-        let child = Command::new(env!("CARGO_BIN_EXE_brain-serve"))
+        // Test-only shell duplicates the anonymous stdin pipe into the explicit
+        // FD without unsafe pre_exec or process-global descriptor mutations.
+        let mut child = Command::new("/bin/bash")
+            .args(["-c", "exec 3<&0; exec \"$@\"", "brain-serve-fixture"])
+            .arg(env!("CARGO_BIN_EXE_brain-serve"))
+            .arg("--config")
+            .arg(&config_path)
+            .arg("--infisical-config")
+            .arg(&infisical_path)
             .env_clear()
-            .env("BRAIN_SERVE_CONFIG", &config_path)
-            .envs(environment.iter().copied())
-            .stdin(Stdio::null())
+            // Hostile ambient values deliberately differ from the snapshot and
+            // cannot supply missing credentials or override explicit config.
+            .env("BRAIN_SERVE_CONFIG", "/ignored/ambient-config.json")
+            .env("BRAIN_SERVE_PROVIDER_API_KEY", "synthetic-ambient-provider")
+            .env("BRAIN_SERVE_API_TOKEN", "synthetic-ambient-api")
+            .env("BRAIN_SERVE_PG_PASSWORD", "synthetic-ambient-password")
+            .envs(environment.iter().copied().filter(|(name, _)| {
+                matches!(
+                    *name,
+                    "DATABASE_URL" | "PGHOST" | "PGPASSWORD" | "BRAIN_LEGACY_URL"
+                )
+            }))
+            .stdin(Stdio::piped())
             .stdout(Stdio::from(output.try_clone().unwrap()))
             .stderr(Stdio::from(output))
             .spawn()
             .unwrap();
+        let snapshot: std::collections::BTreeMap<_, _> = environment.iter().copied().collect();
+        let raw = serde_json::to_vec(&snapshot).unwrap();
+        assert!(
+            raw.len() <= 4096,
+            "synthetic snapshot must fit the private pipe atomically"
+        );
+        let mut pipe = child.stdin.take().unwrap();
+        if let Err(error) = pipe.write_all(&raw) {
+            // Config rejection may close stdin before it reads any snapshot.
+            assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe);
+        }
+        thread::sleep(delay);
+        let snapshot_pipe = keep_open.then_some(pipe);
         Self {
             child,
             log,
             _directory: directory,
+            _snapshot_pipe: snapshot_pipe,
         }
     }
 

@@ -1,7 +1,12 @@
-//! Environment is the sole secret port, compatible with deadlock-brain-secret-exec.
+//! One explicit Infisical snapshot supplies the configured secret references.
 use crate::{config::DatabaseAuth, Config, Error};
 use brain_policy::{AuthGrant, CredentialRegistry};
-use std::collections::BTreeSet;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+    sync::mpsc,
+    time::Instant,
+};
 
 pub struct Secrets {
     pub(crate) provider_key: String,
@@ -33,11 +38,54 @@ fn required(
 }
 
 impl Secrets {
-    pub fn from_environment(config: &Config) -> Result<Self, Error> {
-        Self::load(config, |name| std::env::var(name).ok())
+    /// The shared loader can synchronously poll a private pipe. Isolate startup
+    /// loading from the caller's absolute deadline without a runtime shutdown join.
+    pub fn load_until(config: &Config, path: &Path, deadline: Instant) -> Result<Self, Error> {
+        config.validate()?;
+        if Instant::now() >= deadline {
+            return Err(Error::StartupTimeout);
+        }
+        let config = config.clone();
+        let path = path.to_owned();
+        let (sender, receiver) = mpsc::sync_channel(1);
+        std::thread::Builder::new()
+            .name("brain-secret-startup".into())
+            .spawn(move || {
+                let result = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .map_err(|_| Error::Runtime)
+                    .and_then(|runtime| runtime.block_on(Self::from_infisical(&config, &path)));
+                // An expired caller closes the receiver; dropping this result then
+                // disposes of the snapshot instead of logging or retaining it.
+                let _ = sender.send(result);
+            })
+            .map_err(|_| Error::Runtime)?;
+        let result = receiver
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .map_err(|error| match error {
+                mpsc::RecvTimeoutError::Timeout => Error::StartupTimeout,
+                mpsc::RecvTimeoutError::Disconnected => Error::SecretSource,
+            })?;
+        if Instant::now() >= deadline {
+            return Err(Error::StartupTimeout);
+        }
+        result
     }
 
-    /// Injectable lookup avoids mutating process-global environment in parallel tests.
+    pub async fn from_infisical(config: &Config, path: &Path) -> Result<Self, Error> {
+        config.validate()?;
+        let snapshot: BTreeMap<_, _> = dl_token_secrets::values(path)
+            .await
+            .map_err(|_| Error::SecretSource)?
+            .into_iter()
+            .collect();
+        Self::load(config, |name| {
+            snapshot.get(name).map(|value| value.as_str().to_owned())
+        })
+    }
+
+    /// Injectable lookup uses the same validation for runtime snapshots and synthetic tests.
     pub fn load(config: &Config, lookup: impl Fn(&str) -> Option<String>) -> Result<Self, Error> {
         config.validate()?;
         let provider_key = required(&lookup, &config.provider.api_key_env, "provider", true)?;

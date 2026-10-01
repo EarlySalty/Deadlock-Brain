@@ -108,7 +108,7 @@ impl BuildPublishPort for FixtureBuildPublish {
 
 pub struct HttpBuildPublishClient {
     publish_url: reqwest::Url,
-    token: String,
+    token: zeroize::Zeroizing<String>,
     client: reqwest::blocking::Client,
 }
 
@@ -116,7 +116,7 @@ impl HttpBuildPublishClient {
     /// HTTPS or loopback HTTP only, without userinfo, query or fragment.
     /// Default ports and explicit nonzero ports are supported. The base path
     /// is preserved; an optional trailing slash does not duplicate separators.
-    pub fn new(base_url: &str, token_env: &str, timeout: Duration) -> Result<Self, PublishError> {
+    pub fn new(base_url: &str, token: &str, timeout: Duration) -> Result<Self, PublishError> {
         let invalid_endpoint = || PublishError::InvalidRequest("invalid publish endpoint".into());
         let mut publish_url = reqwest::Url::parse(base_url).map_err(|_| invalid_endpoint())?;
         // Match the BrainClient/provider rule against the parsed host, never
@@ -145,10 +145,13 @@ impl HttpBuildPublishClient {
             .map_err(|_| invalid_endpoint())?
             .pop_if_empty()
             .extend(["builds", "v1", "publish"]);
-        let token = std::env::var(token_env)
-            .ok()
-            .filter(|t| !t.trim().is_empty())
-            .ok_or(PublishError::Unauthorized)?;
+        if token.is_empty()
+            || token.len() > 4096
+            || !token.bytes().all(|byte| byte.is_ascii_graphic())
+        {
+            return Err(PublishError::Unauthorized);
+        }
+        let token = zeroize::Zeroizing::new(token.to_owned());
         let mut client = reqwest::blocking::Client::builder()
             .timeout(timeout)
             .redirect(reqwest::redirect::Policy::none());
@@ -209,7 +212,7 @@ impl BuildPublishPort for HttpBuildPublishClient {
         let response = self
             .client
             .post(self.publish_url.clone())
-            .bearer_auth(&self.token)
+            .bearer_auth(self.token.as_str())
             .header("Idempotency-Key", &request.request_id)
             .json(request)
             .send()
@@ -226,7 +229,7 @@ impl BuildPublishPort for HttpBuildPublishClient {
         let response = self
             .client
             .get(url)
-            .bearer_auth(&self.token)
+            .bearer_auth(self.token.as_str())
             .send()
             .map_err(|e| PublishError::Unavailable(e.to_string()))?;
         self.read(response, request_id, None)
@@ -352,13 +355,8 @@ mod tests {
             (409, "{}".into()),
             (401, "{}".into()),
         ]);
-        std::env::set_var("BRAIN_FEEDS_TEST_PUBLISH_TOKEN", "fixture-token");
-        let client = HttpBuildPublishClient::new(
-            &address,
-            "BRAIN_FEEDS_TEST_PUBLISH_TOKEN",
-            Duration::from_secs(5),
-        )
-        .unwrap();
+        let client =
+            HttpBuildPublishClient::new(&address, "fixture-token", Duration::from_secs(5)).unwrap();
         assert_eq!(
             client.submit(&req).unwrap().state,
             BuildPublishState::Queued
@@ -376,7 +374,7 @@ mod tests {
         assert!(seen[1].starts_with("GET /builds/v1/publish/r2 "));
         assert!(HttpBuildPublishClient::new(
             "http://example.invalid",
-            "BRAIN_FEEDS_TEST_PUBLISH_TOKEN",
+            "fixture-token",
             Duration::from_secs(1)
         )
         .is_err());
