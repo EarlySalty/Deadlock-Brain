@@ -11,11 +11,14 @@ use axum::{
 };
 use brain_client::BrainClient;
 use brain_contracts::{
+    source::{GameValidity, OriginArtifact, SourceIdentity, SourcePolicy, SourceRevision},
+    value::{Observed, UnknownReason},
     AnswerProfile, AnswerStatus, CorpusRelease, Query, SourceRecordV2, SourceVisibility,
 };
 use brain_storage::PgStore;
 use common::{Service, API_TOKEN, OTHER_TOKEN};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -346,6 +349,61 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
             .or_insert_with(BTreeMap::new)
             .insert(record.logical_id, record.revision);
     }
+    let mut egress_probe = SourceRecordV2 {
+        source_id: "fixture-egress-only".into(),
+        logical_id: "probe/health".into(),
+        revision: 1,
+        content: "Hero: Egressprobe\nmax health: 777\n".into(),
+        content_hash: String::new(),
+        visibility: SourceVisibility::Public,
+        allowed_scopes: BTreeSet::from(["docs.public".into()]),
+        tombstone: false,
+        valid_from: None,
+        valid_to: None,
+        metadata: BTreeMap::from([
+            ("kind".into(), "fact".into()),
+            ("name".into(), "Egressprobe".into()),
+            ("field".into(), "max health".into()),
+        ]),
+    };
+    egress_probe.content_hash = format!("{:x}", Sha256::digest(egress_probe.content.as_bytes()));
+    let mut egress_origin = OriginArtifact {
+        identity: SourceIdentity {
+            source_id: egress_probe.source_id.clone(),
+            logical_id: egress_probe.logical_id.clone(),
+        },
+        source_revision: SourceRevision::Api {
+            api_version: "scratch.v1".into(),
+            original_revision: Some("fixture-1".into()),
+        },
+        raw_sha256: egress_probe.content_hash.clone(),
+        locator: "fixture://egress-only".into(),
+        parser_revision: "scratch.v1".into(),
+        parser_family: "scratch".into(),
+        schema_version: Observed::known("brain.ir.v1".into()),
+        schema_sha256: Observed::unknown(UnknownReason::NotPresent),
+        retrieved_at: Observed::unknown(UnknownReason::NotPresent),
+        source_time: Observed::unknown(UnknownReason::NotPresent),
+        language: Observed::known("de".into()),
+        origin_artifacts: BTreeSet::new(),
+        derivation_family: Observed::unknown(UnknownReason::NotPresent),
+        policy: SourcePolicy {
+            visibility: egress_probe.visibility,
+            allowed_scopes: egress_probe.allowed_scopes.clone(),
+            authorization_ref: Observed::known("scratch-purpose-approval".into()),
+            license: Observed::unknown(UnknownReason::NotPresent),
+            publication_allowed: true,
+            provider_egress_allowed: true,
+            raw_retention_allowed: true,
+        },
+        validity: GameValidity::unknown(),
+    };
+    egress_origin.bind_record(&mut egress_probe).unwrap();
+    store.apply(&egress_probe).await.unwrap();
+    source_revisions.insert(
+        egress_probe.source_id.clone(),
+        BTreeMap::from([(egress_probe.logical_id.clone(), 1)]),
+    );
     let release = CorpusRelease {
         release_id: "pilot-r1".into(),
         knowledge_version: "pilot-knowledge-v1".into(),
@@ -988,6 +1046,98 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
         "bounded pool wait was not observed: {stats}"
     );
     eprintln!("{}", json!({"event": "db_pool_metrics", "stats": stats}));
+
+    // Reuse a real process, answer cache, lexical index and immutable release pin.
+    // Publication remains allowed: only canonical provider egress is withdrawn.
+    let mut warm_config = config.clone();
+    warm_config["kernel"]["cache_entries"] = json!(8);
+    warm_config["kernel"]["cache_ttl_ms"] = json!(60_000);
+    let mut warm_service = Service::spawn(&warm_config, &environment);
+    let warm_pid = warm_service.pid();
+    let warm_address = warm_service.address();
+    common::assert_ready(&warm_address);
+    let mut warm_query = query("egress-only-warm");
+    warm_query.text = "Egressprobe max health 777".into();
+    let calls_before = provider.calls.load(Ordering::SeqCst);
+    let positive = ask(&warm_address, API_TOKEN, warm_query.clone())
+        .await
+        .unwrap();
+    assert_eq!(positive.status, AnswerStatus::Answered);
+    assert_eq!(positive.request_id, warm_query.request_id);
+    assert_eq!(positive.knowledge_release, release.release_id);
+    assert_eq!(positive.citations.len(), 1);
+    let chunk_identity = serde_json::to_vec(&(
+        &release.release_id,
+        &egress_probe.source_id,
+        &egress_probe.logical_id,
+        egress_probe.revision,
+        &egress_probe.content_hash,
+        "utf8-window-v1-1024-overlap192",
+        0usize,
+        egress_probe.content.len(),
+    ))
+    .unwrap();
+    let evidence_id = format!("ev-{:x}", Sha256::digest(chunk_identity));
+    let expected_citation = format!("cite-{:x}", Sha256::digest(evidence_id.as_bytes()));
+    assert_eq!(positive.citations[0].citation_id, expected_citation);
+    assert!(provider.calls.load(Ordering::SeqCst) > calls_before);
+    let calls_warm = provider.calls.load(Ordering::SeqCst);
+    let mut fact = warm_query.clone();
+    fact.request_id = "egress-only-fact".into();
+    fact.profile = AnswerProfile::Fact;
+    assert_eq!(
+        ask(&warm_address, API_TOKEN, fact.clone())
+            .await
+            .unwrap()
+            .status,
+        AnswerStatus::Answered
+    );
+    let old_policy = egress_origin.policy.clone();
+    egress_probe.revision = 2;
+    egress_origin.policy.provider_egress_allowed = false;
+    egress_origin.bind_record(&mut egress_probe).unwrap();
+    store.apply(&egress_probe).await.unwrap();
+    let mut expected_policy = old_policy;
+    expected_policy.provider_egress_allowed = false;
+    assert_eq!(egress_origin.policy, expected_policy);
+    let stored_head: Value = sqlx::query_scalar(
+        "SELECT record_json FROM brain.source_record_heads WHERE source_id=$1 AND logical_id=$2",
+    )
+    .bind(&egress_probe.source_id)
+    .bind(&egress_probe.logical_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let stored_head: SourceRecordV2 = serde_json::from_value(stored_head).unwrap();
+    assert_eq!(stored_head, egress_probe);
+    assert_eq!(
+        brain_contracts::source::origin_from_record(&stored_head)
+            .unwrap()
+            .policy,
+        expected_policy
+    );
+    let denied = ask(&warm_address, API_TOKEN, warm_query).await.unwrap();
+    assert_eq!(denied.status, AnswerStatus::UnauthorizedEvidence);
+    assert_eq!(denied.request_id, "egress-only-warm");
+    assert_eq!(denied.knowledge_release, release.release_id);
+    let public_fact = ask(&warm_address, API_TOKEN, fact).await.unwrap();
+    assert_eq!(public_fact.status, AnswerStatus::Answered);
+    assert_eq!(public_fact.request_id, "egress-only-fact");
+    assert_eq!(public_fact.knowledge_release, release.release_id);
+    assert_eq!(public_fact.citations.len(), 1);
+    assert_eq!(public_fact.citations[0].citation_id, expected_citation);
+    assert!(public_fact.text.contains("777"));
+    assert_eq!(warm_service.pid(), warm_pid);
+    assert_eq!(provider.calls.load(Ordering::SeqCst), calls_warm);
+    eprintln!(
+        "{}",
+        json!({"event":"warm_egress_only", "release":release.release_id,
+        "pid":warm_pid,"publication_allowed":true,"provider_egress_allowed":false,
+        "provider_calls_before":calls_before,"provider_calls_warm":calls_warm,
+        "provider_calls_after":provider.calls.load(Ordering::SeqCst)})
+    );
+    count = calls_warm;
+    warm_service.stop();
 
     // Persisted ownership survives a real process restart, unlike the former in-test policy.
     let mut service = Service::spawn(&config, &environment);
