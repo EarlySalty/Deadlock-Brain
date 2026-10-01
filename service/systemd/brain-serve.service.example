@@ -22,12 +22,16 @@ Restart=on-failure
 RestartSec=5
 UMask=0077
 NoNewPrivileges=yes
-PrivateTmp=yes
-PrivateDevices=yes
-ProtectSystem=strict
-ProtectHome=read-only
-ProtectKernelTunables=yes
-ProtectControlGroups=yes
+# Preserve host root's UID mapping for the existing Infisical Unix transport,
+# which requires socket ownership by UID 0. User-unit mount sandboxes can remap it.
+PrivateUsers=no
+PrivateTmp=no
+PrivateDevices=no
+ProtectSystem=no
+ProtectHome=no
+ProtectKernelTunables=no
+ProtectControlGroups=no
+ProtectProc=default
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 LockPersonality=yes
 StandardOutput=journal
