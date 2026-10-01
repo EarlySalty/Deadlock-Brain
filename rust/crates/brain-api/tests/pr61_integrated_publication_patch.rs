@@ -145,8 +145,62 @@ impl AnswerProviderPort for NoProvider {
         panic!("fact-only integration case must not call a provider");
     }
 }
+struct CountingProvider(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+impl AnswerProviderPort for CountingProvider {
+    fn answer(
+        &self,
+        _: &Query,
+        _: &AuthorizedContext,
+        evidence: &[Evidence],
+    ) -> Result<ProviderAnswer, PortError> {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(evidence.len(), 1);
+        assert!(evidence[0].content.contains("650"));
+        Ok(ProviderAnswer {
+            text: "Fixture health: 650".into(),
+            cited_evidence_ids: vec![evidence[0].evidence_id.clone()],
+            usage: brain_contracts::Usage {
+                network_rounds: 1,
+                ..brain_contracts::Usage::default()
+            },
+        })
+    }
+}
 #[tokio::test]
-async fn internal_cache_cannot_publish_an_unpublishable_canonical_p1_fact() {
+async fn proven_internal_explain_cache_hit_cannot_be_reused_for_publication() {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    let store = repository(vec![fact("internal-p1", 650, false, Some("p1"))]).await;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let kernel = CachedKernel::new(
+        Kernel::new(
+            ReleaseRetriever::new(store, 10),
+            CountingProvider(calls.clone()),
+        ),
+        8,
+        Duration::from_secs(60),
+    );
+    let mut request = query("internal-explain-warmup");
+    request.profile = AnswerProfile::Explain;
+    let first = kernel.answer(&request, &internal_context(&request));
+    assert_eq!(first.status, AnswerStatus::Answered);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    request.request_id = "internal-explain-cache-hit".into();
+    let second = kernel.answer(&request, &internal_context(&request));
+    assert_eq!(second.status, AnswerStatus::Answered);
+    assert_eq!(second.text, first.text);
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "prove a real cache hit before crossing the publication boundary"
+    );
+    request.request_id = "external-explain-after-cache-hit".into();
+    assert_not_published(&public_answer(kernel, &request));
+}
+#[tokio::test]
+async fn internal_fact_read_does_not_grant_external_publication() {
     let store = repository(vec![fact("internal-p1", 650, false, Some("p1"))]).await;
     let kernel = CachedKernel::new(
         Kernel::new(ReleaseRetriever::new(store, 10), NoProvider),
