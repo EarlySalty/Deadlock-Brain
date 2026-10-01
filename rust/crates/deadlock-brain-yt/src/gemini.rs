@@ -78,6 +78,9 @@ fn response_timeout() -> u64 {
 pub fn learning_enabled() -> Result<bool> {
     Ok(config()?.learning_enabled)
 }
+pub(crate) fn infisical_config() -> Result<PathBuf> {
+    Ok(config()?.infisical_config)
+}
 fn config() -> Result<Config> {
     let mut c: Config = serde_json::from_slice(&fs::read(
         crate::db::repo_root().join("config/gemini-browser.json"),
@@ -298,9 +301,9 @@ impl Browser {
                 bail!("credential origin redirected");
             }
             self.eval(&format!(
-                "({})({})",
+                "({})(JSON.parse({}))",
                 RESTORE,
-                serde_json::to_string(origin)?
+                serde_json::to_string(&serde_json::to_string(origin)?)?
             ))?;
             self.origins.push(url.to_owned());
         }
@@ -456,7 +459,7 @@ pub fn run_login() -> Result<()> {
         let (mut db, cipher) = rt.block_on(dbrain_session_store::connect_with_values(
             &c.infisical_config,
             &c.key_secret,
-            rt.block_on(crate::db::runtime_secrets())?,
+            rt.block_on(crate::db::runtime_secrets(&c.infisical_config))?,
         ))?;
         let envelope = dbrain_session_store::load(&mut db, &cipher, &c.account_id)?;
         let mut b = Browser::open(&c.browser_path)?;
@@ -515,7 +518,7 @@ pub fn analyze_url(url: &str, prompt: &str) -> std::result::Result<String, Gemin
             .block_on(dbrain_session_store::connect_with_values(
                 &c.infisical_config,
                 &c.key_secret,
-                rt.block_on(crate::db::runtime_secrets())
+                rt.block_on(crate::db::runtime_secrets(&c.infisical_config))
                     .map_err(|_| failure(GeminiErrorKind::Unknown))?,
             ))
             .map_err(|_| failure(GeminiErrorKind::Unknown))?;
@@ -573,7 +576,7 @@ pub fn send_pause_alert(kind: GeminiErrorKind, _message: &str) {
         if sent.len()>=2||sent.last().is_some_and(|t|now-*t<86400){status=json!({"sent":sent,"suppressed":repetitions+1});}
         else {
             let rt=tokio::runtime::Runtime::new()?;
-            let values=rt.block_on(crate::db::runtime_secrets())?;
+            let values=rt.block_on(crate::db::runtime_secrets(&c.infisical_config))?;
             let webhook=values.iter().find(|(k,_)|k==&name).context("webhook missing")?;
             reqwest::blocking::Client::builder().timeout(Duration::from_secs(15)).build()?.post(webhook.1.as_str()).json(&json!({"content":format!("⚠️ Deadlock-Brain YouTube-Lernen pausiert [{kind}]. Wiederholungen seit der letzten Meldung: {repetitions}."),"kind":kind.to_string()})).send()?.error_for_status()?;
             let mut sent=sent;sent.push(now);status=json!({"sent":sent,"suppressed":0});
@@ -588,8 +591,55 @@ pub fn send_pause_alert(kind: GeminiErrorKind, _message: &str) {
 
 // Playwright-compatible storage format. Preserve database schema, indexes and
 // explicit keys. Unsupported structured-clone types fail rather than being lost.
-const EXPORT: &str = r#"(async()=>{function safe(x){if(x===null||['string','number','boolean'].includes(typeof x))return x;if(Array.isArray(x))return x.map(safe);if(Object.getPrototypeOf(x)===Object.prototype){const o={};for(const [k,v]of Object.entries(x))o[k]=safe(v);return o;}throw Error('unsupported storage type');}const request=r=>new Promise((ok,no)=>{r.onsuccess=()=>ok(r.result);r.onerror=()=>no(Error('storage read failed'));});const databases=[];for(const d of await indexedDB.databases()){const db=await request(indexedDB.open(d.name));try{const stores=[];for(const name of db.objectStoreNames){const tx=db.transaction(name,'readonly');const store=tx.objectStore(name);const records=await new Promise((ok,no)=>{const values=[];const r=store.openCursor();r.onerror=()=>no(Error('cursor failed'));r.onsuccess=()=>{const c=r.result;if(c){values.push({key:safe(c.key),value:safe(c.value)});c.continue();}else ok(values);};});stores.push({name,keyPath:store.keyPath,autoIncrement:store.autoIncrement,indexes:[...store.indexNames].map(n=>{const i=store.index(n);return {name:n,keyPath:i.keyPath,unique:i.unique,multiEntry:i.multiEntry};}),records});}databases.push({name:d.name,version:db.version,stores});}finally{db.close();}}return {origin:location.origin,localStorage:Object.entries(localStorage).map(([name,value])=>({name,value})),indexedDB:databases};})()"#;
-const RESTORE: &str = r#"async(s)=>{for(const v of s.localStorage||[])localStorage.setItem(v.name,v.value);for(const d of s.indexedDB||[]){const db=await new Promise((ok,no)=>{const r=indexedDB.open(d.name,d.version);r.onerror=()=>no(Error('storage open failed'));r.onupgradeneeded=()=>{for(const st of d.stores){const store=r.result.createObjectStore(st.name,{keyPath:st.keyPath,autoIncrement:st.autoIncrement});for(const i of st.indexes)store.createIndex(i.name,i.keyPath,{unique:i.unique,multiEntry:i.multiEntry});}};r.onsuccess=()=>ok(r.result);});try{if(d.stores.length)await new Promise((ok,no)=>{const tx=db.transaction(d.stores.map(v=>v.name),'readwrite');tx.oncomplete=()=>ok();tx.onerror=tx.onabort=()=>no(Error('storage write failed'));for(const st of d.stores){const store=tx.objectStore(st.name);for(const record of st.records){if(st.keyPath===null)store.put(record.value,record.key);else store.put(record.value);}}});}finally{db.close();}}}"#;
+const EXPORT: &str = r#"(async()=>{
+function safe(x,seen=new Set()){
+    if(x===null||['string','boolean'].includes(typeof x))return x;
+    if(typeof x==='number'){
+        if(!Number.isFinite(x)||Object.is(x,-0))throw Error('unsupported storage number');
+        return x;
+    }
+    if(typeof x!=='object'||seen.has(x))throw Error('unsupported storage type');
+    seen.add(x);
+    let result;
+    if(Array.isArray(x)){
+        const keys=Reflect.ownKeys(x);
+        if(keys.length!==x.length+1||keys.some(k=>k!=='length'&&(!/^(0|[1-9][0-9]*)$/.test(k)||Number(k)>=x.length)))throw Error('unsupported storage array');
+        result=[];
+        for(let i=0;i<x.length;i++){
+            if(!Object.hasOwn(x,i))throw Error('unsupported sparse storage array');
+            result.push(safe(x[i],seen));
+        }
+    }else if(Object.getPrototypeOf(x)===Object.prototype){
+        result=Object.create(null);
+        for(const k of Reflect.ownKeys(x)){
+            if(typeof k!=='string'||!Object.prototype.propertyIsEnumerable.call(x,k))throw Error('unsupported storage property');
+            result[k]=safe(x[k],seen);
+        }
+    }else throw Error('unsupported storage type');
+    // JSON cannot preserve cycles or shared object identity; retain all seen
+    // references for this value and reject a repeated reference explicitly.
+    return result;
+}
+const request=r=>new Promise((ok,no)=>{r.onsuccess=()=>ok(r.result);r.onerror=()=>no(Error('storage read failed'));});
+const databases=[];
+for(const d of await indexedDB.databases()){
+    const db=await request(indexedDB.open(d.name));
+    try{
+        const stores=[];
+        for(const name of db.objectStoreNames){
+            const tx=db.transaction(name,'readonly');const store=tx.objectStore(name);
+            // IndexedDB exposes no non-mutating read of the current generator.
+            // Reject before persistence instead of silently resetting it.
+            if(store.autoIncrement)throw Error('unsupported storage key generator');
+            const records=await new Promise((ok,no)=>{const values=[];const r=store.openCursor();r.onerror=()=>no(Error('cursor failed'));r.onsuccess=()=>{const c=r.result;if(c){try{values.push({key:safe(c.key),value:safe(c.value)});c.continue();}catch(e){no(e);}}else ok(values);};});
+            stores.push({name,keyPath:store.keyPath,autoIncrement:false,indexes:[...store.indexNames].map(n=>{const i=store.index(n);return {name:n,keyPath:i.keyPath,unique:i.unique,multiEntry:i.multiEntry};}),records});
+        }
+        databases.push({name:d.name,version:db.version,stores});
+    }finally{db.close();}
+}
+return {origin:location.origin,localStorage:Object.entries(localStorage).map(([name,value])=>({name,value})),indexedDB:databases};
+})()"#;
+const RESTORE: &str = r#"async(s)=>{for(const d of s.indexedDB||[])for(const st of d.stores)if(st.autoIncrement)throw Error('unsupported storage key generator');for(const v of s.localStorage||[])localStorage.setItem(v.name,v.value);for(const d of s.indexedDB||[]){const db=await new Promise((ok,no)=>{const r=indexedDB.open(d.name,d.version);r.onerror=()=>no(Error('storage open failed'));r.onupgradeneeded=()=>{for(const st of d.stores){const store=r.result.createObjectStore(st.name,{keyPath:st.keyPath,autoIncrement:false});for(const i of st.indexes)store.createIndex(i.name,i.keyPath,{unique:i.unique,multiEntry:i.multiEntry});}};r.onsuccess=()=>ok(r.result);});try{if(d.stores.length)await new Promise((ok,no)=>{const tx=db.transaction(d.stores.map(v=>v.name),'readwrite');tx.oncomplete=()=>ok();tx.onerror=tx.onabort=()=>no(Error('storage write failed'));for(const st of d.stores){const store=tx.objectStore(st.name);for(const record of st.records){if(st.keyPath===null)store.put(record.value,record.key);else store.put(record.value);}}});}finally{db.close();}}}"#;
 
 #[cfg(test)]
 mod tests {
@@ -611,7 +661,13 @@ mod tests {
         let mut first = Browser::open(&browser_path()).unwrap();
         first.navigate(&url).unwrap();
         first.eval(r#"(async()=>{localStorage.setItem('synthetic','fixture');await new Promise((ok,no)=>{const r=indexedDB.open('synthetic-db',2);r.onupgradeneeded=()=>{const s=r.result.createObjectStore('records',{keyPath:['first','second']});s.createIndex('idx','label',{unique:false,multiEntry:false});};r.onsuccess=()=>{const db=r.result;const tx=db.transaction('records','readwrite');tx.objectStore('records').put({first:'a',second:'b',label:'synthetic'});tx.oncomplete=()=>{db.close();ok();};tx.onerror=()=>no(Error('fixture failed'));};r.onerror=()=>no(Error('fixture failed'));});return true;})()"#).unwrap();
+        first.eval(r#"(async()=>{await new Promise((ok,no)=>{const r=indexedDB.open('synthetic-db',2);r.onsuccess=()=>{const db=r.result;const tx=db.transaction('records','readwrite');const v=JSON.parse('{"first":"proto","second":"own","__proto__":{"value":"preserved"}}');tx.objectStore('records').put(v);tx.oncomplete=()=>{db.close();ok();};tx.onerror=()=>no(Error('fixture failed'));};});return true;})()"#).unwrap();
         let state = first.eval(EXPORT).unwrap();
+        assert!(state["indexedDB"][0]["stores"][0]["records"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|record| record["value"]["__proto__"]["value"] == "preserved"));
         assert_eq!(
             state["indexedDB"][0]["stores"][0]["keyPath"],
             json!(["first", "second"])
@@ -630,8 +686,8 @@ mod tests {
         second.navigate(&url).unwrap();
         second
             .eval(&format!(
-                "({RESTORE})({})",
-                serde_json::to_string(&state).unwrap()
+                "({RESTORE})(JSON.parse({}))",
+                serde_json::to_string(&serde_json::to_string(&state).unwrap()).unwrap()
             ))
             .unwrap();
         assert_eq!(second.eval(EXPORT).unwrap(), state);
@@ -646,8 +702,32 @@ mod tests {
             second.eval("document.cookie").unwrap(),
             json!("synthetic=fixture")
         );
-        // Unknown structured-clone types are rejected rather than lost.
-        assert!(second.eval(r#"(async()=>{const r=indexedDB.open('bad-db',1);await new Promise(ok=>{r.onupgradeneeded=()=>r.result.createObjectStore('records');r.onsuccess=()=>{const tx=r.result.transaction('records','readwrite');tx.objectStore('records').put(new Date(),1);tx.oncomplete=()=>{r.result.close();ok();};};});})()"#).is_ok());
+        // Unsupported structured-clone values fail before persistence rather
+        // than being normalized, stripped or silently turned into null.
+        for expression in [
+            "new Date()",
+            "[1,,3]",
+            "Object.assign([1],{extra:'preserve-me'})",
+            "NaN",
+            "Infinity",
+            "-Infinity",
+            "-0",
+            "(()=>{const shared={a:1};return {first:shared,second:shared};})()",
+            "(()=>{const cycle={};cycle.self=cycle;return cycle;})()",
+        ] {
+            second.eval(&format!(r#"(async()=>{{const r=indexedDB.open('bad-db',1);await new Promise((ok,no)=>{{r.onupgradeneeded=()=>r.result.createObjectStore('records');r.onsuccess=()=>{{const db=r.result;const tx=db.transaction('records','readwrite');tx.objectStore('records').put({expression},1);tx.oncomplete=()=>{{db.close();ok();}};tx.onerror=()=>no(Error('fixture failed'));}};}});return true;}})()"#)).unwrap();
+            assert!(second.eval(EXPORT).is_err(), "must reject {expression}");
+            second.eval(r#"(async()=>{await new Promise((ok,no)=>{const r=indexedDB.deleteDatabase('bad-db');r.onsuccess=()=>ok();r.onerror=()=>no(Error('fixture failed'));});return true;})()"#).unwrap();
+        }
+        // A cleared generator at 101 cannot be inferred from stored records.
+        second.eval(r#"(async()=>{await new Promise((ok,no)=>{const r=indexedDB.open('generator-db',1);r.onupgradeneeded=()=>r.result.createObjectStore('records',{autoIncrement:true});r.onsuccess=()=>{const db=r.result;const tx=db.transaction('records','readwrite');const st=tx.objectStore('records');st.put('fixture',100);st.clear();tx.oncomplete=()=>{db.close();ok();};tx.onerror=()=>no(Error('fixture failed'));};});return true;})()"#).unwrap();
         assert!(second.eval(EXPORT).is_err());
+        assert!(second.eval(&format!(r#"({RESTORE})({{"localStorage":[{{"name":"must-not-change","value":"fixture"}}],"indexedDB":[{{"stores":[{{"autoIncrement":true}}]}}]}})"#)).is_err());
+        assert_eq!(
+            second
+                .eval("localStorage.getItem('must-not-change')")
+                .unwrap(),
+            Value::Null
+        );
     }
 }

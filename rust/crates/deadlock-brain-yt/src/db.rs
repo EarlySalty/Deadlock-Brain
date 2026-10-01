@@ -20,20 +20,32 @@ pub fn default_feed_config_path() -> PathBuf {
 }
 
 /// Ein Infisical-Snapshot pro Prozess, auch bei geerbtem einmaligem Secret-FD.
-static SECRETS: tokio::sync::OnceCell<Vec<(String, zeroize::Zeroizing<String>)>> =
-    tokio::sync::OnceCell::const_new();
-pub async fn runtime_secrets() -> Result<&'static [(String, zeroize::Zeroizing<String>)]> {
-    Ok(SECRETS
+struct RuntimeSecrets {
+    source: PathBuf,
+    values: Vec<(String, zeroize::Zeroizing<String>)>,
+}
+static SECRETS: tokio::sync::OnceCell<RuntimeSecrets> = tokio::sync::OnceCell::const_new();
+pub async fn runtime_secrets(
+    config: &std::path::Path,
+) -> Result<&'static [(String, zeroize::Zeroizing<String>)]> {
+    let source = config.canonicalize()?;
+    let snapshot = SECRETS
         .get_or_try_init(|| async {
-            dl_token_secrets::values(&repo_root().join("config/infisical.json")).await
+            Ok::<_, anyhow::Error>(RuntimeSecrets {
+                values: dl_token_secrets::values(&source).await?,
+                source: source.clone(),
+            })
         })
-        .await?
-        .as_slice())
+        .await?;
+    if snapshot.source != source {
+        anyhow::bail!("Abweichende Secret-Konfiguration im selben Prozess.");
+    }
+    Ok(snapshot.values.as_slice())
 }
 pub async fn pg_pool() -> Result<PgPool> {
-    let values = runtime_secrets().await?;
-    let config: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(repo_root().join("config/infisical.json"))?)?;
+    let source = crate::gemini::infisical_config()?;
+    let values = runtime_secrets(&source).await?;
+    let config: serde_json::Value = serde_json::from_slice(&std::fs::read(source)?)?;
     let name = config["database_secret"]
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("Datenbankname fehlt in Konfiguration."))?;
