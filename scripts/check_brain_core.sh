@@ -34,11 +34,36 @@ mkdir -p "$LOGS/test-home"
 RESULTS="$LOGS/results-$MODE.tsv"
 printf 'check\texit_code\n' > "$RESULTS"
 FAILED=0
+wait_for_release_slot() {
+  local release_running wait_reported=0
+  while :; do
+    # Consume process data locally; expose only whether a Cargo release is active.
+    # pipefail makes an unavailable process probe a verification failure.
+    if ! release_running="$(ps -eo comm=,args= | awk '
+      $1 == "cargo" && /(^|[[:space:]])--release([[:space:]]|$)/ { busy = 1 }
+      END { print busy + 0 }
+    ')"; then
+      printf 'Release process probe failed.\n' >&2
+      return 1
+    fi
+    if [[ "$release_running" == 0 ]]; then return 0; fi
+    if [[ "$release_running" != 1 ]]; then
+      printf 'Release process probe returned an invalid result.\n' >&2
+      return 1
+    fi
+    if ((wait_reported == 0)); then
+      printf 'WAIT release host slot\n'
+      wait_reported=1
+    fi
+    sleep 5 || return 1
+  done
+}
 run_check() {
   local name="$1"; shift
   printf 'RUN %s\n' "$name"
   (
     cd "$ROOT/rust" || exit
+    if [[ "$name" == release ]]; then wait_for_release_slot || exit 1; fi
     env -i PATH="$PATH" HOME="$LOGS/test-home" CARGO_HOME="$CARGO_CACHE" RUSTUP_HOME="$RUSTUP_CACHE" \
       CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR="$TARGET_DIR" BRAIN_TEST_CARGO="$CARGO" LC_ALL=C.UTF-8 TZ=UTC "$@"
   ) > "$LOGS/$name.log" 2>&1
