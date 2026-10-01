@@ -299,6 +299,98 @@ mod tests {
         assert!(!failed_is_retryable(BuildPublishErrorClass::Rejected));
     }
 
+    fn endpoint_client(endpoint: &str) -> Result<HttpBuildPublishClient, PublishError> {
+        HttpBuildPublishClient::new(endpoint, "fixture-token", Duration::from_secs(1))
+    }
+
+    fn assert_invalid_endpoint(endpoint: &str) {
+        assert!(
+            matches!(
+                endpoint_client(endpoint),
+                Err(PublishError::InvalidRequest(_))
+            ),
+            "endpoint must be rejected: {endpoint:?}"
+        );
+    }
+
+    #[test]
+    fn endpoint_rejects_loopback_prefix_with_external_authority() {
+        for endpoint in [
+            "http://127.0.0.1:1234@example.invalid",
+            "http://localhost:1234@example.invalid",
+            "http://127.0.0.1:1234@127.0.0.2:8080",
+            "http://localhost:1234@192.0.2.1",
+        ] {
+            assert_invalid_endpoint(endpoint);
+        }
+    }
+
+    #[test]
+    fn endpoint_rejects_userinfo_on_https_and_loopback() {
+        for endpoint in [
+            "https://fixture-user:fixture-password@example.invalid",
+            "https://fixture-user@example.invalid",
+            "https://:fixture-password@example.invalid",
+            "http://fixture-user@127.0.0.1:1234",
+            "http://fixture-user@[::1]:1234",
+        ] {
+            assert_invalid_endpoint(endpoint);
+        }
+    }
+
+    #[test]
+    fn endpoint_rejects_query_fragment_and_malformed_urls() {
+        for endpoint in [
+            "https://example.invalid/prefix?route=elsewhere",
+            "https://example.invalid/prefix#ignored",
+            "https://example.invalid?",
+            "https://example.invalid#",
+            "http://127.0.0.1:1234/prefix?route=elsewhere",
+            "http://localhost:1234/prefix#ignored",
+            "https://:443",
+            "https://[invalid]",
+            "https://example.invalid:invalid",
+            "http://127.0.0.1:invalid",
+        ] {
+            assert_invalid_endpoint(endpoint);
+        }
+    }
+
+    #[test]
+    fn endpoint_rejects_invalid_url_before_credential_lookup() {
+        assert!(matches!(
+            HttpBuildPublishClient::new(
+                "http://127.0.0.1:1234@example.invalid",
+                "",
+                Duration::from_secs(1)
+            ),
+            Err(PublishError::InvalidRequest(_))
+        ));
+    }
+
+    #[test]
+    fn endpoint_preserves_supported_hosts_and_base_paths() {
+        for endpoint in [
+            "https://example.invalid",
+            "https://example.invalid:8443/gateway",
+            "https://example.invalid/gateway/",
+            "http://127.0.0.1:1234",
+            "http://localhost:1234/gateway",
+            "http://[::1]:1234/gateway",
+        ] {
+            assert!(endpoint_client(endpoint).is_ok(), "endpoint: {endpoint}");
+        }
+        for endpoint in [
+            "http://example.invalid:1234",
+            "http://127.0.0.1.example.invalid:1234",
+            "http://localhost.example.invalid:1234",
+            "http://192.0.2.1:1234",
+            "ftp://127.0.0.1:1234",
+        ] {
+            assert_invalid_endpoint(endpoint);
+        }
+    }
+
     fn serve(responses: Vec<(u16, String)>) -> (String, thread::JoinHandle<Vec<String>>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
@@ -337,6 +429,17 @@ mod tests {
 
     #[test]
     fn http_client_sends_bearer_and_idempotency_key_and_validates_status() {
+        assert_http_transport("");
+    }
+
+    #[test]
+    fn http_client_preserves_base_paths_for_submit_and_status() {
+        for prefix in ["/gateway", "/gateway%2Ftenant"] {
+            assert_http_transport(prefix);
+        }
+    }
+
+    fn assert_http_transport(prefix: &str) {
         let req = request("r2");
         let hash = req.request_sha256().unwrap();
         let ok = serde_json::to_string(&BuildPublishStatus {
@@ -355,8 +458,12 @@ mod tests {
             (409, "{}".into()),
             (401, "{}".into()),
         ]);
-        let client =
-            HttpBuildPublishClient::new(&address, "fixture-token", Duration::from_secs(5)).unwrap();
+        let client = HttpBuildPublishClient::new(
+            &format!("{address}{prefix}"),
+            "fixture-token",
+            Duration::from_secs(5),
+        )
+        .unwrap();
         assert_eq!(
             client.submit(&req).unwrap().state,
             BuildPublishState::Queued
@@ -368,10 +475,11 @@ mod tests {
         assert_eq!(client.submit(&req), Err(PublishError::Conflict));
         assert_eq!(client.status("r2"), Err(PublishError::Unauthorized));
         let seen = handle.join().unwrap();
-        assert!(seen[0].starts_with("POST /builds/v1/publish "));
+        assert!(seen[0].starts_with(&format!("POST {prefix}/builds/v1/publish ")));
         assert!(seen[0].contains("authorization: Bearer fixture-token"));
         assert!(seen[0].contains("idempotency-key: r2"));
-        assert!(seen[1].starts_with("GET /builds/v1/publish/r2 "));
+        assert!(seen[1].starts_with(&format!("GET {prefix}/builds/v1/publish/r2 ")));
+        assert!(seen[1].contains("authorization: Bearer fixture-token"));
         assert!(HttpBuildPublishClient::new(
             "http://example.invalid",
             "fixture-token",
