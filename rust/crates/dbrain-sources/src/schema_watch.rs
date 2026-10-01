@@ -199,6 +199,8 @@ impl OpenApiSnapshot {
                 format!("{}/parameters", dependency.method),
                 format!("{}/requestBody", dependency.method),
                 format!("{}/security", dependency.method),
+                "servers".to_owned(),
+                format!("{}/servers", dependency.method),
             ] {
                 let p = format!("{base}/{suffix}");
                 if self.document.pointer(&p) != new.document.pointer(&p) {
@@ -213,13 +215,14 @@ impl OpenApiSnapshot {
             }
             if self.document.get("security") != new.document.get("security")
                 || self.document.get("servers") != new.document.get("servers")
+                || self.document.get("components") != new.document.get("components")
             {
                 push(
                     &mut changes,
                     &dependency.id,
                     "/",
                     Compatibility::Unknown,
-                    "server/security contract changed",
+                    "server/security or referenced component contract changed",
                 );
             }
         }
@@ -663,6 +666,9 @@ fn validate(
                     errors,
                 );
                 if *budget == 0 {
+                    if i + 1 < values.len() {
+                        errors.push(format!("{path}:validation_budget"));
+                    }
                     break;
                 }
             }
@@ -809,5 +815,52 @@ mod tests {
             report.quarantined_dependencies,
             BTreeSet::from(["test".into()])
         );
+    }
+
+    #[test]
+    fn exhausted_array_validation_never_accepts_an_unchecked_tail() {
+        let schema = json!({"type":"array","items":{"type":"object","required":["id","name"],"properties":{"id":{"type":"integer"},"name":{"type":"string"}}}});
+        let mut records = vec![json!({"id":1,"name":"valid"}); 33_333];
+        assert!(validate_consumed(&schema, &json!(records)).is_ok());
+        records.push(json!({"id":"bad"}));
+        assert!(validate_consumed(&schema, &json!(records)).is_err());
+    }
+
+    #[test]
+    fn referenced_requests_security_and_local_servers_are_quarantined() {
+        let mut old = snapshot(schema(), "1");
+        old.document["components"] = json!({
+            "parameters":{"limit":{"schema":{"type":"integer"}}},
+            "requestBodies":{"body":{"content":{"application/json":{"schema":{"$ref":"#/components/schemas/input"}}}}},
+            "schemas":{"input":{"type":"string"}},
+            "securitySchemes":{"auth":{"type":"apiKey","in":"header","name":"X-Auth"}}
+        });
+        old.document["paths"]["/test"]["get"]["parameters"] =
+            json!([{"$ref":"#/components/parameters/limit"}]);
+        old.document["paths"]["/test"]["get"]["requestBody"] =
+            json!({"$ref":"#/components/requestBodies/body"});
+        old.document["paths"]["/test"]["get"]["security"] = json!([{"auth":[]}]);
+        for pointer in [
+            "/components/parameters/limit/schema/type",
+            "/components/requestBodies/body/content/application~1json/schema/$ref",
+            "/components/schemas/input/type",
+            "/components/securitySchemes/auth/name",
+        ] {
+            let mut new = old.clone();
+            *new.document.pointer_mut(pointer).unwrap() = json!("changed");
+            let report = old.compare(&new, &deps()).unwrap();
+            assert_eq!(report.classification, Compatibility::Unknown, "{pointer}");
+            assert!(report.quarantined_dependencies.contains("test"));
+        }
+        for method in [false, true] {
+            let mut new = old.clone();
+            let path = &mut new.document["paths"]["/test"];
+            let node = if method { &mut path["get"] } else { path };
+            node["servers"] = json!([{"url":"https://other.invalid"}]);
+            assert_eq!(
+                old.compare(&new, &deps()).unwrap().classification,
+                Compatibility::Unknown
+            );
+        }
     }
 }

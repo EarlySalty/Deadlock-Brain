@@ -153,7 +153,11 @@ pub(crate) fn validate(
             "measurement shorter than approved duration",
         );
         if let Some(rate) = p.workload.target_arrivals_per_second {
-            let minimum = (rate * f64::from(seconds)).ceil();
+            let elapsed_seconds = run
+                .measurement_finished_us
+                .checked_sub(run.measurement_started_us)
+                .map_or(f64::NAN, |elapsed| elapsed as f64 / 1_000_000.0);
+            let minimum = (rate * elapsed_seconds).ceil();
             require(
                 minimum.is_finite()
                     && minimum > 0.0

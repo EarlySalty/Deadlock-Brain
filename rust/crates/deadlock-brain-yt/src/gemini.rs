@@ -398,20 +398,9 @@ impl Browser {
         let mut stable = Instant::now();
         let mut last = String::new();
         while start.elapsed() < Duration::from_secs(timeout) {
-            let v=self.eval("(()=>{const a=[...document.querySelectorAll('message-content')];return {count:a.length,text:a.length?a[a.length-1].innerText:'',body:document.body.innerText,streaming:!!document.querySelector(\"button[aria-label*='Stop generating'],button[aria-label*='Antwort stoppen'],mat-progress-spinner\")}})()").map_err(|_|failure(GeminiErrorKind::Unknown))?;
-            let body = v["body"].as_str().unwrap_or("").to_lowercase();
-            if [
-                "rate limit",
-                "too many requests",
-                "quota",
-                "try again later",
-                "später erneut",
-                "zu viele anfragen",
-            ]
-            .iter()
-            .any(|m| body.contains(m))
-            {
-                return Err(failure(GeminiErrorKind::RateLimited));
+            let v=self.eval("(()=>{const a=[...document.querySelectorAll('message-content')];const errors=[...document.querySelectorAll('[role=alert],error-banner,error-message,mat-snack-bar-container')].filter(e=>e.getClientRects().length&&!e.closest('message-content,user-query,rich-textarea')).map(e=>e.innerText);return {count:a.length,text:a.length?a[a.length-1].innerText:'',errors,streaming:!!document.querySelector(\"button[aria-label*='Stop generating'],button[aria-label*='Antwort stoppen'],mat-progress-spinner\")}})()").map_err(|_|failure(GeminiErrorKind::Unknown))?;
+            if let Some(kind) = visible_ui_failure(&v) {
+                return Err(failure(kind));
             }
             let text = if v["count"].as_u64().unwrap_or(0) > before as u64 {
                 v["text"].as_str().unwrap_or("").trim()
@@ -426,22 +415,71 @@ impl Browser {
                 && stable.elapsed() >= Duration::from_secs(4)
                 && v["streaming"] == json!(false)
             {
-                if [
-                    "i can't assist",
-                    "i can’t assist",
-                    "i cannot assist",
-                    "dabei kann ich nicht helfen",
-                ]
-                .iter()
-                .any(|m| last.to_lowercase().contains(m))
-                {
-                    return Err(failure(GeminiErrorKind::Refused));
-                }
                 return Ok(last);
             }
             std::thread::sleep(Duration::from_secs(1));
         }
         Err(failure(GeminiErrorKind::Timeout))
+    }
+}
+// Conversation text is untrusted content, never a browser error signal.
+fn visible_ui_failure(observation: &Value) -> Option<GeminiErrorKind> {
+    observation
+        .get("errors")?
+        .as_array()?
+        .iter()
+        .find_map(|value| {
+            let text = value.as_str()?.to_lowercase();
+            if [
+                "rate limit",
+                "too many requests",
+                "quota",
+                "try again later",
+                "später erneut",
+                "zu viele anfragen",
+            ]
+            .iter()
+            .any(|marker| text.contains(marker))
+            {
+                Some(GeminiErrorKind::RateLimited)
+            } else if [
+                "i can't assist",
+                "i can’t assist",
+                "i cannot assist",
+                "dabei kann ich nicht helfen",
+            ]
+            .iter()
+            .any(|marker| text.contains(marker))
+            {
+                Some(GeminiErrorKind::Refused)
+            } else {
+                None
+            }
+        })
+}
+
+#[cfg(test)]
+mod response_state_tests {
+    use super::*;
+
+    #[test]
+    fn conversation_quotes_do_not_become_browser_failures() {
+        assert_eq!(
+            visible_ui_failure(&json!({
+                "body": "Explain quota and try again later",
+                "text": "The quoted text says I can't assist, but this is a valid analysis.",
+                "errors": []
+            })),
+            None
+        );
+        assert_eq!(
+            visible_ui_failure(&json!({"errors": ["Too many requests; try again later"]})),
+            Some(GeminiErrorKind::RateLimited)
+        );
+        assert_eq!(
+            visible_ui_failure(&json!({"errors": ["Dabei kann ich nicht helfen"]})),
+            Some(GeminiErrorKind::Refused)
+        );
     }
 }
 fn browser_failure(error: anyhow::Error) -> GeminiError {

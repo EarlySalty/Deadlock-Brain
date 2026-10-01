@@ -350,6 +350,19 @@ blocked!(insufficient_offered_load_blocks, p, r, {
 blocked!(short_measurement_cannot_claim_full_duration, p, r, {
     r.measurement_finished_us = 60_000_000;
 });
+#[test]
+fn stretched_window_cannot_claim_the_approved_arrival_rate() {
+    let (p, c, mut r) = setup();
+    assert_eq!(verdict(&p, &c, &r).status, "pass");
+    // Keep the same offered workload and stretch only the actual observation window.
+    r.measurement_finished_us = 240_000_000;
+    let assessment = verdict(&p, &c, &r);
+    assert!(assessment
+        .blockers
+        .iter()
+        .any(|issue| issue.contains("offered request count")));
+    assert_ne!(assessment.status, "pass");
+}
 blocked!(incoherent_latency_limits_block, p, r, {
     p.acceptance.p95_ms = Some(200.0);
     p.acceptance.p99_ms = Some(100.0);

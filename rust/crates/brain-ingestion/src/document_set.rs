@@ -30,6 +30,9 @@ pub struct DocumentSetSource {
 pub struct DocumentState {
     pub revision: u64,
     pub content_hash: String,
+    /// Semantic provenance and current rights; absent on legacy checkpoints forces one refresh.
+    #[serde(default)]
+    pub semantic_hash: Option<String>,
     pub tombstone: bool,
 }
 
@@ -73,6 +76,16 @@ fn record(
         .bind_record(&mut record)
         .map_err(IngestionError::InvalidState)?;
     Ok(record)
+}
+
+fn semantic_hash(source: &DocumentSetSource, document: &CoreDocument) -> Result<String> {
+    let mut stable = document.clone();
+    // A new observation of the same immutable artifact is not a new source revision.
+    stable.origin.retrieved_at = brain_contracts::value::Observed::unknown(
+        brain_contracts::value::UnknownReason::NotPresent,
+    );
+    let normalized = record(source, &stable, 1)?;
+    Ok(digest(&serde_json::to_vec(&normalized)?))
 }
 
 pub fn prepare_document_batch(
@@ -119,9 +132,14 @@ pub fn prepare_document_batch(
             return Err(invalid("duplicate logical id"));
         }
         let hash = digest(document.content.as_bytes());
+        let semantics = semantic_hash(source, document)?;
         let previous_state = state.documents.get(&document.logical_id);
         if same_configuration
-            && previous_state.is_some_and(|s| !s.tombstone && s.content_hash == hash)
+            && previous_state.is_some_and(|s| {
+                !s.tombstone
+                    && s.content_hash == hash
+                    && s.semantic_hash.as_ref() == Some(&semantics)
+            })
         {
             continue;
         }
@@ -132,6 +150,7 @@ pub fn prepare_document_batch(
             DocumentState {
                 revision,
                 content_hash: hash,
+                semantic_hash: Some(semantics),
                 tombstone: false,
             },
         );
@@ -161,6 +180,7 @@ pub fn prepare_document_batch(
             DocumentState {
                 revision,
                 content_hash,
+                semantic_hash: None,
                 tombstone: true,
             },
         );
@@ -191,4 +211,118 @@ pub fn current_pins(checkpoint: &SourceCheckpoint) -> Result<BTreeMap<String, u6
         .filter(|(_, s)| !s.tombstone)
         .map(|(id, s)| (id, s.revision))
         .collect())
+}
+
+#[cfg(test)]
+mod semantic_tests {
+    use super::*;
+    use brain_contracts::{
+        source::{GameValidity, SourceIdentity, SourcePolicy, SourceRevision, SourceTimestamp},
+        value::{Observed, UnknownReason},
+    };
+
+    fn fixture() -> (DocumentSetSource, CoreDocument) {
+        let source = DocumentSetSource {
+            source_id: "fixture".into(),
+            configuration: "unchanged".into(),
+            visibility: SourceVisibility::Public,
+            allowed_scopes: BTreeSet::from(["game.public".into()]),
+            tombstone_metadata: BTreeMap::new(),
+        };
+        let unknown = || Observed::unknown(UnknownReason::NotPresent);
+        let document = CoreDocument {
+            logical_id: "one".into(),
+            content: "same bytes".into(),
+            metadata: BTreeMap::new(),
+            origin: OriginArtifact {
+                identity: SourceIdentity {
+                    source_id: source.source_id.clone(),
+                    logical_id: "one".into(),
+                },
+                source_revision: SourceRevision::Git {
+                    commit: "a".repeat(40),
+                },
+                raw_sha256: digest(b"same bytes"),
+                locator: "file:one".into(),
+                parser_revision: "1".into(),
+                parser_family: "fixture".into(),
+                schema_version: unknown(),
+                schema_sha256: unknown(),
+                retrieved_at: Observed::known(SourceTimestamp::UnixSeconds(1)),
+                source_time: Observed::unknown(UnknownReason::NotPresent),
+                language: unknown(),
+                origin_artifacts: BTreeSet::new(),
+                derivation_family: unknown(),
+                policy: SourcePolicy {
+                    visibility: source.visibility,
+                    allowed_scopes: source.allowed_scopes.clone(),
+                    authorization_ref: unknown(),
+                    license: unknown(),
+                    publication_allowed: true,
+                    provider_egress_allowed: true,
+                    raw_retention_allowed: true,
+                },
+                validity: GameValidity::unknown(),
+            },
+        };
+        (source, document)
+    }
+
+    #[test]
+    fn unchanged_bytes_preserve_semantic_updates_and_ignore_only_read_time() {
+        let (source, document) = fixture();
+        let initial =
+            prepare_document_batch(&source, std::slice::from_ref(&document), None).unwrap();
+        let previous = Some(&initial.checkpoint);
+        let mut observed = document.clone();
+        observed.origin.retrieved_at = Observed::known(SourceTimestamp::UnixSeconds(2));
+        assert!(prepare_document_batch(&source, &[observed], previous)
+            .unwrap()
+            .records
+            .is_empty());
+        for field in ["revision", "source_time", "language", "policy", "metadata"] {
+            let mut changed = document.clone();
+            match field {
+                "revision" => {
+                    changed.origin.source_revision = SourceRevision::Git {
+                        commit: "b".repeat(40),
+                    }
+                }
+                "source_time" => {
+                    changed.origin.source_time = Observed::known(SourceTimestamp::UnixSeconds(2))
+                }
+                "language" => changed.origin.language = Observed::known("de".into()),
+                "policy" => changed.origin.policy.provider_egress_allowed = false,
+                "metadata" => {
+                    changed.metadata.insert("published_at".into(), "2".into());
+                }
+                _ => unreachable!(),
+            }
+            let refreshed = prepare_document_batch(&source, &[changed], previous).unwrap();
+            assert_eq!(refreshed.records.len(), 1, "{field}");
+            assert_eq!(refreshed.records[0].revision, 2);
+        }
+        let mut restricted = source.clone();
+        restricted.visibility = SourceVisibility::Internal;
+        restricted.allowed_scopes = BTreeSet::from(["private".into()]);
+        assert_eq!(
+            prepare_document_batch(&restricted, std::slice::from_ref(&document), previous)
+                .unwrap()
+                .records
+                .len(),
+            1
+        );
+        let mut legacy = initial.checkpoint;
+        legacy.state["documents"]["one"]
+            .as_object_mut()
+            .unwrap()
+            .remove("semantic_hash");
+        assert_eq!(
+            prepare_document_batch(&source, &[document], Some(&legacy))
+                .unwrap()
+                .records
+                .len(),
+            1
+        );
+    }
 }
