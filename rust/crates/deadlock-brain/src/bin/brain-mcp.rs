@@ -330,16 +330,7 @@ async fn main() {
 async fn run() -> Result<(), &'static str> {
     let args = Args::parse();
     let config = Config::load(&args.config)?;
-    let mut secrets = deadlock_brain_core::pg::infisical_environment(&config.infisical_config)
-        .await
-        .map_err(|_| "MCP-Secret konnte nicht aus Infisical geladen werden")?;
-    let token = resolve_token(&config, |reference| {
-        secrets
-            .iter()
-            .position(|(name, _)| name == reference)
-            .map(|index| secrets.swap_remove(index).1)
-    })?;
-    drop(secrets);
+    let token = load_token(&config).await?;
     let client = AsyncBrainClient::new_local(&config.endpoint, token.as_str(), config.timeout())
         .map_err(|_| "BrainClient konnte nicht erstellt werden")?;
 
@@ -350,6 +341,46 @@ async fn run() -> Result<(), &'static str> {
         handle(&client, &config.scopes, request)
     })
     .await
+}
+
+async fn load_token(config: &Config) -> Result<Zeroizing<String>, &'static str> {
+    let deadline = tokio::time::Instant::now() + config.timeout();
+    let path = config.infisical_config.clone();
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    // The existing private-pipe loader can block synchronously. A dedicated
+    // thread keeps it outside the main runtime and never joins on shutdown.
+    std::thread::Builder::new()
+        .name("mcp-secret-startup".into())
+        .spawn(move || {
+            let result = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|_| "MCP-Secret-Laufzeit konnte nicht erstellt werden")
+                .and_then(|runtime| {
+                    runtime
+                        .block_on(dl_token_secrets::values(&path))
+                        .map_err(|_| "MCP-Secret konnte nicht aus Infisical geladen werden")
+                });
+            // A deadline closes the receiver. Late snapshots are discarded,
+            // never passed to the client or exposed in diagnostic output.
+            let _ = sender.send(result);
+        })
+        .map_err(|_| "MCP-Secret-Laufzeit konnte nicht erstellt werden")?;
+    let mut secrets = tokio::time::timeout_at(deadline, receiver)
+        .await
+        .map_err(|_| "MCP-Secret-Startbudget ist abgelaufen")?
+        .map_err(|_| "MCP-Secretquelle ist nicht verfügbar")??;
+    if tokio::time::Instant::now() >= deadline {
+        return Err("MCP-Secret-Startbudget ist abgelaufen");
+    }
+    let token = resolve_token(&config, |reference| {
+        secrets
+            .iter()
+            .position(|(name, _)| name == reference)
+            .map(|index| secrets.swap_remove(index).1)
+    })?;
+    drop(secrets);
+    Ok(token)
 }
 
 async fn run_loop<R, W, H, F>(
@@ -402,6 +433,97 @@ mod tests {
     use std::io::{BufReader, Read};
 
     const EXAMPLE_CONFIG: &[u8] = include_bytes!("../../../../../config/brain-mcp.example.json");
+
+    fn private_snapshot_port() -> (tempfile::TempDir, File, File) {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("private-snapshot-pipe");
+        assert!(process::Command::new("mkfifo")
+            .arg("-m")
+            .arg("600")
+            .arg(&path)
+            .status()
+            .unwrap()
+            .success());
+        let reader_path = path.clone();
+        let reader = std::thread::spawn(move || File::open(reader_path).unwrap());
+        let writer = std::fs::OpenOptions::new().write(true).open(path).unwrap();
+        (directory, reader.join().unwrap(), writer)
+    }
+
+    fn snapshot_config(directory: &std::path::Path, reader: &File, timeout: u64) -> Config {
+        use std::os::fd::AsRawFd;
+        let path = directory.join("infisical-fixture.json");
+        let normal = json!({
+            "project_id":"synthetic-project", "environment":"synthetic-fixture",
+            "secret_path":"/", "socket_path":"unused-synthetic-socket",
+            "secret_values_fd":reader.as_raw_fd()
+        });
+        std::fs::write(&path, serde_json::to_vec(&normal).unwrap()).unwrap();
+        let mut config = Config::parse(EXAMPLE_CONFIG).unwrap();
+        config.infisical_config = path;
+        config.secret_reference = "SYNTHETIC_MCP_REFERENCE".into();
+        config.timeout_ms = timeout;
+        config
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn explicit_private_snapshot_resolves_only_configured_reference() {
+        for present in [false, true] {
+            let (directory, reader, mut writer) = private_snapshot_port();
+            let config = snapshot_config(directory.path(), &reader, 1000);
+            let name = if present {
+                "SYNTHETIC_MCP_REFERENCE"
+            } else {
+                "OTHER_REFERENCE"
+            };
+            let body = json!({name:"synthetic-private-pipe-token"});
+            writer
+                .write_all(serde_json::to_string(&body).unwrap().as_bytes())
+                .unwrap();
+            drop(writer);
+            let result = load_token(&config).await;
+            if present {
+                assert!(result.unwrap().as_str() == "synthetic-private-pipe-token");
+            } else {
+                assert_eq!(
+                    result.err(),
+                    Some("Konfiguriertes MCP-Secret fehlt in Infisical")
+                );
+            }
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn private_snapshot_without_eof_respects_startup_budget() {
+        let (directory, reader, mut writer) = private_snapshot_port();
+        let config = snapshot_config(directory.path(), &reader, 100);
+        writer
+            .write_all(b"{\"SYNTHETIC_MCP_REFERENCE\":\"synthetic-private-pipe-token\"}")
+            .unwrap();
+        let start = std::time::Instant::now();
+        assert_eq!(
+            load_token(&config).await.err(),
+            Some("MCP-Secret-Startbudget ist abgelaufen")
+        );
+        assert!(start.elapsed() < Duration::from_secs(1));
+        // EOF lets the detached loader dispose of its late snapshot; it cannot
+        // start a client or provider request after the caller returned failure.
+        drop(writer);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn malformed_private_snapshot_has_only_sanitized_source_error() {
+        let (directory, reader, mut writer) = private_snapshot_port();
+        let config = snapshot_config(directory.path(), &reader, 1000);
+        writer
+            .write_all(b"synthetic sensitive malformed payload")
+            .unwrap();
+        drop(writer);
+        assert_eq!(
+            load_token(&config).await.err(),
+            Some("MCP-Secret konnte nicht aus Infisical geladen werden")
+        );
+    }
 
     struct FailingInput;
 
