@@ -203,7 +203,7 @@ impl OpenApiSnapshot {
                 format!("{}/servers", dependency.method),
             ] {
                 let p = format!("{base}/{suffix}");
-                if self.document.pointer(&p) != new.document.pointer(&p) {
+                if !resolved_contract_equal(&self.document, &new.document, &p) {
                     push(
                         &mut changes,
                         &dependency.id,
@@ -213,8 +213,9 @@ impl OpenApiSnapshot {
                     );
                 }
             }
-            if self.document.get("security") != new.document.get("security")
-                || self.document.get("servers") != new.document.get("servers")
+            if ["/security", "/servers", "/components/securitySchemes"]
+                .iter()
+                .any(|pointer| !resolved_contract_equal(&self.document, &new.document, pointer))
                 || self.document.get("components") != new.document.get("components")
             {
                 push(
@@ -262,6 +263,16 @@ impl OpenApiSnapshot {
             quarantined_dependencies,
         })
     }
+}
+
+fn resolved_contract_equal(old: &Value, new: &Value, pointer: &str) -> bool {
+    let resolve = |root: &Value| -> Result<Option<Value>> {
+        root.pointer(pointer)
+            .map(|value| expand_refs(root, value, &mut BTreeSet::new(), 0, &mut 100_000))
+            .transpose()
+    };
+    // Missing/unresolvable/cyclic/external references never prove compatibility.
+    matches!((resolve(old), resolve(new)), (Ok(old), Ok(new)) if old == new)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -862,5 +873,36 @@ mod tests {
                 Compatibility::Unknown
             );
         }
+    }
+
+    #[test]
+    fn cross_path_and_extension_references_cannot_hide_contract_changes() {
+        let mut old = snapshot(schema(), "1");
+        old.document["paths"]["/shared"] = json!({"post":{"requestBody":{"content":{"application/json":{"schema":{"type":"string"}}}}}});
+        old.document["paths"]["/test"]["get"]["requestBody"] =
+            json!({"$ref":"#/paths/~1shared/post/requestBody"});
+        let mut new = old.clone();
+        new.document["paths"]["/shared"]["post"]["requestBody"]["content"]["application/json"]
+            ["schema"]["type"] = json!("integer");
+        assert_eq!(
+            old.compare(&new, &deps()).unwrap().classification,
+            Compatibility::Unknown
+        );
+
+        old.document["x-auth"] = json!({"type":"apiKey","in":"header","name":"X-Auth"});
+        old.document["components"] = json!({"securitySchemes":{"auth":{"$ref":"#/x-auth"}}});
+        old.document["security"] = json!([{"auth":[]}]);
+        let mut new = old.clone();
+        new.document["x-auth"]["name"] = json!("Different");
+        assert_eq!(
+            old.compare(&new, &deps()).unwrap().classification,
+            Compatibility::Unknown
+        );
+        new.document["paths"]["/test"]["get"]["requestBody"] =
+            json!({"$ref":"https://invalid.example/body"});
+        assert_eq!(
+            new.compare(&new, &deps()).unwrap().classification,
+            Compatibility::Unknown
+        );
     }
 }
