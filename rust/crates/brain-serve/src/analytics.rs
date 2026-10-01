@@ -455,6 +455,20 @@ impl<S: SnapshotReadPort> RetrievalPort for AnalyticsRetriever<S> {
         }
     }
 
+    fn validate_publication(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+    ) -> Result<(), PortError> {
+        if analytics_target(query).is_none() {
+            return self.release.validate_publication(query, context, evidence);
+        }
+        // Live analytics has its own immutable, scoped observation contract, not
+        // an OriginArtifact release record. Preserve that existing authorization;
+        // never let this wrapper downgrade release-source publication to reading.
+        self.validate_evidence(query, context, evidence, false)
+    }
     fn validate_evidence(
         &self,
         query: &Query,

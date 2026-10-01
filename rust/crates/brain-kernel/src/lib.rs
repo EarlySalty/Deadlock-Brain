@@ -10,11 +10,26 @@ mod execution;
 mod fact_relevance;
 mod flight;
 mod outcome;
+use brain_contracts::store::AnswerPurpose;
 pub use cache::CachedKernel;
 use outcome::KernelAnswer;
 
 pub trait AnswerKernelPort: Send + Sync {
+    /// Internal use does not imply a publication grant.
     fn answer(&self, query: &Query, context: &AuthorizedContext) -> AnswerResponse;
+
+    /// Public adapters MUST use this entry point. Unknown kernel adapters cannot
+    /// publish by falling back to the internal-read implementation.
+    fn answer_for_publication(&self, query: &Query, context: &AuthorizedContext) -> AnswerResponse {
+        response(
+            query,
+            context,
+            AnswerStatus::Unavailable,
+            "Publikationsfreigabe konnte nicht sicher bestätigt werden.",
+            Vec::new(),
+            Usage::default(),
+        )
+    }
 }
 
 #[derive(Clone)]
@@ -53,11 +68,21 @@ impl<R, P> Kernel<R, P> {
 
 impl<R: RetrievalPort, P: AnswerProviderPort> AnswerKernelPort for Kernel<R, P> {
     fn answer(&self, query: &Query, context: &AuthorizedContext) -> AnswerResponse {
-        self.answer_internal(query, context).answer
+        self.answer_with_purpose(query, context, AnswerPurpose::InternalRead)
+            .answer
+    }
+    fn answer_for_publication(&self, query: &Query, context: &AuthorizedContext) -> AnswerResponse {
+        self.answer_with_purpose(query, context, AnswerPurpose::ExternalPublication)
+            .answer
     }
 }
 impl<R: RetrievalPort, P: AnswerProviderPort> Kernel<R, P> {
-    fn answer_internal(&self, query: &Query, context: &AuthorizedContext) -> KernelAnswer {
+    fn answer_with_purpose(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        purpose: AnswerPurpose,
+    ) -> KernelAnswer {
         let bound = context.with_request_deadline();
         let context = &bound;
         if query.validate().is_err() || query.conversation_id != context.conversation_id {
@@ -77,6 +102,7 @@ impl<R: RetrievalPort, P: AnswerProviderPort> Kernel<R, P> {
             &self.provider,
             query,
             context,
+            purpose,
             self.clock.as_ref(),
         )
     }

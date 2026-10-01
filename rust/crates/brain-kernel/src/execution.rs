@@ -46,11 +46,29 @@ fn combined(a: &Usage, b: &Usage) -> Option<Usage> {
         cost_micros: a.cost_micros.checked_add(b.cost_micros)?,
     })
 }
+pub(super) fn validate_output<R: RetrievalPort>(
+    retrieval: &R,
+    query: &Query,
+    context: &AuthorizedContext,
+    dependencies: &[Evidence],
+    purpose: AnswerPurpose,
+) -> Result<(), PortError> {
+    match purpose {
+        AnswerPurpose::InternalRead => {
+            retrieval.validate_evidence(query, context, dependencies, false)
+        }
+        AnswerPurpose::ExternalPublication => {
+            retrieval.validate_publication(query, context, dependencies)
+        }
+    }
+}
+
 pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
     retrieval: &R,
     provider: &P,
     query: &Query,
     context: &AuthorizedContext,
+    purpose: AnswerPurpose,
     now: &dyn Fn() -> Instant,
 ) -> KernelAnswer {
     let started = now();
@@ -64,6 +82,17 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
         KernelAnswer::from(response(query, context, status, message, Vec::new(), usage))
     };
     let publish = |status, text: String, citations: Vec<Evidence>, usage: Usage| {
+        // Direct facts, analytics and deterministic domain outputs never bypass
+        // the same canonical publication gate used for provider dependencies.
+        if purpose == AnswerPurpose::ExternalPublication {
+            if let Err(error) = validate_output(retrieval, query, context, &citations, purpose) {
+                return fail(
+                    validation_status(&error),
+                    "Publikationsfreigabe konnte nicht sicher bestätigt werden.",
+                    usage,
+                );
+            }
+        }
         if expired() {
             fail(
                 AnswerStatus::BudgetExceeded,
@@ -356,8 +385,8 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
         );
     }
     // Every provider input is a dependency, not just the model-selected citations.
-    // Re-read canonical content/ACL after the network call; never publish stale authorized data.
-    if let Err(error) = retrieval.validate_evidence(query, context, &evidence, false) {
+    // Re-read canonical content/ACL/publication grants after the network call.
+    if let Err(error) = validate_output(retrieval, query, context, &evidence, purpose) {
         return fail(
             validation_status(&error),
             "Evidenz konnte nach dem Provider-Aufruf nicht sicher bestätigt werden.",
