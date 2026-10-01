@@ -2,7 +2,9 @@
 
 Der Adapter liest seine Einstellungen ausschließlich aus einer normalen
 JSON-Konfigurationsdatei. Der Brain-Server-Endpunkt, die freigegebenen Scopes
-und der Timeout stehen dort. Das API-Token steht dort nie: `secret_reference`
+und der Timeout stehen dort. `infisical_config` benennt die vorhandene normale
+Infisical-Konfigurationsdatei; relative Pfade werden vom Speicherort der MCP-
+Konfigurationsdatei aus aufgelöst. Das API-Token steht dort nie: `secret_reference`
 benennt ausschließlich einen bereits in Infisical gespeicherten Secret-Eintrag.
 
 Die Beispielkonfiguration liegt unter `config/brain-mcp.example.json`. Kopiere

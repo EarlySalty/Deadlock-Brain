@@ -75,6 +75,7 @@ fn read_frame<R: BufRead>(reader: &mut R, max_bytes: usize) -> io::Result<FrameR
 #[serde(deny_unknown_fields)]
 struct Config {
     endpoint: String,
+    infisical_config: PathBuf,
     #[serde(default = "default_secret_reference")]
     secret_reference: String,
     scopes: BTreeSet<String>,
@@ -99,7 +100,15 @@ impl Config {
         File::open(path)
             .and_then(|file| file.take(MAX_CONFIG_BYTES + 1).read_to_end(&mut bytes))
             .map_err(|_| "MCP-Konfiguration ist nicht lesbar")?;
-        Self::parse(&bytes)
+        let mut config = Self::parse(&bytes)?;
+        if !config.infisical_config.is_absolute() {
+            let parent = path
+                .parent()
+                .filter(|parent| !parent.as_os_str().is_empty())
+                .unwrap_or_else(|| std::path::Path::new("."));
+            config.infisical_config = parent.join(&config.infisical_config);
+        }
+        Ok(config)
     }
 
     fn parse(bytes: &[u8]) -> Result<Self, &'static str> {
@@ -113,6 +122,9 @@ impl Config {
     }
 
     fn validate(&self) -> Result<(), &'static str> {
+        if self.infisical_config.as_os_str().is_empty() {
+            return Err("Infisical-Konfigurationspfad ist ungültig");
+        }
         if self.endpoint.trim().is_empty()
             || self.endpoint.len() > 2048
             || self.endpoint.chars().any(char::is_control)
@@ -318,8 +330,7 @@ async fn main() {
 async fn run() -> Result<(), &'static str> {
     let args = Args::parse();
     let config = Config::load(&args.config)?;
-    let infisical_config = deadlock_brain_core::config::repo_root().join("config/infisical.json");
-    let mut secrets = deadlock_brain_core::pg::infisical_environment(&infisical_config)
+    let mut secrets = deadlock_brain_core::pg::infisical_environment(&config.infisical_config)
         .await
         .map_err(|_| "MCP-Secret konnte nicht aus Infisical geladen werden")?;
     let token = resolve_token(&config, |reference| {
@@ -379,9 +390,23 @@ mod tests {
     #[test]
     fn example_config_uses_existing_secret_reference_and_scopes() {
         let config = Config::parse(EXAMPLE_CONFIG).unwrap();
+        assert_eq!(config.infisical_config, PathBuf::from("infisical.json"));
         assert_eq!(config.secret_reference, "BRAIN_SERVE_API_TOKEN");
         assert_eq!(config.scopes, BTreeSet::from(["docs.public".to_string()]));
         assert_eq!(config.timeout_ms, 8_000);
+    }
+
+    #[test]
+    fn relative_infisical_config_tracks_relocated_mcp_config_file() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let relocated = tempdir.path().join("relocated");
+        let config_dir = relocated.join("runtime");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        let config_path = config_dir.join("brain-mcp.json");
+        std::fs::write(&config_path, EXAMPLE_CONFIG).unwrap();
+
+        let config = Config::load(&config_path).unwrap();
+        assert_eq!(config.infisical_config, config_dir.join("infisical.json"));
     }
 
     #[test]
