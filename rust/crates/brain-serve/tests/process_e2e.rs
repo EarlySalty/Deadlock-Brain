@@ -1116,9 +1116,21 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
             .policy,
         expected_policy
     );
-    let denied = ask(&warm_address, API_TOKEN, warm_query).await.unwrap();
+    // A finished, still publishable answer may be reused without new provider egress.
+    let cached = ask(&warm_address, API_TOKEN, warm_query.clone())
+        .await
+        .unwrap();
+    assert_eq!(cached.status, AnswerStatus::Answered);
+    assert_eq!(cached.request_id, warm_query.request_id);
+    assert_eq!(cached.citations[0].citation_id, expected_citation);
+    assert_eq!(provider.calls.load(Ordering::SeqCst), calls_warm);
+    // Change only the conversation cache key; reuse the same text, process and release index.
+    let mut new_generation = warm_query;
+    new_generation.request_id = "egress-only-new-generation".into();
+    new_generation.conversation_id = "egress-only-new-conversation".into();
+    let denied = ask(&warm_address, API_TOKEN, new_generation).await.unwrap();
     assert_eq!(denied.status, AnswerStatus::UnauthorizedEvidence);
-    assert_eq!(denied.request_id, "egress-only-warm");
+    assert_eq!(denied.request_id, "egress-only-new-generation");
     assert_eq!(denied.knowledge_release, release.release_id);
     let public_fact = ask(&warm_address, API_TOKEN, fact).await.unwrap();
     assert_eq!(public_fact.status, AnswerStatus::Answered);
