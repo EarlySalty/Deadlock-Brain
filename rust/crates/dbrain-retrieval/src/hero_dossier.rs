@@ -163,7 +163,7 @@ fn title_eq(left: &str, right: &str) -> bool {
 
 /// Keine Fuzzy-Zuordnung: ein anderer Held mit ähnlichem Namen ist keine Quelle.
 pub fn load_hero_dossier(root: Option<&Path>, hero: &str) -> Result<Value> {
-    let root = resolve_game_wiki_dir(root);
+    let root = resolve_game_wiki_dir(root)?;
     if !root.exists() {
         return Ok(json!({"available":false,"reason":"wiki_unavailable"}));
     }

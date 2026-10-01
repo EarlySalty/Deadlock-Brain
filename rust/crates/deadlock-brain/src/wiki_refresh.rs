@@ -17,6 +17,7 @@ use sha2::{Digest, Sha256};
 #[derive(Debug, Args)]
 pub struct RefreshArgs {
     #[arg(
+        id = "refresh_config",
         long = "refresh-config",
         visible_alias = "wiki-config",
         value_name = "PATH"

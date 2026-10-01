@@ -213,7 +213,7 @@ fn search_game_wiki_inner(
     strict_answer_match: bool,
     answer_types: Option<Vec<&'static str>>,
 ) -> Result<JsonValue> {
-    let root = resolve_game_wiki_dir(root);
+    let root = resolve_game_wiki_dir(root)?;
     let pages_root = root.join("pages");
     if !pages_root.is_dir() {
         return Ok(json!({
@@ -361,7 +361,7 @@ fn search_game_wiki_inner(
 }
 
 fn hero_roster_answer_context(root: Option<&Path>, query: &str) -> Result<JsonValue> {
-    let root = resolve_game_wiki_dir(root);
+    let root = resolve_game_wiki_dir(root)?;
     let pages_root = root.join("pages");
     if !pages_root.is_dir() {
         return Ok(json!({
@@ -1010,9 +1010,19 @@ fn append_log(root: &Path, summaries: &[PageSummary], generated_at: DateTime<Utc
     Ok(())
 }
 
-fn resolve_game_wiki_dir(root: Option<&Path>) -> PathBuf {
-    root.map(Path::to_path_buf)
-        .unwrap_or_else(default_game_wiki_dir)
+fn resolve_game_wiki_dir(root: Option<&Path>) -> Result<PathBuf> {
+    let root = root
+        .map(Path::to_path_buf)
+        .unwrap_or_else(default_game_wiki_dir);
+    let current = root.join("current");
+    match fs::symlink_metadata(&current) {
+        Ok(metadata) if metadata.file_type().is_symlink() => Ok(current),
+        Ok(_) => Err(crate::RetrievalError::Invalid(
+            "game-wiki/current muss ein verwalteter Symlink sein".to_string(),
+        )),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(root),
+        Err(error) => Err(error.into()),
+    }
 }
 
 fn collect_markdown_files(root: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
@@ -1736,6 +1746,42 @@ mod tests {
             "Rosterbeleg ist zu groß: {} UTF-16-Einheiten",
             content.encode_utf16().count()
         );
+    }
+
+    #[test]
+    fn search_uses_current_snapshot_and_ignores_archived_generations() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let active = tmp.path().join("snapshots/active");
+        let archived = tmp.path().join("snapshots/archived");
+        fs::create_dir_all(active.join("pages")).expect("active pages");
+        fs::create_dir_all(archived.join("pages")).expect("archived pages");
+        fs::write(
+            active.join("pages/current.md"),
+            "# Current Wiki\nACTIVE_SENTINEL",
+        )
+        .expect("active page");
+        fs::write(
+            archived.join("pages/archived.md"),
+            "# Archived Wiki\nARCHIVE_SENTINEL",
+        )
+        .expect("archived page");
+        std::os::unix::fs::symlink(&active, tmp.path().join("current")).expect("current symlink");
+
+        let result = search_game_wiki(Some(tmp.path()), "ACTIVE_SENTINEL", &JsonValue::Null, 3)
+            .expect("search active snapshot");
+
+        assert_eq!(result["available"], true);
+        assert_eq!(
+            Path::new(result["root"].as_str().expect("resolved root")),
+            fs::canonicalize(&active).expect("canonical active snapshot")
+        );
+        let matches = result["matches"].as_array().expect("matches");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0]["title"], "Current Wiki");
+        assert!(!matches[0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("ARCHIVE_SENTINEL"));
     }
 
     #[test]
