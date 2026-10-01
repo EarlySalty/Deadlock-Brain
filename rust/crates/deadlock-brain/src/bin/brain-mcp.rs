@@ -373,13 +373,16 @@ async fn load_token(config: &Config) -> Result<Zeroizing<String>, &'static str> 
     if tokio::time::Instant::now() >= deadline {
         return Err("MCP-Secret-Startbudget ist abgelaufen");
     }
-    let token = resolve_token(&config, |reference| {
+    let token = resolve_token(config, |reference| {
         secrets
             .iter()
             .position(|(name, _)| name == reference)
             .map(|index| secrets.swap_remove(index).1)
     })?;
     drop(secrets);
+    if tokio::time::Instant::now() >= deadline {
+        return Err("MCP-Secret-Startbudget ist abgelaufen");
+    }
     Ok(token)
 }
 
