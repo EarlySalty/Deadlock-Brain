@@ -289,6 +289,11 @@ async fn handle(
                         }),
                     ))
                 }
+                Err(brain_client::ClientError::RequestTooLarge) => Some(rpc_error(
+                    id,
+                    -32602,
+                    "encoded Brain request exceeds the client size limit",
+                )),
                 Err(_) => Some(response(
                     id,
                     json!({
@@ -411,6 +416,45 @@ mod tests {
             Duration::from_secs(1)
         )
         .is_err());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn max_valid_query_with_json_escaping_returns_clear_size_error() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let client = AsyncBrainClient::new_local(
+            &endpoint,
+            "synthetic-mcp-credential",
+            Duration::from_secs(1),
+        )
+        .unwrap();
+        let request = json!({
+            "jsonrpc":"2.0",
+            "id":7,
+            "method":"tools/call",
+            "params":{
+                "name":"brain_answer",
+                "arguments":{"question":"\u{0001}".repeat(32_768)}
+            }
+        });
+
+        let result = handle(
+            &client,
+            &BTreeSet::from(["docs.public".to_string()]),
+            request,
+        )
+        .await
+        .unwrap();
+        assert_eq!(result["error"]["code"], -32602);
+        assert_eq!(
+            result["error"]["message"],
+            "encoded Brain request exceeds the client size limit"
+        );
+        assert!(matches!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        ));
     }
 
     #[test]
