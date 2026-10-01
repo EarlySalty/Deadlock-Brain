@@ -3,6 +3,7 @@ use std::collections::{BTreeSet, HashMap};
 use anyhow::{anyhow, ensure, Context, Result};
 use clap::{Parser, Subcommand};
 use deadlock_brain_core::ai::{AiClient, ChatCompletionRequest, ChatMessage};
+use dbrain_normalize::normalize_patch_external_id;
 use postgres::{Client, IsolationLevel, NoTls};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -70,7 +71,8 @@ fn main() -> Result<()> {
     let output = match args.command {
         Action::History { query, entity, known_at, limit } => history(&mut client, &query, entity, known_at, limit)?,
         Action::Review { patch, generate, write, snapshot_limit } => {
-            let context = build_context(&mut client, &patch, snapshot_limit)?;
+            let review_key = canonical_review_key(&patch)?;
+            let context = build_context(&mut client, &review_key, snapshot_limit)?;
             let context_text = serde_json::to_string(&context)?;
             ensure!(context_text.len() <= MAX_CONTEXT_BYTES, "Context exceeds safety limit; no model call made. Narrow the task instead of silently truncating evidence.");
             let context_sha256 = hex::encode(Sha256::digest(context_text.as_bytes()));
@@ -96,17 +98,17 @@ fn main() -> Result<()> {
                     "publishing_allowed":false, "review":review, "storyboard":storyboard});
                 let run_id = if write {
                     let mut tx = client.transaction()?;
-                    tx.query_one("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", &[&format!("brain.patch_review:{patch}")])?;
-                    let current_revision = evidence_revision(&mut tx, &patch)?;
+                    tx.query_one("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", &[&format!("brain.patch_review:{review_key}")])?;
+                    let current_revision = evidence_revision(&mut tx, &review_key)?;
                     ensure!(context["source_revision_id"].as_i64() == Some(current_revision), "Patch evidence changed during generation; report not saved");
                     let row = tx.query_one("INSERT INTO brain.patch_review_runs(patch_external_id,context_sha256,prompt_version,model,context,report) VALUES($1,$2,$3,$4,$5::text::jsonb,$6::text::jsonb) RETURNING run_id",
-                        &[&patch, &context_sha256, &PROMPT_VERSION, &model, &serde_json::to_string(&context)?, &serde_json::to_string(&report)?])?;
+                        &[&review_key, &context_sha256, &PROMPT_VERSION, &model, &serde_json::to_string(&context)?, &serde_json::to_string(&report)?])?;
                     let id = row.get::<_, i64>(0);
                     tx.commit()?;
                     Some(id)
                 } else { None };
                 json!({"prompt_version":PROMPT_VERSION, "context_sha256":context_sha256,
-                    "patch_external_id":patch, "model":model, "run_id":run_id,
+                    "patch_external_id":review_key, "model":model, "run_id":run_id,
                     "report":report, "context":context})
             }
         }
@@ -141,6 +143,23 @@ fn history(client: &mut Client, query: &str, entity: Option<String>, known_at: O
         "source":"brain.patch_history_v1", "model_called":false}))
 }
 
+fn ensure_snapshot_limit(snapshot_count: usize, payload_bytes: usize, limit: usize) -> Result<()> {
+    ensure!(
+        snapshot_count <= limit,
+        "Selected {snapshot_count} detail snapshots ({payload_bytes} payload bytes), exceeding --snapshot-limit {limit}; refusing silent truncation"
+    );
+    Ok(())
+}
+
+fn canonical_review_key(patch: &str) -> Result<String> {
+    let patch_id = patch
+        .strip_prefix("patch_")
+        .context("Expected patch_<changelog_posts.id>")?
+        .parse::<i64>()?;
+    ensure!(patch_id > 0, "Patch ID must be positive");
+    Ok(normalize_patch_external_id(&patch_id.to_string()))
+}
+
 fn build_context(client: &mut Client, patch: &str, snapshot_limit: usize) -> Result<Value> {
     ensure!((1..=1000).contains(&snapshot_limit), "snapshot-limit must be between 1 and 1000");
     let patch_id = patch.strip_prefix("patch_").context("Expected patch_<changelog_posts.id>")?.parse::<i64>()?;
@@ -151,12 +170,16 @@ fn build_context(client: &mut Client, patch: &str, snapshot_limit: usize) -> Res
     ensure!(source.get("raw_content").and_then(Value::as_str).is_some_and(|text| !text.trim().is_empty()), "Original patch text is missing; translations or Creator claims are not a substitute");
     let published = source.get("source_published_at").and_then(Value::as_str).context("Patch publication timestamp is missing")?;
     chrono::DateTime::parse_from_rfc3339(published).context("Patch publication timestamp must carry a timezone")?;
-    // Ereignisse liegen unter der belegten Quellen-URL, nicht unter patch_<id>.
-    // Die interne Quell-ID und die gespeicherte URL werden nachvollziehbar
-    // aufgeloest; die gespeicherten Ereignis-IDs bleiben unveraendert.
-    let source_url = source.get("url").and_then(Value::as_str).map(str::trim).filter(|url| !url.is_empty())
-        .context("Patch source URL is missing; cannot resolve the stored event identity")?;
-    let event_rows = tx.query("SELECT to_jsonb(pe)::text FROM brain.patch_events pe WHERE patch_external_id=$1 ORDER BY line_index,id LIMIT 5001", &[&source_url])?;
+    // Import und Review verwenden dieselbe Normalisierung. Numerische Quell-IDs
+    // werden zu patch_<id>; URLs werden getrimmt und sonst unverändert übernommen.
+    let source_external_id = source
+        .get("url")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+        .map(normalize_patch_external_id)
+        .unwrap_or_else(|| normalize_patch_external_id(&patch_id.to_string()));
+    let event_rows = tx.query("SELECT to_jsonb(pe)::text FROM brain.patch_events pe WHERE patch_external_id=$1 ORDER BY line_index,id LIMIT 5001", &[&source_external_id])?;
     ensure!(!event_rows.is_empty() && event_rows.len() <= 5000, "Patch events missing or limit exceeded; import/parse the official patch first");
     let events = event_rows.into_iter().map(|row| serde_json::from_str::<Value>(&row.get::<_, String>(0)))
         .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -174,7 +197,7 @@ fn build_context(client: &mut Client, patch: &str, snapshot_limit: usize) -> Res
         "SELECT count(*) FILTER (WHERE patch_snapshot_id IS NULL)::bigint, \
                 count(DISTINCT patch_snapshot_id)::bigint, max(patch_snapshot_id) \
          FROM brain.patch_events WHERE patch_external_id = $1",
-        &[&source_url],
+        &[&source_external_id],
     )?;
     let null_basis: i64 = basis.get(0);
     let distinct_basis: i64 = basis.get(1);
@@ -304,6 +327,11 @@ fn build_context(client: &mut Client, patch: &str, snapshot_limit: usize) -> Res
             "prior_version": "unknown"
         }));
     }
+    let detail_bytes: usize = mechanic_snapshots
+        .iter()
+        .map(|value| serde_json::to_string(value).map(|text| text.len()).unwrap_or(0))
+        .sum();
+    ensure_snapshot_limit(mechanic_snapshots.len(), detail_bytes, snapshot_limit)?;
     // Kompakter Katalog: die uebrigen Entities nach Typ in Namenslisten gruppiert
     // (keine wiederholten Keys/Typstrings), damit alle sichtbar bleiben ohne das
     // Budget zu sprengen. Namen allein sind Katalog, kein Gameplay-Nachweis.
@@ -329,7 +357,7 @@ fn build_context(client: &mut Client, patch: &str, snapshot_limit: usize) -> Res
     let revision = evidence_revision(&mut tx, patch)?;
     tx.commit()?;
     let context = json!({"source_revision_id":revision,"schema_version":1, "patch_external_id":patch,
-        "canonical_review_key":patch, "resolved_event_external_id":source_url, "patch_source":source,
+        "canonical_review_key":patch, "resolved_event_external_id":source_external_id, "patch_source":source,
         "patch_events":events, "mechanic_snapshots":mechanic_snapshots, "mechanic_catalog":mechanic_catalog,
         "context_selection":{
             "selection_version":"deterministic_gameplay_projection_v2",
@@ -445,14 +473,20 @@ fn evidence_revision(tx: &mut postgres::Transaction<'_>, patch: &str) -> Result<
     // ueber alle ihre Revisionen. Wandert ein Event zu einer anderen Quelle,
     // erzeugt das eine neue Revision desselben event_hash und hebt damit die
     // kanonische Revision dieser Quelle an, sodass ein Entwurf zu A veraltet.
+    let source_url: Option<String> = tx
+        .query_one("SELECT url FROM patchnotes.changelog_posts WHERE id=$1::bigint", &[&source_id])?
+        .get(0);
+    let source_external_id = source_url
+        .as_deref()
+        .map(normalize_patch_external_id)
+        .unwrap_or_else(|| patch.to_string());
     let row = tx.query_one(
         "SELECT COALESCE(max(revision_id),0) FROM brain.patch_evidence_revisions r \
          WHERE (r.source_table='changelog_posts' AND r.source_key=$1) \
             OR (r.source_table='patch_events' AND r.source_key IN ( \
                  SELECT DISTINCT e.source_key FROM brain.patch_evidence_revisions e \
-                 WHERE e.source_table='patch_events' AND e.payload->>'patch_external_id' = \
-                     (SELECT url FROM patchnotes.changelog_posts WHERE id=$1::bigint)))",
-        &[&source_id])?;
+                 WHERE e.source_table='patch_events' AND e.payload->>'patch_external_id' = $2))",
+        &[&source_id, &source_external_id])?;
     Ok(row.get(0))
 }
 
@@ -504,7 +538,22 @@ mod tests {
             "conditions":["Under condition C"],"counterarguments":["D can offset this"],
             "verification_needed":["Measure B"],"kind":"hypothesis"}],"unresolved":[]})).unwrap()
     }
-    #[test] fn accepts_linked_but_unverified_draft() { validate_review(&review(), &context()).unwrap(); }
+    #[test]
+    fn review_keys_canonicalize_numeric_spellings() {
+        for raw in ["patch_1", "patch_01", "patch_+1"] {
+            assert_eq!(canonical_review_key(raw).unwrap(), "patch_1");
+        }
+        assert!(canonical_review_key("patch_0").is_err());
+    }
+
+    #[test]
+    fn snapshot_limit_fails_with_counts_instead_of_truncating() {
+        assert!(ensure_snapshot_limit(2, 128, 1).is_err());
+        assert!(ensure_snapshot_limit(1, 128, 1).is_ok());
+    }
+
+    #[test]
+    fn accepts_linked_but_unverified_draft() { validate_review(&review(), &context()).unwrap(); }
     #[test] fn rejects_fabricated_event() { let mut r=review(); r.findings[0].event_hashes=vec!["invented".into()]; assert!(validate_review(&r,&context()).is_err()); }
     #[test] fn rejects_fabricated_snapshot() { let mut r=review(); r.findings[0].snapshot_ids=vec![99]; assert!(validate_review(&r,&context()).is_err()); }
     #[test] fn rejects_missing_conditions() { let mut r=review(); r.findings[0].conditions.clear(); assert!(validate_review(&r,&context()).is_err()); }

@@ -22,7 +22,7 @@ use sqlx::PgPool;
 
 pub use deadlock_brain_core as core;
 pub use error::{NormalizeError, Result};
-pub use patch::classify_change_type;
+pub use patch::{classify_change_type, normalize_patch_external_id};
 pub use util::normalize_alias;
 
 pub async fn parse_patchnotes(pool: &PgPool, rebuild: bool) -> Result<Value> {

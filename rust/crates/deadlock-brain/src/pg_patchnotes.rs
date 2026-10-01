@@ -5,6 +5,7 @@ use std::time::Duration;
 use anyhow::{anyhow, ensure, Result};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use deadlock_brain_core::http::{HttpClient, HttpGetOptions};
+use dbrain_normalize::normalize_patch_external_id;
 use postgres::types::ToSql;
 use postgres::{Client, NoTls, Transaction};
 use serde::Deserialize;
@@ -93,7 +94,7 @@ struct SteamPartnerEventResponse {
     event: Option<SteamPartnerEvent>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct PatchnoteRow {
     id: i64,
     title: Option<String>,
@@ -258,7 +259,16 @@ fn import_one_patchnote(
     if dry_run {
         return Ok(summary_json(true, options, &prepared, PgWriteCounts::default()));
     }
+    // Steam-Auflösung liegt außerhalb der Transaktion. Advisory Lock und
+    // Quellzeilen-Lock verhindern parallele Schreibläufe und veraltete Vorarbeit.
     let mut tx = client.transaction()?;
+    let import_lock = format!("brain.patchnote_import:{}", prepared.patch_external_id);
+    tx.query_one(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
+        &[&import_lock],
+    )?;
+    let current_patch = load_patchnote_for_update(&mut tx, patch_id)?;
+    ensure_patchnote_source_unchanged(&patch, &current_patch)?;
     let run_id = begin_run(&mut tx)?;
     let document_id = upsert_source_document(&mut tx, &prepared)?;
     let snapshot_id = upsert_entity_snapshot(&mut tx, &prepared, document_id)?;
@@ -295,11 +305,10 @@ enum PatchnoteDrift {
     Unchanged,
 }
 
-// Billige, rein lesende Drifterkennung: vergleicht den aktuell gespeicherten
-// raw_content jeder changelog-Zeile mit dem raw_content der zuletzt importierten
-// patchnote-Snapshotfassung. Gleiche id mit geaendertem Inhalt gilt als geaendert;
-// fehlt eine Snapshotfassung, ist die Quelle neu. So loest ein unveraenderter
-// Reimport keine teure Analyse aus, waehrend eine geaenderte Quelle erkannt wird.
+// Billige, rein lesende Drifterkennung: vergleicht raw_content und posted_at jeder
+// changelog-Zeile mit der zuletzt importierten Patchnote-Snapshotfassung. Gleiche ID
+// mit geaendertem Inhalt oder Publikationszeitpunkt gilt als geaendert; fehlt eine
+// Snapshotfassung, ist die Quelle neu. Unveraenderte Quellen loesen keine erneute Analyse aus.
 fn detect_patchnote_drift(
     client: &mut Client,
     limit: Option<i64>,
@@ -311,19 +320,34 @@ fn detect_patchnote_drift(
     // unveraendert. Keine Events -> neu. So blockiert nicht der Review, waehrend der
     // Sync faelschlich drift=false meldet.
     let base = r#"
-        SELECT c.id, c.title, c.raw_content,
-               e.ev, e.null_basis, e.distinct_basis, s.snap_raw
+        SELECT c.id, c.title, c.raw_content, c.posted_at::text,
+               e.ev, e.null_basis, e.distinct_basis, s.snap_raw, s.snap_posted_at
         FROM patchnotes.changelog_posts c
+        LEFT JOIN LATERAL (
+            SELECT btrim(c.url) AS external_id,
+                   regexp_replace(btrim(c.url), '^(patch_)?\+?', '') AS numeric_id
+        ) k ON true
         LEFT JOIN LATERAL (
             SELECT count(*) AS ev,
                    count(*) FILTER (WHERE pe.patch_snapshot_id IS NULL) AS null_basis,
                    count(DISTINCT pe.patch_snapshot_id) AS distinct_basis,
                    max(pe.patch_snapshot_id) AS one_basis
             FROM brain.patch_events pe
-            WHERE pe.patch_external_id = c.url
+            WHERE pe.patch_external_id = CASE
+                WHEN k.external_id IS NULL OR k.external_id = '' THEN 'patch_' || c.id::text
+                WHEN k.external_id ~ '^(patch_)?\+?[0-9]+$'
+                     AND CASE
+                         WHEN k.external_id ~ '^(patch_)?\+?[0-9]+$'
+                         THEN k.numeric_id::numeric <= 9223372036854775807::numeric
+                         ELSE false
+                     END
+                THEN 'patch_' || k.numeric_id::numeric::bigint::text
+                ELSE k.external_id
+            END
         ) e ON true
         LEFT JOIN LATERAL (
-            SELECT bs.payload->>'raw_content' AS snap_raw
+            SELECT bs.payload->>'raw_content' AS snap_raw,
+                   bs.payload->>'posted_at' AS snap_posted_at
             FROM brain.entity_snapshots bs
             WHERE bs.id = e.one_basis
         ) s ON true
@@ -342,16 +366,23 @@ fn detect_patchnote_drift(
         let id: i64 = row.get(0);
         let title: Option<String> = row.get(1);
         let current: Option<String> = row.get(2);
-        let events: i64 = row.get(3);
-        let null_basis: i64 = row.get(4);
-        let distinct_basis: i64 = row.get(5);
-        let stored: Option<String> = row.get(6);
+        let current_posted_at: Option<String> = row.get(3);
+        let events: i64 = row.get(4);
+        let null_basis: i64 = row.get(5);
+        let distinct_basis: i64 = row.get(6);
+        let stored: Option<String> = row.get(7);
+        let stored_posted_at: Option<String> = row.get(8);
         let drift = if events == 0 {
             PatchnoteDrift::New
         } else if null_basis > 0 || distinct_basis != 1 {
             // fehlende oder gemischte Basis: Reparaturimport noetig
             PatchnoteDrift::Changed
-        } else if stored.as_deref() == current.as_deref() {
+        } else if stored.as_deref() == current.as_deref()
+            && snapshot_publication_matches(
+                current_posted_at.as_deref(),
+                stored_posted_at.as_deref(),
+            )?
+        {
             PatchnoteDrift::Unchanged
         } else {
             PatchnoteDrift::Changed
@@ -401,7 +432,7 @@ pub fn sync_patchnotes(http: &HttpClient, options: &SyncPatchnotesOptions) -> Re
             "unchanged": unchanged,
             "drift": has_drift,
             "writes": false,
-            "semantics": "changed means same changelog id with different stored raw_content; unchanged is skipped without re-analysis",
+            "semantics": "changed means raw_content or posted_at differs from the stored snapshot, or the event basis is missing or mixed; unchanged is skipped without re-analysis",
         }));
     }
 
@@ -424,7 +455,7 @@ pub fn sync_patchnotes(http: &HttpClient, options: &SyncPatchnotesOptions) -> Re
         "unchanged_skipped": unchanged,
         "imported": imported,
         "writes": true,
-        "semantics": "new and changed sources re-imported revision-safely (prune+reinsert removes dropped events); unchanged skipped",
+        "semantics": "new and changed sources (raw_content, posted_at, or invalid event basis) re-imported revision-safely (prune+reinsert removes dropped events); unchanged skipped",
     }))
 }
 
@@ -695,6 +726,42 @@ fn load_patchnote(client: &mut Client, patch_id: i64) -> Result<PatchnoteRow> {
     })
 }
 
+fn load_patchnote_for_update(
+    tx: &mut Transaction<'_>,
+    patch_id: i64,
+) -> Result<PatchnoteRow> {
+    let row = tx
+        .query_opt(
+            r#"
+            SELECT id, title, url, posted_at::text, raw_content, translated_content
+            FROM patchnotes.changelog_posts
+            WHERE id = $1
+            FOR UPDATE
+            "#,
+            &[&patch_id],
+        )?
+        .ok_or_else(|| anyhow!("Patchnote nicht gefunden: {patch_id}"))?;
+    Ok(PatchnoteRow {
+        id: row.get(0),
+        title: row.get(1),
+        url: row.get(2),
+        posted_at: row.get(3),
+        raw_content: row.get(4),
+        translated_content: row.get(5),
+    })
+}
+
+fn ensure_patchnote_source_unchanged(
+    prepared: &PatchnoteRow,
+    current: &PatchnoteRow,
+) -> Result<()> {
+    ensure!(
+        prepared == current,
+        "Patchnote-Quelle hat sich während der Vorbereitung geändert; Import erneut starten"
+    );
+    Ok(())
+}
+
 fn resolve_patch_source(http: &HttpClient, row: &PatchnoteRow) -> Result<PatchSourceResolution> {
     let posted_at = row_posted_at(row)?;
     let candidates = collect_steam_links(row);
@@ -939,14 +1006,8 @@ fn prepare_patch(
         Some(url) if !url.is_empty() => url.to_string(),
         _ => format!("patchnotes:{}", row.id),
     };
-    // R5: dieselbe kanonische Identitaet wie der bestehende Parser-Pfad
-    // (normalize_patch_external_id in dbrain-normalize) und der reale Bestand
-    // verwenden. Ereignisse liegen unter der Quellen-URL (identisch zu
-    // build_context, das changelog_posts.url benutzt); nur rein numerische
-    // Quell-IDs werden zu patch_<n>. So schreibt der pg-Import in denselben
-    // Namensraum und ueberschreibt/prunt den vorhandenen Bestand konsistent.
     let patch_external_id = match row.url.as_deref().map(str::trim).filter(|url| !url.is_empty()) {
-        Some(url) => canonical_source_external_id(url),
+        Some(source_id) => normalize_patch_external_id(source_id),
         None => canonical_patch_external_id(row.id),
     };
     let source_kind = resolved.source_kind.clone();
@@ -1524,6 +1585,13 @@ fn section_subject(section: Option<&str>) -> Option<&str> {
         return None;
     }
     Some(candidate)
+}
+
+fn snapshot_publication_matches(source: Option<&str>, snapshot: Option<&str>) -> Result<bool> {
+    let source_at = parse_posted_at(source)?;
+    let snapshot_text = snapshot.unwrap_or_default().trim();
+    let snapshot_at = parse_posted_at(snapshot)?;
+    Ok((snapshot_text.is_empty() || snapshot_at.is_some()) && source_at == snapshot_at)
 }
 
 fn parse_posted_at(raw: Option<&str>) -> Result<Option<DateTime<Utc>>> {
@@ -2474,18 +2542,6 @@ fn canonical_patch_external_id(patch_id: i64) -> String {
     format!("patch_{patch_id}")
 }
 
-// Spiegelt dbrain-normalize::normalize_patch_external_id: rein numerische Quell-IDs
-// werden zu patch_<n>, alles andere (insbesondere die Quellen-URL) bleibt unveraendert.
-// So teilen pg-Import und Parser-Pfad genau einen Identitaetsnamensraum.
-fn canonical_source_external_id(external_id: &str) -> String {
-    let trimmed = external_id.trim();
-    if !trimmed.is_empty() && trimmed.chars().all(|ch| ch.is_ascii_digit()) {
-        format!("patch_{trimmed}")
-    } else {
-        trimmed.to_string()
-    }
-}
-
 fn patch_event_content_hash(
     row: &PatchnoteRow,
     entity_type: &str,
@@ -2650,6 +2706,23 @@ mod tests {
             .expect("parse posted_at")
             .expect("value")
             .to_rfc3339()
+    }
+
+    #[test]
+    fn import_rejects_source_changed_after_preparation() {
+        let prepared = PatchnoteRow {
+            id: 1,
+            title: Some("Patch".to_string()),
+            url: Some("https://example.com/patch/1".to_string()),
+            posted_at: Some(posted_at("2026-09-21T00:00:00Z")),
+            raw_content: Some("original".to_string()),
+            translated_content: None,
+        };
+        assert!(ensure_patchnote_source_unchanged(&prepared, &prepared.clone()).is_ok());
+
+        let mut changed = prepared.clone();
+        changed.posted_at = Some(posted_at("2026-09-22T00:00:00Z"));
+        assert!(ensure_patchnote_source_unchanged(&prepared, &changed).is_err());
     }
 
     #[test]
@@ -3346,12 +3419,32 @@ mod tests {
     }
 
     #[test]
-    fn canonical_source_external_id_prefers_url_and_numbers() {
+    fn shared_patch_external_id_normalizes_urls_and_numeric_forms() {
         assert_eq!(
-            canonical_source_external_id("https://steamcommunity.com/games/1422450/announcements/detail/698776157349216435"),
+            normalize_patch_external_id(
+                "https://steamcommunity.com/games/1422450/announcements/detail/698776157349216435"
+            ),
             "https://steamcommunity.com/games/1422450/announcements/detail/698776157349216435"
         );
-        assert_eq!(canonical_source_external_id("285"), "patch_285");
+        for raw in ["285", "0285", "+285", "patch_0285", "patch_+285"] {
+            assert_eq!(normalize_patch_external_id(raw), "patch_285", "{raw}");
+        }
+    }
+
+    #[test]
+    fn snapshot_publication_date_is_part_of_source_drift() {
+        assert!(snapshot_publication_matches(
+            Some("2026-09-21 00:00:00+00"),
+            Some("2026-09-21T00:00:00+00:00")
+        )
+        .unwrap());
+        assert!(!snapshot_publication_matches(
+            Some("2026-09-22 00:00:00+00"),
+            Some("2026-09-21T00:00:00+00:00")
+        )
+        .unwrap());
+        assert!(!snapshot_publication_matches(None, Some("unparseable" )).unwrap());
+        assert!(snapshot_publication_matches(None, None).unwrap());
     }
 
     #[test]

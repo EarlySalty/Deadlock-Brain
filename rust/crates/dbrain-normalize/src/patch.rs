@@ -495,13 +495,16 @@ fn classify_source_kind(url: Option<&str>) -> String {
     }
 }
 
-fn normalize_patch_external_id(external_id: &str) -> String {
+pub fn normalize_patch_external_id(external_id: &str) -> String {
     let trimmed = external_id.trim();
-    if !trimmed.is_empty() && trimmed.chars().all(|ch| ch.is_ascii_digit()) {
-        format!("patch_{trimmed}")
-    } else {
-        trimmed.to_string()
+    let key = trimmed.strip_prefix("patch_").unwrap_or(trimmed);
+    let numeric_id = key.strip_prefix('+').unwrap_or(key);
+    if !numeric_id.is_empty() && numeric_id.chars().all(|ch| ch.is_ascii_digit()) {
+        if let Ok(patch_id) = numeric_id.parse::<i64>() {
+            return format!("patch_{patch_id}");
+        }
     }
+    trimmed.to_string()
 }
 
 fn expand_compact_square_section_lines(content: &str) -> Option<Vec<String>> {
@@ -1016,6 +1019,17 @@ mod tests {
         for (line, expected) in cases {
             assert_eq!(classify_change_type(line), expected, "{line}");
         }
+    }
+
+    #[test]
+    fn normalize_patch_external_id_uses_one_numeric_key() {
+        for raw in ["1", "01", "+1", "patch_01", "patch_+1"] {
+            assert_eq!(normalize_patch_external_id(raw), "patch_1", "{raw}");
+        }
+        assert_eq!(
+            normalize_patch_external_id(" https://example.com/patch/1 "),
+            "https://example.com/patch/1"
+        );
     }
 
     #[test]
