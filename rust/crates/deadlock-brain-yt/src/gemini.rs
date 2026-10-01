@@ -113,7 +113,10 @@ struct Browser {
 }
 impl Drop for Browser {
     fn drop(&mut self) {
-        // The browser owns this process group, including renderer children.
+        // SAFETY: process_group(0) creates the spawned child's own PGID equal
+        // to its PID. This Child has not been waited/reaped before Drop, so its
+        // PID cannot have been reused for an unrelated process group. Only this
+        // browser group is signalled; Child::wait below reaps its leader.
         unsafe {
             libc::kill(-(self.child.id() as i32), libc::SIGKILL);
         }
@@ -127,10 +130,15 @@ impl Browser {
         parent.set_read_timeout(Some(Duration::from_secs(45)))?;
         parent.set_write_timeout(Some(Duration::from_secs(45)))?;
         // Keep source descriptors above Chromium's fixed descriptors, avoiding dup collisions.
+        // SAFETY: child owns a live UnixStream FD throughout fcntl. F_DUPFD_CLOEXEC
+        // creates a distinct descriptor without changing the stream's ownership.
         let input = unsafe { libc::fcntl(child.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 10) };
         if input < 0 {
             return Err(std::io::Error::last_os_error().into());
         }
+        // SAFETY: fcntl succeeded (nonnegative FD checked above) and returned a
+        // fresh descriptor owned exclusively here. No other owner closes it;
+        // ownership is transferred exactly once into OwnedFd.
         let input = unsafe { std::os::fd::OwnedFd::from_raw_fd(input) };
         let scratch = tempfile::tempdir()?;
         let mut command = Command::new(path);
@@ -147,6 +155,10 @@ impl Browser {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
+        // SAFETY: after fork the callback only borrows the captured live FD and
+        // uses async-signal-safe dup2 calls, or obtains errno via last_os_error.
+        // It allocates nothing and takes no locks. The input FD is >=10, so the
+        // fixed child-only FD3/FD4 targets cannot clobber it before the second dup.
         unsafe {
             command.pre_exec(move || {
                 if libc::dup2(input.as_raw_fd(), 3) < 0 || libc::dup2(input.as_raw_fd(), 4) < 0 {
@@ -567,6 +579,8 @@ pub fn send_pause_alert(kind: GeminiErrorKind, _message: &str) {
         use std::os::unix::fs::OpenOptionsExt;
         let path=crate::db::repo_root().join("data/gemini-alert-status.json");
         let mut file=fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).mode(0o600).open(path)?;
+        // SAFETY: file owns this valid open FD until the closure returns; flock
+        // takes no pointers and the file cannot be closed while this call runs.
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 { bail!("alert status unavailable"); }
         let mut raw=String::new();file.read_to_string(&mut raw)?;
         let mut status:Value=if raw.is_empty(){json!({"sent":[],"suppressed":0})}else{serde_json::from_str(&raw)?};
