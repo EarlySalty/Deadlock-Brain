@@ -576,7 +576,7 @@ fn submit_request_ids_are_data_and_cannot_change_the_destination() {
     if isolated("submit_request_ids_are_data_and_cannot_change_the_destination") {
         return;
     }
-    let ids = [
+    let unsafe_ids = [
         "../steam",
         "//example.invalid",
         "id?query",
@@ -585,7 +585,28 @@ fn submit_request_ids_are_data_and_cannot_change_the_destination() {
         "id@host",
     ];
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
     let endpoint = format!("http://{}/api", listener.local_addr().unwrap());
+    let client = client(&endpoint).unwrap();
+    for id in unsafe_ids {
+        let mut request = request();
+        request.request_id = id.into();
+        assert!(BuildPublishRequest::validate_request_id(id).is_err());
+        assert!(request.validate().is_err());
+        assert!(matches!(
+            client.submit(&request),
+            Err(PublishError::InvalidRequest(_))
+        ));
+        assert!(matches!(
+            client.status(id),
+            Err(PublishError::InvalidRequest(_))
+        ));
+    }
+    assert!(
+        matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
+    );
+    let maximum_id = "a".repeat(128);
+    let ids = ["build.1", "endpoint-1_test", maximum_id.as_str()];
     let server = serve(
         listener,
         ids.iter()
@@ -596,10 +617,11 @@ fn submit_request_ids_are_data_and_cannot_change_the_destination() {
             })
             .collect(),
     );
-    let client = client(&endpoint).unwrap();
     for id in ids {
         let mut request = request();
         request.request_id = id.into();
+        BuildPublishRequest::validate_request_id(id).unwrap();
+        request.validate().unwrap();
         assert_eq!(client.submit(&request), Err(PublishError::Unauthorized));
     }
     for (id, received) in ids.into_iter().zip(server.join().unwrap()) {
