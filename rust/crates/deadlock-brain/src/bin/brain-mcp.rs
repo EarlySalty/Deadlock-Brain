@@ -7,8 +7,8 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-// A 32,768-character question can expand to six JSON bytes per character
-// when escaped, so leave room for the full advertised tool input plus envelope.
+// A 32,768-byte question can expand to six JSON bytes per character when
+// escaped (for example, U+0001), so include the full valid input and envelope.
 const MAX_FRAME_BYTES: usize = 256 * 1024;
 
 enum FrameRead {
@@ -336,9 +336,26 @@ mod tests {
 
     #[test]
     fn frame_limit_fits_maximum_schema_question_with_json_escaping() {
-        let question = "\\".repeat(32_768);
-        let encoded =
-            serde_json::to_vec(&json!({"params":{"arguments":{"question":question}}})).unwrap();
+        let question = "\u{0001}".repeat(32_768);
+        let query = Query {
+            request_id: "request".to_string(),
+            conversation_id: "conversation".to_string(),
+            text: question.clone(),
+            domain: None,
+            requested_scopes: BTreeSet::from(["docs.public".to_string()]),
+            profile: AnswerProfile::Explain,
+            patch: None,
+            mode: None,
+        };
+        assert!(query.validate().is_ok());
+        let encoded = serde_json::to_vec(&json!({
+            "jsonrpc":"2.0",
+            "id":1,
+            "method":"tools/call",
+            "params":{"name":"brain_answer","arguments":{"question":question}}
+        }))
+        .unwrap();
+        assert!(encoded.len() > 64 * 1024);
         assert!(encoded.len() <= MAX_FRAME_BYTES);
 
         let mut reader = io::Cursor::new(encoded);
