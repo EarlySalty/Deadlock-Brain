@@ -107,3 +107,41 @@ fn ambient_postgres_startup_options_and_credentials_are_rejected_before_secret_l
         assert!(!error.contains("synthetic-ambient-rejected"));
     }
 }
+
+#[test]
+fn absolute_dot_and_symlink_config_aliases_share_one_private_pipe_snapshot() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = fixture(dir.path());
+    let path = dir.path().join("infisical.json");
+    let symlink = dir.path().join("infisical-alias.json");
+    std::os::unix::fs::symlink(&path, &symlink).unwrap();
+    let mut config: serde_json::Value = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
+    config["legacy"]["infisical_config"] = json!(path);
+    for alias in [dir.path().join(".").join("infisical.json"), symlink] {
+        config["target"]["infisical_config"] = json!(alias);
+        fs::write(&file, serde_json::to_vec(&config).unwrap()).unwrap();
+        let output = launch(
+            &file,
+            json!({
+                "BRAIN_PG_READONLY_PASSWORD":"synthetic-readonly-password",
+                "BRAIN_PG_INGEST_PASSWORD":"synthetic-ingest-password"
+            }),
+            None,
+        );
+        assert!(!output.status.success());
+        let error = String::from_utf8_lossy(&output.stderr);
+        assert!(error.contains("legacy connection failed"), "{error}");
+        assert!(!error.contains("synthetic-readonly-password"));
+        assert!(!error.contains("synthetic-ingest-password"));
+        let output = launch(
+            &file,
+            json!({
+                "BRAIN_PG_READONLY_PASSWORD":"synthetic-readonly-password"
+            }),
+            None,
+        );
+        let error = String::from_utf8_lossy(&output.stderr);
+        assert!(error.contains("configured Infisical secret missing"));
+        assert!(!error.contains("legacy connection failed"));
+    }
+}

@@ -229,10 +229,14 @@ fn configured_options(endpoints: &[&Endpoint]) -> Result<Vec<PgConnectOptions>, 
                 .as_ref()
                 .filter(|path| path.is_absolute())
                 .ok_or("explicit absolute Infisical config path required")?;
-            if !snapshots.contains_key(path) {
+            // Normalize every selected config before using it as a cache key.
+            // Absolute dot paths and symlinks can identify the same one-shot pipe.
+            let path = std::fs::canonicalize(path)
+                .map_err(|_| "Infisical configuration path unavailable")?;
+            if !snapshots.contains_key(&path) {
                 snapshots.insert(path.clone(), load_snapshot(path.clone(), deadline)?);
             }
-            snapshots.get(path)
+            snapshots.get(&path)
         } else {
             None
         };
@@ -751,8 +755,13 @@ async fn main() {
                 let parent = std::path::Path::new(path)
                     .parent()
                     .unwrap_or_else(|| std::path::Path::new("."));
-                *secret_config = std::fs::canonicalize(parent.join(&*secret_config))
-                    .unwrap_or_else(|_| parent.join(&*secret_config));
+                *secret_config = match std::path::absolute(parent.join(&*secret_config)) {
+                    Ok(path) => path,
+                    Err(_) => {
+                        eprintln!("Infisical configuration path invalid");
+                        std::process::exit(64);
+                    }
+                };
             }
         }
     }
