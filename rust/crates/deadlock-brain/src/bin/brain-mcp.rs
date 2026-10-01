@@ -7,7 +7,9 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-const MAX_FRAME_BYTES: usize = 64 * 1024;
+// A 32,768-character question can expand to six JSON bytes per character
+// when escaped, so leave room for the full advertised tool input plus envelope.
+const MAX_FRAME_BYTES: usize = 256 * 1024;
 
 enum FrameRead {
     Eof,
@@ -330,6 +332,26 @@ mod tests {
             panic!("expected frame after rejected oversized line");
         };
         assert_eq!(serde_json::from_slice::<Value>(&frame).unwrap(), json!({}));
+    }
+
+    #[test]
+    fn frame_limit_fits_maximum_schema_question_with_json_escaping() {
+        let question = "\\".repeat(32_768);
+        let encoded =
+            serde_json::to_vec(&json!({"params":{"arguments":{"question":question}}})).unwrap();
+        assert!(encoded.len() <= MAX_FRAME_BYTES);
+
+        let mut reader = io::Cursor::new(encoded);
+        let FrameRead::Frame(frame) = read_frame(&mut reader, MAX_FRAME_BYTES).unwrap() else {
+            panic!("expected maximum-sized schema question frame");
+        };
+        assert_eq!(
+            serde_json::from_slice::<Value>(&frame).unwrap()["params"]["arguments"]["question"]
+                .as_str()
+                .unwrap()
+                .len(),
+            32_768
+        );
     }
 
     #[test]
