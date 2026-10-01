@@ -1127,13 +1127,27 @@ struct InsightImportJsonArgs {
 
 fn command_is_read_only(command: &Commands) -> bool {
     match command {
-        Commands::AskContext(_) | Commands::Context(_) => true,
+        Commands::Context(_)
+        | Commands::Timeline(_)
+        | Commands::Review(_)
+        | Commands::AskContext(_)
+        | Commands::Lineage(_)
+        | Commands::Legacy(_)
+        | Commands::Entities(_) => true,
         Commands::Reason { target } => match target {
             ReasonCommands::Build(args) => args.no_persist,
             ReasonCommands::PatchImpact(args) => args.no_persist,
             ReasonCommands::Backtest(args) => args.no_persist,
         },
         _ => false,
+    }
+}
+
+async fn pg_pool_for_command(command: &Commands) -> Result<PgPool> {
+    if command_is_read_only(command) {
+        deadlock_brain_core::pg::pg_pool_read_only().await
+    } else {
+        deadlock_brain_core::pg::pg_pool().await
     }
 }
 
@@ -1170,6 +1184,10 @@ async fn run(cli: Cli) -> Result<()> {
         return print_json(&wiki_refresh::run(args).await?);
     }
     let settings = config::load_settings()?;
+    if let Commands::Entities(args) = &command {
+        let pool = pg_pool_for_command(&command).await?;
+        return pg_entities::run(args, &pool).await;
+    }
     let command = match command {
         Commands::Pg { target } => {
             // Alle `pg`-Befehle nutzen synchrone Crates (`postgres` bzw. der
@@ -1191,19 +1209,12 @@ async fn run(cli: Cli) -> Result<()> {
             // und muss daher ebenfalls vom async-Runtime entkoppelt laufen.
             return tokio::task::spawn_blocking(move || run_insights(target)).await?;
         }
-        Commands::Entities(args) => {
-            return pg_entities::run(args).await;
-        }
         other => other,
     };
     prepare_dirs(&settings)?;
     // Wissensabfragen und ausdrücklich persistenzfreie Reasoner-Läufe erzwingen
     // Read-only bereits beim Verbindungsaufbau.
-    let pool = if command_is_read_only(&command) {
-        deadlock_brain_core::pg::pg_pool_read_only().await?
-    } else {
-        deadlock_brain_core::pg::pg_pool().await?
-    };
+    let pool = pg_pool_for_command(&command).await?;
 
     match command {
         Commands::Status => print_status(&pool, &settings).await,
@@ -3642,6 +3653,11 @@ mod tests {
         for argv in [
             vec!["deadlock-brain", "ask-context", "Warden"],
             vec!["deadlock-brain", "context", "Warden"],
+            vec!["deadlock-brain", "timeline", "Warden"],
+            vec!["deadlock-brain", "review", "Warden"],
+            vec!["deadlock-brain", "lineage"],
+            vec!["deadlock-brain", "legacy"],
+            vec!["deadlock-brain", "entities", "--query", "Warden"],
             vec![
                 "deadlock-brain",
                 "reason",
@@ -3673,7 +3689,6 @@ mod tests {
     #[test]
     fn schreibende_befehle_bleiben_schreibfaehig() {
         for argv in [
-            vec!["deadlock-brain", "status"],
             vec!["deadlock-brain", "reason", "build", "Warden"],
             vec!["deadlock-brain", "reason", "patch-impact", "Warden"],
             vec!["deadlock-brain", "reason", "backtest", "--hero", "Warden"],
