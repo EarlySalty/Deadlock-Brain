@@ -852,7 +852,7 @@ fn http_options(options: &PullRedditOptions, timeout: Duration) -> HttpGetOption
         } else {
             options.cache_ttl_seconds
         }),
-        timeout,
+        timeout: Some(timeout),
         allow_forbidden: true,
         ..HttpGetOptions::default()
     }

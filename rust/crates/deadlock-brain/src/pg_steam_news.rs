@@ -159,7 +159,7 @@ pub fn import_steam_news(http: &HttpClient, options: &ImportSteamNewsOptions) ->
         &api_url,
         HttpGetOptions {
             cache_ttl_seconds: Some(options.cache_ttl_seconds),
-            timeout: Duration::from_secs(45),
+            timeout: Some(Duration::from_secs(45)),
             ..HttpGetOptions::default()
         },
     )?;

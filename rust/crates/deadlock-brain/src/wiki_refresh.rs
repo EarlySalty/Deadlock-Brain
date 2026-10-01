@@ -68,7 +68,6 @@ pub async fn run(
     settings: &deadlock_brain_core::config::Settings,
 ) -> Result<Value> {
     let mut config = Config::read(&args.config)?;
-    config.source_repository = settings.project_root.clone();
     config.raw_directory = settings.raw_dir.clone();
     config.publication_root = settings.global.paths().game_wiki_dir.clone();
     let wiki = config

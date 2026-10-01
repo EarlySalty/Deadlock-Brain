@@ -2,6 +2,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
 use clap::{Args, Subcommand};
+use deadlock_brain_core::config::Settings;
 use sqlx::postgres::PgPool;
 use tokio::runtime::Runtime;
 
@@ -58,9 +59,9 @@ struct ShowArgs {
     bucket: Option<String>,
 }
 
-pub fn run_population(args: PopulationArgs) -> Result<()> {
+pub fn run_population(args: PopulationArgs, settings: Settings) -> Result<()> {
     let runtime = Runtime::new()?;
-    let client = ApiClient::new()?;
+    let client = ApiClient::new(&settings)?;
     let catalog = Catalog::fetch(&client)?;
     let pool = runtime.block_on(db::connect())?;
 

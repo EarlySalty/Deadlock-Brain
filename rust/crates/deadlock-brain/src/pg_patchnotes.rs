@@ -364,7 +364,7 @@ fn fetch_steam_news_items(http: &HttpClient) -> Result<Vec<SteamAppNewsItem>> {
         &url,
         HttpGetOptions {
             cache_ttl_seconds: Some(900),
-            timeout: Duration::from_secs(45),
+            timeout: Some(Duration::from_secs(45)),
             ..HttpGetOptions::default()
         },
     )?;
@@ -392,7 +392,7 @@ fn fetch_steam_announcement_body(http: &HttpClient, item: &SteamAppNewsItem) -> 
         &item.url,
         HttpGetOptions {
             cache_ttl_seconds: Some(900),
-            timeout: Duration::from_secs(45),
+            timeout: Some(Duration::from_secs(45)),
             ..HttpGetOptions::default()
         },
     )?;

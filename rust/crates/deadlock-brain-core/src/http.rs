@@ -33,9 +33,9 @@ impl Default for RetryPolicy {
 #[derive(Debug, Clone)]
 pub struct HttpGetOptions {
     pub cache_ttl_seconds: Option<u64>,
-    pub timeout: Duration,
+    pub timeout: Option<Duration>,
     pub headers: Vec<(String, String)>,
-    pub retry: RetryPolicy,
+    pub retry: Option<RetryPolicy>,
     pub allow_forbidden: bool,
 }
 
@@ -43,9 +43,9 @@ impl Default for HttpGetOptions {
     fn default() -> Self {
         Self {
             cache_ttl_seconds: None,
-            timeout: Duration::from_secs(30),
+            timeout: None,
             headers: Vec::new(),
-            retry: RetryPolicy::default(),
+            retry: None,
             allow_forbidden: false,
         }
     }
@@ -126,12 +126,11 @@ impl HttpClient {
     }
 
     fn apply_defaults(&self, options: &mut HttpGetOptions) {
-        let defaults = HttpGetOptions::default();
-        if options.timeout == defaults.timeout {
-            options.timeout = self.default_timeout;
+        if options.timeout.is_none() {
+            options.timeout = Some(self.default_timeout);
         }
-        if options.retry == defaults.retry {
-            options.retry = self.default_retry.clone();
+        if options.retry.is_none() {
+            options.retry = Some(self.default_retry.clone());
         }
     }
 
@@ -186,7 +185,8 @@ impl HttpClient {
         options: &HttpGetOptions,
         build_request: impl Fn() -> RequestBuilder,
     ) -> Result<HttpResult> {
-        let attempts = options.retry.attempts.max(1);
+        let retry = options.retry.as_ref().unwrap_or(&self.default_retry);
+        let attempts = retry.attempts.max(1);
         let mut last_server_status = None;
         let mut last_server_body = String::new();
 
@@ -206,7 +206,7 @@ impl HttpClient {
             }
 
             if attempt < attempts {
-                thread::sleep(options.retry.backoff.saturating_mul(attempt as u32));
+                thread::sleep(retry.backoff.saturating_mul(attempt as u32));
             }
         }
 
@@ -223,7 +223,7 @@ impl HttpClient {
         options: &HttpGetOptions,
         request: RequestBuilder,
     ) -> Result<HttpResult> {
-        let mut request = request.timeout(options.timeout);
+        let mut request = request.timeout(options.timeout.unwrap_or(self.default_timeout));
         for (name, value) in &options.headers {
             let header_name = HeaderName::from_bytes(name.as_bytes()).map_err(|error| {
                 CoreError::InvalidHeader {
@@ -367,20 +367,29 @@ mod tests {
 
         let mut defaults = HttpGetOptions::default();
         client.apply_defaults(&mut defaults);
-        assert_eq!(defaults.timeout, Duration::from_secs(45));
-        assert_eq!(defaults.retry, retry);
+        assert_eq!(defaults.timeout, Some(Duration::from_secs(45)));
+        assert_eq!(defaults.retry, Some(retry));
 
         let mut specific = HttpGetOptions {
-            timeout: Duration::from_secs(12),
-            retry: RetryPolicy {
+            timeout: Some(Duration::from_secs(12)),
+            retry: Some(RetryPolicy {
                 attempts: 1,
                 backoff: Duration::ZERO,
-            },
+            }),
             ..HttpGetOptions::default()
         };
         client.apply_defaults(&mut specific);
-        assert_eq!(specific.timeout, Duration::from_secs(12));
-        assert_eq!(specific.retry.attempts, 1);
+        assert_eq!(specific.timeout, Some(Duration::from_secs(12)));
+        assert_eq!(specific.retry.as_ref().unwrap().attempts, 1);
+
+        let mut explicit_defaults = HttpGetOptions {
+            timeout: Some(Duration::from_secs(30)),
+            retry: Some(RetryPolicy::default()),
+            ..HttpGetOptions::default()
+        };
+        client.apply_defaults(&mut explicit_defaults);
+        assert_eq!(explicit_defaults.timeout, Some(Duration::from_secs(30)));
+        assert_eq!(explicit_defaults.retry, Some(RetryPolicy::default()));
     }
 
     #[test]

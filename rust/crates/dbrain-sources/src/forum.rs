@@ -570,7 +570,7 @@ fn child_text(node: roxmltree::Node<'_, '_>, child_name: &str) -> Option<String>
 fn http_options(options: &PullForumOptions, timeout: Duration) -> HttpGetOptions {
     HttpGetOptions {
         cache_ttl_seconds: Some(options.cache_ttl_seconds),
-        timeout,
+        timeout: Some(timeout),
         ..HttpGetOptions::default()
     }
 }

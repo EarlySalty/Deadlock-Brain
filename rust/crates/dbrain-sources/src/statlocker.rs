@@ -884,7 +884,7 @@ fn get_statlocker_json(
         url,
         HttpGetOptions {
             cache_ttl_seconds: Some(cache_ttl_seconds),
-            timeout: Duration::from_secs(30),
+            timeout: Some(Duration::from_secs(30)),
             headers: vec![
                 ("Accept".to_string(), "application/json".to_string()),
                 ("Origin".to_string(), BASE_URL.to_string()),

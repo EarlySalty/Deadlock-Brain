@@ -157,7 +157,7 @@ pub fn discover_sheet_tabs(
         &url,
         HttpGetOptions {
             cache_ttl_seconds: Some(cache_ttl_seconds),
-            timeout: Duration::from_secs(45),
+            timeout: Some(Duration::from_secs(45)),
             ..HttpGetOptions::default()
         },
     )?;
@@ -202,7 +202,7 @@ async fn pull_single_sheet(
         &url,
         HttpGetOptions {
             cache_ttl_seconds: Some(cache_ttl_seconds),
-            timeout: Duration::from_secs(45),
+            timeout: Some(Duration::from_secs(45)),
             ..HttpGetOptions::default()
         },
     )?;

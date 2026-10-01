@@ -490,12 +490,12 @@ async fn poll_demo_query_url_with_durations(
         let raw = match http.get(
             url,
             HttpGetOptions {
-                timeout: request_timeout,
+                timeout: Some(request_timeout),
                 headers: demo_headers("application/json"),
-                retry: RetryPolicy {
+                retry: Some(RetryPolicy {
                     attempts: 1,
                     backoff: Duration::ZERO,
-                },
+                }),
                 ..HttpGetOptions::default()
             },
         ) {
@@ -566,7 +566,7 @@ fn download_demo_result(http: &HttpClient, result_url: &str) -> Result<String> {
     match http.get_no_redirect(
         result_url,
         HttpGetOptions {
-            timeout: Duration::from_secs(180),
+            timeout: Some(Duration::from_secs(180)),
             headers: demo_headers("application/x-ndjson"),
             ..HttpGetOptions::default()
         },
@@ -1083,12 +1083,12 @@ fn demo_post_json(http: &HttpClient, url: &str, body: &Value) -> Result<String> 
         url,
         body,
         HttpGetOptions {
-            timeout: Duration::from_secs(60),
+            timeout: Some(Duration::from_secs(60)),
             headers: demo_headers("application/json"),
-            retry: RetryPolicy {
+            retry: Some(RetryPolicy {
                 attempts: 1,
                 backoff: Duration::from_millis(0),
-            },
+            }),
             ..HttpGetOptions::default()
         },
     ) {
@@ -1115,7 +1115,7 @@ fn get_deadlock_api_json(http: &HttpClient, url: &str, cache_ttl_seconds: u64) -
         url,
         HttpGetOptions {
             cache_ttl_seconds: Some(cache_ttl_seconds),
-            timeout: Duration::from_secs(60),
+            timeout: Some(Duration::from_secs(60)),
             headers: vec![
                 ("Accept".to_string(), "application/json".to_string()),
                 (

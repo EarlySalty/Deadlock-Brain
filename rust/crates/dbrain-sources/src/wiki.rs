@@ -82,7 +82,7 @@ oder nutze die CLI-Option --allow-wiki-network.",
         &url,
         HttpGetOptions {
             cache_ttl_seconds: Some(options.cache_ttl_seconds),
-            timeout: Duration::from_secs(30),
+            timeout: Some(Duration::from_secs(30)),
             ..HttpGetOptions::default()
         },
     )?;

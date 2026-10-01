@@ -80,7 +80,7 @@ pub(crate) async fn pull_assets_inner(
             &url,
             HttpGetOptions {
                 cache_ttl_seconds: Some(3600),
-                timeout: Duration::from_secs(30),
+                timeout: Some(Duration::from_secs(30)),
                 ..HttpGetOptions::default()
             },
         )?;

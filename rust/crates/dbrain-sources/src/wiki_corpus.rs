@@ -108,7 +108,10 @@ pub async fn pull_wiki_corpus_with_pool(
                 // API-Fehler aus einem früheren HTTP-200 werden nicht wiederverwendet.
                 http.get(&url, HttpGetOptions {
                     cache_ttl_seconds: Some(0),
-                    retry: RetryPolicy { attempts: 1, ..Default::default() },
+                    retry: Some(RetryPolicy {
+                        attempts: 1,
+                        ..Default::default()
+                    }),
                     ..Default::default()
                 })?
             };

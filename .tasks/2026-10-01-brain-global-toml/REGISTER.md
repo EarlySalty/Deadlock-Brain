@@ -34,12 +34,12 @@ ORCHESTRIERUNG[OR-1]: Stufe mittel | Schritt bau | Artefakt: .tasks/2026-10-01-b
 
 ## Prüffortschritt
 
-- Tests: nicht ausgeführt; der gemeinsame Lauf meldet einen belegten Hostlock.
-- Compile-Check: blockiert mit Cargo 1.75.0; `idna_adapter 1.2.2` verlangt Edition 2024. Das isolierte Brain/Bots-Layout wurde nur temporär referenziert und alle Manifest-/Lockfile-Anpassungen sind zurückgenommen.
-- Formatprüfung: `cargo fmt` mit dem isolierten Layout fand Formatabweichungen im Workspace; nach manueller Formatkorrektur der geänderten Stellen nicht erneut geprüft.
-- Eigenes Merge-Gate: noch nicht ausgeführt
+- Tests: `deadlock-brain-core` HTTP 5 passed, 0 ignored, 27 filtered; `dbrain-population` API 2 passed, 0 ignored, 24 filtered.
+- Compile-Check: gesamter Workspace mit Rust 1.98 und `--locked` erfolgreich. Die vier externen Cargo-Pfade wurden für den Lauf vorübergehend auf die gepinnten Abhängigkeiten im isolierten Layout gesetzt und danach zurückgenommen.
+- Formatprüfung: gezielte HTTP- und Population-Dateien bestehen `rustfmt --check`. Workspace-weites `cargo fmt --all -- --check` meldet weitere Formatabweichungen, die nicht pauschal geändert wurden.
+- Eigenes Merge-Gate: Runde 1 BLOCK durch `gpt-6.1-sol`; alle vier Befunde nachgearbeitet, Runde 2 ausstehend.
 - Gemeinsamer Freeze und unabhängige Intent-Abnahme: ausstehend
 - Reguläres Merge-/Security-Gate: ausstehend
-- Merge und Push: blockiert. `brain-live-main` steht auf `21cfcd8`, 3 Commits voraus und 11 hinter dem aktuellen `origin/main` `f9c52fe`; der kanonische Checkout ist auf einem anderen Branch verschmutzt.
+- Merge und Push: nach Review-ALLOW. Dedicated main worktree `/home/nathanael/.worktrees/brain-live-main` sauber, Branch `main`.
 - Deploy, Dienstrestart, Livebeleg und Cleanup: ausstehend
-- Blocker: Rust-Toolchain und Main-Branch-Divergenz verhindern den verifizierten Abschluss; Source-Resolver-Subsystem bleibt ausgeschlossen.
+- Blocker: reguläres Gate und Deployment noch offen; Source-Resolver-Subsystem bleibt ausgeschlossen.

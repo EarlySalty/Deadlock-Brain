@@ -1176,7 +1176,7 @@ fn run_from_cli() -> Result<()> {
             "provider": "fireworks",
             "model": deadlock_brain_core::model_resolver::model_for_request()?,
         })),
-        Commands::Population(args) => dbrain_population::run_population(args),
+        Commands::Population(args) => dbrain_population::run_population(args, settings),
         command => {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -1187,6 +1187,12 @@ fn run_from_cli() -> Result<()> {
 }
 
 async fn run(command: Commands, settings: Settings) -> Result<()> {
+    if let Commands::Wiki {
+        target: WikiCommands::Refresh(args),
+    } = &command
+    {
+        return print_json(&wiki_refresh::run(args, &settings).await?);
+    }
     if let Commands::Entities(args) = &command {
         let pool = pg_pool_for_command(&command).await?;
         return pg_entities::run(args, &pool).await;

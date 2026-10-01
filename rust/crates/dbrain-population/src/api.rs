@@ -3,6 +3,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
+use deadlock_brain_core::config::Settings;
 use reqwest::blocking::Client;
 use reqwest::StatusCode;
 use serde_json::Value;
@@ -17,20 +18,21 @@ const ASSETS_BUCKET: &str = "assets";
 const MATCHES_RPM_ANON: f64 = 9.0;
 const MATCHES_RPM_KEYED: f64 = 50.0;
 const ASSETS_RPM: f64 = 30.0;
-const MAX_RETRIES: usize = 5;
 
 pub struct ApiClient {
     client: Client,
     has_key: bool,
     limiter: Mutex<HashMap<String, Instant>>,
+    max_retries: usize,
+    retry_backoff: Duration,
 }
 
 impl ApiClient {
-    pub fn new() -> Result<Self> {
+    pub fn new(settings: &Settings) -> Result<Self> {
         let client = Client::builder()
             .user_agent(USER_AGENT)
             .gzip(true)
-            .timeout(Duration::from_secs(300))
+            .timeout(Duration::from_secs(settings.http_timeout_seconds))
             .build()
             .map_err(|error| anyhow!("HTTP-Client konnte nicht gebaut werden: {error}"))?;
         let has_key = std::env::var(API_KEY_ENV)
@@ -40,6 +42,8 @@ impl ApiClient {
             client,
             has_key,
             limiter: Mutex::new(HashMap::new()),
+            max_retries: settings.http_retry_attempts.max(1),
+            retry_backoff: Duration::from_millis(settings.http_retry_backoff_milliseconds),
         })
     }
 
@@ -112,10 +116,10 @@ impl ApiClient {
                 Ok(response) => response,
                 Err(error) => {
                     attempt += 1;
-                    if attempt >= MAX_RETRIES {
+                    if attempt >= self.max_retries {
                         return Err(anyhow!("Anfrage an {path} scheiterte am Netzwerk."));
                     }
-                    std::thread::sleep(backoff(attempt));
+                    std::thread::sleep(backoff(attempt, self.retry_backoff));
                     let _ = error;
                     continue;
                 }
@@ -125,12 +129,12 @@ impl ApiClient {
                 attempt += 1;
                 let header_hint = retry_after(&response);
                 let body_hint = response.text().ok().and_then(|body| next_request_in(&body));
-                if attempt >= MAX_RETRIES {
+                if attempt >= self.max_retries {
                     return Err(anyhow!("{path} bleibt nach mehreren Versuchen gedrosselt."));
                 }
                 let wait = header_hint
                     .or(body_hint)
-                    .unwrap_or_else(|| backoff(attempt));
+                    .unwrap_or_else(|| backoff(attempt, self.retry_backoff));
                 std::thread::sleep(wait);
                 continue;
             }
@@ -142,10 +146,10 @@ impl ApiClient {
             }
             if !status.is_success() {
                 attempt += 1;
-                if attempt >= MAX_RETRIES {
+                if attempt >= self.max_retries {
                     return Err(anyhow!("{path} antwortete mit Status {}.", status.as_u16()));
                 }
-                std::thread::sleep(backoff(attempt));
+                std::thread::sleep(backoff(attempt, self.retry_backoff));
                 continue;
             }
             let body = response
@@ -190,9 +194,9 @@ fn metadata_params(
     params
 }
 
-fn backoff(attempt: usize) -> Duration {
-    let seconds = (2f64.powi(attempt as i32)).min(60.0);
-    Duration::from_secs_f64(seconds)
+fn backoff(attempt: usize, base: Duration) -> Duration {
+    let multiplier = 2f64.powi(i32::try_from(attempt).unwrap_or(i32::MAX));
+    Duration::from_secs_f64((base.as_secs_f64() * multiplier).min(60.0))
 }
 
 fn retry_after(response: &reqwest::blocking::Response) -> Option<Duration> {
@@ -223,6 +227,18 @@ mod tests {
             .iter()
             .find(|(name, _)| name == key)
             .map(|(_, value)| value.as_str())
+    }
+
+    #[test]
+    fn retry_backoff_uses_the_configured_base_and_keeps_its_cap() {
+        assert_eq!(
+            backoff(1, Duration::from_millis(600)),
+            Duration::from_millis(1200)
+        );
+        assert_eq!(
+            backoff(10, Duration::from_secs(60)),
+            Duration::from_secs(60)
+        );
     }
 
     #[test]
