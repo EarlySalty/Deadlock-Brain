@@ -2,11 +2,25 @@ use super::*;
 
 #[test]
 fn encrypted_browser_state_roundtrip_concurrency_revocation_and_account_isolation() {
-    let dsn = std::env::var("TOKEN_DB_TEST_URL").expect("Wegwerf-Datenbank erforderlich");
-    let options = postgres::Config::from_str(&dsn).unwrap();
-    assert!(options
-        .get_dbname()
-        .is_some_and(|name| name.starts_with("token_db_")));
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct TestConfig {
+        socket: std::path::PathBuf,
+        user: String,
+        database: String,
+    }
+    // Passwortlose lokale Peer-Verbindung; die normale Testconfig enthält
+    // ausschließlich Metadaten und öffnet keine produktive Datenbank.
+    let config: TestConfig =
+        serde_json::from_str(include_str!("../tests/database-config.json")).unwrap();
+    assert!(config.socket.is_absolute());
+    assert!(config.database.starts_with("token_db_"));
+    let mut options = postgres::Config::new();
+    options
+        .host_path(&config.socket)
+        .user(&config.user)
+        .dbname(&config.database)
+        .connect_timeout(std::time::Duration::from_secs(10));
     let mut admin = options.connect(NoTls).unwrap();
     let database = format!("token_db_browser_{}", std::process::id());
     admin

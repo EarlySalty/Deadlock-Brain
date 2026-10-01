@@ -1,0 +1,5 @@
+{
+  "socket": "/var/run/postgresql",
+  "user": "nathanael",
+  "database": "token_db_brain_accept_20261001"
+}
