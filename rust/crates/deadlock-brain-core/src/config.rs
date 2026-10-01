@@ -155,9 +155,12 @@ mod tests {
     const FIXTURE: &str = include_str!("../../../../config/bot.toml");
 
     #[test]
-    fn repo_root_points_at_project() {
-        let root = repo_root();
-        assert!(root.join("rust").is_dir());
+    fn repo_root_uses_default_config_installation_parent() {
+        let expected = Path::new(DEFAULT_CONFIG_PATH)
+            .parent()
+            .and_then(Path::parent)
+            .expect("the default Brain config path is absolute");
+        assert_eq!(repo_root(), expected.to_path_buf());
     }
 
     #[test]

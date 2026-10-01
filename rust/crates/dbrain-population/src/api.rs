@@ -9,7 +9,6 @@ use reqwest::StatusCode;
 use serde_json::Value;
 
 pub const API_BASE: &str = "https://api.deadlock-api.com";
-const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
 const API_KEY_ENV: &str = "DEADLOCK_API_KEY";
 const API_KEY_HEADER: &str = "X-API-KEY";
 
@@ -27,14 +26,21 @@ pub struct ApiClient {
     retry_backoff: Duration,
 }
 
+fn build_http_client(user_agent: &str, timeout: Duration) -> Result<Client> {
+    Client::builder()
+        .user_agent(user_agent)
+        .gzip(true)
+        .timeout(timeout)
+        .build()
+        .map_err(|error| anyhow!("HTTP-Client konnte nicht gebaut werden: {error}"))
+}
+
 impl ApiClient {
     pub fn new(settings: &Settings) -> Result<Self> {
-        let client = Client::builder()
-            .user_agent(USER_AGENT)
-            .gzip(true)
-            .timeout(Duration::from_secs(settings.http_timeout_seconds))
-            .build()
-            .map_err(|error| anyhow!("HTTP-Client konnte nicht gebaut werden: {error}"))?;
+        let client = build_http_client(
+            &settings.user_agent,
+            Duration::from_secs(settings.http_timeout_seconds),
+        )?;
         let has_key = std::env::var(API_KEY_ENV)
             .map(|value| !value.trim().is_empty())
             .unwrap_or(false);
@@ -227,6 +233,31 @@ mod tests {
             .iter()
             .find(|(name, _)| name == key)
             .map(|(_, value)| value.as_str())
+    }
+
+    #[test]
+    fn configured_http_client_uses_the_supplied_user_agent() {
+        use std::{
+            io::{Read, Write},
+            net::TcpListener,
+            thread,
+        };
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0; 4096];
+            let read = stream.read(&mut request).unwrap();
+            let request = String::from_utf8_lossy(&request[..read]).to_ascii_lowercase();
+            assert!(request.contains("user-agent: brain-test/1.0\r\n"));
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}")
+                .unwrap();
+        });
+        let client = build_http_client("Brain-Test/1.0", Duration::from_secs(1)).unwrap();
+        client.get(format!("http://{address}/")).send().unwrap();
+        server.join().unwrap();
     }
 
     #[test]

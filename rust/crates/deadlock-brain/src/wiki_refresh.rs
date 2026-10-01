@@ -86,13 +86,31 @@ pub async fn run(
     lock.try_lock().context("Ein Wiki-Refresh läuft bereits")?;
     let result = refresh(&config, args.skip_source_update, settings).await;
     if result.is_err() {
-        // Kein Fehlertext aus Fremdbibliotheken im Status; der alte Snapshot bleibt sichtbar.
-        atomic_json(&config.publication_root.join("last-attempt.json"), &json!({
-            "state": "failed", "attempted_at": Utc::now().to_rfc3339(),
-            "message": "Quellenabruf oder Wiki-Veröffentlichung fehlgeschlagen. Der tatsächlich aktive Stand steht unter current/status.json."
-        })).context("Wiki-Fehlerstatus konnte nicht gespeichert werden")?;
+        record_failure(&config.publication_root)?;
     }
     result
+}
+
+pub async fn rebuild(pool: &sqlx::PgPool, publication_root: &Path) -> Result<Value> {
+    fs::create_dir_all(publication_root).context("Wiki-Ziel ist nicht verfügbar")?;
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(publication_root.join("refresh.lock"))?;
+    lock.try_lock().context("Ein Wiki-Refresh läuft bereits")?;
+    let result = rebuild_and_publish(pool, publication_root, Value::Null).await;
+    if result.is_err() {
+        record_failure(publication_root)?;
+    }
+    result
+}
+
+fn record_failure(publication_root: &Path) -> Result<()> {
+    atomic_json(&publication_root.join("last-attempt.json"), &json!({
+        "state": "failed", "attempted_at": Utc::now().to_rfc3339(),
+        "message": "Quellenabruf oder Wiki-Veröffentlichung fehlgeschlagen. Der tatsächlich aktive Stand steht unter current/status.json."
+    })).context("Wiki-Fehlerstatus konnte nicht gespeichert werden")
 }
 
 async fn refresh(
@@ -137,7 +155,15 @@ async fn refresh(
     } else {
         json!({"deadlock_data":source_update,"deadlock_wiki":wiki_update})
     };
-    let snapshots = config.publication_root.join("snapshots");
+    rebuild_and_publish(&pool, &config.publication_root, source_update).await
+}
+
+async fn rebuild_and_publish(
+    pool: &sqlx::PgPool,
+    publication_root: &Path,
+    source_update: Value,
+) -> Result<Value> {
+    let snapshots = publication_root.join("snapshots");
     fs::create_dir_all(&snapshots)?;
     let name = format!(
         "{}-{}",
@@ -146,20 +172,14 @@ async fn refresh(
     );
     let staging = snapshots.join(format!(".building-{name}"));
     fs::create_dir(&staging)?;
-    let report = match dbrain_retrieval::rebuild_game_wiki(&pool, &staging).await {
+    let report = match dbrain_retrieval::rebuild_game_wiki(pool, &staging).await {
         Ok(report) => report,
         Err(error) => {
             fs::remove_dir_all(&staging)?;
             return Err(error.into());
         }
     };
-    let result = publish(
-        &config.publication_root,
-        &staging,
-        &name,
-        report,
-        source_update,
-    );
+    let result = publish(publication_root, &staging, &name, report, source_update);
     if result.is_err() && staging.exists() {
         fs::remove_dir_all(&staging)?;
     }

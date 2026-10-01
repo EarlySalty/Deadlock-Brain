@@ -1314,7 +1314,7 @@ async fn run(command: Commands, settings: Settings) -> Result<()> {
                 let dir = args
                     .dir
                     .unwrap_or_else(|| settings.global.paths().game_wiki_dir.clone());
-                let result = dbrain_retrieval::rebuild_game_wiki(&pool, &dir).await?;
+                let result = wiki_refresh::rebuild(&pool, &dir).await?;
                 print_json(&result)
             }
         },
