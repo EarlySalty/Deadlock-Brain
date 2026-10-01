@@ -931,6 +931,7 @@ dependencies = [
  "dbrain-retrieval",
  "dbrain-sources",
  "deadlock-brain-core",
+ "dl-token-secrets",
  "hex",
  "postgres",
  "serde",
