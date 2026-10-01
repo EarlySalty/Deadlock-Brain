@@ -23,6 +23,7 @@ if [[ -f "$(dirname "$0")/fail-$name" ]]; then
 fi
 case "$name" in
   pg_dump)
+    [[ " $* " == *' --snapshot=00000003-00000029-1 '* ]] || exit 46
     while (($#)); do
       if [[ $1 == --file ]]; then printf 'isolated dump\n' > "$2"; exit 0; fi
       shift
@@ -30,7 +31,16 @@ case "$name" in
     exit 43 ;;
   pg_restore) printf 'isolated table of contents\n' ;;
   pg_dumpall) printf 'isolated globals\n' ;;
-  psql) printf '2 brain.store.v2\n' ;;
+  psql)
+    if [[ " $* " == *' --file '* ]]; then
+      [[ " $* " == *'SET TRANSACTION SNAPSHOT '* ]] || exit 45
+      printf 'core|schema_version|2|brain.store.v2\n'
+    else
+      # The snapshot exporter remains alive until the backup closes stdin.
+      while IFS= read -r line; do
+        if [[ $line == *pg_export_snapshot* ]]; then printf '00000003-00000029-1\n'; fi
+      done
+    fi ;;
   *) exit 44 ;;
 esac
 STUB
@@ -188,3 +198,39 @@ check "$root/cdpath/elsewhere/backups/brain-20200101T000000Z/globals.sql"
 check "$root/cdpath/work/backups/brain-20310102T000000Z/SHA256SUMS"
 [[ ! -e "$root/cdpath/work/backups/brain-20200101T000000Z" ]]
 printf 'PASS: inherited CDPATH cannot redirect relative target or outside retention\n'
+
+# Versioned metadata must remain recognizable after a probe, but incomplete,
+# mixed, unchecksummed or foreign metadata must never broaden deletion scope.
+target="$root/versioned metadata"
+mkdir -- "$target"
+printf '%s\n' '20320101T000000Z' > "$root/stubs/date-value"
+run_backup "$target" 99
+valid="$target/brain-20320101T000000Z"
+protected=()
+i=0
+for defect in missing-fingerprint missing-version missing-query missing-checksum orphan symlink unsupported extra-directory empty-fingerprint; do
+  i=$((i + 1))
+  path="$target/brain-2021010${i}T000000Z"
+  cp -R -- "$valid" "$path"
+  protected+=("$path")
+  case "$defect" in
+    missing-fingerprint) rm -- "$path/brain.fingerprint.txt" ;;
+    missing-version) rm -- "$path/fingerprint_version.txt" ;;
+    missing-query) rm -- "$path/fingerprint.sql" ;;
+    missing-checksum) sed -i '/  brain.fingerprint.txt$/d' "$path/SHA256SUMS" ;;
+    orphan) cp -- "$path/brain.fingerprint.txt" "$path/foreign.fingerprint.txt" ;;
+    symlink)
+      rm -- "$path/brain.fingerprint.txt"
+      ln -s -- "$root/cdpath/elsewhere/backups/brain-20200101T000000Z/globals.sql" "$path/brain.fingerprint.txt" ;;
+    unsupported) printf '999\n' > "$path/fingerprint_version.txt" ;;
+    extra-directory) mkdir -- "$path/restore-probe" ;;
+    empty-fingerprint) : > "$path/brain.fingerprint.txt" ;;
+  esac
+done
+printf '%s\n' '20320102T000000Z' > "$root/stubs/date-value"
+run_backup "$target" 1
+[[ ! -e $valid ]]
+check "$target/brain-20320102T000000Z/brain.fingerprint.txt"
+for path in "${protected[@]}"; do [[ -d $path ]] || { printf 'FAIL: malformed metadata was rotated: %q\n' "$path" >&2; exit 1; }; done
+check "$root/cdpath/elsewhere/backups/brain-20200101T000000Z/globals.sql"
+printf 'PASS: versioned fingerprints rotate; malformed metadata and unchecksummed references stay protected\n'
