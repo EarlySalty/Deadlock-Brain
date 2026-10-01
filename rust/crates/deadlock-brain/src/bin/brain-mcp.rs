@@ -346,15 +346,32 @@ async fn run() -> Result<(), &'static str> {
     let stdin = io::stdin();
     let mut stdout = io::stdout().lock();
     let mut input = stdin.lock();
+    run_loop(&mut input, &mut stdout, |request| {
+        handle(&client, &config.scopes, request)
+    })
+    .await
+}
+
+async fn run_loop<R, W, H, F>(
+    input: &mut R,
+    output: &mut W,
+    mut dispatch: H,
+) -> Result<(), &'static str>
+where
+    R: BufRead,
+    W: Write,
+    H: FnMut(Value) -> F,
+    F: std::future::Future<Output = Option<Value>>,
+{
     loop {
-        let frame = match read_frame(&mut input, MAX_FRAME_BYTES) {
-            Ok(FrameRead::Eof) | Err(_) => break,
+        let frame = match read_frame(input, MAX_FRAME_BYTES) {
+            Ok(FrameRead::Eof) => break,
+            Err(_) => return Err("MCP-Eingabe konnte nicht gelesen werden"),
             Ok(FrameRead::Frame(frame)) if frame.iter().all(u8::is_ascii_whitespace) => continue,
             Ok(FrameRead::Frame(frame)) => frame,
             Ok(FrameRead::TooLarge) => {
                 let out = rpc_error(Value::Null, -32700, "frame too large");
-                let _ = writeln!(stdout, "{out}");
-                let _ = stdout.flush();
+                write_response(output, &out)?;
                 continue;
             }
         };
@@ -362,17 +379,21 @@ async fn run() -> Result<(), &'static str> {
             Ok(request) => request,
             Err(_) => {
                 let out = rpc_error(Value::Null, -32700, "parse error");
-                let _ = writeln!(stdout, "{out}");
-                let _ = stdout.flush();
+                write_response(output, &out)?;
                 continue;
             }
         };
-        if let Some(out) = handle(&client, &config.scopes, request).await {
-            let _ = writeln!(stdout, "{out}");
-            let _ = stdout.flush();
+        if let Some(out) = dispatch(request).await {
+            write_response(output, &out)?;
         }
     }
     Ok(())
+}
+
+fn write_response(output: &mut impl Write, response: &Value) -> Result<(), &'static str> {
+    writeln!(output, "{response}")
+        .and_then(|()| output.flush())
+        .map_err(|_| "MCP-Ausgabe konnte nicht geschrieben werden")
 }
 
 #[cfg(test)]
@@ -381,6 +402,117 @@ mod tests {
     use std::io::{BufReader, Read};
 
     const EXAMPLE_CONFIG: &[u8] = include_bytes!("../../../../../config/brain-mcp.example.json");
+
+    struct FailingInput;
+
+    impl Read for FailingInput {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            Err(io::Error::other("synthetic sensitive read detail"))
+        }
+    }
+
+    impl BufRead for FailingInput {
+        fn fill_buf(&mut self) -> io::Result<&[u8]> {
+            Err(io::Error::other("synthetic sensitive read detail"))
+        }
+
+        fn consume(&mut self, _: usize) {}
+    }
+
+    struct FailingOutput {
+        fail_flush: bool,
+        bytes: Vec<u8>,
+    }
+
+    impl Write for FailingOutput {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if !self.fail_flush {
+                return Err(io::Error::other("synthetic sensitive write detail"));
+            }
+            self.bytes.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Err(io::Error::other("synthetic sensitive flush detail"))
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn input_failure_is_sanitized_and_never_dispatches() {
+        let mut calls = 0;
+        let mut output = Vec::new();
+        let result = run_loop(&mut FailingInput, &mut output, |_| {
+            calls += 1;
+            std::future::ready(Some(json!({"unexpected":true})))
+        })
+        .await;
+        assert_eq!(result, Err("MCP-Eingabe konnte nicht gelesen werden"));
+        assert_eq!(calls, 0);
+        assert!(output.is_empty());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn clean_eof_succeeds_without_dispatch_or_delivery() {
+        let mut calls = 0;
+        let mut output = Vec::new();
+        let result = run_loop(&mut io::Cursor::new(b" \n"), &mut output, |_| {
+            calls += 1;
+            std::future::ready(None)
+        })
+        .await;
+        assert_eq!(result, Ok(()));
+        assert_eq!(calls, 0);
+        assert!(output.is_empty());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn failed_write_or_flush_stops_before_following_provider_work() {
+        for fail_flush in [false, true] {
+            let mut calls = 0;
+            let mut input = io::Cursor::new(b"{\"id\":1}\n{\"id\":2}\n");
+            let mut output = FailingOutput {
+                fail_flush,
+                bytes: Vec::new(),
+            };
+            let result = run_loop(&mut input, &mut output, |request| {
+                calls += 1;
+                std::future::ready(Some(response(request["id"].clone(), json!({}))))
+            })
+            .await;
+            assert_eq!(result, Err("MCP-Ausgabe konnte nicht geschrieben werden"));
+            assert_eq!(calls, 1);
+            assert!(!String::from_utf8(output.bytes)
+                .unwrap()
+                .contains("\"id\":2"));
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn failed_error_delivery_stops_before_following_request() {
+        for oversized in [false, true] {
+            let mut bytes = if oversized {
+                vec![b'x'; MAX_FRAME_BYTES + 1]
+            } else {
+                b"invalid".to_vec()
+            };
+            bytes.extend_from_slice(b"\n{\"id\":2}\n");
+            for fail_flush in [false, true] {
+                let mut calls = 0;
+                let mut output = FailingOutput {
+                    fail_flush,
+                    bytes: Vec::new(),
+                };
+                let result = run_loop(&mut io::Cursor::new(&bytes), &mut output, |_| {
+                    calls += 1;
+                    std::future::ready(None)
+                })
+                .await;
+                assert_eq!(result, Err("MCP-Ausgabe konnte nicht geschrieben werden"));
+                assert_eq!(calls, 0);
+            }
+        }
+    }
 
     fn synthetic_token_lookup(reference: &str) -> Option<Zeroizing<String>> {
         (reference == "BRAIN_SERVE_API_TOKEN")
