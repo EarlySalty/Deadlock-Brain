@@ -36,11 +36,15 @@ fn hash(value: &str, len: usize) -> bool {
 }
 
 pub(super) fn read(path: &str) -> Result<Vec<u8>> {
-    let metadata = std::fs::symlink_metadata(path).map_err(|_| "input unavailable")?;
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .map_err(|_| "input unavailable")?;
+    let metadata = file.metadata().map_err(|_| "input metadata unavailable")?;
     if !metadata.is_file() || metadata.len() > 1024 * 1024 {
         return Err("input must be a bounded regular file");
     }
-    let file = std::fs::File::open(path).map_err(|_| "input unavailable")?;
     let mut bytes = Vec::new();
     file.take(1024 * 1024 + 1)
         .read_to_end(&mut bytes)
@@ -220,6 +224,29 @@ pub(super) fn bind_command(args: &[String]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn opened_descriptor_rejects_symlinks_and_fifo_without_waiting_for_a_writer() {
+        let dir = tempfile::tempdir().unwrap();
+        let regular = dir.path().join("regular.json");
+        let link = dir.path().join("link.json");
+        let fifo = dir.path().join("fifo");
+        std::fs::write(&regular, b"{}").unwrap();
+        std::os::unix::fs::symlink(&regular, &link).unwrap();
+        assert!(read(link.to_str().unwrap()).is_err());
+        assert!(std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success());
+        let started = std::time::Instant::now();
+        assert_eq!(
+            read(fifo.to_str().unwrap()),
+            Err("input must be a bounded regular file")
+        );
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+        assert_eq!(read(regular.to_str().unwrap()).unwrap(), b"{}");
+    }
 
     #[test]
     fn complete_binding_rejects_appended_observation_and_authorization_objects() {
