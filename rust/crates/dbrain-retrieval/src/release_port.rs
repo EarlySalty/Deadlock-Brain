@@ -467,6 +467,13 @@ fn effective_head(
     if record.tombstone
         || !record_allowed(record, &context.principal, provider)
         || !head.allowed(&context.principal, provider)
+        || (provider
+            && record
+                .metadata
+                .contains_key(brain_contracts::source::ORIGIN_METADATA_KEY)
+            && !head
+                .metadata
+                .contains_key(brain_contracts::source::ORIGIN_METADATA_KEY))
         || brain_contracts::source::patch_validity_for(&head.metadata, query.patch.as_deref())
             .is_err()
     {

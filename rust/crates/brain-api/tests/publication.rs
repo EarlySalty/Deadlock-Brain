@@ -106,6 +106,40 @@ async fn current_canonical_egress_revocation_rejects_pinned_provider_inputs() {
         .unwrap();
 }
 
+#[tokio::test]
+async fn provider_requires_current_origin_for_canonical_inputs_but_preserves_legacy_inputs() {
+    use brain_contracts::source::ORIGIN_METADATA_KEY;
+    for canonical in [false, true] {
+        let store = MemoryRepository::default();
+        let mut original = record("a", 1, true, false);
+        if !canonical {
+            original.metadata.remove(ORIGIN_METADATA_KEY);
+        }
+        store.apply_record(original.clone()).unwrap();
+        publish(&store).await;
+        let retrieval = ReleaseRetriever::new(store.clone(), 10);
+        let q = query(AnswerProfile::Explain);
+        let hits = retrieval.retrieve(&q, &context()).unwrap();
+        assert_eq!(hits.len(), 1);
+        retrieval
+            .validate_evidence(&q, &context(), &hits, true)
+            .unwrap();
+        let mut head = original;
+        head.revision = 2;
+        head.metadata.remove(ORIGIN_METADATA_KEY);
+        store.apply_record(head).unwrap();
+        let provider = retrieval.validate_evidence(&q, &context(), &hits, true);
+        assert_eq!(
+            provider.is_err(),
+            canonical,
+            "wrong provider result for canonical={canonical}"
+        );
+        retrieval
+            .validate_evidence(&q, &context(), &hits, false)
+            .unwrap();
+    }
+}
+
 #[test]
 fn current_origin_egress_checks_canonical_identity_acl_and_version() {
     use brain_contracts::{source::ORIGIN_METADATA_KEY, DocumentHead};
