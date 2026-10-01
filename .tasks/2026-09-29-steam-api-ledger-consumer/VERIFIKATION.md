@@ -11,3 +11,11 @@ Ein gespeicherter Reservierungseintrag ohne begonnenen Steam-Aufruf darf nach ei
 Geprüft: 19 Ledger-Tests einschließlich echter isolierter PostgreSQL-Instanz, Aktualisierung einer alten Journaltabelle und Neustartwiederholung mit `--include-ignored`; vollständige Rust-Workspace-Suite 543 bestanden, 62 ignoriert, 0 fehlgeschlagen; `cargo clippy --workspace --all-targets -- -D warnings` erfolgreich. Der globale Format-Check scheitert bereits an unveränderten Altdateien wie `dbrain-enrich/src/lib.rs`. Die neuen und gezielt geänderten Ledger-Dateien wurden geprüft, ohne fremde Format-Hunks einzubringen.
 
 Keine produktive Migration, kein Merge, kein Neustart und kein Live-Aufruf in diesem Paket. Vor Aktivierung sind die Ledger-Implementierung, alle Verbraucher und der gemeinsame Cutover unabhängig zu prüfen.
+
+## Fortsetzungsprüfung am 2026-10-01
+
+`flush_pending` meldet nach einem Neustart zunächst bekannte Reservierungen ohne gestarteten Steam-Aufruf und erhält zugleich eine Sperre für jede Anfrage mit unbekanntem Ausgang. Die Regression `releases_unused_reservations_before_blocking_uncertain_request` prüft beides gemeinsam: die ungenutzte Reservierung wird an das Ledger gemeldet und entfernt, während die unbekannte Anfrage bestehen bleibt und weitere Steam-Aufrufe blockiert.
+
+Gezielter Lauf: `PATH=/home/nathanael/.cargo/bin:$PATH cargo test -p deadlock-brain steam_web_api::tests -- --nocapture`, 19 bestanden, 0 fehlgeschlagen, 1 ignoriert, 52 gefiltert. Die echte PostgreSQL-Integration blieb ignoriert, da sie `DEADLOCK_BRAIN_SCRATCH_DSN` benötigt. `rustfmt --check rust/crates/deadlock-brain/src/steam_web_api.rs` war erfolgreich. `cargo clippy -p deadlock-brain --all-targets -- -D warnings` endete mit Code 101 an vier `map_or_identity`-Diagnosen in der unveränderten Datei `crates/dbrain-enrich/src/lib.rs`.
+
+Die beiden Brain-Einstiegspfade `pg_patchnotes.rs` und `pg_steam_news.rs` wurden gegen das gemeinsame Journal und die lokalen Reserve-/Observe-Datentypen geprüft. Eine Suche nach den Route- und Fehlertypnamen fand den zugehörigen Produktions-Handler in den zugänglichen Deadlock-Bots-Quellbäumen nicht. Die vorhandene Diensttopologie-Notiz belegt einen Listener auf `127.0.0.1:8901`, aber keinen aktuellen Live-Aufruf dieses Vertrags. Diese Fremddienst-Abnahme bleibt offen.
