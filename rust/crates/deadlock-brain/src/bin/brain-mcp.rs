@@ -7,6 +7,58 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+const MAX_FRAME_BYTES: usize = 64 * 1024;
+
+enum FrameRead {
+    Eof,
+    Frame(Vec<u8>),
+    TooLarge,
+}
+
+/// Read one newline-delimited frame while keeping memory bounded by `max_bytes`.
+/// An oversized frame is drained through its newline so the next call can read
+/// the next request without retaining the rejected payload.
+fn read_frame<R: BufRead>(reader: &mut R, max_bytes: usize) -> io::Result<FrameRead> {
+    let mut frame = Vec::with_capacity(max_bytes.min(4096));
+    let mut too_large = false;
+    let mut saw_bytes = false;
+
+    loop {
+        let available = reader.fill_buf()?;
+        if available.is_empty() {
+            return Ok(if too_large {
+                FrameRead::TooLarge
+            } else if saw_bytes {
+                FrameRead::Frame(frame)
+            } else {
+                FrameRead::Eof
+            });
+        }
+
+        let newline = available.iter().position(|byte| *byte == b'\n');
+        let count = newline.unwrap_or(available.len());
+        saw_bytes |= count > 0;
+        if !too_large {
+            if count <= max_bytes.saturating_sub(frame.len()) {
+                frame.extend_from_slice(&available[..count]);
+            } else {
+                too_large = true;
+                frame.clear();
+            }
+        }
+
+        let consumed = count + usize::from(newline.is_some());
+        reader.consume(consumed);
+        if newline.is_some() {
+            return Ok(if too_large {
+                FrameRead::TooLarge
+            } else {
+                FrameRead::Frame(frame)
+            });
+        }
+    }
+}
+
 struct Config {
     endpoint: String,
     token: String,
@@ -198,13 +250,20 @@ async fn main() {
 
     let stdin = io::stdin();
     let mut stdout = io::stdout().lock();
-    for line in stdin.lock().lines() {
-        let line = match line {
-            Ok(line) if !line.trim().is_empty() => line,
-            Ok(_) => continue,
-            Err(_) => break,
+    let mut input = stdin.lock();
+    loop {
+        let frame = match read_frame(&mut input, MAX_FRAME_BYTES) {
+            Ok(FrameRead::Eof) | Err(_) => break,
+            Ok(FrameRead::Frame(frame)) if frame.iter().all(u8::is_ascii_whitespace) => continue,
+            Ok(FrameRead::Frame(frame)) => frame,
+            Ok(FrameRead::TooLarge) => {
+                let out = rpc_error(Value::Null, -32700, "frame too large");
+                let _ = writeln!(stdout, "{out}");
+                let _ = stdout.flush();
+                continue;
+            }
         };
-        let request: Value = match serde_json::from_str(&line) {
+        let request: Value = match serde_json::from_slice(&frame) {
             Ok(request) => request,
             Err(_) => {
                 let out = rpc_error(Value::Null, -32700, "parse error");
@@ -223,6 +282,61 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{BufReader, Read};
+
+    struct RepeatedByteReader {
+        remaining: usize,
+        byte: u8,
+    }
+
+    impl Read for RepeatedByteReader {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            let count = buffer.len().min(self.remaining);
+            buffer[..count].fill(self.byte);
+            self.remaining -= count;
+            Ok(count)
+        }
+    }
+
+    #[test]
+    fn frame_reader_bounds_unterminated_oversized_input() {
+        let source = RepeatedByteReader {
+            remaining: 10_000_000,
+            byte: b'x',
+        };
+        let mut reader = BufReader::with_capacity(128, source);
+
+        assert!(matches!(
+            read_frame(&mut reader, 32).unwrap(),
+            FrameRead::TooLarge
+        ));
+        assert!(matches!(
+            read_frame(&mut reader, 32).unwrap(),
+            FrameRead::Eof
+        ));
+    }
+
+    #[test]
+    fn frame_reader_accepts_valid_crlf_and_unterminated_eof_frames() {
+        let mut reader =
+            io::Cursor::new(b"{\"jsonrpc\":\"2.0\",\"method\":\"ping\"}\r\n{}".to_vec());
+
+        let FrameRead::Frame(crlf_frame) = read_frame(&mut reader, 64).unwrap() else {
+            panic!("expected CRLF frame");
+        };
+        assert!(serde_json::from_slice::<Value>(&crlf_frame).is_ok());
+        let FrameRead::Frame(eof_frame) = read_frame(&mut reader, 64).unwrap() else {
+            panic!("expected final unterminated frame");
+        };
+        assert_eq!(
+            serde_json::from_slice::<Value>(&eof_frame).unwrap(),
+            json!({})
+        );
+        assert!(matches!(
+            read_frame(&mut reader, 64).unwrap(),
+            FrameRead::Eof
+        ));
+    }
 
     #[test]
     fn domain_rejection_is_a_successful_tool_result_but_unavailable_is_not() {
