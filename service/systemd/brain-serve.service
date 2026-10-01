@@ -1,0 +1,35 @@
+[Unit]
+Description=Deadlock Brain – revisionsgebundener Rust-Antwortdienst
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/deadlock-brain/current
+LoadCredential=infisical-token:%h/.config/infisical-tokens/infisical-token-bots
+ExecStart=/bin/bash -c 'exec 5<"%d/infisical-token"; exec /opt/deadlock-brain/current/bin/brain-serve --config /etc/deadlock-brain/brain-serve.json --infisical-config /etc/deadlock-brain/infisical.json'
+KillSignal=SIGTERM
+KillMode=control-group
+TimeoutStopSec=20
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=yes
+# Der vorhandene Infisical-Socket verlangt die Host-UID-Abbildung.
+PrivateUsers=no
+PrivateTmp=no
+PrivateDevices=no
+ProtectSystem=no
+ProtectHome=no
+ProtectKernelTunables=no
+ProtectControlGroups=no
+ProtectProc=default
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
