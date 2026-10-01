@@ -95,6 +95,8 @@ impl BuildPublishPort for FixtureBuildPublish {
         Ok(status)
     }
     fn status(&self, request_id: &str) -> Result<BuildPublishStatus, PublishError> {
+        BuildPublishRequest::validate_request_id(request_id)
+            .map_err(PublishError::InvalidRequest)?;
         self.entries
             .lock()
             .map_err(|_| PublishError::Unavailable("fixture poisoned".into()))?
@@ -215,13 +217,8 @@ impl BuildPublishPort for HttpBuildPublishClient {
         self.read(response, &request.request_id, Some(&hash))
     }
     fn status(&self, request_id: &str) -> Result<BuildPublishStatus, PublishError> {
-        if request_id.is_empty()
-            || !request_id
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-        {
-            return Err(PublishError::InvalidRequest("invalid request id".into()));
-        }
+        BuildPublishRequest::validate_request_id(request_id)
+            .map_err(PublishError::InvalidRequest)?;
         let mut url = self.publish_url.clone();
         url.path_segments_mut()
             .map_err(|_| PublishError::InvalidRequest("invalid publish endpoint path".into()))?

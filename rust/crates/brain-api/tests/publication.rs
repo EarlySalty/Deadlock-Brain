@@ -78,6 +78,218 @@ fn record(id: &str, revision: u64, publication: bool, fact: bool) -> SourceRecor
     .unwrap();
     record
 }
+
+#[tokio::test]
+async fn current_canonical_egress_revocation_rejects_pinned_provider_inputs() {
+    let store = MemoryRepository::default();
+    let original = record("a", 1, true, false);
+    store.apply_record(original.clone()).unwrap();
+    publish(&store).await;
+    let retrieval = ReleaseRetriever::new(store.clone(), 10);
+    let q = query(AnswerProfile::Explain);
+    let hits = retrieval.retrieve(&q, &context()).unwrap();
+    assert_eq!(hits.len(), 1);
+    retrieval
+        .validate_evidence(&q, &context(), &hits, true)
+        .unwrap();
+    let mut revoked = original;
+    revoked.revision = 2;
+    let mut origin = brain_contracts::source::origin_from_record(&revoked).unwrap();
+    origin.policy.provider_egress_allowed = false;
+    origin.bind_record(&mut revoked).unwrap();
+    store.apply_record(revoked).unwrap();
+    assert!(retrieval
+        .validate_evidence(&q, &context(), &hits, true)
+        .is_err());
+    retrieval
+        .validate_evidence(&q, &context(), &hits, false)
+        .unwrap();
+}
+
+#[test]
+fn current_origin_egress_checks_canonical_identity_acl_and_version() {
+    use brain_contracts::{source::ORIGIN_METADATA_KEY, DocumentHead};
+    let record = record("a", 1, true, false);
+    let principal = context().principal;
+    let original = DocumentHead::from(&record);
+    assert!(original.allowed(&principal, true));
+    for (pointer, value) in [
+        ("/contract_version", serde_json::json!("brain.ir.v99")),
+        ("/data/identity/source_id", serde_json::json!("other")),
+        ("/data/identity/logical_id", serde_json::json!("other")),
+        ("/data/policy/visibility", serde_json::json!("private")),
+        ("/data/policy/allowed_scopes", serde_json::json!(["other"])),
+        (
+            "/data/policy/provider_egress_allowed",
+            serde_json::json!(false),
+        ),
+    ] {
+        let mut head = original.clone();
+        let mut origin: serde_json::Value =
+            serde_json::from_str(&head.metadata[ORIGIN_METADATA_KEY]).unwrap();
+        *origin.pointer_mut(pointer).unwrap() = value;
+        head.metadata
+            .insert(ORIGIN_METADATA_KEY.into(), origin.to_string());
+        assert!(!head.allowed(&principal, true), "accepted {pointer}");
+        assert!(
+            head.allowed(&principal, false),
+            "internal ACL changed for {pointer}"
+        );
+    }
+    let mut head = original;
+    head.metadata
+        .insert(ORIGIN_METADATA_KEY.into(), "malformed".into());
+    assert!(!head.allowed(&principal, true));
+    assert!(head.allowed(&principal, false));
+}
+
+fn metadata_dependencies(
+    record: &mut SourceRecordV2,
+    dependencies: Vec<brain_contracts::DocumentRevision>,
+) {
+    record.metadata.insert(
+        brain_contracts::domain::DOMAIN_DEPENDENCIES_METADATA_KEY.into(),
+        serde_json::to_string(&brain_contracts::source::Versioned::new(dependencies)).unwrap(),
+    );
+}
+
+fn domain_dependency(id: &str, publication: bool) -> SourceRecordV2 {
+    let mut dependency = record(id, 1, publication, false);
+    dependency.metadata.insert("patch".into(), "p1".into());
+    dependency.metadata.insert("mode".into(), "ranked".into());
+    dependency
+}
+
+#[tokio::test]
+async fn publication_checks_direct_and_transitive_metadata_dependencies_pinned_and_current() {
+    use brain_contracts::domain::{DomainAnswer, DomainRequest};
+    for transitive in [false, true] {
+        for revoke_current in [false, true] {
+            let store = MemoryRepository::default();
+            let mut data = domain_fixture::records("r1", "p1", 1, "500");
+            let dependency = domain_dependency("hidden", revoke_current);
+            let mut parent = domain_dependency("parent", true);
+            metadata_dependencies(&mut parent, vec![domain_fixture::revision(&dependency)]);
+            let source = if transitive { &parent } else { &dependency };
+            metadata_dependencies(
+                data.iter_mut()
+                    .find(|r| r.logical_id == "fact-damage")
+                    .unwrap(),
+                vec![domain_fixture::revision(source)],
+            );
+            data.extend([dependency.clone(), parent]);
+            for record in data {
+                store.apply_record(record).unwrap();
+            }
+            publish(&store).await;
+            let kernel = Kernel::new(ReleaseRetriever::new(store.clone(), 10), NoProvider);
+            let mut q = domain_fixture::query(
+                &DomainRequest::Rule {
+                    rule_id: "fixture-dps".into(),
+                },
+                "p1",
+            );
+            q.conversation_id = "c1".into();
+            let internal = kernel.answer(&q, &context());
+            assert_eq!(internal.status, AnswerStatus::Answered);
+            let proof: DomainAnswer = serde_json::from_str(&internal.citations[0].content).unwrap();
+            assert!(proof
+                .inputs
+                .iter()
+                .any(|input| input.source.source_id == dependency.source_id));
+            let api = service(CachedKernel::new(
+                kernel.clone(),
+                8,
+                Duration::from_secs(30),
+            ));
+            if revoke_current {
+                assert_eq!(external(&api, &q).status, AnswerStatus::Answered);
+                let mut revoked = dependency;
+                revoked.revision = 2;
+                let mut origin = brain_contracts::source::origin_from_record(&revoked).unwrap();
+                origin.policy.publication_allowed = false;
+                origin.bind_record(&mut revoked).unwrap();
+                store.apply_record(revoked).unwrap();
+            }
+            assert_eq!(kernel.answer(&q, &context()).status, AnswerStatus::Answered);
+            denied(&external(&api, &q));
+            denied(&external(&service(kernel), &q));
+        }
+    }
+}
+
+#[tokio::test]
+async fn domain_metadata_dependency_cycles_missing_sources_and_limits_fail_closed() {
+    use brain_contracts::domain::DomainRequest;
+    for case in [
+        "cycle",
+        "missing",
+        "ambiguous",
+        "depth",
+        "version",
+        "oversized",
+    ] {
+        let store = MemoryRepository::default();
+        let mut data = domain_fixture::records("r1", "p1", 1, "500");
+        let mut dependencies: Vec<_> = (0..if case == "depth" { 65 } else { 2 })
+            .map(|n| domain_dependency(&format!("dep-{n}"), true))
+            .collect();
+        for index in 0..dependencies.len() - 1 {
+            let next = domain_fixture::revision(&dependencies[index + 1]);
+            metadata_dependencies(&mut dependencies[index], vec![next]);
+        }
+        if case == "cycle" {
+            let first = domain_fixture::revision(&dependencies[0]);
+            metadata_dependencies(&mut dependencies[1], vec![first]);
+        }
+        if case == "missing" {
+            dependencies.pop();
+        }
+        if case == "ambiguous" {
+            let next = domain_fixture::revision(&dependencies[1]);
+            metadata_dependencies(&mut dependencies[0], vec![next.clone(), next]);
+        }
+        if case == "version" {
+            dependencies[0].metadata.insert(
+                brain_contracts::domain::DOMAIN_DEPENDENCIES_METADATA_KEY.into(),
+                "{\"contract_version\":\"brain.ir.v99\",\"data\":[]}".into(),
+            );
+        }
+        if case == "oversized" {
+            let next = domain_fixture::revision(&dependencies[1]);
+            metadata_dependencies(&mut dependencies[0], vec![next; 65]);
+        }
+        metadata_dependencies(
+            data.iter_mut()
+                .find(|r| r.logical_id == "fact-damage")
+                .unwrap(),
+            vec![domain_fixture::revision(&dependencies[0])],
+        );
+        data.extend(dependencies);
+        for record in data {
+            store.apply_record(record).unwrap();
+        }
+        publish(&store).await;
+        let kernel = Kernel::new(ReleaseRetriever::new(store, 10), NoProvider);
+        let mut q = domain_fixture::query(
+            &DomainRequest::Rule {
+                rule_id: "fixture-dps".into(),
+            },
+            "p1",
+        );
+        q.conversation_id = "c1".into();
+        assert_ne!(
+            kernel.answer(&q, &context()).status,
+            AnswerStatus::Answered,
+            "accepted {case}"
+        );
+        assert_ne!(
+            external(&service(kernel), &q).status,
+            AnswerStatus::Answered,
+            "published {case}"
+        );
+    }
+}
 fn query(profile: AnswerProfile) -> Query {
     Query {
         request_id: "publication-request".into(),

@@ -220,6 +220,74 @@ fn status_body() -> String {
     .unwrap()
 }
 
+#[test]
+fn submit_and_status_share_safe_dotted_request_ids() {
+    if isolated("submit_and_status_share_safe_dotted_request_ids") {
+        return;
+    }
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!("http://{}/base", listener.local_addr().unwrap());
+    let mut request = request();
+    request.request_id = "build.1".into();
+    let response = serde_json::to_string(&BuildPublishStatus {
+        contract_version: BUILD_PUBLISH_VERSION.into(),
+        request_id: request.request_id.clone(),
+        request_sha256: request.request_sha256().unwrap(),
+        state: BuildPublishState::Queued,
+        submitted_at: 1,
+        updated_at: 1,
+    })
+    .unwrap();
+    let server = serve(
+        listener,
+        vec![
+            Reply {
+                code: 202,
+                body: response.clone(),
+                location: None,
+            },
+            Reply {
+                code: 200,
+                body: response,
+                location: None,
+            },
+        ],
+    );
+    let client = client(&endpoint).unwrap();
+    let submitted = client.submit(&request).unwrap();
+    assert_eq!(client.status(&request.request_id).unwrap(), submitted);
+    let seen = server.join().unwrap();
+    assert!(seen[1]
+        .head
+        .starts_with("GET /base/builds/v1/publish/build.1 HTTP/1.1\r\n"));
+    for id in [
+        "",
+        ".",
+        "..",
+        "a/b",
+        "a\\b",
+        "%2e",
+        "%2f",
+        "a?b",
+        "a#b",
+        "a b",
+        &"a".repeat(129),
+    ] {
+        request.request_id = id.into();
+        assert!(
+            matches!(
+                client.submit(&request),
+                Err(PublishError::InvalidRequest(_))
+            ),
+            "submit accepted {id:?}"
+        );
+        assert!(
+            matches!(client.status(id), Err(PublishError::InvalidRequest(_))),
+            "status accepted {id:?}"
+        );
+    }
+}
+
 struct Reply {
     code: u16,
     body: String,

@@ -260,6 +260,8 @@ struct Proof<'a> {
     primary: Option<DocumentRevision>,
     visibility: SourceVisibility,
     scopes: BTreeSet<String>,
+    expanded: BTreeSet<(String, String, u64)>,
+    expanding: BTreeSet<(String, String, u64)>,
 }
 impl<'a> Proof<'a> {
     fn new(snapshot: &'a DomainSnapshot) -> Self {
@@ -269,6 +271,8 @@ impl<'a> Proof<'a> {
             primary: None,
             visibility: SourceVisibility::Public,
             scopes: BTreeSet::new(),
+            expanded: BTreeSet::new(),
+            expanding: BTreeSet::new(),
         }
     }
     fn record(&self, source: &DocumentRevision) -> Result<&'a SourceRecordV2, PortError> {
@@ -285,6 +289,7 @@ impl<'a> Proof<'a> {
     }
     fn located(&mut self, located: &LocatedRevision) -> Result<(), PortError> {
         let record = self.record(&located.source)?;
+        self.dependencies(&located.source)?;
         self.scopes.extend(record.allowed_scopes.iter().cloned());
         self.visibility = match (self.visibility, record.visibility) {
             (SourceVisibility::Private, _) | (_, SourceVisibility::Private) => {
@@ -296,8 +301,50 @@ impl<'a> Proof<'a> {
             _ => SourceVisibility::Public,
         };
         if !self.inputs.contains(located) {
+            if self.inputs.len() >= 512 {
+                return Err(invalid("domain proof size"));
+            }
             self.inputs.push(located.clone());
         }
+        Ok(())
+    }
+    fn dependencies(&mut self, source: &DocumentRevision) -> Result<(), PortError> {
+        let record = self.record(source)?;
+        let identity = (
+            source.source_id.clone(),
+            source.logical_id.clone(),
+            source.revision,
+        );
+        if self.expanding.contains(&identity) {
+            return Err(invalid("cyclic domain dependencies"));
+        }
+        if self.expanded.contains(&identity) {
+            return Ok(());
+        }
+        if self.expanding.len() >= 64 || self.expanded.len() + self.expanding.len() >= 512 {
+            return Err(invalid("domain dependency budget exceeded"));
+        }
+        self.expanding.insert(identity.clone());
+        if let Some(encoded) = record.metadata.get(DOMAIN_DEPENDENCIES_METADATA_KEY) {
+            if encoded.len() > 64 * 1024 {
+                return Err(invalid("oversized domain dependencies"));
+            }
+            let dependencies: brain_contracts::source::Versioned<Vec<DocumentRevision>> =
+                serde_json::from_str(encoded)
+                    .map_err(|_| invalid("invalid domain dependency contract"))?;
+            if dependencies.data.len() > 64 {
+                return Err(invalid("domain dependency budget exceeded"));
+            }
+            let mut identities = BTreeSet::new();
+            for dependency in &dependencies.data {
+                if !identities.insert((&dependency.source_id, &dependency.logical_id)) {
+                    return Err(invalid("ambiguous domain dependency"));
+                }
+                self.document(dependency)?;
+            }
+        }
+        self.expanding.remove(&identity);
+        self.expanded.insert(identity);
         Ok(())
     }
     fn document(&mut self, source: &DocumentRevision) -> Result<(), PortError> {

@@ -46,6 +46,31 @@ impl From<&SourceRecordV2> for DocumentHead {
     }
 }
 impl DocumentHead {
+    /// Validate the canonical policy projection without requiring a document body.
+    pub(crate) fn canonical_origin(
+        &self,
+    ) -> Result<Option<crate::source::OriginArtifact>, PortError> {
+        use crate::source::{OriginArtifact, SourceRevision, Versioned, ORIGIN_METADATA_KEY};
+        let Some(encoded) = self.metadata.get(ORIGIN_METADATA_KEY) else {
+            return Ok(None);
+        };
+        let current: Versioned<OriginArtifact> = serde_json::from_str(encoded)
+            .map_err(|_| PortError::InvalidResponse("invalid current origin".into()))?;
+        let current = current.data;
+        if current.validate().is_err()
+            || current.identity.source_id != self.source_id
+            || current.identity.logical_id != self.logical_id
+            || current.policy.visibility != self.visibility
+            || current.policy.allowed_scopes != self.allowed_scopes
+            || matches!(current.source_revision, SourceRevision::Wiki { revision_id, .. }
+                if u64::try_from(revision_id).ok() != Some(self.revision))
+        {
+            return Err(PortError::InvalidResponse(
+                "inconsistent current origin".into(),
+            ));
+        }
+        Ok(Some(current))
+    }
     pub fn validate(&self) -> Result<(), PortError> {
         if self.revision == 0
             || self.revision > i64::MAX as u64
@@ -60,6 +85,13 @@ impl DocumentHead {
         Ok(())
     }
     pub fn allowed(&self, principal: &Principal, provider: bool) -> bool {
+        if provider
+            && !self.canonical_origin().is_ok_and(|origin| {
+                origin.is_none_or(|origin| origin.policy.provider_egress_allowed)
+            })
+        {
+            return false;
+        }
         let class = match self.visibility {
             SourceVisibility::Public => "public",
             SourceVisibility::Internal => "internal",

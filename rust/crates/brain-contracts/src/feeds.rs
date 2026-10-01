@@ -99,6 +99,18 @@ pub struct BuildPublishRequest {
 }
 
 impl BuildPublishRequest {
+    /// One bounded URL path segment, shared by submit and status lookup.
+    pub fn validate_request_id(request_id: &str) -> Result<(), String> {
+        if !valid_id(request_id, 128)
+            || matches!(request_id, "." | "..")
+            || !request_id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
+        {
+            return Err("invalid build publish request id".into());
+        }
+        Ok(())
+    }
     pub fn request_sha256(&self) -> Result<String, String> {
         serde_json::to_vec(self)
             .map(|bytes| sha256_hex(&bytes))
@@ -108,8 +120,8 @@ impl BuildPublishRequest {
         if self.contract_version != BUILD_PUBLISH_VERSION {
             return Err("unsupported build publish version".into());
         }
-        if !valid_id(&self.request_id, 128)
-            || !valid_id(&self.hero_name, 128)
+        Self::validate_request_id(&self.request_id)?;
+        if !valid_id(&self.hero_name, 128)
             || !valid_id(&self.build_name, 256)
             || !valid_id(&self.caller, 128)
             || self.hero_id == 0

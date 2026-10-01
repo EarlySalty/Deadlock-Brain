@@ -28,9 +28,7 @@ pub fn record_publication_allowed(
     head: &crate::DocumentHead,
     principal: &Principal,
 ) -> bool {
-    use crate::source::{
-        origin_from_record, OriginArtifact, SourceRevision, Versioned, ORIGIN_METADATA_KEY,
-    };
+    use crate::source::{origin_from_record, ORIGIN_METADATA_KEY};
     if record.validate().is_err()
         || head.validate().is_err()
         || record.source_id != head.source_id
@@ -48,25 +46,10 @@ pub fn record_publication_allowed(
     {
         return false;
     }
-    let Some(encoded) = head.metadata.get(ORIGIN_METADATA_KEY) else {
-        return !versioned;
-    };
-    let Ok(current) = serde_json::from_str::<Versioned<OriginArtifact>>(encoded) else {
-        return false;
-    };
-    let current = current.data;
-    current.validate().is_ok()
-        && current.identity.source_id == head.source_id
-        && current.identity.logical_id == head.logical_id
-        && current.policy.visibility == head.visibility
-        && current.policy.allowed_scopes == head.allowed_scopes
-        && current.policy.publication_allowed
-        && match current.source_revision {
-            SourceRevision::Wiki { revision_id, .. } => {
-                u64::try_from(revision_id).ok() == Some(head.revision)
-            }
-            _ => true,
-        }
+    head.canonical_origin().is_ok_and(|current| match current {
+        Some(current) => current.policy.publication_allowed,
+        None => !versioned,
+    })
 }
 
 impl CorpusSnapshot {
