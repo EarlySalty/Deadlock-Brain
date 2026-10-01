@@ -1458,8 +1458,14 @@ mod tests {
             ]
         );
         let (http, _dir) = client();
-        let error = flush_pending(&http, &ledger(&closed_url()), &mut journal).unwrap_err();
+        let ledger_mock = Mock::start(vec![observed(false), observed(false)]);
+        let error = flush_pending(&http, &ledger(&ledger_mock.url), &mut journal).unwrap_err();
         assert!(matches!(error, SteamWebApiError::Journal(_)));
+        let calls = ledger_mock.finish();
+        assert_eq!(calls.len(), 2);
+        assert!(calls
+            .iter()
+            .all(|call| call.head.starts_with("POST /steam-web-api/observe ")));
         journal.delivered(-1).unwrap();
         journal.delivered(-2).unwrap();
         journal.delivered(-3).unwrap();
