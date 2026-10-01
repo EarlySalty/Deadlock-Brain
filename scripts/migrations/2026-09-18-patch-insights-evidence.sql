@@ -1,21 +1,10 @@
 BEGIN;
 SET LOCAL lock_timeout = '5s';
 
-CREATE TABLE IF NOT EXISTS brain.youtube_transcript_evidence (
-    video_id text NOT NULL REFERENCES brain.youtube_videos(video_id) ON DELETE CASCADE,
-    evidence_hash text NOT NULL,
-    transcript_hash text NOT NULL,
-    language text NOT NULL,
-    source_kind text NOT NULL,
-    raw_caption jsonb NOT NULL,
-    segments jsonb NOT NULL CHECK (jsonb_typeof(segments) = 'array'),
-    timing_status text NOT NULL CHECK (timing_status IN ('available','partial','missing')),
-    parser_version text NOT NULL,
-    imported_at timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY(video_id,evidence_hash)
-);
-CREATE INDEX IF NOT EXISTS youtube_transcript_evidence_lookup
-    ON brain.youtube_transcript_evidence(video_id,transcript_hash,imported_at DESC);
+ALTER TABLE brain.youtube_transcript_evidence
+    ADD COLUMN IF NOT EXISTS timing_status text NOT NULL DEFAULT 'missing'
+        CHECK (timing_status IN ('available','partial','missing')),
+    ADD COLUMN IF NOT EXISTS parser_version text NOT NULL DEFAULT 'json3_timed_v1';
 
 CREATE TABLE IF NOT EXISTS brain.patch_reference_documents (
     id bigserial PRIMARY KEY,

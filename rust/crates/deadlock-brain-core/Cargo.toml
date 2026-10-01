@@ -21,7 +21,7 @@ thiserror.workspace = true
 filedescriptor = "0.8"
 nix = { version = "0.29", default-features = false, features = ["fs"] }
 tokio.workspace = true
-uplink-infisical-transport = { path = "../../../../Deadlock-Bots/rust/vendor/uplink-infisical-transport" }
+uplink-infisical-transport = { path = "../../../../dl-shared-flash-consumers-20261001/rust/vendor/uplink-infisical-transport" }
 zeroize = "1"
 
 [dev-dependencies]

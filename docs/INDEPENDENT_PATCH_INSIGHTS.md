@@ -7,10 +7,11 @@ beobachteten Spieldaten. Ein Creator-Video ist weder Promptvorlage noch Wahrheit
 Es kann separat als Vergleichsquelle gespeichert werden. Eine abweichende,
 belegte Schlussfolgerung ist zulässig und kein Fehler des Brains.
 
-Der neue Rust-Befehl `patch-insights` verwendet den vorhandenen `AiClient` und die
+Der Rust-Befehl `patch-insights` verwendet den vorhandenen `AiClient` und die
 bestehende Modellkonfiguration. Er führt keinen zusätzlichen Provider und keinen
-STT-Dienst ein. Der bestehende Python-MCP-Server bleibt als Read-only-Brücke
-kompatibel; neue Spielanalyse und Caption-Verarbeitung liegen in Rust.
+STT-Dienst ein. Die neuen gemeinsamen History-Tools sind als Rust-Binary
+`deadlock-brain-mcp` umgesetzt. Die bisherige Python-MCP-Datei bleibt unverändert
+und dient nur als Legacy-Referenz.
 
 Der erste implementierte Pfad erzeugt quellengebundene, gegengeprüfte Hypothesen
 und ein Storyboard. Er ist kein vollständiger Spielsimulator und behauptet keine
@@ -56,17 +57,20 @@ Das ist keine Garantie, dass der lokale Index den letzten Live-Patch kennt.
 
 ## Migration und Befehle
 
-Migration durch den Schema-Betreiber ausführen:
+Die gemeinsame Evidenzbasis entsteht zuerst mit der PR4-Migration. Danach laufen
+Folgekorrektur, PR3-Tabellen und Caption-Trust-Erweiterung in dieser Reihenfolge:
 
 ```sh
+psql -X -v ON_ERROR_STOP=1 -f scripts/migrations/2026-09-18-patch-evidence.sql
+psql -X -v ON_ERROR_STOP=1 -f scripts/migrations/2026-09-18-patch-evidence-followup.sql
 psql -X -v ON_ERROR_STOP=1 -f scripts/migrations/2026-09-18-patch-insights-evidence.sql
-cargo build --manifest-path rust/Cargo.toml --package deadlock-brain --bin patch-insights
+cargo build --manifest-path rust/Cargo.toml --package deadlock-brain --bin patch-insights --bin deadlock-brain-mcp
 cargo build --manifest-path rust/Cargo.toml --package deadlock-brain-yt
 ```
 
-Die neuen Tabellen benötigen für die bestehenden Dienstrollen passende
-Lese-/Schreibrechte. Die Migration vergibt absichtlich keine Rechte an PUBLIC.
-Sie muss vor Verwendung des neuen Caption-Schreibpfads installiert sein.
+Die Migrationen benötigen für die bestehenden Dienstrollen passende
+Lese-/Schreibrechte. Sie vergeben absichtlich keine Rechte an PUBLIC. Die
+Caption-Erweiterung setzt die vorherige PR4-Evidenztabelle voraus.
 
 Ohne Modellaufruf und ohne Schreibzugriff den Quellenkontext prüfen:
 
@@ -131,7 +135,8 @@ diese Änderung nicht automatisch eine neue Extraktionslogik.
 
 ## Gemeinsame Read-only-Tools für Assistenten
 
-Bestehende Tools bleiben erhalten. Hinzu kommen:
+Das Rust-MCP-Binary stellt die vier bisherigen Patch-Abfragen und drei gemeinsame
+History-Tools bereit:
 
 - `change_lookup(text, entity, since, until, limit, offset)`: wörtliche
   UND-Suche in Patchzeilen, Namen, Abilities und Stats, Aliasauflösung,
@@ -144,13 +149,13 @@ Bestehende Tools bleiben erhalten. Hinzu kommen:
 `patch_date` ist das dokumentierte Patchdatum. `first_indexed_at` ist die früheste
 noch erhaltene Parser-Indexierungszeit derselben Originalzeile, kein nachgewiesener
 Live-Zeitpunkt und keine vollständige Beobachtungshistorie. Rebuilds können diese
-Zeit verschieben. Die früheste gefundene Änderung gilt nur für den vorhandenen
-Index und das gewählte Suchfenster.
+Zeit verschieben. Die früheste gefundene Änderung gilt für den vorhandenen Index
+und das gewählte Suchfenster.
 
-Die MCP-Brücke bleibt Read-only. Die bestehende Konfiguration muss für andere
-Assistenten auf diesen Server zeigen; eine zusätzliche Insel-Datenbank entsteht
-nicht. Die Zugangsdaten werden erst bei der ersten tatsächlichen Abfrage geladen,
-nicht bereits beim Import des Python-Moduls.
+Die lokale MCP-Registrierung bleibt unverändert, damit keine Umgebungsdatei im
+Rahmen dieser Quellintegration angepasst wird. Vor Nutzung muss der verantwortliche
+Client nach Build und Abnahme auf `deadlock-brain-mcp` zeigen. Der Rust-Server nutzt
+den vorhandenen schreibgeschützten Datenbankzugang.
 
 ## Was ein Storyboard ist, und was noch fehlt
 
@@ -173,15 +178,15 @@ dessen Live-Konfiguration und Dienstrechte müssen im Deploy geprüft werden.
 ## Tests
 
 ```sh
-python -m pytest -q mcp/test_history_tools.py
 cd rust
 SQLX_OFFLINE=true cargo test --package deadlock-brain --bin patch-insights
+SQLX_OFFLINE=true cargo test --package deadlock-brain --bin deadlock-brain-mcp
 SQLX_OFFLINE=true cargo test --package deadlock-brain-yt transcripts::
 cargo clippy --package deadlock-brain --bin patch-insights
+cargo clippy --package deadlock-brain --bin deadlock-brain-mcp
 cargo clippy --package deadlock-brain-yt
 ```
 
-Der Caption-Postgres-Test ist absichtlich ignoriert, solange keine isolierte
-Scratch-Datenbank mit Grundschema und neuer Migration vorhanden ist. Nicht gegen
-den Produktionskorpus ausführen. Der Workflow `patch-insights.yml` führt nur
-Vertragstests und Clippy aus, nicht Deployment oder Modellinferenz.
+Der Caption-Postgres-Test benötigt eine isolierte Scratch-Datenbank mit den
+Grundtabellen und den drei Evidenzmigrationen. Nicht gegen den Produktionskorpus
+ausführen. GitHub Actions dienen in diesem Repository nicht als Merge-Gate.

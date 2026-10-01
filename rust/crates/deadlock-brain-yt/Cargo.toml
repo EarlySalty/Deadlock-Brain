@@ -27,6 +27,6 @@ urlencoding.workspace = true
 wait-timeout.workspace = true
 dbrain-session-store = { path = "../dbrain-session-store" }
 libc = "0.2"
-dl-token-secrets = { path = "../../../../Deadlock-Bots/rust/crates/dl-token-secrets" }
+dl-token-secrets = { path = "../../../../dl-shared-flash-consumers-20261001/rust/crates/dl-token-secrets" }
 
 [dev-dependencies]

@@ -1,27 +1,21 @@
 # dl-brain MCP-Server
 
-Zweck: `dl-brain` stellt die zentrale Postgres-Patch-Historie aus `brain.patch_changes` als read-only MCP-Tools bereit.
+Zweck: `dl-brain` stellt die zentrale Postgres-Patchhistorie aus `brain.patch_changes` als schreibgeschützte MCP-Tools bereit.
 
 ## Tools
 
-- `patch_history(entity: str, ability: str | None = None, stat: str | None = None, since: str | None = None, limit: int = 100)`
-- `patch_search(text: str, limit: int = 50)`
-- `list_patches(limit: int = 100)`
-- `entity_summary(entity: str)`
+- `patch_history(entity, ability?, stat?, since?, limit?)`
+- `patch_search(text, limit?)`
+- `list_patches(limit?)`
+- `entity_summary(entity)`
+- `change_lookup(text, entity?, since?, until?, limit?, offset?)`
+- `video_evidence(video_id, text?, limit?)`
+- `patch_insight(patch_url)`
 
-Eine generische SQL-Luke ist bewusst entfernt; falls sie spaeter noetig wird, dann mit eigener read-only-DB-Rolle.
+`change_lookup` löst bekannte Entity-Aliase auf und behandelt Suchzeichen wörtlich. `video_evidence` liefert Caption-Text mit Zeitmarken, keine Bildbelege. `patch_insight` trennt gespeicherte Hypothesen von belegten Patchänderungen.
 
-## Registrierung
+## Rust-Server
 
-Eintrag in `/home/naniadm/Documents/.mcp.json`:
+Der neue MCP-Server liegt als Rust-Binary `deadlock-brain-mcp` im Quellcode. Er ist für den vorhandenen schreibgeschützten Postgres-Pool und MCP über stdin/stdout vorgesehen. Build- und Laufzeitnachweis sind offen. Die lokale MCP-Registrierung wird durch diesen Auftrag nicht geändert. Für die Nutzung muss sie nach erfolgreichem Build autorisiert auf dieses Binary zeigen.
 
-```json
-"dl-brain": {
-  "command": "python3",
-  "args": [
-    "/home/naniadm/Documents/Deadlock-Brain/mcp/server.py"
-  ]
-}
-```
-
-Die Tools erscheinen erst nach Claude-Neustart.
+Die Tools erscheinen nach Neustart des MCP-Clients.

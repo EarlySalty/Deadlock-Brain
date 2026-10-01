@@ -7,6 +7,10 @@ edition.workspace = true
 name = "deadlock-brain"
 path = "src/main.rs"
 
+[[bin]]
+name = "deadlock-brain-mcp"
+path = "src/bin/deadlock-brain-mcp.rs"
+
 [dependencies]
 anyhow.workspace = true
 chrono.workspace = true
