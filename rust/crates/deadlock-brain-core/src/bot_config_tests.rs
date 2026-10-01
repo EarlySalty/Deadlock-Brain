@@ -20,6 +20,13 @@ fn valid_document_preserves_known_defaults() {
 }
 
 #[test]
+fn zero_wiki_cache_ttl_is_preserved_for_fresh_requests() {
+    let text = FIXTURE.replacen("cache_ttl_seconds = 604800", "cache_ttl_seconds = 0", 1);
+    let config = parse(&text).unwrap();
+    assert_eq!(config.wiki().cache_ttl_seconds, 0);
+}
+
+#[test]
 fn unknown_fields_rejected_at_each_depth_without_input() {
     for (needle, replacement) in [
         (

@@ -354,7 +354,7 @@ fn validate(d: &Document) -> Result<()> {
     }
     range(
         d.wiki.cache_ttl_seconds,
-        1,
+        0,
         31_536_000,
         "wiki.cache_ttl_seconds",
     )?;

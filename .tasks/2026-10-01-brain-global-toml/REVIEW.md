@@ -130,3 +130,20 @@ Gate-Antwort: `ALLOW: No confirmed merge-blocking defect in the supplied changes
 - `cargo check --manifest-path rust/Cargo.toml --locked --offline -p deadlock-brain -p dbrain-sources`: erfolgreich.
 - Für den Cargo-Lauf wurden vier fehlende externe Pfade vorübergehend auf gepinnte Abhängigkeiten im isolierten Layout gesetzt und anschließend zurückgenommen.
 - Erneutes Gate nach diesen Nacharbeiten ausstehend.
+
+# Review Runde 7
+
+Review-Gate: `gpt-6.1-sol`
+Basis: `main`
+Head: `a70f708`
+Urteil: `ALLOW`, ein NIT
+
+Gate-Antwort: `ALLOW: No confirmed merge-blocking defect in the supplied changes.`
+
+1. **NIT**, `rust/docs/wiki-hero-knowledge.md:62`: der Refresh überschreibt den JSON-Cachewert mit TOML, dessen Validator `0` ablehnte. Der JSON/TOML-Override ist jetzt dokumentiert; TOML erlaubt `cache_ttl_seconds = 0` für frische Abrufe.
+
+### Validierung der NIT-Nacharbeit
+
+- `cargo test --manifest-path rust/Cargo.toml --locked --offline -p deadlock-brain-core --lib config::tests -- --include-ignored`: 17 passed, 0 failed, 0 ignored, 16 filtered.
+- Regressionstest `zero_wiki_cache_ttl_is_preserved_for_fresh_requests` prüft die TOML-Konfiguration mit Wert `0`.
+- Erneutes Gate nach diesem Fix ausstehend.

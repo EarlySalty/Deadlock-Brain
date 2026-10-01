@@ -59,7 +59,7 @@ Der vorhandene Befehl bleibt:
 deadlock-brain wiki refresh --refresh-config /absoluter/pfad/wiki-refresh.json
 ```
 
-`--skip-source-update` überspringt sowohl die Deadlock-Data-Aktualisierung als auch den Wiki-Netzwerkimport. Der Rebuild kann bereits importierte Daten und daraus abgeleitete Karten weiterhin verarbeiten. `cache_ttl_seconds: 0` erzwingt frische Abrufe. Bei großen Erstimporten müssen die Laufzeitgrenzen des aufrufenden Dienstes zum Seitenumfang passen; dieser PR ändert keine produktiven Units oder Timer.
+`--skip-source-update` überspringt sowohl die Deadlock-Data-Aktualisierung als auch den Wiki-Netzwerkimport. Der Rebuild kann bereits importierte Daten und daraus abgeleitete Karten weiterhin verarbeiten. Die Wiki-Werte aus der JSON-Datei werden beim Refresh von der globalen TOML-Konfiguration überschrieben. `cache_ttl_seconds = 0` im `[wiki]`-Abschnitt deaktiviert den Cache und erzwingt frische Abrufe. Bei großen Erstimporten müssen die Laufzeitgrenzen des aufrufenden Dienstes zum Seitenumfang passen; dieser PR ändert keine produktiven Units oder Timer.
 
 ## Prüfung und Grenzen der Abnahme
 
