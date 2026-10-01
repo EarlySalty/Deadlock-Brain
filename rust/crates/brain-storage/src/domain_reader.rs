@@ -77,10 +77,20 @@ impl<S: SnapshotReadPort> DomainReader<S> {
         {
             return Err(invalid("domain release or patch mismatch"));
         }
+        let heads: BTreeMap<_, _> = snapshot
+            .heads
+            .iter()
+            .map(|head| ((&head.source_id, &head.logical_id), head))
+            .collect();
         let visible: Vec<_> = snapshot
             .authorized(&context.principal, for_provider)?
             .into_iter()
-            .filter(|r| knowledge::validity_matches(r, validity))
+            .filter(|record| {
+                knowledge::validity_matches(record, validity)
+                    && heads
+                        .get(&(&record.source_id, &record.logical_id))
+                        .is_some_and(|head| knowledge::validity_matches(head, validity))
+            })
             .collect();
         let mut cards = BTreeMap::new();
         let mut catalogs = BTreeMap::new();

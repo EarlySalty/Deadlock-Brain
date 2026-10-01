@@ -79,7 +79,11 @@ impl RetrievalPort for LexicalRetriever {
                     allowed_scopes: record.allowed_scopes.clone(),
                     score,
                     provenance: None,
-                    patch: record.metadata.get("patch").cloned(),
+                    patch: match brain_contracts::source::patch_validity_for(&record.metadata, None)
+                    {
+                        Ok(brain_contracts::value::Observed::Known { value }) => Some(value),
+                        _ => None,
+                    },
                 };
                 Some(evidence)
             })
@@ -104,13 +108,7 @@ fn record_allowed(record: &SourceRecordV2, scopes: &BTreeSet<String>) -> bool {
 }
 
 fn patch_allowed(record: &SourceRecordV2, requested_patch: Option<&str>) -> bool {
-    match (
-        requested_patch,
-        record.metadata.get("patch").map(String::as_str),
-    ) {
-        (Some(requested), Some(record_patch)) => requested == record_patch,
-        _ => true,
-    }
+    brain_contracts::source::patch_validity_for(&record.metadata, requested_patch).is_ok()
 }
 
 fn evidence_kind(record: &SourceRecordV2) -> EvidenceKind {

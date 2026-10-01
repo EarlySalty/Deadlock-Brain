@@ -67,7 +67,7 @@ fn context() -> AuthorizedContext {
 }
 
 #[tokio::test]
-async fn release_pinned_patch_agnostic_fact_and_mode_fail_closed() {
+async fn patch_agnostic_fact_does_not_establish_release_patch_or_mode() {
     let s = MemoryRepository::default();
     let mut fact = record(1);
     fact.logical_id = "entity/hero/Abrams".into();
@@ -87,10 +87,17 @@ async fn release_pinned_patch_agnostic_fact_and_mode_fail_closed() {
     let mut request = query();
     request.profile = AnswerProfile::Fact;
     request.text = "Abrams Gesundheit".into();
+    let unpinned = kernel.answer(&request, &context());
+    assert_eq!(unpinned.status, AnswerStatus::Answered);
+    assert!(unpinned
+        .citations
+        .iter()
+        .all(|citation| citation.patch.is_none()));
+    // A release pin is not a source's game-patch validity claim.
     request.patch = Some("p1".into());
     assert_eq!(
         kernel.answer(&request, &context()).status,
-        AnswerStatus::Answered
+        AnswerStatus::InsufficientEvidence
     );
     request.patch = Some("p0".into());
     assert_eq!(
@@ -285,9 +292,20 @@ async fn assets_feed_field_answers_through_release_kernel() {
     request.profile = AnswerProfile::Fact;
     request.text = "Warden max health".into();
     request.patch = Some("p1".into());
+    // The real feed declares unknown game validity. Its corpus release must
+    // not turn the imported observation into a patch-specific fact.
+    assert_eq!(
+        kernel.answer(&request, &context()).status,
+        AnswerStatus::InsufficientEvidence
+    );
+    request.patch = None;
     let answer = kernel.answer(&request, &context());
     assert_eq!(answer.status, AnswerStatus::Answered);
     assert!(answer.text.contains("max health: 770"));
+    assert!(answer
+        .citations
+        .iter()
+        .all(|citation| citation.patch.is_none()));
     assert_eq!(answer.citations.len(), 1);
     assert_eq!(
         answer.citations[0].logical_id,
