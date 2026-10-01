@@ -6,6 +6,15 @@ use std::{
     future::Future,
     pin::Pin,
 };
+/// Trusted in-process output purpose, never deserialized from a client query.
+/// Provider egress is an independent permission, not a publication grant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AnswerPurpose {
+    InternalRead,
+    ExternalPublication,
+}
+
 pub const STORE_VERSION: &str = "brain.store.v2";
 pub type StoreResult<T> = Result<T, PortError>;
 pub type StoreFuture<'a, T> = Pin<Box<dyn Future<Output = StoreResult<T>> + Send + 'a>>;
@@ -247,6 +256,15 @@ impl CorpusSnapshot {
     }
 }
 pub fn record_allowed(record: &SourceRecordV2, principal: &Principal, provider: bool) -> bool {
+    record_allowed_for(record, principal, provider, AnswerPurpose::InternalRead)
+}
+
+pub fn record_allowed_for(
+    record: &SourceRecordV2,
+    principal: &Principal,
+    provider: bool,
+    purpose: AnswerPurpose,
+) -> bool {
     if record
         .metadata
         .contains_key(crate::source::ORIGIN_METADATA_KEY)
@@ -254,7 +272,9 @@ pub fn record_allowed(record: &SourceRecordV2, principal: &Principal, provider: 
         let Ok(origin) = crate::source::origin_from_record(record) else {
             return false;
         };
-        if provider && !origin.policy.provider_egress_allowed {
+        if (provider && !origin.policy.provider_egress_allowed)
+            || (purpose == AnswerPurpose::ExternalPublication && !origin.policy.publication_allowed)
+        {
             return false;
         }
     }
@@ -274,4 +294,45 @@ pub fn record_allowed(record: &SourceRecordV2, principal: &Principal, provider: 
         || (egress != "none"
             && principal.provider_egress.contains(egress)
             && principal.provider_egress.contains(visibility)))
+}
+
+/// Check the immutable source grant AND its fresh canonical head. Body-free heads
+/// cannot establish a grant by dropping versioned origin metadata. Legacy records
+/// without versioned origins retain their existing ACL semantics.
+pub fn publication_allowed(
+    record: &SourceRecordV2,
+    head: &crate::DocumentHead,
+    principal: &Principal,
+) -> bool {
+    use crate::source::{OriginArtifact, SourceRevision, Versioned, ORIGIN_METADATA_KEY};
+    if record.tombstone
+        || record.validate().is_err()
+        || head.validate().is_err()
+        || head.source_id != record.source_id
+        || head.logical_id != record.logical_id
+        || head.revision < record.revision
+        || !record_allowed_for(record, principal, false, AnswerPurpose::ExternalPublication)
+        || !head.allowed(principal, false)
+    {
+        return false;
+    }
+    let Some(encoded) = head.metadata.get(ORIGIN_METADATA_KEY) else {
+        return !record.metadata.contains_key(ORIGIN_METADATA_KEY);
+    };
+    let Ok(origin) = serde_json::from_str::<Versioned<OriginArtifact>>(encoded) else {
+        return false;
+    };
+    let origin = origin.data;
+    origin.validate().is_ok()
+        && origin.identity.source_id == head.source_id
+        && origin.identity.logical_id == head.logical_id
+        && origin.policy.visibility == head.visibility
+        && origin.policy.allowed_scopes == head.allowed_scopes
+        && origin.policy.publication_allowed
+        && match origin.source_revision {
+            SourceRevision::Wiki { revision_id, .. } => {
+                u64::try_from(revision_id).ok() == Some(head.revision)
+            }
+            _ => true,
+        }
 }

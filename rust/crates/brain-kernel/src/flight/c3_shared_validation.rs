@@ -122,7 +122,7 @@ fn shared_answer_follower_revalidates_and_distinguishes_reader_failure_from_deni
             8,
             Duration::from_secs(30),
         ));
-        let key = cache_key(&query, &context).unwrap();
+        let key = cache_key(&query, &context, AnswerPurpose::InternalRead).unwrap();
         let leader_cache = cache.clone();
         let leader_q = query.clone();
         let leader_c = context.clone();

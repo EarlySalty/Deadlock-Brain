@@ -601,3 +601,62 @@ fn unsupported_origin_versions_fail_closed_at_batch_and_egress_boundaries() {
     };
     assert!(batch.validate().is_err());
 }
+
+#[test]
+fn publication_rights_are_distinct_and_require_both_revision_and_current_head() {
+    use brain_contracts::{store::*, DocumentHead, Principal};
+    let principal = Principal {
+        actor_id: "reader".into(),
+        channel: "test".into(),
+        scopes: policy().allowed_scopes,
+        provider_egress: BTreeSet::from(["private".into()]),
+    };
+    for pinned_grant in [false, true] {
+        let mut pinned = record();
+        let mut original = origin();
+        original.policy.publication_allowed = pinned_grant;
+        original.bind_record(&mut pinned).unwrap();
+        assert!(record_allowed_for(
+            &pinned,
+            &principal,
+            false,
+            AnswerPurpose::InternalRead
+        ));
+        assert_eq!(
+            record_allowed_for(
+                &pinned,
+                &principal,
+                false,
+                AnswerPurpose::ExternalPublication
+            ),
+            pinned_grant
+        );
+        // Publication does not imply provider egress, nor does denial revoke reading.
+        assert!(!record_allowed(&pinned, &principal, true));
+        for current_grant in [false, true] {
+            let mut current = pinned.clone();
+            current.revision += 1;
+            let mut latest = original.clone();
+            latest.source_revision = SourceRevision::Wiki {
+                page_id: 42,
+                revision_id: 78,
+            };
+            latest.policy.publication_allowed = current_grant;
+            latest.bind_record(&mut current).unwrap();
+            assert_eq!(
+                publication_allowed(&pinned, &DocumentHead::from(&current), &principal),
+                pinned_grant && current_grant
+            );
+            assert!(record_allowed(&current, &principal, false));
+        }
+        let mut head = DocumentHead::from(&pinned);
+        head.metadata.remove(source::ORIGIN_METADATA_KEY);
+        assert!(
+            !publication_allowed(&pinned, &head, &principal),
+            "dropping a current origin cannot restore publication"
+        );
+        head.metadata
+            .insert(source::ORIGIN_METADATA_KEY.into(), "{}".into());
+        assert!(!publication_allowed(&pinned, &head, &principal));
+    }
+}

@@ -307,6 +307,38 @@ impl<S: SnapshotReadPort> RetrievalPort for ReleaseRetriever<S> {
         evidence: &[Evidence],
         for_provider: bool,
     ) -> Result<(), PortError> {
+        self.validate_for(
+            query,
+            context,
+            evidence,
+            for_provider,
+            brain_contracts::store::AnswerPurpose::InternalRead,
+        )
+    }
+    fn validate_publication(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+    ) -> Result<(), PortError> {
+        self.validate_for(
+            query,
+            context,
+            evidence,
+            false,
+            brain_contracts::store::AnswerPurpose::ExternalPublication,
+        )
+    }
+}
+impl<S: SnapshotReadPort> ReleaseRetriever<S> {
+    fn validate_for(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+        for_provider: bool,
+        purpose: brain_contracts::store::AnswerPurpose,
+    ) -> Result<(), PortError> {
         let bound = context.with_request_deadline();
         let context = &bound;
         check_context(query, context)?;
@@ -314,8 +346,13 @@ impl<S: SnapshotReadPort> RetrievalPort for ReleaseRetriever<S> {
             return Err(denied("invalid evidence pack size"));
         }
         if crate::domain_port::handles(query) {
-            let canonical =
-                crate::domain_port::retrieve(&self.store, query, context, for_provider)?;
+            let canonical = crate::domain_port::retrieve_for_purpose(
+                &self.store,
+                query,
+                context,
+                for_provider,
+                purpose,
+            )?;
             return if canonical == evidence {
                 Ok(())
             } else {
@@ -345,6 +382,14 @@ impl<S: SnapshotReadPort> RetrievalPort for ReleaseRetriever<S> {
             let record = &index.records[index.chunks[chunk].document];
             if !index.eligible(record, query, context) {
                 return Err(denied("evidence metadata or scope denied"));
+            }
+            if purpose == brain_contracts::store::AnswerPurpose::ExternalPublication {
+                let head = heads
+                    .get(&(record.source_id.clone(), record.logical_id.clone()))
+                    .ok_or_else(|| denied("publication head missing"))?;
+                if !brain_contracts::store::publication_allowed(record, head, &context.principal) {
+                    return Err(denied("source publication not permitted"));
+                }
             }
             let effective = effective_head(
                 record,

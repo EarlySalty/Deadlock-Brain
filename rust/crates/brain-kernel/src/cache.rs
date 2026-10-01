@@ -26,7 +26,12 @@ impl<R, P> CachedKernel<R, P> {
     }
 }
 impl<R: RetrievalPort, P: AnswerProviderPort> CachedKernel<R, P> {
-    pub(super) fn answer_cached(&self, query: &Query, context: &AuthorizedContext) -> KernelAnswer {
+    pub(super) fn answer_cached(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        purpose: AnswerPurpose,
+    ) -> KernelAnswer {
         let started = Instant::now();
         if context.check_deadline().is_err() {
             return response(
@@ -56,19 +61,22 @@ impl<R: RetrievalPort, P: AnswerProviderPort> CachedKernel<R, P> {
             .into();
         }
         // Never include request_id: it is rebound on each hit. All authorization/semantic inputs are included.
-        let key = match super::flight::cache_key(query, context) {
+        let key = match super::flight::cache_key(query, context, purpose) {
             Ok(key) => key,
-            Err(_) => return self.inner.answer_internal(query, context),
+            Err(_) => return self.inner.answer_internal(query, context, purpose),
         };
         let hit = self.entries.lock().ok().and_then(|mut entries| {
             entries.retain(|_, (created, _, _)| created.elapsed() < self.ttl);
             entries.get(&key).map(|(_, answer, _)| answer.clone())
         });
         if let Some(mut answer) = hit {
-            let validation =
-                self.inner
-                    .retrieval
-                    .validate_evidence(query, context, &answer.dependencies, false);
+            let validation = super::execution::validate_output(
+                &self.inner.retrieval,
+                query,
+                context,
+                &answer.dependencies,
+                purpose,
+            );
             if validation.is_ok()
                 && context.check_deadline().is_ok()
                 && started.elapsed().as_millis() < context.deadline_ms as u128
@@ -108,7 +116,7 @@ impl<R: RetrievalPort, P: AnswerProviderPort> CachedKernel<R, P> {
         };
         let mut next = context.clone();
         next.deadline_ms = remaining;
-        let answer = self.inner.answer_internal(query, &next);
+        let answer = self.inner.answer_internal(query, &next, purpose);
         let weight = answer.retained_bytes();
         if answer.answer.status == AnswerStatus::Answered
             && !answer.answer.citations.is_empty()

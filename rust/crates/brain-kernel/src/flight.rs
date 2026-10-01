@@ -2,6 +2,8 @@
 #[cfg(test)]
 mod c3_shared_validation;
 #[cfg(test)]
+mod publication;
+#[cfg(test)]
 mod review_dependencies;
 use super::*;
 use std::{
@@ -145,9 +147,11 @@ impl Coordinator {
 pub(super) fn cache_key(
     query: &Query,
     context: &AuthorizedContext,
+    purpose: AnswerPurpose,
 ) -> Result<String, serde_json::Error> {
     serde_json::to_string(&(
-        "brain.policy.v2",
+        "brain.policy.v3",
+        purpose,
         &context.principal,
         &context.conversation_id,
         &context.knowledge_release,
@@ -162,6 +166,14 @@ pub(super) fn cache_key(
 }
 impl<R: RetrievalPort, P: AnswerProviderPort> AnswerKernelPort for CachedKernel<R, P> {
     fn answer(&self, query: &Query, context: &AuthorizedContext) -> AnswerResponse {
+        self.answer_for_purpose(query, context, AnswerPurpose::InternalRead)
+    }
+    fn answer_for_purpose(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        purpose: AnswerPurpose,
+    ) -> AnswerResponse {
         let bound = context.with_request_deadline();
         let context = &bound;
         let start = Instant::now();
@@ -193,17 +205,17 @@ impl<R: RetrievalPort, P: AnswerProviderPort> AnswerKernelPort for CachedKernel<
         // just on an old winning citation. Reuse the existing fresh selection path for
         // every fact request, including would-be single-flight followers.
         if query.profile == brain_contracts::AnswerProfile::Fact {
-            return self.inner.answer(query, context);
+            return self.inner.answer_for_purpose(query, context, purpose);
         }
-        let key = match cache_key(query, context) {
+        let key = match cache_key(query, context, purpose) {
             Ok(key) => key,
-            Err(_) => return self.inner.answer(query, context),
+            Err(_) => return self.inner.answer_for_purpose(query, context, purpose),
         };
         match self.flights.run(
             key,
             Duration::from_millis(context.deadline_ms),
             context.request_deadline.as_ref(),
-            || self.answer_cached(query, context),
+            || self.answer_cached(query, context, purpose),
         ) {
             Ok((mut answer, shared)) => {
                 if context.check_deadline().is_err() {
@@ -218,11 +230,12 @@ impl<R: RetrievalPort, P: AnswerProviderPort> AnswerKernelPort for CachedKernel<
                 }
                 if shared {
                     if !answer.dependencies.is_empty() {
-                        if let Err(error) = self.inner.retrieval.validate_evidence(
+                        if let Err(error) = super::execution::validate_output(
+                            &self.inner.retrieval,
                             query,
                             context,
                             &answer.dependencies,
-                            false,
+                            purpose,
                         ) {
                             return response(
                                 query,

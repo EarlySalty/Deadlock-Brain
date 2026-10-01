@@ -145,7 +145,7 @@ async fn shared_answer_revalidates_uncited_acl_and_tombstone_after_leader_succes
             8,
             Duration::from_secs(30),
         ));
-        let key = cache_key(&q, &c).unwrap();
+        let key = cache_key(&q, &c, AnswerPurpose::InternalRead).unwrap();
         let leader_cache = cache.clone();
         let leader_q = q.clone();
         let leader_c = c.clone();

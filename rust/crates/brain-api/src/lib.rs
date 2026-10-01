@@ -116,7 +116,12 @@ where
         if deadline.check().is_err() {
             return deadline_response();
         }
-        let answer = self.kernel.answer(&query, &context);
+        // This boundary always publishes externally, regardless of client/channel/profile.
+        let answer = self.kernel.answer_for_purpose(
+            &query,
+            &context,
+            brain_kernel::AnswerPurpose::ExternalPublication,
+        );
         if deadline.check().is_err() {
             return deadline_response();
         }
@@ -222,6 +227,15 @@ mod tests {
     }
 
     impl AnswerKernelPort for FixedKernel {
+        fn answer_for_purpose(
+            &self,
+            q: &Query,
+            c: &AuthorizedContext,
+            purpose: brain_kernel::AnswerPurpose,
+        ) -> AnswerResponse {
+            assert_eq!(purpose, brain_kernel::AnswerPurpose::ExternalPublication);
+            self.answer(q, c)
+        }
         fn answer(&self, query: &Query, context: &AuthorizedContext) -> AnswerResponse {
             self.calls.fetch_add(1, Ordering::SeqCst);
             AnswerResponse {

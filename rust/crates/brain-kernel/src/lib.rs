@@ -13,8 +13,31 @@ mod outcome;
 pub use cache::CachedKernel;
 use outcome::KernelAnswer;
 
+pub use brain_contracts::store::AnswerPurpose;
+
 pub trait AnswerKernelPort: Send + Sync {
+    /// Internal reading does not imply permission to publish the returned text.
     fn answer(&self, query: &Query, context: &AuthorizedContext) -> AnswerResponse;
+
+    /// The server chooses this purpose, never the wire query or a model.
+    fn answer_for_purpose(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        purpose: AnswerPurpose,
+    ) -> AnswerResponse {
+        match purpose {
+            AnswerPurpose::InternalRead => self.answer(query, context),
+            AnswerPurpose::ExternalPublication => response(
+                query,
+                context,
+                AnswerStatus::Unavailable,
+                "Publikationsfreigabe konnte nicht sicher bestätigt werden.",
+                Vec::new(),
+                Usage::default(),
+            ),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -53,11 +76,24 @@ impl<R, P> Kernel<R, P> {
 
 impl<R: RetrievalPort, P: AnswerProviderPort> AnswerKernelPort for Kernel<R, P> {
     fn answer(&self, query: &Query, context: &AuthorizedContext) -> AnswerResponse {
-        self.answer_internal(query, context).answer
+        self.answer_for_purpose(query, context, AnswerPurpose::InternalRead)
+    }
+    fn answer_for_purpose(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        purpose: AnswerPurpose,
+    ) -> AnswerResponse {
+        self.answer_internal(query, context, purpose).answer
     }
 }
 impl<R: RetrievalPort, P: AnswerProviderPort> Kernel<R, P> {
-    fn answer_internal(&self, query: &Query, context: &AuthorizedContext) -> KernelAnswer {
+    fn answer_internal(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        purpose: AnswerPurpose,
+    ) -> KernelAnswer {
         let bound = context.with_request_deadline();
         let context = &bound;
         if query.validate().is_err() || query.conversation_id != context.conversation_id {
@@ -77,6 +113,7 @@ impl<R: RetrievalPort, P: AnswerProviderPort> Kernel<R, P> {
             &self.provider,
             query,
             context,
+            purpose,
             self.clock.as_ref(),
         )
     }
@@ -463,8 +500,8 @@ mod tests {
         }
         let context = context(&[], &[]);
         assert_ne!(
-            crate::flight::cache_key(&first, &context).unwrap(),
-            crate::flight::cache_key(&second, &context).unwrap()
+            crate::flight::cache_key(&first, &context, AnswerPurpose::InternalRead).unwrap(),
+            crate::flight::cache_key(&second, &context, AnswerPurpose::InternalRead).unwrap()
         );
     }
 

@@ -83,6 +83,15 @@ impl RetrievalPort for Retrieval {
             patch: None,
         }])
     }
+    fn validate_publication(
+        &self,
+        q: &Query,
+        c: &AuthorizedContext,
+        e: &[Evidence],
+    ) -> Result<(), PortError> {
+        // Synthetic, immutable deadline fixture; real canonical validation is tested separately.
+        self.validate_evidence(q, c, e, false)
+    }
     fn validate_evidence(
         &self,
         _: &Query,
@@ -114,6 +123,14 @@ struct TrackedKernel {
     dropped: Option<oneshot::Sender<()>>,
 }
 impl AnswerKernelPort for TrackedKernel {
+    fn answer_for_purpose(
+        &self,
+        q: &Query,
+        c: &AuthorizedContext,
+        purpose: brain_kernel::AnswerPurpose,
+    ) -> brain_contracts::AnswerResponse {
+        self.inner.answer_for_purpose(q, c, purpose)
+    }
     fn answer(&self, q: &Query, c: &AuthorizedContext) -> brain_contracts::AnswerResponse {
         self.inner.answer(q, c)
     }

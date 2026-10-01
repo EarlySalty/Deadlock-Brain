@@ -30,6 +30,15 @@ impl ConversationOwnershipPort for BlockedOwnership {
 }
 struct RecordingKernel(mpsc::Sender<()>);
 impl AnswerKernelPort for RecordingKernel {
+    fn answer_for_purpose(
+        &self,
+        q: &Query,
+        c: &AuthorizedContext,
+        purpose: brain_kernel::AnswerPurpose,
+    ) -> AnswerResponse {
+        assert_eq!(purpose, brain_kernel::AnswerPurpose::ExternalPublication);
+        self.answer(q, c)
+    }
     fn answer(&self, query: &Query, context: &AuthorizedContext) -> AnswerResponse {
         self.0.send(()).unwrap();
         AnswerResponse {

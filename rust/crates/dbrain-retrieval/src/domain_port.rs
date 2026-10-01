@@ -38,6 +38,22 @@ pub(crate) fn retrieve<S: SnapshotReadPort>(
     context: &AuthorizedContext,
     provider: bool,
 ) -> Result<Vec<Evidence>, PortError> {
+    retrieve_for_purpose(
+        store,
+        query,
+        context,
+        provider,
+        brain_contracts::store::AnswerPurpose::InternalRead,
+    )
+}
+
+pub(crate) fn retrieve_for_purpose<S: SnapshotReadPort>(
+    store: &S,
+    query: &Query,
+    context: &AuthorizedContext,
+    provider: bool,
+    purpose: brain_contracts::store::AnswerPurpose,
+) -> Result<Vec<Evidence>, PortError> {
     query
         .validate()
         .map_err(|_| invalid("invalid domain request"))?;
@@ -218,6 +234,42 @@ pub(crate) fn retrieve<S: SnapshotReadPort>(
     answer.inputs = proof.inputs.clone();
     if answer.inputs.is_empty() || answer.inputs.len() > 512 {
         return Err(invalid("domain proof size"));
+    }
+    if purpose == brain_contracts::store::AnswerPurpose::ExternalPublication {
+        // Re-read the canonical snapshot and check every derived input, not only
+        // the primary public citation. Do not redact/rebuild a proof from partial inputs.
+        let current = store.read_snapshot_until(
+            &context.knowledge_release,
+            context.request_deadline.as_ref(),
+        )?;
+        if current.release != snapshot.release {
+            return Err(invalid("domain release changed"));
+        }
+        current.authorized(&context.principal, false)?;
+        for input in &answer.inputs {
+            let source = &input.source;
+            let record = current.revisions.iter().find(|r| {
+                r.source_id == source.source_id
+                    && r.logical_id == source.logical_id
+                    && r.revision == source.revision
+                    && r.content_hash == source.content_hash
+            });
+            let head = current
+                .heads
+                .iter()
+                .find(|r| r.source_id == source.source_id && r.logical_id == source.logical_id);
+            if !record.zip(head).is_some_and(|(r, h)| {
+                brain_contracts::store::publication_allowed(
+                    r,
+                    &brain_contracts::DocumentHead::from(h),
+                    &context.principal,
+                )
+            }) {
+                return Err(PortError::PermissionDenied(
+                    "domain input publication not permitted".into(),
+                ));
+            }
+        }
     }
     let primary = proof
         .primary

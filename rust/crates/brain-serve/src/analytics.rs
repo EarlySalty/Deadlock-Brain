@@ -455,6 +455,20 @@ impl<S: SnapshotReadPort> RetrievalPort for AnalyticsRetriever<S> {
         }
     }
 
+    fn validate_publication(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+    ) -> Result<(), PortError> {
+        if analytics_target(query).is_none() {
+            return self.release.validate_publication(query, context, evidence);
+        }
+        // This live adapter has only an internal analytics grant, not a source publication grant.
+        Err(PortError::PermissionDenied(
+            "analytics publication not granted".into(),
+        ))
+    }
     fn validate_evidence(
         &self,
         query: &Query,
@@ -757,6 +771,58 @@ mod tests {
     }
 
     #[test]
+    fn publication_live_analytics_read_grant_does_not_authorize_external_output() {
+        let query = answer_query(META_PREDICATE);
+        let context = AuthorizedContext {
+            principal: Principal {
+                actor_id: "fixture-actor".into(),
+                channel: "fixture-channel".into(),
+                scopes: BTreeSet::from(["analytics.internal".into()]),
+                provider_egress: BTreeSet::new(),
+            },
+            conversation_id: query.conversation_id.clone(),
+            knowledge_release: "fixture-release".into(),
+            deadline_ms: 2_000,
+            budget: Budget::default(),
+            request_deadline: None,
+        };
+        let retrieval = AnalyticsRetriever::new(
+            ReleaseRetriever::new(FixedSnapshot, 8),
+            Some(Arc::new(runtime())),
+        );
+        let evidence = Evidence {
+            evidence_id: "analytics-fixture".into(),
+            source_id: "deadlock_analytics_api".into(),
+            logical_id: "hero:18:meta".into(),
+            revision: 1,
+            kind: EvidenceKind::Fact,
+            content: "internal analytics fixture".into(),
+            citation: "fixture:analytics".into(),
+            visibility: SourceVisibility::Internal,
+            allowed_scopes: BTreeSet::from(["analytics.internal".into()]),
+            score: 100.0,
+            provenance: None,
+            patch: None,
+        };
+        retrieval.evidence.lock().unwrap().insert(
+            evidence.evidence_id.clone(),
+            (
+                Instant::now(),
+                analytics_key(&query, &context).unwrap(),
+                evidence.clone(),
+            ),
+        );
+        let pack = [evidence];
+        assert!(retrieval
+            .validate_evidence(&query, &context, &pack, false)
+            .is_ok());
+        assert!(matches!(
+            retrieval.validate_publication(&query, &context, &pack),
+            Err(PortError::PermissionDenied(_))
+        ));
+    }
+
+    #[test]
     fn cancelled_analytics_request_cannot_start_an_http_retry() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
@@ -910,7 +976,7 @@ mod tests {
     }
 
     #[test]
-    fn ordinary_brain_answer_uses_meta_and_match_population_without_patch_claim() {
+    fn internal_brain_answer_uses_meta_and_match_population_without_patch_claim() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let seen = Arc::new(Mutex::new(Vec::new()));
@@ -976,6 +1042,33 @@ mod tests {
             4,
             Duration::from_secs(30),
         );
+        let context = AuthorizedContext {
+            principal: Principal {
+                actor_id: "fixture-actor".into(),
+                channel: "fixture-channel".into(),
+                scopes: BTreeSet::from(["analytics.internal".into()]),
+                provider_egress: BTreeSet::new(),
+            },
+            conversation_id: "fixture-conversation".into(),
+            knowledge_release: "fixture-release".into(),
+            deadline_ms: 2_000,
+            budget: Budget::default(),
+            request_deadline: None,
+        };
+        let meta = kernel.answer(&answer_query(META_PREDICATE), &context);
+        assert_eq!(meta.status, AnswerStatus::Answered);
+        assert!(meta.text.contains("10 Siege"));
+        assert!(meta.text.contains("keinem Spielpatch"));
+        assert_eq!(meta.citations.len(), 1);
+        let pop = kernel.answer(
+            &answer_query(&format!("{POPULATION_PREDICATE}42")),
+            &context,
+        );
+        assert_eq!(pop.status, AnswerStatus::Answered);
+        assert!(pop.text.contains("10 von 20"));
+        assert!(pop.text.contains("50.0 %"));
+        assert!(pop.text.contains("keinem Spielpatch"));
+        assert_eq!(pop.citations.len(), 1);
         let api = brain_api::ApiService::new(
             PolicyEngine::new(CredentialRegistry::new(vec![AuthGrant::from_secret(
                 "fixture-secret",
@@ -997,17 +1090,6 @@ mod tests {
             assert_eq!(response.status, 200, "{}", response.body);
             serde_json::from_str::<PublicAnswerResponse>(&response.body).unwrap()
         };
-        let meta = invoke(&answer_query(META_PREDICATE));
-        assert_eq!(meta.status, AnswerStatus::Answered);
-        assert!(meta.text.contains("10 Siege"));
-        assert!(meta.text.contains("keinem Spielpatch"));
-        assert_eq!(meta.citations.len(), 1);
-        let pop = invoke(&answer_query(&format!("{POPULATION_PREDICATE}42")));
-        assert_eq!(pop.status, AnswerStatus::Answered);
-        assert!(pop.text.contains("10 von 20"));
-        assert!(pop.text.contains("50.0 %"));
-        assert!(pop.text.contains("keinem Spielpatch"));
-        assert_eq!(pop.citations.len(), 1);
         let mut patch = answer_query(META_PREDICATE);
         patch.patch = Some("2026-09-24".into());
         let denied = invoke(&patch);
