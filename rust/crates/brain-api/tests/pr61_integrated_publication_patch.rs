@@ -253,7 +253,10 @@ async fn publication_permission_does_not_authorize_a_mismatched_patch() {
 async fn unknown_origin_patch_is_not_invented_from_the_corpus_version() {
     let store = repository(vec![fact("public-unknown", 650, true, None)]).await;
     let kernel = Kernel::new(ReleaseRetriever::new(store, 10), NoProvider);
-    let request = query("internal-unknown-patch");
+    let mut request = query("internal-unknown-patch");
+    // Unknown validity may answer an unscoped fact question. A patch-specific
+    // fact claim separately requires known validity in the existing kernel contract.
+    request.patch = None;
     let answer = kernel.answer(&request, &internal_context(&request));
     assert_eq!(
         answer.status,
