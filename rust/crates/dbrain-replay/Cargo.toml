@@ -7,9 +7,9 @@ rust-version = "1.88"
 [dependencies]
 brain-contracts = { path = "../brain-contracts" }
 deadlock-brain-core = { path = "../deadlock-brain-core" }
-haste_core = { git = "https://github.com/deadlock-api/haste", rev = "bfb292d4798031350861ad297aa26753267a1ea6", default-features = false }
+haste_core = { git = "https://github.com/deadlock-api/deadlock-api", rev = "bfb292d4798031350861ad297aa26753267a1ea6", default-features = false }
 # EXACT transitive schema used by haste; do not substitute the upstream default branch.
-valveprotos = { git = "https://github.com/deadlock-api/valveprotos-rs.git", rev = "4f4a3cb1b0c6f19af59a722acb79ecccd01f61f6", default-features = false, features = ["gc-client", "serde", "user-msgs"] }
+valveprotos = { git = "https://github.com/deadlock-api/deadlock-api", rev = "4f4a3cb1b0c6f19af59a722acb79ecccd01f61f6", default-features = false, features = ["gc-client", "serde", "user-msgs"] }
 prost = "=0.14.4"
 snap = "=1.1.1"
 serde = { version = "1.0", features = ["derive"] }
@@ -24,6 +24,12 @@ libc = "=0.2.186"
 proptest = "=1.10.0"
 
 [workspace]
+
+[patch."https://github.com/deadlock-api/dungers.git"]
+dungers = { git = "https://github.com/deadlock-api/deadlock-api", rev = "5e1e2aac76a027987911de3ef3d23ecfd992a7fb" }
+
+[patch."https://github.com/deadlock-api/valveprotos-rs.git"]
+valveprotos = { git = "https://github.com/deadlock-api/deadlock-api", rev = "4f4a3cb1b0c6f19af59a722acb79ecccd01f61f6" }
 
 [[bin]]
 name = "dbrain-replay-worker"
