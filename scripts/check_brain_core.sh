@@ -5,12 +5,22 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CARGO="${BRAIN_TEST_CARGO:-cargo}"
 CARGO_CACHE="${CARGO_HOME:-$HOME/.cargo}"
 RUSTUP_CACHE="${RUSTUP_HOME:-$HOME/.rustup}"
-if (( $# != 2 )); then
-  printf 'Usage: check_brain_core.sh <bootstrap|core|release|postgres|all> <absolute-existing-target-dir>\n' >&2
+if (( $# < 2 )); then
+  printf 'Usage: check_brain_core.sh <bootstrap|core|release|postgres|all> <absolute-existing-target-dir> [--peer EXPLICIT_HEAD]...\n' >&2
   exit 2
 fi
 MODE="$1"
 TARGET_DIR="$2"
+shift 2
+PEER_REFS=()
+while (($#)); do
+  if [[ "$MODE" != all || "$1" != --peer || $# -lt 2 ]]; then
+    printf 'Peer heads are accepted only by all as --peer EXPLICIT_HEAD.\n' >&2
+    exit 2
+  fi
+  PEER_REFS+=("$2")
+  shift 2
+done
 if [[ "$TARGET_DIR" != /* || ! -d "$TARGET_DIR" ]]; then
   printf 'Target cache must be an existing absolute directory: %s\n' "$TARGET_DIR" >&2
   exit 2
@@ -52,6 +62,13 @@ case "$MODE" in
     run_check postgres bash "$ROOT/scripts/test_brain_core_postgres.sh" "$TARGET_DIR"
     ;;
   all)
+    MIGRATION_ARGS=(--base origin/main --head HEAD)
+    for peer_ref in "${PEER_REFS[@]}"; do MIGRATION_ARGS+=(--peer "$peer_ref"); done
+    run_check migration-guard bash "$ROOT/scripts/ci/run_migration_guard.sh" "${MIGRATION_ARGS[@]}"
+    run_check backup-shell-syntax bash -c 'bash -n ops/brain-postgres/backup.sh && bash -n ops/brain-postgres/restore-probe.sh && bash -n scripts/test_brain_backup.sh && bash -n scripts/test_brain_restore.sh'
+    run_check backup-shellcheck shellcheck ops/brain-postgres/backup.sh ops/brain-postgres/restore-probe.sh scripts/test_brain_backup.sh scripts/test_brain_restore.sh
+    run_check backup-regressions bash "$ROOT/scripts/test_brain_backup.sh"
+    run_check restore-regressions bash "$ROOT/scripts/test_brain_restore.sh"
     run_check fmt "$CARGO" +1.97.1 fmt --all -- --check
     run_check clippy "$CARGO" +1.97.1 clippy --workspace --all-targets --locked --offline --jobs 1 --target-dir "$TARGET_DIR" -- -D warnings
     run_check test "$CARGO" +1.97.1 test --workspace --locked --offline --jobs 1 --target-dir "$TARGET_DIR"
