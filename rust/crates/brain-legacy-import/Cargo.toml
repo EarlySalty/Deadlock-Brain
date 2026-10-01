@@ -27,5 +27,7 @@ sqlx = { workspace = true, features = ["json"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [dev-dependencies]
+brain-kernel = { path = "../brain-kernel" }
+dbrain-retrieval = { path = "../dbrain-retrieval" }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

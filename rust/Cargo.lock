@@ -383,7 +383,9 @@ version = "0.1.0"
 dependencies = [
  "brain-contracts",
  "brain-ingestion",
+ "brain-kernel",
  "brain-storage",
+ "dbrain-retrieval",
  "dl-token-secrets",
  "hex",
  "libc",

@@ -28,6 +28,21 @@ const LOGICAL: &str = "commands-overview";
 const DOC_PATH: &str = "rust/knowledge/bot/chat-befehle.md";
 const CONTENT: &str = "`!commands` schickt einen Link zur Befehlsübersicht.";
 
+fn command_document(origin: OriginArtifact) -> CoreDocument {
+    CoreDocument {
+        logical_id: LOGICAL.into(),
+        content: CONTENT.into(),
+        metadata: BTreeMap::from([
+            ("kind".into(), "fact".into()),
+            ("title".into(), "Twitch-Chat-Befehl !commands".into()),
+            ("name".into(), "!commands".into()),
+            ("field".into(), "Funktion".into()),
+            ("locator".into(), origin.locator.clone()),
+        ]),
+        origin,
+    }
+}
+
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Config {
@@ -316,21 +331,8 @@ pub(super) async fn command(args: &[String]) -> Result<Value> {
         .checkpoint(&config.source_id)
         .await
         .map_err(|_| "checkpoint unavailable")?;
-    let batch = prepare_document_batch(
-        &source,
-        &[CoreDocument {
-            logical_id: LOGICAL.into(),
-            content: CONTENT.into(),
-            metadata: BTreeMap::from([
-                ("kind".into(), "fact".into()),
-                ("title".into(), "Twitch-Chat-Befehl !commands".into()),
-                ("locator".into(), locator),
-            ]),
-            origin,
-        }],
-        previous.as_ref(),
-    )
-    .map_err(|_| "document preparation failed")?;
+    let batch = prepare_document_batch(&source, &[command_document(origin)], previous.as_ref())
+        .map_err(|_| "document preparation failed")?;
     let release = release_from_checkpoints(
         std::slice::from_ref(&batch.checkpoint),
         &ReleaseConfig {
@@ -365,4 +367,133 @@ pub(super) async fn command(args: &[String]) -> Result<Value> {
         json!({"release_id":release.release_id,"knowledge_version":release.knowledge_version,"source_id":config.source_id,
         "documents":1,"observed_at_epoch":now,"authorization_sha256":config.authorization_sha256}),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use brain_contracts::{
+        AnswerProfile, AnswerProviderPort, AnswerStatus, AuthorizedContext, Budget, Evidence,
+        PortError, Principal, ProviderAnswer, Query,
+    };
+    use brain_kernel::{AnswerKernelPort, Kernel};
+    use brain_storage::MemoryRepository;
+    use dbrain_retrieval::ReleaseRetriever;
+
+    struct NoProvider;
+    impl AnswerProviderPort for NoProvider {
+        fn answer(
+            &self,
+            _: &Query,
+            _: &AuthorizedContext,
+            _: &[Evidence],
+        ) -> std::result::Result<ProviderAnswer, PortError> {
+            panic!("deterministic command fact must not call a provider")
+        }
+    }
+
+    #[tokio::test]
+    async fn command_projection_answers_only_its_explicit_identity_and_field() {
+        let scopes = BTreeSet::from(["bot.public".into()]);
+        let origin = OriginArtifact {
+            identity: SourceIdentity {
+                source_id: ORIGINAL.into(),
+                logical_id: LOGICAL.into(),
+            },
+            source_revision: SourceRevision::Git {
+                commit: "a".repeat(40),
+            },
+            raw_sha256: sha256_hex(CONTENT.as_bytes()),
+            locator: "https://example.invalid/firstparty-command".into(),
+            parser_revision: "brain-firstparty-command.v1".into(),
+            parser_family: "firstparty_git_excerpt".into(),
+            schema_version: Observed::known("brain.ir.v1".into()),
+            schema_sha256: Observed::unknown(UnknownReason::NotPresent),
+            retrieved_at: Observed::known(SourceTimestamp::UnixSeconds(1)),
+            source_time: Observed::unknown(UnknownReason::NotPresent),
+            language: Observed::known("de".into()),
+            origin_artifacts: BTreeSet::from(["fixture-origin".into()]),
+            derivation_family: Observed::known("ddc-bot-command-documentation".into()),
+            policy: SourcePolicy {
+                visibility: SourceVisibility::Public,
+                allowed_scopes: scopes.clone(),
+                authorization_ref: Observed::known(format!("sha256:{}", "a".repeat(64))),
+                license: Observed::unknown(UnknownReason::NotPresent),
+                publication_allowed: true,
+                provider_egress_allowed: true,
+                raw_retention_allowed: true,
+            },
+            validity: GameValidity::unknown(),
+        };
+        let source = DocumentSetSource {
+            source_id: ORIGINAL.into(),
+            configuration: "contract-projection".into(),
+            visibility: SourceVisibility::Public,
+            allowed_scopes: scopes.clone(),
+            tombstone_metadata: BTreeMap::from([("kind".into(), "fact".into())]),
+        };
+        let batch = prepare_document_batch(&source, &[command_document(origin)], None).unwrap();
+        assert_eq!(batch.records[0].content, CONTENT);
+        let release = release_from_checkpoints(
+            std::slice::from_ref(&batch.checkpoint),
+            &ReleaseConfig {
+                id_prefix: "firstparty-contract".into(),
+                knowledge_version: "command-documentation-v1".into(),
+                patch: "firstparty-documentation-v1".into(),
+            },
+            1,
+        )
+        .unwrap();
+        let store = MemoryRepository::default();
+        let lease = store
+            .claim(ORIGINAL, "projection-test", 60_000)
+            .await
+            .unwrap();
+        store.commit(&batch, &lease).await.unwrap();
+        store.publish(&release).await.unwrap();
+        let kernel = Kernel::new(ReleaseRetriever::new(store, 6), NoProvider);
+        let context = AuthorizedContext {
+            request_deadline: None,
+            principal: Principal {
+                actor_id: "projection-test".into(),
+                channel: "private-contract-test".into(),
+                scopes: scopes.clone(),
+                provider_egress: BTreeSet::from(["public".into()]),
+            },
+            conversation_id: "projection-test".into(),
+            knowledge_release: release.release_id,
+            deadline_ms: 1_000,
+            budget: Budget::default(),
+        };
+        for (text, status) in [
+            ("Welche Funktion hat !commands?", AnswerStatus::Answered),
+            (
+                "Welche Funktion hat !clip?",
+                AnswerStatus::InsufficientEvidence,
+            ),
+            (
+                "Welche Reichweite hat !commands?",
+                AnswerStatus::InsufficientEvidence,
+            ),
+        ] {
+            let query = Query {
+                domain: None,
+                request_id: "projection-test".into(),
+                conversation_id: context.conversation_id.clone(),
+                text: text.into(),
+                requested_scopes: scopes.clone(),
+                profile: AnswerProfile::Fact,
+                patch: None,
+                mode: None,
+            };
+            let answer = kernel.answer_for_publication(&query, &context);
+            assert_eq!(answer.status, status, "{text}");
+            if status == AnswerStatus::Answered {
+                assert!(answer.text.contains(CONTENT));
+                assert_eq!(answer.citations.len(), 1);
+            } else {
+                assert!(answer.citations.is_empty());
+            }
+        }
+    }
 }
