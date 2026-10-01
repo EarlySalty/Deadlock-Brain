@@ -774,42 +774,7 @@ mod tests {
     fn cancelled_analytics_request_cannot_start_an_http_retry() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
-        let deadline = brain_contracts::RequestDeadline::after(Duration::from_secs(3));
-        let cancellation = deadline.clone();
-        let calls = Arc::new(AtomicUsize::new(0));
-        let seen = calls.clone();
-        let server = thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut bytes = [0; 4096];
-            let count = stream.read(&mut bytes).unwrap();
-            assert!(count > 0, "fixture must receive the first HTTP request");
-            seen.fetch_add(1, Ordering::SeqCst);
-            // Cancellation is synchronized with an actual first upstream request,
-            // before the retryable response is delivered.
-            cancellation.cancel();
-            stream
-                .write_all(
-                    b"HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-                )
-                .unwrap();
-            drop(stream);
-            listener.set_nonblocking(true).unwrap();
-            let end = Instant::now() + Duration::from_millis(500);
-            while Instant::now() < end {
-                match listener.accept() {
-                    Ok((mut stream, _)) => {
-                        let count = stream.read(&mut bytes).unwrap();
-                        assert!(count > 0, "fixture must receive the retried HTTP request");
-                        seen.fetch_add(1, Ordering::SeqCst);
-                        stream.write_all(b"HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
-                    }
-                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                        thread::park_timeout(Duration::from_millis(2))
-                    }
-                    Err(error) => panic!("fixture listener: {error}"),
-                }
-            }
-        });
+        listener.set_nonblocking(true).unwrap();
         let mut runtime = runtime();
         let http = dbrain_sources::core::http::HttpClient::new(
             "cancelled-analytics-fixture",
@@ -827,6 +792,68 @@ mod tests {
             ReleaseRetriever::new(FixedSnapshot, 8),
             Some(Arc::new(runtime)),
         );
+        // Fixture setup may be slow under workspace load. Start the request's
+        // lifetime only once its runtime and client are ready.
+        let deadline = brain_contracts::RequestDeadline::after(Duration::from_secs(3));
+        let cancellation = deadline.clone();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let seen = calls.clone();
+        let server = thread::spawn(move || {
+            let accept_deadline = cancellation.expires_at();
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        assert!(
+                            Instant::now() < accept_deadline,
+                            "fixture did not receive the first HTTP connection before the request deadline"
+                        );
+                        thread::park_timeout(Duration::from_millis(2));
+                    }
+                    Err(error) => panic!("fixture listener: {error}"),
+                }
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_secs(1)))
+                .unwrap();
+            stream
+                .set_write_timeout(Some(Duration::from_secs(1)))
+                .unwrap();
+            let mut bytes = [0; 4096];
+            let count = stream.read(&mut bytes).unwrap();
+            assert!(count > 0, "fixture must receive the first HTTP request");
+            seen.fetch_add(1, Ordering::SeqCst);
+            // Cancellation is synchronized with an actual first upstream request,
+            // before the retryable response is delivered.
+            cancellation.cancel();
+            stream
+                .write_all(
+                    b"HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .unwrap();
+            drop(stream);
+            let end = Instant::now() + Duration::from_millis(500);
+            while Instant::now() < end {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        stream
+                            .set_read_timeout(Some(Duration::from_secs(1)))
+                            .unwrap();
+                        stream
+                            .set_write_timeout(Some(Duration::from_secs(1)))
+                            .unwrap();
+                        let count = stream.read(&mut bytes).unwrap();
+                        assert!(count > 0, "fixture must receive the retried HTTP request");
+                        seen.fetch_add(1, Ordering::SeqCst);
+                        stream.write_all(b"HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::park_timeout(Duration::from_millis(2))
+                    }
+                    Err(error) => panic!("fixture listener: {error}"),
+                }
+            }
+        });
         let context = AuthorizedContext {
             principal: Principal {
                 actor_id: "fixture-actor".into(),
