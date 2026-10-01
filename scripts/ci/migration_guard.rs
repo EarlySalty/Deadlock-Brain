@@ -214,6 +214,7 @@ fn tokenize(sql: &str, path: &str) -> Result<Vec<Token>> {
                 tokens.push(Token::QuotedIdentifier(value));
             }
             b'$' => {
+                let literal_start = i;
                 let mut delimiter_end = i + 1;
                 while delimiter_end < bytes.len()
                     && (bytes[delimiter_end].is_ascii_alphanumeric()
@@ -224,7 +225,6 @@ fn tokenize(sql: &str, path: &str) -> Result<Vec<Token>> {
                 if bytes.get(delimiter_end) == Some(&b'$') {
                     let delimiter = &bytes[i..=delimiter_end];
                     i = delimiter_end + 1;
-                    let body_start = i;
                     let mut found = None;
                     while i + delimiter.len() <= bytes.len() {
                         if &bytes[i..i + delimiter.len()] == delimiter {
@@ -236,13 +236,13 @@ fn tokenize(sql: &str, path: &str) -> Result<Vec<Token>> {
                     let body_end = found.ok_or_else(|| {
                         GuardError(format!("{path}: unterminated dollar-quoted string"))
                     })?;
-                    let body = std::str::from_utf8(&bytes[body_start..body_end])
+                    i = body_end + delimiter.len();
+                    let literal = std::str::from_utf8(&bytes[literal_start..i])
                         .map_err(|error| {
                             GuardError(format!("{path}: invalid dollar string: {error}"))
                         })?
                         .to_owned();
-                    i = body_end + delimiter.len();
-                    tokens.push(Token::Literal(body));
+                    tokens.push(Token::Literal(literal));
                 } else {
                     tokens.push(Token::Symbol('$'));
                     i += 1;
@@ -506,7 +506,11 @@ fn parse_tables(
             }),
         };
         if let Some(previous) = tables.get(&table) {
-            if reject_dynamic && previous != &definition {
+            if reject_dynamic
+                && (previous.signature != definition.signature
+                    || !previous.if_not_exists
+                    || !definition.if_not_exists)
+            {
                 return Err(GuardError(format!(
                     "{path}: conflicting CREATE TABLE definitions for {table}"
                 )));
@@ -799,5 +803,41 @@ mod tests {
         )
         .unwrap();
         assert_ne!(adjacent, separated);
+    }
+
+    #[test]
+    fn string_literal_kinds_and_duplicate_table_statements_are_checked() {
+        let ordinary = parse_tables(
+            "CREATE TABLE brain.defaults (value text DEFAULT 'x');",
+            "ordinary.sql",
+            true,
+        )
+        .unwrap();
+        let dollar = parse_tables(
+            "CREATE TABLE brain.defaults (value text DEFAULT $$'x'$$);",
+            "dollar.sql",
+            true,
+        )
+        .unwrap();
+        assert_ne!(ordinary, dollar);
+
+        assert!(parse_tables(
+            "CREATE TABLE brain.twice (id int); CREATE TABLE brain.twice (id int);",
+            "duplicate.sql",
+            true
+        )
+        .is_err());
+        assert!(parse_tables(
+            "CREATE TABLE IF NOT EXISTS brain.twice (id int); CREATE TABLE IF NOT EXISTS brain.twice (id int);",
+            "duplicate.sql",
+            true
+        )
+        .is_ok());
+        assert!(parse_tables(
+            "CREATE TABLE brain.twice (id int); CREATE TABLE IF NOT EXISTS brain.twice (id int);",
+            "duplicate.sql",
+            true
+        )
+        .is_err());
     }
 }

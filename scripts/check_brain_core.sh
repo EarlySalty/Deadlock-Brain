@@ -38,7 +38,7 @@ run_check() {
   local name="$1"; shift
   printf 'RUN %s\n' "$name"
   (
-    cd "$ROOT/rust"
+    cd "$ROOT/rust" || exit
     env -i PATH="$PATH" HOME="$LOGS/test-home" CARGO_HOME="$CARGO_CACHE" RUSTUP_HOME="$RUSTUP_CACHE" \
       CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR="$TARGET_DIR" BRAIN_TEST_CARGO="$CARGO" LC_ALL=C.UTF-8 TZ=UTC "$@"
   ) > "$LOGS/$name.log" 2>&1
