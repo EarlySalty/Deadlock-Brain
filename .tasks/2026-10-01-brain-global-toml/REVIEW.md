@@ -63,3 +63,28 @@ Head: `7c4c11f771fd9375cc45ec426e063179c4ebb5d3`
 Urteil: `ALLOW`
 
 Gate-Antwort: `ALLOW: Distinct Clap ID fixes the blocker; no blocking regressions found in the supplied delta.`
+
+# Review Runde 4
+
+Review-Gate: `gpt-6.1-sol`
+Basis: `origin/main` (`39710e3282c830ee9b47e90945deb71d1db44724`)
+Head: `f606b41`
+Urteil: `ALLOW`, drei NITs
+
+## Befunde und Nacharbeit
+
+1. **NIT**, `rust/crates/dbrain-population/src/api.rs:33`: der Population-Client ignorierte `http.user_agent`. Behoben in `a46ad05`, der Client verwendet `Settings.user_agent`.
+2. **NIT**, `rust/crates/deadlock-brain/src/main.rs:1317`: `wiki rebuild` schrieb direkt in die Publication-Root statt einen neuen aktiven Snapshot zu veröffentlichen. Behoben in `a46ad05`, `wiki rebuild` nutzt jetzt denselben validierten Staging- und Cutover-Pfad wie `wiki refresh`.
+3. **NIT**, `rust/crates/deadlock-brain-core/src/config.rs:158`: der Repo-Root-Test verlangte ein vorhandenes Installationsverzeichnis. Behoben in `a46ad05`, der Test prüft den konfigurierten Pfad ohne Checkout-Dateien vorauszusetzen.
+
+### Validierung
+
+- Population-API-Tests: 3 passed, 0 failed, 0 ignored.
+- Brain-Konfigurationstests: 16 passed, 0 failed, 0 ignored.
+- Wiki-Publikationstests: 5 passed, 0 failed, 0 ignored.
+- Retrieval-Tests: 45 passed, 0 failed, 15 ignored.
+- `git diff --check` ist sauber. `rustfmt --check` meldet nur bereits vorhandene Formatabweichungen außerhalb der neuen Zeilen.
+
+# Review Runde 5
+
+Ausstehend: erneutes Gate nach Befundbehebung und finalem Freeze-SHA.

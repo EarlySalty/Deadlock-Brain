@@ -34,12 +34,12 @@ ORCHESTRIERUNG[OR-1]: Stufe mittel | Schritt bau | Artefakt: .tasks/2026-10-01-b
 
 ## Prüffortschritt
 
-- Tests: `dbrain-retrieval --lib` 45 passed, 0 failed, 15 ignored; `deadlock-brain-core` HTTP 5 passed; `dbrain-population` API 2 passed.
-- Compile-Check: `deadlock-brain` mit Rust 1.98 und `--locked` erfolgreich. Der vollständige Workspace-Compile aus Runde 1 war ebenfalls erfolgreich. Für die Cargo-Läufe wurden vier externe Pfade vorübergehend auf gepinnte Abhängigkeiten im isolierten Layout gesetzt und danach zurückgenommen.
-- Formatprüfung: Workspace-weites `cargo fmt --all -- --check` sowie gezieltes `rustfmt --check` melden bestehende Abweichungen in weiteren beziehungsweise angefassten Dateien. Es wurden keine unbeteiligten Formatbereiche geändert.
-- Eigenes Merge-Gate: Runde 1 BLOCK, vier Befunde behoben. Runde 2 BLOCK, Clap-ID und Wiki-Resolver behoben. Runde 3 ALLOW auf `7c4c11f771fd9375cc45ec426e063179c4ebb5d3` gegen `origin/main` `39710e3282c830ee9b47e90945deb71d1db44724`.
+- Tests: `dbrain-retrieval --lib` 45 passed, 0 failed, 15 ignored; `deadlock-brain-core` config 16 passed, 0 failed, 0 ignored; `deadlock-brain` wiki refresh 5 passed, 0 failed, 0 ignored; `dbrain-population` API 3 passed, 0 failed, 0 ignored.
+- Compile-Check: `deadlock-brain` mit Rust 1.98 und `--locked` erfolgreich; die aktuellen `wiki_refresh` Tests kompilieren ebenfalls den aktualisierten Binary-Pfad. Für die Cargo-Läufe wurden vier externe Pfade vorübergehend auf gepinnte Abhängigkeiten im isolierten Layout gesetzt und danach zurückgenommen.
+- Formatprüfung: Workspace-weites `cargo fmt --all -- --check` sowie gezieltes `rustfmt --check` melden vorhandene Formatabweichungen in weiteren beziehungsweise angefassten Dateien. Neue Zeilen sind formatiert; keine unbeteiligten Bereiche wurden geändert.
+- Eigenes Merge-Gate: Runde 1 BLOCK, vier Befunde behoben. Runde 2 BLOCK, Clap-ID und Wiki-Resolver behoben. Runde 3 ALLOW auf `7c4c11f771fd9375cc45ec426e063179c4ebb5d3`. Runde 4 ALLOW mit drei NITs, behoben in `a46ad05`; Runde 5 ausstehend.
 - Gemeinsamer Freeze und unabhängige Intent-Abnahme: ausstehend.
 - Reguläres Merge-/Security-Gate: ausstehend.
-- Merge und Push: nach Intent-Abnahme und regulärem Gate. Dedicated main worktree `/home/nathanael/.worktrees/brain-live-main` prüfen, bevor Änderungen erfolgen.
+- Merge und Push: nach Intent-Abnahme und regulärem Gate. Dedicated main worktree `/home/nathanael/.worktrees/brain-live-main` vor Änderungen erneut prüfen.
 - Deploy, Dienstrestart, Livebeleg und Cleanup: ausstehend.
-- Blocker: unabhängige Intent-Abnahme, reguläres Gate und Deployment noch offen; Source-Resolver-Subsystem bleibt ausgeschlossen.
+- Blocker: unabhängige Intent-Abnahme, abschließendes Gate und Deployment noch offen; Source-Resolver-Subsystem bleibt ausgeschlossen.
