@@ -100,11 +100,16 @@ SET TimeZone = 'UTC'
 AS $function$
 DECLARE
     row_payload jsonb;
+    old_payload jsonb;
     key_text text;
+    old_key_text text;
     hash_text text;
+    old_hash_text text;
     new_state text;
     previous_hash text;
     previous_state text;
+    evidence_keys text[];
+    evidence_key text;
     canonical_keys text[];
     canonical_key text;
 BEGIN
@@ -124,27 +129,50 @@ BEGIN
         RAISE EXCEPTION 'Patch evidence requires a stable source key';
     END IF;
     IF TG_OP = 'UPDATE' THEN
+        old_payload := to_jsonb(OLD);
+        old_key_text := CASE WHEN TG_TABLE_NAME = 'patch_events'
+            THEN old_payload->>'event_hash' ELSE old_payload->>'id' END;
+        old_hash_text := brain.patch_evidence_payload_hash(old_payload);
+        IF old_key_text IS NULL OR old_key_text = '' THEN
+            RAISE EXCEPTION 'Patch evidence requires a stable old source key';
+        END IF;
         canonical_keys := ARRAY[
             brain.patch_review_canonical_key(TG_TABLE_NAME, to_jsonb(NEW)),
-            brain.patch_review_canonical_key(TG_TABLE_NAME, to_jsonb(OLD))
+            brain.patch_review_canonical_key(TG_TABLE_NAME, old_payload)
         ];
+        evidence_keys := ARRAY[old_key_text, key_text];
     ELSE
         canonical_keys := ARRAY[brain.patch_review_canonical_key(TG_TABLE_NAME, row_payload)];
+        evidence_keys := ARRAY[key_text];
     END IF;
     SELECT array_agg(k ORDER BY k) INTO canonical_keys
       FROM (SELECT DISTINCT unnest(canonical_keys) AS k) d
+      WHERE k IS NOT NULL AND k <> '';
+    SELECT array_agg(k ORDER BY k) INTO evidence_keys
+      FROM (SELECT DISTINCT unnest(evidence_keys) AS k) d
       WHERE k IS NOT NULL AND k <> '';
     IF canonical_keys IS NOT NULL THEN
         FOREACH canonical_key IN ARRAY canonical_keys LOOP
             PERFORM pg_advisory_xact_lock(hashtextextended('brain.patch_review:' || canonical_key, 0));
         END LOOP;
     END IF;
-    PERFORM pg_advisory_xact_lock(hashtextextended('brain.patch_evidence:' || TG_TABLE_NAME || ':' || key_text, 0));
+    FOREACH evidence_key IN ARRAY evidence_keys LOOP
+        PERFORM pg_advisory_xact_lock(hashtextextended('brain.patch_evidence:' || TG_TABLE_NAME || ':' || evidence_key, 0));
+    END LOOP;
     hash_text := brain.patch_evidence_payload_hash(row_payload);
     SELECT content_hash, state INTO previous_hash, previous_state
       FROM brain.patch_evidence_revisions
       WHERE source_table = TG_TABLE_NAME AND source_key = key_text
       ORDER BY revision_id DESC LIMIT 1;
+    IF TG_OP = 'UPDATE' AND (old_key_text IS DISTINCT FROM key_text OR old_hash_text IS DISTINCT FROM hash_text) THEN
+        INSERT INTO brain.patch_evidence_revisions(
+            source_table, source_key, content_hash, state, observation_kind,
+            source_published_at, payload
+        ) VALUES (
+            TG_TABLE_NAME, old_key_text, old_hash_text, 'deleted', 'live',
+            brain.patch_evidence_timestamp(old_payload->>'posted_at'), old_payload
+        );
+    END IF;
     IF previous_hash IS DISTINCT FROM hash_text OR previous_state IS DISTINCT FROM new_state THEN
         INSERT INTO brain.patch_evidence_revisions(
             source_table, source_key, content_hash, state, observation_kind,
@@ -153,6 +181,9 @@ BEGIN
             TG_TABLE_NAME, key_text, hash_text, new_state, 'live',
             brain.patch_evidence_timestamp(row_payload->>'posted_at'), row_payload
         );
+    END IF;
+    IF (TG_OP = 'UPDATE' AND (old_key_text IS DISTINCT FROM key_text OR old_hash_text IS DISTINCT FROM hash_text))
+        OR previous_hash IS DISTINCT FROM hash_text OR previous_state IS DISTINCT FROM new_state THEN
         IF canonical_keys IS NOT NULL THEN
             UPDATE brain.patch_review_runs SET status = 'needs_revalidation'
               WHERE status = 'draft' AND patch_external_id = ANY(canonical_keys);
@@ -310,5 +341,6 @@ GRANT SELECT ON brain.patch_events, brain.entity_snapshots, brain.source_documen
     patchnotes.changelog_posts TO brain_service, brain_readonly;
 GRANT INSERT ON brain.patch_review_runs TO brain_service;
 GRANT USAGE, SELECT ON SEQUENCE brain.patch_review_runs_run_id_seq TO brain_service;
+GRANT SELECT (video_id, source_kind, raw_sha256) ON brain.youtube_transcript_evidence TO brain_ingest;
 GRANT INSERT ON brain.youtube_transcript_evidence TO brain_ingest;
 COMMIT;

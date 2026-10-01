@@ -16,7 +16,7 @@ Die Migration korrigiert Patch-Knowledge-Events auf die erste Beobachtung des ak
 
 ## Importierte Agenten-Insights
 
-Der Insight-Importer speichert Agenten-Ableitungen als `curated_agent_inference` mit `needs_review`, unabhängig von angeforderter Trust-Stufe oder Confidence. Datumsangaben begrenzen den Bezug auf einen Patch. Andere Zeitangaben ergeben `needs_revalidation`. Confidence muss endlich und zwischen 0 und 1 liegen. Patch-Event-IDs werden positiv, eindeutig und sortiert aufgelöst. Ihre Quellen werden getrennt von externen, ungeprüften URLs gespeichert; Arraypositionen verbinden keine Ereignis-ID mit einer URL. Der Import materialisiert nur die gerade importierten Datensätze. Höher eingestufte vorhandene Datensätze werden nicht durch Agenten-Import überschrieben.
+Der Insight-Importer speichert Agenten-Ableitungen als `curated_agent_inference` mit `needs_review`; ausdrücklich als `rejected` markierte Eingaben behalten diesen Status. Die angeforderte Trust-Stufe und Confidence heben den Status nicht an. Datumsangaben begrenzen den Bezug auf einen Patch. Andere Zeitangaben ergeben `needs_revalidation`. Confidence muss endlich und zwischen 0 und 1 liegen. Patch-Event-IDs werden positiv, eindeutig und sortiert aufgelöst. Ihre Quellen werden getrennt von externen, ungeprüften URLs gespeichert; Arraypositionen verbinden keine Ereignis-ID mit einer URL. Der Import materialisiert nur die gerade importierten Datensätze. Höher eingestufte vorhandene Datensätze werden nicht durch Agenten-Import überschrieben.
 
 ## Untertitel-Evidenz
 
@@ -24,7 +24,7 @@ Der Rust-Importer bewahrt das JSON3-Rohmaterial, Segmentzeiten, Wort-Offsets und
 
 ## Datenbankrollen und Betrieb
 
-Die Migration erteilt `brain_service` lesenden Zugriff auf die Review-Eingaben und Evidenz-Views sowie Schreibzugriff auf Review-Entwürfe. `brain_ingest` erhält Einfügezugriff auf Caption-Evidenz. `ops/brain-postgres/grants.sql` enthält dieselben Rollenrechte für spätere Rechte-Neuvergabe.
+Die Migration erteilt `brain_service` lesenden Zugriff auf die Review-Eingaben und Evidenz-Views sowie Schreibzugriff auf Review-Entwürfe. `brain_ingest` erhält Einfügezugriff auf Caption-Evidenz und SELECT auf die Konfliktschlüsselspalten `video_id`, `source_kind` und `raw_sha256`. `ops/brain-postgres/grants.sql` enthält dieselben Rollenrechte für spätere Rechte-Neuvergabe.
 
 Die Migration ist für eine kontrollierte Schemaänderung vorgesehen. Sie wurde in dieser Integration noch nicht gegen Scratch-Postgres ausgeführt. Vor einem Produktionslauf müssen Migration, Wiederholung, Rechte und Caption-Transaktion gegen eine isolierte Scratch-Datenbank geprüft werden. PR61 bleibt die gemeinsame Integrationsbasis; diese Änderung wird nicht isoliert nach `main` ausgerollt.
 

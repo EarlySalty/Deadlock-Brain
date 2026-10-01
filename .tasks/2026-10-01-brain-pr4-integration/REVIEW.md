@@ -29,4 +29,32 @@ Datum: 2026-10-01
 
 ## Runde 3
 
-Nach Commit und Push der Insight-Trust-Fixes denselben Gate-Aufruf mit `gpt-6.1-sol` gegen dieselbe PR61-Basis erneut ausführen. Kein Merge, keine Produktionsmigration und kein Deploy vor ALLOW und Abschluss der Gesamtintegration Brain61.
+- Gate: `gpt-6.1-sol`, gleiche PR61-Basis, geprüftes HEAD `a27667b`.
+- Urteil: BLOCK.
+
+### Finding 1: Caption-Insert-Rechte reichen für den Konfliktpfad nicht aus
+
+- Gate-Fundstellen: `ops/brain-postgres/grants.sql:37` und `scripts/migrations/2026-10-01-patch-evidence-review-v1.sql:313`.
+- Szenario: `save_transcript` schreibt `youtube_transcript_evidence` mit `ON CONFLICT(video_id,source_kind,raw_sha256) DO NOTHING`. Der Gate beurteilt die alleinigen INSERT-Rechte als unzureichend für den Konfliktzielpfad; beim laufenden `brain_ingest`-Rollensatz könnte der Speichervorgang fehlschlagen und die Transaktion zurückrollen.
+- Korrektur: In Migration und Grants-Skript sind SELECT-Rechte auf `(video_id, source_kind, raw_sha256)` ergänzt. Die Schreibrechte bleiben auf INSERT begrenzt.
+
+### Finding 2: UPDATE archiviert die alte Patch-Zuordnung nicht
+
+- Gate-Fundstelle: `scripts/migrations/2026-10-01-patch-evidence-review-v1.sql:149`.
+- Szenario: ein `patch_events`-Datensatz wechselt auf eine andere `patch_external_id`. Der Trigger invalidiert beide Entwürfe, protokolliert aber nur den NEW-Payload. Der alte Patch erhält keine neue Revision; ein danach ausgelöster Recheck kann den veralteten Kontext weiterhin als aktuell bewerten.
+- Korrektur: Der Trigger sperrt die alten und neuen Patch-Schlüssel in sortierter Reihenfolge und schreibt für die alte Zuordnung eine `deleted`-Revision, bevor er die neue Zuordnung protokolliert. Die Revisionsabfrage wertet den Payload der alten Zuordnung aus.
+
+### Finding 3: Scratch-Postgres-Prüfung offen
+
+- Gate-Hinweis: Caption-Code bleibt unkompiliert, Datenbankverhalten ungeprüft.
+- Ergebnis: offen. SQLx-Offline-Metadaten fehlen für eine bestehende Compile-Time-Abfrage. Keine ENV, Secrets oder Umgebungskonfiguration werden gelesen; daher wurde kein Scratch-Postgres aufgerufen.
+
+### Finding 4: Importstatus-Dokumentation ungenau
+
+- Gate-Fundstelle: `docs/AUTONOMOUS_PATCH_REVIEW.md:19`.
+- Szenario: die Doku sagt, alle importierten Insights erhalten `needs_review`; explizit als `rejected` markierte Eingaben behalten laut `prepare_input()` ihren abgelehnten Status.
+- Korrektur: `docs/AUTONOMOUS_PATCH_REVIEW.md` nennt `rejected` als Ausnahme zu `needs_review` und beschreibt die Konfliktschlüssel-SELECT-Rechte.
+
+## Runde 4
+
+Nach Commit und Push der drei Korrekturen Gate erneut mit `gpt-6.1-sol` gegen dieselbe PR61-Basis ausführen. Scratch-Postgres und SQLx-Offline-Cache bleiben als offene NITs dokumentiert. Kein Merge, keine Produktionsmigration und kein Deploy vor ALLOW und Abschluss der Gesamtintegration Brain61.

@@ -34,6 +34,7 @@ BEGIN
     EXECUTE 'GRANT USAGE, SELECT ON SEQUENCE brain.patch_review_runs_run_id_seq TO brain_service';
   END IF;
   IF to_regclass('brain.youtube_transcript_evidence') IS NOT NULL THEN
+    EXECUTE 'GRANT SELECT (video_id, source_kind, raw_sha256) ON brain.youtube_transcript_evidence TO brain_ingest';
     EXECUTE 'GRANT INSERT ON brain.youtube_transcript_evidence TO brain_ingest';
   END IF;
 END $$;
