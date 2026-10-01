@@ -114,3 +114,19 @@ Head: `7465f06`
 Urteil: `ALLOW`
 
 Gate-Antwort: `ALLOW: Publication root is absolute before publishing; no blocking regression found.`
+
+## Wiederholung auf `1a0d8f9`
+
+Urteil: `ALLOW`, drei NITs
+
+Gate-Antwort: `ALLOW: No confirmed merge-blocking defect in the supplied changes.`
+
+1. **NIT**, `rust/docs/wiki-hero-knowledge.md:59`: die dokumentierte JSON-Option kollidierte mit der globalen TOML-Option. Auf `--refresh-config` aktualisiert.
+2. **NIT**, `rust/crates/deadlock-brain/src/main.rs`: `review-build` und `publish-build-query` gaben keinen TOML-Wiki-Pfad an `ask_context` weiter. Beide Aufrufpfade übergeben jetzt `settings.global.paths().game_wiki_dir`.
+3. **NIT**, `rust/crates/dbrain-sources/src/wiki.rs:60`: die Fehlermeldung verwies auf die nicht unterstützte ENV-Variable und CLI-Option. Sie nennt jetzt `[wiki].enabled` in der globalen TOML-Konfiguration.
+
+### Validierung der NIT-Fixes
+
+- `cargo check --manifest-path rust/Cargo.toml --locked --offline -p deadlock-brain -p dbrain-sources`: erfolgreich.
+- Für den Cargo-Lauf wurden vier fehlende externe Pfade vorübergehend auf gepinnte Abhängigkeiten im isolierten Layout gesetzt und anschließend zurückgenommen.
+- Erneutes Gate nach diesen Nacharbeiten ausstehend.

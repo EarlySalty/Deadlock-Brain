@@ -56,7 +56,7 @@ Bestehende Refresh-Konfigurationen funktionieren unverändert. Netzwerkzugriff i
 Der vorhandene Befehl bleibt:
 
 ```sh
-deadlock-brain wiki refresh --config /absoluter/pfad/wiki-refresh.json
+deadlock-brain wiki refresh --refresh-config /absoluter/pfad/wiki-refresh.json
 ```
 
 `--skip-source-update` überspringt sowohl die Deadlock-Data-Aktualisierung als auch den Wiki-Netzwerkimport. Der Rebuild kann bereits importierte Daten und daraus abgeleitete Karten weiterhin verarbeiten. `cache_ttl_seconds: 0` erzwingt frische Abrufe. Bei großen Erstimporten müssen die Laufzeitgrenzen des aufrufenden Dienstes zum Seitenumfang passen; dieser PR ändert keine produktiven Units oder Timer.

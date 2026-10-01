@@ -1315,8 +1315,10 @@ async fn run(command: Commands, settings: Settings) -> Result<()> {
                 print_json(&result)
             }
         }
-        Commands::ReviewBuild(args) => run_requested_build(&pool, args, true).await,
-        Commands::PublishBuildQuery(args) => run_requested_build(&pool, args, false).await,
+        Commands::ReviewBuild(args) => run_requested_build(&pool, &settings, args, true).await,
+        Commands::PublishBuildQuery(args) => {
+            run_requested_build(&pool, &settings, args, false).await
+        }
         Commands::Quality(args) => {
             let result = dbrain_retrieval::run_quality_checks(&pool).await?;
             if args.pretty {
@@ -1708,7 +1710,12 @@ fn confirmed_publication(status: &str, id: Option<i64>) -> Option<i64> {
     }
 }
 
-async fn run_requested_build(pool: &PgPool, args: ReviewBuildArgs, review: bool) -> Result<()> {
+async fn run_requested_build(
+    pool: &PgPool,
+    settings: &Settings,
+    args: ReviewBuildArgs,
+    review: bool,
+) -> Result<()> {
     let ask = dbrain_retrieval::ask_context(
         pool,
         &args.query,
@@ -1716,7 +1723,7 @@ async fn run_requested_build(pool: &PgPool, args: ReviewBuildArgs, review: bool)
             limit_events: 80,
             include_unverified: false,
             max_claims: 12,
-            game_wiki_dir: None,
+            game_wiki_dir: Some(settings.global.paths().game_wiki_dir.clone()),
         },
     )
     .await?;

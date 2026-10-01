@@ -57,8 +57,8 @@ async fn pull_wiki_page_inner(
 ) -> Result<Value> {
     if !options.enabled {
         return Err(SourcesError::invalid_input(
-            "Wiki-Netzwerkzugriff ist deaktiviert. Setze DEADLOCK_BRAIN_WIKI_ENABLED=1 \
-oder nutze die CLI-Option --allow-wiki-network.",
+            "Wiki-Netzwerkzugriff ist deaktiviert. Aktiviere `[wiki].enabled = true` \
+in der globalen TOML-Konfiguration.",
         ));
     }
 
