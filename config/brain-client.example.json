@@ -1,0 +1,5 @@
+{
+  "endpoint": "http://127.0.0.1:8787",
+  "infisical_config": "infisical.json",
+  "secret_reference": "BRAIN_SERVE_API_TOKEN"
+}

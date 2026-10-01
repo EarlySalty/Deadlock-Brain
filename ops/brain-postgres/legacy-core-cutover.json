@@ -4,14 +4,16 @@
     "port": 5446,
     "database": "brain",
     "username": "brain_readonly",
-    "auth_env": "BRAIN_PG_READONLY_PASSWORD"
+    "auth_secret": "BRAIN_PG_READONLY_PASSWORD",
+    "infisical_config": "/etc/deadlock-brain/infisical.json"
   },
   "target": {
     "socket": "/run/deadlock-brain-postgresql",
     "port": 5446,
     "database": "brain",
     "username": "brain_ingest",
-    "auth_env": "BRAIN_PG_INGEST_PASSWORD"
+    "auth_secret": "BRAIN_PG_INGEST_PASSWORD",
+    "infisical_config": "/etc/deadlock-brain/infisical.json"
   },
   "snapshot_label": "",
   "snapshot_epoch": 0,

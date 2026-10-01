@@ -13,7 +13,7 @@ fn endpoint(socket: &str, database: &str) -> Value {
         "port": 55439,
         "database": database,
         "username": "brain_core_test",
-        "auth_env": null
+        "auth_secret": null
     })
 }
 

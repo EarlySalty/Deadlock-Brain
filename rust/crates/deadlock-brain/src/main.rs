@@ -160,8 +160,14 @@ enum Commands {
 struct BrainAnswerArgs {
     #[arg(
         long,
+        value_name = "JSON",
+        help = "Normale Client-Konfiguration mit Endpunkt und Infisical-Referenz."
+    )]
+    client_config: PathBuf,
+    #[arg(
+        long,
         value_name = "LOOPBACK_URL",
-        help = "brain-serve endpoint; otherwise BRAIN_CLIENT_ENDPOINT"
+        help = "Expliziter brain-serve-Endpunkt; sonst aus der Client-Konfiguration."
     )]
     endpoint: Option<String>,
     #[arg(
@@ -787,10 +793,7 @@ struct PullDeadlockDataArgs {
         help = "Lokaler Cache. Standard: data/external/deadlock-data."
     )]
     repo_dir: Option<PathBuf>,
-    #[arg(
-        long,
-        help = "Vollständiger Commitpin; alternativ DBRAIN_DEADLOCK_DATA_COMMIT. Benötigt Parserrevision."
-    )]
+    #[arg(long, help = "Vollständiger Commitpin. Benötigt Parserrevision.")]
     commit: Option<String>,
     #[arg(
         long = "no-git-update",
@@ -799,7 +802,7 @@ struct PullDeadlockDataArgs {
     no_git_update: bool,
     #[arg(
         long,
-        help = "Versionierte JSON-Quellenpins; alternativ DBRAIN_SOURCE_PINS_CONFIG. Keine Pin-Overrides bei Configdatei."
+        help = "Versionierte JSON-Quellenpins. Keine Pin-Overrides bei Configdatei."
     )]
     source_config: Option<PathBuf>,
     #[arg(
@@ -807,10 +810,7 @@ struct PullDeadlockDataArgs {
         help = "Nur lokale Pin-Konfiguration prüfen; keine Datenbank und keine Writes."
     )]
     check_config: bool,
-    #[arg(
-        long,
-        help = "Explizite Parserrevision; alternativ DBRAIN_DEADLOCK_DATA_PARSER_REVISION."
-    )]
+    #[arg(long, help = "Explizite Parserrevision.")]
     parser_revision: Option<String>,
     #[arg(skip)]
     resolved: Option<Box<dbrain_sources::PullDeadlockDataOptions>>,
@@ -818,25 +818,31 @@ struct PullDeadlockDataArgs {
 
 impl PullDeadlockDataArgs {
     fn resolve(&self, settings: &Settings) -> Result<dbrain_sources::PullDeadlockDataOptions> {
-        let source_config = self
-            .source_config
-            .clone()
-            .or_else(|| std::env::var_os("DBRAIN_SOURCE_PINS_CONFIG").map(PathBuf::from));
+        if [
+            "DBRAIN_SOURCE_PINS_CONFIG",
+            "DBRAIN_DEADLOCK_DATA_COMMIT",
+            "DBRAIN_DEADLOCK_DATA_PARSER_REVISION",
+        ]
+        .iter()
+        .any(|name| std::env::var_os(name).is_some())
+        {
+            anyhow::bail!("environment pin overrides are unsupported; use explicit --source-config or CLI pins");
+        }
+        let source_config = self.source_config.clone();
         let pin = if let Some(path) = source_config {
-            if self.commit.is_some()
-                || self.parser_revision.is_some()
-                || std::env::var_os("DBRAIN_DEADLOCK_DATA_COMMIT").is_some()
-                || std::env::var_os("DBRAIN_DEADLOCK_DATA_PARSER_REVISION").is_some()
-            {
-                anyhow::bail!("source-config cannot be combined with CLI/environment pin overrides; edit the explicit configuration instead");
+            if self.commit.is_some() || self.parser_revision.is_some() {
+                anyhow::bail!("source-config cannot be combined with CLI pin overrides; edit the explicit configuration instead");
             }
             dbrain_sources::source_pins::SourcePins::read(&path)?.deadlock_data
         } else {
             dbrain_sources::source_pins::DeadlockDataPin {
-                commit: self.commit.clone().or_else(|| std::env::var("DBRAIN_DEADLOCK_DATA_COMMIT").ok())
-                    .context("deadlock-data requires --source-config, --commit or DBRAIN_DEADLOCK_DATA_COMMIT; never implicit HEAD")?,
-                parser_revision: self.parser_revision.clone().or_else(|| std::env::var("DBRAIN_DEADLOCK_DATA_PARSER_REVISION").ok())
-                    .context("deadlock-data requires --parser-revision or DBRAIN_DEADLOCK_DATA_PARSER_REVISION")?,
+                commit: self.commit.clone().context(
+                    "deadlock-data requires --source-config or --commit; never implicit HEAD",
+                )?,
+                parser_revision: self
+                    .parser_revision
+                    .clone()
+                    .context("deadlock-data requires --parser-revision")?,
                 schema_version: None,
                 data_version: None,
             }
@@ -1214,15 +1220,118 @@ struct InsightImportJsonArgs {
     dry_run: bool,
 }
 
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AnswerClientConfig {
+    endpoint: String,
+    infisical_config: PathBuf,
+    secret_reference: String,
+}
+
+impl AnswerClientConfig {
+    fn load(path: &std::path::Path) -> Result<Self> {
+        const LIMIT: u64 = 16 * 1024;
+        let file =
+            fs::File::open(path).map_err(|_| anyhow!("Client-Konfiguration ist nicht lesbar"))?;
+        if !file
+            .metadata()
+            .map_err(|_| anyhow!("Client-Konfiguration ist nicht prüfbar"))?
+            .is_file()
+        {
+            anyhow::bail!("Client-Konfiguration muss eine normale Datei sein");
+        }
+        let mut bytes = Vec::new();
+        file.take(LIMIT + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| anyhow!("Client-Konfiguration ist nicht lesbar"))?;
+        if bytes.len() as u64 > LIMIT {
+            anyhow::bail!("Client-Konfiguration ist zu groß");
+        }
+        let mut config: Self = serde_json::from_slice(&bytes)
+            .map_err(|_| anyhow!("Client-Konfiguration ist ungültig"))?;
+        if config.endpoint.trim().is_empty()
+            || config.endpoint.len() > 2048
+            || config.infisical_config.as_os_str().is_empty()
+        {
+            anyhow::bail!("Client-Konfiguration ist ungültig");
+        }
+        let mut name = config.secret_reference.bytes();
+        if !name
+            .next()
+            .is_some_and(|byte| byte.is_ascii_uppercase() || byte == b'_')
+            || !name.all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
+        {
+            anyhow::bail!("Infisical-Secret-Referenz ist ungültig");
+        }
+        if !config.infisical_config.is_absolute() {
+            config.infisical_config = path
+                .parent()
+                .unwrap_or_else(|| std::path::Path::new("."))
+                .join(&config.infisical_config);
+        }
+        Ok(config)
+    }
+
+    fn token_until(&self, deadline: std::time::Instant) -> Result<zeroize::Zeroizing<String>> {
+        let path = self.infisical_config.clone();
+        let name = self.secret_reference.clone();
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        std::thread::Builder::new()
+            .name("brain-cli-secrets".into())
+            .spawn(move || {
+                let result = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .map_err(|_| anyhow!("Infisical-Loader ist nicht verfügbar"))
+                    .and_then(|runtime| {
+                        runtime
+                            .block_on(dl_token_secrets::values(&path))
+                            .map_err(|_| anyhow!("Infisical-Secretquelle ist nicht verfügbar"))
+                    })
+                    .and_then(|values| {
+                        values
+                            .into_iter()
+                            .find(|(key, _)| key == &name)
+                            .map(|(_, token)| token)
+                            .ok_or_else(|| anyhow!("Konfiguriertes Secret fehlt in Infisical"))
+                    })
+                    .and_then(|token| {
+                        if token.is_empty()
+                            || token.len() > 4096
+                            || !token.bytes().all(|byte| byte.is_ascii_graphic())
+                        {
+                            Err(anyhow!("Konfiguriertes Secret ist ungültig"))
+                        } else {
+                            Ok(token)
+                        }
+                    });
+                let _ = sender.send(result);
+            })
+            .map_err(|_| anyhow!("Infisical-Loader ist nicht verfügbar"))?;
+        let result = receiver
+            .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+            .map_err(|_| anyhow!("Infisical antwortet nicht rechtzeitig"))?;
+        if std::time::Instant::now() >= deadline {
+            anyhow::bail!("Infisical antwortet nicht rechtzeitig");
+        }
+        result
+    }
+}
+
 async fn run_brain_answer(args: &BrainAnswerArgs) -> Result<()> {
-    let endpoint = args
-        .endpoint
-        .clone()
-        .or_else(|| std::env::var("BRAIN_CLIENT_ENDPOINT").ok())
-        .filter(|value| !value.trim().is_empty())
-        .context("brain-serve endpoint fehlt (--endpoint oder BRAIN_CLIENT_ENDPOINT)")?;
-    let token = std::env::var("BRAIN_CLIENT_TOKEN")
-        .context("BRAIN_CLIENT_TOKEN fehlt; Token wird nicht als CLI-Argument akzeptiert")?;
+    if !(1..=60_000).contains(&args.timeout_ms) {
+        anyhow::bail!("Client-Timeout ist ungültig");
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(args.timeout_ms);
+    let config = AnswerClientConfig::load(&args.client_config)?;
+    let endpoint = args.endpoint.as_deref().unwrap_or(&config.endpoint);
+    // Validate the transport before retrieving a credential; this does not send a request.
+    brain_client::AsyncBrainClient::new_local(
+        endpoint,
+        "endpoint-validation",
+        std::time::Duration::from_millis(args.timeout_ms),
+    )
+    .map_err(|_| anyhow!("Brain-Endpunkt ist ungültig"))?;
     let scopes: BTreeSet<String> = args
         .scopes
         .iter()
@@ -1259,12 +1368,13 @@ async fn run_brain_answer(args: &BrainAnswerArgs) -> Result<()> {
         mode: None,
     };
     query.validate().context("ungültige Brain-Anfrage")?;
-    let client = brain_client::AsyncBrainClient::new_local(
-        &endpoint,
-        &token,
-        std::time::Duration::from_millis(args.timeout_ms.max(1)),
-    )
-    .context("BrainClient konnte nicht erstellt werden")?;
+    let token = config.token_until(deadline)?;
+    let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+    if remaining.is_zero() {
+        anyhow::bail!("Brain-Anfrage überschreitet das Zeitbudget");
+    }
+    let client = brain_client::AsyncBrainClient::new_local(endpoint, &token, remaining)
+        .context("BrainClient konnte nicht erstellt werden")?;
     let response = client
         .answer(&query)
         .await

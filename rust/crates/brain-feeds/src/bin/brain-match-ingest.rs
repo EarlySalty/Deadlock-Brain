@@ -106,7 +106,17 @@ async fn run(config: Config, action: &str, http: &HttpClient) -> Result<serde_js
         publication_allowed: false,
         raw_retention_allowed: false,
     };
-    if std::env::var_os("PGPASSWORD").is_some() || std::env::var_os("DATABASE_URL").is_some() {
+    if [
+        "PGPASSWORD",
+        "DATABASE_URL",
+        "PGOPTIONS",
+        "PGSSLROOTCERT",
+        "PGSSLCERT",
+        "PGSSLKEY",
+    ]
+    .iter()
+    .any(|name| std::env::var_os(name).is_some())
+    {
         return Err("ambient database credentials are forbidden".into());
     }
     let options = PgConnectOptions::new_without_pgpass()
@@ -114,6 +124,8 @@ async fn run(config: Config, action: &str, http: &HttpClient) -> Result<serde_js
         .port(config.port)
         .username(&config.username)
         .database(&config.database)
+        .password("")
+        .ssl_mode(sqlx::postgres::PgSslMode::Disable)
         .application_name("brain-match-ingest");
     let pool = PgPoolOptions::new()
         .max_connections(2)

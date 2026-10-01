@@ -21,6 +21,7 @@ dbrain-population = { path = "../dbrain-population" }
 dbrain-retrieval = { path = "../dbrain-retrieval" }
 dbrain-reasoner = { path = "../dbrain-reasoner" }
 dbrain-sources = { path = "../dbrain-sources" }
+dl-token-secrets = { path = "../../../../Deadlock-Bots/rust/crates/dl-token-secrets" }
 hex.workspace = true
 postgres.workspace = true
 serde.workspace = true

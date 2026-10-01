@@ -11,7 +11,7 @@ use brain_storage::PgStore;
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::{
-    postgres::{PgConnectOptions, PgPoolOptions},
+    postgres::{PgConnectOptions, PgPoolOptions, PgSslMode},
     ConnectOptions, Connection, Row,
 };
 use std::{
@@ -27,7 +27,8 @@ struct Endpoint {
     port: u16,
     database: String,
     username: String,
-    auth_env: Option<String>,
+    auth_secret: Option<String>,
+    infisical_config: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -92,8 +93,8 @@ fn route(config: &Config, destination: Destination<'_>) -> Result<bool, String> 
         return Err("target requires the exact approved archive-to-core binding".into());
     }
     if destination.require_auth
-        && (config.legacy.auth_env.as_deref() != Some(destination.legacy_auth)
-            || config.target.auth_env.as_deref() != Some(destination.target_auth)
+        && (config.legacy.auth_secret.as_deref() != Some(destination.legacy_auth)
+            || config.target.auth_secret.as_deref() != Some(destination.target_auth)
             || destination.legacy_auth == destination.target_auth)
     {
         return Err("cutover requires the existing separate secret references".into());
@@ -111,7 +112,7 @@ fn observation_route(config: &Config, destination: Destination<'_>) -> Result<()
         || config.target.database != destination.database
         || config.target.username != destination.target_role
         || (destination.require_auth
-            && config.legacy.auth_env.as_deref() != Some(destination.legacy_auth))
+            && config.legacy.auth_secret.as_deref() != Some(destination.legacy_auth))
     {
         return Err("read-only observation requires the exact archive endpoint".into());
     }
@@ -209,7 +210,42 @@ impl Identity {
     }
 }
 
+#[cfg(test)]
 fn options(endpoint: &Endpoint) -> Result<PgConnectOptions, String> {
+    options_with_snapshot(endpoint, None)
+}
+
+type SecretSnapshot = BTreeMap<String, zeroize::Zeroizing<String>>;
+
+fn configured_options(endpoints: &[&Endpoint]) -> Result<Vec<PgConnectOptions>, String> {
+    reject_ambient_options()?;
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let mut snapshots = BTreeMap::new();
+    let mut result = Vec::new();
+    for endpoint in endpoints {
+        let snapshot = if endpoint.auth_secret.is_some() {
+            let path = endpoint
+                .infisical_config
+                .as_ref()
+                .filter(|path| path.is_absolute())
+                .ok_or("explicit absolute Infisical config path required")?;
+            if !snapshots.contains_key(path) {
+                snapshots.insert(path.clone(), load_snapshot(path.clone(), deadline)?);
+            }
+            snapshots.get(path)
+        } else {
+            None
+        };
+        result.push(options_with_snapshot(endpoint, snapshot)?);
+    }
+    Ok(result)
+}
+
+fn options_with_snapshot(
+    endpoint: &Endpoint,
+    snapshot: Option<&SecretSnapshot>,
+) -> Result<PgConnectOptions, String> {
+    reject_ambient_options()?;
     if !endpoint.socket.starts_with('/') {
         return Err("only Unix sockets are allowed".into());
     }
@@ -218,12 +254,76 @@ fn options(endpoint: &Endpoint) -> Result<PgConnectOptions, String> {
         .port(endpoint.port)
         .username(&endpoint.username)
         .database(&endpoint.database)
+        .password("")
+        .ssl_mode(PgSslMode::Disable)
         .application_name("brain-legacy-import");
-    if let Some(name) = &endpoint.auth_env {
-        let value = std::env::var(name).map_err(|_| format!("{name} missing"))?;
-        options = options.password(&value);
+    if let Some(name) = &endpoint.auth_secret {
+        if name.is_empty()
+            || !name
+                .bytes()
+                .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
+        {
+            return Err("Infisical secret reference invalid".into());
+        }
+        let value = snapshot
+            .and_then(|values| values.get(name))
+            .ok_or("configured Infisical secret missing")?;
+        if value.trim().is_empty() || value.len() > 4096 || value.chars().any(char::is_control) {
+            return Err("configured Infisical secret invalid".into());
+        }
+        options = options.password(value);
+    } else if endpoint.infisical_config.is_some() {
+        return Err("Infisical config requires an explicit secret reference".into());
     }
     Ok(options)
+}
+
+fn reject_ambient_options() -> Result<(), String> {
+    if [
+        "PGOPTIONS",
+        "PGPASSWORD",
+        "PGSSLROOTCERT",
+        "PGSSLCERT",
+        "PGSSLKEY",
+    ]
+    .iter()
+    .any(|name| std::env::var_os(name).is_some())
+    {
+        return Err("PostgreSQL environment options are not supported".into());
+    }
+    Ok(())
+}
+
+fn load_snapshot(path: PathBuf, deadline: std::time::Instant) -> Result<SecretSnapshot, String> {
+    if std::time::Instant::now() >= deadline {
+        return Err("Infisical startup deadline exceeded".into());
+    }
+    // The shared private-pipe loader can synchronously wait; a separate thread
+    // prevents that wait from bypassing the importer's startup deadline.
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    std::thread::Builder::new()
+        .name("legacy-import-secrets".into())
+        .spawn(move || {
+            let result = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|_| "Infisical loader unavailable")
+                .and_then(|runtime| {
+                    runtime
+                        .block_on(dl_token_secrets::values(&path))
+                        .map_err(|_| "Infisical secret source unavailable")
+                })
+                .map(|values| values.into_iter().collect());
+            let _ = sender.send(result);
+        })
+        .map_err(|_| "Infisical loader unavailable")?;
+    let result = receiver
+        .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+        .map_err(|_| "Infisical startup deadline exceeded")?;
+    if std::time::Instant::now() >= deadline {
+        return Err("Infisical startup deadline exceeded".into());
+    }
+    result.map_err(str::to_owned)
 }
 
 fn observation_time(now: SystemTime) -> Result<(String, i64), String> {
@@ -304,8 +404,9 @@ async fn observe_with_destination(
 ) -> Result<serde_json::Value, String> {
     observation_route(&config, destination)?;
     let (label, epoch) = observation_time(now)?;
-    let mut legacy = options(&config.legacy)
+    let mut legacy = configured_options(&[&config.legacy])
         .map_err(|_| "read-only archive configuration invalid")?
+        .remove(0)
         .connect()
         .await
         .map_err(|_| "read-only archive connection failed")?;
@@ -441,10 +542,13 @@ async fn run_with_destination(
     {
         return Err(format!("sources must be exactly {expected:?}"));
     }
-    let mut legacy = options(&config.legacy)?
+    let mut connections = configured_options(&[&config.legacy, &config.target])?.into_iter();
+    let legacy_options = connections.next().ok_or("legacy options missing")?;
+    let target_options = connections.next().ok_or("target options missing")?;
+    let mut legacy = legacy_options
         .connect()
         .await
-        .map_err(|e| format!("legacy connect: {e}"))?;
+        .map_err(|_| "legacy connection failed")?;
     if let Some(binding) = binding {
         let row = sqlx::query(IDENTITY_SQL)
             .fetch_one(&mut legacy)
@@ -477,9 +581,9 @@ async fn run_with_destination(
     let pool = PgPoolOptions::new()
         .max_connections(2)
         .acquire_timeout(Duration::from_secs(5))
-        .connect_with(options(&config.target)?)
+        .connect_with(target_options)
         .await
-        .map_err(|e| format!("target connect: {e}"))?;
+        .map_err(|_| "target connection failed")?;
     let address: Option<String> = sqlx::query_scalar("SELECT inet_server_addr()::text")
         .fetch_one(&pool)
         .await
@@ -627,9 +731,9 @@ async fn main() {
             std::process::exit(64);
         }
     };
-    let config: Config = match std::fs::read(path)
-        .map_err(|e| e.to_string())
-        .and_then(|b| serde_json::from_slice(&b).map_err(|e| e.to_string()))
+    let mut config: Config = match std::fs::read(path)
+        .map_err(|_| "configuration unreadable")
+        .and_then(|b| serde_json::from_slice(&b).map_err(|_| "configuration invalid"))
     {
         Ok(config) => config,
         Err(error) => {
@@ -641,6 +745,17 @@ async fn main() {
             std::process::exit(64);
         }
     };
+    for endpoint in [&mut config.legacy, &mut config.target] {
+        if let Some(secret_config) = &mut endpoint.infisical_config {
+            if !secret_config.is_absolute() {
+                let parent = std::path::Path::new(path)
+                    .parent()
+                    .unwrap_or_else(|| std::path::Path::new("."));
+                *secret_config = std::fs::canonicalize(parent.join(&*secret_config))
+                    .unwrap_or_else(|_| parent.join(&*secret_config));
+            }
+        }
+    }
     let report = (mode == Mode::Import).then(|| config.report.clone());
     let result = match mode {
         Mode::Import => run(config).await,
@@ -679,14 +794,14 @@ mod tests {
                 "port": PRODUCTION.port,
                 "database": "brain",
                 "username": "brain_readonly",
-                "auth_env": "BRAIN_PG_READONLY_PASSWORD"
+                "auth_secret": "BRAIN_PG_READONLY_PASSWORD"
             },
             "target": {
                 "socket": PRODUCTION.socket,
                 "port": PRODUCTION.port,
                 "database": "brain",
                 "username": "brain_ingest",
-                "auth_env": "BRAIN_PG_INGEST_PASSWORD"
+                "auth_secret": "BRAIN_PG_INGEST_PASSWORD"
             },
             "snapshot_label": "approved-fixture",
             "snapshot_epoch": 1790391478,
@@ -722,11 +837,11 @@ mod tests {
         ] {
             let config: Config = serde_json::from_str(template).unwrap();
             assert_eq!(
-                config.legacy.auth_env.as_deref(),
+                config.legacy.auth_secret.as_deref(),
                 Some(PRODUCTION.legacy_auth)
             );
             assert_eq!(
-                config.target.auth_env.as_deref(),
+                config.target.auth_secret.as_deref(),
                 Some(PRODUCTION.target_auth)
             );
         }
@@ -751,7 +866,7 @@ mod tests {
 
         let mut config = config();
         config.production_binding = None;
-        config.target.auth_env = None;
+        config.target.auth_secret = None;
         assert!(observation_route(&config, PRODUCTION).is_ok());
         assert!(route(&config, PRODUCTION).is_err());
         config.legacy.socket = "/tmp/wrong-cluster".into();
@@ -763,9 +878,9 @@ mod tests {
         config.legacy.database = "brain_pilot".into();
         assert!(observation_route(&config, PRODUCTION).is_err());
         config.legacy.database = PRODUCTION.database.into();
-        config.legacy.auth_env = Some("UNRELATED_SECRET".into());
+        config.legacy.auth_secret = Some("UNRELATED_SECRET".into());
         assert!(observation_route(&config, PRODUCTION).is_err());
-        config.legacy.auth_env = Some(PRODUCTION.legacy_auth.into());
+        config.legacy.auth_secret = Some(PRODUCTION.legacy_auth.into());
         config.target.socket = "/tmp/wrong-target".into();
         assert!(observation_route(&config, PRODUCTION).is_err());
     }
@@ -830,7 +945,7 @@ mod tests {
         approved.target.port = 55439;
         assert!(route(&approved, PRODUCTION).is_err());
         let mut approved = config();
-        approved.legacy.auth_env = Some("OTHER_SECRET".into());
+        approved.legacy.auth_secret = Some("OTHER_SECRET".into());
         assert!(route(&approved, PRODUCTION).is_err());
         let mut approved = config();
         approved.target.database = "brain_pilot_legacy".into();
@@ -1228,7 +1343,7 @@ mod tests {
             endpoint.port = fixture.port;
             endpoint.database = database.into();
             endpoint.username = "brain_core_test".into();
-            endpoint.auth_env = None;
+            endpoint.auth_secret = None;
         }
         config.report = Path::new(&socket)
             .parent()
@@ -1273,7 +1388,7 @@ mod tests {
         };
         let mut observer = config.clone();
         observer.production_binding = None;
-        observer.target.auth_env = Some("TARGET_SECRET_SENTINEL".into());
+        observer.target.auth_secret = Some("TARGET_SECRET_SENTINEL".into());
         observer.snapshot_label = "historical-label-sentinel".into();
         observer.snapshot_epoch = 1;
         observer.report = "/DO_NOT_RUN/OBSERVATION.json".into();
