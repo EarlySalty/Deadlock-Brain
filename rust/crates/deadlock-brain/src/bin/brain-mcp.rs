@@ -317,6 +317,22 @@ mod tests {
     }
 
     #[test]
+    fn frame_reader_drains_oversized_line_and_reads_next_frame() {
+        let mut input = vec![b'x'; 33];
+        input.extend_from_slice(b"\n{}\n");
+        let mut reader = io::Cursor::new(input);
+
+        assert!(matches!(
+            read_frame(&mut reader, 32).unwrap(),
+            FrameRead::TooLarge
+        ));
+        let FrameRead::Frame(frame) = read_frame(&mut reader, 32).unwrap() else {
+            panic!("expected frame after rejected oversized line");
+        };
+        assert_eq!(serde_json::from_slice::<Value>(&frame).unwrap(), json!({}));
+    }
+
+    #[test]
     fn frame_reader_accepts_valid_crlf_and_unterminated_eof_frames() {
         let mut reader =
             io::Cursor::new(b"{\"jsonrpc\":\"2.0\",\"method\":\"ping\"}\r\n{}".to_vec());
