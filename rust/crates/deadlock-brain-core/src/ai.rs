@@ -168,37 +168,20 @@ fn call_openai_compatible_sync(config: &AiConfig, request_payload: &Value) -> Re
         .build()?;
     let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
     let api_key = config.api_key()?.to_string();
-    let mut payload = request_payload.clone();
-    if let Some(object) = payload.as_object_mut() {
-        object.insert(
-            "model".to_string(),
-            json!(crate::model_resolver::model_for_request(&config.model)),
-        );
-    }
+    let payload = selected_payload(request_payload, crate::model_resolver::model_for_request()?)?;
     let response = client
         .post(&url)
         .bearer_auth(&api_key)
         .json(&payload)
         .send()?;
-    if response.status() == reqwest::StatusCode::NOT_FOUND
-        && crate::model_resolver::explicit_model().is_none()
-    {
-        if let Some(model) =
-            crate::model_resolver::resolve_after_not_found(&config.base_url, &api_key)
-        {
-            if let Some(object) = payload.as_object_mut() {
-                object.insert("model".to_string(), json!(model));
-            }
-            return client
-                .post(&url)
-                .bearer_auth(&api_key)
-                .json(&payload)
-                .send()
-                .map_err(Into::into)
-                .and_then(|response| parse_response(response, "fireworks_openai_compatible"));
-        }
-    }
     parse_response(response, "fireworks_openai_compatible")
+}
+
+fn selected_payload(request: &Value, model: String) -> Result<Value> {
+    let mut payload = request.clone();
+    let object = payload.as_object_mut().ok_or(CoreError::InvalidAiRequest)?;
+    object.insert("model".to_string(), json!(model));
+    Ok(payload)
 }
 
 pub fn build_review_request(
@@ -315,6 +298,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn central_selection_overrides_stale_caller_model_and_changes_next_request() {
+        let request = json!({"model": "obsolete", "messages": [], "reasoning_effort": "none"});
+        for model in [
+            "accounts/fireworks/models/deepseek-v4p1-flash",
+            "accounts/fireworks/models/deepseek-v4p2-flash",
+        ] {
+            let payload = selected_payload(&request, model.into()).unwrap();
+            assert_eq!(payload["model"], model);
+            assert_eq!(payload["reasoning_effort"], "none");
+        }
+        assert_eq!(request["model"], "obsolete");
+    }
+
+    #[test]
+    fn invalid_payload_cannot_bypass_central_model() {
+        assert!(matches!(
+            selected_payload(&json!([]), "selected".into()),
+            Err(CoreError::InvalidAiRequest)
+        ));
+    }
+
+    #[test]
     fn strip_thinking_removes_hidden_blocks() {
         assert_eq!(strip_thinking("a <think>secret</think> b"), "a  b");
     }
@@ -330,7 +335,7 @@ mod tests {
         let config = AiConfig {
             api_key: Some("redacted".to_string()),
             base_url: "http://localhost".to_string(),
-            model: "accounts/fireworks/models/deepseek-v4-flash".to_string(),
+            model: "accounts/fireworks/models/deepseek-v4p1-flash".to_string(),
             timeout_seconds: 1,
             max_completion_tokens: 123,
             temperature: 0.2,

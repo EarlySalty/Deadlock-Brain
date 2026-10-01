@@ -4,6 +4,10 @@ use reqwest::StatusCode;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CoreError {
+    #[error("{0}")]
+    ModelSelection(String),
+    #[error("Die KI-Anfrage muss ein JSON-Objekt sein.")]
+    InvalidAiRequest,
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
