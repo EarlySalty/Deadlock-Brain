@@ -9,14 +9,17 @@
 use sqlx::postgres::{PgPool, PgPoolOptions};
 
 /// Baut einen Pool gegen die Scratch-Postgres oder `None`, wenn kein DSN
-/// gesetzt ist (dann überspringt der Test).
+/// gesetzt ist (dann überspringt der Test). Ist der DSN gesetzt, aber die
+/// Verbindung schlägt fehl, MUSS der Test scheitern statt still grün zu werden;
+/// die Panikmeldung nennt kein DSN- oder Geheimniswert.
 pub async fn test_pool() -> Option<PgPool> {
     let dsn = std::env::var("DEADLOCK_CENTRAL_DSN").ok()?;
-    PgPoolOptions::new()
-        .max_connections(2)
-        .connect(&dsn)
-        .await
-        .ok()
+    match PgPoolOptions::new().max_connections(2).connect(&dsn).await {
+        Ok(pool) => Some(pool),
+        Err(_) => panic!(
+            "DEADLOCK_CENTRAL_DSN is set but the test database connection failed (value withheld)"
+        ),
+    }
 }
 
 pub fn unique_suffix() -> String {

@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "purpose": "held_out_comparison_not_generation_context",
+  "video_id": "ZWm7ixeWjbQ",
+  "source_sha256": "32bffe3613249d001cf6c9b52032c7cb01b98d8f0e45e3b2cb8f756f69fd0e29",
+  "source_kind": "user_supplied_unaligned_transcript",
+  "visual_status": "not_examined",
+  "publication_or_patch_date": "not_inferred_from_upload",
+  "cases": [
+    {
+      "id": "rift_timing",
+      "source_quote": "The upper limit is now 40%. It used to be 35, so the upper limit's actually a little bit higher. So, the rift is a little stronger for the losing team in the super late game, but for the early game, especially when you're feeling it right at the first rift, it's a lot lot worse. Which means if you're actually winning t",
+      "char_start": 1731,
+      "char_end": 2051,
+      "video_timestamp": null,
+      "expected_reasoning_task": "Frühe und späte Rift-Folgen getrennt herleiten; Obergrenze nicht mit tatsächlich gewährter Resistenz verwechseln.",
+      "expected_verdict": "not_preassigned",
+      "creator_claim_is_ground_truth": false
+    },
+    {
+      "id": "comeback_redistribution",
+      "source_quote": "A portion of the comeback souls earned by players above enemy team average net worth is instead distributed via the tick gold system that is given to the lowest two players. Each team, the lowest two players receive a constant trickle of souls based on the the overall like income kind of per minute of their respective ",
+      "char_start": 3240,
+      "char_end": 3560,
+      "video_timestamp": null,
+      "expected_reasoning_task": "Umverteilung an die zwei ärmsten Spieler ist eine andere Frage als pauschal weniger Team-Einkommen.",
+      "expected_verdict": "not_preassigned",
+      "creator_claim_is_ground_truth": false
+    },
+    {
+      "id": "respawn_windows",
+      "source_quote": "respawn time increased. Uh this only takes effect after the 20-minute mark. Um and the late game values are the same. Really, this just increases the actual value of getting picks at 20 minutes. It means mid bosses are going to be easier to take in between 20 30 minutes. Very important. I think this will even help lowe",
+      "char_start": 5941,
+      "char_end": 6261,
+      "video_timestamp": null,
+      "expected_reasoning_task": "Pick- und Objective-Fenster bedingt herleiten; keine automatische Mid-Boss-Sicherheit behaupten.",
+      "expected_verdict": "not_preassigned",
+      "creator_claim_is_ground_truth": false
+    },
+    {
+      "id": "air_drag",
+      "source_quote": "Slows now actually affect air drag. So, you have restricted air movement now when you have slows applied to you. This is just character slows and item slows. It's all It's all slows, so. Now uh movement speed slow is an actually important stat. It's a genuinely important stat now. It's been a a worse stat. The better y",
+      "char_start": 8055,
+      "char_end": 8375,
+      "video_timestamp": null,
+      "expected_reasoning_task": "Systemänderung mit Bewegungsmechaniken und Slow-Items verknüpfen; fehlende Formeln markieren.",
+      "expected_verdict": "not_preassigned",
+      "creator_claim_is_ground_truth": false
+    },
+    {
+      "id": "plated_on_hit",
+      "source_quote": "They fixed that cuz it definitely should. The item description says it should, but it wasn't. Plated armor used to be one of the worst items in the game because it didn't do the thing it said it did. It was like nearly worse than buying bullet resilience. Now it actually does its job. It blocks on hit damage. You want ",
+      "char_start": 13218,
+      "char_end": 13538,
+      "video_timestamp": null,
+      "expected_reasoning_task": "Angegebene On-Hit-Fixes gegen Primärdaten testen; nicht pauschal Immunität gegen sämtlichen Spirit-Schaden ableiten.",
+      "expected_verdict": "not_preassigned",
+      "creator_claim_is_ground_truth": false
+    },
+    {
+      "id": "indirect_apollo",
+      "source_quote": "For instance, there are no Apollo changes here to be seen. No Apollo changes. I promise you though, Apollo's one of the best characters in the game now. Because Apollo is one of the best snowballers, early game tempo characters. He can gank. He can win lane. He can kill jungle instantly. He can escape from death. Um hi",
+      "char_start": 16614,
+      "char_end": 16934,
+      "video_timestamp": null,
+      "expected_reasoning_task": "Indirekte Heldeneffekte trotz fehlender Patchzeile prüfen, aber Hero-Eigenschaften und Tempo-Prämissen unabhängig belegen.",
+      "expected_verdict": "not_preassigned",
+      "creator_claim_is_ground_truth": false
+    },
+    {
+      "id": "egg_net_worth",
+      "source_quote": "stored souls now count towards net worth. Meaning if you buy egg, not only do you get less souls, but it also cripples you even more. It's uh it's terrible. This item is terrible. This item is so bad, you should not even test it. If you see someone testing this item, um think think poorly of them. Think poorly of them.",
+      "char_start": 14288,
+      "char_end": 14608,
+      "video_timestamp": null,
+      "expected_reasoning_task": "Net-Worth-Regel und Opportunitätskosten berechnen; nie-kaufen-Urteil als Creator-Einschätzung prüfen, nicht als Sollantwort übernehmen.",
+      "expected_verdict": "not_preassigned",
+      "creator_claim_is_ground_truth": false
+    },
+    {
+      "id": "warden_combined",
+      "source_quote": "Warden Warden nerfed across the board in different ways. That bold damage per boon hurts him a lot, too, especially because it's amplified with the Merc Mag change. Uh the range and speed of alchemical flask being reduced is it feels terrible. Uh and the debuff resistance on the willpower reduced feels terrible. Think ",
+      "char_start": 23296,
+      "char_end": 23616,
+      "video_timestamp": null,
+      "expected_reasoning_task": "Direkte Änderungen, Item-Änderungen und Systemfolgen zusammenführen; keine erfundenen Winrates.",
+      "expected_verdict": "not_preassigned",
+      "creator_claim_is_ground_truth": false
+    },
+    {
+      "id": "decay_healing",
+      "source_quote": "Decay, more of an anti-heal item, less of a damage item. This is a good change. Arguably, by the way, this also makes it scale better into the late game when healing might dramatically increase. Merk Mac, damage is severely tuned down. This chara- this item will not be bought on so many characters anymore. You get even",
+      "char_start": 15361,
+      "char_end": 15681,
+      "video_timestamp": null,
+      "expected_reasoning_task": "Abhängigkeit von gegnerischem Heilvolumen begründen; Scaling-These bleibt ohne Berechnung unbestätigt.",
+      "expected_verdict": "not_preassigned",
+      "creator_claim_is_ground_truth": false
+    },
+    {
+      "id": "cycle_weaving",
+      "source_quote": "making dashes and light melees no longer interrupt your gun cycle time, means characters like Abrams and Silver now can uh weave in uh dashes and punches between their shots, so these characters can feel a lot more fluid in lane. Feels particularly good on Silver. Silver's cycle time is a lot worse than Abrams, but I f",
+      "char_start": 8721,
+      "char_end": 9041,
+      "video_timestamp": null,
+      "expected_reasoning_task": "Schusszyklus, Nachladen und Nahkampf getrennt modellieren; keinen DPS-Wert aus einer Komfortänderung erfinden.",
+      "expected_verdict": "not_preassigned",
+      "creator_claim_is_ground_truth": false
+    }
+  ]
+}
