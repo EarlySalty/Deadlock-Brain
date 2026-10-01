@@ -245,16 +245,25 @@ fn history(
     }))
 }
 
-fn build_context(client: &mut Client, patch: &str, snapshot_limit: usize) -> Result<Value> {
-    ensure!(
-        (1..=1000).contains(&snapshot_limit),
-        "snapshot-limit must be between 1 and 1000"
-    );
+fn parse_patch_id(patch: &str) -> Result<i64> {
     let patch_id = patch
         .strip_prefix("patch_")
         .context("Expected patch_<changelog_posts.id>")?
         .parse::<i64>()?;
     ensure!(patch_id > 0, "Patch ID must be positive");
+    ensure!(
+        patch == format!("patch_{patch_id}"),
+        "Patch ID must be canonical"
+    );
+    Ok(patch_id)
+}
+
+fn build_context(client: &mut Client, patch: &str, snapshot_limit: usize) -> Result<Value> {
+    ensure!(
+        (1..=1000).contains(&snapshot_limit),
+        "snapshot-limit must be between 1 and 1000"
+    );
+    let patch_id = parse_patch_id(patch)?;
     let mut tx = client
         .build_transaction()
         .isolation_level(IsolationLevel::RepeatableRead)
@@ -500,6 +509,13 @@ mod tests {
             "unresolved":[]
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn rejects_noncanonical_patch_id_aliases() {
+        assert_eq!(parse_patch_id("patch_1").unwrap(), 1);
+        assert!(parse_patch_id("patch_01").is_err());
+        assert!(parse_patch_id("patch_+1").is_err());
     }
 
     #[test]

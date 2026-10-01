@@ -19,11 +19,12 @@ Datum: 2026-10-01
 ## Validierung und offener Blocker
 
 1. Gezielter Build des `deadlock-brain-patch-review`-Binärziels erfolgreich.
-2. `cargo test -p deadlock-brain --bin deadlock-brain-patch-review`: 9 bestanden, 0 fehlgeschlagen, 0 ignoriert.
+2. `cargo test -p deadlock-brain --bin deadlock-brain-patch-review`: 10 bestanden, 0 fehlgeschlagen, 0 ignoriert.
 3. `cargo fmt --check` und `git diff --check` erfolgreich.
-4. `deadlock-brain-yt --all-targets` ist noch nicht kompilierbar mit `SQLX_OFFLINE=true`, weil für die bestehende `query!`-Abfrage in `transcripts.rs` kein SQLx-Cacheeintrag vorliegt. Der Build mit Datenbankzugriff wurde wegen „Keine ENV/Secrets/Umgebungskonfig lesen“ nicht versucht.
-5. Die Migration und Rollenrechte sind lokal geändert, aber nicht gegen Scratch-Postgres ausgeführt. Gate, Push, PR4-Schließung, Merge, Migration, Deploy und Live-Prüfung sind daher offen.
+4. `deadlock-brain-yt --all-targets` ist mit `SQLX_OFFLINE=true` durch fehlenden Cacheeintrag für eine bestehende `query!`-Abfrage in `transcripts.rs` blockiert. Ein Build mit Datenbankzugriff wurde wegen der Vorgabe, keine ENV, Secrets oder Umgebungskonfiguration zu lesen, nicht versucht.
+5. Gate-Runde 1 blockierte wegen akzeptierter Alias-ID `patch_01`. Der CLI-Fix verwirft nichtkanonische IDs und hat jetzt einen Regressionstest. Gate-Runde 2 und Scratch-Postgres-Prüfung stehen aus.
+6. Branch-Commit `95b15bb` ist gepusht. PR4 bleibt offen, bis die Übernahme und das Gate belegt sind. PR61 ist weiterhin die offene Gesamtintegration. Merge, Migration, Deploy und Live-Prüfung fanden nicht statt.
 
 ## Nächster Meilenstein
 
-Eine zulässige Scratch-Postgres-Prüfung ermöglicht YT-Compile, Evidenzintegrationstest und Migrationstest. Danach die vollständige Integrationsspur mit dem Merge-Gate prüfen. Kein Merge nach `main`, keine Produktionsmigration und kein Deploy, solange PR61 als Gesamtintegration offen ist.
+Commit und Push des Alias-Fixes, dann Gate-Runde 2 gegen dieselbe PR61-Basis. Eine zulässige Scratch-Postgres-Prüfung bleibt erforderlich, bevor Migration, PR4-Schließung oder Live-Abschluss möglich sind. Kein Merge nach `main` und kein Deploy, solange PR61 als Gesamtintegration offen ist.
