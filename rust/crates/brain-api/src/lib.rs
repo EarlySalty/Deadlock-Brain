@@ -116,7 +116,9 @@ where
         if deadline.check().is_err() {
             return deadline_response();
         }
-        let answer = self.kernel.answer(&query, &context);
+        // `/v1/answer` always publishes externally. This purpose is not a Query
+        // field, scope, header or credential option the client can downgrade.
+        let answer = self.kernel.answer_for_publication(&query, &context);
         if deadline.check().is_err() {
             return deadline_response();
         }
@@ -222,6 +224,13 @@ mod tests {
     }
 
     impl AnswerKernelPort for FixedKernel {
+        fn answer_for_publication(
+            &self,
+            query: &Query,
+            context: &AuthorizedContext,
+        ) -> AnswerResponse {
+            self.answer(query, context)
+        }
         fn answer(&self, query: &Query, context: &AuthorizedContext) -> AnswerResponse {
             self.calls.fetch_add(1, Ordering::SeqCst);
             AnswerResponse {

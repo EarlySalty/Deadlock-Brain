@@ -457,6 +457,20 @@ pub trait RetrievalPort: Send + Sync {
             .map(|evidence| (evidence, Usage::default()))
     }
 
+    /// Validate every external answer dependency against pinned AND current
+    /// publication grants, independently of internal reading or provider egress.
+    /// Implementations without a canonical publication check must fail closed.
+    fn validate_publication(
+        &self,
+        _query: &Query,
+        _context: &AuthorizedContext,
+        _evidence: &[Evidence],
+    ) -> std::result::Result<(), PortError> {
+        Err(PortError::Unavailable(
+            "canonical publication validation unavailable".into(),
+        ))
+    }
+
     /// Revalidate against canonical revisions and CURRENT ACLs, including on cache hits.
     /// The fail-closed default deliberately does not trust a provider or an old evidence pack.
     fn validate_evidence(

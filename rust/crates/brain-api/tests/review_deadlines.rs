@@ -67,6 +67,14 @@ impl ConversationOwnershipPort for Ownership {
 }
 struct Retrieval;
 impl RetrievalPort for Retrieval {
+    fn validate_publication(
+        &self,
+        q: &Query,
+        c: &AuthorizedContext,
+        e: &[Evidence],
+    ) -> Result<(), PortError> {
+        self.validate_evidence(q, c, e, false)
+    }
     fn retrieve(&self, _: &Query, _: &AuthorizedContext) -> Result<Vec<Evidence>, PortError> {
         Ok(vec![Evidence {
             evidence_id: "fixture-evidence".into(),
@@ -114,6 +122,13 @@ struct TrackedKernel {
     dropped: Option<oneshot::Sender<()>>,
 }
 impl AnswerKernelPort for TrackedKernel {
+    fn answer_for_publication(
+        &self,
+        q: &Query,
+        c: &AuthorizedContext,
+    ) -> brain_contracts::AnswerResponse {
+        self.inner.answer_for_publication(q, c)
+    }
     fn answer(&self, q: &Query, c: &AuthorizedContext) -> brain_contracts::AnswerResponse {
         self.inner.answer(q, c)
     }

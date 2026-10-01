@@ -173,6 +173,14 @@ impl<S: SnapshotReadPort, E: EmbeddingProviderPort> RetrievalPort for HybridRetr
     ) -> Result<(Vec<Evidence>, Usage), PortError> {
         self.retrieve_accounted(query, context)
     }
+    fn validate_publication(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+    ) -> Result<(), PortError> {
+        self.lexical.validate_publication(query, context, evidence)
+    }
     fn validate_evidence(
         &self,
         query: &Query,
