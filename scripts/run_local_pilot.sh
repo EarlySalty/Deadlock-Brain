@@ -18,7 +18,8 @@ CARGO="${BRAIN_TEST_CARGO:-cargo}"
 CLUSTER="$ROOT/.core-test-pg"
 REPORT="${BRAIN_PILOT_REPORT:-$ROOT/.core-test-logs/pilot}"
 : "${BRAIN_PILOT_ROOT:?BRAIN_PILOT_ROOT with public/ and internal/ required}"
-case "$BRAIN_PILOT_ROOT" in "$ROOT"/*) echo 'Pilot data must live outside the repository.' >&2; exit 2 ;; esac
+BRAIN_PILOT_ROOT="$(realpath -e -- "$BRAIN_PILOT_ROOT")" || exit 2
+case "$BRAIN_PILOT_ROOT" in "$ROOT"|"$ROOT"/*) echo 'Pilot data must live outside the repository.' >&2; exit 2 ;; esac
 if "$PG_BIN/pg_ctl" -D "$CLUSTER" status >/dev/null 2>&1; then
   echo 'Refusing to reuse or stop an already-running cluster.' >&2
   exit 1
@@ -26,8 +27,11 @@ fi
 if [[ ! -f "$CLUSTER/PG_VERSION" ]]; then
   "$PG_BIN/initdb" -D "$CLUSTER" --auth=trust --username=brain_core_test --no-locale --encoding=UTF8 >/dev/null
 fi
-rm -rf "$REPORT"
-mkdir -p "$REPORT"
+# A caller-supplied prefix never grants permission to erase an existing directory.
+# Each invocation owns only its newly allocated report directory.
+mkdir -p -- "$(dirname -- "$REPORT")" || exit 1
+REPORT="$(mktemp -d -- "$REPORT.XXXXXX")" || exit 1
+printf 'Pilot reports: %s\n' "$REPORT"
 export BRAIN_CORE_TEST_PG_SOCKET="$CLUSTER" BRAIN_PILOT_REPORT="$REPORT" BRAIN_PILOT_ROOT
 export http_proxy=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 HTTP_PROXY=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9
 export no_proxy=127.0.0.1,localhost NO_PROXY=127.0.0.1,localhost

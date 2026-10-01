@@ -426,10 +426,8 @@ impl LocalPgReader {
     pub fn check_core_schema(&self) -> Result<(), PortError> {
         let mut client = self.pool.acquire()?;
         let mut tx = client.transaction(true, false)?;
-        let rows = tx.query(
-            "SELECT schema_version, store_contract FROM brain.core_schema_version",
-            &[],
-        )?;
+        let rows = tx
+            .query_schema("SELECT schema_version, store_contract FROM brain.core_schema_version")?;
         if rows.len() != 1 {
             return Err(invalid("unsupported core schema/store version"));
         }
@@ -438,7 +436,7 @@ impl LocalPgReader {
         if schema_version != crate::schema::CORE_SCHEMA_VERSION || store_version != STORE_VERSION {
             return Err(invalid("unsupported core schema/store version"));
         }
-        tx.query(crate::schema::SHAPE_PROBE, &[])?;
+        tx.query_schema(crate::schema::SHAPE_PROBE)?;
         tx.commit()
     }
 

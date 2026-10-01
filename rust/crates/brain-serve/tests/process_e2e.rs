@@ -475,7 +475,7 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
     let mut empty = Service::spawn(&empty_config, &environment);
     let empty_status = empty.wait(Duration::from_secs(8));
     assert_eq!(empty_status.code(), Some(1));
-    assert!(empty.log().contains("database_unavailable"));
+    assert!(empty.log().contains("core_schema_incompatible"));
     assert!(!empty.log().contains("listening"));
     let empty_schema: bool = sqlx::query_scalar("SELECT to_regnamespace('brain') IS NOT NULL")
         .fetch_one(&empty_admin)
@@ -523,6 +523,27 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
         common::get(&address, "/readyz"),
         (200, r#"{"status":"ready"}"#.into())
     );
+    let supported_schema: i32 =
+        sqlx::query_scalar("SELECT schema_version FROM brain.core_schema_version WHERE singleton")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    sqlx::query("UPDATE brain.core_schema_version SET schema_version=99 WHERE singleton")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        common::get(&address, "/readyz").0,
+        503,
+        "a warm service must not accept an unsupported schema marker"
+    );
+    assert_eq!(common::get(&address, "/healthz").0, 200);
+    sqlx::query("UPDATE brain.core_schema_version SET schema_version=$1 WHERE singleton")
+        .bind(supported_schema)
+        .execute(&pool)
+        .await
+        .unwrap();
+    common::assert_ready(&address);
     let response = ask(&address, API_TOKEN, query("first")).await.unwrap();
     assert_eq!(response.status, AnswerStatus::Answered);
     assert_eq!(response.knowledge_release, release.release_id);

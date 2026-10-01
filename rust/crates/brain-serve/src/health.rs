@@ -67,6 +67,9 @@ impl Health {
                 // Hold the probe slot until the blocking operation truly exits, even if the HTTP
                 // probe reaches its deadline. All checks share the request pool.
                 let _permit = permit;
+                reader
+                    .check_core_schema()
+                    .map_err(|_| Error::SchemaIncompatible)?;
                 let actual = reader
                     .read_snapshot(&expected.release_id)
                     .map_err(|_| Error::ReaderUnavailable)?;

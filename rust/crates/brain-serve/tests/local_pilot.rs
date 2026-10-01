@@ -256,6 +256,15 @@ fn write_report(env: &Env, phase: &str, value: Value) {
     std::fs::write(path, serde_json::to_vec_pretty(&value).unwrap()).unwrap();
 }
 
+fn assert_baseline(report: &std::path::Path, digest: &str, documents: usize) {
+    let baseline: Value = serde_json::from_slice(
+        &std::fs::read(report.join("ingest.json")).expect("ingest baseline required"),
+    )
+    .expect("valid ingest baseline required");
+    assert_eq!(baseline["snapshot_digest"], digest, "snapshot changed");
+    assert_eq!(baseline["documents"], documents, "document count changed");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "local pilot: BRAIN_CORE_TEST_PG_SOCKET, BRAIN_PILOT_DATABASE, BRAIN_PILOT_ROOT, BRAIN_PILOT_REPORT"]
 async fn pilot_phase_ingest() {
@@ -294,6 +303,7 @@ async fn pilot_phase_after_restart() {
         tokio::task::spawn_blocking(move || snapshot_digest(&reader_for_digest, "pilot-r1"))
             .await
             .unwrap();
+    assert_baseline(&env.report, &digest, documents);
     let (again, replayed) = ingest(&store, &env, "pilot-after-restart").await;
     let unchanged_records: usize = again
         .iter()
@@ -301,6 +311,17 @@ async fn pilot_phase_after_restart() {
         .filter(|(_, replayed)| !**replayed)
         .map(|(b, _)| b.records.len())
         .sum();
+    assert!(
+        replayed.iter().all(|replayed| !replayed),
+        "new leases replayed old receipts"
+    );
+    assert_eq!(unchanged_records, 0, "unchanged sources were reimported");
+    let after_reingest = reader(&env);
+    let (reingested_digest, reingested_documents) =
+        tokio::task::spawn_blocking(move || snapshot_digest(&after_reingest, "pilot-r1"))
+            .await
+            .unwrap();
+    assert_baseline(&env.report, &reingested_digest, reingested_documents);
 
     let calls = Arc::new(AtomicUsize::new(0));
     let fail = Arc::new(AtomicBool::new(false));
@@ -356,7 +377,8 @@ async fn pilot_phase_after_restart() {
 
     let exact_value = exact_number(&env);
     let mut cases = Vec::new();
-    let run = |cases: &mut Vec<Value>, name: &str, token: &str, q: Query, check: Check| {
+    let mut known_citations: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut run = |cases: &mut Vec<Value>, name: &str, token: &str, q: Query, check: Check| {
         let address = address.clone();
         let token = token.to_string();
         sent.lock().unwrap().clear();
@@ -387,9 +409,13 @@ async fn pilot_phase_after_restart() {
                 mapped = false;
             }
             // Include ALL matches: ambiguity cannot hide a private source behind a public one.
+            known_citations.insert(
+                format!("cite-{:x}", Sha256::digest(chunk.id.as_bytes())),
+                matches.iter().cloned().collect(),
+            );
             egress.extend(matches);
         }
-        let (status, result) = evaluate(&outcome, &egress, &captured, check);
+        let (status, result) = evaluate(&outcome, &egress, &captured, &known_citations, check);
         let result = result && (mapped || card_case);
         let provider_calls = calls.load(Ordering::SeqCst) - calls_before;
         let passed = result && (!domain_case || provider_calls == 0);
@@ -582,15 +608,26 @@ async fn pilot_phase_after_restart() {
     );
 
     let removed = env.root.join("public/vindicta.md");
-    let parked = env.root.join("vindicta.md.parked");
+    let parking = tempfile::tempdir_in(&env.root).unwrap();
+    let parked = parking.path().join("vindicta.md");
     std::fs::rename(&removed, &parked).unwrap();
+    let restore = ParkedFile {
+        original: removed.clone(),
+        parked: parked.clone(),
+        parking: Some(parking),
+    };
     let (deleted, _) = ingest(&store, &env, "pilot-delete").await;
-    std::fs::rename(&parked, &removed).unwrap();
+    drop(restore);
     let tombstones: usize = deleted
         .iter()
         .flat_map(|b| &b.records)
         .filter(|r| r.tombstone)
         .count();
+    assert_eq!(tombstones, 1, "expected exactly the removed file tombstone");
+    assert!(deleted
+        .iter()
+        .flat_map(|batch| &batch.records)
+        .any(|record| { record.tombstone && record.logical_id.ends_with("vindicta.md") }));
     run(
         &mut cases,
         "delete_tombstone_live_release",
@@ -669,6 +706,7 @@ async fn pilot_phase_empty_rebuild() {
         tokio::task::spawn_blocking(move || snapshot_digest(&reader, "pilot-r1"))
             .await
             .unwrap();
+    assert_baseline(&env.report, &digest, documents);
     write_report(
         &env,
         "rebuild",
@@ -687,6 +725,10 @@ fn load(address: &str, service_pid: u32, isolated: bool) -> Value {
     let workers: usize = std::env::var("BRAIN_PILOT_LOAD_WORKERS")
         .map(|v| v.parse().unwrap())
         .unwrap_or(8);
+    assert!(
+        requests > 0 && workers > 0,
+        "load requires positive requests and workers"
+    );
     let texts = [
         "Abrams",
         "Haze",
@@ -841,11 +883,19 @@ fn evaluate(
     outcome: &Result<PublicAnswerResponse, brain_client::ClientError>,
     egress: &[String],
     captured: &[SentEvidence],
+    known_citations: &BTreeMap<String, BTreeSet<String>>,
     check: Check,
 ) -> (String, bool) {
     let response = match outcome {
         Ok(r) => r,
-        Err(_) => return ("rejected".into(), matches!(check, Check::Rejected)),
+        Err(error) => {
+            return (
+                "rejected".into(),
+                matches!(check, Check::Rejected)
+                    && matches!(error, brain_client::ClientError::HttpStatus { status, .. }
+                if *status == StatusCode::FORBIDDEN),
+            )
+        }
     };
     let status = serde_json::to_value(response.status)
         .unwrap()
@@ -853,16 +903,46 @@ fn evaluate(
         .unwrap()
         .to_string();
     let answered = response.status == AnswerStatus::Answered && !response.citations.is_empty();
-    let first = egress.first();
+    let cited_sources: Option<Vec<&String>> = response
+        .citations
+        .iter()
+        .map(|citation| {
+            known_citations
+                .get(&citation.citation_id)
+                .filter(|sources| !sources.is_empty())
+        })
+        .collect::<Option<Vec<_>>>()
+        .map(|sources| sources.into_iter().flatten().collect());
     let passed = match check {
-        Check::AnsweredFrom(dir) => answered && first.is_some_and(|f| f.starts_with(dir)),
-        Check::NoSource(dir) => egress.iter().all(|f| !f.starts_with(dir)),
-        Check::NoLogical(name) => egress.iter().all(|f| !f.ends_with(name)),
-        Check::CitationLogical(name) => answered && first.is_some_and(|f| f.ends_with(name)),
+        Check::AnsweredFrom(dir) => {
+            answered
+                && cited_sources.as_ref().is_some_and(|sources| {
+                    !sources.is_empty() && sources.iter().all(|source| source.starts_with(dir))
+                })
+        }
+        Check::NoSource(dir) => {
+            egress.iter().all(|f| !f.starts_with(dir))
+                && cited_sources
+                    .as_ref()
+                    .is_some_and(|sources| sources.iter().all(|source| !source.starts_with(dir)))
+        }
+        Check::NoLogical(name) => {
+            egress.iter().all(|f| !f.ends_with(name))
+                && cited_sources
+                    .as_ref()
+                    .is_some_and(|sources| sources.iter().all(|source| !source.ends_with(name)))
+        }
+        Check::CitationLogical(name) => {
+            answered
+                && cited_sources.as_ref().is_some_and(|sources| {
+                    !sources.is_empty() && sources.iter().all(|source| source.ends_with(name))
+                })
+        }
         Check::CitationContains(needles) => {
             // The cited provider payload itself must contain BOTH the key and exact value.
             // Finding them elsewhere in the parent dossier is not sufficient anymore.
             answered
+                && needles.iter().all(|needle| response.text.contains(needle))
                 && response.citations.iter().any(|citation| {
                     captured.iter().any(|chunk| {
                         format!("cite-{:x}", Sha256::digest(chunk.id.as_bytes()))
@@ -871,7 +951,7 @@ fn evaluate(
                     })
                 })
         }
-        Check::NotAnswered => !answered,
+        Check::NotAnswered => response.status != AnswerStatus::Answered,
         Check::Rejected => false,
         Check::Status(expected) => response.status == expected,
         Check::Card => {
@@ -891,12 +971,215 @@ fn evaluate(
     (status, passed)
 }
 
+struct ParkedFile {
+    original: PathBuf,
+    parked: PathBuf,
+    parking: Option<tempfile::TempDir>,
+}
+impl Drop for ParkedFile {
+    fn drop(&mut self) {
+        if std::fs::rename(&self.parked, &self.original).is_err() {
+            if let Some(parking) = self.parking.take() {
+                let _retained = parking.keep();
+            }
+            if std::thread::panicking() {
+                eprintln!("Pilotquelle konnte nicht zurückgelegt werden; das Parkverzeichnis bleibt erhalten.");
+            } else {
+                panic!("restore pilot source failed; parking directory retained");
+            }
+        }
+    }
+}
+
 #[derive(Clone)]
 struct SentEvidence {
     id: String,
     content: String,
 }
 type Sent = Arc<Mutex<Vec<Vec<SentEvidence>>>>;
+
+#[test]
+fn pilot_acceptance_rejects_returned_private_or_unknown_citations() {
+    let source_id = "captured-evidence";
+    let citation_id = format!("cite-{:x}", Sha256::digest(source_id.as_bytes()));
+    let response = PublicAnswerResponse {
+        contract_version: brain_contracts::PUBLIC_API_VERSION.into(),
+        request_id: "probe".into(),
+        knowledge_release: "pilot-r1".into(),
+        status: AnswerStatus::Answered,
+        text: "Answer with a citation.".into(),
+        citations: vec![brain_contracts::PublicCitation {
+            citation_id: citation_id.clone(),
+            label: "[Beleg 1]".into(),
+        }],
+    };
+    let private_sources = BTreeMap::from([(
+        citation_id.clone(),
+        BTreeSet::from(["internal/secret.md".into()]),
+    )]);
+    let public_egress = vec!["public/abrams.md".into()];
+    assert!(
+        !evaluate(
+            &Ok(response.clone()),
+            &public_egress,
+            &[],
+            &private_sources,
+            Check::NoSource("internal/")
+        )
+        .1
+    );
+    assert!(
+        !evaluate(
+            &Ok(response.clone()),
+            &public_egress,
+            &[],
+            &private_sources,
+            Check::AnsweredFrom("public/")
+        )
+        .1
+    );
+    assert!(
+        !evaluate(
+            &Ok(response.clone()),
+            &[],
+            &[],
+            &BTreeMap::new(),
+            Check::NoSource("internal/")
+        )
+        .1
+    );
+    let public_sources =
+        BTreeMap::from([(citation_id, BTreeSet::from(["public/abrams.md".into()]))]);
+    assert!(
+        evaluate(
+            &Ok(response.clone()),
+            &[],
+            &[],
+            &public_sources,
+            Check::AnsweredFrom("public/")
+        )
+        .1,
+        "cache reuse must resolve returned citations even with no new provider call"
+    );
+    let captured = vec![SentEvidence {
+        id: source_id.into(),
+        content: "\"Value\": 110".into(),
+    }];
+    assert!(
+        !evaluate(
+            &Ok(response.clone()),
+            &public_egress,
+            &captured,
+            &public_sources,
+            Check::CitationContains(vec!["\"Value\": 110".into()])
+        )
+        .1,
+        "a number in provider input is not a number in the returned answer"
+    );
+    let mut malformed = response;
+    malformed.citations.clear();
+    assert!(
+        !evaluate(
+            &Ok(malformed),
+            &[],
+            &[],
+            &public_sources,
+            Check::NotAnswered
+        )
+        .1
+    );
+}
+
+#[test]
+fn pilot_rejection_requires_the_expected_authorization_status() {
+    let sources = BTreeMap::new();
+    assert!(
+        !evaluate(
+            &Err(brain_client::ClientError::InvalidResponse),
+            &[],
+            &[],
+            &sources,
+            Check::Rejected
+        )
+        .1
+    );
+    assert!(
+        !evaluate(
+            &Err(brain_client::ClientError::HttpStatus {
+                status: StatusCode::BAD_GATEWAY,
+                body: String::new()
+            }),
+            &[],
+            &[],
+            &sources,
+            Check::Rejected
+        )
+        .1
+    );
+    assert!(
+        evaluate(
+            &Err(brain_client::ClientError::HttpStatus {
+                status: StatusCode::FORBIDDEN,
+                body: String::new()
+            }),
+            &[],
+            &[],
+            &sources,
+            Check::Rejected
+        )
+        .1
+    );
+}
+
+#[test]
+fn pilot_baseline_mismatch_fails_and_parked_sources_survive_unwind() {
+    let report = tempfile::tempdir().unwrap();
+    std::fs::write(
+        report.path().join("ingest.json"),
+        r#"{"snapshot_digest":"expected","documents":2}"#,
+    )
+    .unwrap();
+    assert_baseline(report.path(), "expected", 2);
+    assert!(std::panic::catch_unwind(|| assert_baseline(report.path(), "different", 2)).is_err());
+    assert!(std::panic::catch_unwind(|| assert_baseline(report.path(), "expected", 3)).is_err());
+    let corpus = tempfile::tempdir().unwrap();
+    let original = corpus.path().join("vindicta.md");
+    std::fs::write(&original, "approved original").unwrap();
+    let parking = tempfile::tempdir_in(corpus.path()).unwrap();
+    let parked = parking.path().join("vindicta.md");
+    std::fs::rename(&original, &parked).unwrap();
+    assert!(std::panic::catch_unwind(|| {
+        let _restore = ParkedFile {
+            original: original.clone(),
+            parked,
+            parking: Some(parking),
+        };
+        panic!("simulated ingest failure");
+    })
+    .is_err());
+    assert_eq!(
+        std::fs::read_to_string(&original).unwrap(),
+        "approved original"
+    );
+
+    let parking = tempfile::tempdir_in(corpus.path()).unwrap();
+    let parked = parking.path().join("vindicta.md");
+    std::fs::rename(&original, &parked).unwrap();
+    std::fs::create_dir(&original).unwrap();
+    assert!(std::panic::catch_unwind(|| {
+        let _restore = ParkedFile {
+            original: original.clone(),
+            parked: parked.clone(),
+            parking: Some(parking),
+        };
+    })
+    .is_err());
+    assert_eq!(
+        std::fs::read_to_string(&parked).unwrap(),
+        "approved original",
+        "failed restoration must preserve the parked bytes instead of cleaning them up"
+    );
+}
 
 fn pilot_files(env: &Env) -> BTreeMap<String, String> {
     let mut files = BTreeMap::new();
@@ -952,8 +1235,7 @@ async fn provider(
     }
     let id = input["evidence"][0]["id"].as_str().unwrap();
     let answer =
-        json!({"text": "Pilotantwort aus der ersten Evidenz.", "cited_evidence_ids": [id]})
-            .to_string();
+        json!({"text": input["evidence"][0]["content"], "cited_evidence_ids": [id]}).to_string();
     (
         StatusCode::OK,
         [(header::CONTENT_TYPE, "application/json")],

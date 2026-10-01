@@ -2,7 +2,7 @@
 //! No spawned driver, helper thread, extra pool, or per-operation runtime is involved.
 //! Unlike postgres::Config::connect, the complete startup and each wire operation are
 //! bounded here. A timed-out transport is closed before pool capacity is returned.
-use super::{error, request_check, unavailable, ConnectionConfig};
+use super::{error, invalid, request_check, unavailable, ConnectionConfig};
 use brain_contracts::{PortError, RequestDeadline};
 use std::{
     future::Future,
@@ -55,6 +55,14 @@ impl Driver {
         &mut self,
         operation: impl Future<Output = Result<T, tokio_postgres::Error>>,
     ) -> Result<T, PortError> {
+        self.run_with_error(operation, error)
+    }
+
+    fn run_with_error<T>(
+        &mut self,
+        operation: impl Future<Output = Result<T, tokio_postgres::Error>>,
+        map_error: fn(tokio_postgres::Error) -> PortError,
+    ) -> Result<T, PortError> {
         request_check(self.deadline.as_ref())?;
         let end = self
             .startup_end
@@ -71,7 +79,7 @@ impl Driver {
                 tokio::select! {
                     biased;
                     reason = expired(end, self.deadline.as_ref()) => Err(reason),
-                    value = operation => value.map_err(error),
+                    value = operation => value.map_err(map_error),
                     _ = wire => Err(unavailable("local PostgreSQL connection closed")),
                 }
             });
@@ -162,6 +170,17 @@ impl Client {
         params: &[&(dyn ToSql + Sync)],
     ) -> Result<Vec<Row>, PortError> {
         self.driver.run(self.client.query(sql, params))
+    }
+    pub(super) fn query_schema(&mut self, sql: &str) -> Result<Vec<Row>, PortError> {
+        self.driver
+            .run_with_error(self.client.query(sql, &[]), |failure| {
+                match failure.code().map(tokio_postgres::error::SqlState::code) {
+                    Some("42P01" | "3F000" | "42703") => {
+                        invalid("unsupported core schema/store shape")
+                    }
+                    _ => error(failure),
+                }
+            })
     }
     pub(super) fn query_one(
         &mut self,
