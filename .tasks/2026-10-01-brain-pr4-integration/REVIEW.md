@@ -20,6 +20,13 @@ Datum: 2026-10-01
 - Gate-Hinweis: Migration, Rollenrechte und Caption-Integration gegen Scratch-Postgres ausführen.
 - Ergebnis: offen. `SQLX_OFFLINE=true cargo check ... deadlock-brain-yt --all-targets` stoppt an fehlendem SQLx-Cache für eine bestehende `query!`-Abfrage. Ein Build mit Datenbankzugriff wurde wegen der Vorgabe, keine ENV, Secrets oder Umgebungskonfiguration zu lesen, nicht versucht. Migration und Integrationstest wurden nicht ausgeführt.
 
-## Folgerunde
+## Runde 2
 
-Nach Commit des Alias-Fixes denselben Gate-Aufruf mit demselben Modell gegen dieselbe PR61-Basis erneut ausführen. Kein Merge, keine Produktionsmigration und kein Deploy vor ALLOW und Abschluss der Gesamtintegration Brain61.
+- Gate: `gpt-6.1-sol`, gleiche PR61-Basis, geprüftes HEAD `b12a5a8`.
+- Urteil: ALLOW. Der Gate bestätigte, dass Alias-IDs vor Kontextaufbau abgewiesen werden.
+- Geltungsbereich: Diese Runde lief vor der späteren selektiven Übernahme der Insight-Trust-Fixes und der aktualisierten Portierungsdokumentation. Sie ist deshalb kein Gate-Urteil über den aktuellen Gesamt-Diff.
+- Offener NIT aus Runde 1: Scratch-Postgres-Prüfung für Migration, Rollenrechte und Caption-Integration.
+
+## Runde 3
+
+Nach Commit und Push der Insight-Trust-Fixes denselben Gate-Aufruf mit `gpt-6.1-sol` gegen dieselbe PR61-Basis erneut ausführen. Kein Merge, keine Produktionsmigration und kein Deploy vor ALLOW und Abschluss der Gesamtintegration Brain61.

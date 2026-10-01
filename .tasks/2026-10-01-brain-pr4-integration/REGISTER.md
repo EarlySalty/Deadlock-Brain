@@ -6,7 +6,7 @@ Datum: 2026-10-01
 | Rolle/Paket | Thread oder Branch | Status | Worktree | Letzter Stand |
 |---|---|---|---|---|
 | Intent und Auftrag | T3-Auftrag des Nutzers, keine neue Thread-ID | übernommen | aktueller Auftrag | Weiterarbeit ohne Unterthreads oder Unteragenten |
-| Eigenanteil PR4 | `luna/abschluss-brain-pr4-integrate-pr61-20261001` | selektiv portiert, Validierung offen | `/home/nathanael/.worktrees/luna-abschluss-brain-pr4-20261001` | `cargo fmt --check` grün; 9 Patch-Review-Tests grün; YT-Compile und Migration mangels zulässiger Scratch-DB-Prüfung offen |
+| Eigenanteil PR4 | `luna/abschluss-brain-pr4-integrate-pr61-20261001` | selektiv portiert, aktuelle Trust-Fixes noch uncommitted, Gate-Runde 3 offen | `/home/nathanael/.worktrees/luna-abschluss-brain-pr4-20261001` | `cargo fmt --check` grün; 6 Insight-Trust-Tests und 10 Patch-Review-Tests grün; YT-Compile und Migration mangels Scratch-Postgres offen; Altdateien in `PORTIERUNGSBILANZ.md` klassifiziert |
 | Pair-Integration PR3 | `codex/luna-native/brain-pr3-current-mcp-20261001` | nur lesend berücksichtigt | `/home/nathanael/.worktrees/brain-pr3-current-mcp-20261001` | Kein Fremd-Worktree verändert |
 | Gesamtintegration Brain61 | PR #61, Head `b687f613b3df2c49138d9d2837e005c33e646d9f` | offen | siehe Integrationseigner | Muss PR4-Eigenanteil aufnehmen; kein isolierter Merge nach `main` |
 | Quell-PR4 | PR #4, Head `9efeb1e44ead5cdf5d01e05f242291fee79e803e` | offen, Inhalt veraltet gegenüber Ziel | Remote-Branch `codex/patch-understanding-evidence-20260918` | Erst nach Beleg der Übernahme sauber schließen |
