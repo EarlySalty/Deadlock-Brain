@@ -65,8 +65,9 @@ case "$MODE" in
     MIGRATION_ARGS=(--base origin/main --head HEAD)
     for peer_ref in "${PEER_REFS[@]}"; do MIGRATION_ARGS+=(--peer "$peer_ref"); done
     run_check migration-guard bash "$ROOT/scripts/ci/run_migration_guard.sh" "${MIGRATION_ARGS[@]}"
-    run_check backup-shell-syntax bash -c 'bash -n ops/brain-postgres/backup.sh && bash -n ops/brain-postgres/restore-probe.sh && bash -n scripts/test_brain_backup.sh && bash -n scripts/test_brain_restore.sh'
-    run_check backup-shellcheck shellcheck ops/brain-postgres/backup.sh ops/brain-postgres/restore-probe.sh scripts/test_brain_backup.sh scripts/test_brain_restore.sh
+    BACKUP_SCRIPTS=("$ROOT/ops/brain-postgres/backup.sh" "$ROOT/ops/brain-postgres/restore-probe.sh" "$ROOT/scripts/test_brain_backup.sh" "$ROOT/scripts/test_brain_restore.sh")
+    run_check backup-shell-syntax xargs -0 -n 1 bash -n < <(printf '%s\0' "${BACKUP_SCRIPTS[@]}")
+    run_check backup-shellcheck shellcheck "${BACKUP_SCRIPTS[@]}"
     run_check backup-regressions bash "$ROOT/scripts/test_brain_backup.sh"
     run_check restore-regressions bash "$ROOT/scripts/test_brain_restore.sh"
     run_check fmt "$CARGO" +1.97.1 fmt --all -- --check
