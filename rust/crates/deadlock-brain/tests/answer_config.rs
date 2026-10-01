@@ -104,7 +104,8 @@ fn answer_reads_explicit_config_and_private_pipe_then_uses_typed_client() {
         assert_eq!(query["request_id"], "fixture-request");
         assert_eq!(query["requested_scopes"], json!(["docs.public"]));
         let body = json!({"contract_version":"brain.public.v1", "request_id":"fixture-request",
-            "knowledge_release":"fixture-release", "status":"answered", "text":"fixture answer", "citations":[]}).to_string();
+            "knowledge_release":"fixture-release", "status":"answered", "text":"fixture answer",
+            "citations":[{"citation_id":"fixture-citation", "label":"fixture source"}]}).to_string();
         stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).unwrap();
     });
     let mut child = launch(dir.path(), &endpoint, 4000);

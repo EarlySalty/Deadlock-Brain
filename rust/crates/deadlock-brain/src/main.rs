@@ -1273,6 +1273,9 @@ impl AnswerClientConfig {
     }
 
     fn token_until(&self, deadline: std::time::Instant) -> Result<zeroize::Zeroizing<String>> {
+        if std::time::Instant::now() >= deadline {
+            anyhow::bail!("Infisical antwortet nicht rechtzeitig");
+        }
         let path = self.infisical_config.clone();
         let name = self.secret_reference.clone();
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
