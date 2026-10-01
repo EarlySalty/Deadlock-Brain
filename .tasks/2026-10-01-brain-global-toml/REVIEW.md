@@ -147,3 +147,19 @@ Gate-Antwort: `ALLOW: No confirmed merge-blocking defect in the supplied changes
 - `cargo test --manifest-path rust/Cargo.toml --locked --offline -p deadlock-brain-core --lib config::tests -- --include-ignored`: 17 passed, 0 failed, 0 ignored, 16 filtered.
 - Regressionstest `zero_wiki_cache_ttl_is_preserved_for_fresh_requests` prüft die TOML-Konfiguration mit Wert `0`.
 - Erneutes Gate nach diesem Fix ausstehend.
+
+# Review Runde 8
+
+Review-Gate: `gpt-6.1-sol`
+Basis: `main`
+Head: `5271e47`
+Urteil: `ALLOW`, ein NIT
+
+Gate-Antwort: `ALLOW: No confirmed merge-blocking defect in the supplied diff.`
+
+1. **NIT**, `rust/crates/deadlock-brain/src/wiki_refresh.rs:72`: Refresh überschreibt `raw_directory` und `publication_root` aus JSON mit globalen TOML-Pfaden. Die Doku benennt jetzt TOML-Quelle und Vorrang; `infisical_config` und `source_repository` bleiben JSON-gesteuert.
+
+### Validierung der NIT-Nacharbeit
+
+- Dokumentationskorrektur, keine Änderung am Runtime-Code.
+- Erneutes Gate auf dem finalen Freeze-SHA ausstehend.

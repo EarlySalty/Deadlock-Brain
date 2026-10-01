@@ -40,7 +40,7 @@ Alle Wiki-Texte bleiben nicht vertrauenswürdige Quelldaten. Die Prompts grenzen
 
 ## Aktivierung nach Review
 
-Bestehende Refresh-Konfigurationen funktionieren unverändert. Netzwerkzugriff ist standardmäßig deaktiviert. Nach geklärtem Wiki-Zugang kann folgendes optionale Mitglied zur bestehenden JSON-Konfiguration hinzugefügt werden; die vier vorhandenen absoluten Pfade bleiben erhalten:
+Bestehende Refresh-Konfigurationen funktionieren unverändert. Netzwerkzugriff ist standardmäßig deaktiviert. Alle vier absoluten Pfadfelder der JSON-Datei bleiben erforderlich. Beim Refresh werden `raw_directory` aus `[paths].data_dir` plus `raw` und `publication_root` aus `[paths].game_wiki_dir` durch die globale TOML-Konfiguration ersetzt. `infisical_config` und `source_repository` bleiben JSON-gesteuert. Nach geklärtem Wiki-Zugang kann folgendes optionale Mitglied zur bestehenden JSON-Konfiguration hinzugefügt werden:
 
 ```json
 "wiki": {
