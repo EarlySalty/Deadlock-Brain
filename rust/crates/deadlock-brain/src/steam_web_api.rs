@@ -471,14 +471,12 @@ pub fn flush_pending(
     journal: &mut impl ObservationJournal,
 ) -> Result<usize, SteamWebApiError> {
     let pending = journal.pending().map_err(SteamWebApiError::Journal)?;
-    if let Some(entry) = pending.iter().find(|entry| {
-        entry.reservation_id != JOURNAL_GUARD_ID && entry.dispatch_started && !entry.answered
-    }) {
-        return Err(SteamWebApiError::Journal(format!(
-            "Ausgang der Steam-Anfrage für Reservierung {} unbekannt; vor weiteren Aufrufen manuell klären",
-            entry.reservation_id
-        )));
-    }
+    let uncertain_reservation = pending
+        .iter()
+        .find(|entry| {
+            entry.reservation_id != JOURNAL_GUARD_ID && entry.dispatch_started && !entry.answered
+        })
+        .map(|entry| entry.reservation_id);
     if pending
         .iter()
         .any(|entry| entry.reservation_id == JOURNAL_GUARD_ID)
@@ -486,15 +484,19 @@ pub fn flush_pending(
         journal.disarm().map_err(SteamWebApiError::Journal)?;
     }
     let mut delivered = 0;
-    for entry in pending
-        .iter()
-        .filter(|entry| entry.reservation_id != JOURNAL_GUARD_ID)
-    {
+    for entry in pending.iter().filter(|entry| {
+        entry.reservation_id != JOURNAL_GUARD_ID && !(entry.dispatch_started && !entry.answered)
+    }) {
         ledger.observe(http, &entry.observation())?;
         journal
             .delivered(entry.reservation_id)
             .map_err(SteamWebApiError::Journal)?;
         delivered += 1;
+    }
+    if let Some(reservation_id) = uncertain_reservation {
+        return Err(SteamWebApiError::Journal(format!(
+            "Ausgang der Steam-Anfrage für Reservierung {reservation_id} unbekannt; vor weiteren Aufrufen manuell klären"
+        )));
     }
     Ok(delivered)
 }
@@ -1284,6 +1286,61 @@ mod tests {
         );
         assert!(steam.finish().is_empty());
         assert_eq!(journal.rows.len(), 1);
+    }
+
+    #[test]
+    fn releases_unused_reservations_before_blocking_uncertain_request() {
+        let (http, _dir) = client();
+        let ledger_mock = Mock::start(vec![observed(false)]);
+        let steam = Mock::start(Vec::new());
+        let mut journal = MemoryJournal {
+            rows: vec![
+                PendingObservation {
+                    reservation_id: 19,
+                    dispatch_started: false,
+                    answered: false,
+                    http_status: None,
+                    retry_after: None,
+                },
+                PendingObservation {
+                    reservation_id: 20,
+                    dispatch_started: true,
+                    answered: false,
+                    http_status: None,
+                    retry_after: None,
+                },
+            ],
+            ..MemoryJournal::default()
+        };
+
+        let error = fetch(
+            &http,
+            &ledger(&ledger_mock.url),
+            &mut journal,
+            &format!("{}/news", steam.url),
+            &steam_options(),
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, SteamWebApiError::Journal(message) if message.contains("20")));
+        let calls = ledger_mock.finish();
+        assert_eq!(calls.len(), 1);
+        assert!(calls[0].head.starts_with("POST /steam-web-api/observe "));
+        assert_eq!(
+            json(&calls[0].body),
+            json(r#"{"reservation_id":19,"http_status":null}"#)
+        );
+        assert_eq!(
+            journal.rows,
+            vec![PendingObservation {
+                reservation_id: 20,
+                dispatch_started: true,
+                answered: false,
+                http_status: None,
+                retry_after: None,
+            }]
+        );
+        assert!(steam.finish().is_empty());
     }
 
     #[test]
