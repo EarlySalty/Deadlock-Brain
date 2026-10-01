@@ -25,6 +25,7 @@ members = [
   "crates/dbrain-reasoner",
   "crates/dbrain-sources",
   "crates/dbrain-wiki",
+  "crates/dbrain-session-store",
 ]
 exclude = ["crates/dbrain-replay"]
 

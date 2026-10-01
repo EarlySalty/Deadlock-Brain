@@ -1826,7 +1826,7 @@ mod tests {
     fn test_config() -> AiConfig {
         let mut settings = deadlock_brain_core::config::load_settings().expect("settings");
         settings.ai_api_key = None;
-        settings.ai_model = "accounts/fireworks/models/deepseek-v4-flash".to_string();
+        settings.ai_model = "accounts/fireworks/models/deepseek-v4p1-flash".to_string();
         AiConfig::from_settings(&settings)
     }
 

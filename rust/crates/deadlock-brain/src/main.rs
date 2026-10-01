@@ -41,6 +41,8 @@ enum Commands {
         about = "Stellt eine Frage ausschließlich über den typisierten brain-serve/BrainClient-Pfad."
     )]
     Answer(BrainAnswerArgs),
+    #[command(about = "Zeigt das zentral geprüfte KI-Modell ohne Modellaufruf.")]
+    AiModel,
     #[command(about = "Zeigt lokale DB- und Source-Counts.")]
     Status,
     #[command(about = "Baut einen kompakten Datenkontext fuer eine Entity-Frage.")]
@@ -1271,6 +1273,32 @@ async fn run_brain_answer(args: &BrainAnswerArgs) -> Result<()> {
     print_json(&response)
 }
 
+fn command_is_read_only(command: &Commands) -> bool {
+    match command {
+        Commands::Context(_)
+        | Commands::Timeline(_)
+        | Commands::Review(_)
+        | Commands::AskContext(_)
+        | Commands::Lineage(_)
+        | Commands::Legacy(_)
+        | Commands::Entities(_) => true,
+        Commands::Reason { target } => match target {
+            ReasonCommands::Build(args) => args.no_persist,
+            ReasonCommands::PatchImpact(args) => args.no_persist,
+            ReasonCommands::Backtest(args) => args.no_persist,
+        },
+        _ => false,
+    }
+}
+
+async fn pg_pool_for_command(command: &Commands) -> Result<PgPool> {
+    if command_is_read_only(command) {
+        deadlock_brain_core::pg::pg_pool_read_only().await
+    } else {
+        deadlock_brain_core::pg::pg_pool().await
+    }
+}
+
 fn main() {
     if let Err(error) = run_from_cli() {
         eprintln!("{error:#}");
@@ -1281,6 +1309,10 @@ fn main() {
 fn run_from_cli() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
+        Commands::AiModel => print_json(&json!({
+            "provider": "fireworks",
+            "model": deadlock_brain_core::model_resolver::model_for_request()?,
+        })),
         Commands::Population(args) => dbrain_population::run_population(args),
         command => {
             let runtime = tokio::runtime::Builder::new_current_thread()
@@ -1303,6 +1335,10 @@ async fn run(cli: Cli) -> Result<()> {
         return print_json(&wiki_refresh::run(args).await?);
     }
     let settings = config::load_settings()?;
+    if let Commands::Entities(args) = &command {
+        let pool = pg_pool_for_command(&command).await?;
+        return pg_entities::run(args, &pool).await;
+    }
     let mut command = match command {
         Commands::Pg { target } => {
             // Alle `pg`-Befehle nutzen synchrone Crates (`postgres` bzw. der
@@ -1324,9 +1360,6 @@ async fn run(cli: Cli) -> Result<()> {
             // und muss daher ebenfalls vom async-Runtime entkoppelt laufen.
             return tokio::task::spawn_blocking(move || run_insights(target)).await?;
         }
-        Commands::Entities(args) => {
-            return pg_entities::run(args).await;
-        }
         other => other,
     };
     // Resolve once before side effects; the same immutable options reach the importer.
@@ -1341,8 +1374,9 @@ async fn run(cli: Cli) -> Result<()> {
         args.resolved = Some(Box::new(options));
     }
     prepare_dirs(&settings)?;
-    // Ein PgPool fuer die gesamte Befehlsausfuehrung (DSN aus DEADLOCK_CENTRAL_DSN).
-    let pool = deadlock_brain_core::pg::pg_pool().await?;
+    // Wissensabfragen und ausdrücklich persistenzfreie Reasoner-Läufe erzwingen
+    // Read-only bereits beim Verbindungsaufbau.
+    let pool = pg_pool_for_command(&command).await?;
 
     match command {
         Commands::Answer(_) => unreachable!("answer is handled before local DB initialization"),
@@ -1490,7 +1524,7 @@ async fn run(cli: Cli) -> Result<()> {
         Commands::Normalize { target } => run_normalize(&pool, target).await,
         Commands::Parse { target } => run_parse(&pool, target).await,
         Commands::Enrich { target } => run_enrich(&pool, &settings, target).await,
-        Commands::Population(_) => {
+        Commands::AiModel | Commands::Population(_) => {
             unreachable!("Population wird vor allgemeiner Pool-Ausfuehrung ausgefuehrt.")
         }
         Commands::Entities(_) => {
@@ -3774,6 +3808,56 @@ fn capitalize(value: &str) -> String {
 mod tests {
     use super::*;
     use clap::CommandFactory;
+
+    #[test]
+    fn wissensabfragen_erzwingen_read_only() {
+        for argv in [
+            vec!["deadlock-brain", "ask-context", "Warden"],
+            vec!["deadlock-brain", "context", "Warden"],
+            vec!["deadlock-brain", "timeline", "Warden"],
+            vec!["deadlock-brain", "review", "Warden"],
+            vec!["deadlock-brain", "lineage"],
+            vec!["deadlock-brain", "legacy"],
+            vec!["deadlock-brain", "entities", "--query", "Warden"],
+            vec![
+                "deadlock-brain",
+                "reason",
+                "build",
+                "Warden",
+                "--no-persist",
+            ],
+            vec![
+                "deadlock-brain",
+                "reason",
+                "patch-impact",
+                "Warden",
+                "--no-persist",
+            ],
+            vec![
+                "deadlock-brain",
+                "reason",
+                "backtest",
+                "--hero",
+                "Warden",
+                "--no-persist",
+            ],
+        ] {
+            let cli = Cli::try_parse_from(argv).expect("read-only command must parse");
+            assert!(command_is_read_only(&cli.command));
+        }
+    }
+
+    #[test]
+    fn schreibende_befehle_bleiben_schreibfaehig() {
+        for argv in [
+            vec!["deadlock-brain", "reason", "build", "Warden"],
+            vec!["deadlock-brain", "reason", "patch-impact", "Warden"],
+            vec!["deadlock-brain", "reason", "backtest", "--hero", "Warden"],
+        ] {
+            let cli = Cli::try_parse_from(argv).expect("write-capable command must parse");
+            assert!(!command_is_read_only(&cli.command));
+        }
+    }
 
     fn assert_no_persist_cli(command: &str, hero: &[&str]) {
         let mut argv = vec!["deadlock-brain", "reason", command];
