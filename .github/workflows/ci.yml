@@ -17,16 +17,28 @@ jobs:
   backup-regressions:
     name: "Backup path safety"
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Check backup shell syntax
+      - name: Install PostgreSQL 16 and ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y postgresql-16 shellcheck
+      - name: Check backup and restore shell syntax
         run: |
           bash -n ops/brain-postgres/backup.sh
+          bash -n ops/brain-postgres/restore-probe.sh
           bash -n scripts/test_brain_backup.sh
+          bash -n scripts/test_brain_restore.sh
+          shellcheck ops/brain-postgres/backup.sh ops/brain-postgres/restore-probe.sh scripts/test_brain_backup.sh scripts/test_brain_restore.sh
       - name: Exercise retention with isolated PostgreSQL stubs
         run: bash scripts/test_brain_backup.sh
+      - name: Exercise the complete restore chain in private PostgreSQL 16 clusters
+        # Deliberately unprivileged: this runner refuses root and never uses
+        # production sockets, databases, credentials or restore defaults.
+        run: bash scripts/test_brain_restore.sh
 
   migration-contracts:
     name: "Migration composition"
