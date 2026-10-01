@@ -37,7 +37,7 @@ fn isolated_proxy(test_name: &str, expect_https_connect: bool) -> bool {
             (0..2)
                 .map(|_| Reply {
                     code: 403,
-                    body: "{}".into(),
+                    body: String::new(),
                     location: None,
                 })
                 .collect(),
@@ -340,18 +340,33 @@ fn serve(listener: TcpListener, replies: Vec<Reply>) -> thread::JoinHandle<Vec<S
             assert!(length <= 16 * 1024);
             let mut body = vec![0; length];
             reader.read_exact(&mut body).unwrap();
+            let refused_connect = head.starts_with("CONNECT ") && reply.code == 403;
             seen.push(Seen { head, body });
-            write!(
-                stream,
+            let mut response = format!(
                 "HTTP/1.1 {} Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n",
                 reply.code,
                 reply.body.len()
-            )
-            .unwrap();
+            );
             if let Some(location) = reply.location {
-                write!(stream, "Location: {location}\r\n").unwrap();
+                response.push_str(&format!("Location: {location}\r\n"));
             }
-            write!(stream, "\r\n{}", reply.body).unwrap();
+            response.push_str("\r\n");
+            response.push_str(&reply.body);
+            // A CONNECT client can close as soon as it sees a refusal status.
+            // Send the entire response together rather than racing separate
+            // header/body writes against that close. A peer close is valid for
+            // this refusal trap: its contract is the fully captured CONNECT,
+            // not successful delivery of an HTTP body to the rejected client.
+            if let Err(error) = stream.write_all(response.as_bytes()) {
+                assert!(
+                    refused_connect
+                        && matches!(
+                            error.kind(),
+                            std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
+                        ),
+                    "local stub response failed: {error}"
+                );
+            }
         }
         seen
     })
