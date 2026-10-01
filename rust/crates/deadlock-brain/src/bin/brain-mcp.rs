@@ -1,15 +1,25 @@
 use brain_client::{AnswerProfile, AnswerStatus, AsyncBrainClient, Query};
+use clap::Parser;
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{
     collections::BTreeSet,
-    io::{self, BufRead, Write},
+    fs::File,
+    io::{self, BufRead, Read, Write},
+    path::PathBuf,
     process,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+use zeroize::Zeroizing;
 
 // A 32,768-byte question can expand to six JSON bytes per character when
 // escaped (for example, U+0001), so include the full valid input and envelope.
 const MAX_FRAME_BYTES: usize = 256 * 1024;
+const MAX_CONFIG_BYTES: u64 = 16 * 1024;
+
+fn default_secret_reference() -> String {
+    "BRAIN_SERVE_API_TOKEN".to_string()
+}
 
 enum FrameRead {
     Eof,
@@ -61,43 +71,103 @@ fn read_frame<R: BufRead>(reader: &mut R, max_bytes: usize) -> io::Result<FrameR
     }
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Config {
     endpoint: String,
-    token: String,
+    #[serde(default = "default_secret_reference")]
+    secret_reference: String,
     scopes: BTreeSet<String>,
-    timeout: Duration,
+    timeout_ms: u64,
+}
+
+#[derive(Parser)]
+#[command(name = "brain-mcp", about = "MCP adapter for Deadlock Brain")]
+struct Args {
+    /// Path to the non-secret JSON runtime configuration.
+    #[arg(long)]
+    config: PathBuf,
 }
 
 impl Config {
-    fn from_env() -> Result<Self, &'static str> {
-        let endpoint = std::env::var("BRAIN_MCP_ENDPOINT")
-            .or_else(|_| std::env::var("BRAIN_CLIENT_ENDPOINT"))
-            .map_err(|_| "BRAIN_MCP_ENDPOINT/BRAIN_CLIENT_ENDPOINT fehlt")?;
-        let token = std::env::var("BRAIN_MCP_TOKEN")
-            .or_else(|_| std::env::var("BRAIN_CLIENT_TOKEN"))
-            .map_err(|_| "BRAIN_MCP_TOKEN/BRAIN_CLIENT_TOKEN fehlt")?;
-        let scopes: BTreeSet<String> = std::env::var("BRAIN_MCP_SCOPES")
-            .map_err(|_| "BRAIN_MCP_SCOPES fehlt")?
-            .split(',')
-            .map(str::trim)
-            .filter(|scope| !scope.is_empty())
-            .map(ToOwned::to_owned)
-            .collect();
-        if scopes.is_empty() {
-            return Err("BRAIN_MCP_SCOPES ist leer");
+    fn load(path: &std::path::Path) -> Result<Self, &'static str> {
+        let metadata = std::fs::metadata(path).map_err(|_| "MCP-Konfiguration ist nicht lesbar")?;
+        if !metadata.is_file() || metadata.len() > MAX_CONFIG_BYTES {
+            return Err("MCP-Konfiguration hat ein ungültiges Format oder eine ungültige Größe");
         }
-        let timeout_ms = std::env::var("BRAIN_MCP_TIMEOUT_MS")
-            .ok()
-            .and_then(|value| value.parse::<u64>().ok())
-            .unwrap_or(8_000)
-            .max(1);
-        Ok(Self {
-            endpoint,
-            token,
-            scopes,
-            timeout: Duration::from_millis(timeout_ms),
-        })
+        let mut bytes = Vec::new();
+        File::open(path)
+            .and_then(|file| file.take(MAX_CONFIG_BYTES + 1).read_to_end(&mut bytes))
+            .map_err(|_| "MCP-Konfiguration ist nicht lesbar")?;
+        Self::parse(&bytes)
     }
+
+    fn parse(bytes: &[u8]) -> Result<Self, &'static str> {
+        if bytes.len() as u64 > MAX_CONFIG_BYTES {
+            return Err("MCP-Konfiguration hat eine ungültige Größe");
+        }
+        let config: Self =
+            serde_json::from_slice(bytes).map_err(|_| "MCP-Konfiguration ist ungültig")?;
+        config.validate()?;
+        Ok(config)
+    }
+
+    fn validate(&self) -> Result<(), &'static str> {
+        if self.endpoint.trim().is_empty()
+            || self.endpoint.len() > 2048
+            || self.endpoint.chars().any(char::is_control)
+        {
+            return Err("MCP-Endpunkt ist ungültig");
+        }
+        if !valid_secret_reference(&self.secret_reference) {
+            return Err("Infisical-Secret-Referenz ist ungültig");
+        }
+        if self.scopes.is_empty()
+            || self.scopes.len() > 64
+            || self.scopes.iter().any(|scope| {
+                scope.is_empty()
+                    || scope.len() > 128
+                    || !scope
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || b"._:/-".contains(&byte))
+            })
+        {
+            return Err("MCP-Scopes sind ungültig");
+        }
+        if !(1..=60_000).contains(&self.timeout_ms) {
+            return Err("MCP-Timeout ist ungültig");
+        }
+        Ok(())
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_millis(self.timeout_ms)
+    }
+}
+
+fn valid_secret_reference(value: &str) -> bool {
+    let mut bytes = value.bytes();
+    let Some(first) = bytes.next() else {
+        return false;
+    };
+    (first == b'_' || first.is_ascii_uppercase())
+        && bytes.all(|byte| byte == b'_' || byte.is_ascii_uppercase() || byte.is_ascii_digit())
+}
+
+fn resolve_token(
+    config: &Config,
+    lookup: impl FnOnce(&str) -> Option<Zeroizing<String>>,
+) -> Result<Zeroizing<String>, &'static str> {
+    let token =
+        lookup(&config.secret_reference).ok_or("Konfiguriertes MCP-Secret fehlt in Infisical")?;
+    if token.trim().is_empty()
+        || token.len() > 4096
+        || token.chars().any(char::is_control)
+        || !token.bytes().all(|byte| byte.is_ascii_graphic())
+    {
+        return Err("Konfiguriertes MCP-Secret ist ungültig");
+    }
+    Ok(token)
 }
 
 fn ids(arguments: &Value) -> (String, String) {
@@ -234,21 +304,28 @@ async fn handle(
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    let config = match Config::from_env() {
-        Ok(config) => config,
-        Err(message) => {
-            eprintln!("{message}");
-            process::exit(64);
-        }
-    };
-    let client = match AsyncBrainClient::new_local(&config.endpoint, &config.token, config.timeout)
-    {
-        Ok(client) => client,
-        Err(_) => {
-            eprintln!("BrainClient konnte nicht erstellt werden");
-            process::exit(64);
-        }
-    };
+    if let Err(message) = run().await {
+        eprintln!("{message}");
+        process::exit(64);
+    }
+}
+
+async fn run() -> Result<(), &'static str> {
+    let args = Args::parse();
+    let config = Config::load(&args.config)?;
+    let infisical_config = deadlock_brain_core::config::repo_root().join("config/infisical.json");
+    let mut secrets = deadlock_brain_core::pg::infisical_environment(&infisical_config)
+        .await
+        .map_err(|_| "MCP-Secret konnte nicht aus Infisical geladen werden")?;
+    let token = resolve_token(&config, |reference| {
+        secrets
+            .iter()
+            .position(|(name, _)| name == reference)
+            .map(|index| secrets.swap_remove(index).1)
+    })?;
+    drop(secrets);
+    let client = AsyncBrainClient::new_local(&config.endpoint, token.as_str(), config.timeout())
+        .map_err(|_| "BrainClient konnte nicht erstellt werden")?;
 
     let stdin = io::stdin();
     let mut stdout = io::stdout().lock();
@@ -279,12 +356,78 @@ async fn main() {
             let _ = stdout.flush();
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::{BufReader, Read};
+
+    const EXAMPLE_CONFIG: &[u8] = include_bytes!("../../../../../config/brain-mcp.example.json");
+
+    fn synthetic_token_lookup(reference: &str) -> Option<Zeroizing<String>> {
+        (reference == "BRAIN_SERVE_API_TOKEN")
+            .then(|| Zeroizing::new("synthetic-mcp-credential".to_string()))
+    }
+
+    #[test]
+    fn example_config_uses_existing_secret_reference_and_scopes() {
+        let config = Config::parse(EXAMPLE_CONFIG).unwrap();
+        assert_eq!(config.secret_reference, "BRAIN_SERVE_API_TOKEN");
+        assert_eq!(config.scopes, BTreeSet::from(["docs.public".to_string()]));
+        assert_eq!(config.timeout_ms, 8_000);
+    }
+
+    #[test]
+    fn secret_port_stub_resolves_only_the_configured_reference() {
+        let config = Config::parse(EXAMPLE_CONFIG).unwrap();
+        let token = resolve_token(&config, |reference| {
+            assert_eq!(reference, "BRAIN_SERVE_API_TOKEN");
+            synthetic_token_lookup(reference)
+        })
+        .unwrap();
+        assert!(token.as_str() == "synthetic-mcp-credential");
+    }
+
+    #[test]
+    fn invalid_synthetic_token_is_not_in_diagnostics() {
+        let config = Config::parse(EXAMPLE_CONFIG).unwrap();
+        let synthetic_secret = "synthetic credential with spaces";
+        let error = resolve_token(&config, |_| {
+            Some(Zeroizing::new(synthetic_secret.to_string()))
+        })
+        .err()
+        .unwrap();
+        assert_eq!(error, "Konfiguriertes MCP-Secret ist ungültig");
+        assert!(!error.contains(synthetic_secret));
+    }
+
+    #[test]
+    fn local_brain_endpoint_requirement_remains_enforced() {
+        assert!(AsyncBrainClient::new_local(
+            "https://example.invalid",
+            "synthetic-mcp-credential",
+            Duration::from_secs(1)
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn inline_secret_fields_are_rejected_without_echoing_their_value() {
+        let inline_secret = "synthetic-inline-credential-must-not-appear-in-errors";
+        let raw = format!(
+            r#"{{"endpoint":"http://127.0.0.1:8787","api_token":"{inline_secret}","scopes":["docs.public"],"timeout_ms":8000}}"#
+        );
+        let error = Config::parse(raw.as_bytes()).err().unwrap();
+        assert_eq!(error, "MCP-Konfiguration ist ungültig");
+        assert!(!error.contains(inline_secret));
+    }
+
+    #[test]
+    fn mcp_requires_an_explicit_config_path() {
+        assert!(Args::try_parse_from(["brain-mcp"]).is_err());
+    }
 
     struct RepeatedByteReader {
         remaining: usize,

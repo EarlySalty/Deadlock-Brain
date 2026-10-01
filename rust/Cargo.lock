@@ -850,6 +850,7 @@ dependencies = [
  "sqlx",
  "tempfile",
  "tokio",
+ "zeroize",
 ]
 
 [[package]]
