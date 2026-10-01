@@ -16,9 +16,17 @@ Nicht übernehmen: sieben `.tasks`-/Branchstatusartefakte aus dem Quellencommit,
 
 ## Paket B: PR9-Import-, Schema- und History-Handoff
 
-Quelle: committed Owner-Handoff `7deebcb779b6fa5572ebe1c1e554a3dbd9c2e569`, Parent `e752d2514249ece9b3702c5fd93a75680495db4c`.
+Vorliegende Quelle: Owner-Handoff `7deebcb779b6fa5572ebe1c1e554a3dbd9c2e569`, Parent `e752d2514249ece9b3702c5fd93a75680495db4`. Der Commit patcht Import-Race, Patch-ID-Normalisierung, `posted_at`-Drift und Snapshot-Limit, aber nicht die Schema-Migrationen, auf denen diese Pfade aufbauen.
 
-Kandidatenpfade:
+Auf `origin/main` fehlen derzeit:
+
+- `scripts/migrations/2026-09-18-patch-evidence.sql`
+- `scripts/migrations/2026-09-18-patch-evidence-followup.sql`
+- `scripts/migrations/2026-09-18-patch-evidence-followup2.sql`
+
+Diese Dateien stammen in der PR9-Historie aus `da3b55ea6619cb8007494adc40150d82375b96d7`, `370499733c74548ffe327b0a3e8a362e629cad00`, `a168371c6458cb24d6f29ea6ab8758e242fba3d2` und `dc941527fa993979535321237cbc102c82d44221`. Sie werden nicht aus der alten PR9-Vollhistorie übernommen. Der PR9-Owner muss die erforderlichen Schema-Dateien samt Import-/History-Abhängigkeiten in einem begrenzten committed Handoff gegen `be2aa6b` liefern. Die betroffenen PR9-Produktpfade bleiben bis dahin reserviert und unverändert.
+
+Kandidatenpfade des bestehenden Handoffs, erst nach Vorliegen des Schema-Handoffs:
 
 - `rust/crates/dbrain-normalize/src/lib.rs`
 - `rust/crates/dbrain-normalize/src/patch.rs`
