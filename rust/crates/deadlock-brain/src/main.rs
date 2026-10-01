@@ -1132,6 +1132,24 @@ struct InsightImportJsonArgs {
     dry_run: bool,
 }
 
+fn build_sample_gates(settings: &Settings) -> dbrain_builds::BuildSampleGates {
+    let builds = settings.global.builds();
+    dbrain_builds::BuildSampleGates {
+        min_matches: builds.min_matches,
+        min_prevalence_builds: builds.min_prevalence_builds,
+    }
+}
+
+fn configured_reasoner(settings: &Settings, use_ai: bool) -> dbrain_reasoner::ReasonerConfig {
+    let builds = settings.global.builds();
+    dbrain_reasoner::ReasonerConfig {
+        use_ai,
+        min_matches: builds.min_matches,
+        min_prevalence_builds: builds.min_prevalence_builds,
+        ..Default::default()
+    }
+}
+
 fn command_is_read_only(command: &Commands) -> bool {
     match command {
         Commands::Context(_)
@@ -1350,7 +1368,13 @@ async fn run(command: Commands, settings: Settings) -> Result<()> {
         }
         Commands::BuildContext(args) => {
             let playstyle = args.playstyle.map(BuildPlaystyle::as_str);
-            let result = dbrain_builds::build_context(&pool, &args.hero, playstyle).await?;
+            let result = dbrain_builds::build_context(
+                &pool,
+                &args.hero,
+                playstyle,
+                build_sample_gates(&settings),
+            )
+            .await?;
             print_json(&result)
         }
         Commands::BuildEval(args) => run_build_eval(&pool, &settings, args).await,
@@ -1443,7 +1467,9 @@ fn read_json_input(path: Option<&PathBuf>) -> Result<String> {
 
 async fn run_build_eval(pool: &PgPool, settings: &Settings, args: BuildEvalArgs) -> Result<()> {
     let playstyle = args.playstyle.map(BuildPlaystyle::as_str);
-    let build_context = dbrain_builds::build_context(pool, &args.hero, playstyle).await?;
+    let build_context =
+        dbrain_builds::build_context(pool, &args.hero, playstyle, build_sample_gates(settings))
+            .await?;
     let config = AiConfig::from_settings(settings);
     if !config.api_key_present() {
         return print_json(&json!({
@@ -1467,7 +1493,8 @@ async fn run_build_eval(pool: &PgPool, settings: &Settings, args: BuildEvalArgs)
 }
 
 async fn run_build_spec(pool: &PgPool, settings: &Settings, args: BuildSpecArgs) -> Result<()> {
-    let build_context = dbrain_builds::build_context(pool, &args.hero, None).await?;
+    let build_context =
+        dbrain_builds::build_context(pool, &args.hero, None, build_sample_gates(settings)).await?;
     let corpus =
         dbrain_builds::spec::load_corpus_build_by_hero_id(&args.corpus_dir, build_context.hero_id)?;
     let understanding_path = args
@@ -1787,10 +1814,7 @@ async fn run_requested_build(pool: &PgPool, args: ReviewBuildArgs, review: bool)
 async fn run_reason(pool: &PgPool, settings: &Settings, target: ReasonCommands) -> Result<()> {
     match target {
         ReasonCommands::Build(args) => {
-            let mut config = dbrain_reasoner::ReasonerConfig {
-                use_ai: !args.no_ai,
-                ..Default::default()
-            };
+            let mut config = configured_reasoner(settings, !args.no_ai);
             if let Some(patch) = args.patch {
                 config.patch_tag = patch;
             }
@@ -1832,10 +1856,7 @@ async fn run_reason(pool: &PgPool, settings: &Settings, target: ReasonCommands) 
             }
         }
         ReasonCommands::PatchImpact(args) => {
-            let mut config = dbrain_reasoner::ReasonerConfig {
-                use_ai: true,
-                ..Default::default()
-            };
+            let mut config = configured_reasoner(settings, true);
             if let Some(patch) = args.patch {
                 config.patch_tag = patch;
             }
@@ -1861,10 +1882,7 @@ async fn run_reason(pool: &PgPool, settings: &Settings, target: ReasonCommands) 
             }
         }
         ReasonCommands::Backtest(args) => {
-            let mut config = dbrain_reasoner::ReasonerConfig {
-                use_ai: false,
-                ..Default::default()
-            };
+            let mut config = configured_reasoner(settings, false);
             if let Some(patch) = args.patch.clone() {
                 config.patch_tag = patch;
             }

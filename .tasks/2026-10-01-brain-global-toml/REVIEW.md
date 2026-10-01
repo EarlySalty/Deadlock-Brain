@@ -87,4 +87,21 @@ Urteil: `ALLOW`, drei NITs
 
 # Review Runde 5
 
-Ausstehend: erneutes Gate nach Befundbehebung und finalem Freeze-SHA.
+Review-Gate: `gpt-6.1-sol`
+Basis: `origin/main` (`39710e3282c830ee9b47e90945deb71d1db44724`)
+Head: `b9ecfbe6c6596970679a974c05dcf3e18a4da1ba`
+Urteil: `BLOCK`
+
+## Befunde
+
+1. **BLOCKING**, `rust/crates/deadlock-brain/src/wiki_refresh.rs`: `wiki rebuild --dir` ließ relative Pfade als Symlink-Ziel stehen. Maßnahme: Publication-Root vor Veröffentlichung absolut machen.
+2. **NIT**, `rust/crates/dbrain-builds/src/engine.rs`: `[builds]`-Schwellenwerte wurden nicht an Runtime-Verbraucher weitergegeben. Maßnahme: TOML-Schwellen explizit an Builds-Engine und Reasoner-Meta-Index anbinden.
+
+## Nacharbeit und Validierung
+
+- Publication-Root wird vor dem Lock und Cutover absolutisiert und canonicalisiert. Test `relative_rebuild_root_becomes_absolute_before_publication` besteht.
+- `BuildSampleGates` übergibt TOML-Werte an die Builds-Engine; alle drei Reasoner-CLI-Pfade übernehmen dieselben Werte für den Meta-Index.
+- `cargo test --manifest-path rust/Cargo.toml --locked -p dbrain-builds --lib -- --include-ignored`: 13 passed, 0 failed, 0 ignored.
+- `cargo test --manifest-path rust/Cargo.toml --locked -p deadlock-brain --bin deadlock-brain wiki_refresh::tests -- --include-ignored`: 6 passed, 0 failed, 0 ignored, 50 filtered.
+- Für Cargo wurden vier fehlende externe Pfade vorübergehend auf gepinnte Abhängigkeiten im isolierten Layout gesetzt. Die Manifeständerungen sind zurückgenommen.
+- Erneutes Gate auf dem finalen Freeze-SHA steht aus.

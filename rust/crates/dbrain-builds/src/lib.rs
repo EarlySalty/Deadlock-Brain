@@ -16,7 +16,22 @@ mod sync;
 mod util;
 
 pub use patch_tag::latest_patch_tag;
-pub use sync::{sync_build_data, BuildDataSyncOptions, BuildDataSyncSummary};
+pub use sync::{BuildDataSyncOptions, BuildDataSyncSummary, sync_build_data};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BuildSampleGates {
+    pub min_matches: i64,
+    pub min_prevalence_builds: i64,
+}
+
+impl Default for BuildSampleGates {
+    fn default() -> Self {
+        Self {
+            min_matches: 500,
+            min_prevalence_builds: 30,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BuildContext {
@@ -73,6 +88,7 @@ pub async fn build_context(
     pool: &PgPool,
     hero_query: &str,
     playstyle: Option<&str>,
+    sample_gates: BuildSampleGates,
 ) -> Result<BuildContext> {
-    engine::build_context(pool, hero_query, playstyle).await
+    engine::build_context(pool, hero_query, playstyle, sample_gates).await
 }

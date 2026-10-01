@@ -92,18 +92,29 @@ pub async fn run(
 }
 
 pub async fn rebuild(pool: &sqlx::PgPool, publication_root: &Path) -> Result<Value> {
-    fs::create_dir_all(publication_root).context("Wiki-Ziel ist nicht verfügbar")?;
+    let requested_root = absolute_publication_root(publication_root)?;
+    fs::create_dir_all(&requested_root).context("Wiki-Ziel ist nicht verfügbar")?;
+    let publication_root =
+        fs::canonicalize(&requested_root).context("Wiki-Ziel ist nicht verfügbar")?;
     let lock = OpenOptions::new()
         .create(true)
         .truncate(false)
         .write(true)
         .open(publication_root.join("refresh.lock"))?;
     lock.try_lock().context("Ein Wiki-Refresh läuft bereits")?;
-    let result = rebuild_and_publish(pool, publication_root, Value::Null).await;
+    let result = rebuild_and_publish(pool, &publication_root, Value::Null).await;
     if result.is_err() {
-        record_failure(publication_root)?;
+        record_failure(&publication_root)?;
     }
     result
+}
+
+fn absolute_publication_root(root: &Path) -> Result<PathBuf> {
+    if root.is_absolute() {
+        Ok(root.to_path_buf())
+    } else {
+        Ok(std::env::current_dir()?.join(root))
+    }
 }
 
 fn record_failure(publication_root: &Path) -> Result<()> {
@@ -308,6 +319,14 @@ fn collect_files(root: &Path, directory: &Path, out: &mut Vec<PathBuf>) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn relative_rebuild_root_becomes_absolute_before_publication() -> Result<()> {
+        let root = absolute_publication_root(Path::new("wiki"))?;
+        assert!(root.is_absolute());
+        assert!(root.ends_with("wiki"));
+        Ok(())
+    }
 
     #[test]
     fn wiki_corpus_is_opt_in_and_existing_config_stays_valid() {

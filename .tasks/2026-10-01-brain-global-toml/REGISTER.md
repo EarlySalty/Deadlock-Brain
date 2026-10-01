@@ -34,12 +34,13 @@ ORCHESTRIERUNG[OR-1]: Stufe mittel | Schritt bau | Artefakt: .tasks/2026-10-01-b
 
 ## Prüffortschritt
 
-- Tests: `dbrain-retrieval --lib` 45 passed, 0 failed, 15 ignored; `deadlock-brain-core` config 16 passed, 0 failed, 0 ignored; `deadlock-brain` wiki refresh 5 passed, 0 failed, 0 ignored; `dbrain-population` API 3 passed, 0 failed, 0 ignored.
-- Compile-Check: `deadlock-brain` mit Rust 1.98 und `--locked` erfolgreich; die aktuellen `wiki_refresh` Tests kompilieren ebenfalls den aktualisierten Binary-Pfad. Für die Cargo-Läufe wurden vier externe Pfade vorübergehend auf gepinnte Abhängigkeiten im isolierten Layout gesetzt und danach zurückgenommen.
+- Tests: `dbrain-retrieval --lib` 45 passed, 0 failed, 15 ignored; `deadlock-brain-core` config 16 passed, 0 failed, 0 ignored; `deadlock-brain` Wiki-Publikation 6 passed, 0 failed, 0 ignored, 50 gefiltert; `dbrain-builds --lib` 13 passed, 0 failed, 0 ignored; `dbrain-population` API 3 passed.
+- Compile-Check: `deadlock-brain`-Binärdatei mit Rust 1.98 erfolgreich über `cargo test` gebaut. Für Cargo-Läufe wurden vier externe Pfade vorübergehend auf gepinnte Abhängigkeiten im isolierten Layout gesetzt und danach zurückgenommen.
 - Formatprüfung: Workspace-weites `cargo fmt --all -- --check` sowie gezieltes `rustfmt --check` melden vorhandene Formatabweichungen in weiteren beziehungsweise angefassten Dateien. Neue Zeilen sind formatiert; keine unbeteiligten Bereiche wurden geändert.
-- Eigenes Merge-Gate: Runde 1 BLOCK, vier Befunde behoben. Runde 2 BLOCK, Clap-ID und Wiki-Resolver behoben. Runde 3 ALLOW auf `7c4c11f771fd9375cc45ec426e063179c4ebb5d3`. Runde 4 ALLOW mit drei NITs, behoben in `a46ad05`; Runde 5 ausstehend.
+- Eigenes Merge-Gate: Runde 1 BLOCK, vier Befunde behoben. Runde 2 BLOCK, Clap-ID und Wiki-Resolver behoben. Runde 3 ALLOW auf `7c4c11f771fd9375cc45ec426e063179c4ebb5d3`. Runde 4 ALLOW mit drei NITs, behoben in `a46ad05`. Runde 5 BLOCK auf `b9ecfbe`; relative Publication-Wurzel und TOML-Schwellenverdrahtung behoben und getestet. Erneutes Gate nach Freeze-SHA ausstehend.
 - Gemeinsamer Freeze und unabhängige Intent-Abnahme: ausstehend.
 - Reguläres Merge-/Security-Gate: ausstehend.
-- Merge und Push: nach Intent-Abnahme und regulärem Gate. Dedicated main worktree `/home/nathanael/.worktrees/brain-live-main` vor Änderungen erneut prüfen.
-- Deploy, Dienstrestart, Livebeleg und Cleanup: ausstehend.
-- Blocker: unabhängige Intent-Abnahme, abschließendes Gate und Deployment noch offen; Source-Resolver-Subsystem bleibt ausgeschlossen.
+- Merge und Push: nach Intent-Abnahme, Sourcefreigabe und regulärem Gate. Dedicated main worktree `/home/nathanael/.worktrees/brain-live-main` vor Änderungen erneut prüfen.
+- Main-Publish, Releasebuild und Deploy: nicht gestartet. Der main-Publish-Slot bleibt bis zur SHA-gebundenen Sourcefreigabe unbeansprucht. Kein hostweiter Releasebuild wurde gestartet.
+- Deploypfad gemäß Integrationsmeldung: `/opt/deadlock-brain/current` und Neustart von `brain-serve` auf Port 8788. Livebeleg und Cleanup stehen aus.
+- Blocker: SHA-gebundene Sourcefreigabe, finale private-PG-Abnahme, unabhängige Intent-Abnahme und abschließendes Gate; Source-Resolver-Subsystem bleibt ausgeschlossen.

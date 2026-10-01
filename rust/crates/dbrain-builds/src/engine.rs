@@ -1,19 +1,17 @@
-use std::{cmp::Ordering, collections::HashMap, env};
+use std::{cmp::Ordering, collections::HashMap};
 
 use anyhow::Result;
 use sqlx::PgPool;
 
 use crate::{
+    BuildContext, BuildPath, BuildPathSummary, BuildPhase, BuildSampleGates, ItemDossier,
     error::BuildEngineError,
     util::{
-        clamp_unit, normalize_name, now_epoch_seconds, winrate_pp, BRACKET_BADGE_80,
-        PATCH_TAG_CURRENT,
+        BRACKET_BADGE_80, PATCH_TAG_CURRENT, clamp_unit, normalize_name, now_epoch_seconds,
+        winrate_pp,
     },
-    BuildContext, BuildPath, BuildPathSummary, BuildPhase, ItemDossier,
 };
 
-const DEFAULT_MIN_MATCHES: i64 = 500;
-const DEFAULT_MIN_PREVALENCE_BUILDS: i64 = 30;
 const MAX_ITEMS_PER_PATH: usize = 18;
 const MAX_ITEMS_PER_PHASE: usize = 6;
 
@@ -21,6 +19,7 @@ pub(crate) async fn build_context(
     pool: &PgPool,
     hero_query: &str,
     playstyle: Option<&str>,
+    gates: BuildSampleGates,
 ) -> Result<BuildContext> {
     let requested_playstyle = normalize_playstyle(playstyle)?;
     let hero_id = resolve_hero_id(pool, hero_query).await?;
@@ -30,7 +29,6 @@ pub(crate) async fn build_context(
         return Err(BuildEngineError::MissingBuildData(hero_id).into());
     }
 
-    let gates = SampleGates::from_env();
     let max_builds = rows
         .iter()
         .map(|row| row.prevalence_builds)
@@ -299,33 +297,7 @@ struct PathCandidate {
     sample_matches: i64,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct SampleGates {
-    min_matches: i64,
-    min_prevalence_builds: i64,
-}
-
-impl SampleGates {
-    fn from_env() -> Self {
-        Self {
-            min_matches: env_i64("DBRAIN_BUILDS_MIN_MATCHES", DEFAULT_MIN_MATCHES),
-            min_prevalence_builds: env_i64(
-                "DBRAIN_BUILDS_MIN_PREVALENCE_BUILDS",
-                DEFAULT_MIN_PREVALENCE_BUILDS,
-            ),
-        }
-    }
-}
-
-fn env_i64(name: &str, default: i64) -> i64 {
-    env::var(name)
-        .ok()
-        .and_then(|value| value.trim().parse::<i64>().ok())
-        .filter(|value| *value >= 0)
-        .unwrap_or(default)
-}
-
-fn confidence(row: &ItemRow, gates: &SampleGates) -> &'static str {
+fn confidence(row: &ItemRow, gates: &BuildSampleGates) -> &'static str {
     if row.matches < gates.min_matches || row.prevalence_builds < gates.min_prevalence_builds {
         "low"
     } else if row.matches < gates.min_matches * 4
@@ -585,6 +557,35 @@ mod tests {
     // 156 hero_item_stats-Zeilen (bracket badge80, patch current).
     const MO_HERO_ID: i64 = 18;
 
+    #[test]
+    fn configured_sample_gates_control_confidence() {
+        let row = ItemRow {
+            item_id: 1,
+            name: "Sample Item".to_string(),
+            slot_type: "weapon".to_string(),
+            tier: 2,
+            defense_kind: Vec::new(),
+            damage_axis: "weapon".to_string(),
+            prevalence_builds: 4,
+            wins: 12,
+            losses: 8,
+            matches: 20,
+            avg_buy_time_relative: None,
+            lift_pp: Some(1.0),
+        };
+        let default_gates = BuildSampleGates {
+            min_matches: 500,
+            min_prevalence_builds: 30,
+        };
+        let configured_gates = BuildSampleGates {
+            min_matches: 20,
+            min_prevalence_builds: 4,
+        };
+
+        assert_eq!(confidence(&row, &default_gates), "low");
+        assert_eq!(confidence(&row, &configured_gates), "medium");
+    }
+
     #[tokio::test]
     #[ignore = "benoetigt Scratch-Postgres via DEADLOCK_CENTRAL_DSN"]
     async fn build_context_for_known_hero_yields_typed_evidence() {
@@ -593,7 +594,7 @@ mod tests {
             return;
         };
 
-        let context = build_context(&pool, "18", None)
+        let context = build_context(&pool, "18", None, BuildSampleGates::default())
             .await
             .expect("build context");
 
@@ -629,9 +630,14 @@ mod tests {
         let Some(pool) = crate::util::test_pool().await else {
             return;
         };
-        let context = build_context(&pool, "Mo & Krill", Some("tank"))
-            .await
-            .expect("build context");
+        let context = build_context(
+            &pool,
+            "Mo & Krill",
+            Some("tank"),
+            BuildSampleGates::default(),
+        )
+        .await
+        .expect("build context");
         assert_eq!(context.playstyle.as_deref(), Some("tank"));
         assert_eq!(context.primary_path.label, "tank");
     }
