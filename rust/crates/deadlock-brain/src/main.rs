@@ -20,6 +20,7 @@ use deadlock_brain_core::{
 use serde::Serialize;
 use serde_json::{json, Value};
 use sqlx::PgPool;
+use std::os::unix::fs::OpenOptionsExt;
 
 mod pg_entities;
 mod pg_insights;
@@ -1224,8 +1225,11 @@ async fn ledger_for_pg(target: &PgCommands) -> Result<steam_web_api::SteamLedger
     let path = args.ledger_config.clone();
     let config: steam_web_api::SteamLedgerConfig = tokio::task::spawn_blocking(move || {
         const LIMIT: u64 = 16 * 1024;
-        let file =
-            fs::File::open(path).map_err(|_| anyhow!("Ledger-Konfiguration ist nicht lesbar"))?;
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(path)
+            .map_err(|_| anyhow!("Ledger-Konfiguration ist nicht lesbar"))?;
         if !file
             .metadata()
             .map_err(|_| anyhow!("Ledger-Konfiguration ist nicht prüfbar"))?
