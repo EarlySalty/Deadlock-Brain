@@ -97,6 +97,10 @@ fn config() -> Result<Config> {
     Ok(c)
 }
 const GEMINI_URL: &str = "https://gemini.google.com/app";
+// State JSON is quoted as a JS string and once more inside the CDP envelope.
+// Each quoting step is at most 2x for already-valid JSON. Keep bounded room
+// for the restore code, session ID and protocol metadata as well as 1 MiB state.
+const CDP_REQUEST_LIMIT: usize = 4 * dbrain_session_store::LIMIT + 64 * 1024;
 const CONVERT:&str="Wandle die oben genannten Erkenntnisse in genau dieses JSON um. Gib NUR das JSON aus, ohne Markdown, ohne Codeblock, ohne weiteren Text:\n{\"claims\": [{\"entity\": \"Hero, Item oder Fähigkeit\", \"claim_type\": \"build|item_timing|matchup|mechanic|combo|meta\", \"assertion\": \"klarer deutscher Satz\", \"patch_context\": null, \"confidence\": 0.0}]}\nEnthält die Analyse kein konkretes Deadlock-Gameplay-Wissen, gib {\"claims\": []} zurück.";
 
 // Chromium's private NUL-framed CDP pipe. No listening debug port, no persisted
@@ -167,11 +171,14 @@ impl Browser {
                 Ok(())
             });
         }
+        // Complete fallible descriptor preparation before spawning. After spawn
+        // Self construction is infallible and Drop owns every failure in CDP init.
+        let reader = std::io::BufReader::new(parent.try_clone()?);
         let process = command.spawn()?;
         drop(child);
         let mut b = Self {
             child: process,
-            reader: std::io::BufReader::new(parent.try_clone()?),
+            reader,
             pipe: parent,
             id: 0,
             session: String::new(),
@@ -215,7 +222,7 @@ impl Browser {
             request["sessionId"] = json!(self.session);
         }
         let mut raw = serde_json::to_vec(&request)?;
-        if raw.len() > 2 * 1024 * 1024 {
+        if raw.len() > CDP_REQUEST_LIMIT {
             bail!("request too large");
         }
         raw.push(0);
@@ -653,7 +660,7 @@ for(const d of await indexedDB.databases()){
 }
 return {origin:location.origin,localStorage:Object.entries(localStorage).map(([name,value])=>({name,value})),indexedDB:databases};
 })()"#;
-const RESTORE: &str = r#"async(s)=>{for(const d of s.indexedDB||[])for(const st of d.stores)if(st.autoIncrement)throw Error('unsupported storage key generator');for(const v of s.localStorage||[])localStorage.setItem(v.name,v.value);for(const d of s.indexedDB||[]){const db=await new Promise((ok,no)=>{const r=indexedDB.open(d.name,d.version);r.onerror=()=>no(Error('storage open failed'));r.onupgradeneeded=()=>{for(const st of d.stores){const store=r.result.createObjectStore(st.name,{keyPath:st.keyPath,autoIncrement:false});for(const i of st.indexes)store.createIndex(i.name,i.keyPath,{unique:i.unique,multiEntry:i.multiEntry});}};r.onsuccess=()=>ok(r.result);});try{if(d.stores.length)await new Promise((ok,no)=>{const tx=db.transaction(d.stores.map(v=>v.name),'readwrite');tx.oncomplete=()=>ok();tx.onerror=tx.onabort=()=>no(Error('storage write failed'));for(const st of d.stores){const store=tx.objectStore(st.name);for(const record of st.records){if(st.keyPath===null)store.put(record.value,record.key);else store.put(record.value);}}});}finally{db.close();}}}"#;
+const RESTORE: &str = r#"async(s)=>{for(const d of s.indexedDB||[])for(const st of d.stores)if(st.autoIncrement)throw Error('unsupported storage key generator');for(const d of await indexedDB.databases())await new Promise((ok,no)=>{const r=indexedDB.deleteDatabase(d.name);r.onsuccess=()=>ok();r.onerror=r.onblocked=()=>no(Error('storage cleanup failed'));});localStorage.clear();for(const v of s.localStorage||[])localStorage.setItem(v.name,v.value);for(const d of s.indexedDB||[]){const db=await new Promise((ok,no)=>{const r=indexedDB.open(d.name,d.version);r.onerror=()=>no(Error('storage open failed'));r.onupgradeneeded=()=>{for(const st of d.stores){const store=r.result.createObjectStore(st.name,{keyPath:st.keyPath,autoIncrement:false});for(const i of st.indexes)store.createIndex(i.name,i.keyPath,{unique:i.unique,multiEntry:i.multiEntry});}};r.onsuccess=()=>ok(r.result);});try{if(d.stores.length)await new Promise((ok,no)=>{const tx=db.transaction(d.stores.map(v=>v.name),'readwrite');tx.oncomplete=()=>ok();tx.onerror=tx.onabort=()=>no(Error('storage write failed'));for(const st of d.stores){const store=tx.objectStore(st.name);for(const record of st.records){if(st.keyPath===null)store.put(record.value,record.key);else store.put(record.value);}}});}finally{db.close();}}}"#;
 
 #[cfg(test)]
 mod tests {
@@ -676,7 +683,11 @@ mod tests {
         first.navigate(&url).unwrap();
         first.eval(r#"(async()=>{localStorage.setItem('synthetic','fixture');await new Promise((ok,no)=>{const r=indexedDB.open('synthetic-db',2);r.onupgradeneeded=()=>{const s=r.result.createObjectStore('records',{keyPath:['first','second']});s.createIndex('idx','label',{unique:false,multiEntry:false});};r.onsuccess=()=>{const db=r.result;const tx=db.transaction('records','readwrite');tx.objectStore('records').put({first:'a',second:'b',label:'synthetic'});tx.oncomplete=()=>{db.close();ok();};tx.onerror=()=>no(Error('fixture failed'));};r.onerror=()=>no(Error('fixture failed'));});return true;})()"#).unwrap();
         first.eval(r#"(async()=>{await new Promise((ok,no)=>{const r=indexedDB.open('synthetic-db',2);r.onsuccess=()=>{const db=r.result;const tx=db.transaction('records','readwrite');const v=JSON.parse('{"first":"proto","second":"own","__proto__":{"value":"preserved"}}');tx.objectStore('records').put(v);tx.oncomplete=()=>{db.close();ok();};tx.onerror=()=>no(Error('fixture failed'));};});return true;})()"#).unwrap();
+        first
+            .eval(r#"localStorage.setItem('escaped-boundary','\\'.repeat(300*1024));true"#)
+            .unwrap();
         let state = first.eval(EXPORT).unwrap();
+        assert!(serde_json::to_vec(&state).unwrap().len() < dbrain_session_store::LIMIT);
         assert!(state["indexedDB"][0]["stores"][0]["records"]
             .as_array()
             .unwrap()
@@ -698,6 +709,7 @@ mod tests {
         drop(first);
         let mut second = Browser::open(&browser_path()).unwrap();
         second.navigate(&url).unwrap();
+        second.eval(r#"(async()=>{localStorage.setItem('page-init-extra','must-disappear');await new Promise((ok,no)=>{const r=indexedDB.open('synthetic-db',1);r.onupgradeneeded=()=>r.result.createObjectStore('page-init');r.onsuccess=()=>{const db=r.result;const tx=db.transaction('page-init','readwrite');tx.objectStore('page-init').put('extra',1);tx.oncomplete=()=>{db.close();ok();};tx.onerror=()=>no(Error('fixture failed'));};});return true;})()"#).unwrap();
         second
             .eval(&format!(
                 "({RESTORE})(JSON.parse({}))",
@@ -705,6 +717,17 @@ mod tests {
             ))
             .unwrap();
         assert_eq!(second.eval(EXPORT).unwrap(), state);
+        let oversized_expression = format!(
+            "localStorage.setItem('oversized-mutation','must-not-run');/*{}*/",
+            "x".repeat(CDP_REQUEST_LIMIT)
+        );
+        assert!(second.eval(&oversized_expression).is_err());
+        assert_eq!(
+            second
+                .eval("localStorage.getItem('oversized-mutation')")
+                .unwrap(),
+            Value::Null
+        );
         second
             .call(
                 "Storage.setCookies",

@@ -47,6 +47,34 @@ fn encrypted_browser_state_roundtrip_concurrency_revocation_and_account_isolatio
         -1
     );
     assert!(save(&mut client, &cipher, "account-a", -1, &state).is_err());
+    // Replay the actual helper get/put codec at the exact stored-state limit.
+    let mut boundary = json!({"cookies":[],"origins":[],"padding":""});
+    let overhead = serde_json::to_vec(&boundary).unwrap().len();
+    boundary["padding"] = json!("x".repeat(LIMIT - overhead));
+    assert_eq!(serde_json::to_vec(&boundary).unwrap().len(), LIMIT);
+    save(&mut client, &cipher, "boundary-account", -1, &boundary).unwrap();
+    let envelope = load(&mut client, &cipher, "boundary-account").unwrap();
+    let encoded = encode_envelope(&envelope).unwrap();
+    assert!(encoded.len() > LIMIT);
+    let (revision, replay) = decode_envelope(encoded.as_slice()).unwrap();
+    save(&mut client, &cipher, "boundary-account", revision, &replay).unwrap();
+    assert_eq!(
+        load(&mut client, &cipher, "boundary-account").unwrap()["revision"],
+        1
+    );
+    let mut oversized = boundary.clone();
+    oversized["padding"] = json!("x".repeat(LIMIT - overhead + 1));
+    assert!(decode_envelope(
+        encode_envelope(&json!({"revision":1,"state":oversized}))
+            .unwrap()
+            .as_slice()
+    )
+    .is_err());
+    assert!(save(&mut client, &cipher, "boundary-account", 1, &oversized).is_err());
+    assert_eq!(
+        load(&mut client, &cipher, "boundary-account").unwrap()["revision"],
+        1
+    );
     let blob: Vec<u8> = client
         .query_one(
             "SELECT state_enc FROM core.browser_credentials WHERE account_id='account-a'",

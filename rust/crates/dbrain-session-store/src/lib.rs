@@ -1,9 +1,43 @@
 use anyhow::{bail, Context, Result};
 use postgres::{Client, NoTls};
 use serde_json::{json, Value};
-use std::{path::Path, str::FromStr};
+use std::{io::Read, path::Path, str::FromStr};
 use tb_crypto::FieldCipher;
 pub const LIMIT: usize = 1024 * 1024;
+/// State bytes plus the fixed revision/state envelope and an i64 revision.
+pub const ENVELOPE_LIMIT: usize = LIMIT + 128;
+/// The largest revision is 20 bytes; JSON punctuation/field names are 22 bytes.
+/// 128 bytes also permits bounded surrounding whitespace on private input.
+pub fn encode_envelope(envelope: &Value) -> Result<Vec<u8>> {
+    let raw = serde_json::to_vec(envelope)?;
+    if raw.len() > ENVELOPE_LIMIT {
+        bail!("envelope too large");
+    }
+    Ok(raw)
+}
+pub fn decode_envelope(input: impl std::io::Read) -> Result<(i64, Value)> {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Envelope {
+        revision: i64,
+        state: Value,
+    }
+    let mut raw = Vec::new();
+    input
+        .take((ENVELOPE_LIMIT + 1) as u64)
+        .read_to_end(&mut raw)?;
+    if raw.len() > ENVELOPE_LIMIT {
+        bail!("envelope too large");
+    }
+    let envelope: Envelope = serde_json::from_slice(&raw)?;
+    if envelope.revision < -1 || !valid_state(&envelope.state) {
+        bail!("invalid envelope");
+    }
+    if serde_json::to_vec(&envelope.state)?.len() > LIMIT {
+        bail!("state too large");
+    }
+    Ok((envelope.revision, envelope.state))
+}
 pub fn valid_account(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128

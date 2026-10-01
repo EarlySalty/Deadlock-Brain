@@ -1,13 +1,9 @@
 use anyhow::{bail, Context, Result};
-use dbrain_session_store::{connect_with_values, load, save, valid_account, valid_state, LIMIT};
-use serde::Deserialize;
-use serde_json::Value;
-use std::{
-    fs::OpenOptions,
-    io::{Read, Write},
-    os::unix::fs::FileTypeExt,
-    path::PathBuf,
+use dbrain_session_store::{
+    connect_with_values, decode_envelope, encode_envelope, load, save, valid_account,
 };
+use serde::Deserialize;
+use std::{fs::OpenOptions, io::Write, os::unix::fs::FileTypeExt, path::PathBuf};
 #[derive(Deserialize)]
 struct Config {
     account_id: String,
@@ -63,28 +59,11 @@ fn run() -> Result<()> {
         bail!("private pipe required");
     }
     if mode == "get" {
-        let raw = serde_json::to_vec(&load(&mut client, &cipher, &config.account_id)?)?;
-        if raw.len() > LIMIT {
-            bail!("state too large");
-        }
+        let raw = encode_envelope(&load(&mut client, &cipher, &config.account_id)?)?;
         pipe.write_all(&raw)?;
     } else {
-        let mut raw = Vec::new();
-        pipe.take((LIMIT + 1) as u64).read_to_end(&mut raw)?;
-        if raw.len() > LIMIT {
-            bail!("state too large");
-        }
-        let input: Value = serde_json::from_slice(&raw)?;
-        let revision = input
-            .get("revision")
-            .and_then(Value::as_i64)
-            .filter(|v| *v >= -1)
-            .context("revision missing")?;
-        let state = input
-            .get("state")
-            .filter(|v| valid_state(v))
-            .context("invalid state")?;
-        save(&mut client, &cipher, &config.account_id, revision, state)?;
+        let (revision, state) = decode_envelope(pipe)?;
+        save(&mut client, &cipher, &config.account_id, revision, &state)?;
     }
     Ok(())
 }
