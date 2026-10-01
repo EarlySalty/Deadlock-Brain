@@ -78,18 +78,70 @@ impl WikiIr {
 fn alias_key(text: &str) -> String {
     dbrain_normalize::normalize_alias(text)
 }
-fn selector(locator: &str) -> &str {
-    locator
-        .split_once("@utf8:")
-        .map_or(locator, |(path, _)| path)
+fn selector<'a>(locator: &'a str, model: &str) -> &'a str {
+    if !matches!(model, "wikitext" | "Scribunto") {
+        return locator;
+    }
+    let Some((path, span)) = locator.rsplit_once("@utf8:") else {
+        return locator;
+    };
+    let Some((start, end)) = span.split_once("..") else {
+        return locator;
+    };
+    if start.is_empty()
+        || end.is_empty()
+        || !start.bytes().all(|b| b.is_ascii_digit())
+        || !end.bytes().all(|b| b.is_ascii_digit())
+    {
+        return locator;
+    }
+    match (start.parse::<usize>(), end.parse::<usize>()) {
+        (Ok(start), Ok(end)) if end >= start => path,
+        _ => locator,
+    }
 }
 fn candidate<'a>(revision: &'a RevisionProbe, path: &str) -> Option<&'a Candidate> {
     let mut matches = revision
         .candidates
         .iter()
-        .filter(|c| c.locator == path || selector(&c.locator) == path);
+        .filter(|c| c.locator == path || selector(&c.locator, &revision.content_model) == path);
     let found = matches.next()?;
     matches.next().is_none().then_some(found)
+}
+
+#[cfg(test)]
+mod selector_tests {
+    use super::selector;
+
+    #[test]
+    fn literal_locator_keys_are_not_truncated_or_mistaken_for_byte_spans() {
+        assert_eq!(
+            selector("json:/amount@utf8:1..2", "json"),
+            "json:/amount@utf8:1..2"
+        );
+        for model in ["Scribunto", "wikitext"] {
+            assert_eq!(
+                selector("lua:/amount@utf8:x@utf8:12..34", model),
+                "lua:/amount@utf8:x"
+            );
+            assert_eq!(
+                selector("template:Data/key@utf8:1..2@utf8:12..34", model),
+                "template:Data/key@utf8:1..2"
+            );
+            for malformed in [
+                "12..x",
+                "34..12",
+                "+12..34",
+                "..34",
+                "12..",
+                "12..34..56",
+                "999999999999999999999999999999999999..34",
+            ] {
+                let locator = format!("lua:/amount@utf8:{malformed}");
+                assert_eq!(selector(&locator, model), locator);
+            }
+        }
+    }
 }
 fn location(page: &PageProbe, revision: &RevisionProbe, candidate: &Candidate) -> SourceLocator {
     SourceLocator {
@@ -186,6 +238,17 @@ pub fn extract(bytes: &[u8], profile: &MappingProfile) -> Result<WikiIr> {
                     continue;
                 };
                 let slot = revision.pointer("/slots/main").unwrap_or(revision);
+                if revision.get("texthidden").is_some()
+                    || revision.get("suppressed").is_some()
+                    || slot.get("texthidden").is_some()
+                    || slot.get("suppressed").is_some()
+                    || probe
+                        .diagnostics
+                        .iter()
+                        .any(|d| d.code == "revision_suppressed")
+                {
+                    continue;
+                }
                 let Some(content) = slot
                     .get("content")
                     .or_else(|| slot.get("*"))

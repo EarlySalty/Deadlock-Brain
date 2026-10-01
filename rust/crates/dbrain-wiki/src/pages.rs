@@ -152,13 +152,22 @@ pub(crate) fn inspect(capture: &Capture, pages: &mut BTreeMap<i64, PageProbe>) -
                     .filter(|id| *id > 0)
                     .ok_or("revision lacks positive revid")?;
                 let probe = inspect_revision(raw, revision_id, capture.retrieved_at)?;
-                if let Some(previous) = revisions.get(&revision_id) {
+                if let Some(previous) = revisions.get_mut(&revision_id) {
                     if previous != &probe {
                         conflict = true;
                         page.diagnostics.push(Diagnostic::new(
                             "same_revision_conflicting_content",
                             format!("revision:{revision_id}"),
                         ));
+                    }
+                    // A denial for this immutable revision dominates every older
+                    // visible capture, regardless of arrival order or slot shape.
+                    if probe
+                        .diagnostics
+                        .iter()
+                        .any(|d| d.code == "revision_suppressed")
+                    {
+                        *previous = probe;
                     }
                 } else {
                     revisions.insert(revision_id, probe);

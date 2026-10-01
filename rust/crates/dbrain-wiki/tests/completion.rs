@@ -309,6 +309,142 @@ fn current_acl_denial_erases_raw_ir_and_canonical_facts() {
         .iter()
         .any(|f| f.subject_id == "fixture:hero:one"));
 }
+
+#[test]
+fn suppression_dominates_duplicate_revision_and_raw_export_in_every_order() {
+    for separate_capture in [false, true] {
+        for denied_first in [false, true] {
+            for main_slot in [false, true] {
+                let mut v = fixture();
+                let visible = latest(&mut v, 101).clone();
+                let denied_id = visible["revid"].as_u64().unwrap();
+                let mut hidden = visible.clone();
+                if main_slot {
+                    hidden["slots"]["main"]["suppressed"] = json!(true);
+                } else {
+                    hidden["texthidden"] = json!(true);
+                }
+                if separate_capture {
+                    let mut duplicate = v["pages"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .find(|p| p["page_id"] == 101)
+                        .unwrap()
+                        .clone();
+                    duplicate["response"]["query"]["pages"][0]["revisions"] = json!([hidden]);
+                    if denied_first {
+                        v["pages"].as_array_mut().unwrap().insert(0, duplicate);
+                    } else {
+                        v["pages"].as_array_mut().unwrap().push(duplicate);
+                    }
+                } else {
+                    let revisions = raw_page(&mut v, 101)["revisions"].as_array_mut().unwrap();
+                    if denied_first {
+                        revisions.insert(0, hidden);
+                    } else {
+                        revisions.push(hidden);
+                    }
+                }
+                let x = ir(&v);
+                let page = x.report().pages.iter().find(|p| p.page_id == 101).unwrap();
+                let denied = page
+                    .revisions
+                    .iter()
+                    .find(|r| r.revision_id as u64 == denied_id)
+                    .unwrap();
+                assert!(denied.raw_sha256.is_none() && denied.candidates.is_empty());
+                assert!(!x
+                    .sources()
+                    .iter()
+                    .any(|s| s.logical_id.ends_with(":101") && s.revision == denied_id));
+                assert!(x
+                    .sources()
+                    .iter()
+                    .any(|s| s.logical_id.ends_with(":101") && s.revision != denied_id));
+            }
+        }
+    }
+}
+
+#[test]
+fn literal_utf8_markers_in_keys_require_the_exact_logical_mapping() {
+    for (model, text, absent, exact, unit) in [
+        (
+            "json",
+            "{\"amount@utf8:x\":\"42.125\",\"unit\":\"damage\"}",
+            "json:/amount",
+            "json:/amount@utf8:x",
+            "json:/unit",
+        ),
+        (
+            "Scribunto",
+            "return { [\"amount@utf8:x\"]=\"42.125\", unit=\"damage\" }",
+            "lua:/amount",
+            "lua:/amount@utf8:x",
+            "lua:/unit",
+        ),
+        (
+            "wikitext",
+            "{{Data|amount@utf8:x=42.125|unit=damage}}",
+            "template:Data/amount",
+            "template:Data/amount@utf8:x",
+            "template:Data/unit",
+        ),
+        (
+            "json",
+            "{\"amount@utf8:1..2\":\"42.125\",\"unit\":\"damage\"}",
+            "json:/amount",
+            "json:/amount@utf8:1..2",
+            "json:/unit",
+        ),
+        (
+            "Scribunto",
+            "return { [\"amount@utf8:1..2\"]=\"42.125\", unit=\"damage\" }",
+            "lua:/amount",
+            "lua:/amount@utf8:1..2",
+            "lua:/unit",
+        ),
+        (
+            "wikitext",
+            "{{Data|amount@utf8:1..2=42.125|unit=damage}}",
+            "template:Data/amount",
+            "template:Data/amount@utf8:1..2",
+            "template:Data/unit",
+        ),
+    ] {
+        let mut v = fixture();
+        let r = latest(&mut v, 101);
+        r["slots"]["main"]["contentmodel"] = json!(model);
+        r["slots"]["main"]["content"] = json!(text);
+        for (path, exists) in [(absent, false), (exact, true)] {
+            let mut p = mapping();
+            p.fields = vec![FieldMapping {
+                page_id: 101,
+                predicate: "test_damage".into(),
+                value_locator: path.into(),
+                kind: ValueKind::Quantity,
+                unit_locator: Some(unit.into()),
+                condition_locator: None,
+                variant_locator: None,
+            }];
+            let x = extract(&serde_json::to_vec(&v).unwrap(), &p).unwrap();
+            if exists {
+                assert_eq!(
+                    x.fields()[0].value,
+                    IrValue::Quantity {
+                        decimal: "42.125".into(),
+                        unit: Unit::Damage
+                    }
+                );
+            } else {
+                assert!(
+                    matches!(&x.fields()[0].value, IrValue::Unknown { reason } if reason == "missing_field")
+                );
+            }
+        }
+    }
+}
 #[test]
 fn dynamic_dependencies_quarantine_dependent_facts_not_just_the_bad_page() {
     let mut v = fixture();
