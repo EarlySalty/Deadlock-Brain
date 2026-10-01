@@ -63,7 +63,18 @@ run_check() {
   printf 'RUN %s\n' "$name"
   (
     cd "$ROOT/rust" || exit
-    if [[ "$name" == release ]]; then wait_for_release_slot || exit 1; fi
+    if [[ "$name" == release ]]; then
+      # Cooperating runners sharing this Cargo cache hold one mutex through the
+      # entire build. The process probe also waits for non-cooperating jobs;
+      # those external jobs cannot be made atomic by this runner's lock.
+      exec {release_lock_fd}>"$CARGO_CACHE/host-release-build.lock" || exit 1
+      printf 'WAIT release host mutex\n'
+      if ! flock -x "$release_lock_fd"; then
+        printf 'Release mutex acquisition failed.\n' >&2
+        exit 1
+      fi
+      wait_for_release_slot || exit 1
+    fi
     env -i PATH="$PATH" HOME="$LOGS/test-home" CARGO_HOME="$CARGO_CACHE" RUSTUP_HOME="$RUSTUP_CACHE" \
       CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR="$TARGET_DIR" BRAIN_TEST_CARGO="$CARGO" LC_ALL=C.UTF-8 TZ=UTC "$@"
   ) > "$LOGS/$name.log" 2>&1
