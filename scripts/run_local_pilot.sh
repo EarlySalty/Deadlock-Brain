@@ -41,7 +41,7 @@ start() {
 }
 start || { echo 'scratch cluster did not start' >&2; exit 1; }
 trap '"$PG_BIN/pg_ctl" -D "$CLUSTER" -m fast -w stop >>"$REPORT/pg.log" 2>&1' EXIT
-for db in pilot_main pilot_rebuild; do
+for db in pilot_main pilot_rebuild pilot_diagnostic; do
   "$PG_BIN/dropdb" -h "$CLUSTER" -p 55439 -U brain_core_test --if-exists "$db"
   "$PG_BIN/createdb" -h "$CLUSTER" -p 55439 -U brain_core_test "$db"
 done
@@ -64,9 +64,14 @@ phase pilot_main pilot_phase_ingest ingest
 start || { echo 'scratch cluster did not restart after the forced stop' >&2; exit 1; }
 BRAIN_PILOT_VARIANT=default phase pilot_main pilot_phase_after_restart after_restart_default
 if [[ -n "${BRAIN_PILOT_DIAGNOSTIC_MAX_INPUT_TOKENS:-}" ]]; then
+  # The default phase mutates ACLs and tombstones. Diagnostic evidence starts from its own
+  # freshly ingested database, including a real restart, rather than inheriting those mutations.
+  phase pilot_diagnostic pilot_phase_ingest diagnostic_ingest
+  "$PG_BIN/pg_ctl" -D "$CLUSTER" -m immediate -w stop >>"$REPORT/pg.log" 2>&1
+  start || { echo 'diagnostic scratch cluster did not restart' >&2; exit 1; }
   BRAIN_PILOT_VARIANT=diagnostic BRAIN_PILOT_RETRIEVAL_LIMIT="${BRAIN_PILOT_DIAGNOSTIC_LIMIT:-1}" \
     BRAIN_PILOT_MAX_INPUT_TOKENS="$BRAIN_PILOT_DIAGNOSTIC_MAX_INPUT_TOKENS" \
-    phase pilot_main pilot_phase_after_restart after_restart_diagnostic
+    phase pilot_diagnostic pilot_phase_after_restart after_restart_diagnostic
 fi
 phase pilot_main pilot_phase_reader_failures reader_failures
 phase pilot_rebuild pilot_phase_empty_rebuild rebuild
