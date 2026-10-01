@@ -1,0 +1,15 @@
+[Unit]
+Description=Deadlock Brain – geplantes YouTube-Lernen
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Unter diesem stabilen Releasepfad liegen die normalen config/- und rust/-Ports.
+# Bestehenden Timer und OnFailure-Drop-in beim Installieren unverändert erhalten.
+WorkingDirectory=/opt/deadlock-brain/current
+LoadCredential=infisical-token:%h/.config/infisical-tokens/infisical-token-bots
+ExecStart=/bin/bash -c 'exec 5<"%d/infisical-token"; exec /opt/deadlock-brain/current/bin/deadlock-brain-yt scheduled-auto-learn'
+UMask=0077
+StandardOutput=journal
+StandardError=journal
