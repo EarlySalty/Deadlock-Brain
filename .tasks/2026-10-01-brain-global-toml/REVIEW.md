@@ -105,3 +105,12 @@ Urteil: `BLOCK`
 - `cargo test --manifest-path rust/Cargo.toml --locked -p deadlock-brain --bin deadlock-brain wiki_refresh::tests -- --include-ignored`: 6 passed, 0 failed, 0 ignored, 50 filtered.
 - Für Cargo wurden vier fehlende externe Pfade vorübergehend auf gepinnte Abhängigkeiten im isolierten Layout gesetzt. Die Manifeständerungen sind zurückgenommen.
 - Erneutes Gate auf dem finalen Freeze-SHA steht aus.
+
+# Review Runde 6
+
+Review-Gate: `gpt-6.1-sol`
+Basis: `main`
+Head: `7465f06`
+Urteil: `ALLOW`
+
+Gate-Antwort: `ALLOW: Publication root is absolute before publishing; no blocking regression found.`
