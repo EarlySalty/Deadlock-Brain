@@ -1,5 +1,6 @@
 use std::{
-    env, fmt,
+    fmt,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     time::{Duration, Instant},
 };
 
@@ -10,15 +11,9 @@ use deadlock_brain_core::{
 use postgres::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use zeroize::Zeroizing;
 
-pub const LEDGER_BASE_URL: &str = "http://127.0.0.1:8901";
 const TOKEN_HEADER: &str = "X-Internal-Token";
-const TOKEN_ENV_NAMES: [&str; 4] = [
-    "SERVERSYNC_INTERNAL_TOKEN",
-    "MASTER_BROKER_TOKEN",
-    "MAIN_BOT_INTERNAL_TOKEN",
-    "TWITCH_INTERNAL_API_TOKEN",
-];
 const CALLER_CLASS: &str = "standard";
 const LEDGER_TIMEOUT: Duration = Duration::from_secs(10);
 const JOURNAL_TABLE: &str = "brain.steam_web_api_pending_observations";
@@ -311,8 +306,45 @@ impl ObservationJournal for PgObservationJournal<'_> {
 
 pub struct SteamLedger {
     base_url: String,
-    token: Option<String>,
+    token: Option<Zeroizing<String>>,
     caller: &'static str,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SteamLedgerConfig {
+    pub base_url: String,
+    pub token_secret: String,
+}
+
+impl SteamLedgerConfig {
+    fn validate(&self) -> Result<(), SteamWebApiError> {
+        let endpoint = self
+            .base_url
+            .strip_prefix("http://")
+            .map(|value| value.strip_suffix('/').unwrap_or(value))
+            .and_then(|value| value.parse::<SocketAddr>().ok());
+        let endpoint_valid = endpoint.is_some_and(|address| {
+            address.port() > 0
+                && (matches!(address.ip(), IpAddr::V4(ip) if ip == Ipv4Addr::LOCALHOST)
+                    || matches!(address.ip(), IpAddr::V6(ip) if ip == Ipv6Addr::LOCALHOST))
+        });
+        let name_valid = !self.token_secret.is_empty()
+            && self.token_secret.len() <= 128
+            && self
+                .token_secret
+                .bytes()
+                .enumerate()
+                .all(|(index, character)| {
+                    character == b'_'
+                        || character.is_ascii_uppercase()
+                        || index > 0 && character.is_ascii_digit()
+                });
+        if !endpoint_valid || !name_valid {
+            return Err(SteamWebApiError::Ledger("Konfiguration ungültig".into()));
+        }
+        Ok(())
+    }
 }
 
 impl fmt::Debug for SteamLedger {
@@ -350,34 +382,51 @@ struct ObserveResponse {
 }
 
 impl SteamLedger {
-    pub fn from_env(caller: &'static str) -> Self {
-        let token = TOKEN_ENV_NAMES.iter().find_map(|name| {
-            env::var(name)
-                .ok()
-                .map(|value| value.trim().to_string())
-                .filter(|value| !value.is_empty())
-        });
-        Self::new(LEDGER_BASE_URL, token, caller)
+    pub fn from_snapshot(
+        caller: &'static str,
+        config: &SteamLedgerConfig,
+        snapshot: &[(String, Zeroizing<String>)],
+    ) -> Result<Self, SteamWebApiError> {
+        config.validate()?;
+        let mut values = snapshot
+            .iter()
+            .filter(|(name, _)| name == &config.token_secret);
+        let token = values
+            .next()
+            .map(|(_, value)| value.trim())
+            .filter(|value| {
+                !value.is_empty()
+                    && value.len() <= 4096
+                    && value.bytes().all(|byte| byte.is_ascii_graphic())
+            });
+        if values.next().is_some() || token.is_none() {
+            return Err(SteamWebApiError::Ledger(
+                "Konfiguriertes Secret fehlt oder ist mehrdeutig".into(),
+            ));
+        }
+        Ok(Self::new(
+            &config.base_url,
+            token.map(str::to_owned),
+            caller,
+        ))
     }
 
     pub fn new(base_url: impl Into<String>, token: Option<String>, caller: &'static str) -> Self {
         Self {
             base_url: base_url.into().trim_end_matches('/').to_string(),
-            token,
+            token: token.map(Zeroizing::new),
             caller,
         }
     }
 
     fn options(&self, attempts: usize) -> Result<HttpGetOptions, SteamWebApiError> {
         let token = self.token.as_ref().ok_or_else(|| {
-            SteamWebApiError::Ledger(
-                "interner Schlüssel fehlt in der Infisical-Umgebung".to_string(),
-            )
+            SteamWebApiError::Ledger("interner Schlüssel fehlt im Infisical-Snapshot".to_string())
         })?;
         Ok(HttpGetOptions {
             cache_ttl_seconds: None,
             timeout: LEDGER_TIMEOUT,
-            headers: vec![(TOKEN_HEADER.to_string(), token.clone())],
+            headers: vec![(TOKEN_HEADER.to_string(), token.to_string())],
             retry: RetryPolicy {
                 attempts,
                 backoff: Duration::from_millis(500),
@@ -585,6 +634,87 @@ pub fn fetch(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ledger_configuration_allows_only_exact_loopback_origins() {
+        for endpoint in ["http://127.0.0.1:8901", "http://[::1]:8901/"] {
+            let config = SteamLedgerConfig {
+                base_url: endpoint.into(),
+                token_secret: "TWITCH_INTERNAL_API_TOKEN".into(),
+            };
+            assert!(config.validate().is_ok());
+        }
+        for endpoint in [
+            "http://localhost:8901",
+            "http://127.0.0.2:8901",
+            "https://127.0.0.1:8901",
+            "http://127.0.0.1:0",
+            "http://user@127.0.0.1:8901",
+            "http://127.0.0.1:8901/path",
+            "http://127.0.0.1:8901?key=x",
+            "http://127.0.0.1:8901#fragment",
+            "http://192.0.2.1:8901",
+        ] {
+            let config = SteamLedgerConfig {
+                base_url: endpoint.into(),
+                token_secret: "TWITCH_INTERNAL_API_TOKEN".into(),
+            };
+            assert!(config.validate().is_err(), "{endpoint}");
+        }
+    }
+
+    #[test]
+    fn ledger_snapshot_selects_exact_ref_and_fails_closed() {
+        let mut config = SteamLedgerConfig {
+            base_url: "http://127.0.0.1:8901".into(),
+            token_secret: "TWITCH_INTERNAL_API_TOKEN".into(),
+        };
+        let snapshot = vec![(
+            "TWITCH_INTERNAL_API_TOKEN".into(),
+            Zeroizing::new("synthetic-test-key".into()),
+        )];
+        let ledger = SteamLedger::from_snapshot("test", &config, &snapshot).unwrap();
+        assert!(!format!("{ledger:?}").contains("synthetic-test-key"));
+        assert!(ledger.options(1).is_ok());
+        let wrong_ref = vec![(
+            "MASTER_API_TOKEN".into(),
+            Zeroizing::new("synthetic-test-key".into()),
+        )];
+        assert!(SteamLedger::from_snapshot("test", &config, &wrong_ref).is_err());
+        assert!(SteamLedger::from_snapshot("test", &config, &[]).is_err());
+        let duplicates = vec![
+            (
+                "TWITCH_INTERNAL_API_TOKEN".into(),
+                Zeroizing::new("a".into()),
+            ),
+            (
+                "TWITCH_INTERNAL_API_TOKEN".into(),
+                Zeroizing::new("b".into()),
+            ),
+        ];
+        assert!(SteamLedger::from_snapshot("test", &config, &duplicates).is_err());
+        let empty = vec![(
+            "TWITCH_INTERNAL_API_TOKEN".into(),
+            Zeroizing::new("  ".into()),
+        )];
+        assert!(SteamLedger::from_snapshot("test", &config, &empty).is_err());
+        for value in [
+            "a\nb".to_owned(),
+            "a b".to_owned(),
+            "ä".to_owned(),
+            "x".repeat(4097),
+        ] {
+            let invalid = vec![("TWITCH_INTERNAL_API_TOKEN".into(), Zeroizing::new(value))];
+            assert!(SteamLedger::from_snapshot("test", &config, &invalid).is_err());
+        }
+        for name in ["", "token", "TOKEN/OTHER", "1TOKEN"] {
+            config.token_secret = name.into();
+            assert!(SteamLedger::from_snapshot("test", &config, &snapshot).is_err());
+        }
+        assert!(serde_json::from_str::<SteamLedgerConfig>(
+            r#"{"base_url":"http://127.0.0.1:8901","token_secret":"TOKEN","token":"x"}"#
+        )
+        .is_err());
+    }
     use std::{
         io::{ErrorKind, Read, Write},
         net::{TcpListener, TcpStream},
@@ -1346,7 +1476,7 @@ mod tests {
     #[test]
     #[ignore = "needs scratch Postgres via DEADLOCK_BRAIN_SCRATCH_DSN"]
     fn pg_journal_survives_reconnect_and_serializes_runs() {
-        let Ok(dsn) = env::var("DEADLOCK_BRAIN_SCRATCH_DSN") else {
+        let Ok(dsn) = std::env::var("DEADLOCK_BRAIN_SCRATCH_DSN") else {
             eprintln!("skip: DEADLOCK_BRAIN_SCRATCH_DSN fehlt");
             return;
         };

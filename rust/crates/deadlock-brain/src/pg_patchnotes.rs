@@ -18,7 +18,7 @@ const IMPORTER: &str = "deadlock_patchnotes_db_pg";
 const STEAM_APPID: u32 = 1_422_450;
 const STEAM_APPNEWS_API: &str = "https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/";
 const STEAM_LOOKBACK_COUNT: u32 = 500;
-const STEAM_LEDGER_CALLER: &str = "deadlock-brain-patchnote";
+pub(crate) const STEAM_LEDGER_CALLER: &str = "deadlock-brain-patchnote";
 
 #[derive(Debug, Clone)]
 pub struct ImportPatchnoteOptions {
@@ -195,7 +195,11 @@ impl EntityIndex {
     }
 }
 
-pub fn import_patchnote(http: &HttpClient, options: &ImportPatchnoteOptions) -> Result<Value> {
+pub fn import_patchnote(
+    http: &HttpClient,
+    ledger: &SteamLedger,
+    options: &ImportPatchnoteOptions,
+) -> Result<Value> {
     let dsn = env::var(&options.dsn_env).map_err(|_| {
         anyhow!(
             "{} ist nicht gesetzt; DSN wird nicht ausgegeben.",
@@ -208,7 +212,7 @@ pub fn import_patchnote(http: &HttpClient, options: &ImportPatchnoteOptions) -> 
     ensure_pg_schema(&mut client)?;
     let patch = load_patchnote(&mut client, options.patch_id)?;
     let index = load_entity_index(&mut client)?;
-    let resolved = resolve_patch_source(http, &mut client, &patch)?;
+    let resolved = resolve_patch_source(http, ledger, &mut client, &patch)?;
     let prepared = prepare_patch(&patch, &resolved, &index)?;
     if options.dry_run {
         return Ok(summary_json(
@@ -265,6 +269,7 @@ fn load_patchnote(client: &mut Client, patch_id: i64) -> Result<PatchnoteRow> {
 
 fn resolve_patch_source(
     http: &HttpClient,
+    ledger: &SteamLedger,
     client: &mut Client,
     row: &PatchnoteRow,
 ) -> Result<PatchSourceResolution> {
@@ -280,7 +285,7 @@ fn resolve_patch_source(
         return Ok(PatchSourceResolution::from_row(row));
     }
 
-    let items = match fetch_steam_news_items(http, client) {
+    let items = match fetch_steam_news_items(http, ledger, client) {
         Ok(items) => items,
         Err(error) if error.blocks_fallback() => return Err(error.into()),
         Err(_) => {
@@ -375,13 +380,14 @@ fn is_substantial_forum_content(
 
 fn fetch_steam_news_items(
     http: &HttpClient,
+    ledger: &SteamLedger,
     client: &mut Client,
 ) -> std::result::Result<Vec<SteamAppNewsItem>, SteamWebApiError> {
     let url = appnews_url(STEAM_LOOKBACK_COUNT);
     let mut journal = PgObservationJournal::open(client)?;
     let result = steam_web_api::fetch(
         http,
-        &SteamLedger::from_env(STEAM_LEDGER_CALLER),
+        ledger,
         &mut journal,
         &url,
         &HttpGetOptions {
@@ -1603,6 +1609,7 @@ fn summary_json(
 ) -> Value {
     json!({
         "dry_run": dry_run,
+        "dry_run_contract": "Kein fachlicher Import; Datenbankzugriff und Steam-Abrufjournal bleiben aktiv.",
         "target": "postgres",
         "dsn_env": options.dsn_env,
         "source": SOURCE,

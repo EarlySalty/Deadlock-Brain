@@ -17,7 +17,7 @@ use crate::steam_web_api::{self, PgObservationJournal, SteamLedger};
 const SOURCE: &str = "steam_appnews";
 const IMPORTER: &str = "steam_appnews_pg";
 const APPNEWS_API: &str = "https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/";
-const STEAM_LEDGER_CALLER: &str = "deadlock-brain-steam-news";
+pub(crate) const STEAM_LEDGER_CALLER: &str = "deadlock-brain-steam-news";
 
 #[derive(Debug, Clone)]
 pub struct ImportSteamNewsOptions {
@@ -154,7 +154,11 @@ impl EntityIndex {
     }
 }
 
-pub fn import_steam_news(http: &HttpClient, options: &ImportSteamNewsOptions) -> Result<Value> {
+pub fn import_steam_news(
+    http: &HttpClient,
+    ledger: &SteamLedger,
+    options: &ImportSteamNewsOptions,
+) -> Result<Value> {
     let start_date = NaiveDate::parse_from_str(&options.start_date, "%Y-%m-%d")
         .with_context(|| format!("ungueltiges --start-date: {}", options.start_date))?;
     let api_url = appnews_url(options.appid, options.count);
@@ -171,7 +175,7 @@ pub fn import_steam_news(http: &HttpClient, options: &ImportSteamNewsOptions) ->
         let mut journal = PgObservationJournal::open(&mut client)?;
         steam_web_api::fetch(
             http,
-            &SteamLedger::from_env(STEAM_LEDGER_CALLER),
+            ledger,
             &mut journal,
             &api_url,
             &HttpGetOptions {
@@ -1007,6 +1011,7 @@ fn summary_json(
     let last_patch = patches.last().map(patch_summary);
     json!({
         "dry_run": dry_run,
+        "dry_run_contract": "Kein fachlicher Import; Datenbankzugriff und Steam-Abrufjournal bleiben aktiv.",
         "target": "postgres",
         "dsn_env": options.dsn_env,
         "source": SOURCE,
