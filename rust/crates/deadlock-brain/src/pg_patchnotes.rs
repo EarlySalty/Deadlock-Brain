@@ -11,11 +11,14 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
+use crate::steam_web_api::{self, PgObservationJournal, SteamLedger, SteamWebApiError};
+
 const SOURCE: &str = "deadlock_patchnotes_db";
 const IMPORTER: &str = "deadlock_patchnotes_db_pg";
 const STEAM_APPID: u32 = 1_422_450;
 const STEAM_APPNEWS_API: &str = "https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/";
 const STEAM_LOOKBACK_COUNT: u32 = 500;
+const STEAM_LEDGER_CALLER: &str = "deadlock-brain-patchnote";
 
 #[derive(Debug, Clone)]
 pub struct ImportPatchnoteOptions {
@@ -205,7 +208,7 @@ pub fn import_patchnote(http: &HttpClient, options: &ImportPatchnoteOptions) -> 
     ensure_pg_schema(&mut client)?;
     let patch = load_patchnote(&mut client, options.patch_id)?;
     let index = load_entity_index(&mut client)?;
-    let resolved = resolve_patch_source(http, &patch)?;
+    let resolved = resolve_patch_source(http, &mut client, &patch)?;
     let prepared = prepare_patch(&patch, &resolved, &index)?;
     if options.dry_run {
         return Ok(summary_json(
@@ -260,7 +263,11 @@ fn load_patchnote(client: &mut Client, patch_id: i64) -> Result<PatchnoteRow> {
     })
 }
 
-fn resolve_patch_source(http: &HttpClient, row: &PatchnoteRow) -> Result<PatchSourceResolution> {
+fn resolve_patch_source(
+    http: &HttpClient,
+    client: &mut Client,
+    row: &PatchnoteRow,
+) -> Result<PatchSourceResolution> {
     let posted_at = row_posted_at(row)?;
     let candidates = collect_steam_links(row);
     let source_kind = classify_source_kind(row.url.as_deref());
@@ -273,8 +280,9 @@ fn resolve_patch_source(http: &HttpClient, row: &PatchnoteRow) -> Result<PatchSo
         return Ok(PatchSourceResolution::from_row(row));
     }
 
-    let items = match fetch_steam_news_items(http) {
+    let items = match fetch_steam_news_items(http, client) {
         Ok(items) => items,
+        Err(error) if error.blocks_fallback() => return Err(error.into()),
         Err(_) => {
             return Ok(PatchSourceResolution::from_row(row));
         }
@@ -365,16 +373,26 @@ fn is_substantial_forum_content(
     false
 }
 
-fn fetch_steam_news_items(http: &HttpClient) -> Result<Vec<SteamAppNewsItem>> {
+fn fetch_steam_news_items(
+    http: &HttpClient,
+    client: &mut Client,
+) -> std::result::Result<Vec<SteamAppNewsItem>, SteamWebApiError> {
     let url = appnews_url(STEAM_LOOKBACK_COUNT);
-    let response: SteamAppNewsResponse = http.get_json(
+    let mut journal = PgObservationJournal::open(client)?;
+    let result = steam_web_api::fetch(
+        http,
+        &SteamLedger::from_env(STEAM_LEDGER_CALLER),
+        &mut journal,
         &url,
-        HttpGetOptions {
+        &HttpGetOptions {
             cache_ttl_seconds: Some(900),
             timeout: Duration::from_secs(45),
             ..HttpGetOptions::default()
         },
     )?;
+    let response: SteamAppNewsResponse = result
+        .json()
+        .map_err(|_| SteamWebApiError::Local("GetNewsForApp-Antwort ungültig".to_string()))?;
     Ok(response.appnews.newsitems)
 }
 
@@ -2567,8 +2585,7 @@ mod tests {
         index.insert("item", "Aegis", "Aegis");
         let index = index.finish();
 
-        let prepared =
-            prepare_patch(&row, &PatchSourceResolution::from_row(&row), &index).expect("prepare");
+        let prepared = prepare_patch(&row, &PatchSourceResolution::from_row(&row), &index).expect("prepare");
 
         assert_eq!(
             prepared
@@ -2612,8 +2629,7 @@ mod tests {
         index.insert("hero", "Abrams", "Abrams");
         let index = index.finish();
 
-        let prepared =
-            prepare_patch(&row, &PatchSourceResolution::from_row(&row), &index).expect("prepare");
+        let prepared = prepare_patch(&row, &PatchSourceResolution::from_row(&row), &index).expect("prepare");
         let change_types = prepared
             .events
             .iter()
