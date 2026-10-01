@@ -1167,6 +1167,8 @@ enum InsightCommands {
 
 #[derive(Debug, Args)]
 struct PgSteamNewsArgs {
+    #[command(flatten)]
+    ledger: LedgerAccessArgs,
     #[arg(long = "dsn-env", default_value = "DEADLOCK_CENTRAL_DSN")]
     dsn_env: String,
     #[arg(long, default_value_t = 1_422_450)]
@@ -1193,6 +1195,8 @@ struct PgSteamNewsArgs {
 
 #[derive(Debug, Args)]
 struct PgImportPatchnoteArgs {
+    #[command(flatten)]
+    ledger: LedgerAccessArgs,
     #[arg(long = "patch-id", help = "changelog_posts.id")]
     patch_id: i64,
     #[arg(long = "dsn-env", default_value = "DEADLOCK_CENTRAL_DSN")]
@@ -1202,6 +1206,53 @@ struct PgImportPatchnoteArgs {
         help = "Nur Datensatz lesen/parsen; keine Schreibzugriffe in brain-Tabellen."
     )]
     dry_run: bool,
+}
+
+#[derive(Debug, Args)]
+struct LedgerAccessArgs {
+    #[arg(long, default_value = "config/steam-ledger.json")]
+    ledger_config: PathBuf,
+    #[arg(long, default_value = "config/infisical.json")]
+    infisical_config: PathBuf,
+}
+
+async fn ledger_for_pg(target: &PgCommands) -> Result<steam_web_api::SteamLedger> {
+    let (args, caller) = match target {
+        PgCommands::ImportSteamNews(args) => (&args.ledger, pg_steam_news::STEAM_LEDGER_CALLER),
+        PgCommands::ImportPatchnote(args) => (&args.ledger, pg_patchnotes::STEAM_LEDGER_CALLER),
+    };
+    let path = args.ledger_config.clone();
+    let config: steam_web_api::SteamLedgerConfig = tokio::task::spawn_blocking(move || {
+        const LIMIT: u64 = 16 * 1024;
+        let file =
+            fs::File::open(path).map_err(|_| anyhow!("Ledger-Konfiguration ist nicht lesbar"))?;
+        if !file
+            .metadata()
+            .map_err(|_| anyhow!("Ledger-Konfiguration ist nicht prüfbar"))?
+            .is_file()
+        {
+            anyhow::bail!("Ledger-Konfiguration muss eine normale Datei sein");
+        }
+        let mut bytes = Vec::new();
+        file.take(LIMIT + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| anyhow!("Ledger-Konfiguration ist nicht lesbar"))?;
+        if bytes.len() as u64 > LIMIT {
+            anyhow::bail!("Ledger-Konfiguration ist zu groß");
+        }
+        serde_json::from_slice(&bytes).map_err(|_| anyhow!("Ledger-Konfiguration ist ungültig"))
+    })
+    .await
+    .map_err(|_| anyhow!("Ledger-Konfiguration ist nicht verfügbar"))??;
+    let values = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        dl_token_secrets::values(&args.infisical_config),
+    )
+    .await
+    .map_err(|_| anyhow!("Infisical antwortet nicht rechtzeitig"))?
+    .map_err(|_| anyhow!("Infisical-Secretquelle ist nicht verfügbar"))?;
+    steam_web_api::SteamLedger::from_snapshot(caller, &config, &values)
+        .map_err(|_| anyhow!("Ledger-Konfiguration oder Infisical-Referenz ist ungültig"))
 }
 
 #[derive(Debug, Args)]
@@ -1454,6 +1505,7 @@ async fn run(cli: Cli) -> Result<()> {
     }
     let mut command = match command {
         Commands::Pg { target } => {
+            let ledger = ledger_for_pg(&target).await?;
             // Alle `pg`-Befehle nutzen synchrone Crates (`postgres` bzw. der
             // blocking-HttpClient), die intern teils selbst einen Tokio-Runtime
             // starten. Direkt im async-Kontext aufgerufen wuerde das
@@ -1464,7 +1516,7 @@ async fn run(cli: Cli) -> Result<()> {
             return tokio::task::spawn_blocking(move || {
                 fs::create_dir_all(&settings.cache_dir)?;
                 let http = http_client(&settings)?;
-                run_pg(&http, target)
+                run_pg(&http, &ledger, target)
             })
             .await?;
         }
@@ -1652,10 +1704,15 @@ async fn run(cli: Cli) -> Result<()> {
     }
 }
 
-fn run_pg(http: &HttpClient, target: PgCommands) -> Result<()> {
+fn run_pg(
+    http: &HttpClient,
+    ledger: &steam_web_api::SteamLedger,
+    target: PgCommands,
+) -> Result<()> {
     match target {
         PgCommands::ImportSteamNews(args) => print_json(&pg_steam_news::import_steam_news(
             http,
+            ledger,
             &pg_steam_news::ImportSteamNewsOptions {
                 dsn_env: args.dsn_env,
                 appid: args.appid,
@@ -1667,13 +1724,18 @@ fn run_pg(http: &HttpClient, target: PgCommands) -> Result<()> {
                 dry_run: args.dry_run,
             },
         )?),
-        PgCommands::ImportPatchnote(args) => run_pg_patchnote(http, args),
+        PgCommands::ImportPatchnote(args) => run_pg_patchnote(http, ledger, args),
     }
 }
 
-fn run_pg_patchnote(http: &HttpClient, args: PgImportPatchnoteArgs) -> Result<()> {
+fn run_pg_patchnote(
+    http: &HttpClient,
+    ledger: &steam_web_api::SteamLedger,
+    args: PgImportPatchnoteArgs,
+) -> Result<()> {
     print_json(&pg_patchnotes::import_patchnote(
         http,
+        ledger,
         &pg_patchnotes::ImportPatchnoteOptions {
             patch_id: args.patch_id,
             dsn_env: args.dsn_env,

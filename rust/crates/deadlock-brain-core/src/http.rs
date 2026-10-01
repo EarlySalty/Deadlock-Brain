@@ -101,6 +101,7 @@ impl HttpClient {
             .user_agent(user_agent.clone())
             .timeout(Duration::from_secs(30))
             .redirect(reqwest::redirect::Policy::none())
+            .no_proxy()
             .build()?;
         // A policy variant of the same shared HTTP core. Legacy callers retain
         // decompression; source provenance reads retain exact entity bytes.
