@@ -7,6 +7,10 @@ edition.workspace = true
 name = "deadlock-brain"
 path = "src/main.rs"
 
+[[bin]]
+name = "deadlock-brain-patch-review"
+path = "src/bin/deadlock-brain-patch-review.rs"
+
 [dependencies]
 anyhow.workspace = true
 brain-client = { path = "../brain-client" }

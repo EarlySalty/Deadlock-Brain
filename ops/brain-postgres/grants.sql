@@ -22,6 +22,22 @@ GRANT SELECT ON brain.core_schema_version, brain.corpus_releases_v1,
     brain.conversation_owners_v1 TO brain_service;
 GRANT INSERT ON brain.conversation_owners_v1 TO brain_service;
 
+GRANT SELECT ON brain.patch_events, brain.entity_snapshots, brain.source_documents TO brain_service;
+GRANT USAGE ON SCHEMA patchnotes TO brain_service;
+GRANT SELECT ON patchnotes.changelog_posts TO brain_service;
+
+DO $$
+BEGIN
+  IF to_regclass('brain.patch_review_runs') IS NOT NULL THEN
+    EXECUTE 'GRANT SELECT ON brain.patch_evidence_revisions, brain.patch_review_runs, brain.patch_history_v1, brain.youtube_transcript_evidence, brain.youtube_caption_segments_v1 TO brain_service, brain_readonly';
+    EXECUTE 'GRANT INSERT ON brain.patch_review_runs TO brain_service';
+    EXECUTE 'GRANT USAGE, SELECT ON SEQUENCE brain.patch_review_runs_run_id_seq TO brain_service';
+  END IF;
+  IF to_regclass('brain.youtube_transcript_evidence') IS NOT NULL THEN
+    EXECUTE 'GRANT INSERT ON brain.youtube_transcript_evidence TO brain_ingest';
+  END IF;
+END $$;
+
 DO $$
 BEGIN
   IF EXISTS (SELECT FROM pg_namespace WHERE nspname = 'brain_legacy') THEN

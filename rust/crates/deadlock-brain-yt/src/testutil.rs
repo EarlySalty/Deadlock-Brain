@@ -12,11 +12,15 @@ use sqlx::postgres::{PgPool, PgPoolOptions};
 /// gesetzt ist (dann überspringt der Test).
 pub async fn test_pool() -> Option<PgPool> {
     let dsn = std::env::var("DEADLOCK_CENTRAL_DSN").ok()?;
-    PgPoolOptions::new()
-        .max_connections(2)
-        .connect(&dsn)
-        .await
-        .ok()
+    Some(
+        PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&dsn)
+            .await
+            .unwrap_or_else(|_| {
+                panic!("Scratch Postgres connection failed; connection details withheld")
+            }),
+    )
 }
 
 pub fn unique_suffix() -> String {
