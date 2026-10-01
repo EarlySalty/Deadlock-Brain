@@ -23,9 +23,9 @@ Datum: 2026-10-01
 3. `cargo test -p deadlock-brain --bin deadlock-brain-patch-review`: 10 bestanden, 0 fehlgeschlagen, 0 ignoriert.
 4. `cargo fmt --check` und `git diff --check` erfolgreich.
 5. `deadlock-brain-yt --all-targets` ist mit `SQLX_OFFLINE=true` durch fehlenden Cacheeintrag für eine bestehende `query!`-Abfrage in `transcripts.rs` blockiert. Ein Build mit Datenbankzugriff wurde wegen der Vorgabe, keine ENV, Secrets oder Umgebungskonfiguration zu lesen, nicht versucht.
-6. Gate-Runde 1 blockierte wegen akzeptierter Alias-ID `patch_01`; der Fix verwirft nichtkanonische IDs und der Regressionstest besteht. Runde 2 erlaubte `b12a5a8`, prüfte aber nicht den späteren Insight-Trust-Diff. Runde 3 blockierte `a27667b` wegen fehlender SELECT-Rechte auf Caption-Konfliktschlüssel und fehlender OLD-Revision bei Zuordnungsänderungen. Beide Korrekturen sind im Arbeitsstand; die Doku nennt jetzt den `rejected`-Status-Ausnahmefall. Gate-Runde 4 steht aus.
-7. Commits `95b15bb`, `b12a5a8` und `a27667b` sind gepusht. Die Gate-Runde-3-Korrekturen stehen im Arbeitsstand. PR4 bleibt offen, PR61 ist weiterhin die offene Gesamtintegration. Merge, Migration, Deploy und Live-Prüfung fanden nicht statt.
+6. Gate-Runde 1 blockierte wegen akzeptierter Alias-ID `patch_01`; der Fix verwirft nichtkanonische IDs und der Regressionstest besteht. Runde 2 erlaubte `b12a5a8`, prüfte aber nicht den späteren Insight-Trust-Diff. Runde 3 blockierte `a27667b` wegen fehlender SELECT-Rechte auf Caption-Konfliktschlüssel und fehlender OLD-Revision bei Zuordnungsänderungen. Runde 4 erlaubte `2bebd82`; der Gate bestätigte beide Korrekturen. Offene NITs: Scratch-Postgres-Prüfung und fehlende SQLx-Offline-Metadaten.
+7. Commits `95b15bb`, `b12a5a8`, `a27667b` und `2bebd82` sind gepusht. PR4 bleibt offen, PR61 ist weiterhin die offene Gesamtintegration. Merge nach `main`, Migration, Deploy und Live-Prüfung fanden nicht statt.
 
 ## Nächster Meilenstein
 
-Gate-Runde-3-Korrekturen prüfen, committen und pushen, danach Gate-Runde 4 gegen dieselbe PR61-Basis ausführen. Scratch-Postgres-Prüfung bleibt vor Datenbankabschluss erforderlich. Kein isolierter Merge nach `main` und kein Deploy, solange PR61 als Gesamtintegration offen ist.
+Geprüfte Eigencommits und Gate-Belege an die zuständige Brain61-Integration liefern. Die Aufnahme in PR61 und Scratch-Postgres-Prüfung sind offen. PR4 erst nach belegter Übernahme schließen. Kein isolierter Merge gegen die Gesamtintegration, kein Merge nach `main` und kein Deploy, solange PR61 offen ist.

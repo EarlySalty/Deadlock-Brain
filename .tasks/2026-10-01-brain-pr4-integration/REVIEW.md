@@ -57,4 +57,11 @@ Datum: 2026-10-01
 
 ## Runde 4
 
-Nach Commit und Push der drei Korrekturen Gate erneut mit `gpt-6.1-sol` gegen dieselbe PR61-Basis ausführen. Scratch-Postgres und SQLx-Offline-Cache bleiben als offene NITs dokumentiert. Kein Merge, keine Produktionsmigration und kein Deploy vor ALLOW und Abschluss der Gesamtintegration Brain61.
+- Gate: `gpt-6.1-sol`, gleiche PR61-Basis, geprüftes HEAD `2bebd82`.
+- Urteil: ALLOW. Der Gate bestätigte beide Korrekturen und fand keinen blockierenden Rückschritt.
+- FIXED: Rollenrechte auf Caption-Konfliktschlüssel in Migration und Grants-Skript.
+- FIXED: OLD-Revision für geänderte Quellenidentität oder Patch-Zuordnung, mit geordneten Locks.
+- Offene NITs: Scratch-Postgres-Anwendung, Wiederholung, Rollen und Caption-Transaktion bleiben ungeprüft. `deadlock-brain-yt --all-targets` bleibt wegen fehlender SQLx-Offline-Metadaten ungeprüft.
+- Doku korrigiert: `rejected` bleibt der explizite Ausnahmefall zu `needs_review`.
+
+Gate-ALLOW gilt für den geprüften Diff gegen PR61-Head `b687f613b3df2c49138d9d2837e005c33e646d9f`. Es erlaubt keinen isolierten Merge nach `main`, keine Produktionsmigration und keinen Deploy, solange PR61 die offene Gesamtintegration ist.
