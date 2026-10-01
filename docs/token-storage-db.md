@@ -1,6 +1,6 @@
 # Datenbankgebundene Tokenablage
 
-Der Rust-Helfer dbrain-session-store hält den Zustand des Legacy-Gemini-Browseradapters verschlüsselt in core.browser_credentials. Der Adapter verwendet einen nichtpersistenten Browserkontext und private Pipes, keine dauerhaften Browserprofile. Konto-ID und Revision sind zwingend; ein Widerruf ist ein Fehler und kein leerer Standardzustand.
+Die produktive Gemini-Strecke läuft vollständig in Rust und spricht Chromium über eine private CDP-Pipe an, ohne offenen Debug-Port. dbrain-session-store ist ihre gemeinsam verwendete Speicherbibliothek und hält Cookies, LocalStorage und IndexedDB verschlüsselt in core.browser_credentials. Der Browserkontext ist nichtpersistent; temporäre leere Chromium-Startdaten enthalten keine Kontositzung. Python bleibt ausschließlich Legacy-Referenz. Konto-ID und Revision sind zwingend; ein Widerruf ist ein Fehler und kein leerer Standardzustand.
 
 ## Verbindliche Speichergrenze
 
@@ -25,3 +25,11 @@ Produktive Datenbanken und Konten wurden für diesen Arbeitsstand nicht migriert
 5. Kontozuordnung, Entschlüsselung und Neustart-Wiederaufnahme prüfen. Erst danach alte Credential-Dateien oder Bootstrap-Kontotokens kontrolliert außer Betrieb nehmen. Die vorhandenen Dateien werden hier weder gelöscht noch als Backup verdoppelt.
 
 Ein Code-Rollback allein reicht nach einem irreversiblen Hash-Cutover nicht. Entweder die neuen Lookup-Verträge beibehalten oder gemeinsam auf einen zuvor geprüften Datenbankstand zurückgehen. Ein nicht durchgeführter Restore-Test ist keine bestätigte Rollback-Fähigkeit.
+
+## Rust-Laufzeit und bisherige Pause
+
+`config/gemini-browser.json` enthält normale Einstellungen: stabile Konto-ID, Infisical-Konfigurationspfad, Geheimnisnamen, Browserpfad, Antwortfrist und `learning_enabled`. Die bisherige Pause bleibt mit `false` erhalten. Der Timer startet `scheduled-auto-learn`; bei Pause lädt er weder Secrets noch Browser und ruft kein Modell auf. Freigaben für Modelle und Producer bleiben unverändert.
+
+Die Rust-Strecke liest den direkten Infisical-Snapshot einmal und teilt ihn zwischen Datenbankpool, Sessionstore und optionalen Hinweisen. Sie importiert keine Token-Dateien und verwendet keine ENV-Konfiguration. Ein fehlender DB-Zustand wird bei Analyse als fehlende Anmeldung gemeldet; ein Widerruf bleibt ein Fehler. `gemini-login` prüft die Anmeldung, bevor er Zustand speichert. Die Tokenumstellung aktiviert den Lernbetrieb nicht.
+
+Der separate Helfer erhält normale Einstellungen und die Nummer einer geerbten privaten Pipe als CLI-Argumente (`get|put CONFIG PIPE_FD`). Keine Geheimwerte stehen in Argumenten oder Ausgaben. Kontozustand wird revisionsgebunden gespeichert. Nicht darstellbare IndexedDB-Werte brechen die Speicherung ab, statt Daten still zu verwerfen. Optionale Pausenhinweise nutzen einen vorhandenen Infisical-Webhook; ihr geheimnisfreier Status begrenzt auf eine Meldung pro Tag und zwei pro sieben Tagen und zählt unterdrückte Wiederholungen.

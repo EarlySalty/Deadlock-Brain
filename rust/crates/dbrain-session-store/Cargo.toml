@@ -7,4 +7,8 @@ edition.workspace = true
 anyhow.workspace = true
 postgres.workspace = true
 serde_json.workspace = true
+zeroize = "1"
+serde.workspace = true
+tokio.workspace = true
+dl-token-secrets = { path = "../../../../Deadlock-Bots/rust/crates/dl-token-secrets" }
 tb-crypto = { path = "../../../../Deadlock-Twitch-Bot/rust/crates/tb-crypto" }

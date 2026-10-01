@@ -3,20 +3,33 @@ from __future__ import annotations
 
 import argparse
 import json
-import logging
 import os
 import random
 import sys
 import time
+from pathlib import Path
 
-import db_browser_session
 
-# Browserzustand kommt ausschließlich aus dem verschlüsselten DB-Speicher.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+# Dediziertes Profil für den Wegwerf-Gemini-Account (NICHT das tägliche Brave-Profil).
+# Einmalig in einem normalen Brave mit diesem Profil einloggen; Google blockt den
+# automatisierten Login zuverlässig. Der unbeaufsichtigte Lauf bleibt headful und
+# nutzt xvfb-run als virtuelles Display.
+DEFAULT_PROFILE_DIR = REPO_ROOT / "data/gemini_profile"
+PROFILE_DIR = Path(os.environ.get("GEMINI_PROFILE_DIR", str(DEFAULT_PROFILE_DIR)))
 BRAVE_PATH = os.environ.get("GEMINI_BROWSER_PATH", "/opt/brave.com/brave/brave")
-LOGGER = logging.getLogger(__name__)
 GEMINI_URL = "https://gemini.google.com/app"
 NAV_TIMEOUT_MS = 45_000
 RESPONSE_TIMEOUT_SECONDS = int(os.environ.get("GEMINI_RESPONSE_TIMEOUT_SECONDS", "300"))
+
+# Tarnung: Automatisierungs-Signale verstecken, sonst degradiert Gemini das
+# Video-Feature (behandelt die YouTube-URL nur als Text).
+STEALTH_SCRIPT = """
+Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+window.chrome = window.chrome || { runtime: {} };
+Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
+Object.defineProperty(navigator, 'languages', {get: () => ['de-DE','de','en-US','en']});
+"""
 
 # Turn 2: wandelt die natürliche Analyse aus Turn 1 in striktes Claim-JSON um.
 # Reines Text->Text (kein Video-Tool) -> löst den Stopp-Mechanismus nicht aus.
@@ -30,51 +43,14 @@ JSON_CONVERT_PROMPT = (
 )
 
 # TODO: gegen Live-DOM verifizieren.
-NEW_CHAT_SELECTORS = [
-    "a[aria-label*='New chat']",
-    "button[aria-label*='New chat']",
-    "a[aria-label*='Neuer Chat']",
-    "button[aria-label*='Neuer Chat']",
-]
-PROMPT_SELECTORS = [
-    "rich-textarea div[contenteditable='true']",
-    "div[contenteditable='true'][role='textbox']",
-    "textarea",
-]
-SEND_SELECTORS = [
-    "button[aria-label*='Send']",
-    "button[aria-label*='Senden']",
-    "button[data-testid='send-button']",
-]
-RESPONSE_SELECTORS = [
-    "message-content",
-    "[data-response-index]",
-    ".model-response-text",
-]
-STREAMING_SELECTORS = [
-    "button[aria-label*='Stop generating']",
-    "button[aria-label*='Antwort stoppen']",
-    "mat-progress-spinner",
-]
-LOGIN_HINT_SELECTORS = [
-    "a[href*='accounts.google.com']",
-    "text=Sign in",
-    "text=Anmelden",
-]
-RATE_LIMIT_MARKERS = (
-    "rate limit",
-    "too many requests",
-    "quota",
-    "try again later",
-    "später erneut",
-    "zu viele anfragen",
-)
-REFUSAL_MARKERS = (
-    "i can't assist",
-    "i can’t assist",
-    "i cannot assist",
-    "dabei kann ich nicht helfen",
-)
+NEW_CHAT_SELECTORS = ["a[aria-label*='New chat']", "button[aria-label*='New chat']", "a[aria-label*='Neuer Chat']", "button[aria-label*='Neuer Chat']"]
+PROMPT_SELECTORS = ["rich-textarea div[contenteditable='true']", "div[contenteditable='true'][role='textbox']", "textarea"]
+SEND_SELECTORS = ["button[aria-label*='Send']", "button[aria-label*='Senden']", "button[data-testid='send-button']"]
+RESPONSE_SELECTORS = ["message-content", "[data-response-index]", ".model-response-text"]
+STREAMING_SELECTORS = ["button[aria-label*='Stop generating']", "button[aria-label*='Antwort stoppen']", "mat-progress-spinner"]
+LOGIN_HINT_SELECTORS = ["a[href*='accounts.google.com']", "text=Sign in", "text=Anmelden"]
+RATE_LIMIT_MARKERS = ("rate limit", "too many requests", "quota", "try again later", "später erneut", "zu viele anfragen")
+REFUSAL_MARKERS = ("i can't assist", "i can’t assist", "i cannot assist", "dabei kann ich nicht helfen")
 
 
 class WorkerFailure(Exception):
@@ -85,25 +61,30 @@ class WorkerFailure(Exception):
 
 
 def open_brave(playwright, *, headless: bool):
-    """Credentials only from the account-bound encrypted database state.
+    """Startet das echte Brave-Profil mit dem Brave-Binary.
 
-    An incognito context has no persistent cookie/profile directory. Existing
-    profile data is never read as a fallback or removed by this worker.
+    Brave muss geschlossen sein – andernfalls ist das Profil gesperrt
+    (Chromium-SingletonLock) und der Lauf pausiert sauber statt abzustürzen.
     """
-    envelope = db_browser_session.load()
-    browser = playwright.chromium.launch(
+    if (PROFILE_DIR / "SingletonLock").exists():
+        raise WorkerFailure(
+            "profile_locked",
+            "Brave läuft bereits mit diesem Profil. Bitte Brave vollständig schließen und erneut starten.",
+        )
+    context = playwright.chromium.launch_persistent_context(
+        user_data_dir=str(PROFILE_DIR),
         headless=headless,
         executable_path=BRAVE_PATH,
-        args=["--no-first-run", "--no-default-browser-check"],
+        # --password-store=basic: Cookies keyring-unabhängig verschlüsseln, damit die
+        # einmal eingeloggte Session auch im xvfb-Cron lesbar bleibt.
+        # --disable-blink-features=AutomationControlled + ignore_default_args: setzt
+        # navigator.webdriver auf false und entfernt die Automatisierungs-Infobar.
+        args=["--password-store=basic", "--no-first-run", "--no-default-browser-check",
+              "--disable-blink-features=AutomationControlled"],
+        ignore_default_args=["--enable-automation"],
     )
-    try:
-        context = browser.new_context(storage_state=envelope["state"])
-        return db_browser_session.DbBrowserContext(
-            browser, context, envelope["revision"]
-        )
-    except Exception:
-        browser.close()
-        raise
+    context.add_init_script(STEALTH_SCRIPT)
+    return context
 
 
 def main() -> int:
@@ -125,21 +106,16 @@ def login() -> int:
     try:
         from playwright.sync_api import sync_playwright
 
+        PROFILE_DIR.mkdir(parents=True, exist_ok=True)
         with sync_playwright() as playwright:
             context = open_brave(playwright, headless=False)
             page = context.pages[0] if context.pages else context.new_page()
             page.goto(GEMINI_URL, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
-            input(
-                "Im Browser bei deinem Gemini-Konto einloggen, danach hier Enter drücken, um die Sitzung zu speichern … "
-            )
-            context.save()
+            input("Im Browser bei deinem Gemini-Konto einloggen, danach hier Enter drücken, um die Sitzung zu speichern … ")
             context.close()
         return 0
-    except Exception:  # noqa: BLE001
-        print(
-            "Login oder verschlüsselte DB-Speicherung fehlgeschlagen. Konto und Sitzungsdienst prüfen.",
-            file=sys.stderr,
-        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"Login fehlgeschlagen: {exc}", file=sys.stderr)
         return 1
 
 
@@ -156,14 +132,8 @@ def analyze(url: str) -> int:
     except WorkerFailure as exc:
         emit({"status": "error", "kind": exc.kind, "message": exc.message})
         return 1
-    except Exception:  # noqa: BLE001
-        emit(
-            {
-                "status": "error",
-                "kind": "unknown",
-                "message": "Browser- oder DB-Sitzungsfehler. Keine Zugangsdaten in Diagnoseausgaben.",
-            }
-        )
+    except Exception as exc:  # noqa: BLE001
+        emit({"status": "error", "kind": "unknown", "message": str(exc)})
         return 1
 
 
@@ -171,9 +141,7 @@ def analyze_text() -> int:
     try:
         payload = read_payload()
         prompt = payload_prompt(payload)
-        convert_prompt = str(
-            payload.get("convert_prompt") or JSON_CONVERT_PROMPT
-        ).strip()
+        convert_prompt = str(payload.get("convert_prompt") or JSON_CONVERT_PROMPT).strip()
         if not prompt:
             raise WorkerFailure("unknown", "missing prompt")
         if not convert_prompt:
@@ -183,14 +151,8 @@ def analyze_text() -> int:
     except WorkerFailure as exc:
         emit({"status": "error", "kind": exc.kind, "message": exc.message})
         return 1
-    except Exception:  # noqa: BLE001
-        emit(
-            {
-                "status": "error",
-                "kind": "unknown",
-                "message": "Browser- oder DB-Sitzungsfehler. Keine Zugangsdaten in Diagnoseausgaben.",
-            }
-        )
+    except Exception as exc:  # noqa: BLE001
+        emit({"status": "error", "kind": "unknown", "message": str(exc)})
         return 1
 
 
@@ -210,6 +172,7 @@ def run_browser_two_turn(prompt: str, convert_prompt: str) -> str:
     from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
     from playwright.sync_api import sync_playwright
 
+    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as playwright:
         # Analyse bleibt headful; der unbeaufsichtigte Cron stellt per xvfb-run
         # nur ein virtuelles Display bereit. Headless triggert Geminis Erkennung.
@@ -224,11 +187,7 @@ def run_browser_two_turn(prompt: str, convert_prompt: str) -> str:
                 raise WorkerFailure("not_logged_in", "login required")
             prompt_box = first(page, PROMPT_SELECTORS, 15_000)
             if prompt_box is None:
-                kind = (
-                    "not_logged_in"
-                    if visible(page, LOGIN_HINT_SELECTORS, 500)
-                    else "unknown"
-                )
+                kind = "not_logged_in" if visible(page, LOGIN_HINT_SELECTORS, 500) else "unknown"
                 raise WorkerFailure(kind, "prompt box not found")
             # Turn 1: natürliche Analyse (KEIN JSON). Bei Video-Prompts lässt das
             # Gemini das Video-Tool benutzen; starres JSON blockiert dort.
@@ -245,9 +204,7 @@ def run_browser_two_turn(prompt: str, convert_prompt: str) -> str:
             fill_prompt(page, box2, convert_prompt)
             before2 = response_count(page)
             page.keyboard.press("Enter")
-            result = wait_for_response(page, before2)
-            context.save()
-            return result
+            return wait_for_response(page, before2)
         except PlaywrightTimeoutError as exc:
             raise WorkerFailure("timeout", str(exc)) from exc
         finally:
@@ -261,8 +218,7 @@ def first(page, selectors: list[str], timeout: int):
             locator.wait_for(state="visible", timeout=timeout)
             return locator
         except Exception:  # noqa: BLE001
-            LOGGER.debug("Browser-Element noch nicht verfügbar; nächster Selektor.")
-            continue
+            pass
     return None
 
 
@@ -303,17 +259,11 @@ def wait_for_response(page, min_responses: int = 0) -> str:
     while time.monotonic() < deadline:
         if any(marker in body_text(page).lower() for marker in RATE_LIMIT_MARKERS):
             raise WorkerFailure("rate_limited", "rate limit marker detected")
-        text = (
-            latest_response_text(page) if response_count(page) > min_responses else ""
-        )
+        text = latest_response_text(page) if response_count(page) > min_responses else ""
         if text and text != last_text:
             last_text = text
             stable_since = time.monotonic()
-        if (
-            last_text
-            and time.monotonic() - stable_since >= 4
-            and not visible(page, STREAMING_SELECTORS, 250)
-        ):
+        if last_text and time.monotonic() - stable_since >= 4 and not visible(page, STREAMING_SELECTORS, 250):
             if any(marker in last_text.lower() for marker in REFUSAL_MARKERS):
                 raise WorkerFailure("refused", "refusal marker detected")
             return last_text
@@ -330,8 +280,7 @@ def latest_response_text(page) -> str:
                 if text:
                     return text
         except Exception:  # noqa: BLE001
-            LOGGER.debug("Browser-Element noch nicht verfügbar; nächster Selektor.")
-            continue
+            pass
     return ""
 
 
@@ -341,8 +290,7 @@ def visible(page, selectors: list[str], timeout: int) -> bool:
             if page.locator(selector).first.is_visible(timeout=timeout):
                 return True
         except Exception:  # noqa: BLE001
-            LOGGER.debug("Browser-Element noch nicht verfügbar; nächster Selektor.")
-            continue
+            pass
     return False
 
 
