@@ -164,6 +164,9 @@ fn encrypted_browser_state_roundtrip_concurrency_revocation_and_account_isolatio
     let fixture = PrivatePostgres::new();
     let options = fixture.options();
     let mut admin = options.connect(NoTls).unwrap();
+    // The real migration grants its runtime role access; create that role only
+    // inside this disposable cluster, without login privileges or credentials.
+    admin.batch_execute("CREATE ROLE deadlock NOLOGIN").unwrap();
     let database = format!("token_db_browser_{}", std::process::id());
     admin
         .batch_execute(&format!("CREATE DATABASE {database}"))
