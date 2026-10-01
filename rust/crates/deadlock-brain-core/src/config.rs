@@ -8,7 +8,7 @@ use crate::{CoreError, Result};
 
 pub const DEFAULT_USER_AGENT: &str = "DeadlockBrain/0.1 contact=admin@earlysalty.com";
 pub const DEFAULT_SHEET_ID: &str = "1fj9XMQmVUY0FY4cbozvB18PMBnpbdsaMFTZRLa74VRY";
-pub const DEFAULT_FIREWORKS_MODEL: &str = "accounts/fireworks/models/deepseek-v4-flash";
+pub const DEFAULT_FIREWORKS_MODEL: &str = "accounts/fireworks/models/deepseek-v4p1-flash";
 pub const DEFAULT_FIREWORKS_BASE_URL: &str = "https://api.fireworks.ai/inference/v1";
 
 #[derive(Clone)]
@@ -97,9 +97,6 @@ pub fn load_settings() -> Result<Settings> {
     let fireworks_base_url = setting(&dotenv, "FIREWORK_BASE_URL")
         .or_else(|| setting(&dotenv, "FIREWORKS_BASE_URL"))
         .unwrap_or_else(|| DEFAULT_FIREWORKS_BASE_URL.to_string());
-    let fireworks_model = setting(&dotenv, "FIREWORK_MODEL")
-        .or_else(|| setting(&dotenv, "FIREWORKS_MODEL"))
-        .unwrap_or_else(|| DEFAULT_FIREWORKS_MODEL.to_string());
 
     Ok(Settings {
         project_root,
@@ -118,7 +115,7 @@ pub fn load_settings() -> Result<Settings> {
         )?,
         ai_api_key: fireworks_api_key,
         ai_base_url: fireworks_base_url.trim_end_matches('/').to_string(),
-        ai_model: fireworks_model,
+        ai_model: DEFAULT_FIREWORKS_MODEL.to_string(),
         ai_timeout_seconds: u64_setting(&dotenv, "FIREWORKS_TIMEOUT_SECONDS", 300)?,
         ai_max_completion_tokens: u64_setting(&dotenv, "FIREWORKS_MAX_TOKENS", 16_000)?,
         ai_temperature: f64_setting(&dotenv, "FIREWORKS_TEMPERATURE", 0.2)?,

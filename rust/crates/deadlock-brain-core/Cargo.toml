@@ -9,6 +9,7 @@ path = "src/lib.rs"
 
 [dependencies]
 brain-contracts = { path = "../brain-contracts" }
+fireworks-model-selection = { path = "../../vendor/fireworks-model-selection" }
 anyhow.workspace = true
 chrono.workspace = true
 dbrain-builds = { path = "../dbrain-builds" }

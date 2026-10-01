@@ -40,6 +40,8 @@ enum Commands {
         about = "Stellt eine Frage ausschließlich über den typisierten brain-serve/BrainClient-Pfad."
     )]
     Answer(BrainAnswerArgs),
+    #[command(about = "Zeigt das zentral geprüfte KI-Modell ohne Modellaufruf.")]
+    AiModel,
     #[command(about = "Zeigt lokale DB- und Source-Counts.")]
     Status,
     #[command(about = "Baut einen kompakten Datenkontext fuer eine Entity-Frage.")]
@@ -1280,6 +1282,10 @@ fn main() {
 fn run_from_cli() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
+        Commands::AiModel => print_json(&json!({
+            "provider": "fireworks",
+            "model": deadlock_brain_core::model_resolver::model_for_request()?,
+        })),
         Commands::Population(args) => dbrain_population::run_population(args),
         command => {
             let runtime = tokio::runtime::Builder::new_current_thread()
@@ -1489,7 +1495,7 @@ async fn run(cli: Cli) -> Result<()> {
         Commands::Normalize { target } => run_normalize(&pool, target).await,
         Commands::Parse { target } => run_parse(&pool, target).await,
         Commands::Enrich { target } => run_enrich(&pool, &settings, target).await,
-        Commands::Population(_) => {
+        Commands::AiModel | Commands::Population(_) => {
             unreachable!("Population wird vor allgemeiner Pool-Ausfuehrung ausgefuehrt.")
         }
         Commands::Entities(_) => {
