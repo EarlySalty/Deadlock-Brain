@@ -2,7 +2,7 @@ use brain_contracts::feeds::{
     BuildPublishErrorClass, BuildPublishRequest, BuildPublishState, BuildPublishStatus,
     BUILD_PUBLISH_VERSION,
 };
-use std::{collections::BTreeMap, io::Read, sync::Mutex, time::Duration};
+use std::{collections::BTreeMap, io::Read, net::IpAddr, sync::Mutex, time::Duration};
 use thiserror::Error;
 
 pub const MAX_STATUS_BYTES: u64 = 64 * 1024;
@@ -105,21 +105,44 @@ impl BuildPublishPort for FixtureBuildPublish {
 }
 
 pub struct HttpBuildPublishClient {
-    base_url: String,
+    publish_url: reqwest::Url,
     token: String,
     client: reqwest::blocking::Client,
 }
 
 impl HttpBuildPublishClient {
+    /// HTTPS or loopback HTTP only, without userinfo, query or fragment.
+    /// Default ports and explicit nonzero ports are supported. The base path
+    /// is preserved; an optional trailing slash does not duplicate separators.
     pub fn new(base_url: &str, token_env: &str, timeout: Duration) -> Result<Self, PublishError> {
-        let loopback = base_url.starts_with("http://127.0.0.1:")
-            || base_url.starts_with("http://[::1]:")
-            || base_url.starts_with("http://localhost:");
-        if !(loopback || base_url.starts_with("https://")) || base_url.ends_with('/') {
-            return Err(PublishError::InvalidRequest(
-                "publish endpoint must be https or loopback".into(),
-            ));
+        let invalid_endpoint = || PublishError::InvalidRequest("invalid publish endpoint".into());
+        let mut publish_url = reqwest::Url::parse(base_url).map_err(|_| invalid_endpoint())?;
+        // Match the BrainClient/provider rule against the parsed host, never
+        // against a prefix that could actually be userinfo or a host suffix.
+        let loopback = publish_url.host_str().is_some_and(|host| {
+            host == "localhost"
+                || host
+                    .trim_matches(['[', ']'])
+                    .parse::<IpAddr>()
+                    .is_ok_and(|ip| ip.is_loopback())
+        });
+        if !(publish_url.scheme() == "https" || (publish_url.scheme() == "http" && loopback))
+            || publish_url.host_str().is_none()
+            || !publish_url.username().is_empty()
+            || publish_url.password().is_some()
+            || publish_url.query().is_some()
+            || publish_url.fragment().is_some()
+            || publish_url.port() == Some(0)
+        {
+            return Err(invalid_endpoint());
         }
+        // Keep the validated authority and encoded base path for both routes.
+        // A string join or an absolute-path URL join can lose that base path.
+        publish_url
+            .path_segments_mut()
+            .map_err(|_| invalid_endpoint())?
+            .pop_if_empty()
+            .extend(["builds", "v1", "publish"]);
         let token = std::env::var(token_env)
             .ok()
             .filter(|t| !t.trim().is_empty())
@@ -127,10 +150,12 @@ impl HttpBuildPublishClient {
         let client = reqwest::blocking::Client::builder()
             .timeout(timeout)
             .redirect(reqwest::redirect::Policy::none())
+            // As in BrainClient, inherited proxies must not divert loopback HTTP.
+            .no_proxy()
             .build()
             .map_err(|e| PublishError::Unavailable(e.to_string()))?;
         Ok(Self {
-            base_url: base_url.into(),
+            publish_url,
             token,
             client,
         })
@@ -176,7 +201,7 @@ impl BuildPublishPort for HttpBuildPublishClient {
             .map_err(PublishError::InvalidRequest)?;
         let response = self
             .client
-            .post(format!("{}/builds/v1/publish", self.base_url))
+            .post(self.publish_url.clone())
             .bearer_auth(&self.token)
             .header("Idempotency-Key", &request.request_id)
             .json(request)
@@ -192,9 +217,13 @@ impl BuildPublishPort for HttpBuildPublishClient {
         {
             return Err(PublishError::InvalidRequest("invalid request id".into()));
         }
+        let mut url = self.publish_url.clone();
+        url.path_segments_mut()
+            .map_err(|_| PublishError::InvalidRequest("invalid publish endpoint path".into()))?
+            .push(request_id);
         let response = self
             .client
-            .get(format!("{}/builds/v1/publish/{request_id}", self.base_url))
+            .get(url)
             .bearer_auth(&self.token)
             .send()
             .map_err(|e| PublishError::Unavailable(e.to_string()))?;
