@@ -1,0 +1,430 @@
+{
+  "artifact_kind": "observed_openapi_inventory_not_contract_or_payload_fixture",
+  "work_mode": "prepare_only",
+  "runtime_contract_version": null,
+  "snapshot_sha256": "c99d82d667d280e717ab58a2c78de79ff2a20f4185aa2c2bb480c342328bb737",
+  "snapshot_bytes": 380364,
+  "source_url": "https://api.deadlock-api.com/openapi.json",
+  "observed_on": "2026-09-24",
+  "old_assets_base": "https://assets.deadlock-api.com",
+  "candidate_assets_base": "https://api.deadlock-api.com",
+  "adapter_compatibility_tested": false,
+  "fixture_rights_approved": false,
+  "nine_existing_assets_routes": [
+    {
+      "kind": "items",
+      "existing_route": "/v2/items",
+      "candidate_route": "/v1/assets/items",
+      "present_in_observed_openapi": true,
+      "equivalence_status": "unverified",
+      "query_requirement": null
+    },
+    {
+      "kind": "heroes",
+      "existing_route": "/v2/heroes?only_active=true",
+      "candidate_route": "/v1/assets/heroes",
+      "present_in_observed_openapi": true,
+      "equivalence_status": "unverified",
+      "query_requirement": "only_active=true"
+    },
+    {
+      "kind": "heroes_all",
+      "existing_route": "/v2/heroes",
+      "candidate_route": "/v1/assets/heroes",
+      "present_in_observed_openapi": true,
+      "equivalence_status": "unverified",
+      "query_requirement": "unverified_default_behavior"
+    },
+    {
+      "kind": "raw_items",
+      "existing_route": "/raw/items",
+      "candidate_route": null,
+      "present_in_observed_openapi": null,
+      "equivalence_status": "replacement_unresolved",
+      "query_requirement": null
+    },
+    {
+      "kind": "raw_heroes",
+      "existing_route": "/raw/heroes",
+      "candidate_route": null,
+      "present_in_observed_openapi": null,
+      "equivalence_status": "replacement_unresolved",
+      "query_requirement": null
+    },
+    {
+      "kind": "ranks",
+      "existing_route": "/v2/ranks",
+      "candidate_route": "/v1/assets/ranks",
+      "present_in_observed_openapi": true,
+      "equivalence_status": "unverified",
+      "query_requirement": null
+    },
+    {
+      "kind": "colors",
+      "existing_route": "/v1/colors",
+      "candidate_route": "/v1/assets/colors",
+      "present_in_observed_openapi": true,
+      "equivalence_status": "unverified",
+      "query_requirement": null
+    },
+    {
+      "kind": "build_tags",
+      "existing_route": "/v2/build-tags",
+      "candidate_route": "/v1/assets/build-tags",
+      "present_in_observed_openapi": true,
+      "equivalence_status": "unverified",
+      "query_requirement": null
+    },
+    {
+      "kind": "npc_units",
+      "existing_route": "/v2/npc-units",
+      "candidate_route": "/v1/assets/npc-units",
+      "present_in_observed_openapi": true,
+      "equivalence_status": "unverified",
+      "query_requirement": null
+    }
+  ],
+  "observed_operations": [
+    {
+      "path": "/v1/assets/items",
+      "method": "GET",
+      "parameters": [
+        "language",
+        "client_version"
+      ],
+      "response_200_media_schemas": {
+        "application/json": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/Item"
+          }
+        }
+      },
+      "has_json_response_schema": true,
+      "runtime_test_status": "not_run"
+    },
+    {
+      "path": "/v1/assets/heroes",
+      "method": "GET",
+      "parameters": [
+        "language",
+        "client_version",
+        "only_active"
+      ],
+      "response_200_media_schemas": {
+        "application/json": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/Hero"
+          }
+        }
+      },
+      "has_json_response_schema": true,
+      "runtime_test_status": "not_run"
+    },
+    {
+      "path": "/v1/assets/ranks",
+      "method": "GET",
+      "parameters": [
+        "language",
+        "client_version"
+      ],
+      "response_200_media_schemas": {
+        "application/json": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/Rank"
+          }
+        }
+      },
+      "has_json_response_schema": true,
+      "runtime_test_status": "not_run"
+    },
+    {
+      "path": "/v1/assets/colors",
+      "method": "GET",
+      "parameters": [
+        "client_version"
+      ],
+      "response_200_media_schemas": {
+        "application/json": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/components/schemas/Color"
+          },
+          "propertyNames": {
+            "type": "string"
+          }
+        }
+      },
+      "has_json_response_schema": true,
+      "runtime_test_status": "not_run"
+    },
+    {
+      "path": "/v1/assets/build-tags",
+      "method": "GET",
+      "parameters": [
+        "language",
+        "client_version"
+      ],
+      "response_200_media_schemas": {
+        "application/json": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/BuildTag"
+          }
+        }
+      },
+      "has_json_response_schema": true,
+      "runtime_test_status": "not_run"
+    },
+    {
+      "path": "/v1/assets/npc-units",
+      "method": "GET",
+      "parameters": [
+        "client_version"
+      ],
+      "response_200_media_schemas": {
+        "application/json": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/NpcUnit"
+          }
+        }
+      },
+      "has_json_response_schema": true,
+      "runtime_test_status": "not_run"
+    },
+    {
+      "path": "/v1/matches/metadata",
+      "method": "GET",
+      "parameters": [
+        "include_info",
+        "include_more_info",
+        "include_objectives",
+        "include_mid_boss",
+        "include_player_info",
+        "include_player_kda",
+        "include_player_items",
+        "include_player_stats",
+        "include_player_final_stats",
+        "include_player_death_details",
+        "game_mode",
+        "match_mode",
+        "match_ids",
+        "min_unix_timestamp",
+        "max_unix_timestamp",
+        "min_duration_s",
+        "max_duration_s",
+        "min_average_badge",
+        "max_average_badge",
+        "min_match_id",
+        "max_match_id",
+        "is_high_skill_range_parties",
+        "is_low_pri_pool",
+        "is_new_player_pool",
+        "account_ids",
+        "only_filtered_players",
+        "hero_ids",
+        "item_filter_hero_id",
+        "include_item_ids",
+        "exclude_item_ids",
+        "extra_match_columns",
+        "extra_player_columns",
+        "order_by",
+        "order_direction",
+        "limit",
+        "format"
+      ],
+      "response_200_media_schemas": {
+        "application/octet-stream": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "has_json_response_schema": false,
+      "runtime_test_status": "not_run"
+    },
+    {
+      "path": "/v1/players/{account_id}/match-history",
+      "method": "GET",
+      "parameters": [
+        "account_id",
+        "force_refetch"
+      ],
+      "response_200_media_schemas": {
+        "application/json": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/PlayerMatchHistoryEntry"
+          }
+        }
+      },
+      "has_json_response_schema": true,
+      "runtime_test_status": "not_run"
+    },
+    {
+      "path": "/v2/patches",
+      "method": "GET",
+      "parameters": [],
+      "response_200_media_schemas": {
+        "application/json": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/FeedItem"
+          }
+        }
+      },
+      "has_json_response_schema": true,
+      "runtime_test_status": "not_run"
+    }
+  ],
+  "selected_component_fields": {
+    "Hero": {
+      "selection_only": true,
+      "fields": {
+        "id": {
+          "required": true,
+          "schema": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "class_name": {
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        "name": {
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        "player_selectable": {
+          "required": true,
+          "schema": {
+            "type": "boolean"
+          }
+        },
+        "in_development": {
+          "required": true,
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "NpcUnit": {
+      "selection_only": true,
+      "fields": {
+        "id": {
+          "required": true,
+          "schema": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "class_name": {
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "Rank": {
+      "selection_only": true,
+      "fields": {
+        "tier": {
+          "required": true,
+          "schema": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "name": {
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "PlayerMatchHistoryEntry": {
+      "selection_only": true,
+      "fields": {
+        "account_id": {
+          "required": true,
+          "schema": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "match_id": {
+          "required": true,
+          "schema": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "hero_id": {
+          "required": true,
+          "schema": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "start_time": {
+          "required": true,
+          "schema": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "match_duration_s": {
+          "required": true,
+          "schema": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "game_mode": {
+          "required": true,
+          "schema": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "match_mode": {
+          "required": true,
+          "schema": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      }
+    }
+  },
+  "limitations": [
+    "Repository SHA is not verified as the live deployment SHA.",
+    "Shape and primitive types do not prove game semantics, units, locale, mode or patch coverage.",
+    "A missing application/json response schema is not a fully covered contract; metadata advertises application/octet-stream in this snapshot.",
+    "Composed Item and FeedItem schemas require explicit consumed-variant review; they must not be flattened by guessing.",
+    "Raw endpoint replacements remain unresolved.",
+    "This observation does not approve new requests, data storage, publication or provider egress."
+  ]
+}

@@ -1,0 +1,12 @@
+logical_area,real_path,owner_chat,allowed_work,base_commit,contract_version,approval_status
+workspace/contracts/policy,,02,after_G0,,,pending
+schema/migrations,,03,design_G0_implementation_G1,,,pending
+worker/feeder,,04,after_G1,,,pending
+domain/rules/builds/learning,,05,after_G1,,,pending
+retrieval,,06,after_G1,,,pending
+provider/jev,,07,after_G1,,,pending
+answer_kernel/api,,08,G1_mocks_then_real,,,pending
+consumer/adapters/exports,,09,G1_mocks_then_real,,,pending
+wiki/projector,,12,after_G1,,,pending
+external_api/git/schema,,13,after_G1,,,pending
+replay/observations,,14,after_G1,,,pending

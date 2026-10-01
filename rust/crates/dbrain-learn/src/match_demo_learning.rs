@@ -1,8 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use deadlock_brain_core::ai::{
-    extract_ai_text, ai_usage_summary, ChatCompletionRequest, ChatMessage, AiClient,
-    AiConfig,
+    ai_usage_summary, extract_ai_text, AiClient, AiConfig, ChatCompletionRequest, ChatMessage,
 };
 use serde_json::{json, Map, Value};
 use sqlx::PgPool;
@@ -947,10 +946,7 @@ fn deterministic_report_metadata(
     }))
 }
 
-fn build_demo_report_request(
-    context: &Value,
-    config: &AiConfig,
-) -> Result<ChatCompletionRequest> {
+fn build_demo_report_request(context: &Value, config: &AiConfig) -> Result<ChatCompletionRequest> {
     let report_shape = json!({
         "metadata": context.get("report_metadata").cloned().unwrap_or(Value::Null),
         "phases": {
@@ -1858,7 +1854,7 @@ fn invalid<T>(message: impl Into<String>) -> Result<T> {
 mod tests {
     use std::{collections::BTreeSet, path::PathBuf};
 
-    use deadlock_brain_core::{config::Settings, ai::AiConfig};
+    use deadlock_brain_core::{ai::AiConfig, config::Settings};
     use serde_json::{json, Value};
 
     use super::{

@@ -1,0 +1,51 @@
+{
+  "mode": "prepare_only",
+  "tested_commit": "b93002f744ecb86cb3d0decee4067a6331c984c3",
+  "tested_at_utc": "2026-09-24T21:24:24.557804+00:00",
+  "command": "bash architecture/migration/s12/check.sh",
+  "command_exit": 0,
+  "tests": {
+    "passed": 73,
+    "failed": 0,
+    "ignored": 0,
+    "fixture_and_regression_tests": 64,
+    "cli_tests": 9
+  },
+  "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+  "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+  "checks": {
+    "fmt": "passed",
+    "clippy_all_targets_deny_warnings": "passed",
+    "tests_all_targets": "passed",
+    "release_build": "passed",
+    "analyze": "passed",
+    "unchanged_delta": "passed",
+    "require_production_ready_exit": 3
+  },
+  "production_publishable": false,
+  "integration_verified": false,
+  "source_files_sha256": {
+    "architecture/migration/s12/Cargo.toml": "c0fabc6c5c52557b7603ef76425b4d455f1d6c7b3be868cbdb0424b11548d6be",
+    "architecture/migration/s12/Cargo.lock": "d1424697ed592134914a2b4c4711a51297eeb0511a6880ebd43d2449f7941ce9",
+    "architecture/migration/s12/check.sh": "03f87d82f1573238f883072b0c3b4d16ed087ef60d4ad7047e339ac01a886799",
+    "architecture/migration/s12/src/discovery.rs": "961353b1608e00617988a37a9c4b36123f5313160de51dead32f2535130d4a60",
+    "architecture/migration/s12/src/impact.rs": "cc6ec771f4af430c58c313c9e4945a7f17f4722fd2c3c1c429cf0e78dee2030a",
+    "architecture/migration/s12/src/lib.rs": "f1a4a321240b9df7cea8596fa120a6ec9da29f6f33aed07a73f77574332b97dc",
+    "architecture/migration/s12/src/main.rs": "91952a77a6ad1962f9e3fce0cb6f2cfe1bfe53e2010c5f91343a9f215255623a",
+    "architecture/migration/s12/src/model.rs": "8160996179cf47b91f939745efce6ed72d66e93dbb63b29d6969908a06f87248",
+    "architecture/migration/s12/src/pages.rs": "401a27fcf613f444c59790d2eff5b555f39a82b6f772505f864f70545d8e4e7f",
+    "architecture/migration/s12/src/preview.rs": "035287a2f8b53b5444ee0969731e65c3a09c4967102ebd1c699aeadcabc2ac6d",
+    "architecture/migration/s12/tests/cli.rs": "71463c88d012dcfc1614558b1bd724d56573c5eebfff34465e4ccfb2c332300a",
+    "architecture/migration/s12/tests/probe.rs": "267cfb42a4a3d63e05ac2a7538c45cc4dd0d15242382b1cd3d4a4bf31deee90d",
+    "architecture/migration/s12/fixtures/hero-preview.golden.json": "2b708877b7763ded7c8d5a145654798d4202c300d10f7e5b073e5bbd6669994b",
+    "architecture/migration/s12/fixtures/pilot.capture.json": "a3c3d64c99c764652bea7709f630d8b4599bf13de4dc79f5a3a243153141ee83"
+  },
+  "not_run": [
+    "production workspace suite (untouched; no runtime dependency)",
+    "real Wiki import/coverage/rights acceptance",
+    "PostgreSQL worker domain build API pilot",
+    "G2 G3 G4 acceptance",
+    "MSRV 1.85 matrix",
+    "GitHub S12-specific CI job (not wired)"
+  ]
+}

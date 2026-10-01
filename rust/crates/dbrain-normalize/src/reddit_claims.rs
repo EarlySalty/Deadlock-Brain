@@ -246,9 +246,9 @@ fn detect_entities(entity_aliases: &[EntityHit], post: &RedditPost) -> Vec<Entit
     for alias in entity_aliases {
         let needle = normalize_scan_text(&alias.alias);
         if haystack.contains(&needle)
-            && !hits
-                .iter()
-                .any(|hit| hit.entity_type == alias.entity_type && hit.canonical_name == alias.canonical_name)
+            && !hits.iter().any(|hit| {
+                hit.entity_type == alias.entity_type && hit.canonical_name == alias.canonical_name
+            })
         {
             hits.push(EntityHit {
                 entity_type: alias.entity_type.clone(),
@@ -448,7 +448,11 @@ fn is_auto_moderator(author: &str) -> bool {
 }
 
 fn is_developer(post: &RedditPost) -> bool {
-    let role = post.author_role.as_deref().unwrap_or_default().to_lowercase();
+    let role = post
+        .author_role
+        .as_deref()
+        .unwrap_or_default()
+        .to_lowercase();
     let author = post.author.as_deref().unwrap_or_default().to_lowercase();
     role.contains("valve developer") || role == "valve" || author == "valve"
 }
@@ -580,6 +584,9 @@ mod tests {
         assert_eq!(candidates[0].currentness, "historical_quarantine");
         assert_eq!(candidates[0].source_trust, "community_report");
         assert_eq!(candidates[0].confidence, 0.5);
-        assert_eq!(source_url(&post), "https://www.reddit.com/r/Deadlock/comments/1f2abc9/crash_thread/");
+        assert_eq!(
+            source_url(&post),
+            "https://www.reddit.com/r/Deadlock/comments/1f2abc9/crash_thread/"
+        );
     }
 }

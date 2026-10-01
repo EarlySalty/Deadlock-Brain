@@ -1,0 +1,94 @@
+{
+  "artifact_kind": "s13_start_check_metadata_not_runtime_configuration",
+  "work_mode": "prepare_only",
+  "implementation_approved": false,
+  "repository_base_commit": "30326512568b7370524956839100462ba71bdb92",
+  "plan_version": "1.0",
+  "plan_package_sha256": "945be6983ff0235eb0ec36b451f9613ea567e0962ca5658364e8665980177716",
+  "observed_on": "2026-09-24",
+  "git_pins": [
+    {
+      "source_key": "deadlock-api/deadlock-api",
+      "ref": "refs/heads/master",
+      "commit_sha": "ba9f874e92324adca20cc46f90b7e96a6c148ed5",
+      "evidence_url": "https://api.github.com/repos/deadlock-api/deadlock-api/git/ref/heads/master",
+      "scope": "repository_ref_metadata_only",
+      "live_api_deployment_link_verified": false,
+      "game_version": null,
+      "game_valid_from": null
+    },
+    {
+      "source_key": "deadlock-wiki/deadlock-data",
+      "ref": "repository_default_branch_at_observation",
+      "commit_sha": "66d0832dc30148ca66984f3f4c4a4d340af6f7d0",
+      "parent_commit_sha": "e66c2454219623a64daf6a7bd478125486a596b2",
+      "commit_time": "2026-09-18T16:36:50Z",
+      "evidence_url": "https://api.github.com/repos/deadlock-wiki/deadlock-data/commits?per_page=1",
+      "scope": "commit_metadata_only_not_imported_history",
+      "generator_reference_from_commit_message": "deadbot@18d7dff",
+      "generator_full_commit_verified": false,
+      "client_version_from_commit_message": "6698",
+      "generator_version_from_commit_message": "1.17.1",
+      "game_version_payload_verified": false,
+      "game_valid_from": null,
+      "history_coverage_verified": false
+    },
+    {
+      "source_key": "ValveResourceFormat/SchemaExplorer",
+      "ref": "refs/heads/main",
+      "commit_sha": "85db9308aef2013367ab44232ea672864ce5890e",
+      "evidence_url": "https://api.github.com/repos/ValveResourceFormat/SchemaExplorer/git/ref/heads/main",
+      "scope": "repository_ref_metadata_only_not_schema_fixture",
+      "game_schema_path_candidate": "schemas/deadlock.json",
+      "game_schema_blob_verified": false,
+      "game_version": null,
+      "game_valid_from": null
+    }
+  ],
+  "http_observation": {
+    "source_url": "https://api.deadlock-api.com/openapi.json",
+    "http_status": 200,
+    "curl_exit_code": 0,
+    "downloaded_bytes": 380364,
+    "raw_response_sha256": "c99d82d667d280e717ab58a2c78de79ff2a20f4185aa2c2bb480c342328bb737",
+    "snapshot_file_mtime_utc": "2026-09-24T20:53:26.853726Z",
+    "time_semantics": "local_download_file_mtime_not_upstream_publication_or_game_time",
+    "openapi_version": "3.1.0",
+    "api_info_version": "0.1.0",
+    "schema_snapshot_committed": false,
+    "local_diagnostic_copy": "/tmp/brain-s13-openapi-20260924.json",
+    "durable_raw_archive_verified": false,
+    "reproduction_limit": "A fresh request can differ; the hash alone does not supply the original bytes.",
+    "fixture_redistribution_approved": false,
+    "data_egress_approved": false
+  },
+  "availability_observations": [
+    {
+      "source_key": "deadlock-api/deadlock-api-assets",
+      "url": "https://assets.deadlock-api.com/v2/heroes",
+      "method": "HEAD",
+      "curl_exit_code": 6,
+      "http_status": null,
+      "curl_http_code_text": "000",
+      "result": "dns_resolution_failed_on_probe_host",
+      "schema_change_conclusion": "undetermined",
+      "permanent_shutdown_verified": false
+    },
+    {
+      "source_key": "deadlock-api/deadlock-api-assets",
+      "url": "https://api.github.com/repos/deadlock-api/deadlock-api-assets",
+      "method": "GET",
+      "http_status": 404,
+      "result": "repository_not_resolved_by_connector",
+      "deletion_or_visibility_conclusion": "undetermined"
+    }
+  ],
+  "privacy_scope": {
+    "player_histories_fetched": 0,
+    "matches_fetched": 0,
+    "replays_fetched": 0,
+    "game_asset_payloads_fetched": 0,
+    "production_database_accessed": false
+  },
+  "rights_boundary": "Public availability and a repository code-license label do not approve game data, fixtures, publication or provider egress. No such approval is granted by this artifact."
+}

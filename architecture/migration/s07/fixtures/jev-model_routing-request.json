@@ -1,0 +1,17 @@
+{
+  "model": "fixture-jev-model-not-for-live",
+  "state": {
+    "question": "Welche Farbe ist für Objekt Alpha angegeben?",
+    "evidence": "Im erfundenen Testdatensatz hat Objekt Alpha die Farbe Blau."
+  },
+  "questions": {
+    "model_routing": {
+      "type": "choice",
+      "instructions": "Wähle ausschließlich unter diesen bereits durch Rust zugelassenen Optionen. Keine Provider-URL erzeugen.",
+      "criteria": {
+        "baseline_only": "Ohne Modell anhand strukturierter Daten beantworten",
+        "approved_primary": "Bereits genehmigten primären Modellpfad vorschlagen"
+      }
+    }
+  }
+}

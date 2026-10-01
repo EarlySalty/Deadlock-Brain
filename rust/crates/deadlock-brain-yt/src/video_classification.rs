@@ -19,21 +19,8 @@ const VISUAL_KEYWORDS: &[&str] = &[
 ];
 
 const VERBAL_KEYWORDS: &[&str] = &[
-    "build",
-    "items",
-    "item",
-    "lane",
-    "laning",
-    "matchup",
-    "counter",
-    "souls",
-    "macro",
-    "guide",
-    "tips",
-    "rank",
-    "strategy",
-    "meta",
-    "economy",
+    "build", "items", "item", "lane", "laning", "matchup", "counter", "souls", "macro", "guide",
+    "tips", "rank", "strategy", "meta", "economy",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,10 +100,7 @@ pub async fn classify_videos(pool: &PgPool, limit: usize) -> anyhow::Result<Clas
     Ok(summary)
 }
 
-async fn select_videos(
-    pool: &PgPool,
-    limit: usize,
-) -> anyhow::Result<Vec<VideoForClassification>> {
+async fn select_videos(pool: &PgPool, limit: usize) -> anyhow::Result<Vec<VideoForClassification>> {
     let limit = i64::try_from(limit.max(1)).unwrap_or(i64::MAX);
     let rows = sqlx::query!(
         r#"

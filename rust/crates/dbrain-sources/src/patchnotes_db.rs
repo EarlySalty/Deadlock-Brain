@@ -33,10 +33,7 @@ pub fn classify_source_kind(url: Option<&str>) -> &'static str {
     }
 }
 
-pub async fn pull_patchnotes(
-    raw_dir: &Path,
-    _options: PullPatchnotesOptions,
-) -> Result<Value> {
+pub async fn pull_patchnotes(raw_dir: &Path, _options: PullPatchnotesOptions) -> Result<Value> {
     let pool = open_pool().await?;
     let store = SourceStore::new(&pool, raw_dir)?;
     let run_id = store.begin_run("patchnotes").await?;
@@ -188,11 +185,8 @@ mod tests {
             Some("2026-07-09T00:00:00+00:00")
         );
         assert_eq!(
-            posted_at_or_title_date(
-                Some("2026-07-09 19:42:11+00"),
-                Some("07-09-2026 Update")
-            )
-            .as_deref(),
+            posted_at_or_title_date(Some("2026-07-09 19:42:11+00"), Some("07-09-2026 Update"))
+                .as_deref(),
             Some("2026-07-09 19:42:11+00")
         );
     }

@@ -1,0 +1,1 @@
+source_id,name,actual_location,evidence_commit_or_snapshot,owner,source_of_truth,data_class,schema_version,record_count,bytes,visibility,acl_reference,egress_policy,change_feed,deletion_signal,snapshot_method,watermark,target,migration_decision,verification_method,status

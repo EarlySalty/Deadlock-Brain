@@ -1,0 +1,19 @@
+{
+  "model": "fixture-jev-model-not-for-live",
+  "answers": {
+    "feeder_classification": {
+      "type": "choice",
+      "choice": "wiki",
+      "probabilities": {
+        "patch": 0.0,
+        "wiki": 0.75,
+        "other": 0.25
+      },
+      "confidence": 0.6
+    }
+  },
+  "usage": {
+    "input_tokens": 80,
+    "output_tokens": 10
+  }
+}

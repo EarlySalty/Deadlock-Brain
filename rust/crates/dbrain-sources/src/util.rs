@@ -52,13 +52,9 @@ fn percent_encode(value: &str, plus_for_space: bool, safe_slash: bool) -> String
     let mut output = String::with_capacity(value.len());
     for byte in value.bytes() {
         match byte {
-            b'A'..=b'Z'
-            | b'a'..=b'z'
-            | b'0'..=b'9'
-            | b'_'
-            | b'.'
-            | b'-'
-            | b'~' => output.push(byte as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'_' | b'.' | b'-' | b'~' => {
+                output.push(byte as char)
+            }
             b'/' if safe_slash => output.push('/'),
             b' ' if plus_for_space => output.push('+'),
             _ => {

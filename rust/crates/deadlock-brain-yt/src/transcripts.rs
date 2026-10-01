@@ -188,10 +188,9 @@ pub async fn fetch_transcripts(
                         summary.saved += 1;
                     }
                 }
-                Err(_) => {
+                Err(error) => {
                     summary.failed += 1;
-                    item.error =
-                        Some("caption persistence failed; transaction rolled back".to_string());
+                    item.error = Some(error.to_string());
                 }
             },
             Ok(None) => {

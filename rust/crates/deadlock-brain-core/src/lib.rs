@@ -14,6 +14,7 @@ pub mod http;
 pub mod model_resolver;
 pub mod models;
 pub mod pg;
+pub mod replay;
 
 pub use error::{CoreError, Result};
 

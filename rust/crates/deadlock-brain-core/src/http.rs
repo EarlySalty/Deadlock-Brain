@@ -1,3 +1,6 @@
+pub mod bounded;
+pub use bounded::{SourceHttpOptions, SourceHttpResponse};
+
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -73,6 +76,7 @@ impl HttpResult {
 pub struct HttpClient {
     client: Client,
     no_redirect_client: Client,
+    bounded_source_client: Client,
     user_agent: String,
     cache_dir: PathBuf,
 }
@@ -91,9 +95,22 @@ impl HttpClient {
             .timeout(Duration::from_secs(30))
             .redirect(reqwest::redirect::Policy::none())
             .build()?;
+        // A policy variant of the same shared HTTP core. Legacy callers retain
+        // decompression; source provenance reads retain exact entity bytes.
+        let bounded_source_client = Client::builder()
+            .user_agent(user_agent.clone())
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(30))
+            .redirect(reqwest::redirect::Policy::none())
+            .no_gzip()
+            .no_brotli()
+            .no_deflate()
+            .no_zstd()
+            .build()?;
         Ok(Self {
             client,
             no_redirect_client,
+            bounded_source_client,
             user_agent,
             cache_dir,
         })
@@ -374,7 +391,8 @@ mod tests {
             let (mut stream, _) = listener.accept().unwrap();
             let mut request = [0_u8; 1024];
             assert!(stream.read(&mut request).unwrap() > 0);
-            let body = "<feed xmlns=\"http://www.w3.org/2005/Atom\"><title>r/Deadlock</title></feed>";
+            let body =
+                "<feed xmlns=\"http://www.w3.org/2005/Atom\"><title>r/Deadlock</title></feed>";
             write!(
                 stream,
                 "HTTP/1.1 403 Forbidden\r\nContent-Type: application/atom+xml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -396,7 +414,10 @@ mod tests {
             .unwrap();
         server.join().unwrap();
         assert!(result.text().contains("r/Deadlock"));
-        assert!(std::fs::read_dir(cache_dir.path()).unwrap().next().is_none());
+        assert!(std::fs::read_dir(cache_dir.path())
+            .unwrap()
+            .next()
+            .is_none());
     }
 
     #[test]

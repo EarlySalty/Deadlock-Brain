@@ -47,7 +47,11 @@ pub async fn normalize_sheet_stats(pool: &PgPool, rebuild: bool) -> Result<Value
             .trim()
             .to_string();
         let hero_name = if hero_name.is_empty() {
-            row.canonical_name.clone().unwrap_or_default().trim().to_string()
+            row.canonical_name
+                .clone()
+                .unwrap_or_default()
+                .trim()
+                .to_string()
         } else {
             hero_name
         };
@@ -61,16 +65,20 @@ pub async fn normalize_sheet_stats(pool: &PgPool, rebuild: bool) -> Result<Value
             unmatched_heroes.insert(hero_name.clone());
         }
 
-        let profile_id = upsert_profile(pool, ProfileUpsert {
-            snapshot_id: row.id,
-            legacy_snapshot_id: row.legacy_snapshot_id,
-            entity_id,
-            hero_name: &hero_name,
-            source: &row.source,
-            external_id: &row.external_id,
-            payload_hash: &row.payload_hash,
-            row_number: row_number(payload.get("row_number")),
-        }).await?;
+        let profile_id = upsert_profile(
+            pool,
+            ProfileUpsert {
+                snapshot_id: row.id,
+                legacy_snapshot_id: row.legacy_snapshot_id,
+                entity_id,
+                hero_name: &hero_name,
+                source: &row.source,
+                external_id: &row.external_id,
+                payload_hash: &row.payload_hash,
+                row_number: row_number(payload.get("row_number")),
+            },
+        )
+        .await?;
         profiles += 1;
 
         let mut stat_keys_for_profile = HashSet::new();
@@ -90,15 +98,20 @@ pub async fn normalize_sheet_stats(pool: &PgPool, rebuild: bool) -> Result<Value
 
             let raw_text = value_to_string(Some(raw_value)).trim().to_string();
             let numeric_value = parse_number(&raw_text);
-            if upsert_value(pool, ValueUpsert {
-                profile_id,
-                entity_id,
-                hero_name: &hero_name,
-                stat_key: &stat_key,
-                stat_label: label.trim(),
-                numeric_value,
-                raw_value: &raw_text,
-            }).await? {
+            if upsert_value(
+                pool,
+                ValueUpsert {
+                    profile_id,
+                    entity_id,
+                    hero_name: &hero_name,
+                    stat_key: &stat_key,
+                    stat_label: label.trim(),
+                    numeric_value,
+                    raw_value: &raw_text,
+                },
+            )
+            .await?
+            {
                 values += 1;
             }
         }
@@ -247,7 +260,10 @@ fn is_stat_column(label: &str, raw_value: &Value) -> bool {
     if label_text.is_empty() || value_text.is_empty() {
         return false;
     }
-    if matches!(label_text.to_lowercase().as_str(), "hero name" | "hero labs") {
+    if matches!(
+        label_text.to_lowercase().as_str(),
+        "hero name" | "hero labs"
+    ) {
         return false;
     }
     if is_column_placeholder(label_text) {

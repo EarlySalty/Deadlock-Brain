@@ -34,7 +34,7 @@ struct ResolvedPatchSource {
 
 #[derive(Debug, Clone, Deserialize)]
 struct SteamAppNewsResponse {
-    appnews: SteamAppNews
+    appnews: SteamAppNews,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -264,7 +264,8 @@ fn resolve_patch_source(http: &HttpClient, row: &PatchnoteRow) -> Result<PatchSo
     let posted_at = row_posted_at(row)?;
     let candidates = collect_steam_links(row);
     let source_kind = classify_source_kind(row.url.as_deref());
-    let should_search_steam = source_kind == "forum" || (source_kind == "steam" && !candidates.is_empty());
+    let should_search_steam =
+        source_kind == "forum" || (source_kind == "steam" && !candidates.is_empty());
     if !should_search_steam {
         return Ok(PatchSourceResolution::from_row(row));
     }
@@ -302,7 +303,10 @@ fn should_use_steam_news(
         return true;
     }
     if source_kind == "forum" {
-        !is_substantial_forum_content(row.raw_content.as_deref(), row.translated_content.as_deref())
+        !is_substantial_forum_content(
+            row.raw_content.as_deref(),
+            row.translated_content.as_deref(),
+        )
     } else {
         false
     }
@@ -325,7 +329,10 @@ fn explicit_steam_gid(candidates: &[SteamLinkCandidate]) -> Option<&str> {
     single_gid
 }
 
-fn is_substantial_forum_content(raw_content: Option<&str>, translated_content: Option<&str>) -> bool {
+fn is_substantial_forum_content(
+    raw_content: Option<&str>,
+    translated_content: Option<&str>,
+) -> bool {
     let raw_content = raw_content.unwrap_or_default();
     let translated_content = translated_content.unwrap_or_default();
     let combined = [raw_content, translated_content].join("\n");
@@ -384,8 +391,14 @@ fn resolve_steam_content(http: &HttpClient, item: &SteamAppNewsItem) -> String {
     }
 }
 
-fn fetch_steam_announcement_body(http: &HttpClient, item: &SteamAppNewsItem) -> Result<Option<String>> {
-    if !item.url.contains("externalpost/steam_community_announcements/") {
+fn fetch_steam_announcement_body(
+    http: &HttpClient,
+    item: &SteamAppNewsItem,
+) -> Result<Option<String>> {
+    if !item
+        .url
+        .contains("externalpost/steam_community_announcements/")
+    {
         return Ok(None);
     }
     let page = http.get(
@@ -396,23 +409,34 @@ fn fetch_steam_announcement_body(http: &HttpClient, item: &SteamAppNewsItem) -> 
             ..HttpGetOptions::default()
         },
     )?;
-    Ok(extract_steam_announcement_body_from_html(&page.text(), item))
+    Ok(extract_steam_announcement_body_from_html(
+        &page.text(),
+        item,
+    ))
 }
 
-fn extract_steam_announcement_body_from_html(html: &str, item: &SteamAppNewsItem) -> Option<String> {
+fn extract_steam_announcement_body_from_html(
+    html: &str,
+    item: &SteamAppNewsItem,
+) -> Option<String> {
     let raw_store = extract_html_attribute(html, "data-partnereventstore")?;
     let decoded = decode_basic_entities(raw_store);
     let events: Vec<SteamPartnerEvent> = serde_json::from_str(&decoded).ok()?;
     let wanted_gid = extract_steam_view_gid(html);
     let wanted_title = normalize_steam_title(Some(&item.title));
-    let wanted_time = steam_item_time(item).map(|value| value.timestamp()).unwrap_or_default();
+    let wanted_time = steam_item_time(item)
+        .map(|value| value.timestamp())
+        .unwrap_or_default();
 
     if let Some(event) = wanted_gid.as_deref().and_then(|gid| {
         events
             .iter()
             .find(|event| event.gid == gid && has_announcement_body(event))
     }) {
-        return event.announcement_body.as_ref().map(|body| body.body.clone());
+        return event
+            .announcement_body
+            .as_ref()
+            .map(|body| body.body.clone());
     }
 
     let mut best: Option<(i64, &SteamPartnerEvent)> = None;
@@ -436,11 +460,17 @@ fn extract_steam_announcement_body_from_html(html: &str, item: &SteamAppNewsItem
         }
     }
 
-    best.and_then(|(_, event)| event.announcement_body.as_ref().map(|body| body.body.clone()))
+    best.and_then(|(_, event)| {
+        event
+            .announcement_body
+            .as_ref()
+            .map(|body| body.body.clone())
+    })
 }
 
 fn has_announcement_body(event: &SteamPartnerEvent) -> bool {
-    event.announcement_body
+    event
+        .announcement_body
         .as_ref()
         .is_some_and(|body| !body.body.trim().is_empty())
 }
@@ -468,9 +498,7 @@ fn extract_steam_view_gid(html: &str) -> Option<String> {
 }
 
 fn appnews_url(count: u32) -> String {
-    format!(
-        "{STEAM_APPNEWS_API}?appid={STEAM_APPID}&count={count}&maxlength=100000&format=json"
-    )
+    format!("{STEAM_APPNEWS_API}?appid={STEAM_APPID}&count={count}&maxlength=100000&format=json")
 }
 
 #[derive(Debug, Clone)]
@@ -593,7 +621,12 @@ fn collect_steam_links(row: &PatchnoteRow) -> Vec<SteamLinkCandidate> {
         });
     };
 
-    for text in row.url.iter().chain(row.raw_content.iter()).chain(row.translated_content.iter()) {
+    for text in row
+        .url
+        .iter()
+        .chain(row.raw_content.iter())
+        .chain(row.translated_content.iter())
+    {
         for raw in extract_http_tokens(text) {
             add_candidate(&raw);
         }
@@ -636,7 +669,9 @@ fn normalize_url_token(raw: &str) -> String {
 
 fn is_steam_news_url(url: &str) -> bool {
     let lower = url.to_lowercase();
-    (lower.contains("steamcommunity.com") || lower.contains("steampowered.com") || lower.contains("steamstore-a.akamaihd.net"))
+    (lower.contains("steamcommunity.com")
+        || lower.contains("steampowered.com")
+        || lower.contains("steamstore-a.akamaihd.net"))
         && (lower.contains("externalpost")
             || lower.contains("announcements")
             || lower.contains("steam_community_announcements"))
@@ -681,7 +716,10 @@ fn match_steam_news_item(
         .collect::<Vec<_>>();
     for item in items {
         let item_url = normalize_steam_url(&item.url);
-        if wanted_urls.iter().any(|wanted| item_url.contains(wanted.as_str())) {
+        if wanted_urls
+            .iter()
+            .any(|wanted| item_url.contains(wanted.as_str()))
+        {
             return Some(item.clone());
         }
     }
@@ -700,7 +738,8 @@ fn match_steam_news_item(
             if score < -100_000 {
                 continue;
             }
-            let title_score = title_similarity(&wanted_rows, &normalize_steam_title(Some(&item.title)));
+            let title_score =
+                title_similarity(&wanted_rows, &normalize_steam_title(Some(&item.title)));
             score += title_score as i64;
             if score > best.as_ref().map_or(i64::MIN, |value| value.0) {
                 best = Some((score, item.clone()));
@@ -800,20 +839,8 @@ fn clean_steam_content(raw: &str) -> String {
         text = text.replace(from, to);
     }
     for tag in [
-        "[b]",
-        "[/b]",
-        "[i]",
-        "[/i]",
-        "[u]",
-        "[/u]",
-        "[h1]",
-        "[/h1]",
-        "[h2]",
-        "[/h2]",
-        "[h3]",
-        "[/h3]",
-        "[code]",
-        "[/code]",
+        "[b]", "[/b]", "[i]", "[/i]", "[u]", "[/u]", "[h1]", "[/h1]", "[h2]", "[/h2]", "[h3]",
+        "[/h3]", "[code]", "[/code]",
     ] {
         text = text.replace(tag, "");
     }
@@ -1005,9 +1032,7 @@ fn parse_events(
 
 fn is_narrative_event_line(line: &str) -> bool {
     let trimmed = line.trim();
-    !trimmed.is_empty()
-        && !trimmed.starts_with('{')
-        && trimmed.split_whitespace().count() >= 5
+    !trimmed.is_empty() && !trimmed.starts_with('{') && trimmed.split_whitespace().count() >= 5
 }
 
 fn parse_bullet_event(context: &EventParseContext<'_>) -> Option<PreparedEvent> {
@@ -1020,7 +1045,9 @@ fn parse_bullet_event(context: &EventParseContext<'_>) -> Option<PreparedEvent> 
     let entity = subject
         .as_deref()
         .and_then(|subject| context.index.exact(subject))
-        .or_else(|| section_subject(context.section).and_then(|subject| context.index.exact(subject)))
+        .or_else(|| {
+            section_subject(context.section).and_then(|subject| context.index.exact(subject))
+        })
         .or_else(|| context.index.infer(&normalized_line));
     let (entity_type, entity_name, confidence) = if let Some(entity) = entity {
         (
@@ -1683,10 +1710,7 @@ fn split_flat_forum_lines(content: &str) -> Option<Vec<String>> {
 }
 
 fn split_square_bracket_forum_lines(content: &str) -> Option<Vec<String>> {
-    if content.is_empty()
-        || content.contains('\n')
-        || !content.starts_with('[')
-    {
+    if content.is_empty() || content.contains('\n') || !content.starts_with('[') {
         return None;
     }
 
@@ -1726,7 +1750,9 @@ fn find_square_section_marker(content: &str, start: usize) -> Option<(usize, usi
         let open = search_from + open_rel;
         let close_rel = content[open..].find(']')?;
         let close = open + close_rel;
-        if let Some(section) = extract_forum_square_section_name_inner(content[open + 1..close].trim()) {
+        if let Some(section) =
+            extract_forum_square_section_name_inner(content[open + 1..close].trim())
+        {
             return Some((open, close + 1, section));
         }
         search_from = close + 1;
@@ -1770,10 +1796,9 @@ fn extract_forum_square_section_name_inner(raw_line: &str) -> Option<String> {
     if !inner.chars().next()?.is_ascii_uppercase() {
         return None;
     }
-    if !inner
-        .chars()
-        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, ' ' | '&' | '/' | '+' | '-' | '(' | ')' | '.'))
-    {
+    if !inner.chars().all(|ch| {
+        ch.is_ascii_alphanumeric() || matches!(ch, ' ' | '&' | '/' | '+' | '-' | '(' | ')' | '.')
+    }) {
         return None;
     }
     Some(inner.to_string())
@@ -1916,9 +1941,11 @@ fn looks_like_plain_section_heading(line: &str) -> bool {
         && !trimmed.ends_with('.')
         && !trimmed.ends_with('!')
         && !trimmed.ends_with('?')
-        && trimmed
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || ch.is_ascii_whitespace() || matches!(ch, '&' | '/' | '+' | '-' | ':' | '\'' | '"'))
+        && trimmed.chars().all(|ch| {
+            ch.is_ascii_alphanumeric()
+                || ch.is_ascii_whitespace()
+                || matches!(ch, '&' | '/' | '+' | '-' | ':' | '\'' | '"')
+        })
         && trimmed.chars().any(|ch| ch.is_ascii_uppercase())
 }
 
@@ -2305,13 +2332,11 @@ mod tests {
             translated_content: None,
         };
         let candidates = collect_steam_links(&row);
-        assert!(
-            !should_use_steam_news(
-                &row,
-                &classify_source_kind(row.url.as_deref()),
-                &candidates
-            )
-        );
+        assert!(!should_use_steam_news(
+            &row,
+            &classify_source_kind(row.url.as_deref()),
+            &candidates
+        ));
     }
 
     #[test]
@@ -2326,14 +2351,15 @@ mod tests {
         };
         let candidates = collect_steam_links(&row);
         assert_eq!(candidates.len(), 1);
-        assert_eq!(explicit_steam_gid(&candidates).map(str::to_string), Some("1799088287841594".to_string()));
-        assert!(
-            should_use_steam_news(
-                &row,
-                &classify_source_kind(row.url.as_deref()),
-                &candidates
-            )
+        assert_eq!(
+            explicit_steam_gid(&candidates).map(str::to_string),
+            Some("1799088287841594".to_string())
         );
+        assert!(should_use_steam_news(
+            &row,
+            &classify_source_kind(row.url.as_deref()),
+            &candidates
+        ));
 
         let item = match_steam_news_item(
             &row,
@@ -2366,12 +2392,11 @@ mod tests {
         let row = PatchnoteRow {
             id: 12,
             title: Some("05-08-2025 Update".to_string()),
-            url: Some("https://forums.playdeadlock.com/threads/05-08-2025-update.63133/".to_string()),
-            posted_at: Some(posted_at("2025-05-08")),
-            raw_content: Some(
-                "- General Changes: Added a new interaction."
-                    .to_string(),
+            url: Some(
+                "https://forums.playdeadlock.com/threads/05-08-2025-update.63133/".to_string(),
             ),
+            posted_at: Some(posted_at("2025-05-08")),
+            raw_content: Some("- General Changes: Added a new interaction.".to_string()),
             translated_content: None,
         };
 
@@ -2424,7 +2449,9 @@ mod tests {
         let row = PatchnoteRow {
             id: 4,
             title: Some("08-18-2025 Update".to_string()),
-            url: Some("https://forums.playdeadlock.com/threads/08-18-2025-update.75046/".to_string()),
+            url: Some(
+                "https://forums.playdeadlock.com/threads/08-18-2025-update.75046/".to_string(),
+            ),
             posted_at: Some("2025-08-18T20:42:20+00:00".to_string()),
             raw_content: Some("Deadlock - Six New Heroes - Steam News".to_string()),
             translated_content: None,
@@ -2452,11 +2479,9 @@ mod tests {
             .events
             .iter()
             .any(|event| event.section.as_deref() == Some("Hero Voting")));
-        assert!(prepared
-            .events
-            .iter()
-            .any(|event| event.section.as_deref() == Some("Mina: Hero Spotlight")
-                && event.entity_name.as_deref() == Some("Mina")));
+        assert!(prepared.events.iter().any(|event| event.section.as_deref()
+            == Some("Mina: Hero Spotlight")
+            && event.entity_name.as_deref() == Some("Mina")));
     }
 
     #[test]
@@ -2472,7 +2497,8 @@ mod tests {
         let mut index = EntityIndex::default();
         index.insert("item", "Aegis", "Aegis");
         let index = index.finish();
-        let prepared = prepare_patch(&row, &PatchSourceResolution::from_row(&row), &index).expect("prepare");
+        let prepared =
+            prepare_patch(&row, &PatchSourceResolution::from_row(&row), &index).expect("prepare");
         assert_eq!(prepared.events.len(), 1);
         assert_eq!(prepared.events[0].entity_name.as_deref(), Some("Aegis"));
         assert_eq!(
@@ -2532,9 +2558,7 @@ mod tests {
         let row = PatchnoteRow {
             id: 17,
             title: Some("07-09-2026 Update".to_string()),
-            url: Some(
-                "https://forums.playdeadlock.com/threads/07-09-2026-update.1/".to_string(),
-            ),
+            url: Some("https://forums.playdeadlock.com/threads/07-09-2026-update.1/".to_string()),
             posted_at: None,
             raw_content: Some("- Aegis: increased health from 10 to 11".to_string()),
             translated_content: None,
@@ -2634,7 +2658,8 @@ mod tests {
         index.insert("item", "Mystic Shot", "Mystic Shot");
         let index = index.finish();
 
-        let prepared = prepare_patch(&row, &PatchSourceResolution::from_row(&row), &index).expect("prepare");
+        let prepared =
+            prepare_patch(&row, &PatchSourceResolution::from_row(&row), &index).expect("prepare");
 
         assert_eq!(prepared.patch_external_id, "patch_2");
         assert_eq!(prepared.events.len(), 5);
@@ -2666,7 +2691,10 @@ mod tests {
 
     #[test]
     fn section_heading_rejects_invalid_square_bracket_sections() {
-        assert_eq!(section_heading("[http://forums.playdeadlock.com/threads/x]"), None);
+        assert_eq!(
+            section_heading("[http://forums.playdeadlock.com/threads/x]"),
+            None
+        );
         assert_eq!(section_heading("[b]"), None);
     }
 
@@ -2687,7 +2715,8 @@ mod tests {
         index.insert("hero", "Patron", "Patron");
         let index = index.finish();
 
-        let prepared = prepare_patch(&row, &PatchSourceResolution::from_row(&row), &index).expect("prepare");
+        let prepared =
+            prepare_patch(&row, &PatchSourceResolution::from_row(&row), &index).expect("prepare");
         assert!(!prepared.events.is_empty());
         assert_eq!(
             prepared.events[0].section.as_deref(),
@@ -2716,7 +2745,12 @@ mod tests {
             ),
             translated_content: None,
         };
-        let prepared = prepare_patch(&row, &PatchSourceResolution::from_row(&row), &EntityIndex::default()).expect("prepare");
+        let prepared = prepare_patch(
+            &row,
+            &PatchSourceResolution::from_row(&row),
+            &EntityIndex::default(),
+        )
+        .expect("prepare");
         assert_eq!(prepared.events.len(), 5);
         assert_eq!(
             prepared.events[0].section.as_deref(),
@@ -2726,10 +2760,7 @@ mod tests {
             .events
             .iter()
             .any(|event| event.section.as_deref() == Some("Misc Gameplay")));
-        assert!(prepared
-            .events
-            .iter()
-            .any(|event| event.subject.is_none()));
+        assert!(prepared.events.iter().any(|event| event.subject.is_none()));
     }
 
     #[test]
@@ -2750,7 +2781,8 @@ mod tests {
         index.insert("hero", "Abrams", "Abrams");
         let index = index.finish();
 
-        let prepared = prepare_patch(&row, &PatchSourceResolution::from_row(&row), &index).expect("prepare");
+        let prepared =
+            prepare_patch(&row, &PatchSourceResolution::from_row(&row), &index).expect("prepare");
         assert_eq!(prepared.events.len(), 2);
         assert_eq!(
             prepared.events[0].section.as_deref(),
@@ -2790,7 +2822,8 @@ mod tests {
         let mut index = EntityIndex::default();
         index.insert("item", "Aegis", "Aegis");
         let index = index.finish();
-        let prepared = prepare_patch(&row, &PatchSourceResolution::from_row(&row), &index).expect("prepare");
+        let prepared =
+            prepare_patch(&row, &PatchSourceResolution::from_row(&row), &index).expect("prepare");
         assert_eq!(prepared.events.len(), 2);
         assert_ne!(prepared.events[0].event_hash, prepared.events[1].event_hash);
         assert_eq!(

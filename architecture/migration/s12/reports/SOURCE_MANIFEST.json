@@ -1,0 +1,544 @@
+{
+  "manifest_version": "s12-synthetic-source-manifest-v1",
+  "scope": "synthetic_fixture_only_not_live",
+  "capture_sha256": "a3c3d64c99c764652bea7709f630d8b4599bf13de4dc79f5a3a243153141ee83",
+  "source_key": "synthetic_wiki",
+  "source_policy": {
+    "offline_review_allowed": true,
+    "decision_ref": "synthetic-fixture-authored-S12-20260924",
+    "source_license": "Synthetic test data authored for S12; not upstream wiki content",
+    "publication_allowed": false,
+    "provider_egress_allowed": false,
+    "media_download_allowed": false
+  },
+  "retrieved_at": 1790280000,
+  "parser_version": "s12-syntax-probe-v1",
+  "discovery_complete": true,
+  "namespaces": {
+    "-1": "Special",
+    "0": "",
+    "6": "File",
+    "10": "Template",
+    "828": "Module",
+    "3000": "Data"
+  },
+  "pages": [
+    {
+      "page_id": 101,
+      "source_id": "synthetic_wiki:page:101",
+      "namespace": 0,
+      "title": "Fixture Ranger",
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/101",
+      "kind": "hero",
+      "build_critical": true,
+      "stage": "parsed",
+      "latest_revision": 10101,
+      "dependency_ids": [
+        201,
+        202,
+        301,
+        302,
+        501
+      ],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "revisions": [
+        {
+          "revision_id": 9101,
+          "source_time": 1790157600,
+          "retrieved_at": 1790280000,
+          "raw_sha256": "4cac43c371190da850676fe3d8e0687bd599470940870d2989435876641c2348",
+          "content_model": "json",
+          "syntax_parsed": true
+        },
+        {
+          "revision_id": 10101,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "raw_sha256": "1994d65ed494edbb8fb839ce0d725086a2ac99ded72aec70e9c465ab9af1c722",
+          "content_model": "json",
+          "syntax_parsed": true
+        }
+      ]
+    },
+    {
+      "page_id": 102,
+      "source_id": "synthetic_wiki:page:102",
+      "namespace": 0,
+      "title": "Other Fixture Hero",
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/102",
+      "kind": "hero",
+      "build_critical": true,
+      "stage": "parsed",
+      "latest_revision": 10102,
+      "dependency_ids": [],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "revisions": [
+        {
+          "revision_id": 10102,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "raw_sha256": "1b303fb05c31c6fdcbe07d2a6a570ba830a0fabe7ef55774e1b5ed751cf7101c",
+          "content_model": "json",
+          "syntax_parsed": true
+        }
+      ]
+    },
+    {
+      "page_id": 201,
+      "source_id": "synthetic_wiki:page:201",
+      "namespace": 0,
+      "title": "Fixture Pulse",
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/201",
+      "kind": "ability",
+      "build_critical": true,
+      "stage": "parsed",
+      "latest_revision": 10201,
+      "dependency_ids": [
+        401,
+        601
+      ],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "revisions": [
+        {
+          "revision_id": 10201,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "raw_sha256": "46545288631f209ba80664ab88958b4ee3aabefabfaae86be8e695bcd5257a9c",
+          "content_model": "json",
+          "syntax_parsed": true
+        }
+      ]
+    },
+    {
+      "page_id": 202,
+      "source_id": "synthetic_wiki:page:202",
+      "namespace": 0,
+      "title": "Fixture Stack Skill",
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/202",
+      "kind": "ability",
+      "build_critical": true,
+      "stage": "parsed",
+      "latest_revision": 10202,
+      "dependency_ids": [
+        402
+      ],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "revisions": [
+        {
+          "revision_id": 10202,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "raw_sha256": "8f74a1f2a1427ee6a0ab8431abbffd8c8043fa3c0b2f60d2cc9a8bdad8de1b37",
+          "content_model": "json",
+          "syntax_parsed": true
+        }
+      ]
+    },
+    {
+      "page_id": 301,
+      "source_id": "synthetic_wiki:page:301",
+      "namespace": 0,
+      "title": "Fixture Lens",
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/301",
+      "kind": "item",
+      "build_critical": true,
+      "stage": "parsed",
+      "latest_revision": 10301,
+      "dependency_ids": [],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "revisions": [
+        {
+          "revision_id": 10301,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "raw_sha256": "a638d710ec11b7cf188aacf6744535826b5a5f2e4c3a12f8cae591abc8db09f8",
+          "content_model": "json",
+          "syntax_parsed": true
+        }
+      ]
+    },
+    {
+      "page_id": 302,
+      "source_id": "synthetic_wiki:page:302",
+      "namespace": 0,
+      "title": "Fixture Ward",
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/302",
+      "kind": "item",
+      "build_critical": true,
+      "stage": "parsed",
+      "latest_revision": 10302,
+      "dependency_ids": [],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "revisions": [
+        {
+          "revision_id": 10302,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "raw_sha256": "92acc022d20bb60cdab710fc9d3deb1dfc221feb94d3a37e7956f7358859e07d",
+          "content_model": "json",
+          "syntax_parsed": true
+        }
+      ]
+    },
+    {
+      "page_id": 401,
+      "source_id": "synthetic_wiki:page:401",
+      "namespace": 0,
+      "title": "Fixture Build-Up",
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/401",
+      "kind": "mechanic",
+      "build_critical": true,
+      "stage": "parsed",
+      "latest_revision": 10401,
+      "dependency_ids": [],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "revisions": [
+        {
+          "revision_id": 10401,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "raw_sha256": "aacccafbb99a44fdd7b2a6295ce8abb091a9f4a96e8a2c6b79c0efd6743d2639",
+          "content_model": "json",
+          "syntax_parsed": true
+        }
+      ]
+    },
+    {
+      "page_id": 402,
+      "source_id": "synthetic_wiki:page:402",
+      "namespace": 0,
+      "title": "Fixture Stack",
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/402",
+      "kind": "mechanic",
+      "build_critical": true,
+      "stage": "parsed",
+      "latest_revision": 10402,
+      "dependency_ids": [],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "revisions": [
+        {
+          "revision_id": 10402,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "raw_sha256": "6c58660d9c8db3a320577fedb62aca10d2a7f9f8b77a57ae2db5115f4dfb3751",
+          "content_model": "json",
+          "syntax_parsed": true
+        }
+      ]
+    },
+    {
+      "page_id": 501,
+      "source_id": "synthetic_wiki:page:501",
+      "namespace": 0,
+      "title": "Fixture Inventory Rule",
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/501",
+      "kind": "rule",
+      "build_critical": true,
+      "stage": "parsed",
+      "latest_revision": 10501,
+      "dependency_ids": [],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "revisions": [
+        {
+          "revision_id": 10501,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "raw_sha256": "dac8ac8d08f453046d2c9ad90076ae6b8c48f1c1ab335d38cf755958f0f7762f",
+          "content_model": "json",
+          "syntax_parsed": true
+        }
+      ]
+    },
+    {
+      "page_id": 601,
+      "source_id": "synthetic_wiki:page:601",
+      "namespace": 3000,
+      "title": "Data:Fixture Scaling",
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/601",
+      "kind": "data",
+      "build_critical": true,
+      "stage": "parsed",
+      "latest_revision": 10601,
+      "dependency_ids": [
+        701
+      ],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "revisions": [
+        {
+          "revision_id": 10601,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "raw_sha256": "662dedb4ee9486d166d01945e21a5b6d1309416f6fd3a4e49c75ccd19bf6c95b",
+          "content_model": "json",
+          "syntax_parsed": true
+        }
+      ]
+    },
+    {
+      "page_id": 701,
+      "source_id": "synthetic_wiki:page:701",
+      "namespace": 10,
+      "title": "Template:Fixture Scaling",
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/701",
+      "kind": "template",
+      "build_critical": false,
+      "stage": "parsed",
+      "latest_revision": 10701,
+      "dependency_ids": [],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "revisions": [
+        {
+          "revision_id": 10701,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "raw_sha256": "9d81139f0eac04d239eb233059637e3006fd19f704712efe95731afb3c3b9283",
+          "content_model": "json",
+          "syntax_parsed": true
+        }
+      ]
+    },
+    {
+      "page_id": 702,
+      "source_id": "synthetic_wiki:page:702",
+      "namespace": 828,
+      "title": "Module:Unsafe Fixture",
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/702",
+      "kind": "module",
+      "build_critical": false,
+      "stage": "quarantined",
+      "latest_revision": 10702,
+      "dependency_ids": [],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "revisions": [
+        {
+          "revision_id": 10702,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "raw_sha256": "6b0458fca5def8edd2d81f8e0af67616e10f9a7657be28e9456adc26e35cb9c5",
+          "content_model": "Scribunto",
+          "syntax_parsed": false
+        }
+      ]
+    },
+    {
+      "page_id": 801,
+      "source_id": "synthetic_wiki:page:801",
+      "namespace": 0,
+      "title": "Fixture Lore",
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/801",
+      "kind": "lore",
+      "build_critical": false,
+      "stage": "parsed",
+      "latest_revision": 10801,
+      "dependency_ids": [],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "revisions": [
+        {
+          "revision_id": 10801,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "raw_sha256": "087976f6611523c7d94d2c58879112fdf2d323f37ed7bcc5ce018fdbbc53ba66",
+          "content_model": "wikitext",
+          "syntax_parsed": true
+        }
+      ]
+    },
+    {
+      "page_id": 802,
+      "source_id": "synthetic_wiki:page:802",
+      "namespace": 0,
+      "title": "Fixture Guide",
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/802",
+      "kind": "guide",
+      "build_critical": false,
+      "stage": "parsed",
+      "latest_revision": 10802,
+      "dependency_ids": [],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "revisions": [
+        {
+          "revision_id": 10802,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "raw_sha256": "104134a96870682c2114d61bb05856c106fd362bf07fab6cb84d1772fa4275ae",
+          "content_model": "wikitext",
+          "syntax_parsed": true
+        }
+      ]
+    },
+    {
+      "page_id": 803,
+      "source_id": "synthetic_wiki:page:803",
+      "namespace": 0,
+      "title": "Fixture Patch History",
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/803",
+      "kind": "patch_history",
+      "build_critical": false,
+      "stage": "parsed",
+      "latest_revision": 10803,
+      "dependency_ids": [],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "revisions": [
+        {
+          "revision_id": 10803,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "raw_sha256": "fe38824001b637190a09490cb29a075fc2064f4868e350a8c33aefccca6e82b6",
+          "content_model": "wikitext",
+          "syntax_parsed": true
+        }
+      ]
+    },
+    {
+      "page_id": 804,
+      "source_id": "synthetic_wiki:page:804",
+      "namespace": 0,
+      "title": "Fixture Ranger/de",
+      "source_language": "de",
+      "upstream_url": "https://example.invalid/wiki/fixture/804",
+      "kind": "localization",
+      "build_critical": false,
+      "stage": "parsed",
+      "latest_revision": 10804,
+      "dependency_ids": [],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "revisions": [
+        {
+          "revision_id": 10804,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "raw_sha256": "de38c95a49225b78c5b99d3d8e16b43db8d487753caf0e94682e29ebc18dc4ed",
+          "content_model": "wikitext",
+          "syntax_parsed": true
+        }
+      ]
+    },
+    {
+      "page_id": 901,
+      "source_id": "synthetic_wiki:page:901",
+      "namespace": 0,
+      "title": "Old Fixture Ranger",
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/901",
+      "kind": "redirect",
+      "build_critical": false,
+      "stage": "parsed",
+      "latest_revision": 10901,
+      "dependency_ids": [
+        101
+      ],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": 101,
+      "revisions": [
+        {
+          "revision_id": 10901,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "raw_sha256": "4b25142c7a73e21418705ef93243cb59ab25a2ba2f6818f5e2c89c1d1260a6bb",
+          "content_model": "wikitext",
+          "syntax_parsed": true
+        }
+      ]
+    },
+    {
+      "page_id": 1001,
+      "source_id": "synthetic_wiki:page:1001",
+      "namespace": 6,
+      "title": "File:Fixture.png",
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/1001",
+      "kind": "media_metadata",
+      "build_critical": false,
+      "stage": "parsed",
+      "latest_revision": 11001,
+      "dependency_ids": [],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "revisions": [
+        {
+          "revision_id": 11001,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "raw_sha256": "73ce2dec0915e7089c85db2516d8a52efa4f9da3f72773c5cf47dc5b487e1485",
+          "content_model": "wikitext",
+          "syntax_parsed": true
+        }
+      ]
+    },
+    {
+      "page_id": 1002,
+      "source_id": "synthetic_wiki:page:1002",
+      "namespace": 0,
+      "title": "Fixture Other",
+      "source_language": "en",
+      "upstream_url": "https://example.invalid/wiki/fixture/1002",
+      "kind": "other",
+      "build_critical": false,
+      "stage": "parsed",
+      "latest_revision": 11002,
+      "dependency_ids": [],
+      "unresolved_dependencies": [],
+      "dependencies_complete": true,
+      "redirect_target": null,
+      "revisions": [
+        {
+          "revision_id": 11002,
+          "source_time": 1790244000,
+          "retrieved_at": 1790280000,
+          "raw_sha256": "10ed590f748be8496876daa6311a3919b6e28b50cef2cfbe528224ee98d04461",
+          "content_model": "wikitext",
+          "syntax_parsed": true
+        }
+      ]
+    }
+  ]
+}

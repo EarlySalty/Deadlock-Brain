@@ -1,0 +1,35 @@
+[Unit]
+Description=Deadlock Brain PostgreSQL (eigene Instanz, nur Unix-Socket)
+After=network.target
+
+[Service]
+Type=notify
+User=deadlock-brain-pg
+Group=deadlock-brain-pg
+SupplementaryGroups=deadlock-brain-db
+UMask=0077
+RuntimeDirectory=deadlock-brain-postgresql
+RuntimeDirectoryMode=0755
+ExecStart=/usr/lib/postgresql/16/bin/postgres -c config_file=/etc/deadlock-brain/postgresql/postgresql.conf
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=mixed
+KillSignal=SIGINT
+TimeoutStartSec=120
+TimeoutStopSec=120
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/deadlock-brain/postgresql /var/log/deadlock-brain/postgresql
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

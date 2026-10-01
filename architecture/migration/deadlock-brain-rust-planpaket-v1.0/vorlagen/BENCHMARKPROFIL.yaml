@@ -1,0 +1,55 @@
+# Vorschlag: auszufüllen, keine vorhandenen Messdaten.
+profile_id: null
+approved: false
+hardware:
+  cpu: null
+  cores: null
+  ram_gib: null
+  storage: null
+  region: null
+  network: null
+  os: null
+  container_limits: null
+versions:
+  baseline_commit: null
+  candidate_commit: null
+  toolchain: null
+  contract: null
+  db_schema: null
+  corpus_manifest_sha256: null
+  embedding_revision: null
+  search_config_sha256: null
+  decision_model_revision: null
+  answer_model_revision: null
+workload:
+  dataset_sha256: null
+  document_count: null
+  chunk_count: null
+  corpus_bytes: null
+  scope_distribution: null
+  query_mix: null
+  target_arrivals_per_second: null
+  target_concurrency: null
+  background_ingestion: null
+  warmup_seconds: null
+  run_seconds: null
+  repetitions: null
+  seed: null
+  cache_states: [cold, warm]
+acceptance:
+  retrieval_p95_ms: null
+  api_overhead_p95_ms: null
+  first_token_p95_ms: null
+  end_to_end_p95_ms: null
+  error_rate_max: null
+  ram_max_gib: null
+  cost_per_answer_max: null
+  ingestion_lag_max_seconds: null
+  recall_noninferiority_margin: null
+  answer_quality_noninferiority_margin: null
+  rpo_seconds: null
+  rto_seconds: null
+results:
+  report_path: null
+  raw_results_path: null
+  passed: null

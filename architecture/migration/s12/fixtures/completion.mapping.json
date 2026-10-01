@@ -1,0 +1,113 @@
+{
+  "version": "synthetic-pilot-mapping-v1",
+  "review_ref": "synthetic-mapping-review-not-live-approval",
+  "source_key": "synthetic_wiki",
+  "entities": {
+    "101": "fixture:hero:one",
+    "102": "fixture:hero:two",
+    "201": "fixture:ability:pulse",
+    "401": "fixture:mechanic:build_up",
+    "402": "fixture:mechanic:stack"
+  },
+  "fields": [
+    {
+      "page_id": 101,
+      "predicate": "health",
+      "value_locator": "json:/stats/0/value",
+      "kind": "quantity",
+      "unit_locator": "json:/stats/0/unit",
+      "condition_locator": null,
+      "variant_locator": null
+    },
+    {
+      "page_id": 101,
+      "predicate": "resist",
+      "value_locator": "json:/stats/1/value",
+      "kind": "quantity",
+      "unit_locator": "json:/stats/1/unit",
+      "condition_locator": null,
+      "variant_locator": null
+    },
+    {
+      "page_id": 101,
+      "predicate": "resist_delta",
+      "value_locator": "json:/stats/2/value",
+      "kind": "quantity",
+      "unit_locator": "json:/stats/2/unit",
+      "condition_locator": null,
+      "variant_locator": null
+    },
+    {
+      "page_id": 101,
+      "predicate": "multiplier",
+      "value_locator": "json:/stats/3/value",
+      "kind": "quantity",
+      "unit_locator": "json:/stats/3/unit",
+      "condition_locator": null,
+      "variant_locator": null
+    },
+    {
+      "page_id": 101,
+      "predicate": "flag",
+      "value_locator": "json:/flag",
+      "kind": "boolean",
+      "unit_locator": null,
+      "condition_locator": null,
+      "variant_locator": null
+    },
+    {
+      "page_id": 101,
+      "predicate": "nullable",
+      "value_locator": "json:/nullable",
+      "kind": "boolean",
+      "unit_locator": null,
+      "condition_locator": null,
+      "variant_locator": null
+    },
+    {
+      "page_id": 101,
+      "predicate": "missing",
+      "value_locator": "json:/missing",
+      "kind": "boolean",
+      "unit_locator": null,
+      "condition_locator": null,
+      "variant_locator": null
+    },
+    {
+      "page_id": 101,
+      "predicate": "amount",
+      "value_locator": "json:/amount",
+      "kind": "quantity",
+      "unit_locator": "json:/unit",
+      "condition_locator": null,
+      "variant_locator": null
+    },
+    {
+      "page_id": 201,
+      "predicate": "damage",
+      "value_locator": "json:/damage",
+      "kind": "quantity",
+      "unit_locator": "json:/unit",
+      "condition_locator": "json:/condition",
+      "variant_locator": "json:/variant"
+    },
+    {
+      "page_id": 401,
+      "predicate": "mechanic_unit",
+      "value_locator": "json:/unit",
+      "kind": "text",
+      "unit_locator": null,
+      "condition_locator": null,
+      "variant_locator": null
+    },
+    {
+      "page_id": 402,
+      "predicate": "mechanic_unit",
+      "value_locator": "json:/unit",
+      "kind": "text",
+      "unit_locator": null,
+      "condition_locator": null,
+      "variant_locator": null
+    }
+  ]
+}

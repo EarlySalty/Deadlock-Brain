@@ -1,0 +1,8 @@
+{
+  "model": "fixture-embedding-model-not-for-live",
+  "input": [
+    "Objekt Alpha",
+    "Objekt Beta"
+  ],
+  "encoding_format": "float"
+}

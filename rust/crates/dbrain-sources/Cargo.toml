@@ -7,9 +7,16 @@ edition.workspace = true
 name = "dbrain_sources"
 path = "src/lib.rs"
 
+[features]
+analytics-fixtures = []
+
 [dependencies]
+brain-contracts = { path = "../brain-contracts" }
+brain-storage = { path = "../brain-storage" }
+dbrain-s12-wiki-probe = { path = "../dbrain-wiki" }
 deadlock-brain-core = { path = "../deadlock-brain-core" }
 regex.workspace = true
+reqwest.workspace = true
 roxmltree.workspace = true
 scraper.workspace = true
 serde.workspace = true
@@ -18,8 +25,8 @@ sha2.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tempfile.workspace = true
 
 [dev-dependencies]
 dbrain-normalize = { path = "../dbrain-normalize" }
-tempfile.workspace = true
 tokio = { workspace = true, features = ["macros"] }

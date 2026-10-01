@@ -1,0 +1,32 @@
+id,thema,kontrollierter_fall,erwartung,status,owner,evidence
+T01,Timeout vor Headern,verzögerter Fake-Server,Gesamtdeadline eingehalten; deterministische Baseline; kein unbudgetierter Retry,not_run,07,requires_G1_contracts
+T02,Langsamer/trunkierter Body,stückweise Antwort und Verbindungsabbruch,Lesefrist und Gesamtdauer gelten weiter; kein Teilresultat,not_run,07,requires_G1_contracts
+T03,Antwortgröße,Content-Length fehlt/ist falsch; viele Chunks,Maximale gelesene Bytes während Empfang begrenzen,not_run,07,requires_G1_contracts
+T04,Komprimierte Antwort,kleiner gzip-Body mit großer Expansion,Limit auch auf dekomprimierte Größe; keine Speicherexplosion,not_run,07,requires_G1_contracts
+T05,429,Retry-After Sekunden/HTTP-Datum/fehlerhaft,Exponential-Backoff mit injizierbarem Jitter; Budget begrenzt alle Wartezeiten,not_run,07,requires_G1_contracts
+T06,529 und 5xx,529/500/502/503/504,Nur bestätigte transiente Statuscodes; begrenzte Versuche und Breaker,not_run,07,requires_G1_contracts
+T07,401/403/422,permanente Auth-/Validierungsfehler,Kein Retry und kein anderer Provider; klassifizierter redigierter Fehler,not_run,07,requires_G1_contracts
+T08,404 Modell,Katalogauffrischung und wiederholtes 404,Maximal eine Neuauflösung im Gesamtbudget; explizite Modellwahl nicht wechseln,not_run,07,requires_G1_contracts
+T09,POST-Ausgang unklar,Timeout nach Annahme des Requests,Keine behauptete Exactly-once-Garantie; Wiederholung nur per genehmigter Kostenpolicy,not_run,07,requires_G1_contracts
+T10,Circuit Breaker,Fehlerserie und gleichzeitige Half-open-Anfragen,Open verhindert Anfragen; Probezahl beschränkt; mandanten-/providerisoliert,not_run,07,requires_G1_contracts
+T11,Cancellation/Last,Abbruch während Queue/Resolver/Retry,Arbeit endet; Nebenläufigkeit/Queue/Threads bleiben begrenzt,not_run,07,requires_G1_contracts
+T12,HTTP-Reuse,mehrere Requests und Keep-alive-Zähler,Client/Pool wiederverwendet; alle Budgets weiter anwendbar,not_run,07,requires_G1_contracts
+S01,Egress,fremde Hosts; http; URL-Credentials; IPv4/IPv6; DNS-Wechsel,Keine Netzwerkverbindung vor Policyfreigabe; erlaubte Zielauflösung überprüfen,not_run,07,requires_G1_contracts
+S02,Redirect,302/307/308 zu anderem Host,Keine automatische Weiterleitung mit Daten/Credentials,not_run,07,requires_G1_contracts
+S03,Rechte,interne Daten/Spielerbezug/gesperrte Quelle bei erlaubtem Host,Datenfreigabe separat prüfen; auch Shadow und Resolver dürfen nichts umgehen,not_run,07,requires_G1_contracts
+S04,Prompt-Injection,Passage verlangt freie Provider-URL/mehr Budget,Antwort kann erlaubte Optionen weder ergänzen noch Rechte verändern,not_run,07,requires_G1_contracts
+S05,Redaktion,Fake-Key und Fake-Kontext in URL/Response/Fehler,Kein Echo in Debug/Logs/Error; nur freigegebene Metadaten,not_run,07,requires_G1_contracts
+S06,Cache-Isolation,zwei Endpunkte/Tenants/Revisionen,Keine fremde Modellauflösung oder HTTP-Cacheantwort wiederverwenden,not_run,07,requires_G1_contracts
+V01,Jev-Typen,fünf Paare plus Mixed und Grenzfälle,Noul/Choice/Score-Semantik getrennt; IDs/Typtags stimmen,not_run,07,requires_G1_contracts
+V02,Jev-Negativfälle,invalid-*.json plus raw .txt,Jede dokumentierte Ablehnung durch realen Rust-Validator nachweisen,not_run,07,requires_G1_contracts
+V03,Numerik,NaN/Infinity/Overflow/negative Wahrscheinlichkeit,Nicht endliche oder außerhalb des Vertrags liegende Werte ablehnen,not_run,07,requires_G1_contracts
+V04,Schemaänderung,fehlendes Feld/extra Feld/duplizierter Schlüssel,Versionierte Fail-closed-Regel; keine stillschweigende Entscheidungsübernahme,not_run,07,requires_G1_contracts
+V05,Chatfinish,leerer Inhalt; refusal; tool call; length; kaputte choices,Kein unbelegter Erfolg; Tools nie als Berechtigung interpretieren,not_run,07,requires_G1_contracts
+V06,Usage,fehlt/null/negative Tokens,Unbekannte Kosten von Nullkosten trennen; negative Werte ablehnen,not_run,07,requires_G1_contracts
+V07,Embeddings,vertauschte/fehlende/duplizierte Indizes; falsche Dimension,Reihenfolge rekonstruieren; Modell/Dimension/Indexrevision müssen passen,not_run,07,requires_G1_contracts
+V08,Modellauflösung,Cache alt; env+settings; Katalog paginiert/fehlerhaft,Vereinbarte Präzedenz; keine unbekannte Familie; tatsächliche Revision dokumentieren,not_run,07,requires_G1_contracts
+F01,Fünf Schalter,jede Kombination off/shadow getrennt,Keine Funktion aktiviert andere; off verursacht keinen Jev-Aufruf,not_run,07,requires_G1_contracts
+F02,Shadow,gleiche Eingabe mit/ohne Schattenlauf,Antwort/Evidenz/Feederwirkung identisch; Kosten und Egress trotzdem begrenzt,not_run,07,requires_G1_contracts
+F03,Strukturierter Lookup,Fact/Rule ohne Modellbedarf,Keine verpflichtende Modellnetzwerkrunde,not_run,07,requires_G1_contracts
+L01,Autorisierter Vertrag,freigegebene Credentials und bereinigte Daten,Separat vom Fake-Server; reale Antwortrevision erfassen; keine Qualitätsfreigabe,not_run,07,authorization_and_labels_missing
+Q01,Holdout und Nettonutzen,S10-Labels mit eingefrorener Rubrik/Revision,Evidenzverlust/Latenz/Gesamtkosten belegt; G4-Entscheid pro Funktion,not_run,07/10,authorization_and_labels_missing

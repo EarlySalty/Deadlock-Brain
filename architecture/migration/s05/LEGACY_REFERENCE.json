@@ -1,0 +1,120 @@
+{
+  "fixture_version": "S05-ALIAS-20260924-v1",
+  "source_path": "src/deadlock_brain/entity_normalizer.py",
+  "source_commit": "c00fc8935048bf490c1e4790f7c6195864ad49e2",
+  "source_sha256": "dccdab48a2947bb0840eace17b8ece2f993cf505b5d7ef2b5ca231d5ee87156c",
+  "function_source": "def normalize_alias(value: str) -> str:\n    return re.sub(r\"\\s+\", \" \", value.strip().casefold().replace(\"_\", \" \"))",
+  "python_version": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+  "unicode_version": "15.0.0",
+  "method": "one-off trusted FunctionDef execution; no module imports or runtime services; regular Rust checks do not use Python",
+  "cases": [
+    {
+      "id": "empty",
+      "input": "",
+      "legacy_output": "",
+      "legacy_second_normalization": ""
+    },
+    {
+      "id": "hero_punctuation",
+      "input": "Mo & Krill",
+      "legacy_output": "mo & krill",
+      "legacy_second_normalization": "mo & krill"
+    },
+    {
+      "id": "internal_separators",
+      "input": "  MO__&__KRILL  ",
+      "legacy_output": "mo & krill",
+      "legacy_second_normalization": "mo & krill"
+    },
+    {
+      "id": "underscore",
+      "input": "LADY_GEIST",
+      "legacy_output": "lady geist",
+      "legacy_second_normalization": "lady geist"
+    },
+    {
+      "id": "ascii_whitespace",
+      "input": "\tABRAMS\n",
+      "legacy_output": "abrams",
+      "legacy_second_normalization": "abrams"
+    },
+    {
+      "id": "sharp_s",
+      "input": "ß",
+      "legacy_output": "ss",
+      "legacy_second_normalization": "ss"
+    },
+    {
+      "id": "german_word",
+      "input": "Straße",
+      "legacy_output": "strasse",
+      "legacy_second_normalization": "strasse"
+    },
+    {
+      "id": "greek_sigma",
+      "input": "Σςσ",
+      "legacy_output": "σσσ",
+      "legacy_second_normalization": "σσσ"
+    },
+    {
+      "id": "dotted_i",
+      "input": "İ",
+      "legacy_output": "i̇",
+      "legacy_second_normalization": "i̇"
+    },
+    {
+      "id": "ligature",
+      "input": "ﬀ",
+      "legacy_output": "ff",
+      "legacy_second_normalization": "ff"
+    },
+    {
+      "id": "edge_underscores",
+      "input": "__MO__",
+      "legacy_output": " mo ",
+      "legacy_second_normalization": "mo"
+    },
+    {
+      "id": "only_underscores",
+      "input": "___",
+      "legacy_output": " ",
+      "legacy_second_normalization": ""
+    },
+    {
+      "id": "control_separator",
+      "input": "A\u001cB",
+      "legacy_output": "a b",
+      "legacy_second_normalization": "a b"
+    },
+    {
+      "id": "nbsp",
+      "input": "A B",
+      "legacy_output": "a b",
+      "legacy_second_normalization": "a b"
+    },
+    {
+      "id": "umlaut",
+      "input": "MÖ & KRILL",
+      "legacy_output": "mö & krill",
+      "legacy_second_normalization": "mö & krill"
+    },
+    {
+      "id": "kelvin",
+      "input": "Kelvin K",
+      "legacy_output": "kelvin k",
+      "legacy_second_normalization": "kelvin k"
+    },
+    {
+      "id": "internal_id",
+      "input": "hero_bebop",
+      "legacy_output": "hero bebop",
+      "legacy_second_normalization": "hero bebop"
+    },
+    {
+      "id": "collapsed_space",
+      "input": " A\t B ",
+      "legacy_output": "a b",
+      "legacy_second_normalization": "a b"
+    }
+  ]
+}

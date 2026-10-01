@@ -1,0 +1,490 @@
+     Locking 21 packages to latest compatible versions
+      Adding serde v1.0.228 (available: v1.0.229)
+      Adding serde_core v1.0.228 (available: v1.0.229)
+      Adding serde_derive v1.0.228 (available: v1.0.229)
+      Adding serde_json v1.0.150 (available: v1.0.151)
+      Adding sha2 v0.10.9 (available: v0.11.0)
+   Compiling version_check v0.9.5
+   Compiling proc-macro2 v1.0.107
+   Compiling generic-array v0.14.7
+   Compiling quote v1.0.47
+   Compiling typenum v1.20.1
+   Compiling unicode-ident v1.0.26
+   Compiling serde_core v1.0.228
+   Compiling zmij v1.0.23
+   Compiling syn v2.0.119
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling serde v1.0.228
+   Compiling serde_json v1.0.150
+   Compiling digest v0.10.7
+   Compiling serde_derive v1.0.228
+   Compiling cpufeatures v0.2.17
+   Compiling cfg-if v1.0.5
+   Compiling memchr v2.8.3
+   Compiling itoa v1.0.18
+   Compiling sha2 v0.10.9
+   Compiling dbrain-s10-evals v0.1.0 (/home/nathanael/.worktrees/brain-s10-quality-performance-20260924/architecture/migration/evals)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.82s
+     Running unittests src/lib.rs (architecture/migration/evals/target/debug/deps/dbrain_s10_evals-917f32b04d5f26a3)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/quality.rs (architecture/migration/evals/target/debug/deps/quality-65deae5e78aa85d2)
+
+running 65 tests
+test duplicate_case_is_rejected ... FAILED
+test empty_assertion_set_is_rejected ... FAILED
+test duplicate_json_struct_key_is_rejected ... ok
+test empty_catalog_is_rejected ... FAILED
+test empty_metrics_are_null_not_zero ... FAILED
+test empty_holdout_is_not_success ... FAILED
+test catalog_is_nonempty_and_complete ... FAILED
+test future_available_training_data_is_rejected ... FAILED
+test hash_is_sha256 ... FAILED
+test holdout_must_follow_cutoff ... FAILED
+test duplicate_samples_block ... FAILED
+test default_profile_cannot_pass ... FAILED
+test bad_timestamp_blocks ... FAILED
+test failed_check_blocks ... FAILED
+test missing_mandatory_case_is_rejected ... FAILED
+test missing_g3_blocks ... FAILED
+test missing_approval_blocks ... FAILED
+test background_profile_mismatch_blocks ... FAILED
+test missing_case_sample_blocks ... FAILED
+test missing_samples_block ... FAILED
+test missing_cost_is_not_free ... FAILED
+test missing_label_revision_blocks ... FAILED
+test missing_check_blocks ... FAILED
+test incomplete_total_cost_stays_null ... FAILED
+test nearest_rank_percentiles_are_correct ... FAILED
+test missing_cache_state_blocks ... FAILED
+test missing_tokens_block ... FAILED
+test missing_contract_blocks ... FAILED
+test nonfinite_and_negative_latency_rejected ... FAILED
+test missing_check_evidence_blocks ... FAILED
+test missing_raw_artifact_blocks ... FAILED
+test paired_quality_regression_is_rejected ... FAILED
+test missing_ram_blocks ... FAILED
+test failed_requests_remain_in_denominator_and_cost ... FAILED
+test over_slo_blocks ... FAILED
+test invalid_margin_blocks ... FAILED
+test old_commit_cannot_reuse_results ... FAILED
+test same_match_across_splits_is_rejected ... FAILED
+test out_of_window_timestamp_blocks ... FAILED
+test missing_slo_blocks ... FAILED
+test fully_labelled_fixture_only_proposes_pass ... FAILED
+test offered_requests_cannot_be_dropped ... FAILED
+test mixed_knowledge_blocks ... FAILED
+test mock_never_becomes_e2e ... FAILED
+test standard_deviation_is_reported ... FAILED
+test statistically_weak_sample_does_not_prove_noninferiority ... FAILED
+test sufficient_identical_pairs_can_pass ... FAILED
+test timeout_is_not_an_abstention ... FAILED
+test queue_time_is_part_of_end_to_end_latency ... FAILED
+test negative_cost_blocks ... FAILED
+test unequal_and_empty_quality_pairs_rejected ... FAILED
+test unknown_json_field_is_rejected ... ok
+test valid_availability_holdout_passes ... FAILED
+test same_model_is_not_independent_label ... FAILED
+test queue_failure_blocks ... FAILED
+test stage_fixture_never_becomes_e2e ... FAILED
+test unknown_schema_blocks ... FAILED
+test wrong_dataset_hash_blocks ... FAILED
+test unknown_case_cannot_count_as_coverage ... FAILED
+test unmeasured_check_blocks ... FAILED
+test zero_repetitions_cannot_skip_coverage ... FAILED
+test unapproved_profile_blocks ... FAILED
+test wrong_profile_hash_blocks ... FAILED
+test unknown_variant_blocks ... FAILED
+test unapproved_hardware_blocks ... FAILED
+
+failures:
+
+---- duplicate_case_is_rejected stdout ----
+
+thread 'duplicate_case_is_rejected' (3944473) panicked at src/lib.rs:5:69:
+not yet implemented
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- empty_assertion_set_is_rejected stdout ----
+
+thread 'empty_assertion_set_is_rejected' (3944476) panicked at src/lib.rs:5:69:
+not yet implemented
+
+---- empty_catalog_is_rejected stdout ----
+
+thread 'empty_catalog_is_rejected' (3944477) panicked at src/lib.rs:5:69:
+not yet implemented
+
+---- empty_metrics_are_null_not_zero stdout ----
+
+thread 'empty_metrics_are_null_not_zero' (3944479) panicked at src/lib.rs:6:72:
+not yet implemented
+
+---- empty_holdout_is_not_success stdout ----
+
+thread 'empty_holdout_is_not_success' (3944478) panicked at src/lib.rs:10:86:
+not yet implemented
+
+---- catalog_is_nonempty_and_complete stdout ----
+
+thread 'catalog_is_nonempty_and_complete' (3944471) panicked at src/lib.rs:5:69:
+not yet implemented
+
+---- future_available_training_data_is_rejected stdout ----
+
+thread 'future_available_training_data_is_rejected' (3944483) panicked at src/lib.rs:10:86:
+not yet implemented
+
+---- hash_is_sha256 stdout ----
+
+thread 'hash_is_sha256' (3944484) panicked at src/lib.rs:4:42:
+not yet implemented
+
+---- holdout_must_follow_cutoff stdout ----
+
+thread 'holdout_must_follow_cutoff' (3944485) panicked at src/lib.rs:10:86:
+not yet implemented
+
+---- duplicate_samples_block stdout ----
+
+thread 'duplicate_samples_block' (3944475) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- default_profile_cannot_pass stdout ----
+
+thread 'default_profile_cannot_pass' (3944472) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- bad_timestamp_blocks stdout ----
+
+thread 'bad_timestamp_blocks' (3944470) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- failed_check_blocks stdout ----
+
+thread 'failed_check_blocks' (3944480) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- missing_mandatory_case_is_rejected stdout ----
+
+thread 'missing_mandatory_case_is_rejected' (3944497) panicked at src/lib.rs:5:69:
+not yet implemented
+
+---- missing_g3_blocks stdout ----
+
+thread 'missing_g3_blocks' (3944495) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- missing_approval_blocks stdout ----
+
+thread 'missing_approval_blocks' (3944488) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- background_profile_mismatch_blocks stdout ----
+
+thread 'background_profile_mismatch_blocks' (3944469) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- missing_case_sample_blocks stdout ----
+
+thread 'missing_case_sample_blocks' (3944490) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- missing_samples_block stdout ----
+
+thread 'missing_samples_block' (3944500) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- missing_cost_is_not_free stdout ----
+
+thread 'missing_cost_is_not_free' (3944494) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- missing_label_revision_blocks stdout ----
+
+thread 'missing_label_revision_blocks' (3944496) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- missing_check_blocks stdout ----
+
+thread 'missing_check_blocks' (3944491) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- incomplete_total_cost_stays_null stdout ----
+
+thread 'incomplete_total_cost_stays_null' (3944486) panicked at src/lib.rs:7:79:
+not yet implemented
+
+---- nearest_rank_percentiles_are_correct stdout ----
+
+thread 'nearest_rank_percentiles_are_correct' (3944505) panicked at src/lib.rs:6:72:
+not yet implemented
+
+---- missing_cache_state_blocks stdout ----
+
+thread 'missing_cache_state_blocks' (3944489) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- missing_tokens_block stdout ----
+
+thread 'missing_tokens_block' (3944502) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- missing_contract_blocks stdout ----
+
+thread 'missing_contract_blocks' (3944493) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- nonfinite_and_negative_latency_rejected stdout ----
+
+thread 'nonfinite_and_negative_latency_rejected' (3944507) panicked at src/lib.rs:6:72:
+not yet implemented
+
+---- missing_check_evidence_blocks stdout ----
+
+thread 'missing_check_evidence_blocks' (3944492) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- missing_raw_artifact_blocks stdout ----
+
+thread 'missing_raw_artifact_blocks' (3944499) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- paired_quality_regression_is_rejected stdout ----
+
+thread 'paired_quality_regression_is_rejected' (3944512) panicked at src/lib.rs:9:123:
+not yet implemented
+
+---- missing_ram_blocks stdout ----
+
+thread 'missing_ram_blocks' (3944498) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- failed_requests_remain_in_denominator_and_cost stdout ----
+
+thread 'failed_requests_remain_in_denominator_and_cost' (3944481) panicked at src/lib.rs:7:79:
+not yet implemented
+
+---- over_slo_blocks stdout ----
+
+thread 'over_slo_blocks' (3944511) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- invalid_margin_blocks stdout ----
+
+thread 'invalid_margin_blocks' (3944487) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- old_commit_cannot_reuse_results stdout ----
+
+thread 'old_commit_cannot_reuse_results' (3944509) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- same_match_across_splits_is_rejected stdout ----
+
+thread 'same_match_across_splits_is_rejected' (3944515) panicked at src/lib.rs:10:86:
+not yet implemented
+
+---- out_of_window_timestamp_blocks stdout ----
+
+thread 'out_of_window_timestamp_blocks' (3944510) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- missing_slo_blocks stdout ----
+
+thread 'missing_slo_blocks' (3944501) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- fully_labelled_fixture_only_proposes_pass stdout ----
+
+thread 'fully_labelled_fixture_only_proposes_pass' (3944482) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- offered_requests_cannot_be_dropped stdout ----
+
+thread 'offered_requests_cannot_be_dropped' (3944508) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- mixed_knowledge_blocks stdout ----
+
+thread 'mixed_knowledge_blocks' (3944503) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- mock_never_becomes_e2e stdout ----
+
+thread 'mock_never_becomes_e2e' (3944504) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- standard_deviation_is_reported stdout ----
+
+thread 'standard_deviation_is_reported' (3944518) panicked at src/lib.rs:6:72:
+not yet implemented
+
+---- statistically_weak_sample_does_not_prove_noninferiority stdout ----
+
+thread 'statistically_weak_sample_does_not_prove_noninferiority' (3944519) panicked at src/lib.rs:9:123:
+not yet implemented
+
+---- sufficient_identical_pairs_can_pass stdout ----
+
+thread 'sufficient_identical_pairs_can_pass' (3944520) panicked at src/lib.rs:9:123:
+not yet implemented
+
+---- timeout_is_not_an_abstention stdout ----
+
+thread 'timeout_is_not_an_abstention' (3944521) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- queue_time_is_part_of_end_to_end_latency stdout ----
+
+thread 'queue_time_is_part_of_end_to_end_latency' (3944514) panicked at src/lib.rs:7:79:
+not yet implemented
+
+---- negative_cost_blocks stdout ----
+
+thread 'negative_cost_blocks' (3944506) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- unequal_and_empty_quality_pairs_rejected stdout ----
+
+thread 'unequal_and_empty_quality_pairs_rejected' (3944525) panicked at src/lib.rs:9:123:
+not yet implemented
+
+---- valid_availability_holdout_passes stdout ----
+
+thread 'valid_availability_holdout_passes' (3944531) panicked at src/lib.rs:10:86:
+not yet implemented
+
+---- same_model_is_not_independent_label stdout ----
+
+thread 'same_model_is_not_independent_label' (3944516) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- queue_failure_blocks stdout ----
+
+thread 'queue_failure_blocks' (3944513) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- stage_fixture_never_becomes_e2e stdout ----
+
+thread 'stage_fixture_never_becomes_e2e' (3944517) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- unknown_schema_blocks stdout ----
+
+thread 'unknown_schema_blocks' (3944528) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- wrong_dataset_hash_blocks stdout ----
+
+thread 'wrong_dataset_hash_blocks' (3944532) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- unknown_case_cannot_count_as_coverage stdout ----
+
+thread 'unknown_case_cannot_count_as_coverage' (3944526) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- unmeasured_check_blocks stdout ----
+
+thread 'unmeasured_check_blocks' (3944530) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- zero_repetitions_cannot_skip_coverage stdout ----
+
+thread 'zero_repetitions_cannot_skip_coverage' (3944534) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- unapproved_profile_blocks stdout ----
+
+thread 'unapproved_profile_blocks' (3944524) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- wrong_profile_hash_blocks stdout ----
+
+thread 'wrong_profile_hash_blocks' (3944533) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- unknown_variant_blocks stdout ----
+
+thread 'unknown_variant_blocks' (3944529) panicked at src/lib.rs:8:149:
+not yet implemented
+
+---- unapproved_hardware_blocks stdout ----
+
+thread 'unapproved_hardware_blocks' (3944523) panicked at src/lib.rs:8:149:
+not yet implemented
+
+
+failures:
+    background_profile_mismatch_blocks
+    bad_timestamp_blocks
+    catalog_is_nonempty_and_complete
+    default_profile_cannot_pass
+    duplicate_case_is_rejected
+    duplicate_samples_block
+    empty_assertion_set_is_rejected
+    empty_catalog_is_rejected
+    empty_holdout_is_not_success
+    empty_metrics_are_null_not_zero
+    failed_check_blocks
+    failed_requests_remain_in_denominator_and_cost
+    fully_labelled_fixture_only_proposes_pass
+    future_available_training_data_is_rejected
+    hash_is_sha256
+    holdout_must_follow_cutoff
+    incomplete_total_cost_stays_null
+    invalid_margin_blocks
+    missing_approval_blocks
+    missing_cache_state_blocks
+    missing_case_sample_blocks
+    missing_check_blocks
+    missing_check_evidence_blocks
+    missing_contract_blocks
+    missing_cost_is_not_free
+    missing_g3_blocks
+    missing_label_revision_blocks
+    missing_mandatory_case_is_rejected
+    missing_ram_blocks
+    missing_raw_artifact_blocks
+    missing_samples_block
+    missing_slo_blocks
+    missing_tokens_block
+    mixed_knowledge_blocks
+    mock_never_becomes_e2e
+    nearest_rank_percentiles_are_correct
+    negative_cost_blocks
+    nonfinite_and_negative_latency_rejected
+    offered_requests_cannot_be_dropped
+    old_commit_cannot_reuse_results
+    out_of_window_timestamp_blocks
+    over_slo_blocks
+    paired_quality_regression_is_rejected
+    queue_failure_blocks
+    queue_time_is_part_of_end_to_end_latency
+    same_match_across_splits_is_rejected
+    same_model_is_not_independent_label
+    stage_fixture_never_becomes_e2e
+    standard_deviation_is_reported
+    statistically_weak_sample_does_not_prove_noninferiority
+    sufficient_identical_pairs_can_pass
+    timeout_is_not_an_abstention
+    unapproved_hardware_blocks
+    unapproved_profile_blocks
+    unequal_and_empty_quality_pairs_rejected
+    unknown_case_cannot_count_as_coverage
+    unknown_schema_blocks
+    unknown_variant_blocks
+    unmeasured_check_blocks
+    valid_availability_holdout_passes
+    wrong_dataset_hash_blocks
+    wrong_profile_hash_blocks
+    zero_repetitions_cannot_skip_coverage
+
+test result: FAILED. 2 passed; 63 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `--test quality`

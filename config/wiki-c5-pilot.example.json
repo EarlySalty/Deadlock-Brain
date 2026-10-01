@@ -1,0 +1,28 @@
+{
+  "source_key": "deadlock_wiki_c5_pilot",
+  "retrieved_at": 0,
+  "policy": {
+    "offline_review_allowed": false,
+    "decision_ref": "REVIEW_REQUIRED",
+    "source_license": null,
+    "publication_allowed": false,
+    "provider_egress_allowed": false,
+    "media_download_allowed": false,
+    "raw_retention_allowed": false
+  },
+  "scope": {
+    "namespace_allowlist": [0],
+    "page_ids": [],
+    "pages": [],
+    "categories": [],
+    "heroes": [
+      {"title": "Abrams", "entity_id": "hero:abrams", "locale": "en", "pages": []},
+      {"title": "Haze", "entity_id": "hero:haze", "locale": "en", "pages": []}
+    ]
+  },
+  "max_pages": 2,
+  "max_requests": 24,
+  "max_total_bytes": 2097152,
+  "request_interval_ms": 5000,
+  "deadline_ms": 180000
+}

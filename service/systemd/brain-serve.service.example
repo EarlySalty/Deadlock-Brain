@@ -1,0 +1,37 @@
+# TEMPLATE ONLY: do not copy, enable, start or restart without a separate operator approval.
+# Example USER unit. Adjust immutable binary/config paths and the local PostgreSQL role/socket.
+[Unit]
+Description=Deadlock Brain integrated Rust API
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/deadlock-brain-c1
+Environment=INFISICAL_CONFIG_FILE=%h/.config/deadlock-bots/infisical.conf
+LoadCredential=infisical-token:%h/.config/infisical-tokens/infisical-token-bots
+ExecStart=/opt/deadlock-brain-c1/bin/deadlock-brain-secret-exec --config %h/.config/deadlock-brain/infisical.json -- /opt/deadlock-brain-c1/bin/brain-serve --config %h/.config/deadlock-brain/brain-serve.json
+# secret-exec execs the Rust binary; signals are not trapped in a shell/Python bridge.
+KillSignal=SIGTERM
+KillMode=control-group
+# Must exceed the configured timeouts.shutdown_ms (example: 12000 ms).
+TimeoutStopSec=20
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

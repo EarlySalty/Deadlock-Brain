@@ -1,0 +1,21 @@
+{
+  "id": "fixture-completion",
+  "object": "chat.completion",
+  "created": 0,
+  "model": "fixture-chat-model-not-for-live",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Test."
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 6,
+    "completion_tokens": 2,
+    "total_tokens": 8
+  }
+}

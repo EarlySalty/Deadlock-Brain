@@ -115,7 +115,10 @@ pub(crate) fn parse_listing(listing_json: &str) -> Result<Vec<ListingThread>> {
 pub(crate) fn parse_listing_rss(xml: &str) -> Result<Vec<ListingThread>> {
     let document = parse_xml(xml)?;
     let mut threads = Vec::new();
-    for entry in document.descendants().filter(|node| node.has_tag_name("entry")) {
+    for entry in document
+        .descendants()
+        .filter(|node| node.has_tag_name("entry"))
+    {
         let title = child_text(&entry, "title")
             .map(ToString::to_string)
             .unwrap_or_default();
@@ -252,8 +255,14 @@ fn listing_thread_from_data(data: &Value) -> Option<ListingThread> {
         url: value_string(data.get("url")),
         selftext: value_string(data.get("selftext")).unwrap_or_default(),
         created_utc: data.get("created_utc").and_then(Value::as_f64),
-        num_comments: data.get("num_comments").and_then(Value::as_i64).unwrap_or(0),
-        stickied: data.get("stickied").and_then(Value::as_bool).unwrap_or(false),
+        num_comments: data
+            .get("num_comments")
+            .and_then(Value::as_i64)
+            .unwrap_or(0),
+        stickied: data
+            .get("stickied")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
     })
 }
 
@@ -354,11 +363,7 @@ fn html_to_text(html: &str) -> String {
         return String::new();
     }
     let fragment = scraper::Html::parse_fragment(html);
-    let text = fragment
-        .root_element()
-        .text()
-        .collect::<Vec<_>>()
-        .join("");
+    let text = fragment.root_element().text().collect::<Vec<_>>().join("");
     collapse_whitespace(&text)
 }
 
@@ -435,8 +440,7 @@ async fn pull_reddit_inner(
                 break;
             }
             let external_id = thread_external_id(&thread.thread_id);
-            let document_exists =
-                thread_document_exists(store.pool(), &external_id).await?;
+            let document_exists = thread_document_exists(store.pool(), &external_id).await?;
             if should_skip_existing(options.refresh_existing, document_exists) {
                 threads_skipped_existing += 1;
                 continue;
@@ -577,11 +581,12 @@ async fn fetch_and_store_thread(
 ) -> Result<StoredThreadSummary> {
     match fetch_thread_json(store, http, options, thread, external_id).await {
         Ok(summary) => Ok(summary),
-        Err(json_error) => match fetch_thread_rss(store, http, options, thread, external_id).await
-        {
-            Ok(summary) => Ok(summary),
-            Err(_) => Err(json_error),
-        },
+        Err(json_error) => {
+            match fetch_thread_rss(store, http, options, thread, external_id).await {
+                Ok(summary) => Ok(summary),
+                Err(_) => Err(json_error),
+            }
+        }
     }
 }
 
@@ -954,7 +959,10 @@ mod tests {
         let thread = &threads[0];
         assert_eq!(thread.thread_id, "1f2abc9");
         assert_eq!(thread.title, "Vyper feels weak after patch");
-        assert_eq!(thread.selftext, "Winrate dropped hard since the last patch.");
+        assert_eq!(
+            thread.selftext,
+            "Winrate dropped hard since the last patch."
+        );
         assert_eq!(thread.author.as_deref(), Some("lane_goblin"));
         assert_eq!(thread.author_flair.as_deref(), Some("Vyper"));
         assert_eq!(
@@ -1051,9 +1059,12 @@ mod tests {
             .comments
             .iter()
             .all(|comment| comment.comment_id != "lmhidden4"));
-        assert!(parsed.comments[0].permalink.as_deref().is_some_and(|value| {
-            value.starts_with("https://www.reddit.com/r/Deadlock/comments/1f2abc9/")
-        }));
+        assert!(parsed.comments[0]
+            .permalink
+            .as_deref()
+            .is_some_and(|value| {
+                value.starts_with("https://www.reddit.com/r/Deadlock/comments/1f2abc9/")
+            }));
     }
 
     #[test]
@@ -1246,29 +1257,17 @@ mod tests {
         assert!(should_skip_existing(false, true));
         assert!(!should_skip_existing(true, true));
         assert!(!should_skip_existing(false, false));
-        assert_eq!(
-            thread_external_id("1f2abc9"),
-            "thread:1f2abc9".to_string()
-        );
+        assert_eq!(thread_external_id("1f2abc9"), "thread:1f2abc9".to_string());
     }
 
     #[test]
     fn empty_subreddits_fall_back_to_deadlock() {
         let mut options = PullRedditOptions::default();
+        assert_eq!(effective_subreddits(&options), vec!["Deadlock".to_string()]);
+        options.subreddits = vec!["DeadlockTheGame".to_string(), "DeadlockMemes".to_string()];
         assert_eq!(
             effective_subreddits(&options),
-            vec!["Deadlock".to_string()]
-        );
-        options.subreddits = vec![
-            "DeadlockTheGame".to_string(),
-            "DeadlockMemes".to_string(),
-        ];
-        assert_eq!(
-            effective_subreddits(&options),
-            vec![
-                "DeadlockTheGame".to_string(),
-                "DeadlockMemes".to_string()
-            ]
+            vec!["DeadlockTheGame".to_string(), "DeadlockMemes".to_string()]
         );
     }
 
@@ -1295,13 +1294,7 @@ mod tests {
     #[test]
     fn created_utc_becomes_rfc3339_utc() {
         assert_eq!(epoch_to_rfc3339(0.0), "1970-01-01T00:00:00Z");
-        assert_eq!(
-            epoch_to_rfc3339(1_000_000_000.0),
-            "2001-09-09T01:46:40Z"
-        );
-        assert_eq!(
-            epoch_to_rfc3339(1_725_700_100.9),
-            "2024-09-07T09:08:20Z"
-        );
+        assert_eq!(epoch_to_rfc3339(1_000_000_000.0), "2001-09-09T01:46:40Z");
+        assert_eq!(epoch_to_rfc3339(1_725_700_100.9), "2024-09-07T09:08:20Z");
     }
 }

@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "deadlock_data": {
+    "commit": "66d0832dc30148ca66984f3f4c4a4d340af6f7d0",
+    "parser_revision": "dbrain-deadlock-data/2",
+    "schema_version": 1,
+    "data_version": "6698"
+  }
+}

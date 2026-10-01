@@ -1,0 +1,164 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.24s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.25s
+     Running unittests src/lib.rs (target/debug/deps/dbrain_s12_wiki_probe-1f88477651b19653)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/dbrain_s12_wiki_probe-cb90eec661c31f6f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/alias_pin.rs (target/debug/deps/alias_pin-cba729a9b0d97c06)
+
+running 1 test
+test an_unbound_alias_cannot_escape_the_release_and_dependency_review ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/capture_transport.rs (target/debug/deps/capture_transport-e56e2a85251dcd19)
+
+running 9 tests
+test invalid_policy_makes_no_transport_calls ... ok
+test network_denial_is_not_retried_or_replaced_by_another_endpoint ... ok
+test changing_revision_during_dependency_capture_is_not_accepted ... ok
+test continuation_cannot_override_action_identity_or_execution_mode ... ok
+test aggregate_size_limit_is_enforced_before_a_capture_is_returned ... ok
+test metadata_only_selection_never_fetches_any_body ... ok
+test request_and_page_budgets_cannot_return_false_completeness ... ok
+test repeated_dependency_token_and_api_warnings_stop_capture ... ok
+test dynamic_discovery_preserves_all_tokens_and_merges_property_continuation ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cli.rs (target/debug/deps/cli-ce4f83721f242283)
+
+running 9 tests
+test help_explains_that_zero_is_not_production_acceptance ... ok
+test directories_are_not_input_captures ... ok
+test invalid_capture_errors_do_not_echo_untrusted_source_content ... ok
+test oversized_regular_input_is_rejected_before_parsing ... ok
+test symlinks_are_not_followed_by_the_offline_cli ... ok
+test invalid_arguments_cannot_activate_live_network_or_publishing ... ok
+test analyze_works_without_runtime_environment_and_returns_nonacceptance ... ok
+test production_readiness_fails_even_on_a_valid_fixture ... ok
+test unchanged_delta_is_deterministic_and_schedules_nothing ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/completion.rs (target/debug/deps/completion-0c2ea0bbb2fd1910)
+
+running 17 tests
+test flat_templates_are_data_parameters_not_executed_programs ... ok
+test static_lua_data_has_exact_utf8_locators_and_no_executable_grammar ... ok
+test a_canonical_card_roundtrips_existing_contract_and_every_fact_is_grounded ... ok
+test current_acl_denial_erases_raw_ir_and_canonical_facts ... ok
+test conditions_and_variants_survive_ir_but_cannot_be_flattened_into_legacy_facts ... ok
+test alias_locale_is_source_locale_not_the_requested_card_locale ... ok
+test dynamic_dependencies_quarantine_dependent_facts_not_just_the_bad_page ... ok
+test missing_null_and_false_remain_distinct_and_unknown_units_do_not_become_zero ... ok
+test exact_decimals_preserve_units_without_rounding_or_float_coercion ... ok
+test stale_release_and_unknown_hero_or_locale_are_rejected ... ok
+test shared_source_contract_keeps_both_revisions_and_does_not_invent_game_validity ... ok
+test shared_contract_card_matches_the_reviewed_synthetic_golden ... ok
+test safe_literal_formats_feed_the_same_ir_and_shared_card_adapter ... ok
+test unreviewed_profiles_and_duplicate_fields_are_rejected ... ok
+test rebuild_hash_is_independent_of_mapping_order_and_retrieval_time ... ok
+test global_policy_revocation_invalidates_cards_without_reembedding_raw_bytes ... ok
+test newer_revision_needs_new_review_even_when_field_id_is_stable ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+     Running tests/completion_cli.rs (target/debug/deps/completion_cli-c6849bf5ab8803b4)
+
+running 6 tests
+test documentation_check_script_resolves_its_own_directory ... ok
+test projection_requires_a_review_and_a_real_bound_hero ... ok
+test unchanged_ir_delta_cli_schedules_no_work ... ok
+test changing_one_field_mapping_only_reprojects_its_bound_hero ... ok
+test extract_cli_returns_common_ir_without_publication ... ok
+test project_cli_is_byte_deterministic_and_matches_shared_contract_golden ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/probe.rs (target/debug/deps/probe-a012e5f3389af324)
+
+running 64 tests
+test discovery_api_errors_do_not_look_like_zero_pages ... ok
+test a_move_during_capture_is_quarantined_until_reconcile ... ok
+test continuation_must_preserve_the_entire_token ... ok
+test absent_advertised_head_is_not_invented_from_returned_revisions ... ok
+test all_preview_locators_and_hashes_are_grounded_in_exact_source_revisions ... ok
+test condition_variant_and_mechanic_identity_survive_as_uninterpreted_candidates ... ok
+test duplicate_discovered_pageids_are_not_silently_deduplicated ... ok
+test a_new_revision_with_unchanged_raw_bytes_does_not_change_embedding_input ... ok
+test alias_requires_matching_redirect_evidence ... ok
+test excessive_nesting_and_unknown_capture_fields_are_rejected ... ok
+test a_consistent_rename_keeps_stable_source_identity_and_raw_hash ... ok
+test future_source_revision_is_quarantined_not_treated_as_current_patch ... ok
+test fetch_failure_and_missing_page_remain_visible ... ok
+test incomplete_continuation_is_never_a_complete_corpus ... ok
+test invalid_source_time_does_not_get_replaced_by_fetch_time ... ok
+test legacy_mediawiki_page_map_and_main_slot_star_are_supported ... ok
+test locale_never_creates_another_numeric_source ... ok
+test incomplete_dependencies_force_reconcile_not_optimistic_selective_delta ... ok
+test hero_preview_matches_reviewed_golden_fixture ... ok
+test lua_and_html_have_no_execution_or_silent_fallback ... ok
+test capture_review_requires_permission_and_decision ... ok
+test duplicate_json_keys_rejected_at_capture_and_content_depth ... ok
+test dependency_cycles_terminate_without_losing_transitive_invalidation ... ok
+test nonfinite_numbers_are_not_valid_json_candidates ... ok
+test out_of_order_revision_array_preserves_head_and_history ... ok
+test null_missing_percent_percentage_point_and_multiplier_are_not_conflated ... ok
+test missing_dynamic_namespace_prevents_complete_inventory ... ok
+test raw_hash_uses_the_standard_sha256_bytes_not_parsed_json ... ok
+test current_denial_removes_candidates_and_all_dependent_preview_references ... ok
+test parser_change_reparses_without_changing_patch_or_raw_embedding_inputs ... ok
+test missing_content_is_not_an_empty_success ... ok
+test historical_allow_cannot_override_current_denial ... ok
+test pilot_covers_dynamic_namespaces_categories_and_revision_history ... ok
+test empty_batch_with_continuation_is_supported ... ok
+test repeated_continuation_is_rejected ... ok
+test raw_json_pointers_escape_slashes_and_tildes_and_keep_false ... ok
+test report_format_mismatch_cannot_be_compared_as_compatible ... ok
+test removing_a_dependency_invalidates_its_users ... ok
+test same_revision_is_idempotent ... ok
+test siteinfo_api_error_is_not_a_namespace_manifest ... ok
+test source_key_cannot_be_a_path_or_url ... ok
+test same_revision_with_different_content_is_quarantined ... ok
+test source_language_policy_and_url_are_preserved_not_derived_from_preview_locale ... ok
+test source_rightsinfo_is_not_a_publication_permission ... ok
+test suppressed_latest_revision_never_falls_back_to_old_stats ... ok
+test stale_capture_and_stale_page_revision_are_rejected ... ok
+test same_revision_cannot_change_content_model_between_captures ... ok
+test syntax_success_never_becomes_canonical_validation_or_publication ... ok
+test unclassified_pages_are_counted_not_silently_dropped ... ok
+test unchanged_content_and_new_fetch_time_do_not_require_reparsing ... ok
+test deletion_is_only_inferred_from_complete_snapshots ... ok
+test unbound_or_wrong_kind_abilities_are_reported_as_unknown ... ok
+test preview_is_rebuildable_reference_only_and_has_no_invented_versions ... ok
+test same_revision_cannot_change_raw_content_between_captures ... ok
+test wrong_fetched_page_identity_is_rejected ... ok
+test same_revision_cannot_change_source_time_between_captures ... ok
+test unknown_wikitext_has_exact_utf8_diagnostic_and_no_numeric_inference ... ok
+test dependency_continuation_or_absent_arrays_cannot_be_declared_complete ... ok
+test unresolved_dependency_remains_a_visible_blocker ... ok
+test template_delta_selectively_invalidates_transitive_dependants ... ok
+test exclusions_are_explicit_and_cannot_hide_build_critical_pages ... ok
+test unknown_entities_or_wrong_bindings_cannot_invent_a_hero ... ok
+test input_content_and_candidate_budgets_fail_closed ... ok
+test preview_fanout_is_bounded_without_silent_truncation ... ok
+
+test result: ok. 64 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.42s
+
+     Running unittests examples/contract_pilot.rs (target/debug/examples/contract_pilot-30824f42a1ae7ce5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `release` profile [optimized] target(s) in 0.03s
+S12 offline checks passed; production readiness remains blocked.

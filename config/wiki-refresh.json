@@ -2,5 +2,14 @@
   "infisical_config": "/home/nathanael/.local/share/deadlock-brain/wiki-refresh/infisical.json",
   "source_repository": "/home/nathanael/.local/share/deadlock-brain/source-cache/deadlock-data",
   "raw_directory": "/home/nathanael/.local/share/deadlock-brain/raw",
-  "publication_root": "/home/nathanael/.local/share/deadlock-brain/game-wiki"
+  "publication_root": "/home/nathanael/.local/share/deadlock-brain/game-wiki",
+  "source_pins": {
+    "schema_version": 1,
+    "deadlock_data": {
+      "commit": "66d0832dc30148ca66984f3f4c4a4d340af6f7d0",
+      "parser_revision": "dbrain-deadlock-data/2",
+      "schema_version": 1,
+      "data_version": "6698"
+    }
+  }
 }

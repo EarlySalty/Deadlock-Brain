@@ -1,0 +1,195 @@
+{
+  "complete": true,
+  "environment": {
+    "SQLX_OFFLINE": "true",
+    "database_credentials_removed": true,
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)"
+  },
+  "commands": [
+    {
+      "name": "offline-suite",
+      "argv": [
+        "bash",
+        "architecture/migration/s12/check.sh"
+      ],
+      "exit_code": 0,
+      "log": "completion-offline-suite.log"
+    },
+    {
+      "name": "contracts-source-tests",
+      "argv": [
+        "cargo",
+        "test",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "-p",
+        "brain-contracts",
+        "-p",
+        "dbrain-sources",
+        "--all-targets",
+        "--locked",
+        "--offline",
+        "-j2"
+      ],
+      "exit_code": 0,
+      "log": "completion-contracts-source-tests.log"
+    },
+    {
+      "name": "contracts-source-clippy",
+      "argv": [
+        "cargo",
+        "clippy",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "-p",
+        "brain-contracts",
+        "-p",
+        "dbrain-sources",
+        "--all-targets",
+        "--no-deps",
+        "--locked",
+        "--offline",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "log": "completion-contracts-source-clippy.log"
+    },
+    {
+      "name": "contracts-source-release",
+      "argv": [
+        "cargo",
+        "build",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "-p",
+        "brain-contracts",
+        "-p",
+        "dbrain-sources",
+        "--release",
+        "--locked",
+        "--offline",
+        "-j2"
+      ],
+      "exit_code": 0,
+      "log": "completion-contracts-source-release.log"
+    },
+    {
+      "name": "retained-hero-tests",
+      "argv": [
+        "cargo",
+        "test",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "-p",
+        "dbrain-retrieval",
+        "--lib",
+        "--locked",
+        "--offline",
+        "-j2",
+        "hero_dossier"
+      ],
+      "exit_code": 0,
+      "log": "completion-retained-hero-tests.log"
+    },
+    {
+      "name": "workspace-all-targets",
+      "argv": [
+        "cargo",
+        "check",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "--workspace",
+        "--all-targets",
+        "--locked",
+        "--offline",
+        "-j2"
+      ],
+      "exit_code": 0,
+      "log": "completion-workspace-all-targets.log"
+    },
+    {
+      "name": "changed-source-format",
+      "argv": [
+        "rustfmt",
+        "--check",
+        "--edition",
+        "2021",
+        "--config",
+        "skip_children=true",
+        "rust/crates/dbrain-sources/src/lib.rs",
+        "rust/crates/dbrain-sources/src/wiki_capture_io.rs",
+        "rust/crates/dbrain-sources/tests/wiki_knowledge_contract.rs"
+      ],
+      "exit_code": 0,
+      "log": "completion-changed-source-format.log"
+    },
+    {
+      "name": "contracts-format",
+      "argv": [
+        "cargo",
+        "fmt",
+        "--manifest-path",
+        "rust/Cargo.toml",
+        "-p",
+        "brain-contracts",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "completion-contracts-format.log"
+    },
+    {
+      "name": "diff-whitespace",
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "completion-diff-whitespace.log"
+    }
+  ],
+  "source_sha256": {
+    "architecture/migration/s12/Cargo.lock": "f9615640fee671b1df99b9c0c8665752bc634d6e66aeee1acb7a2f74f2425c77",
+    "architecture/migration/s12/Cargo.toml": "97a6fd4eac9a8ed201bcaa642f01d6bc9e34b0dfaad962dee27292f3163f59ea",
+    "architecture/migration/s12/check-completion.py": "8fd938782c7fa8a1aa366ddd5bfb8cc59c0b667116775d90272568fe93020859",
+    "architecture/migration/s12/check.sh": "204bb92c7412daa42877aa55ae638b908befa445c015f165236d749ac8941163",
+    "architecture/migration/s12/examples/contract_pilot.rs": "4e5f87d86f92729421e3b2270719ce82732c2ff62f773dbd08db03df1955e6b6",
+    "architecture/migration/s12/fixtures/README.md": "825d56ece3e4492aab9d9aa930e0905c493ee474a662c49261c4e51c53366a9f",
+    "architecture/migration/s12/fixtures/completion-card.golden.json": "f811603a38a3463c49cc6db55cb3545b4433733b0cf5a21c23a65cfe777c4b88",
+    "architecture/migration/s12/fixtures/completion-release.json": "526b54d9684490824f9162fc3ecf19d37038657b16974e3e7f6cdd8615b591b1",
+    "architecture/migration/s12/fixtures/completion-review.json": "c049d5d23c7c6d28d868793ceddcefbdee71207553da3cca3f943e66dac21a1d",
+    "architecture/migration/s12/fixtures/completion.mapping.json": "3ad6a550e9b5244c2de12a02b59978622a08550e7f450cde3f2207fb401045f5",
+    "architecture/migration/s12/fixtures/hero-preview.golden.json": "2b708877b7763ded7c8d5a145654798d4202c300d10f7e5b073e5bbd6669994b",
+    "architecture/migration/s12/fixtures/literal-data.lua": "f2f5cfccc188d794b46734286019d23bb906f3c0e19047a7d709ecceca53142c",
+    "architecture/migration/s12/fixtures/literal-template.wiki": "823bdcf1bd64eb36b451af5425b78a5bf526a2bcdee37789302896f5636382f3",
+    "architecture/migration/s12/fixtures/pilot.capture.json": "a3c3d64c99c764652bea7709f630d8b4599bf13de4dc79f5a3a243153141ee83",
+    "architecture/migration/s12/src/capture.rs": "040ba5932b059d2188a3dd49583b437520eae0bbda60a8fc867efd125f32d8ae",
+    "architecture/migration/s12/src/discovery.rs": "961353b1608e00617988a37a9c4b36123f5313160de51dead32f2535130d4a60",
+    "architecture/migration/s12/src/impact.rs": "4b374045dd717b9d67d3dbe0492f9fb2822b99ce988a42e12653fb51c7355767",
+    "architecture/migration/s12/src/knowledge.rs": "13ddff1a391e943400d30810e80ec511b5679ef262ef9e65a08c8736716d5db3",
+    "architecture/migration/s12/src/lib.rs": "f7e8719947bf981776fd77175904e019e3b71980834c88d8f021bc29231705ca",
+    "architecture/migration/s12/src/literal.rs": "fc6da6bbcf4480a218c0987c4f6f312417c3d683b8932120201af375d6355abc",
+    "architecture/migration/s12/src/main.rs": "0107a5399845b9dcfccfdaaec6ea5099f36e34b9eaccbb94f33e848fcc41695a",
+    "architecture/migration/s12/src/model.rs": "f1bcf57dc125b7ff1930a84fe1957bed2e2f5f277d8f30c5b1f11b0c65f06c4c",
+    "architecture/migration/s12/src/pages.rs": "21723b38b499790c0f256b75c56cfd6ecfde5a8b9e633501f60e2a79cd3528f4",
+    "architecture/migration/s12/src/preview.rs": "0bab8d7fde169c8fffd92062f7413dd6efe67b9e38cc8131b816d1db2f7f053a",
+    "architecture/migration/s12/tests/alias_pin.rs": "bb7595fcbaed78d71168fe03f773be0c2a63475018235d5abf697833d84a1fb6",
+    "architecture/migration/s12/tests/capture_transport.rs": "604586789280bee55c7fbf35cc5d522fc8bd20fd8c4fe75088327f224638611a",
+    "architecture/migration/s12/tests/cli.rs": "71463c88d012dcfc1614558b1bd724d56573c5eebfff34465e4ccfb2c332300a",
+    "architecture/migration/s12/tests/completion.rs": "e6f338fc26178415100808cb723517d42719a536f11093ffb67be309bb42c5e1",
+    "architecture/migration/s12/tests/completion_cli.rs": "ab310579008a7eee259c1eec901459b1180d5f41d142d9ea1b6308debb52d518",
+    "architecture/migration/s12/tests/probe.rs": "267cfb42a4a3d63e05ac2a7538c45cc4dd0d15242382b1cd3d4a4bf31deee90d",
+    "rust/Cargo.lock": "285350b2b7fbcf11015c8c524d8fa838b9c2e454fdb3e28c63ac1d76d736429b",
+    "rust/Cargo.toml": "d3578543bb87e0226d1bb2a78cdcacb60322588741c1a62c3edd8d85c8792685",
+    "rust/crates/brain-contracts/Cargo.toml": "c7667457530d89587900150c4be35c13f95fabaf02357889b3991923dd371562",
+    "rust/crates/brain-contracts/src/lib.rs": "003f21d72fe93c6ae9f36e34612b983e02461e68d381908d9d59de64c4abb6ff",
+    "rust/crates/dbrain-sources/Cargo.toml": "18be81c5c27c633e8b2971ec62f534c00f78089106d53a2e056d6ad80dfa77c7",
+    "rust/crates/dbrain-sources/src/lib.rs": "37b01dbafbe4770434d70c6aaeca60902004e6aaeb0c33c6ff8829d61633e764",
+    "rust/crates/dbrain-sources/src/wiki_capture_io.rs": "75eb5f17def8bfa7f429e1011075499dd22d10f4d162e6fd4fc219073995b4ee",
+    "rust/crates/dbrain-sources/tests/wiki_knowledge_contract.rs": "141aa2a3123e4470a1e3bc0b00a6ae4a80c266f06ee1720fea79b6f482e30b59"
+  }
+}

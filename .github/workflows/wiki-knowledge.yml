@@ -1,0 +1,40 @@
+name: Wiki knowledge offline
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wiki-knowledge-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline-wiki:
+    name: Wiki contracts and offline regression
+    runs-on: ubuntu-latest
+    env:
+      SQLX_OFFLINE: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: 1.97.1
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+      - name: Fetch locked build dependencies only
+        run: |
+          cargo fetch --manifest-path rust/Cargo.toml --locked
+      - name: Existing S12 suite, extended parser and contracts
+        run: bash architecture/migration/s12/check.sh
+      - name: Existing source crate integration without database or Wiki network
+        run: |
+          cargo test --manifest-path rust/Cargo.toml -p brain-contracts -p dbrain-sources --all-targets --locked --offline -j2
+          cargo clippy --manifest-path rust/Cargo.toml -p brain-contracts -p dbrain-sources --all-targets --no-deps --locked --offline -- -D warnings

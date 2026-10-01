@@ -1,0 +1,3 @@
+cutover fmt exit=0
+cutover test exit=0
+cutover clippy exit=0

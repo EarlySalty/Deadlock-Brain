@@ -10,12 +10,11 @@ async fn successful_manifest_excludes_partial_deleted_and_renamed_pages() {
         .connect(&dsn)
         .await
         .unwrap();
-    let identity: (String, Option<String>, Option<i32>) = sqlx::query_as(
-        "SELECT current_database(), host(inet_server_addr()), inet_server_port()",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let identity: (String, Option<String>, Option<i32>) =
+        sqlx::query_as("SELECT current_database(), host(inet_server_addr()), inet_server_port()")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert!(
         identity.0.starts_with("brain_wiki_test_"),
         "Keine Testdatenbank"
@@ -77,11 +76,15 @@ async fn successful_manifest_excludes_partial_deleted_and_renamed_pages() {
         vec![4, 5],
         "Umbenennung ersetzt alten Titel, laufender Import bleibt unsichtbar"
     );
-    sqlx::raw_sql("INSERT INTO brain.source_runs VALUES
+    sqlx::raw_sql(
+        "INSERT INTO brain.source_runs VALUES
         (5,'deadlock_wiki_corpus','ok','{\"complete\":true,\"snapshot_ids\":[4]}'),
         (6,'deadlock_wiki_corpus','ok','{\"complete\":false,\"snapshot_ids\":[3]}'),
-        (7,'deadlock_wiki_corpus','error','{\"complete\":true,\"snapshot_ids\":[2,3,5]}');")
-        .execute(&pool).await.unwrap();
+        (7,'deadlock_wiki_corpus','error','{\"complete\":true,\"snapshot_ids\":[2,3,5]}');",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     assert_eq!(
         ids().await,
         vec![4],

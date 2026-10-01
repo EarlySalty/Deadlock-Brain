@@ -1,8 +1,7 @@
 use std::{thread, time::Duration};
 
 use deadlock_brain_core::ai::{
-    extract_ai_text, ai_usage_summary, ChatCompletionRequest, ChatMessage, AiClient,
-    AiConfig,
+    ai_usage_summary, extract_ai_text, AiClient, AiConfig, ChatCompletionRequest, ChatMessage,
 };
 use serde_json::{json, Map, Value};
 use sqlx::PgPool;
@@ -93,7 +92,11 @@ pub async fn player_list_matches(
         .collect())
 }
 
-pub async fn player_match_context(pool: &PgPool, account_id: &str, match_id: &str) -> Result<Value> {
+pub async fn player_match_context(
+    pool: &PgPool,
+    account_id: &str,
+    match_id: &str,
+) -> Result<Value> {
     build_player_match_decision_context(pool, account_id, match_id).await
 }
 
@@ -110,15 +113,21 @@ pub async fn build_player_match_decision_context(
         ));
     }
 
-    let player_match =
-        latest_snapshot_payload(pool, "statlocker_player_match", &format!("{safe_account_id}:{safe_match_id}")).await?;
+    let player_match = latest_snapshot_payload(
+        pool,
+        "statlocker_player_match",
+        &format!("{safe_account_id}:{safe_match_id}"),
+    )
+    .await?;
     if player_match.is_null() || player_match.as_object().map(Map::is_empty).unwrap_or(true) {
         return Err(LearnError::InvalidInput(format!(
             "Kein Statlocker Player-Match fuer {safe_account_id}:{safe_match_id} gefunden."
         )));
     }
-    let profile = latest_snapshot_payload(pool, "statlocker_player_profile", safe_account_id).await?;
-    let match_detail = latest_snapshot_payload(pool, "statlocker_match_detail", safe_match_id).await?;
+    let profile =
+        latest_snapshot_payload(pool, "statlocker_player_profile", safe_account_id).await?;
+    let match_detail =
+        latest_snapshot_payload(pool, "statlocker_match_detail", safe_match_id).await?;
     let deadlock_api_match = latest_deadlock_api_match_metadata(pool, safe_match_id).await?;
 
     let hero_id = hero_id_from_payload(&player_match)
@@ -223,7 +232,10 @@ Keine erfundenen Zahlen, keine ungekennzeichneten Vermutungen.",
     })
 }
 
-pub async fn player_analyze_match(pool: &PgPool, options: PlayerAnalyzeMatchOptions) -> Result<Value> {
+pub async fn player_analyze_match(
+    pool: &PgPool,
+    options: PlayerAnalyzeMatchOptions,
+) -> Result<Value> {
     run_single_player_match_analysis(
         pool,
         &options.account_id,
@@ -235,7 +247,10 @@ pub async fn player_analyze_match(pool: &PgPool, options: PlayerAnalyzeMatchOpti
     .await
 }
 
-pub async fn player_analyze_next(pool: &PgPool, options: PlayerAnalyzeNextOptions) -> Result<Value> {
+pub async fn player_analyze_next(
+    pool: &PgPool,
+    options: PlayerAnalyzeNextOptions,
+) -> Result<Value> {
     let targets = list_pending_player_match_decision_targets(
         pool,
         options.account_id.as_deref(),
@@ -372,7 +387,9 @@ pub(crate) async fn list_pending_player_match_decision_targets(
     let mut targets = Vec::new();
     for row in rows {
         let payload = json_loads(get(&row, "payload_json").and_then(Value::as_str), json!({}));
-        let source = get(&payload, "_deadlock_brain").cloned().unwrap_or_else(|| json!({}));
+        let source = get(&payload, "_deadlock_brain")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
         let external = get_string(&row, "external_id").unwrap_or_default();
         let (account, match_id) = split_external_match_id(&external);
         let account_id_value = get_string(&source, "account_id").unwrap_or(account);
@@ -474,7 +491,9 @@ async fn save_player_match_decision_note(
 ) -> Result<Value> {
     let context_json = serde_json::to_string(context)?;
     let context_hash = stable_hash_text(&context_json);
-    let hero_id = get(context, "hero_id").map(value_to_string).filter(|value| !value.is_empty());
+    let hero_id = get(context, "hero_id")
+        .map(value_to_string)
+        .filter(|value| !value.is_empty());
     let hero_name = get_string(context, "hero_name");
     let insights_json = serde_json::to_string(&extract_insights(result_text.unwrap_or("")))?;
     let account_id = get_string(context, "account_id").unwrap_or_default();
@@ -534,7 +553,11 @@ async fn save_player_match_decision_note(
     .unwrap_or_else(|| json!({"context_hash": context_hash, "status": status})))
 }
 
-async fn latest_snapshot_payload(pool: &PgPool, entity_type: &str, external_id: &str) -> Result<Value> {
+async fn latest_snapshot_payload(
+    pool: &PgPool,
+    entity_type: &str,
+    external_id: &str,
+) -> Result<Value> {
     let row = query_one_json(
         pool,
         r#"
@@ -551,7 +574,11 @@ async fn latest_snapshot_payload(pool: &PgPool, entity_type: &str, external_id: 
     )
     .await?;
     Ok(row
-        .and_then(|row| get(&row, "payload_json").and_then(Value::as_str).map(|raw| json_loads(Some(raw), json!({}))))
+        .and_then(|row| {
+            get(&row, "payload_json")
+                .and_then(Value::as_str)
+                .map(|raw| json_loads(Some(raw), json!({})))
+        })
         .unwrap_or_else(|| json!({})))
 }
 
@@ -569,7 +596,11 @@ async fn latest_deadlock_api_match_metadata(pool: &PgPool, match_id: &str) -> Re
     )
     .await?;
     Ok(row
-        .and_then(|row| get(&row, "payload_json").and_then(Value::as_str).map(|raw| json_loads(Some(raw), json!({}))))
+        .and_then(|row| {
+            get(&row, "payload_json")
+                .and_then(Value::as_str)
+                .map(|raw| json_loads(Some(raw), json!({})))
+        })
         .unwrap_or_else(|| json!({})))
 }
 
@@ -580,12 +611,19 @@ fn hero_id_from_deadlock_api_match(payload: &Value, account_id: &str) -> Option<
         .filter(|value| !value.trim().is_empty())
 }
 
-async fn compact_deadlock_api_match(pool: &PgPool, payload: &Value, account_id: &str) -> Result<Value> {
+async fn compact_deadlock_api_match(
+    pool: &PgPool,
+    payload: &Value,
+    account_id: &str,
+) -> Result<Value> {
     if !payload.is_object() {
         return Ok(json!({}));
     }
     let player = deadlock_api_player(payload, account_id);
-    let players = get(payload, "players").and_then(as_array).cloned().unwrap_or_default();
+    let players = get(payload, "players")
+        .and_then(as_array)
+        .cloned()
+        .unwrap_or_default();
     let mut team_roster = Vec::new();
     for row in &players {
         team_roster.push(compact_deadlock_api_player_roster_row(pool, row).await?);
@@ -620,7 +658,11 @@ async fn compact_deadlock_api_match(pool: &PgPool, payload: &Value, account_id: 
 }
 
 fn deadlock_api_player(payload: &Value, account_id: &str) -> Value {
-    for row in get(payload, "players").and_then(as_array).into_iter().flatten() {
+    for row in get(payload, "players")
+        .and_then(as_array)
+        .into_iter()
+        .flatten()
+    {
         let row_account = get_any(row, &["account_id", "accountId"]).map(value_to_string);
         if row_account.as_deref() == Some(account_id) {
             return row.clone();
@@ -651,7 +693,10 @@ async fn compact_deadlock_api_player(
     match_payload: &Value,
 ) -> Result<Value> {
     let hero_id = get_any(player, &["hero_id", "heroId"]).map(value_to_string);
-    let raw_events = get(player, "items").and_then(as_array).cloned().unwrap_or_default();
+    let raw_events = get(player, "items")
+        .and_then(as_array)
+        .cloned()
+        .unwrap_or_default();
     let mut all_events = Vec::new();
     for item in raw_events {
         all_events.push(compact_actual_item_event(pool, &item).await?);
@@ -677,8 +722,19 @@ async fn compact_deadlock_api_player(
     });
     let hero_name = hero_name_from_id(pool, hero_id.as_deref()).await?;
     let enemy = enemy_heroes(pool, match_payload, get(player, "team")).await?;
-    let ally = ally_heroes(pool, match_payload, get(player, "team"), get_any(player, &["account_id", "accountId"])).await?;
-    let death_details = compact_death_details(pool, get_any(player, &["death_details", "deathDetails"]), match_payload).await?;
+    let ally = ally_heroes(
+        pool,
+        match_payload,
+        get(player, "team"),
+        get_any(player, &["account_id", "accountId"]),
+    )
+    .await?;
+    let death_details = compact_death_details(
+        pool,
+        get_any(player, &["death_details", "deathDetails"]),
+        match_payload,
+    )
+    .await?;
     Ok(json!({
         "account_id": get_any(player, &["account_id", "accountId"]).cloned().unwrap_or(Value::Null),
         "hero_id": hero_id,
@@ -707,10 +763,19 @@ async fn compact_actual_item_event(pool: &PgPool, row: &Value) -> Result<Value> 
     let item_id = get_any(row, &["item_id", "itemId"]).map(value_to_string);
     let upgrade_id = get_any(row, &["upgrade_id", "upgradeId"]).map(value_to_string);
     let imbued_id = get_any(row, &["imbued_ability_id", "imbuedAbilityId"]).map(value_to_string);
-    let payload = asset_payload_by_id(pool, item_id.as_deref()).await?.unwrap_or_else(|| json!({}));
-    let upgrade_payload = asset_payload_by_id(pool, upgrade_id.as_deref()).await?.unwrap_or_else(|| json!({}));
+    let payload = asset_payload_by_id(pool, item_id.as_deref())
+        .await?
+        .unwrap_or_else(|| json!({}));
+    let upgrade_payload = asset_payload_by_id(pool, upgrade_id.as_deref())
+        .await?
+        .unwrap_or_else(|| json!({}));
     let item = item_mechanics(&payload, item_id.as_deref());
-    let upgrade = if upgrade_payload.is_object() && !upgrade_payload.as_object().map(Map::is_empty).unwrap_or(true) {
+    let upgrade = if upgrade_payload.is_object()
+        && !upgrade_payload
+            .as_object()
+            .map(Map::is_empty)
+            .unwrap_or(true)
+    {
         item_mechanics(&upgrade_payload, upgrade_id.as_deref())
     } else {
         json!({})
@@ -804,7 +869,10 @@ fn shop_bonus_progress(item_timeline: &[Value]) -> Value {
             rows.push(purchase);
         }
         if !first_4800_gross.contains_key(&slot) && current >= 4800 {
-            first_4800_gross.insert(slot, get(event, "game_time_s").cloned().unwrap_or(Value::Null));
+            first_4800_gross.insert(
+                slot,
+                get(event, "game_time_s").cloned().unwrap_or(Value::Null),
+            );
         }
     }
     let current_value = shop_current_value_progress(item_timeline);
@@ -859,12 +927,18 @@ fn shop_current_value_progress(item_timeline: &[Value]) -> Value {
     let mut compact_events = Vec::new();
     for event in events {
         let slot = get_string(&event, "slot").unwrap_or_default();
-        let current = (current_by_slot.get(&slot).and_then(Value::as_i64).unwrap_or(0)
+        let current = (current_by_slot
+            .get(&slot)
+            .and_then(Value::as_i64)
+            .unwrap_or(0)
             + int_or_zero(get(&event, "delta")))
         .max(0);
         current_by_slot.insert(slot.clone(), json!(current));
         if !first_4800.contains_key(&slot) && current >= 4800 {
-            first_4800.insert(slot.clone(), get(&event, "time_s").cloned().unwrap_or(Value::Null));
+            first_4800.insert(
+                slot.clone(),
+                get(&event, "time_s").cloned().unwrap_or(Value::Null),
+            );
         }
         compact_events.push(json!({
             "time_s": get(&event, "time_s").cloned().unwrap_or(Value::Null),
@@ -884,7 +958,11 @@ fn shop_current_value_progress(item_timeline: &[Value]) -> Value {
 
 async fn enemy_heroes(pool: &PgPool, match_payload: &Value, team: Option<&Value>) -> Result<Value> {
     let mut rows = Vec::new();
-    for row in get(match_payload, "players").and_then(as_array).into_iter().flatten() {
+    for row in get(match_payload, "players")
+        .and_then(as_array)
+        .into_iter()
+        .flatten()
+    {
         if get(row, "team") != team {
             rows.push(compact_deadlock_api_player_roster_row(pool, row).await?);
         }
@@ -900,7 +978,11 @@ async fn ally_heroes(
 ) -> Result<Value> {
     let mut rows = Vec::new();
     let account_text = account_id.map(value_to_string).unwrap_or_default();
-    for row in get(match_payload, "players").and_then(as_array).into_iter().flatten() {
+    for row in get(match_payload, "players")
+        .and_then(as_array)
+        .into_iter()
+        .flatten()
+    {
         if get(row, "team") == team
             && get_any(row, &["account_id", "accountId"])
                 .map(value_to_string)
@@ -919,7 +1001,13 @@ fn stat_checkpoints(stats: Option<&Value>) -> Value {
         return json!([]);
     }
     let last = rows.len().saturating_sub(1);
-    let mut indexes = vec![0, rows.len() / 4, rows.len() / 2, (rows.len() * 3) / 4, last];
+    let mut indexes = vec![
+        0,
+        rows.len() / 4,
+        rows.len() / 2,
+        (rows.len() * 3) / 4,
+        last,
+    ];
     indexes.sort_unstable();
     indexes.dedup();
     let keys = [
@@ -963,19 +1051,34 @@ async fn compact_death_details(
     death_details: Option<&Value>,
     match_payload: &Value,
 ) -> Result<Value> {
-    let death_rows = death_details.and_then(as_array).cloned().unwrap_or_default();
+    let death_rows = death_details
+        .and_then(as_array)
+        .cloned()
+        .unwrap_or_default();
     let mut players_by_slot: Map<String, Value> = Map::new();
-    for row in get(match_payload, "players").and_then(as_array).into_iter().flatten() {
-        let slot = get_any(row, &["player_slot", "playerSlot"]).map(value_to_string).unwrap_or_default();
+    for row in get(match_payload, "players")
+        .and_then(as_array)
+        .into_iter()
+        .flatten()
+    {
+        let slot = get_any(row, &["player_slot", "playerSlot"])
+            .map(value_to_string)
+            .unwrap_or_default();
         players_by_slot.insert(slot, row.clone());
     }
     let mut result = Vec::new();
     for row in death_rows.iter().take(12) {
-        let killer_slot = get_any(row, &["killer_player_slot", "killerPlayerSlot", "killer_slot"]).map(value_to_string);
+        let killer_slot = get_any(
+            row,
+            &["killer_player_slot", "killerPlayerSlot", "killer_slot"],
+        )
+        .map(value_to_string);
         let killer = killer_slot
             .as_ref()
             .and_then(|slot| players_by_slot.get(slot));
-        let killer_hero_id = killer.and_then(|killer| get_any(killer, &["hero_id", "heroId"])).map(value_to_string);
+        let killer_hero_id = killer
+            .and_then(|killer| get_any(killer, &["hero_id", "heroId"]))
+            .map(value_to_string);
         let killer_hero_name = hero_name_from_id(pool, killer_hero_id.as_deref()).await?;
         result.push(json!({
             "game_time_s": get_any(row, &["game_time_s", "gameTimeS"]).cloned().unwrap_or(Value::Null),
@@ -1021,7 +1124,13 @@ fn compact_objectives(objectives: Option<&Value>) -> Value {
 }
 
 fn hero_id_from_payload(payload: &Value) -> Option<String> {
-    for key in ["hero_id", "heroId", "player_hero_id", "playerHeroId", "hero"] {
+    for key in [
+        "hero_id",
+        "heroId",
+        "player_hero_id",
+        "playerHeroId",
+        "hero",
+    ] {
         if let Some(value) = get(payload, key).and_then(value_to_non_empty_string) {
             return Some(value);
         }
@@ -1033,7 +1142,8 @@ fn hero_id_from_payload(payload: &Value) -> Option<String> {
 
 fn hero_id_from_match_detail(payload: &Value, account_id: &str) -> Option<String> {
     for row in walk_dicts(payload) {
-        let row_account = get_any(row, &["accountId", "account_id", "playerAccountId"]).map(value_to_string);
+        let row_account =
+            get_any(row, &["accountId", "account_id", "playerAccountId"]).map(value_to_string);
         if row_account.as_deref() != Some(account_id) {
             continue;
         }

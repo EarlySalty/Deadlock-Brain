@@ -1,8 +1,7 @@
 use std::{collections::BTreeMap, thread, time::Duration};
 
 use deadlock_brain_core::ai::{
-    extract_ai_text, ai_usage_summary, ChatCompletionRequest, ChatMessage, AiClient,
-    AiConfig,
+    ai_usage_summary, extract_ai_text, AiClient, AiConfig, ChatCompletionRequest, ChatMessage,
 };
 use serde_json::{json, Map, Value};
 use sqlx::PgPool;

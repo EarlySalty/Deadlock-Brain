@@ -5,7 +5,9 @@ use serde_json::{json, Map, Value};
 use sqlx::PgPool;
 
 use crate::{
-    store::{complete_run, json_bytes, open_pool, EntitySnapshotInput, SourceDocumentInput, SourceStore},
+    store::{
+        complete_run, json_bytes, open_pool, EntitySnapshotInput, SourceDocumentInput, SourceStore,
+    },
     util::{form_urlencode, python_or_string, quote_path, value_to_python_string},
     Result, SourcesError,
 };
@@ -95,7 +97,11 @@ async fn pull_statlocker_inner(
             pull_wpa_patches(store, http, options.cache_ttl_seconds).await?;
         total_snapshots += snapshots_from_summary(&patches_summary);
         endpoints.insert("wpa-patches".to_string(), patches_summary);
-        if latest_patch.as_ref().map(|value| value.is_empty()).unwrap_or(true) {
+        if latest_patch
+            .as_ref()
+            .map(|value| value.is_empty())
+            .unwrap_or(true)
+        {
             latest_patch = latest;
         }
     }
@@ -103,7 +109,9 @@ async fn pull_statlocker_inner(
     if contains_kind(&selected, "wpa-items") {
         let patch = latest_patch.as_deref().unwrap_or_default();
         if patch.is_empty() {
-            return Err(SourcesError::invalid_input("Kein Statlocker WPA-Patch gefunden."));
+            return Err(SourcesError::invalid_input(
+                "Kein Statlocker WPA-Patch gefunden.",
+            ));
         }
         let items_summary = pull_wpa_items(
             store,
@@ -160,7 +168,10 @@ async fn pull_statlocker_inner(
         )
         .await?;
         total_snapshots += snapshots_from_summary(&matches.summary);
-        endpoints.insert("player-matches".to_string(), without_match_rows(&matches.summary));
+        endpoints.insert(
+            "player-matches".to_string(),
+            without_match_rows(&matches.summary),
+        );
         if options.include_match_details {
             let details_summary = pull_match_details_for_rows(
                 store,
@@ -200,9 +211,8 @@ async fn pull_statlocker_inner(
     }
 
     if contains_kind(&selected, "player-build-analysis") {
-        let missing_account_or_hero =
-            truthy_option(options.account_id.as_deref()).is_none()
-                || truthy_option(options.hero_id.as_deref()).is_none();
+        let missing_account_or_hero = truthy_option(options.account_id.as_deref()).is_none()
+            || truthy_option(options.hero_id.as_deref()).is_none();
         if missing_account_or_hero {
             return Err(SourcesError::invalid_input(
                 "--account-id und --hero-id sind fuer player-build-analysis erforderlich.",
@@ -347,7 +357,8 @@ async fn pull_wpa_items(
         "{BASE_URL}/api/info/wpa-filtered-items?{}",
         form_urlencode(&params)
     );
-    let referer = format!("{BASE_URL}/vision/wpa?min={min_sample_size}&mode=items-heroes&patch={patch}");
+    let referer =
+        format!("{BASE_URL}/vision/wpa?min={min_sample_size}&mode=items-heroes&patch={patch}");
     let payload = get_statlocker_json(http, &url, &referer, cache_ttl_seconds)?;
     let raw = json_bytes(&payload)?;
     let external_id = format!("wpa-items:{patch}:{hero}:min{min_sample_size}:rank{rank}");
@@ -528,7 +539,13 @@ async fn pull_player_profile(
     .await?;
     let profile_name = first_string(
         &payload,
-        &["name", "personaName", "personaname", "steamName", "displayName"],
+        &[
+            "name",
+            "personaName",
+            "personaname",
+            "steamName",
+            "displayName",
+        ],
     )
     .unwrap_or_else(|| safe_account_id.clone());
     let snapshots = [EntitySnapshotInput {
@@ -744,7 +761,8 @@ async fn pull_leaderboard_player_matches(
     http: &HttpClient,
     options: &PullStatlockerOptions,
 ) -> Result<Value> {
-    let players = latest_leaderboard_accounts(store.pool(), options.players_from_leaderboard).await?;
+    let players =
+        latest_leaderboard_accounts(store.pool(), options.players_from_leaderboard).await?;
     let mut snapshots = 0usize;
     let mut results = Vec::new();
     for (index, player) in players.iter().enumerate() {
@@ -924,10 +942,7 @@ async fn store_json_document(
 /// PG-Port des frueheren SQLite-`json_extract`-Reads: `DISTINCT ON` waehlt pro
 /// Spieler den juengsten Snapshot; die Sortierung nach Rang/Seite toleriert
 /// nicht-numerische Werte (regex-Guard) statt an einem CAST zu scheitern.
-async fn latest_leaderboard_accounts(
-    pool: &PgPool,
-    limit: u64,
-) -> Result<Vec<LeaderboardPlayer>> {
+async fn latest_leaderboard_accounts(pool: &PgPool, limit: u64) -> Result<Vec<LeaderboardPlayer>> {
     let safe_limit = limit.clamp(1, 50) as i64;
     let players = sqlx::query!(
         r#"
@@ -1006,7 +1021,13 @@ fn match_id_from_payload(payload: &Value) -> Option<String> {
 
 fn hero_id_from_payload(payload: &Value) -> Option<String> {
     let object = payload.as_object()?;
-    for key in ["hero_id", "heroId", "player_hero_id", "playerHeroId", "hero"] {
+    for key in [
+        "hero_id",
+        "heroId",
+        "player_hero_id",
+        "playerHeroId",
+        "hero",
+    ] {
         if let Some(value) = object.get(key) {
             let raw = value_to_python_string(value).trim().to_string();
             if !raw.is_empty() && !value.is_null() {

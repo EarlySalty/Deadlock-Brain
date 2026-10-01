@@ -1,0 +1,301 @@
+{
+  "records": [
+    {
+      "source_id": "wiki",
+      "logical_id": "hero/abrams",
+      "revision": 1,
+      "content_hash": "35f908fc49e8a3872636dcac165adc1431c8e037bbe4e4f1a4c08827c7c8e502",
+      "content": "Abrams: Schaden 50.\nÄnderung durch Quelle belegt.\n",
+      "visibility": "public",
+      "allowed_scopes": [],
+      "tombstone": false,
+      "valid_from": "2026-09-24",
+      "valid_to": null,
+      "metadata": {
+        "source_revision": "9b31d609ae4528c77196ed20f7828a150b2c06fd",
+        "parser_revision": "legacy-parser-20260924.1",
+        "locator": "wiki://fixture/hero/abrams#revision-1",
+        "language": "de",
+        "patch": "2026-09-24",
+        "mode": "standard",
+        "unit": "damage",
+        "origin": "synthetic historical-wire fixture; no production export"
+      }
+    },
+    {
+      "source_id": "wiki",
+      "logical_id": "hero/abrams",
+      "revision": 4,
+      "content_hash": "58a722d678c4c54f01ea2af045a1e4bca3cebee432882e86634d062bc745003a",
+      "content": "Abrams: Schaden 55.\nVariante: Standardmodus.\n",
+      "visibility": "public",
+      "allowed_scopes": [],
+      "tombstone": false,
+      "valid_from": "2026-09-24",
+      "valid_to": null,
+      "metadata": {
+        "source_revision": "9b31d609ae4528c77196ed20f7828a150b2c06fd",
+        "parser_revision": "legacy-parser-20260924.1",
+        "locator": "wiki://fixture/hero/abrams#revision-4",
+        "language": "de",
+        "patch": "2026-09-24",
+        "mode": "standard",
+        "unit": "damage",
+        "origin": "synthetic historical-wire fixture; no production export"
+      }
+    },
+    {
+      "source_id": "wiki",
+      "logical_id": "hero/ivy",
+      "revision": 1,
+      "content_hash": "2ec4882b084c99b0c58431ec76261265b83f5d42d65970536c3b483f950a64c3",
+      "content": "Ivy: alter Eintrag; später gelöscht.\n",
+      "visibility": "public",
+      "allowed_scopes": [],
+      "tombstone": false,
+      "valid_from": "2026-09-24",
+      "valid_to": null,
+      "metadata": {
+        "source_revision": "9b31d609ae4528c77196ed20f7828a150b2c06fd",
+        "parser_revision": "legacy-parser-20260924.1",
+        "locator": "wiki://fixture/hero/ivy#revision-1",
+        "language": "de",
+        "patch": "2026-09-24",
+        "mode": "standard",
+        "unit": "text",
+        "origin": "synthetic historical-wire fixture; no production export"
+      }
+    },
+    {
+      "source_id": "wiki",
+      "logical_id": "hero/ivy",
+      "revision": 2,
+      "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "content": "",
+      "visibility": "public",
+      "allowed_scopes": [],
+      "tombstone": true,
+      "valid_from": "2026-09-24",
+      "valid_to": null,
+      "metadata": {
+        "source_revision": "9b31d609ae4528c77196ed20f7828a150b2c06fd",
+        "parser_revision": "legacy-parser-20260924.1",
+        "locator": "wiki://fixture/hero/ivy#revision-2",
+        "language": "de",
+        "patch": "2026-09-24",
+        "mode": "standard",
+        "unit": "text",
+        "origin": "synthetic historical-wire fixture; no production export"
+      }
+    },
+    {
+      "source_id": "wiki",
+      "logical_id": "hero/echo",
+      "revision": 3,
+      "content_hash": "83224669ac6534b0efc158666644a08b2032be5e402d24a279907cb51505ce96",
+      "content": "Nur lokal verwendbare Notiz.\n",
+      "visibility": "public",
+      "allowed_scopes": [],
+      "tombstone": false,
+      "valid_from": "2026-09-24",
+      "valid_to": null,
+      "metadata": {
+        "source_revision": "9b31d609ae4528c77196ed20f7828a150b2c06fd",
+        "parser_revision": "legacy-parser-20260924.1",
+        "locator": "wiki://fixture/hero/echo#revision-3",
+        "language": "de",
+        "patch": "2026-09-24",
+        "mode": "standard",
+        "unit": "text",
+        "origin": "synthetic historical-wire fixture; no production export",
+        "egress": "none"
+      }
+    },
+    {
+      "source_id": "docs",
+      "logical_id": "ops/runbook",
+      "revision": 1,
+      "content_hash": "6abe0d5bb976231aa6bd2588832486b99d958a07932d72c9cdd183161d07fa31",
+      "content": "Interner Ablauf: Prüfen, sichern, freigeben.\n",
+      "visibility": "internal",
+      "allowed_scopes": [
+        "docs.read"
+      ],
+      "tombstone": false,
+      "valid_from": "2026-09-24",
+      "valid_to": null,
+      "metadata": {
+        "source_revision": "9b31d609ae4528c77196ed20f7828a150b2c06fd",
+        "parser_revision": "legacy-parser-20260924.1",
+        "locator": "docs://fixture/ops/runbook#revision-1",
+        "language": "de",
+        "patch": "2026-09-24",
+        "mode": "standard",
+        "unit": "text",
+        "origin": "synthetic historical-wire fixture; no production export"
+      }
+    },
+    {
+      "source_id": "docs",
+      "logical_id": "ops/runbook",
+      "revision": 2,
+      "content_hash": "b35e6942aa9e9f313244d4ad7e7bc194bfc2e9ffc51b7343291259851340c6f1",
+      "content": "Privater Ablauf: Zwei Berechtigungen sind erforderlich.\n",
+      "visibility": "private",
+      "allowed_scopes": [
+        "docs.read",
+        "ops.read"
+      ],
+      "tombstone": false,
+      "valid_from": "2026-09-24",
+      "valid_to": null,
+      "metadata": {
+        "source_revision": "9b31d609ae4528c77196ed20f7828a150b2c06fd",
+        "parser_revision": "legacy-parser-20260924.1",
+        "locator": "docs://fixture/ops/runbook#revision-2",
+        "language": "de",
+        "patch": "2026-09-24",
+        "mode": "standard",
+        "unit": "text",
+        "origin": "synthetic historical-wire fixture; no production export"
+      }
+    },
+    {
+      "source_id": "docs",
+      "logical_id": "public/incident",
+      "revision": 1,
+      "content_hash": "c24202645abb7c53d121083563f0ebf9bfd85e75ba3507d32fe1f14a2eb81a9a",
+      "content": "Früher öffentlich sichtbare Notiz.\n",
+      "visibility": "public",
+      "allowed_scopes": [],
+      "tombstone": false,
+      "valid_from": "2026-09-24",
+      "valid_to": null,
+      "metadata": {
+        "source_revision": "9b31d609ae4528c77196ed20f7828a150b2c06fd",
+        "parser_revision": "legacy-parser-20260924.1",
+        "locator": "docs://fixture/public/incident#revision-1",
+        "language": "de",
+        "patch": "2026-09-24",
+        "mode": "standard",
+        "unit": "text",
+        "origin": "synthetic historical-wire fixture; no production export"
+      }
+    },
+    {
+      "source_id": "docs",
+      "logical_id": "public/incident",
+      "revision": 3,
+      "content_hash": "bf70996661ea07075c259f1a53057940994210390f9c3ad7a22b7c05c84adbf9",
+      "content": "Zugriff widerrufen; Moderation vorbehalten.\n",
+      "visibility": "private",
+      "allowed_scopes": [
+        "mod.read"
+      ],
+      "tombstone": false,
+      "valid_from": "2026-09-24",
+      "valid_to": null,
+      "metadata": {
+        "source_revision": "9b31d609ae4528c77196ed20f7828a150b2c06fd",
+        "parser_revision": "legacy-parser-20260924.1",
+        "locator": "docs://fixture/public/incident#revision-3",
+        "language": "de",
+        "patch": "2026-09-24",
+        "mode": "standard",
+        "unit": "text",
+        "origin": "synthetic historical-wire fixture; no production export"
+      }
+    },
+    {
+      "source_id": "private",
+      "logical_id": "notes/review",
+      "revision": 1,
+      "content_hash": "4f6122ee0362ce98b9484618298249c2b98ff4a739a78a74261a7144019d9100",
+      "content": "{\"subject_id\":\"hero/abrams\",\"key\":\"damage\",\"value\":50,\"unit\":\"damage\",\"unknown\":null}\n",
+      "visibility": "private",
+      "allowed_scopes": [
+        "docs.read",
+        "ops.read"
+      ],
+      "tombstone": false,
+      "valid_from": "2026-09-24",
+      "valid_to": null,
+      "metadata": {
+        "source_revision": "9b31d609ae4528c77196ed20f7828a150b2c06fd",
+        "parser_revision": "legacy-parser-20260924.1",
+        "locator": "private://fixture/notes/review#revision-1",
+        "language": "de",
+        "patch": "2026-09-24",
+        "mode": "standard",
+        "unit": "text",
+        "origin": "synthetic historical-wire fixture; no production export"
+      }
+    },
+    {
+      "source_id": "private",
+      "logical_id": "notes/deny",
+      "revision": 1,
+      "content_hash": "d10933fea7f5543649f8bd7c4d14f1cdd11d0e1e834e3e7c9142b14a4c11b90b",
+      "content": "Ohne explizite Freigabe nicht lesbar.\n",
+      "visibility": "private",
+      "allowed_scopes": [],
+      "tombstone": false,
+      "valid_from": "2026-09-24",
+      "valid_to": null,
+      "metadata": {
+        "source_revision": "9b31d609ae4528c77196ed20f7828a150b2c06fd",
+        "parser_revision": "legacy-parser-20260924.1",
+        "locator": "private://fixture/notes/deny#revision-1",
+        "language": "de",
+        "patch": "2026-09-24",
+        "mode": "standard",
+        "unit": "text",
+        "origin": "synthetic historical-wire fixture; no production export"
+      }
+    }
+  ],
+  "releases": [
+    {
+      "release_id": "release-early",
+      "knowledge_version": "knowledge-v1-fixture",
+      "patch": "2026-09-24",
+      "created_at_epoch": 1790240000,
+      "source_revisions": {
+        "wiki": {
+          "hero/abrams": 1,
+          "hero/ivy": 1,
+          "hero/echo": 3
+        },
+        "docs": {
+          "ops/runbook": 1,
+          "public/incident": 1
+        },
+        "private": {
+          "notes/review": 1,
+          "notes/deny": 1
+        }
+      }
+    },
+    {
+      "release_id": "release-latest",
+      "knowledge_version": "knowledge-v1-fixture",
+      "patch": "2026-09-24",
+      "created_at_epoch": 1790240000,
+      "source_revisions": {
+        "wiki": {
+          "hero/abrams": 4,
+          "hero/ivy": 2,
+          "hero/echo": 3
+        },
+        "docs": {
+          "ops/runbook": 2,
+          "public/incident": 3
+        },
+        "private": {
+          "notes/review": 1,
+          "notes/deny": 1
+        }
+      }
+    }
+  ]
+}

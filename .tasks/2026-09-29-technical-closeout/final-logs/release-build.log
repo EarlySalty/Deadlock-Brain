@@ -1,0 +1,22 @@
+   Compiling deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/deadlock-brain-core)
+   Compiling brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-storage)
+   Compiling dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-normalize)
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-reasoner)
+   Compiling dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-population)
+   Compiling brain-ingestion v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-ingestion)
+   Compiling dbrain-s12-wiki-probe v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-wiki)
+   Compiling dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-sources)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-retrieval)
+   Compiling serde_path_to_error v0.1.20
+   Compiling axum v0.8.9
+   Compiling brain-kernel v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-kernel)
+   Compiling dbrain-learn v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-learn)
+   Compiling dbrain-enrich v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-enrich)
+   Compiling brain-api v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-api)
+   Compiling dbrain-replay v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-replay)
+   Compiling brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-serve)
+   Compiling brain-feeds v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-feeds)
+   Compiling brain-legacy-import v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-legacy-import)
+   Compiling deadlock-brain-yt v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/deadlock-brain-yt)
+   Compiling deadlock-brain v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/deadlock-brain)
+    Finished `release` profile [optimized] target(s) in 2m 18s

@@ -1,0 +1,42 @@
+    Checking tokio v1.52.3
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-reasoner)
+    Checking brain-kernel v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-kernel)
+    Checking serde_path_to_error v0.1.20
+    Checking tokio-util v0.7.18
+    Checking tokio-stream v0.1.18
+    Checking sqlx-core v0.8.6
+    Checking hyper v1.10.1
+    Checking hyper-util v0.1.20
+    Checking sqlx-postgres v0.8.6
+    Checking tower v0.5.3
+    Checking tokio-rustls v0.26.4
+    Checking async-compression v0.4.42
+    Checking tower-http v0.6.11
+    Checking hyper-rustls v0.27.9
+    Checking reqwest v0.12.28
+    Checking sqlx v0.8.6
+    Checking tokio-postgres v0.7.18
+    Checking uplink-infisical-transport v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/vendor/uplink-infisical-transport)
+    Checking dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-builds)
+    Checking deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/deadlock-brain-core)
+    Checking postgres v0.19.14
+    Checking brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-storage)
+    Checking dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-normalize)
+    Checking dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-population)
+    Checking brain-ingestion v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-ingestion)
+    Checking brain-client v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-client)
+    Checking brain-providers v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-providers)
+    Checking dbrain-s12-wiki-probe v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-wiki)
+    Checking dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-sources)
+    Checking dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-retrieval)
+    Checking axum v0.8.9
+    Checking brain-feeds v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-feeds)
+    Checking dbrain-replay v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-replay)
+    Checking dbrain-learn v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-learn)
+    Checking brain-api v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-api)
+    Checking dbrain-enrich v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/dbrain-enrich)
+    Checking brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-serve)
+    Checking brain-legacy-import v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/brain-legacy-import)
+    Checking deadlock-brain v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/deadlock-brain)
+    Checking deadlock-brain-yt v0.1.0 (/home/nathanael/.worktrees/brain-pre-g5-harness-20260929/rust/crates/deadlock-brain-yt)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 51.95s

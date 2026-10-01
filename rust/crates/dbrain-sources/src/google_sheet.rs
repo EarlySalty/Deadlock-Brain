@@ -94,8 +94,14 @@ pub(crate) async fn pull_sheet_inner(
     let mut summaries = Vec::new();
     for tab in &tabs {
         summaries.push(
-            pull_single_sheet(store, http, &options.sheet_id, tab, options.cache_ttl_seconds)
-                .await?,
+            pull_single_sheet(
+                store,
+                http,
+                &options.sheet_id,
+                tab,
+                options.cache_ttl_seconds,
+            )
+            .await?,
         );
     }
 
@@ -175,7 +181,10 @@ pub fn discover_sheet_tabs(
             .map(|value| value.as_str().trim().to_string())
             .unwrap_or_default();
         let tab = SheetTab { name, gid };
-        if !tab.name.is_empty() && !tab.gid.is_empty() && !tabs.iter().any(|existing| existing == &tab) {
+        if !tab.name.is_empty()
+            && !tab.gid.is_empty()
+            && !tabs.iter().any(|existing| existing == &tab)
+        {
             tabs.push(tab);
         }
     }
@@ -254,7 +263,12 @@ async fn pull_single_sheet(
                 .as_ref()
                 .filter(|value| !value.is_empty())
                 .cloned()
-                .or_else(|| item_name.as_ref().filter(|value| !value.is_empty()).cloned())
+                .or_else(|| {
+                    item_name
+                        .as_ref()
+                        .filter(|value| !value.is_empty())
+                        .cloned()
+                })
                 .unwrap_or_else(|| format!("{sheet_name} row {idx}"));
             snapshots.push(EntitySnapshotInput {
                 source: SOURCE.to_string(),
@@ -416,7 +430,10 @@ fn row_to_record(headers: &[String], row: &[String]) -> Map<String, Value> {
         };
         if used.iter().any(|existing| existing == &key) {
             let mut suffix = 2usize;
-            while used.iter().any(|existing| existing == &format!("{key} {suffix}")) {
+            while used
+                .iter()
+                .any(|existing| existing == &format!("{key} {suffix}"))
+            {
                 suffix += 1;
             }
             key = format!("{key} {suffix}");
@@ -455,7 +472,14 @@ fn hero_name_from_record(record: &Map<String, Value>) -> Option<String> {
 }
 
 fn item_name_from_record(record: &Map<String, Value>) -> Option<String> {
-    for key in ["game name", "Game Name", "Item", "item", "code name", "Code Name"] {
+    for key in [
+        "game name",
+        "Game Name",
+        "Item",
+        "item",
+        "code name",
+        "Code Name",
+    ] {
         let value = record
             .get(key)
             .and_then(Value::as_str)

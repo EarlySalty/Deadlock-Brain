@@ -1,0 +1,36 @@
+{
+  "plan_version": "1.0",
+  "sources": [
+    {
+      "source_id": "U1",
+      "uploaded_filename": "Deadlock Brain Deep Research all in one Repo umstellung.md",
+      "package_path": "quellen/RECHERCHE_ORIGINAL.md",
+      "sha256": "6c60e53683d6581be058060216b03b501039241dd16a6a6e01bade9e10ed01cd",
+      "bytes": 42198,
+      "status": "planning_integrated_not_live_verified"
+    },
+    {
+      "source_id": "U3",
+      "uploaded_filename": "deep-research-report Deadlock Brain und Deadlock Wikli.md",
+      "package_path": "quellen/RECHERCHE_WIKI_ORIGINAL.md",
+      "sha256": "b8cd013158565dee0fe8e388e4d0e88e1ec677bb648a67b197223ac22fbac76d",
+      "bytes": 49719,
+      "status": "planning_integrated_not_live_verified"
+    },
+    {
+      "source_id": "U4",
+      "uploaded_filename": "deep-research-report (5)(2).md",
+      "package_path": "quellen/RECHERCHE_OEKOSYSTEM_ORIGINAL.md",
+      "sha256": "78eeee585f9dcae380b80a1214f8c81bb0423415870681163287f71ea7338e86",
+      "bytes": 44682,
+      "status": "planning_integrated_not_live_verified"
+    }
+  ],
+  "duplicates": [
+    {
+      "file": "deep-research-report (5)(1).md",
+      "same_as": "deep-research-report (5)(2).md",
+      "verified": "byte_equal_sha256"
+    }
+  ]
+}

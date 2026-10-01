@@ -1,0 +1,29 @@
+   Compiling dbrain-s12-wiki-probe v0.1.0 (<S12_WORKTREE>/architecture/migration/s12)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.68s
+     Running tests/probe.rs (target/debug/deps/probe-ea82c409a1c9e27b)
+
+running 2 tests
+test same_revision_cannot_change_source_time_between_captures ... FAILED
+test same_revision_cannot_change_raw_content_between_captures ... FAILED
+
+failures:
+
+---- same_revision_cannot_change_source_time_between_captures stdout ----
+
+thread 'same_revision_cannot_change_source_time_between_captures' (1507061) panicked at tests/probe.rs:766:5:
+assertion failed: compare(&before, &inspect(&v)).is_err()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- same_revision_cannot_change_raw_content_between_captures stdout ----
+
+thread 'same_revision_cannot_change_raw_content_between_captures' (1507060) panicked at tests/probe.rs:759:5:
+assertion failed: compare(&before, &inspect(&v)).is_err()
+
+
+failures:
+    same_revision_cannot_change_raw_content_between_captures
+    same_revision_cannot_change_source_time_between_captures
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 56 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--test probe`

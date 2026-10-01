@@ -1,0 +1,18 @@
+{
+  "model": "fixture-jev-model-not-for-live",
+  "state": {
+    "question": "Welche Farbe ist für Objekt Alpha angegeben?",
+    "evidence": "Im erfundenen Testdatensatz hat Objekt Alpha die Farbe Blau."
+  },
+  "questions": {
+    "query_routing": {
+      "type": "choice",
+      "instructions": "Wähle den passenden Bearbeitungsweg innerhalb der zugelassenen Optionen.",
+      "criteria": {
+        "structured": "Direkter Lookup vorliegender strukturierter Daten",
+        "explanation": "Erklärung aus zulässiger Evidenz",
+        "abstain": "Keine belegte Antwort möglich"
+      }
+    }
+  }
+}

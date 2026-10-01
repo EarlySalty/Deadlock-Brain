@@ -1,0 +1,638 @@
+//! Native synchronous PostgreSQL adapter backed by one hard-bounded shared pool.
+//! Unix sockets only: remote TLS/credential provisioning is deliberately not implicit.
+use crate::memory_repository::validate_release;
+use brain_contracts::{
+    store::{ConversationOwnershipPort, STORE_VERSION},
+    CorpusRelease, CorpusSnapshot, PortError, SnapshotReadPort,
+};
+use postgres::Row;
+mod connection;
+use connection::Client;
+#[cfg(test)]
+mod review_deadline;
+#[cfg(test)]
+mod review_startup;
+mod wait_queue;
+use std::{
+    ops::{Deref, DerefMut},
+    path::{Path, PathBuf},
+    sync::{Arc, Condvar, Mutex, MutexGuard},
+    time::{Duration, Instant},
+};
+use wait_queue::WaitQueue;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct LocalPgPoolStats {
+    pub max_connections: u32,
+    pub open_connections: u32,
+    pub connecting_connections: u32,
+    pub idle_connections: u32,
+    pub checked_out_connections: u32,
+    pub peak_connections: u32,
+    pub created_connections: u64,
+    pub reused_checkouts: u64,
+    pub wait_count: u64,
+    pub wait_timeout_count: u64,
+    pub wait_total_micros: u64,
+    pub wait_max_micros: u64,
+}
+
+#[derive(Clone)]
+struct ConnectionConfig {
+    socket: PathBuf,
+    port: u16,
+    user: String,
+    database: String,
+    password: Option<String>,
+    connect_timeout: Duration,
+    statement_timeout: Duration,
+    lock_timeout: Duration,
+}
+
+#[derive(Default)]
+struct PoolState {
+    idle: Vec<Client>,
+    waiting: WaitQueue,
+    open: u32,
+    connecting: u32,
+    checked_out: u32,
+    peak: u32,
+    created: u64,
+    reused: u64,
+    wait_count: u64,
+    wait_timeout_count: u64,
+    wait_total_micros: u64,
+    wait_max_micros: u64,
+}
+
+struct ClientPool {
+    config: ConnectionConfig,
+    max_connections: u32,
+    acquire_timeout: Duration,
+    state: Mutex<PoolState>,
+}
+
+struct PooledClient {
+    client: Option<Client>,
+    pool: Arc<ClientPool>,
+}
+
+impl PooledClient {
+    fn prepare(
+        &mut self,
+        deadline: Option<&brain_contracts::RequestDeadline>,
+    ) -> Result<(), PortError> {
+        self.client
+            .as_mut()
+            .expect("pooled PostgreSQL client missing before drop")
+            .set_deadline(deadline)
+    }
+}
+
+fn request_check(deadline: Option<&brain_contracts::RequestDeadline>) -> Result<(), PortError> {
+    if let Some(deadline) = deadline {
+        deadline.check()?;
+    }
+    Ok(())
+}
+
+impl Deref for PooledClient {
+    type Target = Client;
+
+    fn deref(&self) -> &Self::Target {
+        self.client
+            .as_ref()
+            .expect("pooled PostgreSQL client missing before drop")
+    }
+}
+
+impl DerefMut for PooledClient {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.client
+            .as_mut()
+            .expect("pooled PostgreSQL client missing before drop")
+    }
+}
+
+impl Drop for PooledClient {
+    fn drop(&mut self) {
+        let Some(client) = self.client.take() else {
+            return;
+        };
+        let closed = client.is_closed();
+        let mut state = self
+            .pool
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.checked_out = state.checked_out.saturating_sub(1);
+        if closed {
+            state.open = state.open.saturating_sub(1);
+        } else {
+            state.idle.push(client);
+        }
+        state.waiting.notify_front();
+    }
+}
+
+fn error(_: postgres::Error) -> PortError {
+    PortError::Unavailable("local PostgreSQL operation failed".into())
+}
+
+fn invalid(message: &str) -> PortError {
+    PortError::InvalidResponse(message.into())
+}
+
+fn unavailable(message: &str) -> PortError {
+    PortError::Unavailable(message.into())
+}
+
+fn valid_timeout(timeout: Duration) -> bool {
+    (Duration::from_millis(1)..=Duration::from_secs(60)).contains(&timeout)
+}
+
+fn micros(duration: Duration) -> u64 {
+    duration.as_micros().min(u128::from(u64::MAX)) as u64
+}
+
+impl ClientPool {
+    fn new(
+        config: ConnectionConfig,
+        max_connections: u32,
+        acquire_timeout: Duration,
+    ) -> Result<Self, PortError> {
+        if !(1..=64).contains(&max_connections) || !valid_timeout(acquire_timeout) {
+            return Err(invalid("invalid local PostgreSQL pool options"));
+        }
+        Ok(Self {
+            config,
+            max_connections,
+            acquire_timeout,
+            state: Mutex::new(PoolState::default()),
+        })
+    }
+
+    fn lock(&self) -> Result<MutexGuard<'_, PoolState>, PortError> {
+        self.state
+            .lock()
+            .map_err(|_| unavailable("local PostgreSQL pool state unavailable"))
+    }
+
+    fn record_wait(state: &mut PoolState, elapsed: Duration) {
+        let elapsed = micros(elapsed);
+        state.wait_total_micros = state.wait_total_micros.saturating_add(elapsed);
+        state.wait_max_micros = state.wait_max_micros.max(elapsed);
+    }
+
+    fn connect(
+        &self,
+        deadline: Option<&brain_contracts::RequestDeadline>,
+    ) -> Result<Client, PortError> {
+        Client::connect(&self.config, deadline)
+    }
+
+    fn acquire(self: &Arc<Self>) -> Result<PooledClient, PortError> {
+        self.acquire_until(None)
+    }
+
+    fn acquire_until(
+        self: &Arc<Self>,
+        deadline: Option<&brain_contracts::RequestDeadline>,
+    ) -> Result<PooledClient, PortError> {
+        let started = Instant::now();
+        request_check(deadline)?;
+        let mut waiter: Option<Arc<Condvar>> = None;
+        let mut state = self.lock()?;
+        loop {
+            if request_check(deadline).is_err() {
+                state.waiting.remove(waiter.as_ref());
+                if waiter.is_some() {
+                    state.wait_timeout_count = state.wait_timeout_count.saturating_add(1);
+                    Self::record_wait(&mut state, started.elapsed());
+                }
+                state.waiting.notify_front();
+                return Err(PortError::BudgetExceeded);
+            }
+            // Once queued, preserve the original deadline even across notifications.
+            if waiter.is_some() && started.elapsed() >= self.acquire_timeout {
+                state.waiting.remove(waiter.as_ref());
+                state.wait_timeout_count = state.wait_timeout_count.saturating_add(1);
+                Self::record_wait(&mut state, started.elapsed());
+                state.waiting.notify_front();
+                return Err(unavailable("local PostgreSQL pool exhausted"));
+            }
+
+            // A returned connection belongs to the oldest waiter. New callers must
+            // not steal it while the notified thread is waiting to reacquire the lock.
+            if state.waiting.may_acquire(waiter.as_ref()) {
+                if let Some(client) = state.idle.pop() {
+                    state.waiting.remove(waiter.as_ref());
+                    state.checked_out += 1;
+                    state.reused = state.reused.saturating_add(1);
+                    if waiter.is_some() {
+                        Self::record_wait(&mut state, started.elapsed());
+                    }
+                    state.waiting.notify_front();
+                    drop(state);
+                    let mut client = PooledClient {
+                        client: Some(client),
+                        pool: self.clone(),
+                    };
+                    client.prepare(deadline)?;
+                    return Ok(client);
+                }
+
+                if state.open + state.connecting < self.max_connections {
+                    // Reserve capacity before waking the next waiter; parallel
+                    // connection attempts remain inside the same hard pool limit.
+                    state.connecting += 1;
+                    state.waiting.remove(waiter.as_ref());
+                    state.waiting.notify_front();
+                    drop(state);
+                    let connected = self.connect(deadline);
+                    let mut state = self.lock()?;
+                    state.connecting = state.connecting.saturating_sub(1);
+                    match connected {
+                        Ok(client) => {
+                            state.open += 1;
+                            state.checked_out += 1;
+                            state.created = state.created.saturating_add(1);
+                            state.peak = state.peak.max(state.open);
+                            if waiter.is_some() {
+                                Self::record_wait(&mut state, started.elapsed());
+                            }
+                            state.waiting.notify_front();
+                            drop(state);
+                            let mut client = PooledClient {
+                                client: Some(client),
+                                pool: self.clone(),
+                            };
+                            client.prepare(deadline)?;
+                            return Ok(client);
+                        }
+                        Err(error) => {
+                            state.waiting.notify_front();
+                            return Err(error);
+                        }
+                    }
+                }
+            }
+
+            if waiter.is_none() {
+                state.wait_count = state.wait_count.saturating_add(1);
+                waiter = Some(state.waiting.push());
+            }
+            let mut remaining = self.acquire_timeout.saturating_sub(started.elapsed());
+            if let Some(deadline) = deadline {
+                // Observe HTTP cancellation promptly without a new thread or runtime.
+                remaining = remaining
+                    .min(deadline.remaining().unwrap_or(Duration::ZERO))
+                    .min(Duration::from_millis(10));
+            }
+            let signal = waiter.as_ref().expect("queued PostgreSQL waiter missing");
+            let (next, _) = signal
+                .wait_timeout(state, remaining)
+                .map_err(|_| unavailable("local PostgreSQL pool state unavailable"))?;
+            // Keep this guard rather than dropping and competing for the mutex again.
+            state = next;
+        }
+    }
+
+    fn stats(&self) -> LocalPgPoolStats {
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        LocalPgPoolStats {
+            max_connections: self.max_connections,
+            open_connections: state.open,
+            connecting_connections: state.connecting,
+            idle_connections: state.idle.len().min(u32::MAX as usize) as u32,
+            checked_out_connections: state.checked_out,
+            peak_connections: state.peak,
+            created_connections: state.created,
+            reused_checkouts: state.reused,
+            wait_count: state.wait_count,
+            wait_timeout_count: state.wait_timeout_count,
+            wait_total_micros: state.wait_total_micros,
+            wait_max_micros: state.wait_max_micros,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct LocalPgReader {
+    pool: Arc<ClientPool>,
+}
+
+impl std::fmt::Debug for LocalPgReader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LocalPgReader")
+            .field("transport", &"local Unix socket")
+            .field("max_connections", &self.pool.max_connections)
+            .finish_non_exhaustive()
+    }
+}
+
+impl LocalPgReader {
+    pub fn new(
+        socket: impl AsRef<Path>,
+        port: u16,
+        user: &str,
+        database: &str,
+    ) -> Result<Self, PortError> {
+        if !socket.as_ref().is_absolute()
+            || port == 0
+            || [user, database]
+                .iter()
+                .any(|v| v.trim().is_empty() || v.len() > 128 || v.chars().any(char::is_control))
+        {
+            return Err(invalid("invalid local PostgreSQL configuration"));
+        }
+        let config = ConnectionConfig {
+            socket: socket.as_ref().into(),
+            port,
+            user: user.into(),
+            database: database.into(),
+            password: None,
+            connect_timeout: Duration::from_secs(2),
+            statement_timeout: Duration::from_secs(2),
+            lock_timeout: Duration::from_secs(1),
+        };
+        Ok(Self {
+            pool: Arc::new(ClientPool::new(config, 4, Duration::from_secs(2))?),
+        })
+    }
+
+    /// Compatibility configuration for non-service callers. Service composition should use
+    /// with_pool_options so the hard connection cap and acquire wait are explicit.
+    pub fn with_connection_options(
+        self,
+        password: Option<String>,
+        connect_timeout: Duration,
+        statement_timeout: Duration,
+        lock_timeout: Duration,
+    ) -> Result<Self, PortError> {
+        self.with_pool_options(
+            password,
+            connect_timeout,
+            statement_timeout,
+            lock_timeout,
+            4,
+            connect_timeout,
+        )
+    }
+
+    pub fn with_pool_options(
+        self,
+        password: Option<String>,
+        connect_timeout: Duration,
+        statement_timeout: Duration,
+        lock_timeout: Duration,
+        max_connections: u32,
+        acquire_timeout: Duration,
+    ) -> Result<Self, PortError> {
+        if [
+            connect_timeout,
+            statement_timeout,
+            lock_timeout,
+            acquire_timeout,
+        ]
+        .iter()
+        .any(|timeout| !valid_timeout(*timeout))
+            || lock_timeout > statement_timeout
+            || !(1..=64).contains(&max_connections)
+            || password
+                .as_ref()
+                .is_some_and(|value| value.is_empty() || value.contains('\0'))
+        {
+            return Err(invalid("invalid local PostgreSQL connection options"));
+        }
+        let mut config = self.pool.config.clone();
+        config.password = password;
+        config.connect_timeout = connect_timeout;
+        config.statement_timeout = statement_timeout;
+        config.lock_timeout = lock_timeout;
+        Ok(Self {
+            pool: Arc::new(ClientPool::new(config, max_connections, acquire_timeout)?),
+        })
+    }
+
+    pub fn pool_stats(&self) -> LocalPgPoolStats {
+        self.pool.stats()
+    }
+
+    /// SELECT-only service startup preflight using the same bounded runtime pool.
+    pub fn check_core_schema(&self) -> Result<(), PortError> {
+        let mut client = self.pool.acquire()?;
+        let mut tx = client.transaction(true, false)?;
+        let rows = tx.query(
+            "SELECT schema_version, store_contract FROM brain.core_schema_version",
+            &[],
+        )?;
+        if rows.len() != 1 {
+            return Err(invalid("unsupported core schema/store version"));
+        }
+        let schema_version: i32 = rows[0].try_get(0).map_err(error)?;
+        let store_version: String = rows[0].try_get(1).map_err(error)?;
+        if schema_version != crate::schema::CORE_SCHEMA_VERSION || store_version != STORE_VERSION {
+            return Err(invalid("unsupported core schema/store version"));
+        }
+        tx.query(crate::schema::SHAPE_PROBE, &[])?;
+        tx.commit()
+    }
+
+    pub fn check_permissions(&self) -> Result<(), PortError> {
+        let mut client = self.pool.acquire()?;
+        let row = client
+            .query_one(
+                "SELECT has_table_privilege(current_user, 'brain.conversation_owners_v1', 'SELECT')
+                    AND has_table_privilege(current_user, 'brain.conversation_owners_v1', 'INSERT')",
+                &[],
+            )?;
+        let allowed: bool = row.try_get(0).map_err(error)?;
+        if allowed {
+            Ok(())
+        } else {
+            Err(PortError::PermissionDenied(
+                "required database permissions missing".into(),
+            ))
+        }
+    }
+
+    fn release_row(row: Row) -> Result<CorpusRelease, PortError> {
+        serde_json::from_value(row.try_get(0).map_err(error)?)
+            .map_err(|_| invalid("invalid release JSON"))
+    }
+}
+
+impl SnapshotReadPort for LocalPgReader {
+    fn read_heads(
+        &self,
+        documents: &[brain_contracts::DocumentRevision],
+    ) -> Result<Vec<brain_contracts::DocumentHead>, PortError> {
+        self.read_heads_bounded(documents, None)
+    }
+    fn read_snapshot(&self, release_id: &str) -> Result<CorpusSnapshot, PortError> {
+        self.read_snapshot_bounded(release_id, None)
+    }
+    fn read_heads_until(
+        &self,
+        documents: &[brain_contracts::DocumentRevision],
+        deadline: Option<&brain_contracts::RequestDeadline>,
+    ) -> Result<Vec<brain_contracts::DocumentHead>, PortError> {
+        request_check(deadline)?;
+        let result = self.read_heads_bounded(documents, deadline);
+        request_check(deadline)?;
+        result
+    }
+    fn read_snapshot_until(
+        &self,
+        release_id: &str,
+        deadline: Option<&brain_contracts::RequestDeadline>,
+    ) -> Result<CorpusSnapshot, PortError> {
+        request_check(deadline)?;
+        let result = self.read_snapshot_bounded(release_id, deadline);
+        request_check(deadline)?;
+        result
+    }
+}
+impl LocalPgReader {
+    fn read_heads_bounded(
+        &self,
+        documents: &[brain_contracts::DocumentRevision],
+        deadline: Option<&brain_contracts::RequestDeadline>,
+    ) -> Result<Vec<brain_contracts::DocumentHead>, PortError> {
+        if documents.len() > 256 {
+            return Err(invalid("head batch too large"));
+        }
+        if documents.is_empty() {
+            return Ok(Vec::new());
+        }
+        let keys = serde_json::to_value(documents).map_err(|_| invalid("invalid head keys"))?;
+        let mut client = self.pool.acquire_until(deadline)?;
+        request_check(deadline)?;
+        // A single statement snapshot, bounded key lookup; never fetch record bodies or release pins.
+        let rows = client
+            .query(
+                "SELECT jsonb_build_object('source_id',h.source_id,'logical_id',h.logical_id,'revision',h.revision,'visibility',h.record_json->'visibility','allowed_scopes',h.record_json->'allowed_scopes','tombstone',h.record_json->'tombstone','metadata',h.record_json->'metadata') FROM jsonb_to_recordset($1::jsonb) AS k(source_id text, logical_id text) JOIN brain.source_record_heads h ON h.source_id=k.source_id AND h.logical_id=k.logical_id ORDER BY h.source_id,h.logical_id",
+                &[&keys],
+            )?;
+        rows.iter()
+            .map(|row| {
+                let head: brain_contracts::DocumentHead =
+                    serde_json::from_value(row.try_get(0).map_err(error)?)
+                        .map_err(|_| invalid("invalid current head JSON"))?;
+                head.validate()?;
+                Ok(head)
+            })
+            .collect()
+    }
+
+    fn read_snapshot_bounded(
+        &self,
+        release_id: &str,
+        deadline: Option<&brain_contracts::RequestDeadline>,
+    ) -> Result<CorpusSnapshot, PortError> {
+        let mut client = self.pool.acquire_until(deadline)?;
+        request_check(deadline)?;
+        let mut tx = client.transaction(true, true)?;
+        request_check(deadline)?;
+        let row = tx
+            .query_opt(
+                "SELECT release_json FROM brain.corpus_releases_v1 WHERE release_id=$1",
+                &[&release_id],
+            )?
+            .ok_or_else(|| invalid("unknown release"))?;
+        let release = Self::release_row(row)?;
+        validate_release(&release)?;
+        if release.release_id != release_id {
+            return Err(invalid("release identity mismatch"));
+        }
+        let pins = serde_json::to_value(&release.source_revisions)
+            .map_err(|_| invalid("invalid release pins"))?;
+        request_check(deadline)?;
+        let rows=tx.query("SELECT r.record_json,h.record_json FROM jsonb_each($1::jsonb) s CROSS JOIN LATERAL jsonb_each_text(s.value) d JOIN brain.source_record_revisions r ON r.source_id=s.key AND r.logical_id=d.key AND r.revision=d.value::bigint JOIN brain.source_record_heads h ON h.source_id=r.source_id AND h.logical_id=r.logical_id ORDER BY r.source_id,r.logical_id",&[&pins])?;
+        let mut revisions = Vec::new();
+        let mut heads = Vec::new();
+        for row in rows {
+            request_check(deadline)?;
+            revisions.push(
+                serde_json::from_value(row.try_get(0).map_err(error)?)
+                    .map_err(|_| invalid("invalid revision JSON"))?,
+            );
+            heads.push(
+                serde_json::from_value(row.try_get(1).map_err(error)?)
+                    .map_err(|_| invalid("invalid head JSON"))?,
+            );
+        }
+        if revisions.len()
+            != release
+                .source_revisions
+                .values()
+                .map(std::collections::BTreeMap::len)
+                .sum::<usize>()
+        {
+            return Err(invalid("incomplete release snapshot"));
+        }
+        request_check(deadline)?;
+        tx.commit()?;
+        request_check(deadline)?;
+        Ok(CorpusSnapshot {
+            release,
+            revisions,
+            heads,
+        })
+    }
+}
+
+impl ConversationOwnershipPort for LocalPgReader {
+    fn claim_conversation(&self, conversation: &str, actor: &str) -> Result<(), PortError> {
+        self.claim_conversation_bounded(conversation, actor, None)
+    }
+    fn claim_conversation_until(
+        &self,
+        conversation: &str,
+        actor: &str,
+        deadline: &brain_contracts::RequestDeadline,
+    ) -> Result<(), PortError> {
+        deadline.check()?;
+        let result = self.claim_conversation_bounded(conversation, actor, Some(deadline));
+        deadline.check()?;
+        result
+    }
+}
+impl LocalPgReader {
+    fn claim_conversation_bounded(
+        &self,
+        conversation: &str,
+        actor: &str,
+        deadline: Option<&brain_contracts::RequestDeadline>,
+    ) -> Result<(), PortError> {
+        if [conversation, actor]
+            .iter()
+            .any(|v| v.trim().is_empty() || v.len() > 512 || v.chars().any(char::is_control))
+        {
+            return Err(invalid("invalid conversation identity"));
+        }
+        let mut client = self.pool.acquire_until(deadline)?;
+        request_check(deadline)?;
+        let mut tx = client.transaction(false, false)?;
+        request_check(deadline)?;
+        tx.execute("INSERT INTO brain.conversation_owners_v1(conversation_id,actor_id) VALUES($1,$2) ON CONFLICT(conversation_id) DO NOTHING",&[&conversation,&actor])?;
+        request_check(deadline)?;
+        let owner: String = tx
+            .query_one(
+                "SELECT actor_id FROM brain.conversation_owners_v1 WHERE conversation_id=$1",
+                &[&conversation],
+            )?
+            .try_get(0)
+            .map_err(error)?;
+        if owner != actor {
+            return Err(invalid("conversation owner mismatch"));
+        }
+        request_check(deadline)?;
+        tx.commit()?;
+        request_check(deadline)
+    }
+}

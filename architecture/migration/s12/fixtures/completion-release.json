@@ -1,0 +1,29 @@
+{
+  "created_at_epoch": 1790280000,
+  "knowledge_version": "fixture-knowledge-v1",
+  "patch": "unknown",
+  "release_id": "fixture-release-one",
+  "source_revisions": {
+    "synthetic_wiki": {
+      "synthetic_wiki:page:1001": 11001,
+      "synthetic_wiki:page:1002": 11002,
+      "synthetic_wiki:page:101": 10101,
+      "synthetic_wiki:page:102": 10102,
+      "synthetic_wiki:page:201": 10201,
+      "synthetic_wiki:page:202": 10202,
+      "synthetic_wiki:page:301": 10301,
+      "synthetic_wiki:page:302": 10302,
+      "synthetic_wiki:page:401": 10401,
+      "synthetic_wiki:page:402": 10402,
+      "synthetic_wiki:page:501": 10501,
+      "synthetic_wiki:page:601": 10601,
+      "synthetic_wiki:page:701": 10701,
+      "synthetic_wiki:page:702": 10702,
+      "synthetic_wiki:page:801": 10801,
+      "synthetic_wiki:page:802": 10802,
+      "synthetic_wiki:page:803": 10803,
+      "synthetic_wiki:page:804": 10804,
+      "synthetic_wiki:page:901": 10901
+    }
+  }
+}

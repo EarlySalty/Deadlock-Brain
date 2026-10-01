@@ -198,10 +198,10 @@ fn fix_e_rejects_score_below_zero_even_with_plausible_field_ratio() {
 fn hero() -> HeroModel {
     HeroModel {
         base_spirit_power: 0.0,
-            standard_level_up_upgrades: Default::default(),
-            standard_upgrade_levels: Default::default(),
-            level_rewards: Default::default(),
-            cost_bonuses: Default::default(),
+        standard_level_up_upgrades: Default::default(),
+        standard_upgrade_levels: Default::default(),
+        level_rewards: Default::default(),
+        cost_bonuses: Default::default(),
         hero_id: 25,
         name: "Warden".to_string(),
         archetype: "brawler".to_string(),

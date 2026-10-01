@@ -14,10 +14,10 @@ use sqlx::{PgPool, Row};
 
 use crate::Result;
 
-#[path = "game_wiki_localization.rs"]
-mod localization;
 #[path = "hero_dossier.rs"]
 mod hero_dossier;
+#[path = "game_wiki_localization.rs"]
+mod localization;
 pub use hero_dossier::load_hero_dossier;
 #[cfg(test)]
 #[path = "wiki_manifest_tests.rs"]
@@ -163,7 +163,10 @@ pub(crate) fn search_game_wiki_for_answer(
         answer_types,
     )?;
     if entity["entity_type"] == "hero" || intent == "hero_overview" {
-        if let Some(name) = entity["canonical_name"].as_str().or_else(|| entity["name"].as_str()) {
+        if let Some(name) = entity["canonical_name"]
+            .as_str()
+            .or_else(|| entity["name"].as_str())
+        {
             let snapshot_root = result["root"].as_str().map(Path::new).or(root);
             let dossier = load_hero_dossier(snapshot_root, name)?;
             result["hero_dossier"] = dossier;

@@ -1,0 +1,11 @@
+{
+  "model": "fixture-chat-model-not-for-live",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Antworte nur mit Test."
+    }
+  ],
+  "max_tokens": 8,
+  "stream": false
+}

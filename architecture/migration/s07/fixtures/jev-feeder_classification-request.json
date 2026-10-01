@@ -1,0 +1,18 @@
+{
+  "model": "fixture-jev-model-not-for-live",
+  "state": {
+    "question": "Welche Farbe ist für Objekt Alpha angegeben?",
+    "evidence": "Im erfundenen Testdatensatz hat Objekt Alpha die Farbe Blau."
+  },
+  "questions": {
+    "feeder_classification": {
+      "type": "choice",
+      "instructions": "Ordne die Art des synthetischen Quellenausschnitts zu.",
+      "criteria": {
+        "patch": "Beschreibt eine Änderung",
+        "wiki": "Beschreibt einen bestehenden Zusammenhang",
+        "other": "Keine sichere Zuordnung"
+      }
+    }
+  }
+}
