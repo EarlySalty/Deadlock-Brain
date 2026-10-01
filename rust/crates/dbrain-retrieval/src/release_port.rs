@@ -25,8 +25,10 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
             indexes: Arc::new(Mutex::new(BTreeMap::new())),
         }
     }
-    /// Explicit bulk diagnostic read. The query and evidence-validation paths do not call this
-    /// after the first index build for a release. Up to four immutable release indexes are kept.
+    /// Bulk canonical view for diagnostics and deterministic domain revalidation.
+    /// Lexical/dense queries and their validation only load a full snapshot for the
+    /// first index build; up to four immutable release indexes are kept. Domain
+    /// proofs also read current snapshots when revalidating publication on cache hits.
     pub fn snapshot(
         &self,
         query: &Query,
