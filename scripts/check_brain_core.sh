@@ -38,7 +38,7 @@ run_check() {
   local name="$1"; shift
   printf 'RUN %s\n' "$name"
   (
-    cd "$ROOT/rust"
+    cd "$ROOT/rust" || exit
     env -i PATH="$PATH" HOME="$LOGS/test-home" CARGO_HOME="$CARGO_CACHE" RUSTUP_HOME="$RUSTUP_CACHE" \
       CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR="$TARGET_DIR" BRAIN_TEST_CARGO="$CARGO" LC_ALL=C.UTF-8 TZ=UTC "$@"
   ) > "$LOGS/$name.log" 2>&1
@@ -65,8 +65,8 @@ case "$MODE" in
     MIGRATION_ARGS=(--base origin/main --head HEAD)
     for peer_ref in "${PEER_REFS[@]}"; do MIGRATION_ARGS+=(--peer "$peer_ref"); done
     run_check migration-guard bash "$ROOT/scripts/ci/run_migration_guard.sh" "${MIGRATION_ARGS[@]}"
-    run_check backup-shell-syntax bash -c 'bash -n ops/brain-postgres/backup.sh && bash -n ops/brain-postgres/restore-probe.sh && bash -n scripts/test_brain_backup.sh && bash -n scripts/test_brain_restore.sh'
-    run_check backup-shellcheck shellcheck ops/brain-postgres/backup.sh ops/brain-postgres/restore-probe.sh scripts/test_brain_backup.sh scripts/test_brain_restore.sh
+    run_check backup-shell-syntax bash -c "bash -n '$ROOT/ops/brain-postgres/backup.sh' && bash -n '$ROOT/ops/brain-postgres/restore-probe.sh' && bash -n '$ROOT/scripts/test_brain_backup.sh' && bash -n '$ROOT/scripts/test_brain_restore.sh'"
+    run_check backup-shellcheck shellcheck "$ROOT/ops/brain-postgres/backup.sh" "$ROOT/ops/brain-postgres/restore-probe.sh" "$ROOT/scripts/test_brain_backup.sh" "$ROOT/scripts/test_brain_restore.sh"
     run_check backup-regressions bash "$ROOT/scripts/test_brain_backup.sh"
     run_check restore-regressions bash "$ROOT/scripts/test_brain_restore.sh"
     run_check fmt "$CARGO" +1.97.1 fmt --all -- --check

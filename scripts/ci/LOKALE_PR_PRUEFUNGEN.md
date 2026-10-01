@@ -4,11 +4,11 @@ GitHub Actions sind in diesem Repository absichtlich abgeschafft. Die Löschung 
 
 ## Gemeinsamer lokaler Einstieg
 
-Der bestehende Einstiegspunkt `scripts/check_brain_core.sh all <absoluter-vorhandener-target-cache>` bündelt die lokalen Prüfungen. Der `all`-Lauf prüft zuerst Migrationen und Backup-/Restore-Skripte, danach Formatierung, Clippy, Workspace-Tests, Release-Build und den privaten PostgreSQL-Core-Harness. Er braucht Rust 1.97.1, ShellCheck, PostgreSQL 16 und einen exklusiv genutzten vorhandenen Cargo-Target-Cache. Diesen umfangreichen Lauf nicht parallel zu einem anderen Cargo-Build starten.
+Der bestehende Einstiegspunkt `bash scripts/check_brain_core.sh all <absoluter-vorhandener-target-cache>` bündelt die lokalen Prüfungen. Der `all`-Lauf prüft zuerst Migrationen und Backup-/Restore-Skripte, danach Formatierung, Clippy, Workspace-Tests, Release-Build und den privaten PostgreSQL-Core-Harness. Er braucht Rust 1.97.1, ShellCheck, PostgreSQL 16 und einen exklusiv genutzten vorhandenen Cargo-Target-Cache. Diesen umfangreichen Lauf nicht parallel zu einem anderen Cargo-Build starten.
 
 ```sh
-scripts/check_brain_core.sh all /absolute/existing/rust-target
-scripts/check_brain_core.sh all /absolute/existing/rust-target --peer <geprüfter-peer-head-sha>
+bash scripts/check_brain_core.sh all /absolute/existing/rust-target
+bash scripts/check_brain_core.sh all /absolute/existing/rust-target --peer <geprüfter-peer-head-sha>
 ```
 
 `all` vergleicht gegen `origin/main` und den aktuellen `HEAD`. Peer-PRs werden nicht automatisch aus GitHub gesucht oder heruntergeladen. Angegebene Peer-Heads müssen zuvor geprüft und als lokale Refs oder Commit-SHAs vorhanden sein. Diese lokale Prüfung dokumentiert jeder Integrator separat; sie behauptet nicht, GitHub Actions ausgeführt zu haben.
