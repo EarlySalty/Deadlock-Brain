@@ -29,6 +29,7 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
+    ScheduledAutoLearn,
     GeminiLogin,
     Ingest {
         #[arg(long, default_value_t = 5)]
@@ -149,7 +150,24 @@ async fn main() {
 
 async fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    match cli.command {
+    let command = match cli.command {
+        Commands::ScheduledAutoLearn => {
+            if !gemini::learning_enabled()? {
+                println!("Deadlock-Brain YouTube-Lernen ist pausiert.");
+                return Ok(());
+            }
+            Commands::AutoLearn {
+                config: db::default_feed_config_path(),
+                discover_limit: 50,
+                transcript_fetch_limit: 20,
+                analyze_limit: 5,
+                no_fetch_transcripts: false,
+            }
+        }
+        command => command,
+    };
+    match command {
+        Commands::ScheduledAutoLearn => unreachable!(),
         Commands::GeminiLogin => gemini::run_login(),
         Commands::Ingest { limit } => {
             let pool = db::pg_pool().await?;

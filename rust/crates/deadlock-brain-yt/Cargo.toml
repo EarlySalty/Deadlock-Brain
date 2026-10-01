@@ -17,6 +17,7 @@ reqwest.workspace = true
 roxmltree.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+zeroize = "1"
 sha2.workspace = true
 sqlx = { workspace = true }
 tempfile.workspace = true
@@ -24,5 +25,8 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["macros"] }
 urlencoding.workspace = true
 wait-timeout.workspace = true
+dbrain-session-store = { path = "../dbrain-session-store" }
+libc = "0.2"
+dl-token-secrets = { path = "../../../../Deadlock-Bots/rust/crates/dl-token-secrets" }
 
 [dev-dependencies]

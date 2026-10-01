@@ -1,0 +1,8 @@
+{
+  "learning_enabled": false,
+  "account_id": "gemini-primary",
+  "infisical_config": "config/infisical.json",
+  "key_secret": "DB_MASTER_KEY_V1",
+  "browser_path": "/opt/brave.com/brave/brave",
+  "response_timeout_seconds": 300
+}
