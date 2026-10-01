@@ -2585,7 +2585,8 @@ mod tests {
         index.insert("item", "Aegis", "Aegis");
         let index = index.finish();
 
-        let prepared = prepare_patch(&row, &PatchSourceResolution::from_row(&row), &index).expect("prepare");
+        let prepared =
+            prepare_patch(&row, &PatchSourceResolution::from_row(&row), &index).expect("prepare");
 
         assert_eq!(
             prepared
@@ -2629,7 +2630,8 @@ mod tests {
         index.insert("hero", "Abrams", "Abrams");
         let index = index.finish();
 
-        let prepared = prepare_patch(&row, &PatchSourceResolution::from_row(&row), &index).expect("prepare");
+        let prepared =
+            prepare_patch(&row, &PatchSourceResolution::from_row(&row), &index).expect("prepare");
         let change_types = prepared
             .events
             .iter()
