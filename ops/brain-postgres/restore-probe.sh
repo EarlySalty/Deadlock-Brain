@@ -103,9 +103,13 @@ else
   IFS= read -r -d '' REPORT_PARENT < <(realpath -m -z -- "$BACKUP/../restore-reports")
   outside_backups "$REPORT_PARENT" || fail 'Unsicheres Standard-Berichtsverzeichnis.'
   mkdir -p -- "$REPORT_PARENT"
+  if (( EUID == 0 )); then chown --no-dereference "$PG_USER:$PG_USER" "$REPORT_PARENT"; fi
   REPORT=$(mktemp -d -- "$REPORT_PARENT/${BACKUP##*/}.XXXXXX")
 fi
 [[ -d $REPORT && ! -L $REPORT ]] || fail 'Ungültiges Berichtsverzeichnis.'
+# Files alone are not enough: the service account must also be able to traverse
+# its private report directory, as in the original production invocation.
+if (( EUID == 0 )); then chown --no-dereference "$PG_USER:$PG_USER" "$REPORT"; fi
 exec 8< "$REPORT"
 flock --exclusive --nonblock 8 || fail 'Berichtsverzeichnis wird bereits verwendet.'
 # Preserve the optional existing report-directory call, but never follow an
