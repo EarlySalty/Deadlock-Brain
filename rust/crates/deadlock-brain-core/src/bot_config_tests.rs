@@ -1,5 +1,5 @@
 use super::*;
-use std::{fs, process::Command};
+use std::fs;
 
 const FIXTURE: &str = include_str!("../../../../config/bot.toml");
 const ABSOLUTE: &str = "/fixture/config/bot.toml";
@@ -17,7 +17,6 @@ fn valid_document_preserves_known_defaults() {
     assert_eq!(c.sheet().gid, "0");
     assert_eq!(c.ai().max_completion_tokens, 16_000);
     assert_eq!(c.builds().min_matches, 500);
-    assert!(c.ai().pin.is_none());
 }
 
 #[test]
@@ -46,10 +45,6 @@ fn unknown_fields_rejected_at_each_depth_without_input() {
         (
             "[ai]",
             "[ai]\nnever_echo_fixture = 'sentinel-private-fixture'",
-        ),
-        (
-            "[ai.selection]",
-            "[ai.selection]\nnever_echo_fixture = 'sentinel-private-fixture'",
         ),
         (
             "[builds]",
@@ -114,23 +109,13 @@ fn timeouts_counts_and_finite_sampling_have_bounds() {
             "retry_backoff_milliseconds = 60001",
         ),
         ("min_delay_seconds = 5.0", "min_delay_seconds = nan"),
+        ("min_delay_seconds = 5.0", "min_delay_seconds = 4.9"),
         ("min_delay_seconds = 5.0", "min_delay_seconds = -1.0"),
         ("temperature = 0.2", "temperature = inf"),
         ("temperature = 0.2", "temperature = 2.1"),
         ("top_p = 0.9", "top_p = 0.0"),
         ("top_p = 0.9", "top_p = 1.1"),
         ("max_completion_tokens = 16000", "max_completion_tokens = 0"),
-        ("page_size = 100", "page_size = 201"),
-        ("max_pages = 100", "max_pages = 0"),
-        (
-            "check_interval_seconds = 3600",
-            "check_interval_seconds = 0",
-        ),
-        (
-            "last_good_ttl_seconds = 86400",
-            "last_good_ttl_seconds = 120",
-        ),
-        ("probe_budget_seconds = 300", "probe_budget_seconds = 0"),
         ("min_matches = 500", "min_matches = -1"),
         (
             "min_prevalence_builds = 30",
@@ -161,29 +146,16 @@ fn endpoint_cannot_contain_credentials_queries_or_other_hosts() {
 }
 
 #[test]
-fn explicit_pin_is_validated_and_automatic_is_distinct() {
-    for id in [
-        "accounts/fireworks/models/deepseek-v4-flash",
-        "accounts/fireworks/models/deepseek-v4.1-flash",
-        "accounts/fireworks/models/deepseek-v4p1-flash",
-        "accounts/fireworks/models/deepseek-v4-flash-20260901",
-    ] {
-        let text = FIXTURE.replacen("[ai]", &format!("[ai]\npin = {id:?}"), 1);
-        assert_eq!(parse(&text).unwrap().ai().pin.as_deref(), Some(id));
-    }
-    for id in [
-        "",
-        "deepseek-flash-latest",
-        "accounts/fireworks/models/deepseek-v4-pro",
-        "accounts/fireworks/models/deepseek-v4-flash-preview",
-        "accounts/fireworks/models/deepseek-v4-flash-distill",
-        "accounts/fireworks/models/deepseek-v4-flash-vision",
-        "accounts/other/models/deepseek-v4-flash",
-        "accounts/fireworks/models/deepseek-v4..1-flash",
-    ] {
-        let text = FIXTURE.replacen("[ai]", &format!("[ai]\npin = {id:?}"), 1);
-        assert!(parse(&text).is_err());
-    }
+fn model_selection_is_owned_by_the_central_resolver() {
+    let pinned = FIXTURE.replacen(
+        "provider = \"fireworks\"",
+        "provider = \"fireworks\"\npin = \"accounts/fireworks/models/deepseek-v4p1-flash\"",
+        1,
+    );
+    assert!(parse(&pinned).is_err());
+
+    let selection = format!("{FIXTURE}\n[ai.selection]\ncheck_interval_seconds = 3600\n");
+    assert!(parse(&selection).is_err());
 }
 
 #[test]
@@ -268,37 +240,4 @@ fn formatting_changes_do_not_change_effective_fingerprint() {
             .unwrap()
             .fingerprint()
     );
-}
-
-#[test]
-fn child_snapshot_ignores_legacy_environment() {
-    let c = parse(FIXTURE).unwrap();
-    assert_eq!(c.http().timeout_seconds, 30);
-    assert_eq!(c.sheet().gid, "0");
-    assert_eq!(c.paths().data_dir, Path::new("/fixture/data"));
-    assert!(c.ai().pin.is_none());
-    assert_eq!(c.ai().timeout_seconds, 300);
-    assert_eq!(c.builds().min_matches, 500);
-}
-
-#[test]
-fn env_has_no_override_effect_in_isolated_child() {
-    let result = Command::new(std::env::current_exe().unwrap())
-        .args([
-            "--exact",
-            "bot_config::tests::child_snapshot_ignores_legacy_environment",
-        ])
-        .envs([
-            ("DEADLOCK_BRAIN_DATA_DIR", "/wrong"),
-            ("DEADLOCK_BRAIN_ROOT", "/wrong"),
-            ("DEADLOCK_STATS_SHEET_GID", "999"),
-            ("FIREWORKS_MODEL", "unapproved"),
-            ("FIREWORK_MODEL", "unapproved"),
-            ("FIREWORKS_TIMEOUT_SECONDS", "1"),
-            ("DBRAIN_BUILDS_MIN_MATCHES", "1"),
-        ])
-        .output()
-        .unwrap();
-    assert!(result.status.success(), "isolated config assertion failed");
-    assert!(String::from_utf8_lossy(&result.stdout).contains("1 passed"));
 }

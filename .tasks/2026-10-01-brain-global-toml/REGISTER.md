@@ -30,13 +30,16 @@ ORCHESTRIERUNG[OR-1]: Stufe mittel | Schritt bau | Artefakt: .tasks/2026-10-01-b
 
 | Paket | Thread-ID | Modell | Status | Worktree | Letzte Meldung |
 |---|---|---|---|---|---|
-| Brain globale TOML-Konfiguration | aktueller Luna-Thread, ID nicht im Auftrag ausgewiesen | Luna | aktiv | `/home/nathanael/.worktrees/luna-brain-global-toml-20261001` | Provenienz und PR-Kopplung an Orchestrator gemeldet; noch keine Produktdateien geändert |
+| Brain globale TOML-Konfiguration | aktueller Luna-Thread, ID nicht im Auftrag ausgewiesen | Luna | aktiv | `/home/nathanael/.worktrees/luna-brain-global-toml-20261001` | TOML-Loader und Runtime-Anbindung in Arbeit; Readonly-Pool-Dispatch aus `84d68f4` und `21cfcd8` geordnet integriert |
 
 ## Prüffortschritt
 
-- Tests: noch nicht ausgeführt
+- Tests: nicht ausgeführt; der gemeinsame Lauf meldet einen belegten Hostlock.
+- Compile-Check: blockiert mit Cargo 1.75.0; `idna_adapter 1.2.2` verlangt Edition 2024. Das isolierte Brain/Bots-Layout wurde nur temporär referenziert und alle Manifest-/Lockfile-Anpassungen sind zurückgenommen.
+- Formatprüfung: `cargo fmt` mit dem isolierten Layout fand Formatabweichungen im Workspace; nach manueller Formatkorrektur der geänderten Stellen nicht erneut geprüft.
 - Eigenes Merge-Gate: noch nicht ausgeführt
 - Gemeinsamer Freeze und unabhängige Intent-Abnahme: ausstehend
 - Reguläres Merge-/Security-Gate: ausstehend
-- Merge, Deploy, Dienstrestart, Livebeleg und Cleanup: ausstehend
-- Blocker: keiner festgestellt; Modellwahl-Subsystem des Source-WIP ausgeschlossen, um den Nutzervertrag zu wahren
+- Merge und Push: blockiert. `brain-live-main` steht auf `21cfcd8`, 3 Commits voraus und 11 hinter dem aktuellen `origin/main` `f9c52fe`; der kanonische Checkout ist auf einem anderen Branch verschmutzt.
+- Deploy, Dienstrestart, Livebeleg und Cleanup: ausstehend
+- Blocker: Rust-Toolchain und Main-Branch-Divergenz verhindern den verifizierten Abschluss; Source-Resolver-Subsystem bleibt ausgeschlossen.

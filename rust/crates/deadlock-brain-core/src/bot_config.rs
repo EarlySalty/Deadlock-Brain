@@ -87,27 +87,10 @@ pub enum Provider {
 pub struct Ai {
     pub provider: Provider,
     pub base_url: String,
-    /// Bewusster Pin. Kein Pin bedeutet automatische Auswahl, niemals einen Kompilat-Alias.
-    pub pin: Option<String>,
     pub timeout_seconds: u64,
     pub max_completion_tokens: u64,
     pub temperature: f64,
     pub top_p: f64,
-    pub selection: Selection,
-}
-
-#[derive(Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Selection {
-    pub catalog_url: String,
-    pub check_interval_seconds: u64,
-    pub last_good_ttl_seconds: u64,
-    pub request_timeout_seconds: u64,
-    pub retry_attempts: usize,
-    pub retry_backoff_milliseconds: u64,
-    pub page_size: u16,
-    pub max_pages: u16,
-    pub probe_budget_seconds: u64,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -250,13 +233,10 @@ impl BotConfig {
             },
             "ai": {
                 "provider": "fireworks",
-                "pinned": self.ai().pin.is_some(),
-                "pin_sha256": self.ai().pin.as_ref().map(|v| hex::encode(Sha256::digest(v.as_bytes()))),
                 "timeout_seconds": self.ai().timeout_seconds,
                 "max_completion_tokens": self.ai().max_completion_tokens,
                 "temperature": self.ai().temperature,
-                "top_p": self.ai().top_p,
-                "selection": self.ai().selection
+                "top_p": self.ai().top_p
             },
             "builds": {
                 "min_matches": self.builds().min_matches,
@@ -365,11 +345,11 @@ fn validate(d: &Document) -> Result<()> {
     {
         return Err(invalid("sheet.gid", "numerische Tabellen-ID erforderlich"));
     }
-    if !d.wiki.min_delay_seconds.is_finite() || !(0.1..=3600.0).contains(&d.wiki.min_delay_seconds)
+    if !d.wiki.min_delay_seconds.is_finite() || !(5.0..=3600.0).contains(&d.wiki.min_delay_seconds)
     {
         return Err(invalid(
             "wiki.min_delay_seconds",
-            "0,1 bis 3600 Sekunden erforderlich",
+            "5 bis 3600 Sekunden erforderlich",
         ));
     }
     range(
@@ -383,14 +363,6 @@ fn validate(d: &Document) -> Result<()> {
         "https://api.fireworks.ai/inference/v1",
         "ai.base_url",
     )?;
-    if let Some(pin) = &d.ai.pin {
-        if !valid_flash_pin(pin) {
-            return Err(invalid(
-                "ai.pin",
-                "explizite stabile DeepSeek-Flash-Modell-ID erforderlich",
-            ));
-        }
-    }
     range(d.ai.timeout_seconds, 1, 3600, "ai.timeout_seconds")?;
     range(
         d.ai.max_completion_tokens,
@@ -404,51 +376,6 @@ fn validate(d: &Document) -> Result<()> {
     if !d.ai.top_p.is_finite() || !(0.0..=1.0).contains(&d.ai.top_p) || d.ai.top_p == 0.0 {
         return Err(invalid("ai.top_p", "größer 0 bis 1 erforderlich"));
     }
-    let s = &d.ai.selection;
-    endpoint(
-        &s.catalog_url,
-        "https://api.fireworks.ai/v1/accounts/fireworks/models",
-        "ai.selection.catalog_url",
-    )?;
-    range(
-        s.check_interval_seconds,
-        60,
-        604_800,
-        "ai.selection.check_interval_seconds",
-    )?;
-    range(
-        s.last_good_ttl_seconds,
-        60,
-        2_592_000,
-        "ai.selection.last_good_ttl_seconds",
-    )?;
-    if s.last_good_ttl_seconds < s.check_interval_seconds {
-        return Err(invalid(
-            "ai.selection.last_good_ttl_seconds",
-            "darf das Prüfintervall nicht unterschreiten",
-        ));
-    }
-    range(
-        s.request_timeout_seconds,
-        1,
-        300,
-        "ai.selection.request_timeout_seconds",
-    )?;
-    range(s.retry_attempts as u64, 1, 5, "ai.selection.retry_attempts")?;
-    range(
-        s.retry_backoff_milliseconds,
-        1,
-        60_000,
-        "ai.selection.retry_backoff_milliseconds",
-    )?;
-    range(s.page_size.into(), 1, 200, "ai.selection.page_size")?;
-    range(s.max_pages.into(), 1, 1000, "ai.selection.max_pages")?;
-    range(
-        s.probe_budget_seconds,
-        1,
-        3600,
-        "ai.selection.probe_budget_seconds",
-    )?;
     for (value, field) in [
         (d.builds.min_matches, "builds.min_matches"),
         (
@@ -461,28 +388,6 @@ fn validate(d: &Document) -> Result<()> {
         }
     }
     Ok(())
-}
-
-/// Syntaxprüfung für bewusste Pins. Keine Erfindung oder Konstruktion von Modell-IDs.
-/// Datierte Snapshots sind als Pin zulässig, aber ihr Datum ist keine Familienversion.
-pub(crate) fn valid_flash_pin(id: &str) -> bool {
-    let Some(rest) = id.strip_prefix("accounts/fireworks/models/deepseek-v") else {
-        return false;
-    };
-    let Some((version, suffix)) = rest.split_once("-flash") else {
-        return false;
-    };
-    let version_ok = !version.is_empty()
-        && version.split(['.', 'p']).all(|part| {
-            !part.is_empty()
-                && part.bytes().all(|c| c.is_ascii_digit())
-                && part.parse::<u32>().is_ok()
-        });
-    version_ok
-        && (suffix.is_empty()
-            || suffix.strip_prefix('-').is_some_and(|s| {
-                !s.is_empty() && s.len() <= 14 && s.bytes().all(|c| c.is_ascii_digit())
-            }))
 }
 
 #[cfg(test)]

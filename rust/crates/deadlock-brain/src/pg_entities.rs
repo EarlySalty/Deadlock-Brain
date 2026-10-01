@@ -9,8 +9,8 @@
 //! auf `entity_type`.
 
 use anyhow::Result;
-use deadlock_brain_core::pg;
 use serde_json::{json, Value};
+use sqlx::PgPool;
 
 use crate::EntitiesArgs;
 
@@ -23,13 +23,12 @@ struct EntityAliasRow {
 
 /// Async-Einstieg: wird vom Top-Level-Tokio-Runtime (`main.rs`) getrieben.
 /// Ein eigener Per-Befehl-Runtime ist nicht mehr noetig.
-pub async fn run(args: EntitiesArgs) -> Result<()> {
-    let result = search_entities(&args).await?;
+pub async fn run(args: &EntitiesArgs, pool: &PgPool) -> Result<()> {
+    let result = search_entities(args, pool).await?;
     crate::print_json(&result)
 }
 
-async fn search_entities(args: &EntitiesArgs) -> Result<Value> {
-    let pool = pg::pg_pool().await?;
+async fn search_entities(args: &EntitiesArgs, pool: &PgPool) -> Result<Value> {
     let pattern = format!("%{}%", args.query);
 
     // Eine Zeile je (Entity, passender-oder-NULL Alias): der Alias-LIKE steht im
@@ -56,10 +55,8 @@ async fn search_entities(args: &EntitiesArgs) -> Result<Value> {
         args.entity_type.as_deref(),
         pattern.as_str(),
     )
-    .fetch_all(&pool)
+    .fetch_all(pool)
     .await?;
-
-    pool.close().await;
 
     // Zeilen sind nach (entity_type, canonical_name) sortiert -> konsekutiv gruppieren.
     let mut entities: Vec<Value> = Vec::new();

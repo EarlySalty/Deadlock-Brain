@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeMap, HashSet},
-    env, fs,
+    fs,
     fs::OpenOptions,
     io::Write,
     path::{Path, PathBuf},
@@ -23,7 +23,6 @@ pub use hero_dossier::load_hero_dossier;
 #[path = "wiki_manifest_tests.rs"]
 mod wiki_manifest_tests;
 
-pub const GAME_WIKI_DIR_ENV: &str = "DEADLOCK_BRAIN_GAME_WIKI_DIR";
 const DEFAULT_SEARCH_LIMIT: usize = 3;
 const WIKI_SOURCES: &[&str] = &["deadlock_data", "deadlock_wiki"];
 const WIKI_ENTITY_TYPES: &[&str] = &[
@@ -1012,12 +1011,7 @@ fn append_log(root: &Path, summaries: &[PageSummary], generated_at: DateTime<Utc
 }
 
 fn resolve_game_wiki_dir(root: Option<&Path>) -> PathBuf {
-    if let Some(root) = root {
-        return root.to_path_buf();
-    }
-    env::var_os(GAME_WIKI_DIR_ENV)
-        .map(PathBuf::from)
-        .filter(|value| !value.as_os_str().is_empty())
+    root.map(Path::to_path_buf)
         .unwrap_or_else(default_game_wiki_dir)
 }
 

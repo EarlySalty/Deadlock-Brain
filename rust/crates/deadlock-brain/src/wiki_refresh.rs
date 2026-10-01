@@ -16,7 +16,11 @@ use sha2::{Digest, Sha256};
 
 #[derive(Debug, Args)]
 pub struct RefreshArgs {
-    #[arg(long)]
+    #[arg(
+        long = "refresh-config",
+        visible_alias = "wiki-config",
+        value_name = "PATH"
+    )]
     pub config: PathBuf,
     #[arg(
         long,
@@ -59,17 +63,28 @@ impl Config {
 }
 
 /// Kein Legacy-settings-/ENV-Pfad: gewöhnliche JSON-Konfiguration und Infisical-Pool.
-pub async fn run(args: &RefreshArgs) -> Result<Value> {
-    let config = Config::read(&args.config)?;
-    fs::create_dir_all(&config.publication_root)
-        .context("Wiki-Ziel ist nicht verfügbar")?;
+pub async fn run(
+    args: &RefreshArgs,
+    settings: &deadlock_brain_core::config::Settings,
+) -> Result<Value> {
+    let mut config = Config::read(&args.config)?;
+    config.source_repository = settings.project_root.clone();
+    config.raw_directory = settings.raw_dir.clone();
+    config.publication_root = settings.global.paths().game_wiki_dir.clone();
+    let wiki = config
+        .wiki
+        .get_or_insert_with(dbrain_sources::wiki_corpus::WikiCorpusOptions::default);
+    wiki.enabled = settings.wiki_enabled;
+    wiki.min_delay_seconds = settings.wiki_min_delay_seconds;
+    wiki.cache_ttl_seconds = settings.wiki_cache_ttl_seconds;
+    fs::create_dir_all(&config.publication_root).context("Wiki-Ziel ist nicht verfügbar")?;
     let lock = OpenOptions::new()
         .create(true)
         .truncate(false)
         .write(true)
         .open(config.publication_root.join("refresh.lock"))?;
     lock.try_lock().context("Ein Wiki-Refresh läuft bereits")?;
-    let result = refresh(&config, args.skip_source_update).await;
+    let result = refresh(&config, args.skip_source_update, settings).await;
     if result.is_err() {
         // Kein Fehlertext aus Fremdbibliotheken im Status; der alte Snapshot bleibt sichtbar.
         atomic_json(&config.publication_root.join("last-attempt.json"), &json!({
@@ -80,10 +95,12 @@ pub async fn run(args: &RefreshArgs) -> Result<Value> {
     result
 }
 
-async fn refresh(config: &Config, skip_source_update: bool) -> Result<Value> {
-    let pool =
-        deadlock_brain_core::pg::pg_pool_from_config(&config.infisical_config, false)
-            .await?;
+async fn refresh(
+    config: &Config,
+    skip_source_update: bool,
+    settings: &deadlock_brain_core::config::Settings,
+) -> Result<Value> {
+    let pool = deadlock_brain_core::pg::pg_pool_from_config(&config.infisical_config, false).await?;
     let source_update = if skip_source_update {
         Value::Null
     } else {
@@ -100,12 +117,7 @@ async fn refresh(config: &Config, skip_source_update: bool) -> Result<Value> {
     };
     let wiki_update = if !skip_source_update {
         if let Some(options) = config.wiki.as_ref().filter(|options| options.enabled) {
-            let http = crate::http_client_async(
-                "Deadlock-Brain/1.0 (+https://github.com/EarlySalty/Deadlock-Brain)"
-                    .into(),
-                config.raw_directory.join("http-cache"),
-            )
-            .await?;
+            let http = crate::http_client_async(settings).await?;
             dbrain_sources::wiki_corpus::pull_wiki_corpus_with_pool(
                 &pool,
                 &config.raw_directory,
@@ -113,9 +125,7 @@ async fn refresh(config: &Config, skip_source_update: bool) -> Result<Value> {
                 options,
             )
             .await
-            .context(
-                "Deadlock-Wiki-Import fehlgeschlagen; bisheriger Snapshot bleibt aktiv",
-            )?
+            .context("Deadlock-Wiki-Import fehlgeschlagen; bisheriger Snapshot bleibt aktiv")?
         } else {
             Value::Null
         }
@@ -376,8 +386,7 @@ mod tests {
         assert_eq!(status["provenance"], provenance);
         assert_eq!(status["rendered_at"], "2026-09-20T00:00:00Z");
         assert_eq!(status["source_update_performed"], false);
-        let active: Value =
-            serde_json::from_slice(&fs::read(base.join("current/status.json"))?)?;
+        let active: Value = serde_json::from_slice(&fs::read(base.join("current/status.json"))?)?;
         assert_eq!(status, active);
         Ok(())
     }

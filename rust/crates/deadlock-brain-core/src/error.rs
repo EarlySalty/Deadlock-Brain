@@ -1,4 +1,4 @@
-use std::{num, time::SystemTimeError};
+use std::time::SystemTimeError;
 
 use reqwest::StatusCode;
 
@@ -6,6 +6,8 @@ use reqwest::StatusCode;
 pub enum CoreError {
     #[error("{0}")]
     ModelSelection(String),
+    #[error("{0}")]
+    Configuration(#[from] crate::bot_config::ConfigError),
     #[error("Die KI-Anfrage muss ein JSON-Objekt sein.")]
     InvalidAiRequest,
     #[error("I/O error: {0}")]
@@ -20,20 +22,6 @@ pub enum CoreError {
     #[error("system clock error: {0}")]
     Time(#[from] SystemTimeError),
 
-    #[error("invalid integer env {name}={value:?}: {message}")]
-    InvalidIntegerEnv {
-        name: &'static str,
-        value: String,
-        message: String,
-    },
-
-    #[error("invalid float env {name}={value:?}: {message}")]
-    InvalidFloatEnv {
-        name: &'static str,
-        value: String,
-        message: String,
-    },
-
     #[error("invalid HTTP header {name:?}: {message}")]
     InvalidHeader { name: String, message: String },
 
@@ -46,32 +34,6 @@ pub enum CoreError {
 
     #[error("Fireworks API-Key fehlt. Setze FIREWORK_API_KEY oder FIREWORKS_API_KEY.")]
     MissingFireworksApiKey,
-}
-
-impl CoreError {
-    pub(crate) fn invalid_integer_env(
-        name: &'static str,
-        value: String,
-        error: num::ParseIntError,
-    ) -> Self {
-        Self::InvalidIntegerEnv {
-            name,
-            value,
-            message: error.to_string(),
-        }
-    }
-
-    pub(crate) fn invalid_float_env(
-        name: &'static str,
-        value: String,
-        error: num::ParseFloatError,
-    ) -> Self {
-        Self::InvalidFloatEnv {
-            name,
-            value,
-            message: error.to_string(),
-        }
-    }
 }
 
 pub type Result<T> = std::result::Result<T, CoreError>;

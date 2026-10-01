@@ -369,6 +369,13 @@ mod tests {
             raw_dir: "/tmp/reasoner-test/raw".into(),
             cache_dir: "/tmp/reasoner-test/cache".into(),
             user_agent: "test".to_string(),
+            http_timeout_seconds: 30,
+            http_retry_attempts: 3,
+            http_retry_backoff_milliseconds: 600,
+            global: deadlock_brain_core::bot_config::BotConfig::load(std::path::Path::new(
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../../../config/bot.toml"),
+            ))
+            .expect("test TOML config"),
             sheet_id: "sheet".to_string(),
             sheet_gid: "0".to_string(),
             wiki_enabled: false,

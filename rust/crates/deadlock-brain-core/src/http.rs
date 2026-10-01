@@ -75,20 +75,36 @@ pub struct HttpClient {
     no_redirect_client: Client,
     user_agent: String,
     cache_dir: PathBuf,
+    default_timeout: Duration,
+    default_retry: RetryPolicy,
 }
 
 impl HttpClient {
     pub fn new(user_agent: impl Into<String>, cache_dir: impl Into<PathBuf>) -> Result<Self> {
+        Self::new_with_defaults(
+            user_agent,
+            cache_dir,
+            Duration::from_secs(30),
+            RetryPolicy::default(),
+        )
+    }
+
+    pub fn new_with_defaults(
+        user_agent: impl Into<String>,
+        cache_dir: impl Into<PathBuf>,
+        default_timeout: Duration,
+        default_retry: RetryPolicy,
+    ) -> Result<Self> {
         let cache_dir = cache_dir.into();
         fs::create_dir_all(&cache_dir)?;
         let user_agent = user_agent.into();
         let client = Client::builder()
             .user_agent(user_agent.clone())
-            .timeout(Duration::from_secs(30))
+            .timeout(default_timeout)
             .build()?;
         let no_redirect_client = Client::builder()
             .user_agent(user_agent.clone())
-            .timeout(Duration::from_secs(30))
+            .timeout(default_timeout)
             .redirect(reqwest::redirect::Policy::none())
             .build()?;
         Ok(Self {
@@ -96,6 +112,8 @@ impl HttpClient {
             no_redirect_client,
             user_agent,
             cache_dir,
+            default_timeout,
+            default_retry,
         })
     }
 
@@ -107,7 +125,18 @@ impl HttpClient {
         &self.cache_dir
     }
 
-    pub fn get(&self, url: &str, options: HttpGetOptions) -> Result<HttpResult> {
+    fn apply_defaults(&self, options: &mut HttpGetOptions) {
+        let defaults = HttpGetOptions::default();
+        if options.timeout == defaults.timeout {
+            options.timeout = self.default_timeout;
+        }
+        if options.retry == defaults.retry {
+            options.retry = self.default_retry.clone();
+        }
+    }
+
+    pub fn get(&self, url: &str, mut options: HttpGetOptions) -> Result<HttpResult> {
+        self.apply_defaults(&mut options);
         if let Some(ttl) = options.cache_ttl_seconds {
             if let Some(cached) = self.cached_result(url, ttl)? {
                 return Ok(cached);
@@ -126,7 +155,8 @@ impl HttpClient {
         self.get(url, options)?.json()
     }
 
-    pub fn get_no_redirect(&self, url: &str, options: HttpGetOptions) -> Result<HttpResult> {
+    pub fn get_no_redirect(&self, url: &str, mut options: HttpGetOptions) -> Result<HttpResult> {
+        self.apply_defaults(&mut options);
         run_on_http_thread(|| {
             self.fetch_with_retry(url, &options, || self.no_redirect_client.get(url))
         })
@@ -136,8 +166,9 @@ impl HttpClient {
         &self,
         url: &str,
         body: &T,
-        options: HttpGetOptions,
+        mut options: HttpGetOptions,
     ) -> Result<HttpResult> {
+        self.apply_defaults(&mut options);
         let body = serde_json::to_vec(body)?;
         run_on_http_thread(|| {
             self.fetch_with_retry(url, &options, || {
@@ -320,6 +351,39 @@ mod tests {
     };
 
     #[test]
+    fn configured_defaults_apply_without_overriding_request_specific_policy() {
+        let cache_dir = tempfile::tempdir().unwrap();
+        let retry = RetryPolicy {
+            attempts: 5,
+            backoff: Duration::from_millis(250),
+        };
+        let client = HttpClient::new_with_defaults(
+            "deadlock-brain-core-test",
+            cache_dir.path(),
+            Duration::from_secs(45),
+            retry.clone(),
+        )
+        .unwrap();
+
+        let mut defaults = HttpGetOptions::default();
+        client.apply_defaults(&mut defaults);
+        assert_eq!(defaults.timeout, Duration::from_secs(45));
+        assert_eq!(defaults.retry, retry);
+
+        let mut specific = HttpGetOptions {
+            timeout: Duration::from_secs(12),
+            retry: RetryPolicy {
+                attempts: 1,
+                backoff: Duration::ZERO,
+            },
+            ..HttpGetOptions::default()
+        };
+        client.apply_defaults(&mut specific);
+        assert_eq!(specific.timeout, Duration::from_secs(12));
+        assert_eq!(specific.retry.attempts, 1);
+    }
+
+    #[test]
     fn post_json_sends_body_and_reads_response() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}/query", listener.local_addr().unwrap());
@@ -374,7 +438,8 @@ mod tests {
             let (mut stream, _) = listener.accept().unwrap();
             let mut request = [0_u8; 1024];
             assert!(stream.read(&mut request).unwrap() > 0);
-            let body = "<feed xmlns=\"http://www.w3.org/2005/Atom\"><title>r/Deadlock</title></feed>";
+            let body =
+                "<feed xmlns=\"http://www.w3.org/2005/Atom\"><title>r/Deadlock</title></feed>";
             write!(
                 stream,
                 "HTTP/1.1 403 Forbidden\r\nContent-Type: application/atom+xml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -396,7 +461,10 @@ mod tests {
             .unwrap();
         server.join().unwrap();
         assert!(result.text().contains("r/Deadlock"));
-        assert!(std::fs::read_dir(cache_dir.path()).unwrap().next().is_none());
+        assert!(std::fs::read_dir(cache_dir.path())
+            .unwrap()
+            .next()
+            .is_none());
     }
 
     #[test]

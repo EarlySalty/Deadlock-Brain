@@ -30,6 +30,14 @@ mod wiki_refresh;
 #[derive(Debug, Parser)]
 #[command(name = "deadlock-brain")]
 struct Cli {
+    #[arg(
+        long,
+        global = true,
+        value_name = "PATH",
+        default_value = deadlock_brain_core::bot_config::DEFAULT_CONFIG_PATH,
+        help = "Absoluter Pfad zur globalen TOML-Konfiguration."
+    )]
+    config: PathBuf,
     #[command(subcommand)]
     command: Commands,
 }
@@ -1124,6 +1132,32 @@ struct InsightImportJsonArgs {
     dry_run: bool,
 }
 
+fn command_is_read_only(command: &Commands) -> bool {
+    match command {
+        Commands::Context(_)
+        | Commands::Timeline(_)
+        | Commands::Review(_)
+        | Commands::AskContext(_)
+        | Commands::Lineage(_)
+        | Commands::Legacy(_)
+        | Commands::Entities(_) => true,
+        Commands::Reason { target } => match target {
+            ReasonCommands::Build(args) => args.no_persist,
+            ReasonCommands::PatchImpact(args) => args.no_persist,
+            ReasonCommands::Backtest(args) => args.no_persist,
+        },
+        _ => false,
+    }
+}
+
+async fn pg_pool_for_command(command: &Commands) -> Result<PgPool> {
+    if command_is_read_only(command) {
+        deadlock_brain_core::pg::pg_pool_read_only().await
+    } else {
+        deadlock_brain_core::pg::pg_pool().await
+    }
+}
+
 fn main() {
     if let Err(error) = run_from_cli() {
         eprintln!("{error:#}");
@@ -1132,8 +1166,12 @@ fn main() {
 }
 
 fn run_from_cli() -> Result<()> {
-    let cli = Cli::parse();
-    match cli.command {
+    let Cli {
+        config: config_path,
+        command,
+    } = Cli::parse();
+    let settings = config::load_settings_from(&config_path)?;
+    match command {
         Commands::AiModel => print_json(&json!({
             "provider": "fireworks",
             "model": deadlock_brain_core::model_resolver::model_for_request()?,
@@ -1143,20 +1181,16 @@ fn run_from_cli() -> Result<()> {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()?;
-            runtime.block_on(run(Cli { command }))
+            runtime.block_on(run(command, settings))
         }
     }
 }
 
-async fn run(cli: Cli) -> Result<()> {
-    let Cli { command } = cli;
-    if let Commands::Wiki {
-        target: WikiCommands::Refresh(args),
-    } = &command
-    {
-        return print_json(&wiki_refresh::run(args).await?);
+async fn run(command: Commands, settings: Settings) -> Result<()> {
+    if let Commands::Entities(args) = &command {
+        let pool = pg_pool_for_command(&command).await?;
+        return pg_entities::run(args, &pool).await;
     }
-    let settings = config::load_settings()?;
     let command = match command {
         Commands::Pg { target } => {
             // Alle `pg`-Befehle nutzen synchrone Crates (`postgres` bzw. der
@@ -1178,14 +1212,11 @@ async fn run(cli: Cli) -> Result<()> {
             // und muss daher ebenfalls vom async-Runtime entkoppelt laufen.
             return tokio::task::spawn_blocking(move || run_insights(target)).await?;
         }
-        Commands::Entities(args) => {
-            return pg_entities::run(args).await;
-        }
         other => other,
     };
     prepare_dirs(&settings)?;
-    // Ein PgPool fuer die gesamte Befehlsausfuehrung (DSN aus DEADLOCK_CENTRAL_DSN).
-    let pool = deadlock_brain_core::pg::pg_pool().await?;
+    // Read-only commands enforce transaction mode when acquiring their pool.
+    let pool = pg_pool_for_command(&command).await?;
 
     match command {
         Commands::Status => print_status(&pool, &settings).await,
@@ -1246,7 +1277,10 @@ async fn run(cli: Cli) -> Result<()> {
                     limit_events: usize_to_i64(args.limit_events),
                     include_unverified: args.include_unverified,
                     max_claims: args.max_claims,
-                    game_wiki_dir: args.game_wiki_dir.clone(),
+                    game_wiki_dir: args
+                        .game_wiki_dir
+                        .clone()
+                        .or_else(|| Some(settings.global.paths().game_wiki_dir.clone())),
                 },
             )
             .await?;
@@ -1269,11 +1303,11 @@ async fn run(cli: Cli) -> Result<()> {
             }
         }
         Commands::Wiki { target } => match target {
-            WikiCommands::Refresh(args) => print_json(&wiki_refresh::run(&args).await?),
+            WikiCommands::Refresh(args) => print_json(&wiki_refresh::run(&args, &settings).await?),
             WikiCommands::Rebuild(args) => {
                 let dir = args
                     .dir
-                    .unwrap_or_else(dbrain_retrieval::default_game_wiki_dir);
+                    .unwrap_or_else(|| settings.global.paths().game_wiki_dir.clone());
                 let result = dbrain_retrieval::rebuild_game_wiki(&pool, &dir).await?;
                 print_json(&result)
             }
@@ -1763,14 +1797,9 @@ async fn run_reason(pool: &PgPool, settings: &Settings, target: ReasonCommands) 
                 ai,
                 config,
             };
-            let seed_path = args.seed_path.unwrap_or_else(|| {
-                config::path_env(
-                    "DEADLOCK_REASONER_SEED_PATH",
-                    settings
-                        .project_root
-                        .join(".tasks/2026-09-12-build-reasoner/referenz"),
-                )
-            });
+            let seed_path = args
+                .seed_path
+                .unwrap_or_else(|| settings.global.paths().reasoner_seed_dir.clone());
             let build = dbrain_reasoner::reason_build_with_options(
                 &ctx,
                 &args.hero,
@@ -1838,14 +1867,9 @@ async fn run_reason(pool: &PgPool, settings: &Settings, target: ReasonCommands) 
                 ai: None,
                 config,
             };
-            let seed_path = args.seed_path.unwrap_or_else(|| {
-                config::path_env(
-                    "DEADLOCK_REASONER_SEED_PATH",
-                    settings
-                        .project_root
-                        .join(".tasks/2026-09-12-build-reasoner/referenz"),
-                )
-            });
+            let seed_path = args
+                .seed_path
+                .unwrap_or_else(|| settings.global.paths().reasoner_seed_dir.clone());
             let report = dbrain_reasoner::reason_backtest_with_options(
                 &ctx,
                 dbrain_reasoner::BacktestFilter {
@@ -2057,8 +2081,7 @@ async fn run_player(settings: &Settings, target: PlayerCommands) -> Result<()> {
             }
         }
         PlayerCommands::FetchDemo(args) => {
-            let http =
-                http_client_async(settings.user_agent.clone(), settings.cache_dir.clone()).await?;
+            let http = http_client_async(settings).await?;
             let metadata = dbrain_sources::pull_match_metadata(
                 &settings.raw_dir,
                 &http,
@@ -2088,8 +2111,7 @@ async fn run_player(settings: &Settings, target: PlayerCommands) -> Result<()> {
             }
         }
         PlayerCommands::SyncMatches(args) => {
-            let http =
-                http_client_async(settings.user_agent.clone(), settings.cache_dir.clone()).await?;
+            let http = http_client_async(settings).await?;
             let result = dbrain_sources::pull_player_match_history(
                 &settings.raw_dir,
                 &http,
@@ -2211,7 +2233,7 @@ async fn run_analysis(pool: &PgPool, settings: &Settings, target: AnalysisComman
 }
 
 async fn run_pull(pool: &PgPool, settings: &Settings, source: PullCommands) -> Result<()> {
-    let http = http_client_async(settings.user_agent.clone(), settings.cache_dir.clone()).await?;
+    let http = http_client_async(settings).await?;
     match source {
         PullCommands::Assets(args) => {
             let result = dbrain_sources::pull_assets(
@@ -2319,7 +2341,7 @@ async fn run_pull(pool: &PgPool, settings: &Settings, source: PullCommands) -> R
 }
 
 async fn run_refresh_sheet(pool: &PgPool, settings: &Settings) -> Result<()> {
-    let http = http_client_async(settings.user_agent.clone(), settings.cache_dir.clone()).await?;
+    let http = http_client_async(settings).await?;
     let pull_wrapper = dbrain_sources::refresh_sheet(
         &settings.raw_dir,
         &http,
@@ -2454,11 +2476,32 @@ fn prepare_dirs(settings: &Settings) -> Result<()> {
 }
 
 fn http_client(settings: &Settings) -> Result<HttpClient> {
-    HttpClient::new(settings.user_agent.clone(), settings.cache_dir.clone()).map_err(Into::into)
+    HttpClient::new_with_defaults(
+        settings.user_agent.clone(),
+        settings.cache_dir.clone(),
+        std::time::Duration::from_secs(settings.http_timeout_seconds),
+        deadlock_brain_core::http::RetryPolicy {
+            attempts: settings.http_retry_attempts,
+            backoff: std::time::Duration::from_millis(settings.http_retry_backoff_milliseconds),
+        },
+    )
+    .map_err(Into::into)
 }
 
-async fn http_client_async(user_agent: String, cache_dir: PathBuf) -> Result<HttpClient> {
-    Ok(tokio::task::spawn_blocking(move || HttpClient::new(user_agent, cache_dir)).await??)
+async fn http_client_async(settings: &Settings) -> Result<HttpClient> {
+    let user_agent = settings.user_agent.clone();
+    let cache_dir = settings.cache_dir.clone();
+    let timeout = std::time::Duration::from_secs(settings.http_timeout_seconds);
+    let retry = deadlock_brain_core::http::RetryPolicy {
+        attempts: settings.http_retry_attempts,
+        backoff: std::time::Duration::from_millis(
+            settings.http_retry_backoff_milliseconds,
+        ),
+    };
+    Ok(tokio::task::spawn_blocking(move || {
+        HttpClient::new_with_defaults(user_agent, cache_dir, timeout, retry)
+    })
+    .await??)
 }
 
 fn ai_config(
@@ -3694,6 +3737,69 @@ mod tests {
     }
 
     #[test]
+    fn global_config_argument_is_available_after_the_command() {
+        let cli = Cli::try_parse_from([
+            "deadlock-brain",
+            "status",
+            "--config",
+            "/tmp/brain-test.toml",
+        ])
+        .expect("parse global config argument");
+        assert_eq!(cli.config, PathBuf::from("/tmp/brain-test.toml"));
+    }
+
+    #[test]
+    fn local_knowledge_queries_select_read_only_pool_mode() {
+        for argv in [
+            vec!["deadlock-brain", "ask-context", "Warden"],
+            vec!["deadlock-brain", "context", "Warden"],
+            vec!["deadlock-brain", "timeline", "Warden"],
+            vec!["deadlock-brain", "review", "Warden"],
+            vec!["deadlock-brain", "lineage"],
+            vec!["deadlock-brain", "legacy"],
+            vec!["deadlock-brain", "entities", "--query", "Warden"],
+            vec![
+                "deadlock-brain",
+                "reason",
+                "build",
+                "Warden",
+                "--no-persist",
+            ],
+            vec![
+                "deadlock-brain",
+                "reason",
+                "patch-impact",
+                "Warden",
+                "--no-persist",
+            ],
+            vec![
+                "deadlock-brain",
+                "reason",
+                "backtest",
+                "--hero",
+                "Warden",
+                "--no-persist",
+            ],
+        ] {
+            let cli = Cli::try_parse_from(argv).expect("parse readonly command");
+            assert!(command_is_read_only(&cli.command));
+        }
+    }
+
+    #[test]
+    fn mutating_commands_keep_read_write_pool_mode() {
+        for argv in [
+            vec!["deadlock-brain", "status"],
+            vec!["deadlock-brain", "reason", "build", "Warden"],
+            vec!["deadlock-brain", "reason", "patch-impact", "Warden"],
+            vec!["deadlock-brain", "reason", "backtest", "--hero", "Warden"],
+        ] {
+            let cli = Cli::try_parse_from(argv).expect("parse write-capable command");
+            assert!(!command_is_read_only(&cli.command));
+        }
+    }
+
+    #[test]
     fn parses_pull_reddit_with_repeated_subreddits_and_gentle_defaults() {
         let cli = Cli::try_parse_from([
             "deadlock-brain",
@@ -3925,9 +4031,13 @@ mod tests {
             .expect("runtime");
 
         runtime.block_on(async {
-            let client = http_client_async("deadlock-brain-test".to_string(), cache_dir.clone())
-                .await
-                .expect("blocking http client");
+            let client = tokio::task::spawn_blocking({
+                let cache_dir = cache_dir.clone();
+                move || HttpClient::new("deadlock-brain-test", cache_dir)
+            })
+            .await
+            .expect("blocking HTTP task")
+            .expect("blocking http client");
             let response = client
                 .get(&url, deadlock_brain_core::http::HttpGetOptions::default())
                 .expect("GET inside async command");

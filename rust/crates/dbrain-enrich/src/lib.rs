@@ -1820,9 +1820,11 @@ mod tests {
     }
 
     fn test_config() -> AiConfig {
-        let mut settings = deadlock_brain_core::config::load_settings().expect("settings");
-        settings.ai_api_key = None;
-        settings.ai_model = "accounts/fireworks/models/deepseek-v4p1-flash".to_string();
+        let global = deadlock_brain_core::bot_config::BotConfig::load(std::path::Path::new(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../../../config/bot.toml"),
+        ))
+        .expect("validated test config");
+        let settings = deadlock_brain_core::config::Settings::from_config(global, None);
         AiConfig::from_settings(&settings)
     }
 
