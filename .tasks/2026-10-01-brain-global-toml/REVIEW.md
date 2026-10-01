@@ -28,3 +28,38 @@ Befunde 1 bis 4 sind im selben Thread korrigiert.
 - Workspace-weites `cargo fmt --all -- --check` bleibt wegen Formatabweichungen in weiteren Workspace-Bereichen rot. Diese wurden nicht pauschal umformatiert.
 
 Anschließend erneuter Gate-Lauf. Bei ALLOW folgen Merge, Push, Deployment, Dienstrestart, Livebeleg und Cleanup.
+
+# Review Runde 2
+
+Review-Gate: `gpt-6.1-sol`
+Basis: `main`
+Head: `44e8097`
+Urteil: `BLOCK`
+
+## Befunde
+
+1. **BLOCKING**, `rust/crates/deadlock-brain/src/wiki_refresh.rs`: `RefreshArgs.config` teilte die Clap-ID `config` mit der globalen TOML-Option. Maßnahme: eine eigene Argument-ID vergeben.
+2. **NIT**, `rust/crates/dbrain-retrieval/src/game_wiki.rs`: Suchpfade nutzten nicht `game_wiki_dir/current` und konnten deshalb den aktiven Snapshot verfehlen oder alte Generationen durchsuchen. Maßnahme: den `current`-Symlink auflösen und Legacy-Verzeichnisse ohne Symlink weiter unterstützen.
+
+## Nacharbeit
+
+- Befund 1 ist in `7c4c11f` mit `id = "refresh_config"` behoben. `deadlock-brain wiki refresh --help` zeigt getrennt `--config` und `--refresh-config`.
+- Befund 2 ist in `7c4c11f` behoben. Wiki-Suche und Helden-Dossiers lösen den verwalteten `current`-Symlink auf; fehlender `current`-Symlink behält das bisherige Legacy-Verhalten.
+- Regressionstest belegt die Suche im aktiven Snapshot und schließt archivierte Generationen aus.
+
+### Validierung
+
+- `cargo test --manifest-path rust/Cargo.toml --locked -p dbrain-retrieval --lib`: 45 passed, 0 failed, 15 ignored.
+- `cargo check --manifest-path rust/Cargo.toml --locked -p deadlock-brain`: erfolgreich.
+- CLI-Hilfe für `wiki refresh` zeigt beide Konfigurationsoptionen ohne ID-Kollision.
+- Für den Compile- und Testlauf wurden vier fehlende externe Cargo-Pfade vorübergehend auf die gepinnten Abhängigkeiten im isolierten Layout gesetzt; alle Manifestpfade sind wiederhergestellt.
+- `git diff --check` ist sauber. `rustfmt --check` meldet vorhandene Abweichungen in den angefassten Dateien; es wurden keine fremden Formatbereiche umgeschrieben.
+
+# Review Runde 3
+
+Review-Gate: `gpt-6.1-sol`
+Basis: `origin/main` (`39710e3282c830ee9b47e90945deb71d1db44724`)
+Head: `7c4c11f771fd9375cc45ec426e063179c4ebb5d3`
+Urteil: `ALLOW`
+
+Gate-Antwort: `ALLOW: Distinct Clap ID fixes the blocker; no blocking regressions found in the supplied delta.`

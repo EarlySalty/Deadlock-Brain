@@ -34,12 +34,12 @@ ORCHESTRIERUNG[OR-1]: Stufe mittel | Schritt bau | Artefakt: .tasks/2026-10-01-b
 
 ## Prüffortschritt
 
-- Tests: `deadlock-brain-core` HTTP 5 passed, 0 ignored, 27 filtered; `dbrain-population` API 2 passed, 0 ignored, 24 filtered.
-- Compile-Check: gesamter Workspace mit Rust 1.98 und `--locked` erfolgreich. Die vier externen Cargo-Pfade wurden für den Lauf vorübergehend auf die gepinnten Abhängigkeiten im isolierten Layout gesetzt und danach zurückgenommen.
-- Formatprüfung: gezielte HTTP- und Population-Dateien bestehen `rustfmt --check`. Workspace-weites `cargo fmt --all -- --check` meldet weitere Formatabweichungen, die nicht pauschal geändert wurden.
-- Eigenes Merge-Gate: Runde 1 BLOCK durch `gpt-6.1-sol`; alle vier Befunde nachgearbeitet, Runde 2 ausstehend.
-- Gemeinsamer Freeze und unabhängige Intent-Abnahme: ausstehend
-- Reguläres Merge-/Security-Gate: ausstehend
-- Merge und Push: nach Review-ALLOW. Dedicated main worktree `/home/nathanael/.worktrees/brain-live-main` sauber, Branch `main`.
-- Deploy, Dienstrestart, Livebeleg und Cleanup: ausstehend
-- Blocker: reguläres Gate und Deployment noch offen; Source-Resolver-Subsystem bleibt ausgeschlossen.
+- Tests: `dbrain-retrieval --lib` 45 passed, 0 failed, 15 ignored; `deadlock-brain-core` HTTP 5 passed; `dbrain-population` API 2 passed.
+- Compile-Check: `deadlock-brain` mit Rust 1.98 und `--locked` erfolgreich. Der vollständige Workspace-Compile aus Runde 1 war ebenfalls erfolgreich. Für die Cargo-Läufe wurden vier externe Pfade vorübergehend auf gepinnte Abhängigkeiten im isolierten Layout gesetzt und danach zurückgenommen.
+- Formatprüfung: Workspace-weites `cargo fmt --all -- --check` sowie gezieltes `rustfmt --check` melden bestehende Abweichungen in weiteren beziehungsweise angefassten Dateien. Es wurden keine unbeteiligten Formatbereiche geändert.
+- Eigenes Merge-Gate: Runde 1 BLOCK, vier Befunde behoben. Runde 2 BLOCK, Clap-ID und Wiki-Resolver behoben. Runde 3 ALLOW auf `7c4c11f771fd9375cc45ec426e063179c4ebb5d3` gegen `origin/main` `39710e3282c830ee9b47e90945deb71d1db44724`.
+- Gemeinsamer Freeze und unabhängige Intent-Abnahme: ausstehend.
+- Reguläres Merge-/Security-Gate: ausstehend.
+- Merge und Push: nach Intent-Abnahme und regulärem Gate. Dedicated main worktree `/home/nathanael/.worktrees/brain-live-main` prüfen, bevor Änderungen erfolgen.
+- Deploy, Dienstrestart, Livebeleg und Cleanup: ausstehend.
+- Blocker: unabhängige Intent-Abnahme, reguläres Gate und Deployment noch offen; Source-Resolver-Subsystem bleibt ausgeschlossen.
