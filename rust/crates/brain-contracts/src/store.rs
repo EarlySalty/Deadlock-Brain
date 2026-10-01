@@ -10,6 +10,89 @@ pub const STORE_VERSION: &str = "brain.store.v2";
 pub type StoreResult<T> = Result<T, PortError>;
 pub type StoreFuture<'a, T> = Pin<Box<dyn Future<Output = StoreResult<T>> + Send + 'a>>;
 
+/// Trusted execution purpose, chosen by the server rather than a wire Query.
+/// Provider egress remains a separate permission from either answer purpose.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AnswerPurpose {
+    InternalRead,
+    ExternalPublication,
+}
+
+/// Publication requires both the pinned source grant and the current canonical
+/// head grant. This deliberately does not change `record_allowed` (internal read).
+/// Legacy records without versioned origins retain their existing ACL semantics;
+/// a versioned origin may never regain publication by losing its current grant.
+pub fn record_publication_allowed(
+    record: &SourceRecordV2,
+    head: &crate::DocumentHead,
+    principal: &Principal,
+) -> bool {
+    use crate::source::{
+        origin_from_record, OriginArtifact, SourceRevision, Versioned, ORIGIN_METADATA_KEY,
+    };
+    if record.validate().is_err()
+        || head.validate().is_err()
+        || record.source_id != head.source_id
+        || record.logical_id != head.logical_id
+        || head.revision < record.revision
+        || record.tombstone
+        || !record_allowed(record, principal, false)
+        || !head.allowed(principal, false)
+    {
+        return false;
+    }
+    let versioned = record.metadata.contains_key(ORIGIN_METADATA_KEY);
+    if versioned
+        && !origin_from_record(record).is_ok_and(|origin| origin.policy.publication_allowed)
+    {
+        return false;
+    }
+    let Some(encoded) = head.metadata.get(ORIGIN_METADATA_KEY) else {
+        return !versioned;
+    };
+    let Ok(current) = serde_json::from_str::<Versioned<OriginArtifact>>(encoded) else {
+        return false;
+    };
+    let current = current.data;
+    current.validate().is_ok()
+        && current.identity.source_id == head.source_id
+        && current.identity.logical_id == head.logical_id
+        && current.policy.visibility == head.visibility
+        && current.policy.allowed_scopes == head.allowed_scopes
+        && current.policy.publication_allowed
+        && match current.source_revision {
+            SourceRevision::Wiki { revision_id, .. } => {
+                u64::try_from(revision_id).ok() == Some(head.revision)
+            }
+            _ => true,
+        }
+}
+
+impl CorpusSnapshot {
+    /// Canonical domain proofs can depend on many documents, including uncited
+    /// rules/cards. Keep the normal read view intact and derive a publication view.
+    pub fn authorized_for_publication(
+        &self,
+        principal: &Principal,
+    ) -> StoreResult<Vec<SourceRecordV2>> {
+        let records = self.authorized(principal, false)?;
+        let heads: BTreeMap<_, _> = self
+            .heads
+            .iter()
+            .map(|r| ((&r.source_id, &r.logical_id), crate::DocumentHead::from(r)))
+            .collect();
+        Ok(records
+            .into_iter()
+            .filter(|record| {
+                heads
+                    .get(&(&record.source_id, &record.logical_id))
+                    .is_some_and(|head| record_publication_allowed(record, head, principal))
+            })
+            .collect())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SourceCheckpoint {

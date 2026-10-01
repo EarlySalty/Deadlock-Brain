@@ -25,8 +25,10 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
             indexes: Arc::new(Mutex::new(BTreeMap::new())),
         }
     }
-    /// Explicit bulk diagnostic read. The query and evidence-validation paths do not call this
-    /// after the first index build for a release. Up to four immutable release indexes are kept.
+    /// Bulk canonical view for diagnostics and deterministic domain revalidation.
+    /// Lexical/dense queries and their validation only load a full snapshot for the
+    /// first index build; up to four immutable release indexes are kept. Domain
+    /// proofs also read current snapshots when revalidating publication on cache hits.
     pub fn snapshot(
         &self,
         query: &Query,
@@ -307,6 +309,38 @@ impl<S: SnapshotReadPort> RetrievalPort for ReleaseRetriever<S> {
         evidence: &[Evidence],
         for_provider: bool,
     ) -> Result<(), PortError> {
+        self.validate_for_purpose(
+            query,
+            context,
+            evidence,
+            for_provider,
+            brain_contracts::store::AnswerPurpose::InternalRead,
+        )
+    }
+    fn validate_publication(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+    ) -> Result<(), PortError> {
+        self.validate_for_purpose(
+            query,
+            context,
+            evidence,
+            false,
+            brain_contracts::store::AnswerPurpose::ExternalPublication,
+        )
+    }
+}
+impl<S: SnapshotReadPort> ReleaseRetriever<S> {
+    fn validate_for_purpose(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+        for_provider: bool,
+        purpose: brain_contracts::store::AnswerPurpose,
+    ) -> Result<(), PortError> {
         let bound = context.with_request_deadline();
         let context = &bound;
         check_context(query, context)?;
@@ -316,11 +350,33 @@ impl<S: SnapshotReadPort> RetrievalPort for ReleaseRetriever<S> {
         if crate::domain_port::handles(query) {
             let canonical =
                 crate::domain_port::retrieve(&self.store, query, context, for_provider)?;
-            return if canonical == evidence {
-                Ok(())
-            } else {
-                Err(denied("domain evidence changed or no longer authorized"))
-            };
+            if canonical != evidence {
+                return Err(denied("domain evidence changed or no longer authorized"));
+            }
+            if purpose == brain_contracts::store::AnswerPurpose::ExternalPublication {
+                // Only parse dependency identities after recomputing the complete
+                // canonical proof. A model/source cannot invent its own grants.
+                let snapshot = self.snapshot(query, context)?;
+                let publishable = snapshot.authorized_for_publication(&context.principal)?;
+                for item in &canonical {
+                    let proof: brain_contracts::domain::DomainAnswer =
+                        serde_json::from_str(&item.content)
+                            .map_err(|_| denied("invalid canonical domain proof"))?;
+                    if proof.inputs.is_empty()
+                        || proof.inputs.iter().any(|input| {
+                            !publishable.iter().any(|record| {
+                                record.source_id == input.source.source_id
+                                    && record.logical_id == input.source.logical_id
+                                    && record.revision == input.source.revision
+                                    && record.content_hash == input.source.content_hash
+                            })
+                        })
+                    {
+                        return Err(denied("domain dependency publication denied"));
+                    }
+                }
+            }
+            return Ok(());
         }
         let index = self.index(query, context)?;
         let mut seen = BTreeSet::new();
@@ -353,6 +409,19 @@ impl<S: SnapshotReadPort> RetrievalPort for ReleaseRetriever<S> {
                 for_provider,
             )?
             .ok_or_else(|| denied("evidence permission revoked or document deleted"))?;
+            if purpose == brain_contracts::store::AnswerPurpose::ExternalPublication
+                && !heads
+                    .get(&(record.source_id.clone(), record.logical_id.clone()))
+                    .is_some_and(|head| {
+                        brain_contracts::store::record_publication_allowed(
+                            record,
+                            head,
+                            &context.principal,
+                        )
+                    })
+            {
+                return Err(denied("evidence publication permission denied or revoked"));
+            }
             if index.evidence(chunk, &effective, item.score) != *item {
                 return Err(denied("evidence content, ACL or provenance mismatch"));
             }
