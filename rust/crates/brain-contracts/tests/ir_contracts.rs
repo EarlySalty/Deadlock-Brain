@@ -658,5 +658,16 @@ fn publication_rights_are_distinct_and_require_both_revision_and_current_head() 
         head.metadata
             .insert(source::ORIGIN_METADATA_KEY.into(), "{}".into());
         assert!(!publication_allowed(&pinned, &head, &principal));
+        let mut unknown: Value =
+            serde_json::from_str(&pinned.metadata[source::ORIGIN_METADATA_KEY]).unwrap();
+        unknown["contract_version"] = json!("brain.ir.v99");
+        head.metadata.insert(
+            source::ORIGIN_METADATA_KEY.into(),
+            serde_json::to_string(&unknown).unwrap(),
+        );
+        assert!(
+            !publication_allowed(&pinned, &head, &principal),
+            "an unknown current-head origin version cannot authorize publication"
+        );
     }
 }
