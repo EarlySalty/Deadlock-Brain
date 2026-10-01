@@ -55,7 +55,7 @@ async fn search_entities(args: &EntitiesArgs, pool: &PgPool) -> Result<Value> {
         args.entity_type.as_deref(),
         pattern.as_str(),
     )
-    .fetch_all(&pool)
+    .fetch_all(pool)
     .await?;
 
     // Zeilen sind nach (entity_type, canonical_name) sortiert -> konsekutiv gruppieren.
