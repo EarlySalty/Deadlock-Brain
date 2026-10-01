@@ -47,6 +47,7 @@ struct Config {
 enum Action {
     Import,
     Revoke,
+    RevokeProvider,
     Delete,
 }
 
@@ -225,7 +226,7 @@ pub(super) async fn command(args: &[String]) -> Result<Value> {
             .bind(&config.source_id).bind(LOGICAL).fetch_one(&pool).await.map_err(|_| "probe head unavailable")?;
         let mut record: SourceRecordV2 =
             serde_json::from_value(value).map_err(|_| "probe head invalid")?;
-        if record.tombstone && matches!(config.action, Action::Revoke) {
+        if record.tombstone && !matches!(config.action, Action::Delete) {
             return Err("deleted probe cannot be revived");
         }
         let mut origin = brain_contracts::source::origin_from_record(&record)
@@ -244,9 +245,12 @@ pub(super) async fn command(args: &[String]) -> Result<Value> {
             .revision
             .checked_add(1)
             .ok_or("probe revision exhausted")?;
-        record.visibility = SourceVisibility::Private;
-        record.allowed_scopes = BTreeSet::from(["brain.firstparty.probe.review".into()]);
-        record.tombstone = matches!(config.action, Action::Delete);
+        if !matches!(config.action, Action::RevokeProvider) {
+            record.visibility = SourceVisibility::Private;
+            record.allowed_scopes = BTreeSet::from(["brain.firstparty.probe.review".into()]);
+            record.tombstone = matches!(config.action, Action::Delete);
+            origin.policy.publication_allowed = false;
+        }
         if record.tombstone {
             record.content.clear();
         }
@@ -255,7 +259,6 @@ pub(super) async fn command(args: &[String]) -> Result<Value> {
         origin.policy.visibility = record.visibility;
         origin.policy.allowed_scopes = record.allowed_scopes.clone();
         origin.policy.provider_egress_allowed = false;
-        origin.policy.publication_allowed = false;
         origin
             .bind_record(&mut record)
             .map_err(|_| "probe withdrawal invalid")?;
