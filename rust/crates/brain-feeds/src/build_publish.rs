@@ -147,11 +147,16 @@ impl HttpBuildPublishClient {
             .ok()
             .filter(|t| !t.trim().is_empty())
             .ok_or(PublishError::Unauthorized)?;
-        let client = reqwest::blocking::Client::builder()
+        let mut client = reqwest::blocking::Client::builder()
             .timeout(timeout)
-            .redirect(reqwest::redirect::Policy::none())
-            // As in BrainClient, inherited proxies must not divert loopback HTTP.
-            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none());
+        // Validated HTTP endpoints are loopback-only. Never send their plaintext
+        // credentials through an inherited proxy. HTTPS retains its existing
+        // proxy support and end-to-end TLS peer validation.
+        if publish_url.scheme() == "http" {
+            client = client.no_proxy();
+        }
+        let client = client
             .build()
             .map_err(|e| PublishError::Unavailable(e.to_string()))?;
         Ok(Self {

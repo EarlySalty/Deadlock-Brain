@@ -16,9 +16,13 @@ const TOKEN: &str = "synthetic-endpoint-token";
 const TIMEOUT: Duration = Duration::from_secs(5);
 
 // Install synthetic credentials and proxy settings only in a child process, not
-// in the parallel test runner. The proxy trap also proves local requests cannot
-// be diverted by inherited proxy settings. No external endpoint is contacted.
+// in the parallel test runner. The proxy trap also proves plaintext loopback
+// requests cannot be diverted. No external endpoint is contacted.
 fn isolated(test_name: &str) -> bool {
+    isolated_proxy(test_name, false)
+}
+
+fn isolated_proxy(test_name: &str, expect_https_connect: bool) -> bool {
     const CHILD_ENV: &str = "BRAIN_FEEDS_ENDPOINT_TEST_CHILD";
     if std::env::var(CHILD_ENV).as_deref() == Ok(test_name) {
         assert_eq!(std::env::var(TOKEN_ENV).unwrap(), TOKEN);
@@ -27,6 +31,18 @@ fn isolated(test_name: &str) -> bool {
     let proxy = TcpListener::bind("127.0.0.1:0").unwrap();
     proxy.set_nonblocking(true).unwrap();
     let proxy_url = format!("http://{}", proxy.local_addr().unwrap());
+    let proxy_server = expect_https_connect.then(|| {
+        serve(
+            proxy.try_clone().unwrap(),
+            (0..2)
+                .map(|_| Reply {
+                    code: 403,
+                    body: "{}".into(),
+                    location: None,
+                })
+                .collect(),
+        )
+    });
     let mut child = Command::new(std::env::current_exe().unwrap());
     child
         .args(["--exact", test_name, "--nocapture"])
@@ -51,6 +67,17 @@ fn isolated(test_name: &str) -> bool {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+    if let Some(server) = proxy_server {
+        for received in server.join().unwrap() {
+            assert!(received.head.starts_with("CONNECT 127.0.0.1:"));
+            assert!(!received
+                .head
+                .to_ascii_lowercase()
+                .contains("authorization:"));
+            assert!(!received.head.contains(TOKEN));
+            assert!(received.body.is_empty());
+        }
+    }
     assert!(matches!(proxy.accept(), Err(e) if e.kind() == std::io::ErrorKind::WouldBlock));
     true
 }
@@ -321,6 +348,8 @@ fn submit_and_status_preserve_the_validated_origin_port_and_base_path() {
         ("/", "/builds/v1/publish"),
         ("/gateway", "/gateway/builds/v1/publish"),
         ("/gateway/", "/gateway/builds/v1/publish"),
+        ("/gateway//", "/gateway//builds/v1/publish"),
+        ("//example.invalid", "//example.invalid/builds/v1/publish"),
         (
             "/gateway/team%20one",
             "/gateway/team%20one/builds/v1/publish",
@@ -354,6 +383,30 @@ fn submit_and_status_support_ipv4_ipv6_and_localhost() {
     ] {
         round_trip(bind, host, "/api", "/api/builds/v1/publish");
     }
+}
+
+#[test]
+fn https_preserves_proxy_support_without_plaintext_credentials_or_build_data() {
+    if isolated_proxy(
+        "https_preserves_proxy_support_without_plaintext_credentials_or_build_data",
+        true,
+    ) {
+        return;
+    }
+    // The proxy refuses both CONNECT requests without forwarding anything.
+    // Even a regression that bypasses the proxy can reach only this local trap.
+    let target = TcpListener::bind("127.0.0.1:0").unwrap();
+    target.set_nonblocking(true).unwrap();
+    let client = client(&format!("https://{}", target.local_addr().unwrap())).unwrap();
+    assert!(matches!(
+        client.submit(&request()),
+        Err(PublishError::Unavailable(_))
+    ));
+    assert!(matches!(
+        client.status(&request().request_id),
+        Err(PublishError::Unavailable(_))
+    ));
+    assert!(matches!(target.accept(), Err(e) if e.kind() == std::io::ErrorKind::WouldBlock));
 }
 
 #[test]
