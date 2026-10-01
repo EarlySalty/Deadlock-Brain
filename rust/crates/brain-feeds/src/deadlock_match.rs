@@ -460,6 +460,7 @@ fn prepare_revoke_batch(
         *prior = DocumentState {
             revision,
             content_hash,
+            semantic_hash: None,
             tombstone: true,
         };
     }
