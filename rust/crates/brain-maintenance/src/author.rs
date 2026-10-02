@@ -1,4 +1,16 @@
 use crate::integration::artifacts::Artifacts;
+
+#[derive(Debug)]
+pub struct PaidResultFailure(anyhow::Error);
+impl std::fmt::Display for PaidResultFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.0, formatter)
+    }
+}
+impl std::error::Error for PaidResultFailure {}
+fn paid_result<T>(result: Result<T>) -> Result<T> {
+    result.map_err(|error| anyhow::Error::new(PaidResultFailure(error)))
+}
 use crate::{
     config::{safe_doc_target, MaintenanceConfig, RepositoryConfig},
     digest, process,
@@ -200,6 +212,14 @@ pub fn codex_args(
 }
 
 async fn invoke<T: DeserializeOwned>(
+    config: &MaintenanceConfig,
+    prompt: &str,
+    schema: &Value,
+) -> Result<(T, CodexRunProof)> {
+    paid_result(invoke_inner(config, prompt, schema).await)
+}
+
+async fn invoke_inner<T: DeserializeOwned>(
     config: &MaintenanceConfig,
     prompt: &str,
     schema: &Value,
@@ -595,7 +615,7 @@ pub fn validate_draft(
             && draft.proof.tool_events == 0,
         "cached_author_binding"
     );
-    validate_proposal(config, repo, scan, &draft.proposal)
+    paid_result(validate_proposal(config, repo, scan, &draft.proposal))
 }
 
 pub fn feedback_payload(
@@ -742,7 +762,7 @@ pub async fn propose_with_feedback(
         &proposal_schema(),
     )
     .await?;
-    validate_proposal(config, repo, scan, &proposal)?;
+    paid_result(validate_proposal(config, repo, scan, &proposal))?;
     Ok(DraftDocument {
         export_binding: Some(export_binding(config, repo, scan, target)?),
         proposal,
@@ -778,48 +798,35 @@ pub async fn review_draft(
     validate_provider_input(config, repo, scan, target).await?;
     let (review, reviewer_proof): (IndependentReview, CodexRunProof) =
         invoke(config, &review_prompt, &review_schema()).await?;
-    ensure!(
-        author_proof.run_id != reviewer_proof.run_id,
-        "Autor und Prüfer teilen denselben Turn"
-    );
-    ensure!(
-        review.source_sha == scan.source_sha && review.proposal_sha256 == proposal_sha256,
-        "Abnahme gehört nicht zu diesem Vorschlag"
-    );
-    validate_citations(scan, &review.citations)?;
-    ensure!(review.findings.len() <= 32, "Zu viele Prüfbefunde");
-    ensure!(
-        !review.approved
-            || (review.findings.is_empty() && !matches!(proposal.action, Action::SourceReview)),
-        "Abnahme enthält offene Befunde"
-    );
-    Ok(VerifiedDocument {
-        export_binding,
-        proposal,
-        review,
-        evidence_sha256,
-        model: config.codex.model.clone(),
-        prompt_version: config.prompt_version.clone(),
-        author_run_id: author_proof.run_id,
-        reviewer_run_id: reviewer_proof.run_id,
-        reviewer_input_tokens: reviewer_proof.input_tokens,
-        reviewer_output_tokens: reviewer_proof.output_tokens,
-    })
-}
-
-pub async fn generate(
-    config: &MaintenanceConfig,
-    repo: &RepositoryConfig,
-    scan: &ScanResult,
-    target: &str,
-) -> Result<VerifiedDocument> {
-    review_draft(
-        config,
-        repo,
-        scan,
-        propose(config, repo, scan, target).await?,
-    )
-    .await
+    paid_result((|| -> Result<VerifiedDocument> {
+        ensure!(
+            author_proof.run_id != reviewer_proof.run_id,
+            "Autor und Prüfer teilen denselben Turn"
+        );
+        ensure!(
+            review.source_sha == scan.source_sha && review.proposal_sha256 == proposal_sha256,
+            "Abnahme gehört nicht zu diesem Vorschlag"
+        );
+        validate_citations(scan, &review.citations)?;
+        ensure!(review.findings.len() <= 32, "Zu viele Prüfbefunde");
+        ensure!(
+            !review.approved
+                || (review.findings.is_empty() && !matches!(proposal.action, Action::SourceReview)),
+            "Abnahme enthält offene Befunde"
+        );
+        Ok(VerifiedDocument {
+            export_binding,
+            proposal,
+            review,
+            evidence_sha256,
+            model: config.codex.model.clone(),
+            prompt_version: config.prompt_version.clone(),
+            author_run_id: author_proof.run_id,
+            reviewer_run_id: reviewer_proof.run_id,
+            reviewer_input_tokens: reviewer_proof.input_tokens,
+            reviewer_output_tokens: reviewer_proof.output_tokens,
+        })
+    })())
 }
 
 pub async fn recheck_source(

@@ -83,6 +83,7 @@ fn fixture() -> (tempfile::TempDir, MaintenanceConfig, RepositoryConfig) {
 }
 
 use super::*;
+use crate::integration::runtime_config::LocalImport;
 use brain_contracts::CorpusRelease;
 use std::os::unix::fs::PermissionsExt;
 
@@ -939,6 +940,126 @@ async fn postgres_paid_invalid_results_are_terminal_and_keep_private_receipts() 
             assert_eq!(fs::read(calls).unwrap(), b"x");
         }
     }
+    sqlx::query("TRUNCATE brain.maintenance_jobs_v1, brain.maintenance_sources_v1")
+        .execute(&scratch)
+        .await
+        .unwrap();
+    let (dir, mut runner, mut config, repo, scan) = setup().await;
+    let mut job = stage(&runner, &config, &repo, &scan, false).await;
+    let proposal = draft(&config, &scan).proposal;
+    let answer = dir.path().join("valid-answer");
+    fs::write(&answer, serde_json::to_vec(&proposal).unwrap()).unwrap();
+    let calls = dir.path().join("valid-calls");
+    let executable = dir.path().join("valid-provider");
+    fs::write(&executable,format!("#!/bin/sh\nresult=''\nwhile [ $# -gt 0 ]; do\nif [ \"$1\" = '--output-last-message' ]; then shift; result=$1; fi\nshift\ndone\ncat >/dev/null\nprintf x >> '{}'\ncp '{}' \"$result\"\nprintf '%s\\n' '{{\"type\":\"thread.started\",\"thread_id\":\"valid-author-run\"}}' '{{\"type\":\"turn.completed\",\"usage\":{{\"input_tokens\":21,\"output_tokens\":4}}}}'\n",calls.display(),answer.display())).unwrap();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+    config.codex.executable = executable;
+    fs::write(
+        &runner.runtime.maintenance_config,
+        serde_json::to_vec(&config).unwrap(),
+    )
+    .unwrap();
+    let intent = runner.artifacts.put(&serde_json::to_vec(&json!({
+        "job":job.spec.id,"stage":"author","export_binding":author::export_binding(&config,&repo,&scan,&job.spec.target_path).unwrap(),
+        "rejected_review":null,"model":config.codex.model,"effort":config.codex.reasoning_effort
+    })).unwrap(), "json").unwrap();
+    runner
+        .store
+        .set_maintenance_artifact(job.lease.as_ref().unwrap(), "author_call_intent", &intent)
+        .await
+        .unwrap();
+    author::with_call_journal(
+        runner.artifacts.clone(),
+        digest(intent.as_bytes()),
+        author::propose(&config, &repo, &scan, &job.spec.target_path),
+    )
+    .await
+    .unwrap();
+    runner.runtime.retry_delay_ms = 1000;
+    runner
+        .handle_failed_advance(
+            &job,
+            job.lease.as_ref().unwrap(),
+            &anyhow::anyhow!("storage_commit_transient"),
+        )
+        .await
+        .unwrap();
+    let retry = runner
+        .store
+        .maintenance_job(&job.spec.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(retry.status, MaintenanceStatus::Author);
+    assert_eq!(retry.error_code.as_deref(), Some("STAGE_FAILED"));
+    assert!(retry.lease.is_none());
+    tokio::time::sleep(Duration::from_millis(1050)).await;
+    job = runner
+        .store
+        .claim_maintenance(&runner.owner, 900000)
+        .await
+        .unwrap()
+        .unwrap();
+    runner.advance(&mut job).await.unwrap();
+    let resumed = runner
+        .store
+        .maintenance_job(&job.spec.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(resumed.status, MaintenanceStatus::Reviewer);
+    assert!(resumed.checkpoint.artifact_refs.contains_key("draft"));
+    assert_eq!(fs::read(&calls).unwrap(), b"x");
+
+    let unrelated = LocalImport {
+        path: dir.path().join("unavailable-unrelated-package"),
+        targets: BTreeSet::from(["internal/unrelated.html".into()]),
+        sha256: digest(b"absent"),
+        reviewer_id: "fixture".into(),
+        review_ref: "reviewed".into(),
+    };
+    runner.runtime.local_imports.push(unrelated.clone());
+    assert!(runner.local_document(&job).await.unwrap().is_none());
+    let mut origin = scan.source_blobs[0].origin.clone();
+    origin.policy = repo.document_policy.clone();
+    origin.raw_sha256 = digest(proposal.content.as_bytes());
+    let document = CoreDocument {
+        logical_id: proposal.target,
+        content: proposal.content,
+        origin,
+        metadata: BTreeMap::new(),
+    };
+    let bytes = serde_json::to_vec(&vec![document.clone()]).unwrap();
+    let package = dir.path().join("matching-package.json");
+    fs::write(&package, &bytes).unwrap();
+    let import = LocalImport {
+        path: package.clone(),
+        targets: BTreeSet::from([document.logical_id.clone()]),
+        sha256: digest(&bytes),
+        reviewer_id: "fixture".into(),
+        review_ref: "reviewed".into(),
+    };
+    let mut local = job.clone();
+    local.spec = local_job_spec(&config, &repo, &document, &import.sha256);
+    runner.runtime.local_imports.push(import);
+    assert_eq!(
+        runner.local_document(&local).await.unwrap().unwrap().0,
+        document
+    );
+    fs::write(&package, b"changed").unwrap();
+    assert_eq!(
+        runner.local_document(&local).await.unwrap_err().to_string(),
+        "local_import_changed_since_review"
+    );
+    runner.runtime.local_imports.last_mut().unwrap().sha256 = digest(b"changed");
+    assert_eq!(
+        runner.local_document(&local).await.unwrap_err().to_string(),
+        "local_import_schema"
+    );
+    fs::remove_file(&package).unwrap();
+    assert!(runner.local_document(&local).await.is_err());
+    runner.runtime.local_imports = vec![unrelated];
+    assert!(runner.local_document(&local).await.unwrap().is_none());
     sqlx::query("TRUNCATE brain.maintenance_jobs_v1, brain.maintenance_sources_v1")
         .execute(&scratch)
         .await

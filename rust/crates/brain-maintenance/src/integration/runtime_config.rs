@@ -29,6 +29,7 @@ pub struct RuntimeConfig {
 #[serde(deny_unknown_fields)]
 pub struct LocalImport {
     pub path: PathBuf,
+    pub targets: std::collections::BTreeSet<String>,
     pub sha256: String,
     pub reviewer_id: String,
     pub review_ref: String,
@@ -75,6 +76,13 @@ impl RuntimeConfig {
         );
         ensure!(config.local_imports.len() <= 32, "local_import_limit");
         for import in &config.local_imports {
+            ensure!(
+                !import.targets.is_empty() && import.targets.len() <= 64,
+                "local_import_targets"
+            );
+            for target in &import.targets {
+                crate::config::safe_doc_target(target)?;
+            }
             ensure!(
                 import.path.is_absolute()
                     && import.sha256.len() == 64

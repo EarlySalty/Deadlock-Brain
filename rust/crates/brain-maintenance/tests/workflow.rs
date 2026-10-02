@@ -418,7 +418,7 @@ async fn document_export_is_guarded_before_any_provider_call() {
     config.repositories = vec![repo.clone()];
     config.codex.executable = "/nicht-vorhanden/codex".into();
     let scan = scanner::scan(&config, &repo, None).await.unwrap();
-    let error = author::generate(&config, &repo, &scan, "internal/system.html")
+    let error = author::propose(&config, &repo, &scan, "internal/system.html")
         .await
         .unwrap_err();
     assert_eq!(error.to_string(), "Dokumentexport nicht freigegeben");
@@ -440,7 +440,7 @@ async fn document_export_is_guarded_before_any_provider_call() {
     other_document
         .documents
         .insert("internal/anderes.html".into(), Some("Interner Text".into()));
-    let error = author::generate(&config, &repo, &other_document, "internal/system.html")
+    let error = author::propose(&config, &repo, &other_document, "internal/system.html")
         .await
         .unwrap_err();
     assert_eq!(
@@ -537,7 +537,7 @@ async fn provider_dispatch_rejects_foreign_or_unregistered_evidence() {
         } else {
             "internal/system.html"
         };
-        assert!(author::generate(&config, &repo, input, target)
+        assert!(author::propose(&config, &repo, input, target)
             .await
             .is_err());
         assert!(brain_maintenance::triage::triage(

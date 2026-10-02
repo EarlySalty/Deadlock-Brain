@@ -535,15 +535,12 @@ impl Runner {
             .await?
             .context("failed_job_missing")?
             .checkpoint;
-        let paid_intent = checkpoint
-            .artifact_refs
-            .keys()
-            .any(|key| key.contains("_call_intent"));
+        let paid_failure = error.is::<author::PaidResultFailure>();
         let terminal_context = error.to_string() == "context_platform_identifier";
-        if paid_intent || terminal_context {
+        if paid_failure || terminal_context {
             checkpoint.artifact_refs.insert(
                 "blocked_reason".into(),
-                if paid_intent {
+                if paid_failure {
                     "PAID_RESULT_INVALID_OR_UNCERTAIN"
                 } else {
                     "CONTEXT_REJECTED"
@@ -577,6 +574,14 @@ impl Runner {
             let documents: Vec<CoreDocument> = serde_json::from_slice(&bytes)
                 .map_err(|_| anyhow::anyhow!("local_import_schema"))?;
             ensure!(documents.len() <= 64, "local_import_limit");
+            ensure!(
+                documents
+                    .iter()
+                    .map(|document| document.logical_id.clone())
+                    .collect::<std::collections::BTreeSet<_>>()
+                    == import.targets,
+                "local_import_target_inventory"
+            );
             for document in documents {
                 let repo = config
                     .repositories
@@ -621,7 +626,13 @@ impl Runner {
         &self,
         job: &MaintenanceJob,
     ) -> Result<Option<(CoreDocument, String, String)>> {
+        if !job.spec.id.starts_with("local-") {
+            return Ok(None);
+        }
         for import in &self.runtime.local_imports {
+            if !import.targets.contains(&job.spec.target_path) {
+                continue;
+            }
             let bytes = read_bounded(&import.path, 8 * 1024 * 1024)?;
             ensure!(
                 digest(&bytes) == import.sha256,
@@ -656,10 +667,11 @@ impl Runner {
     async fn advance(&self, job: &mut MaintenanceJob) -> Result<()> {
         let result = self.advance_inner(job).await;
         if result.as_ref().err().is_some_and(|error| {
-            matches!(
-                error.to_string().as_str(),
-                "referenced_document_hash_changed" | "cached_document_export_binding_changed"
-            )
+            !error.is::<author::PaidResultFailure>()
+                && matches!(
+                    error.to_string().as_str(),
+                    "referenced_document_hash_changed" | "cached_document_export_binding_changed"
+                )
         }) && job.checkpoint.publication.is_none()
             && matches!(
                 job.status,
