@@ -565,9 +565,9 @@ async fn retrieval_http_route_enforces_authentication_and_dispatches_without_pro
 async fn retrieval_rejects_internal_text_even_when_credentials_allow_internal_reading() {
     let store = MemoryRepository::default();
     let mut private = record("a", 1, true, true);
+    let mut origin = brain_contracts::source::origin_from_record(&private).unwrap();
     private.visibility = SourceVisibility::Internal;
     private.allowed_scopes.insert("docs.internal".into());
-    let mut origin = brain_contracts::source::origin_from_record(&private).unwrap();
     origin.policy.visibility = private.visibility;
     origin.policy.allowed_scopes = private.allowed_scopes.clone();
     origin.bind_record(&mut private).unwrap();
