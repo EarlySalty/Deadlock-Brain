@@ -79,7 +79,7 @@ fn query() -> Query {
 }
 
 #[tokio::test]
-async fn produktiver_retriever_ohne_treffer_liefert_insufficient_evidence() {
+async fn produktiver_retriever_prueft_treffer_leere_suche_und_aktuelle_acl() {
     let store = MemoryRepository::default();
     let scopes = BTreeSet::from(["second_brain.internal".into()]);
     let mut record = SourceRecordV2 {
@@ -128,7 +128,7 @@ async fn produktiver_retriever_ohne_treffer_liefert_insufficient_evidence() {
     }
     .bind_record(&mut record)
     .unwrap();
-    store.apply_record(record).unwrap();
+    store.apply_record(record.clone()).unwrap();
     let release = store
         .release_from_heads("fixture-internal-release", "fixture-v1", "fixture-patch")
         .unwrap();
@@ -142,13 +142,44 @@ async fn produktiver_retriever_ohne_treffer_liefert_insufficient_evidence() {
     )]);
     let service = InternalApiService::new(
         PolicyEngine::new(registry),
-        ReleaseRetriever::new(store, 10),
+        ReleaseRetriever::new(store.clone(), 10),
         "fixture-internal-release".into(),
         1000,
         budget(),
     );
     let mut query = query();
     query.text = "zzzxxyyqq unbekanntertreffer".into();
+    let response = service.handle_query(
+        Some("Bearer internal-fixture-token"),
+        &serde_json::to_vec(&query).unwrap(),
+        RequestDeadline::after(Duration::from_secs(2)),
+    );
+    assert_eq!(response.status, 200);
+    let answer: brain_contracts::internal_api::InternalAnswerResponse =
+        serde_json::from_str(&response.body).unwrap();
+    assert_eq!(answer.status, InternalStatus::InsufficientEvidence);
+    assert!(answer.excerpts.is_empty());
+    assert!(answer.validate(&query.request_id));
+
+    query.text = "Speicherrechten".into();
+    let response = service.handle_query(
+        Some("Bearer internal-fixture-token"),
+        &serde_json::to_vec(&query).unwrap(),
+        RequestDeadline::after(Duration::from_secs(2)),
+    );
+    assert_eq!(response.status, 200);
+    let answer: brain_contracts::internal_api::InternalAnswerResponse =
+        serde_json::from_str(&response.body).unwrap();
+    assert_eq!(answer.status, InternalStatus::Answered);
+    assert_eq!(answer.excerpts.len(), 1);
+    assert_eq!(answer.excerpts[0].source_id, record.source_id);
+
+    record.revision = 2;
+    record.allowed_scopes = BTreeSet::from(["docs.public".into()]);
+    let mut origin = brain_contracts::source::origin_from_record(&record).unwrap();
+    origin.policy.allowed_scopes = record.allowed_scopes.clone();
+    origin.bind_record(&mut record).unwrap();
+    store.apply_record(record).unwrap();
     let response = service.handle_query(
         Some("Bearer internal-fixture-token"),
         &serde_json::to_vec(&query).unwrap(),
