@@ -253,9 +253,50 @@ pub async fn scan(
     repo: &RepositoryConfig,
     previous_sha: Option<&str>,
 ) -> Result<ScanResult> {
+    scan_pinned(config, repo, previous_sha, None).await
+}
+
+pub async fn relevant_source_matches(
+    config: &MaintenanceConfig,
+    repo: &RepositoryConfig,
+    sha: &str,
+) -> Result<bool> {
+    let current = resolve_ref(&repo.path, &repo.source_ref, &config.bounds).await?;
+    if current == sha {
+        return Ok(true);
+    }
+    let pin = PinnedRepository::open(&repo.path, sha)?;
+    pin.require_origin(&[&repo.origin])?;
+    Ok(!pin
+        .diff(&current)?
+        .into_iter()
+        .flat_map(|change| change.old_path.into_iter().chain(change.new_path))
+        .any(|path| {
+            approved_code_path(&path)
+                && repo
+                    .source_paths
+                    .iter()
+                    .any(|scope| path == *scope || path.starts_with(&format!("{scope}/")))
+        }))
+}
+
+pub async fn scan_pinned(
+    config: &MaintenanceConfig,
+    repo: &RepositoryConfig,
+    previous_sha: Option<&str>,
+    required_sha: Option<&str>,
+) -> Result<ScanResult> {
     config.validate()?;
     crate::config::require_registered(config, repo)?;
-    let source_sha = resolve_ref(&repo.path, &repo.source_ref, &config.bounds).await?;
+    let source_sha = if let Some(sha) = required_sha {
+        ensure!(
+            relevant_source_matches(config, repo, sha).await?,
+            "Quellstand hat relevante Änderungen"
+        );
+        sha.to_owned()
+    } else {
+        resolve_ref(&repo.path, &repo.source_ref, &config.bounds).await?
+    };
     let pin = PinnedRepository::open(&repo.path, &source_sha)?;
     pin.require_origin(&[&repo.origin])?;
     let mut inventory = BTreeMap::new();
@@ -396,6 +437,7 @@ pub(crate) fn canonical_policy_bound(
     // Eine neue explizite Exportfreigabe gilt nur für die folgende codebasierte Fassung.
     let mut previous = expected.clone();
     previous.provider_egress_allowed = false;
+    previous.authorization_ref = document.origin.policy.authorization_ref.clone();
     repo.code_only_migration_targets.contains(target)
         && target.starts_with("internal/")
         && !target.starts_with("internal/public-candidates/")

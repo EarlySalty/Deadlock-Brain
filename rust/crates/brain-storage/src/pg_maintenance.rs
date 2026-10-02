@@ -101,7 +101,8 @@ pub(crate) async fn lock_publication_job(
     registration.validate()?;
     if registration.repo_id != job.spec.repo_id
         || registration.policy.as_ref() != Some(&job.spec.policy)
-        || registration.discovered_sha != job.spec.source_sha
+        || (registration.discovered_sha != job.spec.source_sha
+            && !job.checkpoint.artifact_refs.contains_key("local_review"))
     {
         return Err(invalid("maintenance publication registry policy changed"));
     }
@@ -155,6 +156,58 @@ pub(crate) async fn record_publication_checkpoint(
     Ok(())
 }
 impl PgStore {
+    pub async fn finish_superseded_publication(
+        &self,
+        lease: &MaintenanceLease,
+    ) -> Result<(), PortError> {
+        let changed = sqlx::query("UPDATE brain.maintenance_jobs_v1 SET status='failed',error_code='TARGET_SUPERSEDED',owner=NULL,lease_until=NULL,updated_at=now() WHERE id=$1 AND owner=$2 AND fence=$3 AND lease_until>clock_timestamp() AND status='publish'")
+            .bind(&lease.job_id).bind(&lease.owner).bind(lease_inputs(lease)?).execute(&self.pool).await.map_err(database_error)?;
+        if changed.rows_affected() != 1 {
+            return Err(invalid("stale superseded publication fence"));
+        }
+        Ok(())
+    }
+    /// Veränderte Dokumentbasis verwirft nur abgeleitete aktive Eingaben, nie publizierte Belege.
+    pub async fn reset_maintenance_inputs(
+        &self,
+        lease: &MaintenanceLease,
+        archive_ref: &str,
+    ) -> Result<(), PortError> {
+        bounded(archive_ref, 2048)?;
+        let mut tx = self.pool.begin().await.map_err(database_error)?;
+        let query = format!("SELECT {ROW} FROM brain.maintenance_jobs_v1 WHERE id=$1 AND owner=$2 AND fence=$3 AND lease_until>clock_timestamp() FOR UPDATE");
+        let job = decode(
+            sqlx::query(&query)
+                .bind(&lease.job_id)
+                .bind(&lease.owner)
+                .bind(lease_inputs(lease)?)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(database_error)?
+                .ok_or_else(|| invalid("stale maintenance input reset"))?,
+        )?;
+        if job.checkpoint.publication.is_some()
+            || !matches!(
+                job.status,
+                MaintenanceStatus::Author
+                    | MaintenanceStatus::Reviewer
+                    | MaintenanceStatus::Publish
+            )
+        {
+            return Err(invalid("published maintenance inputs cannot reset"));
+        }
+        let mut next = MaintenanceCheckpoint::default();
+        next.artifact_refs
+            .insert("obsolete_checkpoint".into(), archive_ref.into());
+        next.validate(&job.spec, MaintenanceStatus::SourceReview)?;
+        let changed = sqlx::query("UPDATE brain.maintenance_jobs_v1 SET status='source_review',checkpoint_json=$4,owner=NULL,lease_until=NULL,error_code='DOCUMENT_BASE_CHANGED',available_at=clock_timestamp(),updated_at=now() WHERE id=$1 AND owner=$2 AND fence=$3 AND lease_until>clock_timestamp()")
+            .bind(&lease.job_id).bind(&lease.owner).bind(lease_inputs(lease)?).bind(json(&next)?).execute(&mut *tx).await.map_err(database_error)?;
+        if changed.rows_affected() != 1 {
+            return Err(invalid("lease expired during maintenance input reset"));
+        }
+        tx.commit().await.map_err(database_error)?;
+        Ok(())
+    }
     pub async fn set_maintenance_artifact(
         &self,
         lease: &MaintenanceLease,
@@ -747,7 +800,8 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires dedicated /tmp/brain-maintenance-test-20261002/socket PostgreSQL fixture"]
     async fn postgres_queue_races_expiry_and_checkpoint_restart() {
-        let options = sqlx::postgres::PgConnectOptions::new()
+        let options = sqlx::postgres::PgConnectOptions::new_without_pgpass()
+            .password("")
             .host("/tmp/brain-maintenance-test-20261002/socket")
             .port(55447)
             .username("brain_maintenance_test")
@@ -772,6 +826,9 @@ mod tests {
         store.migrate_maintenance().await.unwrap();
         store.migrate_maintenance().await.unwrap();
         store.check_maintenance_schema().await.unwrap();
+        // Erst nach der Prüfung des eigenen lokalen Scratch-Clusters leeren.
+        sqlx::raw_sql("TRUNCATE brain.maintenance_jobs_v1, brain.maintenance_sources_v1, brain.source_record_heads, brain.source_record_revisions, brain.corpus_releases_v1, brain.source_checkpoints_v1, brain.source_jobs_v1 RESTART IDENTITY CASCADE")
+            .execute(&pool).await.unwrap();
         for role in ["brain_ingest", "brain_service", "brain_readonly"] {
             let exists: bool =
                 sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=$1)")
@@ -1419,8 +1476,91 @@ mod tests {
                 .status,
             MaintenanceStatus::Publish
         );
+        // Ein anderer Job aktiviert inzwischen eine neue fremde Revision. Die bezahlte
+        // Dokumentrevision wird ohne neuen Autor auf diese konkrete Basis übertragen.
+        let mut concurrent = restarted.snapshot(&base_id).await.unwrap().release;
+        concurrent.release_id = format!("fixture-concurrent-{run}");
+        concurrent.knowledge_version = "fixture-concurrent".into();
+        concurrent
+            .source_revisions
+            .get_mut(&publication_spec.id)
+            .unwrap()
+            .insert(record.logical_id.clone(), record.revision);
+        restarted.publish_release(&concurrent).await.unwrap();
+        restarted
+            .set_maintenance_artifact(&live, "local_review", "fixture-reviewed-local-package")
+            .await
+            .unwrap();
+        let mut newer_registry = registry.clone();
+        newer_registry.discovered_sha = "b".repeat(40);
+        restarted
+            .advance_maintenance_source(&newer_registry)
+            .await
+            .unwrap();
+        let mut rebased = concurrent.clone();
+        rebased.release_id = format!("fixture-rebased-{run}");
+        rebased.knowledge_version = "fixture-rebased".into();
+        let proof = saved.checkpoint.publication.as_ref().unwrap();
+        rebased
+            .source_revisions
+            .entry(proof.source_id.clone())
+            .or_default()
+            .insert(proof.logical_id.clone(), proof.document_revision);
+        let mut losing_foreign = rebased.clone();
+        losing_foreign.source_revisions.remove(&publication_spec.id);
+        assert!(restarted
+            .rebase_maintenance_publication(
+                &live,
+                &concurrent.release_id,
+                &losing_foreign,
+                "fixture-rebase-journal"
+            )
+            .await
+            .is_err());
+        restarted
+            .rebase_maintenance_publication(
+                &live,
+                &concurrent.release_id,
+                &rebased,
+                "fixture-rebase-journal",
+            )
+            .await
+            .unwrap();
+        let rebased_snapshot = restarted.snapshot(&rebased.release_id).await.unwrap();
+        assert_eq!(
+            rebased_snapshot.release.source_revisions[&publication_spec.id],
+            concurrent.source_revisions[&publication_spec.id]
+        );
+        assert_eq!(
+            restarted
+                .maintenance_sources()
+                .await
+                .unwrap()
+                .into_iter()
+                .find(|r| r.repo_id == registry.repo_id)
+                .unwrap()
+                .discovered_sha,
+            newer_registry.discovered_sha
+        );
+        assert_eq!(
+            restarted
+                .maintenance_job(&guarded.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .checkpoint
+                .publication
+                .as_ref()
+                .unwrap()
+                .release_id,
+            rebased.release_id
+        );
+        assert!(restarted
+            .reset_maintenance_inputs(&live, "must-not-reset-published")
+            .await
+            .is_err());
         let activation = MaintenanceActivationProof {
-            active_release_id: guarded_release.release_id.clone(),
+            active_release_id: rebased.release_id.clone(),
             verified_at_epoch: 1,
             evidence_ref: "guard-fixture-health".into(),
         };
@@ -1433,6 +1573,82 @@ mod tests {
             )
             .await
             .unwrap();
+        let mut reset_spec = s.clone();
+        reset_spec.id = format!("fixture-reset-{run}");
+        reset_spec.idempotency_key = reset_spec.id.clone();
+        restarted
+            .enqueue_maintenance(&reset_spec, MaintenanceStatus::Planned)
+            .await
+            .unwrap();
+        for next in [MaintenanceStatus::SourceReview, MaintenanceStatus::Author] {
+            let lease = restarted
+                .claim_maintenance("reset-prepare", 30000)
+                .await
+                .unwrap()
+                .unwrap()
+                .lease
+                .unwrap();
+            restarted
+                .transition_maintenance(&lease, next, &MaintenanceCheckpoint::default())
+                .await
+                .unwrap();
+        }
+        let reset_lease = restarted
+            .claim_maintenance("reset-inputs", 30000)
+            .await
+            .unwrap()
+            .unwrap()
+            .lease
+            .unwrap();
+        restarted
+            .reset_maintenance_inputs(&reset_lease, "archived-paid-checkpoint")
+            .await
+            .unwrap();
+        assert!(restarted
+            .reset_maintenance_inputs(&reset_lease, "stale-reset")
+            .await
+            .is_err());
+        let reset_job = restarted
+            .maintenance_job(&reset_spec.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(reset_job.status, MaintenanceStatus::SourceReview);
+        assert_eq!(
+            reset_job.checkpoint.artifact_refs["obsolete_checkpoint"],
+            "archived-paid-checkpoint"
+        );
+        let nochange_lease = restarted
+            .claim_maintenance("unchanged", 30000)
+            .await
+            .unwrap()
+            .unwrap()
+            .lease
+            .unwrap();
+        let nochange = MaintenanceCheckpoint {
+            artifact_refs: std::collections::BTreeMap::from([
+                ("scan".into(), "fixture-scan".into()),
+                ("triage".into(), "fixture-current-decision".into()),
+            ]),
+            ..Default::default()
+        };
+        restarted
+            .transition_maintenance(&nochange_lease, MaintenanceStatus::NoChange, &nochange)
+            .await
+            .unwrap();
+        let complete = restarted
+            .maintenance_job(&reset_spec.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            complete.checkpoint.publication.is_none() && complete.checkpoint.activation.is_none()
+        );
+        assert!(restarted
+            .claim_maintenance("unchanged-next-tick", 30000)
+            .await
+            .unwrap()
+            .is_none());
         pool.close().await;
         owner_pool.close().await;
     }

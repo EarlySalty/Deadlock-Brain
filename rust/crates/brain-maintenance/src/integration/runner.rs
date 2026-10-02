@@ -39,6 +39,32 @@ pub struct Runner {
     owner: String,
 }
 
+/// Prüft Rechte und Belege, bevor der Provider überhaupt aufgerufen wird.
+pub async fn guarded_provider_dispatch<T, F, Fut>(
+    store: &PgStore,
+    config: &MaintenanceConfig,
+    repo: &RepositoryConfig,
+    scan: &scanner::ScanResult,
+    job: &MaintenanceJobSpec,
+    dispatch: F,
+) -> Result<T>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<T>>,
+{
+    ensure!(
+        job.repo_id == registration_id(repo, &job.target_path)
+            && job.policy == *repo.document_policy_for(&job.target_path)
+            && job.source_sha == scan.source_sha,
+        "provider_job_binding"
+    );
+    let guard = store.lock_maintenance_provider_policy(job).await?;
+    author::validate_provider_input(config, repo, scan, &job.target_path).await?;
+    let result = dispatch().await?;
+    guard.commit().await?;
+    Ok(result)
+}
+
 pub fn registration_id(repo: &RepositoryConfig, target: &str) -> String {
     format!("{}:{}", repo.id, &digest(target.as_bytes())[..24])
 }
@@ -76,6 +102,33 @@ fn job_spec(
         model: config.codex.model.clone(),
         policy: repo.document_policy_for(target).clone(),
     }
+}
+
+fn local_job_spec(
+    config: &MaintenanceConfig,
+    repo: &RepositoryConfig,
+    document: &CoreDocument,
+    package_hash: &str,
+) -> MaintenanceJobSpec {
+    let SourceRevision::Git { commit } = &document.origin.source_revision else {
+        unreachable!("Geprüfte Gitquelle");
+    };
+    let mut spec = job_spec(
+        config,
+        repo,
+        &document.logical_id,
+        commit,
+        None,
+        package_hash,
+    );
+    let key = digest(
+        &serde_json::to_vec(&json!([repo.id, document.logical_id, package_hash]))
+            .expect("JSON-Daten"),
+    );
+    spec.id = format!("local-{key}");
+    spec.idempotency_key = spec.id.clone();
+    spec.policy = document.origin.policy.clone();
+    spec
 }
 
 impl Runner {
@@ -144,6 +197,22 @@ impl Runner {
                 authorization_ref: Some("workspace-documentation-maintenance-2026-10-02".into()),
             })
             .await?;
+        Ok(())
+    }
+
+    async fn check_registry_policy(&self, repo: &RepositoryConfig, target: &str) -> Result<()> {
+        ensure!(
+            self.store
+                .maintenance_sources()
+                .await?
+                .iter()
+                .any(
+                    |registration| registration.repo_id == registration_id(repo, target)
+                        && registration.source_id == source_id(repo, target)
+                        && registration.policy.as_ref() == Some(repo.document_policy_for(target))
+                ),
+            "registry_policy_revoked_or_changed"
+        );
         Ok(())
     }
 
@@ -229,7 +298,6 @@ impl Runner {
             .await?;
             let sha = scanner::resolve_ref(&repo.path, &repo.source_ref, &config.bounds).await?;
             for target in &repo.doc_targets {
-                self.registration(repo, target, &sha).await?;
                 let recent = self
                     .store
                     .maintenance_jobs(&registration_id(repo, target), 100)
@@ -239,6 +307,7 @@ impl Runner {
                         && j.spec.prompt_version == config.prompt_version
                         && j.spec.policy == *repo.document_policy_for(target)
                 }) {
+                    self.registration(repo, target, &sha).await?;
                     continue;
                 }
                 let previous = recent.first().map(|j| j.spec.source_sha.as_str());
@@ -264,8 +333,11 @@ impl Runner {
                             && j.spec.prompt_version == config.prompt_version
                     })
                 {
+                    self.registration(repo, target, previous.context("previous_source")?)
+                        .await?;
                     continue;
                 }
+                self.registration(repo, target, &sha).await?;
                 let spec = job_spec(&config, repo, target, &sha, None, "automatic");
                 self.store
                     .enqueue_maintenance(&spec, MaintenanceStatus::Planned)
@@ -305,8 +377,10 @@ impl Runner {
             {
                 let current =
                     scanner::resolve_ref(&repo.path, &repo.source_ref, &config.bounds).await?;
-                if self.local_document(&job).await?.is_none()
-                    && (job.spec.source_sha != current
+                if !job.checkpoint.artifact_refs.contains_key("local_review")
+                    && self.local_document(&job).await?.is_none()
+                    && (!scanner::relevant_source_matches(&config, repo, &job.spec.source_sha)
+                        .await?
                         || job.spec.policy != *repo.document_policy_for(&job.spec.target_path))
                 {
                     if let Some(replacement) = self
@@ -361,6 +435,10 @@ impl Runner {
                 let SourceRevision::Git { commit } = &document.origin.source_revision else {
                     anyhow::bail!("local_import_source_revision");
                 };
+                let spec = local_job_spec(config, repo, &document, &import.sha256);
+                if self.store.maintenance_job(&spec.id).await?.is_some() {
+                    continue;
+                }
                 ensure!(
                     document.origin.policy == *repo.document_policy_for(&document.logical_id),
                     "local_import_policy"
@@ -377,15 +455,7 @@ impl Runner {
                 let pinned =
                     dbrain_sources::git_source::PinnedRepository::open(&repo.path, commit)?;
                 pinned.require_origin(&[&repo.origin])?;
-                let spec = job_spec(
-                    config,
-                    repo,
-                    &document.logical_id,
-                    commit,
-                    None,
-                    &import.sha256,
-                );
-                self.registration(repo, &document.logical_id, commit)
+                self.check_registry_policy(repo, &document.logical_id)
                     .await?;
                 self.store
                     .enqueue_maintenance(&spec, MaintenanceStatus::Planned)
@@ -418,14 +488,7 @@ impl Runner {
                         .iter()
                         .find(|r| r.doc_targets.contains(&document.logical_id))
                         .context("local_repo")?;
-                    let expected = job_spec(
-                        &config,
-                        repo,
-                        &document.logical_id,
-                        &job.spec.source_sha,
-                        None,
-                        &import.sha256,
-                    );
+                    let expected = local_job_spec(&config, repo, &document, &import.sha256);
                     if expected.id == job.spec.id {
                         return Ok(Some((
                             document,
@@ -459,13 +522,41 @@ impl Runner {
             "job_policy_revoked"
         );
         ensure!(
-            self.local_document(job).await?.is_some()
-                || scanner::resolve_ref(&repo.path, &repo.source_ref, &config.bounds).await?
-                    == job.spec.source_sha,
+            job.checkpoint.artifact_refs.contains_key("local_review")
+                || self.local_document(job).await?.is_some()
+                || scanner::relevant_source_matches(&config, repo, &job.spec.source_sha).await?,
             "job_source_superseded"
         );
         let mut lease = job.lease.clone().context("job_lease")?;
         let mut checkpoint = job.checkpoint.clone();
+        if job.checkpoint.publication.is_none()
+            && matches!(
+                job.status,
+                MaintenanceStatus::Author
+                    | MaintenanceStatus::Reviewer
+                    | MaintenanceStatus::Publish
+            )
+        {
+            if let Some(reference) = checkpoint.artifact_refs.get("scan") {
+                let scan: scanner::ScanResult =
+                    serde_json::from_slice(&self.artifacts.read(reference)?)?;
+                if let Err(error) =
+                    author::validate_provider_input(&config, repo, &scan, &job.spec.target_path)
+                        .await
+                {
+                    if error.to_string() == "Dokumenttext weicht vom gepinnten Blob ab" {
+                        let archive = self
+                            .artifacts
+                            .put(&serde_json::to_vec(&checkpoint)?, "json")?;
+                        self.store
+                            .reset_maintenance_inputs(&lease, &archive)
+                            .await?;
+                        return Ok(());
+                    }
+                    return Err(error);
+                }
+            }
+        }
         let next = match job.status {
             MaintenanceStatus::Planned => MaintenanceStatus::SourceReview,
             MaintenanceStatus::SourceReview => {
@@ -488,20 +579,39 @@ impl Runner {
                     });
                     MaintenanceStatus::Reviewer
                 } else {
-                    let scan = scanner::scan(&config, repo, None).await?;
+                    let before_sha = config
+                        .canonical_documents
+                        .get(&job.spec.target_path)
+                        .and_then(|doc| match &doc.origin.source_revision {
+                            SourceRevision::Git { commit } => Some(commit.as_str()),
+                            _ => None,
+                        });
+                    let scan =
+                        scanner::scan_pinned(&config, repo, before_sha, Some(&job.spec.source_sha))
+                            .await?;
                     ensure!(scan.source_sha == job.spec.source_sha, "job_scan_revision");
-                    let provider_guard = self
-                        .store
-                        .lock_maintenance_provider_policy(&job.spec)
-                        .await?;
-                    let triage = while_leased(
+                    let triage = guarded_provider_dispatch(
                         &self.store,
-                        &mut lease,
-                        self.runtime.lease_ttl_ms,
-                        triage::triage(&config, repo, &scan, &job.spec.target_path, &self.jev),
+                        &config,
+                        repo,
+                        &scan,
+                        &job.spec,
+                        || {
+                            while_leased(
+                                &self.store,
+                                &mut lease,
+                                self.runtime.lease_ttl_ms,
+                                triage::triage(
+                                    &config,
+                                    repo,
+                                    &scan,
+                                    &job.spec.target_path,
+                                    &self.jev,
+                                ),
+                            )
+                        },
                     )
                     .await?;
-                    provider_guard.commit().await?;
                     ensure!(triage.error_code.is_none(), "jev_review_transport");
                     checkpoint.artifact_refs.insert(
                         "scan".into(),
@@ -528,18 +638,16 @@ impl Runner {
                     .context("scan_checkpoint")?;
                 let scan: scanner::ScanResult =
                     serde_json::from_slice(&self.artifacts.read(reference)?)?;
-                let provider_guard = self
-                    .store
-                    .lock_maintenance_provider_policy(&job.spec)
+                let draft =
+                    guarded_provider_dispatch(&self.store, &config, repo, &scan, &job.spec, || {
+                        while_leased(
+                            &self.store,
+                            &mut lease,
+                            self.runtime.lease_ttl_ms,
+                            author::propose(&config, repo, &scan, &job.spec.target_path),
+                        )
+                    })
                     .await?;
-                let draft = while_leased(
-                    &self.store,
-                    &mut lease,
-                    self.runtime.lease_ttl_ms,
-                    author::propose(&config, repo, &scan, &job.spec.target_path),
-                )
-                .await?;
-                provider_guard.commit().await?;
                 checkpoint.artifact_refs.insert(
                     "draft".into(),
                     self.artifacts.put(&serde_json::to_vec(&draft)?, "json")?,
@@ -564,18 +672,22 @@ impl Runner {
                                 .context("draft_checkpoint")?,
                         )?,
                     )?;
-                    let provider_guard = self
-                        .store
-                        .lock_maintenance_provider_policy(&job.spec)
-                        .await?;
-                    let verified = while_leased(
+                    let verified = guarded_provider_dispatch(
                         &self.store,
-                        &mut lease,
-                        self.runtime.lease_ttl_ms,
-                        author::review_draft(&config, repo, &scan, draft),
+                        &config,
+                        repo,
+                        &scan,
+                        &job.spec,
+                        || {
+                            while_leased(
+                                &self.store,
+                                &mut lease,
+                                self.runtime.lease_ttl_ms,
+                                author::review_draft(&config, repo, &scan, draft),
+                            )
+                        },
                     )
                     .await?;
-                    provider_guard.commit().await?;
                     let document =
                         author::prepare_document(&config, repo, &scan, &verified).await?;
                     checkpoint.review = Some(MaintenanceReviewProof {
@@ -668,8 +780,13 @@ impl Runner {
         document.origin.identity.source_id = source_id(repo, &document.logical_id);
         let projection = dbrain_retrieval::html_projection::project_html(&document.content)?;
         projection.bind_metadata(&mut document.metadata);
-        self.registration(repo, &job.spec.target_path, &job.spec.source_sha)
-            .await?;
+        if job.checkpoint.artifact_refs.contains_key("local_review") {
+            self.check_registry_policy(repo, &job.spec.target_path)
+                .await?;
+        } else {
+            self.registration(repo, &job.spec.target_path, &job.spec.source_sha)
+                .await?;
+        }
         if job.checkpoint.publication.is_none() {
             let serve = brain_serve::Config::load(&self.runtime.serve_config)?;
             let base = self.store.snapshot(&serve.release.id).await?.release;
@@ -726,8 +843,72 @@ impl Runner {
             .artifact_refs
             .get("activation")
             .context("activation_checkpoint")?;
-        let plan =
+        let mut plan =
             ActivationPlan::load(&self.runtime, &self.artifacts, reference, &proof.release_id)?;
+        if plan.needs_rebase()? {
+            let serve = brain_serve::Config::load(&self.runtime.serve_config)?;
+            let mut release = self.store.snapshot(&serve.release.id).await?.release;
+            if release
+                .source_revisions
+                .get(&proof.source_id)
+                .and_then(|pins| pins.get(&proof.logical_id))
+                .is_some_and(|revision| *revision > proof.document_revision)
+            {
+                let replacement = self
+                    .store
+                    .maintenance_jobs(&job.spec.repo_id, 100)
+                    .await?
+                    .into_iter()
+                    .find(|candidate| {
+                        candidate
+                            .checkpoint
+                            .publication
+                            .as_ref()
+                            .is_some_and(|publication| {
+                                publication.source_id == proof.source_id
+                                    && publication.logical_id == proof.logical_id
+                                    && publication.document_revision > proof.document_revision
+                            })
+                    });
+                if let Some(replacement) = replacement {
+                    self.store
+                        .supersede_maintenance(lease, &replacement.spec.id)
+                        .await?;
+                    return Ok(());
+                }
+                self.store.finish_superseded_publication(lease).await?;
+                return Ok(());
+            }
+            let base_id = release.release_id.clone();
+            let key = digest(&serde_json::to_vec(&json!([
+                job.spec.id,
+                base_id,
+                proof.document_revision
+            ]))?);
+            release.release_id = format!("maintenance-rebase-{key}");
+            release.knowledge_version = format!("docs-rebase-{key}");
+            release.created_at_epoch = chrono::Utc::now().timestamp();
+            release
+                .source_revisions
+                .entry(proof.source_id.clone())
+                .or_default()
+                .insert(proof.logical_id.clone(), proof.document_revision);
+            plan = ActivationPlan::prepare(&self.runtime, &self.artifacts, &release)?;
+            if let Err(error) = self
+                .store
+                .rebase_maintenance_publication(lease, &base_id, &release, plan.journal_ref())
+                .await
+            {
+                if error
+                    .to_string()
+                    .contains("rebase would restore superseded target")
+                {
+                    self.store.finish_superseded_publication(lease).await?;
+                    return Ok(());
+                }
+                return Err(error.into());
+            }
+        }
         let activate = plan.clone();
         self.store
             .activate_maintenance_checked(
@@ -809,7 +990,9 @@ impl Runner {
                 break;
             };
             let lease = job.lease.clone().context("job_lease")?;
-            if self.local_document(&job).await?.is_none() {
+            if !job.checkpoint.artifact_refs.contains_key("local_review")
+                && self.local_document(&job).await?.is_none()
+            {
                 self.store
                     .retry_maintenance(&lease, "LOCAL_IMPORT_ONLY", 1000)
                     .await?;

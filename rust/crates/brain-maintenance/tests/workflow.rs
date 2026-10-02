@@ -118,6 +118,119 @@ fn verified(config: &MaintenanceConfig, scan: &scanner::ScanResult) -> VerifiedD
 }
 
 #[tokio::test]
+#[ignore = "requires dedicated /tmp/brain-maintenance-test-20261002/socket PostgreSQL fixture"]
+async fn postgres_revocation_after_scan_blocks_actual_provider_dispatch() {
+    use brain_contracts::maintenance::*;
+    use brain_maintenance::integration::runner::guarded_provider_dispatch;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let (_dir, mut config, repo) = fixture();
+    fs::create_dir_all(config.docs_repo.join("assets")).unwrap();
+    fs::write(
+        config.docs_repo.join("assets/probe.png"),
+        b"controlled-image",
+    )
+    .unwrap();
+    pin(&config.docs_repo);
+    config
+        .registered_assets
+        .push(brain_maintenance::config::AssetProvenance {
+            src: "/assets/probe.png".into(),
+            git_path: "assets/probe.png".into(),
+            sha256: digest(b"controlled-image"),
+            source_locator: "controlled-test".into(),
+            alt: "Prüfbild".into(),
+        });
+    let scan = scanner::scan(&config, &repo, None).await.unwrap();
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(4)
+        .connect_with(
+            sqlx::postgres::PgConnectOptions::new_without_pgpass()
+                .host("/tmp/brain-maintenance-test-20261002/socket")
+                .port(55447)
+                .username("brain_maintenance_test")
+                .database("postgres")
+                .password(""),
+        )
+        .await
+        .unwrap();
+    let store = brain_storage::PgStore::new(pool);
+    store.check_maintenance_schema().await.unwrap();
+    let id = format!("provider-guard-{}", chrono::Utc::now().timestamp_micros());
+    let spec = MaintenanceJobSpec {
+        id: id.clone(),
+        repo_id: brain_maintenance::integration::runner::registration_id(
+            &repo,
+            "internal/system.html",
+        ),
+        idempotency_key: id.clone(),
+        source_sha: scan.source_sha.clone(),
+        deployed_sha: None,
+        target_path: "internal/system.html".into(),
+        prompt_version: config.prompt_version.clone(),
+        model: config.codex.model.clone(),
+        policy: repo.document_policy.clone(),
+    };
+    let mut registration = MaintenanceSourceRegistration {
+        repo_id: spec.repo_id.clone(),
+        source_id: format!("maintenance-docs:{id}"),
+        discovered_sha: scan.source_sha.clone(),
+        policy: Some(spec.policy.clone()),
+        authorization_ref: Some("controlled-test".into()),
+    };
+    store
+        .register_maintenance_source(&registration)
+        .await
+        .unwrap();
+    store
+        .enqueue_maintenance(&spec, MaintenanceStatus::Planned)
+        .await
+        .unwrap();
+    let calls = AtomicUsize::new(0);
+    guarded_provider_dispatch(&store, &config, &repo, &scan, &spec, || async {
+        calls.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    })
+    .await
+    .unwrap();
+    assert_eq!(calls.swap(0, Ordering::SeqCst), 1);
+    registration.policy = None;
+    registration.authorization_ref = None;
+    store
+        .register_maintenance_source(&registration)
+        .await
+        .unwrap();
+    assert!(
+        guarded_provider_dispatch(&store, &config, &repo, &scan, &spec, || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        })
+        .await
+        .is_err()
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    registration.policy = Some(spec.policy.clone());
+    registration.authorization_ref = Some("new-controlled-test-approval".into());
+    store
+        .register_maintenance_source(&registration)
+        .await
+        .unwrap();
+    config.registered_assets.clear();
+    assert!(
+        guarded_provider_dispatch(&store, &config, &repo, &scan, &spec, || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        })
+        .await
+        .is_err()
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    let stored = store.maintenance_job(&id).await.unwrap().unwrap();
+    assert!(stored.checkpoint.publication.is_none());
+    assert!(stored.checkpoint.activation.is_none());
+    assert_eq!(stored.status, MaintenanceStatus::Planned);
+}
+
+#[tokio::test]
 async fn code_only_migration_keeps_previous_private_text_local_and_binds_all_rights() {
     let (_dir, mut config, mut repo) = fixture();
     let initial = scanner::scan(&config, &repo, None).await.unwrap();
@@ -269,6 +382,38 @@ async fn pinned_source_ignores_dirty_checkout_and_doc_only_commits() {
         .unwrap();
     assert!(!second.source_changed);
     assert_eq!(second.source_fingerprint, first.source_fingerprint);
+    assert!(
+        scanner::relevant_source_matches(&config, &repo, &first.source_sha)
+            .await
+            .unwrap()
+    );
+    let retained = scanner::scan_pinned(
+        &config,
+        &repo,
+        Some(&first.source_sha),
+        Some(&first.source_sha),
+    )
+    .await
+    .unwrap();
+    assert_eq!(retained.source_sha, first.source_sha);
+    assert!(
+        author::validate_provider_input(&config, &repo, &retained, "internal/system.html")
+            .await
+            .is_ok()
+    );
+    let paid = verified(&config, &first);
+    author::prepare_document(&config, &repo, &first, &paid)
+        .await
+        .unwrap();
+    fs::write(
+        config.docs_repo.join("README.md"),
+        "Unabhängige Gitänderung.\n",
+    )
+    .unwrap();
+    pin(&config.docs_repo);
+    author::prepare_document(&config, &repo, &first, &paid)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]

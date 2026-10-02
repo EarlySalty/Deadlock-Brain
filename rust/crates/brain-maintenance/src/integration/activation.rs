@@ -95,6 +95,10 @@ impl ActivationPlan {
     pub fn journal_ref(&self) -> &str {
         &self.journal_ref
     }
+    pub fn needs_rebase(&self) -> Result<bool> {
+        let current = read_bounded(&self.path, 65536)?;
+        Ok(current != self.old_bytes && current != self.new_bytes)
+    }
 
     fn replace(&self, expected: &[u8], replacement: &[u8]) -> Result<()> {
         ensure!(

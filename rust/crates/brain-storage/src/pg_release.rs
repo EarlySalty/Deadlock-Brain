@@ -54,6 +54,86 @@ async fn publish_release_tx(
 }
 
 impl PgStore {
+    /// Verbindet eine unveränderte publizierte Dokumentrevision mit dem jetzt aktiven Basisrelease.
+    pub async fn rebase_maintenance_publication(
+        &self,
+        lease: &MaintenanceLease,
+        base_id: &str,
+        release: &CorpusRelease,
+        activation_ref: &str,
+    ) -> Result<(), PortError> {
+        brain_contracts::maintenance::bounded(activation_ref, 2048)?;
+        let mut tx = self.pool.begin().await.map_err(database_error)?;
+        let (job, registration) =
+            crate::pg_maintenance::lock_publication_job(&mut tx, lease).await?;
+        let previous = job
+            .checkpoint
+            .publication
+            .as_ref()
+            .ok_or_else(|| invalid("rebase requires existing publication"))?;
+        if previous.source_id != registration.source_id
+            || previous.logical_id != job.spec.target_path
+        {
+            return Err(invalid("rebase target identity changed"));
+        }
+        lock_source(&mut tx, &registration.source_id)
+            .await
+            .map_err(database_error)?;
+        let base_value: serde_json::Value = sqlx::query_scalar(
+            "SELECT release_json FROM brain.corpus_releases_v1 WHERE release_id=$1",
+        )
+        .bind(base_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(database_error)?
+        .ok_or_else(|| invalid("rebase base missing"))?;
+        let base: CorpusRelease =
+            serde_json::from_value(base_value).map_err(|_| invalid("rebase base JSON"))?;
+        let mut expected = base.source_revisions.clone();
+        expected
+            .entry(previous.source_id.clone())
+            .or_default()
+            .insert(previous.logical_id.clone(), previous.document_revision);
+        if release.patch != base.patch || release.source_revisions != expected {
+            return Err(invalid("rebase changed unrelated pins"));
+        }
+        let value: serde_json::Value = sqlx::query_scalar("SELECT record_json FROM brain.source_record_heads WHERE source_id=$1 AND logical_id=$2")
+            .bind(&previous.source_id).bind(&previous.logical_id).fetch_optional(&mut *tx).await.map_err(database_error)?.ok_or_else(|| invalid("rebase target missing"))?;
+        let record: SourceRecordV2 =
+            serde_json::from_value(value).map_err(|_| invalid("rebase target JSON"))?;
+        crate::pg_maintenance::validate_publication_record(&job, &record)?;
+        if record.revision != previous.document_revision
+            || record.content_hash != previous.document_sha256
+        {
+            return Err(invalid("rebase would restore superseded target"));
+        }
+        publish_release_tx(&mut tx, release).await?;
+        let mut checkpoint = job.checkpoint.clone();
+        checkpoint
+            .publication
+            .as_mut()
+            .expect("Publikationsbeleg")
+            .release_id = release.release_id.clone();
+        checkpoint
+            .artifact_refs
+            .insert("activation".into(), activation_ref.into());
+        checkpoint
+            .artifact_refs
+            .insert("previous_release".into(), previous.release_id.clone());
+        checkpoint.validate(
+            &job.spec,
+            brain_contracts::maintenance::MaintenanceStatus::Publish,
+        )?;
+        let changed = sqlx::query("UPDATE brain.maintenance_jobs_v1 SET checkpoint_json=$4,updated_at=now() WHERE id=$1 AND owner=$2 AND fence=$3 AND lease_until>clock_timestamp() AND status='publish'")
+            .bind(&lease.job_id).bind(&lease.owner).bind(lease.fence as i64).bind(serde_json::to_value(&checkpoint).map_err(|_| invalid("rebase checkpoint JSON"))?)
+            .execute(&mut *tx).await.map_err(database_error)?;
+        if changed.rows_affected() != 1 {
+            return Err(invalid("stale rebase fence"));
+        }
+        tx.commit().await.map_err(database_error)?;
+        Ok(())
+    }
+
     pub async fn publish_release(&self, release: &CorpusRelease) -> Result<(), PortError> {
         let mut tx = self.pool.begin().await.map_err(database_error)?;
         publish_release_tx(&mut tx, release).await?;

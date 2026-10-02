@@ -246,24 +246,6 @@ pub fn validate_events(config: &MaintenanceConfig, stream: &[u8]) -> Result<Code
     })
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SmokeAnswer {
-    ok: bool,
-    shell_tools_available: bool,
-}
-
-pub async fn smoke(config: &MaintenanceConfig) -> Result<CodexRunProof> {
-    config.validate()?;
-    let schema = json!({"type":"object","additionalProperties":false,"required":["ok","shell_tools_available"],"properties":{"ok":{"type":"boolean"},"shell_tools_available":{"type":"boolean"}}});
-    let (answer,proof): (SmokeAnswer,CodexRunProof) = invoke(config,"Dies ist ein harmloser Werkzeug-Smoke. Führe nach Möglichkeit den Shellbefehl true aus, ohne Dateizugriffe oder sonstige Befehle. Lies keine Dateien, Secrets oder Nutzer-/Communitydaten. Falls kein Shell- oder Exec-Werkzeug angeboten wird, unterlasse die Ausführung. Gib ok=true zurück und shell_tools_available entsprechend den tatsächlich angebotenen Werkzeugen. Antworte ausschließlich im vorgegebenen JSON-Schema.",&schema).await?;
-    ensure!(
-        answer.ok && !answer.shell_tools_available,
-        "Codex-Smoke fehlgeschlagen oder Shellwerkzeuge verfügbar"
-    );
-    Ok(proof)
-}
-
 fn validate_citations(scan: &ScanResult, citations: &[Citation]) -> Result<()> {
     ensure!(
         !citations.is_empty() && citations.len() <= scan.source_blobs.len(),
@@ -324,6 +306,19 @@ pub fn validate_proposal(
                 previous_html
             };
         crate::html::validate_html_with_assets(previous_html, &proposal.content, &scan.assets)?;
+        if repo.document_policy_for(&proposal.target).visibility
+            == brain_contracts::SourceVisibility::Public
+        {
+            let text = crate::html::visible_text(&proposal.content);
+            ensure!(
+                scan.source_blobs
+                    .iter()
+                    .all(|blob| !text.contains(&blob.path)
+                        && !proposal.content.contains(&blob.path)
+                        && !proposal.content.contains(&blob.origin.locator)),
+                "Öffentlicher Dokumenttext enthält interne Quellbelege"
+            );
+        }
         let document = scraper::Html::parse_document(&proposal.content);
         let selector =
             scraper::Selector::parse("meta[name=source-commit]").expect("Fester CSS-Selektor");
@@ -400,6 +395,14 @@ fn provider_evidence(
     )?)
 }
 
+fn publication_rules(repo: &RepositoryConfig, target: &str) -> &'static str {
+    if repo.document_policy_for(target).visibility == brain_contracts::SourceVisibility::Public {
+        "Diese Seite ist öffentliche Nutzerhilfe. Beschreibe ausschließlich belegte Bedienung, sichtbares Verhalten und Grenzen für Nutzer. Interne Softwaremechanismen, Schutzregeln und Schwellenwerte, technische Quellpfade, interne IDs, nicht öffentliche Endpunkte und Betriebsdetails gehören nicht in den Seiteninhalt. Codebelege bleiben ausschließlich im separaten citations-Feld. Ein Quellenabschnitt darf nur öffentliche Nutzerquellen nennen. Prüfe diese Grenze auch für Grafiken und Bildtexte."
+    } else {
+        "Diese Seite ist interne technische Dokumentation und wird nur über die geprüfte interne Identität bereitgestellt."
+    }
+}
+
 pub async fn propose(
     config: &MaintenanceConfig,
     repo: &RepositoryConfig,
@@ -428,6 +431,7 @@ pub async fn propose(
     )?;
     let evidence = provider_evidence(config, repo, scan, target)?;
     let version = &config.prompt_version;
+    let audience = publication_rules(repo, target);
     let migration = if scan.documents[target].is_some()
         && crate::scanner::exportable_document(config, scan, target).is_none()
     {
@@ -438,7 +442,7 @@ pub async fn propose(
     let prompt = format!("Du überarbeitest genau das Dokument {target}. before_sha256={before_sha256}; documentation-version={version}. {STYLE} {TRUST}\nPrüfe zuerst, ob überhaupt eine fachliche Änderung erforderlich ist. Bei unveränderter Bedeutung action=keep und den ursprünglichen Text wortgetreu zurückgeben. Bei fehlenden Belegen action=source_review und konkrete offene Fragen. Für update sind vollständige Belege und keine offenen Fragen erforderlich. source_sha und before_sha256 exakt aus dem Paket übernehmen. citations nennen die tatsächlich verwendeten Codepfade und deren sha256. Neue Dokumente sind semantisches HTML im vorhandenen schlichten Docs-Aufbau: html lang=de, main, genau ein h1, section mit stabilen IDs, Quellenabschnitt. Neue und aktualisierte HTML-Seiten erhalten meta name=source-commit mit dem gelieferten SHA, documentation-version mit der Promptversion und documentation-status mit dem Arbeitsstand. Bestehendes Gerüst, Titel, Stile, Navigation, Abschnitt-IDs und Bildquellen erhalten. Grafiken sind nur erläuterte, skriptfreie Inline-SVG innerhalb figure mit figcaption. Keine neuen Bilddateien, JS, Eventhandler oder externen aktiven Ressourcen. Der Kerntext muss ohne Bilder verständlich sein. Unveränderte Markdownquellen bleiben bei keep wortgetreu erhalten. Bei update wird HTML erzeugt; die logische Seiten-ID bleibt gleich. Keine Massenkonvertierung.\nEvidenzpaket:\n{evidence}");
     let (proposal, author_proof): (AuthorProposal, CodexRunProof) = invoke(
         config,
-        &format!("{prompt}\nZusätzliche Bindung der Neufassung:\n{migration}"),
+        &format!("{prompt}\n{audience}\nZusätzliche Bindung der Neufassung:\n{migration}"),
         &proposal_schema(),
     )
     .await?;
@@ -470,7 +474,8 @@ pub async fn review_draft(
     let evidence_sha256 = digest(&serde_json::to_vec(scan)?);
     let proposal_raw = serde_json::to_string(&proposal)?;
     let proposal_sha256 = digest(proposal_raw.as_bytes());
-    let review_prompt = format!("Du bist die unabhängige Abnahme für einen Dokumentvorschlag. Du hast den Autorenturn nicht gesehen. {STYLE} {TRUST}\nPrüfe den Vorschlag vollständig gegen Codebelege, alte Dokumentation und Nutzerwirkung. Fachliche Behauptungen ohne vollständige Aufrufer/Belege, unzulässige Veröffentlichung, verschwundene Quellen oder unbelegte Liveversprechen führen zu approved=false. Eine SourceReview-Antwort bleibt gesperrt. approved=true nur ohne findings und mit konkreten geprüften Codebelegen. proposal_sha256={proposal_sha256}.\nEvidenz:\n{evidence}\nVorschlag:\n{proposal_raw}");
+    let audience = publication_rules(repo, target);
+    let review_prompt = format!("Du bist die unabhängige Abnahme für einen Dokumentvorschlag. Du hast den Autorenturn nicht gesehen. {STYLE} {TRUST}\n{audience}\nPrüfe den Vorschlag vollständig gegen Codebelege, alte Dokumentation und Nutzerwirkung. Fachliche Behauptungen ohne vollständige Aufrufer/Belege, unzulässige Veröffentlichung, verschwundene Quellen oder unbelegte Liveversprechen führen zu approved=false. Eine SourceReview-Antwort bleibt gesperrt. approved=true nur ohne findings und mit konkreten geprüften Codebelegen. proposal_sha256={proposal_sha256}.\nEvidenz:\n{evidence}\nVorschlag:\n{proposal_raw}");
     validate_provider_input(config, repo, scan, target).await?;
     let (review, reviewer_proof): (IndependentReview, CodexRunProof) =
         invoke(config, &review_prompt, &review_schema()).await?;
@@ -524,7 +529,7 @@ pub async fn recheck_source(
 ) -> Result<()> {
     crate::config::require_registered(config, repo)?;
     ensure!(
-        resolve_ref(&repo.path, &repo.source_ref, &config.bounds).await? == scan.source_sha,
+        crate::scanner::relevant_source_matches(config, repo, &scan.source_sha).await?,
         "Quellstand hat sich verändert, neuer Auftrag erforderlich"
     );
     let pin = dbrain_sources::git_source::PinnedRepository::open(&repo.path, &scan.source_sha)?;
@@ -590,8 +595,9 @@ pub async fn validate_provider_input(
         "Dokumentinventar weicht von der Registrierung ab"
     );
     recheck_source(config, repo, scan).await?;
+    let current_docs_sha = resolve_ref(&config.docs_repo, &config.docs_ref, &config.bounds).await?;
     let docs =
-        dbrain_sources::git_source::PinnedRepository::open(&config.docs_repo, &scan.docs_sha)?;
+        dbrain_sources::git_source::PinnedRepository::open(&config.docs_repo, &current_docs_sha)?;
     docs.require_origin(&[&config.docs_origin])?;
     for (page, text) in &scan.documents {
         let path = &scan.document_paths[page];
@@ -694,10 +700,6 @@ pub async fn prepare_document(
         "Aktuelle Quellenpolicy sperrt die Übernahme"
     );
     recheck_source(config, repo, scan).await?;
-    ensure!(
-        resolve_ref(&config.docs_repo, &config.docs_ref, &config.bounds).await? == scan.docs_sha,
-        "Dokument-Referenz wurde verändert"
-    );
     let previous_path = scan
         .document_paths
         .get(&verified.proposal.target)
