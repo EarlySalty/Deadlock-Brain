@@ -2053,6 +2053,24 @@ mod tests {
                 .unwrap()
                 .insert(guarded.target_path.clone(), revision);
             if revision == 3 {
+                let pending_lease = pending_recovery_lease.as_ref().unwrap();
+                let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                let counter = calls.clone();
+                assert!(restarted
+                    .activate_maintenance_checked(
+                        pending_lease,
+                        1000,
+                        |_| async move {
+                            counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                            Err(PortError::Unavailable(
+                                "revoked old activation must not run".into(),
+                            ))
+                        },
+                        || async { panic!("registry denial must precede activation") }
+                    )
+                    .await
+                    .is_err());
+                assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
                 let authorized = recovery_cp.artifact_refs["unactivated_basis"].clone();
                 let mut foreign: MaintenancePublicationProof =
                     serde_json::from_str(&authorized).unwrap();
