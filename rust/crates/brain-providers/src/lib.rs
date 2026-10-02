@@ -32,6 +32,7 @@ pub struct PriceCeiling {
 mod circuit;
 mod embeddings;
 mod hardening;
+pub mod private_egress;
 mod transport;
 
 impl std::fmt::Debug for ProviderConfig {
@@ -185,22 +186,19 @@ impl OpenAiCompatibleProvider {
         context_json: &str,
         private: bool,
     ) -> std::result::Result<ProviderAnswer, PortError> {
-        if private
-            && (!context.principal.provider_egress.contains("private_dm")
-                || reqwest::Url::parse(&self.config.base_url)
-                    .ok()
-                    .and_then(|u| u.host_str().map(str::to_owned))
-                    .as_deref()
-                    != Some("api.fireworks.ai")
-                || !self
-                    .config
-                    .model
-                    .starts_with("accounts/fireworks/models/deepseek-")
-                || !self.config.model.ends_with("-flash"))
-        {
-            return Err(PortError::PermissionDenied(
-                "Private Weitergabe ist nicht freigegeben".into(),
-            ));
+        if private {
+            let decision = private_egress::private_processing_requirements(
+                &context.principal,
+                private_egress::TextProviderTarget::Api {
+                    endpoint: &self.config.base_url,
+                    model: &self.config.model,
+                },
+            )?;
+            if decision != private_egress::PrivateProcessingDecision::GrantedApi {
+                return Err(PortError::PermissionDenied(
+                    "Private API-Verarbeitung ist nicht freigegeben".into(),
+                ));
+            }
         }
         hardening::authorize(query, context, evidence).map_err(|_| {
             PortError::PermissionDenied("Guide-Weitergabe ist nicht freigegeben".into())

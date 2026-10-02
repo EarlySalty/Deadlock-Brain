@@ -250,9 +250,7 @@ impl Config {
             .is_some_and(|g| g.enabled && g.private_dm_egress)
         {
             require(
-                endpoint.host_str() == Some("api.fireworks.ai")
-                    && p.model.starts_with("accounts/fireworks/models/deepseek-")
-                    && p.model.ends_with("-flash"),
+                brain_providers::private_egress::approved_private_api(&p.base_url, &p.model),
                 "guide_private_provider",
             )?;
         }
