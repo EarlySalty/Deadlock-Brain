@@ -10,7 +10,7 @@ fn config_paths() -> Result<Option<(PathBuf, PathBuf)>, Error> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     match args.as_slice() {
         [arg] if arg == "--help" || arg == "-h" => {
-            println!("brain-serve --config /pfad/brain-serve.json --infisical-config /pfad/infisical.json\n\nBeide normalen Konfigurationsdateien sind ausdrücklich anzugeben. Geheimnisse kommen aus dem vorhandenen Infisical-Snapshot. Die historischen *_env-Felder benennen dort Geheimnisse, keine Umgebungsvariablen.\nGET /healthz, GET /readyz, POST /v1/answer. SIGTERM/SIGINT beenden den Dienst geordnet.");
+            println!("brain-serve --config /pfad/brain-serve.json --infisical-config /pfad/infisical.json\n\nBeide normalen Konfigurationsdateien sind ausdrücklich anzugeben. Geheimnisse kommen aus dem vorhandenen Infisical-Snapshot. Die historischen *_env-Felder benennen dort Geheimnisse, keine Umgebungsvariablen.\nGET /healthz, GET /readyz, POST /v1/answer, POST /v1/retrieve. SIGTERM/SIGINT beenden den Dienst geordnet.");
             Ok(None)
         }
         [arg] if arg == "--version" => {

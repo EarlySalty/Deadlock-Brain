@@ -243,6 +243,8 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
         }
     };
     let retrieval = AnalyticsRetriever::new(retrieval, prepared.analytics.clone());
+    let public_retrieval =
+        ReleaseRetriever::new(prepared.reader.clone(), prepared.config.retrieval.limit);
     let kernel = CachedKernel::new(
         Kernel::new(retrieval, prepared.provider.clone()),
         prepared.config.kernel.cache_entries,
@@ -258,7 +260,8 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
         &prepared.config.release.id,
         prepared.config.timeouts.request_ms,
         (&prepared.config.budgets).into(),
-    );
+    )
+    .with_retrieval(public_retrieval);
     let mut router = brain_api::router(api)
         .layer(middleware::from_fn_with_state(
             health.clone(),

@@ -9,6 +9,26 @@ pub struct PublicCitation {
     pub citation_id: String,
     pub label: String,
 }
+/// Öffentlich freigegebene Originalbelege ohne interne Quellenadressen oder ACLs.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PublicEvidence {
+    pub citation_id: String,
+    pub label: String,
+    pub text: String,
+    pub kind: crate::EvidenceKind,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PublicRetrievalResponse {
+    pub contract_version: String,
+    pub request_id: String,
+    pub knowledge_release: String,
+    pub status: AnswerStatus,
+    pub evidence: Vec<PublicEvidence>,
+    pub truncated: bool,
+    pub out_of_domain: bool,
+}
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PublicAnswerResponse {

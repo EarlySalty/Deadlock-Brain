@@ -5,6 +5,7 @@ use brain_kernel::AnswerKernelPort;
 use brain_policy::{PolicyEngine, PolicyError};
 use sha2::{Digest, Sha256};
 mod http;
+mod retrieval;
 pub use http::router;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,6 +21,7 @@ pub struct ApiService<K> {
     knowledge_release: String,
     deadline_ms: u64,
     budget: Budget,
+    retrieval: Option<std::sync::Arc<dyn brain_contracts::RetrievalPort>>,
 }
 
 impl<K> ApiService<K>
@@ -39,7 +41,16 @@ where
             knowledge_release: knowledge_release.into(),
             deadline_ms,
             budget,
+            retrieval: None,
         }
+    }
+
+    pub fn with_retrieval(
+        mut self,
+        retrieval: impl brain_contracts::RetrievalPort + 'static,
+    ) -> Self {
+        self.retrieval = Some(std::sync::Arc::new(retrieval));
+        self
     }
 
     pub fn handle_answer(&self, authorization: Option<&str>, body: &[u8]) -> ApiResponse {

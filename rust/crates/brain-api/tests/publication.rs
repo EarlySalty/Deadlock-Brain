@@ -441,6 +441,159 @@ impl AnswerProviderPort for NoProvider {
         panic!("facts must stay provider-free")
     }
 }
+
+#[tokio::test]
+async fn retrieval_returns_original_public_text_without_provider_or_internal_metadata() {
+    let store = MemoryRepository::default();
+    store.apply_record(record("a", 1, true, true)).unwrap();
+    publish(&store).await;
+    let api = service(Kernel::new(
+        ReleaseRetriever::new(store.clone(), 10),
+        NoProvider,
+    ))
+    .with_retrieval(ReleaseRetriever::new(store.clone(), 10));
+    let q = query(AnswerProfile::Explain);
+    let body = serde_json::to_vec(&q).unwrap();
+    let response = api.handle_retrieve(Some("Bearer publication-token"), &body);
+    assert_eq!(response.status, 200, "{}", response.body);
+    let public: brain_contracts::public_api::PublicRetrievalResponse =
+        serde_json::from_str(&response.body).unwrap();
+    assert_eq!(public.status, AnswerStatus::Answered);
+    assert_eq!(public.evidence.len(), 1);
+    assert_eq!(public.evidence[0].text, "hero: Abrams\nhealth: 650");
+    assert_eq!(public.evidence[0].kind, brain_contracts::EvidenceKind::Fact);
+    for secret in [
+        "publication-a",
+        "entity/hero",
+        "fixture-grant",
+        "allowed_scopes",
+        "source_id",
+        "locator",
+        "origin_artifact",
+    ] {
+        assert!(!response.body.contains(secret));
+    }
+    assert_eq!(api.handle_retrieve(None, &body).status, 401);
+    let mut escalated = q;
+    escalated.requested_scopes.insert("admin".into());
+    assert_eq!(
+        api.handle_retrieve(
+            Some("Bearer publication-token"),
+            &serde_json::to_vec(&escalated).unwrap()
+        )
+        .status,
+        403
+    );
+    store.apply_record(record("a", 2, false, true)).unwrap();
+    let revoked = api.handle_retrieve(Some("Bearer publication-token"), &body);
+    assert_eq!(revoked.status, 403);
+    assert!(!revoked.body.contains("650"));
+}
+
+#[tokio::test]
+async fn retrieval_distinguishes_absent_knowledge_from_unavailable_and_denied_publication() {
+    let store = MemoryRepository::default();
+    store.apply_record(record("a", 1, true, true)).unwrap();
+    publish(&store).await;
+    let api = service(Kernel::new(
+        ReleaseRetriever::new(store.clone(), 10),
+        NoProvider,
+    ))
+    .with_retrieval(ReleaseRetriever::new(store.clone(), 10));
+    let mut q = query(AnswerProfile::Explain);
+    q.text = "xxxxxxxxnomatch".into();
+    let response = api.handle_retrieve(
+        Some("Bearer publication-token"),
+        &serde_json::to_vec(&q).unwrap(),
+    );
+    assert_eq!(response.status, 200, "{}", response.body);
+    let public: brain_contracts::public_api::PublicRetrievalResponse =
+        serde_json::from_str(&response.body).unwrap();
+    assert_eq!(public.status, AnswerStatus::InsufficientEvidence);
+    assert!(public.evidence.is_empty());
+    let unavailable = service(Kernel::new(ReleaseRetriever::new(store, 10), NoProvider));
+    assert_eq!(
+        unavailable
+            .handle_retrieve(
+                Some("Bearer publication-token"),
+                &serde_json::to_vec(&q).unwrap()
+            )
+            .status,
+        503
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn retrieval_http_route_enforces_authentication_and_dispatches_without_provider() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let store = MemoryRepository::default();
+    store.apply_record(record("a", 1, true, true)).unwrap();
+    publish(&store).await;
+    let api = service(Kernel::new(
+        ReleaseRetriever::new(store.clone(), 10),
+        NoProvider,
+    ))
+    .with_retrieval(ReleaseRetriever::new(store, 10));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move {
+        axum::serve(listener, brain_api::router(api)).await.unwrap();
+    });
+    let body = serde_json::to_string(&query(AnswerProfile::Explain)).unwrap();
+    for (authorization, expected) in [
+        ("Bearer publication-token", "HTTP/1.1 200"),
+        ("Bearer invalid", "HTTP/1.1 401"),
+    ] {
+        let mut socket = tokio::net::TcpStream::connect(address).await.unwrap();
+        let request = format!("POST /v1/retrieve HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nAuthorization: {authorization}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+        socket.write_all(request.as_bytes()).await.unwrap();
+        let mut response = String::new();
+        socket.read_to_string(&mut response).await.unwrap();
+        assert!(response.starts_with(expected), "{response}");
+        if expected.ends_with("200") {
+            assert!(response.contains("hero: Abrams"));
+            assert!(response.contains("no-store"));
+            assert!(!response.contains("publication-a"));
+        } else {
+            assert!(!response.contains("650"));
+        }
+    }
+    task.abort();
+}
+
+#[tokio::test]
+async fn retrieval_rejects_internal_text_even_when_credentials_allow_internal_reading() {
+    let store = MemoryRepository::default();
+    let mut private = record("a", 1, true, true);
+    private.visibility = SourceVisibility::Internal;
+    private.allowed_scopes.insert("docs.internal".into());
+    let mut origin = brain_contracts::source::origin_from_record(&private).unwrap();
+    origin.policy.visibility = private.visibility;
+    origin.policy.allowed_scopes = private.allowed_scopes.clone();
+    origin.bind_record(&mut private).unwrap();
+    store.apply_record(private).unwrap();
+    publish(&store).await;
+    let api = ApiService::new(
+        PolicyEngine::new(CredentialRegistry::new(vec![AuthGrant::from_secret(
+            "publication-token",
+            "actor",
+            "test",
+            BTreeSet::from(["docs.internal".into()]),
+            BTreeSet::from(["internal".into()]),
+        )])),
+        Kernel::new(ReleaseRetriever::new(store.clone(), 10), NoProvider),
+        "r1",
+        8000,
+        Budget::default(),
+    )
+    .with_retrieval(ReleaseRetriever::new(store, 10));
+    let response = api.handle_retrieve(
+        Some("Bearer publication-token"),
+        &serde_json::to_vec(&query(AnswerProfile::Explain)).unwrap(),
+    );
+    assert_ne!(response.status, 200);
+    assert!(!response.body.contains("650"));
+}
 #[tokio::test]
 async fn publication_denial_preserves_internal_fact_reads_but_blocks_external_text_and_citations() {
     let store = MemoryRepository::default();

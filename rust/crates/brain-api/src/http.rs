@@ -19,6 +19,7 @@ struct HttpState<K> {
 pub fn router<K: AnswerKernelPort + 'static>(service: ApiService<K>) -> Router {
     Router::new()
         .route("/v1/answer", post(answer::<K>))
+        .route("/v1/retrieve", post(retrieve::<K>))
         .fallback(|| async { respond(json_error(404, "not_found", "Route nicht verfügbar")) })
         .with_state(Arc::new(HttpState {
             service,
@@ -35,6 +36,19 @@ impl Drop for CancelOnDrop {
 async fn answer<K: AnswerKernelPort + 'static>(
     State(state): State<Arc<HttpState<K>>>,
     request: Request,
+) -> Response {
+    dispatch(state, request, false).await
+}
+async fn retrieve<K: AnswerKernelPort + 'static>(
+    State(state): State<Arc<HttpState<K>>>,
+    request: Request,
+) -> Response {
+    dispatch(state, request, true).await
+}
+async fn dispatch<K: AnswerKernelPort + 'static>(
+    state: Arc<HttpState<K>>,
+    request: Request,
+    retrieval: bool,
 ) -> Response {
     // Request is not a body extractor: no body is polled before admission/authentication.
     let deadline = RequestDeadline::after(Duration::from_millis(
@@ -110,9 +124,15 @@ async fn answer<K: AnswerKernelPort + 'static>(
         let worker = tokio::task::spawn_blocking(move || {
             // A client timeout/drop cannot release an executing or queued worker's permit.
             let _permit = permit;
-            state
-                .service
-                .handle_answer_until(authorization.as_deref(), &body, deadline)
+            if retrieval {
+                state
+                    .service
+                    .handle_retrieve_until(authorization.as_deref(), &body, deadline)
+            } else {
+                state
+                    .service
+                    .handle_answer_until(authorization.as_deref(), &body, deadline)
+            }
         });
         match worker.await {
             Ok(result) => result,

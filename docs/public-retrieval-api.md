@@ -1,0 +1,13 @@
+# Öffentliche Belegsuche
+
+`POST /v1/retrieve` liest Originalbelege aus dem konfigurierten Wissensstand. Die Route ruft weder den Antwortkernel noch einen KI-Anbieter auf. Discord nutzt diese Belege im vorhandenen zentralen Antwortweg.
+
+Der Request verwendet denselben `Query`-Contract wie `/v1/answer`. Der Bot sendet `request_id`, `conversation_id`, `text`, `requested_scopes: ["bot.public"]` und `profile: "explain"`. Authentifizierung, Conversation-Ownership und Scopes laufen über die bestehende Policy mit dem vorhandenen Bearer-Token. Eine andere Identität im Request ist nicht erlaubt. Der HTTP-Leseweg teilt sich Kapazitätsgrenze, Bodylimit von 64 KiB und durchgehende Requestdeadline mit `/v1/answer`.
+
+Die Antwort enthält `contract_version: "brain.public.v1"`, `request_id`, `knowledge_release`, `status`, `evidence`, `truncated` und `out_of_domain`. Jeder Beleg enthält ausschließlich `citation_id`, `label`, `text` und `kind`. Die Beleg-ID ist wie bei öffentlichen Antworten ein SHA-256-Hash der internen ID. Die Arten sind `fact`, `rule`, `prose`, `mechanic`, `population` und `replay`. Sie bezeichnen die Art des Belegs; sie versprechen keine Creator-Verifizierung.
+
+`ReleaseRetriever` liest den gepinnten Wissensstand über denselben `LocalPgReader`-Pool. Vor Ausgabe prüft `validate_publication` das gesamte Belegpaket gegen die kanonischen Veröffentlichungsfreigaben und aktuellen Berechtigungen. Zusätzlich muss jeder ausgegebene Beleg öffentlich sein. Interne IDs, Quellpfade, Quellenadressen, ACLs, Provenienzmetadaten und Anbieterinformationen erscheinen nicht in der Antwort. Die Originaltexte öffentlicher Belege bleiben erhalten.
+
+Ein Treffer ergibt HTTP 200 mit `status: "answered"`. Ohne Treffer folgt HTTP 200 mit `status: "insufficient_evidence"` und leerem `evidence`; der gepinnte `knowledge_release` bleibt gesetzt. Ungültige Requests erhalten 400, ungültige Zugangsdaten 401, fehlende Berechtigungen oder widerrufene Veröffentlichungsfreigaben 403, Überlastung 429, ungültige Belegantworten 502, fehlende oder ausgefallene Belegsuche 503 und abgelaufene Deadlines 504. Fehler enthalten keine Belegtexte. Antwortpakete über 2 MiB werden abgelehnt.
+
+`truncated` bleibt `false`: Die Route gibt das vom bestehenden Retriever ausgewählte Paket vollständig aus und kürzt keine Texte. `out_of_domain` bleibt `false`, da der bestehende Retriever keine eigene Domänenerkennung liefert. Fehlende Treffer allein belegen keine fremde Domäne. Clients behandeln Ausfälle und verweigerte Veröffentlichung als Fehler, nicht als fehlendes Wissen.
