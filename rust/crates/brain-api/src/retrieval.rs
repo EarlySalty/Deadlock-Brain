@@ -47,6 +47,15 @@ impl<K: AnswerKernelPort> ApiService<K> {
         if query.validate().is_err() {
             return json_error(400, "invalid_request", "Query-Contract ist ungültig");
         }
+        // Domänenbeweise enthalten interne Eingangsrevisionen und Quelllocator.
+        // Ihr eigener Auswertungsweg bleibt ausschließlich bei /v1/answer.
+        if query.domain.is_some() {
+            return json_error(
+                400,
+                "unsupported_domain",
+                "Belegsuche unterstützt ausschließlich Textfragen",
+            );
+        }
         let context = match self.policy.authorize_query_until(
             token,
             &query,

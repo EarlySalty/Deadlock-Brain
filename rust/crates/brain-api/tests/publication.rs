@@ -523,6 +523,45 @@ async fn retrieval_distinguishes_absent_knowledge_from_unavailable_and_denied_pu
     );
 }
 
+#[tokio::test]
+async fn retrieval_excludes_public_domain_proof_with_internal_input_locators() {
+    use brain_contracts::domain::DomainRequest;
+    let store = MemoryRepository::default();
+    for record in domain_fixture::records("r1", "p1", 1, "500") {
+        store.apply_record(record).unwrap();
+    }
+    publish(&store).await;
+    let api = service(Kernel::new(
+        ReleaseRetriever::new(store.clone(), 10),
+        NoProvider,
+    ))
+    .with_retrieval(ReleaseRetriever::new(store, 10));
+    let mut q = domain_fixture::query(
+        &DomainRequest::Rule {
+            rule_id: "fixture-dps".into(),
+        },
+        "p1",
+    );
+    q.conversation_id = "c1".into();
+    let response = api.handle_retrieve(
+        Some("Bearer publication-token"),
+        &serde_json::to_vec(&q).unwrap(),
+    );
+    assert_eq!(response.status, 400, "{}", response.body);
+    let error: brain_contracts::ApiErrorEnvelope = serde_json::from_str(&response.body).unwrap();
+    assert_eq!(error.error.code, "unsupported_domain");
+    for internal in [
+        "source_id",
+        "logical_id",
+        "locator",
+        "content_hash",
+        "fact-damage",
+    ] {
+        assert!(!response.body.contains(internal));
+    }
+    assert_eq!(external(&api, &q).status, AnswerStatus::Answered);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn retrieval_http_route_enforces_authentication_and_dispatches_without_provider() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
