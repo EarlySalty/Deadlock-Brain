@@ -123,15 +123,24 @@ impl ChunkIndex {
                         return Ok(record.content.clone());
                     }
                     let projection = crate::html_projection::project_html(&record.content)?;
-                    if record
-                        .metadata
-                        .get("html_projection_version")
-                        .map(String::as_str)
-                        != Some(crate::html_projection::HTML_PROJECTION_VERSION)
-                        || record.metadata.get("html_raw_sha256") != Some(&projection.raw_sha256)
-                        || record.content_hash != projection.raw_sha256
-                        || record.metadata.get("html_semantic_sha256")
-                            != Some(&projection.semantic_sha256)
+                    let legacy = [
+                        "html_projection_version",
+                        "html_raw_sha256",
+                        "html_semantic_sha256",
+                    ]
+                    .iter()
+                    .all(|key| !record.metadata.contains_key(*key));
+                    if record.content_hash != projection.raw_sha256
+                        || (!legacy
+                            && (record
+                                .metadata
+                                .get("html_projection_version")
+                                .map(String::as_str)
+                                != Some(crate::html_projection::HTML_PROJECTION_VERSION)
+                                || record.metadata.get("html_raw_sha256")
+                                    != Some(&projection.raw_sha256)
+                                || record.metadata.get("html_semantic_sha256")
+                                    != Some(&projection.semantic_sha256)))
                     {
                         return Err(PortError::InvalidResponse("html_projection_binding".into()));
                     }

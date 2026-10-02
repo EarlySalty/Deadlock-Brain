@@ -631,6 +631,91 @@ async fn markdown_keep_retains_format_and_resume_path() {
     .unwrap();
 }
 
+#[tokio::test]
+async fn legacy_core_html_release_projects_without_mutating_historical_provenance() {
+    use brain_contracts::*;
+    use brain_ingestion::document_set::{prepare_document_batch, CoreDocument, DocumentSetSource};
+    let (_dir, config, repo) = fixture();
+    let scan = scanner::scan(&config, &repo, None).await.unwrap();
+    let target = "internal/system.html";
+    let content = scan.documents[target].clone().unwrap();
+    let mut origin = scan.source_blobs[0].origin.clone();
+    origin.raw_sha256 = digest(content.as_bytes());
+    origin.policy = repo.document_policy.clone();
+    let document = CoreDocument {
+        logical_id: target.into(),
+        content,
+        origin,
+        metadata: std::collections::BTreeMap::from([
+            ("content_format".into(), "html".into()),
+            ("parser".into(), "reviewed-docs-v1".into()),
+        ]),
+    };
+    let source = DocumentSetSource {
+        source_id: "legacy-reviewed-html".into(),
+        configuration: "legacy-v1".into(),
+        visibility: SourceVisibility::Internal,
+        allowed_scopes: repo.document_policy.allowed_scopes.clone(),
+        tombstone_metadata: Default::default(),
+    };
+    let batch = prepare_document_batch(&source, &[document], None).unwrap();
+    let original = batch.records[0].clone();
+    assert!(!original.metadata.contains_key("html_projection_version"));
+    let store = brain_storage::MemoryRepository::default();
+    store.apply_record(original.clone()).unwrap();
+    let release = store
+        .release_from_heads("legacy-html", "legacy-v1", "fixture")
+        .unwrap();
+    store.publish(&release).await.unwrap();
+    let retriever = dbrain_retrieval::ReleaseRetriever::new(store.clone(), 3);
+    let query = Query {
+        request_id: "legacy-q".into(),
+        conversation_id: "legacy-c".into(),
+        text: "Helfer".into(),
+        requested_scopes: Default::default(),
+        profile: AnswerProfile::Explain,
+        patch: None,
+        mode: None,
+        domain: None,
+    };
+    let context = AuthorizedContext {
+        request_deadline: None,
+        principal: Principal {
+            actor_id: "operator-fixture".into(),
+            channel: "local-fixture".into(),
+            scopes: repo.document_policy.allowed_scopes.clone(),
+            provider_egress: BTreeSet::from(["internal".into()]),
+        },
+        conversation_id: query.conversation_id.clone(),
+        knowledge_release: release.release_id.clone(),
+        deadline_ms: 8000,
+        budget: Budget::default(),
+    };
+    let hits = retriever.retrieve(&query, &context).unwrap();
+    assert!(!hits.is_empty());
+    assert!(hits.iter().all(|hit| !hit.content.contains('<')));
+    retriever
+        .validate_evidence(&query, &context, &hits, false)
+        .unwrap();
+    retriever
+        .validate_evidence(&query, &context, &hits, true)
+        .unwrap();
+    assert_eq!(
+        store.read_snapshot(&release.release_id).unwrap().revisions[0],
+        original
+    );
+    let mut inconsistent = original;
+    inconsistent
+        .metadata
+        .insert("html_projection_version".into(), "unbound".into());
+    let other = brain_storage::MemoryRepository::default();
+    other.apply_record(inconsistent).unwrap();
+    other.publish(&release).await.unwrap();
+    assert!(dbrain_retrieval::ReleaseRetriever::new(other, 3)
+        .retrieve(&query, &context)
+        .is_err());
+}
+
 #[test]
 fn source_rollback_creates_new_transition_but_unchanged_tick_has_none() {
     use brain_maintenance::integration::runner::automatic_job_spec;

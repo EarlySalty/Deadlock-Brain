@@ -1499,6 +1499,7 @@ impl Runner {
         let snapshot = self.store.snapshot(&serve.release.id).await?;
         let principal = local_operator_principal(uid, &self.runtime.maintenance_config)?;
         let records = snapshot.authorized(&principal, false)?;
+        let registrations = self.store.maintenance_sources().await?;
         let words: Vec<_> = text
             .to_lowercase()
             .split_whitespace()
@@ -1509,16 +1510,19 @@ impl Runner {
             if !record.source_id.starts_with("maintenance-docs:") {
                 continue;
             }
-            let registrations = self.store.maintenance_sources().await?;
-            let current = registrations
+            let Some(current) = registrations
                 .iter()
                 .find(|r| r.source_id == record.source_id)
-                .context("document_registry_missing")?;
+            else {
+                continue;
+            };
+            if current.policy.is_none() {
+                continue;
+            }
             let origin = origin_from_record(&record).map_err(anyhow::Error::msg)?;
-            ensure!(
-                current.policy.as_ref() == Some(&origin.policy),
-                "document_registry_rights_changed"
-            );
+            if current.policy.as_ref() != Some(&origin.policy) {
+                continue;
+            }
             let (text, text_sha256) = if document_is_html(&record.metadata) {
                 let projection = dbrain_retrieval::html_projection::project_html(&record.content)?;
                 (projection.text, projection.semantic_sha256)

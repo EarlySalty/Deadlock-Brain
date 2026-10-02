@@ -381,6 +381,91 @@ fn rejection(
 
 #[tokio::test]
 #[ignore = "Benötigt den ausdrücklich isolierten PostgreSQL-Prüfcluster; exklusiv ausführen"]
+async fn postgres_local_query_skips_denied_documents_and_preserves_other_results() {
+    use brain_contracts::DocumentStorePort;
+    use brain_ingestion::document_set::prepare_document_batch;
+    let (_dir, runner, _config, repo, scan) = setup().await;
+    let mut batches = Vec::new();
+    let mut pins = BTreeMap::new();
+    for case in ["allowed", "missing", "revoked", "changed"] {
+        let id = format!("maintenance-docs:query-{}-{case}", runner.owner);
+        let target = format!("internal/{case}.html");
+        let content = format!("<html><body><p>Gemeinsamer Prüfbeleg {case}</p></body></html>");
+        let mut origin = scan.source_blobs[0].origin.clone();
+        origin.raw_sha256 = digest(content.as_bytes());
+        origin.policy = repo.document_policy.clone();
+        let source = DocumentSetSource {
+            source_id: id.clone(),
+            configuration: "query-fixture".into(),
+            visibility: origin.policy.visibility,
+            allowed_scopes: origin.policy.allowed_scopes.clone(),
+            tombstone_metadata: Default::default(),
+        };
+        let document = CoreDocument {
+            logical_id: target.clone(),
+            content,
+            origin,
+            metadata: BTreeMap::from([("content_format".into(), "html".into())]),
+        };
+        let batch = prepare_document_batch(&source, &[document], None).unwrap();
+        let lease = runner
+            .store
+            .claim(&id, "query-fixture", 30000)
+            .await
+            .unwrap();
+        if case != "missing" {
+            let mut policy = repo.document_policy.clone();
+            if case == "changed" {
+                policy.provider_egress_allowed = false;
+            }
+            runner
+                .store
+                .register_maintenance_source(&MaintenanceSourceRegistration {
+                    repo_id: id.clone(),
+                    source_id: id.clone(),
+                    discovered_sha: scan.source_sha.clone(),
+                    policy: if case == "revoked" {
+                        None
+                    } else {
+                        Some(policy)
+                    },
+                    authorization_ref: Some("query-fixture".into()),
+                })
+                .await
+                .unwrap();
+        }
+        pins.insert(id, BTreeMap::from([(target, 1)]));
+        batches.push((batch, lease));
+    }
+    let release = CorpusRelease {
+        release_id: format!("query-release-{}", runner.owner),
+        knowledge_version: "query-fixture".into(),
+        patch: "fixture".into(),
+        created_at_epoch: 1,
+        source_revisions: pins,
+    };
+    for (batch, lease) in &batches {
+        runner.store.commit(batch, lease).await.unwrap();
+    }
+    runner.store.publish_release(&release).await.unwrap();
+    let mut serve: serde_json::Value =
+        serde_json::from_slice(&fs::read(&runner.runtime.serve_config).unwrap()).unwrap();
+    serve["release"] =
+        json!({"id":release.release_id,"knowledge_version":release.knowledge_version});
+    fs::write(
+        &runner.runtime.serve_config,
+        serde_json::to_vec(&serve).unwrap(),
+    )
+    .unwrap();
+    let result = runner.query("Prüfbeleg").await.unwrap();
+    let hits = result["results"].as_array().unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0]["logical_id"], "internal/allowed.html");
+    assert_eq!(result["release_id"], release.release_id);
+}
+
+#[tokio::test]
+#[ignore = "Benötigt den ausdrücklich isolierten PostgreSQL-Prüfcluster; exklusiv ausführen"]
 async fn postgres_runner_private_basis_reset_and_rejected_review_resume() {
     let (dir, runner, mut config, repo, scan) = setup().await;
     let mut resumed = stage(&runner, &config, &repo, &scan, false).await;
