@@ -149,8 +149,7 @@ async fn initialize(prepared: &Prepared) -> Result<Arc<Health>, Error> {
     let knowledge_version = prepared.config.release.knowledge_version.clone();
     let client_releases: Vec<_> = prepared
         .config
-        .credentials
-        .iter()
+        .all_credentials()
         .filter_map(|credential| {
             credential.release.clone().map(|release| {
                 (
@@ -224,8 +223,7 @@ async fn initialize(prepared: &Prepared) -> Result<Arc<Health>, Error> {
         prepared.reader.clone(),
         prepared
             .config
-            .credentials
-            .iter()
+            .all_credentials()
             .filter_map(|credential| {
                 credential.release.as_ref().and_then(|release| {
                     credential

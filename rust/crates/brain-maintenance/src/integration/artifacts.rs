@@ -126,7 +126,7 @@ impl Artifacts {
     pub fn put(&self, bytes: &[u8], extension: &str) -> Result<String> {
         ensure!(bytes.len() <= 8 * 1024 * 1024, "artifact_size");
         ensure!(
-            ["json", "html", "md", "raw"].contains(&extension),
+            ["json", "toml", "html", "md", "raw"].contains(&extension),
             "artifact_extension"
         );
         let name = format!("{:x}.{extension}", Sha256::digest(bytes));
@@ -158,7 +158,7 @@ impl Artifacts {
                 && hash
                     .bytes()
                     .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
-                && ["json", "html", "md", "raw"].contains(&extension),
+                && ["json", "toml", "html", "md", "raw"].contains(&extension),
             "artifact_reference"
         );
         let path = self.root.join(name);

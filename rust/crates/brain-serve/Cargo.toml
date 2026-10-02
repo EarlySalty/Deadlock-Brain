@@ -9,6 +9,8 @@ brain-api = { path = "../brain-api" }
 brain-contracts = { path = "../brain-contracts" }
 brain-kernel = { path = "../brain-kernel" }
 brain-policy = { path = "../brain-policy" }
+nix = { version = "0.29", default-features = false, features = ["fs", "user"] }
+filedescriptor = "0.8"
 uplink-infisical-transport = { path = "../../vendor/uplink-infisical-transport" }
 brain-providers = { path = "../brain-providers" }
 brain-storage = { path = "../brain-storage" }
@@ -23,6 +25,8 @@ sha2.workspace = true
 sqlx.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "signal", "sync"] }
+toml.workspace = true
+zeroize = "1"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

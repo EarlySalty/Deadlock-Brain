@@ -2,7 +2,7 @@
 use crate::Error;
 use brain_contracts::Budget;
 use serde::Deserialize;
-use std::{collections::BTreeSet, fs::File, io::Read, net::SocketAddr, path::Path};
+use std::{collections::BTreeSet, net::SocketAddr, path::Path};
 
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -35,7 +35,7 @@ pub struct Postgres {
     pub username: String,
     pub database: String,
     pub auth: DatabaseAuth,
-    /// Historical JSON key; the value is an Infisical secret name, never an ENV lookup.
+    /// Bestehender Feldname für den Infisical-Schlüsselnamen, ohne ENV-Zugriff.
     pub password_env: Option<String>,
     pub max_connections: u32,
 }
@@ -60,7 +60,7 @@ pub struct Provider {
     pub kind: ProviderKind,
     pub base_url: String,
     pub model: String,
-    /// Historical JSON key; the value names the explicit Infisical snapshot entry.
+    /// Bestehender Feldname für den Infisical-Schlüsselnamen, ohne ENV-Zugriff.
     pub api_key_env: String,
     pub retry_attempts: usize,
     pub retry_backoff_ms: u64,
@@ -149,7 +149,7 @@ pub struct Analytics {
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Credential {
-    /// Historical JSON key retained for config compatibility; names an Infisical secret.
+    /// Bestehender Feldname für den Infisical-Schlüsselnamen, ohne ENV-Zugriff.
     pub token_env: String,
     pub actor_id: String,
     pub channel: String,
@@ -164,6 +164,7 @@ pub struct Credential {
 pub struct InternalOperator {
     pub socket: std::path::PathBuf,
     pub release: Release,
+    pub credential: Credential,
 }
 
 fn identifier(value: &str, maximum: usize) -> bool {
@@ -193,32 +194,29 @@ fn require(condition: bool, section: &'static str) -> Result<(), Error> {
 
 impl Config {
     pub fn load(path: &Path) -> Result<Self, Error> {
-        let metadata = std::fs::metadata(path).map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                Error::ConfigMissing
-            } else {
-                Error::ConfigIo
-            }
-        })?;
-        require(metadata.is_file(), "file")?;
-        let file = File::open(path).map_err(|_| Error::ConfigIo)?;
-        require(
-            file.metadata().map_err(|_| Error::ConfigIo)?.is_file(),
-            "file",
-        )?;
-        let mut bytes = Vec::new();
-        file.take(64 * 1024 + 1)
-            .read_to_end(&mut bytes)
-            .map_err(|_| Error::ConfigIo)?;
-        Self::parse(&bytes)
+        Self::parse(&crate::bot_toml::read(path)?)
     }
 
     pub fn parse(bytes: &[u8]) -> Result<Self, Error> {
-        require(bytes.len() <= 64 * 1024, "size")?;
-        // Never expose serde's error: it can include input values.
-        let config: Self = serde_json::from_slice(bytes).map_err(|_| Error::ConfigSyntax)?;
+        let root = crate::bot_toml::document(bytes)?;
+        let serve = crate::bot_toml::value(&root, &["brain", "serve"])?;
+        require(serve.get("internal_operator").is_none(), "operator_table")?;
+        let mut config: Self = serve.try_into().map_err(|_| Error::ConfigSyntax)?;
+        config.internal_operator = root
+            .get("brain")
+            .and_then(|brain| brain.get("operator"))
+            .map(|operator| operator.clone().try_into().map_err(|_| Error::ConfigSyntax))
+            .transpose()?;
         config.validate()?;
         Ok(config)
+    }
+
+    pub fn all_credentials(&self) -> impl Iterator<Item = &Credential> {
+        self.credentials.iter().chain(
+            self.internal_operator
+                .iter()
+                .map(|operator| &operator.credential),
+        )
     }
 
     pub fn validate(&self) -> Result<(), Error> {
@@ -345,7 +343,15 @@ impl Config {
         }
         let mut bindings = std::collections::BTreeMap::new();
         let mut internal_count = 0;
-        for grant in &self.credentials {
+        require(
+            self.credentials.iter().all(|grant| {
+                grant.actor_id != "second-brain"
+                    && grant.channel != "internal"
+                    && !grant.scopes.contains("second_brain.internal")
+            }),
+            "public_registry_internal_grant",
+        )?;
+        for grant in self.all_credentials() {
             let release = grant.release.as_ref().unwrap_or(&self.release);
             require(
                 identifier(&release.id, 512)
@@ -411,6 +417,8 @@ impl Config {
         if let Some(internal) = &self.internal_operator {
             require(
                 internal_count == 1
+                    && internal.credential.actor_id == "second-brain"
+                    && internal.credential.channel == "internal"
                     && internal.socket.is_absolute()
                     && internal.socket.as_os_str().len() <= 107
                     && internal.socket.components().all(|component| {

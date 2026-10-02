@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 //! Test-only process harness. Synthetic snapshots cross a private anonymous pipe, never files.
 use serde_json::{json, Value};
+#[path = "../../../../test-support/bot_toml.rs"]
+mod fixture_toml;
 use std::{
     fs::{File, OpenOptions},
     io::Write,
@@ -18,10 +20,11 @@ pub const OTHER_TOKEN: &str = "synthetic-c1-other-client-token";
 pub const PG_PASSWORD: &str = "synthetic-c1-database-password";
 
 pub fn config() -> Value {
-    let mut value: Value = serde_json::from_slice(include_bytes!(
-        "../../../../../config/brain-serve.example.json"
+    let root = brain_serve::bot_toml::document(include_bytes!(
+        "../../../../../config/brain-serve.example.toml"
     ))
     .unwrap();
+    let mut value = serde_json::to_value(&root["brain"]["serve"]).unwrap();
     value["bind"] = json!("127.0.0.1:0");
     value
 }
@@ -52,7 +55,11 @@ impl Service {
         keep_open: bool,
     ) -> Self {
         let directory = tempfile::tempdir().unwrap();
-        let config_path = directory.path().join("service.json");
+        let config_path = directory.path().join("bot.toml");
+        let infisical = json!({
+            "project_id":"synthetic-project", "environment":"synthetic", "secret_path":"/",
+            "socket_path":directory.path().join("unused-infisical.sock"), "secret_values_fd":3
+        });
         let mut config_file = OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -60,23 +67,11 @@ impl Service {
             .open(&config_path)
             .unwrap();
         config_file
-            .write_all(&serde_json::to_vec_pretty(config).unwrap())
+            .write_all(&fixture_toml::section(
+                &json!({"brain":{"serve":config,"infisical":infisical}}),
+                &[],
+            ))
             .unwrap();
-        let infisical_path = directory.path().join("infisical.json");
-        // This normal config contains only source coordinates and a pipe FD.
-        // The existing shared loader validates FIFO type, bounds and EOF.
-        std::fs::write(
-            &infisical_path,
-            serde_json::to_vec(&json!({
-                "project_id": "synthetic-project",
-                "environment": "synthetic",
-                "secret_path": "/",
-                "socket_path": directory.path().join("unused-infisical.sock"),
-                "secret_values_fd": 3
-            }))
-            .unwrap(),
-        )
-        .unwrap();
         let log = directory.path().join("service.log");
         let output = File::create(&log).unwrap();
         // Test-only shell duplicates the anonymous stdin pipe into the explicit
@@ -86,8 +81,6 @@ impl Service {
             .arg(env!("CARGO_BIN_EXE_brain-serve"))
             .arg("--config")
             .arg(&config_path)
-            .arg("--infisical-config")
-            .arg(&infisical_path)
             .env_clear()
             // Hostile ambient values deliberately differ from the snapshot and
             // cannot supply missing credentials or override explicit config.

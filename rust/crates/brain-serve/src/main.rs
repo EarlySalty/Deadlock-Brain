@@ -10,18 +10,22 @@ fn config_paths() -> Result<Option<(PathBuf, PathBuf)>, Error> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     match args.as_slice() {
         [arg] if arg == "--help" || arg == "-h" => {
-            println!("brain-serve --config /pfad/brain-serve.json --infisical-config /pfad/infisical.json\n\nBeide normalen Konfigurationsdateien sind ausdrücklich anzugeben. Geheimnisse kommen aus dem vorhandenen Infisical-Snapshot. Die historischen *_env-Felder benennen dort Geheimnisse, keine Umgebungsvariablen.\nGET /healthz, GET /readyz, POST /v1/answer, POST /v1/retrieve. SIGTERM/SIGINT beenden den Dienst geordnet.");
+            println!("brain-serve --config /pfad/config/bot.toml\n\nServe liest [brain.serve], den privaten Operator aus [brain.operator] und sichere Secretmetadaten aus [brain.infisical] derselben normalen Bot-TOML. Historische *_env-Felder sind Infisical-Schlüsselnamen, keine Umgebungsvariablen.\nGET /healthz, GET /readyz, POST /v1/answer, POST /v1/retrieve. SIGTERM/SIGINT beenden den Dienst geordnet.");
             Ok(None)
         }
         [arg] if arg == "--version" => {
             println!("brain-serve {}", env!("CARGO_PKG_VERSION"));
             Ok(None)
         }
+        [config, path] if config == "--config" && !path.is_empty() => {
+            Ok(Some((path.into(), path.into())))
+        }
         [config, path, infisical, secret_path]
             if config == "--config"
                 && infisical == "--infisical-config"
                 && !path.is_empty()
-                && !secret_path.is_empty() =>
+                && !secret_path.is_empty()
+                && path == secret_path =>
         {
             Ok(Some((path.into(), secret_path.into())))
         }
@@ -29,7 +33,8 @@ fn config_paths() -> Result<Option<(PathBuf, PathBuf)>, Error> {
             if config == "--config"
                 && infisical == "--infisical-config"
                 && !path.is_empty()
-                && !secret_path.is_empty() =>
+                && !secret_path.is_empty()
+                && path == secret_path =>
         {
             Ok(Some((path.into(), secret_path.into())))
         }

@@ -51,9 +51,8 @@ fn local_operator_principal(uid: u32, config_path: &Path) -> Result<brain_contra
 }
 
 pub fn load_maintenance(path: &Path) -> Result<MaintenanceConfig> {
-    let mut config: MaintenanceConfig = serde_json::from_slice(&read_bounded(path, 256 * 1024)?)
-        .map_err(|_| anyhow::anyhow!("maintenance_config_schema"))?;
-    config.validate()?;
+    let mut config =
+        crate::config::parse_maintenance(&read_bounded(path, brain_serve::bot_toml::MAX_BYTES)?)?;
     config.loaded_from = Some(path.to_owned());
     Ok(config)
 }
@@ -198,11 +197,12 @@ fn local_job_spec(
 impl Runner {
     pub async fn open(runtime: RuntimeConfig) -> Result<Self> {
         let config = load_maintenance(&runtime.maintenance_config)?;
-        let snapshot: BTreeMap<_, _> = dl_token_secrets::values(&runtime.infisical_config)
-            .await
-            .map_err(|_| anyhow::anyhow!("secret_source_unavailable"))?
-            .into_iter()
-            .collect();
+        let snapshot: BTreeMap<_, _> =
+            brain_serve::bot_toml::infisical_snapshot(&runtime.infisical_config)
+                .await
+                .map_err(|_| anyhow::anyhow!("secret_source_unavailable"))?
+                .into_iter()
+                .collect();
         let jev = snapshot
             .get(&runtime.jev_secret)
             .cloned()

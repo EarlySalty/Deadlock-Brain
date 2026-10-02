@@ -4,7 +4,7 @@ Description=Deadlock-Brain-Dokumentation prüfen und freigegebene Fassungen übe
 [Service]
 Type=oneshot
 LoadCredential=infisical-token:%h/.config/infisical-tokens/infisical-token-bots
-ExecStart=/bin/bash -c 'exec 5<"%d/infisical-token"; exec /opt/deadlock-brain/maintenance-current/brain-maintain --config /etc/deadlock-brain/maintenance-runtime.json --infisical-config /etc/deadlock-brain/infisical.json tick'
+ExecStart=/bin/bash -c 'exec 5<"%d/infisical-token"; exec @RELEASE_ROOT@/brain-maintain --config @RELEASE_ROOT@/config/bot.toml tick'
 TimeoutStartSec=40min
 KillMode=control-group
 UMask=0077

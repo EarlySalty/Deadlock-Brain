@@ -36,7 +36,7 @@ fn help_does_not_require_configuration_or_credentials() {
     assert!(output.status.success());
     let help = String::from_utf8(output.stdout).unwrap();
     assert!(help.contains("--config"));
-    assert!(help.contains("--infisical-config"));
+    assert!(help.contains("[brain.infisical]"));
     assert!(!help.contains("BRAIN_SERVE_CONFIG"));
 }
 
@@ -56,16 +56,15 @@ fn ambient_config_is_not_a_startup_source() {
 #[test]
 fn unavailable_explicit_infisical_source_is_redacted_and_never_reaches_startup() {
     let directory = tempfile::tempdir().unwrap();
-    let config_path = directory.path().join("service.json");
-    std::fs::write(&config_path, serde_json::to_vec(&config()).unwrap()).unwrap();
+    let config_path = directory.path().join("bot.toml");
+    std::fs::write(
+        &config_path,
+        toml::to_string(&json!({"brain":{"serve":config()}})).unwrap(),
+    )
+    .unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_brain-serve"))
         .env_clear()
-        .args([
-            "--config",
-            config_path.to_str().unwrap(),
-            "--infisical-config",
-            "/missing/DO-NOT-LOG-source.json",
-        ])
+        .args(["--config", config_path.to_str().unwrap()])
         .output()
         .unwrap();
     assert!(!output.status.success());

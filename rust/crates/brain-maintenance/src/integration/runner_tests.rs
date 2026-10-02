@@ -1,3 +1,5 @@
+#[path = "../../../../test-support/bot_toml.rs"]
+mod fixture_toml;
 use crate::{
     author::{self, Action, AuthorProposal, Citation, IndependentReview, VerifiedDocument},
     config::{MaintenanceConfig, RepositoryConfig},
@@ -51,7 +53,8 @@ fn fixture() -> (tempfile::TempDir, MaintenanceConfig, RepositoryConfig) {
     pin(&source);
     pin(&docs);
     let mut config: MaintenanceConfig =
-        serde_json::from_str(include_str!("../../config/smoke.example.json")).unwrap();
+        crate::config::parse_maintenance(include_bytes!("../../config/smoke.example.toml"))
+            .unwrap();
     config.docs_repo = docs;
     config.docs_origin = "https://github.com/test/docs.git".into();
     config.repo_roots = vec![dir.path().to_owned()];
@@ -113,9 +116,17 @@ fn publication_release_identity_accepts_short_and_utf8_job_ids() {
 #[test]
 fn local_operator_reloads_internal_scopes_without_provider_egress() {
     let (dir, mut config, _repo) = fixture();
-    let path = dir.path().join("maintenance.json");
+    let path = dir.path().join("bot.toml");
     config.internal_doc_scopes = BTreeSet::from(["ops_docs".into()]);
-    fs::write(&path, serde_json::to_vec(&config).unwrap()).unwrap();
+    fs::write(
+        &path,
+        fixture_toml::merge(
+            &path,
+            &serde_json::to_value(&config).unwrap(),
+            &["brain", "maintenance"],
+        ),
+    )
+    .unwrap();
     let record = brain_contracts::SourceRecordV2 {
         source_id: "own-test".into(),
         logical_id: "internal/test".into(),
@@ -137,7 +148,15 @@ fn local_operator_reloads_internal_scopes_without_provider_egress() {
         &record, &first, true
     ));
     config.internal_doc_scopes = BTreeSet::from(["internal_docs".into()]);
-    fs::write(&path, serde_json::to_vec(&config).unwrap()).unwrap();
+    fs::write(
+        &path,
+        fixture_toml::merge(
+            &path,
+            &serde_json::to_value(&config).unwrap(),
+            &["brain", "maintenance"],
+        ),
+    )
+    .unwrap();
     let second = local_operator_principal(1000, &path).unwrap();
     assert!(!brain_contracts::store::record_allowed(
         &record, &second, false
@@ -161,8 +180,16 @@ async fn setup() -> (
     fs::copy(config.docs_repo.join("internal/system.html"), &file).unwrap();
     fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
     config.private_document_root = Some(private);
-    let config_path = dir.path().join("maintenance.json");
-    fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
+    let config_path = dir.path().join("bot.toml");
+    fs::write(
+        &config_path,
+        fixture_toml::merge(
+            &config_path,
+            &serde_json::to_value(&config).unwrap(),
+            &["brain", "maintenance"],
+        ),
+    )
+    .unwrap();
     let pool = PgPoolOptions::new()
         .max_connections(4)
         .connect_with(
@@ -188,20 +215,33 @@ async fn setup() -> (
         })
         .await
         .unwrap();
-    let mut serve: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../../config/brain-serve.example.json"
-    ))
+    let mut serve = serde_json::to_value(
+        brain_serve::bot_toml::document(include_bytes!(
+            "../../../../../config/brain-serve.example.toml"
+        ))
+        .unwrap()["brain"]["serve"]
+            .clone(),
+    )
     .unwrap();
     serve["release"] = json!({"id":release_id,"knowledge_version":"runner-test"});
-    let serve_path = dir.path().join("serve.json");
-    fs::write(&serve_path, serde_json::to_vec(&serve).unwrap()).unwrap();
+    let serve_path = config_path.clone();
+    fs::write(
+        &serve_path,
+        fixture_toml::merge(&serve_path, &serve, &["brain", "serve"]),
+    )
+    .unwrap();
     fs::set_permissions(&serve_path, fs::Permissions::from_mode(0o600)).unwrap();
-    let mut runtime: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../../ops/brain-maintenance/runtime.example.json"
-    ))
+    let mut runtime = serde_json::to_value(
+        brain_serve::bot_toml::document(include_bytes!(
+            "../../../../../ops/brain-maintenance/runtime.example.toml"
+        ))
+        .unwrap()["brain"]["maintenance"]["runtime"]
+            .clone(),
+    )
     .unwrap();
     runtime["maintenance_config"] = json!(config_path);
     runtime["serve_config"] = json!(serve_path);
+    runtime["infisical_config"] = json!(config_path);
     runtime["artifact_dir"] = json!(dir.path().join("artifacts"));
     runtime["status_file"] = json!(dir.path().join("status.json"));
     let runtime: RuntimeConfig = serde_json::from_value(runtime).unwrap();
@@ -356,7 +396,11 @@ async fn postgres_selected_tick_claims_only_exact_job_and_unknown_id_claims_none
     config.repositories.clear();
     fs::write(
         &runner.runtime.maintenance_config,
-        serde_json::to_vec(&config).unwrap(),
+        fixture_toml::merge(
+            &runner.runtime.maintenance_config,
+            &serde_json::to_value(&config).unwrap(),
+            &["brain", "maintenance"],
+        ),
     )
     .unwrap();
     runner.tick_for_job(Some("unknown-job")).await.unwrap();
@@ -582,13 +626,17 @@ async fn postgres_local_query_skips_denied_documents_and_preserves_other_results
         runner.store.commit(batch, lease).await.unwrap();
     }
     runner.store.publish_release(&release).await.unwrap();
-    let mut serve: serde_json::Value =
-        serde_json::from_slice(&fs::read(&runner.runtime.serve_config).unwrap()).unwrap();
+    let mut serve = serde_json::to_value(
+        brain_serve::bot_toml::document(&fs::read(&runner.runtime.serve_config).unwrap()).unwrap()
+            ["brain"]["serve"]
+            .clone(),
+    )
+    .unwrap();
     serve["release"] =
         json!({"id":release.release_id,"knowledge_version":release.knowledge_version});
     fs::write(
         &runner.runtime.serve_config,
-        serde_json::to_vec(&serve).unwrap(),
+        fixture_toml::merge(&runner.runtime.serve_config, &serve, &["brain", "serve"]),
     )
     .unwrap();
     let result = runner.query("Prüfbeleg").await.unwrap();
@@ -624,7 +672,11 @@ async fn postgres_runner_private_basis_reset_and_rejected_review_resume() {
     config.codex.executable = executable;
     fs::write(
         &runner.runtime.maintenance_config,
-        serde_json::to_vec(&config).unwrap(),
+        fixture_toml::merge(
+            &runner.runtime.maintenance_config,
+            &serde_json::to_value(&config).unwrap(),
+            &["brain", "maintenance"],
+        ),
     )
     .unwrap();
     resumed = runner
@@ -814,7 +866,11 @@ async fn postgres_runner_private_basis_reset_and_rejected_review_resume() {
     config.codex.executable = executable;
     fs::write(
         &runner.runtime.maintenance_config,
-        serde_json::to_vec(&config).unwrap(),
+        fixture_toml::merge(
+            &runner.runtime.maintenance_config,
+            &serde_json::to_value(&config).unwrap(),
+            &["brain", "maintenance"],
+        ),
     )
     .unwrap();
     let mut corrective = runner
@@ -1008,7 +1064,11 @@ async fn postgres_paid_invalid_results_are_terminal_and_keep_private_receipts() 
             config.codex.executable = executable;
             fs::write(
                 &runner.runtime.maintenance_config,
-                serde_json::to_vec(&config).unwrap(),
+                fixture_toml::merge(
+                    &runner.runtime.maintenance_config,
+                    &serde_json::to_value(&config).unwrap(),
+                    &["brain", "maintenance"],
+                ),
             )
             .unwrap();
             let error = runner.advance(&mut job).await.unwrap_err();
@@ -1083,7 +1143,11 @@ async fn postgres_paid_invalid_results_are_terminal_and_keep_private_receipts() 
     config.codex.executable = executable;
     fs::write(
         &runner.runtime.maintenance_config,
-        serde_json::to_vec(&config).unwrap(),
+        fixture_toml::merge(
+            &runner.runtime.maintenance_config,
+            &serde_json::to_value(&config).unwrap(),
+            &["brain", "maintenance"],
+        ),
     )
     .unwrap();
     let intent = runner.artifacts.put(&serde_json::to_vec(&json!({
@@ -1230,7 +1294,11 @@ async fn postgres_paid_invalid_results_are_terminal_and_keep_private_receipts() 
     config.repositories = vec![repo.clone(), healthy.clone()];
     fs::write(
         &runner.runtime.maintenance_config,
-        serde_json::to_vec(&config).unwrap(),
+        fixture_toml::merge(
+            &runner.runtime.maintenance_config,
+            &serde_json::to_value(&config).unwrap(),
+            &["brain", "maintenance"],
+        ),
     )
     .unwrap();
     runner.register_config().await.unwrap();
@@ -1261,7 +1329,11 @@ async fn postgres_paid_invalid_results_are_terminal_and_keep_private_receipts() 
     config.jev.endpoint = "https://127.0.0.1:1/".into();
     fs::write(
         &runner.runtime.maintenance_config,
-        serde_json::to_vec(&config).unwrap(),
+        fixture_toml::merge(
+            &runner.runtime.maintenance_config,
+            &serde_json::to_value(&config).unwrap(),
+            &["brain", "maintenance"],
+        ),
     )
     .unwrap();
     let outcome = crate::triage::triage(

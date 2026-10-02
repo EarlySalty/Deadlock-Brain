@@ -1237,7 +1237,8 @@ mod tests {
     #[tokio::test]
     async fn run_receipts_observe_real_exit_and_rejected_events() {
         let config: MaintenanceConfig =
-            serde_json::from_str(include_str!("../config/smoke.example.json")).unwrap();
+            crate::config::parse_maintenance(include_bytes!("../config/smoke.example.toml"))
+                .unwrap();
         let dir = tempfile::tempdir().unwrap();
         let result = process::run_observed(Path::new("/bin/sh"), &["-c".into(), "printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"observed\"}' '{\"type\":\"item.completed\",\"item\":{\"type\":\"command_execution\"}}' '{\"type\":\"turn.failed\"}'; exit 7".into()], dir.path(), &[], 1000, 4096).await.unwrap();
         assert_eq!(result.exit_code, Some(7));
@@ -1262,7 +1263,8 @@ mod tests {
         std::fs::write(&executable, format!("#!/bin/sh\nresult=''\nwhile [ $# -gt 0 ]; do\nif [ \"$1\" = '--output-last-message' ]; then shift; result=$1; fi\nshift\ndone\ncat >/dev/null\nprintf x >> '{}'\ncp '{}' \"$result\"\nif [ -f '{}' ]; then sleep 30; fi\nprintf '%s\\n' '{{\"type\":\"thread.started\",\"thread_id\":\"paid-test\"}}' '{{\"type\":\"turn.completed\",\"usage\":{{\"input_tokens\":11,\"output_tokens\":7}}}}'\n", counter.display(), answer.display(), delay.display())).unwrap();
         std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
         let mut config: MaintenanceConfig =
-            serde_json::from_str(include_str!("../config/smoke.example.json")).unwrap();
+            crate::config::parse_maintenance(include_bytes!("../config/smoke.example.toml"))
+                .unwrap();
         config.codex.executable = executable;
         let mut expected_calls = 0;
         for stage in ["first-author", "correction-author", "reviewer"] {

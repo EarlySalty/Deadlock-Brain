@@ -70,9 +70,7 @@ impl RepositoryConfig {
 pub fn require_registered(config: &MaintenanceConfig, repo: &RepositoryConfig) -> Result<()> {
     if let Some(path) = &config.loaded_from {
         let bytes = crate::integration::runtime_config::read_bounded(path, 256 * 1024)?;
-        let current: MaintenanceConfig = serde_json::from_slice(&bytes)
-            .map_err(|_| anyhow::anyhow!("Aktuelle Registrierung ist ungültig"))?;
-        current.validate()?;
+        let current = parse_maintenance(&bytes)?;
         ensure!(
             serde_json::to_value(&current)? == serde_json::to_value(config)?,
             "Registrierung oder Rechte wurden verändert"
@@ -88,6 +86,27 @@ pub fn require_registered(config: &MaintenanceConfig, repo: &RepositoryConfig) -
         "Repo stimmt nicht mit der aktuellen Registrierung überein"
     );
     Ok(())
+}
+
+pub fn parse_maintenance(bytes: &[u8]) -> Result<MaintenanceConfig> {
+    let document = brain_serve::bot_toml::document(bytes)
+        .map_err(|_| anyhow::anyhow!("maintenance_config_schema"))?;
+    let mut section = brain_serve::bot_toml::value(&document, &["brain", "maintenance"])
+        .map_err(|_| anyhow::anyhow!("maintenance_config_schema"))?;
+    // Der bestehende Runnervertrag liegt neben der Fachregistrierung in derselben Tabelle.
+    if let Some(runtime) = section
+        .as_table_mut()
+        .and_then(|table| table.remove("runtime"))
+    {
+        let _: crate::integration::runtime_config::RuntimeConfig = runtime
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("runtime_config_schema"))?;
+    }
+    let config: MaintenanceConfig = section
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("maintenance_config_schema"))?;
+    config.validate()?;
+    Ok(config)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -384,7 +403,7 @@ mod tests {
     #[test]
     fn output_paths_enforce_policy_and_unique_ownership() {
         let baseline: MaintenanceConfig =
-            serde_json::from_str(include_str!("../config/maintenance.example.json")).unwrap();
+            parse_maintenance(include_bytes!("../config/maintenance.example.toml")).unwrap();
         assert!(baseline.validate().is_ok());
         let mut public_output = baseline.clone();
         let first_target = public_output.repositories[0].doc_targets[0].clone();
@@ -407,7 +426,7 @@ mod tests {
             .insert(second_target, first_output);
         assert!(collision.validate().is_err());
         let mut alias: MaintenanceConfig =
-            serde_json::from_str(include_str!("../config/maintenance.example.json")).unwrap();
+            parse_maintenance(include_bytes!("../config/maintenance.example.toml")).unwrap();
         let first = alias.repositories[0].doc_targets[0].clone();
         let second = alias.repositories[1].doc_targets[0].clone();
         alias.repositories[0]

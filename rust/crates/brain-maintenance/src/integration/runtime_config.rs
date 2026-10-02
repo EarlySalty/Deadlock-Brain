@@ -1,8 +1,9 @@
 use anyhow::{ensure, Result};
 use serde::{Deserialize, Serialize};
 use std::{
-    fs::File,
+    fs::OpenOptions,
     io::Read,
+    os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
 };
 
@@ -36,7 +37,11 @@ pub struct LocalImport {
 }
 
 pub fn read_bounded(path: &Path, maximum: usize) -> Result<Vec<u8>> {
-    let file = File::open(path).map_err(|_| anyhow::anyhow!("config_read"))?;
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(nix::libc::O_NONBLOCK | nix::libc::O_NOFOLLOW | nix::libc::O_CLOEXEC)
+        .open(path)
+        .map_err(|_| anyhow::anyhow!("config_read"))?;
     ensure!(file.metadata()?.is_file(), "config_file");
     let mut bytes = Vec::new();
     file.take(maximum as u64 + 1).read_to_end(&mut bytes)?;
@@ -46,8 +51,17 @@ pub fn read_bounded(path: &Path, maximum: usize) -> Result<Vec<u8>> {
 
 impl RuntimeConfig {
     pub fn load(path: &Path) -> Result<Self> {
-        let config: Self = serde_json::from_slice(&read_bounded(path, 65536)?)
-            .map_err(|_| anyhow::anyhow!("runtime_config_schema"))?;
+        let bytes = read_bounded(path, brain_serve::bot_toml::MAX_BYTES)?;
+        let config: Self =
+            brain_serve::bot_toml::section(&bytes, &["brain", "maintenance", "runtime"])
+                .map_err(|_| anyhow::anyhow!("runtime_config_schema"))?;
+        ensure!(
+            path.is_absolute()
+                && config.maintenance_config == path
+                && config.serve_config == path
+                && config.infisical_config == path,
+            "shared_bot_toml_required"
+        );
         for path in [
             &config.maintenance_config,
             &config.serve_config,
@@ -122,5 +136,38 @@ impl RuntimeConfig {
             "migration_peer_required"
         );
         Ok(config)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn runtime_bindet_genau_die_gemeinsame_bot_toml_ohne_json_fallback() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("bot.toml");
+        let mut root = brain_serve::bot_toml::document(include_bytes!(
+            "../../../../../ops/brain-maintenance/runtime.example.toml"
+        ))
+        .unwrap();
+        for field in ["maintenance_config", "serve_config", "infisical_config"] {
+            root["brain"]["maintenance"]["runtime"][field] =
+                toml::Value::String(path.to_str().unwrap().into());
+        }
+        std::fs::write(&path, toml::to_string(&root).unwrap()).unwrap();
+        assert!(RuntimeConfig::load(&path).is_ok());
+        for field in ["maintenance_config", "serve_config", "infisical_config"] {
+            let mut invalid = root.clone();
+            invalid["brain"]["maintenance"]["runtime"][field] =
+                toml::Value::String("/fremde/bot.toml".into());
+            std::fs::write(&path, toml::to_string(&invalid).unwrap()).unwrap();
+            assert!(RuntimeConfig::load(&path).is_err());
+        }
+        std::fs::write(
+            &path,
+            serde_json::to_vec(&root["brain"]["maintenance"]["runtime"]).unwrap(),
+        )
+        .unwrap();
+        assert!(RuntimeConfig::load(&path).is_err());
     }
 }

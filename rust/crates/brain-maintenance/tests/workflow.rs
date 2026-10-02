@@ -1,3 +1,5 @@
+#[path = "../../../test-support/bot_toml.rs"]
+mod fixture_toml;
 use brain_contracts::{source::SourcePolicy, value::Observed, SourceVisibility};
 use brain_maintenance::{
     author::{self, Action, AuthorProposal, Citation, IndependentReview, VerifiedDocument},
@@ -50,8 +52,10 @@ fn fixture() -> (tempfile::TempDir, MaintenanceConfig, RepositoryConfig) {
     fs::write(docs.join("internal/system.html"),"<!doctype html><html lang='de'><head><title>Prüfbeleg</title></head><body><main><h1>Prüfbeleg</h1><section id='zustand'><p>Der Helfer liefert true.</p></section></main></body></html>").unwrap();
     pin(&source);
     pin(&docs);
-    let mut config: MaintenanceConfig =
-        serde_json::from_str(include_str!("../config/smoke.example.json")).unwrap();
+    let mut config: MaintenanceConfig = brain_maintenance::config::parse_maintenance(
+        include_bytes!("../config/smoke.example.toml"),
+    )
+    .unwrap();
     config.docs_repo = docs;
     config.docs_origin = "https://github.com/test/docs.git".into();
     config.repo_roots = vec![dir.path().to_owned()];
@@ -897,8 +901,16 @@ fn codex_tool_events_are_rejected_even_on_successful_turns() {
 #[tokio::test]
 async fn persisted_scan_cannot_resume_after_registry_revoke() {
     let (dir, mut config, repo) = fixture();
-    let path = dir.path().join("maintenance.json");
-    fs::write(&path, serde_json::to_vec(&config).unwrap()).unwrap();
+    let path = dir.path().join("bot.toml");
+    fs::write(
+        &path,
+        fixture_toml::merge(
+            &path,
+            &serde_json::to_value(&config).unwrap(),
+            &["brain", "maintenance"],
+        ),
+    )
+    .unwrap();
     config.loaded_from = Some(path.clone());
     let scan = scanner::scan(&config, &repo, None).await.unwrap();
     let proof = verified(&config, &scan);
@@ -907,7 +919,15 @@ async fn persisted_scan_cannot_resume_after_registry_revoke() {
     revoked.repositories[0]
         .document_policy
         .provider_egress_allowed = false;
-    fs::write(&path, serde_json::to_vec(&revoked).unwrap()).unwrap();
+    fs::write(
+        &path,
+        fixture_toml::merge(
+            &path,
+            &serde_json::to_value(&revoked).unwrap(),
+            &["brain", "maintenance"],
+        ),
+    )
+    .unwrap();
     assert!(author::prepare_document(&config, &repo, &scan, &proof)
         .await
         .is_err());

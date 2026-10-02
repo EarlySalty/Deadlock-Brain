@@ -41,7 +41,7 @@ impl ConfigWriter {
             .create(true)
             .truncate(false)
             .mode(0o600)
-            .custom_flags(nix::libc::O_NOFOLLOW | nix::libc::O_CLOEXEC)
+            .custom_flags(nix::libc::O_NONBLOCK | nix::libc::O_NOFOLLOW | nix::libc::O_CLOEXEC)
             .open(parent.join(lock_name))?;
         let metadata = lock.metadata()?;
         ensure!(
@@ -80,7 +80,7 @@ impl ConfigWriter {
                 && std::fs::canonicalize(&self.path)? == self.path,
             "serve_config_unprotected"
         );
-        read_bounded(&self.path, 65536)
+        read_bounded(&self.path, brain_serve::bot_toml::MAX_BYTES)
     }
     pub fn replace(&self, expected: &[u8], replacement: &[u8]) -> Result<()> {
         self.replace_checked(expected, replacement, || {})
@@ -121,7 +121,7 @@ pub fn write_serve_config(
     expected_sha256: &str,
 ) -> Result<serde_json::Value> {
     super::runner::require_operator_config(&runtime.maintenance_config)?;
-    let replacement = read_bounded(input, 65536)?;
+    let replacement = read_bounded(input, brain_serve::bot_toml::MAX_BYTES)?;
     brain_serve::Config::parse(&replacement)
         .map_err(|_| anyhow::anyhow!("serve_config_invalid"))?;
     let writer = ConfigWriter::lock(&runtime.serve_config)?;
@@ -141,7 +141,7 @@ mod tests {
     async fn config_lock_wait_keeps_tokio_worker_available() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
-        let path = dir.path().join("serve.json");
+        let path = dir.path().join("bot.toml");
         std::fs::write(&path, b"belegte Configbytes").unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
         let first = ConfigWriter::lock(&path).unwrap();
@@ -159,7 +159,7 @@ mod tests {
     fn operator_config_and_activation_share_lock_and_preserve_changed_rollback_basis() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
-        let path = dir.path().join("serve.json");
+        let path = dir.path().join("bot.toml");
         std::fs::write(&path, b"old").unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
         let first = ConfigWriter::lock(&path).unwrap();

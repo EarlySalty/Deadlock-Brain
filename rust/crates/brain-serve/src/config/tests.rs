@@ -1,11 +1,23 @@
 use super::*;
 use serde_json::{json, Value};
-const EXAMPLE: &[u8] = include_bytes!("../../../../../config/brain-serve.example.json");
+const EXAMPLE: &[u8] = include_bytes!("../../../../../config/brain-serve.example.toml");
+#[path = "../../../../test-support/bot_toml.rs"]
+mod fixture_toml;
 fn example() -> Value {
-    serde_json::from_slice(EXAMPLE).unwrap()
+    serde_json::to_value(crate::bot_toml::document(EXAMPLE).unwrap()["brain"]["serve"].clone())
+        .unwrap()
+}
+fn config_bytes(value: &Value) -> Vec<u8> {
+    let mut serve = value.clone();
+    let operator = serve.as_object_mut().unwrap().remove("internal_operator");
+    let mut root = json!({"brain":{"serve":serve}});
+    if let Some(operator) = operator {
+        root["brain"]["operator"] = operator;
+    }
+    fixture_toml::section(&root, &[])
 }
 fn parse(value: &Value) -> Result<Config, Error> {
-    Config::parse(&serde_json::to_vec(value).unwrap())
+    Config::parse(&config_bytes(value))
 }
 
 #[test]
@@ -213,8 +225,8 @@ fn analytics_window_and_schema_are_explicit_when_runtime_is_configured() {
     value["analytics"]["min_unix_timestamp"] = json!(3601);
     value["analytics"]["max_unix_timestamp"] = json!(7199);
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("analytics-empty-window.json");
-    std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+    let path = dir.path().join("analytics-empty-window.toml");
+    std::fs::write(&path, config_bytes(&value)).unwrap();
     assert!(matches!(
         Config::load(&path),
         Err(Error::ConfigInvalid("analytics"))
@@ -241,10 +253,9 @@ fn missing_malformed_and_oversized_config_are_sanitized() {
 fn c9_config() -> serde_json::Value {
     let mut value = example();
     value["internal_operator"] = json!({"socket":"/run/user/1000/brain-operator/operator.sock", "release":{"id":"fixture-internal-release","knowledge_version":"fixture-internal-version"}});
-    value["credentials"].as_array_mut().unwrap().extend([
-        json!({"token_env":"BRAIN_SERVE_DOCS_PUBLIC_TOKEN","actor_id":"docs-client","channel":"docs","scopes":["docs.public"],"provider_egress":["public"],"release":{"id":"fixture-docs-release","knowledge_version":"fixture-docs-version"}}),
-        json!({"token_env":"BRAIN_SERVE_SECOND_BRAIN_TOKEN","actor_id":"second-brain","channel":"internal","scopes":["second_brain.internal"],"provider_egress":[],"release":{"id":"fixture-internal-release","knowledge_version":"fixture-internal-version"}}),
-    ]);
+    value["credentials"].as_array_mut().unwrap().push(
+        json!({"token_env":"BRAIN_SERVE_DOCS_PUBLIC_TOKEN","actor_id":"docs-client","channel":"docs","scopes":["docs.public"],"provider_egress":["public"],"release":{"id":"fixture-docs-release","knowledge_version":"fixture-docs-version"}}));
+    value["internal_operator"]["credential"] = json!({"token_env":"BRAIN_SERVE_SECOND_BRAIN_TOKEN","actor_id":"second-brain","channel":"internal","scopes":["second_brain.internal"],"provider_egress":[],"release":{"id":"fixture-internal-release","knowledge_version":"fixture-internal-version"}});
     value
 }
 
@@ -268,11 +279,15 @@ fn c9_grants_sind_exakt_und_releasebindungen_werden_beim_neustart_geprueft() {
         ),
     ] {
         let mut changed = value.clone();
-        changed["credentials"][index][field] = bad;
+        if index == 2 {
+            changed["internal_operator"]["credential"][field] = bad;
+        } else {
+            changed["credentials"][index][field] = bad;
+        }
         assert!(parse(&changed).is_err());
     }
     let mut changed = value.clone();
-    changed["internal_operator"] = json!(null);
+    changed["internal_operator"]["credential"] = json!(null);
     assert!(parse(&changed).is_err());
     let mut changed = value;
     changed["internal_operator"]["release"]["knowledge_version"] = json!("wrong-version");

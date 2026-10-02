@@ -76,7 +76,7 @@ impl Secrets {
 
     pub async fn from_infisical(config: &Config, path: &Path) -> Result<Self, Error> {
         config.validate()?;
-        let snapshot: BTreeMap<_, _> = dl_token_secrets::values(path)
+        let snapshot: BTreeMap<_, _> = crate::bot_toml::infisical_snapshot(path)
             .await
             .map_err(|_| Error::SecretSource)?
             .into_iter()
@@ -111,7 +111,7 @@ impl Secrets {
         }
         let mut grants = Vec::with_capacity(config.credentials.len());
         let mut internal_grants = Vec::new();
-        for grant in &config.credentials {
+        for grant in config.all_credentials() {
             let token = required(&lookup, &grant.token_env, "api", true)?;
             if !tokens.insert(token.clone()) {
                 return Err(Error::SecretInvalid("duplicate"));
@@ -141,7 +141,7 @@ impl Secrets {
 #[cfg(test)]
 mod tests {
     use super::*;
-    const CONFIG: &[u8] = include_bytes!("../../../../config/brain-serve.example.json");
+    const CONFIG: &[u8] = include_bytes!("../../../../config/brain-serve.example.toml");
 
     fn fixture(name: &str) -> Option<String> {
         match name {

@@ -2,6 +2,7 @@
 //! Composition root for the integrated Rust core. No legacy transports or schema writes.
 
 mod analytics;
+pub mod bot_toml;
 pub mod config;
 mod health;
 mod operator_socket;

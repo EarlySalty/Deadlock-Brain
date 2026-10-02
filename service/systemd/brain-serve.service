@@ -1,5 +1,5 @@
 [Unit]
-Description=Deadlock Brain – revisionsgebundener Rust-Antwortdienst
+Description=Deadlock Brain mit revisionsgebundenem Rust-Antwortdienst
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=60
@@ -7,9 +7,9 @@ StartLimitBurst=3
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/deadlock-brain/current
+WorkingDirectory=@RELEASE_ROOT@
 LoadCredential=infisical-token:%h/.config/infisical-tokens/infisical-token-bots
-ExecStart=/bin/bash -c 'exec 5<"%d/infisical-token"; exec /opt/deadlock-brain/current/bin/brain-serve --config /etc/deadlock-brain/brain-serve.json --infisical-config /etc/deadlock-brain/infisical.json'
+ExecStart=/bin/bash -c 'exec 5<"%d/infisical-token"; exec @RELEASE_ROOT@/brain-serve --config @RELEASE_ROOT@/config/bot.toml'
 KillSignal=SIGTERM
 KillMode=control-group
 TimeoutStopSec=70
