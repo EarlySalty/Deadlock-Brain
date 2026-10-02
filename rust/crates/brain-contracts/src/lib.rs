@@ -13,6 +13,7 @@ pub mod domain_knowledge;
 pub mod embedding;
 pub mod external;
 pub mod feeds;
+pub mod internal_api;
 pub mod lexical;
 pub mod maintenance;
 pub mod provider_input;

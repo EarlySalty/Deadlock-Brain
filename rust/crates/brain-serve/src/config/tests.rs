@@ -20,6 +20,35 @@ fn example_parses_without_secret_values_and_preserves_pilot_defaults() {
 }
 
 #[test]
+fn c9_releasebindung_ist_explizit_und_widersprueche_scheitern() {
+    let mut value = example();
+    assert!(parse(&value).unwrap().credentials[0].release.is_none());
+    value["credentials"][0]["release"] = json!({"id":"docs-r1","knowledge_version":"docs-v1"});
+    assert_eq!(
+        parse(&value).unwrap().credentials[0]
+            .release
+            .as_ref()
+            .unwrap()
+            .id,
+        "docs-r1"
+    );
+    for invalid in [
+        json!({"id":"current","knowledge_version":"docs-v1"}),
+        json!({"id":"docs-r1"}),
+        json!({"id":"docs-r1","knowledge_version":"latest"}),
+    ] {
+        let mut changed = value.clone();
+        changed["credentials"][0]["release"] = invalid;
+        assert!(parse(&changed).is_err());
+    }
+    let mut second = value["credentials"][0].clone();
+    second["token_env"] = json!("SECOND_CLIENT_TOKEN");
+    second["release"]["id"] = json!("other-r1");
+    value["credentials"].as_array_mut().unwrap().push(second);
+    assert!(parse(&value).is_err());
+}
+
+#[test]
 fn every_required_section_and_field_is_fail_closed() {
     let original = example();
     for key in original.as_object().unwrap().keys() {
@@ -207,4 +236,64 @@ fn missing_malformed_and_oversized_config_are_sanitized() {
         format!("{:?}", Config::parse(EXAMPLE).unwrap()),
         "Config { .. }"
     );
+}
+
+fn c9_config() -> serde_json::Value {
+    let mut value = example();
+    value["internal_operator"] = json!({"socket":"/run/user/1000/brain-operator/operator.sock", "release":{"id":"fixture-internal-release","knowledge_version":"fixture-internal-version"}});
+    value["credentials"].as_array_mut().unwrap().extend([
+        json!({"token_env":"BRAIN_SERVE_DOCS_PUBLIC_TOKEN","actor_id":"docs-client","channel":"docs","scopes":["docs.public"],"provider_egress":["public"],"release":{"id":"fixture-docs-release","knowledge_version":"fixture-docs-version"}}),
+        json!({"token_env":"BRAIN_SERVE_SECOND_BRAIN_TOKEN","actor_id":"second-brain","channel":"internal","scopes":["second_brain.internal"],"provider_egress":[],"release":{"id":"fixture-internal-release","knowledge_version":"fixture-internal-version"}}),
+    ]);
+    value
+}
+
+#[test]
+fn c9_grants_sind_exakt_und_releasebindungen_werden_beim_neustart_geprueft() {
+    let value = c9_config();
+    assert!(parse(&value).is_ok());
+    for (index, field, bad) in [
+        (1, "actor_id", json!("second-brain")),
+        (1, "channel", json!("twitch")),
+        (1, "scopes", json!(["docs.public", "bot.public"])),
+        (1, "release", json!(null)),
+        (2, "actor_id", json!("docs-client")),
+        (2, "channel", json!("docs")),
+        (2, "scopes", json!(["second_brain.internal", "docs.public"])),
+        (2, "provider_egress", json!(["public"])),
+        (
+            2,
+            "release",
+            json!({"id":"wrong-release","knowledge_version":"fixture-internal-version"}),
+        ),
+    ] {
+        let mut changed = value.clone();
+        changed["credentials"][index][field] = bad;
+        assert!(parse(&changed).is_err());
+    }
+    let mut changed = value.clone();
+    changed["internal_operator"] = json!(null);
+    assert!(parse(&changed).is_err());
+    let mut changed = value;
+    changed["internal_operator"]["release"]["knowledge_version"] = json!("wrong-version");
+    assert!(parse(&changed).is_err());
+}
+
+#[test]
+fn second_brain_credential_ist_in_der_oeffentlichen_registry_unbekannt() {
+    let config = parse(&c9_config()).unwrap();
+    let secrets = crate::Secrets::load(&config, |name| Some(format!("synthetic-{name}"))).unwrap();
+    let token = "synthetic-BRAIN_SERVE_SECOND_BRAIN_TOKEN";
+    assert!(secrets.credentials.authenticate(token).is_err());
+    let principal = secrets.internal_credentials.authenticate(token).unwrap();
+    assert_eq!(principal.actor_id, "second-brain");
+    assert_eq!(principal.channel, "internal");
+    assert!(secrets
+        .internal_credentials
+        .authenticate("synthetic-BRAIN_SERVE_DOCS_PUBLIC_TOKEN")
+        .is_err());
+    assert!(secrets
+        .credentials
+        .authenticate("synthetic-BRAIN_SERVE_DOCS_PUBLIC_TOKEN")
+        .is_ok());
 }

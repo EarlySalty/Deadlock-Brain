@@ -17,6 +17,7 @@ pub struct Config {
     pub kernel: Kernel,
     pub analytics: Option<Analytics>,
     pub credentials: Vec<Credential>,
+    pub internal_operator: Option<InternalOperator>,
 }
 
 impl std::fmt::Debug for Config {
@@ -154,6 +155,15 @@ pub struct Credential {
     pub channel: String,
     pub scopes: BTreeSet<String>,
     pub provider_egress: BTreeSet<String>,
+    /// Optionaler fester Wissensstand; ohne Override bleibt das bisherige Release.
+    pub release: Option<Release>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InternalOperator {
+    pub socket: std::path::PathBuf,
+    pub release: Release,
 }
 
 fn identifier(value: &str, maximum: usize) -> bool {
@@ -333,7 +343,55 @@ impl Config {
         if let Some(name) = pg.password_env.as_deref() {
             require(names.insert(name), "secret_references")?;
         }
+        let mut bindings = std::collections::BTreeMap::new();
+        let mut internal_count = 0;
         for grant in &self.credentials {
+            let release = grant.release.as_ref().unwrap_or(&self.release);
+            require(
+                identifier(&release.id, 512)
+                    && !["current", "latest"].contains(&release.id.as_str())
+                    && identifier(&release.knowledge_version, 512)
+                    && !["current", "latest"].contains(&release.knowledge_version.as_str()),
+                "credential_release",
+            )?;
+            let key = (&grant.actor_id, &grant.channel);
+            let value = (&release.id, &release.knowledge_version);
+            if let Some(previous) = bindings.insert(key, value) {
+                require(previous == value, "credential_release_conflict")?;
+            }
+            if grant.actor_id == "docs-client"
+                || grant.channel == "docs"
+                || grant.scopes.contains("docs.public")
+            {
+                require(
+                    grant.actor_id == "docs-client"
+                        && grant.channel == "docs"
+                        && grant.scopes == BTreeSet::from(["docs.public".into()])
+                        && grant.provider_egress == BTreeSet::from(["public".into()])
+                        && grant.release.is_some(),
+                    "docs_client_grant",
+                )?;
+            }
+            if grant.actor_id == "second-brain"
+                || grant.channel == "internal"
+                || grant.scopes.contains("second_brain.internal")
+            {
+                internal_count += 1;
+                let internal = self
+                    .internal_operator
+                    .as_ref()
+                    .ok_or(Error::ConfigInvalid("internal_operator"))?;
+                require(
+                    grant.actor_id == "second-brain"
+                        && grant.channel == "internal"
+                        && grant.scopes == BTreeSet::from(["second_brain.internal".into()])
+                        && grant.provider_egress.is_empty()
+                        && grant.release.is_some()
+                        && release.id == internal.release.id
+                        && release.knowledge_version == internal.release.knowledge_version,
+                    "internal_operator_grant",
+                )?;
+            }
             require(
                 secret_name(&grant.token_env)
                     && names.insert(&grant.token_env)
@@ -348,6 +406,20 @@ impl Config {
                     && (grant.provider_egress.is_empty()
                         || grant.provider_egress.contains("public")),
                 "credentials",
+            )?;
+        }
+        if let Some(internal) = &self.internal_operator {
+            require(
+                internal_count == 1
+                    && internal.socket.is_absolute()
+                    && internal.socket.as_os_str().len() <= 107
+                    && internal.socket.components().all(|component| {
+                        matches!(
+                            component,
+                            std::path::Component::RootDir | std::path::Component::Normal(_)
+                        )
+                    }),
+                "internal_operator",
             )?;
         }
         Ok(())
