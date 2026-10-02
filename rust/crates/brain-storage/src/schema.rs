@@ -74,6 +74,79 @@ pub(crate) const SHAPE_PROBE: &str = "SELECT r.source_id,r.logical_id,r.revision
     LIMIT 0";
 
 impl PgStore {
+    /// Separate additive Guide-Migration, ausschließlich über den Owner-Migrator.
+    pub async fn migrate_guide(&self) -> Result<(), PortError> {
+        let sql = include_str!("../../../../scripts/migrations/2026-10-03-serverguide-v1.sql");
+        let mut tx = self.pool.begin().await.map_err(migration_error)?;
+        sqlx::raw_sql(
+            "SET LOCAL lock_timeout='5000ms'; SELECT pg_advisory_xact_lock(742110026113::bigint)",
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(migration_error)?;
+        sqlx::raw_sql(body(sql)?)
+            .execute(&mut *tx)
+            .await
+            .map_err(migration_error)?;
+        tx.commit().await.map_err(migration_error)
+    }
+
+    pub async fn check_guide(&self) -> Result<(), PortError> {
+        let rows = sqlx::query("SELECT version FROM brain.guide_schema_version")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(compatibility_error)?;
+        if rows.len() != 1
+            || rows[0]
+                .try_get::<i32, _>("version")
+                .map_err(compatibility_error)?
+                != 1
+        {
+            return Err(invalid("Serverguide-Schema ist nicht kompatibel"));
+        }
+        Ok(())
+    }
+
+    /// Kontrollierter einmaliger Inhaltsimport. Ohne ausdrücklich konfigurierte Frist kein Lesen.
+    pub async fn import_guide_legacy(&self, retention: Option<i64>) -> Result<(), PortError> {
+        let ttl = retention
+            .filter(|v| (60..=31_536_000).contains(v))
+            .ok_or_else(|| {
+                invalid("Guide-Aufbewahrung fehlt; private Inhaltsmigration bleibt aus")
+            })?;
+        let mut tx = self.pool.begin().await.map_err(migration_error)?;
+        let present: bool =
+            sqlx::query_scalar("SELECT to_regclass('bot.concierge_profiles') IS NOT NULL")
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(migration_error)?;
+        if !present {
+            return Err(invalid("Concierge-Quelltabellen fehlen"));
+        }
+        let ids=sqlx::query("SELECT p.user_id,p.guild_id FROM bot.concierge_profiles p WHERE NOT p.opted_out AND p.forgot_at IS NULL AND NOT EXISTS(SELECT 1 FROM core.user_privacy g WHERE g.user_id=p.user_id AND (g.opted_out OR g.deleted_at IS NOT NULL)) AND NOT EXISTS(SELECT 1 FROM brain.guide_legacy_imports i WHERE i.user_id=p.user_id::text AND i.guild_id=p.guild_id::text)")
+            .fetch_all(&mut *tx).await.map_err(migration_error)?;
+        for row in ids {
+            let user: i64 = row.try_get("user_id").map_err(migration_error)?;
+            let guild: i64 = row.try_get("guild_id").map_err(migration_error)?;
+            sqlx::query("SELECT pg_advisory_xact_lock($1)")
+                .bind(user ^ i64::MIN)
+                .execute(&mut *tx)
+                .await
+                .map_err(migration_error)?;
+            let blocked:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM core.user_privacy WHERE user_id=$1 AND (opted_out OR deleted_at IS NOT NULL)) OR EXISTS(SELECT 1 FROM brain.guide_subjects WHERE user_id=$1::bigint::text AND guild_id=$2::bigint::text AND (deleted OR globally_opted_out))")
+                .bind(user).bind(guild).fetch_one(&mut *tx).await.map_err(migration_error)?;
+            if blocked {
+                continue;
+            }
+            sqlx::query("INSERT INTO brain.guide_subjects(guild_id,user_id) VALUES($1::bigint::text,$2::bigint::text) ON CONFLICT DO NOTHING").bind(guild).bind(user).execute(&mut *tx).await.map_err(migration_error)?;
+            // Nur das bekannte Spielzeitfeld. Keine Persönlichkeits-/Rang-/Patenanalyse übernehmen.
+            sqlx::query("UPDATE brain.guide_subjects s SET profile_json=CASE WHEN p.play_times IS NOT NULL AND p.updated_at+make_interval(secs=>$3::bigint::double precision)>now() THEN s.profile_json || jsonb_build_object('play_times',jsonb_build_object('value',left(p.play_times,500),'origin_message_id','legacy-concierge','updated_at',extract(epoch from p.updated_at)::bigint,'expires_at',extract(epoch from p.updated_at)::bigint+$3,'explicitly_stated',false)) ELSE s.profile_json END, history_json=COALESCE((SELECT jsonb_agg(z.entry ORDER BY z.created_at) FROM (SELECT c.created_at,jsonb_build_object('role',c.role,'content',left(c.content,2000),'message_id','legacy-concierge','expires_at',extract(epoch from c.created_at)::bigint+$3) entry FROM bot.concierge_conversations c WHERE c.user_id=$2 AND c.guild_id=$1 AND c.role IN ('user','assistant') AND c.created_at+make_interval(secs=>$3::bigint::double precision)>now() ORDER BY c.created_at DESC LIMIT 8) z),'[]'::jsonb) FROM bot.concierge_profiles p WHERE p.guild_id=$1 AND p.user_id=$2 AND s.guild_id=$1::bigint::text AND s.user_id=$2::bigint::text AND NOT s.deleted AND NOT s.globally_opted_out")
+                .bind(guild).bind(user).bind(ttl).execute(&mut *tx).await.map_err(migration_error)?;
+            sqlx::query("INSERT INTO brain.guide_legacy_imports(guild_id,user_id) VALUES($1::bigint::text,$2::bigint::text) ON CONFLICT DO NOTHING").bind(guild).bind(user).execute(&mut *tx).await.map_err(migration_error)?;
+        }
+        tx.commit().await.map_err(migration_error)
+    }
+
     /// Service startup preflight. SELECT-only; no automatic migration or repair.
     /// Call before admitting traffic/jobs, including when the schema already exists.
     pub async fn check_core_schema(&self) -> Result<(), PortError> {
@@ -153,7 +226,7 @@ async fn validate_records(connection: &mut PgConnection) -> Result<(), PortError
         let rows = sqlx::query(
             "SELECT source_id,logical_id,revision,content_hash,tombstone,record_json
             FROM brain.source_record_revisions
-            WHERE $1::text IS NULL OR (source_id,logical_id,revision)>($1,$2,$3)
+            WHERE $1::bigint::text IS NULL OR (source_id,logical_id,revision)>($1,$2,$3)
             ORDER BY source_id,logical_id,revision LIMIT 256",
         )
         .bind(cursor.as_ref().map(|c| &c.0))
@@ -215,7 +288,7 @@ async fn validate_releases(connection: &mut PgConnection) -> Result<(), PortErro
     loop {
         let rows = sqlx::query(
             "SELECT release_id,knowledge_version,patch,release_json
-            FROM brain.corpus_releases_v1 WHERE $1::text IS NULL OR release_id>$1
+            FROM brain.corpus_releases_v1 WHERE $1::bigint::text IS NULL OR release_id>$1
             ORDER BY release_id LIMIT 64",
         )
         .bind(&cursor)

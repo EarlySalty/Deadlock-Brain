@@ -176,6 +176,13 @@ async fn initialize(prepared: &Prepared) -> Result<Arc<Health>, Error> {
     })
     .await
     .map_err(|_| Error::ReaderUnavailable)??;
+    if prepared.config.guide.as_ref().is_some_and(|g| g.enabled) {
+        let reader = prepared.reader.clone();
+        tokio::task::spawn_blocking(move || reader.check_guide_schema())
+            .await
+            .map_err(|_| Error::ReaderUnavailable)?
+            .map_err(|_| Error::SchemaIncompatible)?;
+    }
     Ok(Arc::new(Health::new(
         snapshot.release,
         Duration::from_millis(prepared.config.timeouts.readiness_ms),
@@ -268,6 +275,24 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
             reject_during_drain,
         ))
         .merge(health::router(health.clone()));
+    if let Some(guide) = prepared.config.guide.clone().filter(|g| g.enabled) {
+        router = router.merge(
+            crate::guide::GuideRuntime::new(
+                guide,
+                prepared.reader.clone(),
+                prepared.provider.clone(),
+                prepared.credentials.clone(),
+                prepared.config.release.id.clone(),
+                (&prepared.config.budgets).into(),
+                prepared.config.timeouts.request_ms,
+            )
+            .router()
+            .layer(middleware::from_fn_with_state(
+                health.clone(),
+                reject_during_drain,
+            )),
+        );
+    }
     if let Some(analytics) = &prepared.analytics {
         router = router.merge(
             analytics
@@ -300,6 +325,46 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
         serde_json::json!({"event": "listening", "address": address.to_string()})
     );
     let (started, notice) = tokio::sync::oneshot::channel();
+    let cleanup = prepared
+        .config
+        .guide
+        .clone()
+        .filter(|g| g.enabled)
+        .map(|guide| {
+            let reader = prepared.reader.clone();
+            let budget = prepared.config.timeouts.request_ms;
+            let health = health.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(60));
+                let mut reported = false;
+                loop {
+                    interval.tick().await;
+                    if health.draining.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    let reader = reader.clone();
+                    let retention = guide.technical_event_retention_seconds;
+                    let result = tokio::task::spawn_blocking(move || {
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map_err(|_| {
+                                PortError::InvalidResponse("Systemzeit ist ungültig".into())
+                            })?
+                            .as_secs() as i64;
+                        reader.guide_cleanup(
+                            now,
+                            retention,
+                            &brain_contracts::RequestDeadline::after(Duration::from_millis(budget)),
+                        )
+                    })
+                    .await;
+                    if !matches!(result, Ok(Ok(()))) && !reported {
+                        log_event("guide_cleanup_failed");
+                        reported = true;
+                    }
+                }
+            })
+        });
     let drain_health = health.clone();
     let server = axum::serve(listener, router)
         .with_graceful_shutdown(async move {
@@ -317,6 +382,10 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
         }
     };
     health.draining.store(true, Ordering::SeqCst);
+    if let Some(cleanup) = cleanup {
+        cleanup.abort();
+        let _ = cleanup.await;
+    }
     prepared.shutdown.begin();
     log_pool_stats(prepared.reader.pool_stats());
     result

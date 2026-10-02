@@ -6,7 +6,7 @@ use serde::Deserialize;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgSslMode};
 use std::{path::PathBuf, process::ExitCode, time::Duration};
 
-const USAGE: &str = "Usage: brain-migrate <check|up> --config <non-secret-local-postgres.json>";
+const USAGE: &str = "Usage: brain-migrate <check|up|guide-check|guide-up|guide-import> --config <non-secret-local-postgres.json>";
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Config {
@@ -14,6 +14,8 @@ struct Config {
     port: u16,
     database: String,
     user: String,
+    #[serde(default)]
+    guide_retention_seconds: Option<i64>,
 }
 impl Config {
     fn validate(&self) -> Result<(), &'static str> {
@@ -36,11 +38,21 @@ async fn main() -> ExitCode {
         println!("{USAGE}");
         return ExitCode::SUCCESS;
     }
-    if args.len() != 3 || args[1] != "--config" || (args[0] != "check" && args[0] != "up") {
+    if args.len() != 3
+        || args[1] != "--config"
+        || !["check", "up", "guide-check", "guide-up", "guide-import"]
+            .iter()
+            .any(|a| args[0] == *a)
+    {
         eprintln!("{USAGE}");
         return ExitCode::FAILURE;
     }
-    match run(args[0] == "up", PathBuf::from(&args[2])).await {
+    match run(
+        args[0].to_str().unwrap_or_default(),
+        PathBuf::from(&args[2]),
+    )
+    .await
+    {
         Ok(()) => ExitCode::SUCCESS,
         Err(message) => {
             eprintln!("brain-migrate: {message}");
@@ -49,7 +61,7 @@ async fn main() -> ExitCode {
     }
 }
 
-async fn run(upgrade: bool, path: PathBuf) -> Result<(), String> {
+async fn run(action: &str, path: PathBuf) -> Result<(), String> {
     if std::env::var_os("PGOPTIONS").is_some() {
         return Err("ambient PGOPTIONS is not allowed; use the explicit local config".into());
     }
@@ -74,16 +86,33 @@ async fn run(upgrade: bool, path: PathBuf) -> Result<(), String> {
         .await
         .map_err(|_| "local PostgreSQL connection failed (check peer auth and role)")?;
     let store = PgStore::new(pool.clone());
-    let result = if upgrade {
-        store.migrate_core().await
-    } else {
-        store.check_core_schema().await
+    let result = match action {
+        "up" => store.migrate_core().await,
+        "guide-up" => store.migrate_guide().await,
+        "guide-check" => store.check_guide().await,
+        "guide-import" => {
+            store
+                .import_guide_legacy(config.guide_retention_seconds)
+                .await
+        }
+        _ => store.check_core_schema().await,
     };
     pool.close().await;
     result.map_err(|e| e.to_string())?;
+    if action.starts_with("guide-") {
+        println!(
+            "Serverguide-Schema v1: {}",
+            match action {
+                "guide-import" => "zulässiger Import abgeschlossen",
+                "guide-up" => "Migration ausgeführt",
+                _ => "kompatibel, nur geprüft",
+            }
+        );
+        return Ok(());
+    }
     println!(
         "core schema v{CORE_SCHEMA_VERSION} / {STORE_VERSION}: {}",
-        if upgrade {
+        if action.ends_with("up") {
             "upgrade verified"
         } else {
             "compatible (read-only check)"

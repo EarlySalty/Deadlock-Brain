@@ -7,7 +7,10 @@ use brain_contracts::{
 };
 use postgres::Row;
 mod connection;
+mod guide;
+mod guide_knowledge;
 use connection::Client;
+pub use guide::GuideSnapshot;
 #[cfg(test)]
 mod review_deadline;
 #[cfg(test)]
@@ -323,6 +326,7 @@ impl ClientPool {
 #[derive(Clone)]
 pub struct LocalPgReader {
     pool: Arc<ClientPool>,
+    allowed_public_sources: Option<std::collections::BTreeSet<String>>,
 }
 
 impl std::fmt::Debug for LocalPgReader {
@@ -361,6 +365,7 @@ impl LocalPgReader {
         };
         Ok(Self {
             pool: Arc::new(ClientPool::new(config, 4, Duration::from_secs(2))?),
+            allowed_public_sources: None,
         })
     }
 
@@ -415,11 +420,18 @@ impl LocalPgReader {
         config.lock_timeout = lock_timeout;
         Ok(Self {
             pool: Arc::new(ClientPool::new(config, max_connections, acquire_timeout)?),
+            allowed_public_sources: None,
         })
     }
 
     pub fn pool_stats(&self) -> LocalPgPoolStats {
         self.pool.stats()
+    }
+
+    /// Guide-Quellen werden vor dem Laden von Dokumentkörpern eingeschränkt.
+    pub fn with_public_sources(mut self, sources: std::collections::BTreeSet<String>) -> Self {
+        self.allowed_public_sources = Some(sources);
+        self
     }
 
     /// SELECT-only service startup preflight using the same bounded runtime pool.
@@ -621,10 +633,24 @@ impl LocalPgReader {
                 &[&release_id],
             )?
             .ok_or_else(|| invalid("unknown release"))?;
-        let release = Self::release_row(row)?;
+        let mut release = Self::release_row(row)?;
         validate_release(&release)?;
         if release.release_id != release_id {
             return Err(invalid("release identity mismatch"));
+        }
+        if let Some(sources) = &self.allowed_public_sources {
+            release
+                .source_revisions
+                .retain(|source, _| sources.contains(source));
+            let candidates = serde_json::to_value(&release.source_revisions)
+                .map_err(|_| invalid("invalid release pins"))?;
+            let permitted = tx.query("SELECT r.source_id,r.logical_id FROM jsonb_each($1::jsonb) s CROSS JOIN LATERAL jsonb_each_text(s.value) d JOIN brain.source_record_revisions r ON r.source_id=s.key AND r.logical_id=d.key AND r.revision=d.value::bigint JOIN brain.source_record_heads h ON h.source_id=r.source_id AND h.logical_id=r.logical_id WHERE r.record_json->>'visibility'='public' AND h.record_json->>'visibility'='public' AND NOT (r.record_json->>'tombstone')::boolean AND NOT (h.record_json->>'tombstone')::boolean AND r.record_json->'metadata'->>'source_class' IN ('public_rule','server_documentation','game_fact','community_tip') AND h.record_json->'metadata'->>'source_class' IN ('public_rule','server_documentation','game_fact','community_tip')", &[&candidates])?;
+            let keys: std::collections::BTreeSet<(String, String)> =
+                permitted.iter().map(|r| (r.get(0), r.get(1))).collect();
+            for (source, docs) in &mut release.source_revisions {
+                docs.retain(|id, _| keys.contains(&(source.clone(), id.clone())));
+            }
+            release.source_revisions.retain(|_, docs| !docs.is_empty());
         }
         let pins = serde_json::to_value(&release.source_revisions)
             .map_err(|_| invalid("invalid release pins"))?;

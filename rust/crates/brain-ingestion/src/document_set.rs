@@ -53,6 +53,13 @@ fn record(
     document: &CoreDocument,
     revision: u64,
 ) -> Result<SourceRecordV2> {
+    if brain_contracts::source::excluded_knowledge_input(
+        &source.source_id,
+        &document.logical_id,
+        &document.metadata,
+    ) {
+        return Err(invalid("Ausgeschlossene Wissensquelle"));
+    }
     let content_hash = digest(document.content.as_bytes());
     let mut record = SourceRecordV2 {
         source_id: source.source_id.clone(),

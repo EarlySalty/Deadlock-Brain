@@ -14,6 +14,62 @@ pub use patch_validity::patch_validity_for;
 pub const IR_VERSION: &str = "brain.ir.v1";
 pub const ORIGIN_METADATA_KEY: &str = "brain.origin";
 
+/// Ticketmaterial bleibt auch bei erreichbaren oder öffentlichen Kopien ausgeschlossen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceContentClass {
+    PublicRule,
+    ServerDocumentation,
+    GameFact,
+    CommunityTip,
+    Ticket,
+    TicketTranscript,
+    TicketCopy,
+    PrivateDm,
+    ModeratorChannel,
+    UserProfile,
+}
+impl SourceContentClass {
+    pub fn excluded(self) -> bool {
+        matches!(
+            self,
+            Self::Ticket
+                | Self::TicketTranscript
+                | Self::TicketCopy
+                | Self::PrivateDm
+                | Self::ModeratorChannel
+                | Self::UserProfile
+        )
+    }
+}
+pub fn excluded_knowledge_input(
+    source: &str,
+    logical: &str,
+    metadata: &std::collections::BTreeMap<String, String>,
+) -> bool {
+    if metadata.get("source_class").is_some_and(|class| {
+        serde_json::from_value::<SourceContentClass>(serde_json::Value::String(class.clone()))
+            .map_or(true, SourceContentClass::excluded)
+    }) {
+        return true;
+    }
+    [source, logical].iter().any(|value| {
+        value.split(['/', ':']).any(|part| {
+            matches!(
+                part.to_lowercase().as_str(),
+                "ticket"
+                    | "tickets"
+                    | "ticket_transcripts"
+                    | "ticket-transcripts"
+                    | "ticket_copies"
+                    | "ticket-copies"
+                    | "private-dms"
+                    | "user-profiles"
+            )
+        })
+    })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum IrVersion {
     #[serde(rename = "brain.ir.v1")]
@@ -229,4 +285,45 @@ pub fn origin_from_record(record: &SourceRecordV2) -> Result<OriginArtifact, Str
         serde_json::from_str(encoded).map_err(|e| e.to_string())?;
     origin.data.check_record(record)?;
     Ok(origin.data)
+}
+
+#[cfg(test)]
+mod knowledge_source_tests {
+    use super::*;
+    use std::collections::BTreeMap;
+    #[test]
+    fn ausgeschlossene_quellen_werden_auch_als_kopien_abgewiesen() {
+        for class in [
+            "ticket",
+            "ticket_transcript",
+            "ticket_copy",
+            "private_dm",
+            "moderator_channel",
+            "user_profile",
+            "unknown",
+        ] {
+            let metadata = BTreeMap::from([("source_class".into(), class.into())]);
+            assert!(excluded_knowledge_input(
+                "public-source",
+                "document",
+                &metadata
+            ));
+        }
+        for path in [
+            "tickets/123.md",
+            "exports/ticket-transcripts/a.md",
+            "public/ticket-copies/a.md",
+        ] {
+            assert!(excluded_knowledge_input(
+                "public-source",
+                path,
+                &BTreeMap::new()
+            ));
+        }
+        assert!(!excluded_knowledge_input(
+            "verified-public-rules",
+            "ticket-erstellen.md",
+            &BTreeMap::from([("source_class".into(), "public_rule".into())])
+        ));
+    }
 }
