@@ -449,6 +449,11 @@ pub fn validate_proposal(
             && proposal.open_questions.len() <= 32,
         "Antwort überschreitet die Grenze"
     );
+    ensure!(
+        !matches!(proposal.action, Action::Keep)
+            || crate::scanner::exportable_document(config, scan, &proposal.target).is_some(),
+        "invalid_proposal_code_only_keep"
+    );
     if matches!(proposal.action, Action::SourceReview) {
         validate_citations(scan, &proposal.citations)?;
         ensure!(
@@ -579,10 +584,7 @@ pub fn validate_draft(
     );
     ensure!(
         draft.export_binding.as_deref()
-            == Some(export_binding(config, repo, scan, &draft.proposal.target)?.as_str())
-            && !(matches!(draft.proposal.action, Action::Keep)
-                && crate::scanner::exportable_document(config, scan, &draft.proposal.target)
-                    .is_none()),
+            == Some(export_binding(config, repo, scan, &draft.proposal.target)?.as_str()),
         "cached_document_export_binding_changed"
     );
     ensure!(

@@ -377,6 +377,30 @@ async fn code_only_migration_keeps_previous_private_text_local_and_binds_all_rig
     .unwrap();
     author::validate_draft(&config, &repo, &migrated, &new_draft).unwrap();
     assert_eq!(fs::read(&calls).unwrap(), b"x");
+    fs::write(&answer, serde_json::to_vec(&rejected.proposal).unwrap()).unwrap();
+    for _ in 0..2 {
+        let journal = brain_maintenance::integration::artifacts::Artifacts::open(
+            &dir.path().join("private-receipts"),
+        )
+        .unwrap();
+        let error = author::with_call_journal(
+            journal,
+            digest(b"invalid-code-only-first-author"),
+            author::propose(&config, &repo, &migrated, target),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.to_string(), "invalid_proposal_code_only_keep");
+    }
+    assert_eq!(fs::read(&calls).unwrap(), b"xx");
+    let mut invalid_cached = new_draft.clone();
+    invalid_cached.proposal = rejected.proposal.clone();
+    assert_eq!(
+        author::validate_draft(&config, &repo, &migrated, &invalid_cached)
+            .unwrap_err()
+            .to_string(),
+        "invalid_proposal_code_only_keep"
+    );
     config
         .canonical_documents
         .get_mut(target)
