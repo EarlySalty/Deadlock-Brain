@@ -5,6 +5,7 @@ use brain_kernel::AnswerKernelPort;
 use brain_policy::{PolicyEngine, PolicyError};
 use sha2::{Digest, Sha256};
 mod http;
+pub mod internal;
 mod retrieval;
 pub use http::router;
 
@@ -22,6 +23,7 @@ pub struct ApiService<K> {
     deadline_ms: u64,
     budget: Budget,
     retrieval: Option<std::sync::Arc<dyn brain_contracts::RetrievalPort>>,
+    release_bindings: std::collections::BTreeMap<(String, String), String>,
 }
 
 impl<K> ApiService<K>
@@ -42,6 +44,7 @@ where
             deadline_ms,
             budget,
             retrieval: None,
+            release_bindings: std::collections::BTreeMap::new(),
         }
     }
 
@@ -53,6 +56,43 @@ where
         self
     }
 
+    /// Ausschließlich der Server bindet authentifizierte Identitäten an Releases.
+    pub fn with_release_bindings(
+        mut self,
+        bindings: std::collections::BTreeMap<(String, String), String>,
+    ) -> Self {
+        self.release_bindings = bindings;
+        self
+    }
+
+    fn release_for_token(&self, token: &str) -> Result<String, ApiResponse> {
+        let principal = self
+            .policy
+            .authenticate(token)
+            .map_err(|_| json_error(401, "unauthorized", "Zugangsdaten sind ungültig"))?;
+        if principal.actor_id == "second-brain"
+            || principal.scopes.contains("second_brain.internal")
+        {
+            return Err(json_error(
+                401,
+                "unauthorized",
+                "Identität ist nicht für öffentliche Routen freigegeben",
+            ));
+        }
+        let release = self
+            .release_bindings
+            .get(&(principal.actor_id, principal.channel))
+            .unwrap_or(&self.knowledge_release);
+        if release.trim().is_empty() || ["current", "latest"].contains(&release.as_str()) {
+            return Err(json_error(
+                503,
+                "not_ready",
+                "Kein gebundener Wissensstand verfügbar",
+            ));
+        }
+        Ok(release.clone())
+    }
+
     pub fn handle_answer(&self, authorization: Option<&str>, body: &[u8]) -> ApiResponse {
         let deadline = brain_contracts::RequestDeadline::after(std::time::Duration::from_millis(
             self.deadline_ms.clamp(1, 60000),
@@ -61,7 +101,12 @@ where
     }
 
     fn authenticate_header(&self, authorization: Option<&str>) -> bool {
-        bearer_token(authorization).is_some_and(|token| self.policy.authenticate(token).is_ok())
+        bearer_token(authorization).is_some_and(|token| {
+            self.policy.authenticate(token).is_ok_and(|principal| {
+                principal.actor_id != "second-brain"
+                    && !principal.scopes.contains("second_brain.internal")
+            })
+        })
     }
 
     fn handle_answer_until(
@@ -94,10 +139,14 @@ where
             return json_error(400, "invalid_request", "Query Contract ist ungültig");
         }
 
+        let knowledge_release = match self.release_for_token(token) {
+            Ok(release) => release,
+            Err(response) => return response,
+        };
         let context = match self.policy.authorize_query_until(
             token,
             &query,
-            self.knowledge_release.clone(),
+            knowledge_release.clone(),
             deadline.clone(),
             self.budget.clone(),
         ) {
@@ -115,7 +164,7 @@ where
                 return answer_response(&AnswerResponse {
                     contract_version: CONTRACT_VERSION.into(),
                     request_id: query.request_id.clone(),
-                    knowledge_release: self.knowledge_release.clone(),
+                    knowledge_release,
                     status: AnswerStatus::Unavailable,
                     text: "Datenbankkapazität ist vorübergehend nicht verfügbar.".into(),
                     citations: Vec::new(),
@@ -322,6 +371,118 @@ mod tests {
         assert_eq!(answer.status, AnswerStatus::Answered);
         assert_eq!(answer.knowledge_release, "release-1");
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn c9_identitaeten_sind_an_scope_und_release_gebunden() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let grants = [
+            ("twitch-token", "twitch-bot", "twitch", "bot.public"),
+            ("docs-token", "docs-client", "docs", "docs.public"),
+            (
+                "second-token",
+                "second-brain",
+                "internal",
+                "second_brain.internal",
+            ),
+        ];
+        let api = ApiService::new(
+            PolicyEngine::new(CredentialRegistry::new(
+                grants
+                    .iter()
+                    .map(|(token, actor, channel, scope)| {
+                        AuthGrant::from_secret(
+                            token,
+                            actor,
+                            channel,
+                            scopes(&[scope]),
+                            scopes(&["public"]),
+                        )
+                    })
+                    .collect(),
+            )),
+            FixedKernel {
+                calls: calls.clone(),
+            },
+            "twitch-release",
+            2_000,
+            Budget::default(),
+        )
+        .with_release_bindings(std::collections::BTreeMap::from([
+            (("docs-client".into(), "docs".into()), "docs-release".into()),
+            (
+                ("second-brain".into(), "internal".into()),
+                "second-release".into(),
+            ),
+        ]));
+        for ((token, _, _, scope), expected_release) in grants
+            .iter()
+            .take(2)
+            .zip(["twitch-release", "docs-release"])
+        {
+            let mut request = query(&[scope]);
+            request.conversation_id = format!("conversation-{token}");
+            let response = api.handle_answer(
+                Some(&format!("Bearer {token}")),
+                &serde_json::to_vec(&request).unwrap(),
+            );
+            assert_eq!(response.status, 200);
+            let answer: brain_contracts::PublicAnswerResponse =
+                serde_json::from_str(&response.body).unwrap();
+            assert_eq!(answer.knowledge_release, expected_release);
+            for other in ["bot.public", "docs.public", "second_brain.internal"] {
+                if other != *scope {
+                    request.requested_scopes = scopes(&[other]);
+                    assert_eq!(
+                        api.handle_answer(
+                            Some(&format!("Bearer {token}")),
+                            &serde_json::to_vec(&request).unwrap()
+                        )
+                        .status,
+                        403
+                    );
+                    assert_eq!(
+                        api.handle_retrieve(
+                            Some(&format!("Bearer {token}")),
+                            &serde_json::to_vec(&request).unwrap()
+                        )
+                        .status,
+                        403
+                    );
+                }
+            }
+        }
+        let body = serde_json::to_vec(&query(&["second_brain.internal"])).unwrap();
+        assert_eq!(
+            api.handle_answer(Some("Bearer second-token"), &body).status,
+            401
+        );
+        assert_eq!(
+            api.handle_retrieve(Some("Bearer second-token"), &body)
+                .status,
+            401
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn c9_ungueltige_releasebindung_hat_keinen_fallback() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let api =
+            service(calls.clone()).with_release_bindings(std::collections::BTreeMap::from([(
+                ("actor-1".into(), "mcp".into()),
+                "current".into(),
+            )]));
+        let body = serde_json::to_vec(&query(&["docs.public"])).unwrap();
+        assert_eq!(
+            api.handle_answer(Some("Bearer test-token"), &body).status,
+            503
+        );
+        assert_eq!(
+            api.handle_retrieve(Some("Bearer test-token"), &body).status,
+            503
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
     }
 
     #[test]

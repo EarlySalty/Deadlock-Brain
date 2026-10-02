@@ -4,6 +4,7 @@
 mod analytics;
 pub mod config;
 mod health;
+mod operator_socket;
 mod secrets;
 mod service;
 

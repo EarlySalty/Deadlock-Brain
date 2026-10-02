@@ -17,6 +17,7 @@ axum = { version = "0.8", default-features = false, features = ["http1", "tokio"
 tokio = { workspace = true, features = ["sync"] }
 
 [dev-dependencies]
+reqwest.workspace = true
 serde.workspace = true
 brain-ingestion = { path = "../brain-ingestion" }
 brain-providers = { path = "../brain-providers" }
