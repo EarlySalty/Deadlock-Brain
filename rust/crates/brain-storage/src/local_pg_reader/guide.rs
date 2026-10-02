@@ -27,13 +27,18 @@ impl LocalPgReader {
             .parse::<i64>()
             .map_err(|_| invalid("Mitgliedskennung ist ungültig"))?;
         tx.query_one("SELECT pg_advisory_xact_lock($1)", &[&(uid ^ i64::MIN)])?;
+        let blocked = tx
+            .query_opt(
+                "SELECT opted_out,deleted_at IS NOT NULL FROM core.user_privacy WHERE user_id=$1",
+                &[&uid],
+            )?
+            .is_some_and(|r| r.get::<_, bool>(0) || r.get::<_, bool>(1));
+        let subject = tx.query_opt("SELECT deleted,globally_opted_out FROM brain.guide_subjects WHERE guild_id=$1 AND user_id=$2 FOR UPDATE", &[&turn.guild_id,&turn.user_id])?;
+        if blocked || subject.map_or(true, |r| r.get::<_, bool>(0) || r.get::<_, bool>(1)) {
+            tx.commit()?;
+            return Ok(None);
+        }
         if save {
-            let blocked = tx.query_opt("SELECT opted_out,deleted_at IS NOT NULL FROM core.user_privacy WHERE user_id=$1", &[&uid])?.is_some_and(|r| r.get::<_,bool>(0) || r.get::<_,bool>(1));
-            let subject = tx.query_opt("SELECT deleted,globally_opted_out FROM brain.guide_subjects WHERE guild_id=$1 AND user_id=$2 FOR UPDATE", &[&turn.guild_id,&turn.user_id])?;
-            if blocked || subject.map_or(true, |r| r.get::<_, bool>(0) || r.get::<_, bool>(1)) {
-                tx.commit()?;
-                return Ok(None);
-            }
             let text: String = turn.content.chars().take(3500).collect();
             tx.execute("INSERT INTO brain.guide_feedback_drafts(guild_id,user_id,channel_id,message_id,text,expires_at) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(guild_id,user_id,channel_id) DO UPDATE SET message_id=EXCLUDED.message_id,text=EXCLUDED.text,expires_at=EXCLUDED.expires_at", &[&turn.guild_id,&turn.user_id,&turn.channel_id,&turn.message_id,&text,&(now+ttl)])?;
             tx.commit()?;
