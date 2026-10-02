@@ -25,7 +25,7 @@ GRANT INSERT ON brain.conversation_owners_v1 TO brain_service;
 DO $$
 BEGIN
   IF to_regclass('brain.maintenance_sources_v1') IS NOT NULL THEN
-    GRANT SELECT ON brain.maintenance_sources_v1 TO brain_service;
+    GRANT SELECT ON brain.maintenance_sources_v1 TO brain_service, brain_readonly;
     GRANT SELECT, INSERT, UPDATE ON brain.maintenance_sources_v1 TO brain_ingest;
   END IF;
   IF to_regclass('brain.maintenance_jobs_v1') IS NOT NULL THEN

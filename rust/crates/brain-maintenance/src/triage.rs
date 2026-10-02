@@ -3,7 +3,7 @@ use crate::{
     scanner::ScanResult,
 };
 use anyhow::{ensure, Result};
-use brain_jev::transport::JevClient;
+use brain_jev::transport::{JevClient, TransportError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -82,10 +82,19 @@ pub async fn triage(
             input_tokens: response["usage"]["input_tokens"].as_u64(),
             output_tokens: response["usage"]["output_tokens"].as_u64(),
         }),
-        Err(_) => Ok(TriageOutcome {
+        Err(error) => Ok(TriageOutcome {
             status: "unproven".into(),
             source_review_required: true,
-            error_code: Some("jev_transport_or_schema".into()),
+            error_code: Some(
+                match error {
+                    TransportError::Transport | TransportError::Http(_) => "JEV_TRANSPORT_FAILED",
+                    TransportError::Schema | TransportError::ResponseLimit => {
+                        "JEV_RESPONSE_INVALID"
+                    }
+                    TransportError::Config | TransportError::Request => "JEV_REQUEST_INVALID",
+                }
+                .into(),
+            ),
             input_tokens: None,
             output_tokens: None,
         }),

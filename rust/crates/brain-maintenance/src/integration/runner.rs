@@ -331,52 +331,63 @@ impl Runner {
                     .await?;
             }
         }
+        let mut isolated_errors = Vec::new();
         for repo in &config.repositories {
-            crate::config::require_registered(&config, repo)?;
-            let branch = repo
-                .source_ref
-                .strip_prefix("refs/remotes/origin/")
-                .context("source_ref")?;
-            crate::process::run(
-                Path::new("/usr/bin/git"),
-                &[
-                    "-c".into(),
-                    "core.hooksPath=/dev/null".into(),
-                    "fetch".into(),
-                    "--no-tags".into(),
-                    "origin".into(),
-                    branch.into(),
-                ],
-                &repo.path,
-                &[],
-                config.bounds.git_timeout_ms,
-                65536,
-            )
-            .await?;
-            let sha = scanner::resolve_ref(&repo.path, &repo.source_ref, &config.bounds).await?;
-            for target in &repo.doc_targets {
-                let recent = self
-                    .store
-                    .maintenance_jobs(&registration_id(repo, target), 100)
-                    .await?;
-                let active_release = brain_serve::Config::load(&self.runtime.serve_config)?
-                    .release
-                    .id;
-                let Some(spec) = automatic_job_spec(
-                    &config,
-                    repo,
-                    target,
-                    &sha,
-                    &active_release,
-                    recent.first().map(|job| &job.spec),
-                ) else {
-                    self.registration(repo, target, &sha).await?;
-                    continue;
-                };
-                let previous = recent.first().map(|j| j.spec.source_sha.as_str());
-                let changed = match previous {
-                    Some(previous) if previous != sha => {
-                        dbrain_sources::git_source::PinnedRepository::open(&repo.path, previous)?
+            let mut failure_stage = "REPOSITORY_REGISTRATION_INVALID";
+            let result: Result<()> = async {
+                crate::config::require_registered(&config, repo)?;
+                let branch = repo
+                    .source_ref
+                    .strip_prefix("refs/remotes/origin/")
+                    .context("source_ref")?;
+                failure_stage = "SOURCE_FETCH_FAILED";
+                crate::process::run(
+                    Path::new("/usr/bin/git"),
+                    &[
+                        "-c".into(),
+                        "core.hooksPath=/dev/null".into(),
+                        "fetch".into(),
+                        "--no-tags".into(),
+                        "origin".into(),
+                        branch.into(),
+                    ],
+                    &repo.path,
+                    &[],
+                    config.bounds.git_timeout_ms,
+                    65536,
+                )
+                .await?;
+                failure_stage = "SOURCE_RESOLVE_FAILED";
+                let sha =
+                    scanner::resolve_ref(&repo.path, &repo.source_ref, &config.bounds).await?;
+                for target in &repo.doc_targets {
+                    failure_stage = "TARGET_QUEUE_CHECK_FAILED";
+                    let recent = self
+                        .store
+                        .maintenance_jobs(&registration_id(repo, target), 100)
+                        .await?;
+                    let active_release = brain_serve::Config::load(&self.runtime.serve_config)?
+                        .release
+                        .id;
+                    let Some(spec) = automatic_job_spec(
+                        &config,
+                        repo,
+                        target,
+                        &sha,
+                        &active_release,
+                        recent.first().map(|job| &job.spec),
+                    ) else {
+                        failure_stage = "REGISTRY_BINDING_FAILED";
+                        self.registration(repo, target, &sha).await?;
+                        continue;
+                    };
+                    let previous = recent.first().map(|j| j.spec.source_sha.as_str());
+                    failure_stage = "SOURCE_DIFF_FAILED";
+                    let changed = match previous {
+                        Some(previous) if previous != sha => {
+                            dbrain_sources::git_source::PinnedRepository::open(
+                                &repo.path, previous,
+                            )?
                             .diff(&sha)?
                             .into_iter()
                             .flat_map(|change| change.old_path.into_iter().chain(change.new_path))
@@ -385,29 +396,45 @@ impl Runner {
                                     path == *scope || path.starts_with(&format!("{scope}/"))
                                 }) && crate::scanner::approved_code_path(&path)
                             })
+                        }
+                        Some(_) => false,
+                        None => true,
+                    };
+                    if previous.is_some()
+                        && !changed
+                        && recent.first().is_some_and(|j| {
+                            j.spec.policy == *repo.document_policy_for(target)
+                                && j.spec.prompt_version == config.prompt_version
+                                && j.spec.model == config.codex.model
+                        })
+                    {
+                        failure_stage = "REGISTRY_BINDING_FAILED";
+                        self.registration(repo, target, previous.context("previous_source")?)
+                            .await?;
+                        continue;
                     }
-                    Some(_) => false,
-                    None => true,
-                };
-                if previous.is_some()
-                    && !changed
-                    && recent.first().is_some_and(|j| {
-                        j.spec.policy == *repo.document_policy_for(target)
-                            && j.spec.prompt_version == config.prompt_version
-                            && j.spec.model == config.codex.model
-                    })
-                {
-                    self.registration(repo, target, previous.context("previous_source")?)
+                    failure_stage = "REGISTRY_BINDING_FAILED";
+                    self.registration(repo, target, &sha).await?;
+                    failure_stage = "JOB_ENQUEUE_FAILED";
+                    self.store
+                        .enqueue_maintenance(&spec, MaintenanceStatus::Planned)
                         .await?;
-                    continue;
                 }
-                self.registration(repo, target, &sha).await?;
-                self.store
-                    .enqueue_maintenance(&spec, MaintenanceStatus::Planned)
-                    .await?;
+                Ok(())
+            }
+            .await;
+            if result.is_err() {
+                isolated_errors.push(json!({"repo":repo.id,"code":failure_stage}));
             }
         }
-        for discovered in scanner::discover(&config)? {
+        let discovered = match scanner::discover(&config) {
+            Ok(discovered) => discovered,
+            Err(_) => {
+                isolated_errors.push(json!({"code":"DISCOVERY_FAILED"}));
+                Vec::new()
+            }
+        };
+        for discovered in discovered {
             let identity = format!(
                 "discovered:{}",
                 digest(discovered.path.to_string_lossy().as_bytes())
@@ -422,7 +449,9 @@ impl Runner {
                 })
                 .await?;
         }
-        self.enqueue_local_imports(&config).await?;
+        if self.enqueue_local_imports(&config).await.is_err() {
+            isolated_errors.push(json!({"code":"LOCAL_IMPORT_ENQUEUE_FAILED"}));
+        }
         for _ in 0..self.runtime.max_jobs_per_tick * 5 {
             let Some(mut job) = self
                 .store
@@ -432,51 +461,110 @@ impl Runner {
                 break;
             };
             let lease = job.lease.clone().context("claimed_job_without_lease")?;
-            let config = load_maintenance(&self.runtime.maintenance_config)?;
-            if let Some(repo) = config
-                .repositories
-                .iter()
-                .find(|r| registration_id(r, &job.spec.target_path) == job.spec.repo_id)
-            {
-                let current =
-                    scanner::resolve_ref(&repo.path, &repo.source_ref, &config.bounds).await?;
-                if !job.checkpoint.artifact_refs.contains_key("local_review")
-                    && self.local_document(&job).await?.is_none()
-                    && (!scanner::relevant_source_matches(&config, repo, &job.spec.source_sha)
-                        .await?
-                        || job.spec.policy != *repo.document_policy_for(&job.spec.target_path))
+            let preflight: Result<bool> = async {
+                let config = load_maintenance(&self.runtime.maintenance_config)?;
+                if let Some(repo) = config
+                    .repositories
+                    .iter()
+                    .find(|r| registration_id(r, &job.spec.target_path) == job.spec.repo_id)
                 {
-                    if let Some(replacement) = self
-                        .store
-                        .maintenance_jobs(&job.spec.repo_id, 100)
-                        .await?
-                        .iter()
-                        .find(|j| {
-                            j.spec.source_sha == current
-                                && j.spec.policy == *repo.document_policy_for(&job.spec.target_path)
-                                && j.spec.id != job.spec.id
-                        })
+                    let current =
+                        scanner::resolve_ref(&repo.path, &repo.source_ref, &config.bounds).await?;
+                    if !job.checkpoint.artifact_refs.contains_key("local_review")
+                        && self.local_document(&job).await?.is_none()
+                        && (!scanner::relevant_source_matches(&config, repo, &job.spec.source_sha)
+                            .await?
+                            || job.spec.policy != *repo.document_policy_for(&job.spec.target_path))
                     {
-                        self.store
-                            .supersede_maintenance(&lease, &replacement.spec.id)
-                            .await?;
-                        continue;
+                        if let Some(replacement) = self
+                            .store
+                            .maintenance_jobs(&job.spec.repo_id, 100)
+                            .await?
+                            .iter()
+                            .find(|j| {
+                                j.spec.source_sha == current
+                                    && j.spec.policy
+                                        == *repo.document_policy_for(&job.spec.target_path)
+                                    && j.spec.id != job.spec.id
+                            })
+                        {
+                            self.store
+                                .supersede_maintenance(&lease, &replacement.spec.id)
+                                .await?;
+                            return Ok(false);
+                        }
                     }
                 }
+                Ok(true)
+            }
+            .await;
+            match preflight {
+                Ok(false) => continue,
+                Err(_) => {
+                    self.store
+                        .retry_maintenance(
+                            &lease,
+                            "JOB_PREFLIGHT_FAILED",
+                            self.runtime.retry_delay_ms,
+                        )
+                        .await?;
+                    isolated_errors.push(json!({"job":job.spec.id,"code":"JOB_PREFLIGHT_FAILED"}));
+                    continue;
+                }
+                Ok(true) => {}
             }
             if let Err(error) = self.advance(&mut job).await {
-                // Nur ein stabiler Fehlercode wird gespeichert, niemals Inhalte aus Abhängigkeiten.
-                let code = if error.to_string().contains("review") {
-                    "REVIEW_REQUIRED"
-                } else {
-                    "STAGE_FAILED"
-                };
-                self.store
-                    .retry_maintenance(&lease, code, self.runtime.retry_delay_ms)
-                    .await?;
+                self.handle_failed_advance(&job, &lease, &error).await?;
             }
         }
-        self.status().await
+        let mut status = self.status().await?;
+        status["isolated_errors"] = json!(isolated_errors);
+        self.write_status(&status)?;
+        Ok(status)
+    }
+
+    async fn handle_failed_advance(
+        &self,
+        job: &MaintenanceJob,
+        lease: &MaintenanceLease,
+        error: &anyhow::Error,
+    ) -> Result<()> {
+        let mut checkpoint = self
+            .store
+            .maintenance_job(&job.spec.id)
+            .await?
+            .context("failed_job_missing")?
+            .checkpoint;
+        let paid_intent = checkpoint
+            .artifact_refs
+            .keys()
+            .any(|key| key.contains("_call_intent"));
+        let terminal_context = error.to_string() == "context_platform_identifier";
+        if paid_intent || terminal_context {
+            checkpoint.artifact_refs.insert(
+                "blocked_reason".into(),
+                if paid_intent {
+                    "PAID_RESULT_INVALID_OR_UNCERTAIN"
+                } else {
+                    "CONTEXT_REJECTED"
+                }
+                .into(),
+            );
+            self.store
+                .transition_maintenance(lease, MaintenanceStatus::Failed, &checkpoint)
+                .await?;
+        } else {
+            let code = match error.to_string().as_str() {
+                "JEV_TRANSPORT_FAILED" => "JEV_TRANSPORT_FAILED",
+                "JEV_RESPONSE_INVALID" => "JEV_RESPONSE_INVALID",
+                "JEV_REQUEST_INVALID" => "JEV_REQUEST_INVALID",
+                _ => "STAGE_FAILED",
+            };
+            self.store
+                .retry_maintenance(lease, code, self.runtime.retry_delay_ms)
+                .await?;
+        }
+        Ok(())
     }
 
     async fn enqueue_local_imports(&self, config: &MaintenanceConfig) -> Result<()> {
@@ -728,7 +816,9 @@ impl Runner {
                         },
                     )
                     .await?;
-                    ensure!(triage.error_code.is_none(), "jev_review_transport");
+                    if let Some(code) = &triage.error_code {
+                        return Err(anyhow::anyhow!(code.clone()));
+                    }
                     checkpoint.artifact_refs.insert(
                         "scan".into(),
                         self.artifacts.put(
@@ -814,14 +904,24 @@ impl Runner {
                         author::validate_draft(&config, repo, &scan, &draft)?;
                         Some(draft)
                     } else {
-                        checkpoint.artifact_refs.insert(
-                            "blocked_reason".into(),
-                            "CORRECTION_RESULT_UNCERTAIN".into(),
-                        );
-                        self.store
-                            .transition_maintenance(&lease, MaintenanceStatus::Failed, &checkpoint)
-                            .await?;
-                        return Ok(());
+                        if !checkpoint
+                            .artifact_refs
+                            .contains_key("correction_call_intent")
+                        {
+                            checkpoint.artifact_refs.insert(
+                                "blocked_reason".into(),
+                                "CORRECTION_RESULT_UNCERTAIN".into(),
+                            );
+                            self.store
+                                .transition_maintenance(
+                                    &lease,
+                                    MaintenanceStatus::Failed,
+                                    &checkpoint,
+                                )
+                                .await?;
+                            return Ok(());
+                        }
+                        None
                     }
                 } else {
                     None
@@ -840,17 +940,52 @@ impl Runner {
                 let draft = if let Some(draft) = resumed_correction.or(initial_draft) {
                     draft
                 } else {
+                    let call_intent = self.artifacts.put(&serde_json::to_vec(&json!({
+                        "job":job.spec.id,"stage":"author","export_binding":author::export_binding(&config,repo,&scan,&job.spec.target_path)?,
+                        "rejected_review":checkpoint.artifact_refs.get("rejected_review"),"model":config.codex.model,"effort":config.codex.reasoning_effort
+                    }))?, "json")?;
+                    let call_key = if feedback.is_some() {
+                        "correction_call_intent"
+                    } else {
+                        "author_call_intent"
+                    };
+                    if feedback.is_some()
+                        && checkpoint
+                            .artifact_refs
+                            .get(call_key)
+                            .is_some_and(|previous| previous != &call_intent)
+                    {
+                        checkpoint.artifact_refs.insert(
+                            "blocked_reason".into(),
+                            "CORRECTION_BUDGET_ALREADY_USED".into(),
+                        );
+                        self.store
+                            .transition_maintenance(&lease, MaintenanceStatus::Failed, &checkpoint)
+                            .await?;
+                        return Ok(());
+                    }
+                    self.store
+                        .set_maintenance_artifact(&lease, call_key, &call_intent)
+                        .await?;
+                    checkpoint
+                        .artifact_refs
+                        .insert(call_key.into(), call_intent.clone());
+                    let call_id = digest(call_intent.as_bytes());
                     guarded_provider_dispatch(&self.store, &config, repo, &scan, &job.spec, || {
-                        while_leased(
-                            &self.store,
-                            &mut lease,
-                            self.runtime.lease_ttl_ms,
-                            author::propose_with_feedback(
-                                &config,
-                                repo,
-                                &scan,
-                                &job.spec.target_path,
-                                feedback.as_ref(),
+                        author::with_call_journal(
+                            self.artifacts.clone(),
+                            call_id,
+                            while_leased(
+                                &self.store,
+                                &mut lease,
+                                self.runtime.lease_ttl_ms,
+                                author::propose_with_feedback(
+                                    &config,
+                                    repo,
+                                    &scan,
+                                    &job.spec.target_path,
+                                    feedback.as_ref(),
+                                ),
                             ),
                         )
                     })
@@ -904,27 +1039,51 @@ impl Runner {
                                 .context("draft_checkpoint")?,
                         )?,
                     )?;
-                    let verified: author::VerifiedDocument =
-                        if let Some(reference) = checkpoint.artifact_refs.get("verified") {
-                            serde_json::from_slice(&self.artifacts.read(reference)?)?
-                        } else {
-                            guarded_provider_dispatch(
-                                &self.store,
-                                &config,
-                                repo,
-                                &scan,
-                                &job.spec,
-                                || {
+                    let verified: author::VerifiedDocument = if let Some(reference) =
+                        checkpoint.artifact_refs.get("verified")
+                    {
+                        serde_json::from_slice(&self.artifacts.read(reference)?)?
+                    } else {
+                        let call_intent = self.artifacts.put(&serde_json::to_vec(&json!({
+                                "job":job.spec.id,"stage":"reviewer","draft":digest(&serde_json::to_vec(&draft)?),
+                                "export_binding":author::export_binding(&config,repo,&scan,&job.spec.target_path)?,"model":config.codex.model,"effort":config.codex.reasoning_effort
+                            }))?, "json")?;
+                        let call_key = format!(
+                            "reviewer_call_intent_{}",
+                            checkpoint
+                                .artifact_refs
+                                .get("review_rejections")
+                                .map(String::as_str)
+                                .unwrap_or("0")
+                        );
+                        self.store
+                            .set_maintenance_artifact(&lease, &call_key, &call_intent)
+                            .await?;
+                        checkpoint
+                            .artifact_refs
+                            .insert(call_key, call_intent.clone());
+                        let call_id = digest(call_intent.as_bytes());
+                        guarded_provider_dispatch(
+                            &self.store,
+                            &config,
+                            repo,
+                            &scan,
+                            &job.spec,
+                            || {
+                                author::with_call_journal(
+                                    self.artifacts.clone(),
+                                    call_id,
                                     while_leased(
                                         &self.store,
                                         &mut lease,
                                         self.runtime.lease_ttl_ms,
                                         author::review_draft(&config, repo, &scan, draft.clone()),
-                                    )
-                                },
-                            )
-                            .await?
-                        };
+                                    ),
+                                )
+                            },
+                        )
+                        .await?
+                    };
                     author::validate_verified_draft(&config, repo, &scan, &draft, &verified)?;
                     let verified_ref = self
                         .artifacts
@@ -1124,8 +1283,10 @@ impl Runner {
         job: &MaintenanceJob,
         lease: &MaintenanceLease,
     ) -> Result<()> {
-        let _lock = self.artifacts.publication_lock()?;
-        let config_writer = ConfigWriter::lock(&self.runtime.serve_config)?;
+        let artifacts = self.artifacts.clone();
+        let _lock = tokio::task::spawn_blocking(move || artifacts.publication_lock()).await??;
+        let config_path = self.runtime.serve_config.clone();
+        let config_writer = ConfigWriter::lock_async(config_path).await?;
         crate::config::require_registered(config, repo)?;
         let (fresh_config, _) = self.current_config().await?;
         let config = &fresh_config;
@@ -1438,6 +1599,19 @@ impl Runner {
                         }
                     }
                     usage["rejected_runs"] = json!(rejected_runs);
+                    let call_receipts: std::collections::BTreeMap<_, _> = job
+                        .checkpoint
+                        .artifact_refs
+                        .iter()
+                        .filter(|(key, _)| key.contains("_call_intent"))
+                        .map(|(key, reference)| {
+                            Ok((
+                                key.clone(),
+                                author::call_receipt_summary(&self.artifacts, reference)?,
+                            ))
+                        })
+                        .collect::<Result<_>>()?;
+                    usage["call_receipts"] = json!(call_receipts);
                     jobs.push(json!({"id":job.spec.id,"repo":repo.id,"target":target,"source_sha":job.spec.source_sha,
                     "deployed_sha":job.spec.deployed_sha,"status":job.status,"attempts":job.attempts,
                     "error_code":job.error_code,"blocked_reason":job.checkpoint.artifact_refs.get("blocked_reason"),
@@ -1450,6 +1624,11 @@ impl Runner {
         let status = json!({"checked_at":chrono::Utc::now().to_rfc3339(),"active_release":active.release.id,
             "jobs":jobs,"registered_repositories":config.repositories.len(),
             "pending_sources":self.store.maintenance_sources().await?.iter().filter(|r|r.policy.is_none()).count()});
+        self.write_status(&status)?;
+        Ok(status)
+    }
+
+    fn write_status(&self, status: &serde_json::Value) -> Result<()> {
         let parent = self.runtime.status_file.parent().context("status_parent")?;
         std::fs::create_dir_all(parent)?;
         let mut staged = tempfile::NamedTempFile::new_in(parent)?;
@@ -1457,7 +1636,7 @@ impl Runner {
         staged
             .persist(&self.runtime.status_file)
             .map_err(|_| anyhow::anyhow!("status_commit"))?;
-        Ok(status)
+        Ok(())
     }
 
     pub async fn import_reviewed(&self) -> Result<serde_json::Value> {

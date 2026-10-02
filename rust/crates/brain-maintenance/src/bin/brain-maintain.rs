@@ -79,11 +79,16 @@ async fn run() -> Result<()> {
         expected_sha256,
     } = &cli.command
     {
-        let result = brain_maintenance::integration::config_writer::write_serve_config(
-            &runtime,
-            input,
-            expected_sha256,
-        )?;
+        let input = input.clone();
+        let expected_sha256 = expected_sha256.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            brain_maintenance::integration::config_writer::write_serve_config(
+                &runtime,
+                &input,
+                &expected_sha256,
+            )
+        })
+        .await??;
         println!("{}", serde_json::to_string(&result)?);
         return Ok(());
     }

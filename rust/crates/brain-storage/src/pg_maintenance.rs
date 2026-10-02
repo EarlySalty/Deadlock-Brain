@@ -282,6 +282,7 @@ impl PgStore {
                 || key.starts_with("rejected_review_")
                 || key.starts_with("rejected_draft_")
                 || key == "correction_intent"
+                || key.contains("_call_intent")
                 || key == "blocked_reason"
             {
                 next.artifact_refs.insert(key.clone(), value.clone());

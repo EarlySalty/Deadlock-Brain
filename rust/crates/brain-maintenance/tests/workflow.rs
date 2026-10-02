@@ -364,10 +364,17 @@ async fn code_only_migration_keeps_previous_private_text_local_and_binds_all_rig
     assert_eq!(payload.as_object().unwrap().len(), 2);
     assert!(payload.get("previous_proposal").is_none());
     assert!(payload.get("findings").is_none());
-    let new_draft =
-        author::propose_with_feedback(&config, &repo, &migrated, target, Some(&rejected))
-            .await
-            .unwrap();
+    let journal = brain_maintenance::integration::artifacts::Artifacts::open(
+        &dir.path().join("private-receipts"),
+    )
+    .unwrap();
+    let new_draft = author::with_call_journal(
+        journal,
+        brain_maintenance::digest(b"safe-correction-fixture"),
+        author::propose_with_feedback(&config, &repo, &migrated, target, Some(&rejected)),
+    )
+    .await
+    .unwrap();
     author::validate_draft(&config, &repo, &migrated, &new_draft).unwrap();
     assert_eq!(fs::read(&calls).unwrap(), b"x");
     config
@@ -801,7 +808,7 @@ async fn resumed_proofs_and_changed_source_are_rejected_before_staging() {
 fn codex_tool_events_are_rejected_even_on_successful_turns() {
     let (_dir, config, _repo) = fixture();
     let raw=b"{\"type\":\"thread.started\",\"thread_id\":\"test\"}\n{\"type\":\"item.completed\",\"item\":{\"type\":\"command_execution\"}}\n{\"type\":\"turn.completed\"}\n";
-    assert!(author::validate_events(&config, raw).is_err());
+    assert!(author::validate_events(&config, raw, Some(0)).is_err());
 }
 
 #[tokio::test]

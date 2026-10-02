@@ -185,7 +185,7 @@ fn read_sources(
             let content = String::from_utf8(raw).context("Quellbeleg ist kein UTF-8-Text")?;
             ensure!(
                 !contains_platform_identifier(&content),
-                "Quellbeleg enthält eine mögliche Nutzerkennung und bleibt lokal"
+                "context_platform_identifier"
             );
             let sha256 = digest(content.as_bytes());
             let origin = OriginArtifact {

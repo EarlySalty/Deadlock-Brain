@@ -15,6 +15,9 @@ pub struct ConfigWriter {
     _lock: Arc<File>,
 }
 impl ConfigWriter {
+    pub async fn lock_async(path: PathBuf) -> Result<Self> {
+        tokio::task::spawn_blocking(move || Self::lock(&path)).await?
+    }
     pub fn lock(path: &Path) -> Result<Self> {
         let parent = path
             .parent()
@@ -134,6 +137,24 @@ pub fn write_serve_config(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test(flavor = "current_thread")]
+    async fn config_lock_wait_keeps_tokio_worker_available() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let path = dir.path().join("serve.json");
+        std::fs::write(&path, b"belegte Configbytes").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let first = ConfigWriter::lock(&path).unwrap();
+        let waiting = tokio::spawn(ConfigWriter::lock_async(path));
+        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        assert!(!waiting.is_finished());
+        drop(first);
+        tokio::time::timeout(std::time::Duration::from_secs(1), waiting)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+    }
     #[test]
     fn operator_config_and_activation_share_lock_and_preserve_changed_rollback_basis() {
         let dir = tempfile::tempdir().unwrap();

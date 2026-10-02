@@ -41,6 +41,28 @@ pub async fn run(
     timeout_ms: u64,
     max_output: usize,
 ) -> Result<Vec<u8>> {
+    let result = run_observed(executable, args, cwd, input, timeout_ms, max_output).await?;
+    ensure!(
+        result.exit_code == Some(0),
+        "Prozess fehlgeschlagen, Exitcode {:?}",
+        result.exit_code
+    );
+    Ok(result.output)
+}
+
+pub struct ProcessResult {
+    pub output: Vec<u8>,
+    pub exit_code: Option<i32>,
+}
+
+pub async fn run_observed(
+    executable: &Path,
+    args: &[String],
+    cwd: &Path,
+    input: &[u8],
+    timeout_ms: u64,
+    max_output: usize,
+) -> Result<ProcessResult> {
     let mut command = Command::new(executable);
     command.as_std_mut().process_group(0);
     let mut child = command
@@ -72,12 +94,10 @@ pub async fn run(
             async { Ok::<_, anyhow::Error>(child.wait().await?) }
         )?;
         // Fremde Prozessausgabe wird nicht in Fehler oder Logs übernommen.
-        ensure!(
-            status.success(),
-            "Prozess fehlgeschlagen, Exitcode {:?}",
-            status.code()
-        );
-        Ok(output)
+        Ok(ProcessResult {
+            output,
+            exit_code: status.code(),
+        })
     };
     match tokio::time::timeout(Duration::from_millis(timeout_ms), work).await {
         Ok(result) => result,

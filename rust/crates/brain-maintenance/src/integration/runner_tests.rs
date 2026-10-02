@@ -265,7 +265,13 @@ async fn stage(
     );
     checkpoint.artifact_refs.insert(
         "triage".into(),
-        runner.artifacts.put(b"{}", "json").unwrap(),
+        runner
+            .artifacts
+            .put(
+                br#"{"status":"stale","source_review_required":true,"error_code":null}"#,
+                "json",
+            )
+            .unwrap(),
     );
     for next in [MaintenanceStatus::SourceReview, MaintenanceStatus::Author] {
         let job = runner
@@ -789,4 +795,289 @@ async fn postgres_runner_private_basis_reset_and_rejected_review_resume() {
         stopped.checkpoint.artifact_refs["blocked_reason"],
         "CORRECTION_RESULT_UNCERTAIN"
     );
+}
+
+#[tokio::test]
+#[ignore = "Benötigt den ausdrücklich isolierten PostgreSQL-Prüfcluster; exklusiv ausführen"]
+async fn postgres_paid_invalid_results_are_terminal_and_keep_private_receipts() {
+    let scratch = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(
+            PgConnectOptions::new_without_pgpass()
+                .host("/tmp/brain-maintenance-test-20261002/socket")
+                .port(55447)
+                .username("brain_maintenance_test")
+                .database("postgres")
+                .password(""),
+        )
+        .await
+        .unwrap();
+    let identity: (String, String, Option<String>, String) = sqlx::query_as("SELECT current_user::text,current_database()::text,inet_server_addr()::text,current_setting('port')")
+        .fetch_one(&scratch).await.unwrap();
+    assert_eq!(
+        identity,
+        (
+            "brain_maintenance_test".into(),
+            "postgres".into(),
+            None,
+            "55447".into()
+        )
+    );
+    sqlx::query("TRUNCATE brain.maintenance_jobs_v1, brain.maintenance_sources_v1")
+        .execute(&scratch)
+        .await
+        .unwrap();
+    for stage_name in ["author", "correction", "reviewer"] {
+        for raw in ["", "{", "{}", "semantic"] {
+            sqlx::query("TRUNCATE brain.maintenance_jobs_v1, brain.maintenance_sources_v1")
+                .execute(&scratch)
+                .await
+                .unwrap();
+            let (dir, runner, mut config, repo, scan) = setup().await;
+            let mut job = stage(&runner, &config, &repo, &scan, stage_name == "reviewer").await;
+            if stage_name == "correction" {
+                let rejected = rejection(&config, &scan, &draft(&config, &scan));
+                let reference = runner
+                    .artifacts
+                    .put(&serde_json::to_vec(&rejected).unwrap(), "json")
+                    .unwrap();
+                for (key, value) in [
+                    ("rejected_review", reference.as_str()),
+                    ("review_rejections", "1"),
+                ] {
+                    runner
+                        .store
+                        .set_maintenance_artifact(job.lease.as_ref().unwrap(), key, value)
+                        .await
+                        .unwrap();
+                }
+                job = runner
+                    .store
+                    .maintenance_job(&job.spec.id)
+                    .await
+                    .unwrap()
+                    .unwrap();
+            }
+            let answer = dir.path().join("answer");
+            let body = if raw == "semantic" {
+                if stage_name == "reviewer" {
+                    let mut review = rejection(&config, &scan, &draft(&config, &scan)).review;
+                    review.source_sha = "f".repeat(40);
+                    serde_json::to_string(&review).unwrap()
+                } else {
+                    let mut proposal = draft(&config, &scan).proposal;
+                    proposal.source_sha = "f".repeat(40);
+                    serde_json::to_string(&proposal).unwrap()
+                }
+            } else {
+                raw.into()
+            };
+            fs::write(&answer, &body).unwrap();
+            let calls = dir.path().join("calls");
+            let executable = dir.path().join("provider");
+            fs::write(&executable,format!("#!/bin/sh\nresult=''\nwhile [ $# -gt 0 ]; do\nif [ \"$1\" = '--output-last-message' ]; then shift; result=$1; fi\nshift\ndone\ncat >/dev/null\nprintf x >> '{}'\ncp '{}' \"$result\"\nprintf '%s\\n' '{{\"type\":\"thread.started\",\"thread_id\":\"cost-review-run\"}}' '{{\"type\":\"turn.completed\",\"usage\":{{\"input_tokens\":21,\"output_tokens\":4}}}}'\n", calls.display(), answer.display())).unwrap();
+            fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+            config.codex.executable = executable;
+            fs::write(
+                &runner.runtime.maintenance_config,
+                serde_json::to_vec(&config).unwrap(),
+            )
+            .unwrap();
+            let error = runner.advance(&mut job).await.unwrap_err();
+            runner
+                .handle_failed_advance(&job, job.lease.as_ref().unwrap(), &error)
+                .await
+                .unwrap();
+            let stored = runner
+                .store
+                .maintenance_job(&job.spec.id)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(stored.status, MaintenanceStatus::Failed);
+            assert!(stored.lease.is_none());
+            assert_eq!(
+                stored.checkpoint.artifact_refs["blocked_reason"],
+                "PAID_RESULT_INVALID_OR_UNCERTAIN"
+            );
+            assert!(stored.checkpoint.publication.is_none());
+            assert!(stored.checkpoint.activation.is_none());
+            let reference = stored
+                .checkpoint
+                .artifact_refs
+                .iter()
+                .find(|(key, _)| key.contains("_call_intent"))
+                .unwrap()
+                .1;
+            let receipt: serde_json::Value = serde_json::from_slice(
+                &runner
+                    .artifacts
+                    .call_receipt(&digest(reference.as_bytes()))
+                    .unwrap()
+                    .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(
+                runner
+                    .artifacts
+                    .read(receipt["raw_reference"].as_str().unwrap())
+                    .unwrap(),
+                body.as_bytes()
+            );
+            assert_eq!(receipt["proof"]["input_tokens"], 21);
+            assert_eq!(fs::read(&calls).unwrap(), b"x");
+            assert!(runner
+                .store
+                .claim_maintenance(&runner.owner, 900000)
+                .await
+                .unwrap()
+                .is_none());
+            let status = runner.status().await.unwrap();
+            assert!(!serde_json::to_string(&status)
+                .unwrap()
+                .contains("raw_sha256"));
+            assert_eq!(fs::read(calls).unwrap(), b"x");
+        }
+    }
+    sqlx::query("TRUNCATE brain.maintenance_jobs_v1, brain.maintenance_sources_v1")
+        .execute(&scratch)
+        .await
+        .unwrap();
+    let (dir, runner, mut config, mut repo, _scan) = setup().await;
+    let healthy_path = dir.path().join("healthy");
+    git(
+        dir.path(),
+        &[
+            "clone",
+            "--no-hardlinks",
+            repo.path.to_str().unwrap(),
+            healthy_path.to_str().unwrap(),
+        ],
+    );
+    let mut healthy = repo.clone();
+    healthy.id = "healthy".into();
+    healthy.path = healthy_path;
+    healthy.origin = healthy.path.to_string_lossy().into_owned();
+    healthy.doc_targets = vec!["internal/healthy.html".into()];
+    healthy.policy.provider_egress_allowed = false;
+    healthy.document_policy.provider_egress_allowed = false;
+    healthy.code_only_export_approved = false;
+    git(
+        &healthy.path,
+        &["remote", "set-url", "origin", &healthy.origin],
+    );
+    git(
+        &healthy.path,
+        &["update-ref", "refs/remotes/origin/main", "HEAD"],
+    );
+    repo.origin = dir
+        .path()
+        .join("missing-remote")
+        .to_string_lossy()
+        .into_owned();
+    git(&repo.path, &["remote", "set-url", "origin", &repo.origin]);
+    repo.policy.provider_egress_allowed = false;
+    repo.document_policy.provider_egress_allowed = false;
+    repo.code_only_export_approved = false;
+    config.repositories = vec![repo.clone(), healthy.clone()];
+    fs::write(
+        &runner.runtime.maintenance_config,
+        serde_json::to_vec(&config).unwrap(),
+    )
+    .unwrap();
+    runner.register_config().await.unwrap();
+    let status = runner.tick().await.unwrap();
+    assert!(status["isolated_errors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|error| error["repo"] == "source" && error["code"] == "SOURCE_FETCH_FAILED"));
+    let jobs = runner
+        .store
+        .maintenance_jobs(&registration_id(&healthy, "internal/healthy.html"), 10)
+        .await
+        .unwrap();
+    assert_eq!(jobs.len(), 1);
+    assert!(jobs[0].attempts > 0);
+    assert!(jobs[0].lease.is_none());
+    assert!(jobs[0].checkpoint.publication.is_none());
+    let stored_status: serde_json::Value =
+        serde_json::from_slice(&fs::read(&runner.runtime.status_file).unwrap()).unwrap();
+    assert_eq!(stored_status["isolated_errors"], status["isolated_errors"]);
+    sqlx::query("TRUNCATE brain.maintenance_jobs_v1, brain.maintenance_sources_v1")
+        .execute(&scratch)
+        .await
+        .unwrap();
+    let (_dir, runner, mut config, repo, scan) = setup().await;
+    let mut transport_job = stage(&runner, &config, &repo, &scan, false).await;
+    config.jev.endpoint = "https://127.0.0.1:1/".into();
+    fs::write(
+        &runner.runtime.maintenance_config,
+        serde_json::to_vec(&config).unwrap(),
+    )
+    .unwrap();
+    let outcome = crate::triage::triage(
+        &config,
+        &repo,
+        &scan,
+        "internal/system.html",
+        "fixture-unused",
+    )
+    .await
+    .unwrap();
+    assert_eq!(outcome.error_code.as_deref(), Some("JEV_TRANSPORT_FAILED"));
+    let error = anyhow::anyhow!(outcome.error_code.unwrap());
+    runner
+        .handle_failed_advance(
+            &transport_job,
+            transport_job.lease.as_ref().unwrap(),
+            &error,
+        )
+        .await
+        .unwrap();
+    transport_job = runner
+        .store
+        .maintenance_job(&transport_job.spec.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        transport_job.error_code.as_deref(),
+        Some("JEV_TRANSPORT_FAILED")
+    );
+    assert!(transport_job.lease.is_none());
+    sqlx::query("TRUNCATE brain.maintenance_jobs_v1, brain.maintenance_sources_v1")
+        .execute(&scratch)
+        .await
+        .unwrap();
+    let (_dir, runner, config, repo, scan) = setup().await;
+    let job = stage(&runner, &config, &repo, &scan, false).await;
+    fs::write(
+        repo.path.join("src/service.rs"),
+        "pub const USER: u64 = 123456789012345678;\n",
+    )
+    .unwrap();
+    pin(&repo.path);
+    let error = scanner::scan(&config, &repo, None).await.unwrap_err();
+    assert_eq!(error.to_string(), "context_platform_identifier");
+    runner
+        .handle_failed_advance(&job, job.lease.as_ref().unwrap(), &error)
+        .await
+        .unwrap();
+    let current = runner
+        .store
+        .maintenance_job(&job.spec.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(current.status, MaintenanceStatus::Failed);
+    assert_eq!(
+        current.checkpoint.artifact_refs["blocked_reason"],
+        "CONTEXT_REJECTED"
+    );
+    assert!(current.lease.is_none());
+    assert!(!serde_json::to_string(&runner.status().await.unwrap())
+        .unwrap()
+        .contains("123456789012345678"));
+    scratch.close().await;
 }

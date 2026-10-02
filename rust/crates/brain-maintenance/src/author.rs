@@ -1,3 +1,4 @@
+use crate::integration::artifacts::Artifacts;
 use crate::{
     config::{safe_doc_target, MaintenanceConfig, RepositoryConfig},
     digest, process,
@@ -8,6 +9,51 @@ use brain_contracts::source::{SourceIdentity, SourceRevision};
 use brain_ingestion::document_set::CoreDocument;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
+
+tokio::task_local! {
+    static CALL_JOURNAL: (Artifacts, String);
+}
+
+pub async fn with_call_journal<T>(
+    artifacts: Artifacts,
+    intent: String,
+    future: impl std::future::Future<Output = Result<T>>,
+) -> Result<T> {
+    CALL_JOURNAL.scope((artifacts, intent), future).await
+}
+
+#[derive(Serialize, Deserialize)]
+struct CallReceipt {
+    intent: String,
+    events_checked: bool,
+    raw_reference: Option<String>,
+    raw_sha256: Option<String>,
+    proof: Option<CodexRunProof>,
+    exit_code: Option<i32>,
+    failure: Option<String>,
+}
+
+pub fn call_receipt_summary(artifacts: &Artifacts, intent_reference: &str) -> Result<Value> {
+    let intent = digest(intent_reference.as_bytes());
+    let Some(bytes) = artifacts.call_receipt(&intent)? else {
+        let state = if artifacts.call_claimed(&intent)? {
+            "result_unconfirmed"
+        } else {
+            "call_not_dispatched"
+        };
+        return Ok(json!({"state":state,"intent":intent}));
+    };
+    let receipt: CallReceipt = serde_json::from_slice(&bytes)?;
+    ensure!(receipt.intent == intent, "provider_receipt_identity");
+    Ok(
+        json!({"state":"receipt_saved","intent":intent,"validation_complete":receipt.events_checked,"exit_code":receipt.exit_code,
+        "failure":receipt.failure,"result_sha256":receipt.raw_sha256,
+        "run_id":receipt.proof.as_ref().map(|proof|&proof.run_id),
+        "tool_events":receipt.proof.as_ref().map(|proof|proof.tool_events),
+        "input_tokens":receipt.proof.as_ref().and_then(|proof|proof.input_tokens),
+        "output_tokens":receipt.proof.as_ref().and_then(|proof|proof.output_tokens)}),
+    )
+}
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
@@ -163,11 +209,37 @@ async fn invoke<T: DeserializeOwned>(
             <= 2 * config.bounds.max_bundle_bytes + config.bounds.max_output_bytes + 32_768,
         "Prompt überschreitet die Grenze"
     );
+    let (artifacts, intent) = CALL_JOURNAL
+        .try_with(Clone::clone)
+        .map_err(|_| anyhow::anyhow!("provider_call_journal_required"))?;
+    let decode = |receipt: CallReceipt| -> Result<(T, CodexRunProof)> {
+        ensure!(receipt.intent == intent, "provider_receipt_identity");
+        ensure!(receipt.events_checked, "provider_result_uncertain");
+        ensure!(receipt.failure.is_none(), "provider_result_invalid");
+        let bytes = artifacts.read(&receipt.raw_reference.context("provider_result_missing")?)?;
+        let raw =
+            String::from_utf8(bytes).map_err(|_| anyhow::anyhow!("provider_result_encoding"))?;
+        ensure!(
+            receipt.raw_sha256.as_deref() == Some(digest(raw.as_bytes()).as_str()),
+            "provider_receipt_hash"
+        );
+        ensure!(receipt.exit_code == Some(0), "provider_process_failed");
+        let value =
+            brain_jev::parse_strict(&raw).map_err(|_| anyhow::anyhow!("provider_result_json"))?;
+        Ok((
+            serde_json::from_value(value).map_err(|_| anyhow::anyhow!("provider_result_schema"))?,
+            receipt.proof.context("provider_run_proof_missing")?,
+        ))
+    };
+    if let Some(bytes) = artifacts.call_receipt(&intent)? {
+        return decode(serde_json::from_slice(&bytes)?);
+    }
+    ensure!(artifacts.claim_call(&intent)?, "provider_result_uncertain");
     let dir = tempfile::tempdir()?;
     let schema_path = dir.path().join("output.schema.json");
     let result_path = dir.path().join("result.json");
     std::fs::write(&schema_path, serde_json::to_vec(schema)?)?;
-    let stream = process::run(
+    let observed = process::run_observed(
         &config.codex.executable,
         &codex_args(config, dir.path(), &schema_path, &result_path),
         dir.path(),
@@ -175,20 +247,100 @@ async fn invoke<T: DeserializeOwned>(
         config.codex.timeout_ms,
         config.bounds.max_output_bytes,
     )
-    .await?;
-    let proof = validate_events(config, &stream)?;
-    let metadata = std::fs::symlink_metadata(&result_path)
-        .context("Codex hat keine Abschlussantwort geliefert")?;
-    ensure!(
-        metadata.file_type().is_file() && metadata.len() <= config.bounds.max_output_bytes as u64,
-        "Ungültige Codex-Abschlussantwort"
-    );
-    let raw = std::fs::read_to_string(&result_path)?;
-    let value = brain_jev::parse_strict(&raw)?;
-    Ok((serde_json::from_value(value)?, proof))
+    .await;
+    let mut receipt = CallReceipt {
+        intent: intent.clone(),
+        events_checked: false,
+        raw_reference: None,
+        raw_sha256: None,
+        proof: None,
+        exit_code: None,
+        failure: None,
+    };
+    let mut event_stream = None;
+    match observed {
+        Ok(observed) => {
+            receipt.exit_code = observed.exit_code;
+            receipt.proof = Some(observe_events(config, &observed.output, observed.exit_code));
+            event_stream = Some(observed.output);
+        }
+        Err(_) => receipt.failure = Some("provider_transport_uncertain".into()),
+    }
+    match std::fs::symlink_metadata(&result_path) {
+        Ok(metadata)
+            if metadata.is_file() && metadata.len() <= config.bounds.max_output_bytes as u64 =>
+        {
+            match std::fs::read(&result_path) {
+                Ok(bytes) => {
+                    receipt.raw_sha256 = Some(digest(&bytes));
+                    receipt.raw_reference = Some(artifacts.put(&bytes, "raw")?);
+                }
+                Err(_) => receipt.failure = Some("provider_result_encoding".into()),
+            }
+        }
+        _ => receipt.failure = Some("provider_result_missing".into()),
+    }
+    artifacts.save_call_receipt(&intent, &serde_json::to_vec(&receipt)?)?;
+    if let Some(stream) = event_stream {
+        match validate_events(config, &stream, receipt.exit_code) {
+            Ok(proof) => receipt.proof = Some(proof),
+            Err(_) => receipt.failure = Some("provider_events_invalid".into()),
+        }
+    }
+    receipt.events_checked = true;
+    artifacts.save_call_validation(&intent, &serde_json::to_vec(&receipt)?)?;
+    decode(receipt)
 }
 
-pub fn validate_events(config: &MaintenanceConfig, stream: &[u8]) -> Result<CodexRunProof> {
+fn observe_events(
+    config: &MaintenanceConfig,
+    stream: &[u8],
+    exit_code: Option<i32>,
+) -> CodexRunProof {
+    let mut proof = CodexRunProof {
+        run_id: String::new(),
+        model: config.codex.model.clone(),
+        reasoning_effort: config.codex.reasoning_effort.clone(),
+        exit_code: exit_code.unwrap_or(-1),
+        event_types: Vec::new(),
+        tool_events: 0,
+        input_tokens: None,
+        output_tokens: None,
+    };
+    for line in String::from_utf8_lossy(stream).lines() {
+        let Ok(event) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        if let Some(kind) = event["type"].as_str().filter(|kind| kind.len() <= 64) {
+            proof.event_types.push(kind.into());
+            if kind == "thread.started" {
+                proof.run_id = event["thread_id"]
+                    .as_str()
+                    .filter(|id| id.len() <= 256)
+                    .unwrap_or_default()
+                    .into();
+            }
+            if kind == "turn.completed" {
+                proof.input_tokens = event["usage"]["input_tokens"].as_u64();
+                proof.output_tokens = event["usage"]["output_tokens"].as_u64();
+            }
+            if event.get("item").is_some_and(|item| {
+                !matches!(item["type"].as_str(), Some("agent_message" | "reasoning"))
+            }) {
+                proof.tool_events += 1;
+            }
+        }
+    }
+    proof
+}
+
+pub fn validate_events(
+    config: &MaintenanceConfig,
+    stream: &[u8],
+    exit_code: Option<i32>,
+) -> Result<CodexRunProof> {
+    let observed = observe_events(config, stream, exit_code);
+    ensure!(exit_code == Some(0), "Codex-Prozess fehlgeschlagen");
     let mut run_id = None;
     let mut completed = false;
     let mut event_types = Vec::new();
@@ -200,6 +352,10 @@ pub fn validate_events(config: &MaintenanceConfig, stream: &[u8]) -> Result<Code
     {
         let event = brain_jev::parse_strict(line)?;
         let kind = event["type"].as_str().context("Codex-Ereignistyp fehlt")?;
+        ensure!(
+            !matches!(kind, "turn.failed" | "error"),
+            "Codex hat den Turn abgebrochen"
+        );
         ensure!(
             [
                 "thread.started",
@@ -240,9 +396,9 @@ pub fn validate_events(config: &MaintenanceConfig, stream: &[u8]) -> Result<Code
         run_id: run_id.context("Codex-Turn-ID fehlt")?,
         model: config.codex.model.clone(),
         reasoning_effort: config.codex.reasoning_effort.clone(),
-        exit_code: 0,
+        exit_code: exit_code.context("Codex-Exitstatus fehlt")?,
         event_types,
-        tool_events: 0,
+        tool_events: observed.tool_events,
         input_tokens,
         output_tokens,
     })
@@ -968,6 +1124,140 @@ pub async fn stage_document(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[tokio::test]
+    async fn run_receipts_observe_real_exit_and_rejected_events() {
+        let config: MaintenanceConfig =
+            serde_json::from_str(include_str!("../config/smoke.example.json")).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let result = process::run_observed(Path::new("/bin/sh"), &["-c".into(), "printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"observed\"}' '{\"type\":\"item.completed\",\"item\":{\"type\":\"command_execution\"}}' '{\"type\":\"turn.failed\"}'; exit 7".into()], dir.path(), &[], 1000, 4096).await.unwrap();
+        assert_eq!(result.exit_code, Some(7));
+        let proof = observe_events(&config, &result.output, result.exit_code);
+        assert_eq!(proof.exit_code, 7);
+        assert_eq!(proof.tool_events, 1);
+        assert!(proof.event_types.contains(&"turn.failed".into()));
+        assert!(validate_events(&config, &result.output, result.exit_code).is_err());
+        let failed =
+            validate_events(&config, b"{\"type\":\"turn.failed\"}\n", Some(0)).unwrap_err();
+        assert_eq!(failed.to_string(), "Codex hat den Turn abgebrochen");
+    }
+
+    #[tokio::test]
+    async fn paid_results_are_durable_before_parsing_and_resume_never_pays_twice() {
+        let dir = tempfile::tempdir().unwrap();
+        let artifacts = Artifacts::open(&dir.path().join("private")).unwrap();
+        let counter = dir.path().join("calls");
+        let answer = dir.path().join("answer");
+        let delay = dir.path().join("delay");
+        let executable = dir.path().join("provider");
+        std::fs::write(&executable, format!("#!/bin/sh\nresult=''\nwhile [ $# -gt 0 ]; do\nif [ \"$1\" = '--output-last-message' ]; then shift; result=$1; fi\nshift\ndone\ncat >/dev/null\nprintf x >> '{}'\ncp '{}' \"$result\"\nif [ -f '{}' ]; then sleep 30; fi\nprintf '%s\\n' '{{\"type\":\"thread.started\",\"thread_id\":\"paid-test\"}}' '{{\"type\":\"turn.completed\",\"usage\":{{\"input_tokens\":11,\"output_tokens\":7}}}}'\n", counter.display(), answer.display(), delay.display())).unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let mut config: MaintenanceConfig =
+            serde_json::from_str(include_str!("../config/smoke.example.json")).unwrap();
+        config.codex.executable = executable;
+        let mut expected_calls = 0;
+        for stage in ["first-author", "correction-author", "reviewer"] {
+            for raw in ["", "{", "{}"] {
+                std::fs::write(&answer, raw).unwrap();
+                let intent = digest(format!("{stage}:{raw}").as_bytes());
+                for _ in 0..2 {
+                    let reopened = Artifacts::open(&dir.path().join("private")).unwrap();
+                    if stage == "reviewer" {
+                        assert!(with_call_journal(
+                            reopened,
+                            intent.clone(),
+                            invoke::<IndependentReview>(
+                                &config,
+                                "freigegebener Test",
+                                &review_schema()
+                            )
+                        )
+                        .await
+                        .is_err());
+                    } else {
+                        assert!(with_call_journal(
+                            reopened,
+                            intent.clone(),
+                            invoke::<AuthorProposal>(
+                                &config,
+                                "freigegebener Test",
+                                &proposal_schema()
+                            )
+                        )
+                        .await
+                        .is_err());
+                    }
+                }
+                expected_calls += 1;
+                assert_eq!(std::fs::read(&counter).unwrap().len(), expected_calls);
+                let receipt: CallReceipt =
+                    serde_json::from_slice(&artifacts.call_receipt(&intent).unwrap().unwrap())
+                        .unwrap();
+                assert_eq!(
+                    artifacts.read(&receipt.raw_reference.unwrap()).unwrap(),
+                    raw.as_bytes()
+                );
+                assert_eq!(receipt.exit_code, Some(0));
+                assert_eq!(receipt.proof.unwrap().input_tokens, Some(11));
+            }
+            let intent = digest(format!("crash:{stage}").as_bytes());
+            assert!(artifacts.claim_call(&intent).unwrap());
+            assert!(with_call_journal(
+                artifacts.clone(),
+                intent,
+                invoke::<Value>(&config, "freigegebener Test", &proposal_schema())
+            )
+            .await
+            .is_err());
+            assert_eq!(std::fs::read(&counter).unwrap().len(), expected_calls);
+            std::fs::write(&delay, "kontrollierter Abbruch").unwrap();
+            let intent = digest(format!("crash-after-call:{stage}").as_bytes());
+            let call_config = config.clone();
+            let call_artifacts = artifacts.clone();
+            let call_intent = intent.clone();
+            let task = tokio::spawn(async move {
+                with_call_journal(
+                    call_artifacts,
+                    call_intent,
+                    invoke::<Value>(&call_config, "freigegebener Test", &proposal_schema()),
+                )
+                .await
+            });
+            for _ in 0..200 {
+                if std::fs::read(&counter).unwrap().len() == expected_calls + 1 {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+            expected_calls += 1;
+            assert_eq!(std::fs::read(&counter).unwrap().len(), expected_calls);
+            task.abort();
+            assert!(task.await.unwrap_err().is_cancelled());
+            std::fs::remove_file(&delay).unwrap();
+            assert!(with_call_journal(
+                Artifacts::open(&dir.path().join("private")).unwrap(),
+                intent,
+                invoke::<Value>(&config, "freigegebener Test", &proposal_schema())
+            )
+            .await
+            .is_err());
+            assert_eq!(std::fs::read(&counter).unwrap().len(), expected_calls);
+        }
+        let raw = r#"{"source_sha":"test","target":"internal/test.html","before_sha256":null,"action":"keep","content":"Test","citations":[],"open_questions":[]}"#;
+        std::fs::write(answer, raw).unwrap();
+        let intent = digest(b"valid-receipt-before-db-reference");
+        for _ in 0..2 {
+            with_call_journal(
+                Artifacts::open(&dir.path().join("private")).unwrap(),
+                intent.clone(),
+                invoke::<AuthorProposal>(&config, "freigegebener Test", &proposal_schema()),
+            )
+            .await
+            .unwrap();
+        }
+        assert_eq!(std::fs::read(counter).unwrap().len(), expected_calls + 1);
+    }
     #[test]
     fn schemas_reject_extra_fields() {
         assert_eq!(proposal_schema()["additionalProperties"], false);
