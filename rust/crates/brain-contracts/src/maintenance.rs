@@ -16,6 +16,7 @@ pub enum MaintenanceStatus {
     Reviewer,
     Publish,
     Activated,
+    NoChange,
     Failed,
     Superseded,
 }
@@ -29,6 +30,7 @@ impl MaintenanceStatus {
             Self::Reviewer => "reviewer",
             Self::Publish => "publish",
             Self::Activated => "activated",
+            Self::NoChange => "no_change",
             Self::Failed => "failed",
             Self::Superseded => "superseded",
         }
@@ -39,11 +41,11 @@ impl MaintenanceStatus {
             (self, next),
             (Planned, SourceReview | DiscoveredPolicyPending)
                 | (DiscoveredPolicyPending, SourceReview)
-                | (SourceReview, Author | Reviewer)
+                | (SourceReview, Author | Reviewer | NoChange)
                 | (Author, Reviewer)
                 | (Reviewer, Author | Publish)
                 | (Publish, Activated)
-        ) || (self != Activated && self != Superseded && next == Failed)
+        ) || (self != Activated && self != Superseded && self != NoChange && next == Failed)
     }
 }
 
@@ -202,6 +204,17 @@ impl MaintenanceCheckpoint {
             if a.active_release_id != p.release_id || a.verified_at_epoch <= 0 {
                 return Err(invalid("activation release mismatch"));
             }
+        }
+        if next == MaintenanceStatus::NoChange
+            && (!self.artifact_refs.contains_key("scan")
+                || !self.artifact_refs.contains_key("triage")
+                || self.publication.is_some()
+                || self.activation.is_some()
+                || self.review.is_some())
+        {
+            return Err(invalid(
+                "unchanged document requires classifier audit without publication",
+            ));
         }
         // Die Jobpolicy gehört dem Dokument. Exportierte Codebelege tragen ihre
         // eigene Quellenpolicy; lokale Dokumentprüfungen benötigen keinen Export.

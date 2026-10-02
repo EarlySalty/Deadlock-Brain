@@ -9,6 +9,8 @@ const ENQUEUE_MIGRATION: &str =
     include_str!("../../../../scripts/migrations/2026-10-02-brain-maintenance-enqueue-v2.sql");
 const READER_MIGRATION: &str =
     include_str!("../../../../scripts/migrations/2026-10-02-brain-maintenance-reader-v3.sql");
+const NO_CHANGE_MIGRATION: &str =
+    include_str!("../../../../scripts/migrations/2026-10-02-brain-maintenance-no-change-v4.sql");
 const ROW: &str = "id,spec_json,status,checkpoint_json,attempts,error_code,owner,fence,(extract(epoch FROM lease_until)*1000)::bigint AS expires,superseded_by";
 fn invalid(message: &str) -> PortError {
     PortError::InvalidResponse(message.into())
@@ -290,7 +292,12 @@ impl PgStore {
     pub async fn migrate_maintenance(&self) -> Result<(), PortError> {
         let mut tx = self.pool.begin().await.map_err(database_error)?;
         sqlx::raw_sql("SET LOCAL lock_timeout='5000ms'; SET LOCAL statement_timeout='60000ms'; SELECT pg_advisory_xact_lock(742110026113::bigint)").execute(&mut *tx).await.map_err(database_error)?;
-        for migration in [MIGRATION, ENQUEUE_MIGRATION, READER_MIGRATION] {
+        for migration in [
+            MIGRATION,
+            ENQUEUE_MIGRATION,
+            READER_MIGRATION,
+            NO_CHANGE_MIGRATION,
+        ] {
             let body = migration
                 .split_once("BEGIN;")
                 .and_then(|(_, rest)| rest.trim().strip_suffix("COMMIT;"))

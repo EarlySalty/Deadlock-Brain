@@ -511,7 +511,14 @@ impl Runner {
                         "triage".into(),
                         self.artifacts.put(&serde_json::to_vec(&triage)?, "json")?,
                     );
-                    MaintenanceStatus::Author
+                    if triage.status == "current"
+                        && scanner::exportable_document(&config, &scan, &job.spec.target_path)
+                            .is_some()
+                    {
+                        MaintenanceStatus::NoChange
+                    } else {
+                        MaintenanceStatus::Author
+                    }
                 }
             }
             MaintenanceStatus::Author => {
