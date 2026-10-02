@@ -270,6 +270,12 @@ pub fn validate_html_with_assets(
                     "rowspan"
                 ]
                 .contains(&attribute.as_str())
+                    || (attribute == "scope"
+                        && name == "th"
+                        && matches!(
+                            value.to_ascii_lowercase().as_str(),
+                            "row" | "col" | "rowgroup" | "colgroup"
+                        ))
                     || (attribute == "style"
                         && original_document.as_ref().is_some_and(|old| old
                             .select(&selector("[style]"))
@@ -476,6 +482,27 @@ pub fn validate_html_with_assets(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn table_header_scope_accepts_only_semantic_header_values() {
+        let old = "<main><table><tr><th>Titel</th></tr></table></main>";
+        for value in ["row", "col", "rowgroup", "colgroup", "COL"] {
+            let html =
+                format!("<main><table><tr><th scope='{value}'>Titel</th></tr></table></main>");
+            assert!(validate_html(Some(old), &html).is_ok(), "{value}");
+        }
+        for value in ["", "auto", "unknown", " col ", "javascript:alert(1)"] {
+            let html =
+                format!("<main><table><tr><th scope='{value}'>Titel</th></tr></table></main>");
+            assert!(validate_html(Some(old), &html).is_err(), "{value}");
+        }
+        for html in [
+            "<main><table><tr><td scope='col'>Text</td></tr></table></main>",
+            "<main><p scope='row'>Text</p></main>",
+            "<main><table><tr><th scope='col' onclick='true'>Titel</th></tr></table></main>",
+        ] {
+            assert!(validate_html(Some(old), html).is_err());
+        }
+    }
     #[test]
     fn unchanged_inline_style_allows_changed_text_but_rejects_attribute_changes() {
         let old = "<main><p id='satz' style='color:red'>Alt</p></main>";
