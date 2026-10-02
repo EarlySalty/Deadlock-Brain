@@ -45,6 +45,17 @@ pub(crate) fn prepare(bytes: &[u8], expected: &str, kind: &str) -> Result<Packag
         "c9_package_count"
     );
     let scopes = BTreeSet::from([scope.to_owned()]);
+    if kind == "second-brain" {
+        ensure!(
+            documents.len() == 2
+                && documents
+                    .iter()
+                    .map(|document| document.logical_id.as_str())
+                    .collect::<BTreeSet<_>>()
+                    == BTreeSet::from(["systeme/deadlock-bots.md", "projekte/brain-feeder.md"]),
+            "c9_internal_complete_source_set"
+        );
+    }
     for document in &documents {
         let origin = &document.origin;
         origin
@@ -205,8 +216,14 @@ mod tests {
             },
         }
     }
+    fn fixture_documents(candidate: &CoreDocument) -> Vec<CoreDocument> {
+        let mut second = document();
+        second.logical_id = "projekte/brain-feeder.md".into();
+        second.origin.identity.logical_id = second.logical_id.clone();
+        vec![candidate.clone(), second]
+    }
     fn check(document: &CoreDocument, kind: &str) -> bool {
-        let bytes = serde_json::to_vec(&vec![document]).unwrap();
+        let bytes = serde_json::to_vec(&fixture_documents(document)).unwrap();
         prepare(&bytes, &digest(&bytes), kind).is_ok()
     }
     #[test]
@@ -236,7 +253,9 @@ mod tests {
             }
             assert!(!check(&changed, "second-brain"));
         }
-        let bytes = serde_json::to_vec(&vec![document]).unwrap();
+        let incomplete = serde_json::to_vec(&vec![document.clone()]).unwrap();
+        assert!(prepare(&incomplete, &digest(&incomplete), "second-brain").is_err());
+        let bytes = serde_json::to_vec(&fixture_documents(&document)).unwrap();
         assert!(prepare(&bytes, &"0".repeat(64), "second-brain").is_err());
         let package = prepare(&bytes, &digest(&bytes), "second-brain").unwrap();
         let batch = prepare_document_batch(&package.source, &package.documents, None).unwrap();

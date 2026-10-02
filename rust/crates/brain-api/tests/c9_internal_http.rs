@@ -2,13 +2,18 @@
 use brain_api::{internal::InternalApiService, ApiService};
 use brain_client::{AsyncInternalBrainClient, ClientError, InternalStatus};
 use brain_contracts::{
-    AnswerProfile, AnswerResponse, AuthorizedContext, Budget, Evidence, EvidenceKind, PortError,
-    Query, RetrievalPort, SourceVisibility,
+    source::{GameValidity, OriginArtifact, SourceIdentity, SourcePolicy, SourceRevision},
+    value::{Observed, UnknownReason},
+    AnswerProfile, AnswerResponse, AuthorizedContext, Budget, DocumentStorePort, Evidence,
+    EvidenceKind, PortError, Query, RequestDeadline, RetrievalPort, SourceRecordV2,
+    SourceVisibility,
 };
 use brain_kernel::AnswerKernelPort;
 use brain_policy::{AuthGrant, CredentialRegistry, PolicyEngine};
+use brain_storage::MemoryRepository;
+use dbrain_retrieval::ReleaseRetriever;
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     os::unix::fs::{MetadataExt, PermissionsExt},
     time::Duration,
 };
@@ -71,6 +76,90 @@ fn query() -> Query {
         patch: None,
         mode: None,
     }
+}
+
+#[tokio::test]
+async fn produktiver_retriever_ohne_treffer_liefert_insufficient_evidence() {
+    let store = MemoryRepository::default();
+    let scopes = BTreeSet::from(["second_brain.internal".into()]);
+    let mut record = SourceRecordV2 {
+        source_id: "second-brain-c9:fixture".into(),
+        logical_id: "fixture.md".into(),
+        revision: 1,
+        content_hash: "a".repeat(64),
+        content: "Synthetische Hinweise zu Speicherrechten".into(),
+        visibility: SourceVisibility::Internal,
+        allowed_scopes: scopes.clone(),
+        tombstone: false,
+        valid_from: None,
+        valid_to: None,
+        metadata: BTreeMap::new(),
+    };
+    OriginArtifact {
+        identity: SourceIdentity {
+            source_id: record.source_id.clone(),
+            logical_id: record.logical_id.clone(),
+        },
+        source_revision: SourceRevision::Api {
+            api_version: "fixture-v1".into(),
+            original_revision: Some("1".into()),
+        },
+        raw_sha256: record.content_hash.clone(),
+        locator: "fixture:internal".into(),
+        parser_revision: "fixture-v1".into(),
+        parser_family: "fixture".into(),
+        schema_version: Observed::unknown(UnknownReason::NotPresent),
+        schema_sha256: Observed::unknown(UnknownReason::NotPresent),
+        retrieved_at: Observed::unknown(UnknownReason::NotPresent),
+        source_time: Observed::unknown(UnknownReason::NotPresent),
+        language: Observed::known("de".into()),
+        origin_artifacts: BTreeSet::new(),
+        derivation_family: Observed::unknown(UnknownReason::NotPresent),
+        policy: SourcePolicy {
+            visibility: record.visibility,
+            allowed_scopes: scopes.clone(),
+            authorization_ref: Observed::known("fixture-grant".into()),
+            license: Observed::known("fixture".into()),
+            publication_allowed: false,
+            provider_egress_allowed: false,
+            raw_retention_allowed: false,
+        },
+        validity: GameValidity::unknown(),
+    }
+    .bind_record(&mut record)
+    .unwrap();
+    store.apply_record(record).unwrap();
+    let release = store
+        .release_from_heads("fixture-internal-release", "fixture-v1", "fixture-patch")
+        .unwrap();
+    store.publish(&release).await.unwrap();
+    let registry = CredentialRegistry::new(vec![AuthGrant::from_secret(
+        "internal-fixture-token",
+        "second-brain",
+        "internal",
+        scopes,
+        BTreeSet::new(),
+    )]);
+    let service = InternalApiService::new(
+        PolicyEngine::new(registry),
+        ReleaseRetriever::new(store, 10),
+        "fixture-internal-release".into(),
+        1000,
+        budget(),
+    );
+    let mut query = query();
+    query.text = "zzzxxyyqq unbekanntertreffer".into();
+    let response = service.handle_query(
+        Some("Bearer internal-fixture-token"),
+        &serde_json::to_vec(&query).unwrap(),
+        RequestDeadline::after(Duration::from_secs(2)),
+    );
+    assert_eq!(response.status, 200);
+    let answer: brain_contracts::internal_api::InternalAnswerResponse =
+        serde_json::from_str(&response.body).unwrap();
+    assert_eq!(answer.status, InternalStatus::InsufficientEvidence);
+    assert!(answer.excerpts.is_empty());
+    assert!(answer.validate(&query.request_id));
 }
 
 #[tokio::test]

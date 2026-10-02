@@ -113,8 +113,10 @@ impl InternalApiService {
             .retrieval
             .retrieve(&query, &context)
             .and_then(|evidence| {
-                self.retrieval
-                    .validate_evidence(&query, &context, &evidence, false)?;
+                if !evidence.is_empty() {
+                    self.retrieval
+                        .validate_evidence(&query, &context, &evidence, false)?;
+                }
                 Ok(evidence)
             }) {
             Ok(evidence) => evidence,
