@@ -28,7 +28,7 @@ Ein konfigurierter Cleanup im bestehenden Brain-Prozess entfernt abgelaufene Ges
 
 ## Provider und sichtbarer Hinweis
 
-Private Egress ist separat schaltbar. Die ausdrückliche Freigabe gilt für eigene DM-Eingaben und nötigen eigenen Kontext beim vorhandenen Fireworks-Flash-Provider. Der neue private Aufruf prüft sowohl `private_dm` am Principal als auch tatsächlichen Anbieter und Flashmodell vor dem Transport. Eine spätere CLI- oder Abomodellanbindung erbt diese Freigabe nicht. Es gibt keinen zusätzlichen Umschreibedienst und keinen neuen Fallback.
+Private Egress ist separat schaltbar. Die ausdrückliche Freigabe gilt für eigene DM-Eingaben und nötigen eigenen Kontext beim vorhandenen Fireworks-Flash-Provider sowie inzwischen auch beim gemeinsamen zentralen Codex-/Luna-Pfad. Dieser Entwurf enthält zunächst den bestehenden Fireworkstransport und prüft dort sowohl `private_dm` am Principal als auch tatsächlichen Anbieter und Flashmodell. Die zentrale CLI-Integration folgt erst im abgestimmten Providerkopf. Vor deren Nutzung müssen zusätzliche CLI-Sitzungsdateien und Caches verhindert oder wirksam gelöscht werden. Es gibt keinen zusätzlichen Umschreibedienst und keinen Guide-Sonderconnector.
 
 Der DM-Hinweis erklärt Erinnerungsschalter, Vergessen und die Weitergabe der aktuellen Nachricht mit nötigem eigenen Kontext. Der Adapter zeigt ihn verständlich und entprellt Wiederholungen. Profilkontrollen sind deterministisch und benötigen keinen Anbieteraufruf. Sichtbarer Funktionsname ist konfigurierbar und beginnt mit `Serverguide`.
 
