@@ -5,6 +5,8 @@ use sqlx::{postgres::PgRow, Row};
 
 const MIGRATION: &str =
     include_str!("../../../../scripts/migrations/2026-10-02-brain-maintenance-v1.sql");
+const ENQUEUE_MIGRATION: &str =
+    include_str!("../../../../scripts/migrations/2026-10-02-brain-maintenance-enqueue-v2.sql");
 const ROW: &str = "id,spec_json,status,checkpoint_json,attempts,error_code,owner,fence,(extract(epoch FROM lease_until)*1000)::bigint AS expires,superseded_by";
 fn invalid(message: &str) -> PortError {
     PortError::InvalidResponse(message.into())
@@ -117,19 +119,21 @@ impl PgStore {
     pub async fn migrate_maintenance(&self) -> Result<(), PortError> {
         let mut tx = self.pool.begin().await.map_err(database_error)?;
         sqlx::raw_sql("SET LOCAL lock_timeout='5000ms'; SET LOCAL statement_timeout='60000ms'; SELECT pg_advisory_xact_lock(742110026113::bigint)").execute(&mut *tx).await.map_err(database_error)?;
-        let body = MIGRATION
-            .split_once("BEGIN;")
-            .and_then(|(_, rest)| rest.trim().strip_suffix("COMMIT;"))
-            .ok_or_else(|| invalid("invalid maintenance migration"))?;
-        sqlx::raw_sql(body)
-            .execute(&mut *tx)
-            .await
-            .map_err(database_error)?;
+        for migration in [MIGRATION, ENQUEUE_MIGRATION] {
+            let body = migration
+                .split_once("BEGIN;")
+                .and_then(|(_, rest)| rest.trim().strip_suffix("COMMIT;"))
+                .ok_or_else(|| invalid("invalid maintenance migration"))?;
+            sqlx::raw_sql(body)
+                .execute(&mut *tx)
+                .await
+                .map_err(database_error)?;
+        }
         tx.commit().await.map_err(database_error)
     }
     /// Ausschließlich lesende Schemaprüfung für den Pflegeprozess.
     pub async fn check_maintenance_schema(&self) -> Result<(), PortError> {
-        sqlx::query("SELECT j.id,j.repo_id,j.idempotency_key,j.spec_json,j.status,j.checkpoint_json,j.attempts,j.error_code,j.owner,j.fence,j.lease_until,j.available_at,j.superseded_by,j.created_at,j.updated_at,s.repo_id,s.registration_json,s.updated_at FROM brain.maintenance_jobs_v1 j,brain.maintenance_sources_v1 s LIMIT 0").fetch_all(&self.pool).await.map_err(database_error)?;
+        sqlx::query("SELECT j.id,j.repo_id,j.idempotency_key,j.spec_json,j.enqueue_spec_json,j.status,j.checkpoint_json,j.attempts,j.error_code,j.owner,j.fence,j.lease_until,j.available_at,j.superseded_by,j.created_at,j.updated_at,s.repo_id,s.registration_json,s.updated_at FROM brain.maintenance_jobs_v1 j,brain.maintenance_sources_v1 s LIMIT 0").fetch_all(&self.pool).await.map_err(database_error)?;
         Ok(())
     }
     pub async fn enqueue_maintenance(
@@ -145,8 +149,8 @@ impl PgStore {
             return Err(invalid("invalid initial maintenance status"));
         }
         let mut tx = self.pool.begin().await.map_err(database_error)?;
-        sqlx::query("INSERT INTO brain.maintenance_jobs_v1(id,repo_id,idempotency_key,spec_json,status) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING").bind(&spec.id).bind(&spec.repo_id).bind(&spec.idempotency_key).bind(json(spec)?).bind(initial.as_str()).execute(&mut *tx).await.map_err(database_error)?;
-        let query = format!("SELECT {ROW} FROM brain.maintenance_jobs_v1 WHERE id=$1 OR idempotency_key=$2 FOR UPDATE");
+        sqlx::query("INSERT INTO brain.maintenance_jobs_v1(id,repo_id,idempotency_key,spec_json,enqueue_spec_json,status) VALUES($1,$2,$3,$4,$4,$5) ON CONFLICT DO NOTHING").bind(&spec.id).bind(&spec.repo_id).bind(&spec.idempotency_key).bind(json(spec)?).bind(initial.as_str()).execute(&mut *tx).await.map_err(database_error)?;
+        let query = format!("SELECT {ROW},enqueue_spec_json FROM brain.maintenance_jobs_v1 WHERE id=$1 OR idempotency_key=$2 FOR UPDATE");
         let mut rows = sqlx::query(&query)
             .bind(&spec.id)
             .bind(&spec.idempotency_key)
@@ -156,10 +160,13 @@ impl PgStore {
         if rows.len() != 1 {
             return Err(invalid("maintenance identity collision"));
         }
-        let job = decode(rows.remove(0))?;
-        if job.spec != *spec {
+        let original: serde_json::Value = rows[0]
+            .try_get("enqueue_spec_json")
+            .map_err(database_error)?;
+        if original != json(spec)? {
             return Err(invalid("maintenance idempotency payload collision"));
         }
+        let job = decode(rows.remove(0))?;
         tx.commit().await.map_err(database_error)?;
         Ok(job)
     }
@@ -908,6 +915,11 @@ mod tests {
             .unwrap();
         assert_eq!(ready.status, MaintenanceStatus::SourceReview);
         assert_eq!(ready.spec.policy, s.policy);
+        let replay = restarted
+            .enqueue_maintenance(&waiting, MaintenanceStatus::DiscoveredPolicyPending)
+            .await
+            .unwrap();
+        assert_eq!(replay, ready);
         assert_eq!(
             ready.checkpoint.artifact_refs["policy_authorization_ref"],
             "fixture-user-authorization"
