@@ -880,7 +880,7 @@ impl Runner {
         let repo = config
             .repositories
             .iter()
-            .find(|candidate| candidate.id == job.spec.repo_id)
+            .find(|candidate| registration_id(candidate, &job.spec.target_path) == job.spec.repo_id)
             .context("publication_repository_missing")?;
         if job.checkpoint.publication.is_none() {
             let current_before = config
