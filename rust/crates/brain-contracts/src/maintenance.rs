@@ -263,6 +263,10 @@ impl MaintenanceSourceRegistration {
 }
 
 pub trait MaintenanceStorePort: Send + Sync {
+    fn approve_maintenance_policy<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> crate::StoreFuture<'a, MaintenanceJob>;
     fn enqueue_maintenance<'a>(
         &'a self,
         spec: &'a MaintenanceJobSpec,

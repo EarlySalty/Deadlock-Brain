@@ -64,6 +64,55 @@ fn ttl(ttl_ms: u64) -> Result<i64, PortError> {
     Ok(ttl_ms as i64)
 }
 impl PgStore {
+    /// Übernimmt ausschließlich eine bereits autorisierte Registry-Policy für einen wartenden Job.
+    pub async fn approve_maintenance_policy(&self, id: &str) -> Result<MaintenanceJob, PortError> {
+        bounded(id, 512)?;
+        let mut tx = self.pool.begin().await.map_err(database_error)?;
+        let query=format!("SELECT {ROW} FROM brain.maintenance_jobs_v1 WHERE id=$1 AND status='discovered_policy_pending' AND owner IS NULL AND fence<9223372036854775807 FOR UPDATE");
+        let mut job = decode(
+            sqlx::query(&query)
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(database_error)?
+                .ok_or_else(|| invalid("maintenance job is not awaiting policy"))?,
+        )?;
+        let registration: serde_json::Value = sqlx::query_scalar(
+            "SELECT registration_json FROM brain.maintenance_sources_v1 WHERE repo_id=$1 FOR SHARE",
+        )
+        .bind(&job.spec.repo_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(database_error)?
+        .ok_or_else(|| invalid("maintenance source policy not registered"))?;
+        let registration: MaintenanceSourceRegistration = serde_json::from_value(registration)
+            .map_err(|_| invalid("invalid registered maintenance policy"))?;
+        registration.validate()?;
+        job.spec.policy = registration
+            .policy
+            .ok_or_else(|| invalid("maintenance source policy not authorized"))?;
+        let reference = registration
+            .authorization_ref
+            .ok_or_else(|| invalid("maintenance source policy lacks authorization reference"))?;
+        job.spec.validate()?;
+        job.checkpoint
+            .artifact_refs
+            .insert("policy_authorization_ref".into(), reference);
+        job.checkpoint
+            .validate(&job.spec, MaintenanceStatus::SourceReview)?;
+        let query=format!("UPDATE brain.maintenance_jobs_v1 SET spec_json=$2,checkpoint_json=$3,status='source_review',fence=fence+1,error_code=NULL,available_at=clock_timestamp(),updated_at=now() WHERE id=$1 AND status='discovered_policy_pending' AND owner IS NULL RETURNING {ROW}");
+        let result = decode(
+            sqlx::query(&query)
+                .bind(id)
+                .bind(json(&job.spec)?)
+                .bind(json(&job.checkpoint)?)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(database_error)?,
+        )?;
+        tx.commit().await.map_err(database_error)?;
+        Ok(result)
+    }
     /// Explizite additive Migration durch den Owner bei unveränderter Core-Schemaversion.
     pub async fn migrate_maintenance(&self) -> Result<(), PortError> {
         let mut tx = self.pool.begin().await.map_err(database_error)?;
@@ -184,6 +233,17 @@ impl PgStore {
             let record: brain_contracts::SourceRecordV2 =
                 serde_json::from_value(row.try_get("record_json").map_err(database_error)?)
                     .map_err(|_| invalid("invalid published maintenance record"))?;
+            let origin = brain_contracts::source::origin_from_record(&record)
+                .map_err(|_| invalid("maintenance publication requires versioned source origin"))?;
+            if origin.policy != job.spec.policy {
+                return Err(invalid("maintenance publication changed origin policy"));
+            }
+            if !matches!(&origin.source_revision, brain_contracts::source::SourceRevision::Git { commit } if commit==&job.spec.source_sha)
+            {
+                return Err(invalid(
+                    "maintenance publication changed reviewed source revision",
+                ));
+            }
             if record.tombstone
                 || record.visibility != job.spec.policy.visibility
                 || record.allowed_scopes != job.spec.policy.allowed_scopes
@@ -329,6 +389,12 @@ impl PgStore {
 }
 
 impl MaintenanceStorePort for PgStore {
+    fn approve_maintenance_policy<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> brain_contracts::StoreFuture<'a, MaintenanceJob> {
+        Box::pin(PgStore::approve_maintenance_policy(self, id))
+    }
     fn enqueue_maintenance<'a>(
         &'a self,
         spec: &'a MaintenanceJobSpec,
@@ -475,7 +541,7 @@ mod tests {
             .database("postgres");
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(4)
-            .connect_with(options)
+            .connect_with(options.clone())
             .await
             .unwrap();
         let address: Option<String> = sqlx::query_scalar("SELECT inet_server_addr()::text")
@@ -492,6 +558,53 @@ mod tests {
         store.migrate_core().await.unwrap();
         store.migrate_maintenance().await.unwrap();
         store.migrate_maintenance().await.unwrap();
+        store.check_maintenance_schema().await.unwrap();
+        for role in ["brain_ingest", "brain_service", "brain_readonly"] {
+            let exists: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=$1)")
+                    .bind(role)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            if !exists {
+                sqlx::raw_sql(&format!(
+                    "CREATE ROLE {role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE"
+                ))
+                .execute(&pool)
+                .await
+                .unwrap();
+            }
+        }
+        let grants = include_str!("../../../../ops/brain-postgres/grants.sql")
+            .lines()
+            .filter(|line| !line.starts_with('\\'))
+            .collect::<Vec<_>>()
+            .join("\n");
+        sqlx::raw_sql(&grants).execute(&pool).await.unwrap();
+        let owner_pool = pool;
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(4)
+            .connect_with(options.username("brain_ingest"))
+            .await
+            .unwrap();
+        let runtime_user: String = sqlx::query_scalar("SELECT current_user::text")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(runtime_user, "brain_ingest");
+        assert!(
+            sqlx::query("CREATE TABLE brain.worker_forbidden_ddl(id integer)")
+                .execute(&pool)
+                .await
+                .is_err()
+        );
+        assert!(
+            sqlx::query("DELETE FROM brain.maintenance_jobs_v1 WHERE false")
+                .execute(&pool)
+                .await
+                .is_err()
+        );
+        let store = PgStore::new(pool.clone());
         store.check_maintenance_schema().await.unwrap();
         let mut s = spec();
         let run = std::time::SystemTime::now()
@@ -694,8 +807,36 @@ mod tests {
             .is_err());
         record.revision = 2;
         record.visibility = SourceVisibility::Public;
+        use brain_contracts::source::{
+            GameValidity, OriginArtifact, SourceIdentity, SourceRevision,
+        };
+        let origin = OriginArtifact {
+            identity: SourceIdentity {
+                source_id: record.source_id.clone(),
+                logical_id: record.logical_id.clone(),
+            },
+            source_revision: SourceRevision::Git {
+                commit: publication_spec.source_sha.clone(),
+            },
+            raw_sha256: record.content_hash.clone(),
+            locator: "fixture://reviewed-document".into(),
+            parser_revision: "fixture-v1".into(),
+            parser_family: "documentation".into(),
+            schema_version: Observed::unknown(UnknownReason::NotPresent),
+            schema_sha256: Observed::unknown(UnknownReason::NotPresent),
+            retrieved_at: Observed::unknown(UnknownReason::NotPresent),
+            source_time: Observed::unknown(UnknownReason::NotPresent),
+            language: Observed::known("de".into()),
+            origin_artifacts: BTreeSet::new(),
+            derivation_family: Observed::known("fixture".into()),
+            policy: publication_spec.policy.clone(),
+            validity: GameValidity::unknown(),
+        };
+        let mut wrong_origin = origin.clone();
+        wrong_origin.policy.raw_retention_allowed = false;
+        wrong_origin.bind_record(&mut record).unwrap();
         restarted.apply(&record).await.unwrap();
-        release.release_id.push_str("-public");
+        release.release_id.push_str("-wrong-policy");
         release
             .source_revisions
             .get_mut(&record.source_id)
@@ -704,12 +845,85 @@ mod tests {
         restarted.publish_release(&release).await.unwrap();
         approved.publication.as_mut().unwrap().release_id = release.release_id.clone();
         approved.publication.as_mut().unwrap().document_revision = 2;
+        approved.activation.as_mut().unwrap().active_release_id = release.release_id.clone();
+        assert!(restarted
+            .transition_maintenance(&lease, MaintenanceStatus::Activated, &approved)
+            .await
+            .is_err());
+        record.revision = 3;
+        origin.bind_record(&mut record).unwrap();
+        restarted.apply(&record).await.unwrap();
+        release.release_id.push_str("-public");
+        release
+            .source_revisions
+            .get_mut(&record.source_id)
+            .unwrap()
+            .insert(record.logical_id.clone(), 3);
+        restarted.publish_release(&release).await.unwrap();
+        approved.publication.as_mut().unwrap().release_id = release.release_id.clone();
+        approved.publication.as_mut().unwrap().document_revision = 3;
         approved.activation.as_mut().unwrap().active_release_id = release.release_id;
         restarted
             .transition_maintenance(&lease, MaintenanceStatus::Activated, &approved)
             .await
             .unwrap();
         assert!(restarted.renew_maintenance(&lease, 30000).await.is_err());
+        let mut waiting = s.clone();
+        waiting.id.push_str("-policy");
+        waiting.repo_id = waiting.id.clone();
+        waiting.idempotency_key = waiting.id.clone();
+        waiting.policy.provider_egress_allowed = false;
+        restarted
+            .enqueue_maintenance(&waiting, MaintenanceStatus::DiscoveredPolicyPending)
+            .await
+            .unwrap();
+        assert!(restarted
+            .approve_maintenance_policy(&waiting.id)
+            .await
+            .is_err());
+        let mut registration = MaintenanceSourceRegistration {
+            repo_id: waiting.repo_id.clone(),
+            source_id: waiting.repo_id.clone(),
+            discovered_sha: waiting.source_sha.clone(),
+            policy: None,
+            authorization_ref: None,
+        };
+        restarted
+            .register_maintenance_source(&registration)
+            .await
+            .unwrap();
+        assert!(restarted
+            .approve_maintenance_policy(&waiting.id)
+            .await
+            .is_err());
+        registration.policy = Some(s.policy.clone());
+        registration.authorization_ref = Some("fixture-user-authorization".into());
+        restarted
+            .register_maintenance_source(&registration)
+            .await
+            .unwrap();
+        let ready = restarted
+            .approve_maintenance_policy(&waiting.id)
+            .await
+            .unwrap();
+        assert_eq!(ready.status, MaintenanceStatus::SourceReview);
+        assert_eq!(ready.spec.policy, s.policy);
+        assert_eq!(
+            ready.checkpoint.artifact_refs["policy_authorization_ref"],
+            "fixture-user-authorization"
+        );
+        let lease = restarted
+            .claim_maintenance("authorized", 30000)
+            .await
+            .unwrap()
+            .unwrap()
+            .lease
+            .unwrap();
+        restarted
+            .transition_maintenance(&lease, MaintenanceStatus::Failed, &ready.checkpoint)
+            .await
+            .unwrap();
         pool.close().await;
+        owner_pool.close().await;
     }
 }
