@@ -591,7 +591,9 @@ async fn retrieval_rejects_internal_text_even_when_credentials_allow_internal_re
         Some("Bearer publication-token"),
         &serde_json::to_vec(&query(AnswerProfile::Explain)).unwrap(),
     );
-    assert_ne!(response.status, 200);
+    assert_eq!(response.status, 502, "{}", response.body);
+    let error: brain_contracts::ApiErrorEnvelope = serde_json::from_str(&response.body).unwrap();
+    assert_eq!(error.error.code, "invalid_retrieval_response");
     assert!(!response.body.contains("650"));
 }
 #[tokio::test]
