@@ -433,7 +433,7 @@ impl PgStore {
         for source in &sources {
             lock_source(&mut tx, source).await.map_err(database_error)?;
         }
-        if let Some((_, proof)) = &maintenance_job {
+        if let Some((job, proof)) = &maintenance_job {
             let base_id = maintenance.expect("maintenance publication context").1;
             let base_value: serde_json::Value = sqlx::query_scalar(
                 "SELECT release_json FROM brain.corpus_releases_v1 WHERE release_id=$1",
@@ -454,7 +454,27 @@ impl PgStore {
                 .and_then(|pins| pins.get(&proof.logical_id))
                 .copied();
             if current.map(|revision| revision as u64) != pinned {
-                return Err(invalid("maintenance publication basis superseded"));
+                let observed = job
+                    .checkpoint
+                    .artifact_refs
+                    .get("unactivated_basis")
+                    .map(|value| serde_json::from_str::<MaintenancePublicationProof>(value))
+                    .transpose()
+                    .map_err(|_| invalid("invalid observed unactivated basis"))?;
+                let authorized =
+                    crate::pg_maintenance::unactivated_publication_basis(&mut tx, &job.spec)
+                        .await?;
+                if observed.is_none()
+                    || observed != authorized
+                    || observed.as_ref().is_none_or(|basis| {
+                        basis.source_id != proof.source_id
+                            || basis.logical_id != proof.logical_id
+                            || Some(basis.document_revision)
+                                != current.map(|revision| revision as u64)
+                    })
+                {
+                    return Err(invalid("maintenance publication basis superseded"));
+                }
             }
         }
         let mut receipts = Vec::with_capacity(batches.len());

@@ -36,6 +36,58 @@ async fn lock_publication_head(
 fn invalid(message: &str) -> PortError {
     PortError::InvalidResponse(message.into())
 }
+pub(crate) async fn unactivated_publication_basis(
+    connection: &mut PgConnection,
+    spec: &MaintenanceJobSpec,
+) -> Result<Option<MaintenancePublicationProof>, PortError> {
+    let rows = sqlx::query("SELECT j.spec_json,j.checkpoint_json,h.record_json,c.release_json,r.record_json AS immutable_record FROM brain.maintenance_jobs_v1 j JOIN brain.source_record_heads h ON h.source_id=j.checkpoint_json->'publication'->>'source_id' AND h.logical_id=j.checkpoint_json->'publication'->>'logical_id' AND h.revision=(j.checkpoint_json->'publication'->>'document_revision')::bigint AND h.content_hash=j.checkpoint_json->'publication'->>'document_sha256' JOIN brain.corpus_releases_v1 c ON c.release_id=j.checkpoint_json->'publication'->>'release_id' JOIN brain.source_record_revisions r ON r.source_id=h.source_id AND r.logical_id=h.logical_id AND r.revision=h.revision WHERE j.spec_json->>'repo_id'=$1 AND j.spec_json->>'target_path'=$2 AND j.status<>'activated' AND j.checkpoint_json->>'activation' IS NULL ORDER BY j.created_at DESC LIMIT 1")
+        .bind(&spec.repo_id).bind(&spec.target_path).fetch_optional(&mut *connection).await.map_err(database_error)?;
+    let Some(row) = rows else { return Ok(None) };
+    let previous: MaintenanceJobSpec =
+        serde_json::from_value(row.try_get("spec_json").map_err(database_error)?)
+            .map_err(|_| invalid("invalid unactivated maintenance source"))?;
+    let checkpoint: MaintenanceCheckpoint =
+        serde_json::from_value(row.try_get("checkpoint_json").map_err(database_error)?)
+            .map_err(|_| invalid("invalid unactivated maintenance checkpoint"))?;
+    let record: brain_contracts::SourceRecordV2 =
+        serde_json::from_value(row.try_get("record_json").map_err(database_error)?)
+            .map_err(|_| invalid("invalid unactivated maintenance head"))?;
+    let immutable: brain_contracts::SourceRecordV2 =
+        serde_json::from_value(row.try_get("immutable_record").map_err(database_error)?)
+            .map_err(|_| invalid("invalid unactivated maintenance revision"))?;
+    let release: CorpusRelease =
+        serde_json::from_value(row.try_get("release_json").map_err(database_error)?)
+            .map_err(|_| invalid("invalid unactivated maintenance release"))?;
+    if record != immutable
+        || release
+            .source_revisions
+            .get(&record.source_id)
+            .and_then(|pins| pins.get(&record.logical_id))
+            != Some(&record.revision)
+    {
+        return Err(invalid(
+            "unactivated maintenance publication binding changed",
+        ));
+    }
+    previous.validate()?;
+    checkpoint.validate(&previous, MaintenanceStatus::Publish)?;
+    let origin = brain_contracts::source::origin_from_record(&record)
+        .map_err(|_| invalid("invalid unactivated maintenance provenance"))?;
+    if previous.policy != spec.policy
+        || origin.policy != spec.policy
+        || record.tombstone
+        || previous.repo_id != spec.repo_id
+        || previous.target_path != spec.target_path
+        || checkpoint
+            .review
+            .as_ref()
+            .is_none_or(|review| !review.accepted || review.document_sha256 != record.content_hash)
+        || !matches!(&origin.source_revision, brain_contracts::source::SourceRevision::Git { commit } if commit == &previous.source_sha)
+    {
+        return Err(invalid("unactivated maintenance basis not authorized"));
+    }
+    Ok(checkpoint.publication)
+}
 fn json<T: serde::Serialize>(value: &T) -> Result<serde_json::Value, PortError> {
     let value = serde_json::to_value(value).map_err(|_| invalid("invalid maintenance payload"))?;
     if value.to_string().len() > 65536 {
@@ -177,6 +229,13 @@ pub(crate) async fn record_publication_checkpoint(
     Ok(())
 }
 impl PgStore {
+    pub async fn maintenance_unactivated_basis(
+        &self,
+        spec: &MaintenanceJobSpec,
+    ) -> Result<Option<MaintenancePublicationProof>, PortError> {
+        let mut connection = self.pool.acquire().await.map_err(database_error)?;
+        unactivated_publication_basis(&mut connection, spec).await
+    }
     pub async fn finish_superseded_publication(
         &self,
         lease: &MaintenanceLease,
@@ -1886,6 +1945,202 @@ mod tests {
             .await
             .unwrap()
             .is_none());
+        let mut recovery_base = rebased.clone();
+        let mut pending_recovery_record = None;
+        for revision in [2_u64, 3] {
+            let mut recovery_spec = guarded.clone();
+            recovery_spec.id = format!("fixture-recovery-{run}-{revision}");
+            recovery_spec.idempotency_key = recovery_spec.id.clone();
+            recovery_spec.source_sha = format!("{revision:x}").repeat(40);
+            let mut recovery_registry = registry.clone();
+            recovery_registry.discovered_sha = recovery_spec.source_sha.clone();
+            restarted
+                .register_maintenance_source(&recovery_registry)
+                .await
+                .unwrap();
+            let mut recovery_record = guarded_record.clone();
+            recovery_record.revision = revision;
+            recovery_record.content = format!("Geprüfte neue Fassung {revision}");
+            recovery_record.content_hash = format!(
+                "{:x}",
+                sha2::Sha256::digest(recovery_record.content.as_bytes())
+            );
+            let mut recovery_origin = guarded_origin.clone();
+            recovery_origin.source_revision = brain_contracts::source::SourceRevision::Git {
+                commit: recovery_spec.source_sha.clone(),
+            };
+            recovery_origin.raw_sha256 = recovery_record.content_hash.clone();
+            recovery_origin.bind_record(&mut recovery_record).unwrap();
+            let mut recovery_cp = reviewed.clone();
+            recovery_cp.artifact_refs.remove("local_review");
+            let review = recovery_cp.review.as_mut().unwrap();
+            review.source_sha = recovery_spec.source_sha.clone();
+            review.document_sha256 = recovery_record.content_hash.clone();
+            let observed = restarted
+                .maintenance_unactivated_basis(&recovery_spec)
+                .await
+                .unwrap();
+            if revision == 2 {
+                assert!(observed
+                    .as_ref()
+                    .is_none_or(|proof| proof.document_revision == 1));
+            } else {
+                assert_eq!(observed.as_ref().unwrap().document_revision, 2);
+                recovery_cp.artifact_refs.insert(
+                    "unactivated_basis".into(),
+                    serde_json::to_string(&observed.unwrap()).unwrap(),
+                );
+            }
+            restarted
+                .enqueue_maintenance(&recovery_spec, MaintenanceStatus::Planned)
+                .await
+                .unwrap();
+            for next in [
+                MaintenanceStatus::SourceReview,
+                MaintenanceStatus::Reviewer,
+                MaintenanceStatus::Publish,
+            ] {
+                let empty = MaintenanceCheckpoint::default();
+                let claimed = restarted
+                    .claim_maintenance("recovery-prepare", 30000)
+                    .await
+                    .unwrap()
+                    .unwrap();
+                restarted
+                    .transition_maintenance(
+                        &claimed.lease.unwrap(),
+                        next,
+                        if next == MaintenanceStatus::Publish {
+                            &recovery_cp
+                        } else {
+                            &empty
+                        },
+                    )
+                    .await
+                    .unwrap();
+            }
+            let recovery_lease = restarted
+                .claim_maintenance("recovery-publish", 30000)
+                .await
+                .unwrap()
+                .unwrap()
+                .lease
+                .unwrap();
+            let recovery_batch = brain_contracts::SourceBatch {
+                expected_generation: revision,
+                checkpoint: brain_contracts::SourceCheckpoint {
+                    source_id: guarded.id.clone(),
+                    configuration: "guard-fixture".into(),
+                    generation: revision + 1,
+                    state: serde_json::json!({}),
+                },
+                records: vec![recovery_record.clone()],
+            };
+            let source_lease = brain_contracts::DocumentStorePort::claim(
+                &restarted,
+                &guarded.id,
+                "recovery-source",
+                30000,
+            )
+            .await
+            .unwrap();
+            let mut release = recovery_base.clone();
+            release.release_id = format!("fixture-recovery-release-{run}-{revision}");
+            release
+                .source_revisions
+                .get_mut(&guarded.id)
+                .unwrap()
+                .insert(guarded.target_path.clone(), revision);
+            if revision == 3 {
+                let authorized = recovery_cp.artifact_refs["unactivated_basis"].clone();
+                let mut foreign: MaintenancePublicationProof =
+                    serde_json::from_str(&authorized).unwrap();
+                foreign.source_id = "foreign-source".into();
+                restarted
+                    .set_maintenance_artifact(
+                        &recovery_lease,
+                        "unactivated_basis",
+                        &serde_json::to_string(&foreign).unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert!(restarted
+                    .commit_maintenance_batches_and_publish_checked(
+                        &recovery_lease,
+                        &recovery_base.release_id,
+                        &[(&recovery_batch, &source_lease)],
+                        &release,
+                        &[recovery_record.clone(), neighbor.clone()]
+                    )
+                    .await
+                    .is_err());
+                assert!(restarted.snapshot(&release.release_id).await.is_err());
+                restarted
+                    .set_maintenance_artifact(&recovery_lease, "unactivated_basis", &authorized)
+                    .await
+                    .unwrap();
+                let pending: &brain_contracts::SourceRecordV2 =
+                    pending_recovery_record.as_ref().unwrap();
+                let mut newer = pending.clone();
+                newer.revision = 4;
+                sqlx::query("UPDATE brain.source_record_heads SET revision=$3,record_json=$4 WHERE source_id=$1 AND logical_id=$2")
+                    .bind(&newer.source_id).bind(&newer.logical_id).bind(newer.revision as i64).bind(serde_json::to_value(&newer).unwrap())
+                    .execute(&owner_pool).await.unwrap();
+                assert!(restarted
+                    .commit_maintenance_batches_and_publish_checked(
+                        &recovery_lease,
+                        &recovery_base.release_id,
+                        &[(&recovery_batch, &source_lease)],
+                        &release,
+                        &[recovery_record.clone(), neighbor.clone()]
+                    )
+                    .await
+                    .is_err());
+                assert!(restarted.snapshot(&release.release_id).await.is_err());
+                sqlx::query("UPDATE brain.source_record_heads SET revision=$3,record_json=$4 WHERE source_id=$1 AND logical_id=$2")
+                    .bind(&pending.source_id).bind(&pending.logical_id).bind(pending.revision as i64).bind(serde_json::to_value(pending).unwrap())
+                    .execute(&owner_pool).await.unwrap();
+            }
+            restarted
+                .commit_maintenance_batches_and_publish_checked(
+                    &recovery_lease,
+                    &recovery_base.release_id,
+                    &[(&recovery_batch, &source_lease)],
+                    &release,
+                    &[recovery_record.clone(), neighbor.clone()],
+                )
+                .await
+                .unwrap();
+            if revision == 2 {
+                pending_recovery_record = Some(recovery_record);
+                // Der Reader bleibt auf Revision 1, obwohl Revision 2 gespeichert wurde.
+                restarted
+                    .finish_superseded_publication(&recovery_lease)
+                    .await
+                    .unwrap();
+            } else {
+                restarted
+                    .activate_maintenance_checked(
+                        &recovery_lease,
+                        1000,
+                        |proof| async move {
+                            Ok(MaintenanceActivationProof {
+                                active_release_id: proof.release_id,
+                                verified_at_epoch: 1,
+                                evidence_ref: "recovery-health".into(),
+                            })
+                        },
+                        || async { Ok(()) },
+                    )
+                    .await
+                    .unwrap();
+                recovery_base = release;
+            }
+        }
+        assert_eq!(
+            recovery_base.source_revisions[&guarded.id][&guarded.target_path],
+            3
+        );
         pool.close().await;
         owner_pool.close().await;
     }

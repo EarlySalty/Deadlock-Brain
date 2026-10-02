@@ -599,6 +599,14 @@ impl Runner {
         let next = match job.status {
             MaintenanceStatus::Planned => MaintenanceStatus::SourceReview,
             MaintenanceStatus::SourceReview => {
+                if let Some(unactivated) =
+                    self.store.maintenance_unactivated_basis(&job.spec).await?
+                {
+                    checkpoint.artifact_refs.insert(
+                        "unactivated_basis".into(),
+                        serde_json::to_string(&unactivated)?,
+                    );
+                }
                 checkpoint.artifact_refs.insert(
                     "before_document_sha256".into(),
                     config
@@ -882,16 +890,24 @@ impl Runner {
             .iter()
             .find(|candidate| registration_id(candidate, &job.spec.target_path) == job.spec.repo_id)
             .context("publication_repository_missing")?;
+        ensure!(
+            repo.doc_targets.contains(&job.spec.target_path)
+                && repo.document_policy_for(&job.spec.target_path) == &job.spec.policy,
+            "publication_target_removed_or_policy_changed"
+        );
         if job.checkpoint.publication.is_none() {
             let current_before = config
                 .canonical_documents
                 .get(&job.spec.target_path)
                 .map(|doc| digest(doc.content.as_bytes()))
                 .unwrap_or_else(|| "missing".into());
-            ensure!(
-                job.checkpoint.artifact_refs.get("before_document_sha256") == Some(&current_before),
-                "publication_document_basis_changed"
-            );
+            if job.checkpoint.artifact_refs.get("before_document_sha256") != Some(&current_before) {
+                let archive = self
+                    .artifacts
+                    .put(&serde_json::to_vec(&job.checkpoint)?, "json")?;
+                self.store.reset_maintenance_inputs(lease, &archive).await?;
+                return Ok(());
+            }
             if let Some(reference) = job.checkpoint.artifact_refs.get("scan") {
                 let scan = self.read_scan(config, repo, reference).await?;
                 author::validate_provider_input(config, repo, &scan, &job.spec.target_path).await?;
