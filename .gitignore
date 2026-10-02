@@ -37,3 +37,6 @@ data/last_patchnotes_sync_quality.json
 *.dem.bz2
 *.dem.gz
 *.dem.zst
+
+# Lokale Metadaten des isolierten Guide-Testclusters
+/rust/crates/brain-storage/tests/guide-pg.local.json

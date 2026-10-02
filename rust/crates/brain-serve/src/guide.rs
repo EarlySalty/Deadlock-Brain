@@ -7,8 +7,9 @@ use axum::{
     Json, Router,
 };
 use brain_contracts::{
-    guide::*, AuthorizedContext, Budget, Evidence, EvidenceKind, PortError, Principal, Query,
-    RequestDeadline, RetrievalPort, SourceVisibility,
+    guide::*, AnswerProviderPort, AuthorizedContext, Budget, DialogueVisibility, Evidence,
+    EvidenceKind, PortError, Principal, Query, RequestDeadline, RetrievalPort, SourceVisibility,
+    TextDialogue,
 };
 use brain_policy::CredentialRegistry;
 use brain_providers::OpenAiCompatibleProvider;
@@ -283,14 +284,18 @@ impl GuideRuntime {
         };
         let payload = json!({"question":turn.content,"event":turn.event,"evidence":evidence.iter().map(|e|json!({"id":e.evidence_id,"content":e.content,"kind":e.kind,"patch":e.patch})).collect::<Vec<_>>(),"own_dm_profile":context_profile,"own_dm_history":history,"tour_rules":"Erste Vorstellung kurz: Wer du als KI-Guide bist, wobei du hilfst, DM oder Erwähnung zum Wiederfinden. Tour und direkten Weg zum gemeinsamen Spielen anbieten, keine Pflichtbefragung. Botchat freiwillig anpinnen; ohne Pin über die Mitgliederliste auf diesem Server wiederfinden. Keine erfundenen Klickwege oder öffentliche Namen."});
         let persona = PERSONA.replace("{name}", &self.config.display_name);
-        let answer = self.provider.guide_answer(
-            &query,
-            &context,
-            &evidence,
-            &persona,
-            &payload.to_string(),
-            turn.surface == Surface::Dm,
-        )?;
+        let dialogue = TextDialogue {
+            system: persona,
+            data: payload,
+            visibility: if turn.surface == Surface::Dm {
+                DialogueVisibility::PrivateDm
+            } else {
+                DialogueVisibility::Public
+            },
+        };
+        let answer = self
+            .provider
+            .dialogue(&dialogue, &query, &context, &evidence)?;
         let mut reply = if evidence.is_empty() {
             #[derive(Deserialize)]
             #[serde(deny_unknown_fields)]
@@ -425,6 +430,7 @@ fn addressed(turn: &GuideTurn, conversation: Option<&GuideConversation>, now: i6
         Addressed::Mention | Addressed::Command => true,
         Addressed::Reply | Addressed::Followup => conversation.is_some_and(|c| {
             !c.closed
+                && c.surface == turn.surface
                 && c.expires_at > now
                 && c.user_id == turn.user_id
                 && c.channel_id == turn.channel_id
@@ -714,6 +720,19 @@ mod tests {
         turn.channel_id = "300".into();
         assert!(!addressed(&turn, Some(&conv), 101));
         assert!(!addressed(&turn, None, 50));
+        let mut other_thread = conv.clone();
+        other_thread.thread_id = Some("777".into());
+        assert!(!addressed(&turn, Some(&other_thread), 50));
+        let mut closed = conv.clone();
+        closed.closed = true;
+        assert!(!addressed(&turn, Some(&closed), 50));
+        let mut private = conv.clone();
+        private.surface = Surface::Dm;
+        assert!(!addressed(&turn, Some(&private), 50));
+        turn.reply_to_message_id = Some("999".into());
+        assert!(!addressed(&turn, Some(&conv), 50));
+        turn.addressed = Addressed::Mention;
+        assert!(addressed(&turn, None, 50));
     }
     #[test]
     fn kontrollerkennung_ist_keine_aktionsaufforderung_im_prompt() {
@@ -739,5 +758,32 @@ mod tests {
         ] {
             assert!(!explicit_feedback(text), "{text}");
         }
+    }
+    #[test]
+    fn private_kontrollen_und_sichtbarer_name_bleiben_begrenzt() {
+        let mut turn = turn();
+        turn.surface = Surface::Dm;
+        turn.addressed = Addressed::Dm;
+        assert!(turn.valid() && addressed(&turn, None, 50));
+        turn.surface = Surface::Public;
+        assert!(!turn.valid() && !addressed(&turn, None, 50));
+        assert!(PERSONA
+            .replace("{name}", "Serverguide")
+            .starts_with("Du bist Serverguide"));
+        assert!(!PERSONA.contains("Deadlock Brain"));
+        assert!(matches!(
+            parse_control("Spielzeiten: Abends"),
+            Some(ProfileControl::Correct {
+                field: ProfileField::PlayTimes,
+                ..
+            })
+        ));
+        assert!(matches!(
+            parse_control("Spielzeiten: vergessen"),
+            Some(ProfileControl::Remove {
+                field: ProfileField::PlayTimes
+            })
+        ));
+        assert!(clean_reply("Ich bin dein interner Deadlock-Brain".into()).is_err());
     }
 }

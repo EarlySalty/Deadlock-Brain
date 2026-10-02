@@ -488,6 +488,20 @@ pub trait RetrievalPort: Send + Sync {
     }
 }
 
+/// Vertrauenswürdiger Systemtext und getrennte Daten für denselben zentralen Textprovider.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TextDialogue {
+    pub system: String,
+    pub data: serde_json::Value,
+    pub visibility: DialogueVisibility,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DialogueVisibility {
+    Public,
+    PrivateDm,
+}
 pub trait AnswerProviderPort: Send + Sync {
     fn answer(
         &self,
@@ -495,6 +509,18 @@ pub trait AnswerProviderPort: Send + Sync {
         context: &AuthorizedContext,
         evidence: &[Evidence],
     ) -> std::result::Result<ProviderAnswer, PortError>;
+    fn dialogue(
+        &self,
+        _dialogue: &TextDialogue,
+        _query: &Query,
+        _context: &AuthorizedContext,
+        _evidence: &[Evidence],
+    ) -> std::result::Result<ProviderAnswer, PortError> {
+        // Ein neu eingebauter Provider erbt keine private Verarbeitung oder Persona.
+        Err(PortError::PermissionDenied(
+            "Dieser zentrale Provider unterstützt den freigegebenen Textdialog noch nicht".into(),
+        ))
+    }
 }
 
 #[cfg(test)]
