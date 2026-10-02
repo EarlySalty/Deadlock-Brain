@@ -24,6 +24,10 @@ use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use std::{collections::BTreeMap, io::Write, path::Path, time::Duration};
 use zeroize::Zeroizing;
 
+#[cfg(test)]
+#[path = "runner_tests.rs"]
+mod tests;
+
 pub fn load_maintenance(path: &Path) -> Result<MaintenanceConfig> {
     let mut config: MaintenanceConfig = serde_json::from_slice(&read_bounded(path, 256 * 1024)?)
         .map_err(|_| anyhow::anyhow!("maintenance_config_schema"))?;
@@ -543,6 +547,43 @@ impl Runner {
     }
 
     async fn advance(&self, job: &mut MaintenanceJob) -> Result<()> {
+        let result = self.advance_inner(job).await;
+        if result
+            .as_ref()
+            .err()
+            .is_some_and(|error| error.to_string() == "referenced_document_hash_changed")
+            && job.checkpoint.publication.is_none()
+            && matches!(
+                job.status,
+                MaintenanceStatus::Author
+                    | MaintenanceStatus::Reviewer
+                    | MaintenanceStatus::Publish
+            )
+        {
+            let persisted = self
+                .store
+                .maintenance_job(&job.spec.id)
+                .await?
+                .context("reset_job_missing")?;
+            ensure!(
+                persisted.lease.as_ref().is_some_and(|lease| job
+                    .lease
+                    .as_ref()
+                    .is_some_and(|old| lease.owner == old.owner && lease.fence == old.fence)),
+                "reset_lease_changed"
+            );
+            let archive = self
+                .artifacts
+                .put(&serde_json::to_vec(&persisted.checkpoint)?, "json")?;
+            self.store
+                .reset_maintenance_inputs(job.lease.as_ref().context("job_lease")?, &archive)
+                .await?;
+            return Ok(());
+        }
+        result
+    }
+
+    async fn advance_inner(&self, job: &mut MaintenanceJob) -> Result<()> {
         let (config, reader_release) = self.current_config().await?;
         let repo = config
             .repositories
@@ -693,26 +734,119 @@ impl Runner {
                 }
             }
             MaintenanceStatus::Author => {
+                if checkpoint
+                    .artifact_refs
+                    .get("review_rejections")
+                    .is_some_and(|value| value == "2")
+                {
+                    self.store
+                        .transition_maintenance(&lease, MaintenanceStatus::Failed, &checkpoint)
+                        .await?;
+                    return Ok(());
+                }
                 let reference = checkpoint
                     .artifact_refs
                     .get("scan")
                     .context("scan_checkpoint")?;
                 let scan = self.read_scan(&config, repo, reference).await?;
-                let draft =
+                let feedback: Option<author::VerifiedDocument> = checkpoint
+                    .artifact_refs
+                    .get("rejected_review")
+                    .map(|reference| {
+                        self.artifacts
+                            .read(reference)
+                            .and_then(|bytes| Ok(serde_json::from_slice(&bytes)?))
+                    })
+                    .transpose()?;
+                let resumed_correction = if feedback.is_some()
+                    && checkpoint.artifact_refs.contains_key("correction_intent")
+                {
+                    let draft: Option<author::DraftDocument> = checkpoint
+                        .artifact_refs
+                        .get("draft")
+                        .map(|reference| {
+                            self.artifacts.read(reference).and_then(|bytes| {
+                                serde_json::from_slice(&bytes).map_err(Into::into)
+                            })
+                        })
+                        .transpose()?;
+                    if let Some(draft) = draft.filter(|draft| {
+                        feedback
+                            .as_ref()
+                            .is_some_and(|old| draft.proof.run_id != old.author_run_id)
+                    }) {
+                        author::validate_proposal(&config, repo, &scan, &draft.proposal)?;
+                        Some(draft)
+                    } else {
+                        checkpoint.artifact_refs.insert(
+                            "blocked_reason".into(),
+                            "CORRECTION_RESULT_UNCERTAIN".into(),
+                        );
+                        self.store
+                            .transition_maintenance(&lease, MaintenanceStatus::Failed, &checkpoint)
+                            .await?;
+                        return Ok(());
+                    }
+                } else {
+                    None
+                };
+                if feedback.is_some() && resumed_correction.is_none() {
+                    let intent = self.artifacts.put(&serde_json::to_vec(&json!({"rejected_review":checkpoint.artifact_refs.get("rejected_review"),
+                        "source_sha":job.spec.source_sha,"before_sha256":scan.documents.get(&job.spec.target_path).and_then(|value|value.as_ref()).map(|text|digest(text.as_bytes())),
+                        "maximum_paid_corrections":1}))?, "json")?;
+                    self.store
+                        .set_maintenance_artifact(&lease, "correction_intent", &intent)
+                        .await?;
+                    checkpoint
+                        .artifact_refs
+                        .insert("correction_intent".into(), intent);
+                }
+                let draft = if let Some(draft) = resumed_correction {
+                    draft
+                } else {
                     guarded_provider_dispatch(&self.store, &config, repo, &scan, &job.spec, || {
                         while_leased(
                             &self.store,
                             &mut lease,
                             self.runtime.lease_ttl_ms,
-                            author::propose(&config, repo, &scan, &job.spec.target_path),
+                            author::propose_with_feedback(
+                                &config,
+                                repo,
+                                &scan,
+                                &job.spec.target_path,
+                                feedback.as_ref(),
+                            ),
                         )
                     })
+                    .await?
+                };
+                let draft_ref = self.artifacts.put(&serde_json::to_vec(&draft)?, "json")?;
+                self.store
+                    .set_maintenance_artifact(&lease, "draft", &draft_ref)
                     .await?;
-                checkpoint.artifact_refs.insert(
-                    "draft".into(),
-                    self.artifacts.put(&serde_json::to_vec(&draft)?, "json")?,
-                );
-                MaintenanceStatus::Reviewer
+                checkpoint.artifact_refs.insert("draft".into(), draft_ref);
+                checkpoint.artifact_refs.remove("verified");
+                checkpoint.review = None;
+                if feedback
+                    .as_ref()
+                    .is_some_and(|previous| previous.proposal == draft.proposal)
+                {
+                    checkpoint
+                        .artifact_refs
+                        .insert("blocked_reason".into(), "KNOWN_REJECTED_PROPOSAL".into());
+                    self.store
+                        .transition_maintenance(&lease, MaintenanceStatus::Failed, &checkpoint)
+                        .await?;
+                    return Ok(());
+                }
+                if matches!(draft.proposal.action, author::Action::SourceReview) {
+                    checkpoint
+                        .artifact_refs
+                        .insert("blocked_reason".into(), "SOURCE_REVIEW_REQUIRED".into());
+                    MaintenanceStatus::Failed
+                } else {
+                    MaintenanceStatus::Reviewer
+                }
             }
             MaintenanceStatus::Reviewer => {
                 if checkpoint.review.is_none() {
@@ -734,32 +868,92 @@ impl Runner {
                                 .context("draft_checkpoint")?,
                         )?,
                     )?;
-                    let verified = guarded_provider_dispatch(
-                        &self.store,
-                        &config,
-                        repo,
-                        &scan,
-                        &job.spec,
-                        || {
-                            while_leased(
+                    let verified: author::VerifiedDocument =
+                        if let Some(reference) = checkpoint.artifact_refs.get("verified") {
+                            serde_json::from_slice(&self.artifacts.read(reference)?)?
+                        } else {
+                            guarded_provider_dispatch(
                                 &self.store,
-                                &mut lease,
-                                self.runtime.lease_ttl_ms,
-                                author::review_draft(&config, repo, &scan, draft),
+                                &config,
+                                repo,
+                                &scan,
+                                &job.spec,
+                                || {
+                                    while_leased(
+                                        &self.store,
+                                        &mut lease,
+                                        self.runtime.lease_ttl_ms,
+                                        author::review_draft(&config, repo, &scan, draft.clone()),
+                                    )
+                                },
                             )
-                        },
-                    )
-                    .await?;
-                    let document =
-                        author::prepare_document(&config, repo, &scan, &verified).await?;
+                            .await?
+                        };
+                    author::validate_verified_draft(&config, &scan, &draft, &verified)?;
+                    let verified_ref = self
+                        .artifacts
+                        .put(&serde_json::to_vec(&verified)?, "json")?;
+                    self.store
+                        .set_maintenance_artifact(&lease, "verified", &verified_ref)
+                        .await?;
+                    checkpoint
+                        .artifact_refs
+                        .insert("verified".into(), verified_ref.clone());
                     checkpoint.review = Some(MaintenanceReviewProof {
                         reviewer_id: "codex-independent-document-review".into(),
                         author_run_id: verified.author_run_id.clone(),
                         reviewer_run_id: verified.reviewer_run_id.clone(),
                         source_sha: job.spec.source_sha.clone(),
-                        document_sha256: digest(document.content.as_bytes()),
+                        document_sha256: digest(verified.proposal.content.as_bytes()),
                         accepted: verified.review.approved,
                     });
+                    if !verified.review.approved {
+                        let count = checkpoint
+                            .artifact_refs
+                            .get("review_rejections")
+                            .map(|value| value.parse::<usize>())
+                            .transpose()?
+                            .unwrap_or(0)
+                            + 1;
+                        ensure!(count <= 2, "review_rejection_limit");
+                        checkpoint
+                            .artifact_refs
+                            .insert("review_rejections".into(), count.to_string());
+                        checkpoint
+                            .artifact_refs
+                            .insert(format!("rejected_review_{count}"), verified_ref.clone());
+                        if let Some(reference) = checkpoint.artifact_refs.get("draft").cloned() {
+                            checkpoint
+                                .artifact_refs
+                                .insert(format!("rejected_draft_{count}"), reference);
+                        }
+                        checkpoint
+                            .artifact_refs
+                            .insert("rejected_review".into(), verified_ref);
+                        checkpoint.artifact_refs.remove("verified");
+                        checkpoint.artifact_refs.insert(
+                            "blocked_reason".into(),
+                            if count == 2 {
+                                "REVIEW_REJECTIONS_EXHAUSTED".into()
+                            } else {
+                                "INDEPENDENT_REVIEW_REJECTED".into()
+                            },
+                        );
+                        self.store
+                            .transition_maintenance(
+                                &lease,
+                                if count == 2 {
+                                    MaintenanceStatus::Failed
+                                } else {
+                                    MaintenanceStatus::Author
+                                },
+                                &checkpoint,
+                            )
+                            .await?;
+                        return Ok(());
+                    }
+                    let document =
+                        author::prepare_document(&config, repo, &scan, &verified).await?;
                     checkpoint.artifact_refs.insert(
                         "verified".into(),
                         self.artifacts
@@ -830,6 +1024,19 @@ impl Runner {
             serde_json::from_slice(&self.artifacts.read(reference)?)
                 .map_err(|_| anyhow::anyhow!("legacy_raw_scan_blocked"))?;
         checkpoint.hydrate_sources(repo)?;
+        author::recheck_source(config, repo, &checkpoint.scan).await?;
+        ensure!(
+            checkpoint.scan.documents.len() == repo.doc_targets.len()
+                && repo
+                    .doc_targets
+                    .iter()
+                    .all(|target| checkpoint.scan.documents.contains_key(target)),
+            "scan_document_inventory_changed"
+        );
+        ensure!(
+            checkpoint.scan.assets == config.registered_assets,
+            "scan_asset_rights_changed"
+        );
         let snapshot = self.store.snapshot(&checkpoint.reader_release).await?;
         let docs = dbrain_sources::git_source::PinnedRepository::open(
             &config.docs_repo,
@@ -1161,9 +1368,40 @@ impl Runner {
                             serde_json::from_slice(&self.artifacts.read(reference)?)?;
                         usage["reviewer"] = json!({"input_tokens":result.reviewer_input_tokens,"output_tokens":result.reviewer_output_tokens});
                     }
+                    let mut rejected_runs = Vec::new();
+                    for index in 1..=2 {
+                        if let Some(reference) = job
+                            .checkpoint
+                            .artifact_refs
+                            .get(&format!("rejected_review_{index}"))
+                        {
+                            let review: author::VerifiedDocument =
+                                serde_json::from_slice(&self.artifacts.read(reference)?)?;
+                            let draft = job
+                                .checkpoint
+                                .artifact_refs
+                                .get(&format!("rejected_draft_{index}"))
+                                .map(|reference| {
+                                    self.artifacts.read(reference).and_then(|bytes| {
+                                        serde_json::from_slice::<author::DraftDocument>(&bytes)
+                                            .map_err(Into::into)
+                                    })
+                                })
+                                .transpose()?;
+                            rejected_runs.push(json!({"accepted":false,"author_run_id":review.author_run_id,
+                                "reviewer_run_id":review.reviewer_run_id,
+                                "author_input_tokens":draft.as_ref().and_then(|draft|draft.proof.input_tokens),
+                                "author_output_tokens":draft.as_ref().and_then(|draft|draft.proof.output_tokens),
+                                "reviewer_input_tokens":review.reviewer_input_tokens,
+                                "reviewer_output_tokens":review.reviewer_output_tokens}));
+                        }
+                    }
+                    usage["rejected_runs"] = json!(rejected_runs);
                     jobs.push(json!({"id":job.spec.id,"repo":repo.id,"target":target,"source_sha":job.spec.source_sha,
                     "deployed_sha":job.spec.deployed_sha,"status":job.status,"attempts":job.attempts,
-                    "error_code":job.error_code,"publication":job.checkpoint.publication,"activation":job.checkpoint.activation,"usage":usage}));
+                    "error_code":job.error_code,"blocked_reason":job.checkpoint.artifact_refs.get("blocked_reason"),
+                    "review_rejections":job.checkpoint.artifact_refs.get("review_rejections"),
+                    "publication":job.checkpoint.publication,"activation":job.checkpoint.activation,"usage":usage}));
                 }
             }
         }

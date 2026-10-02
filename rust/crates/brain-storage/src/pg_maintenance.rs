@@ -277,6 +277,17 @@ impl PgStore {
             return Err(invalid("published maintenance inputs cannot reset"));
         }
         let mut next = MaintenanceCheckpoint::default();
+        for (key, value) in &job.checkpoint.artifact_refs {
+            if key == "review_rejections"
+                || key == "rejected_review"
+                || key.starts_with("rejected_review_")
+                || key.starts_with("rejected_draft_")
+                || key == "correction_intent"
+                || key == "blocked_reason"
+            {
+                next.artifact_refs.insert(key.clone(), value.clone());
+            }
+        }
         next.artifact_refs
             .insert("obsolete_checkpoint".into(), archive_ref.into());
         next.validate(&job.spec, MaintenanceStatus::SourceReview)?;
