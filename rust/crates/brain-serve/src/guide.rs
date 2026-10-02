@@ -125,7 +125,11 @@ impl GuideRuntime {
             return Ok(GuideResult::silent(&turn.request_id));
         };
         let epoch = snapshot.profile.epoch;
-        let mut result = self.process_claimed(turn, principal, deadline, snapshot, now)?;
+        let request_id = turn.request_id.clone();
+        let mut result = match self.process_claimed(turn, principal, deadline, snapshot, now) {
+            Ok(result)=>result,
+            Err(_)=>GuideResult{status:GuideStatus::Unavailable,reply:Some("Gerade kann ich dir keine verlässliche Antwort geben. Versuch es später noch einmal oder melde dich beim Team.".into()),..GuideResult::silent(&request_id)},
+        };
         if result.privacy_epoch.is_none() {
             result.privacy_epoch = Some(epoch);
         }
