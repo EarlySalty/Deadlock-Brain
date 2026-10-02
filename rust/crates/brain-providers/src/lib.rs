@@ -176,7 +176,7 @@ impl OpenAiCompatibleProvider {
 
     /// Guide-Nachrichten nutzen denselben Client, dieselben Budgets und denselben Provider.
     /// Privater Egress benötigt eine eigene vertrauenswürdige Freigabe, niemals Requestflags.
-    pub fn guide_answer(
+    fn text_dialogue(
         &self,
         query: &Query,
         context: &AuthorizedContext,
@@ -227,6 +227,30 @@ impl OpenAiCompatibleProvider {
 }
 
 impl AnswerProviderPort for OpenAiCompatibleProvider {
+    fn dialogue(
+        &self,
+        dialogue: &brain_contracts::TextDialogue,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+    ) -> std::result::Result<ProviderAnswer, PortError> {
+        if dialogue.system.trim().is_empty()
+            || dialogue.system.len() > 8000
+            || !dialogue.data.is_object()
+        {
+            return Err(PortError::InvalidResponse(
+                "Textdialogvertrag ist ungültig".into(),
+            ));
+        }
+        self.text_dialogue(
+            query,
+            context,
+            evidence,
+            &dialogue.system,
+            &dialogue.data.to_string(),
+            dialogue.visibility == brain_contracts::DialogueVisibility::PrivateDm,
+        )
+    }
     fn answer(
         &self,
         query: &Query,
@@ -403,6 +427,64 @@ mod tests {
             .answer(&query(), &context(), &[])
             .unwrap_err();
         assert!(matches!(error, PortError::InvalidResponse(_)));
+        server.join().unwrap();
+    }
+    #[test]
+    fn privater_dialog_blockiert_vor_transport_ohne_passenden_provider() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let dialogue = brain_contracts::TextDialogue {
+            system: "Synthetische Systempersona".into(),
+            data: serde_json::json!({"question":"Synthetische private Frage"}),
+            visibility: brain_contracts::DialogueVisibility::PrivateDm,
+        };
+        let p = provider(format!("http://{}", listener.local_addr().unwrap()));
+        let mut allowed = context();
+        assert!(matches!(
+            p.dialogue(&dialogue, &query(), &allowed, &[]),
+            Err(PortError::PermissionDenied(_))
+        ));
+        allowed
+            .principal
+            .provider_egress
+            .insert("private_dm".into());
+        assert!(matches!(
+            p.dialogue(&dialogue, &query(), &allowed, &[]),
+            Err(PortError::PermissionDenied(_))
+        ));
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+    }
+    #[test]
+    fn zentraler_dialog_verwendet_die_gemeinsame_systempersona() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let request = read_request(&mut stream);
+            assert!(request.contains("Synthetische gemeinsame Persona"));
+            assert!(request.contains("tour_start"));
+            assert!(request.contains("reasoning_effort"));
+            let body = r#"{"model":"fixture-model","choices":[{"message":{"content":"{\"text\":\"Serverguide\",\"cited_evidence_ids\":[]}"}}],"usage":{"prompt_tokens":12,"completion_tokens":3}}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        });
+        let dialogue = brain_contracts::TextDialogue {
+            system: "Synthetische gemeinsame Persona".into(),
+            data: serde_json::json!({"event":"tour_start","question":"Tour bitte"}),
+            visibility: brain_contracts::DialogueVisibility::Public,
+        };
+        let answer = provider(format!("http://{address}"))
+            .dialogue(&dialogue, &query(), &context(), &[])
+            .unwrap();
+        assert!(answer.text.contains("Serverguide"));
         server.join().unwrap();
     }
 
