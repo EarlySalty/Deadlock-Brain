@@ -462,6 +462,18 @@ async fn retrieval_returns_original_public_text_without_provider_or_internal_met
     assert_eq!(public.evidence.len(), 1);
     assert_eq!(public.evidence[0].text, "hero: Abrams\nhealth: 650");
     assert_eq!(public.evidence[0].kind, brain_contracts::EvidenceKind::Fact);
+    for profile in [
+        AnswerProfile::Fact,
+        AnswerProfile::Explain,
+        AnswerProfile::Coaching,
+    ] {
+        let request = serde_json::to_vec(&query(profile)).unwrap();
+        let response = api.handle_retrieve(Some("Bearer publication-token"), &request);
+        assert_eq!(response.status, 200, "{}", response.body);
+        let public: brain_contracts::public_api::PublicRetrievalResponse =
+            serde_json::from_str(&response.body).unwrap();
+        assert_eq!(public.status, AnswerStatus::Answered);
+    }
     for secret in [
         "publication-a",
         "entity/hero",
