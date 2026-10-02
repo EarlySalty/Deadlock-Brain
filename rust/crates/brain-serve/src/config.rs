@@ -345,7 +345,8 @@ impl Config {
         let mut internal_count = 0;
         require(
             self.credentials.iter().all(|grant| {
-                grant.actor_id != "second-brain"
+                grant.token_env != "BRAIN_SERVE_SECOND_BRAIN_TOKEN"
+                    && grant.actor_id != "second-brain"
                     && grant.channel != "internal"
                     && !grant.scopes.contains("second_brain.internal")
             }),
@@ -367,7 +368,7 @@ impl Config {
             }
             if grant.actor_id == "docs-client"
                 || grant.channel == "docs"
-                || grant.scopes.contains("docs.public")
+                || grant.token_env == "BRAIN_SERVE_DOCS_PUBLIC_TOKEN"
             {
                 require(
                     grant.actor_id == "docs-client"

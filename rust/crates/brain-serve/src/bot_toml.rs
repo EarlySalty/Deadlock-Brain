@@ -70,6 +70,13 @@ pub async fn infisical_snapshot(path: &Path) -> Result<Vec<(String, Zeroizing<St
         .map_err(|_| Error::SecretSource)
 }
 
+/// Prüft nur normale Metadaten, ohne Dateien, Descriptoren oder Secrets zu laden.
+pub fn validate_infisical(bytes: &[u8]) -> Result<(), Error> {
+    let root = document(bytes)?;
+    let source = value(&root, &["brain", "infisical"])?;
+    validate_secret_source(&source)
+}
+
 fn bind_credential(source: &mut toml::Value) -> Result<Option<std::fs::File>, Error> {
     use nix::fcntl::{fcntl, FcntlArg, FdFlag};
     use std::os::{
@@ -115,6 +122,31 @@ fn bind_credential(source: &mut toml::Value) -> Result<Option<std::fs::File>, Er
 }
 
 fn validate_secret_source(source: &toml::Value) -> Result<(), Error> {
+    for field in ["project_id", "environment", "secret_path", "socket_path"] {
+        if !source
+            .get(field)
+            .and_then(toml::Value::as_str)
+            .is_some_and(|value| !value.is_empty())
+        {
+            return Err(Error::SecretSource);
+        }
+    }
+    for (field, value) in source.as_table().ok_or(Error::SecretSource)? {
+        match field.as_str() {
+            "project_id" | "environment" | "secret_path" | "socket_path" | "credential_name"
+            | "credential_path" | "database_secret"
+                if value.is_str() => {}
+            "credential_fd" | "secret_values_fd" if value.is_integer() => {}
+            _ => return Err(Error::SecretSource),
+        }
+    }
+    if !source
+        .get("socket_path")
+        .and_then(toml::Value::as_str)
+        .is_some_and(|value| Path::new(value).is_absolute())
+    {
+        return Err(Error::SecretSource);
+    }
     let fields = ["credential_fd", "credential_path", "secret_values_fd"];
     if fields
         .iter()
@@ -204,7 +236,7 @@ mod tests {
             "credential_path='/run/private/credential'",
             "secret_values_fd=3",
         ] {
-            assert!(validate_secret_source(&document(input.as_bytes()).unwrap()).is_ok());
+            assert!(validate_secret_source(&document(format!("project_id=\"fixture\"\nenvironment=\"fixture\"\nsecret_path=\"/\"\nsocket_path=\"/run/private/api.sock\"\n{input}").as_bytes()).unwrap()).is_ok());
         }
         for input in [
             "credential_fd=-1",
@@ -214,7 +246,7 @@ mod tests {
             "credential_fd=5\nsecret_values_fd=3",
             "",
         ] {
-            assert!(validate_secret_source(&document(input.as_bytes()).unwrap()).is_err());
+            assert!(validate_secret_source(&document(format!("project_id=\"fixture\"\nenvironment=\"fixture\"\nsecret_path=\"/\"\nsocket_path=\"/run/private/api.sock\"\n{input}").as_bytes()).unwrap()).is_err());
         }
         use std::{
             io::{Seek, Write},

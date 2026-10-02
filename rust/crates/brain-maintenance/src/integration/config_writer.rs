@@ -122,21 +122,86 @@ pub fn write_serve_config(
 ) -> Result<serde_json::Value> {
     super::runner::require_operator_config(&runtime.maintenance_config)?;
     let replacement = read_bounded(input, brain_serve::bot_toml::MAX_BYTES)?;
-    brain_serve::Config::parse(&replacement)
-        .map_err(|_| anyhow::anyhow!("serve_config_invalid"))?;
     let writer = ConfigWriter::lock(&runtime.serve_config)?;
     let expected = writer.read()?;
     ensure!(
         crate::digest(&expected) == expected_sha256,
         "serve_config_changed"
     );
+    validate_serve_replacement(&expected, &replacement)?;
     writer.replace(&expected, &replacement)?;
     Ok(serde_json::json!({"status":"configured","config_sha256":crate::digest(&replacement)}))
+}
+
+fn validate_serve_replacement(expected: &[u8], replacement: &[u8]) -> Result<()> {
+    brain_serve::Config::parse(replacement).map_err(|_| anyhow::anyhow!("serve_config_invalid"))?;
+    crate::config::parse_maintenance(replacement)?;
+    brain_serve::bot_toml::validate_infisical(replacement)
+        .map_err(|_| anyhow::anyhow!("infisical_config_invalid"))?;
+    let mut old = brain_serve::bot_toml::document(expected)
+        .map_err(|_| anyhow::anyhow!("shared_config_invalid"))?;
+    let mut new = brain_serve::bot_toml::document(replacement)
+        .map_err(|_| anyhow::anyhow!("shared_config_invalid"))?;
+    for root in [&mut old, &mut new] {
+        let table = root
+            .get_mut("brain")
+            .and_then(toml::Value::as_table_mut)
+            .ok_or_else(|| anyhow::anyhow!("shared_config_invalid"))?;
+        table.remove("serve");
+        table.remove("operator");
+    }
+    ensure!(old == new, "serve_writer_changed_unrelated_config");
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn serve_writer_darf_maintenance_und_infisical_nicht_entfernen_oder_umleiten() {
+        let mut root = brain_serve::bot_toml::document(include_bytes!(
+            "../../../../../config/brain-serve.example.toml"
+        ))
+        .unwrap();
+        let maintenance =
+            brain_serve::bot_toml::document(include_bytes!("../../config/smoke.example.toml"))
+                .unwrap()["brain"]["maintenance"]
+                .clone();
+        root["brain"]
+            .as_table_mut()
+            .unwrap()
+            .insert("maintenance".into(), maintenance);
+        root["brain"].as_table_mut().unwrap().insert("infisical".into(),toml::Value::try_from(
+            serde_json::json!({"project_id":"fixture-project", "environment":"fixture", "secret_path":"/",
+                "socket_path":"/run/private/api.sock", "credential_fd":5})).unwrap());
+        let old = toml::to_string(&root).unwrap().into_bytes();
+        let mut new = root.clone();
+        new["brain"]["serve"]["provider"]["model"] = toml::Value::String("fixture-modell".into());
+        assert!(
+            validate_serve_replacement(&old, toml::to_string(&new).unwrap().as_bytes()).is_ok()
+        );
+        for table in ["maintenance", "infisical"] {
+            let mut incomplete = new.clone();
+            incomplete["brain"].as_table_mut().unwrap().remove(table);
+            assert!(validate_serve_replacement(
+                &old,
+                toml::to_string(&incomplete).unwrap().as_bytes()
+            )
+            .is_err());
+        }
+        for (table, field) in [
+            ("maintenance", "prompt_version"),
+            ("infisical", "environment"),
+        ] {
+            let mut redirected = new.clone();
+            redirected["brain"][table][field] = toml::Value::String("fremder-wert".into());
+            assert!(validate_serve_replacement(
+                &old,
+                toml::to_string(&redirected).unwrap().as_bytes()
+            )
+            .is_err());
+        }
+    }
     #[tokio::test(flavor = "current_thread")]
     async fn config_lock_wait_keeps_tokio_worker_available() {
         let dir = tempfile::tempdir().unwrap();

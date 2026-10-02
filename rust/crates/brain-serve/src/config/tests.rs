@@ -286,6 +286,16 @@ fn c9_grants_sind_exakt_und_releasebindungen_werden_beim_neustart_geprueft() {
         }
         assert!(parse(&changed).is_err());
     }
+    let mut foreign = value.clone();
+    foreign["credentials"][1]["actor_id"] = json!("fremder-client");
+    foreign["credentials"][1]["channel"] = json!("fremder-kanal");
+    assert!(parse(&foreign).is_err());
+    let mut misplaced = value.clone();
+    misplaced["credentials"]
+        .as_array_mut()
+        .unwrap()
+        .push(value["internal_operator"]["credential"].clone());
+    assert!(parse(&misplaced).is_err());
     let mut changed = value.clone();
     changed["internal_operator"]["credential"] = json!(null);
     assert!(parse(&changed).is_err());
