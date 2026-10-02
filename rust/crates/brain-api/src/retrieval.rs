@@ -56,10 +56,14 @@ impl<K: AnswerKernelPort> ApiService<K> {
                 "Belegsuche unterstützt ausschließlich Textfragen",
             );
         }
+        let knowledge_release = match self.release_for_token(token) {
+            Ok(release) => release,
+            Err(response) => return response,
+        };
         let context = match self.policy.authorize_query_until(
             token,
             &query,
-            self.knowledge_release.clone(),
+            knowledge_release,
             deadline.clone(),
             self.budget.clone(),
         ) {

@@ -9,6 +9,7 @@ brain-api = { path = "../brain-api" }
 brain-contracts = { path = "../brain-contracts" }
 brain-kernel = { path = "../brain-kernel" }
 brain-policy = { path = "../brain-policy" }
+uplink-infisical-transport = { path = "../../vendor/uplink-infisical-transport" }
 brain-providers = { path = "../brain-providers" }
 brain-storage = { path = "../brain-storage" }
 dbrain-reasoner = { path = "../dbrain-reasoner" }

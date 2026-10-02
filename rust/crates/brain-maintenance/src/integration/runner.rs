@@ -60,10 +60,10 @@ pub fn load_maintenance(path: &Path) -> Result<MaintenanceConfig> {
 
 pub struct Runner {
     runtime: RuntimeConfig,
-    store: PgStore,
+    pub(super) store: PgStore,
     artifacts: Artifacts,
     jev: Zeroizing<String>,
-    owner: String,
+    pub(super) owner: String,
 }
 
 /// Prüft Rechte und Belege, bevor der Provider überhaupt aufgerufen wird.
@@ -304,7 +304,7 @@ impl Runner {
         self.status().await
     }
 
-    fn require_operator(&self) -> Result<u32> {
+    pub(super) fn require_operator(&self) -> Result<u32> {
         require_operator_config(&self.runtime.maintenance_config)
     }
 
