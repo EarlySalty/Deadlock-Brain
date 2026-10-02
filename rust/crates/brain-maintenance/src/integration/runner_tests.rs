@@ -87,6 +87,29 @@ use brain_contracts::CorpusRelease;
 use std::os::unix::fs::PermissionsExt;
 
 #[test]
+fn publication_release_identity_accepts_short_and_utf8_job_ids() {
+    let (_dir, config, repo) = fixture();
+    let mut ids = BTreeSet::new();
+    for id in ["x", "abcdé", "docs-gewöhnlicher-Auftrag"] {
+        let mut spec = job_spec(
+            &config,
+            &repo,
+            "internal/system.html",
+            &"a".repeat(40),
+            None,
+            "fixture",
+        );
+        spec.id = id.into();
+        spec.idempotency_key = id.into();
+        spec.validate().unwrap();
+        let (release, version) = publication_release_identity(&spec.id);
+        assert_eq!(release, format!("maintenance-{}", digest(id.as_bytes())));
+        assert_eq!(version, format!("docs-{}", digest(id.as_bytes())));
+        assert!(ids.insert(release));
+    }
+}
+
+#[test]
 fn local_operator_reloads_internal_scopes_without_provider_egress() {
     let (dir, mut config, _repo) = fixture();
     let path = dir.path().join("maintenance.json");

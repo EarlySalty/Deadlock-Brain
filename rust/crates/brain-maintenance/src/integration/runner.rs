@@ -106,6 +106,10 @@ fn document_is_html(metadata: &BTreeMap<String, String>) -> bool {
             .get("output_path")
             .is_some_and(|path| path.ends_with(".html"))
 }
+fn publication_release_identity(job_id: &str) -> (String, String) {
+    let key = digest(job_id.as_bytes());
+    (format!("maintenance-{key}"), format!("docs-{key}"))
+}
 fn job_spec(
     config: &MaintenanceConfig,
     repo: &RepositoryConfig,
@@ -1204,8 +1208,8 @@ impl Runner {
                     .and_then(|pins| pins.get(&job.spec.target_path))
                     == Some(&revision);
             if !already_active {
-                release.release_id = format!("maintenance-{}", &job.spec.id[5..]);
-                release.knowledge_version = format!("docs-{}", &job.spec.id[5..]);
+                (release.release_id, release.knowledge_version) =
+                    publication_release_identity(&job.spec.id);
                 release.created_at_epoch = chrono::Utc::now().timestamp();
                 release
                     .source_revisions
