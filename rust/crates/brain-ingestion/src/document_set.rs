@@ -8,7 +8,8 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const MAX_DOCUMENTS_PER_SOURCE: usize = 5_000;
 pub const MAX_DOCUMENT_BYTES: usize = 4 * 1024 * 1024;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CoreDocument {
     pub logical_id: String,
     pub content: String,

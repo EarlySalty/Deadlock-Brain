@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 pub mod mode;
+pub mod transport;
 pub use mode::{JevMode, ShadowObservation};
 
 use std::collections::BTreeSet;

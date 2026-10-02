@@ -1,0 +1,23 @@
+{
+  "maintenance_config": "/etc/deadlock-brain/maintenance.json",
+  "postgres": {
+    "socket_dir": "/run/deadlock-brain-postgresql",
+    "port": 5446,
+    "username": "brain_ingest",
+    "database": "brain",
+    "auth": "password",
+    "password_env": "BRAIN_PG_INGEST_PASSWORD",
+    "max_connections": 2
+  },
+  "serve_config": "/etc/deadlock-brain/brain-serve.json",
+  "serve_unit": "brain-serve.service",
+  "artifact_dir": "/home/nathanael/.local/state/deadlock-brain/maintenance/artifacts",
+  "status_file": "/home/nathanael/.local/state/deadlock-brain/maintenance/status.json",
+  "lease_ttl_ms": 900000,
+  "max_jobs_per_tick": 1,
+  "health_timeout_ms": 30000,
+  "infisical_config": "/etc/deadlock-brain/infisical.json",
+  "jev_secret": "JEV",
+  "retry_delay_ms": 3600000,
+  "local_imports": []
+}

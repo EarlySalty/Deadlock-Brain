@@ -72,6 +72,75 @@ fn query(text: &str) -> Query {
 }
 
 #[tokio::test]
+async fn public_maintenance_citations_hide_private_origin_metadata() {
+    let mut document = record(
+        "public/hilfe.html",
+        "Steam verbinden und öffentliche Hilfe öffnen.",
+    );
+    document.source_id = "maintenance-docs:owned-target".into();
+    document
+        .metadata
+        .insert("locator".into(), "/private/code/implementation.rs".into());
+    document
+        .metadata
+        .insert("private_origin".into(), "interner Mechanismus".into());
+    let store = published(vec![document]).await;
+    let retriever = ReleaseRetriever::new(store, 6);
+    let evidence = retriever
+        .retrieve(&query("Steam verbinden"), &context())
+        .unwrap();
+    assert!(!evidence.is_empty());
+    for hit in evidence {
+        let provenance = hit.provenance.unwrap();
+        assert_eq!(provenance.source_locator, "public/hilfe.html");
+        assert!(!provenance.metadata.contains_key("private_origin"));
+        assert!(!provenance.metadata.contains_key("locator"));
+    }
+}
+
+#[tokio::test]
+async fn html_evidence_binds_semantic_ranges_to_unchanged_reviewed_artifact() {
+    let html = "<html><body><h1 id='einrichtung'>Steam verbinden</h1><p>Nutze den Steam-Knopf.</p><img alt='Steam-Verbindung' src='https://invalid.test/no-fetch'><figcaption>Verbindung öffnen</figcaption><script>FalscheAdminBehauptung</script></body></html>";
+    let projection = dbrain_retrieval::html_projection::project_html(html).unwrap();
+    let mut original = record("steam.html", html);
+    original.content_hash = projection.raw_sha256.clone();
+    projection.bind_metadata(&mut original.metadata);
+    let store = published(vec![original.clone()]).await;
+    let retriever = ReleaseRetriever::new(store, 6);
+    let q = query("Steam verbinden");
+    let c = context();
+    let hits = retriever.retrieve(&q, &c).unwrap();
+    assert!(!hits.is_empty());
+    for hit in &hits {
+        let p = hit.provenance.as_ref().unwrap();
+        assert_eq!(p.document.content_hash, projection.raw_sha256);
+        assert_eq!(
+            p.metadata["html_semantic_sha256"],
+            projection.semantic_sha256
+        );
+        assert!(p.chunker_version.starts_with("html-semantic-v1+"));
+        assert_eq!(hit.content, projection.text[p.byte_start..p.byte_end]);
+        assert!(!hit.content.contains("<"));
+        assert!(!hit.content.contains("FalscheAdminBehauptung"));
+    }
+    retriever.validate_evidence(&q, &c, &hits, true).unwrap();
+    let mut forged = hits.clone();
+    forged[0]
+        .provenance
+        .as_mut()
+        .unwrap()
+        .metadata
+        .insert("html_semantic_sha256".into(), "0".repeat(64));
+    assert!(retriever.validate_evidence(&q, &c, &forged, true).is_err());
+    let mut wrong = original;
+    wrong
+        .metadata
+        .insert("html_raw_sha256".into(), "0".repeat(64));
+    let retriever = ReleaseRetriever::new(published(vec![wrong]).await, 6);
+    assert!(retriever.retrieve(&q, &c).is_err());
+}
+
+#[tokio::test]
 async fn large_hero_default_budget_multiple_chunks_and_exact_provenance() {
     let mut content = String::from("# Abrams\n");
     for _ in 0..350 {

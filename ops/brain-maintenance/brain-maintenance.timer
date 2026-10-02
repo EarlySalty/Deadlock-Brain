@@ -1,0 +1,12 @@
+[Unit]
+Description=Regelmäßiger Nachlauf für Deadlock-Brain-Dokumentation
+
+[Timer]
+OnCalendar=*-*-* *:00/5:00
+Persistent=true
+RandomizedDelaySec=30
+Unit=brain-maintenance.service
+
+[Install]
+WantedBy=timers.target
+

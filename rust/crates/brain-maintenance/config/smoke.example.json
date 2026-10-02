@@ -1,0 +1,36 @@
+{
+  "repo_roots": [
+    "/home/nathanael/repos"
+  ],
+  "repositories": [],
+  "docs_repo": "/home/nathanael/repos/Deadlock-Docs",
+  "docs_origin": "git@github.com:EarlySalty/Deadlock-Docs.git",
+  "docs_ref": "refs/remotes/origin/main",
+  "bounds": {
+    "max_repositories": 128,
+    "max_files": 128,
+    "max_blob_bytes": 262144,
+    "max_bundle_bytes": 1048576,
+    "max_output_bytes": 262144,
+    "git_timeout_ms": 20000
+  },
+  "codex": {
+    "executable": "/home/nathanael/.local/bin/codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "timeout_ms": 180000
+  },
+  "prompt_version": "brain.docs.v1",
+  "internal_doc_scopes": [
+    "internal_docs"
+  ],
+  "jev": {
+    "endpoint": "https://api.typesafe.ai/v1/systemone",
+    "model": "jev-1.13.0",
+    "timeout_ms": 30000,
+    "max_request_bytes": 1048576,
+    "max_response_bytes": 65536
+  },
+  "new_document_format": "html",
+  "registered_assets": []
+}

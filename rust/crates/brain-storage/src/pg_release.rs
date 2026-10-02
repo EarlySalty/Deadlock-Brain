@@ -4,6 +4,7 @@ use crate::{
     PgStore,
 };
 use brain_contracts::{
+    maintenance::{MaintenanceLease, MaintenancePublicationProof},
     BatchReceipt, CorpusRelease, CorpusSnapshot, Lease, PortError, SourceBatch, SourceRecordV2,
 };
 use sqlx::{Postgres, Row, Transaction};
@@ -64,7 +65,7 @@ impl PgStore {
         batches: &[(&SourceBatch, &Lease)],
         release: &CorpusRelease,
     ) -> Result<(Vec<BatchReceipt>, usize), PortError> {
-        self.commit_batches_and_publish_inner(batches, release, None)
+        self.commit_batches_and_publish_inner(batches, release, None, None)
             .await
     }
 
@@ -74,8 +75,28 @@ impl PgStore {
         release: &CorpusRelease,
         expected_heads: &[SourceRecordV2],
     ) -> Result<(Vec<BatchReceipt>, usize), PortError> {
-        self.commit_batches_and_publish_inner(batches, release, Some(expected_heads))
+        self.commit_batches_and_publish_inner(batches, release, Some(expected_heads), None)
             .await
+    }
+
+    /// Übernimmt geprüfte Dokumente mit Job-Fence in derselben bestehenden Corpus-Transaktion.
+    /// Unberührte Quellen behalten genau die Pins des ausdrücklich genannten Basis-Releases.
+    pub async fn commit_maintenance_batches_and_publish_checked(
+        &self,
+        maintenance_lease: &MaintenanceLease,
+        base_release_id: &str,
+        batches: &[(&SourceBatch, &Lease)],
+        release: &CorpusRelease,
+        expected_heads: &[SourceRecordV2],
+    ) -> Result<(Vec<BatchReceipt>, usize), PortError> {
+        brain_contracts::maintenance::bounded(base_release_id, 512)?;
+        self.commit_batches_and_publish_inner(
+            batches,
+            release,
+            Some(expected_heads),
+            Some((maintenance_lease, base_release_id)),
+        )
+        .await
     }
 
     async fn commit_batches_and_publish_inner(
@@ -83,6 +104,7 @@ impl PgStore {
         batches: &[(&SourceBatch, &Lease)],
         release: &CorpusRelease,
         expected_heads: Option<&[SourceRecordV2]>,
+        maintenance: Option<(&MaintenanceLease, &str)>,
     ) -> Result<(Vec<BatchReceipt>, usize), PortError> {
         if batches.is_empty() || batches.len() > 2 {
             return Err(invalid("atomic release requires one or two source batches"));
@@ -120,7 +142,19 @@ impl PgStore {
                         .insert(record.logical_id.clone(), record.revision);
                 }
             }
-            if pins != release.source_revisions {
+            let touched_release: BTreeMap<_, _> = release
+                .source_revisions
+                .iter()
+                .filter(|(source, _)| sources.contains(*source))
+                .map(|(source, pins)| (source.clone(), pins.clone()))
+                .collect();
+            if pins
+                != if maintenance.is_some() {
+                    touched_release
+                } else {
+                    release.source_revisions.clone()
+                }
+            {
                 return Err(invalid("expected source heads differ from release pins"));
             }
             Some(records)
@@ -128,6 +162,112 @@ impl PgStore {
             None
         };
         let mut tx = self.pool.begin().await.map_err(database_error)?;
+        let maintenance_job = if let Some((lease, base_id)) = maintenance {
+            let (job, registration) =
+                crate::pg_maintenance::lock_publication_job(&mut tx, lease).await?;
+            if sources.len() != 1 || !sources.contains(&registration.source_id) {
+                return Err(invalid(
+                    "maintenance batch must target only its registered source",
+                ));
+            }
+            lock_source(&mut tx, &registration.source_id)
+                .await
+                .map_err(database_error)?;
+            let base: serde_json::Value = sqlx::query_scalar(
+                "SELECT release_json FROM brain.corpus_releases_v1 WHERE release_id=$1",
+            )
+            .bind(base_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(database_error)?
+            .ok_or_else(|| invalid("maintenance base release missing"))?;
+            let base: CorpusRelease = serde_json::from_value(base)
+                .map_err(|_| invalid("invalid maintenance base release"))?;
+            if release.patch != base.patch {
+                return Err(invalid("documentation update cannot change the game patch"));
+            }
+            let preserved: BTreeMap<_, _> = base
+                .source_revisions
+                .iter()
+                .filter(|(source, _)| !sources.contains(*source))
+                .map(|(source, pins)| (source.clone(), pins.clone()))
+                .collect();
+            let proposed: BTreeMap<_, _> = release
+                .source_revisions
+                .iter()
+                .filter(|(source, _)| !sources.contains(*source))
+                .map(|(source, pins)| (source.clone(), pins.clone()))
+                .collect();
+            if preserved != proposed {
+                return Err(invalid("maintenance release changed unrelated source pins"));
+            }
+            let heads = expected_heads
+                .ok_or_else(|| invalid("maintenance publication requires exact expected heads"))?;
+            let old_rows: Vec<serde_json::Value> = sqlx::query_scalar(
+                "SELECT record_json FROM brain.source_record_heads WHERE source_id=$1 AND logical_id<>$2",
+            )
+            .bind(&registration.source_id)
+            .bind(&job.spec.target_path)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(database_error)?;
+            let old_heads = old_rows
+                .into_iter()
+                .map(|value| {
+                    let record: SourceRecordV2 = serde_json::from_value(value)
+                        .map_err(|_| invalid("invalid preserved maintenance source head"))?;
+                    Ok((record.logical_id.clone(), record))
+                })
+                .collect::<Result<BTreeMap<_, _>, PortError>>()?;
+            let proposed_heads: BTreeMap<_, _> = heads
+                .iter()
+                .filter(|record| record.logical_id != job.spec.target_path)
+                .map(|record| (record.logical_id.clone(), record.clone()))
+                .collect();
+            let without_target = |pins: Option<&BTreeMap<String, u64>>| -> BTreeMap<String, u64> {
+                pins.into_iter()
+                    .flat_map(|pins| pins.iter())
+                    .filter(|(logical, _)| **logical != job.spec.target_path)
+                    .map(|(logical, revision)| (logical.clone(), *revision))
+                    .collect()
+            };
+            if old_heads != proposed_heads
+                || without_target(base.source_revisions.get(&registration.source_id))
+                    != without_target(release.source_revisions.get(&registration.source_id))
+            {
+                return Err(invalid(
+                    "maintenance changed another document in its source",
+                ));
+            }
+            let document = heads
+                .iter()
+                .find(|record| {
+                    record.source_id == registration.source_id
+                        && record.logical_id == job.spec.target_path
+                        && !record.tombstone
+                })
+                .ok_or_else(|| invalid("maintenance target missing from expected heads"))?;
+            crate::pg_maintenance::validate_publication_record(&job, document)?;
+            if job.checkpoint.review.as_ref().is_none_or(|review| {
+                !review.accepted || review.document_sha256 != document.content_hash
+            }) {
+                return Err(invalid(
+                    "maintenance publication differs from accepted document",
+                ));
+            }
+            Some((
+                job,
+                MaintenancePublicationProof {
+                    release_id: release.release_id.clone(),
+                    source_id: document.source_id.clone(),
+                    logical_id: document.logical_id.clone(),
+                    document_revision: document.revision,
+                    document_sha256: document.content_hash.clone(),
+                },
+            ))
+        } else {
+            None
+        };
         for source in &sources {
             lock_source(&mut tx, source).await.map_err(database_error)?;
         }
@@ -204,6 +344,17 @@ impl PgStore {
             .sum::<usize>();
         if count < 0 || count as usize != expected {
             return Err(invalid("atomic release readback incomplete"));
+        }
+        if let Some((job, proof)) = maintenance_job {
+            crate::pg_maintenance::record_publication_checkpoint(
+                &mut tx,
+                maintenance
+                    .ok_or_else(|| invalid("maintenance lease missing"))?
+                    .0,
+                &job,
+                proof,
+            )
+            .await?;
         }
         tx.commit().await.map_err(database_error)?;
         Ok((receipts, expected))

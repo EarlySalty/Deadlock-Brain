@@ -496,6 +496,78 @@ impl SnapshotReadPort for LocalPgReader {
     }
 }
 impl LocalPgReader {
+    fn current_maintenance_policies(
+        client: &mut Client,
+        sources: &[String],
+    ) -> Result<
+        std::collections::BTreeMap<String, Option<brain_contracts::source::SourcePolicy>>,
+        PortError,
+    > {
+        if sources.is_empty() {
+            return Ok(Default::default());
+        }
+        let available: bool = client
+            .query_one(
+                "SELECT to_regclass('brain.maintenance_sources_v1') IS NOT NULL",
+                &[],
+            )?
+            .try_get(0)
+            .map_err(error)?;
+        if !available {
+            return Ok(Default::default());
+        }
+        let rows=client.query("SELECT registration_json FROM brain.maintenance_sources_v1 WHERE registration_json->>'source_id'=ANY($1)",&[&sources])?;
+        let mut policies = std::collections::BTreeMap::new();
+        for row in rows {
+            let value: serde_json::Value = row.try_get(0).map_err(error)?;
+            let registration: brain_contracts::maintenance::MaintenanceSourceRegistration =
+                serde_json::from_value(value).map_err(|_| invalid("maintenance registry JSON"))?;
+            registration.validate()?;
+            if policies
+                .insert(registration.source_id, registration.policy)
+                .is_some()
+            {
+                return Err(invalid("duplicate maintenance source identity"));
+            }
+        }
+        Ok(policies)
+    }
+
+    fn restrict_maintenance_head(
+        head: &mut brain_contracts::DocumentHead,
+        policies: &std::collections::BTreeMap<
+            String,
+            Option<brain_contracts::source::SourcePolicy>,
+        >,
+    ) -> Result<(), PortError> {
+        if !head.source_id.starts_with("maintenance-docs:") {
+            return Ok(());
+        }
+        use brain_contracts::source::{OriginArtifact, Versioned, ORIGIN_METADATA_KEY};
+        let encoded = head
+            .metadata
+            .get(ORIGIN_METADATA_KEY)
+            .ok_or_else(|| invalid("maintenance origin missing"))?;
+        let mut versioned: Versioned<OriginArtifact> =
+            serde_json::from_str(encoded).map_err(|_| invalid("maintenance origin JSON"))?;
+        if policies.get(&head.source_id).and_then(Option::as_ref) == Some(&versioned.data.policy) {
+            return Ok(());
+        }
+        // Ein widerrufenes Dokument verschwindet vor Retrieval und vor Cacheausgabe.
+        head.visibility = brain_contracts::SourceVisibility::Private;
+        head.allowed_scopes = std::collections::BTreeSet::from(["maintenance.revoked".into()]);
+        head.metadata.insert("egress".into(), "none".into());
+        versioned.data.policy.visibility = head.visibility;
+        versioned.data.policy.allowed_scopes = head.allowed_scopes.clone();
+        versioned.data.policy.provider_egress_allowed = false;
+        versioned.data.policy.publication_allowed = false;
+        head.metadata.insert(
+            ORIGIN_METADATA_KEY.into(),
+            serde_json::to_string(&versioned).map_err(|_| invalid("maintenance denial JSON"))?,
+        );
+        Ok(())
+    }
+
     fn read_heads_bounded(
         &self,
         documents: &[brain_contracts::DocumentRevision],
@@ -516,12 +588,19 @@ impl LocalPgReader {
                 "SELECT jsonb_build_object('source_id',h.source_id,'logical_id',h.logical_id,'revision',h.revision,'visibility',h.record_json->'visibility','allowed_scopes',h.record_json->'allowed_scopes','tombstone',h.record_json->'tombstone','metadata',h.record_json->'metadata') FROM jsonb_to_recordset($1::jsonb) AS k(source_id text, logical_id text) JOIN brain.source_record_heads h ON h.source_id=k.source_id AND h.logical_id=k.logical_id ORDER BY h.source_id,h.logical_id",
                 &[&keys],
             )?;
+        let sources: Vec<_> = documents
+            .iter()
+            .filter(|d| d.source_id.starts_with("maintenance-docs:"))
+            .map(|d| d.source_id.clone())
+            .collect();
+        let policies = Self::current_maintenance_policies(&mut client, &sources)?;
         rows.iter()
             .map(|row| {
-                let head: brain_contracts::DocumentHead =
+                let mut head: brain_contracts::DocumentHead =
                     serde_json::from_value(row.try_get(0).map_err(error)?)
                         .map_err(|_| invalid("invalid current head JSON"))?;
                 head.validate()?;
+                Self::restrict_maintenance_head(&mut head, &policies)?;
                 Ok(head)
             })
             .collect()
@@ -563,6 +642,20 @@ impl LocalPgReader {
                 serde_json::from_value(row.try_get(1).map_err(error)?)
                     .map_err(|_| invalid("invalid head JSON"))?,
             );
+        }
+        let sources: Vec<_> = release
+            .source_revisions
+            .keys()
+            .filter(|s| s.starts_with("maintenance-docs:"))
+            .cloned()
+            .collect();
+        let policies = Self::current_maintenance_policies(&mut tx, &sources)?;
+        for head in &mut heads {
+            let mut projected = brain_contracts::DocumentHead::from(&*head);
+            Self::restrict_maintenance_head(&mut projected, &policies)?;
+            head.visibility = projected.visibility;
+            head.allowed_scopes = projected.allowed_scopes;
+            head.metadata = projected.metadata;
         }
         if revisions.len()
             != release

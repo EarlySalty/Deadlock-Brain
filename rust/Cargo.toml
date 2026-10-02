@@ -9,6 +9,7 @@ members = [
   "crates/brain-feeds",
   "crates/brain-providers",
   "crates/brain-jev",
+  "crates/brain-maintenance",
   "crates/brain-kernel",
   "crates/brain-api",
   "crates/brain-serve",

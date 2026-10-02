@@ -9,6 +9,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) const CHUNKER_VERSION: &str = "utf8-window-v1-1024-overlap192";
+const HTML_CHUNKER_VERSION: &str = "html-semantic-v1+utf8-window-v1-1024-overlap192";
 const TARGET_BYTES: usize = 1024;
 const OVERLAP_BYTES: usize = 192;
 const K1: f64 = 1.2;
@@ -27,6 +28,7 @@ pub(crate) struct IndexedChunk {
 pub(crate) struct ChunkIndex {
     pub release: CorpusRelease,
     pub records: Vec<SourceRecordV2>,
+    texts: Vec<String>,
     pub chunks: Vec<IndexedChunk>,
     pub by_id: BTreeMap<String, usize>,
     pub by_document: BTreeMap<(String, String, u64), Vec<usize>>,
@@ -114,6 +116,28 @@ impl ChunkIndex {
         }
         let mut index = Self {
             release,
+            texts: records
+                .iter()
+                .map(|record| {
+                    if record.metadata.get("content_format").map(String::as_str) != Some("html") {
+                        return Ok(record.content.clone());
+                    }
+                    let projection = crate::html_projection::project_html(&record.content)?;
+                    if record
+                        .metadata
+                        .get("html_projection_version")
+                        .map(String::as_str)
+                        != Some(crate::html_projection::HTML_PROJECTION_VERSION)
+                        || record.metadata.get("html_raw_sha256") != Some(&projection.raw_sha256)
+                        || record.content_hash != projection.raw_sha256
+                        || record.metadata.get("html_semantic_sha256")
+                            != Some(&projection.semantic_sha256)
+                    {
+                        return Err(PortError::InvalidResponse("html_projection_binding".into()));
+                    }
+                    Ok(projection.text)
+                })
+                .collect::<Result<Vec<_>, PortError>>()?,
             records,
             chunks: Vec::new(),
             by_id: BTreeMap::new(),
@@ -143,7 +167,14 @@ impl ChunkIndex {
                     record.metadata.get("kind").map(String::as_str),
                     Some("fact" | "rule")
                 );
-            for (ordinal, (start, end)) in ranges(&record.content, atomic).into_iter().enumerate() {
+            let text = &index.texts[document];
+            let chunker_version =
+                if record.metadata.get("content_format").map(String::as_str) == Some("html") {
+                    HTML_CHUNKER_VERSION
+                } else {
+                    CHUNKER_VERSION
+                };
+            for (ordinal, (start, end)) in ranges(text, atomic).into_iter().enumerate() {
                 if index.chunks.len() >= 500_000 {
                     return Err(PortError::BudgetExceeded);
                 }
@@ -153,14 +184,14 @@ impl ChunkIndex {
                     &record.logical_id,
                     record.revision,
                     &record.content_hash,
-                    CHUNKER_VERSION,
+                    chunker_version,
                     start,
                     end,
                 ))
                 .expect("identity serializes");
                 let id = format!("ev-{:x}", Sha256::digest(identity));
                 let chunk_id = index.chunks.len();
-                let text = &record.content[start..end];
+                let text = &text[start..end];
                 let mut words = terms(text);
                 words.extend(
                     terms(&record.logical_id)
@@ -316,13 +347,30 @@ impl ChunkIndex {
     pub fn evidence(&self, chunk: usize, effective: &DocumentHead, score: f64) -> Evidence {
         let entry = &self.chunks[chunk];
         let original = &self.records[entry.document];
-        let locator = original
+        let public_maintenance = original.source_id.starts_with("maintenance-docs:")
+            && effective.visibility == brain_contracts::SourceVisibility::Public;
+        let locator = if public_maintenance {
+            original.logical_id.clone()
+        } else {
+            original
+                .metadata
+                .get("locator")
+                .or_else(|| original.metadata.get("path"))
+                .or_else(|| original.metadata.get("relative_path"))
+                .cloned()
+                .unwrap_or_else(|| original.logical_id.clone())
+        };
+        let public_metadata = original
             .metadata
-            .get("locator")
-            .or_else(|| original.metadata.get("path"))
-            .or_else(|| original.metadata.get("relative_path"))
-            .cloned()
-            .unwrap_or_else(|| original.logical_id.clone());
+            .iter()
+            .filter(|(key, _)| {
+                matches!(
+                    key.as_str(),
+                    "content_format" | "language" | "kind" | "patch" | "mode"
+                )
+            })
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
         Evidence {
             evidence_id: entry.id.clone(),
             source_id: original.source_id.clone(),
@@ -336,7 +384,7 @@ impl ChunkIndex {
                 Some("replay") => EvidenceKind::Replay,
                 _ => EvidenceKind::Prose,
             },
-            content: original.content[entry.start..entry.end].into(),
+            content: self.texts[entry.document][entry.start..entry.end].into(),
             citation: format!(
                 "brain:{}@{}#bytes={}-{}",
                 entry.id, original.revision, entry.start, entry.end
@@ -350,7 +398,14 @@ impl ChunkIndex {
             },
             provenance: Some(ChunkProvenance {
                 document: self.document(chunk),
-                chunker_version: CHUNKER_VERSION.into(),
+                chunker_version: if original.metadata.get("content_format").map(String::as_str)
+                    == Some("html")
+                {
+                    HTML_CHUNKER_VERSION
+                } else {
+                    CHUNKER_VERSION
+                }
+                .into(),
                 ordinal: entry.ordinal,
                 byte_start: entry.start,
                 byte_end: entry.end,
@@ -359,7 +414,11 @@ impl ChunkIndex {
                 knowledge_version: self.release.knowledge_version.clone(),
                 valid_from: original.valid_from.clone(),
                 valid_to: original.valid_to.clone(),
-                metadata: original.metadata.clone(),
+                metadata: if public_maintenance {
+                    public_metadata
+                } else {
+                    original.metadata.clone()
+                },
             }),
         }
     }

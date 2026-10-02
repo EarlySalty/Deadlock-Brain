@@ -15,6 +15,8 @@ GRANT SELECT ON brain.core_schema_version, brain.corpus_releases_v1,
 GRANT INSERT ON brain.source_record_revisions, brain.corpus_releases_v1 TO brain_ingest;
 GRANT INSERT, UPDATE ON brain.source_record_heads, brain.source_jobs_v1,
     brain.source_checkpoints_v1 TO brain_ingest;
+GRANT SELECT, INSERT, UPDATE ON brain.maintenance_jobs_v1,
+    brain.maintenance_sources_v1 TO brain_ingest;
 
 GRANT SELECT ON brain.core_schema_version, brain.corpus_releases_v1,
     brain.source_record_revisions, brain.source_record_heads,

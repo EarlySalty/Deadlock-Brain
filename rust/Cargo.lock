@@ -358,9 +358,11 @@ dependencies = [
 name = "brain-jev"
 version = "0.1.0"
 dependencies = [
+ "reqwest",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
+ "tokio",
 ]
 
 [[package]]
@@ -395,6 +397,34 @@ dependencies = [
  "sqlx",
  "tempfile",
  "thiserror 1.0.69",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
+name = "brain-maintenance"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "brain-contracts",
+ "brain-ingestion",
+ "brain-jev",
+ "brain-serve",
+ "brain-storage",
+ "chrono",
+ "clap",
+ "dbrain-retrieval",
+ "dbrain-sources",
+ "dl-token-secrets",
+ "hex",
+ "nix",
+ "reqwest",
+ "scraper",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tempfile",
  "tokio",
  "zeroize",
 ]
@@ -856,6 +886,7 @@ dependencies = [
  "dbrain-reasoner",
  "deadlock-brain-core",
  "regex",
+ "scraper",
  "serde",
  "serde_json",
  "sha2 0.10.9",

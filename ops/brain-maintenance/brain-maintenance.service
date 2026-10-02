@@ -1,0 +1,16 @@
+[Unit]
+Description=Deadlock-Brain-Dokumentation prüfen und freigegebene Fassungen übernehmen
+
+[Service]
+Type=oneshot
+LoadCredential=infisical-token:%h/.config/infisical-tokens/infisical-token-bots
+ExecStart=/bin/bash -c 'exec 5<"%d/infisical-token"; exec /opt/deadlock-brain/maintenance-current/brain-maintain --config /etc/deadlock-brain/maintenance-runtime.json --infisical-config /etc/deadlock-brain/infisical.json tick'
+TimeoutStartSec=40min
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=true
+# Mount-Sandboxing bei User-Units verändert die für Infisical geprüfte Host-Identität.
+PrivateUsers=false
+PrivateTmp=false
+ProtectSystem=false
+ProtectProc=default

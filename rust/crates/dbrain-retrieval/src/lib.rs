@@ -26,6 +26,7 @@ mod chunk_index;
 mod contract_port;
 mod domain_port;
 mod game_wiki;
+pub mod html_projection;
 mod hybrid_port;
 mod release_port;
 

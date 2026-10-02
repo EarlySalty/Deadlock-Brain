@@ -113,7 +113,15 @@ pub(crate) fn router(health: Arc<Health>) -> Router {
             "/readyz",
             get(|State(health): State<Arc<Health>>| async move {
                 if health.ready().await {
-                    status(StatusCode::OK, r#"{"status":"ready"}"#)
+                    (
+                        StatusCode::OK,
+                        [(header::CACHE_CONTROL, "no-store")],
+                        axum::Json(serde_json::json!({
+                            "status":"ready", "release_id":health.release.release_id,
+                            "knowledge_version":health.release.knowledge_version
+                        })),
+                    )
+                        .into_response()
                 } else {
                     unavailable()
                 }

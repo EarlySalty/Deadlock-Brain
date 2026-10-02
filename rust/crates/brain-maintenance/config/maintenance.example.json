@@ -1,0 +1,509 @@
+{
+  "repo_roots": [
+    "/home/nathanael/repos"
+  ],
+  "repositories": [
+    {
+      "id": "Deadlock-Bots",
+      "source_paths": [
+        "rust"
+      ],
+      "doc_targets": [
+        "internal/deadlock-bots/voice-features-devs.html"
+      ],
+      "path": "/home/nathanael/repos/Deadlock-Bots",
+      "origin": "git@github.com:EarlySalty/Deadlock-Bots.git",
+      "source_ref": "refs/remotes/origin/main",
+      "code_only_export_approved": true,
+      "deployed_sha_file": null,
+      "policy": {
+        "visibility": "internal",
+        "allowed_scopes": [
+          "internal_docs"
+        ],
+        "authorization_ref": {
+          "status": "known",
+          "value": "workspace-code-docs-export-approved-2026-10-02"
+        },
+        "license": {
+          "status": "unknown",
+          "reason": "not_present"
+        },
+        "publication_allowed": false,
+        "provider_egress_allowed": true,
+        "raw_retention_allowed": false
+      },
+      "evidence_paths": [
+        "rust/crates/dl-voice/src"
+      ],
+      "document_policy": {
+        "visibility": "internal",
+        "allowed_scopes": [
+          "internal_docs"
+        ],
+        "authorization_ref": {
+          "status": "known",
+          "value": "workspace-code-docs-export-approved-2026-10-02"
+        },
+        "license": {
+          "status": "unknown",
+          "reason": "not_present"
+        },
+        "publication_allowed": false,
+        "provider_egress_allowed": true,
+        "raw_retention_allowed": false
+      },
+      "output_paths": {}
+    },
+    {
+      "id": "Deadlock-Twitch-Bot",
+      "source_paths": [
+        "rust"
+      ],
+      "doc_targets": [
+        "internal/deadlock-twitch-bot/knowledge-faq.html"
+      ],
+      "path": "/home/nathanael/repos/Deadlock-Twitch-Bot",
+      "origin": "git@github.com:EarlySalty/Deadlock-Twitch-Bot.git",
+      "source_ref": "refs/remotes/origin/main",
+      "code_only_export_approved": true,
+      "deployed_sha_file": null,
+      "policy": {
+        "visibility": "internal",
+        "allowed_scopes": [
+          "internal_docs"
+        ],
+        "authorization_ref": {
+          "status": "known",
+          "value": "workspace-code-docs-export-approved-2026-10-02"
+        },
+        "license": {
+          "status": "unknown",
+          "reason": "not_present"
+        },
+        "publication_allowed": false,
+        "provider_egress_allowed": true,
+        "raw_retention_allowed": false
+      },
+      "evidence_paths": [
+        "rust/crates/tb-chat/src"
+      ],
+      "document_policy": {
+        "visibility": "internal",
+        "allowed_scopes": [
+          "internal_docs"
+        ],
+        "authorization_ref": {
+          "status": "known",
+          "value": "workspace-code-docs-export-approved-2026-10-02"
+        },
+        "license": {
+          "status": "unknown",
+          "reason": "not_present"
+        },
+        "publication_allowed": false,
+        "provider_egress_allowed": true,
+        "raw_retention_allowed": false
+      },
+      "output_paths": {}
+    },
+    {
+      "id": "Deadlock-Steam-Bot",
+      "source_paths": [
+        "rust"
+      ],
+      "doc_targets": [
+        "internal/deadlock-steam-bot/architektur.html"
+      ],
+      "path": "/home/nathanael/repos/Deadlock-Steam-Bot",
+      "origin": "git@github.com:EarlySalty/Deadlock-Steam-Bot.git",
+      "source_ref": "refs/remotes/origin/main",
+      "code_only_export_approved": true,
+      "deployed_sha_file": null,
+      "policy": {
+        "visibility": "internal",
+        "allowed_scopes": [
+          "internal_docs"
+        ],
+        "authorization_ref": {
+          "status": "known",
+          "value": "workspace-code-docs-export-approved-2026-10-02"
+        },
+        "license": {
+          "status": "unknown",
+          "reason": "not_present"
+        },
+        "publication_allowed": false,
+        "provider_egress_allowed": true,
+        "raw_retention_allowed": false
+      },
+      "evidence_paths": [
+        "rust/crates/steam-domain/src"
+      ],
+      "document_policy": {
+        "visibility": "internal",
+        "allowed_scopes": [
+          "internal_docs"
+        ],
+        "authorization_ref": {
+          "status": "known",
+          "value": "workspace-code-docs-export-approved-2026-10-02"
+        },
+        "license": {
+          "status": "unknown",
+          "reason": "not_present"
+        },
+        "publication_allowed": false,
+        "provider_egress_allowed": true,
+        "raw_retention_allowed": false
+      },
+      "output_paths": {}
+    },
+    {
+      "id": "Deadlock-Turniere",
+      "source_paths": [
+        "rust"
+      ],
+      "doc_targets": [
+        "internal/deadlock-turniere/draft-lobbys.html"
+      ],
+      "path": "/home/nathanael/repos/Deadlock-Turniere",
+      "origin": "git@github.com:EarlySalty/Deadlock-Turniere.git",
+      "source_ref": "refs/remotes/origin/main",
+      "code_only_export_approved": true,
+      "deployed_sha_file": null,
+      "policy": {
+        "visibility": "internal",
+        "allowed_scopes": [
+          "internal_docs"
+        ],
+        "authorization_ref": {
+          "status": "known",
+          "value": "workspace-code-docs-export-approved-2026-10-02"
+        },
+        "license": {
+          "status": "unknown",
+          "reason": "not_present"
+        },
+        "publication_allowed": false,
+        "provider_egress_allowed": true,
+        "raw_retention_allowed": false
+      },
+      "evidence_paths": [
+        "rust/crates/turnier-draft/src"
+      ],
+      "document_policy": {
+        "visibility": "internal",
+        "allowed_scopes": [
+          "internal_docs"
+        ],
+        "authorization_ref": {
+          "status": "known",
+          "value": "workspace-code-docs-export-approved-2026-10-02"
+        },
+        "license": {
+          "status": "unknown",
+          "reason": "not_present"
+        },
+        "publication_allowed": false,
+        "provider_egress_allowed": true,
+        "raw_retention_allowed": false
+      },
+      "output_paths": {}
+    },
+    {
+      "id": "Deadlock--Patchnotes-Bot",
+      "source_paths": [
+        "rust"
+      ],
+      "doc_targets": [
+        "internal/patchnotes-bot/architektur.html"
+      ],
+      "path": "/home/nathanael/repos/Deadlock--Patchnotes-Bot",
+      "origin": "git@github.com:EarlySalty/Deadlock--Patchnotes-Bot.git",
+      "source_ref": "refs/remotes/origin/main",
+      "code_only_export_approved": true,
+      "deployed_sha_file": null,
+      "policy": {
+        "visibility": "internal",
+        "allowed_scopes": [
+          "internal_docs"
+        ],
+        "authorization_ref": {
+          "status": "known",
+          "value": "workspace-code-docs-export-approved-2026-10-02"
+        },
+        "license": {
+          "status": "unknown",
+          "reason": "not_present"
+        },
+        "publication_allowed": false,
+        "provider_egress_allowed": true,
+        "raw_retention_allowed": false
+      },
+      "evidence_paths": [
+        "rust/dev-tracker/src"
+      ],
+      "document_policy": {
+        "visibility": "internal",
+        "allowed_scopes": [
+          "internal_docs"
+        ],
+        "authorization_ref": {
+          "status": "known",
+          "value": "workspace-code-docs-export-approved-2026-10-02"
+        },
+        "license": {
+          "status": "unknown",
+          "reason": "not_present"
+        },
+        "publication_allowed": false,
+        "provider_egress_allowed": true,
+        "raw_retention_allowed": false
+      },
+      "output_paths": {}
+    },
+    {
+      "id": "Website",
+      "source_paths": [
+        "builds/backend-rust/src",
+        "src"
+      ],
+      "doc_targets": [
+        "internal/website/architektur.html"
+      ],
+      "path": "/home/nathanael/repos/Website",
+      "origin": "git@github.com:EarlySalty/Website.git",
+      "source_ref": "refs/remotes/origin/main",
+      "code_only_export_approved": true,
+      "deployed_sha_file": null,
+      "policy": {
+        "visibility": "internal",
+        "allowed_scopes": [
+          "internal_docs"
+        ],
+        "authorization_ref": {
+          "status": "known",
+          "value": "workspace-code-docs-export-approved-2026-10-02"
+        },
+        "license": {
+          "status": "unknown",
+          "reason": "not_present"
+        },
+        "publication_allowed": false,
+        "provider_egress_allowed": true,
+        "raw_retention_allowed": false
+      },
+      "evidence_paths": [
+        "builds/backend-rust/src"
+      ],
+      "document_policy": {
+        "visibility": "internal",
+        "allowed_scopes": [
+          "internal_docs"
+        ],
+        "authorization_ref": {
+          "status": "known",
+          "value": "workspace-code-docs-export-approved-2026-10-02"
+        },
+        "license": {
+          "status": "unknown",
+          "reason": "not_present"
+        },
+        "publication_allowed": false,
+        "provider_egress_allowed": true,
+        "raw_retention_allowed": false
+      },
+      "output_paths": {}
+    },
+    {
+      "id": "Deadlock-Brain",
+      "source_paths": [
+        "rust"
+      ],
+      "doc_targets": [
+        "internal/wissensbasis/deadlock-brain-retrieval.md"
+      ],
+      "path": "/home/nathanael/repos/Deadlock-Brain",
+      "origin": "git@github.com:EarlySalty/Deadlock-Brain.git",
+      "source_ref": "refs/remotes/origin/main",
+      "code_only_export_approved": true,
+      "deployed_sha_file": null,
+      "policy": {
+        "visibility": "internal",
+        "allowed_scopes": [
+          "internal_docs"
+        ],
+        "authorization_ref": {
+          "status": "known",
+          "value": "workspace-code-docs-export-approved-2026-10-02"
+        },
+        "license": {
+          "status": "unknown",
+          "reason": "not_present"
+        },
+        "publication_allowed": false,
+        "provider_egress_allowed": true,
+        "raw_retention_allowed": false
+      },
+      "evidence_paths": [
+        "rust/crates/brain-serve/src"
+      ],
+      "document_policy": {
+        "visibility": "internal",
+        "allowed_scopes": [
+          "internal_docs"
+        ],
+        "authorization_ref": {
+          "status": "known",
+          "value": "workspace-code-docs-export-approved-2026-10-02"
+        },
+        "license": {
+          "status": "unknown",
+          "reason": "not_present"
+        },
+        "publication_allowed": false,
+        "provider_egress_allowed": true,
+        "raw_retention_allowed": false
+      },
+      "output_paths": {
+        "internal/wissensbasis/deadlock-brain-retrieval.md": "internal/wissensbasis/deadlock-brain-retrieval.html"
+      }
+    },
+    {
+      "id": "uplink",
+      "source_paths": [
+        "crates"
+      ],
+      "doc_targets": [
+        "internal/deadlock-twitch-bot/uplink.html"
+      ],
+      "path": "/home/nathanael/repos/uplink",
+      "origin": "git@github.com:EarlySalty/uplink.git",
+      "source_ref": "refs/remotes/origin/main",
+      "code_only_export_approved": true,
+      "deployed_sha_file": null,
+      "policy": {
+        "visibility": "internal",
+        "allowed_scopes": [
+          "internal_docs"
+        ],
+        "authorization_ref": {
+          "status": "known",
+          "value": "workspace-code-docs-export-approved-2026-10-02"
+        },
+        "license": {
+          "status": "unknown",
+          "reason": "not_present"
+        },
+        "publication_allowed": false,
+        "provider_egress_allowed": true,
+        "raw_retention_allowed": false
+      },
+      "evidence_paths": [
+        "crates/uplink-core/src",
+        "crates/uplink-media/src"
+      ],
+      "document_policy": {
+        "visibility": "internal",
+        "allowed_scopes": [
+          "internal_docs"
+        ],
+        "authorization_ref": {
+          "status": "known",
+          "value": "workspace-code-docs-export-approved-2026-10-02"
+        },
+        "license": {
+          "status": "unknown",
+          "reason": "not_present"
+        },
+        "publication_allowed": false,
+        "provider_egress_allowed": true,
+        "raw_retention_allowed": false
+      },
+      "output_paths": {}
+    },
+    {
+      "id": "Deadlock-Docs",
+      "source_paths": [
+        "public/twitch-bot/faq-support.html"
+      ],
+      "doc_targets": [
+        "internal/deadlock-docs/freshness.html"
+      ],
+      "path": "/home/nathanael/repos/Deadlock-Docs",
+      "origin": "git@github.com:EarlySalty/Deadlock-Docs.git",
+      "source_ref": "refs/remotes/origin/main",
+      "code_only_export_approved": true,
+      "deployed_sha_file": null,
+      "policy": {
+        "visibility": "internal",
+        "allowed_scopes": [
+          "internal_docs"
+        ],
+        "authorization_ref": {
+          "status": "known",
+          "value": "workspace-code-docs-export-approved-2026-10-02"
+        },
+        "license": {
+          "status": "unknown",
+          "reason": "not_present"
+        },
+        "publication_allowed": false,
+        "provider_egress_allowed": true,
+        "raw_retention_allowed": false
+      },
+      "evidence_paths": [
+        "public/twitch-bot/faq-support.html"
+      ],
+      "document_policy": {
+        "visibility": "internal",
+        "allowed_scopes": [
+          "internal_docs"
+        ],
+        "authorization_ref": {
+          "status": "known",
+          "value": "workspace-code-docs-export-approved-2026-10-02"
+        },
+        "license": {
+          "status": "unknown",
+          "reason": "not_present"
+        },
+        "publication_allowed": false,
+        "provider_egress_allowed": true,
+        "raw_retention_allowed": false
+      },
+      "output_paths": {}
+    }
+  ],
+  "docs_repo": "/home/nathanael/repos/Deadlock-Docs",
+  "docs_origin": "git@github.com:EarlySalty/Deadlock-Docs.git",
+  "docs_ref": "refs/remotes/origin/main",
+  "bounds": {
+    "max_repositories": 128,
+    "max_files": 2048,
+    "max_blob_bytes": 262144,
+    "max_bundle_bytes": 1048576,
+    "max_output_bytes": 262144,
+    "git_timeout_ms": 20000
+  },
+  "codex": {
+    "executable": "/home/nathanael/.local/bin/codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "timeout_ms": 180000
+  },
+  "prompt_version": "brain.docs.v1",
+  "internal_doc_scopes": [
+    "internal_docs"
+  ],
+  "jev": {
+    "endpoint": "https://api.typesafe.ai/v1/systemone",
+    "model": "jev-1.13.0",
+    "timeout_ms": 30000,
+    "max_request_bytes": 1048576,
+    "max_response_bytes": 65536
+  },
+  "new_document_format": "html",
+  "registered_assets": []
+}
