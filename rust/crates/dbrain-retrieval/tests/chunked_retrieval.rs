@@ -75,8 +75,11 @@ fn query(text: &str) -> Query {
 async fn public_maintenance_citations_hide_private_origin_metadata() {
     let mut document = record(
         "public/hilfe.html",
-        "Steam verbinden und öffentliche Hilfe öffnen.",
+        "<html><body><h1>Steam verbinden</h1><p>Öffentliche Hilfe öffnen.</p></body></html>",
     );
+    let projection = dbrain_retrieval::html_projection::project_html(&document.content).unwrap();
+    document.content_hash = projection.raw_sha256.clone();
+    projection.bind_metadata(&mut document.metadata);
     document.source_id = "maintenance-docs:owned-target".into();
     document
         .metadata
@@ -90,11 +93,19 @@ async fn public_maintenance_citations_hide_private_origin_metadata() {
         .retrieve(&query("Steam verbinden"), &context())
         .unwrap();
     assert!(!evidence.is_empty());
+    retriever
+        .validate_evidence(&query("Steam verbinden"), &context(), &evidence, false)
+        .unwrap();
+    retriever
+        .validate_evidence(&query("Steam verbinden"), &context(), &evidence, true)
+        .unwrap();
     for hit in evidence {
         let provenance = hit.provenance.unwrap();
         assert_eq!(provenance.source_locator, "public/hilfe.html");
         assert!(!provenance.metadata.contains_key("private_origin"));
         assert!(!provenance.metadata.contains_key("locator"));
+        assert!(!provenance.metadata.contains_key("html_raw_sha256"));
+        assert!(!provenance.metadata.contains_key("html_semantic_sha256"));
     }
 }
 

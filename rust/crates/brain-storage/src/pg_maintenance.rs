@@ -73,8 +73,7 @@ pub(crate) async fn unactivated_publication_basis(
     checkpoint.validate(&previous, MaintenanceStatus::Publish)?;
     let origin = brain_contracts::source::origin_from_record(&record)
         .map_err(|_| invalid("invalid unactivated maintenance provenance"))?;
-    if previous.policy != spec.policy
-        || origin.policy != spec.policy
+    if origin.policy != previous.policy
         || record.tombstone
         || previous.repo_id != spec.repo_id
         || previous.target_path != spec.target_path
@@ -1964,8 +1963,14 @@ mod tests {
             recovery_spec.id = format!("fixture-recovery-{run}-{revision}");
             recovery_spec.idempotency_key = recovery_spec.id.clone();
             recovery_spec.source_sha = format!("{revision:x}").repeat(40);
+            if revision == 3 {
+                recovery_spec.policy.provider_egress_allowed = false;
+                recovery_spec.policy.authorization_ref =
+                    brain_contracts::value::Observed::known("new-reviewed-local-policy".into());
+            }
             let mut recovery_registry = registry.clone();
             recovery_registry.discovered_sha = recovery_spec.source_sha.clone();
+            recovery_registry.policy = Some(recovery_spec.policy.clone());
             restarted
                 .register_maintenance_source(&recovery_registry)
                 .await
@@ -1978,6 +1983,7 @@ mod tests {
                 sha2::Sha256::digest(recovery_record.content.as_bytes())
             );
             let mut recovery_origin = guarded_origin.clone();
+            recovery_origin.policy = recovery_spec.policy.clone();
             recovery_origin.source_revision = brain_contracts::source::SourceRevision::Git {
                 commit: recovery_spec.source_sha.clone(),
             };
@@ -1985,6 +1991,10 @@ mod tests {
             recovery_origin.bind_record(&mut recovery_record).unwrap();
             let mut recovery_cp = reviewed.clone();
             recovery_cp.artifact_refs.remove("local_review");
+            recovery_cp.artifact_refs.insert(
+                "local_review".into(),
+                format!("fresh-local-review-policy-{revision}"),
+            );
             let review = recovery_cp.review.as_mut().unwrap();
             review.source_sha = recovery_spec.source_sha.clone();
             review.document_sha256 = recovery_record.content_hash.clone();

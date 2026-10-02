@@ -263,6 +263,19 @@ async fn postgres_revocation_after_scan_blocks_actual_provider_dispatch() {
         .register_maintenance_source(&registration)
         .await
         .unwrap();
+    let mut revoked_repo = repo.clone();
+    revoked_repo.code_only_export_approved = false;
+    config.repositories = vec![revoked_repo.clone()];
+    assert!(
+        guarded_provider_dispatch(&store, &config, &revoked_repo, &scan, &spec, || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        })
+        .await
+        .is_err()
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    config.repositories = vec![repo.clone()];
     config.registered_assets.clear();
     assert!(
         guarded_provider_dispatch(&store, &config, &repo, &scan, &spec, || async {
@@ -402,6 +415,63 @@ async fn document_export_is_guarded_before_any_provider_call() {
     assert_eq!(
         error.to_string(),
         "Dokumentinventar weicht von der Registrierung ab"
+    );
+}
+
+#[tokio::test]
+async fn export_approval_revocation_blocks_cached_review_and_feedback_before_call() {
+    use std::os::unix::fs::PermissionsExt;
+    let (dir, mut config, mut repo) = fixture();
+    let scan = scanner::scan(&config, &repo, None).await.unwrap();
+    let mut old = verified_for(&config, &scan, "internal/system.html");
+    old.review.approved = false;
+    let draft = author::DraftDocument {
+        proposal: old.proposal.clone(),
+        export_binding: old.export_binding.clone(),
+        proof: author::CodexRunProof {
+            run_id: old.author_run_id.clone(),
+            model: config.codex.model.clone(),
+            reasoning_effort: config.codex.reasoning_effort.clone(),
+            exit_code: 0,
+            event_types: vec![],
+            tool_events: 0,
+            input_tokens: None,
+            output_tokens: None,
+        },
+    };
+    let calls = dir.path().join("revoked-provider-calls");
+    let executable = dir.path().join("revoked-provider");
+    fs::write(
+        &executable,
+        format!("#!/bin/sh\nprintf 'x' >> '{}'\nexit 9\n", calls.display()),
+    )
+    .unwrap();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+    config.codex.executable = executable;
+    repo.code_only_export_approved = false;
+    config.repositories = vec![repo.clone()];
+    assert!(author::review_draft(&config, &repo, &scan, draft)
+        .await
+        .is_err());
+    assert!(author::propose_with_feedback(
+        &config,
+        &repo,
+        &scan,
+        "internal/system.html",
+        Some(&old)
+    )
+    .await
+    .is_err());
+    assert!(
+        author::propose(&config, &repo, &scan, "internal/system.html")
+            .await
+            .is_err()
+    );
+    assert!(!calls.exists());
+    assert!(
+        author::validate_provider_input(&config, &repo, &scan, "internal/system.html")
+            .await
+            .is_err()
     );
 }
 

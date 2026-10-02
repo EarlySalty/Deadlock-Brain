@@ -403,6 +403,7 @@ pub fn export_binding(
     Ok(digest(&serde_json::to_vec(&json!({
         "evidence":digest(&serde_json::to_vec(scan)?),
         "source_policy":repo.policy,
+        "code_only_export_approved":repo.code_only_export_approved,
         "target_policy":repo.document_policy_for(target),
         "canonical_origin":config.canonical_documents.get(target).map(|document| &document.origin),
         "migration_authorized":repo.code_only_migration_targets.contains(target),
@@ -416,6 +417,10 @@ pub fn validate_draft(
     scan: &ScanResult,
     draft: &DraftDocument,
 ) -> Result<()> {
+    ensure!(
+        repo.code_only_export_approved && repo.policy.provider_egress_allowed,
+        "Quellenexport nicht freigegeben"
+    );
     ensure!(
         draft.export_binding.as_deref()
             == Some(export_binding(config, repo, scan, &draft.proposal.target)?.as_str())
@@ -710,6 +715,10 @@ pub async fn validate_provider_input(
 ) -> Result<()> {
     config.validate()?;
     crate::config::require_registered(config, repo)?;
+    ensure!(
+        repo.code_only_export_approved && repo.policy.provider_egress_allowed,
+        "Quellenexport nicht freigegeben"
+    );
     let registered = config
         .repositories
         .iter()
