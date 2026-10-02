@@ -25,6 +25,12 @@ enum Task {
     Migrate,
     ImportReviewed,
     RegisterConfig,
+    WriteServeConfig {
+        #[arg(long)]
+        input: PathBuf,
+        #[arg(long)]
+        expected_sha256: String,
+    },
     ProjectHtml {
         #[arg(long)]
         input: PathBuf,
@@ -68,6 +74,19 @@ async fn run() -> Result<()> {
             "infisical_config_mismatch"
         );
     }
+    if let Task::WriteServeConfig {
+        input,
+        expected_sha256,
+    } = &cli.command
+    {
+        let result = brain_maintenance::integration::config_writer::write_serve_config(
+            &runtime,
+            input,
+            expected_sha256,
+        )?;
+        println!("{}", serde_json::to_string(&result)?);
+        return Ok(());
+    }
     let runner = Runner::open(runtime).await?;
     let result = match cli.command {
         Task::Tick => runner.tick().await?,
@@ -80,6 +99,7 @@ async fn run() -> Result<()> {
         }
         Task::Query { text } => runner.query(&text).await?,
         Task::ProjectHtml { .. } => unreachable!(),
+        Task::WriteServeConfig { .. } => unreachable!(),
     };
     println!("{}", serde_json::to_string_pretty(&result)?);
     Ok(())

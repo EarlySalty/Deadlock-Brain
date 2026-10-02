@@ -86,6 +86,41 @@ use super::*;
 use brain_contracts::CorpusRelease;
 use std::os::unix::fs::PermissionsExt;
 
+#[test]
+fn local_operator_reloads_internal_scopes_without_provider_egress() {
+    let (dir, mut config, _repo) = fixture();
+    let path = dir.path().join("maintenance.json");
+    config.internal_doc_scopes = BTreeSet::from(["ops_docs".into()]);
+    fs::write(&path, serde_json::to_vec(&config).unwrap()).unwrap();
+    let record = brain_contracts::SourceRecordV2 {
+        source_id: "own-test".into(),
+        logical_id: "internal/test".into(),
+        revision: 1,
+        content_hash: digest(b"Beleg"),
+        content: "Beleg".into(),
+        visibility: SourceVisibility::Internal,
+        allowed_scopes: BTreeSet::from(["ops_docs".into()]),
+        tombstone: false,
+        valid_from: None,
+        valid_to: None,
+        metadata: BTreeMap::new(),
+    };
+    let first = local_operator_principal(1000, &path).unwrap();
+    assert!(brain_contracts::store::record_allowed(
+        &record, &first, false
+    ));
+    assert!(!brain_contracts::store::record_allowed(
+        &record, &first, true
+    ));
+    config.internal_doc_scopes = BTreeSet::from(["internal_docs".into()]);
+    fs::write(&path, serde_json::to_vec(&config).unwrap()).unwrap();
+    let second = local_operator_principal(1000, &path).unwrap();
+    assert!(!brain_contracts::store::record_allowed(
+        &record, &second, false
+    ));
+    assert!(second.provider_egress.is_empty());
+}
+
 async fn setup() -> (
     tempfile::TempDir,
     Runner,
@@ -136,6 +171,7 @@ async fn setup() -> (
     serve["release"] = json!({"id":release_id,"knowledge_version":"runner-test"});
     let serve_path = dir.path().join("serve.json");
     fs::write(&serve_path, serde_json::to_vec(&serve).unwrap()).unwrap();
+    fs::set_permissions(&serve_path, fs::Permissions::from_mode(0o600)).unwrap();
     let mut runtime: serde_json::Value = serde_json::from_str(include_str!(
         "../../../../../ops/brain-maintenance/runtime.example.json"
     ))

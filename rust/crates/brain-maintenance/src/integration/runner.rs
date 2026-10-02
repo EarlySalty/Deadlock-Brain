@@ -1,6 +1,7 @@
 use super::{
     activation::ActivationPlan,
     artifacts::Artifacts,
+    config_writer::ConfigWriter,
     runtime_config::{read_bounded, RuntimeConfig},
     scan_checkpoint::ScanCheckpoint,
 };
@@ -27,6 +28,27 @@ use zeroize::Zeroizing;
 #[cfg(test)]
 #[path = "runner_tests.rs"]
 mod tests;
+
+pub fn require_operator_config(config_path: &Path) -> Result<u32> {
+    use std::os::unix::fs::MetadataExt;
+    let uid = nix::unistd::geteuid().as_raw();
+    let metadata = std::fs::symlink_metadata(config_path)?;
+    ensure!(
+        uid == 1000 && (metadata.uid() == uid || metadata.uid() == 0),
+        "operator_identity_required"
+    );
+    Ok(uid)
+}
+
+fn local_operator_principal(uid: u32, config_path: &Path) -> Result<brain_contracts::Principal> {
+    let config = load_maintenance(config_path)?;
+    Ok(brain_contracts::Principal {
+        actor_id: format!("unix:{uid}"),
+        channel: "local-operator".into(),
+        scopes: config.internal_doc_scopes,
+        provider_egress: Default::default(),
+    })
+}
 
 pub fn load_maintenance(path: &Path) -> Result<MaintenanceConfig> {
     let mut config: MaintenanceConfig = serde_json::from_slice(&read_bounded(path, 256 * 1024)?)
@@ -279,14 +301,7 @@ impl Runner {
     }
 
     fn require_operator(&self) -> Result<u32> {
-        use std::os::unix::fs::MetadataExt;
-        let uid = nix::unistd::geteuid().as_raw();
-        let metadata = std::fs::symlink_metadata(&self.runtime.maintenance_config)?;
-        ensure!(
-            uid == 1000 && (metadata.uid() == uid || metadata.uid() == 0),
-            "operator_identity_required"
-        );
-        Ok(uid)
+        require_operator_config(&self.runtime.maintenance_config)
     }
 
     pub async fn tick(&self) -> Result<serde_json::Value> {
@@ -1089,6 +1104,7 @@ impl Runner {
         lease: &MaintenanceLease,
     ) -> Result<()> {
         let _lock = self.artifacts.publication_lock()?;
+        let config_writer = ConfigWriter::lock(&self.runtime.serve_config)?;
         crate::config::require_registered(config, repo)?;
         let (fresh_config, _) = self.current_config().await?;
         let config = &fresh_config;
@@ -1197,7 +1213,8 @@ impl Runner {
                     .or_default()
                     .insert(job.spec.target_path.clone(), revision);
             }
-            let plan = ActivationPlan::prepare(&self.runtime, &self.artifacts, &release)?;
+            let plan =
+                ActivationPlan::prepare(&self.runtime, &self.artifacts, &release, &config_writer)?;
             // Aktivierungsjournal wird als normaler, noch unveröffentlichter Checkpoint persistiert.
             let journal = plan.journal_ref().to_owned();
             self.store
@@ -1246,7 +1263,7 @@ impl Runner {
             .context("activation_checkpoint")?;
         let mut plan =
             ActivationPlan::load(&self.runtime, &self.artifacts, reference, &proof.release_id)?;
-        if plan.needs_rebase()? {
+        if plan.needs_rebase(&config_writer)? {
             let serve = brain_serve::Config::load(&self.runtime.serve_config)?;
             let mut release = self.store.snapshot(&serve.release.id).await?.release;
             if release
@@ -1294,7 +1311,8 @@ impl Runner {
                 .entry(proof.source_id.clone())
                 .or_default()
                 .insert(proof.logical_id.clone(), proof.document_revision);
-            plan = ActivationPlan::prepare(&self.runtime, &self.artifacts, &release)?;
+            plan =
+                ActivationPlan::prepare(&self.runtime, &self.artifacts, &release, &config_writer)?;
             if let Err(error) = self
                 .store
                 .rebase_maintenance_publication(lease, &base_id, &release, plan.journal_ref())
@@ -1311,6 +1329,8 @@ impl Runner {
             }
         }
         let activate = plan.clone();
+        let activation_writer = config_writer.clone();
+        let rollback_writer = config_writer.clone();
         let activated = self
             .store
             .activate_maintenance_checked(
@@ -1318,12 +1338,12 @@ impl Runner {
                 self.runtime.health_timeout_ms * 2,
                 |_| async move {
                     activate
-                        .activate()
+                        .activate(&activation_writer)
                         .await
                         .map_err(|_| PortError::Unavailable("activation_failed".into()))
                 },
                 || async move {
-                    plan.rollback()
+                    plan.rollback(&rollback_writer)
                         .await
                         .map_err(|_| PortError::Unavailable("activation_rollback_failed".into()))
                 },
@@ -1456,12 +1476,7 @@ impl Runner {
         ensure!(!text.trim().is_empty() && text.len() <= 2048, "query_size");
         let serve = brain_serve::Config::load(&self.runtime.serve_config)?;
         let snapshot = self.store.snapshot(&serve.release.id).await?;
-        let principal = brain_contracts::Principal {
-            actor_id: format!("unix:{uid}"),
-            channel: "local-operator".into(),
-            scopes: std::collections::BTreeSet::from(["internal_docs".into()]),
-            provider_egress: Default::default(),
-        };
+        let principal = local_operator_principal(uid, &self.runtime.maintenance_config)?;
         let records = snapshot.authorized(&principal, false)?;
         let words: Vec<_> = text
             .to_lowercase()

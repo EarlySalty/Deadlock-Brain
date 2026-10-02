@@ -1,11 +1,12 @@
 use super::{
     artifacts::Artifacts,
+    config_writer::ConfigWriter,
     runtime_config::{read_bounded, RuntimeConfig},
 };
 use anyhow::{ensure, Result};
 use brain_contracts::{maintenance::MaintenanceActivationProof, CorpusRelease};
 use serde::{Deserialize, Serialize};
-use std::{io::Write, path::PathBuf, process::Stdio, time::Duration};
+use std::{path::PathBuf, process::Stdio, time::Duration};
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -32,8 +33,10 @@ impl ActivationPlan {
         config: &RuntimeConfig,
         artifacts: &Artifacts,
         release: &CorpusRelease,
+        writer: &ConfigWriter,
     ) -> Result<Self> {
-        let old_bytes = read_bounded(&config.serve_config, 65536)?;
+        writer.require_path(&config.serve_config)?;
+        let old_bytes = writer.read()?;
         let old_config = brain_serve::Config::parse(&old_bytes)
             .map_err(|_| anyhow::anyhow!("serve_config_invalid"))?;
         let mut value: serde_json::Value = serde_json::from_slice(&old_bytes)
@@ -101,36 +104,10 @@ impl ActivationPlan {
     pub fn journal_ref(&self) -> &str {
         &self.journal_ref
     }
-    pub fn needs_rebase(&self) -> Result<bool> {
-        let current = read_bounded(&self.path, 65536)?;
+    pub fn needs_rebase(&self, writer: &ConfigWriter) -> Result<bool> {
+        writer.require_path(&self.path)?;
+        let current = writer.read()?;
         Ok(current != self.old_bytes && current != self.new_bytes)
-    }
-
-    fn replace(&self, expected: &[u8], replacement: &[u8]) -> Result<()> {
-        ensure!(
-            std::fs::symlink_metadata(&self.path)?.is_file()
-                && std::fs::canonicalize(&self.path)? == self.path,
-            "serve_config_symlink"
-        );
-        let current = read_bounded(&self.path, 65536)?;
-        if current == replacement {
-            return Ok(());
-        }
-        ensure!(current == expected, "serve_config_changed");
-        let parent = self
-            .path
-            .parent()
-            .ok_or_else(|| anyhow::anyhow!("serve_config_parent"))?;
-        let permissions = std::fs::metadata(&self.path)?.permissions();
-        let mut staged = tempfile::NamedTempFile::new_in(parent)?;
-        staged.as_file_mut().write_all(replacement)?;
-        staged.as_file().set_permissions(permissions)?;
-        staged.as_file().sync_all()?;
-        staged
-            .persist(&self.path)
-            .map_err(|_| anyhow::anyhow!("serve_config_replace"))?;
-        std::fs::File::open(parent)?.sync_all()?;
-        Ok(())
     }
 
     async fn restart_and_health(&self, expected: &[u8]) -> Result<()> {
@@ -189,8 +166,9 @@ impl ActivationPlan {
         anyhow::bail!("serve_health_failed")
     }
 
-    pub async fn activate(&self) -> Result<MaintenanceActivationProof> {
-        self.replace(&self.old_bytes, &self.new_bytes)?;
+    pub async fn activate(&self, writer: &ConfigWriter) -> Result<MaintenanceActivationProof> {
+        writer.require_path(&self.path)?;
+        writer.replace(&self.old_bytes, &self.new_bytes)?;
         self.restart_and_health(&self.new_bytes).await?;
         let verified_at_epoch = i64::try_from(
             std::time::SystemTime::now()
@@ -204,8 +182,9 @@ impl ActivationPlan {
         })
     }
 
-    pub async fn rollback(&self) -> Result<()> {
-        self.replace(&self.new_bytes, &self.old_bytes)?;
+    pub async fn rollback(&self, writer: &ConfigWriter) -> Result<()> {
+        writer.require_path(&self.path)?;
+        writer.replace(&self.new_bytes, &self.old_bytes)?;
         self.restart_and_health(&self.old_bytes).await
     }
 }

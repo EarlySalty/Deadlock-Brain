@@ -9,7 +9,7 @@
     "password_env": "BRAIN_PG_INGEST_PASSWORD",
     "max_connections": 2
   },
-  "serve_config": "/etc/deadlock-brain/brain-serve.json",
+  "serve_config": "/home/nathanael/.config/deadlock-brain/brain-serve.json",
   "serve_unit": "brain-serve.service",
   "artifact_dir": "/home/nathanael/.local/state/deadlock-brain/maintenance/artifacts",
   "status_file": "/home/nathanael/.local/state/deadlock-brain/maintenance/status.json",
