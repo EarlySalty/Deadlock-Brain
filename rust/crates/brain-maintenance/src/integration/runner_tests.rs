@@ -325,6 +325,128 @@ async fn stage(
     }
     job
 }
+
+#[tokio::test]
+#[ignore = "Benötigt den ausdrücklich isolierten PostgreSQL-Prüfcluster; exklusiv ausführen"]
+async fn postgres_selected_tick_claims_only_exact_job_and_unknown_id_claims_none() {
+    let (_dir, runner, mut config, repo, scan) = setup().await;
+    let mut selected = job_spec(
+        &config,
+        &repo,
+        "internal/system.html",
+        &scan.source_sha,
+        None,
+        &runner.owner,
+    );
+    selected.id = format!("{}-selected-job", runner.owner);
+    selected.idempotency_key = selected.id.clone();
+    let mut other = selected.clone();
+    other.id = format!("{}-other-job", runner.owner);
+    other.idempotency_key = other.id.clone();
+    runner
+        .store
+        .enqueue_maintenance(&other, MaintenanceStatus::Planned)
+        .await
+        .unwrap();
+    runner
+        .store
+        .enqueue_maintenance(&selected, MaintenanceStatus::Planned)
+        .await
+        .unwrap();
+    config.repositories.clear();
+    fs::write(
+        &runner.runtime.maintenance_config,
+        serde_json::to_vec(&config).unwrap(),
+    )
+    .unwrap();
+    runner.tick_for_job(Some("unknown-job")).await.unwrap();
+    for spec in [&selected, &other] {
+        let job = runner
+            .store
+            .maintenance_job(&spec.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(job.attempts, 0);
+        assert!(job.lease.is_none());
+    }
+    assert_eq!(
+        fs::read_dir(&runner.runtime.artifact_dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".intent"))
+            .count(),
+        0
+    );
+    let claimed = runner
+        .store
+        .claim_maintenance_for_job("selected-worker", 900000, Some(&selected.id))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(claimed.spec.id, selected.id);
+    assert!(runner
+        .store
+        .claim_maintenance_for_job("other-worker", 900000, Some(&selected.id))
+        .await
+        .unwrap()
+        .is_none());
+    let mut fresh = other.clone();
+    fresh.id = format!("{}-newly-enqueued-job", runner.owner);
+    fresh.idempotency_key = fresh.id.clone();
+    runner
+        .store
+        .enqueue_maintenance(&fresh, MaintenanceStatus::Planned)
+        .await
+        .unwrap();
+    assert!(runner
+        .store
+        .claim_maintenance_for_job("other-worker", 900000, Some("unknown-job"))
+        .await
+        .unwrap()
+        .is_none());
+    for spec in [&other, &fresh] {
+        let job = runner
+            .store
+            .maintenance_job(&spec.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(job.attempts, 0);
+        assert!(job.lease.is_none());
+    }
+    runner
+        .store
+        .transition_maintenance(
+            claimed.lease.as_ref().unwrap(),
+            MaintenanceStatus::Failed,
+            &claimed.checkpoint,
+        )
+        .await
+        .unwrap();
+    assert!(runner
+        .store
+        .claim_maintenance_for_job("other-worker", 900000, Some(&selected.id))
+        .await
+        .unwrap()
+        .is_none());
+    let normal = runner
+        .store
+        .claim_maintenance("normal-worker", 900000)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_ne!(normal.spec.id, selected.id);
+    runner
+        .store
+        .transition_maintenance(
+            normal.lease.as_ref().unwrap(),
+            MaintenanceStatus::Failed,
+            &normal.checkpoint,
+        )
+        .await
+        .unwrap();
+}
 fn draft(config: &MaintenanceConfig, scan: &scanner::ScanResult) -> author::DraftDocument {
     let content = scan.documents["internal/system.html"].clone().unwrap();
     author::DraftDocument {

@@ -309,6 +309,10 @@ impl Runner {
     }
 
     pub async fn tick(&self) -> Result<serde_json::Value> {
+        self.tick_for_job(None).await
+    }
+
+    pub async fn tick_for_job(&self, job_id: Option<&str>) -> Result<serde_json::Value> {
         self.store.check_maintenance_schema().await?;
         let config = load_maintenance(&self.runtime.maintenance_config)?;
         let known: std::collections::BTreeSet<_> = config
@@ -455,7 +459,7 @@ impl Runner {
         for _ in 0..self.runtime.max_jobs_per_tick * 5 {
             let Some(mut job) = self
                 .store
-                .claim_maintenance(&self.owner, self.runtime.lease_ttl_ms)
+                .claim_maintenance_for_job(&self.owner, self.runtime.lease_ttl_ms, job_id)
                 .await?
             else {
                 break;

@@ -498,14 +498,27 @@ impl PgStore {
         owner: &str,
         ttl_ms: u64,
     ) -> Result<Option<MaintenanceJob>, PortError> {
+        self.claim_maintenance_for_job(owner, ttl_ms, None).await
+    }
+
+    pub async fn claim_maintenance_for_job(
+        &self,
+        owner: &str,
+        ttl_ms: u64,
+        job_id: Option<&str>,
+    ) -> Result<Option<MaintenanceJob>, PortError> {
         bounded(owner, 512)?;
+        if let Some(id) = job_id {
+            bounded(id, 512)?;
+        }
         let ttl = ttl(ttl_ms)?;
         // Erschöpfte, abgelaufene Jobs bleiben sichtbar als Fehler statt still zu verschwinden.
-        sqlx::query("UPDATE brain.maintenance_jobs_v1 SET status='failed',error_code='ATTEMPTS_EXHAUSTED',owner=NULL,lease_until=NULL,updated_at=now() WHERE attempts>=100 AND status IN ('planned','source_review','author','reviewer','publish') AND (lease_until IS NULL OR lease_until<=clock_timestamp())").execute(&self.pool).await.map_err(database_error)?;
-        let query = "WITH candidate AS (SELECT id FROM brain.maintenance_jobs_v1 WHERE status IN ('planned','source_review','author','reviewer','publish') AND available_at<=clock_timestamp() AND (lease_until IS NULL OR lease_until<=clock_timestamp()) AND attempts<100 AND fence<9223372036854775807 ORDER BY available_at,created_at,id FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE brain.maintenance_jobs_v1 j SET owner=$1,fence=j.fence+1,lease_until=clock_timestamp()+($2::bigint*interval '1 millisecond'),attempts=j.attempts+1,updated_at=now() FROM candidate WHERE j.id=candidate.id RETURNING j.id,j.spec_json,j.status,j.checkpoint_json,j.attempts,j.error_code,j.owner,j.fence,(extract(epoch FROM j.lease_until)*1000)::bigint AS expires,j.superseded_by".to_owned();
+        sqlx::query("UPDATE brain.maintenance_jobs_v1 SET status='failed',error_code='ATTEMPTS_EXHAUSTED',owner=NULL,lease_until=NULL,updated_at=now() WHERE attempts>=100 AND status IN ('planned','source_review','author','reviewer','publish') AND (lease_until IS NULL OR lease_until<=clock_timestamp()) AND ($1::text IS NULL OR id=$1)").bind(job_id).execute(&self.pool).await.map_err(database_error)?;
+        let query = "WITH candidate AS (SELECT id FROM brain.maintenance_jobs_v1 WHERE status IN ('planned','source_review','author','reviewer','publish') AND available_at<=clock_timestamp() AND (lease_until IS NULL OR lease_until<=clock_timestamp()) AND attempts<100 AND fence<9223372036854775807 AND ($3::text IS NULL OR id=$3) ORDER BY available_at,created_at,id FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE brain.maintenance_jobs_v1 j SET owner=$1,fence=j.fence+1,lease_until=clock_timestamp()+($2::bigint*interval '1 millisecond'),attempts=j.attempts+1,updated_at=now() FROM candidate WHERE j.id=candidate.id RETURNING j.id,j.spec_json,j.status,j.checkpoint_json,j.attempts,j.error_code,j.owner,j.fence,(extract(epoch FROM j.lease_until)*1000)::bigint AS expires,j.superseded_by".to_owned();
         sqlx::query(&query)
             .bind(owner)
             .bind(ttl)
+            .bind(job_id)
             .fetch_optional(&self.pool)
             .await
             .map_err(database_error)?

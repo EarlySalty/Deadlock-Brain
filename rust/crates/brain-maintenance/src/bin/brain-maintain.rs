@@ -20,7 +20,10 @@ struct Cli {
 }
 #[derive(Subcommand)]
 enum Task {
-    Tick,
+    Tick {
+        #[arg(long)]
+        job_id: Option<String>,
+    },
     Status,
     Migrate,
     ImportReviewed,
@@ -94,7 +97,7 @@ async fn run() -> Result<()> {
     }
     let runner = Runner::open(runtime).await?;
     let result = match cli.command {
-        Task::Tick => runner.tick().await?,
+        Task::Tick { job_id } => runner.tick_for_job(job_id.as_deref()).await?,
         Task::Status => runner.status().await?,
         Task::ImportReviewed => runner.import_reviewed().await?,
         Task::RegisterConfig => runner.register_config().await?,
