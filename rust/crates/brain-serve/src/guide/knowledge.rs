@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 impl GuideRuntime {
     pub(super) fn sync_snapshot(
         &self,
-        snapshot: ServerSnapshot,
+        mut snapshot: ServerSnapshot,
         deadline: &RequestDeadline,
     ) -> Result<(), PortError> {
         let current = now();
@@ -69,6 +69,19 @@ impl GuideRuntime {
                 return Err(PortError::PermissionDenied(
                     "Rollenquelle ist nicht freigegeben".into(),
                 ));
+            }
+        }
+        // Widerrufene Metadaten und gelöschte Texte bleiben auch im kanonischen
+        // öffentlichen Snapshot nicht als alte Inhalte erhalten.
+        for channel in &mut snapshot.channels {
+            if channel.deleted || !channel.public_readable {
+                channel.name.clear();
+                channel.kind.clear();
+            }
+        }
+        for rule in &mut snapshot.rules {
+            if rule.deleted {
+                rule.text.clear();
             }
         }
         let content = serde_json::to_string(&snapshot)
