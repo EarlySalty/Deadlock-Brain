@@ -4,6 +4,7 @@ mod domain_reader;
 mod local_pg_reader;
 mod memory_repository;
 mod pg_jobs;
+mod pg_maintenance;
 mod pg_release;
 mod schema;
 pub use domain_reader::DomainReader;

@@ -1,0 +1,715 @@
+//! Dauerhafte Pflegejobs im bestehenden PgStore.
+use crate::{pg_jobs::database_error, PgStore};
+use brain_contracts::{maintenance::*, CorpusRelease, PortError};
+use sqlx::{postgres::PgRow, Row};
+
+const MIGRATION: &str =
+    include_str!("../../../../scripts/migrations/2026-10-02-brain-maintenance-v1.sql");
+const ROW: &str = "id,spec_json,status,checkpoint_json,attempts,error_code,owner,fence,(extract(epoch FROM lease_until)*1000)::bigint AS expires,superseded_by";
+fn invalid(message: &str) -> PortError {
+    PortError::InvalidResponse(message.into())
+}
+fn json<T: serde::Serialize>(value: &T) -> Result<serde_json::Value, PortError> {
+    let value = serde_json::to_value(value).map_err(|_| invalid("invalid maintenance payload"))?;
+    if value.to_string().len() > 65536 {
+        return Err(invalid("maintenance payload too large"));
+    }
+    Ok(value)
+}
+fn decode(row: PgRow) -> Result<MaintenanceJob, PortError> {
+    let spec: MaintenanceJobSpec =
+        serde_json::from_value(row.try_get("spec_json").map_err(database_error)?)
+            .map_err(|_| invalid("invalid stored maintenance specification"))?;
+    let status: String = row.try_get("status").map_err(database_error)?;
+    let status: MaintenanceStatus = serde_json::from_value(serde_json::Value::String(status))
+        .map_err(|_| invalid("invalid stored maintenance status"))?;
+    let checkpoint =
+        serde_json::from_value(row.try_get("checkpoint_json").map_err(database_error)?)
+            .map_err(|_| invalid("invalid stored maintenance checkpoint"))?;
+    let owner: Option<String> = row.try_get("owner").map_err(database_error)?;
+    let expires: Option<i64> = row.try_get("expires").map_err(database_error)?;
+    let fence: i64 = row.try_get("fence").map_err(database_error)?;
+    let lease = match (owner, expires) {
+        (Some(owner), Some(expires_at_ms)) if fence > 0 => Some(MaintenanceLease {
+            job_id: spec.id.clone(),
+            owner,
+            fence: fence as u64,
+            expires_at_ms,
+        }),
+        (None, None) => None,
+        _ => return Err(invalid("invalid stored maintenance lease")),
+    };
+    Ok(MaintenanceJob {
+        spec,
+        status,
+        checkpoint,
+        lease,
+        attempts: row.try_get::<i32, _>("attempts").map_err(database_error)? as u32,
+        error_code: row.try_get("error_code").map_err(database_error)?,
+        superseded_by: row.try_get("superseded_by").map_err(database_error)?,
+    })
+}
+fn lease_inputs(lease: &MaintenanceLease) -> Result<i64, PortError> {
+    bounded(&lease.job_id, 512)?;
+    bounded(&lease.owner, 512)?;
+    if lease.fence == 0 || lease.fence > i64::MAX as u64 {
+        return Err(invalid("invalid maintenance fence"));
+    }
+    Ok(lease.fence as i64)
+}
+fn ttl(ttl_ms: u64) -> Result<i64, PortError> {
+    if !(1..=MAX_MAINTENANCE_LEASE_MS).contains(&ttl_ms) {
+        return Err(invalid("invalid maintenance lease duration"));
+    }
+    Ok(ttl_ms as i64)
+}
+impl PgStore {
+    /// Explizite additive Migration durch den Owner bei unveränderter Core-Schemaversion.
+    pub async fn migrate_maintenance(&self) -> Result<(), PortError> {
+        let mut tx = self.pool.begin().await.map_err(database_error)?;
+        sqlx::raw_sql("SET LOCAL lock_timeout='5000ms'; SET LOCAL statement_timeout='60000ms'; SELECT pg_advisory_xact_lock(742110026113::bigint)").execute(&mut *tx).await.map_err(database_error)?;
+        let body = MIGRATION
+            .split_once("BEGIN;")
+            .and_then(|(_, rest)| rest.trim().strip_suffix("COMMIT;"))
+            .ok_or_else(|| invalid("invalid maintenance migration"))?;
+        sqlx::raw_sql(body)
+            .execute(&mut *tx)
+            .await
+            .map_err(database_error)?;
+        tx.commit().await.map_err(database_error)
+    }
+    /// Ausschließlich lesende Schemaprüfung für den Pflegeprozess.
+    pub async fn check_maintenance_schema(&self) -> Result<(), PortError> {
+        sqlx::query("SELECT j.id,j.repo_id,j.idempotency_key,j.spec_json,j.status,j.checkpoint_json,j.attempts,j.error_code,j.owner,j.fence,j.lease_until,j.available_at,j.superseded_by,j.created_at,j.updated_at,s.repo_id,s.registration_json,s.updated_at FROM brain.maintenance_jobs_v1 j,brain.maintenance_sources_v1 s LIMIT 0").fetch_all(&self.pool).await.map_err(database_error)?;
+        Ok(())
+    }
+    pub async fn enqueue_maintenance(
+        &self,
+        spec: &MaintenanceJobSpec,
+        initial: MaintenanceStatus,
+    ) -> Result<MaintenanceJob, PortError> {
+        spec.validate()?;
+        if !matches!(
+            initial,
+            MaintenanceStatus::Planned | MaintenanceStatus::DiscoveredPolicyPending
+        ) {
+            return Err(invalid("invalid initial maintenance status"));
+        }
+        let mut tx = self.pool.begin().await.map_err(database_error)?;
+        sqlx::query("INSERT INTO brain.maintenance_jobs_v1(id,repo_id,idempotency_key,spec_json,status) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING").bind(&spec.id).bind(&spec.repo_id).bind(&spec.idempotency_key).bind(json(spec)?).bind(initial.as_str()).execute(&mut *tx).await.map_err(database_error)?;
+        let query = format!("SELECT {ROW} FROM brain.maintenance_jobs_v1 WHERE id=$1 OR idempotency_key=$2 FOR UPDATE");
+        let mut rows = sqlx::query(&query)
+            .bind(&spec.id)
+            .bind(&spec.idempotency_key)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(database_error)?;
+        if rows.len() != 1 {
+            return Err(invalid("maintenance identity collision"));
+        }
+        let job = decode(rows.remove(0))?;
+        if job.spec != *spec {
+            return Err(invalid("maintenance idempotency payload collision"));
+        }
+        tx.commit().await.map_err(database_error)?;
+        Ok(job)
+    }
+    pub async fn claim_maintenance(
+        &self,
+        owner: &str,
+        ttl_ms: u64,
+    ) -> Result<Option<MaintenanceJob>, PortError> {
+        bounded(owner, 512)?;
+        let ttl = ttl(ttl_ms)?;
+        // Erschöpfte, abgelaufene Jobs bleiben sichtbar als Fehler statt still zu verschwinden.
+        sqlx::query("UPDATE brain.maintenance_jobs_v1 SET status='failed',error_code='ATTEMPTS_EXHAUSTED',owner=NULL,lease_until=NULL,updated_at=now() WHERE attempts>=100 AND status IN ('planned','source_review','author','reviewer','publish') AND (lease_until IS NULL OR lease_until<=clock_timestamp())").execute(&self.pool).await.map_err(database_error)?;
+        let query = "WITH candidate AS (SELECT id FROM brain.maintenance_jobs_v1 WHERE status IN ('planned','source_review','author','reviewer','publish') AND available_at<=clock_timestamp() AND (lease_until IS NULL OR lease_until<=clock_timestamp()) AND attempts<100 AND fence<9223372036854775807 ORDER BY available_at,created_at,id FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE brain.maintenance_jobs_v1 j SET owner=$1,fence=j.fence+1,lease_until=clock_timestamp()+($2::bigint*interval '1 millisecond'),attempts=j.attempts+1,updated_at=now() FROM candidate WHERE j.id=candidate.id RETURNING j.id,j.spec_json,j.status,j.checkpoint_json,j.attempts,j.error_code,j.owner,j.fence,(extract(epoch FROM j.lease_until)*1000)::bigint AS expires,j.superseded_by".to_owned();
+        sqlx::query(&query)
+            .bind(owner)
+            .bind(ttl)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(database_error)?
+            .map(decode)
+            .transpose()
+    }
+    pub async fn renew_maintenance(
+        &self,
+        lease: &MaintenanceLease,
+        ttl_ms: u64,
+    ) -> Result<MaintenanceLease, PortError> {
+        let fence = lease_inputs(lease)?;
+        let ttl = ttl(ttl_ms)?;
+        let expires = sqlx::query_scalar::<_,i64>("UPDATE brain.maintenance_jobs_v1 SET lease_until=clock_timestamp()+($4::bigint*interval '1 millisecond'),updated_at=now() WHERE id=$1 AND owner=$2 AND fence=$3 AND lease_until>clock_timestamp() RETURNING (extract(epoch FROM lease_until)*1000)::bigint").bind(&lease.job_id).bind(&lease.owner).bind(fence).bind(ttl).fetch_optional(&self.pool).await.map_err(database_error)?.ok_or_else(|| invalid("stale maintenance lease"))?;
+        Ok(MaintenanceLease {
+            expires_at_ms: expires,
+            ..lease.clone()
+        })
+    }
+    /// Stufenabschluss gibt die Lease frei; der nächste Worker braucht eine neue Fence.
+    pub async fn transition_maintenance(
+        &self,
+        lease: &MaintenanceLease,
+        next: MaintenanceStatus,
+        checkpoint: &MaintenanceCheckpoint,
+    ) -> Result<MaintenanceJob, PortError> {
+        let fence = lease_inputs(lease)?;
+        let mut tx = self.pool.begin().await.map_err(database_error)?;
+        let query = format!("SELECT {ROW} FROM brain.maintenance_jobs_v1 WHERE id=$1 AND owner=$2 AND fence=$3 AND lease_until>clock_timestamp() FOR UPDATE");
+        let job = decode(
+            sqlx::query(&query)
+                .bind(&lease.job_id)
+                .bind(&lease.owner)
+                .bind(fence)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(database_error)?
+                .ok_or_else(|| invalid("stale maintenance lease"))?,
+        )?;
+        if !job.status.can_transition(next) {
+            return Err(invalid("invalid maintenance transition"));
+        }
+        if job.checkpoint.review.as_ref().is_some_and(|r| r.accepted)
+            && next != MaintenanceStatus::Author
+            && job.checkpoint.review != checkpoint.review
+        {
+            return Err(invalid("accepted maintenance review cannot be replaced"));
+        }
+        checkpoint.validate(&job.spec, next)?;
+        if let Some(proof) = &checkpoint.publication {
+            let row = sqlx::query("SELECT c.release_json,r.content_hash,r.record_json FROM brain.corpus_releases_v1 c JOIN brain.source_record_revisions r ON r.source_id=$2 AND r.logical_id=$3 AND r.revision=$4 WHERE c.release_id=$1").bind(&proof.release_id).bind(&proof.source_id).bind(&proof.logical_id).bind(proof.document_revision as i64).fetch_optional(&mut *tx).await.map_err(database_error)?.ok_or_else(|| invalid("publication proof absent from corpus"))?;
+            let release: CorpusRelease =
+                serde_json::from_value(row.try_get("release_json").map_err(database_error)?)
+                    .map_err(|_| invalid("invalid stored release"))?;
+            let record: brain_contracts::SourceRecordV2 =
+                serde_json::from_value(row.try_get("record_json").map_err(database_error)?)
+                    .map_err(|_| invalid("invalid published maintenance record"))?;
+            if record.tombstone
+                || record.visibility != job.spec.policy.visibility
+                || record.allowed_scopes != job.spec.policy.allowed_scopes
+            {
+                return Err(invalid(
+                    "maintenance publication changed source access policy",
+                ));
+            }
+            if release
+                .source_revisions
+                .get(&proof.source_id)
+                .and_then(|pins| pins.get(&proof.logical_id))
+                != Some(&proof.document_revision)
+                || row
+                    .try_get::<String, _>("content_hash")
+                    .map_err(database_error)?
+                    != proof.document_sha256
+            {
+                return Err(invalid("publication proof does not match release"));
+            }
+        }
+        let query = format!("UPDATE brain.maintenance_jobs_v1 SET status=$4,checkpoint_json=$5,owner=NULL,lease_until=NULL,error_code=CASE WHEN $4='failed' THEN 'STAGE_FAILED' ELSE NULL END,available_at=clock_timestamp(),updated_at=now() WHERE id=$1 AND owner=$2 AND fence=$3 AND lease_until>clock_timestamp() RETURNING {ROW}");
+        let job = decode(
+            sqlx::query(&query)
+                .bind(&lease.job_id)
+                .bind(&lease.owner)
+                .bind(fence)
+                .bind(next.as_str())
+                .bind(json(checkpoint)?)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(database_error)?
+                .ok_or_else(|| invalid("maintenance lease expired during transition"))?,
+        )?;
+        tx.commit().await.map_err(database_error)?;
+        Ok(job)
+    }
+    /// Behält Stufe und Checkpoint bei und verzögert den nächsten Versuch nach einem Fehler.
+    pub async fn retry_maintenance(
+        &self,
+        lease: &MaintenanceLease,
+        error_code: &str,
+        delay_ms: u64,
+    ) -> Result<MaintenanceJob, PortError> {
+        let fence = lease_inputs(lease)?;
+        bounded(error_code, 128)?;
+        if !error_code
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+            || delay_ms > 86_400_000
+        {
+            return Err(invalid("invalid maintenance retry"));
+        }
+        let query = format!("UPDATE brain.maintenance_jobs_v1 SET owner=NULL,lease_until=NULL,error_code=$4,available_at=clock_timestamp()+($5::bigint*interval '1 millisecond'),status=CASE WHEN attempts>=100 THEN 'failed' ELSE status END,updated_at=now() WHERE id=$1 AND owner=$2 AND fence=$3 AND lease_until>clock_timestamp() RETURNING {ROW}");
+        decode(
+            sqlx::query(&query)
+                .bind(&lease.job_id)
+                .bind(&lease.owner)
+                .bind(fence)
+                .bind(error_code)
+                .bind(delay_ms as i64)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(database_error)?
+                .ok_or_else(|| invalid("stale maintenance lease"))?,
+        )
+    }
+    pub async fn supersede_maintenance(
+        &self,
+        lease: &MaintenanceLease,
+        replacement_id: &str,
+    ) -> Result<MaintenanceJob, PortError> {
+        let fence = lease_inputs(lease)?;
+        bounded(replacement_id, 512)?;
+        if replacement_id == lease.job_id {
+            return Err(invalid("job cannot supersede itself"));
+        }
+        let query=format!("UPDATE brain.maintenance_jobs_v1 j SET status='superseded',superseded_by=$4,owner=NULL,lease_until=NULL,updated_at=now() WHERE j.id=$1 AND j.owner=$2 AND j.fence=$3 AND j.lease_until>clock_timestamp() AND EXISTS(SELECT 1 FROM brain.maintenance_jobs_v1 n WHERE n.id=$4 AND n.repo_id=j.repo_id AND n.spec_json->>'target_path'=j.spec_json->>'target_path' AND n.created_at>=j.created_at) RETURNING {ROW}");
+        decode(
+            sqlx::query(&query)
+                .bind(&lease.job_id)
+                .bind(&lease.owner)
+                .bind(fence)
+                .bind(replacement_id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(database_error)?
+                .ok_or_else(|| invalid("stale lease or invalid replacement"))?,
+        )
+    }
+    pub async fn maintenance_job(&self, id: &str) -> Result<Option<MaintenanceJob>, PortError> {
+        bounded(id, 512)?;
+        let query = format!("SELECT {ROW} FROM brain.maintenance_jobs_v1 WHERE id=$1");
+        sqlx::query(&query)
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(database_error)?
+            .map(decode)
+            .transpose()
+    }
+    pub async fn maintenance_jobs(
+        &self,
+        repo_id: &str,
+        limit: u32,
+    ) -> Result<Vec<MaintenanceJob>, PortError> {
+        bounded(repo_id, 512)?;
+        if !(1..=1000).contains(&limit) {
+            return Err(invalid("invalid maintenance status limit"));
+        }
+        let query=format!("SELECT {ROW} FROM brain.maintenance_jobs_v1 WHERE repo_id=$1 ORDER BY created_at DESC,id LIMIT $2");
+        sqlx::query(&query)
+            .bind(repo_id)
+            .bind(limit as i64)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(database_error)?
+            .into_iter()
+            .map(decode)
+            .collect()
+    }
+    pub async fn register_maintenance_source(
+        &self,
+        registration: &MaintenanceSourceRegistration,
+    ) -> Result<(), PortError> {
+        registration.validate()?;
+        sqlx::query("INSERT INTO brain.maintenance_sources_v1(repo_id,registration_json) VALUES($1,$2) ON CONFLICT(repo_id) DO UPDATE SET registration_json=EXCLUDED.registration_json,updated_at=now()").bind(&registration.repo_id).bind(json(registration)?).execute(&self.pool).await.map_err(database_error)?;
+        Ok(())
+    }
+    pub async fn maintenance_sources(
+        &self,
+    ) -> Result<Vec<MaintenanceSourceRegistration>, PortError> {
+        let rows=sqlx::query_scalar::<_,serde_json::Value>("SELECT registration_json FROM brain.maintenance_sources_v1 ORDER BY repo_id LIMIT 1001").fetch_all(&self.pool).await.map_err(database_error)?;
+        if rows.len() > 1000 {
+            return Err(invalid("maintenance registry limit exceeded"));
+        }
+        rows.into_iter()
+            .map(|v| {
+                serde_json::from_value(v).map_err(|_| invalid("invalid maintenance registration"))
+            })
+            .collect()
+    }
+}
+
+impl MaintenanceStorePort for PgStore {
+    fn enqueue_maintenance<'a>(
+        &'a self,
+        spec: &'a MaintenanceJobSpec,
+        initial: MaintenanceStatus,
+    ) -> brain_contracts::StoreFuture<'a, MaintenanceJob> {
+        Box::pin(PgStore::enqueue_maintenance(self, spec, initial))
+    }
+    fn claim_maintenance<'a>(
+        &'a self,
+        owner: &'a str,
+        ttl_ms: u64,
+    ) -> brain_contracts::StoreFuture<'a, Option<MaintenanceJob>> {
+        Box::pin(PgStore::claim_maintenance(self, owner, ttl_ms))
+    }
+    fn renew_maintenance<'a>(
+        &'a self,
+        lease: &'a MaintenanceLease,
+        ttl_ms: u64,
+    ) -> brain_contracts::StoreFuture<'a, MaintenanceLease> {
+        Box::pin(PgStore::renew_maintenance(self, lease, ttl_ms))
+    }
+    fn transition_maintenance<'a>(
+        &'a self,
+        lease: &'a MaintenanceLease,
+        next: MaintenanceStatus,
+        checkpoint: &'a MaintenanceCheckpoint,
+    ) -> brain_contracts::StoreFuture<'a, MaintenanceJob> {
+        Box::pin(PgStore::transition_maintenance(
+            self, lease, next, checkpoint,
+        ))
+    }
+    fn retry_maintenance<'a>(
+        &'a self,
+        lease: &'a MaintenanceLease,
+        error_code: &'a str,
+        delay_ms: u64,
+    ) -> brain_contracts::StoreFuture<'a, MaintenanceJob> {
+        Box::pin(PgStore::retry_maintenance(
+            self, lease, error_code, delay_ms,
+        ))
+    }
+    fn supersede_maintenance<'a>(
+        &'a self,
+        lease: &'a MaintenanceLease,
+        replacement_id: &'a str,
+    ) -> brain_contracts::StoreFuture<'a, MaintenanceJob> {
+        Box::pin(PgStore::supersede_maintenance(self, lease, replacement_id))
+    }
+    fn maintenance_job<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> brain_contracts::StoreFuture<'a, Option<MaintenanceJob>> {
+        Box::pin(PgStore::maintenance_job(self, id))
+    }
+    fn maintenance_jobs<'a>(
+        &'a self,
+        repo_id: &'a str,
+        limit: u32,
+    ) -> brain_contracts::StoreFuture<'a, Vec<MaintenanceJob>> {
+        Box::pin(PgStore::maintenance_jobs(self, repo_id, limit))
+    }
+    fn register_maintenance_source<'a>(
+        &'a self,
+        registration: &'a MaintenanceSourceRegistration,
+    ) -> brain_contracts::StoreFuture<'a, ()> {
+        Box::pin(PgStore::register_maintenance_source(self, registration))
+    }
+    fn maintenance_sources(
+        &self,
+    ) -> brain_contracts::StoreFuture<'_, Vec<MaintenanceSourceRegistration>> {
+        Box::pin(PgStore::maintenance_sources(self))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use brain_contracts::{
+        source::SourcePolicy,
+        value::{Observed, UnknownReason},
+        SourceVisibility,
+    };
+    use std::collections::BTreeSet;
+    fn spec() -> MaintenanceJobSpec {
+        MaintenanceJobSpec {
+            id: "maintenance-race-fixture".into(),
+            repo_id: "fixture-repo".into(),
+            source_sha: "a".repeat(40),
+            deployed_sha: None,
+            target_path: "docs/help.md".into(),
+            idempotency_key: "maintenance-race-fixture-v1".into(),
+            prompt_version: "v2".into(),
+            model: "jev-1.13.0".into(),
+            policy: SourcePolicy {
+                visibility: SourceVisibility::Public,
+                allowed_scopes: BTreeSet::new(),
+                authorization_ref: Observed::known("fixture".into()),
+                license: Observed::unknown(UnknownReason::NotPresent),
+                publication_allowed: true,
+                provider_egress_allowed: true,
+                raw_retention_allowed: true,
+            },
+        }
+    }
+    #[test]
+    fn review_requires_separate_runs_and_exact_source() {
+        let s = spec();
+        let mut cp = MaintenanceCheckpoint {
+            review: Some(MaintenanceReviewProof {
+                reviewer_id: "reviewer".into(),
+                author_run_id: "author-run".into(),
+                reviewer_run_id: "review-run".into(),
+                source_sha: s.source_sha.clone(),
+                document_sha256: "c".repeat(64),
+                accepted: true,
+            }),
+            ..Default::default()
+        };
+        assert!(cp.validate(&s, MaintenanceStatus::Publish).is_ok());
+        cp.review.as_mut().unwrap().reviewer_run_id = "author-run".into();
+        assert!(cp.validate(&s, MaintenanceStatus::Publish).is_err());
+        cp.review.as_mut().unwrap().reviewer_run_id = "review-run".into();
+        cp.review.as_mut().unwrap().source_sha = "b".repeat(40);
+        assert!(cp.validate(&s, MaintenanceStatus::Publish).is_err());
+        assert!(MaintenanceCheckpoint::default()
+            .validate(&s, MaintenanceStatus::Activated)
+            .is_err());
+        let mut internal = s.clone();
+        internal.policy.visibility = SourceVisibility::Private;
+        internal.policy.publication_allowed = false;
+        cp.review.as_mut().unwrap().source_sha = s.source_sha;
+        assert!(cp.validate(&internal, MaintenanceStatus::Publish).is_ok());
+        internal.policy.visibility = SourceVisibility::Public;
+        assert!(cp.validate(&internal, MaintenanceStatus::Publish).is_err());
+    }
+    /// Ausschließlich eigener lokaler Scratch-Cluster ohne TCP, ENV oder Credentials.
+    #[tokio::test]
+    #[ignore = "requires dedicated /tmp/brain-maintenance-test-20261002/socket PostgreSQL fixture"]
+    async fn postgres_queue_races_expiry_and_checkpoint_restart() {
+        let options = sqlx::postgres::PgConnectOptions::new()
+            .host("/tmp/brain-maintenance-test-20261002/socket")
+            .port(55447)
+            .username("brain_maintenance_test")
+            .database("postgres");
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(4)
+            .connect_with(options)
+            .await
+            .unwrap();
+        let address: Option<String> = sqlx::query_scalar("SELECT inet_server_addr()::text")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert!(address.is_none());
+        let user: String = sqlx::query_scalar("SELECT current_user::text")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(user, "brain_maintenance_test");
+        let store = PgStore::new(pool.clone());
+        store.migrate_core().await.unwrap();
+        store.migrate_maintenance().await.unwrap();
+        store.migrate_maintenance().await.unwrap();
+        store.check_maintenance_schema().await.unwrap();
+        let mut s = spec();
+        let run = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        s.id = format!("maintenance-race-{run}");
+        s.idempotency_key = s.id.clone();
+        let (left, right) = tokio::join!(
+            store.enqueue_maintenance(&s, MaintenanceStatus::Planned),
+            store.enqueue_maintenance(&s, MaintenanceStatus::Planned)
+        );
+        assert_eq!(left.unwrap(), right.unwrap());
+        let mut collision = s.clone();
+        collision.source_sha = "b".repeat(40);
+        assert!(store
+            .enqueue_maintenance(&collision, MaintenanceStatus::Planned)
+            .await
+            .is_err());
+        let (a, b) = tokio::join!(
+            store.claim_maintenance("a", 1000),
+            store.claim_maintenance("b", 1000)
+        );
+        let a = a.unwrap();
+        let b = b.unwrap();
+        assert_eq!(usize::from(a.is_some()) + usize::from(b.is_some()), 1);
+        let expired = a.or(b).unwrap().lease.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+        let live = store
+            .claim_maintenance("restarted", 30000)
+            .await
+            .unwrap()
+            .unwrap()
+            .lease
+            .unwrap();
+        assert!(live.fence > expired.fence);
+        assert!(store.renew_maintenance(&expired, 30000).await.is_err());
+        assert!(store
+            .retry_maintenance(&expired, "OLD_WORKER", 0)
+            .await
+            .is_err());
+        let cp = MaintenanceCheckpoint {
+            artifact_refs: std::collections::BTreeMap::from([(
+                "prepared".into(),
+                "fixture-artifact-sha".into(),
+            )]),
+            ..Default::default()
+        };
+        assert!(store
+            .transition_maintenance(&expired, MaintenanceStatus::SourceReview, &cp)
+            .await
+            .is_err());
+        store.renew_maintenance(&live, 60000).await.unwrap();
+        store
+            .transition_maintenance(&live, MaintenanceStatus::SourceReview, &cp)
+            .await
+            .unwrap();
+        let restarted = PgStore::new(pool.clone());
+        assert_eq!(
+            restarted
+                .maintenance_job(&s.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .checkpoint,
+            cp
+        );
+        let lease = restarted
+            .claim_maintenance("review", 30000)
+            .await
+            .unwrap()
+            .unwrap()
+            .lease
+            .unwrap();
+        assert!(restarted
+            .transition_maintenance(&lease, MaintenanceStatus::Activated, &cp)
+            .await
+            .is_err());
+        restarted
+            .retry_maintenance(&lease, "TEMPORARY_FAILURE", 0)
+            .await
+            .unwrap();
+        assert!(restarted
+            .retry_maintenance(&lease, "OLD_WORKER", 0)
+            .await
+            .is_err());
+        let lease = restarted
+            .claim_maintenance("final", 30000)
+            .await
+            .unwrap()
+            .unwrap()
+            .lease
+            .unwrap();
+        restarted
+            .transition_maintenance(&lease, MaintenanceStatus::Failed, &cp)
+            .await
+            .unwrap();
+        assert!(restarted
+            .claim_maintenance("none", 30000)
+            .await
+            .unwrap()
+            .is_none());
+        // Corpus-Nachweis und ACL müssen auch bei korrekt gefenctem Worker stimmen.
+        let mut publication_spec = s.clone();
+        publication_spec.id.push_str("-publish");
+        publication_spec.idempotency_key = publication_spec.id.clone();
+        restarted
+            .enqueue_maintenance(&publication_spec, MaintenanceStatus::Planned)
+            .await
+            .unwrap();
+        for next in [MaintenanceStatus::SourceReview, MaintenanceStatus::Reviewer] {
+            let lease = restarted
+                .claim_maintenance("prepare", 30000)
+                .await
+                .unwrap()
+                .unwrap()
+                .lease
+                .unwrap();
+            restarted
+                .transition_maintenance(&lease, next, &MaintenanceCheckpoint::default())
+                .await
+                .unwrap();
+        }
+        use sha2::Digest;
+        let document = "fixture reviewed document";
+        let hash = format!("{:x}", sha2::Sha256::digest(document.as_bytes()));
+        let mut approved = MaintenanceCheckpoint {
+            review: Some(MaintenanceReviewProof {
+                reviewer_id: "independent-fixture".into(),
+                author_run_id: "fixture-author-turn".into(),
+                reviewer_run_id: "fixture-review-turn".into(),
+                source_sha: publication_spec.source_sha.clone(),
+                document_sha256: hash.clone(),
+                accepted: true,
+            }),
+            ..Default::default()
+        };
+        let lease = restarted
+            .claim_maintenance("reviewer", 30000)
+            .await
+            .unwrap()
+            .unwrap()
+            .lease
+            .unwrap();
+        restarted
+            .transition_maintenance(&lease, MaintenanceStatus::Publish, &approved)
+            .await
+            .unwrap();
+        let lease = restarted
+            .claim_maintenance("publisher", 30000)
+            .await
+            .unwrap()
+            .unwrap()
+            .lease
+            .unwrap();
+        approved.publication = Some(MaintenancePublicationProof {
+            release_id: format!("fixture-release-{run}"),
+            source_id: publication_spec.id.clone(),
+            logical_id: publication_spec.target_path.clone(),
+            document_revision: 1,
+            document_sha256: hash.clone(),
+        });
+        approved.activation = Some(MaintenanceActivationProof {
+            active_release_id: approved.publication.as_ref().unwrap().release_id.clone(),
+            verified_at_epoch: 1,
+            evidence_ref: "isolated-fixture-live-read".into(),
+        });
+        assert!(restarted
+            .transition_maintenance(&lease, MaintenanceStatus::Activated, &approved)
+            .await
+            .is_err());
+        let mut record = brain_contracts::SourceRecordV2 {
+            source_id: publication_spec.id.clone(),
+            logical_id: publication_spec.target_path.clone(),
+            revision: 1,
+            content_hash: hash,
+            content: document.into(),
+            visibility: SourceVisibility::Private,
+            allowed_scopes: BTreeSet::new(),
+            tombstone: false,
+            valid_from: None,
+            valid_to: None,
+            metadata: Default::default(),
+        };
+        restarted.apply(&record).await.unwrap();
+        let mut release = CorpusRelease {
+            release_id: approved.publication.as_ref().unwrap().release_id.clone(),
+            knowledge_version: "fixture".into(),
+            patch: "fixture".into(),
+            created_at_epoch: 1,
+            source_revisions: std::collections::BTreeMap::from([(
+                record.source_id.clone(),
+                std::collections::BTreeMap::from([(record.logical_id.clone(), 1)]),
+            )]),
+        };
+        restarted.publish_release(&release).await.unwrap();
+        assert!(restarted
+            .transition_maintenance(&lease, MaintenanceStatus::Activated, &approved)
+            .await
+            .is_err());
+        record.revision = 2;
+        record.visibility = SourceVisibility::Public;
+        restarted.apply(&record).await.unwrap();
+        release.release_id.push_str("-public");
+        release
+            .source_revisions
+            .get_mut(&record.source_id)
+            .unwrap()
+            .insert(record.logical_id.clone(), 2);
+        restarted.publish_release(&release).await.unwrap();
+        approved.publication.as_mut().unwrap().release_id = release.release_id.clone();
+        approved.publication.as_mut().unwrap().document_revision = 2;
+        approved.activation.as_mut().unwrap().active_release_id = release.release_id;
+        restarted
+            .transition_maintenance(&lease, MaintenanceStatus::Activated, &approved)
+            .await
+            .unwrap();
+        assert!(restarted.renew_maintenance(&lease, 30000).await.is_err());
+        pool.close().await;
+    }
+}
