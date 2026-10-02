@@ -560,6 +560,15 @@ async fn retrieval_excludes_public_domain_proof_with_internal_input_locators() {
         assert!(!response.body.contains(internal));
     }
     assert_eq!(external(&api, &q).status, AnswerStatus::Answered);
+    q.domain = None;
+    q.profile = AnswerProfile::Build;
+    let response = api.handle_retrieve(
+        Some("Bearer publication-token"),
+        &serde_json::to_vec(&q).unwrap(),
+    );
+    assert_eq!(response.status, 400, "{}", response.body);
+    let error: brain_contracts::ApiErrorEnvelope = serde_json::from_str(&response.body).unwrap();
+    assert_eq!(error.error.code, "unsupported_domain");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

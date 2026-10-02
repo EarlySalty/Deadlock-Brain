@@ -49,7 +49,7 @@ impl<K: AnswerKernelPort> ApiService<K> {
         }
         // Domänenbeweise enthalten interne Eingangsrevisionen und Quelllocator.
         // Ihr eigener Auswertungsweg bleibt ausschließlich bei /v1/answer.
-        if query.domain.is_some() {
+        if query.domain.is_some() || query.profile == brain_contracts::AnswerProfile::Build {
             return json_error(
                 400,
                 "unsupported_domain",
