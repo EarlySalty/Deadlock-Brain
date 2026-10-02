@@ -313,6 +313,13 @@ impl CorpusSnapshot {
     }
 }
 pub fn record_allowed(record: &SourceRecordV2, principal: &Principal, provider: bool) -> bool {
+    if crate::source::excluded_knowledge_input(
+        &record.source_id,
+        &record.logical_id,
+        &record.metadata,
+    ) {
+        return false;
+    }
     if record
         .metadata
         .contains_key(crate::source::ORIGIN_METADATA_KEY)

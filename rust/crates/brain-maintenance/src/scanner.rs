@@ -58,6 +58,11 @@ pub(crate) fn approved_code_path(path: &str) -> bool {
         matches!(
             p,
             "data"
+                | "tickets"
+                | "ticket_transcripts"
+                | "ticket-transcripts"
+                | "ticket_copies"
+                | "ticket-copies"
                 | "logs"
                 | "downloads"
                 | "uploads"

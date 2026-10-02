@@ -141,6 +141,15 @@ impl FileConnector {
 
         for path in paths {
             let logical_id = self.logical_id(&path)?;
+            if brain_contracts::source::excluded_knowledge_input(
+                &self.source_id,
+                &logical_id,
+                &BTreeMap::new(),
+            ) {
+                return Err(IngestionError::InvalidState(
+                    "Ausgeschlossene Wissensquelle".into(),
+                ));
+            }
             seen.insert(logical_id.clone());
             let canonical = fs::canonicalize(&path)?;
             if !canonical.starts_with(fs::canonicalize(&self.root)?) {

@@ -102,6 +102,8 @@ struct ChatRequest {
     #[serde(rename = "max_tokens")]
     max_completion_tokens: u32,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<&'static str>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -165,10 +167,62 @@ impl OpenAiCompatibleProvider {
             messages: grounded_messages(query, evidence),
             max_completion_tokens: context.budget.max_output_tokens,
             stream: false,
+            reasoning_effort: None,
         };
 
         hardening::authorize(query, context, evidence)?;
         self.send_chat(payload, context, evidence)
+    }
+
+    /// Guide-Nachrichten nutzen denselben Client, dieselben Budgets und denselben Provider.
+    /// Privater Egress benötigt eine eigene vertrauenswürdige Freigabe, niemals Requestflags.
+    pub fn guide_answer(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+        persona: &str,
+        context_json: &str,
+        private: bool,
+    ) -> std::result::Result<ProviderAnswer, PortError> {
+        if private
+            && (!context.principal.provider_egress.contains("private_dm")
+                || reqwest::Url::parse(&self.config.base_url)
+                    .ok()
+                    .and_then(|u| u.host_str().map(str::to_owned))
+                    .as_deref()
+                    != Some("api.fireworks.ai")
+                || !self
+                    .config
+                    .model
+                    .starts_with("accounts/fireworks/models/deepseek-")
+                || !self.config.model.ends_with("-flash"))
+        {
+            return Err(PortError::PermissionDenied(
+                "Private Weitergabe ist nicht freigegeben".into(),
+            ));
+        }
+        hardening::authorize(query, context, evidence).map_err(|_| {
+            PortError::PermissionDenied("Guide-Weitergabe ist nicht freigegeben".into())
+        })?;
+        let mut messages = grounded_messages(query, evidence);
+        messages[0].content = persona.into();
+        messages[1].content = context_json.into();
+        self.send_chat(
+            ChatRequest {
+                model: self.config.model.clone(),
+                messages,
+                max_completion_tokens: context.budget.max_output_tokens,
+                stream: false,
+                reasoning_effort: Some("none"),
+            },
+            context,
+            evidence,
+        )
+        .map_err(|error| match error {
+            ProviderError::BudgetExceeded => PortError::BudgetExceeded,
+            _ => PortError::Unavailable("Antwortdienst ist vorübergehend nicht verfügbar".into()),
+        })
     }
 }
 

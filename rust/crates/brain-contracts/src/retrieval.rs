@@ -85,6 +85,13 @@ impl DocumentHead {
         Ok(())
     }
     pub fn allowed(&self, principal: &Principal, provider: bool) -> bool {
+        if crate::source::excluded_knowledge_input(
+            &self.source_id,
+            &self.logical_id,
+            &self.metadata,
+        ) {
+            return false;
+        }
         if provider
             && !self.canonical_origin().is_ok_and(|origin| {
                 origin.is_none_or(|origin| origin.policy.provider_egress_allowed)

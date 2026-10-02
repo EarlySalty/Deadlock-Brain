@@ -3,6 +3,8 @@
 
 mod analytics;
 pub mod config;
+pub mod guide;
+pub mod guide_config;
 mod health;
 mod secrets;
 mod service;

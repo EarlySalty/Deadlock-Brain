@@ -1119,6 +1119,9 @@ pub async fn prepare_document(
             .unwrap_or(&verified.proposal.target)
     };
     let mut metadata = BTreeMap::from([
+        // Nur dieser geprüfte Ableitungspfad klassifiziert öffentliche Funktionsdokumentation.
+        // Eingelesene Inhalte können diese Quellfreigabe nicht selbst vergeben.
+        ("source_class".into(), "server_documentation".into()),
         ("output_path".into(), output_path.clone()),
         (
             "content_format".into(),

@@ -136,6 +136,14 @@ pub fn safe_relative(path: &str) -> Result<()> {
 pub fn safe_doc_target(path: &str) -> Result<()> {
     safe_relative(path)?;
     ensure!(
+        !brain_contracts::source::excluded_knowledge_input(
+            "registered-docs",
+            path,
+            &Default::default()
+        ),
+        "Ticket- und private Kopien sind keine Dokumentquelle"
+    );
+    ensure!(
         (path.starts_with("internal/") || path.starts_with("public/"))
             && (path.ends_with(".md") || path.ends_with(".html")),
         "Nur freigegebene Textdokumente in internal/public sind erlaubt"

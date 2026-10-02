@@ -16,6 +16,8 @@ pub struct Config {
     pub retrieval: Retrieval,
     pub kernel: Kernel,
     pub analytics: Option<Analytics>,
+    #[serde(default)]
+    pub guide: Option<crate::guide_config::GuideConfig>,
     pub credentials: Vec<Credential>,
 }
 
@@ -242,6 +244,18 @@ impl Config {
         let p = &self.provider;
         let endpoint =
             reqwest::Url::parse(&p.base_url).map_err(|_| Error::ConfigInvalid("provider"))?;
+        if self
+            .guide
+            .as_ref()
+            .is_some_and(|g| g.enabled && g.private_dm_egress)
+        {
+            require(
+                endpoint.host_str() == Some("api.fireworks.ai")
+                    && p.model.starts_with("accounts/fireworks/models/deepseek-")
+                    && p.model.ends_with("-flash"),
+                "guide_private_provider",
+            )?;
+        }
         let loopback = endpoint.host_str().is_some_and(|host| {
             host == "localhost"
                 || host
@@ -301,6 +315,9 @@ impl Config {
             "timeouts",
         )?;
         require((1..=100).contains(&self.retrieval.limit), "retrieval")?;
+        if let Some(guide) = &self.guide {
+            require(guide.valid(), "guide")?;
+        }
         require(
             self.kernel.cache_entries <= 1024 && self.kernel.cache_ttl_ms <= 60_000,
             "kernel",
