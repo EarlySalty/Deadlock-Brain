@@ -1947,6 +1947,7 @@ mod tests {
             .is_none());
         let mut recovery_base = rebased.clone();
         let mut pending_recovery_record = None;
+        let mut pending_recovery_lease = None;
         for revision in [2_u64, 3] {
             let mut recovery_spec = guarded.clone();
             recovery_spec.id = format!("fixture-recovery-{run}-{revision}");
@@ -2114,11 +2115,28 @@ mod tests {
             if revision == 2 {
                 pending_recovery_record = Some(recovery_record);
                 // Der Reader bleibt auf Revision 1, obwohl Revision 2 gespeichert wurde.
+                pending_recovery_lease = Some(recovery_lease);
+            } else {
+                let pending_lease = pending_recovery_lease.as_ref().unwrap();
+                let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                let counter = calls.clone();
+                assert!(restarted
+                    .activate_maintenance_checked(
+                        pending_lease,
+                        1000,
+                        |_| async move {
+                            counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                            Err(PortError::Unavailable("old activation must not run".into()))
+                        },
+                        || async { panic!("old activation must not need rollback") }
+                    )
+                    .await
+                    .is_err());
+                assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
                 restarted
-                    .finish_superseded_publication(&recovery_lease)
+                    .finish_superseded_publication(pending_lease)
                     .await
                     .unwrap();
-            } else {
                 restarted
                     .activate_maintenance_checked(
                         &recovery_lease,
