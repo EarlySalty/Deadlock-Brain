@@ -1058,7 +1058,7 @@ impl Runner {
                     } else {
                         let call_intent = self.artifacts.put(&serde_json::to_vec(&json!({
                                 "job":job.spec.id,"stage":"reviewer","draft":digest(&serde_json::to_vec(&draft)?),
-                                "export_binding":author::export_binding(&config,repo,&scan,&job.spec.target_path)?,"model":config.codex.model,"effort":config.codex.reasoning_effort
+                                "export_binding":author::export_binding(&config,repo,&scan,&job.spec.target_path)?,"review_contract_version":author::REVIEW_CONTRACT_VERSION,"review_input_sha256":author::review_input_binding(&config,repo,&scan,&draft.proposal)?,"model":config.codex.model,"effort":config.codex.reasoning_effort
                             }))?, "json")?;
                         let call_key = format!(
                             "reviewer_call_intent_{}",

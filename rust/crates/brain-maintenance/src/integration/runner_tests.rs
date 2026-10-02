@@ -367,6 +367,11 @@ fn rejection(
     draft: &author::DraftDocument,
 ) -> VerifiedDocument {
     VerifiedDocument {
+        review_contract_version: Some(author::REVIEW_CONTRACT_VERSION.into()),
+        review_input_sha256: Some(
+            author::review_input_binding(config, &config.repositories[0], scan, &draft.proposal)
+                .unwrap(),
+        ),
         export_binding: draft.export_binding.clone(),
         proposal: draft.proposal.clone(),
         review: IndependentReview {

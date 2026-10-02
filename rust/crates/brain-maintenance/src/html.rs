@@ -154,6 +154,7 @@ pub fn validate_html_with_assets(
         "br",
         "hr",
         "table",
+        "caption",
         "thead",
         "tbody",
         "tr",
@@ -482,6 +483,20 @@ pub fn validate_html_with_assets(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn table_caption_keeps_text_without_active_attributes() {
+        let old = "<main><table><tr><th>Titel</th></tr></table></main>";
+        assert!(validate_html(Some(old), "<main><table><caption>Übersicht</caption><tr><th scope='col'>Titel</th></tr></table></main>").is_ok());
+        for attribute in [
+            "onclick='true'",
+            "style='color:red'",
+            "href='javascript:alert(1)'",
+        ] {
+            let html =
+                format!("<main><table><caption {attribute}>Übersicht</caption></table></main>");
+            assert!(validate_html(Some(old), &html).is_err());
+        }
+    }
     #[test]
     fn table_header_scope_accepts_only_semantic_header_values() {
         let old = "<main><table><tr><th>Titel</th></tr></table></main>";

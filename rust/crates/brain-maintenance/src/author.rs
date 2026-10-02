@@ -120,6 +120,10 @@ pub struct VerifiedDocument {
     pub evidence_sha256: String,
     #[serde(default)]
     pub export_binding: Option<String>,
+    #[serde(default)]
+    pub review_contract_version: Option<String>,
+    #[serde(default)]
+    pub review_input_sha256: Option<String>,
     pub model: String,
     pub prompt_version: String,
     pub author_run_id: String,
@@ -667,6 +671,9 @@ pub fn validate_verified_draft(
             && !verified.reviewer_run_id.trim().is_empty()
             && verified.model == config.codex.model
             && verified.prompt_version == config.prompt_version
+            && verified.review_contract_version.as_deref() == Some(REVIEW_CONTRACT_VERSION)
+            && verified.review_input_sha256.as_deref()
+                == Some(review_input_binding(config, repo, scan, &draft.proposal)?.as_str())
             && verified.review.source_sha == scan.source_sha
             && verified.proposal.source_sha == scan.source_sha
             && verified.review.proposal_sha256 == digest(&serde_json::to_vec(&draft.proposal)?)
@@ -681,6 +688,69 @@ pub fn validate_verified_draft(
         "cached_review_findings"
     );
     Ok(())
+}
+
+pub const REVIEW_CONTRACT_VERSION: &str = "documentation-review-v2-code-only-migration";
+
+fn migration_rules(
+    config: &MaintenanceConfig,
+    repo: &RepositoryConfig,
+    scan: &ScanResult,
+    target: &str,
+) -> Result<&'static str> {
+    if scan.documents[target].is_some()
+        && crate::scanner::exportable_document(config, scan, target).is_none()
+    {
+        ensure!(
+            repo.code_only_export_approved
+                && repo.code_only_migration_targets.contains(target)
+                && target.starts_with("internal/")
+                && !target.starts_with("internal/public-candidates/")
+                && repo.document_policy_for(target).provider_egress_allowed,
+            "code_only_migration_not_authorized"
+        );
+        Ok("Die vorherige private Fassung darf nicht exportiert werden. Ihr Hash ist ausschließlich eine lokale Austauschbedingung. Erstelle eine neue vollständige Fassung ausschließlich aus dem freigegebenen Code, action=update. Du prüfst keine Veraltung der unsichtbaren Fassung. Alte Gerüst-, ID- und Bilderhaltungsregeln gelten bei dieser ausdrücklich freigegebenen Neufassung nicht.")
+    } else {
+        Ok("")
+    }
+}
+
+fn review_rules(migration: &str, has_previous: bool) -> String {
+    if !migration.is_empty() {
+        format!("Prüfmodus: ausdrücklich freigegebene Code-only-Neufassung. {migration}\nPrüfe diese Neufassung gegen die freigegebenen Codebelege, vollständige fachliche Begründung und erlaubte Sichtbarkeit. Die absichtlich gesperrte Alttextfassung ist keine fehlende Evidenz für diesen Modus und darf nicht angefordert werden. Erhaltung oder Vollständigkeit gegenüber der unsichtbaren Alttextfassung wird weder geprüft noch behauptet. before_sha256 bindet ausschließlich den lokalen Austausch. Prüfe die Quellen der neuen Fassung gegen das gelieferte Codepaket.")
+    } else if !has_previous {
+        "Prüfmodus: neues Dokument. Prüfe Codebelege, fachliche Vollständigkeit und Sichtbarkeit. Es gibt keine vorherige Fassung für eine Erhaltungsprüfung.".into()
+    } else {
+        "Prüfmodus: normale Aktualisierung. Prüfe den Vorschlag vollständig gegen Codebelege, alte Dokumentation und Nutzerwirkung. Bestehende Inhalte, Gerüst, Abschnitt-IDs, Bildquellen und weiterhin gültige Quellen müssen erhalten bleiben; verschwundene Quellen führen zu approved=false.".into()
+    }
+}
+
+fn review_prompt(
+    config: &MaintenanceConfig,
+    repo: &RepositoryConfig,
+    scan: &ScanResult,
+    proposal: &AuthorProposal,
+) -> Result<String> {
+    let target = &proposal.target;
+    let migration = migration_rules(config, repo, scan, target)?;
+    let preservation = review_rules(migration, scan.documents[target].is_some());
+    let evidence = provider_evidence(config, repo, scan, target)?;
+    let proposal_raw = serde_json::to_string(proposal)?;
+    let proposal_sha256 = digest(proposal_raw.as_bytes());
+    let audience = publication_rules(repo, target);
+    Ok(format!("Du bist die unabhängige Abnahme für einen Dokumentvorschlag. Du hast den Autorenturn nicht gesehen. reviewer-contract={REVIEW_CONTRACT_VERSION}. {STYLE} {TRUST}\n{audience}\n{preservation}\nFachliche Behauptungen ohne vollständige Aufrufer/Belege, unzulässige Veröffentlichung oder unbelegte Liveversprechen führen zu approved=false. Eine SourceReview-Antwort bleibt gesperrt. approved=true nur ohne findings und mit konkreten geprüften Codebelegen. proposal_sha256={proposal_sha256}.\nEvidenz:\n{evidence}\nVorschlag:\n{proposal_raw}"))
+}
+
+pub fn review_input_binding(
+    config: &MaintenanceConfig,
+    repo: &RepositoryConfig,
+    scan: &ScanResult,
+    proposal: &AuthorProposal,
+) -> Result<String> {
+    validate_proposal(config, repo, scan, proposal)?;
+    Ok(digest(
+        review_prompt(config, repo, scan, proposal)?.as_bytes(),
+    ))
 }
 
 fn provider_evidence(
@@ -743,13 +813,7 @@ pub async fn propose_with_feedback(
     let evidence = provider_evidence(config, repo, scan, target)?;
     let version = &config.prompt_version;
     let audience = publication_rules(repo, target);
-    let migration = if scan.documents[target].is_some()
-        && crate::scanner::exportable_document(config, scan, target).is_none()
-    {
-        "Die vorherige private Fassung darf nicht exportiert werden. Ihr Hash ist ausschließlich eine lokale Austauschbedingung. Erstelle eine neue vollständige Fassung ausschließlich aus dem freigegebenen Code, action=update. Du prüfst keine Veraltung der unsichtbaren Fassung. Alte Gerüst-, ID- und Bilderhaltungsregeln gelten bei dieser ausdrücklich freigegebenen Neufassung nicht."
-    } else {
-        ""
-    };
+    let migration = migration_rules(config, repo, scan, target)?;
     let prompt = format!("Du überarbeitest genau das Dokument {target}. before_sha256={before_sha256}; documentation-version={version}. {STYLE} {TRUST}\nPrüfe zuerst, ob überhaupt eine fachliche Änderung erforderlich ist. Bei unveränderter Bedeutung action=keep und den ursprünglichen Text wortgetreu zurückgeben. Bei fehlenden Belegen action=source_review und konkrete offene Fragen. Für update sind vollständige Belege und keine offenen Fragen erforderlich. source_sha und before_sha256 exakt aus dem Paket übernehmen. citations nennen die tatsächlich verwendeten Codepfade und deren sha256. Neue Dokumente sind semantisches HTML im vorhandenen schlichten Docs-Aufbau: html lang=de, main, genau ein h1, section mit stabilen IDs, Quellenabschnitt. Neue und aktualisierte HTML-Seiten erhalten meta name=source-commit mit dem gelieferten SHA, documentation-version mit der Promptversion und documentation-status mit dem Arbeitsstand. Bestehendes Gerüst, Titel, Stile, Navigation, Abschnitt-IDs und Bildquellen erhalten. Grafiken sind nur erläuterte, skriptfreie Inline-SVG innerhalb figure mit figcaption. Keine neuen Bilddateien, JS, Eventhandler oder externen aktiven Ressourcen. Der Kerntext muss ohne Bilder verständlich sein. Unveränderte Markdownquellen bleiben bei keep wortgetreu erhalten. Bei update wird HTML erzeugt; die logische Seiten-ID bleibt gleich. Keine Massenkonvertierung.\nEvidenzpaket:\n{evidence}");
     let feedback = if let Some(rejected) = feedback {
         feedback_payload(config, repo, scan, target, rejected)?
@@ -777,6 +841,8 @@ pub async fn review_draft(
     draft: DraftDocument,
 ) -> Result<VerifiedDocument> {
     validate_draft(config, repo, scan, &draft)?;
+    let review_input_sha256 = review_input_binding(config, repo, scan, &draft.proposal)?;
+    let review_prompt = review_prompt(config, repo, scan, &draft.proposal)?;
     let DraftDocument {
         proposal,
         proof: author_proof,
@@ -789,12 +855,9 @@ pub async fn review_draft(
             || scan.documents[target].is_none(),
         "Dokumentexport nicht freigegeben"
     );
-    let evidence = provider_evidence(config, repo, scan, target)?;
     let evidence_sha256 = digest(&serde_json::to_vec(scan)?);
     let proposal_raw = serde_json::to_string(&proposal)?;
     let proposal_sha256 = digest(proposal_raw.as_bytes());
-    let audience = publication_rules(repo, target);
-    let review_prompt = format!("Du bist die unabhängige Abnahme für einen Dokumentvorschlag. Du hast den Autorenturn nicht gesehen. {STYLE} {TRUST}\n{audience}\nPrüfe den Vorschlag vollständig gegen Codebelege, alte Dokumentation und Nutzerwirkung. Fachliche Behauptungen ohne vollständige Aufrufer/Belege, unzulässige Veröffentlichung, verschwundene Quellen oder unbelegte Liveversprechen führen zu approved=false. Eine SourceReview-Antwort bleibt gesperrt. approved=true nur ohne findings und mit konkreten geprüften Codebelegen. proposal_sha256={proposal_sha256}.\nEvidenz:\n{evidence}\nVorschlag:\n{proposal_raw}");
     validate_provider_input(config, repo, scan, target).await?;
     let (review, reviewer_proof): (IndependentReview, CodexRunProof) =
         invoke(config, &review_prompt, &review_schema()).await?;
@@ -816,6 +879,8 @@ pub async fn review_draft(
         );
         Ok(VerifiedDocument {
             export_binding,
+            review_contract_version: Some(REVIEW_CONTRACT_VERSION.into()),
+            review_input_sha256: Some(review_input_sha256),
             proposal,
             review,
             evidence_sha256,
@@ -1005,6 +1070,12 @@ pub async fn prepare_document(
         verified.model == config.codex.model && verified.prompt_version == config.prompt_version,
         "Prüfkonfiguration stimmt nicht"
     );
+    ensure!(
+        verified.review_contract_version.as_deref() == Some(REVIEW_CONTRACT_VERSION)
+            && verified.review_input_sha256.as_deref()
+                == Some(review_input_binding(config, repo, scan, &verified.proposal)?.as_str()),
+        "cached_review_contract_binding"
+    );
     validate_citations(scan, &verified.review.citations)?;
     ensure!(
         repo.code_only_export_approved && repo.policy.provider_egress_allowed,
@@ -1065,6 +1136,17 @@ pub async fn prepare_document(
             digest(&serde_json::to_vec(&verified.review)?),
         ),
         ("evidence_sha256".into(), verified.evidence_sha256.clone()),
+        (
+            "review_contract_version".into(),
+            REVIEW_CONTRACT_VERSION.into(),
+        ),
+        (
+            "review_input_sha256".into(),
+            verified
+                .review_input_sha256
+                .clone()
+                .context("Reviewer-Eingabebindung fehlt")?,
+        ),
     ]);
     if scan.documents[&verified.proposal.target].is_some()
         && crate::scanner::exportable_document(config, scan, &verified.proposal.target).is_none()
@@ -1134,6 +1216,23 @@ pub async fn stage_document(
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn reviewer_modes_preserve_normal_updates_and_allow_authorized_new_text() {
+        let normal = review_rules("", true);
+        assert!(normal.contains("normale Aktualisierung"));
+        assert!(normal.contains("müssen erhalten bleiben"));
+        let migration = review_rules(
+            "Die vorherige private Fassung darf nicht exportiert werden.",
+            true,
+        );
+        assert!(migration.contains("Code-only-Neufassung"));
+        assert!(migration.contains("darf nicht angefordert werden"));
+        assert!(migration.contains("weder geprüft noch behauptet"));
+        assert!(!migration.contains("müssen erhalten bleiben"));
+        assert!(review_rules("", false).contains("keine vorherige Fassung"));
+        assert_ne!(digest(normal.as_bytes()), digest(migration.as_bytes()));
+    }
 
     #[tokio::test]
     async fn run_receipts_observe_real_exit_and_rejected_events() {

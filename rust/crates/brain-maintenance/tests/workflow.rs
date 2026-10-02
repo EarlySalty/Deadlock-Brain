@@ -112,6 +112,10 @@ fn verified_for(
         findings: vec![],
     };
     VerifiedDocument {
+        review_contract_version: Some(author::REVIEW_CONTRACT_VERSION.into()),
+        review_input_sha256: Some(
+            author::review_input_binding(config, &config.repositories[0], scan, &proposal).unwrap(),
+        ),
         export_binding: Some(
             brain_maintenance::author::export_binding(
                 config,
@@ -316,6 +320,17 @@ async fn code_only_migration_keeps_previous_private_text_local_and_binds_all_rig
     repo.code_only_migration_targets.insert(target.into());
     config.repositories = vec![repo.clone()];
     let migrated = scanner::scan(&config, &repo, None).await.unwrap();
+    let mut normal_config = config.clone();
+    normal_config.canonical_documents.clear();
+    let mut mode_proposal = rejected.proposal.clone();
+    mode_proposal.action = Action::SourceReview;
+    mode_proposal.content.clear();
+    mode_proposal.open_questions = vec!["Welcher Aufrufer ist belegt?".into()];
+    let normal_binding =
+        author::review_input_binding(&normal_config, &repo, &initial, &mode_proposal).unwrap();
+    let migrated_binding =
+        author::review_input_binding(&config, &repo, &migrated, &mode_proposal).unwrap();
+    assert_ne!(normal_binding, migrated_binding);
     assert!(migrated.documents[target].is_some());
     assert!(scanner::exportable_document(&config, &migrated, target).is_none());
     author::validate_provider_input(&config, &repo, &migrated, target)
@@ -343,6 +358,50 @@ async fn code_only_migration_keeps_previous_private_text_local_and_binds_all_rig
         input_tokens: None,
         output_tokens: None,
     };
+    let mut migration_proposal = rejected.proposal.clone();
+    migration_proposal.action = Action::Update;
+    migration_proposal.content = format!("<!doctype html><html lang='de'><head><title>Neue Fassung</title><meta name='source-commit' content='{}'><meta name='documentation-version' content='{}'><meta name='documentation-status' content='geprüft'></head><body><main><h1>Neue Fassung</h1><section id='code'><p>Die Funktion liefert true.</p></section></main></body></html>", migrated.source_sha, config.prompt_version);
+    let migration_draft = author::DraftDocument {
+        proposal: migration_proposal.clone(),
+        proof: proof.clone(),
+        export_binding: Some(author::export_binding(&config, &repo, &migrated, target).unwrap()),
+    };
+    let mut migration_review = rejected.clone();
+    migration_review.proposal = migration_proposal;
+    migration_review.export_binding = migration_draft.export_binding.clone();
+    migration_review.evidence_sha256 = digest(&serde_json::to_vec(&migrated).unwrap());
+    migration_review.review.proposal_sha256 =
+        digest(&serde_json::to_vec(&migration_review.proposal).unwrap());
+    migration_review.review_contract_version = Some(author::REVIEW_CONTRACT_VERSION.into());
+    migration_review.review_input_sha256 = Some(
+        author::review_input_binding(&config, &repo, &migrated, &migration_review.proposal)
+            .unwrap(),
+    );
+    author::validate_verified_draft(
+        &config,
+        &repo,
+        &migrated,
+        &migration_draft,
+        &migration_review,
+    )
+    .unwrap();
+    for legacy in [true, false] {
+        let mut invalid = migration_review.clone();
+        if legacy {
+            invalid.review_contract_version = None;
+            invalid.review_input_sha256 = None;
+        } else {
+            invalid.review_input_sha256 = Some("f".repeat(64));
+        }
+        assert!(author::validate_verified_draft(
+            &config,
+            &repo,
+            &migrated,
+            &migration_draft,
+            &invalid
+        )
+        .is_err());
+    }
     for binding in [
         rejected.export_binding.clone(),
         Some(author::export_binding(&config, &repo, &migrated, target).unwrap()),
