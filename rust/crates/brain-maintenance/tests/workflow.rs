@@ -83,14 +83,21 @@ fn fixture() -> (tempfile::TempDir, MaintenanceConfig, RepositoryConfig) {
 }
 
 fn verified(config: &MaintenanceConfig, scan: &scanner::ScanResult) -> VerifiedDocument {
-    let content = scan.documents["internal/system.html"].clone().unwrap();
+    verified_for(config, scan, "internal/system.html")
+}
+fn verified_for(
+    config: &MaintenanceConfig,
+    scan: &scanner::ScanResult,
+    target: &str,
+) -> VerifiedDocument {
+    let content = scan.documents[target].clone().unwrap();
     let citations = vec![Citation {
         path: scan.source_blobs[0].path.clone(),
         sha256: scan.source_blobs[0].sha256.clone(),
     }];
     let proposal = AuthorProposal {
         source_sha: scan.source_sha.clone(),
-        target: "internal/system.html".into(),
+        target: target.into(),
         before_sha256: Some(digest(content.as_bytes())),
         action: Action::Keep,
         content,
@@ -414,6 +421,84 @@ async fn pinned_source_ignores_dirty_checkout_and_doc_only_commits() {
     author::prepare_document(&config, &repo, &first, &paid)
         .await
         .unwrap();
+    fs::write(
+        config.docs_repo.join("internal/system.html"),
+        "Schmutziger Checkout ohne Quelländerung.",
+    )
+    .unwrap();
+    author::prepare_document(&config, &repo, &first, &paid)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn markdown_keep_retains_format_and_resume_path() {
+    let (_dir, mut config, mut repo) = fixture();
+    let target = "internal/system.md";
+    let text = "# Prüfbeleg\n\nDer Code verwendet `Option<T>` und bleibt unverändert.\n";
+    fs::remove_file(config.docs_repo.join("internal/system.html")).unwrap();
+    fs::write(config.docs_repo.join(target), text).unwrap();
+    pin(&config.docs_repo);
+    repo.doc_targets = vec![target.into()];
+    repo.output_paths
+        .insert(target.into(), "internal/system.html".into());
+    config.repositories = vec![repo.clone()];
+    let scan = scanner::scan(&config, &repo, None).await.unwrap();
+    let proof = verified_for(&config, &scan, target);
+    let document = author::prepare_document(&config, &repo, &scan, &proof)
+        .await
+        .unwrap();
+    assert_eq!(document.content, text);
+    assert_eq!(document.metadata["output_path"], target);
+    assert_eq!(document.metadata["content_format"], "markdown");
+    config.canonical_documents.insert(target.into(), document);
+    let resumed = scanner::scan(&config, &repo, Some(&scan.source_sha))
+        .await
+        .unwrap();
+    assert_eq!(resumed.document_paths[target], target);
+    assert_eq!(resumed.documents[target].as_deref(), Some(text));
+    author::prepare_document(
+        &config,
+        &repo,
+        &resumed,
+        &verified_for(&config, &resumed, target),
+    )
+    .await
+    .unwrap();
+}
+
+#[test]
+fn source_rollback_creates_new_transition_but_unchanged_tick_has_none() {
+    use brain_maintenance::integration::runner::automatic_job_spec;
+    let (_dir, config, repo) = fixture();
+    let target = "internal/system.html";
+    let a = "a".repeat(40);
+    let b = "b".repeat(40);
+    let first = automatic_job_spec(&config, &repo, target, &a, "initial", None).unwrap();
+    assert!(automatic_job_spec(&config, &repo, target, &a, "active-a", Some(&first)).is_none());
+    let second = automatic_job_spec(&config, &repo, target, &b, "active-a", Some(&first)).unwrap();
+    let rollback =
+        automatic_job_spec(&config, &repo, target, &a, "active-b", Some(&second)).unwrap();
+    assert_ne!(rollback.id, first.id);
+    assert!(automatic_job_spec(
+        &config,
+        &repo,
+        target,
+        &a,
+        "active-rollback",
+        Some(&rollback)
+    )
+    .is_none());
+    let again = automatic_job_spec(
+        &config,
+        &repo,
+        target,
+        &b,
+        "active-rollback",
+        Some(&rollback),
+    )
+    .unwrap();
+    assert_ne!(again.id, second.id);
 }
 
 #[tokio::test]

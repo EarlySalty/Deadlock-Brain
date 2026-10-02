@@ -71,6 +71,14 @@ pub fn registration_id(repo: &RepositoryConfig, target: &str) -> String {
 fn source_id(repo: &RepositoryConfig, target: &str) -> String {
     format!("maintenance-docs:{}", registration_id(repo, target))
 }
+fn document_is_html(metadata: &BTreeMap<String, String>) -> bool {
+    metadata
+        .get("content_format")
+        .is_some_and(|format| format == "html")
+        || metadata
+            .get("output_path")
+            .is_some_and(|path| path.ends_with(".html"))
+}
 fn job_spec(
     config: &MaintenanceConfig,
     repo: &RepositoryConfig,
@@ -102,6 +110,32 @@ fn job_spec(
         model: config.codex.model.clone(),
         policy: repo.document_policy_for(target).clone(),
     }
+}
+pub fn automatic_job_spec(
+    config: &MaintenanceConfig,
+    repo: &RepositoryConfig,
+    target: &str,
+    sha: &str,
+    active_release: &str,
+    previous: Option<&MaintenanceJobSpec>,
+) -> Option<MaintenanceJobSpec> {
+    if previous.is_some_and(|job| {
+        job.source_sha == sha
+            && job.prompt_version == config.prompt_version
+            && job.model == config.codex.model
+            && job.policy == *repo.document_policy_for(target)
+    }) {
+        return None;
+    }
+    let transition = previous.map(|job| job.id.as_str()).unwrap_or("initial");
+    Some(job_spec(
+        config,
+        repo,
+        target,
+        sha,
+        None,
+        &format!("automatic:{active_release}:{transition}"),
+    ))
 }
 
 fn local_job_spec(
@@ -302,14 +336,20 @@ impl Runner {
                     .store
                     .maintenance_jobs(&registration_id(repo, target), 100)
                     .await?;
-                if recent.iter().any(|j| {
-                    j.spec.source_sha == sha
-                        && j.spec.prompt_version == config.prompt_version
-                        && j.spec.policy == *repo.document_policy_for(target)
-                }) {
+                let active_release = brain_serve::Config::load(&self.runtime.serve_config)?
+                    .release
+                    .id;
+                let Some(spec) = automatic_job_spec(
+                    &config,
+                    repo,
+                    target,
+                    &sha,
+                    &active_release,
+                    recent.first().map(|job| &job.spec),
+                ) else {
                     self.registration(repo, target, &sha).await?;
                     continue;
-                }
+                };
                 let previous = recent.first().map(|j| j.spec.source_sha.as_str());
                 let changed = match previous {
                     Some(previous) if previous != sha => {
@@ -331,6 +371,7 @@ impl Runner {
                     && recent.first().is_some_and(|j| {
                         j.spec.policy == *repo.document_policy_for(target)
                             && j.spec.prompt_version == config.prompt_version
+                            && j.spec.model == config.codex.model
                     })
                 {
                     self.registration(repo, target, previous.context("previous_source")?)
@@ -338,7 +379,6 @@ impl Runner {
                     continue;
                 }
                 self.registration(repo, target, &sha).await?;
-                let spec = job_spec(&config, repo, target, &sha, None, "automatic");
                 self.store
                     .enqueue_maintenance(&spec, MaintenanceStatus::Planned)
                     .await?;
@@ -778,8 +818,14 @@ impl Runner {
             "document_policy_or_target_changed"
         );
         document.origin.identity.source_id = source_id(repo, &document.logical_id);
-        let projection = dbrain_retrieval::html_projection::project_html(&document.content)?;
-        projection.bind_metadata(&mut document.metadata);
+        if document_is_html(&document.metadata) {
+            let projection = dbrain_retrieval::html_projection::project_html(&document.content)?;
+            projection.bind_metadata(&mut document.metadata);
+        } else {
+            document
+                .metadata
+                .insert("content_format".into(), "markdown".into());
+        }
         if job.checkpoint.artifact_refs.contains_key("local_review") {
             self.check_registry_policy(repo, &job.spec.target_path)
                 .await?;
@@ -1040,15 +1086,23 @@ impl Runner {
                 current.policy.as_ref() == Some(&origin.policy),
                 "document_registry_rights_changed"
             );
-            let projection = dbrain_retrieval::html_projection::project_html(&record.content)?;
-            let lower = projection.text.to_lowercase();
+            let (text, text_sha256) = if document_is_html(&record.metadata) {
+                let projection = dbrain_retrieval::html_projection::project_html(&record.content)?;
+                (projection.text, projection.semantic_sha256)
+            } else {
+                (record.content.clone(), digest(record.content.as_bytes()))
+            };
+            let lower = text.to_lowercase();
             let score = words
                 .iter()
                 .filter(|word| lower.contains(word.as_str()))
                 .count();
             if score > 0 {
-                matches.push((score,json!({"logical_id":record.logical_id,"source_sha":origin.source_revision,
-                "document_sha256":record.content_hash,"text_sha256":projection.semantic_sha256,"text":projection.text})));
+                matches.push((
+                    score,
+                    json!({"logical_id":record.logical_id,"source_sha":origin.source_revision,
+                "document_sha256":record.content_hash,"text_sha256":text_sha256,"text":text}),
+                ));
             }
         }
         matches.sort_by_key(|(score, _)| std::cmp::Reverse(*score));

@@ -704,24 +704,9 @@ pub async fn prepare_document(
         .document_paths
         .get(&verified.proposal.target)
         .context("Physische Dokumentbasis fehlt")?;
-    let path = confined_target(config, previous_path)?;
-    let current = if let Some(document) = config.canonical_documents.get(&verified.proposal.target)
-    {
-        Some(document.content.clone())
-    } else if verified.proposal.target.starts_with("internal/")
-        && config.private_document_root.is_some()
-    {
-        crate::scanner::read_private_document(config, previous_path)?
-    } else if path.exists() {
-        let metadata = std::fs::metadata(&path)?;
-        ensure!(
-            metadata.len() <= config.bounds.max_blob_bytes as u64,
-            "Dokument zu groß"
-        );
-        Some(std::fs::read_to_string(&path)?)
-    } else {
-        None
-    };
+    confined_target(config, previous_path)?;
+    // validate_provider_input hat diese Basis bereits gegen den aktiven Pin oder docs_ref geprüft.
+    let current = scan.documents[&verified.proposal.target].clone();
     ensure!(
         current.as_ref().map(|s| digest(s.as_bytes())) == verified.proposal.before_sha256,
         "Dokument wurde zwischenzeitlich verändert"
@@ -753,6 +738,15 @@ pub async fn prepare_document(
     };
     let mut metadata = BTreeMap::from([
         ("output_path".into(), output_path.clone()),
+        (
+            "content_format".into(),
+            if output_path.ends_with(".html") {
+                "html"
+            } else {
+                "markdown"
+            }
+            .into(),
+        ),
         ("source_commit".into(), scan.source_sha.clone()),
         ("docs_base_commit".into(), scan.docs_sha.clone()),
         (

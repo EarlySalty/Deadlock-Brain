@@ -388,7 +388,11 @@ pub async fn scan_pinned(
         document_paths.insert(
             target.clone(),
             if config.canonical_documents.contains_key(target) {
-                output.clone()
+                config.canonical_documents[target]
+                    .metadata
+                    .get("output_path")
+                    .unwrap_or(output)
+                    .clone()
             } else {
                 artifact.clone()
             },
