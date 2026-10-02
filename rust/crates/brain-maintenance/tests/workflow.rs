@@ -112,6 +112,15 @@ fn verified_for(
         findings: vec![],
     };
     VerifiedDocument {
+        export_binding: Some(
+            brain_maintenance::author::export_binding(
+                config,
+                &config.repositories[0],
+                scan,
+                target,
+            )
+            .unwrap(),
+        ),
         reviewer_input_tokens: None,
         reviewer_output_tokens: None,
         proposal,
@@ -272,10 +281,13 @@ async fn postgres_revocation_after_scan_blocks_actual_provider_dispatch() {
 
 #[tokio::test]
 async fn code_only_migration_keeps_previous_private_text_local_and_binds_all_rights() {
-    let (_dir, mut config, mut repo) = fixture();
+    let (dir, mut config, mut repo) = fixture();
     let initial = scanner::scan(&config, &repo, None).await.unwrap();
     let target = "internal/system.html";
     let content = initial.documents[target].clone().unwrap();
+    let mut rejected = verified_for(&config, &initial, target);
+    rejected.review.approved = false;
+    rejected.review.findings = vec!["GESPERRTER_NEGATIVBEFUND".into()];
     let mut origin = initial.source_blobs[0].origin.clone();
     origin.raw_sha256 = digest(content.as_bytes());
     origin.policy = repo.document_policy.clone();
@@ -296,6 +308,55 @@ async fn code_only_migration_keeps_previous_private_text_local_and_binds_all_rig
     author::validate_provider_input(&config, &repo, &migrated, target)
         .await
         .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    let calls = dir.path().join("provider-calls");
+    let executable = dir.path().join("provider-fixture");
+    let answer = dir.path().join("answer.json");
+    let mut proposal = rejected.proposal.clone();
+    proposal.action = Action::SourceReview;
+    proposal.content.clear();
+    proposal.open_questions = vec!["Welcher Aufrufer ist belegt?".into()];
+    fs::write(&answer, serde_json::to_vec(&proposal).unwrap()).unwrap();
+    fs::write(&executable, format!("#!/bin/sh\nresult=''\nwhile [ $# -gt 0 ]; do\nif [ \"$1\" = '--output-last-message' ]; then shift; result=$1; fi\nshift\ndone\nprompt=$(cat)\ncase \"$prompt\" in *'Der Helfer liefert true.'*|*'GESPERRTER_NEGATIVBEFUND'*) exit 9 ;; esac\nprintf 'x' >> '{}'\ncp '{}' \"$result\"\nprintf '%s\\n' '{{\"type\":\"thread.started\",\"thread_id\":\"safe-new-author\"}}' '{{\"type\":\"turn.completed\",\"usage\":{{\"input_tokens\":8,\"output_tokens\":9}}}}'\n", calls.display(), answer.display())).unwrap();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+    config.codex.executable = executable;
+    let proof = author::CodexRunProof {
+        run_id: rejected.author_run_id.clone(),
+        model: config.codex.model.clone(),
+        reasoning_effort: config.codex.reasoning_effort.clone(),
+        exit_code: 0,
+        event_types: vec![],
+        tool_events: 0,
+        input_tokens: None,
+        output_tokens: None,
+    };
+    for binding in [
+        rejected.export_binding.clone(),
+        Some(author::export_binding(&config, &repo, &migrated, target).unwrap()),
+    ] {
+        let draft = author::DraftDocument {
+            proposal: rejected.proposal.clone(),
+            proof: proof.clone(),
+            export_binding: binding,
+        };
+        assert!(author::review_draft(&config, &repo, &migrated, draft)
+            .await
+            .is_err());
+        assert!(!calls.exists());
+    }
+    let payload: serde_json::Value = serde_json::from_str(
+        &author::feedback_payload(&config, &repo, &migrated, target, &rejected).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(payload.as_object().unwrap().len(), 2);
+    assert!(payload.get("previous_proposal").is_none());
+    assert!(payload.get("findings").is_none());
+    let new_draft =
+        author::propose_with_feedback(&config, &repo, &migrated, target, Some(&rejected))
+            .await
+            .unwrap();
+    author::validate_draft(&config, &repo, &migrated, &new_draft).unwrap();
+    assert_eq!(fs::read(&calls).unwrap(), b"x");
     config
         .canonical_documents
         .get_mut(target)

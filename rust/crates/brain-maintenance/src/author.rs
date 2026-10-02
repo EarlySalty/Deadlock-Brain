@@ -60,6 +60,8 @@ pub struct VerifiedDocument {
     pub proposal: AuthorProposal,
     pub review: IndependentReview,
     pub evidence_sha256: String,
+    #[serde(default)]
+    pub export_binding: Option<String>,
     pub model: String,
     pub prompt_version: String,
     pub author_run_id: String,
@@ -388,15 +390,95 @@ pub fn validate_proposal(
 pub struct DraftDocument {
     pub proposal: AuthorProposal,
     pub proof: CodexRunProof,
+    #[serde(default)]
+    pub export_binding: Option<String>,
+}
+
+pub fn export_binding(
+    config: &MaintenanceConfig,
+    repo: &RepositoryConfig,
+    scan: &ScanResult,
+    target: &str,
+) -> Result<String> {
+    Ok(digest(&serde_json::to_vec(&json!({
+        "evidence":digest(&serde_json::to_vec(scan)?),
+        "source_policy":repo.policy,
+        "target_policy":repo.document_policy_for(target),
+        "canonical_origin":config.canonical_documents.get(target).map(|document| &document.origin),
+        "migration_authorized":repo.code_only_migration_targets.contains(target),
+        "export_mode":if crate::scanner::exportable_document(config, scan, target).is_some() {"full"} else {"code_only"}
+    }))?))
+}
+
+pub fn validate_draft(
+    config: &MaintenanceConfig,
+    repo: &RepositoryConfig,
+    scan: &ScanResult,
+    draft: &DraftDocument,
+) -> Result<()> {
+    ensure!(
+        draft.export_binding.as_deref()
+            == Some(export_binding(config, repo, scan, &draft.proposal.target)?.as_str())
+            && !(matches!(draft.proposal.action, Action::Keep)
+                && crate::scanner::exportable_document(config, scan, &draft.proposal.target)
+                    .is_none()),
+        "cached_document_export_binding_changed"
+    );
+    ensure!(
+        !draft.proof.run_id.trim().is_empty()
+            && draft.proof.model == config.codex.model
+            && draft.proof.reasoning_effort == config.codex.reasoning_effort
+            && draft.proof.exit_code == 0
+            && draft.proof.tool_events == 0,
+        "cached_author_binding"
+    );
+    validate_proposal(config, repo, scan, &draft.proposal)
+}
+
+pub fn feedback_payload(
+    config: &MaintenanceConfig,
+    repo: &RepositoryConfig,
+    scan: &ScanResult,
+    target: &str,
+    rejected: &VerifiedDocument,
+) -> Result<String> {
+    ensure!(
+        !rejected.review.approved
+            && rejected.proposal.target == target
+            && rejected.review.proposal_sha256 == digest(&serde_json::to_vec(&rejected.proposal)?)
+            && rejected.author_run_id != rejected.reviewer_run_id,
+        "rejected_review_binding"
+    );
+    let current = export_binding(config, repo, scan, target)?;
+    if rejected.export_binding.as_deref() != Some(current.as_str())
+        || (matches!(rejected.proposal.action, Action::Keep)
+            && crate::scanner::exportable_document(config, scan, target).is_none())
+    {
+        return Ok(serde_json::to_string(
+            &json!({"previous_proposal_sha256":rejected.review.proposal_sha256,
+            "previous_content_withheld":"Die vorherige Fassung und ihre Befunde sind für diesen Exportkontext gesperrt. Erstelle die Fassung ausschließlich aus dem aktuellen freigegebenen Evidenzpaket."}),
+        )?);
+    }
+    ensure!(
+        rejected.review.source_sha == scan.source_sha
+            && rejected.evidence_sha256 == digest(&serde_json::to_vec(scan)?),
+        "rejected_review_binding"
+    );
+    Ok(serde_json::to_string(
+        &json!({"previous_proposal":rejected.proposal,"findings":rejected.review.findings,"same_document_basis":true}),
+    )?)
 }
 pub fn validate_verified_draft(
     config: &MaintenanceConfig,
+    repo: &RepositoryConfig,
     scan: &ScanResult,
     draft: &DraftDocument,
     verified: &VerifiedDocument,
 ) -> Result<()> {
+    validate_draft(config, repo, scan, draft)?;
     ensure!(
-        verified.proposal == draft.proposal
+        verified.export_binding == draft.export_binding
+            && verified.proposal == draft.proposal
             && verified.author_run_id == draft.proof.run_id
             && verified.author_run_id != verified.reviewer_run_id
             && !verified.reviewer_run_id.trim().is_empty()
@@ -487,19 +569,7 @@ pub async fn propose_with_feedback(
     };
     let prompt = format!("Du überarbeitest genau das Dokument {target}. before_sha256={before_sha256}; documentation-version={version}. {STYLE} {TRUST}\nPrüfe zuerst, ob überhaupt eine fachliche Änderung erforderlich ist. Bei unveränderter Bedeutung action=keep und den ursprünglichen Text wortgetreu zurückgeben. Bei fehlenden Belegen action=source_review und konkrete offene Fragen. Für update sind vollständige Belege und keine offenen Fragen erforderlich. source_sha und before_sha256 exakt aus dem Paket übernehmen. citations nennen die tatsächlich verwendeten Codepfade und deren sha256. Neue Dokumente sind semantisches HTML im vorhandenen schlichten Docs-Aufbau: html lang=de, main, genau ein h1, section mit stabilen IDs, Quellenabschnitt. Neue und aktualisierte HTML-Seiten erhalten meta name=source-commit mit dem gelieferten SHA, documentation-version mit der Promptversion und documentation-status mit dem Arbeitsstand. Bestehendes Gerüst, Titel, Stile, Navigation, Abschnitt-IDs und Bildquellen erhalten. Grafiken sind nur erläuterte, skriptfreie Inline-SVG innerhalb figure mit figcaption. Keine neuen Bilddateien, JS, Eventhandler oder externen aktiven Ressourcen. Der Kerntext muss ohne Bilder verständlich sein. Unveränderte Markdownquellen bleiben bei keep wortgetreu erhalten. Bei update wird HTML erzeugt; die logische Seiten-ID bleibt gleich. Keine Massenkonvertierung.\nEvidenzpaket:\n{evidence}");
     let feedback = if let Some(rejected) = feedback {
-        ensure!(
-            !rejected.review.approved
-                && rejected.proposal.target == target
-                && rejected.review.source_sha == scan.source_sha
-                && rejected.review.proposal_sha256
-                    == digest(&serde_json::to_vec(&rejected.proposal)?)
-                && rejected.author_run_id != rejected.reviewer_run_id,
-            "rejected_review_binding"
-        );
-        serde_json::to_string(
-            &json!({"previous_proposal":rejected.proposal,"findings":rejected.review.findings,
-            "same_document_basis":rejected.evidence_sha256 == digest(&serde_json::to_vec(scan)?)}),
-        )?
+        feedback_payload(config, repo, scan, target, rejected)?
     } else {
         "Keine vorherige Ablehnung.".into()
     };
@@ -511,6 +581,7 @@ pub async fn propose_with_feedback(
     .await?;
     validate_proposal(config, repo, scan, &proposal)?;
     Ok(DraftDocument {
+        export_binding: Some(export_binding(config, repo, scan, target)?),
         proposal,
         proof: author_proof,
     })
@@ -522,9 +593,11 @@ pub async fn review_draft(
     scan: &ScanResult,
     draft: DraftDocument,
 ) -> Result<VerifiedDocument> {
+    validate_draft(config, repo, scan, &draft)?;
     let DraftDocument {
         proposal,
         proof: author_proof,
+        export_binding,
     } = draft;
     let target = &proposal.target;
     validate_proposal(config, repo, scan, &proposal)?;
@@ -558,6 +631,7 @@ pub async fn review_draft(
         "Abnahme enthält offene Befunde"
     );
     Ok(VerifiedDocument {
+        export_binding,
         proposal,
         review,
         evidence_sha256,

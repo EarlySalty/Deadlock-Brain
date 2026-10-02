@@ -567,11 +567,12 @@ impl Runner {
 
     async fn advance(&self, job: &mut MaintenanceJob) -> Result<()> {
         let result = self.advance_inner(job).await;
-        if result
-            .as_ref()
-            .err()
-            .is_some_and(|error| error.to_string() == "referenced_document_hash_changed")
-            && job.checkpoint.publication.is_none()
+        if result.as_ref().err().is_some_and(|error| {
+            matches!(
+                error.to_string().as_str(),
+                "referenced_document_hash_changed" | "cached_document_export_binding_changed"
+            )
+        }) && job.checkpoint.publication.is_none()
             && matches!(
                 job.status,
                 MaintenanceStatus::Author
@@ -777,6 +778,22 @@ impl Runner {
                             .and_then(|bytes| Ok(serde_json::from_slice(&bytes)?))
                     })
                     .transpose()?;
+                let initial_draft: Option<author::DraftDocument> = if feedback.is_none() {
+                    checkpoint
+                        .artifact_refs
+                        .get("draft")
+                        .map(|reference| {
+                            self.artifacts.read(reference).and_then(|bytes| {
+                                serde_json::from_slice(&bytes).map_err(Into::into)
+                            })
+                        })
+                        .transpose()?
+                } else {
+                    None
+                };
+                if let Some(draft) = &initial_draft {
+                    author::validate_draft(&config, repo, &scan, draft)?;
+                }
                 let resumed_correction = if feedback.is_some()
                     && checkpoint.artifact_refs.contains_key("correction_intent")
                 {
@@ -794,7 +811,7 @@ impl Runner {
                             .as_ref()
                             .is_some_and(|old| draft.proof.run_id != old.author_run_id)
                     }) {
-                        author::validate_proposal(&config, repo, &scan, &draft.proposal)?;
+                        author::validate_draft(&config, repo, &scan, &draft)?;
                         Some(draft)
                     } else {
                         checkpoint.artifact_refs.insert(
@@ -820,7 +837,7 @@ impl Runner {
                         .artifact_refs
                         .insert("correction_intent".into(), intent);
                 }
-                let draft = if let Some(draft) = resumed_correction {
+                let draft = if let Some(draft) = resumed_correction.or(initial_draft) {
                     draft
                 } else {
                     guarded_provider_dispatch(&self.store, &config, repo, &scan, &job.spec, || {
@@ -908,7 +925,7 @@ impl Runner {
                             )
                             .await?
                         };
-                    author::validate_verified_draft(&config, &scan, &draft, &verified)?;
+                    author::validate_verified_draft(&config, repo, &scan, &draft, &verified)?;
                     let verified_ref = self
                         .artifacts
                         .put(&serde_json::to_vec(&verified)?, "json")?;

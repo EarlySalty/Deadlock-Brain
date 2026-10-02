@@ -321,6 +321,15 @@ async fn stage(
 fn draft(config: &MaintenanceConfig, scan: &scanner::ScanResult) -> author::DraftDocument {
     let content = scan.documents["internal/system.html"].clone().unwrap();
     author::DraftDocument {
+        export_binding: Some(
+            author::export_binding(
+                config,
+                &config.repositories[0],
+                scan,
+                "internal/system.html",
+            )
+            .unwrap(),
+        ),
         proposal: AuthorProposal {
             source_sha: scan.source_sha.clone(),
             target: "internal/system.html".into(),
@@ -351,6 +360,7 @@ fn rejection(
     draft: &author::DraftDocument,
 ) -> VerifiedDocument {
     VerifiedDocument {
+        export_binding: draft.export_binding.clone(),
         proposal: draft.proposal.clone(),
         review: IndependentReview {
             approved: false,
@@ -372,6 +382,61 @@ fn rejection(
 #[tokio::test]
 #[ignore = "Benötigt den ausdrücklich isolierten PostgreSQL-Prüfcluster; exklusiv ausführen"]
 async fn postgres_runner_private_basis_reset_and_rejected_review_resume() {
+    let (dir, runner, mut config, repo, scan) = setup().await;
+    let mut resumed = stage(&runner, &config, &repo, &scan, false).await;
+    let saved = draft(&config, &scan);
+    let reference = runner
+        .artifacts
+        .put(&serde_json::to_vec(&saved).unwrap(), "json")
+        .unwrap();
+    runner
+        .store
+        .set_maintenance_artifact(resumed.lease.as_ref().unwrap(), "draft", &reference)
+        .await
+        .unwrap();
+    let calls = dir.path().join("initial-author-calls");
+    let executable = dir.path().join("unexpected-author");
+    fs::write(
+        &executable,
+        format!("#!/bin/sh\nprintf 'x' >> '{}'\nexit 9\n", calls.display()),
+    )
+    .unwrap();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+    config.codex.executable = executable;
+    fs::write(
+        &runner.runtime.maintenance_config,
+        serde_json::to_vec(&config).unwrap(),
+    )
+    .unwrap();
+    resumed = runner
+        .store
+        .maintenance_job(&resumed.spec.id)
+        .await
+        .unwrap()
+        .unwrap();
+    runner.advance(&mut resumed).await.unwrap();
+    let after = runner
+        .store
+        .maintenance_job(&resumed.spec.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(after.status, MaintenanceStatus::Reviewer);
+    assert!(!calls.exists());
+    assert_eq!(after.checkpoint.artifact_refs["draft"], reference);
+    let lease = runner
+        .store
+        .claim_maintenance(&runner.owner, 900000)
+        .await
+        .unwrap()
+        .unwrap()
+        .lease
+        .unwrap();
+    runner
+        .store
+        .transition_maintenance(&lease, MaintenanceStatus::Failed, &after.checkpoint)
+        .await
+        .unwrap();
     for variant in ["changed", "deleted", "origin", "permissions"] {
         let (_dir, runner, config, repo, mut scan) = setup().await;
         if variant == "origin" {
@@ -454,7 +519,8 @@ async fn postgres_runner_private_basis_reset_and_rejected_review_resume() {
     let (_dir, runner, config, repo, scan) = setup().await;
     let mut job = stage(&runner, &config, &repo, &scan, true).await;
     let rejected = rejection(&config, &scan, &draft(&config, &scan));
-    author::validate_verified_draft(&config, &scan, &draft(&config, &scan), &rejected).unwrap();
+    author::validate_verified_draft(&config, &repo, &scan, &draft(&config, &scan), &rejected)
+        .unwrap();
     for variant in ["draft", "run", "source", "evidence", "proposal"] {
         let mut mismatched = rejected.clone();
         match variant {
@@ -466,6 +532,7 @@ async fn postgres_runner_private_basis_reset_and_rejected_review_resume() {
         }
         assert!(author::validate_verified_draft(
             &config,
+            &repo,
             &scan,
             &draft(&config, &scan),
             &mismatched
