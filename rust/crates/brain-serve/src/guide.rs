@@ -374,7 +374,7 @@ impl GuideRuntime {
         result.conversation_id = Some(conversation_id);
         result.expires_at = Some(expires);
         if turn.surface == Surface::Dm {
-            result.memory_notice=Some(if snapshot.profile.memory_enabled{"Ich berücksichtige deine freiwilligen Angaben und den nötigen eigenen Gesprächskontext. „Erinnerung aus“ schaltet das Speichern ab; „Vergiss mich“ löscht es. Für KI-Antworten gehen deine Nachricht und der nötige Kontext an unseren bestehenden Antwortdienst."}else{"Deine Erinnerung ist aus. Für diese KI-Antwort wird deine Nachricht an unseren bestehenden Antwortdienst weitergegeben; früheren gespeicherten Verlauf verwende ich dabei nicht."}.into());
+            result.memory_notice=Some(if snapshot.profile.memory_enabled{"Ich berücksichtige deine freiwilligen Angaben und den nötigen eigenen Gesprächskontext. „Erinnerung aus“ schaltet das Speichern ab; „Vergiss mich“ löscht es. Für KI-Antworten gehen deine Nachricht und der nötige Kontext an den externen KI-Antwortdienst."}else{"Deine Erinnerung ist aus. Für diese KI-Antwort wird deine Nachricht an den externen KI-Antwortdienst weitergegeben; früheren gespeicherten Verlauf verwende ich dabei nicht."}.into());
         }
         Ok(result)
     }
