@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) const CHUNKER_VERSION: &str = "utf8-window-v1-1024-overlap192";
-const HTML_CHUNKER_VERSION: &str = "html-semantic-v1+utf8-window-v1-1024-overlap192";
+const HTML_CHUNKER_VERSION: &str = "html-semantic-v2+utf8-window-v1-1024-overlap192";
 const TARGET_BYTES: usize = 1024;
 const OVERLAP_BYTES: usize = 192;
 const K1: f64 = 1.2;

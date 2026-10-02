@@ -118,7 +118,7 @@ async fn html_evidence_binds_semantic_ranges_to_unchanged_reviewed_artifact() {
             p.metadata["html_semantic_sha256"],
             projection.semantic_sha256
         );
-        assert!(p.chunker_version.starts_with("html-semantic-v1+"));
+        assert!(p.chunker_version.starts_with("html-semantic-v2+"));
         assert_eq!(hit.content, projection.text[p.byte_start..p.byte_end]);
         assert!(!hit.content.contains("<"));
         assert!(!hit.content.contains("FalscheAdminBehauptung"));

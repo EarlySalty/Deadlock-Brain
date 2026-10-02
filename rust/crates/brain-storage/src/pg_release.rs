@@ -54,6 +54,88 @@ async fn publish_release_tx(
 }
 
 impl PgStore {
+    /// Bindet eine bereits gespeicherte und unabhängig geprüfte Revision, ohne sie erneut zu schreiben.
+    pub async fn reuse_maintenance_revision(
+        &self,
+        lease: &MaintenanceLease,
+        base_id: &str,
+        release: &CorpusRelease,
+        revision: u64,
+        expected: &SourceRecordV2,
+    ) -> Result<(), PortError> {
+        let mut tx = self.pool.begin().await.map_err(database_error)?;
+        let (job, registration) =
+            crate::pg_maintenance::lock_publication_job(&mut tx, lease).await?;
+        lock_source(&mut tx, &registration.source_id)
+            .await
+            .map_err(database_error)?;
+        let value: serde_json::Value = sqlx::query_scalar(
+            "SELECT record_json FROM brain.source_record_heads WHERE source_id=$1 AND logical_id=$2 FOR UPDATE",
+        ).bind(&registration.source_id).bind(&job.spec.target_path)
+            .fetch_optional(&mut *tx).await.map_err(database_error)?
+            .ok_or_else(|| invalid("maintenance existing target missing"))?;
+        let record: SourceRecordV2 = serde_json::from_value(value)
+            .map_err(|_| invalid("invalid existing maintenance target"))?;
+        crate::pg_maintenance::validate_publication_record(&job, &record)?;
+        let normalize = |record: &SourceRecordV2| -> Result<SourceRecordV2, PortError> {
+            let mut stable = record.clone();
+            stable.revision = 1;
+            let mut origin = brain_contracts::source::origin_from_record(record)
+                .map_err(|_| invalid("invalid existing maintenance provenance"))?;
+            origin.retrieved_at = brain_contracts::value::Observed::unknown(
+                brain_contracts::value::UnknownReason::NotPresent,
+            );
+            origin
+                .bind_record(&mut stable)
+                .map_err(|_| invalid("invalid normalized maintenance provenance"))?;
+            Ok(stable)
+        };
+        if normalize(&record)? != normalize(expected)? {
+            return Err(invalid("maintenance existing document semantics changed"));
+        }
+        if record.tombstone
+            || record.revision != revision
+            || job.checkpoint.review.as_ref().is_none_or(|review| {
+                !review.accepted || review.document_sha256 != record.content_hash
+            })
+        {
+            return Err(invalid("maintenance existing target superseded"));
+        }
+        let base_value: serde_json::Value = sqlx::query_scalar(
+            "SELECT release_json FROM brain.corpus_releases_v1 WHERE release_id=$1",
+        )
+        .bind(base_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(database_error)?;
+        let base: CorpusRelease = serde_json::from_value(base_value)
+            .map_err(|_| invalid("invalid existing maintenance base"))?;
+        let mut pins = base.source_revisions.clone();
+        pins.entry(record.source_id.clone())
+            .or_default()
+            .insert(record.logical_id.clone(), revision);
+        if release.patch != base.patch || release.source_revisions != pins {
+            return Err(invalid(
+                "maintenance existing revision changed foreign pins",
+            ));
+        }
+        publish_release_tx(&mut tx, release).await?;
+        crate::pg_maintenance::record_publication_checkpoint(
+            &mut tx,
+            lease,
+            &job,
+            MaintenancePublicationProof {
+                release_id: release.release_id.clone(),
+                source_id: record.source_id,
+                logical_id: record.logical_id,
+                document_revision: revision,
+                document_sha256: record.content_hash,
+            },
+        )
+        .await?;
+        tx.commit().await.map_err(database_error)?;
+        Ok(())
+    }
     /// Verbindet eine unveränderte publizierte Dokumentrevision mit dem jetzt aktiven Basisrelease.
     pub async fn rebase_maintenance_publication(
         &self,
@@ -350,6 +432,30 @@ impl PgStore {
         };
         for source in &sources {
             lock_source(&mut tx, source).await.map_err(database_error)?;
+        }
+        if let Some((_, proof)) = &maintenance_job {
+            let base_id = maintenance.expect("maintenance publication context").1;
+            let base_value: serde_json::Value = sqlx::query_scalar(
+                "SELECT release_json FROM brain.corpus_releases_v1 WHERE release_id=$1",
+            )
+            .bind(base_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(database_error)?;
+            let base: CorpusRelease = serde_json::from_value(base_value)
+                .map_err(|_| invalid("invalid maintenance base release"))?;
+            let current: Option<i64> = sqlx::query_scalar(
+                "SELECT revision FROM brain.source_record_heads WHERE source_id=$1 AND logical_id=$2 FOR UPDATE",
+            ).bind(&proof.source_id).bind(&proof.logical_id)
+                .fetch_optional(&mut *tx).await.map_err(database_error)?;
+            let pinned = base
+                .source_revisions
+                .get(&proof.source_id)
+                .and_then(|pins| pins.get(&proof.logical_id))
+                .copied();
+            if current.map(|revision| revision as u64) != pinned {
+                return Err(invalid("maintenance publication basis superseded"));
+            }
         }
         let mut receipts = Vec::with_capacity(batches.len());
         for (batch, lease) in batches {

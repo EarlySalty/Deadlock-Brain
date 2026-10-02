@@ -125,6 +125,39 @@ fn verified_for(
 }
 
 #[tokio::test]
+async fn scan_references_keep_hashes_and_rehydrate_without_retaining_raw_text() {
+    use brain_maintenance::integration::scan_checkpoint::ScanCheckpoint;
+    let (_dir, config, repo) = fixture();
+    let scan = scanner::scan(&config, &repo, None).await.unwrap();
+    assert!(scan
+        .source_blobs
+        .iter()
+        .all(|blob| !blob.origin.policy.raw_retention_allowed));
+    let checkpoint = ScanCheckpoint::capture(&scan, "explicit-reader".into());
+    assert!(checkpoint
+        .scan
+        .source_blobs
+        .iter()
+        .all(|blob| blob.content.is_empty()));
+    assert!(checkpoint
+        .scan
+        .documents
+        .values()
+        .flatten()
+        .all(String::is_empty));
+    let encoded = serde_json::to_vec(&checkpoint).unwrap();
+    let mut resumed: ScanCheckpoint = serde_json::from_slice(&encoded).unwrap();
+    resumed.hydrate_sources(&repo).unwrap();
+    assert_eq!(
+        serde_json::to_value(&resumed.scan.source_blobs).unwrap(),
+        serde_json::to_value(&scan.source_blobs).unwrap()
+    );
+    assert_eq!(resumed.reader_release, "explicit-reader");
+    resumed.scan.source_blobs[0].content = "verbotene persistierte Bytes".into();
+    assert!(resumed.hydrate_sources(&repo).is_err());
+}
+
+#[tokio::test]
 #[ignore = "requires dedicated /tmp/brain-maintenance-test-20261002/socket PostgreSQL fixture"]
 async fn postgres_revocation_after_scan_blocks_actual_provider_dispatch() {
     use brain_contracts::maintenance::*;

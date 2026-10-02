@@ -12,6 +12,27 @@ const READER_MIGRATION: &str =
 const NO_CHANGE_MIGRATION: &str =
     include_str!("../../../../scripts/migrations/2026-10-02-brain-maintenance-no-change-v4.sql");
 const ROW: &str = "id,spec_json,status,checkpoint_json,attempts,error_code,owner,fence,(extract(epoch FROM lease_until)*1000)::bigint AS expires,superseded_by";
+async fn lock_publication_head(
+    connection: &mut PgConnection,
+    job: &MaintenanceJob,
+    proof: &MaintenancePublicationProof,
+) -> Result<(), PortError> {
+    let value: serde_json::Value = sqlx::query_scalar(
+        "SELECT record_json FROM brain.source_record_heads WHERE source_id=$1 AND logical_id=$2 FOR SHARE",
+    ).bind(&proof.source_id).bind(&proof.logical_id)
+        .fetch_optional(&mut *connection).await.map_err(database_error)?
+        .ok_or_else(|| invalid("maintenance publication target superseded"))?;
+    let record: brain_contracts::SourceRecordV2 =
+        serde_json::from_value(value).map_err(|_| invalid("invalid current maintenance head"))?;
+    validate_publication_record(job, &record)?;
+    if record.tombstone
+        || record.revision != proof.document_revision
+        || record.content_hash != proof.document_sha256
+    {
+        return Err(invalid("maintenance publication target superseded"));
+    }
+    Ok(())
+}
 fn invalid(message: &str) -> PortError {
     PortError::InvalidResponse(message.into())
 }
@@ -249,6 +270,7 @@ impl PgStore {
             .publication
             .clone()
             .ok_or_else(|| invalid("maintenance activation requires publication"))?;
+        lock_publication_head(&mut tx, &job, &publication).await?;
         let result = async {
             let proof = tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), activate(publication))
                 .await.map_err(|_| invalid("maintenance activation timed out"))??;
@@ -463,6 +485,13 @@ impl PgStore {
             return Err(invalid("accepted maintenance review cannot be replaced"));
         }
         checkpoint.validate(&job.spec, next)?;
+        if next == MaintenanceStatus::Activated {
+            let proof = checkpoint
+                .publication
+                .as_ref()
+                .ok_or_else(|| invalid("maintenance activation requires publication"))?;
+            lock_publication_head(&mut tx, &job, proof).await?;
+        }
         if let Some(proof) = &checkpoint.publication {
             let row = sqlx::query("SELECT c.release_json,r.content_hash,r.record_json FROM brain.corpus_releases_v1 c JOIN brain.source_record_revisions r ON r.source_id=$2 AND r.logical_id=$3 AND r.revision=$4 WHERE c.release_id=$1").bind(&proof.release_id).bind(&proof.source_id).bind(&proof.logical_id).bind(proof.document_revision as i64).fetch_optional(&mut *tx).await.map_err(database_error)?.ok_or_else(|| invalid("publication proof absent from corpus"))?;
             let release: CorpusRelease =
@@ -1425,6 +1454,30 @@ mod tests {
                 .generation,
             1
         );
+        sqlx::query("INSERT INTO brain.source_record_heads(source_id,logical_id,revision,content_hash,tombstone,record_json) VALUES($1,$2,$3,$4,false,$5)")
+            .bind(&guarded_record.source_id).bind(&guarded_record.logical_id).bind(guarded_record.revision as i64)
+            .bind(&guarded_record.content_hash).bind(serde_json::to_value(&guarded_record).unwrap())
+            .execute(&owner_pool).await.unwrap();
+        assert!(restarted
+            .commit_maintenance_batches_and_publish_checked(
+                &live,
+                &base_id,
+                &[(&batch, &source_lease)],
+                &guarded_release,
+                &expected_heads
+            )
+            .await
+            .is_err());
+        assert!(restarted
+            .snapshot(&guarded_release.release_id)
+            .await
+            .is_err());
+        sqlx::query("DELETE FROM brain.source_record_heads WHERE source_id=$1 AND logical_id=$2")
+            .bind(&guarded_record.source_id)
+            .bind(&guarded_record.logical_id)
+            .execute(&owner_pool)
+            .await
+            .unwrap();
         restarted
             .commit_maintenance_batches_and_publish_checked(
                 &live,
@@ -1448,11 +1501,195 @@ mod tests {
             .snapshot(&guarded_release.release_id)
             .await
             .unwrap();
+        let mut equivalent = guarded.clone();
+        equivalent.id.push_str("-equivalent");
+        equivalent.idempotency_key.push_str("-equivalent");
+        restarted
+            .enqueue_maintenance(&equivalent, MaintenanceStatus::Planned)
+            .await
+            .unwrap();
+        for next in [
+            MaintenanceStatus::SourceReview,
+            MaintenanceStatus::Reviewer,
+            MaintenanceStatus::Publish,
+        ] {
+            let claimed = restarted
+                .claim_maintenance("equivalent-import", 30000)
+                .await
+                .unwrap()
+                .unwrap();
+            let cp = if next == MaintenanceStatus::Publish {
+                reviewed.clone()
+            } else {
+                MaintenanceCheckpoint::default()
+            };
+            restarted
+                .transition_maintenance(&claimed.lease.unwrap(), next, &cp)
+                .await
+                .unwrap();
+        }
+        let equivalent_lease = restarted
+            .claim_maintenance("equivalent-import", 30000)
+            .await
+            .unwrap()
+            .unwrap()
+            .lease
+            .unwrap();
+        let mut wrong_semantics = guarded_record.clone();
+        wrong_semantics
+            .metadata
+            .insert("unreviewed".into(), "changed".into());
+        assert!(restarted
+            .reuse_maintenance_revision(
+                &equivalent_lease,
+                &guarded_release.release_id,
+                &guarded_release,
+                1,
+                &wrong_semantics
+            )
+            .await
+            .is_err());
+        restarted
+            .reuse_maintenance_revision(
+                &equivalent_lease,
+                &guarded_release.release_id,
+                &guarded_release,
+                1,
+                &guarded_record,
+            )
+            .await
+            .unwrap();
+        let equivalent_proof = restarted
+            .maintenance_job(&equivalent.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .checkpoint
+            .publication
+            .unwrap();
+        assert_eq!(equivalent_proof.release_id, guarded_release.release_id);
+        assert_eq!(equivalent_proof.document_revision, 1);
+        let actual_count: i64 = sqlx::query_scalar("SELECT count(*) FROM brain.source_record_revisions WHERE source_id=$1 AND logical_id=$2")
+            .bind(&guarded_record.source_id).bind(&guarded_record.logical_id).fetch_one(&owner_pool).await.unwrap();
+        assert_eq!(actual_count, 1);
+        let mut stored_only_release = base.clone();
+        stored_only_release.release_id.push_str("-reuse-stored");
+        stored_only_release
+            .source_revisions
+            .entry(guarded.id.clone())
+            .or_default()
+            .insert(guarded.target_path.clone(), 1);
+        // Für einen bereits publizierten Job bleibt der ursprüngliche Beleg unveränderlich.
+        assert!(restarted
+            .reuse_maintenance_revision(
+                &equivalent_lease,
+                &base_id,
+                &stored_only_release,
+                1,
+                &guarded_record
+            )
+            .await
+            .is_err());
+        restarted
+            .finish_superseded_publication(&equivalent_lease)
+            .await
+            .unwrap();
+        let mut stored_only = equivalent.clone();
+        stored_only.id.push_str("-stored-only");
+        stored_only.idempotency_key.push_str("-stored-only");
+        restarted
+            .enqueue_maintenance(&stored_only, MaintenanceStatus::Planned)
+            .await
+            .unwrap();
+        for next in [
+            MaintenanceStatus::SourceReview,
+            MaintenanceStatus::Reviewer,
+            MaintenanceStatus::Publish,
+        ] {
+            let claimed = restarted
+                .claim_maintenance("stored-only-import", 30000)
+                .await
+                .unwrap()
+                .unwrap();
+            let cp = if next == MaintenanceStatus::Publish {
+                reviewed.clone()
+            } else {
+                MaintenanceCheckpoint::default()
+            };
+            restarted
+                .transition_maintenance(&claimed.lease.unwrap(), next, &cp)
+                .await
+                .unwrap();
+        }
+        let stored_lease = restarted
+            .claim_maintenance("stored-only-import", 30000)
+            .await
+            .unwrap()
+            .unwrap()
+            .lease
+            .unwrap();
+        restarted
+            .reuse_maintenance_revision(
+                &stored_lease,
+                &base_id,
+                &stored_only_release,
+                1,
+                &guarded_record,
+            )
+            .await
+            .unwrap();
+        let actual_pins = restarted
+            .snapshot(&stored_only_release.release_id)
+            .await
+            .unwrap()
+            .release
+            .source_revisions;
+        assert_eq!(actual_pins, guarded_release.source_revisions);
+        restarted
+            .activate_maintenance_checked(
+                &stored_lease,
+                1000,
+                |proof| async move {
+                    Ok(MaintenanceActivationProof {
+                        active_release_id: proof.release_id,
+                        verified_at_epoch: 1,
+                        evidence_ref: "stored-only-fixture-health".into(),
+                    })
+                },
+                || async { Ok(()) },
+            )
+            .await
+            .unwrap();
         assert_eq!(
             imported.release.source_revisions[&publication_spec.id],
             release.source_revisions[&publication_spec.id]
         );
         let rolled_back = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mut newer_head = guarded_record.clone();
+        newer_head.revision += 1;
+        sqlx::query("UPDATE brain.source_record_heads SET revision=$3,record_json=$4 WHERE source_id=$1 AND logical_id=$2")
+            .bind(&guarded_record.source_id).bind(&guarded_record.logical_id)
+            .bind(newer_head.revision as i64).bind(serde_json::to_value(&newer_head).unwrap())
+            .execute(&owner_pool).await.unwrap();
+        let invoked = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let callback = invoked.clone();
+        assert!(restarted
+            .activate_maintenance_checked(
+                &live,
+                1000,
+                |_| async move {
+                    callback.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    Err(PortError::Unavailable("callback must not run".into()))
+                },
+                || async { panic!("rollback must not run before activation") }
+            )
+            .await
+            .is_err());
+        assert_eq!(invoked.load(std::sync::atomic::Ordering::SeqCst), 0);
+        sqlx::query("UPDATE brain.source_record_heads SET revision=$3,record_json=$4 WHERE source_id=$1 AND logical_id=$2")
+            .bind(&guarded_record.source_id).bind(&guarded_record.logical_id)
+            .bind(guarded_record.revision as i64).bind(serde_json::to_value(&guarded_record).unwrap())
+            .execute(&owner_pool).await.unwrap();
         let rollback_flag = rolled_back.clone();
         assert!(restarted
             .activate_maintenance_checked(

@@ -4,7 +4,7 @@ use scraper::{node::Node, Html};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
-pub const HTML_PROJECTION_VERSION: &str = "html-semantic-v1";
+pub const HTML_PROJECTION_VERSION: &str = "html-semantic-v2";
 const MAX_BYTES: usize = 8 * 1024 * 1024;
 
 pub struct HtmlProjection {
@@ -31,7 +31,8 @@ pub fn project_html(raw: &str) -> Result<HtmlProjection, PortError> {
     }
     let document = Html::parse_document(raw);
     let mut text = String::new();
-    for node in document.tree.root().descendants() {
+    let mut traversal = vec![(document.tree.root(), false)];
+    while let Some((node, closing)) = traversal.pop() {
         let mut skip = false;
         for (depth, ancestor) in node.ancestors().enumerate() {
             if depth > 256 {
@@ -57,28 +58,65 @@ pub fn project_html(raw: &str) -> Result<HtmlProjection, PortError> {
         if skip {
             continue;
         }
+        let boundary = if let Node::Element(element) = node.value() {
+            matches!(
+                element.name(),
+                "h1" | "h2"
+                    | "h3"
+                    | "h4"
+                    | "h5"
+                    | "h6"
+                    | "p"
+                    | "div"
+                    | "section"
+                    | "article"
+                    | "li"
+                    | "tr"
+                    | "br"
+                    | "figure"
+                    | "figcaption"
+                    | "pre"
+                    | "text"
+                    | "title"
+                    | "desc"
+                    | "blockquote"
+                    | "details"
+                    | "summary"
+                    | "hr"
+                    | "header"
+                    | "nav"
+                    | "footer"
+                    | "ul"
+                    | "ol"
+                    | "dl"
+                    | "dt"
+                    | "dd"
+                    | "table"
+                    | "thead"
+                    | "tbody"
+                    | "tfoot"
+            ) || (element.name() == "tspan"
+                && ["x", "y", "dy"]
+                    .iter()
+                    .any(|key| element.attr(key).is_some()))
+        } else {
+            false
+        };
+        if closing {
+            if boundary {
+                text.push('\n');
+            }
+            continue;
+        }
+        traversal.push((node, true));
+        for child in node.children().rev() {
+            traversal.push((child, false));
+        }
         match node.value() {
             Node::Text(value) => text.push_str(value),
             Node::Element(element) => {
                 let name = element.name();
-                if matches!(
-                    name,
-                    "h1" | "h2"
-                        | "h3"
-                        | "h4"
-                        | "h5"
-                        | "h6"
-                        | "p"
-                        | "div"
-                        | "section"
-                        | "article"
-                        | "li"
-                        | "tr"
-                        | "br"
-                        | "figure"
-                        | "figcaption"
-                        | "pre"
-                ) {
+                if boundary {
                     text.push('\n');
                 }
                 if matches!(name, "td" | "th") {
@@ -121,6 +159,17 @@ pub fn project_html(raw: &str) -> Result<HtmlProjection, PortError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn block_and_diagram_boundaries_preserve_separate_words_and_inline_fragments() {
+        let raw = "<p>Alpha</p>Beta<span>Auto</span>raid<svg><text>Nord</text><text>Süd</text><text>Mit<tspan>te</tspan><tspan x='2' dy='3'>Unten</tspan></text></svg>";
+        let text = project_html(raw).unwrap().text;
+        assert_eq!(text, "Alpha\nBetaAutoraid\nNord\nSüd\nMitte\nUnten");
+        let blocks = project_html("<blockquote>A</blockquote>B<details><summary>Frage</summary>Antwort</details>Nachher<svg><title>Übersicht</title><desc>Beschreibung</desc></svg>").unwrap().text;
+        assert_eq!(
+            blocks,
+            "A\nB\nFrage\nAntwort\nNachher\nÜbersicht\nBeschreibung"
+        );
+    }
     #[test]
     fn html_preserves_semantics_without_active_content_or_requests() {
         let raw = "<html><head><title>Nicht lesen</title><script>GIFT</script></head><body><h1 id='setup'>Einrichtung</h1><p>Mit <b>Steam</b> verbinden.</p><figure><img src='https://invalid.test/never-fetch' alt='Steam-Knopf'><figcaption>Abbildung 1</figcaption></figure><script>GEHEIM</script><iframe>VERBOTEN</iframe></body></html>";

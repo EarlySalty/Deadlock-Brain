@@ -2,6 +2,7 @@ use super::{
     activation::ActivationPlan,
     artifacts::Artifacts,
     runtime_config::{read_bounded, RuntimeConfig},
+    scan_checkpoint::ScanCheckpoint,
 };
 use crate::{
     author,
@@ -156,8 +157,7 @@ fn local_job_spec(
         package_hash,
     );
     let key = digest(
-        &serde_json::to_vec(&json!([repo.id, document.logical_id, package_hash]))
-            .expect("JSON-Daten"),
+        &serde_json::to_vec(&json!([repo.id, document.logical_id, document])).expect("JSON-Daten"),
     );
     spec.id = format!("local-{key}");
     spec.idempotency_key = spec.id.clone();
@@ -543,7 +543,7 @@ impl Runner {
     }
 
     async fn advance(&self, job: &mut MaintenanceJob) -> Result<()> {
-        let config = self.current_config().await?;
+        let (config, reader_release) = self.current_config().await?;
         let repo = config
             .repositories
             .iter()
@@ -578,8 +578,7 @@ impl Runner {
             )
         {
             if let Some(reference) = checkpoint.artifact_refs.get("scan") {
-                let scan: scanner::ScanResult =
-                    serde_json::from_slice(&self.artifacts.read(reference)?)?;
+                let scan = self.read_scan(&config, repo, reference).await?;
                 if let Err(error) =
                     author::validate_provider_input(&config, repo, &scan, &job.spec.target_path)
                         .await
@@ -600,6 +599,14 @@ impl Runner {
         let next = match job.status {
             MaintenanceStatus::Planned => MaintenanceStatus::SourceReview,
             MaintenanceStatus::SourceReview => {
+                checkpoint.artifact_refs.insert(
+                    "before_document_sha256".into(),
+                    config
+                        .canonical_documents
+                        .get(&job.spec.target_path)
+                        .map(|doc| digest(doc.content.as_bytes()))
+                        .unwrap_or_else(|| "missing".into()),
+                );
                 if let Some((document, reviewer, reference)) = self.local_document(job).await? {
                     checkpoint.artifact_refs.insert(
                         "document".into(),
@@ -655,7 +662,13 @@ impl Runner {
                     ensure!(triage.error_code.is_none(), "jev_review_transport");
                     checkpoint.artifact_refs.insert(
                         "scan".into(),
-                        self.artifacts.put(&serde_json::to_vec(&scan)?, "json")?,
+                        self.artifacts.put(
+                            &serde_json::to_vec(&ScanCheckpoint::capture(
+                                &scan,
+                                reader_release.clone(),
+                            ))?,
+                            "json",
+                        )?,
                     );
                     checkpoint.artifact_refs.insert(
                         "triage".into(),
@@ -676,8 +689,7 @@ impl Runner {
                     .artifact_refs
                     .get("scan")
                     .context("scan_checkpoint")?;
-                let scan: scanner::ScanResult =
-                    serde_json::from_slice(&self.artifacts.read(reference)?)?;
+                let scan = self.read_scan(&config, repo, reference).await?;
                 let draft =
                     guarded_provider_dispatch(&self.store, &config, repo, &scan, &job.spec, || {
                         while_leased(
@@ -696,14 +708,16 @@ impl Runner {
             }
             MaintenanceStatus::Reviewer => {
                 if checkpoint.review.is_none() {
-                    let scan: scanner::ScanResult = serde_json::from_slice(
-                        &self.artifacts.read(
+                    let scan = self
+                        .read_scan(
+                            &config,
+                            repo,
                             checkpoint
                                 .artifact_refs
                                 .get("scan")
                                 .context("scan_checkpoint")?,
-                        )?,
-                    )?;
+                        )
+                        .await?;
                     let draft: author::DraftDocument = serde_json::from_slice(
                         &self.artifacts.read(
                             checkpoint
@@ -768,7 +782,7 @@ impl Runner {
         Ok(())
     }
 
-    async fn current_config(&self) -> Result<MaintenanceConfig> {
+    async fn current_config(&self) -> Result<(MaintenanceConfig, String)> {
         let mut config = load_maintenance(&self.runtime.maintenance_config)?;
         let serve = brain_serve::Config::load(&self.runtime.serve_config)?;
         let snapshot = self.store.snapshot(&serve.release.id).await?;
@@ -794,7 +808,62 @@ impl Runner {
                 }
             }
         }
-        Ok(config)
+        Ok((config, serve.release.id))
+    }
+
+    async fn read_scan(
+        &self,
+        config: &MaintenanceConfig,
+        repo: &RepositoryConfig,
+        reference: &str,
+    ) -> Result<scanner::ScanResult> {
+        crate::config::require_registered(config, repo)?;
+        let mut checkpoint: ScanCheckpoint =
+            serde_json::from_slice(&self.artifacts.read(reference)?)
+                .map_err(|_| anyhow::anyhow!("legacy_raw_scan_blocked"))?;
+        checkpoint.hydrate_sources(repo)?;
+        let snapshot = self.store.snapshot(&checkpoint.reader_release).await?;
+        let docs = dbrain_sources::git_source::PinnedRepository::open(
+            &config.docs_repo,
+            &checkpoint.scan.docs_sha,
+        )?;
+        docs.require_origin(&[&config.docs_origin])?;
+        for (target, hash) in &checkpoint.document_hashes {
+            let text = if hash.is_none() {
+                None
+            } else if let Some(record) = snapshot.revisions.iter().find(|record| {
+                record.source_id == source_id(repo, target)
+                    && record.logical_id == *target
+                    && !record.tombstone
+            }) {
+                let origin = origin_from_record(record).map_err(anyhow::Error::msg)?;
+                ensure!(
+                    origin.identity.source_id == record.source_id
+                        && origin.identity.logical_id == *target
+                        && origin.raw_sha256 == record.content_hash,
+                    "referenced_document_identity_changed"
+                );
+                Some(record.content.clone())
+            } else {
+                let path = checkpoint
+                    .scan
+                    .document_paths
+                    .get(target)
+                    .context("referenced_document_path")?;
+                if target.starts_with("internal/") && config.private_document_root.is_some() {
+                    scanner::read_private_document(config, path)?
+                } else {
+                    Some(String::from_utf8(docs.read_blob(path)?)?)
+                }
+            };
+            ensure!(
+                text.as_ref().map(|text| digest(text.as_bytes())) == *hash,
+                "referenced_document_hash_changed"
+            );
+            checkpoint.scan.documents.insert(target.clone(), text);
+        }
+        author::recheck_source(config, repo, &checkpoint.scan).await?;
+        Ok(checkpoint.scan)
     }
 
     async fn publish_and_activate(
@@ -806,6 +875,28 @@ impl Runner {
     ) -> Result<()> {
         let _lock = self.artifacts.publication_lock()?;
         crate::config::require_registered(config, repo)?;
+        let (fresh_config, _) = self.current_config().await?;
+        let config = &fresh_config;
+        let repo = config
+            .repositories
+            .iter()
+            .find(|candidate| candidate.id == job.spec.repo_id)
+            .context("publication_repository_missing")?;
+        if job.checkpoint.publication.is_none() {
+            let current_before = config
+                .canonical_documents
+                .get(&job.spec.target_path)
+                .map(|doc| digest(doc.content.as_bytes()))
+                .unwrap_or_else(|| "missing".into());
+            ensure!(
+                job.checkpoint.artifact_refs.get("before_document_sha256") == Some(&current_before),
+                "publication_document_basis_changed"
+            );
+            if let Some(reference) = job.checkpoint.artifact_refs.get("scan") {
+                let scan = self.read_scan(config, repo, reference).await?;
+                author::validate_provider_input(config, repo, &scan, &job.spec.target_path).await?;
+            }
+        }
         let reference = job
             .checkpoint
             .artifact_refs
@@ -844,36 +935,77 @@ impl Runner {
                 tombstone_metadata: BTreeMap::new(),
             };
             let previous = self.store.checkpoint(&source.source_id).await?;
+            let expected_record =
+                prepare_document_batch(&source, std::slice::from_ref(&document), None)?
+                    .records
+                    .into_iter()
+                    .next()
+                    .context("maintenance_expected_record")?;
             let batch = prepare_document_batch(&source, &[document], previous.as_ref())?;
-            ensure!(batch.records.len() == 1, "maintenance_document_delta");
+            ensure!(batch.records.len() <= 1, "maintenance_document_delta");
+            let existing_revision = if batch.records.is_empty() {
+                let state: brain_ingestion::document_set::DocumentSetCheckpoint =
+                    serde_json::from_value(batch.checkpoint.state.clone())?;
+                Some(
+                    state
+                        .documents
+                        .get(&job.spec.target_path)
+                        .context("maintenance_existing_document_state")?
+                        .revision,
+                )
+            } else {
+                None
+            };
+            let revision = existing_revision.unwrap_or_else(|| batch.records[0].revision);
             let mut release = base.clone();
-            release.release_id = format!("maintenance-{}", &job.spec.id[5..]);
-            release.knowledge_version = format!("docs-{}", &job.spec.id[5..]);
-            release.created_at_epoch = chrono::Utc::now().timestamp();
-            release.source_revisions.insert(
-                source.source_id.clone(),
-                BTreeMap::from([(job.spec.target_path.clone(), batch.records[0].revision)]),
-            );
+            let already_active = existing_revision.is_some()
+                && base
+                    .source_revisions
+                    .get(&source.source_id)
+                    .and_then(|pins| pins.get(&job.spec.target_path))
+                    == Some(&revision);
+            if !already_active {
+                release.release_id = format!("maintenance-{}", &job.spec.id[5..]);
+                release.knowledge_version = format!("docs-{}", &job.spec.id[5..]);
+                release.created_at_epoch = chrono::Utc::now().timestamp();
+                release
+                    .source_revisions
+                    .entry(source.source_id.clone())
+                    .or_default()
+                    .insert(job.spec.target_path.clone(), revision);
+            }
             let plan = ActivationPlan::prepare(&self.runtime, &self.artifacts, &release)?;
             // Aktivierungsjournal wird als normaler, noch unveröffentlichter Checkpoint persistiert.
             let journal = plan.journal_ref().to_owned();
             self.store
                 .set_maintenance_artifact(lease, "activation", &journal)
                 .await?;
-            let source_lease = self
-                .store
-                .claim(&source.source_id, &self.owner, 60000)
-                .await?;
             crate::config::require_registered(config, repo)?;
-            self.store
-                .commit_maintenance_batches_and_publish_checked(
-                    lease,
-                    &base.release_id,
-                    &[(&batch, &source_lease)],
-                    &release,
-                    &batch.records,
-                )
-                .await?;
+            if existing_revision.is_some() {
+                self.store
+                    .reuse_maintenance_revision(
+                        lease,
+                        &base.release_id,
+                        &release,
+                        revision,
+                        &expected_record,
+                    )
+                    .await?;
+            } else {
+                let source_lease = self
+                    .store
+                    .claim(&source.source_id, &self.owner, 60000)
+                    .await?;
+                self.store
+                    .commit_maintenance_batches_and_publish_checked(
+                        lease,
+                        &base.release_id,
+                        &[(&batch, &source_lease)],
+                        &release,
+                        &batch.records,
+                    )
+                    .await?;
+            }
         }
         let current = self
             .store
@@ -956,7 +1088,8 @@ impl Runner {
             }
         }
         let activate = plan.clone();
-        self.store
+        let activated = self
+            .store
             .activate_maintenance_checked(
                 lease,
                 self.runtime.health_timeout_ms * 2,
@@ -972,7 +1105,17 @@ impl Runner {
                         .map_err(|_| PortError::Unavailable("activation_rollback_failed".into()))
                 },
             )
-            .await?;
+            .await;
+        if let Err(error) = activated {
+            if error
+                .to_string()
+                .contains("maintenance publication target superseded")
+            {
+                self.store.finish_superseded_publication(lease).await?;
+                return Ok(());
+            }
+            return Err(error.into());
+        }
         Ok(())
     }
 

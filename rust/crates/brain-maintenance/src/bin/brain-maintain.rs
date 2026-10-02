@@ -37,7 +37,7 @@ enum Task {
 #[tokio::main]
 async fn main() {
     if run().await.is_err() {
-        eprintln!("Dokumentpflege fehlgeschlagen. Der gespeicherte Status enthält den Fehlercode.");
+        eprintln!("Dokumentpflege fehlgeschlagen: maintenance_command_failed.");
         std::process::exit(1);
     }
 }

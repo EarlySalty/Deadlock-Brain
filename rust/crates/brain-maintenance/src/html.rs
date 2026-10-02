@@ -273,7 +273,14 @@ pub fn validate_html_with_assets(
                     || (attribute == "style"
                         && original_document.as_ref().is_some_and(|old| old
                             .select(&selector("[style]"))
-                            .any(|e| e.html() == element.html()))),
+                            .any(|e| e.value().name() == element.value().name()
+                                && e.value()
+                                    .attrs()
+                                    .collect::<std::collections::BTreeMap<_, _>>()
+                                    == element
+                                        .value()
+                                        .attrs()
+                                        .collect::<std::collections::BTreeMap<_, _>>()))),
                 "HTML enthält ein nicht erlaubtes Attribut"
             );
             let lower = value.trim().to_ascii_lowercase();
@@ -469,6 +476,25 @@ pub fn validate_html_with_assets(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn unchanged_inline_style_allows_changed_text_but_rejects_attribute_changes() {
+        let old = "<main><p id='satz' style='color:red'>Alt</p></main>";
+        assert!(validate_html(
+            Some(old),
+            "<main><p id='satz' style='color:red'>Neu</p></main>"
+        )
+        .is_ok());
+        assert!(validate_html(
+            Some(old),
+            "<main><p id='satz' style='color:blue'>Neu</p></main>"
+        )
+        .is_err());
+        assert!(validate_html(
+            Some(old),
+            "<main><p id='anderer-satz' style='color:red'>Neu</p></main>"
+        )
+        .is_err());
+    }
     #[test]
     fn text_only_extraction_keeps_caption_and_alt_and_excludes_script() {
         let text=visible_text("<main><h1>Quelle</h1><img src='x' alt='Ablauf'><figcaption>Erklärung</figcaption></main><script>unsichtbar</script>");

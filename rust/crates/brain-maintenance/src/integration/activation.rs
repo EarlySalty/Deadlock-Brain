@@ -34,12 +34,18 @@ impl ActivationPlan {
         release: &CorpusRelease,
     ) -> Result<Self> {
         let old_bytes = read_bounded(&config.serve_config, 65536)?;
-        brain_serve::Config::parse(&old_bytes)
+        let old_config = brain_serve::Config::parse(&old_bytes)
             .map_err(|_| anyhow::anyhow!("serve_config_invalid"))?;
         let mut value: serde_json::Value = serde_json::from_slice(&old_bytes)
             .map_err(|_| anyhow::anyhow!("serve_config_schema"))?;
         value["release"] = serde_json::json!({"id": release.release_id, "knowledge_version": release.knowledge_version});
-        let new_bytes = serde_json::to_vec_pretty(&value)?;
+        let new_bytes = if old_config.release.id == release.release_id
+            && old_config.release.knowledge_version == release.knowledge_version
+        {
+            old_bytes.clone()
+        } else {
+            serde_json::to_vec_pretty(&value)?
+        };
         brain_serve::Config::parse(&new_bytes)
             .map_err(|_| anyhow::anyhow!("serve_config_invalid"))?;
         let journal = Journal {
@@ -131,18 +137,20 @@ impl ActivationPlan {
         let serve = brain_serve::Config::parse(expected)
             .map_err(|_| anyhow::anyhow!("serve_config_invalid"))?;
         ensure!(serve.bind.ip().is_loopback(), "health_loopback");
-        let mut child = tokio::process::Command::new("/usr/bin/systemctl")
-            .args(["--user", "restart", self.unit.as_str()])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .kill_on_drop(true)
-            .spawn()?;
-        let status =
-            tokio::time::timeout(Duration::from_millis(self.health_timeout_ms), child.wait())
-                .await
-                .map_err(|_| anyhow::anyhow!("serve_restart_timeout"))??;
-        ensure!(status.success(), "serve_restart_failed");
+        if self.old_bytes != self.new_bytes {
+            let mut child = tokio::process::Command::new("/usr/bin/systemctl")
+                .args(["--user", "restart", self.unit.as_str()])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .kill_on_drop(true)
+                .spawn()?;
+            let status =
+                tokio::time::timeout(Duration::from_millis(self.health_timeout_ms), child.wait())
+                    .await
+                    .map_err(|_| anyhow::anyhow!("serve_restart_timeout"))??;
+            ensure!(status.success(), "serve_restart_failed");
+        }
         let client = reqwest::Client::builder()
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
