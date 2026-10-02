@@ -661,11 +661,13 @@ async fn action_handler(
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    Ok(Json(if !changed {
-        GuideResult::silent(&request_id)
-    } else {
+    let mut result = if changed.is_some() {
         GuideResult::reply(&request_id,if success{"Dein Anliegen ist beim Moderatorenteam angekommen."}else{"Dein Anliegen konnte gerade nicht zugestellt werden. Es ist noch nicht beim Team angekommen."}.into())
-    }))
+    } else {
+        GuideResult::silent(&request_id)
+    };
+    result.privacy_epoch = changed;
+    Ok(Json(result))
 }
 #[cfg(test)]
 mod tests {

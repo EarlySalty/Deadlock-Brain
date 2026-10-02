@@ -276,7 +276,7 @@ impl LocalPgReader {
         &self,
         action: &ActionResult,
         deadline: &RequestDeadline,
-    ) -> Result<bool, PortError> {
+    ) -> Result<Option<i64>, PortError> {
         let mut client = self.pool.acquire_until(Some(deadline))?;
         let mut tx = client.transaction(false, false)?;
         let uid = action
@@ -284,6 +284,12 @@ impl LocalPgReader {
             .parse::<i64>()
             .map_err(|_| invalid("Mitgliedskennung ist ungültig"))?;
         tx.query_one("SELECT pg_advisory_xact_lock($1)", &[&(uid ^ i64::MIN)])?;
+        let Some(subject) = tx.query_opt("SELECT epoch,deleted FROM brain.guide_subjects WHERE guild_id=$1 AND user_id=$2 FOR UPDATE", &[&action.guild_id,&action.user_id])? else {tx.commit()?;return Ok(None);};
+        let epoch: i64 = subject.get(0);
+        if subject.get::<_, bool>(1) {
+            tx.commit()?;
+            return Ok(None);
+        }
         if let Some(conversation) = action.delivery_id.strip_prefix("reply:") {
             if action.success {
                 let bot_message = action
@@ -302,22 +308,22 @@ impl LocalPgReader {
                 }
             }
             tx.commit()?;
-            return Ok(false);
+            return Ok(None);
         }
         let row=tx.query_opt("SELECT state FROM brain.guide_feedback_outbox WHERE guild_id=$1 AND user_id=$2 AND delivery_id=$3 FOR UPDATE", &[&action.guild_id,&action.user_id,&action.delivery_id])?;
         let Some(row) = row else {
             tx.commit()?;
-            return Ok(false);
+            return Ok(None);
         };
         if row.get::<_, String>(0) != "pending" {
             tx.commit()?;
-            return Ok(false);
+            return Ok(None);
         }
         if action.success && action.sent_message_id.is_none() {
             return Err(invalid("Zustellnachweis fehlt"));
         }
         tx.execute("UPDATE brain.guide_feedback_outbox SET state=$4,text=NULL,discord_message_id=$5 WHERE guild_id=$1 AND user_id=$2 AND delivery_id=$3", &[&action.guild_id,&action.user_id,&action.delivery_id,&if action.success{"sent"}else{"failed"},&action.sent_message_id])?;
         tx.commit()?;
-        Ok(true)
+        Ok(Some(epoch))
     }
 }
