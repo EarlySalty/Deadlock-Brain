@@ -53,8 +53,19 @@ fn turn(request: &str, surface: Surface) -> GuideTurn {
 fn control_turn(reader: &LocalPgReader, original: &GuideTurn) -> GuideTurn {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let mut event = original.clone();
-    event.request_id = format!("control:{}", NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
-    reader.guide_claim(&event, &RequestDeadline::after(Duration::from_secs(5)), 100, true).unwrap().unwrap();
+    event.request_id = format!(
+        "control:{}",
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    );
+    reader
+        .guide_claim(
+            &event,
+            &RequestDeadline::after(Duration::from_secs(5)),
+            100,
+            true,
+        )
+        .unwrap()
+        .unwrap();
     event
 }
 #[tokio::test]
@@ -291,7 +302,13 @@ fn exercise(config: TestConfig) {
         .guide_feedback_draft(&dm, 1201, 600, true, &deadline())
         .unwrap();
     let forgotten = reader
-        .guide_control(&control_turn(&reader, &dm), &ProfileControl::Forget, 1202, Some(1000), &deadline())
+        .guide_control(
+            &control_turn(&reader, &dm),
+            &ProfileControl::Forget,
+            1202,
+            Some(1000),
+            &deadline(),
+        )
         .unwrap();
     assert!(forgotten.deleted && !forgotten.memory_enabled && forgotten.fields.is_empty());
     assert!(!reader
@@ -496,42 +513,140 @@ fn sequence_checks(reader: &LocalPgReader, sql: &mut postgres::Client) {
     let deadline = || RequestDeadline::after(Duration::from_secs(5));
     let mut a = turn("sequence-a", Surface::Dm);
     a.user_id = "210".into();
-    let first = reader.guide_claim(&a, &deadline(), 1300, true).unwrap().unwrap();
-    let mut b = a.clone(); b.request_id = "sequence-b".into();
-    let second = reader.guide_claim(&b, &deadline(), 1300, true).unwrap().unwrap();
-    assert!(reader.guide_claim(&a, &deadline(), 1300, true).unwrap().is_none());
-    let conv = GuideConversation { id: "sequence-conv".into(), channel_id: a.channel_id.clone(), thread_id: None, user_id: a.user_id.clone(), surface: Surface::Dm, last_user_message_id: a.message_id.clone(), last_bot_message_id: None, expires_at: 1900, closed: false };
-    assert!(reader.guide_finish(&b, second.profile.epoch, Some(&conv), &[], None, &deadline()).unwrap());
-    assert!(!reader.guide_finish(&a, first.profile.epoch, Some(&conv), &[], None, &deadline()).unwrap());
-    let mut ack = ActionResult { request_id: "sequence-b:reply".into(), guild_id: a.guild_id.clone(), user_id: a.user_id.clone(), delivery_id: "reply:sequence-conv".into(), success: true, sent_message_id: None, reply_message_id: Some("777".into()) };
+    let first = reader
+        .guide_claim(&a, &deadline(), 1300, true)
+        .unwrap()
+        .unwrap();
+    let mut b = a.clone();
+    b.request_id = "sequence-b".into();
+    let second = reader
+        .guide_claim(&b, &deadline(), 1300, true)
+        .unwrap()
+        .unwrap();
+    assert!(reader
+        .guide_claim(&a, &deadline(), 1300, true)
+        .unwrap()
+        .is_none());
+    let conv = GuideConversation {
+        id: "sequence-conv".into(),
+        channel_id: a.channel_id.clone(),
+        thread_id: None,
+        user_id: a.user_id.clone(),
+        surface: Surface::Dm,
+        last_user_message_id: a.message_id.clone(),
+        last_bot_message_id: None,
+        expires_at: 1900,
+        closed: false,
+    };
+    assert!(reader
+        .guide_finish(
+            &b,
+            second.profile.epoch,
+            Some(&conv),
+            &[],
+            None,
+            &deadline()
+        )
+        .unwrap());
+    assert!(!reader
+        .guide_finish(&a, first.profile.epoch, Some(&conv), &[], None, &deadline())
+        .unwrap());
+    let mut ack = ActionResult {
+        request_id: "sequence-b:reply".into(),
+        guild_id: a.guild_id.clone(),
+        user_id: a.user_id.clone(),
+        delivery_id: "reply:sequence-conv".into(),
+        success: true,
+        sent_message_id: None,
+        reply_message_id: Some("777".into()),
+    };
     reader.guide_action_result(&ack, &deadline()).unwrap();
-    ack.request_id = "sequence-a:reply".into(); ack.reply_message_id = Some("778".into());
+    ack.request_id = "sequence-a:reply".into();
+    ack.reply_message_id = Some("778".into());
     reader.guide_action_result(&ack, &deadline()).unwrap();
     ack.request_id = "sequence-b:reply".into();
     reader.guide_action_result(&ack, &deadline()).unwrap();
-    let saved: serde_json::Value = sql.query_one("SELECT state_json FROM brain.guide_conversations WHERE user_id='210'", &[]).unwrap().get(0);
+    let saved: serde_json::Value = sql
+        .query_one(
+            "SELECT state_json FROM brain.guide_conversations WHERE user_id='210'",
+            &[],
+        )
+        .unwrap()
+        .get(0);
     assert_eq!(saved["last_bot_message_id"], "777");
-    let mut control = a.clone(); control.request_id = "sequence-control".into();
-    reader.guide_claim(&control, &deadline(), 1300, true).unwrap().unwrap();
+    let mut control = a.clone();
+    control.request_id = "sequence-control".into();
+    reader
+        .guide_claim(&control, &deadline(), 1300, true)
+        .unwrap()
+        .unwrap();
     b.request_id = "sequence-later-normal".into();
-    let later = reader.guide_claim(&b, &deadline(), 1300, true).unwrap().unwrap();
-    let off = reader.guide_control(&control, &ProfileControl::Memory { enabled: false }, 1300, None, &deadline()).unwrap();
+    let later = reader
+        .guide_claim(&b, &deadline(), 1300, true)
+        .unwrap()
+        .unwrap();
+    let off = reader
+        .guide_control(
+            &control,
+            &ProfileControl::Memory { enabled: false },
+            1300,
+            None,
+            &deadline(),
+        )
+        .unwrap();
     assert!(off.epoch > later.profile.epoch);
-    assert!(!reader.guide_finish(&b, later.profile.epoch, None, &[], None, &deadline()).unwrap());
-    assert!(reader.guide_control(&control, &ProfileControl::Memory { enabled: false }, 1300, None, &deadline()).is_err());
+    assert!(!reader
+        .guide_finish(&b, later.profile.epoch, None, &[], None, &deadline())
+        .unwrap());
+    assert!(reader
+        .guide_control(
+            &control,
+            &ProfileControl::Memory { enabled: false },
+            1300,
+            None,
+            &deadline()
+        )
+        .is_err());
     control.request_id = "sequence-before-consent".into();
-    reader.guide_claim(&control, &deadline(), 1300, true).unwrap().unwrap();
-    sql.execute("UPDATE brain.guide_subjects SET epoch=epoch+1 WHERE user_id='210'", &[]).unwrap();
-    assert!(reader.guide_control(&control, &ProfileControl::Forget, 1300, None, &deadline()).is_err());
+    reader
+        .guide_claim(&control, &deadline(), 1300, true)
+        .unwrap()
+        .unwrap();
+    sql.execute(
+        "UPDATE brain.guide_subjects SET epoch=epoch+1 WHERE user_id='210'",
+        &[],
+    )
+    .unwrap();
+    assert!(reader
+        .guide_control(&control, &ProfileControl::Forget, 1300, None, &deadline())
+        .is_err());
 }
 
 async fn migration_checks(store: &PgStore, pool: &sqlx::PgPool) {
     for index in 0..257 {
-        let record = SourceRecordV2 { source_id: format!("text-source-{index:04}"), logical_id: "document".into(), revision: 1, content_hash: "a".repeat(64), content: "Synthetischer Datensatz".into(), visibility: SourceVisibility::Public, allowed_scopes: BTreeSet::from(["bot.public".into()]), tombstone: false, valid_from: None, valid_to: None, metadata: BTreeMap::new() };
+        let record = SourceRecordV2 {
+            source_id: format!("text-source-{index:04}"),
+            logical_id: "document".into(),
+            revision: 1,
+            content_hash: "a".repeat(64),
+            content: "Synthetischer Datensatz".into(),
+            visibility: SourceVisibility::Public,
+            allowed_scopes: BTreeSet::from(["bot.public".into()]),
+            tombstone: false,
+            valid_from: None,
+            valid_to: None,
+            metadata: BTreeMap::new(),
+        };
         store.apply(&record).await.unwrap();
     }
     for index in 0..65 {
-        let release = brain_contracts::CorpusRelease { release_id: format!("text-release-{index:04}"), knowledge_version: "synthetisch".into(), patch: "synthetisch".into(), created_at_epoch: 1, source_revisions: BTreeMap::new() };
+        let release = brain_contracts::CorpusRelease {
+            release_id: format!("text-release-{index:04}"),
+            knowledge_version: "synthetisch".into(),
+            patch: "synthetisch".into(),
+            created_at_epoch: 1,
+            source_revisions: BTreeMap::new(),
+        };
         store.publish_release(&release).await.unwrap();
     }
     store.migrate_core().await.unwrap();

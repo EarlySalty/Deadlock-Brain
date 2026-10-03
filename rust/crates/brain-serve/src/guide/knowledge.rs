@@ -41,7 +41,12 @@ impl GuideRuntime {
         }
         let mut messages = BTreeSet::new();
         for rule in &mut snapshot.rules {
-            if snapshot.channels.iter().any(|c| c.id == rule.channel_id && (c.deleted || !c.public_readable)) || rule.deleted {
+            if snapshot
+                .channels
+                .iter()
+                .any(|c| c.id == rule.channel_id && (c.deleted || !c.public_readable))
+                || rule.deleted
+            {
                 rule.text.clear();
                 rule.deleted = true;
             }
@@ -51,10 +56,7 @@ impl GuideRuntime {
                     .config
                     .approved_rule_channels
                     .contains(&rule.channel_id)
-                || !snapshot
-                    .channels
-                    .iter()
-                    .any(|c| c.id == rule.channel_id)
+                || !snapshot.channels.iter().any(|c| c.id == rule.channel_id)
                 || !messages.insert(&rule.message_id)
                 || rule.text.len() > 16000
                 || rule.updated_at > current + 30

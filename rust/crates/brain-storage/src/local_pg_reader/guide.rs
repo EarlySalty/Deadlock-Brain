@@ -168,12 +168,17 @@ impl LocalPgReader {
             .map_err(|_| invalid("Mitgliedskennung ist ungültig"))?;
         tx.query_one("SELECT pg_advisory_xact_lock($1)", &[&(uid ^ i64::MIN)])?;
         let row=tx.query_one("SELECT epoch,memory_enabled,contact_enabled,globally_opted_out,deleted,profile_json,turn_sequence FROM brain.guide_subjects WHERE guild_id=$1 AND user_id=$2 FOR UPDATE", &[&turn.guild_id,&turn.user_id])?;
-        let interrupt = matches!(control, ProfileControl::Forget | ProfileControl::Memory { enabled: false });
+        let interrupt = matches!(
+            control,
+            ProfileControl::Forget | ProfileControl::Memory { enabled: false }
+        );
         let current_sequence: i64 = row.get(6);
         let current_epoch: i64 = row.get(0);
         let correlated = tx.query_opt("SELECT turn_sequence FROM brain.guide_turn_claims WHERE guild_id=$1 AND user_id=$2 AND request_id=$3 AND state='claimed' AND subject_epoch=$4", &[&turn.guild_id,&turn.user_id,&turn.request_id,&current_epoch])?;
-        if correlated.is_none_or(|claim| !interrupt && claim.get::<_,i64>(0) != current_sequence) {
-            return Err(PortError::PermissionDenied("Diese Datenschutzaktion ist nicht mehr aktuell. Bitte starte sie erneut.".into()));
+        if correlated.is_none_or(|claim| !interrupt && claim.get::<_, i64>(0) != current_sequence) {
+            return Err(PortError::PermissionDenied(
+                "Diese Datenschutzaktion ist nicht mehr aktuell. Bitte starte sie erneut.".into(),
+            ));
         }
         let mut profile = ProfileSnapshot {
             epoch: row.get(0),
@@ -328,7 +333,10 @@ impl LocalPgReader {
             return Ok(None);
         }
         if let Some(conversation) = action.delivery_id.strip_prefix("reply:") {
-            let Some(request) = action.request_id.strip_suffix(":reply") else {tx.commit()?;return Ok(None);};
+            let Some(request) = action.request_id.strip_suffix(":reply") else {
+                tx.commit()?;
+                return Ok(None);
+            };
             if action.success {
                 let bot_message = action
                     .reply_message_id
@@ -336,7 +344,10 @@ impl LocalPgReader {
                     .ok_or_else(|| invalid("Antwortnachweis fehlt"))?;
                 let sequence: i64 = subject.get(2);
                 let accepted = tx.execute("UPDATE brain.guide_turn_claims SET reply_message_id=$7 WHERE guild_id=$1 AND user_id=$2 AND request_id=$3 AND subject_epoch=$4 AND turn_sequence=$5 AND conversation_id=$6 AND state='finished' AND reply_message_id IS NULL AND EXISTS(SELECT 1 FROM brain.guide_conversations v WHERE v.guild_id=$1 AND v.user_id=$2 AND v.conversation_id=$6 AND v.latest_request_id=$3)", &[&action.guild_id,&action.user_id,&request,&epoch,&sequence,&conversation,&bot_message])?;
-                if accepted == 0 {tx.commit()?;return Ok(None);}
+                if accepted == 0 {
+                    tx.commit()?;
+                    return Ok(None);
+                }
                 let row=tx.query_opt("SELECT state_json FROM brain.guide_conversations WHERE guild_id=$1 AND user_id=$2 AND conversation_id=$3 AND latest_request_id=$4 FOR UPDATE", &[&action.guild_id,&action.user_id,&conversation,&request])?;
                 if let Some(row) = row {
                     let mut conv: GuideConversation =
