@@ -620,11 +620,22 @@ fn sharing_refused_or_unclear(body: &str) -> bool {
                             .is_some_and(|word| matches!(*word, "dass" | "ob"));
                         let positive_main =
                             !complement && !negated && positive_sharing_main(&part_words);
-                        if positive_main || (complement && positive_complement_pending) {
+                        let complete_server_assessment = complement
+                            && !part_shares
+                            && part_words
+                                .iter()
+                                .any(|word| matches!(*word, "server" | "kanal" | "kanäle"))
+                            && part_words.last().is_some_and(|word| {
+                                matches!(*word, "ist" | "sind" | "wirkt" | "wirken")
+                            });
+                            if !negated_complement
+                                && (positive_main || (complement && positive_complement_pending))
+                            {
                             preceding_negation = false;
                             negated_complement = false;
                         } else if complement {
-                            negated_complement |= preceding_negation;
+                            negated_complement |=
+                                preceding_negation && !complete_server_assessment;
                             preceding_negation = false;
                         } else if negated {
                             preceding_negation = true;
@@ -633,8 +644,8 @@ fn sharing_refused_or_unclear(body: &str) -> bool {
                             !complement && !negated && positive_complement_intro(&part_words);
                         let negated_tail = part_words
                             .iter()
-                            .skip_while(|word| {
-                                matches!(
+                                .find(|word| {
+                                    !matches!(
                                     **word,
                                     "bitte"
                                         | "aber"
@@ -648,7 +659,6 @@ fn sharing_refused_or_unclear(body: &str) -> bool {
                                         | "es"
                                 )
                             })
-                            .next()
                             .is_some_and(|word| {
                                 matches!(*word, "nicht" | "niemals" | "nie" | "keinesfalls" | "auf")
                                     || word.starts_with("kein")
@@ -662,13 +672,12 @@ fn sharing_refused_or_unclear(body: &str) -> bool {
 fn positive_sharing_main(words: &[&str]) -> bool {
     let first = words
         .iter()
-        .skip_while(|word| {
-            matches!(
+        .find(|word| {
+            !matches!(
                 **word,
                 "bitte" | "aber" | "doch" | "nun" | "jetzt" | "lieber" | "wirklich"
             )
-        })
-        .next();
+        });
     let imperative = !words.iter().any(|word| matches!(*word, "ich" | "wir"))
         && first.is_some_and(|word| {
             matches!(
@@ -692,13 +701,12 @@ fn positive_sharing_main(words: &[&str]) -> bool {
 fn positive_modal_main(words: &[&str]) -> bool {
     words
         .iter()
-        .skip_while(|word| {
-            matches!(
+        .find(|word| {
+            !matches!(
                 **word,
                 "bitte" | "aber" | "doch" | "nun" | "jetzt" | "lieber" | "wirklich"
             )
         })
-        .next()
         .is_some_and(|word| matches!(*word, "ich" | "wir" | "du" | "ihr" | "es"))
         && words.iter().any(|word| {
             matches!(
@@ -754,18 +762,36 @@ fn positive_complement_intro(words: &[&str]) -> bool {
 fn sharing_verb(word: &str) -> bool {
     matches!(
         word,
-        "leite" | "leiten" | "teile" | "teilen" | "geteilt" | "gib" | "sage" | "sag" | "erfahren"
+        "leite"
+            | "leiten"
+            | "teile"
+            | "teilen"
+            | "teilt"
+            | "teilst"
+            | "geteilt"
+            | "gib"
+            | "gibst"
+            | "gibt"
+            | "geben"
+            | "sage"
+            | "sag"
+            | "sagen"
+            | "sagt"
+            | "sagst"
+            | "erfahren"
     ) || [
         "weiterleit",
         "weitergeb",
+        "weitergib",
         "weitergegeb",
         "weitergeleit",
         "schick",
         "send",
         "versend",
         "übermittel",
-        "erzähle",
-        "zeige",
+        "übermittl",
+        "erzähl",
+        "zeig",
         "erfahr",
         "erfähr",
     ]
@@ -1079,6 +1105,11 @@ mod tests {
             "Ich möchte nicht, dass du das, sage ich ausdrücklich, weiterleitest.",
             "Ich möchte nicht, dass du das, sage ich dir, ans Team weiterleitest.",
             "Ich möchte nicht, dass du das, sagen wir ausdrücklich, weiterleitest.",
+            "Ich möchte nicht, dass du das, ich will es dir nur zeigen, weiterleitest.",
+            "Ich möchte nicht, dass die Turniere ausfallen, bitte leite dieses Anliegen weiter.",
+            "Ich möchte nicht, dass du das teilst.",
+            "Ich möchte nicht, dass du das an das Team übermittelst.",
+            "Ich möchte nicht, dass du das den Moderatoren erzählst.",
         ] {
             let text = format!("Feedback ans Team: {body}");
             assert!(!explicit_feedback(&text), "{text}");
@@ -1088,7 +1119,6 @@ mod tests {
             "Der Server ist nicht übersichtlich, bitte leite dieses Anliegen weiter.",
             "Ich finde den Server nicht übersichtlich. Bitte leite dieses Anliegen weiter.",
             "Ich finde nicht, dass der Server übersichtlich ist, bitte leite dieses Anliegen weiter.",
-            "Ich möchte nicht, dass die Turniere ausfallen, bitte leite dieses Anliegen weiter.",
             "Der Kanal ist nicht übersichtlich, ich möchte, dass du das ans Team weiterleitest.",
             "Der Kanal ist nicht übersichtlich, aber ich möchte, dass du das ans Team weiterleitest.",
         ] {
