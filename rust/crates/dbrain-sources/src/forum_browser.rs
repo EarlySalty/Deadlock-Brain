@@ -1,7 +1,13 @@
 //! Liest öffentliche Forumseiten aus der vorhandenen Brave-Sitzung.
 //! Die Verbindung liest nur DevToolsActivePort, keine Cookies oder Zugangsdaten.
 
-use std::{io::Write, os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt}, path::PathBuf, sync::atomic::{AtomicU64, Ordering}, time::{Duration, SystemTime, UNIX_EPOCH}};
+use std::{
+    io::Write,
+    os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt},
+    path::PathBuf,
+    sync::atomic::{AtomicU64, Ordering},
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use futures_util::{SinkExt, StreamExt};
 use reqwest::Url;
@@ -41,73 +47,208 @@ struct ConsentRequest {
     process_start: u64,
     started_at_ms: u64,
     cdp_port: u16,
+    cdp_port_file: PathBuf,
+}
+
+fn read_port_file(path: &std::path::Path) -> Result<String> {
+    let metadata =
+        std::fs::symlink_metadata(path).map_err(|_| error("Brave-Debugportdatei fehlt"))?;
+    if path.file_name().and_then(|name| name.to_str()) != Some("DevToolsActivePort")
+        || !metadata.is_file()
+        || metadata.len() > 512
+        || Some(metadata.uid()) != current_uid()
+    {
+        return Err(error("Ungültige Brave-Debugportdatei"));
+    }
+    std::fs::read_to_string(path)
+        .map_err(|_| error("Brave-Debugportdatei konnte nicht gelesen werden"))
+}
+
+fn owns_debug_socket(pid: u32, port: u16, listener: bool) -> bool {
+    let Ok(tcp) = std::fs::read_to_string("/proc/net/tcp") else {
+        return false;
+    };
+    let address = format!("0100007F:{port:04X}");
+    let inodes: Vec<_> = tcp
+        .lines()
+        .skip(1)
+        .filter_map(|line| {
+            let fields: Vec<_> = line.split_whitespace().collect();
+            let endpoint = if listener { 1 } else { 2 };
+            let state = if listener { "0A" } else { "01" };
+            (fields.len() > 9 && fields[endpoint] == address && fields[3] == state)
+                .then(|| format!("socket:[{}]", fields[9]))
+        })
+        .collect();
+    let Ok(files) = std::fs::read_dir(format!("/proc/{pid}/fd")) else {
+        return false;
+    };
+    files.filter_map(std::result::Result::ok).any(|file| {
+        std::fs::read_link(file.path())
+            .ok()
+            .and_then(|path| path.to_str().map(str::to_owned))
+            .is_some_and(|target| inodes.contains(&target))
+    })
 }
 
 fn current_uid() -> Option<u32> {
-    std::fs::metadata("/proc/self/status").ok().map(|metadata| metadata.uid())
+    std::fs::metadata("/proc/self/status")
+        .ok()
+        .map(|metadata| metadata.uid())
 }
 
 fn request_directory() -> Option<PathBuf> {
-    Some(PathBuf::from(format!("/run/user/{}/deadlock-brain-browser-consent", current_uid()?)))
+    Some(PathBuf::from(format!(
+        "/run/user/{}/deadlock-brain-browser-consent",
+        current_uid()?
+    )))
 }
 
 fn process_start(pid: u32) -> Option<u64> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-    stat.rsplit_once(')')?.1.split_whitespace().nth(19)?.parse().ok()
+    stat.rsplit_once(')')?
+        .1
+        .split_whitespace()
+        .nth(19)?
+        .parse()
+        .ok()
 }
 
 fn now_ms() -> Option<u64> {
-    SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_millis().try_into().ok()
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()?
+        .as_millis()
+        .try_into()
+        .ok()
 }
 
 struct PendingConsent(PathBuf);
 impl PendingConsent {
-    fn create(port: u16) -> Result<Self> {
+    fn create(port: u16, cdp_port_file: PathBuf) -> Result<Self> {
         static SEQUENCE: AtomicU64 = AtomicU64::new(0);
-        let directory = request_directory().ok_or_else(|| error("Benutzer für Browserfreigabe nicht gefunden"))?;
+        let directory = request_directory()
+            .ok_or_else(|| error("Benutzer für Browserfreigabe nicht gefunden"))?;
         match std::fs::DirBuilder::new().mode(0o700).create(&directory) {
             Ok(()) => {}
             Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(_) => return Err(error("Privates Browserfreigabeverzeichnis konnte nicht angelegt werden")),
+            Err(_) => {
+                return Err(error(
+                    "Privates Browserfreigabeverzeichnis konnte nicht angelegt werden",
+                ))
+            }
         }
-        let metadata = std::fs::symlink_metadata(&directory).map_err(|_| error("Browserfreigabeverzeichnis fehlt"))?;
-        if !metadata.is_dir() || Some(metadata.uid()) != current_uid() || metadata.permissions().mode() & 0o777 != 0o700 {
-            return Err(error("Browserfreigabeverzeichnis hat unsichere Zugriffsrechte"));
+        let metadata = std::fs::symlink_metadata(&directory)
+            .map_err(|_| error("Browserfreigabeverzeichnis fehlt"))?;
+        if !metadata.is_dir()
+            || Some(metadata.uid()) != current_uid()
+            || metadata.permissions().mode() & 0o777 != 0o700
+        {
+            return Err(error(
+                "Browserfreigabeverzeichnis hat unsichere Zugriffsrechte",
+            ));
         }
         let request = ConsentRequest {
-            pid: std::process::id(), process_start: process_start(std::process::id()).ok_or_else(|| error("Importprozess nicht gefunden"))?,
-            started_at_ms: now_ms().ok_or_else(|| error("Systemzeit für Browserfreigabe fehlt"))?, cdp_port:port,
+            pid: std::process::id(),
+            process_start: process_start(std::process::id())
+                .ok_or_else(|| error("Importprozess nicht gefunden"))?,
+            started_at_ms: now_ms().ok_or_else(|| error("Systemzeit für Browserfreigabe fehlt"))?,
+            cdp_port: port,
+            cdp_port_file,
         };
-        let path = directory.join(format!("request-{}-{}.json", request.pid, SEQUENCE.fetch_add(1, Ordering::Relaxed)));
+        let path = directory.join(format!(
+            "request-{}-{}.json",
+            request.pid,
+            SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
         let guard = Self(path);
-        let bytes = serde_json::to_vec(&request).map_err(|_| error("Browserfreigabe konnte nicht vorbereitet werden"))?;
-        let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&guard.0)
+        let bytes = serde_json::to_vec(&request)
+            .map_err(|_| error("Browserfreigabe konnte nicht vorbereitet werden"))?;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&guard.0)
             .map_err(|_| error("Browserfreigabe konnte nicht angelegt werden"))?;
-        file.write_all(&bytes).map_err(|_| error("Browserfreigabe konnte nicht geschrieben werden"))?;
+        file.write_all(&bytes)
+            .map_err(|_| error("Browserfreigabe konnte nicht geschrieben werden"))?;
         Ok(guard)
     }
 }
 impl Drop for PendingConsent {
-    fn drop(&mut self) { let _ = std::fs::remove_file(&self.0); }
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
 }
 
 /// Prüft ausschließlich kurzlebige Freigabeanfragen eigener laufender Importe.
 pub fn has_pending_consent() -> bool {
-    let Some(directory) = request_directory() else { return false };
-    let Ok(metadata) = std::fs::symlink_metadata(&directory) else { return false };
-    if !metadata.is_dir() || Some(metadata.uid()) != current_uid() || metadata.permissions().mode() & 0o777 != 0o700 { return false; }
-    let Ok(files) = std::fs::read_dir(directory) else { return false };
+    pending_consent(None)
+}
+
+/// Bindet den sichtbaren Brave-Dialog an dessen eigenen lokalen Debuglistener.
+pub fn has_pending_consent_for_brave(brave_pid: u32) -> bool {
+    pending_consent(Some(brave_pid))
+}
+
+fn pending_consent(brave_pid: Option<u32>) -> bool {
+    let Some(directory) = request_directory() else {
+        return false;
+    };
+    let Ok(metadata) = std::fs::symlink_metadata(&directory) else {
+        return false;
+    };
+    if !metadata.is_dir()
+        || Some(metadata.uid()) != current_uid()
+        || metadata.permissions().mode() & 0o777 != 0o700
+    {
+        return false;
+    }
+    let Ok(files) = std::fs::read_dir(directory) else {
+        return false;
+    };
     let Some(now) = now_ms() else { return false };
     files.filter_map(std::result::Result::ok).any(|file| {
         let path = file.path();
-        let Some(name) = path.file_name().and_then(|name| name.to_str()) else { return false };
-        if !name.starts_with("request-") || !name.ends_with(".json") { return false; }
-        let Ok(metadata) = std::fs::symlink_metadata(&path) else { return false };
-        if !metadata.is_file() || Some(metadata.uid()) != current_uid() || metadata.permissions().mode() & 0o777 != 0o600 || metadata.len() > 1024 { return false; }
-        let Ok(bytes) = std::fs::read(path) else { return false };
-        let Ok(request) = serde_json::from_slice::<ConsentRequest>(&bytes) else { return false };
-        request.cdp_port != 0 && request.started_at_ms <= now && now - request.started_at_ms <= 60_000
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            return false;
+        };
+        if !name.starts_with("request-") || !name.ends_with(".json") {
+            return false;
+        }
+        let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+            return false;
+        };
+        if !metadata.is_file()
+            || Some(metadata.uid()) != current_uid()
+            || metadata.permissions().mode() & 0o777 != 0o600
+            || metadata.len() > 1024
+        {
+            return false;
+        }
+        let Ok(bytes) = std::fs::read(path) else {
+            return false;
+        };
+        let Ok(request) = serde_json::from_slice::<ConsentRequest>(&bytes) else {
+            return false;
+        };
+        let valid_port = read_port_file(&request.cdp_port_file)
+            .ok()
+            .is_some_and(|text| {
+                local_endpoint(&text).is_ok()
+                    && text
+                        .lines()
+                        .next()
+                        .and_then(|line| line.parse::<u16>().ok())
+                        == Some(request.cdp_port)
+            });
+        request.cdp_port != 0
+            && valid_port
+            && request.started_at_ms <= now
+            && now - request.started_at_ms <= 60_000
             && process_start(request.pid) == Some(request.process_start)
+            && owns_debug_socket(request.pid, request.cdp_port, false)
+            && brave_pid.is_none_or(|pid| owns_debug_socket(pid, request.cdp_port, true))
     })
 }
 
@@ -193,13 +334,17 @@ impl ForumBrowser {
             ));
         }
         let port_file = config.cdp_port_file.clone();
-        let port_text = tokio::task::spawn_blocking(move || std::fs::read_to_string(port_file))
+        let port_text = tokio::task::spawn_blocking(move || read_port_file(&port_file))
             .await
             .map_err(|_| error("Brave-Debugport konnte nicht gelesen werden"))?
             .map_err(|_| error("Brave-Debugport nicht verfügbar; Remote-Debugging muss im Browser eingeschaltet sein"))?;
         let endpoint = local_endpoint(&port_text)?;
-        let port = port_text.lines().next().and_then(|port| port.parse::<u16>().ok()).ok_or_else(|| error("Brave-Debugport fehlt"))?;
-        let _pending = PendingConsent::create(port)?;
+        let port = port_text
+            .lines()
+            .next()
+            .and_then(|port| port.parse::<u16>().ok())
+            .ok_or_else(|| error("Brave-Debugport fehlt"))?;
+        let _pending = PendingConsent::create(port, config.cdp_port_file.clone())?;
         let (socket, _) = tokio::time::timeout(
             Duration::from_secs(60),
             tokio_tungstenite::connect_async(endpoint),
