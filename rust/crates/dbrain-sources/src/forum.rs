@@ -1278,7 +1278,7 @@ mod scratch_regression_tests {
                 .unwrap();
         assert_eq!(batches["posts"], 201);
         assert_eq!(batches["committed"], 201);
-        sqlx::query("UPDATE brain.source_documents SET metadata=metadata || jsonb_build_object('sitemap_lastmod','A') WHERE id=$1")
+        sqlx::query("UPDATE brain.source_documents SET metadata=metadata || jsonb_build_object('sitemap_lastmod','A','archive_version',2) WHERE id=$1")
             .bind(doc).execute(pool).await.unwrap();
         assert!(thread_document_exists(pool, 4, Some("A")).await.unwrap());
         let changed_doc = store
