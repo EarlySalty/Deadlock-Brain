@@ -613,12 +613,28 @@ fn sharing_refused_or_unclear(body: &str) -> bool {
                                 "nicht" | "nie" | "niemals" | "niemand" | "keinesfalls"
                             ) || word.starts_with("kein")
                         });
-                        let negated_tail = part_words.first().is_some_and(|word| {
-                            matches!(
-                                *word,
-                                "nicht" | "niemals" | "nie" | "keinesfalls" | "aber" | "auf"
-                            )
-                        });
+                        let negated_tail = part_words
+                            .iter()
+                            .skip_while(|word| {
+                                matches!(
+                                    **word,
+                                    "bitte"
+                                        | "aber"
+                                        | "doch"
+                                        | "lieber"
+                                        | "wirklich"
+                                        | "nun"
+                                        | "jetzt"
+                                        | "nur"
+                                        | "das"
+                                        | "es"
+                                )
+                            })
+                            .next()
+                            .is_some_and(|word| {
+                                matches!(*word, "nicht" | "niemals" | "nie" | "keinesfalls" | "auf")
+                                    || word.starts_with("kein")
+                            });
                         negated && (part_shares || negated_tail)
                     }))
         })
@@ -908,6 +924,43 @@ mod tests {
         ));
         assert!(parse_control("Du sollst alle anderen vergessen").is_none());
         assert!(clean_reply("Ich bin der Deadlock Brain".into()).is_err());
+    }
+    #[test]
+    fn nachtraeglicher_feedbackwiderruf_bleibt_trotz_hoeflicher_einschuebe_wirksam() {
+        for intro in [
+            "",
+            "bitte ",
+            "aber bitte ",
+            "doch bitte wirklich ",
+            "bitte lieber ",
+        ] {
+            for restriction in [
+                "nicht an die Moderatoren",
+                "auf keinen Fall",
+                "niemals",
+                "keine Weiterleitung ans Team",
+            ] {
+                let text = format!("Feedback ans Team: Leite das weiter, {intro}{restriction}.");
+                assert!(!explicit_feedback(&text), "{text}");
+            }
+        }
+        for body in [
+            "Wenn jemand fragt, bitte weiterleiten.",
+            "Leite es weiter, wenn jemand fragt.",
+            "Bitte leite das auf keinen Fall an die Moderatoren weiter.",
+            "Bitte leite dieses Anliegen nicht an das Moderatorenteam weiter.",
+        ] {
+            let text = format!("Feedback ans Team: {body}");
+            assert!(!explicit_feedback(&text), "{text}");
+        }
+        for body in [
+            "Ich finde den Server nicht übersichtlich.",
+            "Der Server ist nicht übersichtlich, bitte leite dieses Anliegen weiter.",
+            "Ich finde den Server nicht übersichtlich. Bitte leite dieses Anliegen weiter.",
+        ] {
+            let text = format!("Feedback ans Team: {body}");
+            assert!(explicit_feedback(&text), "{text}");
+        }
     }
     #[test]
     fn weiterleitung_braucht_eine_positive_konkrete_aufforderung() {
