@@ -352,7 +352,7 @@ impl HttpBuildPublishClient {
             ));
         }
         let status: BuildPublishStatus = serde_json::from_slice(&body)
-            .map_err(|e| PublishError::InvalidResponse(e.to_string()))?;
+            .map_err(|_| PublishError::InvalidResponse("invalid status JSON".into()))?;
         status
             .validate_for(request_id, hash)
             .map_err(PublishError::InvalidResponse)?;
@@ -511,6 +511,27 @@ mod tests {
             seen
         });
         (address, handle)
+    }
+
+    #[test]
+    fn status_parse_errors_do_not_expose_response_contents() {
+        const PRIVATE_MARKER: &str = "synthetic-private-content";
+        let req = request("redacted-response");
+        let body = format!(r#"{{"{PRIVATE_MARKER}":true}}"#);
+        let (address, server) = serve(vec![(202, body.clone()), (200, body.clone()), (200, body)]);
+        let client =
+            HttpBuildPublishClient::new(&address, "fixture-token", Duration::from_secs(5)).unwrap();
+        for result in [
+            client.submit(&req),
+            client.status_for(&req),
+            client.status(&req.request_id),
+        ] {
+            let error = result.unwrap_err();
+            assert!(matches!(&error, PublishError::InvalidResponse(_)));
+            assert!(!error.to_string().contains(PRIVATE_MARKER));
+            assert!(!format!("{error:?}").contains(PRIVATE_MARKER));
+        }
+        assert_eq!(server.join().unwrap().len(), 3);
     }
 
     #[test]
