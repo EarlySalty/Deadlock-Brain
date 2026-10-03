@@ -268,6 +268,38 @@ fn rate_limit_and_invalid_wait_do_not_report_publication() {
 }
 
 #[test]
+fn confirmed_success_after_repeated_poll_throttling_remains_successful() {
+    let request = request();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!("http://{}/gateway", listener.local_addr().unwrap());
+    let server = serve(
+        listener,
+        vec![
+            bound_reply(&request, BuildPublishState::Queued),
+            error_reply(429),
+            error_reply(429),
+            bound_reply(
+                &request,
+                BuildPublishState::Succeeded { hero_build_id: 456 },
+            ),
+        ],
+    );
+    assert_eq!(
+        client(&endpoint)
+            .unwrap()
+            .publish_and_wait(&request, TIMEOUT, Duration::ZERO)
+            .unwrap()
+            .state,
+        BuildPublishState::Succeeded { hero_build_id: 456 }
+    );
+    let seen = server.join().unwrap();
+    assert_eq!(seen.len(), 4);
+    for lookup in &seen {
+        assert_bound_get(lookup, &request, "/gateway");
+    }
+}
+
+#[test]
 fn missing_status_is_checked_before_submitting_the_unchanged_request() {
     let request = request();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
