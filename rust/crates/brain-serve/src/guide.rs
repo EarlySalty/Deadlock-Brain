@@ -600,19 +600,27 @@ fn sharing_refused_or_unclear(body: &str) -> bool {
             shares
                 && (conditional
                     || clause.contains('?')
-                    || clause.split(',').any(|part| {
-                        let part_words: Vec<_> = part
-                            .split_whitespace()
-                            .map(|word| word.trim_matches(|c: char| !c.is_alphabetic()))
-                            .filter(|word| !word.is_empty())
-                            .collect();
-                        let part_shares = part_words.iter().any(|word| sharing_verb(word));
-                        let negated = part_words.iter().any(|word| {
-                            matches!(
-                                *word,
-                                "nicht" | "nie" | "niemals" | "niemand" | "keinesfalls"
-                            ) || word.starts_with("kein")
+                    || {
+                        let mut preceding_negation = false;
+                        clause.split(',').any(|part| {
+                            let part_words: Vec<_> = part
+                                .split_whitespace()
+                                .map(|word| word.trim_matches(|c: char| !c.is_alphabetic()))
+                                .filter(|word| !word.is_empty())
+                                .collect();
+                            let part_shares = part_words.iter().any(|word| sharing_verb(word));
+                            let negated = part_words.iter().any(|word| {
+                                matches!(
+                                    *word,
+                                    "nicht" | "nie" | "niemals" | "niemand" | "keinesfalls"
+                                ) || word.starts_with("kein")
                         });
+                        let negated_complement = preceding_negation
+                            && part_words
+                                .first()
+                                .is_some_and(|word| matches!(*word, "dass" | "ob"))
+                            && part_shares;
+                        preceding_negation = negated;
                         let negated_tail = part_words
                             .iter()
                             .skip_while(|word| {
@@ -635,8 +643,9 @@ fn sharing_refused_or_unclear(body: &str) -> bool {
                                 matches!(*word, "nicht" | "niemals" | "nie" | "keinesfalls" | "auf")
                                     || word.starts_with("kein")
                             });
-                        negated && (part_shares || negated_tail)
-                    }))
+                        negated_complement || (negated && (part_shares || negated_tail))
+                        })
+                    })
         })
 }
 fn sharing_verb(word: &str) -> bool {
@@ -654,6 +663,8 @@ fn sharing_verb(word: &str) -> bool {
         "übermittel",
         "erzähle",
         "zeige",
+        "erfahr",
+        "erfähr",
     ]
     .iter()
     .any(|verb| word.starts_with(verb))
@@ -949,6 +960,12 @@ mod tests {
             "Leite es weiter, wenn jemand fragt.",
             "Bitte leite das auf keinen Fall an die Moderatoren weiter.",
             "Bitte leite dieses Anliegen nicht an das Moderatorenteam weiter.",
+            "Ich möchte nicht, dass du das weiterleitest.",
+            "Ich will auf keinen Fall, dass du das an das Team weitergibst.",
+            "Es ist nicht erlaubt, dass du es den Moderatoren schickst.",
+            "Ich möchte wirklich niemals, dass dieses Anliegen weitergeleitet wird.",
+            "Ich will keinesfalls, dass das Team davon erfährt.",
+            "Ich weiß noch nicht, ob du das weiterleiten sollst.",
         ] {
             let text = format!("Feedback ans Team: {body}");
             assert!(!explicit_feedback(&text), "{text}");
@@ -957,6 +974,9 @@ mod tests {
             "Ich finde den Server nicht übersichtlich.",
             "Der Server ist nicht übersichtlich, bitte leite dieses Anliegen weiter.",
             "Ich finde den Server nicht übersichtlich. Bitte leite dieses Anliegen weiter.",
+            "Ich finde nicht, dass der Server übersichtlich ist, bitte leite dieses Anliegen weiter.",
+            "Ich möchte nicht, dass die Turniere ausfallen, bitte leite dieses Anliegen weiter.",
+            "Der Kanal ist nicht übersichtlich, ich möchte, dass du das ans Team weiterleitest.",
         ] {
             let text = format!("Feedback ans Team: {body}");
             assert!(explicit_feedback(&text), "{text}");
