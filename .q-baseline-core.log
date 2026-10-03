@@ -1,0 +1,528 @@
+   Compiling proc-macro2 v1.0.106
+   Compiling quote v1.0.46
+   Compiling unicode-ident v1.0.24
+   Compiling cfg-if v1.0.4
+   Compiling libc v0.2.186
+   Compiling serde v1.0.228
+   Compiling syn v2.0.118
+   Compiling serde_core v1.0.228
+   Compiling serde_derive v1.0.228
+   Compiling synstructure v0.13.2
+   Compiling zerofrom-derive v0.1.7
+   Compiling zerofrom v0.1.8
+   Compiling yoke-derive v0.8.2
+   Compiling zerovec-derive v0.11.3
+   Compiling version_check v0.9.5
+   Compiling displaydoc v0.2.6
+   Compiling memchr v2.8.2
+   Compiling itoa v1.0.18
+   Compiling bytes v1.12.0
+   Compiling pin-project-lite v0.2.17
+   Compiling generic-array v0.14.7
+   Compiling futures-core v0.3.32
+   Compiling subtle v2.6.1
+   Compiling zerocopy v0.8.52
+   Compiling typenum v1.20.1
+   Compiling smallvec v1.15.2
+   Compiling litemap v0.8.2
+   Compiling writeable v0.6.3
+   Compiling getrandom v0.2.17
+   Compiling stable_deref_trait v1.2.1
+   Compiling utf8_iter v1.0.4
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.9
+   Compiling cc v1.2.65
+   Compiling icu_properties_data v2.2.0
+   Compiling icu_normalizer_data v2.2.0
+   Compiling ppv-lite86 v0.2.21
+   Compiling zmij v1.0.21
+   Compiling ring v0.17.14
+   Compiling percent-encoding v2.3.2
+   Compiling once_cell v1.21.4
+   Compiling serde_json v1.0.150
+   Compiling yoke v0.8.3
+   Compiling rand_core v0.6.4
+   Compiling errno v0.3.14
+   Compiling log v0.4.33
+   Compiling zeroize v1.9.0
+   Compiling rand_chacha v0.3.1
+   Compiling rustls-pki-types v1.14.1
+   Compiling signal-hook-registry v1.4.8
+   Compiling tokio-macros v2.7.0
+   Compiling socket2 v0.6.4
+   Compiling mio v1.2.1
+   Compiling futures-task v0.3.32
+   Compiling untrusted v0.9.0
+   Compiling slab v0.4.12
+   Compiling futures-io v0.3.32
+   Compiling tokio v1.52.3
+   Compiling rand v0.8.6
+   Compiling zerovec v0.11.6
+   Compiling parking_lot_core v0.9.12
+   Compiling futures-sink v0.3.32
+   Compiling scopeguard v1.2.0
+   Compiling rustls v0.23.41
+   Compiling lock_api v0.4.14
+   Compiling tinystr v0.8.3
+   Compiling icu_locale_core v2.2.0
+   Compiling potential_utf v0.1.5
+   Compiling zerotrie v0.2.4
+   Compiling tracing-core v0.1.36
+   Compiling tracing-attributes v0.1.31
+   Compiling cpufeatures v0.2.17
+   Compiling icu_provider v2.2.0
+   Compiling icu_collections v2.2.0
+   Compiling tracing v0.1.44
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling futures-util v0.3.32
+   Compiling webpki-roots v1.0.8
+   Compiling base64 v0.22.1
+   Compiling digest v0.10.7
+   Compiling autocfg v1.5.1
+   Compiling bitflags v2.13.0
+   Compiling num-traits v0.2.19
+   Compiling icu_properties v2.2.0
+   Compiling icu_normalizer v2.2.0
+   Compiling futures-channel v0.3.32
+   Compiling idna_adapter v1.2.2
+   Compiling rustls-webpki v0.103.13
+   Compiling form_urlencoded v1.2.2
+   Compiling tinyvec_macros v0.1.1
+   Compiling crossbeam-utils v0.8.21
+   Compiling siphasher v1.0.3
+   Compiling tinyvec v1.11.0
+   Compiling idna v1.1.0
+   Compiling url v2.5.8
+   Compiling parking_lot v0.12.5
+   Compiling unicode-normalization v0.1.25
+   Compiling sha2 v0.10.9
+   Compiling http v1.4.2
+   Compiling equivalent v1.0.2
+   Compiling unicode-bidi v0.3.18
+   Compiling crc32fast v1.5.0
+   Compiling unicode-properties v0.1.4
+   Compiling iana-time-zone v0.1.65
+   Compiling thiserror v1.0.69
+   Compiling stringprep v0.1.5
+   Compiling http-body v1.0.1
+   Compiling tokio-util v0.7.18
+   Compiling thiserror-impl v1.0.69
+   Compiling foldhash v0.1.5
+   Compiling byteorder v1.5.0
+   Compiling thiserror v2.0.18
+   Compiling allocator-api2 v0.2.21
+   Compiling simd-adler32 v0.3.9
+   Compiling httparse v1.10.1
+   Compiling adler2 v2.0.1
+   Compiling miniz_oxide v0.8.9
+   Compiling hashbrown v0.15.5
+   Compiling concurrent-queue v2.5.0
+   Compiling aho-corasick v1.1.4
+   Compiling thiserror-impl v2.0.18
+   Compiling hashbrown v0.17.1
+   Compiling regex-syntax v0.8.11
+   Compiling parking v2.2.1
+   Compiling crc-catalog v2.5.0
+   Compiling tower-service v0.3.3
+   Compiling try-lock v0.2.5
+   Compiling crc v3.4.0
+   Compiling want v0.3.1
+   Compiling regex-automata v0.4.14
+   Compiling event-listener v5.4.1
+   Compiling indexmap v2.14.0
+   Compiling flate2 v1.1.9
+   Compiling hashlink v0.10.0
+   Compiling crossbeam-queue v0.3.12
+   Compiling webpki-roots v0.26.11
+   Compiling atomic-waker v1.1.2
+   Compiling hex v0.4.3
+   Compiling compression-core v0.4.32
+   Compiling compression-codecs v0.4.38
+   Compiling hyper v1.10.1
+   Compiling regex v1.12.4
+   Compiling sync_wrapper v1.0.2
+   Compiling tower-layer v0.3.3
+   Compiling ipnet v2.12.0
+   Compiling tower v0.5.3
+   Compiling hyper-util v0.1.20
+   Compiling brain-contracts v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-contracts)
+   Compiling futures-intrusive v0.5.0
+   Compiling tokio-stream v0.1.18
+   Compiling async-compression v0.4.42
+   Compiling hmac v0.12.1
+   Compiling http-body-util v0.1.3
+   Compiling chrono v0.4.45
+   Compiling tokio-rustls v0.26.4
+   Compiling atoi v2.0.0
+   Compiling phf_shared v0.11.3
+   Compiling either v1.16.0
+   Compiling ryu v1.0.23
+   Compiling heck v0.5.0
+   Compiling dotenvy v0.15.7
+   Compiling home v0.5.12
+   Compiling whoami v1.6.1
+   Compiling serde_urlencoded v0.7.1
+   Compiling sqlx-core v0.8.6
+   Compiling hyper-rustls v0.27.9
+   Compiling tower-http v0.6.11
+   Compiling hkdf v0.12.4
+   Compiling md-5 v0.10.6
+   Compiling hybrid-array v0.4.13
+   Compiling sqlx-postgres v0.8.6
+   Compiling reqwest v0.12.28
+   Compiling phf_generator v0.11.3
+   Compiling cmov v0.5.4
+   Compiling ctutils v0.4.2
+   Compiling sqlx-macros-core v0.8.6
+   Compiling block-buffer v0.12.1
+   Compiling crypto-common v0.2.2
+   Compiling getrandom v0.4.3
+   Compiling rand_core v0.10.1
+   Compiling const-oid v0.10.2
+   Compiling digest v0.11.3
+   Compiling sqlx-macros v0.8.6
+   Compiling siphasher v0.3.11
+   Compiling cpufeatures v0.3.0
+   Compiling cfg_aliases v0.2.1
+   Compiling anyhow v1.0.102
+   Compiling nix v0.29.0
+   Compiling chacha20 v0.10.1
+   Compiling new_debug_unreachable v1.0.6
+   Compiling rand v0.10.1
+   Compiling sha2 v0.11.0
+   Compiling phf_shared v0.10.0
+   Compiling hmac v0.13.0
+   Compiling md-5 v0.11.0
+   Compiling phf_macros v0.11.3
+   Compiling fallible-iterator v0.2.0
+   Compiling postgres-protocol v0.6.12
+   Compiling phf v0.11.3
+   Compiling phf_generator v0.10.0
+   Compiling uplink-infisical-transport v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/vendor/uplink-infisical-transport)
+   Compiling phf_codegen v0.11.3
+   Compiling string_cache_codegen v0.5.4
+   Compiling fireworks-model-selection v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/vendor/fireworks-model-selection)
+   Compiling filedescriptor v0.8.3
+   Compiling phf_shared v0.13.1
+   Compiling precomputed-hash v0.1.1
+   Compiling mac v0.1.1
+   Compiling futf v0.1.5
+   Compiling phf v0.13.1
+   Compiling markup5ever v0.12.1
+   Compiling sqlx v0.8.6
+   Compiling dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-builds)
+   Compiling phf_codegen v0.10.0
+   Compiling postgres-types v0.2.14
+   Compiling async-trait v0.1.89
+   Compiling whoami v2.1.2
+   Compiling getrandom v0.3.4
+   Compiling utf8parse v0.2.2
+   Compiling utf-8 v0.7.6
+   Compiling dtoa v1.0.11
+   Compiling dtoa-short v0.3.5
+   Compiling tendril v0.4.3
+   Compiling anstyle-parse v1.0.0
+   Compiling tokio-postgres v0.7.18
+   Compiling deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/deadlock-brain-core)
+   Compiling selectors v0.25.0
+   Compiling string_cache v0.8.9
+   Compiling ahash v0.8.12
+   Compiling cssparser-macros v0.6.1
+   Compiling html5ever v0.27.0
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling anstyle-query v1.1.5
+   Compiling colorchoice v1.0.5
+   Compiling anstyle v1.0.14
+   Compiling anstream v1.0.0
+   Compiling cssparser v0.31.2
+   Compiling phf v0.10.1
+   Compiling postgres v0.19.14
+   Compiling dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-normalize)
+   Compiling fxhash v0.2.1
+   Compiling servo_arc v0.3.0
+   Compiling derive_more v0.99.20
+   Compiling strsim v0.11.1
+   Compiling clap_lex v1.1.0
+   Compiling unicode-width v0.2.2
+   Compiling rustix v1.1.4
+   Compiling getopts v0.2.24
+   Compiling clap_builder v4.6.0
+   Compiling brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-storage)
+   Compiling clap_derive v4.6.1
+   Compiling linux-raw-sys v0.12.1
+   Compiling ego-tree v0.6.3
+   Compiling scraper v0.20.0
+   Compiling clap v4.6.1
+   Compiling fastrand v2.4.1
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-reasoner)
+   Compiling tempfile v3.27.0
+   Compiling dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-population)
+   Compiling dbrain-s12-wiki-probe v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-wiki)
+   Compiling roxmltree v0.20.0
+   Compiling dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-sources)
+   Compiling brain-ingestion v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-ingestion)
+   Compiling brain-policy v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-policy)
+   Compiling brain-feeds v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-feeds)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-retrieval)
+   Compiling brain-kernel v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-kernel)
+   Compiling httpdate v1.0.3
+   Compiling brain-providers v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-providers)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 19s
+     Running unittests src/lib.rs (rust/target/debug/deps/brain_kernel-ee8cd0870a5d83e8)
+
+running 21 tests
+test tests::build_never_falls_back_to_generative_prose ... ok
+test tests::explain_path_calls_provider_for_public_evidence ... ok
+test tests::internal_evidence_requires_internal_egress ... ok
+test outcome::tests::uncited_dependency_pack_is_shared_accounted_and_absent_from_wire_response ... ok
+test flight::retained_pack_tests::oversized_uncited_pack_is_not_retained_for_single_flight_followers ... ok
+test tests::prose_shaped_like_a_domain_certificate_is_not_a_deterministic_capability ... ok
+test tests::typed_domain_intent_separates_cache_and_single_flight_keys ... ok
+test tests::successful_fact_domain_and_provider_paths_reject_late_validation ... ok
+test tests::unauthorized_evidence_never_reaches_provider ... ok
+test flight::c3_shared_validation::shared_answer_follower_revalidates_and_distinguishes_reader_failure_from_denial ... ok
+test flight::tests::concurrent_failures_are_shared_but_not_retained ... ok
+test fact_relevance::tests::patch_mode_and_provenance_are_required_when_requested ... ok
+test fact_relevance::tests::metadata_aliases_use_release_tokenizer_and_real_delimiters ... ok
+test fact_relevance::tests::ambiguous_alias_does_not_select_highest_bm25_score ... ok
+test fact_relevance::tests::specific_field_outranks_generic_field_for_one_entity ... ok
+test fact_relevance::tests::entity_field_alias_and_numeric_anchors ... ok
+test tests::fact_path_does_not_call_provider ... ok
+test fact_relevance::tests::same_entity_field_with_two_sources_is_not_selected_by_score ... ok
+test flight::review_dependencies::shared_answer_revalidates_uncited_acl_and_tombstone_after_leader_success ... ok
+test flight::review_publication::publication_and_internal_requests_do_not_share_flights_or_cache_entries ... ok
+test flight::review_publication::publication_follower_rechecks_uncited_head_after_successful_leader ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/core_kernel.rs (rust/target/debug/deps/core_kernel-38ea442ec078c9c4)
+
+running 7 tests
+test cache_separates_principal_release_and_rechecks_current_acl ... ok
+test revocation_during_provider_call_prevents_publication ... ok
+test forged_provider_citation_is_rejected_and_failure_not_cached ... ok
+test retrieval_and_provider_share_a_budget ... ok
+test patch_agnostic_fact_does_not_establish_release_patch_or_mode ... ok
+test asset_hero_entity_and_field_records_share_identity ... ok
+test assets_feed_field_answers_through_release_kernel ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests/evidence_errors.rs (rust/target/debug/deps/evidence_errors-f43d11a0a92aab1a)
+
+running 6 tests
+test real_postgres_connection_failure_is_unavailable_not_permission_denied ... ok
+test unavailable_roundtrips_through_the_public_response_contract ... ok
+test cache_hit_timeout_fails_closed_without_provider_retry_and_does_not_cache_failure ... ok
+test technical_reader_failures_are_unavailable_at_every_handoff_not_unauthorized ... ok
+test permission_budget_and_invalid_reader_responses_are_distinct ... ok
+test six_hundred_parallel_requests_with_reader_faults_never_report_false_permission_denials ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/patch_validity.rs (rust/target/debug/deps/patch_validity-304a9f2a6fc5d0a5)
+
+running 6 tests
+test unknown_fact_remains_answerable_without_game_patch_claim ... ok
+test head_patch_change_during_provider_call_blocks_handoff ... ok
+test canonical_known_patch_with_legacy_null_still_answers_directly ... ok
+test unknown_patch_fact_cannot_hide_a_conflict_with_known_fact ... ok
+test cached_provider_answer_is_not_reused_after_head_patch_change ... ok
+test direct_fact_never_answers_old_or_unknown_as_requested_patch ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/pr61_dependencies.rs (rust/target/debug/deps/pr61_dependencies-8dac5c35814acf94)
+
+running 5 tests
+test uncited_input_revoked_during_provider_call_must_block_publication ... ok
+test revoked_uncited_inputs_do_not_create_successful_cache_entries ... ok
+test cached_answer_must_track_uncited_inputs ... ok
+test facts_reselect_newly_visible_conflicts_and_aliases_without_model_calls ... ok
+test concurrent_fact_reuse_reselects_instead_of_sharing_a_stale_selection ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/review_dependencies.rs (rust/target/debug/deps/review_dependencies-596033f8600236ce)
+
+running 6 tests
+test cache_hit_revalidates_uncited_input_acl_and_tombstone ... ok
+test fact_reuse_rechecks_newly_visible_conflict_and_alias_collision ... ok
+test hybrid_fact_limit_cannot_hide_a_pinned_conflicting_value ... ok
+test uncited_provider_input_revoked_during_call_must_not_publish_or_cache ... ok
+test concurrent_fact_requests_reselect_instead_of_sharing_an_old_winner ... ok
+test fresh_fact_selection_reuses_the_release_index_and_bounds_head_reads ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running unittests src/lib.rs (rust/target/debug/deps/brain_providers-11cff9d87383f766)
+
+running 9 tests
+test hardening::tests::cost_overflow_fails_closed ... ok
+test circuit::tests::circuit_opens_allows_one_probe_and_recovers ... ok
+test circuit::tests::failed_probe_restarts_cooldown ... ok
+test tests::debug_redacts_token ... ok
+test hardening::tests::endpoint_and_price_are_explicit ... ok
+test tests::zero_round_budget_blocks_before_network ... ok
+test tests::invalid_json_is_rejected_without_fallback ... ok
+test tests::request_budget_limits_retries_and_output_tokens ... ok
+test tests::retries_rate_limit_and_parses_typed_response ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/faults.rs (rust/target/debug/deps/faults-202de5d5cb9e80b3)
+
+running 7 tests
+test cost_input_and_egress_fail_before_any_socket ... ok
+test cancelled_provider_and_embedding_calls_never_open_a_connection ... ok
+test cancellation_during_first_provider_attempt_prevents_a_retry ... ok
+test embeddings_restore_indices_and_reject_duplicates_or_dimension_errors ... ok
+test server_error_retries_but_retry_after_beyond_deadline_does_not ... ok
+test authentication_redirect_and_missing_usage_do_not_retry ... ok
+test bounded_chunked_response_and_timeout_are_errors ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+     Running unittests src/lib.rs (rust/target/debug/deps/dbrain_retrieval-cb8e81ed346ffee8)
+
+running 67 tests
+test game_wiki::localization::tests::descriptions_require_matching_revision_and_existing_key ... ok
+test game_wiki::localization::tests::mechanics_use_only_exact_normalized_stat_key ... ok
+test contract_port::tests::restrictive_scope_is_filtered_before_ranking ... ok
+test contract_port::tests::rare_terms_work_without_dense_index ... ok
+test contract_port::tests::patch_filter_and_stable_sort_are_deterministic ... ok
+test game_wiki::hero_dossier::tests::ambiguous_cards_and_unavailable_wiki_are_explicit ... ok
+test game_wiki::tests::live_wiki_hero_archetype_roster_is_compact_and_item_free ... ignored, Explizite Abnahme am versionierten echten Game-Wiki
+test game_wiki::tests::live_wiki_hero_bundle_and_nonhero_search ... ignored, Explizite Abnahme am versionierten echten Game-Wiki
+test contract_port::tests::internal_record_without_scope_is_fail_closed ... ok
+test chunk_index::tests::chunk_ranges_are_deterministic_utf8_and_cover_every_byte ... ok
+test game_wiki::hero_dossier::tests::dossier_binds_stable_skills_and_separates_old_facts ... ok
+test game_wiki::hero_dossier::tests::historical_pages_and_cross_hero_ability_names_are_not_build_evidence ... ok
+test game_wiki::hero_dossier::tests::wiki_text_cannot_inject_corpus_boundaries ... ok
+test game_wiki::wiki_manifest_tests::successful_manifest_excludes_partial_deleted_and_renamed_pages ... ignored, benötigt eine leere, isolierte brain_wiki_test-Datenbank und WIKI_SCRATCH_DSN
+test game_wiki::tests::replace_pages_atomically_restores_old_pages_when_new_pages_missing ... ok
+test game_wiki::tests::answer_hero_bundle_uses_bound_keys_and_preserves_all_four_cards ... ok
+test game_wiki::hero_dossier::tests::note_budget_is_unicode_safe_and_reports_omissions ... ok
+test tests::analysis_list_returns_array ... ignored, needs scratch Postgres via DEADLOCK_CENTRAL_DSN
+test game_wiki::tests::nested_name_only_suppresses_the_enclosed_occurrence ... ok
+test tests::analyze_query_resolves_known_hero ... ignored, needs scratch Postgres via DEADLOCK_CENTRAL_DSN
+test chunk_index::tests::long_atomic_tokens_are_not_truncated_or_split_into_fake_numbers ... ok
+test game_wiki::tests::missing_bound_card_is_explicit_without_foreign_filler ... ok
+test game_wiki::hero_dossier::tests::exported_card_is_loaded_by_exact_identity_only ... ok
+test game_wiki::tests::answer_search_does_not_treat_partial_item_name_as_hero_archetype_evidence ... ok
+test game_wiki::tests::hero_archetype_answer_uses_roster_evidence_instead_of_item_names ... ok
+test tests::ask_context_changelog_meta_question_includes_patch_overview_in_rendered_prompt ... ignored, needs scratch Postgres via DEADLOCK_CENTRAL_DSN
+test game_wiki::tests::hero_names_require_complete_tokens_and_comparisons_are_not_collapsed ... ok
+test game_wiki::tests::incidental_hero_does_not_replace_item_or_patch_search ... ok
+test game_wiki::tests::search_game_wiki_returns_full_matching_page ... ok
+test game_wiki::tests::bound_key_supports_shared_cards_but_ambiguous_keys_fail_closed ... ok
+test html_projection::tests::block_and_diagram_boundaries_preserve_separate_words_and_inline_fragments ... ok
+test html_projection::tests::html_preserves_semantics_without_active_content_or_requests ... ok
+test game_wiki::tests::search_game_wiki_extracts_complete_matching_shard_entry ... ok
+test tests::ask_context_keeps_unrelated_question_out_of_domain ... ignored, needs scratch Postgres via DEADLOCK_CENTRAL_DSN
+test tests::ask_context_returns_structured_bundle ... ignored, needs scratch Postgres via DEADLOCK_CENTRAL_DSN
+test tests::build_review_context_returns_summary ... ignored, needs scratch Postgres via DEADLOCK_CENTRAL_DSN
+test tests::context_loads_patch_events_for_known_hero ... ignored, needs scratch Postgres via DEADLOCK_CENTRAL_DSN
+test tests::load_known_item_names_matches_catalog ... ignored, needs scratch Postgres via DEADLOCK_CENTRAL_DSN
+test tests::keyword_starts_word_filters_mid_word_matches ... ok
+test tests::hero_archetype_concept_routes_only_temporal_questions_to_power_curve ... ok
+test tests::ask_prompt_includes_game_knowledge_ground_truth ... ok
+test tests::patch_overview_aggregates_meta_signals ... ok
+test tests::quality_reports_required_tables_present ... ignored, needs scratch Postgres via DEADLOCK_CENTRAL_DSN
+test tests::build_intent_prefers_owned_build_claim_over_general_mention ... ok
+test tests::current_patch_overrides_ignore_older_changes ... ok
+test tests::hero_group_questions_get_semantic_archetype_intent ... ok
+test tests::hero_meta_build_request_prefers_build_intent_over_meta_question ... ok
+test tests::hero_power_curve_labels_require_sample_and_material_delta ... ok
+test tests::keyword_phrase_keeps_echo_shard_from_echo_noise ... ok
+test tests::ask_prompt_preserves_timeline_details_and_hides_debug_claim_fields ... ok
+test tests::ask_claim_partitioning_respects_include_unverified ... ok
+test tests::save_review_roundtrip_inserts_and_cleans_up ... ignored, needs scratch Postgres via DEADLOCK_CENTRAL_DSN
+test tests::intent_claim_type_bonus_requires_distinctive_keyword_hit ... ok
+test tests::final_verified_json_is_sorted_by_relevance_before_cutoff ... ok
+test tests::status_reports_core_counts ... ignored, needs scratch Postgres via DEADLOCK_CENTRAL_DSN
+test tests::relevance_floor_drops_non_positive_and_low_tail_claims ... ok
+test tests::ask_claim_partitioning_keeps_rejected_out_of_verified ... ok
+test tests::relevance_floor_uses_score_without_intent_claim_type_bonus ... ok
+test tests::timeline_patch_events_keep_best_match_entity_type ... ignored, needs scratch Postgres via DEADLOCK_CENTRAL_DSN
+test tests::on_intent_flagged_claims_keep_slots_over_tangential_verified_claims ... ok
+test tests::reasoner_explanation_keeps_item_order_and_evidence_without_inventing_style ... ok
+test tests::patch_overview_routing_requires_broad_patch_question ... ok
+test tests::relevance_score_ranks_more_keyword_hits_before_confidence ... ok
+test tests::tempo_needs_independent_mechanics_support_instead_of_short_game_winrate_alone ... ok
+test tests::thin_verified_bucket_gets_on_topic_unverified_fallback ... ok
+test tests::patch_overview_routing_accepts_patch_related_meta_question_from_classifier ... ok
+test game_wiki::hero_dossier::tests::every_hero_in_the_versioned_corpus_gets_an_explicit_coverage_card ... ok
+
+test result: ok. 52 passed; 0 failed; 15 ignored; 0 measured; 0 filtered out; finished in 0.53s
+
+     Running tests/chunked_retrieval.rs (rust/target/debug/deps/chunked_retrieval-62eb18a37fd28675)
+
+running 16 tests
+test ineligible_alias_owners_do_not_hide_authorized_fact ... ok
+test exact_numeric_literals_bypass_dense_and_cannot_be_replaced_by_similar_numbers ... ok
+test html_evidence_binds_semantic_ranges_to_unchanged_reviewed_artifact ... ok
+test weighted_fusion_is_bit_stable_under_list_permutation_and_never_merges_acls ... ok
+test forged_chunk_range_source_provenance_content_and_acl_are_rejected ... ok
+test stat_identifiers_and_typed_facts_are_not_semantically_reranked ... ok
+test repeated_owner_across_ambiguous_names_is_deduplicated_before_head_read ... ok
+test public_maintenance_citations_hide_private_origin_metadata ... ok
+test aliases_german_english_umlauts_and_metadata_filters ... ok
+test two_unambiguous_entities_in_one_question_are_not_alias_ambiguous ... ok
+test live_revoke_delete_and_historical_acl_never_widen ... ok
+test oversized_indivisible_evidence_is_an_explicit_budget_error_not_truncation ... ok
+test fact_alias_ambiguity_is_checked_across_the_entire_release ... ok
+test large_hero_default_budget_multiple_chunks_and_exact_provenance ... ok
+test hundreds_of_alias_owners_fail_closed_without_exceeding_head_batch_limit ... ok
+test four_thousand_documents_concurrent_queries_build_once_and_read_only_candidate_heads ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.49s
+
+     Running tests/core_retrieval.rs (rust/target/debug/deps/core_retrieval-9a34442367403d4f)
+
+running 4 tests
+test fusion_is_stable_deduplicated_and_rejects_conflicts ... ok
+test release_pinning_acl_tombstone_and_forged_evidence ... ok
+test wrong_release_patch_mode_and_egress_are_closed ... ok
+test dense_accounts_usage_and_rejects_model_mismatch ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/patch_validity.rs (rust/target/debug/deps/patch_validity-0bbafb263cac45af)
+
+running 13 tests
+test static_lexical_adapter_uses_the_same_patch_contract ... ok
+test unpinned_query_preserves_source_patch_not_release_patch ... ok
+test unknown_patch_is_retrievable_but_never_invented_from_release ... ok
+test current_head_legacy_conflict_is_not_hidden_by_canonical_origin ... ok
+test matching_known_patch_remains_usable ... ok
+test dense_selection_rejects_old_patch_before_embedding ... ok
+test canonical_old_patch_cannot_be_relabelled_by_new_release ... ok
+test new_head_cannot_rewrite_historical_pin_validity ... ok
+test legacy_only_patch_is_respected_without_inventing_unknown ... ok
+test known_legacy_and_canonical_contradictions_fail_closed ... ok
+test fresh_head_validity_revokes_retrieval_and_existing_evidence ... ok
+test typed_and_generic_paths_both_recheck_changed_head_validity ... ok
+test typed_and_generic_paths_agree_on_source_validity ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+   Doc-tests brain_kernel
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests brain_providers
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests dbrain_retrieval
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

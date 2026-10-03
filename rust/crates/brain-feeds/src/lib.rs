@@ -4,6 +4,9 @@ pub mod build_publish;
 pub mod deadlock_assets;
 pub mod deadlock_match;
 pub mod patchnotes;
+pub mod sheet_core;
+pub mod source_sync;
+pub mod youtube_core;
 
 use brain_contracts::SourceVisibility;
 use serde::{Deserialize, Serialize};

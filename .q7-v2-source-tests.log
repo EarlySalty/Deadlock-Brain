@@ -1,0 +1,18 @@
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-reasoner)
+   Compiling brain-feeds v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-feeds)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-retrieval)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.28s
+     Running tests/source_sync.rs (rust/target/debug/deps/source_sync-d297131d0af3f689)
+
+running 8 tests
+test metadata_only_does_not_retain_transcripts_or_accept_bad_transcript_hashes ... ok
+test release_preserves_all_foreign_pins_and_patch ... ok
+test incomplete_sheet_or_youtube_never_prepares_tombstones ... ok
+test configured_rights_cannot_weaken_the_operator_decision ... ok
+test rights_change_revises_unchanged_content_and_missing_rights_fail_closed ... ok
+test removed_sheet_rows_leave_the_active_document ... ok
+test removed_videos_are_tombstoned_when_another_video_proves_a_nonempty_complete_set ... ok
+test sheet_is_idempotent_and_never_promotes_untyped_data ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+

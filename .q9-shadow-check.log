@@ -1,0 +1,43 @@
+Q9_WRAPPER_PID=3290580
+HOSTLOCKS_ACQUIRED
+HOSTPROBE_EXIT=0
+               total        used        free      shared  buff/cache   available
+Mem:           49152       36519         102       15381       27911       12632
+Swap:              0           0           0
+Filesystem         Size  Used Avail Use% Mounted on
+/dev/ploop43048p1  1.7T  1.2T  443G  73% /
+rustc 1.97.1 (8bab26f4f 2026-07-14)
+FMT_CHECK_EXIT=0
+    Checking dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-builds)
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-reasoner)
+    Checking brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-storage)
+    Checking deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/deadlock-brain-core)
+    Checking brain-policy v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-policy)
+    Checking serde_path_to_error v0.1.20
+    Checking dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-normalize)
+    Checking dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-population)
+    Checking lazy_static v1.5.0
+    Checking matchit v0.8.4
+    Checking axum v0.8.9
+    Checking dbrain-s12-wiki-probe v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-wiki)
+    Checking sharded-slab v0.1.7
+    Checking brain-kernel v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-kernel)
+    Checking tracing-serde v0.2.0
+    Checking thread_local v1.1.10
+    Checking dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-sources)
+    Checking dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-retrieval)
+    Checking tracing-subscriber v0.3.23
+    Checking brain-api v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-api)
+    Checking dl-token-secrets v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/crates/dl-token-secrets)
+    Checking brain-providers v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-providers)
+    Checking uplink-infisical-transport v0.1.1 (/home/nathanael/.worktrees/brain-fertig-q/rust/vendor/uplink-infisical-transport)
+    Checking brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-serve)
+error[E0433]: cannot find `Observed` in `brain_contracts`
+   --> crates/brain-serve/src/bin/provider_shadow/mod.rs:308:76
+    |
+308 |             && matches!(&origin.policy.authorization_ref, brain_contracts::Observed::Known { value } if value == AUTHORIZATION),
+    |                                                                            ^^^^^^^^ could not find `Observed` in `brain_contracts`
+
+For more information about this error, try `rustc --explain E0433`.
+error: could not compile `brain-serve` (bin "brain-provider-shadow") due to 1 previous error
+CHECK_EXIT=101

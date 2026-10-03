@@ -1,0 +1,12 @@
+    Checking dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-builds)
+    Checking brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-storage)
+    Checking deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/deadlock-brain-core)
+    Checking brain-ingestion v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-ingestion)
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-reasoner)
+    Checking dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-normalize)
+    Checking dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-population)
+    Checking dbrain-s12-wiki-probe v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-wiki)
+    Checking dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-sources)
+    Checking dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-retrieval)
+    Checking brain-feeds v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-feeds)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 12.88s

@@ -13,10 +13,13 @@ brain-kernel = { path = "../brain-kernel" }
 brain-policy = { path = "../brain-policy" }
 serde_json.workspace = true
 sha2.workspace = true
+tracing = "0.1"
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
 tokio = { workspace = true, features = ["sync"] }
 
 [dev-dependencies]
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "json", "registry", "std"] }
+tower = { version = "0.5", features = ["util"] }
 reqwest.workspace = true
 serde.workspace = true
 brain-ingestion = { path = "../brain-ingestion" }

@@ -320,6 +320,39 @@ async fn pull_single_sheet(
     }))
 }
 
+pub fn parse_complete_csv_rows(text: &str) -> std::result::Result<Vec<Vec<String>>, &'static str> {
+    let mut quoted = false;
+    let mut start = true;
+    let mut closed = false;
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if quoted {
+            if ch == '"' {
+                if chars.peek() == Some(&'"') {
+                    chars.next();
+                } else {
+                    quoted = false;
+                    closed = true;
+                }
+            }
+        } else if matches!(ch, ',' | '\n' | '\r') {
+            start = true;
+            closed = false;
+        } else if ch == '"' && start {
+            quoted = true;
+            start = false;
+        } else if ch == '"' || closed {
+            return Err("CSV enthält ungültige Anführungszeichen.");
+        } else {
+            start = false;
+        }
+    }
+    if quoted {
+        return Err("CSV ist unvollständig.");
+    }
+    Ok(parse_csv_rows(text))
+}
+
 fn parse_csv_rows(text: &str) -> Vec<Vec<String>> {
     let mut rows = Vec::new();
     let mut row = Vec::new();

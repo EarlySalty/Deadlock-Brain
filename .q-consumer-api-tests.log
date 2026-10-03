@@ -1,0 +1,87 @@
+START api-tests 2026-10-03T17:03:14Z
+   Compiling tracing-core v0.1.36
+   Compiling hyper v1.10.1
+   Compiling tracing v0.1.44
+   Compiling tower v0.5.3
+   Compiling hyper-util v0.1.20
+   Compiling sqlx-core v0.8.6
+   Compiling hyper-rustls v0.27.9
+   Compiling tower-http v0.6.11
+   Compiling sqlx-postgres v0.8.6
+   Compiling reqwest v0.12.28
+   Compiling sqlx-macros-core v0.8.6
+   Compiling sqlx-macros v0.8.6
+   Compiling uplink-infisical-transport v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/vendor/uplink-infisical-transport)
+   Compiling mime v0.3.17
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-reasoner)
+   Compiling axum-core v0.5.6
+   Compiling brain-policy v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-policy)
+   Compiling matchit v0.8.4
+   Compiling lazy_static v1.5.0
+   Compiling sharded-slab v0.1.7
+   Compiling axum v0.8.9
+   Compiling sqlx v0.8.6
+   Compiling dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-builds)
+   Compiling brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-storage)
+   Compiling deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/deadlock-brain-core)
+   Compiling dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-normalize)
+   Compiling dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-population)
+   Compiling brain-kernel v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-kernel)
+   Compiling uplink-infisical-transport v0.1.1 (/home/nathanael/.worktrees/brain-fertig-q/rust/vendor/uplink-infisical-transport)
+   Compiling tracing-serde v0.2.0
+   Compiling thread_local v1.1.10
+   Compiling tracing-subscriber v0.3.23
+   Compiling brain-client v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-client)
+   Compiling brain-api v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-api)
+   Compiling brain-ingestion v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-ingestion)
+   Compiling brain-providers v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-providers)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-retrieval)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 05s
+     Running tests/c9_internal_http.rs (rust/target/debug/deps/c9_internal_http-af7e31ff2d85c34e)
+
+running 1 test
+test private_antwort_docs_abweisung_und_oeffentliche_nichterreichbarkeit ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/request_audit.rs (rust/target/debug/deps/request_audit-037d283ed3acfc14)
+
+running 6 tests
+test authenticated_identity_denied_on_other_transport_is_still_audited ... ok
+test arbitrary_grant_account_data_is_hashed_and_body_identity_is_ignored ... ok
+test deadline_emits_one_controlled_event_without_waiting_for_worker ... ok
+test invalid_missing_and_duplicate_credentials_never_create_consumer_events ... ok
+test public_and_private_success_and_business_status_are_audited_once ... ok
+test parser_media_size_and_scope_errors_are_audited_after_authentication ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+EXIT api-tests=0
+
+START api-tests-continuation 2026-10-03T18:10:52Z
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-reasoner)
+   Compiling brain-api v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-api)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-retrieval)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.39s
+     Running tests/c9_internal_http.rs (rust/target/debug/deps/c9_internal_http-af7e31ff2d85c34e)
+
+running 1 test
+test private_antwort_docs_abweisung_und_oeffentliche_nichterreichbarkeit ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/request_audit.rs (rust/target/debug/deps/request_audit-037d283ed3acfc14)
+
+running 6 tests
+test authenticated_identity_denied_on_other_transport_is_still_audited ... ok
+test arbitrary_grant_account_data_is_hashed_and_body_identity_is_ignored ... ok
+test deadline_emits_one_controlled_event_without_waiting_for_worker ... ok
+test invalid_missing_and_duplicate_credentials_never_create_consumer_events ... ok
+test parser_media_size_and_scope_errors_are_audited_after_authentication ... ok
+test public_and_private_success_and_business_status_are_audited_once ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+EXIT api-tests-continuation=0

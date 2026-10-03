@@ -1,0 +1,28 @@
+   Compiling deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/deadlock-brain-core)
+   Compiling brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-storage)
+   Compiling dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-normalize)
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-reasoner)
+   Compiling dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-population)
+   Compiling brain-ingestion v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-ingestion)
+   Compiling dbrain-s12-wiki-probe v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-wiki)
+   Compiling dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-sources)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-retrieval)
+   Compiling brain-feeds v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-feeds)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 37.50s
+     Running unittests src/lib.rs (rust/target/debug/deps/brain_feeds-6cd0f0dbd3b0734f)
+
+running 11 tests
+test youtube_core::metadata::tests::date_schema_and_bounds_fail_closed ... ok
+test youtube_core::metadata::tests::missing_metadata_access_fails_before_network ... ok
+test youtube_core::metadata::tests::multiple_pages_require_terminal_count_and_reject_token_cycles ... ok
+test youtube_core::metadata::tests::initially_empty_inventory_has_no_sentinel_and_is_bound_to_rights ... ok
+test youtube_core::metadata::tests::metadata_only_fresh_payload_never_carries_local_transcripts ... ok
+test youtube_core::metadata::tests::fresh_full_payload_preserves_only_local_transcripts_and_new_metadata ... ok
+test youtube_core::metadata::tests::truncated_duplicates_foreign_channels_schema_errors_and_changed_sets_abort ... ok
+test youtube_core::metadata::tests::old_ids_are_probed_even_when_absent_from_uploads_and_checkpoint_only ... ok
+test youtube_core::metadata::tests::complete_empty_is_explicit_tombstones_and_is_idempotent ... ok
+test youtube_core::metadata::tests::real_http_decoder_rejects_status_schema_and_interrupted_bodies ... ok
+test youtube_core::metadata::tests::more_than_fifty_videos_use_all_pages_and_all_details_chunks ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.06s
+

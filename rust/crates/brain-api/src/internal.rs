@@ -1,5 +1,8 @@
 //! Dieser Router wird ausschließlich an den privaten Unixsocket gebunden.
-use crate::{bearer_token, deadline_response, json_error, ApiResponse};
+use crate::{
+    audit::{RequestAudit, Route},
+    bearer_token, deadline_response, json_error, ApiResponse,
+};
 use axum::{
     body::to_bytes,
     extract::{Request, State},
@@ -12,7 +15,11 @@ use brain_contracts::{
     internal_api::*, AnswerProfile, Budget, Query, RequestDeadline, RetrievalPort, SourceVisibility,
 };
 use brain_policy::{PolicyEngine, PolicyError};
-use std::{collections::BTreeSet, sync::Arc, time::Duration};
+use std::{
+    collections::BTreeSet,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tokio::sync::Semaphore;
 
 struct CancelOnDrop(RequestDeadline);
@@ -181,28 +188,46 @@ async fn dispatch(
     State(service): State<Arc<InternalApiService>>,
     request: Request,
 ) -> axum::response::Response {
+    let started = Instant::now();
     let deadline =
         RequestDeadline::after(Duration::from_millis(service.deadline_ms.clamp(1, 60_000)));
     let _cancel = CancelOnDrop(deadline.clone());
-    let permit = match service.slots.clone().try_acquire_owned() {
-        Ok(permit) => permit,
-        Err(_) => return respond(json_error(429, "overloaded", "Operatorweg ausgelastet")),
-    };
     let (parts, body) = request.into_parts();
     let authorization = parts
         .headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned);
-    if parts.headers.get_all(header::AUTHORIZATION).iter().count() != 1
-        || !bearer_token(authorization.as_deref()).is_some_and(|token| service.allowed(token))
-    {
+    if parts.headers.get_all(header::AUTHORIZATION).iter().count() != 1 {
         return respond(json_error(
             403,
             "forbidden",
             "Keine interne Operatorfreigabe",
         ));
     }
+    let principal = bearer_token(authorization.as_deref())
+        .and_then(|token| service.policy.authenticate(token).ok());
+    let Some(principal) = principal else {
+        return respond(json_error(
+            403,
+            "forbidden",
+            "Keine interne Operatorfreigabe",
+        ));
+    };
+    let mut audit = RequestAudit::new(&principal, Route::OperatorQuery, started);
+    if !bearer_token(authorization.as_deref()).is_some_and(|token| service.allowed(token)) {
+        return respond(audit.finish(json_error(
+            403,
+            "forbidden",
+            "Keine interne Operatorfreigabe",
+        )));
+    }
+    let permit = match service.slots.clone().try_acquire_owned() {
+        Ok(permit) => permit,
+        Err(_) => {
+            return respond(audit.finish(json_error(429, "overloaded", "Operatorweg ausgelastet")))
+        }
+    };
     if !parts
         .headers
         .get(header::CONTENT_TYPE)
@@ -213,18 +238,19 @@ async fn dispatch(
                 .is_some_and(|v| v.trim().eq_ignore_ascii_case("application/json"))
         })
     {
-        return respond(json_error(
+        return respond(audit.finish(json_error(
             415,
             "unsupported_media_type",
             "application/json erforderlich",
-        ));
+        )));
     }
     let expires = deadline.expires_at().into();
-    let operation = async move {
+    let operation = async {
         let body = match to_bytes(body, 64 * 1024).await {
             Ok(body) => body,
             Err(_) => return json_error(413, "payload_too_large", "Anfrage zu groß"),
         };
+        audit.observe_body(&body);
         tokio::task::spawn_blocking(move || {
             let _permit = permit;
             service.handle_query(authorization.as_deref(), &body, deadline)
@@ -232,11 +258,10 @@ async fn dispatch(
         .await
         .unwrap_or_else(|_| json_error(503, "unavailable", "Operatorweg nicht verfügbar"))
     };
-    respond(
-        tokio::time::timeout_at(expires, operation)
-            .await
-            .unwrap_or_else(|_| deadline_response()),
-    )
+    let result = tokio::time::timeout_at(expires, operation)
+        .await
+        .unwrap_or_else(|_| deadline_response());
+    respond(audit.finish(result))
 }
 
 fn respond(response: ApiResponse) -> axum::response::Response {
@@ -254,7 +279,9 @@ fn respond(response: ApiResponse) -> axum::response::Response {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use brain_contracts::{AuthorizedContext, Evidence, EvidenceKind, PortError, StoreResult};
+    use brain_contracts::{
+        store::StoreResult, AuthorizedContext, Evidence, EvidenceKind, PortError,
+    };
     use brain_policy::{AuthGrant, CredentialRegistry};
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 

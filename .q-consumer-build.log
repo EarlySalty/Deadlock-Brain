@@ -1,0 +1,45 @@
+START build 2026-10-03T17:05:16Z
+   Compiling tokio v1.52.3
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-reasoner)
+   Compiling tokio-util v0.7.18
+   Compiling hyper v1.10.1
+   Compiling tower v0.5.3
+   Compiling async-compression v0.4.42
+   Compiling hyper-util v0.1.20
+   Compiling tokio-rustls v0.26.4
+   Compiling tower-http v0.6.11
+   Compiling tokio-stream v0.1.18
+   Compiling sqlx-core v0.8.6
+   Compiling hyper-rustls v0.27.9
+   Compiling reqwest v0.12.28
+   Compiling sqlx-postgres v0.8.6
+   Compiling uplink-infisical-transport v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/vendor/uplink-infisical-transport)
+   Compiling tokio-postgres v0.7.18
+   Compiling postgres v0.19.14
+   Compiling sqlx v0.8.6
+   Compiling dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-builds)
+   Compiling brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-storage)
+   Compiling deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/deadlock-brain-core)
+   Compiling axum v0.8.9
+   Compiling dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-normalize)
+   Compiling dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-population)
+   Compiling dbrain-s12-wiki-probe v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-wiki)
+   Compiling dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-sources)
+   Compiling brain-api v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-api)
+   Compiling dl-token-secrets v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/crates/dl-token-secrets)
+   Compiling brain-providers v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-providers)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-retrieval)
+   Compiling uplink-infisical-transport v0.1.1 (/home/nathanael/.worktrees/brain-fertig-q/rust/vendor/uplink-infisical-transport)
+   Compiling brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-serve)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 53.47s
+
+EXIT build=0
+
+START build-continuation 2026-10-03T18:11:24Z
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-reasoner)
+   Compiling brain-api v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-api)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-retrieval)
+   Compiling brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-serve)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 18.97s
+
+EXIT build-continuation=0

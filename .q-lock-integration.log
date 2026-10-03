@@ -1,0 +1,8 @@
+     Locking 6 packages to latest compatible versions
+      Adding sharded-slab v0.1.7
+      Adding thread_local v1.1.10
+      Adding tracing-serde v0.2.0
+      Adding tracing-subscriber v0.3.23
+      Adding uplink-infisical-transport v0.1.1 (/home/nathanael/.worktrees/brain-fertig-q/rust/vendor/uplink-infisical-transport)
+      Adding valuable v0.1.1
+note: pass `--verbose` to see 123 unchanged dependencies behind latest

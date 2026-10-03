@@ -89,10 +89,40 @@ fn semantic_hash(source: &DocumentSetSource, document: &CoreDocument) -> Result<
     Ok(digest(&serde_json::to_vec(&normalized)?))
 }
 
+pub struct ConfirmedCompleteRead<'a> {
+    source: &'a DocumentSetSource,
+    documents: &'a [CoreDocument],
+}
+
+impl<'a> ConfirmedCompleteRead<'a> {
+    pub fn after_complete_source_verification(
+        source: &'a DocumentSetSource,
+        documents: &'a [CoreDocument],
+    ) -> Self {
+        Self { source, documents }
+    }
+}
+
+pub fn prepare_confirmed_document_batch(
+    read: ConfirmedCompleteRead<'_>,
+    previous: Option<&SourceCheckpoint>,
+) -> Result<SourceBatch> {
+    prepare_document_batch_inner(read.source, read.documents, previous, true)
+}
+
 pub fn prepare_document_batch(
     source: &DocumentSetSource,
     documents: &[CoreDocument],
     previous: Option<&SourceCheckpoint>,
+) -> Result<SourceBatch> {
+    prepare_document_batch_inner(source, documents, previous, false)
+}
+
+fn prepare_document_batch_inner(
+    source: &DocumentSetSource,
+    documents: &[CoreDocument],
+    previous: Option<&SourceCheckpoint>,
+    confirmed_complete: bool,
 ) -> Result<SourceBatch> {
     if source.source_id.trim().is_empty() || source.configuration.trim().is_empty() {
         return Err(invalid("source identity required"));
@@ -100,7 +130,7 @@ pub fn prepare_document_batch(
     if source.visibility != SourceVisibility::Public && source.allowed_scopes.is_empty() {
         return Err(invalid("non-public source requires explicit scopes"));
     }
-    if documents.is_empty() {
+    if documents.is_empty() && !confirmed_complete {
         return Err(invalid("empty read never tombstones an existing source"));
     }
     if documents.len() > MAX_DOCUMENTS_PER_SOURCE
@@ -267,6 +297,52 @@ mod semantic_tests {
             },
         };
         (source, document)
+    }
+
+    #[test]
+    fn only_confirmed_complete_empty_reads_tombstone_and_replay_idempotently() {
+        let (source, document) = fixture();
+        let first = prepare_document_batch(&source, &[document], None).unwrap();
+        assert!(prepare_document_batch(&source, &[], Some(&first.checkpoint)).is_err());
+        let cleared = prepare_confirmed_document_batch(
+            ConfirmedCompleteRead::after_complete_source_verification(&source, &[]),
+            Some(&first.checkpoint),
+        )
+        .unwrap();
+        assert_eq!(cleared.records.len(), 1);
+        assert!(cleared.records[0].tombstone);
+        assert_eq!(cleared.records[0].revision, 2);
+        assert!(cleared.records[0].content.is_empty());
+        assert!(current_pins(&cleared.checkpoint).unwrap().is_empty());
+        let repeated = prepare_confirmed_document_batch(
+            ConfirmedCompleteRead::after_complete_source_verification(&source, &[]),
+            Some(&cleared.checkpoint),
+        )
+        .unwrap();
+        assert!(repeated.records.is_empty());
+        assert_eq!(repeated.checkpoint.state, cleared.checkpoint.state);
+        assert!(prepare_confirmed_document_batch(
+            ConfirmedCompleteRead::after_complete_source_verification(&source, &[]),
+            None,
+        )
+        .unwrap()
+        .records
+        .is_empty());
+        let mut foreign = first.checkpoint;
+        foreign.source_id = "foreign".into();
+        assert!(prepare_confirmed_document_batch(
+            ConfirmedCompleteRead::after_complete_source_verification(&source, &[]),
+            Some(&foreign),
+        )
+        .is_err());
+        let mut denied = source;
+        denied.visibility = SourceVisibility::Internal;
+        denied.allowed_scopes.clear();
+        assert!(prepare_confirmed_document_batch(
+            ConfirmedCompleteRead::after_complete_source_verification(&denied, &[]),
+            None,
+        )
+        .is_err());
     }
 
     #[test]

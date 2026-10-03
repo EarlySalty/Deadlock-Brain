@@ -16,12 +16,12 @@ impl OpenAiCompatibleProvider {
         context: &AuthorizedContext,
         evidence: &[brain_contracts::Evidence],
     ) -> Result<ProviderAnswer> {
+        let requested_model = payload.model.clone();
         let mut json = serde_json::to_value(payload).map_err(|_| ProviderError::InvalidConfig)?;
         let (bytes, charge) = self.transport_json("chat/completions", &mut json, context, true)?;
         let parsed: ChatResponse = serde_json::from_slice(&bytes)
             .map_err(|_| ProviderError::InvalidResponse("invalid chat schema".into()))?;
-        if parsed.model.as_deref() != Some(self.config.model.as_str()) || parsed.choices.len() != 1
-        {
+        if parsed.model.as_deref() != Some(requested_model.as_str()) || parsed.choices.len() != 1 {
             return Err(ProviderError::InvalidResponse(
                 "model or choice count mismatch".into(),
             ));
@@ -35,12 +35,13 @@ impl OpenAiCompatibleProvider {
         let usage = parsed
             .usage
             .ok_or_else(|| ProviderError::InvalidResponse("provider usage missing".into()))?;
-        let usage = self.charged_usage(
+        let mut usage = self.charged_usage(
             context,
             charge,
             usage.prompt_tokens,
             usage.completion_tokens,
         )?;
+        usage.model = Some(requested_model);
         #[derive(serde::Deserialize)]
         #[serde(deny_unknown_fields)]
         struct Grounded {

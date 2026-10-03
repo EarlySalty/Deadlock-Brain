@@ -1,0 +1,17 @@
+Q9_WRAPPER_PID=3384153
+HOSTLOCKS_ACQUIRED
+HOSTPROBE_EXIT=0
+               total        used        free      shared  buff/cache   available
+Mem:           49152       40136         291       15399       24123        9015
+Swap:              0           0           0
+Filesystem         Size  Used Avail Use% Mounted on
+/dev/ploop43048p1  1.7T  1.2T  441G  73% /
+rustc 1.97.1 (8bab26f4f 2026-07-14)
+b933808177d0d1d02bcb1413b3bb9d89a7a38af41edf489abbaa75d0d2c1dcfb  /home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-serve/src/bin/brain-provider-shadow.rs
+cb1d78c0c9c6a876e969f45893a27d83e6968ea507860cef0c62cd35c34ca9ae  /home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-serve/src/bin/provider_shadow/mod.rs
+FMT_CHECK_EXIT=0
+CHECK_EXIT=0
+CLIPPY_EXIT=0
+TEST_EXIT=0
+PREPARE_EXIT=0
+WRAPPER_EXIT=0

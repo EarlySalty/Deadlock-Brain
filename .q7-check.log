@@ -1,0 +1,5 @@
+    Checking brain-ingestion v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-ingestion)
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-reasoner)
+    Checking brain-feeds v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-feeds)
+    Checking dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-retrieval)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.10s

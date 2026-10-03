@@ -1,0 +1,60 @@
+START clippy-lib 2026-10-03T17:06:10Z
+    Checking errno v0.3.14
+    Checking tracing-core v0.1.36
+    Checking signal-hook-registry v1.4.8
+    Checking tracing v0.1.44
+    Checking tokio v1.52.3
+    Checking mime v0.3.17
+   Compiling unicase v2.9.0
+   Compiling mime_guess v2.0.5
+    Checking hyper v1.10.1
+    Checking tokio-util v0.7.18
+    Checking tower v0.5.3
+    Checking tokio-rustls v0.26.4
+    Checking async-compression v0.4.42
+    Checking tower-http v0.6.11
+    Checking hyper-util v0.1.20
+    Checking tokio-stream v0.1.18
+    Checking sqlx-core v0.8.6
+    Checking hyper-rustls v0.27.9
+    Checking reqwest v0.12.28
+    Checking sqlx-postgres v0.8.6
+    Checking nix v0.29.0
+    Checking uplink-infisical-transport v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/vendor/uplink-infisical-transport)
+    Checking fireworks-model-selection v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/vendor/fireworks-model-selection)
+    Checking tokio-postgres v0.7.18
+    Checking sqlx v0.8.6
+    Checking dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-builds)
+    Checking postgres v0.19.14
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-reasoner)
+    Checking brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-storage)
+    Checking deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/deadlock-brain-core)
+    Checking dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-normalize)
+    Checking dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-population)
+    Checking brain-policy v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-policy)
+    Checking axum-core v0.5.6
+    Checking serde_path_to_error v0.1.20
+
+Previous clippy-lib run interrupted without EXIT; not passed.
+START clippy-lib-continuation 2026-10-03T18:11:43Z
+    Checking dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-normalize)
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-reasoner)
+    Checking brain-kernel v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-kernel)
+    Checking uplink-infisical-transport v0.1.1 (/home/nathanael/.worktrees/brain-fertig-q/rust/vendor/uplink-infisical-transport)
+    Checking brain-api v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-api)
+    Checking brain-providers v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-providers)
+    Checking brain-client v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-client)
+    Checking dbrain-s12-wiki-probe v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-wiki)
+    Checking dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-sources)
+    Checking dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-retrieval)
+    Checking brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-serve)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 14.39s
+
+EXIT clippy-lib-continuation=0
+START clippy-bin-continuation 2026-10-03T18:11:58Z
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-reasoner)
+    Checking dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-retrieval)
+    Checking brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-serve)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 17.73s
+
+EXIT clippy-bin-continuation=0

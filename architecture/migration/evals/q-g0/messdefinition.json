@@ -1,0 +1,179 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "messdefinition_und_read_only_inventar_kein_lastlauf",
+  "as_of": "2026-10-03",
+  "worker": "Q3",
+  "code_reference": "5c220a8f047eb980d953d9f9f285b34739b5ed88",
+  "historical_observation_release": "511a347b653beba13c2bf130f4bead7a7196cc2a",
+  "current_consumer_observation": "architecture/migration/evals/q-g0/consumer-beobachtung-20261003.json",
+  "consumer_measurement_status": "offen; Journalzugriff erneut geprüft, aber keine belegten Consumerrequest-Kennzahlen verfügbar",
+  "profile_draft": "architecture/migration/evals/q-g0/profil-entwurf.json",
+  "rights_inventory": "architecture/migration/evals/q-g0/rechte-pruefliste.csv",
+  "historical_observations_note": "Die bisher vorhandenen Hardware-, RSS- und Microbenchmarkwerte bleiben als historische Proben erhalten. Sie wurden in dieser Wiederaufnahme nicht neu gemessen. Der Worktree ist kein eingefrorener geprüfter Kandidatenstand; parallele Worker schreiben weiterhin in disjunkten Bereichen.",
+  "g0_status": "teilweise",
+  "release_approved": false,
+  "scope": "Anforderungszuordnung und Ersatz des ausgefallenen G0-Scouts. Keine Codeänderung, kein Compilerstart, keine DB-Schreibzugriffe, keine Last gegen Bots.",
+  "status_semantics": {
+    "offen": "Kein ausreichender Nachweis des geforderten Ergebnisses. Vorhandene Planung oder angrenzende Tests sind trotzdem genannt.",
+    "teilweise": "Konkreter Teilbaustein oder historische lokale Prüfung vorhanden. Die jeweils genannte Real-, Integrations- oder Rechteprüfung fehlt.",
+    "erledigt": "In diesem Worker für keine Anforderung vergeben. Eine Paketzuteilung ist kein Fertigbeweis."
+  },
+  "package_references": {
+    "definition": "/home/nathanael/repos/Deadlock-Brain/.tasks/2026-10-03-brain-fertigstellung/PAKETE.md",
+    "Q": "Provider-Shadow, Relevanzschwelle, Sheet-/YouTube-Kernanbindung und G0",
+    "P": "Rust-Patchnotesprovider und Feed",
+    "S": "Steam-Build-Publish mit echtem hero_build_id",
+    "R": "Berechtigter echter Replay-Korpus und Rust-Decoder-Beweis",
+    "K": "Produktive Consumerparität einschließlich Twitch, Discord, Docs und 2nd-Brain",
+    "Wiki": "/home/nathanael/repos/Deadlock-Brain/.tasks/2026-10-03-wiki-spielwissen",
+    "Z": "Gemeinsame Integration, aktuelle Gates, Cutover, Restore und Legacy-Ende"
+  },
+  "existing_measurements": [
+    {
+      "source": "architecture/migration/benchmarks/s10/baseline.json",
+      "kind": "stage_fixture",
+      "candidate_commit": "a14340f8b1b8db9657255be2ec05672e9d562cba",
+      "dataset": "fixed integer ordering/overlap fixtures v1",
+      "repetitions": 5,
+      "mean_pair_latency_p95_ms": 0.0006698920000000001,
+      "mean_pair_latency_p99_ms": 0.0006698920000000001,
+      "process_peak_ram_kib": 3844,
+      "limits": "Batchmittel einer Population-Mikrofunktion, keine Anfragequantile, keine Consumerlatenz, keine reale Last und keine Rust-Vorher/Nachher-Steigerung."
+    },
+    {
+      "source": "architecture/migration/PRE_G5_TECHNICAL_REVIEW.md",
+      "code_commit": "022f8a981c2164f6d8d4302bae2194e100c4f65c",
+      "workers": [8, 16, 32],
+      "requests_per_stage": 600,
+      "answered_per_stage": 600,
+      "db_pool_max": 4,
+      "limits": "Historisch dokumentierter lokaler Prozess-E2E mit Fixturefragen. run_load in rust/crates/brain-serve/tests/process_e2e.rs wartet je Worker auf die vorherige Antwort. Geschlossene Last, keine reale Ankunftsrate, keine neue Ausführung durch Q3."
+    },
+    {
+      "source": "architecture/migration/inventory/BASELINE_BERICHT.md",
+      "as_of": "2026-09-24",
+      "brain_data_bytes": 1813651236,
+      "limits": "Historische Ordnergröße, keine logische Datensatzanzahl und keine Aussage zum aktuellen Produktionsvolumen. Die S01-E2E-Latenz fehlt ausdrücklich."
+    }
+  ],
+  "read_only_observations": {
+    "hardware": {
+      "cpu": "AMD EPYC 9334 32-Core Processor",
+      "logical_cpus": 16,
+      "ram_mib": 49152,
+      "free_ram_mib_at_sample": 11400,
+      "host_load_1_5_15_minutes": [11.5, 10.83, 9.91],
+      "limits": "Einmalige Hostprobe während paralleler Arbeit. Keine reservierten Ressourcen, keine CPU-/RAM-Messung unter definierter Last."
+    },
+    "brain_service": {
+      "unit": "brain-serve.service",
+      "manager": "user",
+      "active": "active",
+      "substate": "running",
+      "pid": 3506677,
+      "executable": "/opt/deadlock-brain/maintenance-releases/511a347b653beba13c2bf130f4bead7a7196cc2a/brain-serve",
+      "rss_kib_at_sample": 6388,
+      "process_hwm_kib": 14556,
+      "threads": 4,
+      "systemd_memory_current": null,
+      "systemd_memory_peak": null,
+      "systemd_cpu_usage_ns": null,
+      "source_commands": [
+        "systemctl --user show brain-serve.service --property=ActiveState,SubState,MainPID,MemoryCurrent,MemoryPeak,CPUUsageNSec,FragmentPath",
+        "readlink /proc/3506677/exe",
+        "Lesend /proc/3506677/status: ausschließlich VmRSS, VmHWM und Threads"
+      ],
+      "limits": "Binarypfad bindet den beobachteten Release an den SHA. Kein Beweis seiner Byteidentität oder aktueller Consumer-E2E; HWM ist ein bisheriger Prozesshöchstwert, kein gemessenes Lastprofil."
+    },
+    "site_service": {"unit": "deadlock-brain-site.service", "manager": "user", "active": "active", "substate": "running", "pid": 2002603},
+    "journal_window": {"since_local": "2026-10-01", "until_local_exclusive": "2026-10-04", "captured_on": "2026-10-03", "end_is_future_cutoff_not_complete_day": true},
+    "journal_aggregates": [
+      {"unit": "brain-serve.service", "manager": "user", "exit": 0, "entries": 343, "case_insensitive_keyword_hits": {"started": 65, "listening": 33, "request": 28}, "confirmed_request_samples": null},
+      {"unit": "dl-knowledge.service", "manager": "user", "exit": 0, "entries": 183, "hits_for_request_answer_latency_elapsed_brain_retrieval_query_error_timeout": 0, "confirmed_request_samples": null},
+      {"unit": "deadlock-brain-site.service", "manager": "user", "exit": 0, "entries": 0, "confirmed_request_samples": null}
+    ],
+    "journal_limits": "Nur Zähler gespeichert. Worttreffer sind weder Requestzähler noch Fehlerquote. Keine Treffer oder keine Zeilen beweisen keinen Nullverkehr; Start-, Konfigurations- und Wartungsmeldungen können dieselben Wörter enthalten. Der Journald-Endzeitpunkt reicht nur bis zur Abfrage.",
+    "briefing_only_observations": [
+      "Postgres brain auf Port 5446 sowie Reader-Requestbudget 60 s und Providerbudget 55 s wurden vom Auftraggeber unabhängig festgestellt, nicht durch Q3 erneut gemessen.",
+      "Discord deadlock-bot-rust.service: über 13000 Journalzeilen ohne brain/retrieval/knowledge-Treffer laut Briefing. Kein Nullnutzungsbeweis.",
+      "Twitch ist Systemdienst deadlock-twitch-bot-rust.service unter /opt/deadlock/twitch/current. Leere Benutzerabfrage des Systemjournals laut Briefing bedeutet unbekannten Zugriff, nicht Nullverkehr."
+    ]
+  },
+  "existing_tools": [
+    {
+      "source": "architecture/migration/evals/README.md",
+      "tool": "dbrain-s10-evals",
+      "capabilities": ["design: Entwurf validieren", "baseline: Population-Fixture-Mikromessung", "support-inventory: reale Docs-Evaldateien ohne Inhalte inventarisieren", "assess: gelieferten Lauf gegen freigegebenes Profil auswerten"],
+      "binary_checked": "/home/nathanael/.worktrees/brain-fertig-q/architecture/migration/evals/target/release/dbrain-s10-evals",
+      "binary_present": false,
+      "limits": "Bestehender Rust-Workspace. Kein HTTP-Lastgenerator, keine automatische E2E-Erfassung und keine Freigabe durch Exitcode. Build durch Q3 verboten und nicht ausgeführt."
+    },
+    {
+      "source": "rust/crates/dbrain-retrieval/examples/ask_latency.rs",
+      "debug_binary_present": true,
+      "release_example_present": false,
+      "binary_checked": "/home/nathanael/.worktrees/brain-fertig-q/rust/target/debug/examples/ask_latency",
+      "limits": "Eine Buildfrage für einen Helden, vorhandener Infisical-FD und explizit read-only DB erforderlich. 20-s-Prozessgrenze, kein Chat/Provider/Publish. Antwortinhalt im Ausgabeartefakt, deshalb ausschließlich lokal. Nicht der produktive CLI-/HTTP-Kern, nicht Consumertraffic und kein p95/p99. Vor Ausführung Binary-SHA/Buildherkunft prüfen; Vorhandensein reicht nicht."
+    },
+    {
+      "source": "rust/crates/brain-serve/tests/process_e2e.rs",
+      "capabilities": ["lokale Prozess-/Pool-/Überlastverträge", "600 Fixtureanfragen bei 8/16/32 Workern"],
+      "limits": "Regressionstest, kein Generator für echten Consumertraffic oder gemischte Produktionslast. Keine Testausführung in Q3."
+    }
+  ],
+  "derived_constraints_not_approved_slos": {
+    "source": "rust/crates/brain-api/src/http.rs",
+    "request_execution_cap_ms": 60000,
+    "http_admission_slots": 64,
+    "body_limit_bytes": 65536,
+    "limits": "Implementierte Schranken. Keine gemessene Zielankunftsrate, kein p95/p99-SLO und keine Zusage von 64 gleichzeitig erfolgreichen Antworten. Consumerseitige Fristen können enger sein und müssen durch K erhoben werden."
+  },
+  "confirmed_scope_decisions": {
+    "evidence": "/home/nathanael/repos/Deadlock-Brain/.tasks/2026-10-03-brain-fertigstellung/bereiche/q/VON_HAUPT.md:32-33",
+    "sheet_youtube": "Interner Bestandserhalt bestätigt, Lizenz unbekannt. Keine Veröffentlichung, keine externen Modelle, keine kanonischen Spielfakten. Aktuelle Fassung plus 12 Monate Historie, Entfernung bei verschwundener Quelle. Gemini bleibt aus. YouTube-Lernen pausiert; frische Metadaten ohne Transkript- oder Modelllauf erlaubt.",
+    "shadow": "Mindestens 100 Fragen aus öffentlichen FAQ unter /faq und /docs, veröffentlichten Patchnotes, Wiki-Inhalten im Kern und ausdrücklich markierten synthetischen Fragen. Keine privaten Nutzer- oder Communityfragen an Fireworks. Freigabe des Korpusumfangs ist weder bereits ausgeführter Shadowlauf noch Lizenzfreigabe aller Quellen.",
+    "not_proven": "Produktive technische Durchsetzung der Rechte, Löschung und Historienfrist durch Q; Lizenzen der weiteren Quellen und Wiki-/Medienattribution durch zuständige Pakete."
+  },
+  "measurement_definition": {
+    "variants": {"A": "Alter geprüfter Pfad nur bei ausführbarer, freigegebener Referenz; sonst ausdrücklich fehlend.", "B": "Rust-Pfad mit denselben erlaubten Daten, Modellen und Fragen ohne neue Jev-Funktion.", "C": "B mit genau einer separat bezeichneten Optimierung.", "D": "C mit genau einer freigegebenen Jev-Funktion."},
+    "data_handling": "Echte Fragen, Quellen, Identitäten und Antworten bleiben lokal mit restriktiven Dateirechten. Keine Rohfragen, Einzelereignisse, Nutzerkennungen oder Antworten nach Git und kein Versand an einen externen Provider zur G0-Messung. Nur ausreichend zusammengefasste Kennzahlen und nicht rückführbare Referenzen veröffentlichen.",
+    "traffic_input_required": ["Lokaler zeitlich abgegrenzter Consumer-Requestnachweis einschließlich fehlgeschlagener und abgebrochener Requests", "Consumer, Frageklasse, Berechtigungsklasse und Cachezustand ohne Veröffentlichung identifizierbarer Einzelereignisse", "Ankunftszeit, tatsächlicher Beginn und Ende, Clientfrist, Responsezustand und Transportfehler", "Varianten-, Daten-, Release-, Config- und Modellrevision samt freigegebenen Kostenangaben"],
+    "workload_rules": ["Ankunftsrate und Parallelität aus den echten Consumerzeitstempeln ableiten; leere Logs lassen beide unbekannt.", "1/8/32 sind vorgeschlagene technische Messpunkte aus dem Plan, keine gemessene Trafficverteilung.", "Mindestens drei Wiederholungen, warm und kalt getrennt; Ingest/Wiki/Replay/Reembedding zusätzlich als abgegrenzte Mischlast auf isolierter Zielinstanz.", "Ankunftszeit unabhängig von Fertigstellung erfassen. Queuezeit gehört zur E2E-Zeit; abbrechende und verworfene Requests nicht aus dem Nenner entfernen.", "Keine Last gegen laufende Bots. Vorhandene Prozesssuite nur als lokale Vertragsregression nutzen, nicht als real_e2e deklarieren."],
+    "metric_rules": ["p50/p95/p99 der Ende-zu-Ende-Zeit mit Stichprobenzahl und Quantilverfahren ausweisen. Für das vorhandene S10-Werkzeug gilt nearest rank aus src/statistics.rs: sortierter Wert an ceil(p*n)-1. Ein anderes Verfahren nicht stillschweigend gleichsetzen. Kleine Stichproben begrenzen insbesondere p99. Serverseitige Dauer ist keine Client-E2E-Zeit.", "Antworten, erwartete Ablehnungen, 429, Transportfehler, Timeouts und Abbrüche getrennt zählen. S10 error_rate bewertet akzeptierte Szenarien, nicht automatisch Transportfehler.", "Kosten einschließlich Provider-, Embedding-, Shadow- und Retryaufwand; fehlende Usage oder Tarife bleiben unbekannt.", "Peak-/Steady-RAM, CPU-Zeit, I/O, DB-Pool-Wartezeit, Queue-Lag, Rebuilddauer und Ingestalter getrennt messen.", "Qualität an unabhängigen Holdoutlabels, identischen erlaubten Quellen und zeitlichen Match-/Quellfamilien prüfen. Keine Modellselbstbewertung und keine synthetische Pilotbehauptung."],
+    "slo_definition_rule": "p95/p99, Fehlergrenze, Kosten, RAM, Ingestalter, RPO und RTO vor dem Holdout durch Q/Z aus echtem Lastprofil und Betriebsbudget festlegen und freigeben. Die 60/55-s-Budgets sind nur Obergrenzen. Keine neuen Schwellen oder Konfigurationsänderungen durch Q3.",
+    "missing_inputs": ["Echter vollständiger Consumerrequestdatensatz und Frageklassenverteilung", "Consumerseitige Fristen und beobachtete Zielankunftsrate", "Freigegebene absolute SLOs sowie CPU/RAM/Queue-/Ingest-/Replaybudgets", "Aktuelle Providerfreigabe und unabhängige Qualitäts-/Relevanzlabels", "Produktiver Beweis der bestätigten internen Sheet-/YouTube-Policy einschließlich 12-Monats-Historie, Löschung und Egresssperre; aktuelle Rechtebeweise der weiteren Quellen", "Freeze von Kandidatencommit, Knowledge-/Daten-/Modellständen und realem Dataset", "Rohartefakt-Nachweis sowie freigegebene G0/G1/G2/G3-Referenzen", "Geprüfte vorhandene Messbinarys; S10-Releasebinary am geprüften Pfad fehlt"]
+  },
+  "practical_commands_not_executed": [
+    {
+      "purpose": "Nach Integration des redigierten Anfrageereignisses eine vollständige lokale Journalbasis ohne Textausgabe anlegen.",
+      "command_template": "journalctl --user -u brain-serve.service --since AUDITBEGINN_MIT_ZEITZONE --until FESTER_ENDZEITPUNKT_MIT_ZEITZONE -o json --no-pager",
+      "preconditions": "Platzhalter erst nach Livebeweis des integrierten Audit-SHA und Formats ersetzen. Ausgabe über vorhandenen lokalen Erhebungsweg restriktiv speichern und ausschließlich lokal auswerten. Rohjournal enthält möglicherweise alte Konfigurations- oder Wartungsmeldungen; niemals ins Git übernehmen. Q3 hat nur bestehende Journale flüchtig aggregiert, keinen neuen Erheber gebaut."
+    },
+    {
+      "purpose": "Vorhandenen Entwurf mit dem bestehenden Rust-Werkzeug prüfen, nach getrennt freigegebenem Build.",
+      "command": "/home/nathanael/.worktrees/brain-fertig-q/architecture/migration/evals/target/release/dbrain-s10-evals design /home/nathanael/.worktrees/brain-fertig-q/architecture/migration/evals/q-g0/profil-entwurf.json /home/nathanael/.worktrees/brain-fertig-q/architecture/migration/evals/cases.json /tmp/q-g0-design-20261003.json",
+      "preconditions": "S10-Binary fehlt derzeit. Neues Ausgabeziel erforderlich. Das Profil bindet die 40 Vertragsfälle aus cases.json, nicht einen bereits erhobenen Consumerdatensatz und nicht den mindestens 100 Fragen umfassenden Shadowkorpus. Grenzen und Releasebindungen sind absichtlich null. Ein Designbericht ist kein Lastbeweis."
+    },
+    {
+      "purpose": "Reale Docs-Evaldateien lokal inventarisieren, keine Texte exportieren.",
+      "command": "/home/nathanael/.worktrees/brain-fertig-q/architecture/migration/evals/target/release/dbrain-s10-evals support-inventory /home/nathanael/repos/Deadlock-Docs /tmp/q-g0-support-20261003.json",
+      "preconditions": "Geprüftes S10-Binary und zugängliches Docs-Repo. Vorhandenes support-inventory.json ist historische Evidenz, kein aktueller Lauf."
+    },
+    {
+      "purpose": "Eine bestehende read-only Retrievalprobe, ausdrücklich kein echter Consumer-Lastlauf.",
+      "command": "/home/nathanael/.worktrees/brain-fertig-q/rust/target/debug/examples/ask_latency /tmp/q-g0-ask-20261003.json Warden",
+      "preconditions": "Vorhandene Binaryherkunft/SHA und vorhandener freigegebener Infisical-FD müssen geprüft sein. Kein direkter Secretzugriff. Der neue Ausgabepfad enthält die Antwort und bleibt lokal."
+    },
+    {
+      "purpose": "Später bereitgestellten echten Lauf gegen freigegebene Grenzen auswerten.",
+      "command_template": "/ABSOLUT/GEPRUEFT/dbrain-s10-evals assess /ABSOLUT/LOKAL/profil-freigegeben.json /home/nathanael/.worktrees/brain-fertig-q/architecture/migration/evals/cases.json /ABSOLUT/LOKAL/lauf.json VOLLSTAENDIGER_GEPRUEFTER_COMMIT /ABSOLUT/LOKAL/assessment-neu.json",
+      "preconditions": "Alle Platzhalter ersetzen. Laufstruktur aus architecture/migration/evals/src/model.rs, authentische lokale Rohbelege, freigegebenes Profil und vollständige Pflichtfälle. assess erzeugt keine Messdaten; Q3 hat keinen echten Lauf konstruiert."
+    }
+  ],
+  "next_checks": [
+    {"owner": "Q/K/Z", "check": "Priorität C9-Operatortransport und redigiertes Anfrageereignis zuerst erfüllen. Das laufende Binary am 03.10.15:24 UTC bleibt 511a347; die neuen Felder sind dort nicht belegt. Erst danach echte authentifizierte Consumerkennzahlen lokal erfassen, synthetische Liveproben separat zählen und clientseitige Fristen, Abbrüche sowie E2E ergänzen. Lesende Systemjournalabfrage von Twitch war leer, nicht Nullverkehr."},
+    {"owner": "Q/Z", "check": "Echte lokale Eingangsdaten, SLOs, Ressourcen- und Datenschutzfreigabe fixieren. Vorhandene Rust-Messwerkzeuge wiederverwenden; fehlender offener Lastgenerator ist ein Umsetzungsbedarf, kein in Q3 erfundenes Werkzeug."},
+    {"owner": "Q/Z/Wiki", "check": "Bestätigte interne Sheet-/YouTube-Entscheidung nicht erneut als fehlende Zustimmung behandeln. Q belegt ihre technische Durchsetzung und Löschung; Wiki/Z liefern verbleibende Text-, Medien-, Daten- und Code-Lizenzbeweise. Bis dahin keine betroffene Publikation."},
+    {"owner": "Z", "check": "Nach Paketintegration jede CSV-Zeile gegen tatsächlichen SHA und Livebeweis neu abnehmen; historische Gateeinträge nicht pauschal auf aktuellen Code übertragen."}
+  ]
+}

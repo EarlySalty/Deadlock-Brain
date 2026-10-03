@@ -1,0 +1,13 @@
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-reasoner)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-retrieval)
+   Compiling brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-serve)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 19.28s
+     Running unittests src/bin/brain-provider-shadow.rs (rust/target/debug/deps/brain_provider_shadow-9d8870e7f6065dba)
+
+running 3 tests
+test provider_shadow::tests::parses_only_supported_headings ... ok
+test provider_shadow::tests::observations_have_no_fake_usage ... ok
+test provider_shadow::tests::output_does_not_overwrite ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

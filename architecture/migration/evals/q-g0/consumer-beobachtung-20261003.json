@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "lokale_journalverfuegbarkeit_kein_consumer_lastbeweis",
+  "captured_at_utc": "2026-10-03T15:24:32.765Z",
+  "requested_window": {
+    "since_local": "2026-10-01",
+    "until_local_exclusive": "2026-10-04",
+    "timezone": "Europe/Berlin",
+    "effective_end": "Abfragezeitpunkt; der 03.10. ist nicht vollständig erhoben"
+  },
+  "worktree_head_observed": "5c220a8f047eb980d953d9f9f285b34739b5ed88",
+  "running_brain": {
+    "unit": "brain-serve.service",
+    "manager": "user",
+    "active": "active",
+    "substate": "running",
+    "pid": 3506677,
+    "executable": "/opt/deadlock-brain/maintenance-releases/511a347b653beba13c2bf130f4bead7a7196cc2a/brain-serve",
+    "started_local": "2026-10-02 23:05:45 CEST",
+    "release_sha_from_path": "511a347b653beba13c2bf130f4bead7a7196cc2a",
+    "binary_byte_identity_verified": false,
+    "operator_and_new_audit_live_verified": false
+  },
+  "journal_aggregates": [
+    {"unit": "brain-serve.service", "manager": "user", "exit": 0, "entries": 343, "structured_candidate_events": 0, "brain_keyword_entries": 181, "first_entry_utc": "2026-10-01T20:33:11.537Z", "last_entry_utc": "2026-10-02T21:05:45.585Z", "confirmed_consumer_requests": null},
+    {"unit": "dl-knowledge.service", "manager": "user", "exit": 0, "entries": 183, "structured_candidate_events": 0, "brain_keyword_entries": 0, "first_entry_utc": "2026-09-30T22:02:16.382Z", "last_entry_utc": "2026-10-02T20:19:57.141Z", "confirmed_consumer_requests": null},
+    {"unit": "deadlock-brain-site.service", "manager": "user", "exit": 0, "entries": 0, "structured_candidate_events": 0, "brain_keyword_entries": 0, "first_entry_utc": null, "last_entry_utc": null, "confirmed_consumer_requests": null},
+    {"unit": "deadlock-bot-rust.service", "manager": "user", "exit": 0, "entries": 13435, "structured_candidate_events": 0, "brain_keyword_entries": 0, "first_entry_utc": "2026-09-30T22:00:10.055Z", "last_entry_utc": "2026-10-03T15:24:23.540Z", "confirmed_consumer_requests": null},
+    {"unit": "deadlock-twitch-bot-rust.service", "manager": "system", "exit": 0, "entries": 0, "structured_candidate_events": 0, "brain_keyword_entries": 0, "first_entry_utc": null, "last_entry_utc": null, "confirmed_consumer_requests": null}
+  ],
+  "method": {
+    "journal_command_template": "journalctl [--user für Userdienst] -u UNIT --since 2026-10-01 --until 2026-10-04 -o json --no-pager",
+    "processing": "Lokale flüchtige Auswertung vorhandener JSON-Journalzeilen. Nur Zähler, nicht Nachrichten oder Einzelereignisse gespeichert.",
+    "candidate_regex": "consumer_id|consumer_key|consumer=|request_completed|request_audit|brain_request",
+    "keyword_regex_case_insensitive": "brain|retrieval|knowledge",
+    "limits": "Kandidatensuche ohne bestätigtes Auditformat. Worttreffer sind keine Anfragen. Keine Treffer, leere Journale und Exitcode 0 beweisen keinen Nullverkehr. Systemjournalabfrage lief ohne Privilegienerhöhung. Keine vollständige Logabdeckung oder Leseberechtigung aller Twitch-Ereignisse behauptet."
+  },
+  "real_consumer_metrics": {
+    "status": "offen",
+    "offered_requests": null,
+    "completed_requests": null,
+    "arrival_rate_per_second": null,
+    "concurrency": null,
+    "question_class_distribution": null,
+    "client_e2e_p50_ms": null,
+    "client_e2e_p95_ms": null,
+    "client_e2e_p99_ms": null,
+    "transport_error_rate": null,
+    "cost_per_accepted_answer": null,
+    "reason": "Kein belastbarer lokaler Consumerrequestdatensatz zugänglich. Das neue serverseitige Anfrageereignis ist im beobachteten laufenden Release nicht nachgewiesen. Journalzähler ersetzen keine Consumer-Kennzahlen."
+  },
+  "pending_source": {
+    "reference": "/home/nathanael/repos/Deadlock-Brain/.tasks/2026-10-03-brain-fertigstellung/bereiche/q/VON_HAUPT.md:24",
+    "owner": "Q/K/Z",
+    "expected_fields_not_observed": ["Consumer-Kennung aus Credential-Grant", "Request-ID", "Route", "Ergebnisstatus", "Dauer"],
+    "required_before_measurement": ["Tatsächlichen Codepfad, Feldnamen und Ereignisformat aus integriertem SHA prüfen", "Laufenden Binarystand und Beginn der Auditabdeckung belegen", "Consumerkennzahlen aus authentifizierten echten Anfragen lokal aggregieren und synthetische Liveproben separat führen", "Clientfristen, Beginn, Ende, Abbrüche und Transportfehler clientseitig ergänzen"],
+    "limits": "Ein Ereignis nach authentifizierter Anfrage allein liefert keine vollständige angebotene Last, Client-E2E-Zeit, Frageklasse, Cachezustand, Usage oder Kosten. Abgelehnte nicht authentifizierte Aufrufe und clientseitige Abbrüche dürfen nicht unbemerkt aus dem Nenner verschwinden."
+  },
+  "publication": "Keine Rohfragen, Antworten, Request-IDs, Nutzerkennungen, Header oder Credentials enthalten. Keine externen Dienste oder Modelle aufgerufen.",
+  "release_approved": false
+}

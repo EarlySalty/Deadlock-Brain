@@ -2,12 +2,14 @@
 //! Composition root for the integrated Rust core. No legacy transports or schema writes.
 
 mod analytics;
+mod audit;
 pub mod config;
 mod health;
 mod operator_socket;
 mod secrets;
 mod service;
 
+pub use audit::init_request_audit;
 pub use config::Config;
 pub use secrets::Secrets;
 pub use service::{run, Prepared};

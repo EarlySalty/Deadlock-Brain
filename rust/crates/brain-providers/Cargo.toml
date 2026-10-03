@@ -9,6 +9,7 @@ path = "src/lib.rs"
 
 [dependencies]
 brain-contracts = { path = "../brain-contracts" }
+fireworks-model-selection = { path = "../../vendor/fireworks-model-selection" }
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

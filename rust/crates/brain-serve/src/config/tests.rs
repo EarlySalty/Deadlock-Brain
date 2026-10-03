@@ -17,11 +17,19 @@ fn example_parses_without_secret_values_and_preserves_pilot_defaults() {
     assert_eq!(config.budgets.max_input_tokens, 12000);
     assert_eq!(Budget::from(&config.budgets), Budget::default());
     assert_eq!(config.provider.api_key_env, "BRAIN_SERVE_PROVIDER_API_KEY");
+    let grant = &config.credentials[0];
+    assert_eq!(grant.actor_id, "docs-client");
+    assert_eq!(grant.channel, "docs");
+    assert_eq!(grant.scopes, BTreeSet::from(["docs.public".into()]));
+    assert_eq!(grant.provider_egress, BTreeSet::from(["public".into()]));
+    let release = grant.release.as_ref().unwrap();
+    assert_eq!(release.id, config.release.id);
+    assert_eq!(release.knowledge_version, config.release.knowledge_version);
 }
 
 #[test]
 fn c9_releasebindung_ist_explizit_und_widersprueche_scheitern() {
-    let mut value = example();
+    let mut value = c9_config();
     assert!(parse(&value).unwrap().credentials[0].release.is_none());
     value["credentials"][0]["release"] = json!({"id":"docs-r1","knowledge_version":"docs-v1"});
     assert_eq!(
@@ -240,6 +248,13 @@ fn missing_malformed_and_oversized_config_are_sanitized() {
 
 fn c9_config() -> serde_json::Value {
     let mut value = example();
+    value["credentials"][0] = json!({
+        "token_env": "BRAIN_SERVE_API_TOKEN",
+        "actor_id": "twitch-bot",
+        "channel": "twitch",
+        "scopes": ["bot.public"],
+        "provider_egress": ["public"]
+    });
     value["internal_operator"] = json!({"socket":"/run/user/1000/brain-operator/operator.sock", "release":{"id":"fixture-internal-release","knowledge_version":"fixture-internal-version"}});
     value["credentials"].as_array_mut().unwrap().extend([
         json!({"token_env":"BRAIN_SERVE_DOCS_PUBLIC_TOKEN","actor_id":"docs-client","channel":"docs","scopes":["docs.public"],"provider_egress":["public"],"release":{"id":"fixture-docs-release","knowledge_version":"fixture-docs-version"}}),

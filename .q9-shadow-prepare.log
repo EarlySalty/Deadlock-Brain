@@ -1,0 +1,5 @@
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-reasoner)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-retrieval)
+   Compiling brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-serve)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 25.64s
+     Running `rust/target/debug/brain-provider-shadow prepare /home/nathanael/repos/Deadlock-Docs /home/nathanael/.worktrees/brain-fertig-q/architecture/migration/evals/q-shadow/offline-cases-20261003.json`

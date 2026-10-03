@@ -1,0 +1,13 @@
+   Compiling sqlx-macros v0.8.6
+   Compiling sqlx v0.8.6
+   Compiling brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-storage)
+   Compiling brain-ingestion v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-ingestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.85s
+     Running unittests src/lib.rs (rust/target/debug/deps/brain_ingestion-4fbc1410752dda44)
+
+running 2 tests
+test document_set::semantic_tests::only_confirmed_complete_empty_reads_tombstone_and_replay_idempotently ... ok
+test document_set::semantic_tests::unchanged_bytes_preserve_semantic_updates_and_ignore_only_read_time ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+

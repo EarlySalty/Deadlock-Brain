@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "status": "offline_verified_not_provider_executed",
+  "runner": "brain-provider-shadow",
+  "docs_commit": "4b072aee3127564def674f4b53d9be5d1d42cfdf",
+  "corpus": {
+    "cases": 103,
+    "published_original_questions": 7,
+    "synthetic_questions": 96,
+    "independent_gold_labels": false,
+    "source_pages": [
+      "public/discord-server/paten.html",
+      "public/twitch-bot/chat-moderation.html",
+      "public/discord-server/dm-concierge.html",
+      "public/discord-server/voice-features.html",
+      "public/twitch-bot/auto-raid.html"
+    ]
+  },
+  "prepare_arguments": ["prepare", "DOCS_REPO_ABSOLUTE", "NEW_CASES_JSON_ABSOLUTE"],
+  "run_arguments": [
+    "run",
+    "DOCS_REPO_ABSOLUTE",
+    "BASELINE_CONFIG_ABSOLUTE",
+    "CANDIDATE_CONFIG_ABSOLUTE",
+    "EXISTING_INFISICAL_CONFIG_ABSOLUTE",
+    "CLIENT_SECRET_NAME_NOT_VALUE",
+    "BASELINE_PID",
+    "BASELINE_COMMIT_SHA",
+    "CANDIDATE_PID",
+    "CANDIDATE_COMMIT_SHA",
+    "--execute-approved-public",
+    "NEW_RESULT_JSONL_ABSOLUTE"
+  ],
+  "preconditions": [
+    "Beide Dienste laufen bereits an verschiedenen lokalen Ports. Der Runner startet und verändert keinen Dienst.",
+    "Beide Prozesse stammen aus einem nach Commit benannten Releaseverzeichnis mit Binaryname brain-serve und explizitem --config-Pfad.",
+    "Gleicher freigegebener Anbieter, gleiches Modell, gleiche Budgets, gleiche Fristen und gleiche Cachekonfiguration.",
+    "Gleiches festes Corpus-Release und ausschließlich öffentlicher Client mit bot.public und public.",
+    "Alle anbietersichtbaren Belege haben die explizite vorhandene Freigabe für Veröffentlichung und Versand.",
+    "Alle fünf FAQ haben aktuelle Release-Pins, Git-Ursprung am angegebenen Docs-Commit und passende Raw-Artefakthashes. Abweichungen werden gesperrt."
+  ],
+  "result_format": "JSONL: metadata, 103 case-Zeilen, summary. Ohne abschließendes complete=true ist der Lauf unvollständig.",
+  "usage_and_cost": null,
+  "provider_shadow_passed": null,
+  "offline_verification": {
+    "rust_version": "1.97.1",
+    "initial_check_exit": 101,
+    "initial_check_error": "E0433: brain_contracts::Observed is not exported; fixed to brain_contracts::value::Observed",
+    "format_check_exit": 0,
+    "check_exit": 0,
+    "strict_clippy_exit": 0,
+    "test_exit": 0,
+    "tests_passed": 3,
+    "tests_failed": 0,
+    "tests_ignored": 0,
+    "tests_filtered": 0,
+    "prepare_exit": 0,
+    "initial_wrapper_pid": 3290580,
+    "verification_wrapper_pid": 3384153,
+    "wrappers_completed": true,
+    "hostlocks": "host-checks.lock then /tmp/deadlock-cargo-release.lock; both held; fresh NonZombie probe exit 0",
+    "cases_file": "offline-cases-20261003.json",
+    "cases_file_sha256": "dff1bd83048b800c02dbd36656f7964b36e118eb11ac0f6e4298947e73b6d37f",
+    "unique_ids": 103,
+    "unique_questions": 103,
+    "public_cases": 103,
+    "published_original_questions": 7,
+    "synthetic_questions": 96,
+    "unlabelled_cases": 103,
+    "source_headings": 24,
+    "provider_requests_executed": 0
+  },
+  "comparison_preflight": {
+    "baseline_pid_observed": 3183434,
+    "baseline_commit_observed": "f7b02cc1933f7069e68be3037e7f838498cb0487",
+    "baseline_binary_sha256_observed": "066ee15f7a384f037694117be55b262db596959bfa5a18cf8fcfab29e2474ff0",
+    "baseline_release_observed": "maintenance-6edd9236639f9b06067a3b6b67fa410e5e668aa264db1b2baf28b7e1733940de",
+    "baseline_knowledge_version_observed": "docs-6edd9236639f9b06067a3b6b67fa410e5e668aa264db1b2baf28b7e1733940de",
+    "candidate_started_by_worker": false,
+    "existing_public_import_sha256": "3c33bc8340674d0fa6fdeadfd0a565c352b6a5274774ad4c3f2970e81f7b5132",
+    "import_docs_revision_mismatches": 5,
+    "import_raw_html_hash_mismatches": 5,
+    "live_source_pins_verified": false,
+    "direct_peer_database_probe_exit": 2,
+    "blockers": [
+      "Der vorhandene öffentliche Import verwendet die tatsächlichen Bot-Revisionen und abgeleitete HTML-Artefakte. Der Runner verlangt direkt den Docs-Commit und dessen HTML-Hash. Dieser Herkunftsvertrag ist vor einem echten Lauf zu klären, ohne bestehende Herkunft umzuschreiben.",
+      "Der C9-Docs-Import veröffentlicht docs.public. Der Runner verlangt ausschließlich bot.public und akzeptiert keinen abweichenden Credential-Release. Ein C9-Import allein macht diesen Runner daher nicht verwendbar.",
+      "Vor einem gemeinsamen Produktivwechsel muss der Basispfad erhalten bleiben. Ein Wechsel der bereits attestierten PID oder Konfig beendet den Lauf; ein danach neu gestarteter Basispfad wäre keine erhaltene Baseline.",
+      "Aktuelle Release-Pins und Rechte aller tatsächlich anbietersichtbaren Datensätze benötigen eine zugelassene lesende Datenbankverbindung über den vorhandenen Credential-Weg.",
+      "Die wirksame zentrale Fireworks-Auswahl und die geladenen Budgets und Fristen müssen für beide Antwortpfade separat belegt werden. Dateikonfiguration und Anfrageaudit reichen dafür nicht."
+    ]
+  },
+  "limits": [
+    "Die öffentliche HTTP-API liefert keine Nutzungs- oder Kostenwerte. Fehlende Werte werden nicht erfunden.",
+    "Belegkennungen sind keine unabhängige Prüfung des Beleginhalts oder der Antwortqualität.",
+    "Dateikonfiguration und Prozesspfad beweisen nicht allein die geladenen Laufzeitbudgets oder echte Anbieteraufrufe. Separater serverseitiger Nachweis bleibt erforderlich.",
+    "Keine echten Anbieteranfragen durch den Worker. Gezielt geprüfter Compiler, striktes Clippy, drei lokale Runner-Tests und Offline-prepare sind erfolgreich; der echte Vergleich steht aus."
+  ]
+}

@@ -1,61 +1,61 @@
 requirement_id,owner_chat,status,evidence_reference
-R01,"00,11",offen,
-R02,"08,09",offen,
-R03,"02-11",offen,
-R04,"00,11",offen,
-R05,"01,03,04",offen,
-R06,"02,03,10",offen,
-R07,"01,03,11",offen,
-R08,"03,04",offen,
-R09,"03,04",offen,
-R10,"01,05",offen,
-R11,"06",offen,
-R12,"07,08",offen,
-R13,"04,07",offen,
-R14,"07,08",offen,
-R15,"09",offen,
-R16,"08,09",offen,
-R17,"03,04,06",offen,
-R18,"03,04,11",offen,
-R19,"01,10",offen,
-R20,"07,08,10",offen,
-R21,"02,08,10",offen,
-R22,"03,10,11",offen,
-R23,"00,all",offen,
-R24,"01,all",offen,
-R25,"00",offen,
-R26,"01,12,10",offen,
-R27,"12,04",offen,
-R28,"02,03,05,12",offen,
-R29,"02,03,05,12",offen,
-R30,"05,06,12",offen,
-R31,"05,08,10",offen,
-R32,"02,03,05,12,13",offen,
-R33,"12,05,08",offen,
-R34,"03,05,12",offen,
-R35,"06,08",offen,
-R36,"05,08,10,12",offen,
-R37,"05,08,10",offen,
-R38,"04,06,12,13",offen,
-R39,"00,01,12,13",offen,
-R40,"03,04,08,11",offen,
-R41,"01,03,12",offen,
-R42,"02,03,13",offen,
-R43,"03,05,13,14",offen,
-R44,"01,13",offen,
-R45,"02,13,10",offen,
-R46,"03,13",offen,
-R47,"05,12,13",offen,
-R48,"13,14",offen,
-R49,"14,03,04",offen,
-R50,"14,10",offen,
-R51,"03,14",offen,
-R52,"05,13,14",offen,
-R53,"05,10,14",offen,
-R54,"01,13,14",offen,
-R55,"00,01,02,13",offen,
-R56,"01,08,09,11",offen,
-R57,"01,09,10",offen,
-R58,"01,02,05",offen,
-R59,"04,10,14",offen,
-R60,"00,all",offen,
+R01,"00,11",teilweise,"architecture/migration/inventory/CODE_RUNTIME_INVENTAR.md; architecture/migration/GATES.csv#G6: Repositoryinventar vorhanden; Paket Z muss aktive Nebenpfade und Legacy-Ende live belegen."
+R02,"08,09",teilweise,"rust/crates/brain-kernel/src/lib.rs; rust/crates/brain-serve/tests/process_e2e.rs; architecture/migration/GATES.csv#G3: gemeinsamer Kern lokal vorhanden; Paket K muss alle Consumer und entfernte Nebenpfade live belegen."
+R03,"02-11",teilweise,"architecture/migration/PRE_G5_TECHNICAL_REVIEW.md; architecture/migration/inventory/CODE_RUNTIME_INVENTAR.md: Rust-Kern lokal geprüft; Pakete P/K/Z müssen Python-Provider und produktive Runtime vollständig ablösen."
+R04,"00,11",teilweise,"architecture/migration/inventory/CODE_RUNTIME_INVENTAR.md; architecture/migration/GATES.csv#G6: Legacy-Laufzeit inventarisiert; Paket Z muss zeigen, dass Betrieb und Rebuild keine Python-Anwendung brauchen."
+R05,"01,03,04",teilweise,"architecture/migration/inventory/QUELLENREGISTER.csv; architecture/migration/PRE_G5_TECHNICAL_REVIEW.md: Quellen inventarisiert; Q Sheet/YouTube, P Patchnotes, R Replays und Wiki benötigen vollständige freigegebene Übernahmebeweise."
+R06,"02,03,10",teilweise,"rust/crates/brain-policy/tests/core_policy.rs; rust/crates/brain-kernel/tests/core_kernel.rs: ACL-Einschränkung, Cachetrennung und Widerruf sind lokale Testfälle; K/Z müssen Egress und Zitate im produktiven Consumerpfad prüfen."
+R07,"01,03,11",teilweise,"architecture/migration/inventory/ZUGANG_RISIKEN.md; architecture/migration/GATES.csv#G0: Sichtbarkeitsrisiken dokumentiert; vollständiger aktueller Repo-/History-/Secretprüfbeweis vor Import durch Z fehlt."
+R08,"03,04",teilweise,"rust/crates/brain-contracts/src/source.rs; rust/crates/brain-contracts/tests/ir_contracts.rs: Revision, Provenienz und getrennte Zeiten vertraglich vorhanden; reale Quellenabdeckung von Q/P/Wiki/R noch offen."
+R09,"03,04",teilweise,"rust/crates/brain-contracts/src/source.rs; rust/crates/dbrain-wiki/tests/completion.rs: Ableitungen und konservative Rechte lokal abgebildet; reale Elternreferenzen über alle freigegebenen Quellen noch nachzuweisen."
+R10,"01,05",teilweise,"architecture/migration/inventory/DOMAIN_PARITAET.csv; architecture/migration/s05/DOMAIN_PARITAET.csv; architecture/migration/PRE_G5_TECHNICAL_REVIEW.md: Paritätsinventar und lokale Domainprüfungen vorhanden; S Publish, R Replay und Wiki-Funktionen nicht vollständig live abgenommen."
+R11,"06",teilweise,"rust/crates/dbrain-retrieval/src/contract_port.rs; architecture/migration/evals/cases.json; architecture/migration/evals/q-g0/messdefinition.json: Retrieval vorhanden; gleicher Korpus, BM25/dense/Filtervergleich und reale Querypläne fehlen als gemeinsame Messung."
+R12,"07,08",teilweise,"architecture/migration/s07/HTTP_VERTRAEGE.md; architecture/migration/s07/SHADOW_UND_AKTIVIERUNG.md; architecture/migration/PRE_G5_TECHNICAL_REVIEW.md: typisierte Providerintegration vorbereitet; Q muss echte Shadowauswertung und Funktionsfreigaben belegen."
+R13,"04,07",teilweise,"architecture/migration/s07/SHADOW_UND_AKTIVIERUNG.md; architecture/migration/s04/PILOT_ACCEPTANCE.md: Feeder-Gating ist beschrieben; echte Feeder-A/B-Auswertung und freigegebene Quellen fehlen."
+R14,"07,08",teilweise,"architecture/migration/s07/PROVIDER_INVENTAR.md; rust/crates/brain-serve/src/config.rs; architecture/migration/PRE_G5_TECHNICAL_REVIEW.md: zentrale Providerkonfiguration vorhanden; Q/K müssen freigegebene Modelle, Budgets und keyfreie Consumer live nachweisen."
+R15,"09",teilweise,"architecture/migration/inventory/CODE_RUNTIME_INVENTAR.md; architecture/migration/GATES.csv#G3: Twitch-Anbindung lokal integriert; Paket K muss aktiven Systemdienst und Brain-E2E ohne lokale AI-Nebenlogik belegen."
+R16,"08,09",teilweise,"rust/crates/brain-api/src/http.rs; rust/crates/brain-client/src/lib.rs; architecture/migration/s08/E2E_ABLAUF.md: gemeinsame API/Clientverträge vorhanden; Paket K muss MCP/CLI/Web/Agent-Parität im Betrieb belegen."
+R17,"03,04,06",teilweise,"architecture/migration/LEGACY_CORE_MIGRATION.md; architecture/migration/BRAIN_DB_MIGRATION_REPORT.md: Datenmigration beschrieben; Z schuldet leeren Restore/Rebuild mit Indizes und Embeddings ohne Git-Artefakte."
+R18,"03,04,11",teilweise,"rust/crates/brain-ingestion/src/durable.rs; rust/crates/brain-storage/tests/core_store.rs; architecture/migration/GATES.csv#G3: Checkpoint-, Lease-, Fence- und Restartverträge lokal vorhanden; eindeutige produktive Writer und Cutover durch Z offen."
+R19,"01,10",offen,"architecture/migration/inventory/BASELINE_BERICHT.md; architecture/migration/evals/q-g0/messdefinition.json; architecture/migration/evals/q-g0/consumer-beobachtung-20261003.json: Journalzugriff erneut geprüft, aber kein belastbarer Consumerrequestdatensatz und keine Client-E2E-Quantile; Fixture-Mikromessung und 600-Request-Test ersetzen weder echtes Lastprofil noch Vorher/Nachher-Qualität. Q/K/Z benötigen zuerst den integrierten Auditereignis-Livebeweis und Clientkennzahlen."
+R20,"07,08,10",teilweise,"architecture/migration/s07/AKTIVIERUNGSENTSCHEIDE.json; architecture/migration/s07/SHADOW_UND_AKTIVIERUNG.md; architecture/migration/evals/q-g0/messdefinition.json: historische Funktionssperren und bestätigter Shadowumfang von mindestens 100 öffentlichen FAQ/Patchnotes/Wiki-Fragen plus markierten synthetischen Fragen dokumentiert; keine privaten Nutzer- oder Communityfragen an Fireworks. Q schuldet tatsächliche Zahlen zu falsch verlorener Evidenz und Nutzen je Funktion, Freigabe ist kein Laufbeweis."
+R21,"02,08,10",teilweise,"rust/crates/brain-contracts/src/public_api.rs; architecture/migration/evals/src/model.rs; architecture/migration/evals/q-g0/consumer-beobachtung-20261003.json: Usage-/Messverträge vorhanden; Q/K/Z müssen redigierte Auditereignisse aus dem integrierten laufenden Release belegen. Beobachteter Release 511a347 liefert keine bestätigten Consumerkennzahlen; serverseitige Dauer ersetzt keine Client-E2E-Zeit, geschützte Traces, Kosten und Dashboards bleiben offen."
+R22,"03,10,11",teilweise,"architecture/migration/BRAIN_POSTGRES_ISOLATION.md; architecture/migration/FINAL_LOCAL_INTEGRATION_REVIEW.md; architecture/migration/GATES.csv#G5: lokale Rückwegprüfungen dokumentiert; Z muss produktiven Restore/Rollback ohne Writeverlust und ACL-Rücknahme belegen."
+R23,"00,all",teilweise,"architecture/migration/PFAD_OWNER.csv; architecture/migration/handoffs/; architecture/migration/evals/q-g0/messdefinition.json: Owner und Übergaben vorhanden; Paketzuordnung ist kein Abnahmebeweis, integrierte Commit-/Contract-/Prüfverweise bleiben Z-Aufgabe."
+R24,"01,all",teilweise,"architecture/migration/inventory/G0_PROTOKOLL.md; architecture/migration/PRE_G5_TECHNICAL_REVIEW.md; architecture/migration/evals/q-g0/consumer-beobachtung-20261003.json; architecture/migration/evals/q-g0/messdefinition.json: historische Befunde, aktuelle read-only Journalzählung und fehlende Consumerkennzahlen ausdrücklich getrennt. Worktree-HEAD 5c220a8 ist nicht laufender Release 511a347; keine Nullverkehrsbehauptung. Vollständige aktuelle Runtimeabnahme von K/Z fehlt."
+R25,"00",teilweise,"architecture/migration/deadlock-brain-rust-planpaket-v1.0/08_ERGAENZUNGEN_INTEGRIERT.md; architecture/migration/deadlock-brain-rust-planpaket-v1.0/PAKET_MANIFEST.json: Integration der Recherche im Plan dokumentiert; keine vollständige erneute Originalhash-/Dublettenprüfung in Q3."
+R26,"01,12,10",teilweise,"architecture/migration/s12/reports/SOURCE_MANIFEST.json; architecture/migration/s12/reports/WIKI_COVERAGE.csv; architecture/migration/s12/reports/pilot-report.json: synthetischer Discovery-/Coveragenachweis vorhanden; Wiki-Paket muss echte vollständige Discovery und Pflichtlücken belegen."
+R27,"12,04",teilweise,"rust/crates/dbrain-wiki/tests/completion.rs; architecture/migration/s12/SOURCE_CHECK.md: sichere Literal-/Templateparser lokal geprüft; echte Data-/Module-/Templatequellen und vollständige Abhängigkeiten durch Wiki offen."
+R28,"02,03,05,12",teilweise,"rust/crates/brain-contracts/src/wiki.rs; rust/crates/brain-contracts/tests/ir_contracts.rs; rust/crates/dbrain-wiki/tests/completion.rs: typisierte IDs, Aliase und lokale Kartenverträge vorhanden; Wiki muss reale Rename-/FK-Abdeckung belegen."
+R29,"02,03,05,12",teilweise,"rust/crates/brain-contracts/tests/ir_contracts.rs; rust/crates/dbrain-wiki/tests/completion.rs: Conditions, Varianten, Units und Unknown unterscheiden sich lokal; reale Effekt-/Scaling-/Stackingabdeckung und Rundung durch Wiki offen."
+R30,"05,06,12",teilweise,"rust/crates/dbrain-reasoner/src/ability_interactions.rs; architecture/migration/s12/reports/pilot-report.json: Mechanik- und Interaktionsbausteine vorhanden; belegte reale Kanten mit Inputs und Versionen durch Wiki noch nicht vollständig geprüft."
+R31,"05,08,10",teilweise,"rust/crates/dbrain-reasoner/src/planner.rs; architecture/migration/s05/DOMAIN_PARITAET.csv; architecture/migration/PRE_G5_TECHNICAL_REVIEW.md: deterministischer Planner vorhanden; reale Wiki-Regelvollständigkeit und S-Publishparität bleiben offen."
+R32,"02,03,05,12,13",teilweise,"rust/crates/brain-contracts/tests/ir_contracts.rs; rust/crates/brain-kernel/tests/core_kernel.rs; rust/crates/brain-kernel/tests/patch_validity.rs: Revisionen und unbekannte Patch-/Modebezüge lokal getrennt; reale historische Quellenstände von Wiki/R weiter zu prüfen."
+R33,"12,05,08",teilweise,"rust/crates/dbrain-wiki/tests/completion.rs; architecture/migration/s12/reports/pilot-report.json: rebuildbare kompakte Karte lokal am synthetischen Golden geprüft; reale Fact-/Rule-/Sourceabdeckung durch Wiki offen."
+R34,"03,05,12",teilweise,"rust/crates/dbrain-wiki/tests/completion.rs; rust/crates/brain-contracts/src/wiki.rs: Locale und Aliasherkunft vertraglich getrennt; reale DE/EN-Abdeckung und gemeinsame numerische Wahrheit durch Wiki offen."
+R35,"06,08",teilweise,"rust/crates/dbrain-retrieval/src/contract_port.rs; architecture/migration/evals/cases.json; architecture/migration/evals/q-g0/messdefinition.json: Retrieval- und Mixed-Evidence-Prüffälle vorhanden; gemeinsame echte Release-/Qualitätsmessung fehlt."
+R36,"05,08,10,12",teilweise,"rust/crates/brain-contracts/tests/ir_contracts.rs; rust/crates/dbrain-wiki/tests/completion.rs: Null/Missing/Zero und Unknown lokal unterschieden; Wiki/R/K müssen fehlende Entities und Regeln im realen Antwortpfad prüfen."
+R37,"05,08,10",teilweise,"rust/crates/brain-kernel/tests/core_kernel.rs; rust/crates/dbrain-wiki/tests/completion.rs: erfundene Zitate werden lokal abgelehnt und Kartenfakten geerdet; numerische Golden-Vollabdeckung mit echtem Korpus fehlt."
+R38,"04,06,12,13",teilweise,"rust/crates/dbrain-wiki/tests/completion.rs; architecture/migration/s12/reports/unchanged-delta.json: lokale Hash-/Abhängigkeits-/Widerrufsfälle vorhanden; reale Template-/Data-/Factänderung ohne unnötiges Reembedding durch Wiki offen."
+R39,"00,01,12,13",teilweise,"architecture/migration/inventory/QUELLENREGISTER.csv; ops/source-pinning.md; architecture/migration/evals/q-g0/rechte-pruefliste.csv: enger interner Sheet-/YouTube-Bestandserhalt bestätigt, Lizenz unbekannt, Veröffentlichung/externe Modelle/kanonische Fakten gesperrt, aktuelle Fassung plus 12 Monate Historie und Entfernung bei verschwundener Quelle; Q muss Durchsetzung live belegen, Wiki/Z schulden übrige Text-/Daten-/Game-/Medienrechte. Technische Pins sind keine Lizenzfreigabe."
+R40,"03,04,08,11",teilweise,"rust/crates/brain-storage/src/pg_release.rs; rust/crates/brain-storage/tests/core_store.rs; architecture/migration/PRE_G5_TECHNICAL_REVIEW.md: atomarer Store-/Releasepfad lokal geprüft; Wiki-Pilot und produktives Rollback durch Z offen."
+R41,"01,03,12",teilweise,"architecture/migration/s12/reports/WIKI_COVERAGE.csv; architecture/migration/s12/reports/pilot-report.json: Klassen einschließlich Prosa und Medienmetadaten im synthetischen Inventar; Wiki schuldet reale Coverage oder ausdrückliche Ausschlüsse."
+R42,"02,03,13",teilweise,"rust/crates/brain-contracts/src/source.rs; rust/crates/brain-contracts/tests/ir_contracts.rs: SourceRecordV2 und gemeinsame Artefaktverträge lokal vorhanden; vollständige reale Parser-/Upstream-/Policybezüge von Q/P/Wiki/R offen."
+R43,"03,05,13,14",teilweise,"rust/crates/brain-contracts/src/external.rs; rust/crates/brain-contracts/tests/ir_contracts.rs: Herkunft und Artefaktbezug ohne Revisionsvermischung lokal vorhanden; reale Quellen-/Parserfamilien und Ausschluss von Dublettenvotes noch zu belegen."
+R44,"01,13",teilweise,"architecture/migration/inventory/QUELLENREGISTER.csv; rust/crates/brain-contracts/tests/ir_contracts.rs; architecture/migration/PRE_G5_TECHNICAL_REVIEW.md: vorhandene API-/Assetsadapter und Fail-closed-Verträge erhalten; aktuelle vollständige gepinnte Contractfixtures nicht durch Q3 geprüft."
+R45,"02,13,10",teilweise,"rust/crates/brain-contracts/tests/ir_contracts.rs; architecture/migration/evals/cases.json: deterministische Null-/Enum-/Quarantäneprüfungen und Driftfälle vorhanden; separater produktiver Drift-Watcher mit vollständigem Ausfallbeweis offen."
+R46,"03,13",teilweise,"ops/source-pinning.md; rust/crates/dbrain-sources/src/deadlock_data.rs: exakter Git-/Parserpin ohne implizites Fetch vorhanden; rekonstruierbare Commit-Diff-Snapshot-History über reale Folgeversionen noch nachzuweisen."
+R47,"05,12,13",teilweise,"ops/source-pinning.md; rust/crates/brain-contracts/tests/ir_contracts.rs: Parser- und Quellrevision werden getrennt; konkrete Same-Raw/New-Parser-Differenzprüfung gegen Spielpatch fehlt als freigegebener Realbeweis."
+R48,"13,14",offen,"architecture/migration/deadlock-brain-rust-planpaket-v1.0/12_QUELLEN_UND_SCHEMAWATCH.md; architecture/migration/replays/s14/CAPABILITY_REVIEW.tsv: Schemaüberwachung geplant und Fähigkeiten inventarisiert; aktueller GameTracking/SchemaExplorer/Proto-Watcher samt Mappinginvalidierung nicht belegt."
+R49,"14,03,04",teilweise,"architecture/migration/replays/s14/IMPLEMENTED_DECODER.json; rust/crates/brain-contracts/tests/ir_contracts.rs; architecture/migration/GATES.csv#G2: Rust-Decoder und normalisierte Beobachtungsverträge lokal vorhanden; Paket R muss echte berechtigt beschaffte Demos und Feld-/Patchfähigkeiten belegen."
+R50,"14,10",offen,"architecture/migration/replays/s14/CORPUS.tsv; architecture/migration/replays/s14/REFERENCE_AND_BUDGET_PLAN.md; architecture/migration/replays/s14/TEST_REPORT.md: Offlineprüfung vorhanden; R schuldet freigegebenen echten Golden-Korpus und unabhängigen Referenzreport, keine Fremd-Produktionsruntime."
+R51,"03,14",teilweise,"architecture/migration/replays/s14/REFERENCE_AND_BUDGET_PLAN.md; rust/crates/brain-contracts/src/replay.rs: Replay-Speicher- und Budgetkonzept vorhanden; R/Z müssen echte zweistufige Speicherung und Ressourcenlimits messen."
+R52,"05,13,14",teilweise,"rust/crates/dbrain-sources/src/analytics_runtime.rs; architecture/migration/PRE_G5_TECHNICAL_REVIEW.md: Population wird typisiert und unbekannter Patch nicht erfunden; R/Wiki müssen reale Kohorten, n, Missingness und Bias getrennt nachweisen."
+R53,"05,10,14",teilweise,"architecture/migration/evals/src/quality.rs; architecture/migration/evals/README.md: temporal_holdout kontrolliert Match- und Verfügbarkeitszeit lokal; R/Q müssen echten Match-Split sowie Release-/Datensatzfreeze liefern."
+R54,"01,13,14",teilweise,"architecture/migration/inventory/QUELLENREGISTER.csv; architecture/migration/replays/s14/DECODER_CANDIDATES.json: externe Repos als Quellen und Referenzen inventarisiert; vollständiger aktueller Feed-/Dependency-/Referenzabgleich und Rechteprüfung offen."
+R55,"00,01,02,13",teilweise,"architecture/migration/inventory/ZUGANG_RISIKEN.md; architecture/migration/evals/q-g0/rechte-pruefliste.csv; architecture/migration/GATES.csv#G0: frühe Risiko-/Rechteinventare vorhanden; Code-/Daten-/Assetrechte und aktuelle Securityfreigaben bleiben offen."
+R56,"01,08,09,11",teilweise,"architecture/migration/PRE_G5_TECHNICAL_REVIEW.md; architecture/migration/GATES.csv#G3: Consumer- und Build-Publishverträge lokal vorhanden; K Discord-E2E und S echter freigegebener Publish mit hero_build_id fehlen als Q3-Beweis."
+R57,"01,09,10",teilweise,"architecture/migration/benchmarks/s10/support-inventory.json; architecture/migration/evals/src/support_inventory.rs: sechs echte Docs-Evaldateien mit Commit/Hashes/Fallzahlen inventarisiert; K muss aktuelle redigierte Support-Evals und Docs-Prüfprozess erhalten und ausführen."
+R58,"01,02,05",teilweise,"architecture/migration/inventory/DOMAIN_PARITAET.csv; architecture/migration/PFAD_OWNER.csv; architecture/migration/PRE_G5_TECHNICAL_REVIEW.md: bestehende Rust-Pfade und lokale Regressionen dokumentiert; produktive Parität nach P/S/R/K/Wiki/Z noch nicht vollständig belegt."
+R59,"04,10,14",offen,"rust/crates/brain-serve/tests/process_e2e.rs; architecture/migration/evals/q-g0/messdefinition.json: geschlossener synthetischer 600-Request-Test vorhanden; echte gemischte Last mit Queue/RAM/CPU und interaktiver p95/p99 bei Ingest/Replay fehlt."
+R60,"00,all",teilweise,"architecture/migration/deadlock-brain-rust-planpaket-v1.0/10_REIHENFOLGE_UND_PARALLELITAET.md; architecture/migration/GATES.csv; architecture/migration/PFAD_OWNER.csv: einheitlicher Plan und Gates vorhanden; Z muss aktuelle Paketcommits sowie echte G2/G3/G4-Beweise zusammenführen."

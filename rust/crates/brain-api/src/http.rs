@@ -1,5 +1,6 @@
 //! HTTP adapter only; binding sockets and runtime activation are explicit caller decisions.
 use super::{deadline_response, json_error, ApiResponse, ApiService};
+use crate::audit::{RequestAudit, Route};
 use axum::{
     body::to_bytes,
     extract::{Request, State},
@@ -10,7 +11,10 @@ use axum::{
 };
 use brain_contracts::RequestDeadline;
 use brain_kernel::AnswerKernelPort;
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tokio::sync::Semaphore;
 struct HttpState<K> {
     service: ApiService<K>,
@@ -50,21 +54,12 @@ async fn dispatch<K: AnswerKernelPort + 'static>(
     request: Request,
     retrieval: bool,
 ) -> Response {
+    let started = Instant::now();
     // Request is not a body extractor: no body is polled before admission/authentication.
     let deadline = RequestDeadline::after(Duration::from_millis(
         state.service.deadline_ms.clamp(1, 60000),
     ));
     let _cancel = CancelOnDrop(deadline.clone());
-    let permit = match state.slots.clone().try_acquire_owned() {
-        Ok(permit) => permit,
-        Err(_) => {
-            return respond(json_error(
-                429,
-                "overloaded",
-                "Anfragekapazität ausgeschöpft",
-            ))
-        }
-    };
     let (parts, body) = request.into_parts();
     let headers = parts.headers;
     if headers.get_all(header::AUTHORIZATION).iter().count() != 1 {
@@ -74,6 +69,45 @@ async fn dispatch<K: AnswerKernelPort + 'static>(
             "Genau ein Bearer-Header erforderlich",
         ));
     }
+    let authorization = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let principal = super::bearer_token(authorization.as_deref())
+        .and_then(|token| state.service.policy.authenticate(token).ok());
+    let Some(principal) = principal else {
+        return respond(json_error(
+            401,
+            "unauthorized",
+            "Zugangsdaten sind ungültig",
+        ));
+    };
+    let mut audit = RequestAudit::new(
+        &principal,
+        if retrieval {
+            Route::Retrieve
+        } else {
+            Route::Answer
+        },
+        started,
+    );
+    if !state.service.authenticate_header(authorization.as_deref()) {
+        return respond(audit.finish(json_error(
+            401,
+            "unauthorized",
+            "Zugangsdaten sind ungültig",
+        )));
+    }
+    let permit = match state.slots.clone().try_acquire_owned() {
+        Ok(permit) => permit,
+        Err(_) => {
+            return respond(audit.finish(json_error(
+                429,
+                "overloaded",
+                "Anfragekapazität ausgeschöpft",
+            )))
+        }
+    };
     if !headers
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
@@ -83,22 +117,11 @@ async fn dispatch<K: AnswerKernelPort + 'static>(
                 .is_some_and(|m| m.trim().eq_ignore_ascii_case("application/json"))
         })
     {
-        return respond(json_error(
+        return respond(audit.finish(json_error(
             415,
             "unsupported_media_type",
             "application/json erforderlich",
-        ));
-    }
-    let authorization = headers
-        .get(header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .map(str::to_owned);
-    if !state.service.authenticate_header(authorization.as_deref()) {
-        return respond(json_error(
-            401,
-            "unauthorized",
-            "Zugangsdaten sind ungültig",
-        ));
+        )));
     }
     if headers
         .get(header::CONTENT_LENGTH)
@@ -106,10 +129,10 @@ async fn dispatch<K: AnswerKernelPort + 'static>(
         .and_then(|v| v.parse::<u64>().ok())
         .is_some_and(|length| length > 64 * 1024)
     {
-        return respond(json_error(413, "payload_too_large", "Request ist zu groß"));
+        return respond(audit.finish(json_error(413, "payload_too_large", "Request ist zu groß")));
     }
     let expires_at = deadline.expires_at().into();
-    let operation = async move {
+    let operation = async {
         if deadline.check().is_err() {
             return deadline_response();
         }
@@ -118,6 +141,7 @@ async fn dispatch<K: AnswerKernelPort + 'static>(
             Ok(body) => body,
             Err(_) => return json_error(413, "payload_too_large", "Request ist zu groß"),
         };
+        audit.observe_body(&body);
         if deadline.check().is_err() {
             return deadline_response();
         }
@@ -139,10 +163,11 @@ async fn dispatch<K: AnswerKernelPort + 'static>(
             Err(_) => json_error(503, "worker_unavailable", "Antwortdienst nicht verfügbar"),
         }
     };
-    match tokio::time::timeout_at(expires_at, operation).await {
-        Ok(result) => respond(result),
-        Err(_) => respond(deadline_response()),
-    }
+    let result = match tokio::time::timeout_at(expires_at, operation).await {
+        Ok(result) => result,
+        Err(_) => deadline_response(),
+    };
+    respond(audit.finish(result))
 }
 fn respond(result: ApiResponse) -> Response {
     (

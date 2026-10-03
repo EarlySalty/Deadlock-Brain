@@ -59,12 +59,42 @@ impl ProviderConfig {
             api_key: api_key.into(),
             base_url: base_url.into(),
             model: model.into(),
-            timeout: Duration::from_secs(20),
+            timeout: Duration::from_secs(55),
             retry_attempts: 3,
             retry_backoff: Duration::from_millis(250),
             max_response_bytes: 2 * 1024 * 1024,
             pricing: None,
         }
+    }
+
+    fn official_fireworks(&self) -> bool {
+        reqwest::Url::parse(&self.base_url)
+            .is_ok_and(|url| url.scheme() == "https" && url.host_str() == Some("api.fireworks.ai"))
+    }
+
+    fn chat_request(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+        selected_model: impl FnOnce() -> std::result::Result<
+            String,
+            fireworks_model_selection::SelectionError,
+        >,
+    ) -> Result<ChatRequest> {
+        let official = self.official_fireworks();
+        let model = if official {
+            selected_model()?
+        } else {
+            self.model.clone()
+        };
+        Ok(ChatRequest {
+            model,
+            messages: grounded_messages(query, evidence),
+            max_completion_tokens: context.budget.max_output_tokens,
+            stream: false,
+            reasoning_effort: official.then_some("none"),
+        })
     }
 }
 
@@ -72,6 +102,8 @@ impl ProviderConfig {
 pub enum ProviderError {
     #[error("Provider Konfiguration ist unvollständig")]
     InvalidConfig,
+    #[error("{0}")]
+    ModelSelection(#[from] fireworks_model_selection::SelectionError),
     #[error("Provider transport failed")]
     Http(#[from] reqwest::Error),
     #[error("Provider antwortete mit HTTP {status}")]
@@ -102,6 +134,8 @@ struct ChatRequest {
     #[serde(rename = "max_tokens")]
     max_completion_tokens: u32,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<&'static str>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -160,12 +194,12 @@ impl OpenAiCompatibleProvider {
         context
             .check_deadline()
             .map_err(|_| ProviderError::BudgetExceeded)?;
-        let payload = ChatRequest {
-            model: self.config.model.clone(),
-            messages: grounded_messages(query, evidence),
-            max_completion_tokens: context.budget.max_output_tokens,
-            stream: false,
-        };
+        let payload = self.config.chat_request(
+            query,
+            context,
+            evidence,
+            fireworks_model_selection::selected_model,
+        )?;
 
         hardening::authorize(query, context, evidence)?;
         self.send_chat(payload, context, evidence)
@@ -204,6 +238,8 @@ impl AnswerProviderPort for OpenAiCompatibleProvider {
 
 #[cfg(test)]
 mod tests {
+    mod fireworks;
+
     use std::{
         collections::BTreeSet,
         io::{Read, Write},

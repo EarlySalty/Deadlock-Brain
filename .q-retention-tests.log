@@ -1,0 +1,61 @@
+   Compiling yoke v0.8.3
+   Compiling getrandom v0.2.17
+   Compiling smallvec v1.15.2
+   Compiling zerovec v0.11.6
+   Compiling tinystr v0.8.3
+   Compiling icu_locale_core v2.2.0
+   Compiling potential_utf v0.1.5
+   Compiling zerotrie v0.2.4
+   Compiling icu_collections v2.2.0
+   Compiling icu_provider v2.2.0
+   Compiling icu_properties v2.2.0
+   Compiling ring v0.17.14
+   Compiling form_urlencoded v1.2.2
+   Compiling icu_normalizer v2.2.0
+   Compiling rustls-webpki v0.103.13
+   Compiling tokio v1.52.3
+   Compiling idna_adapter v1.2.2
+   Compiling rustls v0.23.41
+   Compiling parking_lot_core v0.9.12
+   Compiling rand_core v0.6.4
+   Compiling rand_chacha v0.3.1
+   Compiling parking_lot v0.12.5
+   Compiling idna v1.1.0
+   Compiling url v2.5.8
+   Compiling tokio-stream v0.1.18
+   Compiling futures-intrusive v0.5.0
+   Compiling rand v0.8.6
+   Compiling getrandom v0.4.3
+   Compiling rand v0.10.1
+   Compiling sqlx-core v0.8.6
+   Compiling postgres-protocol v0.6.12
+   Compiling sqlx-postgres v0.8.6
+   Compiling postgres-types v0.2.14
+   Compiling tokio-util v0.7.18
+   Compiling whoami v2.1.2
+   Compiling tokio-postgres v0.7.18
+   Compiling sqlx-macros-core v0.8.6
+   Compiling sqlx-macros v0.8.6
+   Compiling postgres v0.19.14
+   Compiling sqlx v0.8.6
+   Compiling brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-storage)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 40.25s
+     Running tests/ir_contracts.rs (rust/target/debug/deps/ir_contracts-acc4a33f5cf8be8e)
+
+running 3 tests
+test old_release_cannot_restore_revoked_egress_or_scopes ... ok
+test legacy_head_cannot_supply_missing_rights_for_versioned_origin ... ok
+test actual_store_retains_common_origin_and_denies_unapproved_provider_egress ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/source_retention.rs (rust/target/debug/deps/source_retention-8aa2b4d3f3351c28)
+
+running 4 tests
+test source_retention::tests::response_rejects_generation_identity_and_count_mismatches ... ok
+test source_retention::tests::sql_contract_keeps_current_heads_and_immutable_pins ... ok
+test source_retention::tests::request_is_limited_to_the_two_owned_source_families ... ok
+test source_retention::tests::blocked_purge_is_not_a_storage_completion ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

@@ -42,6 +42,7 @@ fn execute() -> Result<(), Error> {
     let Some((path, infisical_path)) = config_paths()? else {
         return Ok(());
     };
+    brain_serve::init_request_audit().map_err(|_| Error::Runtime)?;
     let config = Config::load(&path)?;
     let deadline = Instant::now() + Duration::from_millis(config.timeouts.startup_ms);
     let secrets = Secrets::load_until(&config, &infisical_path, deadline)?;

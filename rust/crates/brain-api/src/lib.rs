@@ -4,6 +4,7 @@ use brain_contracts::{AnswerResponse, AnswerStatus, Budget, Query, Usage, CONTRA
 use brain_kernel::AnswerKernelPort;
 use brain_policy::{PolicyEngine, PolicyError};
 use sha2::{Digest, Sha256};
+pub mod audit;
 mod http;
 pub mod internal;
 mod retrieval;
@@ -393,8 +394,8 @@ mod tests {
                     .map(|(token, actor, channel, scope)| {
                         AuthGrant::from_secret(
                             token,
-                            actor,
-                            channel,
+                            *actor,
+                            *channel,
                             scopes(&[scope]),
                             scopes(&["public"]),
                         )

@@ -1,0 +1,14 @@
+START fmt 2026-10-03T18:12:16Z
+Diff in /home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-api/src/internal.rs:279:
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+-    use brain_contracts::{store::StoreResult, AuthorizedContext, Evidence, EvidenceKind, PortError};
++    use brain_contracts::{
++        store::StoreResult, AuthorizedContext, Evidence, EvidenceKind, PortError,
++    };
+     use brain_policy::{AuthGrant, CredentialRegistry};
+     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+ 
+
+EXIT fmt=1

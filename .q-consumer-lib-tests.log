@@ -1,0 +1,239 @@
+START lib-tests 2026-10-03T17:04:19Z
+   Compiling tokio v1.52.3
+   Compiling unicase v2.9.0
+   Compiling mime_guess v2.0.5
+   Compiling nix v0.29.0
+   Compiling tokio-util v0.7.18
+   Compiling hyper v1.10.1
+   Compiling tower v0.5.3
+   Compiling async-compression v0.4.42
+   Compiling tokio-rustls v0.26.4
+   Compiling tower-http v0.6.11
+   Compiling tokio-stream v0.1.18
+   Compiling sqlx-core v0.8.6
+   Compiling hyper-util v0.1.20
+   Compiling hyper-rustls v0.27.9
+   Compiling reqwest v0.12.28
+   Compiling sqlx-postgres v0.8.6
+   Compiling uplink-infisical-transport v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/vendor/uplink-infisical-transport)
+   Compiling tokio-postgres v0.7.18
+   Compiling sqlx v0.8.6
+   Compiling postgres v0.19.14
+   Compiling dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-builds)
+   Compiling brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-storage)
+   Compiling deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/deadlock-brain-core)
+   Compiling dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-normalize)
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-reasoner)
+   Compiling dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-population)
+   Compiling uplink-infisical-transport v0.1.1 (/home/nathanael/.worktrees/brain-fertig-q/rust/vendor/uplink-infisical-transport)
+   Compiling serde_path_to_error v0.1.20
+   Compiling axum v0.8.9
+   Compiling brain-client v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-client)
+   Compiling dbrain-s12-wiki-probe v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-wiki)
+   Compiling brain-ingestion v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-ingestion)
+   Compiling brain-providers v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-providers)
+   Compiling dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-sources)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-retrieval)
+   Compiling brain-api v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-api)
+   Compiling dl-token-secrets v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/crates/dl-token-secrets)
+   Compiling wait-timeout v0.2.1
+   Compiling brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-serve)
+error[E0432]: unresolved import `brain_contracts::StoreResult`
+   --> crates/brain-api/src/internal.rs:282:81
+    |
+282 |     use brain_contracts::{AuthorizedContext, Evidence, EvidenceKind, PortError, StoreResult};
+    |                                                                                 ^^^^^^^^^^^ no `StoreResult` in the root
+
+error[E0277]: the trait bound `std::string::String: From<&&str>` is not satisfied
+   --> crates/brain-api/src/lib.rs:397:29
+    |
+395 |                         AuthGrant::from_secret(
+    |                         ---------------------- required by a bound introduced by this call
+396 |                             token,
+397 |                             actor,
+    |                             ^^^^^ the trait `From<&&str>` is not implemented for `std::string::String`
+    |
+    = help: consider casting the `&&str` value to `&str`
+    = note: required for `&&str` to implement `Into<std::string::String>`
+note: required by a bound in `AuthGrant::from_secret`
+   --> crates/brain-policy/src/lib.rs:55:24
+    |
+ 53 |     pub fn from_secret(
+    |            ----------- required by a bound in this associated function
+ 54 |         token: &str,
+ 55 |         actor_id: impl Into<String>,
+    |                        ^^^^^^^^^^^^ required by this bound in `AuthGrant::from_secret`
+help: consider dereferencing here
+    |
+397 |                             *actor,
+    |                             +
+
+error[E0277]: the trait bound `std::string::String: From<&&str>` is not satisfied
+   --> crates/brain-api/src/lib.rs:398:29
+    |
+395 |                         AuthGrant::from_secret(
+    |                         ---------------------- required by a bound introduced by this call
+...
+398 |                             channel,
+    |                             ^^^^^^^ the trait `From<&&str>` is not implemented for `std::string::String`
+    |
+    = help: consider casting the `&&str` value to `&str`
+    = note: required for `&&str` to implement `Into<std::string::String>`
+note: required by a bound in `AuthGrant::from_secret`
+   --> crates/brain-policy/src/lib.rs:56:23
+    |
+ 53 |     pub fn from_secret(
+    |            ----------- required by a bound in this associated function
+...
+ 56 |         channel: impl Into<String>,
+    |                       ^^^^^^^^^^^^ required by this bound in `AuthGrant::from_secret`
+help: consider dereferencing here
+    |
+398 |                             *channel,
+    |                             +
+
+Some errors have detailed explanations: E0277, E0432.
+For more information about an error, try `rustc --explain E0277`.
+error: could not compile `brain-api` (lib test) due to 3 previous errors
+warning: build failed, waiting for other jobs to finish...
+
+EXIT lib-tests=101
+
+START lib-tests-continuation 2026-10-03T18:11:02Z
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-reasoner)
+   Compiling brain-api v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-api)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/dbrain-retrieval)
+   Compiling brain-client v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-client)
+   Compiling brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-fertig-q/rust/crates/brain-serve)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 21.18s
+     Running unittests src/lib.rs (rust/target/debug/deps/brain_api-959d622bc5ad871e)
+
+running 10 tests
+test tests::c9_ungueltige_releasebindung_hat_keinen_fallback ... ok
+test tests::malformed_or_missing_bearer_is_unauthorized ... ok
+test tests::unknown_query_fields_are_rejected ... ok
+test tests::valid_bearer_reaches_kernel_with_server_side_context ... ok
+test tests::c9_identitaeten_sind_an_scope_und_release_gebunden ... ok
+test tests::body_scope_escalation_is_rejected_before_kernel ... ok
+test tests::api_does_not_accept_principal_from_request_body ... ok
+test internal::tests::interner_typ_quelle_release_und_aktuelle_acl_werden_geprueft ... ok
+test internal::tests::falsches_oder_fehlendes_release_hat_keinen_fallback ... ok
+test internal::tests::docs_fremde_identitaeten_und_scopes_erhalten_keine_internen_belege ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (rust/target/debug/deps/brain_client-5ad6e3692871e520)
+
+running 2 tests
+test tests::debug_never_contains_bearer_token ... ok
+test tests::sends_typed_query_with_bearer_and_reads_typed_response ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (rust/target/debug/deps/brain_serve-019baa8f62bf8067)
+
+running 26 tests
+test analytics::tests::fixture_waits_for_complete_fragmented_request_headers ... ok
+test analytics::tests::fixture_rejects_truncated_or_unbounded_request_headers ... ok
+test analytics::tests::incongruent_population_cannot_become_a_match_prior ... ok
+test config::tests::c9_grants_sind_exakt_und_releasebindungen_werden_beim_neustart_geprueft ... FAILED
+test config::tests::example_parses_without_secret_values_and_preserves_pilot_defaults ... FAILED
+test config::tests::c9_releasebindung_ist_explizit_und_widersprueche_scheitern ... FAILED
+test config::tests::second_brain_credential_ist_in_der_oeffentlichen_registry_unbekannt ... FAILED
+test audit::tests::only_redacted_request_target_reaches_json_writer ... ok
+test config::tests::credentials_require_explicit_valid_scopes_and_unambiguous_secret_references ... FAILED
+test config::tests::provider_endpoint_is_explicit_https_or_loopback_and_priced ... FAILED
+test secrets::tests::absent_empty_and_invalid_bearer_secrets_fail_closed ... FAILED
+test secrets::tests::duplicate_credentials_are_not_ambiguous_and_debug_is_redacted ... FAILED
+test config::tests::missing_malformed_and_oversized_config_are_sanitized ... FAILED
+test config::tests::every_required_section_and_field_is_fail_closed ... ok
+test secrets::tests::password_is_required_only_for_explicit_password_authentication ... FAILED
+test config::tests::numeric_limits_and_pins_are_not_silently_clamped_or_defaulted ... ok
+test config::tests::unknown_and_inline_secret_fields_are_rejected_without_echoing_values ... ok
+test operator_socket::tests::private_rechte_und_tatsaechliche_peer_uid_werden_geprueft ... ok
+test analytics::tests::runtime_rejects_missing_grant_wrong_patch_and_unapproved_window ... ok
+test analytics::tests::fifth_lookup_expires_on_one_deadline_while_four_slots_are_occupied ... ok
+test analytics::tests::snapshot_exhaustion_never_starts_meta_or_population_http ... ok
+test config::tests::analytics_window_and_schema_are_explicit_when_runtime_is_configured ... FAILED
+test analytics::tests::delayed_fifth_lookup_keeps_original_deadline_after_slot_release ... ok
+test analytics::tests::second_snapshot_exhaustion_rejects_direct_kernel_service_and_http_answers ... ok
+test analytics::tests::cancelled_analytics_request_cannot_start_an_http_retry ... ok
+test analytics::tests::ordinary_brain_answer_uses_meta_and_match_population_without_patch_claim ... ok
+
+failures:
+
+---- config::tests::c9_grants_sind_exakt_und_releasebindungen_werden_beim_neustart_geprueft stdout ----
+
+thread 'config::tests::c9_grants_sind_exakt_und_releasebindungen_werden_beim_neustart_geprueft' (3377586) panicked at crates/brain-serve/src/config/tests.rs:254:5:
+assertion failed: parse(&value).is_ok()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- config::tests::example_parses_without_secret_values_and_preserves_pilot_defaults stdout ----
+
+thread 'config::tests::example_parses_without_secret_values_and_preserves_pilot_defaults' (3377593) panicked at crates/brain-serve/src/config/tests.rs:13:41:
+called `Result::unwrap()` on an `Err` value: ConfigInvalid("docs_client_grant")
+
+---- config::tests::c9_releasebindung_ist_explizit_und_widersprueche_scheitern stdout ----
+
+thread 'config::tests::c9_releasebindung_ist_explizit_und_widersprueche_scheitern' (3377587) panicked at crates/brain-serve/src/config/tests.rs:25:27:
+called `Result::unwrap()` on an `Err` value: ConfigInvalid("docs_client_grant")
+
+---- config::tests::second_brain_credential_ist_in_der_oeffentlichen_registry_unbekannt stdout ----
+
+thread 'config::tests::second_brain_credential_ist_in_der_oeffentlichen_registry_unbekannt' (3377597) panicked at crates/brain-serve/src/config/tests.rs:284:38:
+called `Result::unwrap()` on an `Err` value: ConfigInvalid("docs_client_grant")
+
+---- config::tests::credentials_require_explicit_valid_scopes_and_unambiguous_secret_references stdout ----
+
+thread 'config::tests::credentials_require_explicit_valid_scopes_and_unambiguous_secret_references' (3377588) panicked at crates/brain-serve/src/config/tests.rs:160:5:
+assertion failed: parse(&value).is_ok()
+
+---- config::tests::provider_endpoint_is_explicit_https_or_loopback_and_priced stdout ----
+
+thread 'config::tests::provider_endpoint_is_explicit_https_or_loopback_and_priced' (3377596) panicked at crates/brain-serve/src/config/tests.rs:183:5:
+assertion failed: parse(&value).is_ok()
+
+---- secrets::tests::absent_empty_and_invalid_bearer_secrets_fail_closed stdout ----
+
+thread 'secrets::tests::absent_empty_and_invalid_bearer_secrets_fail_closed' (3377600) panicked at crates/brain-serve/src/secrets.rs:157:44:
+called `Result::unwrap()` on an `Err` value: ConfigInvalid("docs_client_grant")
+
+---- secrets::tests::duplicate_credentials_are_not_ambiguous_and_debug_is_redacted stdout ----
+
+thread 'secrets::tests::duplicate_credentials_are_not_ambiguous_and_debug_is_redacted' (3377601) panicked at crates/brain-serve/src/secrets.rs:198:48:
+called `Result::unwrap()` on an `Err` value: ConfigInvalid("docs_client_grant")
+
+---- config::tests::missing_malformed_and_oversized_config_are_sanitized stdout ----
+
+thread 'config::tests::missing_malformed_and_oversized_config_are_sanitized' (3377594) panicked at crates/brain-serve/src/config/tests.rs:236:48:
+called `Result::unwrap()` on an `Err` value: ConfigInvalid("docs_client_grant")
+
+---- secrets::tests::password_is_required_only_for_explicit_password_authentication stdout ----
+
+thread 'secrets::tests::password_is_required_only_for_explicit_password_authentication' (3377602) panicked at crates/brain-serve/src/secrets.rs:181:48:
+called `Result::unwrap()` on an `Err` value: ConfigInvalid("docs_client_grant")
+
+---- config::tests::analytics_window_and_schema_are_explicit_when_runtime_is_configured stdout ----
+
+thread 'config::tests::analytics_window_and_schema_are_explicit_when_runtime_is_configured' (3377585) panicked at crates/brain-serve/src/config/tests.rs:199:5:
+assertion failed: parse(&value).is_ok()
+
+
+failures:
+    config::tests::analytics_window_and_schema_are_explicit_when_runtime_is_configured
+    config::tests::c9_grants_sind_exakt_und_releasebindungen_werden_beim_neustart_geprueft
+    config::tests::c9_releasebindung_ist_explizit_und_widersprueche_scheitern
+    config::tests::credentials_require_explicit_valid_scopes_and_unambiguous_secret_references
+    config::tests::example_parses_without_secret_values_and_preserves_pilot_defaults
+    config::tests::missing_malformed_and_oversized_config_are_sanitized
+    config::tests::provider_endpoint_is_explicit_https_or_loopback_and_priced
+    config::tests::second_brain_credential_ist_in_der_oeffentlichen_registry_unbekannt
+    secrets::tests::absent_empty_and_invalid_bearer_secrets_fail_closed
+    secrets::tests::duplicate_credentials_are_not_ambiguous_and_debug_is_redacted
+    secrets::tests::password_is_required_only_for_explicit_password_authentication
+
+test result: FAILED. 15 passed; 11 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.24s
+
+error: test failed, to rerun pass `-p brain-serve --lib`
+
+EXIT lib-tests-continuation=101

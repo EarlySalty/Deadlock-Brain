@@ -1,0 +1,16 @@
+{
+  "observation_date": "2026-10-03",
+  "maintenance_count_rechecked_at": "2026-10-03T14:22:48Z",
+  "code_sha": "511a347b653beba13c2bf130f4bead7a7196cc2a",
+  "database": {"name": "brain", "port": 5446, "socket": "/run/deadlock-brain-postgresql", "inspection_role": "brain_migrate", "transaction": "READ ONLY; ROLLBACK"},
+  "core_active_heads": {"legacy-entities": 905, "legacy-patchnotes": 348, "ddc-bot-firstparty-v1": 1, "maintenance-docs": 17},
+  "core_tombstones": {"ddc-bot-firstparty-probe-v1": 1},
+  "core_sheet_heads": 0,
+  "core_youtube_heads": 0,
+  "legacy_documents_by_source": {"deadlock_api": 6, "deadlock_assets_api": 22, "deadlock_data": 4902, "deadlock_patchnotes_db": 354, "deadlock_stats_sheet": 94, "deadlock_wiki": 12, "playdeadlock_forum": 608, "statlocker": 7, "steam_appnews": 28, "x": 1, "youtube": 1274},
+  "legacy_sheet_tab_rows": 2410,
+  "legacy_youtube_videos": {"missing_queued": 176, "ready_failed": 1, "ready_queued": 17, "unavailable_queued": 1},
+  "legacy_youtube_transcripts": {"youtube_caption_manual": 18},
+  "current_release": "maintenance-6edd9236639f9b06067a3b6b67fa410e5e668aa264db1b2baf28b7e1733940de",
+  "inspection_limits": ["Keine Rohtexte, personenbezogenen Werte oder Zugangsdaten abgefragt", "Zahlen belegen den Ausgangsstand, keine Rechtefreigabe", "brain-serve und dessen Release gehören Paket Z"]
+}

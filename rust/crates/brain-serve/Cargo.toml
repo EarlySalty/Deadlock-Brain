@@ -20,6 +20,8 @@ reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "json", "registry", "std"] }
 sqlx.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "signal", "sync"] }
