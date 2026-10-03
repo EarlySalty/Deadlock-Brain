@@ -1,7 +1,7 @@
 use std::{
     collections::BTreeMap,
     fs::{self, File},
-    io::{self, Read, Write},
+    io::{self, Read, Seek, SeekFrom, Write},
     path::{Component, Path, PathBuf},
 };
 
@@ -65,7 +65,226 @@ pub struct GameFileInventory {
     pub gaps: Vec<String>,
 }
 
-/// Writes source documents only. The caller owns the output artifact and database import.
+pub struct BoundGameFile {
+    pub relative_path: String,
+    pub file: File,
+    pub expected_bytes: u64,
+    pub steam_sha1: [u8; 20],
+    pub expected_sha256: [u8; 32],
+}
+
+pub struct BoundGameFiles {
+    pub options: GameFileOptions,
+    pub manifest_transport_sha256: [u8; 32],
+    pub files: Vec<BoundGameFile>,
+}
+
+pub fn extract_game_files_from_handles(
+    mut input: BoundGameFiles,
+    output: &mut impl Write,
+) -> io::Result<GameFileInventory> {
+    validate_options(&input.options)?;
+    if input.options.build_id.is_none()
+        || input.options.manifest_id.is_none()
+        || input.options.depot_id.is_none_or(|id| id == 0)
+    {
+        return Err(invalid(
+            "Gebundene Spieldateien benötigen Build, Depot und Manifest",
+        ));
+    }
+    input
+        .files
+        .sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
+    let mut previous = None;
+    for source in &mut input.files {
+        let path = &source.relative_path;
+        if path.contains('\0') || normalize_relative(Path::new(path))? != *path {
+            return Err(invalid("Nicht normalisierter Inventarpfad"));
+        }
+        if previous == Some(path.as_str()) {
+            return Err(invalid("Doppelter Inventarpfad"));
+        }
+        verify_bound_file(source)?;
+        previous = Some(source.relative_path.as_str());
+    }
+    let mut inventory = GameFileInventory {
+        extractor_version: EXTRACTOR_VERSION.to_owned(),
+        ..Default::default()
+    };
+    for source in &input.files {
+        let relative = &source.relative_path;
+        let category = classify(relative);
+        let mut item = entry(
+            relative,
+            None,
+            source.expected_bytes,
+            category,
+            "inventoried",
+            None,
+        );
+        item.original_sha256 = Some(hex_bytes(&source.expected_sha256));
+        if is_sensitive_name(relative) {
+            item.category = "excluded".to_owned();
+            item.disposition = "skipped".to_owned();
+            item.reason = Some("Zugangsdaten und lokale Konfiguration ausgeschlossen".to_owned());
+        } else if relative.to_ascii_lowercase().ends_with("_dir.vpk") {
+            let archive =
+                vpk::read_directory_from_file(source.file.try_clone()?, MAX_VPK_TREE_BYTES)?;
+            for resource in &archive.entries {
+                if resource.length > 0 && resource.archive_index != 0x7fff {
+                    bound_archive(&input.files, relative, resource.archive_index)?;
+                }
+            }
+            item.category = "package_directory".to_owned();
+            inventory.files.push(item);
+            extract_vpk_resources(
+                VpkSource {
+                    options: &input.options,
+                    path: relative,
+                    sha256: &hex_bytes(&source.expected_sha256),
+                    strict: true,
+                },
+                &archive.entries,
+                output,
+                &mut inventory,
+                |resource| {
+                    let sibling = if resource.length > 0 && resource.archive_index != 0x7fff {
+                        Some(bound_archive(
+                            &input.files,
+                            relative,
+                            resource.archive_index,
+                        )?)
+                    } else {
+                        None
+                    };
+                    let bytes = vpk::read_resource_with(&archive.header, resource, |_| {
+                        sibling
+                            .ok_or_else(|| invalid("Fehlendes gebundenes VPK-Archiv"))?
+                            .file
+                            .try_clone()
+                    })?;
+                    let mut physical_sources = vec![physical_source(source)];
+                    if let Some(sibling) = sibling {
+                        physical_sources.push(physical_source(sibling));
+                    }
+                    Ok((
+                        bytes,
+                        Some(json!({
+                            "manifest_transport_sha256": hex_bytes(&input.manifest_transport_sha256),
+                            "physical_sources": physical_sources
+                        })),
+                    ))
+                },
+            )?;
+            continue;
+        } else if category == "binary_asset" {
+            item.reason = Some("Binäres Asset; kein Beleg ausgeführter Spiellogik".to_owned());
+        } else if source.expected_bytes > input.options.max_file_bytes {
+            item.disposition = "gap".to_owned();
+            item.reason = Some("Datei überschreitet die konfigurierte Größenbegrenzung".to_owned());
+            inventory.gaps.push(format!("{relative}: Größenbegrenzung"));
+        } else {
+            let count = usize::try_from(source.expected_bytes).map_err(invalid)?;
+            budget::Budget::new().charge(count).map_err(invalid)?;
+            let mut bytes = Vec::new();
+            bytes.try_reserve_exact(count).map_err(invalid)?;
+            bytes.resize(count, 0);
+            let mut file = source.file.try_clone()?;
+            file.seek(SeekFrom::Start(0))?;
+            file.read_exact(&mut bytes)?;
+            let actual_sha256: [u8; 32] = Sha256::digest(&bytes).into();
+            if actual_sha256 != source.expected_sha256 {
+                return Err(invalid("Gebundene Datei änderte ihren SHA-256"));
+            }
+            write_document(
+                &input.options,
+                relative,
+                &bytes,
+                json!({
+                    "method": "loose-file", "version": EXTRACTOR_VERSION,
+                    "manifest_transport_sha256": hex_bytes(&input.manifest_transport_sha256),
+                    "physical_sources": [physical_source(source)]
+                }),
+                &mut item,
+                output,
+                &mut inventory,
+            )?;
+        }
+        inventory.files.push(item);
+    }
+    for source in &mut input.files {
+        verify_bound_file(source)?;
+    }
+    output.flush()?;
+    Ok(inventory)
+}
+
+fn verify_bound_file(source: &mut BoundGameFile) -> io::Result<()> {
+    let metadata = source.file.metadata()?;
+    if !metadata.is_file() || metadata.len() != source.expected_bytes {
+        return Err(invalid(
+            "Gebundene Datei hat einen falschen Typ oder eine falsche Größe",
+        ));
+    }
+    source.file.seek(SeekFrom::Start(0))?;
+    let mut hasher = Sha256::new();
+    let mut count = 0u64;
+    let mut buffer = [0u8; 65536];
+    loop {
+        let read = source.file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        count = count
+            .checked_add(read as u64)
+            .ok_or_else(|| invalid("Dateigrößenüberlauf"))?;
+        if count > source.expected_bytes {
+            return Err(invalid(
+                "Gebundene Datei überschreitet ihre erwartete Größe",
+            ));
+        }
+        hasher.update(&buffer[..read]);
+    }
+    let actual_sha256: [u8; 32] = hasher.finalize().into();
+    if count != source.expected_bytes || actual_sha256 != source.expected_sha256 {
+        return Err(invalid(
+            "Größe oder SHA-256 der gebundenen Datei stimmt nicht überein",
+        ));
+    }
+    source.file.seek(SeekFrom::Start(0))?;
+    Ok(())
+}
+
+fn hex_bytes(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+    let mut hex = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        write!(&mut hex, "{byte:02x}").expect("Schreiben in einen String");
+    }
+    hex
+}
+
+fn physical_source(source: &BoundGameFile) -> Value {
+    json!({
+        "relative_path": source.relative_path,
+        "bytes": source.expected_bytes,
+        "steam_sha1": hex_bytes(&source.steam_sha1),
+        "sha256": hex_bytes(&source.expected_sha256)
+    })
+}
+
+fn bound_archive<'a>(
+    files: &'a [BoundGameFile],
+    directory: &str,
+    index: u16,
+) -> io::Result<&'a BoundGameFile> {
+    let path = normalize_relative(&vpk::archive_path(Path::new(directory), index)?)?;
+    let position = files
+        .binary_search_by(|source| source.relative_path.cmp(&path))
+        .map_err(|_| invalid(format!("Fehlendes gebundenes VPK-Archiv: {path}")))?;
+    Ok(&files[position])
+}
+
 pub fn extract_game_files(
     options: &GameFileOptions,
     output: &mut impl Write,
@@ -95,7 +314,6 @@ fn validate_options(options: &GameFileOptions) -> io::Result<()> {
             "Unvollständige Herkunft oder ungültige Extraktionsgrenze",
         ));
     }
-    // C performs the complete RFC 3339 validation before import.
     if !options.observed_at.ends_with('Z') || !options.observed_at.contains('T') {
         return Err(invalid("observed_at muss eine UTC-Zeit nach RFC 3339 sein"));
     }
@@ -178,8 +396,6 @@ fn visit_directory(
         if relative.to_ascii_lowercase().ends_with("_dir.vpk") {
             match vpk::read_directory(&path, MAX_VPK_TREE_BYTES) {
                 Ok(archive) => {
-                    // Preflight every retained virtual path before emitting any resource.
-                    // The archive prefix can amplify a tiny entry just like a KV parent key.
                     let mut path_budget = budget::Budget::new();
                     let path_check = archive.entries.iter().try_for_each(|resource| {
                         path_budget
@@ -208,80 +424,21 @@ fn visit_directory(
                     );
                     item.original_sha256 = Some(original_sha256.clone());
                     inventory.files.push(item);
-                    for resource in archive.entries {
-                        let parent = Path::new(&relative)
-                            .parent()
-                            .unwrap_or_else(|| Path::new(""));
-                        let virtual_path = normalize_relative(&parent.join(&resource.path))?;
-                        let resource_category = classify(&virtual_path);
-                        let mut item = entry(
-                            &virtual_path,
-                            Some(&relative),
-                            resource.total_bytes(),
-                            resource_category,
-                            "inventoried",
-                            None,
-                        );
-                        if is_sensitive_name(&virtual_path) {
-                            item.category = "excluded".to_owned();
-                            item.disposition = "skipped".to_owned();
-                            item.reason = Some(
-                                "Zugangsdaten und lokale Konfiguration ausgeschlossen".to_owned(),
-                            );
-                            inventory.files.push(item);
-                            continue;
-                        }
-                        if resource_category == "binary_asset" {
-                            item.reason = Some(
-                                "Binäres Asset; kein Beleg ausgeführter Spiellogik".to_owned(),
-                            );
-                            inventory.files.push(item);
-                            continue;
-                        }
-                        if resource.total_bytes() > options.max_file_bytes {
-                            item.disposition = "gap".to_owned();
-                            item.reason = Some(
-                                "Datei überschreitet die konfigurierte Größenbegrenzung".to_owned(),
-                            );
-                            inventory
-                                .gaps
-                                .push(format!("{relative}:{virtual_path}: Größenbegrenzung"));
-                            inventory.files.push(item);
-                            continue;
-                        }
-                        match vpk::read_resource(&path, &archive.header, &resource) {
-                            Ok(bytes) => {
-                                let extraction = json!({
-                                    "method": "vpk-directory-and-payload",
-                                    "version": EXTRACTOR_VERSION,
-                                    "container_path": relative,
-                                    "container_sha256": original_sha256,
-                                    "archive_index": resource.archive_index,
-                                    "archive_offset": resource.offset,
-                                    "archive_length": resource.length,
-                                    "preload_bytes": resource.preload.len(),
-                                    "crc32_verified": true
-                                });
-                                write_document(
-                                    options,
-                                    &virtual_path,
-                                    &bytes,
-                                    extraction,
-                                    &mut item,
-                                    output,
-                                    inventory,
-                                )?;
-                            }
-                            Err(error) => {
-                                item.disposition = "gap".to_owned();
-                                item.reason = Some(error.to_string());
-                                inventory
-                                    .gaps
-                                    .push(format!("{relative}:{virtual_path}: {error}"));
-                            }
-                        }
-                        inventory.files.push(item);
-                    }
+                    extract_vpk_resources(
+                        VpkSource {
+                            options,
+                            path: &relative,
+                            sha256: &original_sha256,
+                            strict: false,
+                        },
+                        &archive.entries,
+                        output,
+                        inventory,
+                        |resource| {
+                            vpk::read_resource(&path, &archive.header, resource)
+                                .map(|bytes| (bytes, None))
+                        },
+                    )?;
                 }
                 Err(error) => {
                     inventory.files.push(entry(
@@ -338,6 +495,105 @@ fn visit_directory(
                 output,
                 inventory,
             )?;
+        }
+        inventory.files.push(item);
+    }
+    Ok(())
+}
+
+struct VpkSource<'a> {
+    options: &'a GameFileOptions,
+    path: &'a str,
+    sha256: &'a str,
+    strict: bool,
+}
+
+fn extract_vpk_resources(
+    source: VpkSource<'_>,
+    resources: &[vpk::Resource],
+    output: &mut impl Write,
+    inventory: &mut GameFileInventory,
+    mut read: impl FnMut(&vpk::Resource) -> io::Result<(Vec<u8>, Option<Value>)>,
+) -> io::Result<()> {
+    let VpkSource {
+        options,
+        path: relative,
+        sha256: original_sha256,
+        strict,
+    } = source;
+    let mut path_budget = budget::Budget::new();
+    for resource in resources {
+        path_budget
+            .expanded(&[relative.len(), resource.path.as_os_str().len()], 1536)
+            .map_err(invalid)?;
+    }
+    for resource in resources {
+        let parent = Path::new(relative)
+            .parent()
+            .unwrap_or_else(|| Path::new(""));
+        let virtual_path = normalize_relative(&parent.join(&resource.path))?;
+        let resource_category = classify(&virtual_path);
+        let mut item = entry(
+            &virtual_path,
+            Some(relative),
+            resource.total_bytes(),
+            resource_category,
+            "inventoried",
+            None,
+        );
+        if is_sensitive_name(&virtual_path) {
+            item.category = "excluded".to_owned();
+            item.disposition = "skipped".to_owned();
+            item.reason = Some("Zugangsdaten und lokale Konfiguration ausgeschlossen".to_owned());
+        } else if resource_category == "binary_asset" {
+            item.reason = Some("Binäres Asset; kein Beleg ausgeführter Spiellogik".to_owned());
+        } else if resource.total_bytes() > options.max_file_bytes {
+            item.disposition = "gap".to_owned();
+            item.reason = Some("Datei überschreitet die konfigurierte Größenbegrenzung".to_owned());
+            inventory
+                .gaps
+                .push(format!("{relative}:{virtual_path}: Größenbegrenzung"));
+        } else {
+            match read(resource) {
+                Ok((bytes, binding)) => {
+                    let mut extraction = json!({
+                        "method": "vpk-directory-and-payload",
+                        "version": EXTRACTOR_VERSION,
+                        "container_path": relative,
+                        "container_sha256": original_sha256,
+                        "archive_index": resource.archive_index,
+                        "archive_offset": resource.offset,
+                        "archive_length": resource.length,
+                        "preload_bytes": resource.preload.len(),
+                        "crc32_verified": true
+                    });
+                    if let Some(Value::Object(binding)) = binding {
+                        extraction
+                            .as_object_mut()
+                            .expect("Extraktionsobjekt")
+                            .extend(binding);
+                    }
+                    write_document(
+                        options,
+                        &virtual_path,
+                        &bytes,
+                        extraction,
+                        &mut item,
+                        output,
+                        inventory,
+                    )?;
+                }
+                Err(error) => {
+                    if strict {
+                        return Err(error);
+                    }
+                    item.disposition = "gap".to_owned();
+                    item.reason = Some(error.to_string());
+                    inventory
+                        .gaps
+                        .push(format!("{relative}:{virtual_path}: {error}"));
+                }
+            }
         }
         inventory.files.push(item);
     }
@@ -434,7 +690,6 @@ fn write_document(
             "gameplay_execution_verified": false
         }
     });
-    // Move the already bounded values; json!(facts) would duplicate the entire fact tree.
     document["facts"] = Value::Array(facts);
     serde_json::to_writer(&mut *output, &document).map_err(invalid)?;
     output.write_all(b"\n")?;
@@ -749,6 +1004,172 @@ mod tests {
             provenance: json!({"fixture": true}),
             max_file_bytes: 1024 * 1024,
         }
+    }
+
+    pub(super) fn bound_file(path: &str, bytes: &[u8]) -> BoundGameFile {
+        let mut file = tempfile::tempfile().unwrap();
+        file.write_all(bytes).unwrap();
+        BoundGameFile {
+            relative_path: path.to_owned(),
+            file,
+            expected_bytes: bytes.len() as u64,
+            steam_sha1: [7; 20],
+            expected_sha256: Sha256::digest(bytes).into(),
+        }
+    }
+
+    pub(super) fn bound_input(files: Vec<BoundGameFile>) -> BoundGameFiles {
+        let mut options = options(PathBuf::from("/does/not/exist"));
+        options.build_id = Some("build-fixture".to_owned());
+        options.manifest_id = Some("manifest-fixture".to_owned());
+        options.depot_id = Some(1422451);
+        BoundGameFiles {
+            options,
+            manifest_transport_sha256: [9; 32],
+            files,
+        }
+    }
+
+    #[test]
+    fn bound_loose_files_use_private_objects_not_changed_root_or_names() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("root");
+        fs::create_dir(&root).unwrap();
+        let path = root.join("items.json");
+        let content = b"{\"damage\":12}";
+        fs::write(&path, content).unwrap();
+        let mut file = bound_file("items.json", content);
+        file.file.seek(SeekFrom::End(0)).unwrap();
+        let mut input = bound_input(vec![file, bound_file("asset.vdata_c", b"binary")]);
+        input.options.root = root.clone();
+        fs::rename(&root, temp.path().join("old")).unwrap();
+        fs::create_dir(&root).unwrap();
+        fs::write(&path, b"{\"damage\":99}").unwrap();
+        let mut out = Vec::new();
+        let inventory = extract_game_files_from_handles(input, &mut out).unwrap();
+        let document: Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(document["content"], std::str::from_utf8(content).unwrap());
+        assert_eq!(document["revision"], "manifest:manifest-fixture");
+        assert_eq!(inventory.documents, 1);
+        assert_eq!(inventory.files.len(), 2);
+        assert!(inventory
+            .files
+            .iter()
+            .all(|file| file.original_sha256.is_some()));
+        let extraction = &document["metadata"]["extraction"];
+        assert_eq!(
+            extraction["physical_sources"][0]["relative_path"],
+            "items.json"
+        );
+        assert_eq!(extraction["physical_sources"][0]["bytes"], content.len());
+        assert_eq!(
+            extraction["physical_sources"][0]["steam_sha1"],
+            hex_bytes(&[7; 20])
+        );
+        assert_eq!(extraction["physical_sources"][0]["sha256"], sha256(content));
+        assert_eq!(extraction["manifest_transport_sha256"], hex_bytes(&[9; 32]));
+    }
+
+    #[test]
+    fn bound_bad_paths_duplicates_types_sizes_and_hashes_fail_before_output() {
+        for path in [
+            "",
+            "/x.txt",
+            "../x.txt",
+            "./x.txt",
+            "a//x.txt",
+            "a/./x.txt",
+            "a/",
+            "a\\x.txt",
+            "a:x.txt",
+            "a\0x.txt",
+        ] {
+            let mut out = Vec::new();
+            assert!(
+                extract_game_files_from_handles(
+                    bound_input(vec![bound_file(path, b"x")]),
+                    &mut out
+                )
+                .is_err(),
+                "{path:?}"
+            );
+            assert!(out.is_empty());
+        }
+        let mut inputs = vec![bound_input(vec![
+            bound_file("x.txt", b"x"),
+            bound_file("x.txt", b"y"),
+        ])];
+        let mut file = bound_file("x.txt", b"x");
+        file.expected_bytes = 2;
+        inputs.push(bound_input(vec![file]));
+        let mut file = bound_file("asset.vdata_c", b"x");
+        file.expected_sha256 = [0; 32];
+        inputs.push(bound_input(vec![file]));
+        let temp = tempfile::tempdir().unwrap();
+        let mut file = bound_file("x.txt", b"x");
+        file.file = File::open(temp.path()).unwrap();
+        file.expected_bytes = file.file.metadata().unwrap().len();
+        inputs.push(bound_input(vec![file]));
+        for input in inputs {
+            let mut out = Vec::new();
+            assert!(extract_game_files_from_handles(input, &mut out).is_err());
+            assert!(out.is_empty());
+        }
+    }
+
+    #[test]
+    fn bound_steam_identity_is_required_even_with_git_revision() {
+        for missing in 0..3 {
+            let mut input = bound_input(vec![bound_file("x.txt", b"x")]);
+            input.options.source_revision = Some("git-fixture".to_owned());
+            match missing {
+                0 => input.options.build_id = None,
+                1 => input.options.manifest_id = None,
+                _ => input.options.depot_id = None,
+            }
+            let mut out = Vec::new();
+            assert!(extract_game_files_from_handles(input, &mut out).is_err());
+            assert!(out.is_empty());
+        }
+    }
+
+    #[test]
+    fn bound_limit_and_encoding_gaps_retain_verified_physical_inventory() {
+        let mut input = bound_input(vec![
+            bound_file("big.txt", b"abcd"),
+            bound_file("nul.txt", b"\0"),
+        ]);
+        input.options.max_file_bytes = 2;
+        let mut out = Vec::new();
+        let inventory = extract_game_files_from_handles(input, &mut out).unwrap();
+        assert_eq!(inventory.documents, 0);
+        assert_eq!(inventory.gaps.len(), 2);
+        assert!(inventory
+            .files
+            .iter()
+            .all(|item| item.original_sha256.is_some() && item.disposition == "gap"));
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn bound_post_read_check_detects_mutation_through_an_alias() {
+        struct MutatingOutput {
+            file: File,
+        }
+        impl Write for MutatingOutput {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                self.file.set_len(0)?;
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let source = bound_file("items.txt", b"damage 12");
+        let mut out = MutatingOutput {
+            file: source.file.try_clone().unwrap(),
+        };
+        assert!(extract_game_files_from_handles(bound_input(vec![source]), &mut out).is_err());
     }
 
     #[test]
