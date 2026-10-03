@@ -1,7 +1,7 @@
-status: aktiv
+status: abgeschlossen
 Datum: 2026-10-03
-Stand: 2026-10-03T08:56:04Z
-Basis-HEAD: b1b9241805f470427570566faca37fc340d1c04c; Fixprüfungen laufen auf dem uncommittierten eigenen Fixstand, noch kein geprüfter neuer Commit.
+Stand: 2026-10-03T09:30:36Z
+Basis-HEAD: b1b9241805f470427570566faca37fc340d1c04c. Geprüfter Revisionsfix anschließend auf 08a6dd78471cd6e7c43073e1c29dd0f31abb61c5 committiert; acht ältere Formatdateien noch uncommittiert. Kein endgültiger Integrations- oder Releasebuildnachweis.
 
 # Tatsächlicher erster C2-Prüfversuch
 
@@ -30,3 +30,34 @@ Die tatsächlich gelesene Prüffolge verwendet `CARGO_BUILD_JOBS=2 SQLX_OFFLINE=
 Clippy mit -D warnings Exit101: genau zwei cloned_ref_to_slice_refs in source_versions.rs:834 und :854, PG-Testaufrufe mit &[newer.clone()] und &[older.clone()]. Nicht als Altfehler behauptet. Fixer meldet beide auf std::slice::from_ref geändert, keine Warnungsunterdrückung. Die Korrektur ist noch nicht erneut durch Compiler/Clippy bestätigt. Task endet regulär mit C2_FIX1_EXIT=101 LOCKS_RELEASED, PID3780201 nicht mehr vorhanden. Vollständige alte Logs /tmp/brain-c2-fix1-check.tT6OBi erhalten.
 
 Einziger sequenzieller Folgetask bk2zmvshl/PID4121081 um08:56:04 eigenständig nachgemessen: WAITING_HOST_LOCK, PID S, FD8 erster Hostlock/FD9 nicht geöffnet. Logwurzel /tmp/brain-c2-fix1-check.CPoJ6L. Noch keine neue Compilerprobe, Tests oder isolierte PG-Prüfung, kein Commit/neuer Gate. Keinen erfolgreichen Null-/Skip-Testlauf gemeldet.
+
+## Dritter Fixlauf, tatsächliche grüne Prüfstrecke
+
+Um 09:21:01 UTC alle Ergebniszeilen aus /tmp/brain-c2-fix1-check.CPoJ6L selbst ausgewertet: Formatierung/Formatcheck, Check, Clippy -D warnings und vier Testschritte jeweils Exit0, keine Warnungen. Der Wrapper bk2zmvshl endete regulär mit Exit0/LOCKS_RELEASED; PID4121081 und Scratch-postmaster.pid fehlen. pg.log belegt normalen Start und Stopp. Beide Hostlocks/Gegenproben und frische freie Proben vor jedem Schritt im Tasklog bestätigt.
+
+| Tatsächlicher Lauf | Passed | Failed | Ignored | Filtered |
+| --- | --- | --- | --- | --- |
+| brain-storage --lib | 29 | 0 | 2 | 0 |
+| dbrain-sources --lib | 115 | 0 | 5 | 0 |
+| knowledge_contract | 23 | 0 | 0 | 0 |
+| isolierter PG-Revisions-/Historien-/Konflikt-/Kopf-/Pin-Test | 1 | 0 | 0 | 30 |
+| isolierter PG knowledge_release | 1 | 0 | 0 | 0 |
+
+TESTNACHWEIS[TW-1]: 169 passed, 7 ignored | Baseline: nicht gemessen rot
+
+Sieben initiale Ignore-Ereignisse, danach eine ausdrücklich erfolgreiche Nachausführung: sechs einzelne Tests bleiben nicht ausgeführt. Das sind pg_maintenance::tests::postgres_queue_races_expiry_and_checkpoint_restart sowie fünf bestehende dbrain-sources-PG-Tests in deadlock_data, patchnotes_db und store. Keine Altfehlerbaseline behauptet. Isolierter Socket /tmp/brain-c2-fix1-pg.7FuGq4/.core-test-pg, Port55439, Rolle brain_core_test, DB postgres; der tatsächlich ausgeführte Revisions-PG-Test prüft Unixsocket und Rolle selbst. Kein Produktiv-DB-Lauf.
+
+Wörtliche Testaufrufe aus dem gelesenen Wrapper, mit tatsächlichen gemeinsamen Argumenten und Scratch-Socket:
+
+```bash
+export CARGO_BUILD_JOBS=2 SQLX_OFFLINE=true
+CARGO=(/home/nathanael/.cargo/bin/cargo +1.97.1)
+COMMON=(--locked --offline --jobs 2 --manifest-path /home/nathanael/.worktrees/brain-wiki-spielwissen-c-integration/rust/Cargo.toml --target-dir /home/nathanael/.worktrees/brain-wiki-spielwissen-c-integration/rust/target)
+run_check storage-tests "${CARGO[@]}" test "${COMMON[@]}" -p brain-storage --lib
+run_check sources-tests "${CARGO[@]}" test "${COMMON[@]}" -p dbrain-sources --lib --test knowledge_contract
+export BRAIN_CORE_TEST_PG_SOCKET=/tmp/brain-c2-fix1-pg.7FuGq4/.core-test-pg
+run_check pg-versions "${CARGO[@]}" test "${COMMON[@]}" -p brain-storage --lib source_versions::tests::postgres_original_wiki_history_does_not_reset_heads_or_release_pins -- --ignored --exact --nocapture
+run_check pg-release "${CARGO[@]}" test "${COMMON[@]}" -p brain-storage --test knowledge_release -- --include-ignored --nocapture
+```
+
+Quellenfix anschließend auf 08a6dd78471cd6e7c43073e1c29dd0f31abb61c5 committiert, vier eigene Dateien per git show bestätigt. Acht vorhandene Formatdateien bleiben uncommittiert erhalten. Regulärer Einzelmodell-Gate basd8fc14 auf genau diesem HEAD gegen511a347 endete Exit1/BLOCK. Originalfundliste in REVIEW-C2-2.md. Prüffolge grün, keine Mergefreigabe. Native Abschlussmeldung ohne eigene lebende Kinder liegt vor; bekannte Wrapper-/Gate-PIDs und Scratch-postmaster.pid um09:30:36UTC durch C2 als fehlend bestätigt. Keine neue eigene Fixrunde. Keine A/B/D-Integration, Releasebinary, produktiver Import oder Liveschaltung aus diesen Prüfergebnissen ableiten.

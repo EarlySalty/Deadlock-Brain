@@ -1,11 +1,11 @@
-status: aktiv
+status: uebergeben
 Datum: 2026-10-03
-Stand: 2026-10-03T08:56:04Z
+Stand: 2026-10-03T09:30:36Z
 
 # C2 an Haupt
 
-Erster grüner cargo check von brain-storage und dbrain-sources, alle Targets, aus echten Logs bestätigt. bwy8n5mpt hatte beide Locks, Gegenproben und frische freie Proben; Format0/Check0, Clippy101 wegen zwei cloned_ref_to_slice_refs im eigenen PG-Test. Fixer hat beide Aufrufe eng korrigiert. Wrapper regulär beendet, PID fehlt, Locks frei. Einziger sequenzieller neuer bk2zmvshl/PID4121081 um08:56:04 selbst bestätigt auf erster Hostsperre, kein neuer Compilerstart. Noch keine Tests/PG/Commit/Gate; keine parallele Prüfung.
+HANDOFF-READY.md ist aktuell: gleicher Worktree/Branch, HEAD08a6dd78471cd6e7c43073e1c29dd0f31abb61c5. Revisionsfixer abgeschlossen, alle bekannten eigenen Bau-/Gate-PIDs und Scratch-postmaster.pid fehlen nach eigener Probe. Keine eigenen aktiven Writer, Compiler, Kinder oder Wartetasks; kein Ersatzorchestrator und keine weitere Fixrunde.
 
-INSTALLATIONSPLAN-C2.md ist durch Haupt ausdrücklich freigegeben: einmalige Installation in bestehende SHA-Layouts nach gültiger Abnahme, Gate und grünen Prüfungen. Vorherige Ziele unter Sperre frisch messen. Rückweg nur, wenn Current und normale Config noch dem eigenen installierten Stand entsprechen. Keine dauerhafte Plattform oder Binaryüberschreibung. Weiterhin keine Installation ausgeführt.
+Format/Check/Clippy0, 169 passed/0 failed; sieben initiale Ignore-Ereignisse, danach eine erfolgreiche PG-Nachausführung, sechs Tests unausgeführt. Zwei echte isolierte PG-Prüfungen bestanden. Regulärer Sol-high-Gate auf genau08a6dd7 endete Exit1/BLOCK: numerische Wiki-Aliase7/07 umgehen Konflikte, Projektionen werden vor Summengrenze vollständig angelegt. Bestehender Publish-Retry-NIT bleibt. Original in REVIEW-C2-2.md, Befehle/Zahlen in C2-CHECK.md, tatsächliche Modellparameter in C2-MODELL-GATE.md.
 
-Kontextwache übernommen: kurze HANDOFF-READY.md nach sicherem Ende des aktuellen Writers und seiner bestehenden Prüfstrecke, jetzt noch nicht bereit. Kein Ersatzorchestrator gestartet. Folgeaufträge DB-Ziel, echte B-Großzeile/Ressourcen und Installation erhalten; B2/D nicht dupliziert, unmittelbare D-Inventarbindung bleibt Pflicht. A-Anforderung recursion_limit=256 aus echtem test7-Abbruch erfasst, erst bei späterer Registrierung am tatsächlichen Crateroot prüfen; jetzt keine Änderung und kein behaupteter C-Basisdefekt. Rohberichte lokal.
+Root übernimmt jetzt die erhaltene nächste Phase, zuerst frische Gate-Fixrunde. Quellencommit nur lokal, acht uncommittierte Formatdateien erhalten, keine historischen Fremdcommits integriert oder gepusht. Folgearbeit DB-Ziel/Großzeile/A-B2-D-Integration/Installation unverändert; A-Rekursionsanforderung erfasst und zentrale A-/D-Übergaben gelesen. INSTALLATIONSPLAN-C2.md freigegeben, aber nicht ausgeführt. Gesamt gebaut/reviewt/gemergt/live: nein. Koordinationsbranch niemals insgesamt mergen.
