@@ -602,6 +602,7 @@ fn sharing_refused_or_unclear(body: &str) -> bool {
                     || clause.contains('?')
                     || {
                         let mut preceding_negation = false;
+                        let mut negated_complement = false;
                         clause.split(',').any(|part| {
                             let part_words: Vec<_> = part
                                 .split_whitespace()
@@ -615,12 +616,21 @@ fn sharing_refused_or_unclear(body: &str) -> bool {
                                     "nicht" | "nie" | "niemals" | "niemand" | "keinesfalls"
                                 ) || word.starts_with("kein")
                         });
-                        let negated_complement = preceding_negation
-                            && part_words
+                            let complement = part_words
                                 .first()
-                                .is_some_and(|word| matches!(*word, "dass" | "ob"))
-                            && part_shares;
-                        preceding_negation = negated;
+                                .is_some_and(|word| matches!(*word, "dass" | "ob"));
+                            let positive_main = !complement
+                                && !negated
+                                && positive_sharing_main(&part_words);
+                            if positive_main {
+                                preceding_negation = false;
+                                negated_complement = false;
+                            } else if complement {
+                                negated_complement |= preceding_negation;
+                                preceding_negation = false;
+                            } else if negated {
+                                preceding_negation = true;
+                            }
                         let negated_tail = part_words
                             .iter()
                             .skip_while(|word| {
@@ -643,10 +653,56 @@ fn sharing_refused_or_unclear(body: &str) -> bool {
                                 matches!(*word, "nicht" | "niemals" | "nie" | "keinesfalls" | "auf")
                                     || word.starts_with("kein")
                             });
-                        negated_complement || (negated && (part_shares || negated_tail))
+                            (negated_complement && part_shares)
+                                || (negated && (part_shares || negated_tail))
                         })
                     })
         })
+}
+fn positive_sharing_main(words: &[&str]) -> bool {
+    let first = words
+        .iter()
+        .skip_while(|word| {
+            matches!(
+                **word,
+                "bitte" | "aber" | "doch" | "nun" | "jetzt" | "lieber" | "wirklich"
+            )
+        })
+        .next();
+    first.is_some_and(|word| {
+        matches!(
+            *word,
+            "leite"
+                | "teile"
+                | "gib"
+                | "sage"
+                | "sag"
+                | "schick"
+                | "schicke"
+                | "sende"
+                | "versende"
+                | "erzähle"
+                | "zeige"
+                | "übermittle"
+        )
+    }) || (first.is_some_and(|word| matches!(*word, "ich" | "wir" | "du" | "ihr" | "es"))
+        && words.iter().any(|word| {
+            matches!(
+                *word,
+                "möchte"
+                    | "möchten"
+                    | "will"
+                    | "wollen"
+                    | "erlaube"
+                    | "erlauben"
+                    | "darf"
+                    | "darfst"
+                    | "dürfen"
+                    | "soll"
+                    | "sollst"
+                    | "sollen"
+            )
+        }))
 }
 fn sharing_verb(word: &str) -> bool {
     matches!(
@@ -966,6 +1022,10 @@ mod tests {
             "Ich möchte wirklich niemals, dass dieses Anliegen weitergeleitet wird.",
             "Ich will keinesfalls, dass das Team davon erfährt.",
             "Ich weiß noch nicht, ob du das weiterleiten sollst.",
+            "Ich möchte nicht, dass du das, auch nur auszugsweise, weiterleitest.",
+            "Ich möchte nicht, dass du das, wie gesagt, ans Team weiterleitest.",
+            "Ich möchte nicht, ehrlich gesagt, dass du das weiterleitest.",
+            "Ich möchte nicht, gerade bei diesem Thema, dass du das ans Team weitergibst.",
         ] {
             let text = format!("Feedback ans Team: {body}");
             assert!(!explicit_feedback(&text), "{text}");
@@ -977,6 +1037,7 @@ mod tests {
             "Ich finde nicht, dass der Server übersichtlich ist, bitte leite dieses Anliegen weiter.",
             "Ich möchte nicht, dass die Turniere ausfallen, bitte leite dieses Anliegen weiter.",
             "Der Kanal ist nicht übersichtlich, ich möchte, dass du das ans Team weiterleitest.",
+            "Der Kanal ist nicht übersichtlich, aber ich möchte, dass du das ans Team weiterleitest.",
         ] {
             let text = format!("Feedback ans Team: {body}");
             assert!(explicit_feedback(&text), "{text}");
