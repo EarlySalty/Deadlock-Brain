@@ -18,6 +18,7 @@ use dbrain_retrieval::ReleaseRetriever;
 use serde::Deserialize;
 use serde_json::json;
 mod knowledge;
+mod invites;
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeSet,
@@ -35,6 +36,7 @@ pub struct GuideRuntime {
     provider: Arc<dyn AnswerProviderPort>,
     domain_kernel: Arc<dyn GuideDomainKernel>,
     credentials: CredentialRegistry,
+    peer_token: Option<String>,
     release: String,
     budget: Budget,
     deadline_ms: u64,
@@ -65,6 +67,7 @@ impl GuideRuntime {
             provider,
             domain_kernel,
             credentials,
+            peer_token: None,
             release,
             budget,
             deadline_ms,
@@ -151,11 +154,17 @@ impl GuideRuntime {
             snapshot.profile.fields.clear();
             snapshot.history.clear();
         }
-        if !addressed(&turn, snapshot.conversation.as_ref(), now) {
+        if !addressed(&turn, snapshot.conversation.as_ref(), now)
+            || (turn.addressed == Addressed::CommunityQuestion
+                && !self.config.proactive_channel_allowed(&turn.guild_id, &turn.channel_id))
+        {
             return Ok(GuideResult::silent(&turn.request_id));
         }
-        if turn.human_helped && matches!(turn.addressed, Addressed::Followup) {
+        if turn.human_helped && matches!(turn.addressed, Addressed::Followup | Addressed::CommunityQuestion) {
             return Ok(GuideResult::silent(&turn.request_id));
+        }
+        if let Some(command) = turn.access_invite.clone().or_else(|| invites::command(&turn.content)) {
+            return self.access_invite(&turn, snapshot.profile.epoch, command, &deadline);
         }
         if let Some(control) = turn
             .control
@@ -507,6 +516,8 @@ fn addressed(turn: &GuideTurn, conversation: Option<&GuideConversation>, now: i6
     }
     match turn.addressed {
         Addressed::Mention | Addressed::Command => true,
+        Addressed::CommunityQuestion => turn.event == Event::Message
+            && turn.thread_id.is_none() && turn.reply_to_message_id.is_none(),
         Addressed::TourButton => matches!(turn.event, Event::TourStart | Event::TourStep),
         Addressed::Reply | Addressed::Followup => conversation.is_some_and(|c| {
             !c.closed
@@ -893,9 +904,12 @@ async fn turn_handler(
     .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
     .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let request_id = turn.request_id.clone();
+    let mut request_runtime = (*runtime).clone();
+    request_runtime.peer_token = headers.get("authorization").and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split_once(' ').map(|(_, token)| token.to_owned()));
     let result = tokio::task::spawn_blocking(move || {
         let _permit = permit;
-        runtime.process(turn, principal, deadline)
+        request_runtime.process(turn, principal, deadline)
     })
     .await
     .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -962,6 +976,7 @@ mod tests {
             content: "Und dann?".into(),
             control: None,
             domain: None,
+            access_invite: None,
             human_helped: false,
         }
     }

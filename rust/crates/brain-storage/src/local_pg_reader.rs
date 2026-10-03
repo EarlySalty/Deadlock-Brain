@@ -8,6 +8,7 @@ use brain_contracts::{
 use postgres::Row;
 mod connection;
 mod guide;
+mod guide_invites;
 mod guide_knowledge;
 use connection::Client;
 pub use guide::GuideSnapshot;

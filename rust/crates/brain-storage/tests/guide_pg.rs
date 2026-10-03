@@ -47,6 +47,7 @@ fn turn(request: &str, surface: Surface) -> GuideTurn {
         content: "Synthetische Frage".into(),
         control: None,
         domain: None,
+            access_invite: None,
         human_helped: false,
     }
 }
@@ -452,6 +453,7 @@ fn exercise(config: TestConfig) {
             .is_some());
     }
     sequence_checks(&reader, &mut sql);
+    invite_checks(&reader, &mut sql);
     let mut snapshot = ServerSnapshot {
         guild_id: "100".into(),
         revision: 1,
@@ -667,4 +669,27 @@ async fn migration_checks(store: &PgStore, pool: &sqlx::PgPool) {
     assert!(imported);
     sqlx::raw_sql("DELETE FROM brain.guide_subjects WHERE user_id IN ('220','221','222'); DELETE FROM core.user_privacy WHERE user_id=222; DROP TABLE bot.concierge_profiles; DROP TABLE bot.concierge_conversations")
         .execute(pool).await.unwrap();
+}
+
+fn invite_checks(reader:&LocalPgReader, sql:&mut postgres::Client) {
+    let deadline=||RequestDeadline::after(Duration::from_secs(5));
+    let mut original=turn("invite-original",Surface::Dm);
+    original.user_id="230".into();
+    let profile=reader.guide_claim(&original,&deadline(),1300,false).expect("Einladungsclaim fehlt").expect("Einladungsclaim verworfen").profile;
+    let grant=reader.guide_create_invite_grant(&original,profile.epoch,"invite:test",76561197960265729,60,&deadline()).expect("Grantanlage fehlgeschlagen").expect("Grant verworfen");
+    assert_eq!(grant.turn_id,original.request_id);
+    assert!(reader.guide_create_invite_grant(&original,profile.epoch,"invite:duplicate",76561197960265729,60,&deadline()).expect("Duplikatprüfung fehlgeschlagen").is_none());
+    let mut public=original.clone();public.surface=Surface::Public;
+    assert!(reader.guide_invite_state(&public,profile.epoch,"invite:test",false,&deadline()).expect("Öffentliche Sperrprüfung fehlgeschlagen").is_none());
+    let mut foreign=original.clone();foreign.user_id="231".into();
+    reader.guide_claim(&foreign,&deadline(),1300,false).expect("Fremdclaim fehlgeschlagen");
+    assert!(reader.guide_invite_state(&foreign,0,"invite:test",false,&deadline()).expect("Mitgliedsprüfung fehlgeschlagen").is_none());
+    let mut later=original.clone();later.request_id="invite-later-normal".into();later.message_id="401".into();
+    reader.guide_claim(&later,&deadline(),1300,false).expect("Normaler Folgeclaim fehlgeschlagen");
+    assert_eq!(reader.guide_invite_state(&original,profile.epoch,"invite:test",false,&deadline()).expect("Statusprüfung fehlgeschlagen"),Some(InviteStatus::Queued));
+    let control=control_turn(reader,&later);
+    reader.guide_control(&control,&ProfileControl::Memory{enabled:false},1300,None,&deadline()).expect("Widerruf fehlgeschlagen");
+    assert!(reader.guide_invite_state(&original,profile.epoch,"invite:test",false,&deadline()).expect("Epochenprüfung fehlgeschlagen").is_none());
+    let revoked:bool=sql.query_one("SELECT revoked_at IS NOT NULL AND steam_id64 IS NULL AND turn_id IS NULL AND source_channel_id IS NULL FROM brain.guide_action_grants WHERE action_id='invite:test'",&[]).expect("Widerrufsnachweis fehlt").get(0);
+    assert!(revoked);
 }

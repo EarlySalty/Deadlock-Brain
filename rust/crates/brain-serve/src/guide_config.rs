@@ -14,6 +14,14 @@ pub struct GuideConfig {
     #[serde(default)]
     pub private_dm_egress: bool,
     #[serde(default)]
+    pub proactive_channels: BTreeSet<String>,
+    #[serde(default)]
+    pub access_invites_enabled: bool,
+    #[serde(default)]
+    pub access_invite_ttl_seconds: Option<u64>,
+    #[serde(default)]
+    pub steam_service_url: Option<String>,
+    #[serde(default)]
     pub memory_retention_seconds: Option<i64>,
     #[serde(default = "inactivity")]
     pub conversation_inactivity_seconds: i64,
@@ -49,6 +57,10 @@ fn inactivity() -> i64 {
     600
 }
 impl GuideConfig {
+    pub fn proactive_channel_allowed(&self, guild: &str, channel: &str) -> bool {
+        guild == "1289721245281292288" && channel == "1426220702054355077"
+            && self.proactive_channels.contains(channel)
+    }
     pub fn valid(&self) -> bool {
         [
             &self.guild_id,
@@ -73,6 +85,17 @@ impl GuideConfig {
                 .all(|id| brain_contracts::guide::snowflake(id))
             && (!self.enabled
                 || (!self.allowed_users.is_empty() && !self.allowed_knowledge_sources.is_empty()))
+            && self.proactive_channels.iter().all(|channel|
+                self.guild_id == "1289721245281292288" && channel == "1426220702054355077"
+                && self.approved_discord_channels.contains(channel))
+            && (!self.access_invites_enabled ||
+                (self.access_invite_ttl_seconds.is_some_and(|ttl| (1..=3600).contains(&ttl))
+                && self.steam_service_url.as_ref().is_some_and(|url|
+                    reqwest::Url::parse(url).is_ok_and(|parsed|
+                        parsed.scheme() == "http" && parsed.host_str() == Some("127.0.0.1")
+                        && parsed.username().is_empty() && parsed.password().is_none()
+                        && parsed.query().is_none() && parsed.fragment().is_none()
+                        && parsed.path() == "/"))))
             && (60..=3600).contains(&self.conversation_inactivity_seconds)
             && self
                 .memory_retention_seconds

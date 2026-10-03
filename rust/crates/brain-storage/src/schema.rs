@@ -126,6 +126,8 @@ impl PgStore {
             .execute(&self.pool)
             .await
             .map_err(compatibility_error)?;
+        sqlx::query("SELECT a.action_id,a.source_surface,a.steam_id64,a.friend_task_id,a.invite_task_id,a.friend_dispatch_reserved,a.invite_dispatch_reserved,c.source_channel_id,c.source_thread_id,c.source_message_id,c.source_event_type FROM brain.guide_action_grants a,brain.guide_turn_claims c LIMIT 0")
+            .execute(&self.pool).await.map_err(compatibility_error)?;
         let rows = sqlx::query("SELECT version FROM brain.guide_schema_version")
             .fetch_all(&self.pool)
             .await
@@ -173,7 +175,7 @@ impl PgStore {
                 continue;
             }
             sqlx::query("INSERT INTO brain.guide_subjects(guild_id,user_id,legacy_import_eligible) VALUES($1::bigint::text,$2::bigint::text,true) ON CONFLICT DO NOTHING").bind(guild).bind(user).execute(&mut *tx).await.map_err(migration_error)?;
-            let pristine: bool = sqlx::query_scalar("SELECT legacy_import_eligible AND epoch=0 AND turn_sequence=0 AND NOT memory_enabled AND NOT contact_enabled AND NOT deleted AND NOT globally_opted_out AND min_event_id=0 AND profile_json='{}'::jsonb AND history_json='[]'::jsonb AND NOT EXISTS(SELECT 1 FROM brain.guide_turn_claims c WHERE c.guild_id=s.guild_id AND c.user_id=s.user_id) AND NOT EXISTS(SELECT 1 FROM brain.guide_conversations c WHERE c.guild_id=s.guild_id AND c.user_id=s.user_id) AND NOT EXISTS(SELECT 1 FROM brain.guide_feedback_outbox c WHERE c.guild_id=s.guild_id AND c.user_id=s.user_id) AND NOT EXISTS(SELECT 1 FROM brain.guide_feedback_drafts c WHERE c.guild_id=s.guild_id AND c.user_id=s.user_id) FROM brain.guide_subjects s WHERE user_id=$1::bigint::text AND guild_id=$2::bigint::text FOR UPDATE")
+            let pristine: bool = sqlx::query_scalar("SELECT legacy_import_eligible AND epoch=0 AND turn_sequence=0 AND NOT memory_enabled AND NOT contact_enabled AND NOT deleted AND NOT globally_opted_out AND min_event_id=0 AND profile_json='{}'::jsonb AND history_json='[]'::jsonb AND NOT EXISTS(SELECT 1 FROM brain.guide_turn_claims c WHERE c.guild_id=s.guild_id AND c.user_id=s.user_id) AND NOT EXISTS(SELECT 1 FROM brain.guide_conversations c WHERE c.guild_id=s.guild_id AND c.user_id=s.user_id) AND NOT EXISTS(SELECT 1 FROM brain.guide_feedback_outbox c WHERE c.guild_id=s.guild_id AND c.user_id=s.user_id) AND NOT EXISTS(SELECT 1 FROM brain.guide_feedback_drafts c WHERE c.guild_id=s.guild_id AND c.user_id=s.user_id) AND NOT EXISTS(SELECT 1 FROM brain.guide_action_grants a WHERE a.actor_id=$1 AND a.guild_id=$2) FROM brain.guide_subjects s WHERE user_id=$1::bigint::text AND guild_id=$2::bigint::text FOR UPDATE")
                 .bind(user).bind(guild).fetch_one(&mut *tx).await.map_err(migration_error)?;
             if !pristine {
                 sqlx::query("INSERT INTO brain.guide_legacy_imports(guild_id,user_id) VALUES($1::bigint::text,$2::bigint::text) ON CONFLICT DO NOTHING").bind(guild).bind(user).execute(&mut *tx).await.map_err(migration_error)?;

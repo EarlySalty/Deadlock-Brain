@@ -19,6 +19,7 @@ pub enum Addressed {
     Command,
     TourButton,
     Control,
+    CommunityQuestion,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -53,6 +54,8 @@ pub struct GuideTurn {
     pub control: Option<ProfileControl>,
     #[serde(default)]
     pub domain: Option<GuideDomainCommand>,
+    #[serde(default)]
+    pub access_invite: Option<AccessInviteCommand>,
     #[serde(default)]
     pub human_helped: bool,
 }
@@ -95,8 +98,62 @@ impl GuideTurn {
                     && self.addressed == Addressed::Command
                     && self.event == Event::Message
                     && self.control.is_none()
+                    && self.access_invite.is_none()
+            })
+            && self.access_invite.as_ref().is_none_or(|command| {
+                command.valid()
+                    && self.event == Event::Message
+                    && self.control.is_none()
+                    && self.domain.is_none()
+                    && self.request_id.len() <= 128
             })
     }
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum AccessInviteCommand {
+    Request { friend_code: String },
+    Status { action_id: String },
+    Cancel { action_id: String },
+}
+impl AccessInviteCommand {
+    pub fn valid(&self) -> bool {
+        match self {
+            Self::Request { friend_code } => !friend_code.trim().is_empty()
+                && friend_code.len() <= 32
+                && !friend_code.chars().any(char::is_control),
+            Self::Status { action_id } | Self::Cancel { action_id } => {
+                !action_id.is_empty() && action_id.len() <= 128
+                    && action_id.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._:-".contains(&byte))
+            }
+        }
+    }
+}
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InviteCorrelation {
+    pub action_id: String,
+    pub turn_id: String,
+    pub actor_id: i64,
+    pub guild_id: i64,
+    pub channel_id: i64,
+    pub source_thread_id: Option<i64>,
+    pub source_event_type: String,
+    pub message_id: i64,
+    pub privacy_epoch: i64,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InviteStatus {
+    Queued,
+    FriendRequestSent,
+    WaitingForAcceptance,
+    InviteSent,
+    AlreadyHasAccess,
+    Failed,
+    Unknown,
+    Expired,
+    Cancelled,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

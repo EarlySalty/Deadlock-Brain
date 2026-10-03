@@ -52,6 +52,7 @@ impl LocalPgReader {
     pub fn check_guide_schema(&self) -> Result<(), PortError> {
         let mut client = self.pool.acquire()?;
         client.query_schema("SELECT s.guild_id,s.user_id,s.epoch,s.min_event_id,s.turn_sequence,s.legacy_import_eligible,s.profile_json,s.history_json,c.request_id,c.turn_sequence,c.subject_epoch,c.reply_message_id,c.conversation_id,o.delivery_id,o.expires_at,v.version,k.latest_request_id FROM brain.guide_subjects s,brain.guide_turn_claims c,brain.guide_feedback_outbox o,brain.guide_schema_version v,brain.guide_conversations k LIMIT 0")?;
+        client.query_schema("SELECT a.action_id,a.source_surface,a.steam_id64,a.friend_task_id,a.invite_task_id,a.friend_dispatch_reserved,a.invite_dispatch_reserved,c.source_channel_id,c.source_thread_id,c.source_message_id,c.source_event_type FROM brain.guide_action_grants a,brain.guide_turn_claims c LIMIT 0")?;
         let row = client.query_one("SELECT version FROM brain.guide_schema_version", &[])?;
         if row.get::<_, i32>(0) != 1 {
             return Err(invalid("Serverguide-Schema ist nicht kompatibel"));
@@ -112,6 +113,7 @@ impl LocalPgReader {
             }
         }
         if profile.globally_opted_out || profile.deleted {
+            tx.execute("UPDATE brain.guide_action_grants SET revoked_at=COALESCE(revoked_at,clock_timestamp()),steam_id64=NULL,turn_id=NULL,source_channel_id=NULL,source_thread_id=NULL,source_event_type=NULL,status=CASE WHEN status IN ('invite_sent','already_has_access','unknown') THEN status ELSE 'cancelled' END,updated_at=clock_timestamp() WHERE actor_id=$1", &[&uid])?;
             profile.memory_enabled = false;
             tx.execute("UPDATE brain.guide_subjects SET globally_opted_out=$3,deleted=$4,memory_enabled=false,profile_json='{}',history_json='[]' WHERE guild_id=$1 AND user_id=$2", &[&turn.guild_id,&turn.user_id,&profile.globally_opted_out,&profile.deleted])?;
         }
@@ -121,7 +123,7 @@ impl LocalPgReader {
             return Ok(None);
         }
         let sequence: i64 = tx.query_one("UPDATE brain.guide_subjects SET turn_sequence=turn_sequence+1,legacy_import_eligible=false WHERE guild_id=$1 AND user_id=$2 RETURNING turn_sequence", &[&turn.guild_id,&turn.user_id])?.get(0);
-        tx.execute("UPDATE brain.guide_turn_claims SET turn_sequence=$4,subject_epoch=$5 WHERE guild_id=$1 AND user_id=$2 AND request_id=$3", &[&turn.guild_id,&turn.user_id,&turn.request_id,&sequence,&profile.epoch])?;
+        tx.execute("UPDATE brain.guide_turn_claims SET turn_sequence=$4,subject_epoch=$5,source_surface=$6,source_channel_id=$7,source_thread_id=$8,source_message_id=$9,source_event_type=$10 WHERE guild_id=$1 AND user_id=$2 AND request_id=$3", &[&turn.guild_id,&turn.user_id,&turn.request_id,&sequence,&profile.epoch,&if turn.surface==Surface::Dm{"dm"}else{"public"},&turn.channel_id,&turn.thread_id,&turn.message_id,&match turn.event {Event::Message=>"message",Event::TourStart|Event::TourStep=>"button",_=>"command"}])?;
         let mut history = vec![];
         // Öffentliche Züge lesen weder Profildaten noch DM-Verlauf, auch bei gleichem Mitglied.
         if turn.surface == Surface::Dm
@@ -241,6 +243,7 @@ impl LocalPgReader {
             }
         }
         if !matches!(control, ProfileControl::View) {
+            tx.execute("UPDATE brain.guide_action_grants SET revoked_at=COALESCE(revoked_at,clock_timestamp()),steam_id64=NULL,turn_id=NULL,source_channel_id=NULL,source_thread_id=NULL,source_event_type=NULL,status=CASE WHEN status IN ('invite_sent','already_has_access','unknown') THEN status ELSE 'cancelled' END,updated_at=clock_timestamp() WHERE actor_id=$1", &[&uid])?;
             profile.epoch += 1;
             let fields = serde_json::to_value(&profile.fields)
                 .map_err(|_| invalid("Profil konnte nicht gespeichert werden"))?;
