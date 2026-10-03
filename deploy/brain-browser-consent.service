@@ -1,0 +1,20 @@
+[Unit]
+Description=Brave-Freigabewächter für lokale Datenimporte
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/opt/deadlock-brain/browser-consent/brain-browser-consent --config /opt/deadlock-brain/browser-consent/brain-browser-consent.json
+Restart=on-failure
+RestartSec=10
+KillMode=control-group
+NoNewPrivileges=true
+# Der Besitznachweis braucht die Host-Prozesssicht und den lokalen AT-SPI-Bus.
+PrivateUsers=no
+PrivateTmp=no
+ProtectSystem=no
+ProtectHome=no
+ProtectProc=default
+
+[Install]
+WantedBy=default.target

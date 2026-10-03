@@ -1,0 +1,5 @@
+{
+  "accessibility_bus": "unix:path=/home/nathanael/.cache/at-spi/bus_10.0",
+  "interval_seconds": 10,
+  "command_timeout_seconds": 5
+}

@@ -761,7 +761,7 @@ enum PullCommands {
     BuildData(PullBuildDataArgs),
     #[command(about = "Importiert bestehende Patchnotes aus der zentralen Bot-DB.")]
     Patchnotes(PullPatchnotesArgs),
-    #[command(about = "Zieht oeffentliche Threads aus dem Deadlock-Forum anhand der Sitemap.")]
+    #[command(about = "Liest öffentliche Threads aus dem Deadlock-Forum anhand der Sitemap.")]
     Forum(PullForumArgs),
     #[command(about = "Zieht öffentliche Threads und Kommentare aus Reddit-Subreddits.")]
     Reddit(PullRedditArgs),
@@ -874,6 +874,23 @@ struct PullPatchnotesArgs {}
 
 #[derive(Debug, Args)]
 struct PullForumArgs {
+    #[arg(long, default_value = "/home/nathanael/.local/share/deadlock-brain")]
+    data_dir: PathBuf,
+    #[arg(long, default_value = "/etc/deadlock-brain/infisical.json")]
+    archive_infisical_config: PathBuf,
+    #[arg(
+        long,
+        help = "Nutzt die vorhandene lokale Brave-Sitzung für öffentliche Seiten."
+    )]
+    browser: bool,
+    #[arg(long, requires = "publish_release")]
+    base_release: Option<String>,
+    #[arg(long, requires = "base_release", requires = "kernel_config")]
+    publish_release: Option<String>,
+    #[arg(long)]
+    kernel_config: Option<PathBuf>,
+    #[arg(long, default_value = "/etc/deadlock-brain/infisical.json")]
+    kernel_infisical_config: PathBuf,
     #[arg(
         long = "sitemap-url",
         default_value = "https://forums.playdeadlock.com/sitemap.xml"
@@ -882,7 +899,7 @@ struct PullForumArgs {
     #[arg(
         long,
         default_value_t = 25,
-        help = "0 bedeutet ohne Limit; fuer Backfills besser kleine Wellen nutzen."
+        help = "0 bedeutet ohne Limit; für Nachimporte können kleine Durchläufe verwendet werden."
     )]
     limit: usize,
     #[arg(long = "delay-seconds", default_value_t = 1.0)]
@@ -1493,6 +1510,12 @@ fn run_from_cli() -> Result<()> {
 
 async fn run(cli: Cli) -> Result<()> {
     let Cli { command } = cli;
+    let command = match command {
+        Commands::Pull {
+            source: PullCommands::Forum(args),
+        } => return run_forum_pull(args).await,
+        other => other,
+    };
     if let Commands::Answer(args) = &command {
         return run_brain_answer(args).await;
     }
@@ -2581,6 +2604,50 @@ async fn run_analysis(pool: &PgPool, settings: &Settings, target: AnalysisComman
     }
 }
 
+async fn run_forum_pull(args: PullForumArgs) -> Result<()> {
+    if !args.data_dir.is_absolute() || !args.archive_infisical_config.is_absolute() {
+        return Err(anyhow!(
+            "Forumdaten und Infisical-Konfiguration benötigen absolute Pfade."
+        ));
+    }
+    let pool =
+        deadlock_brain_core::pg::pg_pool_from_config(&args.archive_infisical_config, false).await?;
+    let http = http_client_async(
+        config::DEFAULT_USER_AGENT.to_string(),
+        args.data_dir.join("cache"),
+    )
+    .await?;
+    let result = dbrain_sources::forum::pull_forum_with_pool(
+        &pool,
+        &args.data_dir.join("raw"),
+        &http,
+        dbrain_sources::PullForumOptions {
+            sitemap_url: args.sitemap_url,
+            limit: args.limit,
+            delay_seconds: args.delay_seconds,
+            cache_ttl_seconds: args.cache_ttl_seconds,
+            refresh_existing: args.refresh_existing,
+            browser_config: args.browser.then(Default::default),
+        },
+    )
+    .await?;
+    let canonical = match (args.base_release, args.publish_release) {
+        (Some(base), Some(release)) => {
+            let path = args
+                .kernel_config
+                .as_ref()
+                .ok_or_else(|| anyhow!("--kernel-config ist für Veröffentlichung erforderlich."))?;
+            let kernel_pool = forum_kernel_pool(path, &args.kernel_infisical_config).await?;
+            Some(
+                dbrain_sources::forum_corpus::publish_archive(&pool, &kernel_pool, &base, &release)
+                    .await?,
+            )
+        }
+        _ => None,
+    };
+    print_json(&json!({"archive": result, "canonical": canonical}))
+}
+
 async fn run_pull(pool: &PgPool, settings: &Settings, source: PullCommands) -> Result<()> {
     let http = http_client_async(settings.user_agent.clone(), settings.cache_dir.clone()).await?;
     match source {
@@ -2627,21 +2694,7 @@ async fn run_pull(pool: &PgPool, settings: &Settings, source: PullCommands) -> R
             .await?;
             print_json(&result)
         }
-        PullCommands::Forum(args) => {
-            let result = dbrain_sources::pull_forum(
-                &settings.raw_dir,
-                &http,
-                dbrain_sources::PullForumOptions {
-                    sitemap_url: args.sitemap_url,
-                    limit: args.limit,
-                    delay_seconds: args.delay_seconds,
-                    cache_ttl_seconds: args.cache_ttl_seconds,
-                    refresh_existing: args.refresh_existing,
-                },
-            )
-            .await?;
-            print_json(&result)
-        }
+        PullCommands::Forum(args) => run_forum_pull(args).await,
         PullCommands::Reddit(args) => {
             let result = dbrain_sources::pull_reddit(
                 &settings.raw_dir,
@@ -4404,5 +4457,90 @@ mod tests {
         assert!(text.contains("heroes"));
         assert!(!text.contains("raw_items"));
         assert!(!text.contains("raw_heroes"));
+    }
+}
+
+async fn forum_kernel_pool(
+    path: &std::path::Path,
+    infisical_path: &std::path::Path,
+) -> Result<PgPool> {
+    #[derive(serde::Deserialize)]
+    struct Runtime {
+        postgres: Database,
+    }
+    #[derive(serde::Deserialize)]
+    struct Database {
+        socket_dir: PathBuf,
+        port: u16,
+        username: String,
+        database: String,
+        auth: String,
+        password_env: Option<String>,
+        max_connections: u32,
+    }
+    let runtime: Runtime = serde_json::from_slice(
+        &fs::read(path).map_err(|_| anyhow!("Kernelkonfiguration ist nicht lesbar."))?,
+    )
+    .map_err(|_| anyhow!("Kernelkonfiguration ist ungültig."))?;
+    let database = runtime.postgres;
+    if !database.socket_dir.is_absolute()
+        || !database.socket_dir.is_dir()
+        || database.port == 0
+        || database.max_connections < 2
+    {
+        return Err(anyhow!("Ungültige Kernel-Datenbankkonfiguration."));
+    }
+    let mut options = sqlx::postgres::PgConnectOptions::new()
+        .host(
+            database
+                .socket_dir
+                .to_str()
+                .ok_or_else(|| anyhow!("Ungültiger Socketpfad."))?,
+        )
+        .port(database.port)
+        .username(&database.username)
+        .database(&database.database)
+        .ssl_mode(sqlx::postgres::PgSslMode::Disable);
+    match database.auth.as_str() {
+        "peer" => {}
+        "password" => {
+            let key = database
+                .password_env
+                .ok_or_else(|| anyhow!("Infisical-Verweis für Kernel-Datenbank fehlt."))?;
+            let values = dl_token_secrets::values(infisical_path)
+                .await
+                .map_err(|_| anyhow!("Kernel-Infisicalzugriff fehlgeschlagen."))?;
+            let secret = values
+                .iter()
+                .find(|(name, _)| name == &key)
+                .map(|(_, value)| value.as_str())
+                .ok_or_else(|| anyhow!("Kernel-Datenbankzugang fehlt in Infisical."))?;
+            options = options.password(secret);
+        }
+        _ => return Err(anyhow!("Unbekannte Kernel-Datenbankanmeldung.")),
+    }
+    sqlx::postgres::PgPoolOptions::new()
+        .max_connections(database.max_connections.min(4))
+        .acquire_timeout(std::time::Duration::from_secs(15))
+        .connect_with(options)
+        .await
+        .map_err(|_| anyhow!("Kernel-Datenbank ist nicht erreichbar."))
+}
+
+#[cfg(test)]
+mod forum_pool_configuration_tests {
+    use super::*;
+    #[tokio::test]
+    async fn single_connection_pool_is_rejected_before_secret_lookup() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("runtime.json");
+        fs::write(&path,serde_json::to_vec(&json!({"postgres":{"socket_dir":root.path(),"port":5446,"username":"fixture","database":"fixture","auth":"password","password_env":"unused","max_connections":1}})).unwrap()).unwrap();
+        assert!(
+            forum_kernel_pool(&path, &root.path().join("missing-infisical.json"))
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("Ungültige Kernel-Datenbankkonfiguration")
+        );
     }
 }

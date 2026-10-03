@@ -174,3 +174,38 @@ Deadlock-API-Snapshots und abgeleiteten Tabellen. Aktuelle Checks:
 Kein Bulk-Crawl. Nur gezielte Seiten, Cache-TTL, Mindestabstand zwischen Requests.
 Wenn spaeter viele Seiten benoetigt werden, erst nach Dumps, Spiegeln oder expliziten
 Rate-Limit-Regeln suchen.
+
+Der Forumimport liest alle Antwortseiten eines Threads und hält Kategorie,
+Beitragsdatum, Autor und Originalquelle fest. Mit `--browser` nutzt er einen
+vorhandenen lokalen Brave-Browser über dessen ausdrücklich freigegebene
+DevTools-Verbindung. Browserprüfungen, private Bereiche und leere Antworten
+führen zu einem Fehler statt zu einem erfolgreichen leeren Import. Die
+Anhangdateien werden nicht heruntergeladen; ihre Verweise bleiben gespeichert.
+
+```sh
+deadlock-brain pull forum --browser --limit 0 --delay-seconds 1 \
+  --data-dir /home/nathanael/.local/share/deadlock-brain \
+  --archive-infisical-config /etc/deadlock-brain/infisical.json \
+  --base-release BESTEHENDER_WISSENSSTAND --publish-release NEUER_WISSENSSTAND \
+  --kernel-config /etc/deadlock-brain/maintenance-runtime.json
+```
+
+`--limit 0` bearbeitet alle in der öffentlichen Sitemap entdeckten Threads.
+Der Forumaufruf verwendet feste absolute Daten- und Konfigurationspfade und
+lädt keine Legacy-Settings aus `.env` oder Umgebungsvariablen. Sein Archiv
+bleibt nach dem Entfernen des Bau-Worktrees erhalten.
+Nach einer Unterbrechung werden nur vollständig gespeicherte Threads mit
+unverändertem Sitemap-Änderungsdatum übersprungen. Fehlt dieses Datum, wird der
+Thread erneut gelesen. Der Abschlussbericht nennt Entdeckungen, tatsächlich
+archivierte Threads, Fehler und verbleibende Threads. Private Bereiche zählen
+nicht zur öffentlichen Abdeckung.
+
+Die beiden Release-Argumente überführen vorhandene Beiträge aus vollständig
+archivierten Threads in `SourceRecordV2`. Pins anderer Quellen und lokal nicht beobachteter Forumthreads bleiben
+erhalten. Nur vollständig erneut gelesene Threads bestimmen, welche ihrer
+Beiträge im neuen Wissensstand noch enthalten sind. Der neue Stand kann auch ein Teilarchiv enthalten; erst `complete`
+im Importbericht belegt die vollständige Sitemap-Abdeckung. Der Dienst nutzt
+einen ausdrücklich gesetzten Release-Pin in seiner normalen Konfiguration.
+Jeder Forumbeleg nennt Quelle und Beitragsdatum und bleibt ein unbestätigter
+Bericht mit unbekannter aktueller Gültigkeit. Eine Entwickleraussage über einen
+internen Fix belegt weiterhin keinen bereits veröffentlichten Patch.

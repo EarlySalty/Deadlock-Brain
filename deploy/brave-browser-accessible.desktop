@@ -1,0 +1,14 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Brave Web Browser
+GenericName=Web-Browser
+GenericName[de]=Web-Browser
+Comment=Brave mit nativer Bedienungshilfe für lokale Datenimporte
+Comment[de]=Brave mit nativer Bedienungshilfe für lokale Datenimporte
+Exec=/usr/bin/brave-browser-stable --force-renderer-accessibility=complete %U
+Terminal=false
+Icon=brave-browser
+Categories=Network;WebBrowser;
+MimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;
+StartupWMClass=Brave-browser

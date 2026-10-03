@@ -25,6 +25,7 @@ use sqlx::{
 mod chunk_index;
 mod contract_port;
 mod domain_port;
+mod forum;
 mod game_wiki;
 pub mod html_projection;
 mod hybrid_port;
@@ -1018,8 +1019,10 @@ pub async fn ask_context(
         return ask_build_context(pool, query, &plan, opts).await;
     }
     let entity_match = resolve_ask_entity_match(pool, query, &plan).await?;
-    let out_of_domain =
-        !entity_match.matched && !query_has_deadlock_vocabulary(pool, query).await?;
+    let forum_knowledge = forum::search_forum(pool, query).await?;
+    let out_of_domain = !entity_match.matched
+        && !query_has_deadlock_vocabulary(pool, query).await?
+        && forum_knowledge["available"] != true;
     let intent = if out_of_domain {
         "out_of_domain".to_string()
     } else {
@@ -1132,6 +1135,7 @@ pub async fn ask_context(
     result.insert("intent".to_string(), json!(intent.clone()));
     result.insert("entity".to_string(), entity);
     result.insert("ground_truth".to_string(), ground_truth);
+    result.insert("forum_knowledge".to_string(), forum_knowledge);
     result.insert(
         "creator_knowledge".to_string(),
         JsonValue::Object(creator_knowledge),
@@ -5309,6 +5313,9 @@ fn ordered_ask_context_for_prompt(bundle: &JsonValue) -> JsonValue {
     }
     if let Some(creator_knowledge) = prompt_creator_knowledge(bundle) {
         ordered_context.insert("creator_knowledge".to_string(), creator_knowledge);
+    }
+    if let Some(forum) = bundle.get("forum_knowledge") {
+        ordered_context.insert("forum_knowledge".to_string(), forum.clone());
     }
     ordered_context.insert(
         "query".to_string(),
