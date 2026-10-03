@@ -103,7 +103,7 @@ impl GuideRuntime {
                     .map_err(|_| PortError::Unavailable("Freundescode konnte nicht geprüft werden".into()))
                     .and_then(bounded_response)?;
                 let target=normalized.steam_id64.parse::<i64>().map_err(|_| PortError::InvalidResponse("Ungültiges Steamziel".into()))?;
-                if target != 76561197960265728_i64+i64::from(normalized.account_id) {
+                if normalized.account_id == 0 || target != 76561197960265728_i64+i64::from(normalized.account_id) {
                     return Err(PortError::InvalidResponse("Widersprüchliches Steamziel".into()));
                 }
                 deadline.check()?;
@@ -113,14 +113,14 @@ impl GuideRuntime {
                     return Ok(GuideResult::silent(&turn.request_id));
                 };
                 // Kein Mitgliedslock liegt während dieses HTTP-Aufrufs auf dem Brain-Pfad.
-                let sent=http.post(format!("{}/internal/guide/access-invite",base.trim_end_matches('/')))
-                    .timeout(deadline.remaining()?).bearer_auth(token)
+                let sent=match deadline.remaining() {Ok(remaining)=>http.post(format!("{}/internal/guide/access-invite",base.trim_end_matches('/')))
+                    .timeout(remaining).bearer_auth(token)
                     .json(&json!({"correlation":correlation,"friend_code":friend_code})).send()
                     .map_err(|_| PortError::Unavailable("Einladungsübergabe ist nicht bestätigt".into()))
-                    .and_then(bounded_response::<DispatchResult>);
+                    .and_then(bounded_response::<DispatchResult>),Err(error)=>Err(error)};
                 let confirmed=sent.is_ok_and(|response|response.action_id==action && response.turn_id==turn.request_id && matches!(response.status,InviteStatus::Queued|InviteStatus::FriendRequestSent|InviteStatus::WaitingForAcceptance|InviteStatus::InviteSent|InviteStatus::AlreadyHasAccess));
-                let status=self.reader.guide_invite_state(turn,epoch,&action,false,deadline)?;
-                let text=if confirmed {status.map(status_text).unwrap_or("Der Auftrag ist nicht mehr freigegeben.")}else{"Die Übergabe ist nicht bestätigt. Ich starte keinen zweiten Versand. Du kannst den Auftragsstatus prüfen."};
+                let unconfirmed="Die Übergabe ist nicht bestätigt. Ich starte keinen zweiten Versand. Du kannst den Auftragsstatus prüfen.";
+                let text=if confirmed {match self.reader.guide_invite_state(turn,epoch,&action,false,deadline) {Ok(Some(status))=>status_text(status),Ok(None)=>"Der Auftrag ist nicht mehr freigegeben.",Err(_)=>unconfirmed}}else{unconfirmed};
                 let mut result=GuideResult::reply(&turn.request_id,format!("{text}\nAuftrag: `{action}`"));
                 result.conversation_id=Some(conversation.id);
                 Ok(result)
