@@ -393,8 +393,8 @@ mod tests {
                     .map(|(token, actor, channel, scope)| {
                         AuthGrant::from_secret(
                             token,
-                            actor,
-                            channel,
+                            *actor,
+                            *channel,
                             scopes(&[scope]),
                             scopes(&["public"]),
                         )

@@ -254,7 +254,9 @@ fn respond(response: ApiResponse) -> axum::response::Response {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use brain_contracts::{AuthorizedContext, Evidence, EvidenceKind, PortError, StoreResult};
+    use brain_contracts::{
+        store::StoreResult, AuthorizedContext, Evidence, EvidenceKind, PortError,
+    };
     use brain_policy::{AuthGrant, CredentialRegistry};
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
