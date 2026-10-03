@@ -375,7 +375,14 @@ impl ChunkIndex {
             .filter(|(key, _)| {
                 matches!(
                     key.as_str(),
-                    "content_format" | "language" | "kind" | "patch" | "mode"
+                    "content_format"
+                        | "language"
+                        | "kind"
+                        | "patch"
+                        | "mode"
+                        | "evidence_status"
+                        | "currentness"
+                        | "source_date"
                 )
             })
             .map(|(key, value)| (key.clone(), value.clone()))
@@ -393,7 +400,11 @@ impl ChunkIndex {
                 Some("replay") => EvidenceKind::Replay,
                 _ => EvidenceKind::Prose,
             },
-            content: self.texts[entry.document][entry.start..entry.end].into(),
+            content: if original.source_id == "playdeadlock_forum" {
+                format!("Forumbericht, unbestätigt. Aktuelle Gültigkeit und Behebung unbekannt. Beitragsdatum: {}. Quelle: {}.\n\n{}", original.metadata.get("source_date").map(String::as_str).unwrap_or("unknown"), locator, &self.texts[entry.document][entry.start..entry.end])
+            } else {
+                self.texts[entry.document][entry.start..entry.end].into()
+            },
             citation: format!(
                 "brain:{}@{}#bytes={}-{}",
                 entry.id, original.revision, entry.start, entry.end
