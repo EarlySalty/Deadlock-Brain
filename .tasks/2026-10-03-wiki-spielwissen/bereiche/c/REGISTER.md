@@ -1,7 +1,25 @@
-status: uebergeben
+status: aktiv
 Datum: 2026-10-03
 
 # Bereich C
+
+## Aktuell: C3, Versuch 3
+
+Session f83cb4c1-e8c2-4f44-8e83-ada61c2b246a, Elternprozess313730, nativer Vordergrund. Tatsächliche ausgewählte Startparameter um10:01:27UTC nachgemessen: gpt-6.1-sol[1m], high, startweg/claude-sol.json. coder.md ohne Modell-/Effortoverride, beide eigenen nativen Kinder erben Sol high. C2 und C1 bleiben beendet, keine alte Kindwiederaufnahme.
+
+Produktiver Worktree und Branch unverändert, übernommener HEAD08a6dd78471cd6e7c43073e1c29dd0f31abb61c5. Frisch geprüft: genau die acht im HANDOFF-READY.md genannten Formatdateien uncommittiert erhalten. Koordinationsworktree unverändert. Statusproduzent teil-c für Paket c/Versuch3, neue Sequenz ab1. TODO.md und zentrales REGISTER.md nur Root/S2. Einziger Integrator/Deployer C3.
+
+| Nativer Worker | Startnachweis | Modell und Effort | Eigentum | Stand |
+| --- | --- | --- | --- | --- |
+| a0069f64404736d17 | Agent-Aufruf C3, coder ohne Override, BRIEFING-C3-FIX-2.md | geerbtes GPT 6.1 Sol high | sieben eng benannte Revisions-/Vertrags-/Projektionsdateien, eigene Tests, C3-FIX-2.md | aktiv; neue Fixrunde für bestätigten Gate-BLOCK7/07 und vorgelagerte Summengrenze; gemeinsame Prüffolge erst bei eingefrorenen Quellen |
+| a48b3e3dfac497915 | Agent-Aufruf C3, coder ohne Override, BRIEFING-C3-CLI.md | geerbtes GPT 6.1 Sol high | CLI/pg_release/knowledge_release; nach Fix2 exklusiv Validator/Tests, gemeinsame reine PG-Typen/Reexport und vorhandener ChunkIndex-Preflight mit genau benannten Cargo-/Registrierungspfaden | Quellen eingefroren; nur pg_release.rs semantisch geändert, Runtime-/B-Rohbytebefunde abgeschlossen, kein Cargo/Git/Produktivlauf; ruht ohne eigenen Wartetask bis ausdrücklicher Folgefreigabe |
+| a813e5d645f3f8e09 | Agent-Aufruf C3, coder ohne Override, BRIEFING-C3-LESER.md | geerbtes GPT 6.1 Sol high | zunächst ausschließlich lesende bestehende local-operator/canonicalRetriever-Anbindungsplanung gemäß Punkt42 | aktiv, keine Quell-/Configwrites oder Compiler, keine unabhängige Reviewrunde |
+
+Fix2-Prüffolge b6t387jfp/PID400201 stabil blockierend auf beiden Hostlocks, Logroot /tmp/brain-c3-fix2-check.Y1h2RN. Gemeinsamer Quellfreeze bestätigt, kein Compilerbeweis allein aus Start/Wartezeit. Pg_release-Zwischenstand transparent im Prüflauf, Fixer committiert ihn nicht. CLI-Writer erhält Validator- und chunk_index-Eigentum erst nach tatsächlichem Fix2-Abschluss. A/B/D-Arbeit unverändert.
+
+Root-Punkt41 und Nachricht zur A-Abdeckung gelesen: zwölf Captures tatsächlich02.05.2026, RevisionenApril/Mai2026, keine heutigen Artikeldaten. A-Datenwrapper seit09:46:17 unter beiden Locks, Endzahlen fehlen. D-Endprüfer wartet stabil. Keine eigene Wiederholung dieser Daten-/Sperrprüfungen, keine Vollabdeckungsbehauptung.
+
+Die folgenden C1/C2-Abschnitte sind historisch. Ihr früherer Status ersetzt nicht den aktuellen C3-Stand.
 
 Ziel: Vertrag für Wiki und Spieldateien, vorhandene Postgres-Wissenshaltung erweitern, echte Importläufe und Brain-Zugriff prüfen, gemeinsame Integration bis zum geprüften Abschluss.
 
