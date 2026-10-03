@@ -1,0 +1,28 @@
+{
+  "auftrag": "2026-10-03-wiki-spielwissen",
+  "paket": "c",
+  "versuch": 3,
+  "sequenz": 5,
+  "zeit": "2026-10-03T11:42:30Z",
+  "produzent": "teil-c",
+  "phase": "aktiv",
+  "gebaut": "nein",
+  "reviewt": "nein",
+  "gemergt": "nein",
+  "live": "nein",
+  "sha": "7168574626cd1eeb960de750470d2d593722295b",
+  "nachweise": [
+    "Fix2-Prüftask b6t387jfp tatsächlich Exit0; Parent übernahm 267 passed/0 failed/22 initial ignored, 21 unausgeführt, echte isolierte PostgreSQL-Prüfungen und 374 unveränderte Dateien.",
+    "Scratchserver/Wrapper400201/400204 und beide Locks regulär beendet; keine neue Prüfung wegen PIDmeldung.",
+    "Eigener Fixcommit ad3eaca761fd9e74cc86a61307a5820a7fa860f3, regulärer Sol-high-Selbstgate b4ncfyccu tatsächlicher Exit0/ALLOW; SHA-Modellbeleg e4f59a5de5fb07e5.json, Start high, konkrete Kind-PID nicht separat gesichert.",
+    "B-Eigencommit48b6ce1 allein als7168574 integriert, sieben Parserdateien, keine historische Branchbasis.",
+    "Dieselben eigenen CLI-/Readerworker in disjunkten benannten Quellpfaden wiederaufgenommen; keine Compiler-/Commit-/Produktivfreigabe vor gemeinsamem Schreibabschluss.",
+    "Punkte42 bis45 regulär gelesen; interne Verarbeitung autorisiert, alte A-Fakten wegen282 numerischer Wertabweichungen nicht importfreigegeben."
+  ],
+  "blocker": [
+    "Gemeinsamer Endstand und produktive Import-/Wiederholungs-/Reader-/Deploy-/Live-Beweise fehlen.",
+    "Bestätigte B-Dateiobjekt-API und zusätzlicher abgenommener Eigencommit über Root ausstehend.",
+    "A-Fix6 und konkrete produktive serde_json-Featurekonfiguration samt neuer unabhängiger Zahlenabnahme über Root ausstehend."
+  ],
+  "naechster_schritt": "Laufende disjunkte CLI-/Readerquellen bis Schreibabschluss führen, bestätigte A-Feature-/B-API-Antworten integrieren und danach den tatsächlichen gemeinsamen Prüfstand einfrieren."
+}

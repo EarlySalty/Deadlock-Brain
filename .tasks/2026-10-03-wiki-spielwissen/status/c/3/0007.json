@@ -1,0 +1,28 @@
+{
+  "auftrag": "2026-10-03-wiki-spielwissen",
+  "paket": "c",
+  "versuch": 3,
+  "sequenz": 7,
+  "zeit": "2026-10-03T15:39:31Z",
+  "produzent": "teil-c",
+  "phase": "aktiv",
+  "gebaut": "nein",
+  "reviewt": "nein",
+  "gemergt": "nein",
+  "live": "nein",
+  "sha": "f7a03f9aa4c62f0a05814de487cd8ec92b0cb6ea",
+  "nachweise": [
+    "Gemeinsamer biuhayf7n regulär Exit 101: Reader-Typfehler runner.rs:352, doppelte Zeroizing-Hülle. Beide Locks geschlossen, eigene Prüfergruppe leer, keine PG-Logs.",
+    "14 Formatierungen und 14 Formatchecks Exit 0. Check-PID 1614713, 39,828 Sekunden. Clippy, Tests, PG und Echtdaten nicht gestartet.",
+    "Parent bestätigt aktuell alle 389 Dateihashes unverändert seit formatiertem Freeze a762c2cc0096c1184190d532b75497609f2d327873666982535a868d218419f5.",
+    "Nach Modellzugangs- und Werkzeugfehlern dieselbe Sitzung ohne Fork erneut geöffnet. Read und Bash funktionieren tatsächlich; vorhandener Reader-Owner a813e5d645f3f8e09 eng fortgesetzt.",
+    "Runtimegraph serde_json 1.0.150 mit arbitrary_precision/default/raw_value/std bestätigt. Bestehende B-Zahlenstring-/i64-Typen bleiben nach Punkt 52 erhalten.",
+    "Punkt 53 und korrigierter A-Vollharness übernommen; unabhängige A-/D-Abnahmen und Eigencommits noch offen. Steam-Deploy bleibt vor Wiki-Volllauf priorisiert."
+  ],
+  "blocker": [
+    "Enger Reader-Compiler-/Fixturefix und tatsächlicher gemeinsamer Folgelauf noch offen.",
+    "Binder-rustfmt ohne Hostlocks bleibt dokumentierte Verfahrensabweichung, kein gültiger Prüfnachweis.",
+    "Endgültiger D-Stand, gemeinsame D/B/C-Abnahme und Gate, Steam-Deploy/Download/Depotextraktion sowie Brain-Gesamtimporte und Live fehlen."
+  ],
+  "naechster_schritt": "Quellenende desselben Reader-Owners übernehmen, anschließend denselben CLI-Owner für die gemeinsame Prüffolge einschließlich beider echter Reader-PG-Tests fortsetzen."
+}

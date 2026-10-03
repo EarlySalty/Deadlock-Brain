@@ -23,6 +23,18 @@ Knappes belastbares Anbindungsergebnis mit bestehenden konkreten Funktionen/Type
 
 Zusätzlich zeigen, wo echte vollständige Releasegrenzen10000Dokumente/256MiBProjektion/500000Chunks im bereits vorhandenen ChunkIndex geprüft werden und welcher vorhandene Rust-CLI-/Testpfad sie am echten gesamten Snapshot ausführen kann. Kein eigener Ersatz-Projektionsparser; keine Cargo-Abhängigkeit oder Featurewahl erfinden. Nur vorhandene API/Dependencygraph prüfen. Dies ist noch kein Budget-/Livenachweis.
 
+## Baufolgefreigabe 2026-10-03T11:36:43Z
+
+Fix2-Prüfung und regulärer Sol-high-Selbstgate sind tatsächlich beendet. Parent übernahm sämtliche Exits, 267 passed/0 failed, echte PG-Prüfungen, 374 unveränderte Dateien und ALLOW auf ad3eaca761fd9e74cc86a61307a5820a7fa860f3. B-Eigencommit ist allein als7168574 integriert. Keine eigenen lebenden Prüfer/Gates. Quellenarbeit ist jetzt in disjunkten Pfaden freigegeben.
+
+Setze deinen vorhandenen Anbindungsplan C3-LESER-ANBINDUNG.md um. Exklusives Quell-/Test-Eigentum: rust/crates/brain-maintenance/src/integration/runner.rs und runner_tests.rs. Verwende tatsächlich bestehenden LocalPgReader, ReleaseRetriever::retrieve und validate_evidence(..., false), mit spawn_blocking für blockierenden Reader sowie bestehendem konfiguriertem Releasepin/Budget/Frist. Maintenance-Dokumentabfragen und ihr Ergebnisumschlag bleiben kompatibel, kanonische Evidence mit Originalherkunft/Revision/Hash/Chunk/Fakten ergänzen. Aktuelle Registrierungs-/Widerrufs-/Rechteprüfung auch nach Retrieve erhalten, kein SQL-Ersatzreader oder externer Provideraufruf. Lokale Betreiberidentität und frisch gelesene interne Scopes erhalten.
+
+Normale Betreiber-/Serve-/Runtimekonfiguration, Importrechte und produktive DB sind weiterhin nicht dein Schreibbereich; C3 ergänzt reale source.review-Scopes im autorisierten späteren Lauf. Kein bot.public-Umbau oder neue Authplattform. CLI-Worker schreibt separat Validator/Importer/PG-Retry/reine PG-Konfigurationstypen/ChunkIndex/Cargo, diese Pfade nicht anfassen. Der kompatible Postgres-Reexport erhält deine existing API. B besitzt sämtliche eigenen Parserpfade, A seine Module.
+
+Punkt45: A-Abnahme fand282 numerische Faktenabweichungen, Originaltexte/Hashes korrekt. Alte A-Fakten NICHT importfrei. A baut getrennten Fix6 und meldet konkrete serde_json-Features über Root an C3. Keine Rundung/Epsilon oder Faktenwertneuschöpfung im Leser; Originalwerte/-lexeme durch vorhandene Evidence-Metadaten erhalten. Passende vorbereitete Regression an realen Zahlen20.000010800000002 und55.555555555555564, spätere echte Import/PG/Leserprüfung gemeinsam.
+
+Jetzt bis Quellabschluss bauen und C3 melden. KEIN Compiler/Cargo/Rustharness, Gitcommit/Push/Deploy oder produktiver DB-Lauf vor ausdrücklicher gemeinsamer Prüffreigabe. Quellen außerhalb Eigentum nicht ändern, keinen Prüfer duplizieren. APIbedarf konkret melden statt neuen Lesepfad zu bauen. Du bist weiterhin gewöhnlicher nativer Sol-high-Worker ohne Weiterdelegation, kein Reviewer.
+
 ## Routing
 
 Ausschließlich kurze Fachmeldung an C3 mit Dateieigentumsvorschlag, Aufrufvertrag und begründeten Stopbedingungen. Keine weiteren Sessions/Threads, kein ListAgents, keine Status-/TODO-/REGISTER-Datei. Paket cVersuch3, Produzent teil-c ausschließlich C3. Natürliches Deutsch, echte Umlaute, keine Gedankenstriche. Du darfst nach Bestandsmeldung enden; späterer eng zugewiesener Bauauftrag kann denselben nativen Worker fortsetzen.

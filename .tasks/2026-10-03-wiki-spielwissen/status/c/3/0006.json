@@ -1,0 +1,29 @@
+{
+  "auftrag": "2026-10-03-wiki-spielwissen",
+  "paket": "c",
+  "versuch": 3,
+  "sequenz": 6,
+  "zeit": "2026-10-03T13:45:22Z",
+  "produzent": "teil-c",
+  "phase": "wartet",
+  "gebaut": "nein",
+  "reviewt": "nein",
+  "gemergt": "nein",
+  "live": "nein",
+  "sha": "f7a03f9aa4c62f0a05814de487cd8ec92b0cb6ea",
+  "nachweise": [
+    "Eigene Quellenphase abgeschlossen: CLI 17 Dateien, Binder 5 neue Dateien, Reader 2 Dateien. Keine lebenden eigenen Sourcewriter.",
+    "Akzeptierter B-Zusatz 0aa0d9ee nur mit game_files.rs/vpk.rs als f7a03f9 übernommen, C-Änderungen erhalten, keine historische Basis.",
+    "Einziger gemeinsamer Prüfer biuhayf7n, PID 1401330, /tmp/brain-c3-cli-check.uTDcnJ. Parent übernahm tatsächlichen WAITING_HOST_LOCK-Marker, noch leere Logs, kein Prüfresultat.",
+    "Punkt 51 bestätigt unveränderten Produktivpin serde_json 1.0.150 plus arbitrary_precision und bisherige Features. Kein Upgrade zur A-Harnessversion.",
+    "Messwerkzeuge read-only geprüft: /usr/bin/time fehlt; bestehender Wrapper vor betreffenden Aufrufen auf Node-Zeit-/beobachtete VmHWM-Messung korrigiert, keine neue Task oder Paketinstallation.",
+    "D-Punkte 48/49 und Priorität Steam-Deploy vor A-Vollbestand/Brain-Endrelease übernommen; kein C-Produktiveingriff."
+  ],
+  "blocker": [
+    "Gemeinsamer Prüfer wartet auf erste Hostsperre; Format/Compiler/Clippy/Tests/PG/Partitionen/Index noch ohne tatsächliche Ergebnisse.",
+    "Zwei Reader-PG-Tests referenzieren fremde feste Fixture. Quelle während aktiver Prüfung eingefroren, enge Korrektur und echter Nachlauf anschließend offen.",
+    "Direkter Binder-rustfmt ohne Hostlocks bleibt Verfahrensabweichung, kein gültiger Prüfnachweis.",
+    "Endgültiger geprüfter D-Stand, gemeinsame D/B/C-Abnahme/Gate und erster regulärer Steam-Deploy/Download/Depotextraktion fehlen."
+  ],
+  "naechster_schritt": "Bestehenden Prüfer erhalten und tatsächlichen Lockerwerb sowie erste Einzel-Exits übernehmen; danach notwendige D/B/C-Abnahme und ersten ausführbaren Steam-Fortschritt abschließen."
+}
