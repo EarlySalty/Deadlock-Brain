@@ -287,6 +287,7 @@ dependencies = [
  "brain-storage",
  "dbrain-reasoner",
  "dbrain-retrieval",
+ "reqwest",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -304,6 +305,7 @@ dependencies = [
  "serde_json",
  "thiserror 1.0.69",
  "tokio",
+ "uplink-infisical-transport 0.1.1",
 ]
 
 [[package]]
@@ -475,6 +477,7 @@ dependencies = [
  "sqlx",
  "tempfile",
  "tokio",
+ "uplink-infisical-transport 0.1.1",
  "wait-timeout",
 ]
 
@@ -1010,7 +1013,7 @@ dependencies = [
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
- "uplink-infisical-transport",
+ "uplink-infisical-transport 0.1.0",
  "zeroize",
 ]
 
@@ -1107,7 +1110,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "uplink-infisical-transport",
+ "uplink-infisical-transport 0.1.0",
  "zeroize",
 ]
 
@@ -3586,6 +3589,14 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 name = "uplink-infisical-transport"
 version = "0.1.0"
 dependencies = [
+ "reqwest",
+]
+
+[[package]]
+name = "uplink-infisical-transport"
+version = "0.1.1"
+dependencies = [
+ "nix",
  "reqwest",
 ]
 
