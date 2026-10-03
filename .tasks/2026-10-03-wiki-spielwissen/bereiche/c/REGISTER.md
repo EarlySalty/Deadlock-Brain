@@ -7,7 +7,7 @@ Ziel: Vertrag für Wiki und Spieldateien, vorhandene Postgres-Wissenshaltung erw
 
 Aktive Session C2: `a17ac7e9-7f41-44b0-a6e4-901bfafe544f`, Start im nativen Vordergrund am 2026-10-03. Vorgänger `381c7a80-4018-446f-9083-72c046d9b118` ausdrücklich beendet, nicht wieder aufnehmen.
 Koordinationsworktree: `/home/nathanael/.worktrees/brain-wiki-spielwissen-c`, Branch `feat/brain-wiki-spielwissen-c`, Ausgangs-HEAD `2734c2da4e814ff79953e8e825275b0216a6af16`.
-Produktiver Integrationsworktree: `/home/nathanael/.worktrees/brain-wiki-spielwissen-c-integration`, Branch `feat/brain-wiki-spielwissen-c-integration`, Basis `511a347b653beba13c2bf130f4bead7a7196cc2a`. Eigener WIP-Commit `b1b9241805f470427570566faca37fc340d1c04c` ist gepusht, Worktree sauber. Die Commitmenge seit dieser Basis enthält genau diesen eigenen Commit; die 21 fremden historischen Ausgangsbranch-Commits bleiben außerhalb. Kein Compiler-, Import- oder Fertigbeweis durch den Commit.
+Produktiver Integrationsworktree: `/home/nathanael/.worktrees/brain-wiki-spielwissen-c-integration`, Branch `feat/brain-wiki-spielwissen-c-integration`, Basis `511a347b653beba13c2bf130f4bead7a7196cc2a`. Eigener WIP-Commit `b1b9241805f470427570566faca37fc340d1c04c` ist gepusht; Arbeitsbaum bei C2-Fixübergabe sauber, inzwischen Änderungen des gestarteten eigenen Fixers sichtbar. HEAD zuletzt am 03.10.2026 weiterhin b1b9241 gemessen. Die Commitmenge seit dieser Basis enthält genau diesen eigenen Commit; die 21 fremden historischen Ausgangsbranch-Commits bleiben außerhalb. Kein Compiler-, Import- oder Fertigbeweis durch den Commit.
 
 Koordinationsbasiscommit `7a3ebd3f2dff1925893e52ae3fe340be4bea2a54` ist auf `origin/feat/brain-wiki-spielwissen-c` gepusht. Neue Handoff-Dokumentation wird auf demselben eigenen Branch gesichert, ohne main-Merge.
 
@@ -33,9 +33,18 @@ Eigene Checks bmo6cu39b und b6eft4jvk wurden nach neuen Befunden noch vor Compil
 
 | Nativer Worker | Startnachweis | Modell und Effort | Eigentum | Stand |
 | --- | --- | --- | --- | --- |
-| aff658e9fd78b1b20 | Agent-Aufruf C2 am 2026-10-03, coder ohne Overrides; BRIEFING-C2-CHECK.md | geerbtes GPT 6.1 Sol high | reiner Compiler-/Format-/Clippy-/Testnachweis des unveränderten C-WIP, Cargo-Auflösung und eigener C2-CHECK.md-Bericht | läuft; keine Quellcodeänderung und keine weiteren Kinder erlaubt |
+| aff658e9fd78b1b20 | Agent-Aufruf C2 am 2026-10-03, coder ohne Overrides; BRIEFING-C2-CHECK.md | geerbtes GPT 6.1 Sol high | reiner Compiler-/Format-/Clippy-/Testnachweis des unveränderten C-WIP | beendet; Task bmiymqly5 wartete 20 Minuten ohne erste Hostsperre, eigener Wrapper beendet, keine Compiler-/Testausführung; Bericht durch C2 gesichert |
 
-| a97e867cd5ffb6a06 | Agent-Aufruf C2 am 2026-10-03, coder ohne Overrides; BRIEFING-C2-BETRIEB.md | geerbtes GPT 6.1 Sol high | reiner lesender Betriebs-Vorcheck, nur C2-BETRIEB.md | läuft; kein Review, Cargo oder produktiver Schreibzugriff |
+| a97e867cd5ffb6a06 | Agent-Aufruf C2 am 2026-10-03, coder ohne Overrides; BRIEFING-C2-BETRIEB.md | geerbtes GPT 6.1 Sol high | reiner lesender Betriebs-Vorcheck | beendet; Baseline/Health und bestehende Wege bestätigt, C2-BETRIEB.md durch C2 aus Abschlussantwort gesichert; Import-Zielbindung und Releaseinstaller offen |
+| a511052b9b6fd4278 | nativer Agent-Aufruf C2 am 2026-10-03, frischer coder ohne Overrides; BRIEFING-C2-FIX-1.md und enge Lock-/Sha2-Freigaben | geerbtes GPT 6.1 Sol high, unveränderter nachgewiesener Startweg | gezielter C-Revisionsfix für zwei bestätigte Gate-BLOCKs, notwendige Altbestandsbehandlung, sichere Eigenprüfungen und Einzelmodell-Gate; keine CLI-/A/B/D-Arbeit | aktiv erhalten; b1d9vt707 echte Locks/Format0/Check101 sha2, regulär beendet; Manifestverschiebung erlaubt/umgesetzt; bpbj7yxem nur für nötigen Quellenfix beendet, PID fehlt; aktueller bwy8n5mpt/PID3780201 um08:00 nur WAITING_HOST_LOCK, keine zweite Prüfung, kein Commit/Gate |
+
+## C2 eigene Prüftasks
+
+Task b41kfyaib wartete regulär blockierend auf die erste Hostsperre. Nach Sol-high-Gate BLOCK und Codebestätigung zweier notwendiger Revisionsfixes durch C2 mit TaskStop beendet, nicht wegen des Wachtimers. Letzter Marker ausschließlich C2_CHECK_2_WAITING_FOR_HOST_LOCKS, kein Lockerwerb, Compilerstart oder Prüf-Exit. Eigene Wrapper-PIDs 3048665 und 2916328 um 2026-10-03T06:19:32Z nicht mehr vorhanden. Keine fremden Prozesse verändert und kein paralleler C-Prüftask. Ausgabe unter /tmp/claude-1000/-home-nathanael--worktrees-brain-wiki-spielwissen-c-integration/a17ac7e9-7f41-44b0-a6e4-901bfafe544f/tasks/b41kfyaib.output.
+
+Regulärer Gate bo4nomffl beendet mit Exit 1 und BLOCK am unveränderten b1b9241. Eigener isolierter Codex-Kindprozess auf gpt-6.1-sol high bestätigt, keine Modellkette. Zwei blockierende Revisionsfunde am Code verifiziert, REVIEW-C2-1.md lokal gesichert. Kein Gesamt-ALLOW. Neues Statusereignis c/2/0004 und Kurzübergeben um 06:19 UTC veröffentlicht.
+
+Punkt 29 aus der Hauptnachricht übernommen: B2 ist alleiniger Eigentümer der ausstehenden B-Prüfung und Extraktion. C2 startet dafür keinen konkurrierenden Prüfer/Writer und keinen neuen Parser. Gesamtintegration bleibt bei C2.
 
 ## Koordinationsweg
 

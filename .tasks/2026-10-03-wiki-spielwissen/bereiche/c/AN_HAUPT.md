@@ -1,11 +1,11 @@
 status: aktiv
 Datum: 2026-10-03
-Stand: 2026-10-03T05:16:37Z
+Stand: 2026-10-03T08:00:45Z
 
-# C2 gestartet
+# C2 an Haupt
 
-Paket c, Versuch 2, Produzent teil-c. Native Sitzung a17ac7e9-7f41-44b0-a6e4-901bfafe544f hat den unveränderten Stand übernommen: /home/nathanael/.worktrees/brain-wiki-spielwissen-c-integration, Branch feat/brain-wiki-spielwissen-c-integration, HEAD b1b9241805f470427570566faca37fc340d1c04c. Arbeitsbaum sauber, eigener Branch gepusht. Koordination bleibt im bisherigen C-Koordinationsworktree; keine neue Akte und keine neuen T3-Sitzungen.
+Einziger aktueller Prüftask bwy8n5mpt/PID3780201 eigenständig nachgemessen: nur WAITING_HOST_LOCK, kein Lock-/Compilerstart. Erhalten, kein paralleler Writer. Erster echter Check zuvor Format0/Check101 sha2; enge bestehende Manifestkorrektur umgesetzt. Rein wartenden Vorgänger bpbj7yxem ausschließlich für nötigen Altbestandsfix beendet, kein Wachtimer-Abbruch, PID-Ende bestätigt. Noch kein grüner Compiler-/Test-/DB-/Commit-/Gatebeweis.
 
-Modell laut Harness GPT 6.1 Sol, Modellumgebung gpt-6.1-sol[1m], alle nativen Modellzuordnungen ebenfalls Sol; lokaler Auftragproxy 127.0.0.1:18768. Nutzerwahl high bleibt verbindlich, kein ultracode/xhigh/max. Native Write/Read/Skill/Bash und context-mode ctx_execute/ctx_batch_execute haben tatsächlich funktioniert. Keine Secrets gelesen.
+INSTALLATIONSPLAN-C2.md enthält die konkrete enge Entscheidung: bestehende SHA-Layouts, exakt betroffene Dateien/Units, blockierende Stack-spezifische Installationssperren, atomarer Current-Wechsel, bestehende Rechte und aktuelle Rückrollziele. Keine dauerhafte Plattform oder Binaryüberschreibung. Nur lesende Betriebsaufnahme, keine Installation.
 
-Gebaut: nein. Reviewt: nein. Gemergt: nein. Live: nein. Der WIP-Commit ersetzt keine Prüfung. A/B/D bleiben unberührt. Zuerst bestätigten Quellstand unter beiden Hostsperren mit höchstens zwei Cargo-Jobs prüfen. Danach nur geprüfte eigene Bereichscommits integrieren, Schreib-/Lesepfade gemeinsam abnehmen, Sol-only-Gate, Merge und notwendige Deploys mit Live-Beweis. Offene Voraussetzungen bleiben A/B-Übergaben und D-Depotdownload.
+Kontextwache übernommen: kurze HANDOFF-READY.md nach sicherem Ende des aktuellen Writers und seiner bestehenden Prüfstrecke, jetzt noch nicht bereit. Kein Ersatzorchestrator gestartet. Folgeaufträge DB-Ziel, echte B-Großzeile/Ressourcen und Installation erhalten; B2/D nicht dupliziert, unmittelbare D-Inventarbindung bleibt Pflicht. Rohberichte lokal.
