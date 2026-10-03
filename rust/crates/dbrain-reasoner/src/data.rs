@@ -1214,6 +1214,24 @@ pub async fn load_patch_events(ctx: &ReasonerCtx, hero_id: i64) -> Result<Vec<Va
     load_patch_events_for_snapshots(ctx, hero_id, &[]).await
 }
 
+pub(crate) async fn load_family_policy(ctx: &ReasonerCtx) -> Result<crate::families::FamilyPolicy> {
+    let rows = sqlx::query_scalar::<_, String>(
+        "SELECT jsonb_build_object('patch_external_id', to_jsonb(pe)->>'patch_external_id', 'patch_url', to_jsonb(pe)->>'patch_url', 'posted_at_epoch', extract(epoch FROM pe.posted_at))::text FROM brain.patch_events pe WHERE to_jsonb(pe)->>'patch_external_id'=$1 OR to_jsonb(pe)->>'patch_url'=$1",
+    )
+    .bind(&ctx.config.patch_tag)
+    .fetch_all(&ctx.pool)
+    .await
+    .map_err(ReasonerError::Db)?;
+    let provenance = rows
+        .into_iter()
+        .map(|row| parse_json(row, "Patch-Provenienz"))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(crate::families::FamilyPolicy::for_patch(
+        &provenance,
+        &ctx.config,
+    ))
+}
+
 pub async fn load_patch_events_for_snapshots(
     ctx: &ReasonerCtx,
     hero_id: i64,
@@ -2318,6 +2336,58 @@ mod tests {
             .collect();
         assert_eq!(ids, BTreeSet::from([1, 2, 3, 4, 7]));
         assert_eq!(events.len(), ids.len());
+        ctx.pool.close().await;
+    }
+
+    #[tokio::test]
+    #[ignore = "benötigt isolierten Postgres über REASONER_SCRATCH_DSN"]
+    async fn global_patch_provenance_survives_entity_filter_without_mechanic_reclassification() {
+        let (_guard, mut ctx) = scratch_context().await;
+        ctx.config.patch_tag = "patch-b".into();
+        sqlx::raw_sql("CREATE TABLE brain.patch_events (id bigint, entity_name text, patch_external_id text, patch_url text, posted_at timestamptz);
+            CREATE TABLE brain.patch_event_enrichments (patch_event_id bigint, secondary_entity_name text);
+            INSERT INTO brain.patch_events VALUES
+            (1, 'Warden', 'patch-a', NULL, to_timestamp(1000)),
+            (2, 'general', 'patch-b', NULL, to_timestamp(2000)),
+            (3, 'general', 'patch-b', NULL, to_timestamp(2001)),
+            (4, 'general', 'patch-c', NULL, to_timestamp(3000)),
+            (5, 'general', 'patch-b', NULL, NULL);")
+            .execute(&ctx.pool).await.unwrap();
+        let events = load_patch_events(&ctx, 25).await.unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["id"], 1);
+        assert_eq!(
+            crate::families::FamilyPolicy::for_patch(&events, &ctx.config).patch_started_at,
+            None
+        );
+        assert_eq!(
+            load_family_policy(&ctx).await.unwrap(),
+            crate::families::FamilyPolicy {
+                patch_started_at: Some(2000),
+                ..Default::default()
+            }
+        );
+        sqlx::query("DELETE FROM brain.patch_events WHERE patch_external_id='patch-b'")
+            .execute(&ctx.pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            load_family_policy(&ctx).await.unwrap().patch_started_at,
+            None
+        );
+        sqlx::raw_sql(
+            "INSERT INTO brain.patch_events VALUES
+            (6, 'general', NULL, 'patch-b', to_timestamp(2500)),
+            (7, 'general', 'patch-b', NULL, to_timestamp(-1));",
+        )
+        .execute(&ctx.pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            load_family_policy(&ctx).await.unwrap().patch_started_at,
+            Some(2500)
+        );
+        assert_eq!(load_patch_events(&ctx, 25).await.unwrap(), events);
         ctx.pool.close().await;
     }
 

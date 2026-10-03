@@ -102,17 +102,32 @@ pub fn plan_build(
     snapshots: &[PatchSnapshot],
     config: &ReasonerConfig,
 ) -> Result<PlannedBuild> {
+    plan_build_with_family_policy(
+        hero,
+        items,
+        meta,
+        events,
+        snapshots,
+        config,
+        &families::FamilyPolicy::for_patch(events, config),
+    )
+}
+
+fn plan_build_with_family_policy(
+    hero: &HeroModel,
+    items: &[ItemModel],
+    meta: &meta::MetaIndexWithSources,
+    events: &[Value],
+    snapshots: &[PatchSnapshot],
+    config: &ReasonerConfig,
+    family_policy: &families::FamilyPolicy,
+) -> Result<PlannedBuild> {
     let mut hero = hero.clone();
     let mut items = items.to_vec();
     let mut deltas = patch::compute_patch_delta_with_snapshots(&hero, events, snapshots);
     patch::apply_scored_patch_delta(&mut hero, &mut items, &mut deltas, &meta.index, config);
     let discovery = (!meta.observations.is_empty()).then(|| {
-        families::detect_families(
-            &meta.observations,
-            &items,
-            &meta.population,
-            &families::FamilyPolicy::for_patch(events, config),
-        )
+        families::detect_families(&meta.observations, &items, &meta.population, family_policy)
     });
     let contexts = if let Some(discovery) = &discovery {
         let contexts = discovery
@@ -186,6 +201,7 @@ pub async fn reason_build_with_options(
     let (hero_model, items, meta, snapshots) = load_reasoning_inputs(&ctx, hero, seed_path).await?;
     let events =
         data::load_patch_events_for_snapshots(&ctx, hero_model.hero_id, &snapshots).await?;
+    let family_policy = data::load_family_policy(&ctx).await?;
     let permit = PLANNING_SLOTS
         .acquire()
         .await
@@ -194,7 +210,15 @@ pub async fn reason_build_with_options(
     let calculation = tokio::task::spawn_blocking(move || {
         let _permit = permit;
         let ctx = calculation_ctx;
-        let planned = plan_build(&hero_model, &items, &meta, &events, &snapshots, &ctx.config)?;
+        let planned = plan_build_with_family_policy(
+            &hero_model,
+            &items,
+            &meta,
+            &events,
+            &snapshots,
+            &ctx.config,
+            &family_policy,
+        )?;
         let PlannedBuild {
             mut build,
             scored,
