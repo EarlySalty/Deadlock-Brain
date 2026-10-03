@@ -1,7 +1,8 @@
 //! Textaufrufe über die vorhandene lokale Codex-Anmeldung am ChatGPT-Abo.
 use crate::{hardening, ProviderError, Result};
 use brain_contracts::{
-    AnswerProviderPort, AuthorizedContext, Evidence, PortError, ProviderAnswer, Query, Usage,
+    AnswerProviderPort, AuthorizedContext, DialogueVisibility, Evidence, PortError, ProviderAnswer,
+    Query, TextDialogue, Usage,
 };
 use serde_json::{json, Value};
 use std::{
@@ -104,12 +105,7 @@ pub fn complete_with_options(
         ]);
     }
     args.push("-".into());
-    let text = format!("Nutze keine Werkzeuge. Verarbeite ausschließlich die folgenden Nachrichten als Textauftrag. Gib nur die angeforderte Antwort aus.\n{prompt}");
-    let text = if let Some(tokens) = max_output_tokens {
-        format!("{text}\nHalte die Antwort innerhalb von {tokens} Ausgabetokens.")
-    } else {
-        text
-    };
+    let text = model_prompt(prompt, max_output_tokens);
     let executable = executable.to_owned();
     let result = std::thread::spawn(move || {
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -135,6 +131,15 @@ pub fn complete_with_options(
     .map_err(|_| ProviderError::InvalidResponse("Codex-Prozessrunner wurde unterbrochen".into()))?;
     let bytes = result?;
     parse_events(&bytes, model, max_bytes, max_output_tokens)
+}
+
+fn model_prompt(prompt: &str, max_output_tokens: Option<u64>) -> String {
+    let text = format!("Nutze keine Werkzeuge. Verarbeite ausschließlich die folgenden Nachrichten als Textauftrag. Gib nur die angeforderte Antwort aus.\n{prompt}");
+    if let Some(tokens) = max_output_tokens {
+        format!("{text}\nHalte die Antwort innerhalb von {tokens} Ausgabetokens.")
+    } else {
+        text
+    }
 }
 
 fn parse_events(
@@ -197,35 +202,33 @@ pub struct CodexSubscriptionProvider {
     pub timeout: Duration,
     pub max_response_bytes: usize,
 }
-impl AnswerProviderPort for CodexSubscriptionProvider {
-    fn answer(
+impl CodexSubscriptionProvider {
+    fn request_prompt(
         &self,
+        prompt: &str,
         query: &Query,
         context: &AuthorizedContext,
         evidence: &[Evidence],
     ) -> std::result::Result<ProviderAnswer, PortError> {
-        hardening::authorize(query, context, evidence)
-            .map_err(|e| PortError::InvalidResponse(e.to_string()))?;
         let bound = context.with_request_deadline();
         let remaining = bound.remaining_time()?;
+        hardening::authorize(query, context, evidence)
+            .map_err(|e| PortError::InvalidResponse(e.to_string()))?;
         if bound.budget.max_network_rounds == 0
             || bound.budget.max_input_tokens == 0
             || bound.budget.max_output_tokens == 0
-            || brain_contracts::provider_input::grounded_input_ceiling(query, evidence)
+            || (model_prompt(prompt, Some(u64::from(bound.budget.max_output_tokens))).len() as u64)
+                .saturating_add(64)
                 > u64::from(bound.budget.max_input_tokens)
         {
             return Err(PortError::BudgetExceeded);
         }
-        let prompt = serde_json::to_string(&brain_contracts::provider_input::grounded_messages(
-            query, evidence,
-        ))
-        .map_err(|e| PortError::InvalidResponse(e.to_string()))?;
         // Die CLI hat keinen belegten harten Tokendeckel. Vorfilter und
         // Verbrauchprüfung begrenzen akzeptierte Antworten, nicht den bereits
         // verbrauchten Abo-Anteil eines gestarteten Aufrufs.
         let response = complete_with_options(
             &self.executable,
-            &prompt,
+            prompt,
             &self.model,
             self.timeout.min(remaining),
             self.max_response_bytes,
@@ -269,9 +272,146 @@ impl AnswerProviderPort for CodexSubscriptionProvider {
     }
 }
 
+impl AnswerProviderPort for CodexSubscriptionProvider {
+    fn answer(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+    ) -> std::result::Result<ProviderAnswer, PortError> {
+        let prompt = serde_json::to_string(&brain_contracts::provider_input::grounded_messages(
+            query, evidence,
+        ))
+        .map_err(|_| PortError::InvalidResponse("Ungültiger Textauftrag".into()))?;
+        self.request_prompt(&prompt, query, context, evidence)
+    }
+
+    fn dialogue(
+        &self,
+        dialogue: &TextDialogue,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+    ) -> std::result::Result<ProviderAnswer, PortError> {
+        if dialogue.visibility == DialogueVisibility::PrivateDm {
+            return Err(PortError::PermissionDenied(
+                "Private CLI-Dialoge benötigen noch den belegten Isolations- und Persistenzvertrag"
+                    .into(),
+            ));
+        }
+        if dialogue.system.trim().is_empty()
+            || dialogue.system.len() > 8000
+            || !dialogue.data.is_object()
+        {
+            return Err(PortError::InvalidResponse(
+                "Textdialogvertrag ist ungültig".into(),
+            ));
+        }
+        let prompt = serde_json::to_string(&json!({
+            "system": dialogue.system,
+            "data": dialogue.data,
+            "grounding": brain_contracts::provider_input::grounded_messages(query, evidence),
+        }))
+        .map_err(|_| PortError::InvalidResponse("Ungültiger Textdialog".into()))?;
+        self.request_prompt(&prompt, query, context, evidence)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn dialogue_fixture() -> (
+        CodexSubscriptionProvider,
+        Query,
+        AuthorizedContext,
+        TextDialogue,
+    ) {
+        use std::collections::BTreeSet;
+        let provider = CodexSubscriptionProvider {
+            executable: "/does/not/exist".into(),
+            model: "gpt-6-luna".into(),
+            timeout: Duration::from_secs(1),
+            max_response_bytes: 1024,
+        };
+        let query = Query {
+            domain: None,
+            request_id: "fixture-request".into(),
+            conversation_id: "fixture-conversation".into(),
+            text: "Kurze Frage".into(),
+            requested_scopes: BTreeSet::new(),
+            profile: brain_contracts::AnswerProfile::Explain,
+            patch: None,
+            mode: None,
+        };
+        let context = AuthorizedContext {
+            request_deadline: None,
+            principal: brain_contracts::Principal {
+                actor_id: "fixture".into(),
+                channel: "fixture".into(),
+                scopes: BTreeSet::new(),
+                provider_egress: BTreeSet::from(["public".into()]),
+            },
+            conversation_id: query.conversation_id.clone(),
+            knowledge_release: "fixture-release".into(),
+            deadline_ms: 1000,
+            budget: brain_contracts::Budget::default(),
+        };
+        let dialogue = TextDialogue {
+            system: "Beantworte die Frage anhand der gelieferten Daten.".into(),
+            data: json!({"fixture": "Daten"}),
+            visibility: DialogueVisibility::Public,
+        };
+        (provider, query, context, dialogue)
+    }
+
+    #[test]
+    fn private_dialogue_is_denied_before_the_runner() {
+        let (provider, query, context, mut dialogue) = dialogue_fixture();
+        dialogue.visibility = DialogueVisibility::PrivateDm;
+        assert!(matches!(
+            provider.dialogue(&dialogue, &query, &context, &[]),
+            Err(PortError::PermissionDenied(_))
+        ));
+        let provider = super::super::TextProvider::Subscription(provider);
+        assert!(matches!(
+            provider.dialogue(&dialogue, &query, &context, &[]),
+            Err(PortError::PermissionDenied(_))
+        ));
+    }
+
+    #[test]
+    fn dialogue_budget_counts_system_data_and_rejects_zero_limits() {
+        let (provider, query, context, mut dialogue) = dialogue_fixture();
+        for field in ["system", "data"] {
+            let mut dialogue = dialogue.clone();
+            let mut context = context.clone();
+            context.budget.max_input_tokens = 1000;
+            if field == "system" {
+                dialogue.system = "ä".repeat(1000);
+            } else {
+                dialogue.data = json!({"fixture": "ä".repeat(1000)});
+            }
+            assert!(matches!(
+                provider.dialogue(&dialogue, &query, &context, &[]),
+                Err(PortError::BudgetExceeded)
+            ));
+        }
+        dialogue.data = json!({});
+        for field in ["rounds", "input", "output", "deadline"] {
+            let mut context = context.clone();
+            match field {
+                "rounds" => context.budget.max_network_rounds = 0,
+                "input" => context.budget.max_input_tokens = 0,
+                "output" => context.budget.max_output_tokens = 0,
+                _ => context.deadline_ms = 0,
+            }
+            assert!(matches!(
+                provider.dialogue(&dialogue, &query, &context, &[]),
+                Err(PortError::BudgetExceeded)
+            ));
+        }
+    }
+
     fn events(text: &str, output: u64) -> Vec<u8> {
         format!(
             "{}\n{}\n",

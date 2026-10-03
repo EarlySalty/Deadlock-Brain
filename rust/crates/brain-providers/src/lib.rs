@@ -405,6 +405,19 @@ pub enum TextProvider {
     Subscription(codex::CodexSubscriptionProvider),
 }
 impl AnswerProviderPort for TextProvider {
+    fn dialogue(
+        &self,
+        dialogue: &brain_contracts::TextDialogue,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+    ) -> std::result::Result<ProviderAnswer, PortError> {
+        match self {
+            Self::Api(provider) => provider.dialogue(dialogue, query, context, evidence),
+            Self::Subscription(provider) => provider.dialogue(dialogue, query, context, evidence),
+        }
+    }
+
     fn answer(
         &self,
         query: &Query,
