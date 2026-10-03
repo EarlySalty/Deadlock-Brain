@@ -1,4 +1,3 @@
-//! Constructor and transport regressions. Only authored data and loopback stubs.
 use brain_contracts::feeds::{
     BuildPublishErrorClass, BuildPublishRequest, BuildPublishState, BuildPublishStatus,
     BUILD_PUBLISH_VERSION,
@@ -15,9 +14,6 @@ use std::{
 const TOKEN: &str = "synthetic-endpoint-token";
 const TIMEOUT: Duration = Duration::from_secs(5);
 
-// Install synthetic credentials and proxy settings only in a child process, not
-// in the parallel test runner. The proxy trap also proves plaintext loopback
-// requests cannot be diverted. No external endpoint is contacted.
 fn isolated(test_name: &str) -> bool {
     isolated_proxy(test_name, false)
 }
@@ -122,13 +118,18 @@ fn publish_waits_for_terminal_and_binds_every_poll_to_the_original_hash() {
     );
     let seen = server.join().unwrap();
     assert_eq!(seen.len(), 3);
-    for poll in &seen[1..] {
-        assert!(poll.head.starts_with(&format!(
-            "GET /gateway/builds/v1/publish/{}?request_sha256={} HTTP/1.1\r\n",
-            request.request_id,
-            request.request_sha256().unwrap()
-        )));
+    for poll in &seen {
+        assert_bound_get(poll, &request, "/gateway");
     }
+}
+
+fn assert_bound_get(seen: &Seen, request: &BuildPublishRequest, base_path: &str) {
+    assert!(seen.head.starts_with(&format!(
+        "GET {base_path}/builds/v1/publish/{}?request_sha256={} HTTP/1.1\r\n",
+        request.request_id,
+        request.request_sha256().unwrap()
+    )));
+    assert!(seen.body.is_empty());
 }
 
 #[test]
@@ -162,6 +163,14 @@ fn bound_poll_rejects_a_foreign_hash_and_zero_build_id() {
     }
 }
 
+fn error_reply(code: u16) -> Reply {
+    Reply {
+        code,
+        body: "{}".into(),
+        location: None,
+    }
+}
+
 #[test]
 fn retries_reuse_identical_request_and_failed_states_remain_failed() {
     let request = brain_feeds::build_publish::deterministic_request(request()).unwrap();
@@ -182,16 +191,11 @@ fn retries_reuse_identical_request_and_failed_states_remain_failed() {
     let server = serve(
         listener,
         vec![
-            Reply {
-                code: 503,
-                body: "{}".into(),
-                location: None,
-            },
-            Reply {
-                code: 429,
-                body: "{}".into(),
-                location: None,
-            },
+            error_reply(404),
+            error_reply(503),
+            error_reply(404),
+            error_reply(429),
+            error_reply(404),
             bound_reply(
                 &request,
                 BuildPublishState::Failed {
@@ -211,13 +215,22 @@ fn retries_reuse_identical_request_and_failed_states_remain_failed() {
         }
     );
     let seen = server.join().unwrap();
-    assert_eq!(seen.len(), 3);
-    for attempt in &seen {
+    assert_eq!(seen.len(), 6);
+    for lookup in seen.iter().step_by(2) {
+        assert_bound_get(lookup, &request, "");
+    }
+    let attempts: Vec<_> = seen.iter().skip(1).step_by(2).collect();
+    assert_eq!(attempts.len(), 3);
+    for attempt in &attempts {
         assert!(attempt.head.starts_with("POST /builds/v1/publish "));
         assert!(attempt
             .head
             .contains(&format!("idempotency-key: {}\r\n", request.request_id)));
-        assert_eq!(attempt.body, seen[0].body);
+        assert_eq!(attempt.body, attempts[0].body);
+        assert_eq!(
+            serde_json::from_slice::<BuildPublishRequest>(&attempt.body).unwrap(),
+            request
+        );
     }
 }
 
@@ -247,7 +260,284 @@ fn rate_limit_and_invalid_wait_do_not_report_publication() {
         client.publish_and_wait(&request, TIMEOUT, Duration::ZERO),
         Err(PublishError::RateLimited)
     );
-    assert_eq!(server.join().unwrap().len(), 3);
+    let seen = server.join().unwrap();
+    assert_eq!(seen.len(), 3);
+    for lookup in &seen {
+        assert_bound_get(lookup, &request, "");
+    }
+}
+
+#[test]
+fn missing_status_is_checked_before_submitting_the_unchanged_request() {
+    let request = request();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!("http://{}/gateway", listener.local_addr().unwrap());
+    let server = serve(
+        listener,
+        vec![
+            error_reply(404),
+            bound_reply(&request, BuildPublishState::Queued),
+            bound_reply(
+                &request,
+                BuildPublishState::Succeeded { hero_build_id: 456 },
+            ),
+        ],
+    );
+    assert_eq!(
+        client(&endpoint)
+            .unwrap()
+            .publish_and_wait(&request, TIMEOUT, Duration::ZERO)
+            .unwrap()
+            .state,
+        BuildPublishState::Succeeded { hero_build_id: 456 }
+    );
+    let seen = server.join().unwrap();
+    assert_eq!(seen.len(), 3);
+    assert_bound_get(&seen[0], &request, "/gateway");
+    assert!(seen[1].head.starts_with("POST /gateway/builds/v1/publish "));
+    assert!(seen[1]
+        .head
+        .contains(&format!("idempotency-key: {}\r\n", request.request_id)));
+    assert_eq!(
+        serde_json::from_slice::<BuildPublishRequest>(&seen[1].body).unwrap(),
+        request
+    );
+    assert_bound_get(&seen[2], &request, "/gateway");
+}
+
+#[test]
+fn existing_terminal_states_are_reused_without_any_post() {
+    let request = request();
+    for state in [
+        BuildPublishState::Succeeded { hero_build_id: 456 },
+        BuildPublishState::Failed {
+            error_class: BuildPublishErrorClass::RateLimited,
+        },
+    ] {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let server = serve(
+            listener,
+            vec![
+                bound_reply(&request, state.clone()),
+                bound_reply(&request, state.clone()),
+            ],
+        );
+        let client = client(&endpoint).unwrap();
+        for _ in 0..2 {
+            assert_eq!(
+                client
+                    .publish_and_wait(&request, TIMEOUT, Duration::ZERO)
+                    .unwrap()
+                    .state,
+                state
+            );
+        }
+        let seen = server.join().unwrap();
+        assert_eq!(seen.len(), 2);
+        for lookup in &seen {
+            assert_bound_get(lookup, &request, "");
+        }
+    }
+}
+
+#[test]
+fn existing_running_publish_is_polled_without_a_post() {
+    let request = request();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let server = serve(
+        listener,
+        vec![
+            bound_reply(&request, BuildPublishState::Running),
+            bound_reply(
+                &request,
+                BuildPublishState::Succeeded { hero_build_id: 456 },
+            ),
+        ],
+    );
+    assert_eq!(
+        client(&endpoint)
+            .unwrap()
+            .publish_and_wait(&request, TIMEOUT, Duration::ZERO)
+            .unwrap()
+            .state,
+        BuildPublishState::Succeeded { hero_build_id: 456 }
+    );
+    let seen = server.join().unwrap();
+    assert_eq!(seen.len(), 2);
+    for lookup in &seen {
+        assert_bound_get(lookup, &request, "");
+    }
+}
+
+#[test]
+fn lost_post_response_is_recovered_by_hash_without_resubmitting() {
+    let request = request();
+    for state in [
+        BuildPublishState::Succeeded { hero_build_id: 456 },
+        BuildPublishState::Queued,
+        BuildPublishState::Running,
+        BuildPublishState::Failed {
+            error_class: BuildPublishErrorClass::Timeout,
+        },
+    ] {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let mut replies = vec![
+            Some(error_reply(404)),
+            None,
+            Some(bound_reply(&request, state.clone())),
+        ];
+        let expected = if state.is_terminal() {
+            state
+        } else {
+            let terminal = BuildPublishState::Succeeded { hero_build_id: 456 };
+            replies.push(Some(bound_reply(&request, terminal.clone())));
+            terminal
+        };
+        let expected_requests = replies.len();
+        let server = serve_optional(listener, replies);
+        assert_eq!(
+            client(&endpoint)
+                .unwrap()
+                .publish_and_wait(&request, TIMEOUT, Duration::ZERO)
+                .unwrap()
+                .state,
+            expected
+        );
+        let seen = server.join().unwrap();
+        assert_eq!(seen.len(), expected_requests);
+        assert!(seen[1].head.starts_with("POST /builds/v1/publish "));
+        assert_eq!(
+            serde_json::from_slice::<BuildPublishRequest>(&seen[1].body).unwrap(),
+            request
+        );
+        for lookup in seen
+            .iter()
+            .enumerate()
+            .filter_map(|(i, seen)| (i != 1).then_some(seen))
+        {
+            assert_bound_get(lookup, &request, "");
+        }
+    }
+}
+
+#[test]
+fn recovery_keeps_polling_during_transient_lookup_errors() {
+    let request = request();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let server = serve_optional(
+        listener,
+        vec![
+            Some(error_reply(404)),
+            None,
+            Some(error_reply(503)),
+            Some(error_reply(429)),
+            Some(bound_reply(
+                &request,
+                BuildPublishState::Succeeded { hero_build_id: 456 },
+            )),
+        ],
+    );
+    assert_eq!(
+        client(&endpoint)
+            .unwrap()
+            .publish_and_wait(&request, TIMEOUT, Duration::ZERO)
+            .unwrap()
+            .state,
+        BuildPublishState::Succeeded { hero_build_id: 456 }
+    );
+    let seen = server.join().unwrap();
+    assert_eq!(seen.len(), 5);
+    assert!(seen[1].head.starts_with("POST /builds/v1/publish "));
+    for lookup in &seen[2..] {
+        assert_bound_get(lookup, &request, "");
+    }
+}
+
+#[test]
+fn final_post_attempt_is_still_recovered_before_returning_its_error() {
+    let request = request();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let server = serve_optional(
+        listener,
+        vec![
+            Some(error_reply(404)),
+            Some(error_reply(503)),
+            Some(error_reply(404)),
+            Some(error_reply(429)),
+            Some(error_reply(404)),
+            None,
+            Some(bound_reply(
+                &request,
+                BuildPublishState::Succeeded { hero_build_id: 456 },
+            )),
+        ],
+    );
+    assert_eq!(
+        client(&endpoint)
+            .unwrap()
+            .publish_and_wait(&request, TIMEOUT, Duration::ZERO)
+            .unwrap()
+            .state,
+        BuildPublishState::Succeeded { hero_build_id: 456 }
+    );
+    let seen = server.join().unwrap();
+    assert_eq!(seen.len(), 7);
+    for lookup in seen.iter().step_by(2) {
+        assert_bound_get(lookup, &request, "");
+    }
+    for attempt in seen.iter().skip(1).step_by(2) {
+        assert!(attempt.head.starts_with("POST /builds/v1/publish "));
+        assert!(attempt
+            .head
+            .contains(&format!("idempotency-key: {}\r\n", request.request_id)));
+        assert_eq!(attempt.body, seen[1].body);
+    }
+}
+
+#[test]
+fn preflight_and_recovery_reject_a_foreign_hash_or_invalid_build_id() {
+    let request = request();
+    for recover in [false, true] {
+        for zero_build_id in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let endpoint = format!("http://{}", listener.local_addr().unwrap());
+            let mut bad = bound_reply(
+                &request,
+                BuildPublishState::Succeeded {
+                    hero_build_id: if zero_build_id { 0 } else { 456 },
+                },
+            );
+            if !zero_build_id {
+                bad.body = bad
+                    .body
+                    .replace(&request.request_sha256().unwrap(), &"0".repeat(64));
+            }
+            let replies = if recover {
+                vec![Some(error_reply(404)), None, Some(bad)]
+            } else {
+                vec![Some(bad)]
+            };
+            let expected_requests = replies.len();
+            let server = serve_optional(listener, replies);
+            assert!(matches!(
+                client(&endpoint)
+                    .unwrap()
+                    .publish_and_wait(&request, TIMEOUT, Duration::ZERO),
+                Err(PublishError::InvalidResponse(_))
+            ));
+            let seen = server.join().unwrap();
+            assert_eq!(seen.len(), expected_requests);
+            assert_bound_get(&seen[expected_requests - 1], &request, "");
+            if !recover {
+                assert_bound_get(&seen[0], &request, "");
+            }
+        }
+    }
 }
 
 fn client(endpoint: &str) -> Result<HttpBuildPublishClient, PublishError> {
@@ -351,7 +641,6 @@ fn constructor_accepts_https_and_real_loopback_hosts_with_valid_ports_and_paths(
     if isolated("constructor_accepts_https_and_real_loopback_hosts_with_valid_ports_and_paths") {
         return;
     }
-    // Construction only: no DNS lookup, TLS handshake or external HTTP request.
     for endpoint in [
         "https://example.invalid",
         "https://example.invalid/",
@@ -497,6 +786,13 @@ fn accept(listener: &TcpListener) -> TcpStream {
 }
 
 fn serve(listener: TcpListener, replies: Vec<Reply>) -> thread::JoinHandle<Vec<Seen>> {
+    serve_optional(listener, replies.into_iter().map(Some).collect())
+}
+
+fn serve_optional(
+    listener: TcpListener,
+    replies: Vec<Option<Reply>>,
+) -> thread::JoinHandle<Vec<Seen>> {
     listener.set_nonblocking(true).unwrap();
     thread::spawn(move || {
         let mut seen = Vec::new();
@@ -522,8 +818,12 @@ fn serve(listener: TcpListener, replies: Vec<Reply>) -> thread::JoinHandle<Vec<S
             assert!(length <= 16 * 1024);
             let mut body = vec![0; length];
             reader.read_exact(&mut body).unwrap();
-            let refused_connect = head.starts_with("CONNECT ") && reply.code == 403;
+            let refused_connect = head.starts_with("CONNECT ")
+                && reply.as_ref().is_some_and(|reply| reply.code == 403);
             seen.push(Seen { head, body });
+            let Some(reply) = reply else {
+                continue;
+            };
             let mut response = format!(
                 "HTTP/1.1 {} Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n",
                 reply.code,
@@ -534,11 +834,6 @@ fn serve(listener: TcpListener, replies: Vec<Reply>) -> thread::JoinHandle<Vec<S
             }
             response.push_str("\r\n");
             response.push_str(&reply.body);
-            // A CONNECT client can close as soon as it sees a refusal status.
-            // Send the entire response together rather than racing separate
-            // header/body writes against that close. A peer close is valid for
-            // this refusal trap: its contract is the fully captured CONNECT,
-            // not successful delivery of an HTTP body to the rejected client.
             if let Err(error) = stream.write_all(response.as_bytes()) {
                 assert!(
                     refused_connect
@@ -658,8 +953,6 @@ fn https_preserves_proxy_support_without_plaintext_credentials_or_build_data() {
     ) {
         return;
     }
-    // The proxy refuses both CONNECT requests without forwarding anything.
-    // Even a regression that bypasses the proxy can reach only this local trap.
     let target = TcpListener::bind("127.0.0.1:0").unwrap();
     target.set_nonblocking(true).unwrap();
     let client = client(&format!("https://{}", target.local_addr().unwrap())).unwrap();
@@ -740,8 +1033,6 @@ fn invalid_request_ids_cannot_change_the_route_or_send_a_request() {
             Err(PublishError::InvalidRequest(_))
         ));
     }
-    // Submit IDs are JSON/header data, not URL segments; keep their existing
-    // broader contract rather than tightening it to match the status route.
     for id in ["", "id\r\n"] {
         let mut invalid = request();
         invalid.request_id = id.into();
