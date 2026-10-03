@@ -146,7 +146,7 @@ pub async fn publish_archive(
         .as_secs() as i64;
     // Wartende Publisher geben ihre Verbindung frei, bevor sie erneut versuchen.
     // Der Transaktionslock wird auch bei Abbruch zuverlässig zurückgerollt.
-    let mut guard = loop {
+    let guard = loop {
         let mut candidate = pool.begin().await?;
         let acquired: bool =
             sqlx::query_scalar("SELECT pg_try_advisory_xact_lock(hashtext($1)::bigint)")
