@@ -75,6 +75,66 @@ async fn profil_isolation_datenschutz_und_ablauf_im_echten_pg_pfad() {
         .await
         .unwrap();
 }
+#[test]
+#[ignore = "benötigt den abgeschlossenen synthetischen Bot-Wiedereinwilligungstest"]
+fn wiederholte_einwilligung_sperrt_alte_events_in_fehlender_guild() {
+    let config = config();
+    assert_eq!(config.database, "guide_test_bots");
+    let reader =
+        LocalPgReader::new(&config.socket, config.port, &config.user, &config.database).unwrap();
+    let mut sql = postgres::Config::new();
+    sql.host_path(&config.socket)
+        .port(config.port)
+        .user(&config.user)
+        .dbname(&config.database)
+        .password("");
+    let mut sql = sql.connect(postgres::NoTls).unwrap();
+    let first_min: i64 = sql
+        .query_one(
+            "SELECT first_min_event_id FROM core.guide_test_consent_boundary",
+            &[],
+        )
+        .unwrap()
+        .get(0);
+    assert_eq!(
+        sql.query_one(
+            "SELECT count(*) FROM brain.guide_subjects WHERE guild_id='101' AND user_id='5'",
+            &[]
+        )
+        .unwrap()
+        .get::<_, i64>(0),
+        0
+    );
+    let mut event = turn("old-consent-guild", Surface::Dm);
+    event.guild_id = "101".into();
+    event.user_id = "5".into();
+    let deadline = || RequestDeadline::after(Duration::from_secs(5));
+    for (index, kind, addressed) in [
+        (0, Event::Message, Addressed::Dm),
+        (1, Event::TourStart, Addressed::TourButton),
+        (2, Event::Message, Addressed::Command),
+    ] {
+        event.request_id = format!("old-consent-guild-{index}");
+        event.message_id = (first_min - 1).to_string();
+        event.event = kind;
+        event.addressed = addressed;
+        assert!(reader
+            .guide_claim(&event, &deadline(), 1300, true)
+            .unwrap()
+            .is_none());
+    }
+    let fresh_id: i64 = sql.query_one("SELECT ((floor(extract(epoch from clock_timestamp())*1000)::bigint+2)-1420070400000)*4194304",&[]).unwrap().get(0);
+    event.request_id = "new-consent-guild".into();
+    event.message_id = fresh_id.to_string();
+    let fresh = reader
+        .guide_claim(&event, &deadline(), 1300, true)
+        .unwrap()
+        .unwrap();
+    assert!(!fresh.profile.deleted && !fresh.profile.globally_opted_out);
+    assert!(!fresh.profile.memory_enabled && !fresh.profile.contact_enabled);
+    assert!(fresh.profile.fields.is_empty() && fresh.history.is_empty());
+}
+
 fn exercise(config: TestConfig) {
     let reader =
         LocalPgReader::new(&config.socket, config.port, &config.user, &config.database).unwrap();
