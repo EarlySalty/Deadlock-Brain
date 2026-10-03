@@ -1,12 +1,12 @@
 status: aktiv
 Datum: 2026-10-03
-Stand: 2026-10-03T08:00:45Z
+Stand: 2026-10-03T08:32:09Z
 
 # Übergabe C2
 
 Revisionsfixer erhalten, beide gezielten Revisionsfixes und eng betroffene Altbestandskorrektur ohne C-Metadaten laut eigener Meldung geschrieben. Erster echter Check unter beiden Locks: Format0, Check101/E0432 sha2; reguläres Wrapperende/Lockfreigabe/PID-Ende nachgemessen. Bestehende sha2-Manifestverschiebung eng autorisiert und umgesetzt. Danach rein wartender bpbj7yxem/PID 3708794 ausschließlich für notwendige Altbestandskorrektur beendet, nicht wegen Wachtimer; PID fehlt bestätigt. Kein Compiler gestoppt.
 
-Aktueller einziger Prüftask bwy8n5mpt/PID 3780201, um 08:00 UTC eigenständig gelesen: ausschließlich WAITING_HOST_LOCK, PID state S, noch keine Lockbestätigung oder Compilerprobe. Logs /tmp/brain-c2-fix1-check.tT6OBi. Stabilen Wrapper erhalten, keine zweite Prüfung und keine parallelen produktiven C-Schreibzugriffe. Noch kein Compiler-/Clippy-/Test-/DB-Erfolg, neuer Commit oder Gate. Quellen-HEAD zuletzt b1b9241, uncommittierter Fixstand erhalten.
+Aktueller einziger Prüftask bwy8n5mpt/PID 3780201, um 08:32:09 UTC eigenständig nachgemessen: ausschließlich WAITING_HOST_LOCK, PID state S, FD8 am vereinbarten ersten Hostlock, FD9 nicht geöffnet. Tasklog unverändert 87 Bytes, noch keine Lockbestätigung oder Compilerprobe. Fixermeldung 08:28 UTC bestätigt denselben erhaltenen Lauf und stabilen Quellenstand. Logs /tmp/brain-c2-fix1-check.tT6OBi. Keine zweite Prüfung oder paralleler produktiver C-Writer. Noch kein Compiler-/Clippy-/Test-/DB-Erfolg, neuer Commit oder Gate. Quellen-HEAD erneut b1b9241805f470427570566faca37fc340d1c04c bestätigt; uncommittierter Fixstand erhalten.
 
 Releaseentscheidung konkret: einmalige enge Installation in vorhandene rootgeschützte SHA-Releases, getrennte blockierende Installations-flocks, atomarer Current-Symlinkwechsel, normale bestehende Start-/Credentialwege und gemessene vorherige Current-Ziele als Rückweg. Keine neue Plattform oder Überschreibung laufender Binaries. Exakte Dateien/Units/Rechte und Risiken in INSTALLATIONSPLAN-C2.md; rein lesend aufgenommen, nichts installiert. Steam-MainPID ist sudo, tatsächliche Release-Binaries in dessen Kindern auf 4c562176 nachgemessen; Brain-Symlink/Prozess weiterhin 511a347. Alte V1-Current-Verknüpfung bleibt unberührt.
 
