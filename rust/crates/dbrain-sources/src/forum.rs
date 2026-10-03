@@ -1,6 +1,5 @@
 use std::{
     path::Path,
-    thread,
     time::{Duration, Instant},
 };
 
@@ -25,6 +24,7 @@ pub struct PullForumOptions {
     pub delay_seconds: f64,
     pub cache_ttl_seconds: u64,
     pub refresh_existing: bool,
+    pub browser_config: Option<crate::forum_browser::ForumBrowserConfig>,
 }
 
 impl Default for PullForumOptions {
@@ -35,6 +35,7 @@ impl Default for PullForumOptions {
             delay_seconds: 1.0,
             cache_ttl_seconds: 86_400,
             refresh_existing: false,
+            browser_config: None,
         }
     }
 }
@@ -52,6 +53,9 @@ struct ParsedThread {
     title: Option<String>,
     canonical_url: Option<String>,
     posts: Vec<ParsedPost>,
+    category: Option<String>,
+    category_url: Option<String>,
+    next_page: Option<String>,
 }
 
 #[derive(Debug)]
@@ -75,9 +79,29 @@ pub async fn pull_forum(
     options: PullForumOptions,
 ) -> Result<Value> {
     let pool = open_pool().await?;
-    let store = SourceStore::new(&pool, raw_dir)?;
+    pull_forum_with_pool(&pool, raw_dir, http, options).await
+}
+
+pub async fn pull_forum_with_pool(
+    pool: &PgPool,
+    raw_dir: &Path,
+    http: &HttpClient,
+    options: PullForumOptions,
+) -> Result<Value> {
+    let store = SourceStore::new(pool, raw_dir)?;
     let run_id = store.begin_run(SOURCE).await?;
-    let outcome = pull_forum_inner(&store, http, &options).await;
+    let outcome = pull_forum_inner(&store, http, &options, run_id).await;
+    if let Ok(summary) = &outcome {
+        let status = if summary["access_blocked"] == true
+            || summary["threads_failed"].as_u64().unwrap_or(0) > 0
+        {
+            "error"
+        } else {
+            "ok"
+        };
+        store.finish_run(run_id, status, summary).await?;
+        return outcome;
+    }
     complete_run(&store, run_id, outcome).await
 }
 
@@ -85,17 +109,54 @@ async fn pull_forum_inner(
     store: &SourceStore<'_>,
     http: &HttpClient,
     options: &PullForumOptions,
+    run_id: i64,
 ) -> Result<Value> {
-    if options.delay_seconds.is_sign_negative() {
+    if !options.delay_seconds.is_finite() || options.delay_seconds < 0.5 {
         return Err(SourcesError::invalid_input(
-            "delay_seconds darf nicht negativ sein.",
+            "delay_seconds muss endlich und mindestens 0,5 sein.",
         ));
     }
 
-    let sitemap_threads = discover_threads(store, http, options).await?;
+    let mut browser = match &options.browser_config {
+        Some(config) => Some(
+            crate::forum_browser::ForumBrowser::connect(config)
+                .await
+                .map_err(|e| SourcesError::invalid_input(e.to_string()))?,
+        ),
+        None => None,
+    };
+    let outcome = import_threads(store, http, options, &mut browser, run_id).await;
+    if let Some(browser) = browser.as_mut() {
+        if let Err(error) = browser.close().await {
+            return Err(SourcesError::invariant(format!(
+                "Browserabschluss fehlgeschlagen: {error}; Import abgeschlossen: {}",
+                outcome.is_ok()
+            )));
+        }
+    }
+    outcome
+}
+
+async fn import_threads(
+    store: &SourceStore<'_>,
+    http: &HttpClient,
+    options: &PullForumOptions,
+    browser: &mut Option<crate::forum_browser::ForumBrowser>,
+    run_id: i64,
+) -> Result<Value> {
+    let sitemap_threads = discover_threads(store, http, options, browser).await?;
+    if sitemap_threads.is_empty() {
+        return Err(SourcesError::invalid_input(
+            "Sitemap enthält keine entdeckten Threads; Abdeckung unbekannt.",
+        ));
+    }
+    sqlx::query("UPDATE brain.source_runs SET summary=$2 WHERE id=$1").bind(run_id).bind(json!({"threads_discovered":sitemap_threads.len(),"threads_fetched":0,"complete":false})).execute(store.pool()).await?;
     let mut fetched_threads = 0usize;
     let mut skipped_existing = 0usize;
     let mut failed_threads = Vec::new();
+    let mut attempted_threads = 0usize;
+    let mut failed_count = 0usize;
+    let mut blocked = false;
     let mut post_snapshots = 0usize;
     let mut thread_snapshots = 0usize;
     let mut first_thread_id = None;
@@ -103,18 +164,20 @@ async fn pull_forum_inner(
     let started = Instant::now();
 
     for thread in sitemap_threads.iter() {
-        if options.limit > 0 && fetched_threads >= options.limit {
+        if options.limit > 0 && attempted_threads >= options.limit {
             break;
         }
 
         if !options.refresh_existing
-            && thread_document_exists(store.pool(), thread.thread_id).await?
+            && thread_document_exists(store.pool(), thread.thread_id, thread.lastmod.as_deref())
+                .await?
         {
             skipped_existing += 1;
             continue;
         }
 
-        match fetch_and_store_thread(store, http, options, thread).await {
+        attempted_threads += 1;
+        match fetch_and_store_thread(store, http, options, thread, browser).await {
             Ok(summary) => {
                 if first_thread_id.is_none() {
                     first_thread_id = Some(thread.thread_id);
@@ -123,8 +186,18 @@ async fn pull_forum_inner(
                 fetched_threads += 1;
                 thread_snapshots += 1;
                 post_snapshots += summary.post_count;
+                if fetched_threads.is_multiple_of(25) || fetched_threads == 1 {
+                    let progress = json!({"threads_discovered":sitemap_threads.len(),"threads_fetched":fetched_threads,"threads_skipped_existing":skipped_existing,"post_snapshots":post_snapshots,"threads_failed":failed_count,"complete":false});
+                    sqlx::query("UPDATE brain.source_runs SET summary=$2 WHERE id=$1")
+                        .bind(run_id)
+                        .bind(&progress)
+                        .execute(store.pool())
+                        .await?;
+                    eprintln!("Forumarchiv: {fetched_threads} Threads gelesen, {post_snapshots} Beiträge gespeichert, {skipped_existing} Threads unverändert.");
+                }
             }
             Err(error) => {
+                failed_count += 1;
                 if failed_threads.len() < 25 {
                     failed_threads.push(json!({
                         "thread_id": thread.thread_id,
@@ -132,9 +205,11 @@ async fn pull_forum_inner(
                         "error": error.to_string(),
                     }));
                 }
-                if error.to_string().contains("429") {
-                    sleep_delay(60.0);
+                if error.to_string().contains("Zugriff gesperrt") {
+                    blocked = true;
+                    break;
                 }
+                sleep_delay(options.delay_seconds.max(2.0)).await;
             }
         }
     }
@@ -144,6 +219,12 @@ async fn pull_forum_inner(
         "sitemap_url": options.sitemap_url,
         "threads_discovered": sitemap_threads.len(),
         "threads_fetched": fetched_threads,
+        "threads_attempted": attempted_threads,
+        "threads_failed": failed_count,
+        "access_blocked": blocked,
+        "complete": !blocked && failed_count == 0 && fetched_threads + skipped_existing == sitemap_threads.len(),
+        "remaining_threads": sitemap_threads.len().saturating_sub(fetched_threads + skipped_existing),
+        "scope": "Öffentlich erreichbare Threads aus der Sitemap, einschließlich aller Antwortseiten. Private Bereiche und Anhangdateien sind ausgeschlossen.",
         "threads_skipped_existing": skipped_existing,
         "thread_snapshots": thread_snapshots,
         "post_snapshots": post_snapshots,
@@ -167,24 +248,56 @@ async fn fetch_and_store_thread(
     http: &HttpClient,
     options: &PullForumOptions,
     thread: &SitemapThread,
+    browser: &mut Option<crate::forum_browser::ForumBrowser>,
 ) -> Result<StoredThreadSummary> {
-    let response = http.get(&thread.url, http_options(options, Duration::from_secs(45)))?;
-    let html = response.text();
-    let parsed = parse_thread_html(&html)?;
+    let mut url = thread.url.clone();
+    let mut visited = std::collections::BTreeSet::new();
+    let mut pages = Vec::new();
+    let mut parsed: Option<ParsedThread> = None;
+    loop {
+        if !visited.insert(url.clone()) || pages.len() >= 10_000 {
+            return Err(SourcesError::invariant("Ungültige Antwortseiten-Schleife."));
+        }
+        validate_thread_page_url(&url, thread.thread_id)?;
+        let (html, from_cache) = forum_fetch(http, options, browser, &url).await?;
+        let page = parse_thread_html(&html)?;
+        let next = page.next_page.clone();
+        if let Some(first) = parsed.as_mut() {
+            first.posts.extend(page.posts);
+        } else {
+            parsed = Some(page);
+        }
+        pages.push(json!({"url": url, "html": html, "from_cache": from_cache}));
+        if !from_cache {
+            sleep_delay(options.delay_seconds).await;
+        }
+        match next {
+            Some(next) => url = next,
+            None => break,
+        }
+    }
+    let mut parsed = parsed.ok_or_else(|| SourcesError::invariant("Keine Threadseite."))?;
+    let mut seen_posts = std::collections::BTreeSet::new();
+    parsed.posts.retain(|post| seen_posts.insert(post.post_id));
+    let html = serde_json::to_vec(&pages)?;
     let raw_path = store.write_raw(
         SOURCE,
         &format!("thread:{}", thread.thread_id),
-        html.as_bytes(),
-        "html",
+        &html,
+        "json",
     )?;
     let title = parsed.title.as_deref();
     let metadata = json!({
-        "kind": "thread_html",
+        "kind": "thread_archive",
+        "archive_version": 2,
+        "complete": false,
+        "page_count": pages.len(),
+        "category": parsed.category,
+        "category_url": parsed.category_url,
         "thread_id": thread.thread_id,
         "sitemap_url": thread.sitemap_url,
         "sitemap_lastmod": thread.lastmod,
         "canonical_url": parsed.canonical_url,
-        "from_cache": response.from_cache,
         "post_count": parsed.posts.len(),
         "robots_policy": {
             "attachments_downloaded": false,
@@ -197,9 +310,9 @@ async fn fetch_and_store_thread(
             external_id: &format!("thread:{}", thread.thread_id),
             title,
             url: Some(&thread.url),
-            content_type: "text/html",
+            content_type: "application/json",
             raw_path: &raw_path,
-            content: html.as_bytes(),
+            content: &html,
             metadata: &metadata,
         })
         .await?;
@@ -214,6 +327,8 @@ async fn fetch_and_store_thread(
             "kind": "thread",
             "thread_id": thread.thread_id,
             "title": parsed.title,
+            "category": parsed.category,
+            "category_url": parsed.category_url,
             "url": thread.url,
             "canonical_url": parsed.canonical_url,
             "sitemap_lastmod": thread.lastmod,
@@ -232,6 +347,8 @@ async fn fetch_and_store_thread(
                 "kind": "post",
                 "thread_id": thread.thread_id,
                 "thread_title": parsed.title,
+                "category": parsed.category,
+                "category_url": parsed.category_url,
                 "thread_url": thread.url,
                 "canonical_thread_url": parsed.canonical_url,
                 "post_id": post.post_id,
@@ -250,12 +367,7 @@ async fn fetch_and_store_thread(
         });
     }
 
-    store
-        .insert_many_snapshots(&snapshots, Some(document_id))
-        .await?;
-    if !response.from_cache {
-        sleep_delay(options.delay_seconds);
-    }
+    store_observed_snapshots(store, &snapshots, document_id).await?;
 
     Ok(StoredThreadSummary {
         post_count: parsed.posts.len(),
@@ -266,19 +378,12 @@ async fn discover_threads(
     store: &SourceStore<'_>,
     http: &HttpClient,
     options: &PullForumOptions,
+    browser: &mut Option<crate::forum_browser::ForumBrowser>,
 ) -> Result<Vec<SitemapThread>> {
-    let index_response = http.get(
-        &options.sitemap_url,
-        http_options(options, Duration::from_secs(30)),
-    )?;
-    store_sitemap_document(
-        store,
-        "sitemap:index",
-        &options.sitemap_url,
-        &index_response.text(),
-    )
-    .await?;
-    let sitemap_urls = parse_sitemap_index(&index_response.text())?;
+    validate_sitemap_url(&options.sitemap_url)?;
+    let (index_text, _) = forum_fetch(http, options, browser, &options.sitemap_url).await?;
+    store_sitemap_document(store, "sitemap:index", &options.sitemap_url, &index_text).await?;
+    let sitemap_urls = parse_sitemap_index(&index_text)?;
     let sitemap_urls = if sitemap_urls.is_empty() {
         vec![options.sitemap_url.clone()]
     } else {
@@ -287,12 +392,12 @@ async fn discover_threads(
 
     let mut threads = Vec::new();
     for (index, sitemap_url) in sitemap_urls.iter().enumerate() {
-        let response = http.get(sitemap_url, http_options(options, Duration::from_secs(45)))?;
-        let xml = response.text();
+        validate_sitemap_url(sitemap_url)?;
+        let (xml, from_cache) = forum_fetch(http, options, browser, sitemap_url).await?;
         store_sitemap_document(store, &format!("sitemap:{index}"), sitemap_url, &xml).await?;
         threads.extend(parse_threads_from_sitemap(sitemap_url, &xml)?);
-        if !response.from_cache {
-            sleep_delay(options.delay_seconds);
+        if !from_cache {
+            sleep_delay(options.delay_seconds).await;
         }
     }
 
@@ -364,6 +469,7 @@ fn parse_threads_from_sitemap(sitemap_url: &str, xml: &str) -> Result<Vec<Sitema
 }
 
 fn parse_thread_html(html: &str) -> Result<ParsedThread> {
+    response_text_checked(html)?;
     let document = Html::parse_document(html);
     let title = select_first_text(&document, "h1.p-title-value")?
         .or_else(|| select_first_text(&document, "title").ok().flatten())
@@ -380,11 +486,87 @@ fn parse_thread_html(html: &str) -> Result<ParsedThread> {
         posts.push(parse_post(post, post_id)?);
     }
 
+    if posts.is_empty() {
+        return Err(SourcesError::invalid_input(
+            "Zugriff gesperrt oder Thread ohne lesbare Beiträge; keine Archivierung.",
+        ));
+    }
+    let category_link = document
+        .select(&selector(".p-breadcrumbs a[href]")?)
+        .rfind(|element| {
+            element.value().attr("href").is_some_and(|href| {
+                normalize_forum_url(href).starts_with(&format!("{BASE_URL}/forums/"))
+            })
+        });
+    let category = category_link.as_ref().map(clean_element_text);
+    let category_url = category_link
+        .and_then(|element| element.value().attr("href"))
+        .map(normalize_forum_url);
+    let next_page = select_first_attr(
+        &document,
+        r#"link[rel="next"], a.pageNav-jump--next"#,
+        "href",
+    )?
+    .map(|url| normalize_forum_url(&url));
+
     Ok(ParsedThread {
         title,
         canonical_url,
         posts,
+        category,
+        category_url,
+        next_page,
     })
+}
+
+fn response_text_checked(text: &str) -> Result<String> {
+    if text.contains("/.stile/challenge/")
+        || text.contains("Checking your browser")
+        || text.contains("cf-chl-")
+    {
+        return Err(SourcesError::invalid_input(
+            "Zugriff gesperrt: Browserprüfung statt Forumdaten.",
+        ));
+    }
+    Ok(text.to_string())
+}
+
+fn validate_sitemap_url(url: &str) -> Result<()> {
+    let path = url.strip_prefix(&format!("{BASE_URL}/")).unwrap_or("");
+    if !path.starts_with("sitemap")
+        || !path.ends_with(".xml")
+        || path.contains(['/', '?', '#', '@', '\\'])
+    {
+        return Err(SourcesError::invalid_input(
+            "Sitemap muss zum offiziellen Deadlock-Forum gehören.",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_thread_page_url(url: &str, thread_id: u64) -> Result<()> {
+    let path = url
+        .strip_prefix(&format!("{BASE_URL}/threads/"))
+        .unwrap_or("");
+    let mut parts = path.trim_end_matches('/').split('/');
+    let slug = parts.next().unwrap_or("");
+    let valid_page = parts.next().is_none_or(|page| {
+        page.strip_prefix("page-")
+            .is_some_and(|n| n.parse::<u64>().is_ok_and(|n| n > 1))
+    });
+    if slug
+        .rsplit_once('.')
+        .and_then(|(_, id)| id.parse::<u64>().ok())
+        != Some(thread_id)
+        || !valid_page
+        || parts.next().is_some()
+        || path.contains(['?', '#', '@', '\\'])
+    {
+        return Err(SourcesError::invalid_input(
+            "Antwortseite gehört nicht zum ursprünglichen offiziellen Thread.",
+        ));
+    }
+    Ok(())
 }
 
 fn parse_post(post: ElementRef<'_>, post_id: u64) -> Result<ParsedPost> {
@@ -518,13 +700,18 @@ fn selector(query: &str) -> Result<Selector> {
     })
 }
 
-async fn thread_document_exists(pool: &PgPool, thread_id: u64) -> Result<bool> {
+async fn thread_document_exists(
+    pool: &PgPool,
+    thread_id: u64,
+    lastmod: Option<&str>,
+) -> Result<bool> {
     let external_id = format!("thread:{thread_id}");
     let exists = sqlx::query_scalar::<_, i32>(
-        "SELECT 1 FROM brain.source_documents WHERE source=$1 AND external_id=$2 LIMIT 1",
+        "SELECT 1 FROM brain.source_documents WHERE source=$1 AND external_id=$2 AND metadata->>'archive_version'='2' AND metadata->>'complete'='true' AND $3::text IS NOT NULL AND metadata->>'sitemap_lastmod'=$3 LIMIT 1",
     )
     .bind(SOURCE)
     .bind(&external_id)
+    .bind(lastmod)
     .fetch_optional(pool)
     .await?
     .is_some();
@@ -576,11 +763,11 @@ fn http_options(options: &PullForumOptions, timeout: Duration) -> HttpGetOptions
     }
 }
 
-fn sleep_delay(seconds: f64) {
+async fn sleep_delay(seconds: f64) {
     if seconds <= 0.0 {
         return;
     }
-    thread::sleep(Duration::from_secs_f64(seconds));
+    tokio::time::sleep(Duration::from_secs_f64(seconds)).await;
 }
 
 fn collapse_whitespace(value: &str) -> String {
@@ -658,5 +845,348 @@ mod tests {
         // haengt an dieser numerischen Suffix-Extraktion).
         let summary = json!({ "thread_id": post.post_id });
         assert_eq!(summary["thread_id"], json!(2));
+    }
+}
+
+async fn forum_fetch(
+    http: &HttpClient,
+    options: &PullForumOptions,
+    browser: &mut Option<crate::forum_browser::ForumBrowser>,
+    url: &str,
+) -> Result<(String, bool)> {
+    if let Some(browser) = browser.as_mut() {
+        let text = browser
+            .fetch_html(url)
+            .await
+            .map_err(|e| SourcesError::invalid_input(e.to_string()))?;
+        return Ok((response_text_checked(&text)?, false));
+    }
+    let client = http.clone();
+    let request_url = url.to_string();
+    let request_options = http_options(options, Duration::from_secs(45));
+    let response =
+        tokio::task::spawn_blocking(move || client.get_no_redirect(&request_url, request_options))
+            .await
+            .map_err(|_| SourcesError::invariant("Forumabruf-Task fehlgeschlagen."))??;
+    Ok((
+        response_text_checked(&response.text())?,
+        response.from_cache,
+    ))
+}
+
+#[cfg(test)]
+mod kernel_integration_tests {
+    use super::*;
+    use brain_contracts::{store::DocumentStorePort, *};
+    use brain_storage::MemoryRepository;
+    use dbrain_retrieval::ReleaseRetriever;
+    use std::collections::BTreeSet;
+
+    #[tokio::test]
+    async fn two_forum_pages_reach_release_retriever_with_dates_and_report_status() {
+        let pages = [
+            r#"<html><h1 class="p-title-value">Itemfehler</h1><article class="js-post" data-content="post-1"><div class="bbWrapper">Erster Bericht zum Itemfehler.</div><time class="u-dt" datetime="2026-09-01T10:00:00Z" data-timestamp="1788256800"></time></article><link rel="next" href="/threads/itemfehler.4/page-2" /></html>"#,
+            r#"<html><h1 class="p-title-value">Itemfehler</h1><article class="js-post" data-content="post-2"><div class="bbWrapper">Zweiter Bericht über denselben Itemfehler.</div><time class="u-dt" datetime="2026-09-02T10:00:00Z" data-timestamp="1788343200"></time></article></html>"#,
+        ];
+        let first = parse_thread_html(pages[0]).unwrap();
+        assert_eq!(
+            first.next_page.as_deref(),
+            Some("https://forums.playdeadlock.com/threads/itemfehler.4/page-2")
+        );
+        let second = parse_thread_html(pages[1]).unwrap();
+        let store = MemoryRepository::default();
+        for post in first.posts.iter().chain(second.posts.iter()) {
+            let source = crate::forum_corpus::record(&json!({"post_id":post.post_id,"thread_title":"Itemfehler","thread_url":"https://forums.playdeadlock.com/threads/itemfehler.4/","text":post.text,"datetime":post.datetime,"timestamp":post.timestamp}), post.post_id, 1788400000).unwrap();
+            store.apply_record(source).unwrap();
+        }
+        let release = store
+            .release_from_heads("forum-fixture", "fixture", "unbekannt")
+            .unwrap();
+        store.publish(&release).await.unwrap();
+        let retriever = ReleaseRetriever::new(store, 6);
+        let query = Query {
+            request_id: "fixture".into(),
+            conversation_id: "fixture".into(),
+            text: "Itemfehler".into(),
+            requested_scopes: BTreeSet::new(),
+            profile: AnswerProfile::Explain,
+            patch: None,
+            mode: None,
+            domain: None,
+        };
+        let context = AuthorizedContext {
+            request_deadline: None,
+            principal: Principal {
+                actor_id: "fixture".into(),
+                channel: "fixture".into(),
+                scopes: BTreeSet::new(),
+                provider_egress: BTreeSet::from(["public".into()]),
+            },
+            conversation_id: "fixture".into(),
+            knowledge_release: "forum-fixture".into(),
+            deadline_ms: 8000,
+            budget: Budget::default(),
+        };
+        let evidence = retriever.retrieve(&query, &context).unwrap();
+        assert_eq!(evidence.len(), 2);
+        retriever
+            .validate_publication(&query, &context, &evidence)
+            .unwrap();
+        retriever
+            .validate_evidence(&query, &context, &evidence, true)
+            .unwrap();
+        for hit in evidence {
+            assert!(hit.content.contains("unbestätigt"));
+            assert!(hit.content.contains("2026-09-0"));
+            assert!(hit
+                .content
+                .contains("https://forums.playdeadlock.com/threads/itemfehler.4/#post-"));
+            assert_eq!(hit.kind, EvidenceKind::Prose);
+            assert!(hit.patch.is_none());
+        }
+    }
+}
+
+async fn store_observed_snapshots(
+    store: &SourceStore<'_>,
+    snapshots: &[EntitySnapshotInput],
+    document_id: i64,
+) -> Result<()> {
+    let mut transaction = store.pool().begin().await?;
+    for snapshot in snapshots {
+        let payload = serde_json::to_string(&snapshot.payload)?;
+        let hash = crate::store::stable_hash_text(&payload);
+        // Jede tatsächliche Beobachtung, auch A nach B, wird gemeinsam mit der
+        // fertigen Thread-Mitgliedschaft übernommen. Fehler rollen alles zurück.
+        sqlx::query("INSERT INTO brain.entity_snapshots(source,entity_type,external_id,canonical_name,payload_hash,payload,fetched_at,source_document_id) VALUES($1,$2,$3,$4,$5,$6::text::jsonb,clock_timestamp(),$7) ON CONFLICT(source,entity_type,external_id,payload_hash) DO UPDATE SET fetched_at=EXCLUDED.fetched_at,source_document_id=EXCLUDED.source_document_id")
+            .bind(&snapshot.source).bind(&snapshot.entity_type).bind(&snapshot.external_id).bind(&snapshot.canonical_name).bind(hash).bind(payload).bind(document_id).execute(&mut *transaction).await?;
+    }
+    sqlx::query("UPDATE brain.source_documents SET metadata=jsonb_set(metadata,'{complete}','true'::jsonb) WHERE id=$1")
+        .bind(document_id).execute(&mut *transaction).await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod scratch_regression_tests {
+    use super::*;
+    use crate::wiki_runtime::ScratchWikiStore;
+    use std::process::{Command, Stdio};
+    struct ScratchServer {
+        data: std::path::PathBuf,
+        pg_ctl: std::path::PathBuf,
+    }
+    impl Drop for ScratchServer {
+        fn drop(&mut self) {
+            let _ = Command::new(&self.pg_ctl)
+                .args(["-D"])
+                .arg(&self.data)
+                .args(["-m", "fast", "-w", "stop"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+        }
+    }
+    #[tokio::test]
+    async fn observed_reversion_and_removed_post_update_real_canonical_release() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("C5_SCRATCH_ONLY"), "C5_SCRATCH_ONLY\n").unwrap();
+        let bin = Command::new("pg_config").arg("--bindir").output().unwrap();
+        let bin = std::path::PathBuf::from(String::from_utf8(bin.stdout).unwrap().trim());
+        let data = root.path().join("pg");
+        assert!(Command::new(bin.join("initdb"))
+            .arg("-D")
+            .arg(&data)
+            .args([
+                "--auth-local=trust",
+                "--auth-host=reject",
+                "--username=brain_wiki_c5",
+                "--no-locale",
+                "--encoding=UTF8"
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .unwrap()
+            .success());
+        let server = ScratchServer {
+            data: data.clone(),
+            pg_ctl: bin.join("pg_ctl"),
+        };
+        assert!(Command::new(&server.pg_ctl)
+            .arg("-D")
+            .arg(&data)
+            .arg("-l")
+            .arg(root.path().join("server.log"))
+            .arg("-o")
+            .arg(format!(
+                "-c listen_addresses='' -k {} -p 55441 -c shared_buffers=16MB",
+                root.path().display()
+            ))
+            .args(["-w", "start"])
+            .stdout(Stdio::null())
+            .status()
+            .unwrap()
+            .success());
+        assert!(Command::new(bin.join("createdb"))
+            .arg("-h")
+            .arg(root.path())
+            .args(["-p", "55441", "-U", "brain_wiki_c5", "brain_wiki_c5"])
+            .status()
+            .unwrap()
+            .success());
+        let scratch = ScratchWikiStore::connect(root.path(), &root.path().join("raw"))
+            .await
+            .unwrap();
+        scratch.migrate().await.unwrap();
+        let pool = scratch.pool();
+        sqlx::raw_sql("CREATE TABLE brain.entity_snapshots(id bigserial PRIMARY KEY,source text NOT NULL,entity_type text NOT NULL,external_id text NOT NULL,canonical_name text,payload_hash text NOT NULL,payload jsonb NOT NULL,fetched_at timestamptz NOT NULL,source_document_id bigint REFERENCES brain.source_documents(id),UNIQUE(source,entity_type,external_id,payload_hash));").execute(pool).await.unwrap();
+        let store = SourceStore::new(pool, &root.path().join("raw")).unwrap();
+        let raw = store
+            .write_raw(SOURCE, "thread:4", b"fixture", "json")
+            .unwrap();
+        let doc = store
+            .upsert_source_document(SourceDocumentInput {
+                source: SOURCE,
+                external_id: "thread:4",
+                title: Some("fixture"),
+                url: Some("https://forums.playdeadlock.com/threads/fixture.4/"),
+                content_type: "application/json",
+                raw_path: &raw,
+                content: b"fixture",
+                metadata: &json!({"complete":true}),
+            })
+            .await
+            .unwrap();
+        let post = |id: u64, text: &str| EntitySnapshotInput {
+            source: SOURCE.into(),
+            entity_type: "forum_post".into(),
+            external_id: id.to_string(),
+            canonical_name: None,
+            payload: json!({"post_id":id,"thread_id":4,"thread_title":"fixture","thread_url":"https://forums.playdeadlock.com/threads/fixture.4/","text":text}),
+        };
+        let manifest = |ids: Vec<u64>| EntitySnapshotInput {
+            source: SOURCE.into(),
+            entity_type: "forum_thread".into(),
+            external_id: "4".into(),
+            canonical_name: None,
+            payload: json!({"thread_id":4,"post_ids":ids}),
+        };
+        let kernel = brain_storage::PgStore::new(pool.clone());
+        let mut fixture =
+            crate::forum_corpus::record(&post(100, "Anderes Wissen").payload, 1, 1).unwrap();
+        fixture
+            .metadata
+            .remove(brain_contracts::source::ORIGIN_METADATA_KEY);
+        fixture.source_id = "fixture-existing".into();
+        kernel.apply(&fixture).await.unwrap();
+        let base = brain_contracts::CorpusRelease {
+            release_id: "base".into(),
+            knowledge_version: "fixture".into(),
+            patch: "unknown".into(),
+            created_at_epoch: 1,
+            source_revisions: std::collections::BTreeMap::from([(
+                "fixture-existing".into(),
+                std::collections::BTreeMap::from([(fixture.logical_id.clone(), 1)]),
+            )]),
+        };
+        kernel.publish_release(&base).await.unwrap();
+        store_observed_snapshots(
+            &store,
+            &[manifest(vec![1, 2]), post(1, "A"), post(2, "Antwort")],
+            doc,
+        )
+        .await
+        .unwrap();
+        crate::forum_corpus::publish_archive(pool, pool, "base", "a")
+            .await
+            .unwrap();
+        sqlx::raw_sql("CREATE FUNCTION brain.reject_forum_test() RETURNS trigger LANGUAGE plpgsql AS $body$ BEGIN IF NEW.payload->>'text'='Fail' THEN RAISE EXCEPTION 'fixture failure'; END IF; RETURN NEW; END $body$; CREATE TRIGGER reject_forum_test BEFORE INSERT OR UPDATE ON brain.entity_snapshots FOR EACH ROW EXECUTE FUNCTION brain.reject_forum_test();").execute(pool).await.unwrap();
+        assert!(
+            store_observed_snapshots(&store, &[manifest(vec![1]), post(1, "Fail")], doc)
+                .await
+                .is_err()
+        );
+        crate::forum_corpus::publish_archive(pool, pool, "a", "after-failure")
+            .await
+            .unwrap();
+        let after_failure = kernel.snapshot("after-failure").await.unwrap();
+        assert_eq!(after_failure.release.source_revisions[SOURCE].len(), 2);
+        assert!(after_failure
+            .revisions
+            .iter()
+            .find(|r| r.logical_id == "post:1" && r.source_id == SOURCE)
+            .unwrap()
+            .content
+            .ends_with("\n\nA"));
+        sqlx::raw_sql("DROP TRIGGER reject_forum_test ON brain.entity_snapshots; DROP FUNCTION brain.reject_forum_test();").execute(pool).await.unwrap();
+
+        store_observed_snapshots(
+            &store,
+            &[manifest(vec![1, 2]), post(1, "B"), post(2, "Antwort")],
+            doc,
+        )
+        .await
+        .unwrap();
+        crate::forum_corpus::publish_archive(pool, pool, "a", "b")
+            .await
+            .unwrap();
+        store_observed_snapshots(&store, &[manifest(vec![1]), post(1, "A")], doc)
+            .await
+            .unwrap();
+        crate::forum_corpus::publish_archive(pool, pool, "b", "a-again")
+            .await
+            .unwrap();
+        let release = kernel.snapshot("a-again").await.unwrap();
+        assert!(release
+            .release
+            .source_revisions
+            .contains_key("fixture-existing"));
+        assert_eq!(release.release.source_revisions[SOURCE].len(), 1);
+        let source = release
+            .revisions
+            .iter()
+            .find(|r| r.source_id == SOURCE)
+            .unwrap();
+        assert!(source.content.ends_with("\n\nA"));
+        assert_eq!(source.revision, 4);
+        pool.close().await;
+        drop(server);
+    }
+}
+
+#[cfg(test)]
+mod live_browser_contract {
+    use super::*;
+    #[tokio::test]
+    #[ignore = "Braucht den vom Nutzer freigegebenen lokalen Brave-Browser"]
+    async fn real_public_thread_and_sitemap_use_import_parser() {
+        let mut browser = crate::forum_browser::ForumBrowser::connect(&Default::default())
+            .await
+            .unwrap();
+        let html = browser
+            .fetch_html("https://forums.playdeadlock.com/threads/posting-bugs.5/")
+            .await
+            .unwrap();
+        let thread = parse_thread_html(&html).unwrap();
+        assert!(!thread.posts.is_empty());
+        assert!(thread.posts[0].datetime.is_some());
+        eprintln!("Öffentliche Threadprobe: {} Beiträge, Beitragsdatum {}, Quelle https://forums.playdeadlock.com/threads/posting-bugs.5/", thread.posts.len(), thread.posts[0].datetime.as_deref().unwrap());
+        let xml = browser.fetch_html(DEFAULT_SITEMAP_URL).await.unwrap();
+        let index = parse_sitemap_index(&xml).unwrap();
+        if index.is_empty() {
+            assert!(!parse_threads_from_sitemap(DEFAULT_SITEMAP_URL, &xml)
+                .unwrap()
+                .is_empty());
+        } else {
+            for url in &index {
+                validate_sitemap_url(url).unwrap();
+            }
+        }
+        eprintln!(
+            "Öffentliche Sitemapprobe: {} Sitemapdateien im Index.",
+            index.len()
+        );
+        browser.close().await.unwrap();
     }
 }

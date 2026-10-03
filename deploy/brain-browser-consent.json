@@ -1,0 +1,5 @@
+{
+  "display": ":10",
+  "interval_seconds": 10,
+  "command_timeout_seconds": 5
+}

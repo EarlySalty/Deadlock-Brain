@@ -11,6 +11,8 @@ pub mod deadlock_data;
 pub mod error;
 pub mod external;
 pub mod forum;
+pub mod forum_browser;
+pub mod forum_corpus;
 pub mod git_source;
 pub mod google_sheet;
 pub mod patchnotes_db;
