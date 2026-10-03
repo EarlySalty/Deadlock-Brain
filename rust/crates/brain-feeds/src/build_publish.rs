@@ -21,6 +21,10 @@ pub enum PublishError {
     Unavailable(String),
     #[error("invalid response: {0}")]
     InvalidResponse(String),
+    #[error("publish service rate limited")]
+    RateLimited,
+    #[error("publication remains unconfirmed after deadline")]
+    Timeout,
 }
 
 pub trait BuildPublishPort: Send + Sync {
@@ -110,6 +114,7 @@ pub struct HttpBuildPublishClient {
     publish_url: reqwest::Url,
     token: zeroize::Zeroizing<String>,
     client: reqwest::blocking::Client,
+    timeout: Duration,
 }
 
 impl HttpBuildPublishClient {
@@ -164,11 +169,126 @@ impl HttpBuildPublishClient {
         let client = client
             .build()
             .map_err(|e| PublishError::Unavailable(e.to_string()))?;
+        if timeout.is_zero() {
+            return Err(PublishError::InvalidRequest(
+                "zero transport timeout".into(),
+            ));
+        }
         Ok(Self {
             publish_url,
             token,
             client,
+            timeout,
         })
+    }
+
+    pub fn status_for(
+        &self,
+        request: &BuildPublishRequest,
+    ) -> Result<BuildPublishStatus, PublishError> {
+        self.status_bound(request, self.timeout)
+    }
+
+    fn status_bound(
+        &self,
+        request: &BuildPublishRequest,
+        timeout: Duration,
+    ) -> Result<BuildPublishStatus, PublishError> {
+        request.validate().map_err(PublishError::InvalidRequest)?;
+        let hash = request
+            .request_sha256()
+            .map_err(PublishError::InvalidRequest)?;
+        let mut url = self.publish_url.clone();
+        url.path_segments_mut()
+            .map_err(|_| PublishError::InvalidRequest("invalid publish endpoint path".into()))?
+            .push(&request.request_id);
+        url.query_pairs_mut().append_pair("request_sha256", &hash);
+        let response = self
+            .client
+            .get(url)
+            .bearer_auth(self.token.as_str())
+            .timeout(timeout)
+            .send()
+            .map_err(transport_error)?;
+        self.read(response, &request.request_id, Some(&hash))
+    }
+
+    fn submit_bound(
+        &self,
+        request: &BuildPublishRequest,
+        timeout: Duration,
+    ) -> Result<BuildPublishStatus, PublishError> {
+        request.validate().map_err(PublishError::InvalidRequest)?;
+        let hash = request
+            .request_sha256()
+            .map_err(PublishError::InvalidRequest)?;
+        let response = self
+            .client
+            .post(self.publish_url.clone())
+            .bearer_auth(self.token.as_str())
+            .header("Idempotency-Key", &request.request_id)
+            .json(request)
+            .timeout(timeout)
+            .send()
+            .map_err(transport_error)?;
+        self.read(response, &request.request_id, Some(&hash))
+    }
+
+    pub fn publish_and_wait(
+        &self,
+        request: &BuildPublishRequest,
+        wait: Duration,
+        poll_interval: Duration,
+    ) -> Result<BuildPublishStatus, PublishError> {
+        if wait.is_zero() || wait > Duration::from_secs(120) {
+            return Err(PublishError::InvalidRequest(
+                "wait must be between zero and 120 seconds".into(),
+            ));
+        }
+        request.validate().map_err(PublishError::InvalidRequest)?;
+        let deadline = std::time::Instant::now() + wait;
+        let remaining = || {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                Err(PublishError::Timeout)
+            } else {
+                Ok(remaining.min(self.timeout))
+            }
+        };
+        let pause = || {
+            std::thread::sleep(
+                poll_interval.min(deadline.saturating_duration_since(std::time::Instant::now())),
+            );
+        };
+        let mut attempts = 0;
+        let mut status = loop {
+            attempts += 1;
+            match self.submit_bound(request, remaining()?) {
+                Ok(status) => break status,
+                Err(
+                    PublishError::Unavailable(_)
+                    | PublishError::Timeout
+                    | PublishError::RateLimited,
+                ) if attempts < 3 => pause(),
+                Err(error) => return Err(error),
+            }
+        };
+        loop {
+            remaining()?;
+            if status.state.is_terminal() {
+                return Ok(status);
+            }
+            pause();
+            match self.status_bound(request, remaining()?) {
+                Ok(next) => status = next,
+                Err(
+                    PublishError::Unavailable(_)
+                    | PublishError::Timeout
+                    | PublishError::RateLimited,
+                ) => {}
+                Err(error) => return Err(error),
+            }
+        }
     }
 
     fn read(
@@ -182,6 +302,7 @@ impl HttpBuildPublishClient {
             401 | 403 => return Err(PublishError::Unauthorized),
             404 => return Err(PublishError::NotFound),
             409 => return Err(PublishError::Conflict),
+            429 => return Err(PublishError::RateLimited),
             code => return Err(PublishError::Unavailable(format!("HTTP {code}"))),
         }
         let mut body = Vec::new();
@@ -205,19 +326,7 @@ impl HttpBuildPublishClient {
 
 impl BuildPublishPort for HttpBuildPublishClient {
     fn submit(&self, request: &BuildPublishRequest) -> Result<BuildPublishStatus, PublishError> {
-        request.validate().map_err(PublishError::InvalidRequest)?;
-        let hash = request
-            .request_sha256()
-            .map_err(PublishError::InvalidRequest)?;
-        let response = self
-            .client
-            .post(self.publish_url.clone())
-            .bearer_auth(self.token.as_str())
-            .header("Idempotency-Key", &request.request_id)
-            .json(request)
-            .send()
-            .map_err(|e| PublishError::Unavailable(e.to_string()))?;
-        self.read(response, &request.request_id, Some(&hash))
+        self.submit_bound(request, self.timeout)
     }
     fn status(&self, request_id: &str) -> Result<BuildPublishStatus, PublishError> {
         BuildPublishRequest::validate_request_id(request_id)
@@ -234,6 +343,28 @@ impl BuildPublishPort for HttpBuildPublishClient {
             .map_err(|e| PublishError::Unavailable(e.to_string()))?;
         self.read(response, request_id, None)
     }
+}
+
+fn transport_error(error: reqwest::Error) -> PublishError {
+    if error.is_timeout() {
+        PublishError::Timeout
+    } else {
+        PublishError::Unavailable("transport failed".into())
+    }
+}
+
+pub fn deterministic_request(
+    mut request: BuildPublishRequest,
+) -> Result<BuildPublishRequest, PublishError> {
+    request.request_id = "brain-publish-v1".into();
+    request.validate().map_err(PublishError::InvalidRequest)?;
+    request.request_id = format!(
+        "brain-publish-{}",
+        request
+            .request_sha256()
+            .map_err(PublishError::InvalidRequest)?
+    );
+    Ok(request)
 }
 
 pub fn failed_is_retryable(class: BuildPublishErrorClass) -> bool {

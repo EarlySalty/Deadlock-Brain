@@ -1,6 +1,7 @@
 //! Constructor and transport regressions. Only authored data and loopback stubs.
 use brain_contracts::feeds::{
-    BuildPublishRequest, BuildPublishState, BuildPublishStatus, BUILD_PUBLISH_VERSION,
+    BuildPublishErrorClass, BuildPublishRequest, BuildPublishState, BuildPublishStatus,
+    BUILD_PUBLISH_VERSION,
 };
 use brain_feeds::build_publish::{BuildPublishPort, HttpBuildPublishClient, PublishError};
 use std::{
@@ -77,6 +78,176 @@ fn isolated_proxy(test_name: &str, expect_https_connect: bool) -> bool {
     }
     assert!(matches!(proxy.accept(), Err(e) if e.kind() == std::io::ErrorKind::WouldBlock));
     true
+}
+
+fn bound_reply(request: &BuildPublishRequest, state: BuildPublishState) -> Reply {
+    Reply {
+        code: 200,
+        body: serde_json::to_string(&BuildPublishStatus {
+            contract_version: BUILD_PUBLISH_VERSION.into(),
+            request_id: request.request_id.clone(),
+            request_sha256: request.request_sha256().unwrap(),
+            state,
+            submitted_at: 1,
+            updated_at: 2,
+        })
+        .unwrap(),
+        location: None,
+    }
+}
+
+#[test]
+fn publish_waits_for_terminal_and_binds_every_poll_to_the_original_hash() {
+    let request = request();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!("http://{}/gateway", listener.local_addr().unwrap());
+    let server = serve(
+        listener,
+        vec![
+            bound_reply(&request, BuildPublishState::Queued),
+            bound_reply(&request, BuildPublishState::Running),
+            bound_reply(
+                &request,
+                BuildPublishState::Succeeded { hero_build_id: 456 },
+            ),
+        ],
+    );
+    let done = client(&endpoint)
+        .unwrap()
+        .publish_and_wait(&request, TIMEOUT, Duration::ZERO)
+        .unwrap();
+    assert_eq!(
+        done.state,
+        BuildPublishState::Succeeded { hero_build_id: 456 }
+    );
+    let seen = server.join().unwrap();
+    assert_eq!(seen.len(), 3);
+    for poll in &seen[1..] {
+        assert!(poll.head.starts_with(&format!(
+            "GET /gateway/builds/v1/publish/{}?request_sha256={} HTTP/1.1\r\n",
+            request.request_id,
+            request.request_sha256().unwrap()
+        )));
+    }
+}
+
+#[test]
+fn bound_poll_rejects_a_foreign_hash_and_zero_build_id() {
+    for bad_state in [false, true] {
+        let request = request();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let mut bad = bound_reply(
+            &request,
+            BuildPublishState::Succeeded {
+                hero_build_id: if bad_state { 0 } else { 5 },
+            },
+        );
+        if !bad_state {
+            bad.body = bad
+                .body
+                .replace(&request.request_sha256().unwrap(), &"0".repeat(64));
+        }
+        let server = serve(
+            listener,
+            vec![bound_reply(&request, BuildPublishState::Queued), bad],
+        );
+        assert!(matches!(
+            client(&endpoint)
+                .unwrap()
+                .publish_and_wait(&request, TIMEOUT, Duration::ZERO),
+            Err(PublishError::InvalidResponse(_))
+        ));
+        assert_eq!(server.join().unwrap().len(), 2);
+    }
+}
+
+#[test]
+fn retries_reuse_identical_request_and_failed_states_remain_failed() {
+    let request = brain_feeds::build_publish::deterministic_request(request()).unwrap();
+    assert_eq!(
+        brain_feeds::build_publish::deterministic_request(request.clone()).unwrap(),
+        request
+    );
+    let mut changed = request.clone();
+    changed.payload["new"] = serde_json::json!(1);
+    assert_ne!(
+        brain_feeds::build_publish::deterministic_request(changed)
+            .unwrap()
+            .request_id,
+        request.request_id
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let server = serve(
+        listener,
+        vec![
+            Reply {
+                code: 503,
+                body: "{}".into(),
+                location: None,
+            },
+            Reply {
+                code: 429,
+                body: "{}".into(),
+                location: None,
+            },
+            bound_reply(
+                &request,
+                BuildPublishState::Failed {
+                    error_class: BuildPublishErrorClass::RateLimited,
+                },
+            ),
+        ],
+    );
+    let failed = client(&endpoint)
+        .unwrap()
+        .publish_and_wait(&request, TIMEOUT, Duration::ZERO)
+        .unwrap();
+    assert_eq!(
+        failed.state,
+        BuildPublishState::Failed {
+            error_class: BuildPublishErrorClass::RateLimited
+        }
+    );
+    let seen = server.join().unwrap();
+    assert_eq!(seen.len(), 3);
+    for attempt in &seen {
+        assert!(attempt.head.starts_with("POST /builds/v1/publish "));
+        assert!(attempt
+            .head
+            .contains(&format!("idempotency-key: {}\r\n", request.request_id)));
+        assert_eq!(attempt.body, seen[0].body);
+    }
+}
+
+#[test]
+fn rate_limit_and_invalid_wait_do_not_report_publication() {
+    let request = request();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let server = serve(
+        listener,
+        (0..3)
+            .map(|_| Reply {
+                code: 429,
+                body: "{}".into(),
+                location: None,
+            })
+            .collect(),
+    );
+    let client = client(&endpoint).unwrap();
+    for wait in [Duration::ZERO, Duration::from_secs(121)] {
+        assert!(matches!(
+            client.publish_and_wait(&request, wait, Duration::ZERO),
+            Err(PublishError::InvalidRequest(_))
+        ));
+    }
+    assert_eq!(
+        client.publish_and_wait(&request, TIMEOUT, Duration::ZERO),
+        Err(PublishError::RateLimited)
+    );
+    assert_eq!(server.join().unwrap().len(), 3);
 }
 
 fn client(endpoint: &str) -> Result<HttpBuildPublishClient, PublishError> {

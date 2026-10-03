@@ -271,6 +271,16 @@ struct ReviewBuildArgs {
     query: String,
     #[arg(long = "wait-seconds", default_value_t = 30)]
     wait_seconds: u64,
+    #[command(flatten)]
+    publish_connection: PublishConnectionArgs,
+}
+
+#[derive(Debug, Args)]
+struct PublishConnectionArgs {
+    #[arg(long = "publish-endpoint", default_value = "http://127.0.0.1:8783")]
+    endpoint: String,
+    #[arg(long = "infisical-config")]
+    infisical_config: Option<PathBuf>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -316,6 +326,10 @@ struct ReasonBuildArgs {
     patch: Option<String>,
     #[arg(long)]
     publish: bool,
+    #[arg(long = "wait-seconds", default_value_t = 30)]
+    wait_seconds: u64,
+    #[command(flatten)]
+    publish_connection: PublishConnectionArgs,
     #[arg(long)]
     json: bool,
     #[arg(long = "seed-path", value_name = "PATH")]
@@ -2017,22 +2031,268 @@ mod requested_build_tests {
     }
     #[test]
     fn requested_build_receipt_requires_real_completion() {
-        assert_eq!(confirmed_publication("DONE", Some(123)), Some(123));
-        for status in ["PENDING", "RUNNING", "FAILED", "CANCELLED", "BLOCKED"] {
-            assert!(confirmed_publication(status, Some(123)).is_none());
+        use brain_contracts::feeds::*;
+        let request = brain_feeds::build_publish::deterministic_request(BuildPublishRequest {
+            contract_version: BUILD_PUBLISH_VERSION.into(),
+            request_id: String::new(),
+            hero_id: 25,
+            hero_name: "Warden".into(),
+            build_name: "Fixture".into(),
+            payload: json!({"mod_categories":[]}),
+            caller: "brain-test".into(),
+        })
+        .unwrap();
+        for state in [
+            BuildPublishState::Queued,
+            BuildPublishState::Running,
+            BuildPublishState::Succeeded { hero_build_id: 0 },
+            BuildPublishState::Failed {
+                error_class: BuildPublishErrorClass::RateLimited,
+            },
+            BuildPublishState::Succeeded { hero_build_id: 123 },
+        ] {
+            let success = matches!(state, BuildPublishState::Succeeded { hero_build_id: 123 });
+            let receipt = PublicationReceipt::from_result(
+                &request,
+                Ok(BuildPublishStatus {
+                    contract_version: BUILD_PUBLISH_VERSION.into(),
+                    request_id: request.request_id.clone(),
+                    request_sha256: request.request_sha256().unwrap(),
+                    state,
+                    submitted_at: 1,
+                    updated_at: 1,
+                }),
+            )
+            .unwrap();
+            assert_eq!(receipt.ensure_success().is_ok(), success);
+            assert_eq!(receipt.hero_build_id, success.then_some(123));
         }
-        for id in [None, Some(0), Some(-1)] {
-            assert!(confirmed_publication("DONE", id).is_none());
+        let timeout = PublicationReceipt::from_result(
+            &request,
+            Err(brain_feeds::build_publish::PublishError::Timeout),
+        )
+        .unwrap();
+        assert!(timeout.ensure_success().is_err());
+        assert_eq!(timeout.error_class.as_deref(), Some("timeout"));
+        let json = serde_json::to_value(timeout).unwrap();
+        assert_eq!(json["request_sha256"], request.request_sha256().unwrap());
+    }
+
+    #[test]
+    fn publish_credentials_follow_steam_precedence_and_reject_invalid_primary() {
+        let values = [
+            "INTERNAL_API_TOKEN",
+            "STEAM_INTERNAL_API_TOKEN",
+            "TWITCH_INTERNAL_API_TOKEN",
+        ]
+        .map(|name| (name.into(), zeroize::Zeroizing::new(name.into())));
+        assert_eq!(
+            select_publish_token(&values).unwrap().as_str(),
+            "TWITCH_INTERNAL_API_TOKEN"
+        );
+        assert_eq!(
+            select_publish_token(&values[..2]).unwrap().as_str(),
+            "STEAM_INTERNAL_API_TOKEN"
+        );
+        assert_eq!(
+            select_publish_token(&values[..1]).unwrap().as_str(),
+            "INTERNAL_API_TOKEN"
+        );
+        assert!(select_publish_token(&[]).is_err());
+        assert!(select_publish_token(&[
+            (
+                "TWITCH_INTERNAL_API_TOKEN".into(),
+                zeroize::Zeroizing::new(String::new())
+            ),
+            values[0].clone()
+        ])
+        .is_err());
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct PublicationReceipt {
+    contract_version: String,
+    request_id: String,
+    request_sha256: String,
+    status: &'static str,
+    hero_build_id: Option<u64>,
+    error_class: Option<String>,
+}
+
+impl PublicationReceipt {
+    fn from_result(
+        request: &brain_contracts::feeds::BuildPublishRequest,
+        result: std::result::Result<
+            brain_contracts::feeds::BuildPublishStatus,
+            brain_feeds::build_publish::PublishError,
+        >,
+    ) -> Result<Self> {
+        use brain_contracts::feeds::BuildPublishState;
+        use brain_feeds::build_publish::PublishError;
+        let hash = request
+            .request_sha256()
+            .map_err(|_| anyhow!("Veröffentlichungsanfrage ist ungültig."))?;
+        let result = result.and_then(|status| {
+            status
+                .validate_for(&request.request_id, Some(&hash))
+                .map_err(PublishError::InvalidResponse)?;
+            Ok(status)
+        });
+        let (status, hero_build_id, error_class) = match result {
+            Ok(status) => match status.state {
+                BuildPublishState::Succeeded { hero_build_id } => {
+                    ("DONE", Some(hero_build_id), None)
+                }
+                BuildPublishState::Failed { error_class } => (
+                    "FAILED",
+                    None,
+                    Some(
+                        serde_json::to_value(error_class)?
+                            .as_str()
+                            .unwrap_or("internal")
+                            .to_string(),
+                    ),
+                ),
+                _ => ("UNCONFIRMED", None, Some("timeout".into())),
+            },
+            Err(error) => {
+                let class = match error {
+                    PublishError::RateLimited => "rate_limited",
+                    PublishError::Timeout => "timeout",
+                    PublishError::Unauthorized => "unauthorized",
+                    PublishError::Conflict => "conflict",
+                    PublishError::NotFound => "not_found",
+                    PublishError::InvalidRequest(_) => "rejected",
+                    PublishError::InvalidResponse(_) => "invalid_response",
+                    PublishError::Unavailable(_) => "steam_unavailable",
+                };
+                ("UNCONFIRMED", None, Some(class.into()))
+            }
+        };
+        Ok(Self {
+            contract_version: request.contract_version.clone(),
+            request_id: request.request_id.clone(),
+            request_sha256: hash,
+            status,
+            hero_build_id,
+            error_class,
+        })
+    }
+
+    fn ensure_success(&self) -> Result<()> {
+        if self.status == "DONE" && self.hero_build_id.is_some_and(|id| id > 0) {
+            Ok(())
+        } else {
+            Err(anyhow!("Veröffentlichung nicht bestätigt ({}). Anfrage {} bleibt unverändert; nicht als neuen Build erneut senden.", self.error_class.as_deref().unwrap_or("internal"), self.request_id))
         }
     }
 }
 
-fn confirmed_publication(status: &str, id: Option<i64>) -> Option<i64> {
-    if status == "DONE" {
-        id.filter(|id| *id > 0)
+fn publish_request(
+    build: &dbrain_reasoner::BuildObject,
+    review: bool,
+) -> Result<brain_contracts::feeds::BuildPublishRequest> {
+    let payload = if review {
+        dbrain_reasoner::publish::review_publish_task_payload(build)?
     } else {
-        None
+        dbrain_reasoner::publish::validate_publish_input(build)?;
+        dbrain_reasoner::publish::publish_task_payload(build)
+    };
+    let request = brain_contracts::feeds::BuildPublishRequest {
+        contract_version: brain_contracts::feeds::BUILD_PUBLISH_VERSION.into(),
+        request_id: String::new(),
+        hero_id: u32::try_from(build.hero_id).context("Ungültiger Held für Veröffentlichung.")?,
+        hero_name: build.hero_name.clone(),
+        build_name: payload
+            .get("name")
+            .and_then(Value::as_str)
+            .context("Buildname fehlt.")?
+            .into(),
+        payload,
+        caller: if review {
+            "deadlock-brain-review"
+        } else {
+            "deadlock-brain-reasoner"
+        }
+        .into(),
+    };
+    brain_feeds::build_publish::deterministic_request(request)
+        .map_err(|_| anyhow!("Veröffentlichungsanfrage ist ungültig."))
+}
+
+fn select_publish_token(
+    values: &[(String, zeroize::Zeroizing<String>)],
+) -> Result<zeroize::Zeroizing<String>> {
+    for name in [
+        "TWITCH_INTERNAL_API_TOKEN",
+        "STEAM_INTERNAL_API_TOKEN",
+        "INTERNAL_API_TOKEN",
+    ] {
+        if let Some((_, token)) = values.iter().find(|(key, _)| key == name) {
+            if token.is_empty()
+                || token.len() > 4096
+                || !token.bytes().all(|byte| byte.is_ascii_graphic())
+            {
+                return Err(anyhow!("Interner Dienstzugang in Infisical ist ungültig."));
+            }
+            return Ok(token.clone());
+        }
     }
+    Err(anyhow!(
+        "Interner Dienstzugang fehlt in Infisical. Es wurde nichts veröffentlicht."
+    ))
+}
+
+async fn publish_build_http(
+    build: &dbrain_reasoner::BuildObject,
+    review: bool,
+    connection: &PublishConnectionArgs,
+    wait_seconds: u64,
+) -> Result<PublicationReceipt> {
+    use brain_feeds::build_publish::HttpBuildPublishClient;
+    use std::time::Duration;
+    if !(1..=120).contains(&wait_seconds) {
+        anyhow::bail!("Wartezeit muss zwischen 1 und 120 Sekunden liegen.");
+    }
+    let request = publish_request(build, review)?;
+    let endpoint = connection.endpoint.clone();
+    tokio::task::spawn_blocking(move || {
+        HttpBuildPublishClient::new(&endpoint, "endpoint-validation", Duration::from_secs(5))
+            .map(|_| ())
+            .map_err(|_| anyhow!("Veröffentlichungsendpunkt ist ungültig."))
+    })
+    .await
+    .map_err(|_| anyhow!("Veröffentlichungsendpunkt ist nicht prüfbar."))??;
+    let path = connection
+        .infisical_config
+        .clone()
+        .unwrap_or_else(|| config::repo_root().join("config/infisical.json"));
+    let values = tokio::time::timeout(
+        Duration::from_secs(10),
+        deadlock_brain_core::pg::infisical_environment(&path),
+    )
+    .await
+    .map_err(|_| anyhow!("Infisical antwortet nicht rechtzeitig."))?
+    .map_err(|_| {
+        anyhow!("Infisical-Dienstzugang ist nicht verfügbar. Es wurde nichts veröffentlicht.")
+    })?;
+    let token = select_publish_token(&values)?;
+    drop(values);
+    let endpoint = connection.endpoint.clone();
+    tokio::task::spawn_blocking(move || {
+        let result = HttpBuildPublishClient::new(&endpoint, &token, Duration::from_secs(5))
+            .and_then(|client| {
+                client.publish_and_wait(
+                    &request,
+                    Duration::from_secs(wait_seconds),
+                    Duration::from_millis(500),
+                )
+            });
+        PublicationReceipt::from_result(&request, result)
+    })
+    .await
+    .map_err(|_| anyhow!("Veröffentlichung bleibt unbestätigt: Dienstaufruf wurde unterbrochen."))?
 }
 
 async fn run_requested_build(pool: &PgPool, args: ReviewBuildArgs, review: bool) -> Result<()> {
@@ -2060,11 +2320,7 @@ async fn run_requested_build(pool: &PgPool, args: ReviewBuildArgs, review: bool)
     let alternative_variants = build.variants.len();
     if review {
         build.variants.clear();
-        build.name = format!(
-            "{} Brain Review {}",
-            build.hero_name,
-            chrono::Utc::now().format("%Y-%m-%d %H:%M")
-        );
+        build.name = format!("{} Brain Review {}", build.hero_name, build.patch_tag);
     } else if dbrain_reasoner::publish::validate_publish_input(&build).is_err() {
         // A user request authorizes creation, not bypassing publication quality gates.
         return print_json(&json!({
@@ -2078,53 +2334,15 @@ async fn run_requested_build(pool: &PgPool, args: ReviewBuildArgs, review: bool)
         }));
     }
     let selected_family = build.family.as_ref().map(|family| family.label.clone());
-    let task_id = if review {
-        dbrain_reasoner::publish::enqueue_review_publish_task(pool, &build).await?
-    } else {
-        dbrain_reasoner::publish::enqueue_publish_task(pool, &build).await?
-    };
-    let deadline =
-        tokio::time::Instant::now() + std::time::Duration::from_secs(args.wait_seconds.min(120));
-    let (last_status, hero_build_id, version) = loop {
-        let (status, result): (String, Option<Value>) = sqlx::query_as(
-            "SELECT status, result FROM steam.steam_tasks WHERE id=$1 AND type='BUILD_PUBLISH_ORIGINAL'",
-        )
-        .bind(task_id)
-        .fetch_one(pool)
-        .await?;
-        let hero_build_id = result
-            .as_ref()
-            .and_then(|value| value.pointer("/data/hero_build_id"))
-            .and_then(Value::as_i64);
-        let version = result
-            .as_ref()
-            .and_then(|value| value.pointer("/data/version"))
-            .and_then(Value::as_i64);
-        if matches!(status.as_str(), "DONE" | "FAILED" | "CANCELLED")
-            || tokio::time::Instant::now() >= deadline
-        {
-            break (status, hero_build_id, version);
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-    };
-    if matches!(last_status.as_str(), "FAILED" | "CANCELLED") {
-        return Err(anyhow!("Der Build konnte nicht veröffentlicht werden."));
-    }
-    let confirmed_id = confirmed_publication(&last_status, hero_build_id);
-    if last_status == "DONE" && confirmed_id.is_none() {
-        return Err(anyhow!(
-            "Steam hat keine gültige Build-ID bestätigt. Die Veröffentlichung bleibt unbestätigt."
-        ));
-    }
-    if !matches!(last_status.as_str(), "DONE" | "PENDING" | "RUNNING") {
-        return Err(anyhow!("Der Veröffentlichungsstatus ist unbekannt."));
-    }
+    let publication =
+        publish_build_http(&build, review, &args.publish_connection, args.wait_seconds).await?;
     print_json(&json!({
-        "status": last_status,
+        "status": publication.status,
+        "publication": publication,
         "review": review,
-        "task_id": task_id,
-        "hero_build_id": confirmed_id,
-        "version": version,
+        "task_id": null,
+        "hero_build_id": publication.hero_build_id,
+        "version": null,
         "hero_id": build.hero_id,
         "hero_name": build.hero_name,
         "build_name": build.name,
@@ -2135,7 +2353,8 @@ async fn run_requested_build(pool: &PgPool, args: ReviewBuildArgs, review: bool)
             "label": block.label,
             "items": block.items.iter().map(|item| json!({"item_id": item.item_id, "name": item.name})).collect::<Vec<_>>()
         })).collect::<Vec<_>>()
-    }))
+    }))?;
+    publication.ensure_success()
 }
 
 async fn run_reason(pool: &PgPool, settings: &Settings, target: ReasonCommands) -> Result<()> {
@@ -2174,21 +2393,28 @@ async fn run_reason(pool: &PgPool, settings: &Settings, target: ReasonCommands) 
                 },
             )
             .await?;
-            let task_id = if args.publish {
-                Some(dbrain_reasoner::publish::enqueue_publish_task(pool, &build).await?)
+            let publication = if args.publish {
+                Some(
+                    publish_build_http(&build, false, &args.publish_connection, args.wait_seconds)
+                        .await?,
+                )
             } else {
                 None
             };
             if args.json {
-                if let Some(task_id) = task_id {
-                    print_json(&json!({"build": build, "publish_task_id": task_id}))
+                if let Some(publication) = &publication {
+                    print_json(
+                        &json!({"build": build, "hero_build_id": publication.hero_build_id, "publication": publication}),
+                    )?;
                 } else {
-                    print_json(&build)
+                    print_json(&build)?;
                 }
             } else {
-                print_reason_build(&build, task_id);
-                Ok(())
+                print_reason_build(&build, publication.as_ref());
             }
+            publication
+                .as_ref()
+                .map_or(Ok(()), PublicationReceipt::ensure_success)
         }
         ReasonCommands::PatchImpact(args) => {
             let mut config = dbrain_reasoner::ReasonerConfig {
@@ -2262,7 +2488,10 @@ async fn run_reason(pool: &PgPool, settings: &Settings, target: ReasonCommands) 
     }
 }
 
-fn print_reason_build(build: &dbrain_reasoner::BuildObject, task_id: Option<i64>) {
+fn print_reason_build(
+    build: &dbrain_reasoner::BuildObject,
+    publication: Option<&PublicationReceipt>,
+) {
     println!("{} ({})", build.name, build.patch_tag);
     println!("Kern:");
     for item in &build.core {
@@ -2280,8 +2509,17 @@ fn print_reason_build(build: &dbrain_reasoner::BuildObject, task_id: Option<i64>
     if !build.rationale.trim().is_empty() {
         println!("Warum: {}", build.rationale);
     }
-    if let Some(task_id) = task_id {
-        println!("Publish-Task: {task_id}");
+    if let Some(publication) = publication {
+        if let Some(id) = publication.hero_build_id {
+            println!("Veröffentlicht. Build-ID: {id}");
+        } else {
+            println!(
+                "Veröffentlichung nicht bestätigt. Fehlerklasse: {}",
+                publication.error_class.as_deref().unwrap_or("internal")
+            );
+        }
+        println!("Anfrage: {}", publication.request_id);
+        println!("Prüfsumme: {}", publication.request_sha256);
     }
 }
 
