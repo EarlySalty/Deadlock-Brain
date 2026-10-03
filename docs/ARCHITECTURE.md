@@ -184,11 +184,16 @@ Anhangdateien werden nicht heruntergeladen; ihre Verweise bleiben gespeichert.
 
 ```sh
 deadlock-brain pull forum --browser --limit 0 --delay-seconds 1 \
+  --data-dir /home/nathanael/.local/share/deadlock-brain \
+  --archive-infisical-config /etc/deadlock-brain/infisical.json \
   --base-release BESTEHENDER_WISSENSSTAND --publish-release NEUER_WISSENSSTAND \
   --kernel-config /etc/deadlock-brain/maintenance-runtime.json
 ```
 
 `--limit 0` bearbeitet alle in der öffentlichen Sitemap entdeckten Threads.
+Der Forumaufruf verwendet feste absolute Daten- und Konfigurationspfade und
+lädt keine Legacy-Settings aus `.env` oder Umgebungsvariablen. Sein Archiv
+bleibt nach dem Entfernen des Bau-Worktrees erhalten.
 Nach einer Unterbrechung werden nur vollständig gespeicherte Threads mit
 unverändertem Sitemap-Änderungsdatum übersprungen. Fehlt dieses Datum, wird der
 Thread erneut gelesen. Der Abschlussbericht nennt Entdeckungen, tatsächlich

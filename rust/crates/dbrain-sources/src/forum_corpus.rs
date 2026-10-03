@@ -144,11 +144,21 @@ pub async fn publish_archive(
     release.created_at_epoch = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
         .as_secs() as i64;
-    let mut guard = pool.begin().await?;
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)")
-        .bind("forum-corpus-publish")
-        .execute(&mut *guard)
-        .await?;
+    // Wartende Publisher geben ihre Verbindung frei, bevor sie erneut versuchen.
+    // Der Transaktionslock wird auch bei Abbruch zuverlässig zurückgerollt.
+    let mut guard = loop {
+        let mut candidate = pool.begin().await?;
+        let acquired: bool =
+            sqlx::query_scalar("SELECT pg_try_advisory_xact_lock(hashtext($1)::bigint)")
+                .bind("forum-corpus-publish")
+                .fetch_one(&mut *candidate)
+                .await?;
+        if acquired {
+            break candidate;
+        }
+        candidate.rollback().await?;
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    };
     let mut archive_snapshot = archive_pool.begin().await?;
     sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
         .execute(&mut *archive_snapshot)
