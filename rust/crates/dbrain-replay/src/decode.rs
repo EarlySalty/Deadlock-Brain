@@ -29,6 +29,64 @@ fn observed<T>(value: Option<T>) -> Observed<T> {
     )
 }
 
+fn game_identifier(directory: Option<&str>) -> Result<Observed<String>, ReplayFailure> {
+    let Some(directory) = directory else {
+        return Ok(Observed::unknown(UnknownReason::NotPresent));
+    };
+    if directory == "citadel" {
+        return Ok(Observed::known("citadel".into()));
+    }
+    if directory.chars().any(char::is_control) {
+        return Err(ReplayFailure::UnknownStructure);
+    }
+    let bytes = directory.as_bytes();
+    let (path, separator, windows) = if let Some(path) = directory.strip_prefix('/') {
+        (path, '/', false)
+    } else if bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'/' | b'\\')
+    {
+        (&directory[3..], bytes[2] as char, true)
+    } else {
+        return Err(ReplayFailure::UnknownStructure);
+    };
+    if path.contains(if separator == '/' { '\\' } else { '/' }) {
+        return Err(ReplayFailure::UnknownStructure);
+    }
+    let mut leaf = None;
+    for component in path.split(separator) {
+        if component.is_empty()
+            || matches!(component, "." | "..")
+            || component.starts_with(char::is_whitespace)
+            || component.ends_with(char::is_whitespace)
+            || (windows
+                && (component.ends_with('.')
+                    || component
+                        .chars()
+                        .any(|c| matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*'))))
+        {
+            return Err(ReplayFailure::UnknownStructure);
+        }
+        if windows {
+            let stem = component.split('.').next().unwrap_or_default();
+            let stem = stem.to_ascii_uppercase();
+            if matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+                || (stem.len() == 4
+                    && (stem.starts_with("COM") || stem.starts_with("LPT"))
+                    && matches!(stem.as_bytes()[3], b'1'..=b'9'))
+            {
+                return Err(ReplayFailure::UnknownStructure);
+            }
+        }
+        leaf = Some(component);
+    }
+    if leaf != Some("citadel") {
+        return Err(ReplayFailure::UnknownStructure);
+    }
+    Ok(Observed::known("citadel".into()))
+}
+
 struct Collector {
     request: ReplayRequest,
     state: SharedState,
@@ -100,22 +158,16 @@ impl Visitor for Collector {
             EDemoCommands::DemFileHeader => {
                 let msg =
                     CDemoFileHeader::decode(data).map_err(|_| ReplayFailure::DamagedReplay)?;
-                if msg.demo_file_stamp != "PBDEMS2" {
+                if !matches!(msg.demo_file_stamp.as_str(), "PBDEMS2" | "PBDEMS2\0") {
                     return Err(ReplayFailure::InvalidContainer);
                 }
-                if msg
-                    .game_directory
-                    .as_deref()
-                    .is_some_and(|g| g != "citadel")
-                {
-                    return Err(ReplayFailure::UnknownStructure);
-                }
+                let game_directory = game_identifier(msg.game_directory.as_deref())?;
                 self.plain(
                     ctx,
                     ObservationKind::FileHeader {
                         patch_version: observed(msg.patch_version),
                         build_number: observed(msg.build_num),
-                        game_directory: observed(msg.game_directory),
+                        game_directory,
                     },
                 )?;
             }
@@ -183,24 +235,64 @@ impl Visitor for Collector {
                 let full = valveprotos::common::CDemoFullPacket::decode(data)
                     .map_err(|_| ReplayFailure::DamagedReplay)?;
                 if let Some(tables) = full.string_table {
-                    for table in tables.tables {
+                    if ctx.entity_classes().is_none() {
+                        return Err(ReplayFailure::UnknownStructure);
+                    }
+                    if tables.tables.len() > 256 {
+                        return Err(ReplayFailure::BudgetExceeded);
+                    }
+                    let mut names = BTreeSet::new();
+                    for table in &tables.tables {
                         if table.items.len() > self.request.budget.max_entities as usize {
                             return Err(ReplayFailure::BudgetExceeded);
                         }
-                        // Upstream only updates existing tables and would silently omit new ones.
-                        if ctx
-                            .string_tables()
-                            .and_then(|tables| tables.find_table(table.table_name()))
-                            .is_none()
+                        if !table.items_clientside.is_empty()
+                            || table.table_flags.is_some_and(|flags| flags < 0)
+                            || !names.insert(table.table_name())
                         {
                             return Err(ReplayFailure::UnknownStructure);
+                        }
+                        let existing = ctx
+                            .string_tables()
+                            .and_then(|tables| tables.find_table(table.table_name()))
+                            .ok_or(ReplayFailure::UnknownStructure)?;
+                        for (index, item) in existing.items() {
+                            let index = usize::try_from(*index)
+                                .map_err(|_| ReplayFailure::UnknownStructure)?;
+                            let incoming = table
+                                .items
+                                .get(index)
+                                .ok_or(ReplayFailure::UnknownStructure)?;
+                            if incoming.str.as_deref().map(str::as_bytes) != item.get_string() {
+                                return Err(ReplayFailure::UnknownStructure);
+                            }
+                        }
+                        let mut baseline_ids = BTreeSet::new();
+                        for item in &table.items {
+                            if item
+                                .str
+                                .as_ref()
+                                .is_some_and(|key| key.len() > 1024 || key.contains('\0'))
+                            {
+                                return Err(ReplayFailure::UnknownStructure);
+                            }
+                            if table.table_name() == "instancebaseline" {
+                                let class_id = item
+                                    .str
+                                    .as_deref()
+                                    .ok_or(ReplayFailure::UnknownStructure)?
+                                    .parse::<usize>()
+                                    .map_err(|_| ReplayFailure::UnknownStructure)?;
+                                if class_id >= self.classes.len() || !baseline_ids.insert(class_id)
+                                {
+                                    return Err(ReplayFailure::UnknownStructure);
+                                }
+                            }
                         }
                     }
                 }
             }
             EDemoCommands::DemStringTables => {
-                // The pinned synchronous parser does not apply this standalone command.
-                // Full-packet string tables and network table updates ARE supported.
                 return Err(ReplayFailure::UnknownStructure);
             }
             _ => {}

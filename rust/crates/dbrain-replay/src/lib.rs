@@ -1,14 +1,14 @@
 #![forbid(unsafe_code)]
-//! Local-only Source 2 replay decoding through a resource-limited Rust child process.
-//! No downloader, external service, population writer, or coaching inference exists here.
 
 pub use brain_contracts::replay::*;
 use sha2::{Digest, Sha256};
 
 mod decode;
 mod frame;
+pub mod import;
 mod stringtable;
 mod supervisor;
+pub mod validation;
 pub use supervisor::{WorkerDecoder, worker_stdio};
 
 pub const HASTE_REVISION: &str = "bfb292d4798031350861ad297aa26753267a1ea6";
@@ -27,7 +27,6 @@ pub(crate) fn hash_parts(parts: &[&[u8]]) -> String {
     }
     format!("{:x}", digest.finalize())
 }
-/// Fingerprint actual compiled adapter source AND lockfile, not a mutable Git HEAD or README.
 pub fn parser_revision() -> String {
     format!(
         "haste_core@{HASTE_REVISION}/adapter@{}",

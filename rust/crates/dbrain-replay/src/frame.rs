@@ -1,5 +1,3 @@
-//! Checked forward-only framing replaces haste's fixed-buffer DemoFile reader.
-//! In particular, a truncated final varint MUST NOT be mistaken for clean EOF by Parser::run.
 use crate::{DecodeBudget, RawLocator, ReplayFailure, hash};
 use haste_core::demostream::{
     CmdHeader, DecodeCmdError, DemoStream, ReadCmdError, ReadCmdHeaderError,
@@ -11,7 +9,7 @@ use std::{
     rc::Rc,
 };
 use valveprotos::common::{
-    CDemoClassInfo, CDemoFullPacket, CDemoPacket, CDemoSendTables, EDemoCommands,
+    CDemoClassInfo, CDemoFullPacket, CDemoPacket, CDemoSendTables, CDemoStringTables, EDemoCommands,
 };
 
 #[derive(Default)]
@@ -53,6 +51,7 @@ pub(crate) struct BoundedStream<R: Read> {
     spawngroups_found: bool,
     seen_stop: bool,
     clean_end: bool,
+    standalone_tables: bool,
     data: Vec<u8>,
 }
 impl<R: Read> BoundedStream<R> {
@@ -100,6 +99,7 @@ impl<R: Read> BoundedStream<R> {
             spawngroups_found: spawn == 0,
             seen_stop: false,
             clean_end: false,
+            standalone_tables: false,
             data: Vec::new(),
         })
     }
@@ -162,7 +162,6 @@ impl<R: Read> DemoStream for BoundedStream<R> {
         };
         let compressed = raw_command & 64 != 0;
         let number = raw_command & !64;
-        // The pinned EDemoCommands defines actual commands 0..=18; 19 and 64 are sentinels.
         if number > 18 {
             return Err(self.error(ReplayFailure::UnknownStructure).into());
         }
@@ -209,9 +208,14 @@ impl<R: Read> DemoStream for BoundedStream<R> {
         if cmd == EDemoCommands::DemStop {
             self.seen_stop = true;
         }
+        self.standalone_tables = cmd == EDemoCommands::DemStringTables;
         self.state.borrow_mut().commands += 1;
         Ok(CmdHeader {
-            cmd,
+            cmd: if self.standalone_tables {
+                EDemoCommands::DemFullPacket
+            } else {
+                cmd
+            },
             body_compressed: compressed,
             tick: tick_raw as i32,
             body_size,
@@ -255,17 +259,39 @@ impl<R: Read> DemoStream for BoundedStream<R> {
         } else {
             self.data = stored;
         }
-        let mut state = self.state.borrow_mut();
-        state.locator = Some(RawLocator {
-            command_index: state.commands - 1,
-            file_byte_offset: self.command_offset,
-            stored_byte_length: self.offset - self.command_offset,
-            compressed: h.body_compressed,
-            payload_sha256: hash(&self.data),
-            packet_index: None,
-            entity_callback_index: None,
-            requires_state_prefix: false,
-        });
+        {
+            let mut state = self.state.borrow_mut();
+            state.locator = Some(RawLocator {
+                command_index: state.commands - 1,
+                file_byte_offset: self.command_offset,
+                stored_byte_length: self.offset - self.command_offset,
+                compressed: h.body_compressed,
+                payload_sha256: hash(&self.data),
+                packet_index: None,
+                entity_callback_index: None,
+                requires_state_prefix: false,
+            });
+        }
+        if self.standalone_tables {
+            let tables = CDemoStringTables::decode(self.data.as_slice())
+                .map_err(|_| self.error(ReplayFailure::DamagedReplay))?;
+            let full = CDemoFullPacket {
+                string_table: Some(tables),
+                packet: None,
+            };
+            let size = full.encoded_len();
+            let charge = self
+                .state
+                .borrow_mut()
+                .charge_decoded(size as u64, &self.budget);
+            charge.map_err(|e| self.error(e))?;
+            self.data.clear();
+            self.data
+                .try_reserve_exact(size)
+                .map_err(|_| self.error(ReplayFailure::BudgetExceeded))?;
+            full.encode(&mut self.data)
+                .map_err(|_| self.error(ReplayFailure::DamagedReplay))?;
+        }
         Ok(&self.data)
     }
     fn skip_cmd(&mut self, h: &CmdHeader) -> Result<(), io::Error> {
@@ -284,5 +310,101 @@ impl<R: Read> DemoStream for BoundedStream<R> {
     }
     fn decode_cmd_full_packet(data: &[u8]) -> Result<CDemoFullPacket, DecodeCmdError> {
         CDemoFullPacket::decode(data).map_err(DecodeCmdError::DecodeProtobufError)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+    use valveprotos::common::c_demo_string_tables;
+
+    fn framed_snapshot(tables: &CDemoStringTables, compressed: bool) -> Vec<u8> {
+        let body = tables.encode_to_vec();
+        let stored = if compressed {
+            snap::raw::Encoder::new().compress_vec(&body).unwrap()
+        } else {
+            body
+        };
+        assert!(stored.len() < 128);
+        let mut bytes = b"PBDEMS2\0".to_vec();
+        bytes.extend([0; 8]);
+        bytes.extend([1, 0, 0]);
+        bytes.extend([if compressed { 70 } else { 6 }, 1, stored.len() as u8]);
+        bytes.extend(stored);
+        bytes.extend([0, 2, 0]);
+        bytes
+    }
+
+    fn tables() -> CDemoStringTables {
+        CDemoStringTables {
+            tables: vec![c_demo_string_tables::TableT {
+                table_name: Some("synthetic".into()),
+                ..Default::default()
+            }],
+        }
+    }
+
+    #[test]
+    fn standalone_snapshot_reuses_full_packet_state_with_original_raw_provenance() {
+        let tables = tables();
+        for compressed in [false, true] {
+            let bytes = framed_snapshot(&tables, compressed);
+            let state = Rc::new(RefCell::new(State::default()));
+            let mut stream = BoundedStream::new(
+                Cursor::new(&bytes),
+                bytes.len() as u64,
+                DecodeBudget::default(),
+                state.clone(),
+            )
+            .unwrap();
+            let header = stream.read_cmd_header().unwrap();
+            stream.read_cmd(&header).unwrap();
+            let header = stream.read_cmd_header().unwrap();
+            assert_eq!(header.cmd, EDemoCommands::DemFullPacket);
+            assert_eq!(header.tick, 1);
+            let full = CDemoFullPacket::decode(stream.read_cmd(&header).unwrap()).unwrap();
+            assert_eq!(full.string_table.as_ref(), Some(&tables));
+            assert!(full.packet.is_none());
+            let state = state.borrow();
+            let raw = state.locator.as_ref().unwrap();
+            assert_eq!(raw.command_index, 1);
+            assert_eq!(raw.file_byte_offset, 19);
+            assert_eq!(raw.stored_byte_length, 3 + u64::from(header.body_size));
+            assert_eq!(raw.compressed, compressed);
+            assert_eq!(raw.payload_sha256, hash(&tables.encode_to_vec()));
+            assert_ne!(raw.payload_sha256, hash(&full.encode_to_vec()));
+            assert_eq!(
+                state.decoded,
+                (tables.encoded_len() + full.encoded_len()) as u64
+            );
+        }
+    }
+
+    #[test]
+    fn standalone_snapshot_transport_is_charged_before_allocating() {
+        let tables = tables();
+        let full = CDemoFullPacket {
+            string_table: Some(tables.clone()),
+            packet: None,
+        };
+        let bytes = framed_snapshot(&tables, false);
+        let state = Rc::new(RefCell::new(State::default()));
+        let budget = DecodeBudget {
+            max_total_decoded_bytes: (tables.encoded_len() + full.encoded_len() - 1) as u64,
+            ..DecodeBudget::default()
+        };
+        let mut stream = BoundedStream::new(
+            Cursor::new(&bytes),
+            bytes.len() as u64,
+            budget,
+            state.clone(),
+        )
+        .unwrap();
+        let header = stream.read_cmd_header().unwrap();
+        stream.read_cmd(&header).unwrap();
+        let header = stream.read_cmd_header().unwrap();
+        assert!(stream.read_cmd(&header).is_err());
+        assert_eq!(state.borrow().failure, Some(ReplayFailure::BudgetExceeded));
     }
 }

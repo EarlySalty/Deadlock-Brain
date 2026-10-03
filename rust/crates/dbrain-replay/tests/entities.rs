@@ -257,6 +257,142 @@ fn full_entity_reparse_is_identical_across_worker_processes() {
         decode(&bytes, &entity_request()).unwrap()
     );
 }
+fn snapshot_tables(health: Option<u32>) -> CDemoStringTables {
+    let mut baseline = Bits::default();
+    field(&mut baseline, health);
+    CDemoStringTables {
+        tables: vec![c_demo_string_tables::TableT {
+            table_name: Some("instancebaseline".into()),
+            items: vec![c_demo_string_tables::ItemsT {
+                str: Some("0".into()),
+                data: Some(baseline.bytes),
+            }],
+            ..Default::default()
+        }],
+    }
+}
+
+fn snapshot_command(tables: &CDemoStringTables, standalone: bool, compressed: bool) -> Vec<u8> {
+    let (kind, data) = if standalone {
+        (EDemoCommands::DemStringTables, tables.encode_to_vec())
+    } else {
+        (
+            EDemoCommands::DemFullPacket,
+            CDemoFullPacket {
+                string_table: Some(tables.clone()),
+                packet: None,
+            }
+            .encode_to_vec(),
+        )
+    };
+    command(kind, 1, &data, compressed)
+}
+
+#[test]
+fn standalone_snapshot_updates_baseline_before_following_entity() {
+    for standalone in [false, true] {
+        for compressed in [false, true] {
+            let mut commands = setup();
+            commands.push(snapshot_command(
+                &snapshot_tables(Some(321)),
+                standalone,
+                compressed,
+            ));
+            commands.push(packet(2, &[entity_message(2, None)]));
+            let bytes = container(&commands, false);
+            let report = decode(&bytes, &entity_request()).unwrap();
+            let entity = report
+                .observations
+                .iter()
+                .find(|o| matches!(o.event, ObservationKind::EntityState { .. }))
+                .unwrap();
+            let ObservationKind::EntityState { fields, .. } = &entity.event else {
+                unreachable!()
+            };
+            assert_eq!(
+                fields["m_iHealth"].value,
+                Observed::known(ReplayScalar::Unsigned(321))
+            );
+            assert_eq!(report.commands, commands.len() as u64 + 2);
+            assert_eq!(entity.raw.command_index, commands.len() as u64);
+            assert_eq!(
+                entity.raw.file_byte_offset,
+                (16 + header(false).len()
+                    + commands[..commands.len() - 1]
+                        .iter()
+                        .map(Vec::len)
+                        .sum::<usize>()) as u64
+            );
+        }
+    }
+}
+
+#[test]
+fn snapshots_reject_state_that_the_backend_cannot_apply_consistently() {
+    let original = snapshot_tables(None);
+    let mut cases = Vec::new();
+    let mut tables = original.clone();
+    tables.tables[0].items.clear();
+    cases.push(tables);
+    let mut tables = original.clone();
+    tables.tables[0].items[0].str = Some("1".into());
+    cases.push(tables);
+    let mut tables = original.clone();
+    tables.tables[0].items[0].str = None;
+    cases.push(tables);
+    let mut tables = original.clone();
+    tables.tables[0].table_name = Some("missing".into());
+    cases.push(tables);
+    let mut tables = original.clone();
+    tables.tables.push(tables.tables[0].clone());
+    cases.push(tables);
+    let mut tables = original.clone();
+    let item = tables.tables[0].items[0].clone();
+    tables.tables[0].items_clientside.push(item);
+    cases.push(tables);
+    let mut tables = original.clone();
+    tables.tables[0].items.push(c_demo_string_tables::ItemsT {
+        str: Some("1".into()),
+        data: Some(vec![]),
+    });
+    cases.push(tables);
+    let mut tables = original;
+    let item = tables.tables[0].items[0].clone();
+    tables.tables[0].items.push(item);
+    cases.push(tables);
+    for standalone in [false, true] {
+        for tables in &cases {
+            let mut commands = setup();
+            commands.push(snapshot_command(tables, standalone, false));
+            assert_eq!(
+                decode(&container(&commands, false), &entity_request()),
+                Err(ReplayFailure::UnknownStructure)
+            );
+        }
+    }
+}
+
+#[test]
+fn standalone_snapshot_entry_budget_and_invalid_protobuf_are_rejected() {
+    let mut tables = snapshot_tables(None);
+    let item = tables.tables[0].items[0].clone();
+    tables.tables[0].items.push(item);
+    let mut commands = setup();
+    commands.push(snapshot_command(&tables, true, false));
+    let mut r = entity_request();
+    r.budget.max_entities = 1;
+    assert_eq!(
+        decode(&container(&commands, false), &r),
+        Err(ReplayFailure::BudgetExceeded)
+    );
+    let mut commands = setup();
+    commands.push(command(EDemoCommands::DemStringTables, 1, &[0xff], false));
+    assert_eq!(
+        decode(&container(&commands, false), &entity_request()),
+        Err(ReplayFailure::DamagedReplay)
+    );
+}
+
 #[test]
 fn entity_index_budget_is_enforced() {
     let mut commands = setup();

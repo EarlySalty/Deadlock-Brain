@@ -270,7 +270,7 @@ fn private_file(path: &Path) -> Result<File, ReplayFailure> {
     options.mode(0o600);
     options.open(path).map_err(|_| ReplayFailure::InputIo)
 }
-fn validate_report(
+pub(crate) fn validate_report(
     report: &ReplayReport,
     artifact: &ReplayArtifact,
     request: &ReplayRequest,

@@ -6,6 +6,10 @@ rust-version = "1.88"
 
 [dependencies]
 brain-contracts = { path = "../brain-contracts" }
+brain-ingestion = { path = "../brain-ingestion" }
+brain-storage = { path = "../brain-storage" }
+sqlx = { version = "0.8", default-features = false, features = ["postgres", "runtime-tokio", "tls-rustls"] }
+tokio = { version = "1", default-features = false, features = ["rt", "net", "time"] }
 deadlock-brain-core = { path = "../deadlock-brain-core" }
 haste_core = { git = "https://github.com/deadlock-api/deadlock-api", rev = "bfb292d4798031350861ad297aa26753267a1ea6", default-features = false }
 # EXACT transitive schema used by haste; do not substitute the upstream default branch.
@@ -34,3 +38,7 @@ valveprotos = { git = "https://github.com/deadlock-api/deadlock-api", rev = "4f4
 [[bin]]
 name = "dbrain-replay-worker"
 path = "src/main.rs"
+
+[[bin]]
+name = "dbrain-replay-import"
+path = "src/import_main.rs"

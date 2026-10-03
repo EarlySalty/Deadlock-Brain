@@ -4,7 +4,186 @@ use dbrain_replay::*;
 use proptest::prelude::*;
 use prost::Message;
 use sha2::{Digest, Sha256};
-use valveprotos::common::{CsvcMsgCreateStringTable, EDemoCommands, SvcMessages};
+use valveprotos::common::{CDemoFileHeader, CsvcMsgCreateStringTable, EDemoCommands, SvcMessages};
+
+fn container_with_file_stamp(stamp: &str, compressed: bool) -> Vec<u8> {
+    container_with_file_header(stamp, Some("citadel"), compressed)
+}
+
+fn container_with_file_header(stamp: &str, directory: Option<&str>, compressed: bool) -> Vec<u8> {
+    let value = CDemoFileHeader {
+        demo_file_stamp: stamp.into(),
+        game_directory: directory.map(str::to_owned),
+        ..Default::default()
+    };
+    let mut bytes = container(&[], compressed);
+    bytes.splice(
+        16..16 + header(compressed).len(),
+        command(
+            EDemoCommands::DemFileHeader,
+            -1,
+            &value.encode_to_vec(),
+            compressed,
+        ),
+    );
+    bytes
+}
+
+#[test]
+fn exact_source2_file_stamps_decode_through_real_worker() {
+    for stamp in ["PBDEMS2", "PBDEMS2\0"] {
+        for compressed in [false, true] {
+            let bytes = container_with_file_stamp(stamp, compressed);
+            let report = decode(&bytes, &request()).unwrap();
+            assert_eq!(report.commands, 2);
+            assert_eq!(report.observations.len(), 1);
+            assert!(matches!(
+                report.observations[0].event,
+                ObservationKind::FileHeader { .. }
+            ));
+            assert_eq!(
+                report.observations[0].time.tick,
+                Observed::unknown(UnknownReason::InitializationTick)
+            );
+        }
+    }
+}
+
+#[test]
+fn malformed_source2_file_stamps_are_rejected_without_normalization() {
+    for stamp in [
+        "",
+        "PBDEMS",
+        "PBDEMS1",
+        "pbDEMS2",
+        " PBDEMS2",
+        "PBDEMS2 ",
+        "PBDEMS2\n",
+        "PBDEMS2\0\0",
+        "PBDEMS2\0 ",
+        "PBDEMS2\0suffix",
+        "PBDEM\0S2",
+        "\0PBDEMS2",
+    ] {
+        for compressed in [false, true] {
+            assert_eq!(
+                decode(&container_with_file_stamp(stamp, compressed), &request()),
+                Err(ReplayFailure::InvalidContainer)
+            );
+        }
+    }
+}
+
+#[test]
+fn supported_game_directory_shapes_export_only_the_game_identifier() {
+    for directory in [
+        "citadel",
+        "/citadel",
+        "/build/worker/checkout/game/citadel",
+        "/srv/Steam Library/game/citadel",
+        r"C:\citadel",
+        r"D:\Steam Library\game\citadel",
+        "C:/game/citadel",
+        "z:/Steam Library/game/citadel",
+    ] {
+        for compressed in [false, true] {
+            let bytes = container_with_file_header("PBDEMS2\0", Some(directory), compressed);
+            let report = decode(&bytes, &request()).unwrap();
+            let ObservationKind::FileHeader { game_directory, .. } = &report.observations[0].event
+            else {
+                panic!("missing file header");
+            };
+            assert_eq!(game_directory, &Observed::known("citadel".into()));
+            if directory != "citadel" {
+                assert!(
+                    !serde_json::to_string(&report)
+                        .unwrap()
+                        .contains(&serde_json::to_string(directory).unwrap())
+                );
+            }
+            assert_eq!(
+                report.artifact.sha256,
+                format!("{:x}", Sha256::digest(&bytes))
+            );
+            assert_eq!(report.observations[0].raw.file_byte_offset, 16);
+            let value = CDemoFileHeader {
+                demo_file_stamp: "PBDEMS2\0".into(),
+                game_directory: Some(directory.into()),
+                ..Default::default()
+            };
+            assert_eq!(
+                report.observations[0].raw.payload_sha256,
+                format!("{:x}", Sha256::digest(value.encode_to_vec()))
+            );
+        }
+    }
+}
+
+#[test]
+fn absent_game_directory_remains_unknown() {
+    let report = decode(
+        &container_with_file_header("PBDEMS2\0", None, false),
+        &request(),
+    )
+    .unwrap();
+    let ObservationKind::FileHeader { game_directory, .. } = &report.observations[0].event else {
+        panic!("missing file header");
+    };
+    assert_eq!(
+        game_directory,
+        &Observed::unknown(UnknownReason::NotPresent)
+    );
+}
+
+#[test]
+fn ambiguous_or_wrong_game_directories_are_rejected_without_trimming() {
+    for directory in [
+        "",
+        "Citadel",
+        " citadel",
+        "citadel ",
+        "citadel\0",
+        "citadel\n",
+        "game/citadel",
+        "./citadel",
+        "../citadel",
+        "citadel/",
+        "/citadel/",
+        "/game/dota",
+        "/game/citadel-extra",
+        "/game/Citadel",
+        "/game/../citadel",
+        "/game/./citadel",
+        "/game//citadel",
+        "//game/citadel",
+        "/game/citadel ",
+        "/game /citadel",
+        "/ game/citadel",
+        "/game\0/citadel",
+        "/game\n/citadel",
+        r"/game\citadel",
+        r"C:game\citadel",
+        r"\game\citadel",
+        r"\\host\share\citadel",
+        r"C:\game/citadel",
+        r"C:/game\citadel",
+        r"C:\game\..\citadel",
+        r"C:\game.\citadel",
+        r"C:\NUL\citadel",
+        r"C:\COM1.txt\citadel",
+        r"C:\game?\citadel",
+        r"C:\game:\citadel",
+        r"C:\game\citadel\",
+    ] {
+        assert_eq!(
+            decode(
+                &container_with_file_header("PBDEMS2\0", Some(directory), false),
+                &request()
+            ),
+            Err(ReplayFailure::UnknownStructure)
+        );
+    }
+}
 
 #[test]
 fn minimal_authored_source2_container_decodes_through_real_worker() {
