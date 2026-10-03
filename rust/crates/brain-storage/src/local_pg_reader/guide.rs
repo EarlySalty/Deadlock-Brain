@@ -51,7 +51,7 @@ impl LocalPgReader {
 
     pub fn check_guide_schema(&self) -> Result<(), PortError> {
         let mut client = self.pool.acquire()?;
-        client.query_schema("SELECT s.guild_id,s.user_id,s.epoch,s.profile_json,s.history_json,c.request_id,o.delivery_id,v.version FROM brain.guide_subjects s,brain.guide_turn_claims c,brain.guide_feedback_outbox o,brain.guide_schema_version v LIMIT 0")?;
+        client.query_schema("SELECT s.guild_id,s.user_id,s.epoch,s.min_event_id,s.profile_json,s.history_json,c.request_id,o.delivery_id,o.expires_at,v.version FROM brain.guide_subjects s,brain.guide_turn_claims c,brain.guide_feedback_outbox o,brain.guide_schema_version v LIMIT 0")?;
         let row = client.query_one("SELECT version FROM brain.guide_schema_version", &[])?;
         if row.get::<_, i32>(0) != 1 {
             return Err(invalid("Serverguide-Schema ist nicht kompatibel"));
@@ -76,7 +76,18 @@ impl LocalPgReader {
             .map_err(|_| invalid("Mitgliedskennung ist ungültig"))?;
         tx.query_one("SELECT pg_advisory_xact_lock($1)", &[&(uid ^ i64::MIN)])?;
         tx.execute("INSERT INTO brain.guide_subjects(guild_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING", &[&turn.guild_id,&turn.user_id])?;
-        let row = tx.query_one("SELECT epoch,memory_enabled,contact_enabled,globally_opted_out,deleted FROM brain.guide_subjects WHERE guild_id=$1 AND user_id=$2 FOR UPDATE", &[&turn.guild_id,&turn.user_id])?;
+        let row = tx.query_one("SELECT epoch,memory_enabled,contact_enabled,globally_opted_out,deleted,min_event_id FROM brain.guide_subjects WHERE guild_id=$1 AND user_id=$2 FOR UPDATE", &[&turn.guild_id,&turn.user_id])?;
+        let min_event_id: i64 = row.get(5);
+        if min_event_id > 0
+            && turn
+                .message_id
+                .parse::<i64>()
+                .ok()
+                .is_none_or(|id| id < min_event_id)
+        {
+            tx.commit()?;
+            return Ok(None);
+        }
         let mut profile = ProfileSnapshot {
             epoch: row.get(0),
             memory_enabled: row.get(1),
@@ -86,11 +97,19 @@ impl LocalPgReader {
             fields: BTreeMap::new(),
         };
         if let Some(global) = tx.query_opt(
-            "SELECT opted_out,deleted_at IS NOT NULL FROM core.user_privacy WHERE user_id=$1",
+            "SELECT opted_out,deleted_at IS NOT NULL,CASE WHEN reason='user_opt_in' THEN GREATEST(0,((floor(extract(epoch from updated_at)*1000)::bigint+1)-1420070400000)*4194304) ELSE 0 END FROM core.user_privacy WHERE user_id=$1",
             &[&uid],
         )? {
             profile.globally_opted_out |= global.get::<_, bool>(0);
             profile.deleted |= global.get::<_, bool>(1);
+            let global_min_event_id: i64 = global.get(2);
+            if global_min_event_id > 0 {
+                tx.execute("UPDATE brain.guide_subjects SET min_event_id=GREATEST(min_event_id,$3) WHERE guild_id=$1 AND user_id=$2",&[&turn.guild_id,&turn.user_id,&global_min_event_id])?;
+                if turn.message_id.parse::<i64>().ok().is_none_or(|id| id < global_min_event_id) {
+                    tx.commit()?;
+                    return Ok(None);
+                }
+            }
         }
         if profile.globally_opted_out || profile.deleted {
             profile.memory_enabled = false;

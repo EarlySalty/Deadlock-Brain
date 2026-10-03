@@ -65,7 +65,7 @@ async fn profil_isolation_datenschutz_und_ablauf_im_echten_pg_pfad() {
         .connect_with(options)
         .await
         .unwrap();
-    sqlx::raw_sql("CREATE SCHEMA IF NOT EXISTS core; CREATE TABLE IF NOT EXISTS core.user_privacy(user_id BIGINT PRIMARY KEY,opted_out BOOLEAN NOT NULL DEFAULT false,deleted_at TIMESTAMPTZ)").execute(&pool).await.unwrap();
+    sqlx::raw_sql("CREATE SCHEMA IF NOT EXISTS core; CREATE TABLE IF NOT EXISTS core.user_privacy(user_id BIGINT PRIMARY KEY,opted_out BOOLEAN NOT NULL DEFAULT false,deleted_at TIMESTAMPTZ,reason TEXT,updated_at TIMESTAMPTZ DEFAULT now())").execute(&pool).await.unwrap();
     let store = PgStore::new(pool.clone());
     store.migrate_core().await.unwrap();
     store.migrate_guide().await.unwrap();
@@ -309,6 +309,63 @@ fn exercise(config: TestConfig) {
         "failed"
     );
     assert!(sql.query_one("SELECT text IS NULL FROM brain.guide_feedback_outbox WHERE delivery_id='feedback-test'",&[]).unwrap().get::<_,bool>(0));
+    sql.execute("INSERT INTO brain.guide_feedback_outbox(guild_id,user_id,delivery_id,destination_channel_id,text,state,expires_at) VALUES('100','202','feedback-expired','500','Synthetisches Anliegen','pending',to_timestamp(1200))",&[]).unwrap();
+    reader.guide_cleanup(1300, 86400, &deadline()).unwrap();
+    let expired = sql.query_one("SELECT state,text IS NULL FROM brain.guide_feedback_outbox WHERE delivery_id='feedback-expired'",&[]).unwrap();
+    assert_eq!(expired.get::<_, String>(0), "failed");
+    assert!(expired.get::<_, bool>(1));
+    ack.delivery_id = "feedback-expired".into();
+    assert!(reader
+        .guide_action_result(&ack, &deadline())
+        .unwrap()
+        .is_none());
+    sql.execute("UPDATE brain.guide_subjects SET min_event_id=1000,epoch=epoch+1,deleted=false,globally_opted_out=false,profile_json='{}',history_json='[]' WHERE user_id='202'",&[]).unwrap();
+    let mut fresh = feedback.clone();
+    fresh.request_id = "old-after-optin".into();
+    fresh.message_id = "999".into();
+    assert!(reader
+        .guide_claim(&fresh, &deadline(), 1300, true)
+        .unwrap()
+        .is_none());
+    fresh.request_id = "new-after-optin".into();
+    fresh.message_id = "1000".into();
+    let restarted = reader
+        .guide_claim(&fresh, &deadline(), 1300, true)
+        .unwrap()
+        .unwrap();
+    assert!(restarted.profile.epoch > subject.profile.epoch);
+    assert!(restarted.profile.fields.is_empty() && restarted.history.is_empty());
+    assert!(!restarted.profile.memory_enabled);
+    assert!(!reader
+        .guide_finish(
+            &feedback,
+            subject.profile.epoch,
+            None,
+            &[],
+            None,
+            &deadline()
+        )
+        .unwrap());
+    for (index, event, addressed) in [
+        (0, Event::TourStart, Addressed::TourButton),
+        (1, Event::Message, Addressed::Command),
+        (2, Event::Message, Addressed::Dm),
+    ] {
+        fresh.request_id = format!("old-event-{index}");
+        fresh.message_id = "999".into();
+        fresh.event = event;
+        fresh.addressed = addressed;
+        assert!(reader
+            .guide_claim(&fresh, &deadline(), 1300, true)
+            .unwrap()
+            .is_none());
+        fresh.request_id = format!("new-event-{index}");
+        fresh.message_id = "1001".into();
+        assert!(reader
+            .guide_claim(&fresh, &deadline(), 1300, true)
+            .unwrap()
+            .is_some());
+    }
     let mut snapshot = ServerSnapshot {
         guild_id: "100".into(),
         revision: 1,

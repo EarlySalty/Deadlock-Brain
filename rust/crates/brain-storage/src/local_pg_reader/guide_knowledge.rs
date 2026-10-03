@@ -60,8 +60,8 @@ impl LocalPgReader {
             &[&now],
         )?;
         tx.execute("DELETE FROM brain.guide_turn_claims WHERE created_at<to_timestamp($1::double precision)",&[&((now-event_retention) as f64)])?;
+        tx.execute("UPDATE brain.guide_feedback_outbox SET text=NULL,state='failed' WHERE state='pending' AND expires_at<=to_timestamp($1::double precision)",&[&(now as f64)])?;
         tx.execute("DELETE FROM brain.guide_feedback_outbox WHERE state<>'pending' AND created_at<to_timestamp($1::double precision)",&[&((now-event_retention) as f64)])?;
-        tx.execute("UPDATE brain.guide_feedback_outbox SET text=NULL,state='failed' WHERE state='pending' AND created_at<to_timestamp($1::double precision)",&[&((now-event_retention) as f64)])?;
         tx.execute("UPDATE brain.guide_subjects s SET profile_json=COALESCE((SELECT jsonb_object_agg(f.key,f.value) FROM jsonb_each(s.profile_json) f WHERE (f.value->>'expires_at')::bigint>$1),'{}'::jsonb),history_json=COALESCE((SELECT jsonb_agg(v.value) FROM jsonb_array_elements(s.history_json) v WHERE (v.value->>'expires_at')::bigint>$1),'[]'::jsonb) WHERE EXISTS(SELECT 1 FROM jsonb_each(s.profile_json) f WHERE (f.value->>'expires_at')::bigint<=$1) OR EXISTS(SELECT 1 FROM jsonb_array_elements(s.history_json) v WHERE (v.value->>'expires_at')::bigint<=$1)",&[&now])?;
         tx.commit()
     }

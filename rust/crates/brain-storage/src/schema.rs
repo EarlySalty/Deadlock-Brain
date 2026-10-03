@@ -88,10 +88,20 @@ impl PgStore {
             .execute(&mut *tx)
             .await
             .map_err(migration_error)?;
+        sqlx::raw_sql(body(include_str!(
+            "../../../../scripts/migrations/2026-10-03-serverguide-v2.sql"
+        ))?)
+        .execute(&mut *tx)
+        .await
+        .map_err(migration_error)?;
         tx.commit().await.map_err(migration_error)
     }
 
     pub async fn check_guide(&self) -> Result<(), PortError> {
+        sqlx::query("SELECT s.min_event_id,o.expires_at FROM brain.guide_subjects s,brain.guide_feedback_outbox o LIMIT 0")
+            .execute(&self.pool)
+            .await
+            .map_err(compatibility_error)?;
         let rows = sqlx::query("SELECT version FROM brain.guide_schema_version")
             .fetch_all(&self.pool)
             .await
@@ -123,7 +133,7 @@ impl PgStore {
         if !present {
             return Err(invalid("Concierge-Quelltabellen fehlen"));
         }
-        let ids=sqlx::query("SELECT p.user_id,p.guild_id FROM bot.concierge_profiles p WHERE NOT p.opted_out AND p.forgot_at IS NULL AND NOT EXISTS(SELECT 1 FROM core.user_privacy g WHERE g.user_id=p.user_id AND (g.opted_out OR g.deleted_at IS NOT NULL)) AND NOT EXISTS(SELECT 1 FROM brain.guide_legacy_imports i WHERE i.user_id=p.user_id::text AND i.guild_id=p.guild_id::text)")
+        let ids=sqlx::query("SELECT p.user_id,p.guild_id FROM bot.concierge_profiles p WHERE NOT p.opted_out AND p.forgot_at IS NULL AND NOT EXISTS(SELECT 1 FROM core.user_privacy g WHERE g.user_id=p.user_id AND (g.opted_out OR g.deleted_at IS NOT NULL OR g.reason='user_opt_in')) AND NOT EXISTS(SELECT 1 FROM brain.guide_legacy_imports i WHERE i.user_id=p.user_id::text AND i.guild_id=p.guild_id::text)")
             .fetch_all(&mut *tx).await.map_err(migration_error)?;
         for row in ids {
             let user: i64 = row.try_get("user_id").map_err(migration_error)?;
@@ -133,7 +143,7 @@ impl PgStore {
                 .execute(&mut *tx)
                 .await
                 .map_err(migration_error)?;
-            let blocked:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM core.user_privacy WHERE user_id=$1 AND (opted_out OR deleted_at IS NOT NULL)) OR EXISTS(SELECT 1 FROM brain.guide_subjects WHERE user_id=$1::bigint::text AND guild_id=$2::bigint::text AND (deleted OR globally_opted_out))")
+            let blocked:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM core.user_privacy WHERE user_id=$1 AND (opted_out OR deleted_at IS NOT NULL OR reason='user_opt_in')) OR EXISTS(SELECT 1 FROM brain.guide_subjects WHERE user_id=$1::bigint::text AND guild_id=$2::bigint::text AND (deleted OR globally_opted_out OR min_event_id>0))")
                 .bind(user).bind(guild).fetch_one(&mut *tx).await.map_err(migration_error)?;
             if blocked {
                 continue;
