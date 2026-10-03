@@ -196,8 +196,9 @@ archivierte Threads, Fehler und verbleibende Threads. Private Bereiche zählen
 nicht zur öffentlichen Abdeckung.
 
 Die beiden Release-Argumente überführen vorhandene Beiträge aus vollständig
-archivierten Threads in `SourceRecordV2`. Alle Pins des Basisstands bleiben
-erhalten. Der neue Stand kann auch ein Teilarchiv enthalten; erst `complete`
+archivierten Threads in `SourceRecordV2`. Pins anderer Quellen und lokal nicht beobachteter Forumthreads bleiben
+erhalten. Nur vollständig erneut gelesene Threads bestimmen, welche ihrer
+Beiträge im neuen Wissensstand noch enthalten sind. Der neue Stand kann auch ein Teilarchiv enthalten; erst `complete`
 im Importbericht belegt die vollständige Sitemap-Abdeckung. Der Dienst nutzt
 einen ausdrücklich gesetzten Release-Pin in seiner normalen Konfiguration.
 Jeder Forumbeleg nennt Quelle und Beitragsdatum und bleibt ein unbestätigter

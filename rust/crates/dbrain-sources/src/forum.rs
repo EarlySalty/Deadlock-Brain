@@ -100,6 +100,9 @@ pub async fn pull_forum_with_pool(
             "ok"
         };
         store.finish_run(run_id, status, summary).await?;
+        if status == "error" {
+            return Err(SourcesError::invalid_input(format!("Forumimport fehlgeschlagen: {} Threads gelesen, {} fehlgeschlagen, Browserzugang gesperrt: {}. Keine Veröffentlichung.", summary["threads_fetched"], summary["threads_failed"], summary["access_blocked"])));
+        }
         return outcome;
     }
     complete_run(&store, run_id, outcome).await
@@ -520,9 +523,25 @@ fn parse_thread_html(html: &str) -> Result<ParsedThread> {
 }
 
 fn response_text_checked(text: &str) -> Result<String> {
-    if text.contains("/.stile/challenge/")
-        || text.contains("Checking your browser")
-        || text.contains("cf-chl-")
+    let document = Html::parse_document(text);
+    let has_posts = document
+        .select(&selector("article.js-post")?)
+        .next()
+        .is_some();
+    let challenge_title = document.select(&selector("title,h1,h2")?).any(|element| {
+        let text = clean_element_text(&element).to_lowercase();
+        text == "checking your browser" || text == "just a moment..."
+    });
+    let challenge_structure = document
+        .select(&selector(
+            "script[src*='/.stile/challenge/'], script[src*='challenge-platform'], [id^='cf-chl-']",
+        )?)
+        .next()
+        .is_some();
+    if !has_posts
+        && (challenge_title
+            || challenge_structure
+            || text.trim().eq_ignore_ascii_case("Checking your browser"))
     {
         return Err(SourcesError::invalid_input(
             "Zugriff gesperrt: Browserprüfung statt Forumdaten.",
@@ -953,6 +972,16 @@ async fn store_observed_snapshots(
     document_id: i64,
 ) -> Result<()> {
     let mut transaction = store.pool().begin().await?;
+    let thread_id = snapshots
+        .iter()
+        .find(|s| s.entity_type == "forum_thread")
+        .ok_or_else(|| SourcesError::invariant("Thread-Mitgliedschaft fehlt."))?
+        .external_id
+        .clone();
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)")
+        .bind(format!("forum-thread:{thread_id}"))
+        .execute(&mut *transaction)
+        .await?;
     for snapshot in snapshots {
         let payload = serde_json::to_string(&snapshot.payload)?;
         let hash = crate::store::stable_hash_text(&payload);
@@ -1090,6 +1119,13 @@ mod scratch_regression_tests {
                 std::collections::BTreeMap::from([(fixture.logical_id.clone(), 1)]),
             )]),
         };
+        let unknown = crate::forum_corpus::record(&json!({"post_id":999,"thread_id":9,"thread_url":"https://forums.playdeadlock.com/threads/unbekannt.9/","text":"Nicht lokal erneut beobachteter Beitrag"}),1,1).unwrap();
+        kernel.apply(&unknown).await.unwrap();
+        let mut base = base;
+        base.source_revisions.insert(
+            SOURCE.into(),
+            std::collections::BTreeMap::from([(unknown.logical_id.clone(), 1)]),
+        );
         kernel.publish_release(&base).await.unwrap();
         store_observed_snapshots(
             &store,
@@ -1102,16 +1138,34 @@ mod scratch_regression_tests {
             .await
             .unwrap();
         sqlx::raw_sql("CREATE FUNCTION brain.reject_forum_test() RETURNS trigger LANGUAGE plpgsql AS $body$ BEGIN IF NEW.payload->>'text'='Fail' THEN RAISE EXCEPTION 'fixture failure'; END IF; RETURN NEW; END $body$; CREATE TRIGGER reject_forum_test BEFORE INSERT OR UPDATE ON brain.entity_snapshots FOR EACH ROW EXECUTE FUNCTION brain.reject_forum_test();").execute(pool).await.unwrap();
-        assert!(
-            store_observed_snapshots(&store, &[manifest(vec![1]), post(1, "Fail")], doc)
-                .await
-                .is_err()
-        );
+        let new_raw = store
+            .write_raw(SOURCE, "thread:4", b"fresh-incomplete", "json")
+            .unwrap();
+        let incomplete_doc = store
+            .upsert_source_document(SourceDocumentInput {
+                source: SOURCE,
+                external_id: "thread:4",
+                title: Some("fixture"),
+                url: Some("https://forums.playdeadlock.com/threads/fixture.4/"),
+                content_type: "application/json",
+                raw_path: &new_raw,
+                content: b"fresh-incomplete",
+                metadata: &json!({"complete":false}),
+            })
+            .await
+            .unwrap();
+        assert!(store_observed_snapshots(
+            &store,
+            &[manifest(vec![1]), post(1, "Fail")],
+            incomplete_doc
+        )
+        .await
+        .is_err());
         crate::forum_corpus::publish_archive(pool, pool, "a", "after-failure")
             .await
             .unwrap();
         let after_failure = kernel.snapshot("after-failure").await.unwrap();
-        assert_eq!(after_failure.release.source_revisions[SOURCE].len(), 2);
+        assert_eq!(after_failure.release.source_revisions[SOURCE].len(), 3);
         assert!(after_failure
             .revisions
             .iter()
@@ -1142,11 +1196,12 @@ mod scratch_regression_tests {
             .release
             .source_revisions
             .contains_key("fixture-existing"));
-        assert_eq!(release.release.source_revisions[SOURCE].len(), 1);
+        assert_eq!(release.release.source_revisions[SOURCE].len(), 2);
+        assert_eq!(release.release.source_revisions[SOURCE]["post:999"], 1);
         let source = release
             .revisions
             .iter()
-            .find(|r| r.source_id == SOURCE)
+            .find(|r| r.source_id == SOURCE && r.logical_id == "post:1")
             .unwrap();
         assert!(source.content.ends_with("\n\nA"));
         assert_eq!(source.revision, 4);
@@ -1188,5 +1243,18 @@ mod live_browser_contract {
             index.len()
         );
         browser.close().await.unwrap();
+    }
+}
+
+#[cfg(test)]
+mod challenge_scope_tests {
+    use super::*;
+    #[test]
+    fn quoted_browser_check_is_a_readable_post() {
+        let html = r#"<html><title>Checking your browser</title><article class="js-post" data-content="post-1"><div class="bbWrapper">Checking your browser, cf-chl- und /.stile/challenge/ werden hier als Bug beschrieben.</div></article></html>"#;
+        assert_eq!(parse_thread_html(html).unwrap().posts.len(), 1);
+        assert!(
+            response_text_checked("<html><title>Checking your browser</title></html>").is_err()
+        );
     }
 }

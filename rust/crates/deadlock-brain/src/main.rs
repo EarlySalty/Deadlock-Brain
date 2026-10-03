@@ -4480,7 +4480,7 @@ async fn forum_kernel_pool(
     if !database.socket_dir.is_absolute()
         || !database.socket_dir.is_dir()
         || database.port == 0
-        || database.max_connections == 0
+        || database.max_connections < 2
     {
         return Err(anyhow!("Ungültige Kernel-Datenbankkonfiguration."));
     }
@@ -4519,4 +4519,22 @@ async fn forum_kernel_pool(
         .connect_with(options)
         .await
         .map_err(|_| anyhow!("Kernel-Datenbank ist nicht erreichbar."))
+}
+
+#[cfg(test)]
+mod forum_pool_configuration_tests {
+    use super::*;
+    #[tokio::test]
+    async fn single_connection_pool_is_rejected_before_secret_lookup() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("runtime.json");
+        fs::write(&path,serde_json::to_vec(&json!({"postgres":{"socket_dir":root.path(),"port":5446,"username":"fixture","database":"fixture","auth":"password","password_env":"unused","max_connections":1}})).unwrap()).unwrap();
+        assert!(
+            forum_kernel_pool(&path, &root.path().join("missing-infisical.json"))
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("Ungültige Kernel-Datenbankkonfiguration")
+        );
+    }
 }
