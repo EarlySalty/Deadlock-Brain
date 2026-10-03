@@ -809,7 +809,13 @@ mod tests {
             "../../../../../config/brain-serve.example.json"
         ))
         .unwrap();
-        value["credentials"][0]["scopes"] = serde_json::json!([]);
+        value["credentials"][0] = serde_json::json!({
+            "token_env": "BRAIN_SERVE_API_TOKEN",
+            "actor_id": "pilot-client",
+            "channel": "pilot",
+            "scopes": [],
+            "provider_egress": ["public"]
+        });
         value
     }
 
