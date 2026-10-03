@@ -204,7 +204,9 @@ mod tests {
         }
         let mut second = config.credentials[0].clone();
         second.token_env = "SECOND_CLIENT_TOKEN".into();
-        second.actor_id = "different-actor".into();
+        second.actor_id = "twitch-bot".into();
+        second.channel = "twitch".into();
+        second.scopes = BTreeSet::from(["bot.public".into()]);
         config.credentials.push(second);
         assert!(matches!(
             Secrets::load(&config, |name| if name == "SECOND_CLIENT_TOKEN" {
