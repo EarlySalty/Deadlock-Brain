@@ -16,6 +16,39 @@ const K1: f64 = 1.2;
 const B: f64 = 0.75;
 
 #[derive(Debug)]
+enum IndexedText {
+    Raw(String),
+    Html(String),
+    Knowledge(crate::knowledge_projection::KnowledgeProjection),
+}
+
+impl IndexedText {
+    fn text(&self) -> &str {
+        match self {
+            Self::Raw(text) | Self::Html(text) => text,
+            Self::Knowledge(projection) => &projection.text,
+        }
+    }
+    fn chunker_version(&self) -> &str {
+        match self {
+            Self::Raw(_) => CHUNKER_VERSION,
+            Self::Html(_) => HTML_CHUNKER_VERSION,
+            Self::Knowledge(_) => crate::knowledge_projection::KNOWLEDGE_CHUNKER_VERSION,
+        }
+    }
+    fn ranges(&self, atomic: bool) -> Vec<(usize, usize)> {
+        match self {
+            Self::Knowledge(projection) => {
+                let mut result = ranges(&projection.text[..projection.raw_byte_end], false);
+                result.extend(projection.facts.iter().map(|fact| (fact.byte_start, fact.byte_end)));
+                result
+            }
+            _ => ranges(self.text(), atomic),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub(crate) struct IndexedChunk {
     pub document: usize,
     pub start: usize,
@@ -28,7 +61,7 @@ pub(crate) struct IndexedChunk {
 pub(crate) struct ChunkIndex {
     pub release: CorpusRelease,
     pub records: Vec<SourceRecordV2>,
-    texts: Vec<String>,
+    texts: Vec<IndexedText>,
     pub chunks: Vec<IndexedChunk>,
     pub by_id: BTreeMap<String, usize>,
     pub by_document: BTreeMap<(String, String, u64), Vec<usize>>,
@@ -111,7 +144,9 @@ impl ChunkIndex {
                 b.revision,
             ))
         });
-        if records.iter().map(|r| r.content.len()).sum::<usize>() > 256 * 1024 * 1024 {
+        if records.iter().try_fold(0usize, |total, record| {
+            total.checked_add(record.content.len()).filter(|total| *total <= crate::knowledge_projection::MAX_INDEX_BYTES)
+        }).is_none() {
             return Err(PortError::BudgetExceeded);
         }
         let mut index = Self {
@@ -119,8 +154,11 @@ impl ChunkIndex {
             texts: records
                 .iter()
                 .map(|record| {
+                    if let Some(projection) = crate::knowledge_projection::project_knowledge(record)? {
+                        return Ok(IndexedText::Knowledge(projection));
+                    }
                     if record.metadata.get("content_format").map(String::as_str) != Some("html") {
-                        return Ok(record.content.clone());
+                        return Ok(IndexedText::Raw(record.content.clone()));
                     }
                     let projection = crate::html_projection::project_html(&record.content)?;
                     let legacy = [
@@ -144,7 +182,7 @@ impl ChunkIndex {
                     {
                         return Err(PortError::InvalidResponse("html_projection_binding".into()));
                     }
-                    Ok(projection.text)
+                    Ok(IndexedText::Html(projection.text))
                 })
                 .collect::<Result<Vec<_>, PortError>>()?,
             records,
@@ -156,6 +194,12 @@ impl ChunkIndex {
             average_length: 1.0,
             fact_name_owners: BTreeMap::new(),
         };
+        let projected_bytes = index.texts.iter().try_fold(0usize, |total, text| {
+            total.checked_add(text.text().len()).filter(|total| *total <= crate::knowledge_projection::MAX_INDEX_BYTES)
+        });
+        if projected_bytes.is_none() {
+            return Err(PortError::BudgetExceeded);
+        }
         for (document, record) in index.records.iter().enumerate() {
             if record.tombstone {
                 continue;
@@ -169,21 +213,24 @@ impl ChunkIndex {
                         .insert(document);
                 }
             }
-            // Typed facts/rules are indivisible objects, not prose. Oversized objects fail
-            // explicitly at packing rather than turning fragments into authoritative facts.
+            if let IndexedText::Knowledge(projection) = &index.texts[document] {
+                for fact in &projection.facts {
+                    let mut names = fact_names("", &fact.subject, &BTreeMap::new());
+                    names.push(terms(&fact.subject));
+                    for name in names.into_iter().filter(|name| !name.is_empty()) {
+                        index.fact_name_owners.entry(name).or_default().insert(document);
+                    }
+                }
+            }
             let atomic = record.metadata.contains_key("domain_contract")
                 || matches!(
                     record.metadata.get("kind").map(String::as_str),
                     Some("fact" | "rule")
                 );
-            let text = &index.texts[document];
-            let chunker_version =
-                if record.metadata.get("content_format").map(String::as_str) == Some("html") {
-                    HTML_CHUNKER_VERSION
-                } else {
-                    CHUNKER_VERSION
-                };
-            for (ordinal, (start, end)) in ranges(text, atomic).into_iter().enumerate() {
+            let indexed_text = &index.texts[document];
+            let text = indexed_text.text();
+            let chunker_version = indexed_text.chunker_version();
+            for (ordinal, (start, end)) in indexed_text.ranges(atomic).into_iter().enumerate() {
                 if index.chunks.len() >= 500_000 {
                     return Err(PortError::BudgetExceeded);
                 }
@@ -198,7 +245,13 @@ impl ChunkIndex {
                     end,
                 ))
                 .expect("identity serializes");
-                let id = format!("ev-{:x}", Sha256::digest(identity));
+                let id = if let IndexedText::Knowledge(projection) = indexed_text {
+                    let bound = serde_json::to_vec(&(&identity, &projection.semantic_sha256))
+                        .expect("projection identity serializes");
+                    format!("ev-{:x}", Sha256::digest(bound))
+                } else {
+                    format!("ev-{:x}", Sha256::digest(identity))
+                };
                 let chunk_id = index.chunks.len();
                 let text = &text[start..end];
                 let mut words = terms(text);
@@ -358,7 +411,9 @@ impl ChunkIndex {
         let original = &self.records[entry.document];
         let public_maintenance = original.source_id.starts_with("maintenance-docs:")
             && effective.visibility == brain_contracts::SourceVisibility::Public;
-        let locator = if public_maintenance {
+        let locator = if let IndexedText::Knowledge(projection) = &self.texts[entry.document] {
+            projection.source_locator.clone()
+        } else if public_maintenance {
             original.logical_id.clone()
         } else {
             original
@@ -385,19 +440,31 @@ impl ChunkIndex {
             source_id: original.source_id.clone(),
             logical_id: original.logical_id.clone(),
             revision: original.revision,
-            kind: match original.metadata.get("kind").map(String::as_str) {
-                Some("fact") => EvidenceKind::Fact,
-                Some("rule") => EvidenceKind::Rule,
-                Some("mechanic") => EvidenceKind::Mechanic,
-                Some("population") => EvidenceKind::Population,
-                Some("replay") => EvidenceKind::Replay,
-                _ => EvidenceKind::Prose,
+            kind: if matches!(&self.texts[entry.document], IndexedText::Knowledge(_)) {
+                EvidenceKind::Prose
+            } else {
+                match original.metadata.get("kind").map(String::as_str) {
+                    Some("fact") => EvidenceKind::Fact,
+                    Some("rule") => EvidenceKind::Rule,
+                    Some("mechanic") => EvidenceKind::Mechanic,
+                    Some("population") => EvidenceKind::Population,
+                    Some("replay") => EvidenceKind::Replay,
+                    _ => EvidenceKind::Prose,
+                }
             },
-            content: self.texts[entry.document][entry.start..entry.end].into(),
-            citation: format!(
-                "brain:{}@{}#bytes={}-{}",
-                entry.id, original.revision, entry.start, entry.end
-            ),
+            content: self.texts[entry.document].text()[entry.start..entry.end].into(),
+            citation: if matches!(&self.texts[entry.document], IndexedText::Knowledge(_)) {
+                format!(
+                    "brain:{}@{}#basis={}&bytes={}-{}",
+                    entry.id, original.revision, crate::knowledge_projection::KNOWLEDGE_BYTE_BASIS,
+                    entry.start, entry.end
+                )
+            } else {
+                format!(
+                    "brain:{}@{}#bytes={}-{}",
+                    entry.id, original.revision, entry.start, entry.end
+                )
+            },
             visibility: effective.visibility,
             allowed_scopes: effective.allowed_scopes.clone(),
             score,
@@ -407,14 +474,7 @@ impl ChunkIndex {
             },
             provenance: Some(ChunkProvenance {
                 document: self.document(chunk),
-                chunker_version: if original.metadata.get("content_format").map(String::as_str)
-                    == Some("html")
-                {
-                    HTML_CHUNKER_VERSION
-                } else {
-                    CHUNKER_VERSION
-                }
-                .into(),
+                chunker_version: self.texts[entry.document].chunker_version().into(),
                 ordinal: entry.ordinal,
                 byte_start: entry.start,
                 byte_end: entry.end,
@@ -423,7 +483,9 @@ impl ChunkIndex {
                 knowledge_version: self.release.knowledge_version.clone(),
                 valid_from: original.valid_from.clone(),
                 valid_to: original.valid_to.clone(),
-                metadata: if public_maintenance {
+                metadata: if let IndexedText::Knowledge(projection) = &self.texts[entry.document] {
+                    projection.provenance_metadata(original, entry.start)
+                } else if public_maintenance {
                     public_metadata
                 } else {
                     original.metadata.clone()

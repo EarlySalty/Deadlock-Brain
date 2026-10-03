@@ -13,6 +13,8 @@ pub mod external;
 pub mod forum;
 pub mod git_source;
 pub mod google_sheet;
+pub mod knowledge_contract;
+pub mod knowledge_import;
 pub mod patchnotes_db;
 pub mod reddit;
 pub mod schema_signal;

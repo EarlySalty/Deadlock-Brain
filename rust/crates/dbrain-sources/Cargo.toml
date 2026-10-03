@@ -15,6 +15,7 @@ brain-contracts = { path = "../brain-contracts" }
 brain-storage = { path = "../brain-storage" }
 dbrain-s12-wiki-probe = { path = "../dbrain-wiki" }
 deadlock-brain-core = { path = "../deadlock-brain-core" }
+chrono.workspace = true
 regex.workspace = true
 reqwest.workspace = true
 roxmltree.workspace = true
