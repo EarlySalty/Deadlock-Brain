@@ -5,12 +5,14 @@ Datum: 2026-10-03
 
 Ziel: Vertrag für Wiki und Spieldateien, vorhandene Postgres-Wissenshaltung erweitern, echte Importläufe und Brain-Zugriff prüfen, gemeinsame Integration bis zum geprüften Abschluss.
 
-Session: `381c7a80-4018-446f-9083-72c046d9b118`.
+Aktive Session C2: `a17ac7e9-7f41-44b0-a6e4-901bfafe544f`, Start im nativen Vordergrund am 2026-10-03. Vorgänger `381c7a80-4018-446f-9083-72c046d9b118` ausdrücklich beendet, nicht wieder aufnehmen.
 Koordinationsworktree: `/home/nathanael/.worktrees/brain-wiki-spielwissen-c`, Branch `feat/brain-wiki-spielwissen-c`, Ausgangs-HEAD `2734c2da4e814ff79953e8e825275b0216a6af16`.
-Produktiver Integrationsworktree: `/home/nathanael/.worktrees/brain-wiki-spielwissen-c-integration`, Branch `feat/brain-wiki-spielwissen-c-integration`, Basis `511a347b653beba13c2bf130f4bead7a7196cc2a` aus frisch geholtem origin/main. Nur eigene C/A/B-Änderungen dorthin integrieren; die 21 fremden historischen Ausgangsbranch-Commits bleiben außerhalb.
+Produktiver Integrationsworktree: `/home/nathanael/.worktrees/brain-wiki-spielwissen-c-integration`, Branch `feat/brain-wiki-spielwissen-c-integration`, Basis `511a347b653beba13c2bf130f4bead7a7196cc2a`. Eigener WIP-Commit `b1b9241805f470427570566faca37fc340d1c04c` ist gepusht, Worktree sauber. Die Commitmenge seit dieser Basis enthält genau diesen eigenen Commit; die 21 fremden historischen Ausgangsbranch-Commits bleiben außerhalb. Kein Compiler-, Import- oder Fertigbeweis durch den Commit.
+
+Koordinationsbasiscommit `7a3ebd3f2dff1925893e52ae3fe340be4bea2a54` ist auf `origin/feat/brain-wiki-spielwissen-c` gepusht. Neue Handoff-Dokumentation wird auf demselben eigenen Branch gesichert, ohne main-Merge.
 
 Modell: `gpt-6.1-sol[1m]`, high, Proxy `http://127.0.0.1:18768`. Sichere aktive Startparameter und sämtliche lokalen Modellalias-Zuordnungen geprüft.
-Statusproduzent: ausschließlich `teil-c`, Paket c, Versuch 1.
+Statusproduzent: ausschließlich `teil-c`, Paket c, Versuch 2. Aktive Elternparameter am Prozess 2854855 bestätigt: `--model gpt-6.1-sol[1m] --effort high`, isolierte `startweg/claude-sol.json`. Native Read/Write/Edit/Skill/Bash und context-mode-Werkzeuge funktionieren in C2 tatsächlich. Die folgenden alten Worker bleiben abgeschlossen; keine Wiederaufnahme.
 
 | Nativer Worker | Startnachweis | Modell und Effort | Eigentum | Stand |
 | --- | --- | --- | --- | --- |
@@ -21,11 +23,19 @@ Statusproduzent: ausschließlich `teil-c`, Paket c, Versuch 1.
 | a10f090c7d0b4f903 | Agent-Aufruf dieser Sitzung, coder, frischer Fixkontext | geerbtes Sol, maximal high | knowledge_import.rs und source_versions.rs samt gezielten Tests | erledigt, numerische Wiki-Reihenfolge auch für URL-IDs geschrieben; Compiler- und DB-Nachweis offen |
 | a85dc0ea797104370 | Agent-Aufruf dieser Sitzung, coder | geerbtes Sol, maximal high | neue knowledge_projection.rs und Tests, gezielte chunk_index.rs-Anbindung und lib.rs-Registrierung in dbrain-retrieval | erledigt, Faktenprojektion geschrieben; sieben vorbereitete Tests einschließlich Datei über 7,5 MB, noch nicht ausgeführt |
 | ae5bcaf695b71b147 | Agent-Aufruf dieser Sitzung, coder | geerbtes Sol, maximal high | ausschließlich brain-knowledge-import.rs samt dortigen Tests | erledigt, begrenzte bytegetreue Partitionierung geschrieben; sieben neue vorbereitete Tests, kein Compilerbeweis |
-| a33779471a5d9a05a | Agent-Aufruf dieser Sitzung, coder, frischer Fixkontext | geerbtes Sol, maximal high | gezielte PgStore-Publish-Erweiterung in pg_release.rs, CLI-Publish-Anbindung und neue gezielte Tests | aktiv, bestätigte leere-Batch-Blockade beheben ohne ungesicherten Publish oder Rechteänderung; kein Cargo |
+| a33779471a5d9a05a | Agent-Aufruf dieser Sitzung, coder, frischer Fixkontext | geerbtes Sol, maximal high | gezielte PgStore-Publish-Erweiterung in pg_release.rs, CLI-Publish-Anbindung und neue gezielte Tests | erledigt, publish_imported_heads_checked und Anbindung samt gezielten Rennprüfungen geschrieben; keine Compiler-/DB-Prüfung |
 | a56e4dcc0e2320348 | Agent-Aufruf dieser Sitzung, rust-reviewer, frischer Kontext | belegtes lokales Opus-Alias auf Sol, maximal high | vorgesehene lesende Prüfung fertiger Import-/Versions-/Faktenmodule | beendet ohne Codeprüfung: Rollenprompt startete entgegen Briefing cargo check im Worktree-Root ohne Cargo.toml; kein Compiler, keine Locks, kein ALLOW |
 | af4c4b646740a6f5f | Agent-Aufruf dieser Sitzung, general-purpose | geerbtes Sol, maximal high | ausschließlich lesende Lizenz-/Verarbeitungsprüfung | beendet ohne Recherche: erste context-mode-Leseoperation verweigert, keine Rechtsfreigabe |
 
-Eigene Checks bmo6cu39b und b6eft4jvk wurden nach neuen Befunden noch vor Compilerstart beendet; b6eft4jvk wartete weiterhin auf die Hostlocks. Kein erfolgreicher Compiler-, Test-, Import- oder Livenachweis liegt vor. Die Import-/Release-CLI samt Partitionierung ist geschrieben; ihre Publish-Anbindung wird gerade durch einen frischen Fixer korrigiert. Der fehlgeschlagene rolleninterne Reviewer-Check ohne Root-Cargo.toml ist kein Compilerbeweis.
+Eigene Checks bmo6cu39b und b6eft4jvk wurden nach neuen Befunden noch vor Compilerstart beendet. Der abschließende wartende Check bvwue2kif wurde auf den ausdrücklichen geordneten Handoff-Auftrag hin ebenfalls vor Formatter-/Compilerstart mit TaskStop beendet. Endgültige Ausgabe enthält ausschließlich C_CHECK_3_WAITING_FOR_HOST_LOCKS, keinen HOST_LOCKS_HELD-/compiler_start-/check_exit-Marker. Keine eigenen Worker, Compiler oder wartenden Checkwrapper bleiben aktiv. TaskStop bestätigt das Ende; Task-PIDs wurden nicht ausgegeben. Keine fremden Prozesse oder Locks verändert. Alle zehn nativen Worker haben Abschlussmeldungen ohne lebende Kinder. Noch kein erfolgreicher Compiler-, Test-, Import- oder Livenachweis. Der fehlgeschlagene rolleninterne Reviewer-Check ohne Root-Cargo.toml ist kein Compilerbeweis.
+
+## C2-Worker
+
+| Nativer Worker | Startnachweis | Modell und Effort | Eigentum | Stand |
+| --- | --- | --- | --- | --- |
+| aff658e9fd78b1b20 | Agent-Aufruf C2 am 2026-10-03, coder ohne Overrides; BRIEFING-C2-CHECK.md | geerbtes GPT 6.1 Sol high | reiner Compiler-/Format-/Clippy-/Testnachweis des unveränderten C-WIP, Cargo-Auflösung und eigener C2-CHECK.md-Bericht | läuft; keine Quellcodeänderung und keine weiteren Kinder erlaubt |
+
+| a97e867cd5ffb6a06 | Agent-Aufruf C2 am 2026-10-03, coder ohne Overrides; BRIEFING-C2-BETRIEB.md | geerbtes GPT 6.1 Sol high | reiner lesender Betriebs-Vorcheck, nur C2-BETRIEB.md | läuft; kein Review, Cargo oder produktiver Schreibzugriff |
 
 ## Koordinationsweg
 

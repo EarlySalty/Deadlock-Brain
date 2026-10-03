@@ -1,15 +1,11 @@
 status: aktiv
 Datum: 2026-10-03
-Stand: 04:33:49 UTC
+Stand: 2026-10-03T05:16:37Z
 
-# Aktueller Hinweis C
+# C2 gestartet
 
-UEBERGABE.md und Status c/1/0004.json sind aktualisiert. Bitte die neueste CONTRACT.md-Fassung zentral übernehmen: AN_BEREICHE.md bis Punkt 18 einschließlich lokaler A/B-Harness und Bereich D ist eingearbeitet. D erhält keine A/B/C-Schreibpfade; zusätzliche Rohdaten gehen zur Extraktion an B und zur Gesamtprüfung an C. Fremde 21 Ausgangscommits bleiben ausgeschlossen.
+Paket c, Versuch 2, Produzent teil-c. Native Sitzung a17ac7e9-7f41-44b0-a6e4-901bfafe544f hat den unveränderten Stand übernommen: /home/nathanael/.worktrees/brain-wiki-spielwissen-c-integration, Branch feat/brain-wiki-spielwissen-c-integration, HEAD b1b9241805f470427570566faca37fc340d1c04c. Arbeitsbaum sauber, eigener Branch gepusht. Koordination bleibt im bisherigen C-Koordinationsworktree; keine neue Akte und keine neuen T3-Sitzungen.
 
-Die beiden ursprünglichen C-Codeworker, der frische Wiki-Reihenfolgefixer, Faktenworker und Partitionsworker sind fertig. Ein neuer frischer Sol-high-Publish-Fixer läuft: leere Batches werden von der bisherigen Veröffentlichungsschnittstelle abgelehnt. Genaue Köpfe, unveränderte Basispins und Rechte müssen transaktional erhalten bleiben. Kein ungesicherter Publish-Ersatz. Bibliothekscheck b6eft4jvk wurde noch vor Compilerstart beendet, um während dieser weiteren Fixrunde keinen veränderlichen Stand zu prüfen. Kein erfolgreicher Compilerlauf bisher.
+Modell laut Harness GPT 6.1 Sol, Modellumgebung gpt-6.1-sol[1m], alle nativen Modellzuordnungen ebenfalls Sol; lokaler Auftragproxy 127.0.0.1:18768. Nutzerwahl high bleibt verbindlich, kein ultracode/xhigh/max. Native Write/Read/Skill/Bash und context-mode ctx_execute/ctx_batch_execute haben tatsächlich funktioniert. Keine Secrets gelesen.
 
-Die laufende Session hat die erlaubten context-mode-/EnterWorktree-Settings weiterhin nicht übernommen. Ein Rechte-Fachworker endete beim ersten verweigerten Tool ohne Recherche. Ein Rust-Prüfer führte entgegen lesendem Briefing rollenbedingt cargo check ohne Manifest im Worktree-Root aus und stoppte dort ohne Compiler oder Codeprüfung; kein ALLOW. Beides ist keine fachliche Abnahme. Nach Ende eigener Kinder ist eine geordnete Wiederaufnahme derselben beendeten Session nötig, bevor HTTP-/Livebeweise beginnen. Keine Duplikation und keine Hook-Umgehung.
-
-Gesamtabschluss braucht A/B-geprüfte Daten/Commits und D-Übergabe, echte Import-/Wiederholungs-/Größenprüfung, bestehende Brain-Abfragen verschiedener Mechanikbereiche mit Quelle und Version, unabhängige Intent-Abnahme und expliziten Sol-only-Gate für denselben SHA. Interne Quellverarbeitungsrechte und der vorhandene Deploy-Weg sind noch zu belegen. Das aktive Background-Harness verbietet weiterhin Merge; diese höhere Grenze wird nicht durch Delegation oder einen anderen Git-Weg umgangen.
-
-Nächster Schritt: Publish-Fixer fertigstellen lassen, stabilen C-Stand sichern und mit richtigem absoluten rust/Cargo.toml unter beiden Hostlocks/max zwei Jobs prüfen.
+Gebaut: nein. Reviewt: nein. Gemergt: nein. Live: nein. Der WIP-Commit ersetzt keine Prüfung. A/B/D bleiben unberührt. Zuerst bestätigten Quellstand unter beiden Hostsperren mit höchstens zwei Cargo-Jobs prüfen. Danach nur geprüfte eigene Bereichscommits integrieren, Schreib-/Lesepfade gemeinsam abnehmen, Sol-only-Gate, Merge und notwendige Deploys mit Live-Beweis. Offene Voraussetzungen bleiben A/B-Übergaben und D-Depotdownload.
