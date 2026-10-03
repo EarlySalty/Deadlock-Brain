@@ -1,14 +1,19 @@
 #![forbid(unsafe_code)]
 use brain_serve::{log_event, Config, Error, Prepared, Secrets};
 use std::{
-    path::PathBuf,
+    ffi::OsString,
+    path::{Path, PathBuf},
     process::ExitCode,
     time::{Duration, Instant},
 };
 
 fn config_paths() -> Result<Option<(PathBuf, PathBuf)>, Error> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
-    match args.as_slice() {
+    parse_config_paths(&args)
+}
+
+fn parse_config_paths(args: &[OsString]) -> Result<Option<(PathBuf, PathBuf)>, Error> {
+    match args {
         [arg] if arg == "--help" || arg == "-h" => {
             println!("brain-serve --config /pfad/config/bot.toml\n\nServe liest [brain.serve], den privaten Operator aus [brain.operator] und sichere Secretmetadaten aus [brain.infisical] derselben normalen Bot-TOML. Historische *_env-Felder sind Infisical-Schlüsselnamen, keine Umgebungsvariablen.\nGET /healthz, GET /readyz, POST /v1/answer, POST /v1/retrieve. SIGTERM/SIGINT beenden den Dienst geordnet.");
             Ok(None)
@@ -17,14 +22,13 @@ fn config_paths() -> Result<Option<(PathBuf, PathBuf)>, Error> {
             println!("brain-serve {}", env!("CARGO_PKG_VERSION"));
             Ok(None)
         }
-        [config, path] if config == "--config" && !path.is_empty() => {
+        [config, path] if config == "--config" && Path::new(path).is_absolute() => {
             Ok(Some((path.into(), path.into())))
         }
         [config, path, infisical, secret_path]
             if config == "--config"
                 && infisical == "--infisical-config"
-                && !path.is_empty()
-                && !secret_path.is_empty()
+                && Path::new(path).is_absolute()
                 && path == secret_path =>
         {
             Ok(Some((path.into(), secret_path.into())))
@@ -32,14 +36,66 @@ fn config_paths() -> Result<Option<(PathBuf, PathBuf)>, Error> {
         [infisical, secret_path, config, path]
             if config == "--config"
                 && infisical == "--infisical-config"
-                && !path.is_empty()
-                && !secret_path.is_empty()
+                && Path::new(path).is_absolute()
                 && path == secret_path =>
         {
             Ok(Some((path.into(), secret_path.into())))
         }
         [] => Err(Error::ConfigMissing),
         _ => Err(Error::Arguments),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normale_config_ist_absolut_und_jeder_alias_benennt_dieselbe_datei() {
+        for arguments in [
+            vec!["--config", "config/bot.toml"],
+            vec![
+                "--config",
+                "config/bot.toml",
+                "--infisical-config",
+                "config/bot.toml",
+            ],
+            vec![
+                "--infisical-config",
+                "config/bot.toml",
+                "--config",
+                "config/bot.toml",
+            ],
+            vec![
+                "--config",
+                "/release/config/bot.toml",
+                "--infisical-config",
+                "/anderer/config/bot.toml",
+            ],
+        ] {
+            let args: Vec<OsString> = arguments.into_iter().map(Into::into).collect();
+            assert!(parse_config_paths(&args).is_err());
+        }
+        for arguments in [
+            vec!["--config", "/release/config/bot.toml"],
+            vec![
+                "--config",
+                "/release/config/bot.toml",
+                "--infisical-config",
+                "/release/config/bot.toml",
+            ],
+            vec![
+                "--infisical-config",
+                "/release/config/bot.toml",
+                "--config",
+                "/release/config/bot.toml",
+            ],
+        ] {
+            let args: Vec<OsString> = arguments.into_iter().map(Into::into).collect();
+            let (normal, metadata) = parse_config_paths(&args).unwrap().unwrap();
+            assert_eq!(normal, Path::new("/release/config/bot.toml"));
+            assert_eq!(normal, metadata);
+        }
     }
 }
 
