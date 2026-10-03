@@ -1,5 +1,5 @@
-# TEMPLATE ONLY: do not copy, enable, start or restart without a separate operator approval.
-# Example USER unit. Adjust immutable binary/config paths and the local PostgreSQL role/socket.
+# Nicht aktivierte User-Unit-Vorlage für das gemeinsam geprüfte C9-Release.
+# @RELEASE_ROOT@ vor dem Gruppengate an den vollständigen Source-SHA binden.
 [Unit]
 Description=Deadlock Brain integrated Rust API
 After=network-online.target
@@ -9,15 +9,15 @@ StartLimitBurst=3
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/deadlock-brain-c1
+WorkingDirectory=@RELEASE_ROOT@
 LoadCredential=infisical-token:%h/.config/infisical-tokens/infisical-token-bots
-# The normal Infisical config references credential_fd=5. %d is systemd's
-# credential directory; no environment config or exported secret snapshot.
-ExecStart=/bin/bash -c 'exec 5<"%d/infisical-token"; exec /opt/deadlock-brain-c1/bin/brain-serve --config "%h/.config/deadlock-brain/brain-serve.json" --infisical-config "%h/.config/deadlock-brain/infisical.json"'
+# brain.infisical.credential_fd=5 bindet das tatsächlich geöffnete systemd-Credential.
+# %d bezeichnet dessen Verzeichnis; die gemeinsame Bot-TOML enthält keine Secretwerte.
+ExecStart=/bin/bash -c 'exec 5<"%d/infisical-token"; exec @RELEASE_ROOT@/brain-serve --config @RELEASE_ROOT@/config/bot.toml'
 KillSignal=SIGTERM
 KillMode=control-group
-# Must exceed the configured timeouts.shutdown_ms (example: 12000 ms).
-TimeoutStopSec=20
+# Die Dienstgrenze liegt oberhalb des validierten Shutdownbudgets.
+TimeoutStopSec=70
 Restart=on-failure
 RestartSec=5
 UMask=0077
