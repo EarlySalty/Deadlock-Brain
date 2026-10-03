@@ -12,6 +12,7 @@ brain-contracts = { path = "../brain-contracts" }
 reqwest.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+uplink-infisical-transport = { path = "../../vendor/uplink-infisical-transport" }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "io-util", "sync"] }

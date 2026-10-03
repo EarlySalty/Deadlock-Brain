@@ -1,0 +1,12 @@
+Diff in /home/nathanael/.worktrees/brain-fertig-z/ops/brain-release/src/source.rs:193:
+         fingerprint.push(0);
+         fingerprint.extend_from_slice(&sha256.finalize());
+     }
+-    ensure!(text(path, &["rev-parse", "HEAD"])? == sha, "HEAD während Quellprüfung verändert");
++    ensure!(
++        text(path, &["rev-parse", "HEAD"])? == sha,
++        "HEAD während Quellprüfung verändert"
++    );
+     Ok(Source {
+         sha,
+         tree,

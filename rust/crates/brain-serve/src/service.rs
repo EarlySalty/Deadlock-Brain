@@ -48,6 +48,7 @@ pub struct Prepared {
     reader: LocalPgReader,
     provider: OpenAiCompatibleProvider,
     credentials: CredentialRegistry,
+    internal_credentials: CredentialRegistry,
     analytics: Option<Arc<AnalyticsRuntime>>,
     shutdown: Arc<Shutdown>,
     startup_deadline: Instant,
@@ -73,6 +74,7 @@ impl Prepared {
             provider_key,
             postgres_password,
             credentials,
+            internal_credentials,
         } = secrets;
         let t = &config.timeouts;
         let pg = &config.postgres;
@@ -122,6 +124,7 @@ impl Prepared {
             reader,
             provider,
             credentials,
+            internal_credentials,
             analytics,
             shutdown,
             startup_deadline: deadline,
@@ -144,6 +147,25 @@ async fn initialize(prepared: &Prepared) -> Result<Arc<Health>, Error> {
     let reader = prepared.reader.clone();
     let release_id = prepared.config.release.id.clone();
     let knowledge_version = prepared.config.release.knowledge_version.clone();
+    let client_releases: Vec<_> = prepared
+        .config
+        .credentials
+        .iter()
+        .filter_map(|credential| {
+            credential.release.clone().map(|release| {
+                (
+                    release,
+                    credential
+                        .scopes
+                        .iter()
+                        .find(|scope| {
+                            ["docs.public", "second_brain.internal"].contains(&scope.as_str())
+                        })
+                        .cloned(),
+                )
+            })
+        })
+        .collect();
     let analytics_patch = prepared
         .config
         .analytics
@@ -172,14 +194,55 @@ async fn initialize(prepared: &Prepared) -> Result<Arc<Health>, Error> {
             return Err(Error::ConfigInvalid("analytics_patch"));
         }
         health::validate_snapshot(&snapshot)?;
-        Ok(snapshot)
+        let mut releases = vec![snapshot.release];
+        for (expected, scope) in client_releases {
+            let client_snapshot =
+                reader
+                    .read_snapshot(&expected.id)
+                    .map_err(|error| match error {
+                        PortError::InvalidResponse(_) => Error::ReleaseUnavailable,
+                        other => startup_database_error(other),
+                    })?;
+            if client_snapshot.release.knowledge_version != expected.knowledge_version {
+                return Err(Error::KnowledgeVersion);
+            }
+            health::validate_snapshot(&client_snapshot)?;
+            if let Some(scope) = scope {
+                health::validate_bound_scope(&client_snapshot, &scope)?;
+            }
+            if !releases.contains(&client_snapshot.release) {
+                releases.push(client_snapshot.release);
+            }
+        }
+        Ok(releases)
     })
     .await
     .map_err(|_| Error::ReaderUnavailable)??;
     Ok(Arc::new(Health::new(
-        snapshot.release,
+        snapshot,
         Duration::from_millis(prepared.config.timeouts.readiness_ms),
         prepared.reader.clone(),
+        prepared
+            .config
+            .credentials
+            .iter()
+            .filter_map(|credential| {
+                credential.release.as_ref().and_then(|release| {
+                    credential
+                        .scopes
+                        .iter()
+                        .find(|scope| {
+                            ["docs.public", "second_brain.internal"].contains(&scope.as_str())
+                        })
+                        .map(|scope| (release.id.clone(), scope.clone()))
+                })
+            })
+            .collect(),
+        prepared
+            .config
+            .internal_operator
+            .as_ref()
+            .map(|operator| operator.socket.clone()),
     )))
 }
 
@@ -261,7 +324,25 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
         prepared.config.timeouts.request_ms,
         (&prepared.config.budgets).into(),
     )
-    .with_retrieval(public_retrieval);
+    .with_retrieval(public_retrieval)
+    .with_release_bindings(
+        prepared
+            .config
+            .credentials
+            .iter()
+            .map(|credential| {
+                (
+                    (credential.actor_id.clone(), credential.channel.clone()),
+                    credential
+                        .release
+                        .as_ref()
+                        .unwrap_or(&prepared.config.release)
+                        .id
+                        .clone(),
+                )
+            })
+            .collect(),
+    );
     let mut router = brain_api::router(api)
         .layer(middleware::from_fn_with_state(
             health.clone(),
@@ -295,6 +376,41 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
         return Err(Error::StartupTimeout);
     }
     let address = listener.local_addr().map_err(|_| Error::Bind)?;
+    let (operator_stop, mut operator_notice) = tokio::sync::watch::channel(false);
+    let mut socket_guard = None;
+    let operator = if let Some(config) = &prepared.config.internal_operator {
+        let (listener, guard) = crate::operator_socket::bind(&config.socket)?;
+        socket_guard = Some(guard);
+        let service = brain_api::internal::InternalApiService::new(
+            PolicyEngine::with_ownership_store(
+                prepared.internal_credentials.clone(),
+                Arc::new(prepared.reader.clone()),
+            ),
+            ReleaseRetriever::new(prepared.reader.clone(), prepared.config.retrieval.limit),
+            config.release.id.clone(),
+            prepared.config.timeouts.request_ms,
+            (&prepared.config.budgets).into(),
+        );
+        let router = brain_api::internal::router(service).layer(middleware::from_fn_with_state(
+            health.clone(),
+            reject_during_drain,
+        ));
+        Some((listener, router))
+    } else {
+        None
+    };
+    let operator_enabled = operator.is_some();
+    let mut operator_task = tokio::spawn(async move {
+        if let Some((listener, router)) = operator {
+            axum::serve(listener, router)
+                .with_graceful_shutdown(async move {
+                    let _ = operator_notice.changed().await;
+                })
+                .await
+        } else {
+            std::future::pending::<std::io::Result<()>>().await
+        }
+    });
     eprintln!(
         "{}",
         serde_json::json!({"event": "listening", "address": address.to_string()})
@@ -311,13 +427,31 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
     tokio::pin!(server);
     let result = tokio::select! {
         result = &mut server => result.map_err(|_| Error::Serve),
+        _ = &mut operator_task => Err(Error::Serve),
         _ = notice => {
+            let _ = operator_stop.send(true);
             tokio::time::timeout(prepared.remaining_shutdown(), &mut server).await
-                .map_err(|_| Error::ShutdownTimeout)?.map_err(|_| Error::Serve)
+                .map_err(|_| Error::ShutdownTimeout).and_then(|result| result.map_err(|_| Error::Serve))
         }
     };
     health.draining.store(true, Ordering::SeqCst);
     prepared.shutdown.begin();
+    let _ = operator_stop.send(true);
+    let operator_result = if operator_enabled && !operator_task.is_finished() {
+        match tokio::time::timeout(prepared.remaining_shutdown(), &mut operator_task).await {
+            Ok(Ok(Ok(()))) => Ok(()),
+            Ok(_) => Err(Error::Serve),
+            Err(_) => {
+                operator_task.abort();
+                let _ = operator_task.await;
+                Err(Error::ShutdownTimeout)
+            }
+        }
+    } else {
+        operator_task.abort();
+        Ok(())
+    };
+    drop(socket_guard);
     log_pool_stats(prepared.reader.pool_stats());
-    result
+    result.and(operator_result)
 }

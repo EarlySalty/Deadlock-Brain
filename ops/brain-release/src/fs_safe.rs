@@ -113,6 +113,54 @@ pub fn regular(path: &Path, owner: u32) -> Result<File> {
     Ok(file)
 }
 
+pub fn cargo_artifact(target: &Path, name: &str, owner: u32) -> Result<File> {
+    checked_path(target, owner, true)?;
+    let release = target.join("release");
+    checked_path(&release, owner, true)?;
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(release.join(name))?;
+    let meta = file.metadata()?;
+    ensure!(
+        meta.is_file()
+            && meta.uid() == owner
+            && safe_mode(&meta)
+            && meta.mode() & 0o111 != 0
+            && [1, 2].contains(&meta.nlink()),
+        "Unsicheres Cargoartefakt: {name}"
+    );
+    let deps = release.join("deps");
+    checked_path(&deps, owner, true)?;
+    let prefix = format!("{}-", name.replace('-', "_"));
+    let mut aliases = 0;
+    for entry in fs::read_dir(&deps)? {
+        let entry = entry?;
+        let alias = fs::symlink_metadata(entry.path())?;
+        if alias.dev() != meta.dev() || alias.ino() != meta.ino() {
+            continue;
+        }
+        let filename = entry.file_name();
+        let filename = filename.to_str().context("Ungültiger Cargoalias")?;
+        let suffix = filename.strip_prefix(&prefix).context("Fremder Cargo-Hardlink")?;
+        ensure!(
+            alias.is_file()
+                && alias.uid() == owner
+                && safe_mode(&alias)
+                && !suffix.is_empty()
+                && suffix.bytes().all(|b| b.is_ascii_hexdigit())
+                && alias.nlink() == meta.nlink(),
+            "Fremder Cargo-Hardlink"
+        );
+        aliases += 1;
+    }
+    ensure!(
+        aliases + 1 == meta.nlink(),
+        "Cargoartefakt besitzt Hardlinks außerhalb seines Buildlayouts"
+    );
+    Ok(file)
+}
+
 pub fn bytes(path: &Path, owner: u32, limit: u64) -> Result<Vec<u8>> {
     let file = regular(path, owner)?;
     ensure!(file.metadata()?.len() <= limit, "Datei zu groß");

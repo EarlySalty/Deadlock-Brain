@@ -27,6 +27,14 @@ enum Task {
     Status,
     Migrate,
     ImportReviewed,
+    ImportC9Release {
+        #[arg(long)]
+        documents: PathBuf,
+        #[arg(long)]
+        expected_sha256: String,
+        #[arg(long, value_parser = ["docs", "second-brain"])]
+        kind: String,
+    },
     RegisterConfig,
     WriteServeConfig {
         #[arg(long)]
@@ -100,6 +108,15 @@ async fn run() -> Result<()> {
         Task::Tick { job_id } => runner.tick_for_job(job_id.as_deref()).await?,
         Task::Status => runner.status().await?,
         Task::ImportReviewed => runner.import_reviewed().await?,
+        Task::ImportC9Release {
+            documents,
+            expected_sha256,
+            kind,
+        } => {
+            runner
+                .import_c9_release(&documents, &expected_sha256, &kind)
+                .await?
+        }
         Task::RegisterConfig => runner.register_config().await?,
         Task::Migrate => {
             runner.migrate().await?;

@@ -12,6 +12,7 @@ pub struct Secrets {
     pub(crate) provider_key: String,
     pub(crate) postgres_password: Option<String>,
     pub(crate) credentials: CredentialRegistry,
+    pub(crate) internal_credentials: CredentialRegistry,
 }
 
 impl std::fmt::Debug for Secrets {
@@ -109,23 +110,30 @@ impl Secrets {
             }
         }
         let mut grants = Vec::with_capacity(config.credentials.len());
+        let mut internal_grants = Vec::new();
         for grant in &config.credentials {
             let token = required(&lookup, &grant.token_env, "api", true)?;
             if !tokens.insert(token.clone()) {
                 return Err(Error::SecretInvalid("duplicate"));
             }
-            grants.push(AuthGrant::from_secret(
+            let auth = AuthGrant::from_secret(
                 &token,
                 &grant.actor_id,
                 &grant.channel,
                 grant.scopes.clone(),
                 grant.provider_egress.clone(),
-            ));
+            );
+            if grant.actor_id == "second-brain" && grant.channel == "internal" {
+                internal_grants.push(auth);
+            } else {
+                grants.push(auth);
+            }
         }
         Ok(Self {
             provider_key,
             postgres_password,
             credentials: CredentialRegistry::new(grants),
+            internal_credentials: CredentialRegistry::new(internal_grants),
         })
     }
 }
