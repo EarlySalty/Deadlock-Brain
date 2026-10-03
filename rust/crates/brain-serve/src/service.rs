@@ -280,7 +280,7 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
             crate::guide::GuideRuntime::new(
                 guide,
                 prepared.reader.clone(),
-                prepared.provider.clone(),
+                Arc::new(prepared.provider.clone()),
                 kernel.clone(),
                 prepared.credentials.clone(),
                 prepared.config.release.id.clone(),

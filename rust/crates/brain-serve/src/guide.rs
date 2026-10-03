@@ -13,7 +13,6 @@ use brain_contracts::{
 };
 use brain_kernel::CachedKernel;
 use brain_policy::CredentialRegistry;
-use brain_providers::OpenAiCompatibleProvider;
 use brain_storage::{GuideSnapshot, LocalPgReader};
 use dbrain_retrieval::ReleaseRetriever;
 use serde::Deserialize;
@@ -33,7 +32,7 @@ pub struct GuideRuntime {
     config: GuideConfig,
     reader: LocalPgReader,
     retrieval: ReleaseRetriever<LocalPgReader>,
-    provider: OpenAiCompatibleProvider,
+    provider: Arc<dyn AnswerProviderPort>,
     domain_kernel: Arc<dyn GuideDomainKernel>,
     credentials: CredentialRegistry,
     release: String,
@@ -46,7 +45,7 @@ impl GuideRuntime {
     pub fn new(
         config: GuideConfig,
         reader: LocalPgReader,
-        provider: OpenAiCompatibleProvider,
+        provider: Arc<dyn AnswerProviderPort>,
         domain_kernel: Arc<dyn GuideDomainKernel>,
         credentials: CredentialRegistry,
         release: String,
@@ -227,7 +226,7 @@ impl GuideRuntime {
             && turn.surface == Surface::Dm
             && (!self.config.private_dm_egress || !principal.provider_egress.contains("private_dm"))
         {
-            return Ok(GuideResult::reply(&turn.request_id,"Private KI-Antworten sind hier noch nicht freigegeben. Meine Tour und deine Datenschutz-Einstellungen erreichst du weiterhin über die vorhandenen Knöpfe.".into()));
+            return Ok(GuideResult::reply(&turn.request_id,"Ich kann hier noch keine privaten KI-Antworten geben. Deine Datenschutz-Einstellungen erreichst du über die vorhandenen Knöpfe.".into()));
         }
         let conversation_id = snapshot
             .conversation
@@ -587,56 +586,61 @@ fn sharing_refused_or_unclear(body: &str) -> bool {
     if body.contains("nur mit dir") || body.contains("unter uns") || body.contains("vertraulich") {
         return true;
     }
-    body.split_inclusive(['.', '?', '!', ';', ',', '\n'])
+    body.split_inclusive(['.', '?', '!', ';', '\n'])
         .any(|clause| {
             let words: Vec<_> = clause
                 .split_whitespace()
                 .map(|word| word.trim_matches(|c: char| !c.is_alphabetic()))
                 .filter(|word| !word.is_empty())
                 .collect();
-            let shares = words.iter().any(|word| {
-                matches!(
-                    *word,
-                    "leite"
-                        | "leiten"
-                        | "teile"
-                        | "teilen"
-                        | "geteilt"
-                        | "gib"
-                        | "sage"
-                        | "sag"
-                        | "erfahren"
-                ) || [
-                    "weiterleit",
-                    "weitergeb",
-                    "weitergegeb",
-                    "weitergeleit",
-                    "schick",
-                    "send",
-                    "versend",
-                    "übermittel",
-                    "erzähle",
-                    "zeige",
-                ]
+            let shares = words.iter().any(|word| sharing_verb(word));
+            let conditional = words
                 .iter()
-                .any(|verb| word.starts_with(verb))
-            });
+                .any(|word| matches!(*word, "wenn" | "würde" | "könnte"));
             shares
-                && (clause.contains('?')
-                    || words.iter().any(|word| {
-                        matches!(
-                            *word,
-                            "nicht"
-                                | "nie"
-                                | "niemals"
-                                | "niemand"
-                                | "keinesfalls"
-                                | "wenn"
-                                | "würde"
-                                | "könnte"
-                        ) || word.starts_with("kein")
+                && (conditional
+                    || clause.contains('?')
+                    || clause.split(',').any(|part| {
+                        let part_words: Vec<_> = part
+                            .split_whitespace()
+                            .map(|word| word.trim_matches(|c: char| !c.is_alphabetic()))
+                            .filter(|word| !word.is_empty())
+                            .collect();
+                        let part_shares = part_words.iter().any(|word| sharing_verb(word));
+                        let negated = part_words.iter().any(|word| {
+                            matches!(
+                                *word,
+                                "nicht" | "nie" | "niemals" | "niemand" | "keinesfalls"
+                            ) || word.starts_with("kein")
+                        });
+                        let negated_tail = part_words.first().is_some_and(|word| {
+                            matches!(
+                                *word,
+                                "nicht" | "niemals" | "nie" | "keinesfalls" | "aber" | "auf"
+                            )
+                        });
+                        negated && (part_shares || negated_tail)
                     }))
         })
+}
+fn sharing_verb(word: &str) -> bool {
+    matches!(
+        word,
+        "leite" | "leiten" | "teile" | "teilen" | "geteilt" | "gib" | "sage" | "sag" | "erfahren"
+    ) || [
+        "weiterleit",
+        "weitergeb",
+        "weitergegeb",
+        "weitergeleit",
+        "schick",
+        "send",
+        "versend",
+        "übermittel",
+        "erzähle",
+        "zeige",
+    ]
+    .iter()
+    .any(|verb| word.starts_with(verb))
 }
 fn is_closing(text: &str) -> bool {
     matches!(
@@ -916,6 +920,9 @@ mod tests {
         ));
         assert!(explicit_feedback(
             "Bitte leite meinen Verbesserungsvorschlag an das Moderatorenteam weiter: Mehr Turniere bitte."
+        ));
+        assert!(explicit_feedback(
+            "Feedback ans Team: Der Server ist nicht übersichtlich, bitte leite dieses Anliegen weiter."
         ));
         assert!(explicit_feedback(
             "Bitte leite dieses Anliegen ans Team weiter: Mehr Turniere bitte."
