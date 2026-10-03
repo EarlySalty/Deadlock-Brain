@@ -91,6 +91,89 @@ fn owns_debug_socket(pid: u32, port: u16, listener: bool) -> bool {
     })
 }
 
+fn exclusive_socket_inodes(
+    tcp: &str,
+    tcp6: &str,
+    port: u16,
+) -> Option<(String, String, Vec<String>)> {
+    let mut clients = Vec::new();
+    let mut accepted = Vec::new();
+    let mut listeners = Vec::new();
+    for table in [tcp, tcp6] {
+        for line in table.lines().skip(1) {
+            let fields: Vec<_> = line.split_whitespace().collect();
+            if fields.len() < 10 {
+                return None;
+            }
+            let local = u16::from_str_radix(fields[1].rsplit_once(':')?.1, 16).ok()?;
+            let remote = u16::from_str_radix(fields[2].rsplit_once(':')?.1, 16).ok()?;
+            if local != port && remote != port {
+                continue;
+            }
+            let inode = format!("socket:[{}]", fields[9]);
+            match fields[3] {
+                "0A" if local == port => listeners.push(inode),
+                "02" | "03" => return None,
+                "01" => {
+                    if local == port && remote == port {
+                        return None;
+                    }
+                    if remote == port {
+                        clients.push(inode);
+                    } else {
+                        accepted.push(inode);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    if clients.len() != 1 || accepted.len() != 1 || listeners.is_empty() {
+        return None;
+    }
+    Some((clients.pop()?, accepted.pop()?, listeners))
+}
+
+fn process_socket_inodes(pid: u32) -> Option<Vec<String>> {
+    let files = std::fs::read_dir(format!("/proc/{pid}/fd")).ok()?;
+    Some(
+        files
+            .filter_map(std::result::Result::ok)
+            .filter_map(|file| {
+                std::fs::read_link(file.path())
+                    .ok()?
+                    .to_str()
+                    .map(str::to_owned)
+            })
+            .filter(|target| target.starts_with("socket:["))
+            .collect(),
+    )
+}
+
+fn exclusive_debug_client(pid: u32, port: u16, brave_pid: Option<u32>) -> bool {
+    let Ok(tcp) = std::fs::read_to_string("/proc/net/tcp") else {
+        return false;
+    };
+    let Ok(tcp6) = std::fs::read_to_string("/proc/net/tcp6") else {
+        return false;
+    };
+    let Some((client, accepted, listeners)) = exclusive_socket_inodes(&tcp, &tcp6, port) else {
+        return false;
+    };
+    let Some(owner) = process_socket_inodes(pid) else {
+        return false;
+    };
+    if !owner.contains(&client) || !owns_debug_socket(pid, port, false) {
+        return false;
+    }
+    brave_pid.is_none_or(|pid| {
+        let Some(browser) = process_socket_inodes(pid) else {
+            return false;
+        };
+        browser.contains(&accepted) && listeners.iter().all(|inode| browser.contains(inode))
+    })
+}
+
 fn current_uid() -> Option<u32> {
     std::fs::metadata("/proc/self/status")
         .ok()
@@ -247,8 +330,7 @@ fn pending_consent(brave_pid: Option<u32>) -> bool {
             && request.started_at_ms <= now
             && now - request.started_at_ms <= 60_000
             && process_start(request.pid) == Some(request.process_start)
-            && owns_debug_socket(request.pid, request.cdp_port, false)
-            && brave_pid.is_none_or(|pid| owns_debug_socket(pid, request.cdp_port, true))
+            && exclusive_debug_client(request.pid, request.cdp_port, brave_pid)
     })
 }
 
@@ -609,7 +691,37 @@ mod tests {
         assert!(super::owns_debug_socket(std::process::id(), port, true));
         assert!(super::owns_debug_socket(std::process::id(), port, false));
         assert!(!super::owns_debug_socket(u32::MAX, port, false));
+        assert!(super::exclusive_debug_client(
+            std::process::id(),
+            port,
+            Some(std::process::id())
+        ));
+        assert!(!super::exclusive_debug_client(
+            u32::MAX,
+            port,
+            Some(std::process::id())
+        ));
+        let second_client = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        let (second_accepted, _) = listener.accept().unwrap();
+        assert!(!super::exclusive_debug_client(
+            std::process::id(),
+            port,
+            Some(std::process::id())
+        ));
+        drop((second_client, second_accepted));
         drop((client, accepted, listener));
+    }
+
+    #[test]
+    fn another_ipv6_client_prevents_consent() {
+        let header = "sl local_address rem_address st tx_queue rx_queue tr tm->when retrnsmt uid timeout inode\n";
+        let tcp = format!("{header}0: 0100007F:2406 00000000:0000 0A 0:0 0:0 0 1000 0 11\n1: 0100007F:3456 0100007F:2406 01 0:0 0:0 0 1000 0 12\n2: 0100007F:2406 0100007F:3456 01 0:0 0:0 0 1000 0 13\n");
+        assert!(super::exclusive_socket_inodes(&tcp, header, 9222).is_some());
+        let tcp6 = format!("{header}0: 00000000000000000000000001000000:3457 00000000000000000000000001000000:2406 01 0:0 0:0 0 1000 0 22\n");
+        assert!(super::exclusive_socket_inodes(&tcp, &tcp6, 9222).is_none());
+        let additional_ipv4 =
+            format!("{tcp}3: 0100007F:3458 0100007F:2406 01 0:0 0:0 0 1000 0 32\n");
+        assert!(super::exclusive_socket_inodes(&additional_ipv4, header, 9222).is_none());
     }
 
     #[tokio::test]

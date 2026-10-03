@@ -761,7 +761,7 @@ enum PullCommands {
     BuildData(PullBuildDataArgs),
     #[command(about = "Importiert bestehende Patchnotes aus der zentralen Bot-DB.")]
     Patchnotes(PullPatchnotesArgs),
-    #[command(about = "Zieht oeffentliche Threads aus dem Deadlock-Forum anhand der Sitemap.")]
+    #[command(about = "Liest öffentliche Threads aus dem Deadlock-Forum anhand der Sitemap.")]
     Forum(PullForumArgs),
     #[command(about = "Zieht öffentliche Threads und Kommentare aus Reddit-Subreddits.")]
     Reddit(PullRedditArgs),
@@ -899,7 +899,7 @@ struct PullForumArgs {
     #[arg(
         long,
         default_value_t = 25,
-        help = "0 bedeutet ohne Limit; fuer Backfills besser kleine Wellen nutzen."
+        help = "0 bedeutet ohne Limit; für Nachimporte können kleine Durchläufe verwendet werden."
     )]
     limit: usize,
     #[arg(long = "delay-seconds", default_value_t = 1.0)]
