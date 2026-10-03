@@ -113,6 +113,56 @@ pub fn regular(path: &Path, owner: u32) -> Result<File> {
     Ok(file)
 }
 
+pub fn cargo_artifact(target: &Path, name: &str, owner: u32) -> Result<File> {
+    checked_path(target, owner, true)?;
+    let release = target.join("release");
+    checked_path(&release, owner, true)?;
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(release.join(name))?;
+    let meta = file.metadata()?;
+    ensure!(
+        meta.is_file()
+            && meta.uid() == owner
+            && safe_mode(&meta)
+            && meta.mode() & 0o111 != 0
+            && [1, 2].contains(&meta.nlink()),
+        "Unsicheres Cargoartefakt: {name}"
+    );
+    let deps = release.join("deps");
+    checked_path(&deps, owner, true)?;
+    let prefix = format!("{}-", name.replace('-', "_"));
+    let mut aliases = 0;
+    for entry in fs::read_dir(&deps)? {
+        let entry = entry?;
+        let alias = fs::symlink_metadata(entry.path())?;
+        if alias.dev() != meta.dev() || alias.ino() != meta.ino() {
+            continue;
+        }
+        let filename = entry.file_name();
+        let filename = filename.to_str().context("Ungültiger Cargoalias")?;
+        let suffix = filename
+            .strip_prefix(&prefix)
+            .context("Fremder Cargo-Hardlink")?;
+        ensure!(
+            alias.is_file()
+                && alias.uid() == owner
+                && safe_mode(&alias)
+                && !suffix.is_empty()
+                && suffix.bytes().all(|b| b.is_ascii_hexdigit())
+                && alias.nlink() == meta.nlink(),
+            "Fremder Cargo-Hardlink"
+        );
+        aliases += 1;
+    }
+    ensure!(
+        aliases + 1 == meta.nlink(),
+        "Cargoartefakt besitzt Hardlinks außerhalb seines Buildlayouts"
+    );
+    Ok(file)
+}
+
 pub fn bytes(path: &Path, owner: u32, limit: u64) -> Result<Vec<u8>> {
     let file = regular(path, owner)?;
     ensure!(file.metadata()?.len() <= limit, "Datei zu groß");
@@ -166,6 +216,12 @@ pub fn sync_dir(path: &Path) -> Result<()> {
 pub struct Lock(File);
 impl Lock {
     pub fn acquire(path: &Path, owner: u32) -> Result<Self> {
+        Self::open(path, owner, false)?.context("Sperre nicht erworben")
+    }
+    pub fn try_acquire(path: &Path, owner: u32) -> Result<Option<Self>> {
+        Self::open(path, owner, true)
+    }
+    fn open(path: &Path, owner: u32, nonblocking: bool) -> Result<Option<Self>> {
         if path != Path::new("/tmp/deadlock-cargo-release.lock") {
             checked_path(path.parent().context("Lock-Elternpfad fehlt")?, owner, true)?;
         }
@@ -183,16 +239,20 @@ impl Lock {
             "Unsichere Sperrdatei"
         );
         use std::os::fd::AsRawFd;
-        ensure!(
-            unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0,
-            "flock fehlgeschlagen"
-        );
+        let flags = libc::LOCK_EX | if nonblocking { libc::LOCK_NB } else { 0 };
+        if unsafe { libc::flock(file.as_raw_fd(), flags) } != 0 {
+            let error = std::io::Error::last_os_error();
+            if nonblocking && error.kind() == std::io::ErrorKind::WouldBlock {
+                return Ok(None);
+            }
+            return Err(error).context("flock fehlgeschlagen");
+        }
         let after = fs::symlink_metadata(path)?;
         ensure!(
             before.dev() == after.dev() && before.ino() == after.ino(),
             "Sperrdatei ausgetauscht"
         );
-        Ok(Self(file))
+        Ok(Some(Self(file)))
     }
 }
 impl Drop for Lock {

@@ -23,6 +23,14 @@ struct Pending {
     maintenance: Option<PathBuf>,
 }
 
+fn exists(path: &Path) -> Result<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error.into()),
+    }
+}
+
 impl Installer {
     pub fn open(root: &Path, owner: u32) -> Result<Self> {
         fs_safe::checked_path(root, owner, true)?;
@@ -38,7 +46,7 @@ impl Installer {
 
     fn available(&self) -> Result<()> {
         ensure!(
-            !self.root.join(".deploy-pending.json").try_exists()?,
+            !exists(&self.root.join(".deploy-pending.json"))?,
             "Unvollständiger Zeigerwechsel: zuerst recover ausführen"
         );
         Ok(())
@@ -76,35 +84,41 @@ impl Installer {
     }
 
     pub fn stage(&self, bundle: &Path, manifest: &Manifest) -> Result<()> {
+        self.stage_checked(bundle, manifest, |_| Ok(()))
+    }
+
+    fn stage_checked(
+        &self,
+        bundle: &Path,
+        manifest: &Manifest,
+        mut checkpoint: impl FnMut(&str) -> Result<()>,
+    ) -> Result<()> {
         self.available()?;
         validate_manifest(manifest)?;
         let sha = &manifest.source.sha;
         let cli = self.root.join("releases").join(sha);
         let maintenance = self.root.join("maintenance-releases").join(sha);
-        let exists = |path: &Path| -> Result<bool> {
-            match fs::symlink_metadata(path) {
-                Ok(_) => Ok(true),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-                Err(error) => Err(error.into()),
-            }
-        };
         let cli_exists = exists(&cli)?;
         let maintenance_exists = exists(&maintenance)?;
-        if cli_exists || maintenance_exists {
-            ensure!(
-                cli_exists && maintenance_exists,
-                "Nur ein Release-Layout vorhanden"
-            );
-            ensure!(
-                self.installed(sha)? == *manifest,
-                "Vorhandenes Release weicht ab"
-            );
+        for (path, binary_dir, present) in [
+            (&cli, "bin", cli_exists),
+            (&maintenance, "", maintenance_exists),
+        ] {
+            if present {
+                ensure!(
+                    self.layout(path, binary_dir, sha)? == *manifest,
+                    "Vorhandenes Release weicht ab"
+                );
+            }
+        }
+        if cli_exists && maintenance_exists {
             return Ok(());
         }
-        let stage = self.root.join(format!(".stage-{}", std::process::id()));
-        fs_safe::new_dir(&stage)?;
-        let a = stage.join("release");
-        let b = stage.join("maintenance");
+        let stage = tempfile::Builder::new()
+            .prefix(".stage-")
+            .tempdir_in(&self.root)?;
+        let a = stage.path().join("release");
+        let b = stage.path().join("maintenance");
         fs_safe::new_dir(&a)?;
         fs_safe::new_dir(&a.join("bin"))?;
         fs_safe::new_dir(&b)?;
@@ -134,6 +148,7 @@ impl Installer {
                 "Artefakt während Installation geändert"
             );
             fs::set_permissions(&output_path, fs::Permissions::from_mode(0o555))?;
+            output.sync_all()?;
             {
                 let target = b.join(&artifact.name);
                 let mut from = fs_safe::regular(&output_path, self.owner)?;
@@ -146,6 +161,7 @@ impl Installer {
                 std::io::copy(&mut from, &mut to)?;
                 to.sync_all()?;
                 fs::set_permissions(&target, fs::Permissions::from_mode(0o555))?;
+                to.sync_all()?;
             }
         }
         let data = serde_json::to_vec_pretty(manifest)?;
@@ -155,11 +171,27 @@ impl Installer {
             fs::set_permissions(dir, fs::Permissions::from_mode(0o755))?;
             fs_safe::sync_dir(dir)?;
         }
-        fs::rename(&a, &cli)?;
-        fs_safe::sync_dir(&self.root.join("releases"))?;
-        fs::rename(&b, &maintenance)?;
-        fs_safe::sync_dir(&self.root.join("maintenance-releases"))?;
-        fs::remove_dir(stage)?;
+        fs_safe::sync_dir(stage.path())?;
+        ensure!(
+            self.layout(&a, "bin", sha)? == *manifest && self.layout(&b, "", sha)? == *manifest,
+            "Stagingnachweis weicht ab"
+        );
+        checkpoint("before-layouts")?;
+        if !cli_exists {
+            ensure!(!exists(&cli)?, "Release während Staging fremd angelegt");
+            fs::rename(&a, &cli)?;
+            fs_safe::sync_dir(&self.root.join("releases"))?;
+        }
+        checkpoint("after-cli-layout")?;
+        if !maintenance_exists {
+            ensure!(
+                !exists(&maintenance)?,
+                "Maintenance-Release während Staging fremd angelegt"
+            );
+            fs::rename(&b, &maintenance)?;
+            fs_safe::sync_dir(&self.root.join("maintenance-releases"))?;
+        }
+        checkpoint("after-maintenance-layout")?;
         ensure!(
             self.installed(sha)? == *manifest,
             "Installationsnachweis weicht ab"
@@ -167,30 +199,35 @@ impl Installer {
         Ok(())
     }
 
-    pub fn installed(&self, sha: &str) -> Result<Manifest> {
-        fs_safe::sha(sha)?;
-        let a = self.root.join("releases").join(sha);
-        let b = self.root.join("maintenance-releases").join(sha);
-        fs_safe::checked_path(&a, self.owner, true)?;
-        fs_safe::checked_path(&b, self.owner, true)?;
-        let left = fs_safe::bytes(&a.join("manifest.json"), self.owner, 65536)?;
-        let right = fs_safe::bytes(&b.join("manifest.json"), self.owner, 65536)?;
-        ensure!(left == right, "Release-Manifeste unterscheiden sich");
-        let manifest: Manifest = serde_json::from_slice(&left)?;
+    fn layout(&self, path: &Path, binary_dir: &str, sha: &str) -> Result<Manifest> {
+        fs_safe::checked_path(path, self.owner, true)?;
+        let bytes = fs_safe::bytes(&path.join("manifest.json"), self.owner, 65536)?;
+        let manifest: Manifest = serde_json::from_slice(&bytes)?;
         validate_manifest(&manifest)?;
         ensure!(manifest.source.sha == sha, "Release-SHA stimmt nicht");
         for artifact in &manifest.artifacts {
             ensure!(
-                fs_safe::file_hash(&a.join("bin").join(&artifact.name), self.owner)?
+                fs_safe::file_hash(&path.join(binary_dir).join(&artifact.name), self.owner)?
                     == artifact.sha256,
                 "Installiertes Binary verändert"
             );
-            ensure!(
-                fs_safe::file_hash(&b.join(&artifact.name), self.owner)? == artifact.sha256,
-                "Maintenance-Binary verändert"
-            );
         }
         Ok(manifest)
+    }
+
+    pub fn installed(&self, sha: &str) -> Result<Manifest> {
+        fs_safe::sha(sha)?;
+        let a = self.root.join("releases").join(sha);
+        let b = self.root.join("maintenance-releases").join(sha);
+        let left = self.layout(&a, "bin", sha)?;
+        let right = self.layout(&b, "", sha)?;
+        ensure!(
+            left == right
+                && fs_safe::bytes(&a.join("manifest.json"), self.owner, 65536)?
+                    == fs_safe::bytes(&b.join("manifest.json"), self.owner, 65536)?,
+            "Release-Manifeste unterscheiden sich"
+        );
+        Ok(left)
     }
 
     fn atomic_link(&self, name: &str, target: Option<&Path>) -> Result<()> {
@@ -209,7 +246,45 @@ impl Installer {
         fs_safe::sync_dir(&self.root)
     }
 
+    fn clear_temporary_journal(&self) -> Result<()> {
+        let path = self.root.join(".deploy-pending.json.tmp");
+        if exists(&path)? {
+            let file = fs_safe::regular(&path, self.owner)?;
+            ensure!(
+                file.metadata()?.mode() & 0o077 == 0,
+                "Unsicheres Zwischenjournal"
+            );
+            fs::remove_file(path)?;
+            fs_safe::sync_dir(&self.root)?;
+        }
+        Ok(())
+    }
+
+    fn publish_pending(
+        &self,
+        pending: &Pending,
+        mut checkpoint: impl FnMut(&str) -> Result<()>,
+    ) -> Result<()> {
+        self.available()?;
+        self.clear_temporary_journal()?;
+        let temporary = self.root.join(".deploy-pending.json.tmp");
+        fs_safe::new_file(&temporary, &serde_json::to_vec(pending)?, 0o600)?;
+        checkpoint("after-journal-write")?;
+        fs::rename(&temporary, self.root.join(".deploy-pending.json"))?;
+        fs_safe::sync_dir(&self.root)?;
+        checkpoint("after-journal-publish")?;
+        Ok(())
+    }
+
     pub fn activate(&self, sha: &str) -> Result<()> {
+        self.activate_checked(sha, || Ok(()))
+    }
+
+    pub fn activate_checked(
+        &self,
+        sha: &str,
+        preflight: impl FnOnce() -> Result<()>,
+    ) -> Result<()> {
         self.available()?;
         self.installed(sha)?;
         let pending = Pending {
@@ -217,13 +292,9 @@ impl Installer {
             current: self.link_target("current", "releases")?,
             maintenance: self.link_target("maintenance-current", "maintenance-releases")?,
         };
-        fs_safe::new_file(
-            &self.root.join(".deploy-pending.json"),
-            &serde_json::to_vec(&pending)?,
-            0o600,
-        )?;
-        fs_safe::sync_dir(&self.root)?;
+        self.publish_pending(&pending, |_| Ok(()))?;
         let result = (|| {
+            preflight()?;
             self.atomic_link("current", Some(&self.root.join("releases").join(sha)))?;
             self.atomic_link(
                 "maintenance-current",
@@ -250,8 +321,10 @@ impl Installer {
     }
 
     fn clear_pending(&self) -> Result<()> {
+        fs_safe::regular(&self.root.join(".deploy-pending.json"), self.owner)?;
         fs::remove_file(self.root.join(".deploy-pending.json"))?;
-        fs_safe::sync_dir(&self.root)
+        fs_safe::sync_dir(&self.root)?;
+        self.clear_temporary_journal()
     }
 
     fn restore(&self, pending: &Pending) -> Result<()> {
@@ -303,6 +376,9 @@ impl Installer {
     }
 
     pub fn recover(&self) -> Result<()> {
+        if !exists(&self.root.join(".deploy-pending.json"))? {
+            return self.clear_temporary_journal();
+        }
         let pending: Pending = serde_json::from_slice(&fs_safe::bytes(
             &self.root.join(".deploy-pending.json"),
             self.owner,
@@ -351,12 +427,15 @@ mod tests {
             });
         }
         let manifest = Manifest {
-            format: 1,
+            format: 2,
             source: Source {
                 sha: "a".repeat(40),
                 tree: "b".repeat(40),
                 fingerprint: "c".repeat(64),
                 path: "/not-executed".into(),
+                worktree_dev: 1,
+                worktree_ino: 1,
+                git_pointer_sha256: "e".repeat(64),
             },
             origin: ORIGIN.into(),
             cargo_version: "test".into(),
@@ -511,6 +590,221 @@ mod tests {
         symlink(root.join("missing"), &destination).unwrap();
         assert!(install.stage(&bundle, &manifest).is_err());
         assert!(fs::symlink_metadata(destination)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+    }
+
+    #[test]
+    fn preflight_failure_preserves_both_pointers() {
+        let (_dir, root, bundle, manifest) = fixture();
+        let install = Installer::open(&root, fs_safe::uid()).unwrap();
+        install.stage(&bundle, &manifest).unwrap();
+        install.activate(&manifest.source.sha).unwrap();
+        let mut next = manifest.clone();
+        next.source.sha = "d".repeat(40);
+        install.stage(&bundle, &next).unwrap();
+        assert!(install
+            .activate_checked(&next.source.sha, || Err(anyhow::anyhow!(
+                "Herkunftsprüfung fehlgeschlagen"
+            )))
+            .is_err());
+        assert_eq!(
+            install.link_target("current", "releases").unwrap(),
+            Some(root.join("releases").join(&manifest.source.sha))
+        );
+        assert_eq!(
+            install
+                .link_target("maintenance-current", "maintenance-releases")
+                .unwrap(),
+            Some(root.join("maintenance-releases").join(&manifest.source.sha))
+        );
+        assert!(!root.join(".deploy-pending.json").exists());
+    }
+
+    #[test]
+    fn crash_worker() {
+        let Some(root) = std::env::var_os("BRAIN_RELEASE_TEST_ROOT") else {
+            return;
+        };
+        let root = PathBuf::from(root);
+        let bundle = root.parent().unwrap().join("bundle");
+        let manifest: Manifest = serde_json::from_slice(
+            &fs_safe::bytes(&bundle.join("manifest.json"), OPERATOR, 65536).unwrap(),
+        )
+        .unwrap();
+        let point = std::env::var("BRAIN_RELEASE_TEST_CRASH").unwrap();
+        let installer = Installer::open(&root, fs_safe::uid()).unwrap();
+        let checkpoint = |position: &str| -> Result<()> {
+            if position == point {
+                std::process::exit(73);
+            }
+            Ok(())
+        };
+        if point.starts_with("after-journal-") {
+            let pending = Pending {
+                sha: manifest.source.sha,
+                current: installer.link_target("current", "releases").unwrap(),
+                maintenance: installer
+                    .link_target("maintenance-current", "maintenance-releases")
+                    .unwrap(),
+            };
+            installer.publish_pending(&pending, checkpoint).unwrap();
+        } else {
+            installer
+                .stage_checked(&bundle, &manifest, checkpoint)
+                .unwrap();
+        }
+        panic!("Abbruchpunkt wurde nicht erreicht");
+    }
+
+    fn terminate_at(root: &Path, bundle: &Path, manifest: &Manifest, point: &str) {
+        fs_safe::new_file(
+            &bundle.join("manifest.json"),
+            &serde_json::to_vec(manifest).unwrap(),
+            0o600,
+        )
+        .unwrap();
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "install::tests::crash_worker",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env("BRAIN_RELEASE_TEST_ROOT", root)
+            .env("BRAIN_RELEASE_TEST_CRASH", point)
+            .status()
+            .unwrap();
+        assert_eq!(status.code(), Some(73));
+    }
+
+    #[test]
+    fn process_exit_during_layout_publication_can_be_retried() {
+        for point in [
+            "before-layouts",
+            "after-cli-layout",
+            "after-maintenance-layout",
+        ] {
+            let (_dir, root, bundle, manifest) = fixture();
+            let installer = Installer::open(&root, fs_safe::uid()).unwrap();
+            installer.stage(&bundle, &manifest).unwrap();
+            installer.activate(&manifest.source.sha).unwrap();
+            let old_inode = fs::metadata(root.join("releases").join(&manifest.source.sha))
+                .unwrap()
+                .ino();
+            drop(installer);
+            let mut next = manifest.clone();
+            next.source.sha = "d".repeat(40);
+            terminate_at(&root, &bundle, &next, point);
+            let installer = Installer::open(&root, fs_safe::uid()).unwrap();
+            assert_eq!(
+                installer.link_target("current", "releases").unwrap(),
+                Some(root.join("releases").join(&manifest.source.sha))
+            );
+            let published_inode = fs::metadata(root.join("releases").join(&next.source.sha))
+                .ok()
+                .map(|metadata| metadata.ino());
+            installer.recover().unwrap();
+            installer.stage(&bundle, &next).unwrap();
+            assert_eq!(installer.installed(&next.source.sha).unwrap(), next);
+            assert_eq!(installer.installed(&manifest.source.sha).unwrap(), manifest);
+            assert_eq!(
+                fs::metadata(root.join("releases").join(&manifest.source.sha))
+                    .unwrap()
+                    .ino(),
+                old_inode
+            );
+            if let Some(ino) = published_inode {
+                assert_eq!(
+                    fs::metadata(root.join("releases").join(&next.source.sha))
+                        .unwrap()
+                        .ino(),
+                    ino
+                );
+            }
+            installer.activate(&next.source.sha).unwrap();
+        }
+    }
+
+    #[test]
+    fn process_exit_during_journal_publication_is_recoverable() {
+        for point in ["after-journal-write", "after-journal-publish"] {
+            let (_dir, root, bundle, manifest) = fixture();
+            let installer = Installer::open(&root, fs_safe::uid()).unwrap();
+            installer.stage(&bundle, &manifest).unwrap();
+            installer.activate(&manifest.source.sha).unwrap();
+            let mut next = manifest.clone();
+            next.source.sha = "d".repeat(40);
+            installer.stage(&bundle, &next).unwrap();
+            drop(installer);
+            terminate_at(&root, &bundle, &next, point);
+            let installer = Installer::open(&root, fs_safe::uid()).unwrap();
+            installer.recover().unwrap();
+            assert_eq!(
+                installer.link_target("current", "releases").unwrap(),
+                Some(root.join("releases").join(&manifest.source.sha))
+            );
+            assert_eq!(
+                installer
+                    .link_target("maintenance-current", "maintenance-releases")
+                    .unwrap(),
+                Some(root.join("maintenance-releases").join(&manifest.source.sha))
+            );
+            assert!(!exists(&root.join(".deploy-pending.json")).unwrap());
+            assert!(!exists(&root.join(".deploy-pending.json.tmp")).unwrap());
+            installer.activate(&next.source.sha).unwrap();
+        }
+    }
+
+    #[test]
+    fn partial_journal_and_missing_cli_layout_can_be_retried() {
+        let (_dir, root, bundle, manifest) = fixture();
+        let installer = Installer::open(&root, fs_safe::uid()).unwrap();
+        installer.stage(&bundle, &manifest).unwrap();
+        let maintenance = root.join("maintenance-releases").join(&manifest.source.sha);
+        let ino = fs::metadata(&maintenance).unwrap().ino();
+        fs::rename(
+            root.join("releases").join(&manifest.source.sha),
+            root.join("retained-layout"),
+        )
+        .unwrap();
+        fs_safe::new_file(&root.join(".deploy-pending.json.tmp"), b"{\"sha\":", 0o600).unwrap();
+        installer.stage(&bundle, &manifest).unwrap();
+        assert_eq!(fs::metadata(maintenance).unwrap().ino(), ino);
+        installer.activate(&manifest.source.sha).unwrap();
+        assert_eq!(installer.installed(&manifest.source.sha).unwrap(), manifest);
+        assert!(!exists(&root.join(".deploy-pending.json.tmp")).unwrap());
+    }
+
+    #[test]
+    fn mismatched_partial_layout_and_foreign_journal_are_preserved() {
+        let (_dir, root, bundle, manifest) = fixture();
+        let installer = Installer::open(&root, fs_safe::uid()).unwrap();
+        installer.stage(&bundle, &manifest).unwrap();
+        fs::rename(
+            root.join("maintenance-releases").join(&manifest.source.sha),
+            root.join("retained-maintenance"),
+        )
+        .unwrap();
+        let mut forged = manifest.clone();
+        forged.artifacts[0].sha256 = "f".repeat(64);
+        assert!(installer.stage(&bundle, &forged).is_err());
+        assert_eq!(
+            installer
+                .layout(
+                    &root.join("releases").join(&manifest.source.sha),
+                    "bin",
+                    &manifest.source.sha
+                )
+                .unwrap(),
+            manifest
+        );
+        installer.stage(&bundle, &manifest).unwrap();
+        symlink(root.join("missing"), root.join(".deploy-pending.json")).unwrap();
+        assert!(installer.activate(&manifest.source.sha).is_err());
+        assert!(installer.recover().is_err());
+        assert!(fs::symlink_metadata(root.join(".deploy-pending.json"))
             .unwrap()
             .file_type()
             .is_symlink());

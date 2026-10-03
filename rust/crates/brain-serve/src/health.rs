@@ -43,7 +43,18 @@ pub(crate) fn validate_bound_scope(snapshot: &CorpusSnapshot, scope: &str) -> Re
     };
     for record in snapshot.revisions.iter().chain(&snapshot.heads) {
         let origin = origin_from_record(record).map_err(|_| Error::ReleaseUnavailable)?;
-        if record.source_id != source
+        let internal_feed = !public
+            && record
+                .source_id
+                .strip_prefix("google-sheet/")
+                .or_else(|| record.source_id.strip_prefix("youtube-core/"))
+                .is_some_and(|id| {
+                    !id.is_empty()
+                        && id
+                            .bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
+                });
+        if (record.source_id != source && !internal_feed)
             || record.tombstone
             || record.allowed_scopes != BTreeSet::from([scope.to_owned()])
             || record.visibility
@@ -55,7 +66,17 @@ pub(crate) fn validate_bound_scope(snapshot: &CorpusSnapshot, scope: &str) -> Re
             || origin.policy.allowed_scopes != record.allowed_scopes
             || origin.policy.publication_allowed != public
             || origin.policy.provider_egress_allowed != public
-            || origin.policy.raw_retention_allowed
+            || origin.policy.raw_retention_allowed != internal_feed
+            || (internal_feed
+                && !matches!(&origin.policy.authorization_ref,
+                brain_contracts::value::Observed::Known { value } if !value.trim().is_empty()))
+            || (internal_feed
+                && !matches!(
+                    &origin.policy.license,
+                    brain_contracts::value::Observed::Unknown {
+                        reason: brain_contracts::value::UnknownReason::NotPresent
+                    }
+                ))
         {
             return Err(Error::ReleaseUnavailable);
         }
@@ -95,6 +116,29 @@ impl Health {
             bound_scopes,
             operator_socket,
         }
+    }
+
+    fn bindings_sha256(&self) -> String {
+        let Some(standard) = self.releases.first() else {
+            return String::new();
+        };
+        let releases = self
+            .releases
+            .iter()
+            .map(|release| {
+                (
+                    release.release_id.clone(),
+                    release.knowledge_version.clone(),
+                )
+            })
+            .collect();
+        let bound_scopes = self.bound_scopes.iter().cloned().collect();
+        crate::config::loaded_release_bindings_sha256(
+            (&standard.release_id, &standard.knowledge_version),
+            &releases,
+            &bound_scopes,
+            self.operator_socket.is_some(),
+        )
     }
 
     async fn ready(&self) -> bool {
@@ -187,7 +231,8 @@ pub(crate) fn router(health: Arc<Health>) -> Router {
                         [(header::CACHE_CONTROL, "no-store")],
                         axum::Json(serde_json::json!({
                             "status":"ready", "release_id":health.releases[0].release_id,
-                            "knowledge_version":health.releases[0].knowledge_version
+                            "knowledge_version":health.releases[0].knowledge_version,
+                            "release_bindings_sha256":health.bindings_sha256()
                         })),
                     )
                         .into_response()

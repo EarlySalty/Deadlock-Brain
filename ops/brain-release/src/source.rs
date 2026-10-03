@@ -23,7 +23,7 @@ pub const BUILD_ARGS: [&str; 7] = [
     "--locked",
     "--release",
     "--jobs",
-    "2",
+    "4",
     "--workspace",
     "--bins",
 ];
@@ -35,6 +35,9 @@ pub struct Source {
     pub tree: String,
     pub fingerprint: String,
     pub path: PathBuf,
+    pub worktree_dev: u64,
+    pub worktree_ino: u64,
+    pub git_pointer_sha256: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -119,6 +122,9 @@ pub fn inspect(path: &Path) -> Result<Source> {
         "Quelle muss ein eigener Worktree sein"
     );
     fs_safe::checked_path(path, OPERATOR, true)?;
+    use std::os::unix::fs::MetadataExt;
+    let worktree_meta = std::fs::symlink_metadata(path)?;
+    let git_pointer_sha256 = fs_safe::hash(&fs_safe::bytes(&path.join(".git"), OPERATOR, 8192)?);
     ensure!(
         text(path, &["rev-parse", "--show-toplevel"])? == path.to_string_lossy(),
         "Quellwurzel stimmt nicht"
@@ -193,12 +199,26 @@ pub fn inspect(path: &Path) -> Result<Source> {
         fingerprint.push(0);
         fingerprint.extend_from_slice(&sha256.finalize());
     }
-    ensure!(text(path, &["rev-parse", "HEAD"])? == sha, "HEAD während Quellprüfung verändert");
+    ensure!(
+        text(path, &["rev-parse", "HEAD"])? == sha,
+        "HEAD während Quellprüfung verändert"
+    );
+    let after_meta = std::fs::symlink_metadata(path)?;
+    ensure!(
+        after_meta.dev() == worktree_meta.dev()
+            && after_meta.ino() == worktree_meta.ino()
+            && fs_safe::hash(&fs_safe::bytes(&path.join(".git"), OPERATOR, 8192)?)
+                == git_pointer_sha256,
+        "Quellworktree während Prüfung ausgetauscht"
+    );
     Ok(Source {
         sha,
         tree,
         fingerprint: hash(&fingerprint),
         path: path.to_path_buf(),
+        worktree_dev: worktree_meta.dev(),
+        worktree_ino: worktree_meta.ino(),
+        git_pointer_sha256,
     })
 }
 
@@ -263,7 +283,7 @@ pub fn validate_manifest(manifest: &Manifest) -> Result<()> {
     fs_safe::sha(&manifest.source.sha)?;
     fs_safe::sha(&manifest.source.tree)?;
     ensure!(
-        manifest.format == 1
+        manifest.format == 2
             && manifest.origin == ORIGIN
             && !manifest.cargo_version.is_empty()
             && !manifest.rustc_version.is_empty(),
@@ -314,14 +334,48 @@ pub fn validate_manifest(manifest: &Manifest) -> Result<()> {
     Ok(())
 }
 
+pub fn compare_artifacts(provided: &[Artifact], compiled: &[Artifact]) -> Result<()> {
+    ensure!(
+        provided == compiled,
+        "Bundlebytes stammen nicht aus dem frisch geprüften Sourcebuild"
+    );
+    Ok(())
+}
+
 pub fn verify(source: &Path, bundle: &Path) -> Result<Manifest> {
     fs_safe::checked_path(bundle, OPERATOR, true)?;
-    let manifest: Manifest = serde_json::from_slice(&fs_safe::bytes(
+    let candidate: Manifest = serde_json::from_slice(&fs_safe::bytes(
         &bundle.join("manifest.json"),
         OPERATOR,
         65536,
     )?)?;
-    validate_manifest(&manifest)?;
+    validate_manifest(&candidate)?;
+    verify_unchanged(source, bundle, &candidate)?;
+    let scratch = tempfile::Builder::new()
+        .prefix("brain-release-verify-")
+        .tempdir_in("/home/nathanael/.cache")?;
+    let compiled = crate::build::compile(source, &scratch.path().join("bundle"))?;
+    compare_artifacts(&candidate.artifacts, &compiled.artifacts)?;
+    ensure!(
+        candidate == compiled,
+        "Buildmanifest weicht vom tatsächlich ausgeführten Sourcebuild ab"
+    );
+    verify_unchanged(source, bundle, &compiled)?;
+    Ok(compiled)
+}
+
+pub fn verify_unchanged(source: &Path, bundle: &Path, manifest: &Manifest) -> Result<()> {
+    fs_safe::checked_path(bundle, OPERATOR, true)?;
+    let actual: Manifest = serde_json::from_slice(&fs_safe::bytes(
+        &bundle.join("manifest.json"),
+        OPERATOR,
+        65536,
+    )?)?;
+    ensure!(
+        actual == *manifest,
+        "Bundlemanifest während Prüfung geändert"
+    );
+    validate_manifest(manifest)?;
     ensure!(
         inspect(source)? == manifest.source,
         "Quelle verändert oder vertauscht"
@@ -358,5 +412,5 @@ pub fn verify(source: &Path, bundle: &Path) -> Result<Manifest> {
         remote_main()? == manifest.source.sha,
         "Remote-main hat sich geändert"
     );
-    Ok(manifest)
+    Ok(())
 }

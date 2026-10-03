@@ -191,7 +191,75 @@ fn require(condition: bool, section: &'static str) -> Result<(), Error> {
     }
 }
 
+pub fn loaded_release_bindings_sha256(
+    standard: (&str, &str),
+    releases: &BTreeSet<(String, String)>,
+    bound_scopes: &BTreeSet<(String, String)>,
+    internal_operator: bool,
+) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    let mut field = |value: &str| {
+        hash.update((value.len() as u64).to_be_bytes());
+        hash.update(value.as_bytes());
+    };
+    field("brain.loaded-release-bindings.v1");
+    field("standard");
+    field(standard.0);
+    field(standard.1);
+    field("releases");
+    field(&releases.len().to_string());
+    for (id, version) in releases {
+        field(id);
+        field(version);
+    }
+    field("bound_scopes");
+    field(&bound_scopes.len().to_string());
+    for (id, scope) in bound_scopes {
+        field(id);
+        field(scope);
+    }
+    field(if internal_operator {
+        "operator"
+    } else {
+        "no_operator"
+    });
+    format!("{:x}", hash.finalize())
+}
+
 impl Config {
+    pub fn release_bindings_sha256(&self) -> String {
+        let releases = std::iter::once(&self.release)
+            .chain(
+                self.credentials
+                    .iter()
+                    .filter_map(|grant| grant.release.as_ref()),
+            )
+            .map(|release| (release.id.clone(), release.knowledge_version.clone()))
+            .collect();
+        let bound_scopes = self
+            .credentials
+            .iter()
+            .filter_map(|grant| {
+                grant.release.as_ref().and_then(|release| {
+                    grant
+                        .scopes
+                        .iter()
+                        .find(|scope| {
+                            ["docs.public", "second_brain.internal"].contains(&scope.as_str())
+                        })
+                        .map(|scope| (release.id.clone(), scope.clone()))
+                })
+            })
+            .collect();
+        loaded_release_bindings_sha256(
+            (&self.release.id, &self.release.knowledge_version),
+            &releases,
+            &bound_scopes,
+            self.internal_operator.is_some(),
+        )
+    }
+
     pub fn load(path: &Path) -> Result<Self, Error> {
         let metadata = std::fs::metadata(path).map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
