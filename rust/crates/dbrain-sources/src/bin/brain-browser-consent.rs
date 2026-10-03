@@ -225,7 +225,10 @@ fn brave_pid(config: &Config, id: &str) -> Result<Option<u32>> {
 }
 
 fn detect(config: &Config, id: &str) -> Result<Option<(i32, i32)>> {
-    if brave_pid(config, id)?.is_none() {
+    let Some(pid) = brave_pid(config, id)? else {
+        return Ok(None);
+    };
+    if !dbrain_sources::forum_browser::has_pending_consent_for_brave(pid) {
         return Ok(None);
     }
     let geometry = text(
@@ -273,6 +276,9 @@ fn detect(config: &Config, id: &str) -> Result<Option<(i32, i32)>> {
 }
 
 fn confirm_once(config: &Config) -> Result<usize> {
+    if !dbrain_sources::forum_browser::has_pending_consent() {
+        return Ok(0);
+    }
     let tree = text(
         config,
         "/usr/bin/xwininfo",
@@ -303,6 +309,15 @@ fn confirm_once(config: &Config) -> Result<usize> {
     if detect(config, id)? != Some(*position) {
         return Ok(0);
     }
+    if !dbrain_sources::forum_browser::has_pending_consent() {
+        return Ok(0);
+    }
+    let Some(pid) = brave_pid(config, id)? else {
+        return Ok(0);
+    };
+    if !dbrain_sources::forum_browser::has_pending_consent_for_brave(pid) {
+        return Ok(0);
+    }
     let window = c_ulong::from_str_radix(&id[2..], 16)?;
     click_native(&config.display, window, position.0, position.1)?;
     thread::sleep(Duration::from_millis(300));
@@ -323,7 +338,7 @@ struct Library(*mut c_void);
 impl Library {
     fn open(name: &str) -> Result<Self> {
         let name = CString::new(name)?;
-        // Bibliotheksname kommt aus einer festen Liste im Code.
+        // SAFETY: Der Bibliotheksname ist eine gültige CString aus einer festen Liste im Code.
         let pointer = unsafe { dlopen(name.as_ptr(), 2) };
         if pointer.is_null() {
             return Err("Native X11-Bibliothek fehlt".into());
@@ -333,6 +348,7 @@ impl Library {
 }
 impl Drop for Library {
     fn drop(&mut self) {
+        // SAFETY: Der Handle stammt aus einem erfolgreichen dlopen und wird genau einmal geschlossen.
         unsafe {
             dlclose(self.0);
         }
@@ -344,11 +360,12 @@ fn click_native(display: &str, window: c_ulong, x: i32, y: i32) -> Result<()> {
     let xtst = Library::open("libXtst.so.6")?;
     macro_rules! symbol {
         ($lib:ident, $name:literal, $ty:ty) => {{
+            // SAFETY: Handle bleibt offen und der fest vorgegebene Symbolname ist nullterminiert.
             let pointer = unsafe { dlsym($lib.0, concat!($name, "\0").as_ptr().cast()) };
             if pointer.is_null() {
                 return Err("Native X11-Funktion fehlt".into());
             }
-            // Symbolnamen und Funktionssignaturen entsprechen den X11-/XTest-Headern.
+            // SAFETY: Symbolnamen und Funktionssignaturen entsprechen den X11-/XTest-Headern.
             unsafe { std::mem::transmute::<*mut c_void, $ty>(pointer) }
         }};
     }
@@ -400,7 +417,7 @@ fn click_native(display: &str, window: c_ulong, x: i32, y: i32) -> Result<()> {
     );
     let sync = symbol!(x11, "XSync", unsafe extern "C" fn(Display, c_int) -> c_int);
     let display = CString::new(display)?;
-    // Der Handle bleibt bis XCloseDisplay gültig; alle Koordinatenausgaben sind initialisiert.
+    // SAFETY: Der Displayname ist eine gültige CString; XOpenDisplay liefert einen eigenen Handle.
     let display = unsafe { open(display.as_ptr()) };
     if display.is_null() {
         return Err("Native X11-Verbindung fehlgeschlagen".into());
@@ -408,6 +425,7 @@ fn click_native(display: &str, window: c_ulong, x: i32, y: i32) -> Result<()> {
     let mut root_x = 0;
     let mut root_y = 0;
     let mut child = 0;
+    // SAFETY: Der Displayhandle ist gültig, Fenster-ID ist geprüft, alle Ausgabepointer sind initialisiert.
     let mapped = unsafe {
         translate(
             display,
@@ -421,21 +439,33 @@ fn click_native(display: &str, window: c_ulong, x: i32, y: i32) -> Result<()> {
         )
     };
     if mapped == 0 {
+        // SAFETY: Der eigene Displayhandle ist gültig und wird anschließend nicht weiter benutzt.
         unsafe {
             close(display);
         }
         return Err("Dialogposition konnte nicht übersetzt werden".into());
     }
-    let succeeded = unsafe {
+    // SAFETY: Der Displayhandle ist gültig; ausschließlich das geprüfte Fenster erhält den Fokus.
+    let moved = unsafe {
         raise(display, window);
         focus(display, window, 2, 0);
         sync(display, 0);
-        let moved = motion(display, -1, root_x, root_y, 0);
+        motion(display, -1, root_x, root_y, 0)
+    };
+    if moved == 0 {
+        // SAFETY: Der eigene Displayhandle ist gültig; bei fehlgeschlagener Bewegung folgt kein Klick.
+        unsafe {
+            close(display);
+        }
+        return Err("Native Mausbewegung zum Dialog fehlgeschlagen".into());
+    }
+    // SAFETY: Zielkoordinaten wurden erfolgreich gesetzt; der Handle wird nach Freigabe der Taste geschlossen.
+    let succeeded = unsafe {
         let pressed = button(display, 1, 1, 0);
         let released = button(display, 1, 0, 0);
         sync(display, 0);
         close(display);
-        moved != 0 && pressed != 0 && released != 0
+        pressed != 0 && released != 0
     };
     if !succeeded {
         return Err("Native Dialogbestätigung fehlgeschlagen".into());
@@ -449,7 +479,11 @@ fn main() -> Result<()> {
         return Err("Aufruf: brain-browser-consent --config <JSON-Datei> [--once]".into());
     }
     let path = PathBuf::from(args.next().ok_or("Config-Datei fehlt")?);
-    let once = matches!(args.next().as_deref(), Some("--once"));
+    let once = match args.next().as_deref() {
+        None => false,
+        Some("--once") => true,
+        _ => return Err("Unbekanntes Aufrufargument".into()),
+    };
     if args.next().is_some() {
         return Err("Unbekannte Aufrufargumente".into());
     }
