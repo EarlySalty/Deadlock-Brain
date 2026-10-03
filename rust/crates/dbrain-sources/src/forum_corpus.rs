@@ -53,6 +53,13 @@ pub(crate) fn record(payload: &Value, revision: u64, observed: i64) -> Result<So
         metadata: BTreeMap::from([
             ("kind".into(), "prose".into()),
             (
+                "thread_id".into(),
+                payload["thread_id"]
+                    .as_u64()
+                    .map(|id| id.to_string())
+                    .unwrap_or_default(),
+            ),
+            (
                 "title".into(),
                 payload["thread_title"]
                     .as_str()
@@ -109,7 +116,7 @@ pub(crate) fn record(payload: &Value, revision: u64, observed: i64) -> Result<So
     Ok(source)
 }
 
-/// Behält sämtliche Pins des angegebenen Basisstands. Teilarchive werden als
+/// Behält die Pins anderer Quellen und unbekannter Forumthreads des Basisstands. Teilarchive werden als
 /// Teilarchive veröffentlicht; eine erfolgreiche Veröffentlichung behauptet keine
 /// vollständige Forumabdeckung. Ein bestehender Release wird niemals verändert.
 pub async fn publish_archive(
@@ -118,6 +125,11 @@ pub async fn publish_archive(
     base_id: &str,
     release_id: &str,
 ) -> Result<Value> {
+    if pool.options().get_max_connections() < 2 {
+        return Err(invalid(
+            "Kernel-Veröffentlichung benötigt mindestens zwei Datenbankverbindungen.",
+        ));
+    }
     if base_id == release_id || release_id.trim().is_empty() {
         return Err(invalid("Neuer Wissensstand benötigt eine eigene ID."));
     }
@@ -137,14 +149,66 @@ pub async fn publish_archive(
         .bind("forum-corpus-publish")
         .execute(&mut *guard)
         .await?;
-    let rows = sqlx::query("WITH latest_threads AS (SELECT DISTINCT ON (t.external_id) t.payload FROM brain.entity_snapshots t JOIN brain.source_documents d ON d.id=t.source_document_id WHERE t.source=$1 AND t.entity_type='forum_thread' AND d.metadata->>'complete'='true' ORDER BY t.external_id,t.fetched_at DESC,t.id DESC) SELECT DISTINCT ON (s.external_id) s.id,s.payload,extract(epoch FROM s.fetched_at)::bigint AS observed FROM brain.entity_snapshots s JOIN brain.source_documents d ON d.id=s.source_document_id JOIN latest_threads t ON t.payload->>'thread_id'=s.payload->>'thread_id' AND t.payload->'post_ids' @> jsonb_build_array((s.payload->>'post_id')::bigint) WHERE s.source=$1 AND s.entity_type='forum_post' AND d.metadata->>'complete'='true' ORDER BY s.external_id,s.fetched_at DESC,s.id DESC").bind(SOURCE).fetch_all(archive_pool).await?;
+    let mut archive_snapshot = archive_pool.begin().await?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+        .execute(&mut *archive_snapshot)
+        .await?;
+    let rows = sqlx::query("WITH latest_threads AS (SELECT DISTINCT ON (t.external_id) t.payload FROM brain.entity_snapshots t JOIN brain.source_documents d ON d.id=t.source_document_id WHERE t.source=$1 AND t.entity_type='forum_thread' AND d.metadata->>'complete'='true' ORDER BY t.external_id,t.fetched_at DESC,t.id DESC) SELECT DISTINCT ON (s.external_id) s.id,s.payload,extract(epoch FROM s.fetched_at)::bigint AS observed FROM brain.entity_snapshots s JOIN brain.source_documents d ON d.id=s.source_document_id JOIN latest_threads t ON t.payload->>'thread_id'=s.payload->>'thread_id' AND t.payload->'post_ids' @> jsonb_build_array((s.payload->>'post_id')::bigint) WHERE s.source=$1 AND s.entity_type='forum_post' AND d.metadata->>'complete'='true' ORDER BY s.external_id,s.fetched_at DESC,s.id DESC").bind(SOURCE).fetch_all(&mut *archive_snapshot).await?;
     if rows.is_empty() {
         return Err(invalid(
             "Kein vollständig archivierter Thread für den Kernel vorhanden.",
         ));
     }
-    // Aktuelle Thread-Mitgliedschaft ersetzt alte Forum-Pins, Archivhistory bleibt.
-    release.source_revisions.remove(SOURCE);
+    // Nur vollständig beobachtete Threads liefern eine Löschungsentscheidung.
+    // Basisbelege unbekannter Threads bleiben bei Teilarchiven gepinnt.
+    let observed_threads: Vec<Value> = sqlx::query_scalar("SELECT DISTINCT ON (t.external_id) t.payload FROM brain.entity_snapshots t JOIN brain.source_documents d ON d.id=t.source_document_id WHERE t.source=$1 AND t.entity_type='forum_thread' AND d.metadata->>'complete'='true' ORDER BY t.external_id,t.fetched_at DESC,t.id DESC").bind(SOURCE).fetch_all(&mut *archive_snapshot).await?;
+    archive_snapshot.commit().await?;
+    let membership: BTreeMap<String, BTreeSet<String>> = observed_threads
+        .into_iter()
+        .filter_map(|payload| {
+            Some((
+                payload["thread_id"].as_u64()?.to_string(),
+                payload["post_ids"]
+                    .as_array()?
+                    .iter()
+                    .filter_map(Value::as_u64)
+                    .map(|id| format!("post:{id}"))
+                    .collect(),
+            ))
+        })
+        .collect();
+    if let Some(pins) = release.source_revisions.get_mut(SOURCE) {
+        let mut remove = Vec::new();
+        for (logical, revision) in pins.iter() {
+            let value: Value = sqlx::query_scalar("SELECT record_json FROM brain.source_record_revisions WHERE source_id=$1 AND logical_id=$2 AND revision=$3").bind(SOURCE).bind(logical).bind(*revision as i64).fetch_one(pool).await?;
+            let previous: SourceRecordV2 = serde_json::from_value(value)?;
+            let thread_id = previous
+                .metadata
+                .get("thread_id")
+                .cloned()
+                .filter(|id| !id.is_empty())
+                .or_else(|| {
+                    previous
+                        .metadata
+                        .get("locator")
+                        .and_then(|url| url.split("/threads/").nth(1))
+                        .and_then(|slug| slug.split('/').next())
+                        .and_then(|slug| slug.rsplit('.').next())
+                        .filter(|id| id.parse::<u64>().is_ok())
+                        .map(str::to_string)
+                });
+            if thread_id
+                .as_ref()
+                .and_then(|id| membership.get(id))
+                .is_some_and(|members| !members.contains(logical))
+            {
+                remove.push(logical.clone());
+            }
+        }
+        for logical in remove {
+            pins.remove(&logical);
+        }
+    }
     let mut committed = 0usize;
     let mut unchanged = 0usize;
     for chunk in rows.chunks(200) {
@@ -230,7 +294,7 @@ pub async fn publish_archive(
         .map_err(|e| invalid(format!("Forumrelease: {e:?}")))?;
     guard.commit().await?;
     Ok(
-        json!({"base_release": base_id, "knowledge_release": release_id, "posts": rows.len(), "committed": committed, "unchanged": unchanged, "existing_source_pins_preserved": true, "evidence_status": "reported_unverified"}),
+        json!({"base_release": base_id, "knowledge_release": release_id, "posts": rows.len(), "committed": committed, "unchanged": unchanged, "other_source_pins_preserved": true, "unknown_forum_thread_pins_preserved": true, "evidence_status": "reported_unverified"}),
     )
 }
 
