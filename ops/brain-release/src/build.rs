@@ -1,7 +1,9 @@
 use crate::fs_safe::{self, Lock};
 use crate::source::{self, Artifact, Manifest, OPERATOR};
 use anyhow::{ensure, Context, Result};
-use std::fs::{self, OpenOptions};
+#[cfg(test)]
+use std::fs;
+use std::fs::OpenOptions;
 use std::io::{Read, Seek, SeekFrom};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::Path;
