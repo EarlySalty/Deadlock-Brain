@@ -33,7 +33,7 @@ pub(super) async fn search_forum(pool: &PgPool, query: &str) -> Result<Value> {
         SELECT external_id AS post_id, payload->>'thread_id' AS thread_id,
           payload->>'thread_title' AS thread_title,
           payload->>'thread_url' AS thread_url,
-          COALESCE(payload->>'thread_url','') || '#post-' || external_id AS source_url,
+          COALESCE(payload->>'page_url',payload->>'thread_url','') || '#post-' || external_id AS source_url,
           payload->>'category' AS category, payload->>'category_url' AS category_url,
           payload->>'datetime' AS posted_at, payload->>'author' AS author,
           payload->>'user_title' AS author_role,

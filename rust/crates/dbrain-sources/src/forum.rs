@@ -61,6 +61,7 @@ struct ParsedThread {
 #[derive(Debug)]
 struct ParsedPost {
     post_id: u64,
+    page_url: Option<String>,
     author: Option<String>,
     user_id: Option<String>,
     user_title: Option<String>,
@@ -266,7 +267,7 @@ async fn fetch_and_store_thread(
         }
         validate_thread_page_url(&url, thread.thread_id)?;
         let (html, from_cache) = forum_fetch(http, options, browser, &url).await?;
-        let page = parse_thread_html(&html)?;
+        let page = parse_thread_page(&html, &url)?;
         let next = page.next_page.clone();
         if let Some(first) = parsed.as_mut() {
             first.posts.extend(page.posts);
@@ -356,6 +357,7 @@ async fn fetch_and_store_thread(
                 "category": parsed.category,
                 "category_url": parsed.category_url,
                 "thread_url": thread.url,
+                "page_url": post.page_url,
                 "canonical_thread_url": parsed.canonical_url,
                 "post_id": post.post_id,
                 "post_index": index,
@@ -591,6 +593,14 @@ fn validate_thread_page_url(url: &str, thread_id: u64) -> Result<()> {
     Ok(())
 }
 
+fn parse_thread_page(html: &str, url: &str) -> Result<ParsedThread> {
+    let mut page = parse_thread_html(html)?;
+    for post in &mut page.posts {
+        post.page_url = Some(url.to_owned());
+    }
+    Ok(page)
+}
+
 fn parse_post(post: ElementRef<'_>, post_id: u64) -> Result<ParsedPost> {
     let author = post.value().attr("data-author").map(ToString::to_string);
     let user_link_selector = selector(".message-name a[data-user-id]")?;
@@ -622,6 +632,7 @@ fn parse_post(post: ElementRef<'_>, post_id: u64) -> Result<ParsedPost> {
 
     Ok(ParsedPost {
         post_id,
+        page_url: None,
         author,
         user_id,
         user_title,
@@ -727,9 +738,9 @@ async fn thread_document_exists(
     thread_id: u64,
     lastmod: Option<&str>,
 ) -> Result<bool> {
-    let external_id = format!("thread:{thread_id}");
+    let external_id = thread_id.to_string();
     let exists = sqlx::query_scalar::<_, i32>(
-        "SELECT 1 FROM brain.source_documents WHERE source=$1 AND external_id=$2 AND metadata->>'archive_version'='2' AND metadata->>'complete'='true' AND $3::text IS NOT NULL AND metadata->>'sitemap_lastmod'=$3 LIMIT 1",
+        "SELECT 1 FROM (SELECT d.metadata FROM brain.entity_snapshots s JOIN brain.source_documents d ON d.id=s.source_document_id WHERE s.source=$1 AND s.entity_type='forum_thread' AND s.external_id=$2 AND d.metadata->>'complete'='true' ORDER BY s.fetched_at DESC,s.id DESC LIMIT 1) latest WHERE metadata->>'archive_version'='2' AND $3::text IS NOT NULL AND metadata->>'sitemap_lastmod'=$3",
     )
     .bind(SOURCE)
     .bind(&external_id)
@@ -911,15 +922,23 @@ mod kernel_integration_tests {
             r#"<html><h1 class="p-title-value">Itemfehler</h1><article class="js-post" data-content="post-1"><div class="bbWrapper">Erster Bericht zum Itemfehler.</div><time class="u-dt" datetime="2026-09-01T10:00:00Z" data-timestamp="1788256800"></time></article><link rel="next" href="/threads/itemfehler.4/page-2" /></html>"#,
             r#"<html><h1 class="p-title-value">Itemfehler</h1><article class="js-post" data-content="post-2"><div class="bbWrapper">Zweiter Bericht über denselben Itemfehler.</div><time class="u-dt" datetime="2026-09-02T10:00:00Z" data-timestamp="1788343200"></time></article></html>"#,
         ];
-        let first = parse_thread_html(pages[0]).unwrap();
+        let first = parse_thread_page(
+            pages[0],
+            "https://forums.playdeadlock.com/threads/itemfehler.4/",
+        )
+        .unwrap();
         assert_eq!(
             first.next_page.as_deref(),
             Some("https://forums.playdeadlock.com/threads/itemfehler.4/page-2")
         );
-        let second = parse_thread_html(pages[1]).unwrap();
+        let second = parse_thread_page(
+            pages[1],
+            "https://forums.playdeadlock.com/threads/itemfehler.4/page-2",
+        )
+        .unwrap();
         let store = MemoryRepository::default();
         for post in first.posts.iter().chain(second.posts.iter()) {
-            let source = crate::forum_corpus::record(&json!({"post_id":post.post_id,"thread_title":"Itemfehler","thread_url":"https://forums.playdeadlock.com/threads/itemfehler.4/","text":post.text,"datetime":post.datetime,"timestamp":post.timestamp}), post.post_id, 1788400000).unwrap();
+            let source = crate::forum_corpus::record(&json!({"post_id":post.post_id,"thread_title":"Itemfehler","thread_url":"https://forums.playdeadlock.com/threads/itemfehler.4/","page_url":post.page_url,"text":post.text,"datetime":post.datetime,"timestamp":post.timestamp}), post.post_id, 1788400000).unwrap();
             store.apply_record(source).unwrap();
         }
         let release = store
@@ -961,9 +980,12 @@ mod kernel_integration_tests {
         for hit in evidence {
             assert!(hit.content.contains("unbestätigt"));
             assert!(hit.content.contains("2026-09-0"));
-            assert!(hit
-                .content
-                .contains("https://forums.playdeadlock.com/threads/itemfehler.4/#post-"));
+            let source = if hit.content.contains("Zweiter Bericht") {
+                "https://forums.playdeadlock.com/threads/itemfehler.4/page-2#post-2"
+            } else {
+                "https://forums.playdeadlock.com/threads/itemfehler.4/#post-1"
+            };
+            assert!(hit.content.contains(source));
             assert_eq!(hit.kind, EvidenceKind::Prose);
             assert!(hit.patch.is_none());
         }
@@ -1256,6 +1278,32 @@ mod scratch_regression_tests {
                 .unwrap();
         assert_eq!(batches["posts"], 201);
         assert_eq!(batches["committed"], 201);
+        sqlx::query("UPDATE brain.source_documents SET metadata=metadata || jsonb_build_object('sitemap_lastmod','A') WHERE id=$1")
+            .bind(doc).execute(pool).await.unwrap();
+        assert!(thread_document_exists(pool, 4, Some("A")).await.unwrap());
+        let changed_doc = store
+            .upsert_source_document(SourceDocumentInput {
+                source: SOURCE,
+                external_id: "thread:4",
+                title: Some("fixture"),
+                url: Some("https://forums.playdeadlock.com/threads/fixture.4/"),
+                content_type: "application/json",
+                raw_path: &raw,
+                content: b"changed sitemap observation",
+                metadata: &json!({"archive_version":2,"complete":false,"sitemap_lastmod":"B"}),
+            })
+            .await
+            .unwrap();
+        store_observed_snapshots(&store, &[manifest((1..=201).collect())], changed_doc)
+            .await
+            .unwrap();
+        assert!(!thread_document_exists(pool, 4, Some("A")).await.unwrap());
+        assert!(thread_document_exists(pool, 4, Some("B")).await.unwrap());
+        store_observed_snapshots(&store, &[manifest((1..=201).collect())], doc)
+            .await
+            .unwrap();
+        assert!(thread_document_exists(pool, 4, Some("A")).await.unwrap());
+        assert!(!thread_document_exists(pool, 4, Some("B")).await.unwrap());
         limited.close().await;
         pool.close().await;
         drop(server);
