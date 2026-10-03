@@ -42,7 +42,14 @@ impl Resource {
 }
 
 pub(super) fn read_directory(path: &Path, max_tree_bytes: u64) -> io::Result<Directory> {
-    let mut file = open_regular(path)?;
+    read_directory_from_file(open_regular(path)?, max_tree_bytes)
+}
+
+pub(super) fn read_directory_from_file(
+    mut file: fs::File,
+    max_tree_bytes: u64,
+) -> io::Result<Directory> {
+    file.seek(SeekFrom::Start(0))?;
     let size = file.metadata()?.len();
     if read_u32(&mut file)? != 0x55aa1234 {
         return Err(invalid("Ungültige VPK-Signatur"));
@@ -195,10 +202,27 @@ pub(super) fn read_resource(
     header: &Header,
     resource: &Resource,
 ) -> io::Result<Vec<u8>> {
+    read_resource_with(header, resource, |index| {
+        open_regular(&archive_path(directory_path, index)?)
+    })
+}
+
+pub(super) fn archive_path(directory_path: &Path, index: u16) -> io::Result<PathBuf> {
+    let name = directory_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.strip_suffix("_dir.vpk"))
+        .ok_or_else(|| invalid("VPK-Verzeichnisname hat kein _dir.vpk-Suffix"))?;
+    Ok(directory_path.with_file_name(format!("{name}_{index:03}.vpk")))
+}
+
+pub(super) fn read_resource_with(
+    header: &Header,
+    resource: &Resource,
+    mut archive_file: impl FnMut(u16) -> io::Result<fs::File>,
+) -> io::Result<Vec<u8>> {
     let total =
         usize::try_from(resource.total_bytes()).map_err(|_| invalid("VPK-Eintrag ist zu groß"))?;
-    // Hold and validate the actual payload file before reserving or copying any bytes.
-    // For embedded v2 data, the section bound also excludes trailing checksum sections.
     let payload = if resource.length > 0 {
         let end = u64::from(resource.offset)
             .checked_add(u64::from(resource.length))
@@ -214,15 +238,10 @@ pub(super) fn read_resource(
                 .ok_or_else(|| invalid("VPK-Eintragsüberlauf"))?;
             (header.file.try_clone()?, absolute_offset)
         } else {
-            let name = directory_path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .and_then(|name| name.strip_suffix("_dir.vpk"))
-                .ok_or_else(|| invalid("VPK-Verzeichnisname hat kein _dir.vpk-Suffix"))?;
-            let archive_path =
-                directory_path.with_file_name(format!("{name}_{:03}.vpk", resource.archive_index));
-            // directory_path remains relative to the caller's held directory handle.
-            (open_regular(&archive_path)?, u64::from(resource.offset))
+            (
+                archive_file(resource.archive_index)?,
+                u64::from(resource.offset),
+            )
         };
         let absolute_end = absolute_offset
             .checked_add(u64::from(resource.length))
@@ -252,7 +271,6 @@ fn allocate_bytes(count: usize, budget: &mut Budget) -> io::Result<Vec<u8>> {
     budget.charge(count).map_err(invalid)?;
     let mut bytes = Vec::new();
     bytes.try_reserve_exact(count).map_err(invalid)?;
-    // Capacity is already reserved; resize and subsequent slice copies cannot grow it.
     bytes.resize(count, 0);
     Ok(bytes)
 }
@@ -413,7 +431,6 @@ mod tests {
         fs::create_dir(temp.path().join("root")).unwrap();
         let content = b"inside";
         let mut bytes = package("items", content, crc32(content));
-        // archive_index in the single directory entry, after CRC/preload length.
         let index = 12 + b"txt\0scripts\0items\0".len() + 6;
         bytes[index..index + 2].copy_from_slice(&0u16.to_le_bytes());
         fs::write(temp.path().join("root/pak01_dir.vpk"), bytes).unwrap();
@@ -450,8 +467,6 @@ mod tests {
             let error = read_resource(&path, &archive.header, &archive.entries[0]).unwrap_err();
             assert_eq!(error.kind(), io::ErrorKind::InvalidData);
             assert!(error.to_string().contains("außerhalb"));
-            // The public caller must recover and retain the resource's inventory gap,
-            // even when its configurable input limit permits the malicious length.
             let options: super::super::GameFileOptions =
                 serde_json::from_value(serde_json::json!({
                     "root": temp.path(), "app_id": 1422450, "source_id": "fixture",
@@ -576,8 +591,8 @@ mod tests {
         let v1 = package("items", b"x", crc32(b"x"));
         let mut bytes = v1[..12].to_vec();
         bytes[4..8].copy_from_slice(&2u32.to_le_bytes());
-        bytes.extend(0u32.to_le_bytes()); // empty data section
-        bytes.extend(1u32.to_le_bytes()); // trailing checksum section
+        bytes.extend(0u32.to_le_bytes());
+        bytes.extend(1u32.to_le_bytes());
         bytes.extend(0u32.to_le_bytes());
         bytes.extend(0u32.to_le_bytes());
         bytes.extend(&v1[12..]);
@@ -585,6 +600,109 @@ mod tests {
         let archive = read_directory(&path, 1024).unwrap();
         let error = read_resource(&path, &archive.header, &archive.entries[0]).unwrap_err();
         assert!(error.to_string().contains("Datenabschnitts"));
+    }
+
+    #[test]
+    fn bound_embedded_and_external_payloads_use_only_held_sources() {
+        use super::super::{
+            extract_game_files_from_handles,
+            tests::{bound_file, bound_input},
+        };
+        for index in [0x7fffu16, 0u16] {
+            let content = b"root { damage 12 }";
+            let mut bytes = package("items", content, crc32(content));
+            let record = 12 + b"txt\0scripts\0items\0".len();
+            bytes[record + 6..record + 8].copy_from_slice(&index.to_le_bytes());
+            if index == 0 {
+                bytes.truncate(51);
+            }
+            let mut files = vec![bound_file("game/pak01_dir.vpk", &bytes)];
+            if index == 0 {
+                files.push(bound_file("game/pak01_000.vpk", content));
+            }
+            let temp = tempfile::tempdir().unwrap();
+            fs::write(temp.path().join("pak01_dir.vpk"), b"replaced directory").unwrap();
+            fs::write(temp.path().join("pak01_000.vpk"), b"replaced archive").unwrap();
+            let mut input = bound_input(files);
+            input.options.root = temp.path().to_owned();
+            let mut out = Vec::new();
+            let inventory = extract_game_files_from_handles(input, &mut out).unwrap();
+            let document: serde_json::Value = serde_json::from_slice(&out).unwrap();
+            assert_eq!(document["content"], std::str::from_utf8(content).unwrap());
+            assert_eq!(inventory.documents, 1);
+            assert_eq!(inventory.files.len(), if index == 0 { 3 } else { 2 });
+            let extraction = &document["metadata"]["extraction"];
+            assert_eq!(extraction["container_sha256"], super::super::sha256(&bytes));
+            assert_eq!(
+                document["metadata"]["original_sha256"],
+                super::super::sha256(content)
+            );
+            let physical = extraction["physical_sources"].as_array().unwrap();
+            assert_eq!(physical.len(), if index == 0 { 2 } else { 1 });
+            assert_eq!(physical[0]["relative_path"], "game/pak01_dir.vpk");
+            assert_eq!(physical[0]["sha256"], super::super::sha256(&bytes));
+            if index == 0 {
+                assert_eq!(physical[1]["relative_path"], "game/pak01_000.vpk");
+                assert_eq!(physical[1]["sha256"], super::super::sha256(content));
+                assert_eq!(physical[1]["steam_sha1"], super::super::hex_bytes(&[7; 20]));
+            }
+        }
+    }
+
+    #[test]
+    fn bound_external_archive_missing_changed_truncated_and_crc_errors_are_fatal() {
+        use super::super::{
+            extract_game_files_from_handles,
+            tests::{bound_file, bound_input},
+        };
+        let content = b"root { damage 12 }";
+        let mut bytes = package("items", content, crc32(content));
+        let record = 12 + b"txt\0scripts\0items\0".len();
+        bytes[record + 6..record + 8].copy_from_slice(&0u16.to_le_bytes());
+        bytes.truncate(51);
+        for case in 0..6 {
+            let mut files = vec![bound_file("pak01_dir.vpk", &bytes)];
+            if case != 0 {
+                let mut payload = bound_file("pak01_000.vpk", content);
+                match case {
+                    1 => payload.file.set_len(1).unwrap(),
+                    2 => {
+                        payload.file.seek(SeekFrom::Start(0)).unwrap();
+                        std::io::Write::write_all(&mut payload.file, &vec![b'x'; content.len()])
+                            .unwrap();
+                    }
+                    3 => payload = bound_file("pak01_000.vpk", b"short"),
+                    4 => payload = bound_file("pak01_001.vpk", content),
+                    _ => payload = bound_file("pak01_000.vpk", &vec![b'x'; content.len()]),
+                }
+                files.push(payload);
+            }
+            let mut out = Vec::new();
+            assert!(
+                extract_game_files_from_handles(bound_input(files), &mut out).is_err(),
+                "case {case}"
+            );
+            assert!(out.is_empty());
+        }
+    }
+
+    #[test]
+    fn bound_skipped_resource_still_requires_declared_external_archive() {
+        use super::super::{
+            extract_game_files_from_handles,
+            tests::{bound_file, bound_input},
+        };
+        let mut bytes = package("asset", b"x", crc32(b"x"));
+        bytes[12..15].copy_from_slice(b"bin");
+        let record = 12 + b"bin\0scripts\0asset\0".len();
+        bytes[record + 6..record + 8].copy_from_slice(&0u16.to_le_bytes());
+        let mut out = Vec::new();
+        assert!(extract_game_files_from_handles(
+            bound_input(vec![bound_file("pak01_dir.vpk", &bytes)]),
+            &mut out
+        )
+        .is_err());
+        assert!(out.is_empty());
     }
 
     #[test]
