@@ -491,25 +491,6 @@ fn is_feedback(text: &str) -> bool {
 }
 fn explicit_feedback(text: &str) -> bool {
     let t = text.trim().to_lowercase();
-    // Nur ein aktueller, positiver Imperativ mit ausdrücklich genanntem Anliegen.
-    if t.contains(['\n', '"', '„', '“', '»', '«', '?'])
-        || t.split_whitespace().any(|word| {
-            matches!(
-                word.trim_matches(|c: char| !c.is_alphabetic()),
-                "nicht"
-                    | "kein"
-                    | "keine"
-                    | "niemals"
-                    | "nie"
-                    | "ohne"
-                    | "wenn"
-                    | "würde"
-                    | "könnte"
-            )
-        })
-    {
-        return false;
-    }
     [
         "feedback ans team:",
         "leite bitte dieses anliegen ans team weiter:",
@@ -673,7 +654,7 @@ async fn action_handler(
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let mut result = if changed.is_some() {
-        GuideResult::reply(&request_id,if success{"Dein Anliegen ist beim Moderatorenteam angekommen."}else{"Dein Anliegen konnte gerade nicht zugestellt werden. Es ist noch nicht beim Team angekommen."}.into())
+        GuideResult::reply(&request_id,if success{"Dein Anliegen ist beim Moderatorenteam angekommen."}else{"Ich kann die Zustellung deines Anliegens gerade nicht sicher bestätigen. Bei Bedarf erreichst du das Team über die vorhandenen Serverwege."}.into())
     } else {
         GuideResult::silent(&request_id)
     };
@@ -764,6 +745,12 @@ mod tests {
     #[test]
     fn weiterleitung_braucht_eine_positive_konkrete_aufforderung() {
         assert!(explicit_feedback("Feedback ans Team: Mehr Turniere bitte."));
+        assert!(explicit_feedback(
+            "Feedback ans Team: Ich finde den Server nicht übersichtlich."
+        ));
+        assert!(explicit_feedback(
+            "Bitte leite dieses Anliegen ans Team weiter: Warum gibt es keine Turniere?"
+        ));
         assert!(explicit_feedback(
             "Bitte leite dieses Anliegen ans Team weiter: Mehr Turniere bitte."
         ));
