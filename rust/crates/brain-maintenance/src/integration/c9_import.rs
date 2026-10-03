@@ -1,7 +1,10 @@
 //! Geprüfte C9-Pakete erhalten ein eigenes unveränderliches Release ohne Aktivierung.
 use crate::{digest, integration::runtime_config::read_bounded};
 use anyhow::{ensure, Result};
-use brain_contracts::{source::SourceRevision, CorpusRelease, DocumentStorePort, SourceVisibility};
+use brain_contracts::{
+    source::SourceRevision, CorpusRelease, CorpusSnapshot, DocumentStorePort, SourceBatch,
+    SourceVisibility,
+};
 use brain_ingestion::document_set::{
     current_pins, prepare_document_batch, CoreDocument, DocumentSetSource,
 };
@@ -14,6 +17,20 @@ pub(crate) struct Package {
     pub source: DocumentSetSource,
     pub documents: Vec<CoreDocument>,
     pub release: CorpusRelease,
+}
+
+impl Package {
+    fn validate_replay(&self, snapshot: CorpusSnapshot, expected: &SourceBatch) -> Result<()> {
+        let mut actual = snapshot.revisions;
+        actual.sort_by(|a, b| a.logical_id.cmp(&b.logical_id));
+        let mut expected_release = self.release.clone();
+        expected_release.created_at_epoch = snapshot.release.created_at_epoch;
+        ensure!(
+            snapshot.release == expected_release && actual == expected.records,
+            "c9_replay_mismatch"
+        );
+        Ok(())
+    }
 }
 
 pub(crate) fn prepare(bytes: &[u8], expected: &str, kind: &str) -> Result<Package> {
@@ -141,14 +158,7 @@ impl super::runner::Runner {
                 "c9_source_already_bound"
             );
             let snapshot = self.store.snapshot(&package.release.release_id).await?;
-            let mut actual = snapshot.revisions;
-            actual.sort_by(|a, b| a.logical_id.cmp(&b.logical_id));
-            let mut expected_release = package.release.clone();
-            expected_release.created_at_epoch = snapshot.release.created_at_epoch;
-            ensure!(
-                snapshot.release == expected_release && actual == expected_batch.records,
-                "c9_replay_mismatch"
-            );
+            package.validate_replay(snapshot, &expected_batch)?;
         } else {
             let lease = self
                 .store
@@ -225,6 +235,38 @@ mod tests {
     fn check(document: &CoreDocument, kind: &str) -> bool {
         let bytes = serde_json::to_vec(&fixture_documents(document)).unwrap();
         prepare(&bytes, &digest(&bytes), kind).is_ok()
+    }
+    #[test]
+    fn unsortiertes_paket_bleibt_beim_replay_identisch_inhalte_und_release_sind_gebunden() {
+        let documents = fixture_documents(&document());
+        assert!(documents[0].logical_id > documents[1].logical_id);
+        let bytes = serde_json::to_vec(&documents).unwrap();
+        let package = prepare(&bytes, &digest(&bytes), "second-brain").unwrap();
+        let batch = prepare_document_batch(&package.source, &package.documents, None).unwrap();
+        assert_eq!(
+            batch
+                .records
+                .iter()
+                .map(|r| r.logical_id.as_str())
+                .collect::<Vec<_>>(),
+            ["projekte/brain-feeder.md", "systeme/deadlock-bots.md"]
+        );
+        let mut stored_release = package.release.clone();
+        stored_release.created_at_epoch = 123;
+        let mut stored_records = batch.records.clone();
+        stored_records.reverse();
+        let stored = CorpusSnapshot {
+            release: stored_release,
+            revisions: stored_records,
+            heads: batch.records.clone(),
+        };
+        package.validate_replay(stored.clone(), &batch).unwrap();
+        let mut changed = stored.clone();
+        changed.revisions[0].content.push_str("Veränderte Fixture");
+        assert!(package.validate_replay(changed, &batch).is_err());
+        let mut changed = stored;
+        changed.release.release_id = "fremdes-release".into();
+        assert!(package.validate_replay(changed, &batch).is_err());
     }
     #[test]
     fn interne_importrechte_werden_erhalten_und_niemals_hochgestuft() {

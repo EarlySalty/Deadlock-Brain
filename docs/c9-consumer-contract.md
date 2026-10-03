@@ -40,7 +40,7 @@ Der konkrete Gruppenstatus, Pakethashes, Bootstrapentwurf und finalen Köpfe ste
 
 ## Gemeinsamer Lernjobbetrieb
 
-Das gemeinsame Release enthält die drei kompilierten Binaries `brain-serve`, `brain-maintain` und `deadlock-brain`. Das Legacybinary wird zusätzlich als Hardlink unter `legacy/sheet-sync/deadlock-brain` und `legacy/build-data/deadlock-brain` installiert. Jeder dieser beiden Jobstämme besitzt normale `config/ai.json`, `config/infisical.json` und `config/settings.json` ohne Secretwerte. Sheet-Sync behält `settings.data_dir=/home/nathanael/repos/Deadlock-Brain/data`, Build-Data behält `/home/nathanael/.worktrees/brain-live-main/data`. Es erfolgt keine Datenkopie oder Migration.
+Das gemeinsame Release enthält die drei kompilierten Binaries `brain-serve`, `brain-maintain` und `deadlock-brain`. Das Legacybinary wird zusätzlich als Hardlink unter `legacy/sheet-sync/deadlock-brain` und `legacy/build-data/deadlock-brain` installiert. Jeder dieser beiden Jobstämme besitzt eine normale `config/bot.toml` mit `[ai]`, `[infisical]` und `[settings]` ohne Secretwerte. Sheet-Sync behält `settings.data_dir=/home/nathanael/repos/Deadlock-Brain/data`, Build-Data behält `/home/nathanael/.worktrees/brain-live-main/data`. Es erfolgt keine Datenkopie oder Migration.
 
 Die direkten revisionsgebundenen Rust-ExecStarts behalten das bestehende `LoadCredential=infisical-token`. Die normalen Infisicalconfigs verwenden `credential_name=infisical-token`. Der vorhandene systemd Runtime-Credentialdirectory hat Vorrang: fehlende, leere oder ungültige Credentials führen zum Abbruch. Der FD-Ladeweg ist nur außerhalb dieses Runtimewegs zulässig. Die Lernjob-Units öffnen keinen FD5. Der alte `INFISICAL_TOKEN_FILE`-ENV-Fallback entfällt im eng begrenzten Peeranteil.
 
