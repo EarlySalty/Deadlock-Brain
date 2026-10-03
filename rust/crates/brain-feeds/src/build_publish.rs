@@ -118,14 +118,9 @@ pub struct HttpBuildPublishClient {
 }
 
 impl HttpBuildPublishClient {
-    /// HTTPS or loopback HTTP only, without userinfo, query or fragment.
-    /// Default ports and explicit nonzero ports are supported. The base path
-    /// is preserved; an optional trailing slash does not duplicate separators.
     pub fn new(base_url: &str, token: &str, timeout: Duration) -> Result<Self, PublishError> {
         let invalid_endpoint = || PublishError::InvalidRequest("invalid publish endpoint".into());
         let mut publish_url = reqwest::Url::parse(base_url).map_err(|_| invalid_endpoint())?;
-        // Match the BrainClient/provider rule against the parsed host, never
-        // against a prefix that could actually be userinfo or a host suffix.
         let loopback = publish_url.host_str().is_some_and(|host| {
             host == "localhost"
                 || host
@@ -143,8 +138,6 @@ impl HttpBuildPublishClient {
         {
             return Err(invalid_endpoint());
         }
-        // Keep the validated authority and encoded base path for both routes.
-        // A string join or an absolute-path URL join can lose that base path.
         publish_url
             .path_segments_mut()
             .map_err(|_| invalid_endpoint())?
@@ -160,9 +153,6 @@ impl HttpBuildPublishClient {
         let mut client = reqwest::blocking::Client::builder()
             .timeout(timeout)
             .redirect(reqwest::redirect::Policy::none());
-        // Validated HTTP endpoints are loopback-only. Never send their plaintext
-        // credentials through an inherited proxy. HTTPS retains its existing
-        // proxy support and end-to-end TLS peer validation.
         if publish_url.scheme() == "http" {
             client = client.no_proxy();
         }
@@ -240,15 +230,25 @@ impl HttpBuildPublishClient {
         wait: Duration,
         poll_interval: Duration,
     ) -> Result<BuildPublishStatus, PublishError> {
+        self.publish_and_wait_with_clock(request, wait, poll_interval, std::time::Instant::now)
+    }
+
+    fn publish_and_wait_with_clock(
+        &self,
+        request: &BuildPublishRequest,
+        wait: Duration,
+        poll_interval: Duration,
+        now: impl Fn() -> std::time::Instant,
+    ) -> Result<BuildPublishStatus, PublishError> {
         if wait.is_zero() || wait > Duration::from_secs(120) {
             return Err(PublishError::InvalidRequest(
                 "wait must be between zero and 120 seconds".into(),
             ));
         }
         request.validate().map_err(PublishError::InvalidRequest)?;
-        let deadline = std::time::Instant::now() + wait;
+        let deadline = now() + wait;
         let remaining = || {
-            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            let remaining = deadline.saturating_duration_since(now());
             if remaining.is_zero() {
                 Err(PublishError::Timeout)
             } else {
@@ -256,28 +256,51 @@ impl HttpBuildPublishClient {
             }
         };
         let pause = || {
-            std::thread::sleep(
-                poll_interval.min(deadline.saturating_duration_since(std::time::Instant::now())),
-            );
+            std::thread::sleep(poll_interval.min(deadline.saturating_duration_since(now())));
         };
-        let mut attempts = 0;
-        let mut status = loop {
-            attempts += 1;
-            match self.submit_bound(request, remaining()?) {
-                Ok(status) => break status,
-                Err(
-                    PublishError::Unavailable(_)
-                    | PublishError::Timeout
-                    | PublishError::RateLimited,
-                ) if attempts < 3 => pause(),
-                Err(error) => return Err(error),
+        let recover = || {
+            let mut attempts = 0;
+            loop {
+                attempts += 1;
+                match self.status_bound(request, remaining()?) {
+                    Err(
+                        PublishError::Unavailable(_)
+                        | PublishError::Timeout
+                        | PublishError::RateLimited,
+                    ) if attempts < 3 => pause(),
+                    result => return result,
+                }
             }
         };
+        let mut status = match recover() {
+            Ok(status) => status,
+            Err(PublishError::NotFound) => {
+                let mut attempts = 0;
+                loop {
+                    attempts += 1;
+                    match self.submit_bound(request, remaining()?) {
+                        Ok(status) => break status,
+                        Err(
+                            error @ (PublishError::Unavailable(_)
+                            | PublishError::Timeout
+                            | PublishError::RateLimited),
+                        ) => match recover() {
+                            Ok(status) => break status,
+                            Err(PublishError::NotFound) if attempts < 3 => pause(),
+                            Err(PublishError::NotFound) => return Err(error),
+                            Err(error) => return Err(error),
+                        },
+                        Err(error) => return Err(error),
+                    }
+                }
+            }
+            Err(error) => return Err(error),
+        };
         loop {
-            remaining()?;
             if status.state.is_terminal() {
                 return Ok(status);
             }
+            remaining()?;
             pause();
             match self.status_bound(request, remaining()?) {
                 Ok(next) => status = next,
@@ -309,7 +332,7 @@ impl HttpBuildPublishClient {
         response
             .take(MAX_STATUS_BYTES + 1)
             .read_to_end(&mut body)
-            .map_err(|e| PublishError::Unavailable(e.to_string()))?;
+            .map_err(transport_error)?;
         if body.len() as u64 > MAX_STATUS_BYTES {
             return Err(PublishError::InvalidResponse(
                 "status exceeds byte limit".into(),
@@ -340,13 +363,24 @@ impl BuildPublishPort for HttpBuildPublishClient {
             .get(url)
             .bearer_auth(self.token.as_str())
             .send()
-            .map_err(|e| PublishError::Unavailable(e.to_string()))?;
+            .map_err(transport_error)?;
         self.read(response, request_id, None)
     }
 }
 
-fn transport_error(error: reqwest::Error) -> PublishError {
-    if error.is_timeout() {
+fn transport_error(error: impl std::error::Error + 'static) -> PublishError {
+    let error = &error as &dyn std::error::Error;
+    let timeout = error
+        .downcast_ref::<reqwest::Error>()
+        .is_some_and(reqwest::Error::is_timeout)
+        || error.downcast_ref::<std::io::Error>().is_some_and(|error| {
+            error.kind() == std::io::ErrorKind::TimedOut
+                || error
+                    .get_ref()
+                    .and_then(|error| error.downcast_ref::<reqwest::Error>())
+                    .is_some_and(reqwest::Error::is_timeout)
+        });
+    if timeout {
         PublishError::Timeout
     } else {
         PublishError::Unavailable("transport failed".into())
@@ -464,6 +498,77 @@ mod tests {
             seen
         });
         (address, handle)
+    }
+
+    #[test]
+    fn body_transport_errors_preserve_timeouts_without_raw_details() {
+        assert_eq!(
+            transport_error(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "synthetic body timeout"
+            )),
+            PublishError::Timeout
+        );
+        assert_eq!(
+            transport_error(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "synthetic body failure"
+            )),
+            PublishError::Unavailable("transport failed".into())
+        );
+    }
+
+    #[test]
+    fn confirmed_terminal_status_survives_an_elapsed_deadline() {
+        let req = request("terminal-deadline");
+        for state in [
+            BuildPublishState::Succeeded { hero_build_id: 456 },
+            BuildPublishState::Failed {
+                error_class: BuildPublishErrorClass::Rejected,
+            },
+        ] {
+            let status = BuildPublishStatus {
+                contract_version: BUILD_PUBLISH_VERSION.into(),
+                request_id: req.request_id.clone(),
+                request_sha256: req.request_sha256().unwrap(),
+                state,
+                submitted_at: 1,
+                updated_at: 2,
+            };
+            let terminal = serde_json::to_string(&status).unwrap();
+            let queued = serde_json::to_string(&BuildPublishStatus {
+                state: BuildPublishState::Queued,
+                ..status.clone()
+            })
+            .unwrap();
+            for (replies, calls_before_deadline) in [
+                (vec![(200, terminal.clone())], 2),
+                (vec![(404, "{}".into()), (202, terminal.clone())], 3),
+                (vec![(200, queued), (200, terminal.clone())], 5),
+            ] {
+                let (address, server) = serve(replies);
+                let client =
+                    HttpBuildPublishClient::new(&address, "fixture-token", Duration::from_secs(5))
+                        .unwrap();
+                let start = std::time::Instant::now();
+                let wait = Duration::from_secs(1);
+                let calls = std::cell::Cell::new(0);
+                let now = || {
+                    calls.set(calls.get() + 1);
+                    if calls.get() > calls_before_deadline {
+                        start + wait
+                    } else {
+                        start
+                    }
+                };
+                assert_eq!(
+                    client.publish_and_wait_with_clock(&req, wait, Duration::ZERO, now),
+                    Ok(status.clone())
+                );
+                assert_eq!(now(), start + wait);
+                server.join().unwrap();
+            }
+        }
     }
 
     #[test]
