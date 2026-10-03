@@ -620,9 +620,9 @@ fn sharing_refused_or_unclear(body: &str) -> bool {
                             .is_some_and(|word| matches!(*word, "dass" | "ob"));
                         let positive_main =
                             !complement && !negated && positive_sharing_main(&part_words);
-                            if !negated_complement
-                                && (positive_main || (complement && positive_complement_pending))
-                            {
+                        if !negated_complement
+                            && (positive_main || (complement && positive_complement_pending))
+                        {
                             preceding_negation = false;
                             negated_complement = false;
                         } else if complement {
@@ -635,8 +635,8 @@ fn sharing_refused_or_unclear(body: &str) -> bool {
                             !complement && !negated && positive_complement_intro(&part_words);
                         let negated_tail = part_words
                             .iter()
-                                .find(|word| {
-                                    !matches!(
+                            .find(|word| {
+                                !matches!(
                                     **word,
                                     "bitte"
                                         | "aber"
@@ -661,14 +661,12 @@ fn sharing_refused_or_unclear(body: &str) -> bool {
         })
 }
 fn positive_sharing_main(words: &[&str]) -> bool {
-    let first = words
-        .iter()
-        .find(|word| {
-            !matches!(
-                **word,
-                "bitte" | "aber" | "doch" | "nun" | "jetzt" | "lieber" | "wirklich"
-            )
-        });
+    let first = words.iter().find(|word| {
+        !matches!(
+            **word,
+            "bitte" | "aber" | "doch" | "nun" | "jetzt" | "lieber" | "wirklich"
+        )
+    });
     let imperative = !words.iter().any(|word| matches!(*word, "ich" | "wir"))
         && first.is_some_and(|word| {
             matches!(
@@ -1120,7 +1118,9 @@ mod tests {
     #[test]
     fn weiterleitung_braucht_eine_positive_konkrete_aufforderung() {
         assert!(explicit_feedback("Feedback ans Team: Mehr Turniere bitte."));
-        assert!(explicit_feedback("Feedback ans Team: Es gibt keine Turniere."));
+        assert!(explicit_feedback(
+            "Feedback ans Team: Es gibt keine Turniere."
+        ));
         assert!(explicit_feedback(
             "Feedback ans Team: Ich finde den Server nicht übersichtlich."
         ));
