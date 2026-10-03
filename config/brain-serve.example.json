@@ -49,14 +49,18 @@
   "credentials": [
     {
       "token_env": "BRAIN_SERVE_API_TOKEN",
-      "actor_id": "pilot-client",
-      "channel": "pilot",
+      "actor_id": "docs-client",
+      "channel": "docs",
       "scopes": [
         "docs.public"
       ],
       "provider_egress": [
         "public"
-      ]
+      ],
+      "release": {
+        "id": "pilot-r1",
+        "knowledge_version": "pilot-knowledge-v1"
+      }
     }
   ]
 }
