@@ -326,46 +326,39 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
         serde_json::json!({"event": "listening", "address": address.to_string()})
     );
     let (started, notice) = tokio::sync::oneshot::channel();
-    let cleanup = prepared
-        .config
-        .guide
-        .clone()
-        .filter(|g| g.enabled)
-        .map(|guide| {
-            let reader = prepared.reader.clone();
-            let budget = prepared.config.timeouts.request_ms;
-            let health = health.clone();
-            tokio::spawn(async move {
-                let mut interval = tokio::time::interval(Duration::from_secs(60));
-                let mut reported = false;
-                loop {
-                    interval.tick().await;
-                    if health.draining.load(Ordering::SeqCst) {
-                        break;
-                    }
-                    let reader = reader.clone();
-                    let retention = guide.technical_event_retention_seconds;
-                    let result = tokio::task::spawn_blocking(move || {
-                        let now = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .map_err(|_| {
-                                PortError::InvalidResponse("Systemzeit ist ungültig".into())
-                            })?
-                            .as_secs() as i64;
-                        reader.guide_cleanup(
-                            now,
-                            retention,
-                            &brain_contracts::RequestDeadline::after(Duration::from_millis(budget)),
-                        )
-                    })
-                    .await;
-                    if !matches!(result, Ok(Ok(()))) && !reported {
-                        log_event("guide_cleanup_failed");
-                        reported = true;
-                    }
+    let cleanup = prepared.config.guide.clone().map(|guide| {
+        let reader = prepared.reader.clone();
+        let budget = prepared.config.timeouts.request_ms;
+        let health = health.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(60));
+            let mut reported = false;
+            loop {
+                interval.tick().await;
+                if health.draining.load(Ordering::SeqCst) {
+                    break;
                 }
-            })
-        });
+                let reader = reader.clone();
+                let retention = guide.technical_event_retention_seconds;
+                let result = tokio::task::spawn_blocking(move || {
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_err(|_| PortError::InvalidResponse("Systemzeit ist ungültig".into()))?
+                        .as_secs() as i64;
+                    reader.guide_cleanup(
+                        now,
+                        retention,
+                        &brain_contracts::RequestDeadline::after(Duration::from_millis(budget)),
+                    )
+                })
+                .await;
+                if !matches!(result, Ok(Ok(()))) && !reported {
+                    log_event("guide_cleanup_failed");
+                    reported = true;
+                }
+            }
+        })
+    });
     let drain_health = health.clone();
     let server = axum::serve(listener, router)
         .with_graceful_shutdown(async move {
