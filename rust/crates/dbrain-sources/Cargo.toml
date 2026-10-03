@@ -11,6 +11,7 @@ path = "src/lib.rs"
 analytics-fixtures = []
 
 [dependencies]
+flate2 = "1.1.9"
 futures-util = "0.3"
 tokio-tungstenite = "0.28"
 brain-contracts = { path = "../brain-contracts" }

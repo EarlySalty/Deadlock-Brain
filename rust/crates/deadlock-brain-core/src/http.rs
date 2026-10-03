@@ -110,6 +110,7 @@ impl HttpClient {
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(30))
             .redirect(reqwest::redirect::Policy::none())
+            .no_proxy()
             .no_gzip()
             .no_brotli()
             .no_deflate()

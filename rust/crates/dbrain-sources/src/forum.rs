@@ -1,9 +1,10 @@
 use std::{
+    io::Read,
     path::Path,
     time::{Duration, Instant},
 };
 
-use deadlock_brain_core::http::{HttpClient, HttpGetOptions};
+use deadlock_brain_core::http::{HttpClient, HttpGetOptions, SourceHttpOptions};
 use scraper::{ElementRef, Html, Selector};
 use serde_json::{json, Value};
 use sqlx::PgPool;
@@ -887,6 +888,30 @@ async fn forum_fetch(
     browser: &mut Option<crate::forum_browser::ForumBrowser>,
     url: &str,
 ) -> Result<(String, bool)> {
+    if validate_sitemap_url(url).is_ok() {
+        let client = http.clone();
+        let request_url = url.to_string();
+        let response = tokio::task::spawn_blocking(move || {
+            client.get_bounded(
+                &request_url,
+                SourceHttpOptions {
+                    max_bytes: 32 * 1024 * 1024,
+                    request_timeout: Duration::from_secs(45),
+                    headers: vec![("Accept".into(), "application/xml, text/xml".into())],
+                    ..Default::default()
+                },
+            )
+        })
+        .await
+        .map_err(|_| SourcesError::invariant("Sitemapabruf-Task fehlgeschlagen."))??;
+        response.ensure_success()?;
+        let text = decode_sitemap_xml(
+            &response.content,
+            response.headers.get("content-encoding").map(String::as_str),
+            32 * 1024 * 1024,
+        )?;
+        return Ok((response_text_checked(&text)?, false));
+    }
     if let Some(browser) = browser.as_mut() {
         let text = browser.fetch_html(url).await.map_err(|e| {
             SourcesError::invalid_input(format!(
@@ -906,6 +931,39 @@ async fn forum_fetch(
         response_text_checked(&response.text())?,
         response.from_cache,
     ))
+}
+
+fn decode_sitemap_xml(content: &[u8], encoding: Option<&str>, limit: usize) -> Result<String> {
+    if content.len() > limit {
+        return Err(SourcesError::invalid_input(
+            "Sitemap überschreitet die Größenbegrenzung.",
+        ));
+    }
+    let encoding = encoding.unwrap_or("identity").trim().to_ascii_lowercase();
+    if !matches!(encoding.as_str(), "identity" | "gzip") {
+        return Err(SourcesError::invalid_input(
+            "Unbekannte Sitemapkompression.",
+        ));
+    }
+    let decoded = if encoding == "gzip" || content.starts_with(&[0x1f, 0x8b]) {
+        let mut decoded = Vec::new();
+        flate2::read::MultiGzDecoder::new(content)
+            .take(limit as u64 + 1)
+            .read_to_end(&mut decoded)
+            .map_err(|_| {
+                SourcesError::invalid_input("Gzip-Sitemap konnte nicht entpackt werden.")
+            })?;
+        if decoded.len() > limit {
+            return Err(SourcesError::invalid_input(
+                "Entpackte Sitemap überschreitet die Größenbegrenzung.",
+            ));
+        }
+        decoded
+    } else {
+        content.to_vec()
+    };
+    String::from_utf8(decoded)
+        .map_err(|_| SourcesError::invalid_input("Sitemap enthält ungültigen UTF-8-Text."))
 }
 
 #[cfg(test)]
@@ -1343,6 +1401,14 @@ mod live_browser_contract {
     #[tokio::test]
     #[ignore = "Braucht den vom Nutzer freigegebenen lokalen Brave-Browser"]
     async fn real_public_thread_and_sitemap_use_import_parser() {
+        let cache = tempfile::tempdir().unwrap();
+        let cache_path = cache.path().to_path_buf();
+        let http = tokio::task::spawn_blocking(move || {
+            HttpClient::new(deadlock_brain_core::config::DEFAULT_USER_AGENT, cache_path)
+        })
+        .await
+        .unwrap()
+        .unwrap();
         let mut browser = crate::forum_browser::ForumBrowser::connect(&Default::default())
             .await
             .unwrap();
@@ -1360,11 +1426,16 @@ mod live_browser_contract {
             assert!(!parse_threads_from_sitemap(DEFAULT_SITEMAP_URL, &xml)
                 .unwrap()
                 .is_empty());
+            browser.close().await.unwrap();
         } else {
             for url in &index {
                 validate_sitemap_url(url).unwrap();
             }
-            let child = browser.fetch_html(&index[0]).await.unwrap();
+            let mut browser = Some(browser);
+            let child =
+                forum_fetch(&http, &PullForumOptions::default(), &mut browser, &index[0]).await;
+            browser.as_mut().unwrap().close().await.unwrap();
+            let (child, _) = child.unwrap();
             let threads = parse_threads_from_sitemap(&index[0], &child).unwrap();
             assert!(!threads.is_empty());
             eprintln!(
@@ -1376,13 +1447,26 @@ mod live_browser_contract {
             "Öffentliche Sitemapprobe: {} Sitemapdateien im Index.",
             index.len()
         );
-        browser.close().await.unwrap();
     }
 }
 
 #[cfg(test)]
 mod challenge_scope_tests {
     use super::*;
+
+    #[test]
+    fn sitemap_gzip_is_decoded_with_encoded_and_decoded_limits() {
+        use std::io::Write;
+        let xml = "<urlset>".to_string() + &"x".repeat(200) + "</urlset>";
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder.write_all(xml.as_bytes()).unwrap();
+        let gzip = encoder.finish().unwrap();
+        assert_eq!(decode_sitemap_xml(&gzip, Some("gzip"), 1024).unwrap(), xml);
+        assert_eq!(decode_sitemap_xml(&gzip, None, 1024).unwrap(), xml);
+        assert!(decode_sitemap_xml(&gzip, Some("gzip"), gzip.len() - 1).is_err());
+        assert!(decode_sitemap_xml(&gzip, Some("gzip"), 100).is_err());
+        assert!(decode_sitemap_xml(b"invalid", Some("gzip"), 1024).is_err());
+    }
     #[test]
     fn quoted_browser_check_is_a_readable_post() {
         let html = r#"<html><title>Checking your browser</title><article class="js-post" data-content="post-1"><div class="bbWrapper">Checking your browser, cf-chl- und /.stile/challenge/ werden hier als Bug beschrieben.</div></article></html>"#;

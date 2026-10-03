@@ -943,6 +943,7 @@ dependencies = [
  "dbrain-retrieval",
  "dbrain-s12-wiki-probe",
  "deadlock-brain-core",
+ "flate2",
  "futures-util",
  "regex",
  "reqwest",
