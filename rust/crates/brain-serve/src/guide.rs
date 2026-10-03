@@ -603,6 +603,7 @@ fn sharing_refused_or_unclear(body: &str) -> bool {
                     || {
                         let mut preceding_negation = false;
                         let mut negated_complement = false;
+                        let mut positive_complement_pending = false;
                         clause.split(',').any(|part| {
                             let part_words: Vec<_> = part
                                 .split_whitespace()
@@ -622,7 +623,7 @@ fn sharing_refused_or_unclear(body: &str) -> bool {
                             let positive_main = !complement
                                 && !negated
                                 && positive_sharing_main(&part_words);
-                            if positive_main {
+                            if positive_main || (complement && positive_complement_pending) {
                                 preceding_negation = false;
                                 negated_complement = false;
                             } else if complement {
@@ -631,6 +632,9 @@ fn sharing_refused_or_unclear(body: &str) -> bool {
                             } else if negated {
                                 preceding_negation = true;
                             }
+                            positive_complement_pending = !complement
+                                && !negated
+                                && positive_complement_intro(&part_words);
                         let negated_tail = part_words
                             .iter()
                             .skip_while(|word| {
@@ -685,7 +689,19 @@ fn positive_sharing_main(words: &[&str]) -> bool {
                 | "zeige"
                 | "übermittle"
         )
-    }) || (first.is_some_and(|word| matches!(*word, "ich" | "wir" | "du" | "ihr" | "es"))
+    }) || (words.iter().any(|word| sharing_verb(word)) && positive_modal_main(words))
+}
+fn positive_modal_main(words: &[&str]) -> bool {
+    words
+        .iter()
+        .skip_while(|word| {
+            matches!(
+                **word,
+                "bitte" | "aber" | "doch" | "nun" | "jetzt" | "lieber" | "wirklich"
+            )
+        })
+        .next()
+        .is_some_and(|word| matches!(*word, "ich" | "wir" | "du" | "ihr" | "es"))
         && words.iter().any(|word| {
             matches!(
                 *word,
@@ -702,7 +718,40 @@ fn positive_sharing_main(words: &[&str]) -> bool {
                     | "sollst"
                     | "sollen"
             )
-        }))
+        })
+}
+fn positive_complement_intro(words: &[&str]) -> bool {
+    words.len() >= 2
+        && words.iter().all(|word| {
+            matches!(
+                *word,
+                "ich"
+                    | "wir"
+                    | "du"
+                    | "ihr"
+                    | "es"
+                    | "möchte"
+                    | "möchten"
+                    | "will"
+                    | "wollen"
+                    | "erlaube"
+                    | "erlauben"
+                    | "darf"
+                    | "darfst"
+                    | "dürfen"
+                    | "soll"
+                    | "sollst"
+                    | "sollen"
+                    | "bitte"
+                    | "aber"
+                    | "doch"
+                    | "nun"
+                    | "jetzt"
+                    | "wirklich"
+                    | "ausdrücklich"
+            )
+        })
+        && positive_modal_main(words)
 }
 fn sharing_verb(word: &str) -> bool {
     matches!(
@@ -1026,6 +1075,9 @@ mod tests {
             "Ich möchte nicht, dass du das, wie gesagt, ans Team weiterleitest.",
             "Ich möchte nicht, ehrlich gesagt, dass du das weiterleitest.",
             "Ich möchte nicht, gerade bei diesem Thema, dass du das ans Team weitergibst.",
+            "Ich möchte nicht, dass du das, ich möchte das betonen, ans Team weiterleitest.",
+            "Ich möchte nicht, dass du das, ich möchte ehrlich sein, weiterleitest.",
+            "Ich möchte nicht, dass du das, du darfst mir das glauben, weiterleitest.",
         ] {
             let text = format!("Feedback ans Team: {body}");
             assert!(!explicit_feedback(&text), "{text}");
