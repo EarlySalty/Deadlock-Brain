@@ -247,10 +247,23 @@ impl HttpBuildPublishClient {
         }
         request.validate().map_err(PublishError::InvalidRequest)?;
         let deadline = now() + wait;
+        let rate_limited = std::cell::Cell::new(false);
+        let observe = |result: Result<BuildPublishStatus, PublishError>| {
+            if matches!(&result, Err(PublishError::RateLimited)) {
+                rate_limited.set(true);
+            } else if result.is_ok() {
+                rate_limited.set(false);
+            }
+            result
+        };
         let remaining = || {
             let remaining = deadline.saturating_duration_since(now());
             if remaining.is_zero() {
-                Err(PublishError::Timeout)
+                Err(if rate_limited.get() {
+                    PublishError::RateLimited
+                } else {
+                    PublishError::Timeout
+                })
             } else {
                 Ok(remaining.min(self.timeout))
             }
@@ -262,7 +275,7 @@ impl HttpBuildPublishClient {
             let mut attempts = 0;
             loop {
                 attempts += 1;
-                match self.status_bound(request, remaining()?) {
+                match observe(self.status_bound(request, remaining()?)) {
                     Err(
                         PublishError::Unavailable(_)
                         | PublishError::Timeout
@@ -278,7 +291,7 @@ impl HttpBuildPublishClient {
                 let mut attempts = 0;
                 loop {
                     attempts += 1;
-                    match self.submit_bound(request, remaining()?) {
+                    match observe(self.submit_bound(request, remaining()?)) {
                         Ok(status) => break status,
                         Err(
                             error @ (PublishError::Unavailable(_)
@@ -302,7 +315,7 @@ impl HttpBuildPublishClient {
             }
             remaining()?;
             pause();
-            match self.status_bound(request, remaining()?) {
+            match observe(self.status_bound(request, remaining()?)) {
                 Ok(next) => status = next,
                 Err(
                     PublishError::Unavailable(_)
@@ -568,6 +581,72 @@ mod tests {
                 assert_eq!(now(), start + wait);
                 server.join().unwrap();
             }
+        }
+    }
+
+    #[test]
+    fn repeated_rate_limits_remain_visible_at_the_deadline() {
+        let req = request("rate-limit-deadline");
+        let queued = serde_json::to_string(&BuildPublishStatus {
+            contract_version: BUILD_PUBLISH_VERSION.into(),
+            request_id: req.request_id.clone(),
+            request_sha256: req.request_sha256().unwrap(),
+            state: BuildPublishState::Queued,
+            submitted_at: 1,
+            updated_at: 1,
+        })
+        .unwrap();
+        for (replies, calls_before_deadline, expected) in [
+            (
+                vec![
+                    (200, queued.clone()),
+                    (429, "{}".into()),
+                    (429, "{}".into()),
+                ],
+                8,
+                PublishError::RateLimited,
+            ),
+            (
+                vec![(429, "{}".into()), (429, "{}".into())],
+                5,
+                PublishError::RateLimited,
+            ),
+            (
+                vec![
+                    (200, queued.clone()),
+                    (429, "{}".into()),
+                    (200, queued.clone()),
+                ],
+                8,
+                PublishError::Timeout,
+            ),
+            (
+                vec![(200, queued), (503, "{}".into()), (503, "{}".into())],
+                8,
+                PublishError::Timeout,
+            ),
+        ] {
+            let expected_requests = replies.len();
+            let (address, server) = serve(replies);
+            let client =
+                HttpBuildPublishClient::new(&address, "fixture-token", Duration::from_secs(5))
+                    .unwrap();
+            let start = std::time::Instant::now();
+            let wait = Duration::from_secs(1);
+            let calls = std::cell::Cell::new(0);
+            let now = || {
+                calls.set(calls.get() + 1);
+                if calls.get() > calls_before_deadline {
+                    start + wait
+                } else {
+                    start
+                }
+            };
+            assert_eq!(
+                client.publish_and_wait_with_clock(&req, wait, Duration::ZERO, now),
+                Err(expected)
+            );
+            assert_eq!(server.join().unwrap().len(), expected_requests);
         }
     }
 

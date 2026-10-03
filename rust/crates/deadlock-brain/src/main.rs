@@ -299,6 +299,11 @@ enum ReasonCommands {
     #[command(name = "build", about = "Baut einen Reasoner-Build für einen Helden.")]
     Build(ReasonBuildArgs),
     #[command(
+        name = "resume-publish",
+        about = "Setzt eine gespeicherte Veröffentlichung ohne neue Build-Berechnung oder KI-Aufruf fort."
+    )]
+    ResumePublish(PublishResumeArgs),
+    #[command(
         name = "patch-impact",
         about = "Zeigt die Wirkung des letzten Patches."
     )]
@@ -334,6 +339,21 @@ struct ReasonBuildArgs {
     json: bool,
     #[arg(long = "seed-path", value_name = "PATH")]
     seed_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+struct PublishResumeArgs {
+    #[arg(
+        value_name = "DATEI",
+        help = "Gespeicherte Veröffentlichungsanfrage im JSON-Format."
+    )]
+    request_path: PathBuf,
+    #[arg(long = "wait-seconds", default_value_t = 30)]
+    wait_seconds: u64,
+    #[command(flatten)]
+    publish_connection: PublishConnectionArgs,
+    #[arg(long, help = "Ergebnis als JSON ausgeben.")]
+    json: bool,
 }
 
 #[derive(Debug, Args)]
@@ -1483,6 +1503,7 @@ fn command_is_read_only(command: &Commands) -> bool {
         | Commands::Entities(_) => true,
         Commands::Reason { target } => match target {
             ReasonCommands::Build(args) => args.no_persist,
+            ReasonCommands::ResumePublish(_) => true,
             ReasonCommands::PatchImpact(args) => args.no_persist,
             ReasonCommands::Backtest(args) => args.no_persist,
         },
@@ -1532,6 +1553,12 @@ async fn run(cli: Cli) -> Result<()> {
     };
     if let Commands::Answer(args) = &command {
         return run_brain_answer(args).await;
+    }
+    if let Commands::Reason {
+        target: ReasonCommands::ResumePublish(args),
+    } = &command
+    {
+        return run_publish_resume(args).await;
     }
     if let Commands::Wiki {
         target: WikiCommands::Refresh(args),
@@ -2078,6 +2105,293 @@ mod requested_build_tests {
         assert_eq!(json["request_sha256"], request.request_sha256().unwrap());
     }
 
+    fn saved_request() -> brain_contracts::feeds::BuildPublishRequest {
+        brain_feeds::build_publish::deterministic_request(brain_contracts::feeds::BuildPublishRequest {
+            contract_version: brain_contracts::feeds::BUILD_PUBLISH_VERSION.into(),
+            request_id: String::new(),
+            hero_id: 25,
+            hero_name: "Warden".into(),
+            build_name: "Gespeicherter Testbuild".into(),
+            payload: json!({"mod_categories": [], "description": "Unveränderte KI-Beschreibung"}),
+            caller: "deadlock-brain-reasoner".into(),
+        })
+        .unwrap()
+    }
+
+    fn resume_args(path: &std::path::Path) -> PublishResumeArgs {
+        let cli = Cli::try_parse_from([
+            std::ffi::OsStr::new("deadlock-brain"),
+            std::ffi::OsStr::new("reason"),
+            std::ffi::OsStr::new("resume-publish"),
+            path.as_os_str(),
+            std::ffi::OsStr::new("--json"),
+        ])
+        .unwrap();
+        let Commands::Reason {
+            target: ReasonCommands::ResumePublish(args),
+        } = cli.command
+        else {
+            panic!("resume command missing");
+        };
+        args
+    }
+
+    #[test]
+    fn saved_publication_is_atomic_read_only_and_never_overwrites_an_existing_request() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("publish.json");
+        let saved = SavedPublication::new(saved_request()).unwrap();
+        saved.persist(&path).unwrap();
+        let bytes = fs::read(&path).unwrap();
+        let inode = fs::metadata(&path).unwrap().ino();
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o400
+        );
+        saved.persist(&path).unwrap();
+        assert_eq!(fs::metadata(&path).unwrap().ino(), inode);
+        assert_eq!(SavedPublication::read(&path).unwrap(), saved);
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        assert_ne!(
+            saved
+                .request
+                .request_id
+                .strip_prefix("brain-publish-")
+                .unwrap(),
+            saved.request_sha256
+        );
+        let mut changed = saved.request.clone();
+        changed.payload["description"] = json!("Neu berechnete KI-Beschreibung");
+        let changed = SavedPublication::new(
+            brain_feeds::build_publish::deterministic_request(changed).unwrap(),
+        )
+        .unwrap();
+        assert!(changed.persist(&path).is_err());
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn concurrent_saves_only_accept_the_same_validated_request() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("publish.json");
+        let saved = SavedPublication::new(saved_request()).unwrap();
+        std::thread::scope(|scope| {
+            let first = scope.spawn(|| saved.persist(&path));
+            let second = scope.spawn(|| saved.persist(&path));
+            first.join().unwrap().unwrap();
+            second.join().unwrap().unwrap();
+        });
+        assert_eq!(SavedPublication::read(&path).unwrap(), saved);
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn saved_publication_rejects_changed_hash_identity_version_and_payload() {
+        let dir = tempfile::tempdir().unwrap();
+        let saved = SavedPublication::new(saved_request()).unwrap();
+        let mut variants = Vec::new();
+        let mut changed = serde_json::to_value(&saved).unwrap();
+        changed["request"]["payload"]["description"] = json!("synthetic-private-content");
+        variants.push(changed.clone());
+        let request: brain_contracts::feeds::BuildPublishRequest =
+            serde_json::from_value(changed["request"].clone()).unwrap();
+        changed["request_sha256"] = json!(request.request_sha256().unwrap());
+        variants.push(changed);
+        for (field, value) in [
+            ("contract_version", json!("synthetic-private-content")),
+            ("request_id", json!("different-valid-id")),
+            ("hero_id", json!(0)),
+            ("payload", json!([])),
+        ] {
+            let mut changed = serde_json::to_value(&saved).unwrap();
+            changed["request"][field] = value;
+            variants.push(changed);
+        }
+        let mut changed = serde_json::to_value(&saved).unwrap();
+        changed["request_sha256"] = json!("0".repeat(64));
+        variants.push(changed);
+        let mut changed = serde_json::to_value(&saved).unwrap();
+        changed["unknown"] = json!("synthetic-private-content");
+        variants.push(changed);
+        for (index, changed) in variants.iter().enumerate() {
+            let path = dir.path().join(format!("changed-{index}.json"));
+            fs::write(&path, serde_json::to_vec(changed).unwrap()).unwrap();
+            let error = SavedPublication::read(&path).unwrap_err().to_string();
+            assert!(!error.contains("synthetic-private-content"));
+            assert!(!error.contains("line"));
+            assert!(!error.contains("column"));
+        }
+    }
+
+    #[test]
+    fn saved_publication_rejects_oversized_non_regular_and_malformed_files() {
+        use std::os::unix::fs::symlink;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("oversized.json");
+        let file = fs::File::create(&path).unwrap();
+        file.set_len(MAX_PUBLISH_STATE_BYTES + 1).unwrap();
+        assert!(SavedPublication::read(&path).is_err());
+        assert!(SavedPublication::read(dir.path()).is_err());
+        let valid = dir.path().join("valid.json");
+        SavedPublication::new(saved_request())
+            .unwrap()
+            .persist(&valid)
+            .unwrap();
+        let link = dir.path().join("link.json");
+        symlink(&valid, &link).unwrap();
+        assert!(SavedPublication::read(&link).is_err());
+        let invalid = dir.path().join("invalid.json");
+        fs::write(&invalid, "{synthetic-private-content").unwrap();
+        let error = SavedPublication::read(&invalid).unwrap_err().to_string();
+        assert!(!error.is_empty());
+        assert!(!error.contains("synthetic-private-content"));
+        assert!(SavedPublication::read(&dir.path().join("missing.json")).is_err());
+        assert!(SavedPublication::new(saved_request())
+            .unwrap()
+            .persist(&invalid)
+            .is_err());
+        assert_eq!(
+            fs::read_to_string(invalid).unwrap(),
+            "{synthetic-private-content"
+        );
+    }
+
+    #[tokio::test]
+    async fn resume_uses_the_saved_request_without_build_or_ai_recalculation() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("publish.json");
+        let request = saved_request();
+        SavedPublication::new(request.clone())
+            .unwrap()
+            .persist(&path)
+            .unwrap();
+        let bytes = fs::read(&path).unwrap();
+        let expected_request = &request;
+        let expected_path = &path;
+        let receipt =
+            resume_publication_with(&resume_args(&path), |saved, saved_path| async move {
+                assert_eq!(&saved.request, expected_request);
+                assert_eq!(
+                    saved.request_sha256,
+                    expected_request.request_sha256().unwrap()
+                );
+                assert_eq!(&saved_path, expected_path);
+                let mut receipt = PublicationReceipt::from_result(
+                    &saved.request,
+                    Ok(brain_contracts::feeds::BuildPublishStatus {
+                        contract_version: expected_request.contract_version.clone(),
+                        request_id: expected_request.request_id.clone(),
+                        request_sha256: saved.request_sha256,
+                        state: brain_contracts::feeds::BuildPublishState::Succeeded {
+                            hero_build_id: 456,
+                        },
+                        submitted_at: 1,
+                        updated_at: 2,
+                    }),
+                )?;
+                receipt.request_path = Some(saved_path);
+                Ok(receipt)
+            })
+            .await
+            .unwrap();
+        receipt.ensure_success().unwrap();
+        assert_eq!(receipt.request_id, request.request_id);
+        assert_eq!(receipt.request_sha256, request.request_sha256().unwrap());
+        assert_eq!(receipt.request_path, Some(path.clone()));
+        assert_eq!(fs::read(path).unwrap(), bytes);
+    }
+
+    #[tokio::test]
+    async fn resume_rejects_a_modified_file_before_any_publish_call() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("publish.json");
+        let saved = SavedPublication::new(saved_request()).unwrap();
+        let mut changed = serde_json::to_value(saved).unwrap();
+        changed["request"]["payload"]["description"] = json!("synthetic-private-content");
+        fs::write(&path, serde_json::to_vec(&changed).unwrap()).unwrap();
+        let called = std::cell::Cell::new(false);
+        let publish_called = &called;
+        let result = resume_publication_with(&resume_args(&path), |_, _| async move {
+            publish_called.set(true);
+            Err(anyhow!("unexpected publish call"))
+        })
+        .await;
+        assert!(result.is_err());
+        assert!(!called.get());
+        assert!(!result
+            .unwrap_err()
+            .to_string()
+            .contains("synthetic-private-content"));
+    }
+
+    #[tokio::test]
+    async fn cli_resume_bypasses_settings_database_and_reasoner_initialization() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("publish.json");
+        SavedPublication::new(saved_request())
+            .unwrap()
+            .persist(&path)
+            .unwrap();
+        let bytes = fs::read(&path).unwrap();
+        let mut args = resume_args(&path);
+        args.publish_connection.endpoint = "http://example.invalid".into();
+        assert!(run(Cli {
+            command: Commands::Reason {
+                target: ReasonCommands::ResumePublish(args)
+            }
+        })
+        .await
+        .is_err());
+        assert_eq!(fs::read(path).unwrap(), bytes);
+    }
+
+    #[test]
+    fn blocked_publication_keeps_its_output_and_returns_an_error() {
+        for variants in [0, 2] {
+            let mut output = None;
+            let mut published = false;
+            let result = (|| {
+                blocked_requested_build("Warden", variants, |value| {
+                    output = Some(value.clone());
+                    Ok(())
+                })?;
+                published = true;
+                Ok::<_, anyhow::Error>(())
+            })();
+            assert!(result.is_err());
+            assert!(!published);
+            let output = output.unwrap();
+            assert_eq!(output["status"], "BLOCKED");
+            assert_eq!(output["hero_name"], "Warden");
+            assert_eq!(output["review"], false);
+            assert_eq!(output["hero_build_id"], Value::Null);
+            assert_eq!(output["core"], json!([]));
+            assert_eq!(output["situations"], json!([]));
+            assert!(output["message"]
+                .as_str()
+                .is_some_and(|message| !message.is_empty()));
+        }
+    }
+
+    #[test]
+    fn unconfirmed_rate_limit_is_visible_with_the_saved_resume_path() {
+        let request = saved_request();
+        let mut receipt = PublicationReceipt::from_result(
+            &request,
+            Err(brain_feeds::build_publish::PublishError::RateLimited),
+        )
+        .unwrap();
+        receipt.request_path = Some(PathBuf::from("/synthetic/publish.json"));
+        assert!(receipt.ensure_success().is_err());
+        let receipt = serde_json::to_value(receipt).unwrap();
+        assert_eq!(receipt["status"], "UNCONFIRMED");
+        assert_eq!(receipt["error_class"], "rate_limited");
+        assert_eq!(receipt["request_path"], "/synthetic/publish.json");
+        assert_eq!(receipt["request_sha256"], request.request_sha256().unwrap());
+    }
+
     #[test]
     fn publish_credentials_follow_steam_precedence_and_reject_invalid_primary() {
         let values = [
@@ -2110,11 +2424,158 @@ mod requested_build_tests {
     }
 }
 
+const MAX_PUBLISH_STATE_BYTES: u64 = 300 * 1024;
+
+#[derive(Debug, serde::Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+struct SavedPublication {
+    request_sha256: String,
+    request: brain_contracts::feeds::BuildPublishRequest,
+}
+
+impl SavedPublication {
+    fn new(request: brain_contracts::feeds::BuildPublishRequest) -> Result<Self> {
+        let saved = Self {
+            request_sha256: request
+                .request_sha256()
+                .map_err(|_| anyhow!("Veröffentlichungsanfrage ist ungültig."))?,
+            request,
+        };
+        saved.validate()?;
+        Ok(saved)
+    }
+
+    fn validate(&self) -> Result<()> {
+        let invalid =
+            || anyhow!("Gespeicherte Veröffentlichungsanfrage ist ungültig oder verändert.");
+        self.request.validate().map_err(|_| invalid())?;
+        if self.request.request_sha256().map_err(|_| invalid())? != self.request_sha256
+            || brain_feeds::build_publish::deterministic_request(self.request.clone())
+                .map_err(|_| invalid())?
+                .request_id
+                != self.request.request_id
+        {
+            return Err(invalid());
+        }
+        Ok(())
+    }
+
+    fn read(path: &std::path::Path) -> Result<Self> {
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(path)
+            .map_err(|_| anyhow!("Gespeicherte Veröffentlichungsanfrage ist nicht lesbar."))?;
+        let metadata = file
+            .metadata()
+            .map_err(|_| anyhow!("Gespeicherte Veröffentlichungsanfrage ist nicht prüfbar."))?;
+        if !metadata.is_file() || metadata.len() > MAX_PUBLISH_STATE_BYTES {
+            anyhow::bail!(
+                "Gespeicherte Veröffentlichungsanfrage muss eine begrenzte normale Datei sein."
+            );
+        }
+        let mut bytes = Vec::new();
+        file.take(MAX_PUBLISH_STATE_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| anyhow!("Gespeicherte Veröffentlichungsanfrage ist nicht lesbar."))?;
+        if bytes.len() as u64 > MAX_PUBLISH_STATE_BYTES {
+            anyhow::bail!("Gespeicherte Veröffentlichungsanfrage ist zu groß.");
+        }
+        let saved: Self = serde_json::from_slice(&bytes)
+            .map_err(|_| anyhow!("Gespeicherte Veröffentlichungsanfrage ist ungültig."))?;
+        saved.validate()?;
+        Ok(saved)
+    }
+
+    fn persist(&self, path: &std::path::Path) -> Result<()> {
+        use std::io::Write;
+        self.validate()?;
+        let bytes = serde_json::to_vec(self)
+            .map_err(|_| anyhow!("Veröffentlichungsanfrage konnte nicht gespeichert werden."))?;
+        if bytes.len() as u64 > MAX_PUBLISH_STATE_BYTES {
+            anyhow::bail!("Veröffentlichungsanfrage ist zu groß zum Speichern.");
+        }
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| std::path::Path::new("."));
+        fs::create_dir_all(parent).map_err(|_| {
+            anyhow!("Verzeichnis für Veröffentlichungsanfragen ist nicht verfügbar.")
+        })?;
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|_| anyhow!("Veröffentlichungsanfrage konnte nicht gespeichert werden."))?
+            .as_nanos();
+        static TEMP_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let sequence = TEMP_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let temporary = parent.join(format!(
+            ".brain-publish-{}-{nonce}-{sequence}.tmp",
+            process::id()
+        ));
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o400)
+            .open(&temporary)
+            .map_err(|_| anyhow!("Veröffentlichungsanfrage konnte nicht gespeichert werden."))?;
+        let result = (|| {
+            file.write_all(&bytes)
+                .and_then(|_| file.sync_all())
+                .map_err(|_| {
+                    anyhow!("Veröffentlichungsanfrage konnte nicht gespeichert werden.")
+                })?;
+            match fs::hard_link(&temporary, path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == ErrorKind::AlreadyExists => {
+                    if Self::read(path)? != *self {
+                        anyhow::bail!("Die vorhandene Veröffentlichungsanfrage stimmt nicht überein. Sie wurde nicht überschrieben.");
+                    }
+                }
+                Err(_) => {
+                    anyhow::bail!("Veröffentlichungsanfrage konnte nicht gespeichert werden.")
+                }
+            }
+            fs::File::open(parent)
+                .and_then(|directory| directory.sync_all())
+                .map_err(|_| {
+                    anyhow!("Veröffentlichungsanfrage konnte nicht dauerhaft gespeichert werden.")
+                })?;
+            Ok(())
+        })();
+        drop(file);
+        let removed = fs::remove_file(temporary)
+            .map_err(|_| anyhow!("Temporäre Veröffentlichungsdatei konnte nicht entfernt werden."));
+        result?;
+        removed
+    }
+
+    fn default_path(&self) -> Result<PathBuf> {
+        let state_home = std::env::var_os("XDG_STATE_HOME")
+            .filter(|path| !path.is_empty())
+            .map(PathBuf::from)
+            .map(Ok)
+            .unwrap_or_else(|| {
+                std::env::var_os("HOME")
+                    .filter(|path| !path.is_empty())
+                    .map(|home| PathBuf::from(home).join(".local/state"))
+                    .context("Verzeichnis für Veröffentlichungsanfragen fehlt.")
+            })?;
+        if !state_home.is_absolute() {
+            anyhow::bail!("Verzeichnis für Veröffentlichungsanfragen muss absolut sein.");
+        }
+        Ok(state_home
+            .join("deadlock-brain/build-publish")
+            .join(format!("{}.json", self.request.request_id)))
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct PublicationReceipt {
     contract_version: String,
     request_id: String,
     request_sha256: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_path: Option<PathBuf>,
     status: &'static str,
     hero_build_id: Option<u64>,
     error_class: Option<String>,
@@ -2174,6 +2635,7 @@ impl PublicationReceipt {
             contract_version: request.contract_version.clone(),
             request_id: request.request_id.clone(),
             request_sha256: hash,
+            request_path: None,
             status,
             hero_build_id,
             error_class,
@@ -2250,12 +2712,32 @@ async fn publish_build_http(
     connection: &PublishConnectionArgs,
     wait_seconds: u64,
 ) -> Result<PublicationReceipt> {
-    use brain_feeds::build_publish::HttpBuildPublishClient;
-    use std::time::Duration;
     if !(1..=120).contains(&wait_seconds) {
         anyhow::bail!("Wartezeit muss zwischen 1 und 120 Sekunden liegen.");
     }
-    let request = publish_request(build, review)?;
+    let saved = SavedPublication::new(publish_request(build, review)?)?;
+    let request_path = saved.default_path()?;
+    saved.persist(&request_path)?;
+    publish_saved_http(saved, request_path, connection, wait_seconds).await
+}
+
+async fn publish_saved_http(
+    saved: SavedPublication,
+    request_path: PathBuf,
+    connection: &PublishConnectionArgs,
+    wait_seconds: u64,
+) -> Result<PublicationReceipt> {
+    use brain_feeds::build_publish::HttpBuildPublishClient;
+    use std::time::Duration;
+    saved.validate()?;
+    if !(1..=120).contains(&wait_seconds) {
+        anyhow::bail!("Wartezeit muss zwischen 1 und 120 Sekunden liegen.");
+    }
+    eprintln!(
+        "Gespeicherte Veröffentlichungsanfrage: {}",
+        request_path.display()
+    );
+    let request = saved.request;
     let endpoint = connection.endpoint.clone();
     tokio::task::spawn_blocking(move || {
         HttpBuildPublishClient::new(&endpoint, "endpoint-validation", Duration::from_secs(5))
@@ -2289,10 +2771,38 @@ async fn publish_build_http(
                     Duration::from_millis(500),
                 )
             });
-        PublicationReceipt::from_result(&request, result)
+        let mut receipt = PublicationReceipt::from_result(&request, result)?;
+        receipt.request_path = Some(request_path);
+        Ok(receipt)
     })
     .await
     .map_err(|_| anyhow!("Veröffentlichung bleibt unbestätigt: Dienstaufruf wurde unterbrochen."))?
+}
+
+async fn resume_publication_with<F: std::future::Future<Output = Result<PublicationReceipt>>>(
+    args: &PublishResumeArgs,
+    publish: impl FnOnce(SavedPublication, PathBuf) -> F,
+) -> Result<PublicationReceipt> {
+    let saved = SavedPublication::read(&args.request_path)?;
+    publish(saved, args.request_path.clone()).await
+}
+
+async fn run_publish_resume(args: &PublishResumeArgs) -> Result<()> {
+    let publication = resume_publication_with(args, |saved, request_path| {
+        publish_saved_http(
+            saved,
+            request_path,
+            &args.publish_connection,
+            args.wait_seconds,
+        )
+    })
+    .await?;
+    if args.json {
+        print_json(&json!({"status": publication.status, "publication": publication}))?;
+    } else {
+        print_publication(&publication);
+    }
+    publication.ensure_success()
 }
 
 async fn run_requested_build(pool: &PgPool, args: ReviewBuildArgs, review: bool) -> Result<()> {
@@ -2322,16 +2832,7 @@ async fn run_requested_build(pool: &PgPool, args: ReviewBuildArgs, review: bool)
         build.variants.clear();
         build.name = format!("{} Brain Review {}", build.hero_name, build.patch_tag);
     } else if dbrain_reasoner::publish::validate_publish_input(&build).is_err() {
-        // A user request authorizes creation, not bypassing publication quality gates.
-        return print_json(&json!({
-            "status":"BLOCKED", "task_id":null, "hero_build_id":null, "version":null,
-            "hero_name":build.hero_name, "review":false, "core":[], "situations":[],
-            "message": if alternative_variants > 0 {
-                "Mehrere Buildvarianten passen. Bitte nenne den gewünschten Spielstil. Es wurde nichts veröffentlicht."
-            } else {
-                "Die aktuellen Daten reichen nicht für einen geprüften Build. Es wurde nichts veröffentlicht."
-            }
-        }));
+        return blocked_requested_build(&build.hero_name, alternative_variants, print_json);
     }
     let selected_family = build.family.as_ref().map(|family| family.label.clone());
     let publication =
@@ -2355,6 +2856,25 @@ async fn run_requested_build(pool: &PgPool, args: ReviewBuildArgs, review: bool)
         })).collect::<Vec<_>>()
     }))?;
     publication.ensure_success()
+}
+
+fn blocked_requested_build(
+    hero_name: &str,
+    alternative_variants: usize,
+    emit: impl FnOnce(&Value) -> Result<()>,
+) -> Result<()> {
+    emit(&json!({
+        "status":"BLOCKED", "task_id":null, "hero_build_id":null, "version":null,
+        "hero_name":hero_name, "review":false, "core":[], "situations":[],
+        "message": if alternative_variants > 0 {
+            "Mehrere Buildvarianten passen. Bitte nenne den gewünschten Spielstil. Es wurde nichts veröffentlicht."
+        } else {
+            "Die aktuellen Daten reichen nicht für einen geprüften Build. Es wurde nichts veröffentlicht."
+        }
+    }))?;
+    Err(anyhow!(
+        "Veröffentlichung ist gesperrt (BLOCKED). Es wurde nichts veröffentlicht."
+    ))
 }
 
 async fn run_reason(pool: &PgPool, settings: &Settings, target: ReasonCommands) -> Result<()> {
@@ -2416,6 +2936,7 @@ async fn run_reason(pool: &PgPool, settings: &Settings, target: ReasonCommands) 
                 .as_ref()
                 .map_or(Ok(()), PublicationReceipt::ensure_success)
         }
+        ReasonCommands::ResumePublish(args) => run_publish_resume(&args).await,
         ReasonCommands::PatchImpact(args) => {
             let mut config = dbrain_reasoner::ReasonerConfig {
                 use_ai: true,
@@ -2510,16 +3031,24 @@ fn print_reason_build(
         println!("Warum: {}", build.rationale);
     }
     if let Some(publication) = publication {
-        if let Some(id) = publication.hero_build_id {
-            println!("Veröffentlicht. Build-ID: {id}");
-        } else {
-            println!(
-                "Veröffentlichung nicht bestätigt. Fehlerklasse: {}",
-                publication.error_class.as_deref().unwrap_or("internal")
-            );
-        }
-        println!("Anfrage: {}", publication.request_id);
-        println!("Prüfsumme: {}", publication.request_sha256);
+        print_publication(publication);
+    }
+}
+
+fn print_publication(publication: &PublicationReceipt) {
+    if let Some(id) = publication.hero_build_id {
+        println!("Veröffentlicht. Build-ID: {id}");
+    } else {
+        println!(
+            "Veröffentlichung nicht bestätigt. Fehlerklasse: {}",
+            publication.error_class.as_deref().unwrap_or("internal")
+        );
+    }
+    println!("Anfrage: {}", publication.request_id);
+    println!("Prüfsumme: {}", publication.request_sha256);
+    if let Some(path) = &publication.request_path {
+        println!("Gespeicherte Veröffentlichungsanfrage: {}", path.display());
+        println!("Wiederaufnahme: deadlock-brain reason resume-publish <DATEI>");
     }
 }
 
@@ -4342,6 +4871,9 @@ mod tests {
             };
             let actual = match target {
                 ReasonCommands::Build(args) => args.no_persist,
+                ReasonCommands::ResumePublish(_) => {
+                    panic!("Unerwartete Veröffentlichungswiederaufnahme")
+                }
                 ReasonCommands::PatchImpact(args) => args.no_persist,
                 ReasonCommands::Backtest(args) => args.no_persist,
             };
