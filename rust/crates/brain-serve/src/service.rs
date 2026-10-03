@@ -152,18 +152,10 @@ async fn initialize(prepared: &Prepared) -> Result<Arc<Health>, Error> {
         .credentials
         .iter()
         .filter_map(|credential| {
-            credential.release.clone().map(|release| {
-                (
-                    release,
-                    credential
-                        .scopes
-                        .iter()
-                        .find(|scope| {
-                            ["docs.public", "second_brain.internal"].contains(&scope.as_str())
-                        })
-                        .cloned(),
-                )
-            })
+            credential
+                .release
+                .clone()
+                .map(|release| (release, prepared.config.bound_scope(credential)))
         })
         .collect();
     let analytics_patch = prepared
@@ -228,13 +220,10 @@ async fn initialize(prepared: &Prepared) -> Result<Arc<Health>, Error> {
             .iter()
             .filter_map(|credential| {
                 credential.release.as_ref().and_then(|release| {
-                    credential
-                        .scopes
-                        .iter()
-                        .find(|scope| {
-                            ["docs.public", "second_brain.internal"].contains(&scope.as_str())
-                        })
-                        .map(|scope| (release.id.clone(), scope.clone()))
+                    prepared
+                        .config
+                        .bound_scope(credential)
+                        .map(|scope| (release.id.clone(), scope))
                 })
             })
             .collect(),
@@ -391,9 +380,15 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
             prepared.config.timeouts.request_ms,
             (&prepared.config.budgets).into(),
         );
-        let service = match prepared.config.operator_docs_release() {
-            Some(release) => service.with_public_docs_release(release.id.clone()),
-            None => service,
+        let service = match (
+            prepared.config.operator_docs_release(),
+            prepared.config.operator_docs_scope(),
+        ) {
+            (Some(release), Some("bot.public")) => {
+                service.with_public_bot_release(release.id.clone())
+            }
+            (Some(release), _) => service.with_public_docs_release(release.id.clone()),
+            (None, _) => service,
         };
         let router = brain_api::internal::router(service).layer(middleware::from_fn_with_state(
             health.clone(),

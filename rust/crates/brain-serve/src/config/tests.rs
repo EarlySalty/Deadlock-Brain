@@ -320,3 +320,41 @@ fn operator_docs_release_requires_both_explicit_pins_to_match() {
     value["credentials"].as_array_mut().unwrap().remove(1);
     assert!(parse(&value).unwrap().operator_docs_release().is_none());
 }
+
+#[test]
+fn maintenance_docs_require_exact_public_scope_and_matching_standard_pin() {
+    let mut value = c9_config();
+    value["credentials"][1]["scopes"] = json!(["bot.public"]);
+    value["credentials"][1]["release"] = value["release"].clone();
+    value["credentials"][2]["release"] = value["release"].clone();
+    value["internal_operator"]["release"] = value["release"].clone();
+    let config = parse(&value).unwrap();
+    assert_eq!(config.operator_docs_scope(), Some("bot.public"));
+    assert_eq!(
+        config.bound_scope(&config.credentials[1]).as_deref(),
+        Some("bot.public")
+    );
+    assert_eq!(
+        config.bound_scope(&config.credentials[2]).as_deref(),
+        Some("bot.public")
+    );
+    for (field, invalid) in [
+        ("scopes", json!(["bot.public", "docs.public"])),
+        ("scopes", json!(["private"])),
+        ("release", json!(null)),
+        (
+            "release",
+            json!({"id":"foreign","knowledge_version":"foreign"}),
+        ),
+        ("provider_egress", json!(["public", "private"])),
+    ] {
+        let mut changed = value.clone();
+        changed["credentials"][1][field] = invalid;
+        assert!(parse(&changed).is_err(), "{field}");
+    }
+    let secrets = crate::Secrets::load(&config, |name| Some(format!("synthetic-{name}"))).unwrap();
+    assert!(secrets
+        .credentials
+        .authenticate("synthetic-BRAIN_SERVE_SECOND_BRAIN_TOKEN")
+        .is_err());
+}

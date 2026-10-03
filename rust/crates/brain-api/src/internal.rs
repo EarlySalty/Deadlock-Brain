@@ -27,6 +27,7 @@ pub struct InternalApiService {
     retrieval: Arc<dyn RetrievalPort>,
     release: String,
     public_docs_release: Option<String>,
+    public_docs_scope: &'static str,
     deadline_ms: u64,
     budget: Budget,
     slots: Arc<Semaphore>,
@@ -45,6 +46,7 @@ impl InternalApiService {
             retrieval: Arc::new(retrieval),
             release,
             public_docs_release: None,
+            public_docs_scope: "docs.public",
             deadline_ms,
             budget,
             slots: Arc::new(Semaphore::new(4)),
@@ -53,6 +55,13 @@ impl InternalApiService {
 
     pub fn with_public_docs_release(mut self, release: String) -> Self {
         self.public_docs_release = Some(release);
+        self.public_docs_scope = "docs.public";
+        self
+    }
+
+    pub fn with_public_bot_release(mut self, release: String) -> Self {
+        self.public_docs_release = Some(release);
+        self.public_docs_scope = "bot.public";
         self
     }
 
@@ -121,7 +130,7 @@ impl InternalApiService {
         let mut retrieval_query = query.clone();
         let mut retrieval_context = context.clone();
         if public_docs {
-            let scopes = BTreeSet::from(["docs.public".into()]);
+            let scopes = BTreeSet::from([self.public_docs_scope.into()]);
             retrieval_query.requested_scopes = scopes.clone();
             retrieval_context.principal.scopes = scopes;
         }
@@ -400,7 +409,9 @@ mod tests {
             assert_eq!(context.principal.actor_id, "second-brain");
             assert_eq!(context.principal.channel, "internal");
             assert!(context.principal.provider_egress.is_empty());
-            if query.requested_scopes != BTreeSet::from(["docs.public".into()]) {
+            if query.requested_scopes != BTreeSet::from(["docs.public".into()])
+                && query.requested_scopes != BTreeSet::from(["bot.public".into()])
+            {
                 return Ok(Vec::new());
             }
             assert_eq!(context.principal.scopes, query.requested_scopes);
@@ -519,6 +530,45 @@ mod tests {
         );
         query.requested_scopes = BTreeSet::from(["docs.public".into()]);
         assert_eq!(call(&service, &query).status, 400);
+    }
+
+    #[test]
+    fn operator_maintenance_scope_preserves_release_auth_and_publication_guards() {
+        for (visibility, scope, revoked, expected) in [
+            (SourceVisibility::Public, "bot.public", false, 200),
+            (SourceVisibility::Private, "bot.public", false, 502),
+            (SourceVisibility::Internal, "bot.public", false, 502),
+            (SourceVisibility::Public, "docs.public", false, 502),
+            (SourceVisibility::Public, "bot.public", true, 503),
+        ] {
+            let service = docs_service(visibility, scope, revoked)
+                .with_public_bot_release("internal-release-fixture".into());
+            let response = call(&service, &query());
+            assert_eq!(response.status, expected);
+            if expected == 200 {
+                let answer: InternalAnswerResponse = serde_json::from_str(&response.body).unwrap();
+                assert_eq!(answer.status, InternalStatus::Answered);
+                assert!(!answer.excerpts.is_empty());
+                assert_eq!(
+                    service
+                        .handle_query(
+                            None,
+                            &serde_json::to_vec(&query()).unwrap(),
+                            RequestDeadline::after(Duration::from_secs(1))
+                        )
+                        .status,
+                    401
+                );
+                let mut altered = query();
+                altered.requested_scopes = BTreeSet::from(["bot.public".into()]);
+                assert_eq!(call(&service, &altered).status, 400);
+            }
+        }
+        let service = docs_service(SourceVisibility::Public, "bot.public", false)
+            .with_public_bot_release("foreign-release".into());
+        let response = call(&service, &query());
+        let answer: InternalAnswerResponse = serde_json::from_str(&response.body).unwrap();
+        assert_eq!(answer.status, InternalStatus::InsufficientEvidence);
     }
 
     #[test]

@@ -35,6 +35,34 @@ pub(crate) fn validate_bound_scope(snapshot: &CorpusSnapshot, scope: &str) -> Re
     if snapshot.revisions.is_empty() {
         return Err(Error::ReleaseUnavailable);
     }
+    if scope == "bot.public" {
+        let scopes = BTreeSet::from(["bot.public".into()]);
+        if snapshot
+            .revisions
+            .iter()
+            .chain(&snapshot.heads)
+            .any(|record| {
+                record.visibility != SourceVisibility::Public
+                    || record.allowed_scopes != scopes
+                    || record.tombstone
+            })
+        {
+            return Err(Error::ReleaseUnavailable);
+        }
+        let published = snapshot
+            .authorized_for_publication(&Principal {
+                actor_id: "brain-serve-readiness".into(),
+                channel: "health".into(),
+                scopes,
+                provider_egress: BTreeSet::new(),
+            })
+            .map_err(|_| Error::ReleaseUnavailable)?;
+        return if published.len() == snapshot.revisions.len() {
+            Ok(())
+        } else {
+            Err(Error::ReleaseUnavailable)
+        };
+    }
     let public = scope == "docs.public";
     let source = if public {
         "docs-c9-public:Deadlock-Docs"
@@ -242,4 +270,63 @@ pub(crate) fn router(health: Arc<Health>) -> Router {
             }),
         )
         .with_state(health)
+}
+
+#[cfg(test)]
+mod binding_tests {
+    use super::*;
+    use brain_contracts::SourceRecordV2;
+    use std::collections::BTreeMap;
+
+    fn maintenance_snapshot() -> CorpusSnapshot {
+        let record = SourceRecordV2 {
+            source_id: "maintenance-public".into(),
+            logical_id: "public-document".into(),
+            revision: 1,
+            content_hash: "a".repeat(64),
+            content: "Öffentlicher Betriebsbestand".into(),
+            visibility: SourceVisibility::Public,
+            allowed_scopes: BTreeSet::from(["bot.public".into()]),
+            tombstone: false,
+            valid_from: None,
+            valid_to: None,
+            metadata: BTreeMap::new(),
+        };
+        CorpusSnapshot {
+            release: CorpusRelease {
+                release_id: "maintenance-fixture".into(),
+                knowledge_version: "maintenance-version".into(),
+                patch: "maintenance-patch".into(),
+                created_at_epoch: 1,
+                source_revisions: BTreeMap::from([(
+                    record.source_id.clone(),
+                    BTreeMap::from([(record.logical_id.clone(), 1)]),
+                )]),
+            },
+            revisions: vec![record.clone()],
+            heads: vec![record],
+        }
+    }
+
+    #[test]
+    fn maintenance_binding_checks_public_scope_and_current_head_publication() {
+        let snapshot = maintenance_snapshot();
+        assert!(validate_bound_scope(&snapshot, "bot.public").is_ok());
+        for visibility in [SourceVisibility::Internal, SourceVisibility::Private] {
+            let mut changed = snapshot.clone();
+            changed.heads[0].visibility = visibility;
+            assert!(validate_bound_scope(&changed, "bot.public").is_err());
+        }
+        let mut changed = snapshot.clone();
+        changed.heads[0].allowed_scopes = BTreeSet::from(["docs.public".into()]);
+        assert!(validate_bound_scope(&changed, "bot.public").is_err());
+        let mut changed = snapshot.clone();
+        changed.heads[0].tombstone = true;
+        assert!(validate_bound_scope(&changed, "bot.public").is_err());
+        let mut changed = snapshot;
+        changed.heads[0]
+            .metadata
+            .insert("brain.origin".into(), "{}".into());
+        assert!(validate_bound_scope(&changed, "bot.public").is_err());
+    }
 }

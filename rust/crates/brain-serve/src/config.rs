@@ -238,6 +238,42 @@ impl Config {
                 release.id == operator.id && release.knowledge_version == operator.knowledge_version
             })
     }
+    pub(crate) fn operator_docs_scope(&self) -> Option<&str> {
+        let release = self.operator_docs_release()?;
+        self.credentials
+            .iter()
+            .find(|grant| {
+                grant.actor_id == "docs-client"
+                    && grant.channel == "docs"
+                    && grant.release.as_ref().is_some_and(|pin| {
+                        pin.id == release.id && pin.knowledge_version == release.knowledge_version
+                    })
+            })?
+            .scopes
+            .iter()
+            .next()
+            .map(String::as_str)
+    }
+    pub(crate) fn bound_scope(&self, grant: &Credential) -> Option<String> {
+        let release = grant.release.as_ref()?;
+        if grant.actor_id == "second-brain"
+            && grant.channel == "internal"
+            && self.operator_docs_scope() == Some("bot.public")
+            && self.operator_docs_release().is_some_and(|pin| {
+                pin.id == release.id && pin.knowledge_version == release.knowledge_version
+            })
+        {
+            return Some("bot.public".into());
+        }
+        grant
+            .scopes
+            .iter()
+            .find(|scope| {
+                ["docs.public", "second_brain.internal"].contains(&scope.as_str())
+                    || (grant.actor_id == "docs-client" && scope.as_str() == "bot.public")
+            })
+            .cloned()
+    }
     pub fn release_bindings_sha256(&self) -> String {
         let releases = std::iter::once(&self.release)
             .chain(
@@ -252,13 +288,8 @@ impl Config {
             .iter()
             .filter_map(|grant| {
                 grant.release.as_ref().and_then(|release| {
-                    grant
-                        .scopes
-                        .iter()
-                        .find(|scope| {
-                            ["docs.public", "second_brain.internal"].contains(&scope.as_str())
-                        })
-                        .map(|scope| (release.id.clone(), scope.clone()))
+                    self.bound_scope(grant)
+                        .map(|scope| (release.id.clone(), scope))
                 })
             })
             .collect();
@@ -444,7 +475,10 @@ impl Config {
                 require(
                     grant.actor_id == "docs-client"
                         && grant.channel == "docs"
-                        && grant.scopes == BTreeSet::from(["docs.public".into()])
+                        && (grant.scopes == BTreeSet::from(["docs.public".into()])
+                            || (grant.scopes == BTreeSet::from(["bot.public".into()])
+                                && release.id == self.release.id
+                                && release.knowledge_version == self.release.knowledge_version))
                         && grant.provider_egress == BTreeSet::from(["public".into()])
                         && grant.release.is_some(),
                     "docs_client_grant",
