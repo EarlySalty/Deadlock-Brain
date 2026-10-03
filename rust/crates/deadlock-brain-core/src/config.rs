@@ -71,7 +71,7 @@ fn validate_ai_settings(settings: &AiSettings) -> Result<()> {
         || !settings.cli_path.is_absolute()
         || settings.model != "gpt-6-luna"
         || settings.timeout_seconds == 0
-        || settings.max_response_bytes == 0
+        || settings.max_response_bytes < 128
         || !settings.ai_temperature.is_finite()
         || !(0.0..=2.0).contains(&settings.ai_temperature)
         || !settings.ai_top_p.is_finite()
@@ -405,8 +405,14 @@ mod tests {
 
     #[test]
     fn ai_configuration_selects_subscription_luna() {
-        let settings = load_ai_settings().unwrap();
+        let mut settings = load_ai_settings().unwrap();
         assert_eq!(settings.provider, "openai_chatgpt_subscription");
         assert_eq!(settings.model, "gpt-6-luna");
+        for max_bytes in 0..128 {
+            settings.max_response_bytes = max_bytes;
+            assert!(validate_ai_settings(&settings).is_err());
+        }
+        settings.max_response_bytes = 128;
+        assert!(validate_ai_settings(&settings).is_ok());
     }
 }
