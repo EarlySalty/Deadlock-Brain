@@ -304,7 +304,7 @@ pub enum RetrievalError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("Fireworks response did not include message content.")]
+    #[error("Die KI-Antwort enthält keinen Nachrichtentext.")]
     EmptyAiResponse,
 
     #[error("{0}")]
@@ -1666,10 +1666,10 @@ pub async fn analysis_run_ai(
         .unwrap_or_default();
     let compact_context = compact_context_for_model(&review_context);
     let request = core::ai::build_review_request(prompt, &compact_context, &options.config);
-    let endpoint = format!(
-        "{}/chat/completions",
-        options.config.base_url.trim_end_matches('/')
-    );
+    let endpoint = deadlock_brain_core::config::load_ai_settings()?
+        .cli_path
+        .to_string_lossy()
+        .into_owned();
     let request_value = serde_json::to_value(&request)?;
 
     if options.dry_run {
@@ -1677,9 +1677,10 @@ pub async fn analysis_run_ai(
             "dry_run": true,
             "query": query,
             "model": options.config.model,
-            "base_url": options.config.base_url,
+            "provider": "openai_chatgpt_subscription",
             "endpoint": endpoint,
-            "api_key_present": options.config.api_key_present(),
+            "api_key_present": false,
+            "subscription_configured": options.config.subscription_configured(),
             "request": request_value,
         }));
     }

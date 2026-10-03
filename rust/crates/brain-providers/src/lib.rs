@@ -30,8 +30,10 @@ pub struct PriceCeiling {
 }
 
 mod circuit;
+pub mod codex;
 mod embeddings;
 mod hardening;
+pub mod process;
 mod transport;
 
 impl std::fmt::Debug for ProviderConfig {
@@ -394,5 +396,24 @@ mod tests {
         let debug = format!("{config:?}");
         assert!(!debug.contains("do-not-log"));
         assert!(debug.contains("<redacted>"));
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum TextProvider {
+    Api(OpenAiCompatibleProvider),
+    Subscription(codex::CodexSubscriptionProvider),
+}
+impl AnswerProviderPort for TextProvider {
+    fn answer(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+    ) -> std::result::Result<ProviderAnswer, PortError> {
+        match self {
+            Self::Api(provider) => provider.answer(query, context, evidence),
+            Self::Subscription(provider) => provider.answer(query, context, evidence),
+        }
     }
 }

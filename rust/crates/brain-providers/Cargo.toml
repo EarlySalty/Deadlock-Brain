@@ -15,4 +15,9 @@ serde_json.workspace = true
 thiserror.workspace = true
 httpdate = "1"
 
+tempfile.workspace = true
+anyhow.workspace = true
+nix = { version = "0.29", default-features = false, features = ["signal", "process"] }
+tokio = { workspace = true, features = ["macros", "process", "io-util", "sync"] }
+
 [dev-dependencies]

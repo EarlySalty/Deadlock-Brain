@@ -170,7 +170,7 @@ pub fn codex_args(
     schema: &Path,
     result: &Path,
 ) -> Vec<String> {
-    vec![
+    let mut args = vec![
         "exec".into(),
         "--model".into(),
         config.codex.model.clone(),
@@ -180,24 +180,9 @@ pub fn codex_args(
             serde_json::to_string(&config.codex.reasoning_effort)
                 .expect("String ist serialisierbar")
         ),
-        "-c".into(),
-        "web_search=\"disabled\"".into(),
-        "--disable".into(),
-        "shell_tool".into(),
-        "--disable".into(),
-        "unified_exec".into(),
-        "--disable".into(),
-        "hooks".into(),
-        "--disable".into(),
-        "apps".into(),
-        "--disable".into(),
-        "plugins".into(),
-        "--disable".into(),
-        "multi_agent".into(),
-        "--disable".into(),
-        "multi_agent_v2".into(),
-        "--disable".into(),
-        "skill_search".into(),
+    ];
+    args.extend(brain_providers::codex::subscription_config_args());
+    args.extend([
         "--ignore-user-config".into(),
         "--ignore-rules".into(),
         "--ephemeral".into(),
@@ -212,7 +197,8 @@ pub fn codex_args(
         "--output-last-message".into(),
         result.to_string_lossy().into_owned(),
         "-".into(),
-    ]
+    ]);
+    args
 }
 
 async fn invoke<T: DeserializeOwned>(

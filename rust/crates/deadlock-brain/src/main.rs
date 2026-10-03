@@ -42,7 +42,9 @@ enum Commands {
         about = "Stellt eine Frage ausschließlich über den typisierten brain-serve/BrainClient-Pfad."
     )]
     Answer(BrainAnswerArgs),
-    #[command(about = "Zeigt das zentral geprüfte KI-Modell ohne Modellaufruf.")]
+    #[command(
+        about = "Zeigt das Abo-Modell und die lokalen Konfigurationspfade ohne Modellaufruf."
+    )]
     AiModel,
     #[command(about = "Zeigt lokale DB- und Source-Counts.")]
     Status,
@@ -438,7 +440,7 @@ enum LearnCommands {
     ListBuilds(ListBuildsArgs),
     #[command(
         name = "analyze-build",
-        about = "Laesst Fireworks/DeepSeek einen importierten Build als Trainingsbeispiel analysieren."
+        about = "Lässt die KI einen importierten Build als Trainingsbeispiel analysieren."
     )]
     AnalyzeBuild(AnalyzeBuildArgs),
     #[command(
@@ -528,7 +530,7 @@ enum PlayerCommands {
     MatchContext(PlayerMatchContextArgs),
     #[command(
         name = "analyze-match",
-        about = "Laesst Fireworks/DeepSeek ein Player-Match als Entscheidungsbeispiel analysieren."
+        about = "Lässt die KI ein Player-Match als Entscheidungsbeispiel analysieren."
     )]
     AnalyzeMatch(PlayerAnalyzeMatchArgs),
     #[command(
@@ -692,7 +694,7 @@ enum AnalysisCommands {
     #[command(
         name = "run-fireworks",
         aliases = ["run-minimax", "run-ai"],
-        about = "Ruft Fireworks/DeepSeek fuer einen Review-Kontext auf und speichert das Ergebnis."
+        about = "Ruft die KI für einen Review-Kontext auf und speichert das Ergebnis."
     )]
     RunAi(AnalysisRunAiArgs),
     #[command(name = "list", about = "Listet gespeicherte Analyse-Notizen.")]
@@ -729,10 +731,7 @@ struct AnalysisRunAiArgs {
     temperature: Option<f64>,
     #[arg(long = "top-p")]
     top_p: Option<f64>,
-    #[arg(
-        long = "dry-run",
-        help = "Baut nur den Fireworks-Request ohne API-Aufruf."
-    )]
+    #[arg(long = "dry-run", help = "Baut nur die KI-Anfrage ohne Modellaufruf.")]
     dry_run: bool,
     #[arg(long)]
     pretty: bool,
@@ -1477,10 +1476,21 @@ fn main() {
 fn run_from_cli() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Commands::AiModel => print_json(&json!({
-            "provider": "fireworks",
-            "model": deadlock_brain_core::model_resolver::model_for_request()?,
-        })),
+        Commands::AiModel => {
+            let settings = config::load_settings()?;
+            print_json(&json!({
+                "provider": "openai_chatgpt_subscription",
+                "model": settings.ai_model,
+                "executable": std::env::current_exe()?,
+                "project_root": settings.project_root,
+                "ai_config": settings.project_root.join("config/bot.toml"),
+                "settings_config": settings.project_root.join("config/bot.toml"),
+                "infisical_config": settings.project_root.join("config/bot.toml"),
+                "data_dir": settings.data_dir,
+                "raw_dir": settings.raw_dir,
+                "cache_dir": settings.cache_dir,
+            }))
+        }
         Commands::Population(args) => dbrain_population::run_population(args),
         command => {
             let runtime = tokio::runtime::Builder::new_current_thread()
@@ -1776,10 +1786,10 @@ async fn run_build_eval(pool: &PgPool, settings: &Settings, args: BuildEvalArgs)
     let playstyle = args.playstyle.map(BuildPlaystyle::as_str);
     let build_context = dbrain_builds::build_context(pool, &args.hero, playstyle).await?;
     let config = AiConfig::from_settings(settings);
-    if !config.api_key_present() {
+    if !config.subscription_configured() {
         return print_json(&json!({
             "build_context": build_context,
-            "notice": "Fireworks environment is not configured; skipping narration."
+            "notice": "Der lokale KI-Zugang ist nicht eingerichtet; die Beschreibung wird übersprungen."
         }));
     }
 
@@ -1822,9 +1832,9 @@ async fn run_build_spec(pool: &PgPool, settings: &Settings, args: BuildSpecArgs)
     let candidates =
         dbrain_builds::spec::build_candidate_set(&build_context, &corpus, &known_item_names);
     let client = AiClient::from_settings(settings)?;
-    if !client.config().api_key_present() {
+    if !client.config().subscription_configured() {
         return Err(anyhow!(
-            "Fireworks API-Key fehlt. Setze FIREWORK_API_KEY oder FIREWORKS_API_KEY; build-spec braucht das LLM."
+            "Der lokale OpenAI-Abo-Zugang fehlt; build-spec benötigt das konfigurierte Modell."
         ));
     }
 
@@ -3544,11 +3554,14 @@ fn print_analysis_result(target: &str, result: &Value) {
                     .and_then(Value::as_array)
                     .map(Vec::len)
                     .unwrap_or(0);
-                println!("Fireworks dry-run: {}", display_value(get(result, "model")));
-                println!("Endpoint: {}", display_value(get(result, "endpoint")));
+                println!("KI-Probelauf: {}", display_value(get(result, "model")));
                 println!(
-                    "API key present: {}",
-                    if bool_value(get(result, "api_key_present")) {
+                    "Lokaler Connector: {}",
+                    display_value(get(result, "endpoint"))
+                );
+                println!(
+                    "Abo-Connector eingerichtet: {}",
+                    if bool_value(get(result, "subscription_configured")) {
                         "yes"
                     } else {
                         "no"
@@ -3559,7 +3572,7 @@ fn print_analysis_result(target: &str, result: &Value) {
             }
             let note = get(result, "note").unwrap_or(&Value::Null);
             println!(
-                "Fireworks analysis: note={} model={}",
+                "KI-Analyse: note={} model={}",
                 display_value(get(note, "id")),
                 display_value(get(result, "model"))
             );
@@ -3633,10 +3646,13 @@ fn print_learn_result(target: &str, result: &Value) {
                     display_value(get(result, "build_id")),
                     display_value(get(result, "model"))
                 );
-                println!("Endpoint: {}", display_value(get(result, "endpoint")));
                 println!(
-                    "API key present: {}",
-                    if bool_value(get(result, "api_key_present")) {
+                    "Lokaler Connector: {}",
+                    display_value(get(result, "endpoint"))
+                );
+                println!(
+                    "Abo-Connector eingerichtet: {}",
+                    if bool_value(get(result, "subscription_configured")) {
                         "yes"
                     } else {
                         "no"
@@ -3679,8 +3695,8 @@ fn print_learn_result(target: &str, result: &Value) {
                 }
             );
             println!(
-                "API key present: {}",
-                if bool_value(get(result, "api_key_present")) {
+                "Abo-Connector eingerichtet: {}",
+                if bool_value(get(result, "subscription_configured")) {
                     "yes"
                 } else {
                     "no"
@@ -3804,10 +3820,13 @@ fn print_player_result(target: &str, result: &Value) {
                     display_or(get(result, "hero_name"), "-"),
                     display_or(get(result, "hero_id"), "-")
                 );
-                println!("Endpoint: {}", display_value(get(result, "endpoint")));
                 println!(
-                    "API key present: {}",
-                    if bool_value(get(result, "api_key_present")) {
+                    "Lokaler Connector: {}",
+                    display_value(get(result, "endpoint"))
+                );
+                println!(
+                    "Abo-Connector eingerichtet: {}",
+                    if bool_value(get(result, "subscription_configured")) {
                         "yes"
                     } else {
                         "no"
@@ -3856,8 +3875,8 @@ fn print_player_result(target: &str, result: &Value) {
                 }
             );
             println!(
-                "API key present: {}",
-                if bool_value(get(result, "api_key_present")) {
+                "Abo-Connector eingerichtet: {}",
+                if bool_value(get(result, "subscription_configured")) {
                     "yes"
                 } else {
                     "no"

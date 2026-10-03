@@ -17,8 +17,7 @@ pub async fn assert_writable(pool: &PgPool) -> Result<()> {
     let value: String = row.get("transaction_read_only");
     if value == "on" {
         return Err(anyhow!(
-            "Die Datenbankverbindung ist read-only; population sync braucht Schreibrechte. Setze {} auf eine schreibbare Datenbank.",
-            deadlock_brain_core::pg::DSN_ENV
+            "Die Datenbankverbindung hat nur Leserechte. population sync benötigt Schreibrechte für den in Infisical hinterlegten Brain-Zugang."
         ));
     }
     Ok(())

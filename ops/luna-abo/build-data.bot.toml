@@ -1,0 +1,30 @@
+# Vorlage, noch nicht installiert oder zur Laufzeit geprüft.
+[ai]
+provider = "openai_chatgpt_subscription"
+cli_path = "/home/nathanael/.local/bin/codex"
+model = "gpt-6-luna"
+timeout_seconds = 300
+max_response_bytes = 1048576
+ai_max_completion_tokens = 16000
+# Kompatwerte: Sampling wird von der Abo-CLI nicht gesteuert.
+ai_temperature = 0.2
+ai_top_p = 0.9
+ai_use_token_plan = false
+
+[infisical]
+project_id = "2f5df3ca-12e5-4ae1-abf2-ca7fbd841705"
+environment = "prod"
+secret_path = "/"
+credential_fd = 5
+credential_name = "infisical-token"
+socket_path = "/run/uplink-infisical/api.sock"
+database_secret = "DEADLOCK_CENTRAL_DSN"
+
+[settings]
+data_dir = "/home/nathanael/.worktrees/brain-live-main/data"
+user_agent = "DeadlockBrain/0.1 contact=admin@earlysalty.com"
+sheet_id = "1fj9XMQmVUY0FY4cbozvB18PMBnpbdsaMFTZRLa74VRY"
+sheet_gid = "0"
+wiki_enabled = false
+wiki_min_delay_seconds = 5.0
+wiki_cache_ttl_seconds = 604800

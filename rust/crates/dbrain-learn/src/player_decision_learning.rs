@@ -258,9 +258,9 @@ pub async fn player_analyze_next(
         Some(&options.config.model),
     )
     .await?;
-    if !options.dry_run && !options.config.api_key_present() {
+    if !options.dry_run && !options.config.subscription_configured() {
         return Err(LearnError::InvalidInput(
-            "Fireworks API key fehlt. Setze FIREWORK_API_KEY oder FIREWORKS_API_KEY.".to_string(),
+            "Der lokale OpenAI-Abo-Zugang ist nicht eingerichtet.".to_string(),
         ));
     }
     let mut results = Vec::new();
@@ -313,7 +313,8 @@ pub async fn player_analyze_next(
         "account_id": options.account_id,
         "limit": options.limit,
         "model": options.config.model,
-        "api_key_present": options.config.api_key_present(),
+        "api_key_present": false,
+            "subscription_configured": options.config.subscription_configured(),
         "pending_selected": targets.len(),
         "results": results,
     }))
@@ -423,7 +424,10 @@ async fn run_single_player_match_analysis(
     let context = build_player_match_decision_context(pool, account_id, match_id).await?;
     let request = build_ai_player_match_decision_request(&context, config)?;
     let prompt_text = prompt_text_from_request(&request);
-    let endpoint = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
+    let endpoint = deadlock_brain_core::config::load_ai_settings()?
+        .cli_path
+        .to_string_lossy()
+        .into_owned();
     if dry_run {
         let note = save_player_match_decision_note(
             pool,
@@ -442,7 +446,8 @@ async fn run_single_player_match_analysis(
             "hero_name": get(&context, "hero_name").cloned().unwrap_or(Value::Null),
             "model": config.model,
             "endpoint": endpoint,
-            "api_key_present": config.api_key_present(),
+            "api_key_present": false,
+            "subscription_configured": config.subscription_configured(),
             "note": note,
         });
         if include_request {

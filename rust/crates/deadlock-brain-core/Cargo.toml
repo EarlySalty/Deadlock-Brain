@@ -9,7 +9,7 @@ path = "src/lib.rs"
 
 [dependencies]
 brain-contracts = { path = "../brain-contracts" }
-fireworks-model-selection = { path = "../../vendor/fireworks-model-selection" }
+brain-providers = { path = "../brain-providers" }
 anyhow.workspace = true
 chrono.workspace = true
 dbrain-builds = { path = "../dbrain-builds" }
@@ -23,6 +23,7 @@ thiserror.workspace = true
 filedescriptor = "0.8"
 nix = { version = "0.29", default-features = false, features = ["fs"] }
 tokio.workspace = true
+toml = "0.8"
 uplink-infisical-transport = { path = "../../../../Deadlock-Bots/rust/vendor/uplink-infisical-transport" }
 zeroize = "1"
 

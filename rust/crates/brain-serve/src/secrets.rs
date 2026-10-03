@@ -1,5 +1,8 @@
 //! One explicit Infisical snapshot supplies the configured secret references.
-use crate::{config::DatabaseAuth, Config, Error};
+use crate::{
+    config::{DatabaseAuth, ProviderKind},
+    Config, Error,
+};
 use brain_policy::{AuthGrant, CredentialRegistry};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -88,7 +91,12 @@ impl Secrets {
     /// Injectable lookup uses the same validation for runtime snapshots and synthetic tests.
     pub fn load(config: &Config, lookup: impl Fn(&str) -> Option<String>) -> Result<Self, Error> {
         config.validate()?;
-        let provider_key = required(&lookup, &config.provider.api_key_env, "provider", true)?;
+        let provider_key = match config.provider.kind {
+            ProviderKind::CodexCli => String::new(),
+            ProviderKind::OpenaiCompatible => {
+                required(&lookup, &config.provider.api_key_env, "provider", true)?
+            }
+        };
         let postgres_password = match config.postgres.auth {
             DatabaseAuth::Peer => None,
             DatabaseAuth::Password => Some(required(

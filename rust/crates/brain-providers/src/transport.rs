@@ -41,33 +41,7 @@ impl OpenAiCompatibleProvider {
             usage.prompt_tokens,
             usage.completion_tokens,
         )?;
-        #[derive(serde::Deserialize)]
-        #[serde(deny_unknown_fields)]
-        struct Grounded {
-            text: String,
-            cited_evidence_ids: Vec<String>,
-        }
-        let (text, cited_evidence_ids) = if evidence.is_empty() {
-            (text, Vec::new())
-        } else {
-            let grounded: Grounded = serde_json::from_str(&text).map_err(|_| {
-                ProviderError::InvalidResponse("grounded answer envelope missing".into())
-            })?;
-            let unique: std::collections::BTreeSet<_> =
-                grounded.cited_evidence_ids.iter().collect();
-            if grounded.text.trim().is_empty()
-                || unique.is_empty()
-                || unique.len() != grounded.cited_evidence_ids.len()
-                || unique
-                    .iter()
-                    .any(|id| !evidence.iter().any(|e| &e.evidence_id == *id))
-            {
-                return Err(ProviderError::InvalidResponse(
-                    "unknown, duplicate or missing citation".into(),
-                ));
-            }
-            (grounded.text, grounded.cited_evidence_ids)
-        };
+        let (text, cited_evidence_ids) = grounded_answer(text, evidence)?;
         Ok(ProviderAnswer {
             text,
             cited_evidence_ids,
@@ -246,4 +220,37 @@ impl OpenAiCompatibleProvider {
             cost_micros: cost,
         })
     }
+}
+
+pub(super) fn grounded_answer(
+    text: String,
+    evidence: &[brain_contracts::Evidence],
+) -> Result<(String, Vec<String>)> {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Grounded {
+        text: String,
+        cited_evidence_ids: Vec<String>,
+    }
+    let (text, cited_evidence_ids) = if evidence.is_empty() {
+        (text, Vec::new())
+    } else {
+        let grounded: Grounded = serde_json::from_str(&text).map_err(|_| {
+            ProviderError::InvalidResponse("grounded answer envelope missing".into())
+        })?;
+        let unique: std::collections::BTreeSet<_> = grounded.cited_evidence_ids.iter().collect();
+        if grounded.text.trim().is_empty()
+            || unique.is_empty()
+            || unique.len() != grounded.cited_evidence_ids.len()
+            || unique
+                .iter()
+                .any(|id| !evidence.iter().any(|e| &e.evidence_id == *id))
+        {
+            return Err(ProviderError::InvalidResponse(
+                "unknown, duplicate or missing citation".into(),
+            ));
+        }
+        (grounded.text, grounded.cited_evidence_ids)
+    };
+    Ok((text, cited_evidence_ids))
 }

@@ -8,12 +8,10 @@ use std::{path::Path, str::FromStr, time::Duration};
 #[path = "pg_secrets.rs"]
 mod secrets;
 
+pub(crate) use secrets::Config as InfisicalConfig;
+
 pub async fn pg_pool_read_only() -> Result<PgPool> {
-    pg_pool_from_config(
-        &crate::config::repo_root().join("config/infisical.json"),
-        true,
-    )
-    .await
+    pg_pool_from_config(&crate::config::repo_root().join("config/bot.toml"), true).await
 }
 
 pub async fn infisical_environment(
@@ -37,25 +35,11 @@ pub async fn pg_pool_from_config(path: &Path, read_only: bool) -> Result<PgPool>
         .map_err(|_| anyhow!("Verbindung zur zentralen Postgres fehlgeschlagen."))
 }
 
-/// Env-Variable mit dem zentralen Postgres-DSN. Der Wert wird nie geloggt oder
-/// ausgegeben (Secret-Hygiene).
-pub const DSN_ENV: &str = "DEADLOCK_CENTRAL_DSN";
-
 /// Postgres-Schema mit den Brain-Tabellen.
 pub const SCHEMA: &str = "brain";
 
-/// Baut einen kleinen async Verbindungspool gegen die zentrale Postgres.
-///
-/// Das DSN kommt aus [`DSN_ENV`]. Weder das DSN noch die konkreten
-/// Verbindungsdetails werden im Fehlerfall ausgegeben.
+/// Verwendet den vorhandenen Infisical-Zugang für schreibende Brain-Aufträge.
+/// Zugang und Datenbankrechte entsprechen dem bisherigen zentralen Zugang.
 pub async fn pg_pool() -> Result<PgPool> {
-    let dsn = std::env::var(DSN_ENV)
-        .map_err(|_| anyhow!("{DSN_ENV} ist nicht gesetzt; DSN wird nicht ausgegeben."))?;
-    PgPoolOptions::new()
-        .max_connections(4)
-        .connect(&dsn)
-        .await
-        .map_err(|_| {
-            anyhow!("Verbindung zur zentralen Postgres fehlgeschlagen (DSN aus {DSN_ENV}).")
-        })
+    pg_pool_from_config(&crate::config::repo_root().join("config/bot.toml"), false).await
 }

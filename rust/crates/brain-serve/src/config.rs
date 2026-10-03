@@ -56,6 +56,8 @@ pub struct Release {
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Provider {
+    #[serde(default)]
+    pub cli_path: Option<std::path::PathBuf>,
     pub kind: ProviderKind,
     pub base_url: String,
     pub model: String,
@@ -67,9 +69,10 @@ pub struct Provider {
     pub pricing: Option<Pricing>,
 }
 
-#[derive(Clone, Copy, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderKind {
+    CodexCli,
     OpenaiCompatible,
 }
 
@@ -240,6 +243,12 @@ impl Config {
             "release",
         )?;
         let p = &self.provider;
+        if p.kind == ProviderKind::CodexCli {
+            require(
+                p.cli_path.as_ref().is_some_and(|path| path.is_absolute()),
+                "provider_cli",
+            )?;
+        }
         let endpoint =
             reqwest::Url::parse(&p.base_url).map_err(|_| Error::ConfigInvalid("provider"))?;
         let loopback = endpoint.host_str().is_some_and(|host| {
@@ -256,9 +265,9 @@ impl Config {
                 && endpoint.query().is_none()
                 && endpoint.fragment().is_none()
                 && (endpoint.scheme() == "https" || (endpoint.scheme() == "http" && loopback))
-                && (loopback || p.pricing.is_some())
+                && (p.kind == ProviderKind::CodexCli || loopback || p.pricing.is_some())
                 && identifier(&p.model, 512)
-                && secret_name(&p.api_key_env)
+                && (p.kind == ProviderKind::CodexCli || secret_name(&p.api_key_env))
                 && (1..=8).contains(&p.retry_attempts)
                 && p.retry_backoff_ms <= 10_000
                 && (128..=8 * 1024 * 1024).contains(&p.max_response_bytes),

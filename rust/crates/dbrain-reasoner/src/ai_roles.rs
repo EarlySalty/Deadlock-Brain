@@ -248,12 +248,9 @@ pub fn run_critic(client: &AiClient, build: &BuildObject) -> Result<CriticRespon
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{BufRead, BufReader, Read, Write};
-    use std::net::TcpListener;
-    use std::time::Duration;
 
     #[test]
-    fn run_critic_validates_verdict_over_http() {
+    fn critic_request_and_response_preserve_verdict_contract() {
         let build = BuildObject {
             family: None,
             variants: Vec::new(),
@@ -269,51 +266,15 @@ mod tests {
             rationale: String::new(),
         };
         for verdict in ["pass", "recompose", "maybe"] {
-            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-            let mut settings = test_settings();
-            settings.ai_base_url = format!("http://{}", listener.local_addr().unwrap());
-            settings.ai_api_key = Some("test-key".to_string());
-            let client = AiClient::from_settings(&settings).unwrap();
-            let server = std::thread::spawn(move || {
-                let (mut stream, _) = listener.accept().unwrap();
-                stream
-                    .set_read_timeout(Some(Duration::from_secs(5)))
-                    .unwrap();
-                stream
-                    .set_write_timeout(Some(Duration::from_secs(5)))
-                    .unwrap();
-                let mut reader = BufReader::new(&mut stream);
-                let mut line = String::new();
-                reader.read_line(&mut line).unwrap();
-                assert_eq!(line, "POST /chat/completions HTTP/1.1\r\n");
-                let mut length = None;
-                loop {
-                    line.clear();
-                    assert!(reader.read_line(&mut line).unwrap() > 0);
-                    if line == "\r\n" {
-                        break;
-                    }
-                    if let Some((name, value)) = line.split_once(':') {
-                        if name.eq_ignore_ascii_case("content-length") {
-                            length = Some(value.trim().parse::<usize>().unwrap());
-                        }
-                    }
-                }
-                let mut body = vec![0; length.unwrap()];
-                reader.read_exact(&mut body).unwrap();
-                let request: Value = serde_json::from_slice(&body).unwrap();
-                assert!(request["messages"][1]["content"]
-                    .as_str()
-                    .unwrap()
-                    .contains("Rolle Kritiker"));
-                let response = json!({"choices": [{"message": {"content":
-                    json!({"verdict": verdict, "issues": ["fixture issue"]}).to_string()
-                }}]})
-                .to_string();
-                write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response).unwrap();
-            });
-            let result = run_critic(&client, &build);
-            server.join().unwrap();
+            let config = deadlock_brain_core::ai::AiConfig::from_settings(&test_settings());
+            let request = build_critic_request(&build, &config);
+            assert!(request.messages[1].content.contains("Rolle Kritiker"));
+            assert_eq!(
+                request.response_format.as_ref().unwrap()["type"],
+                "json_object"
+            );
+            let response = json!({"verdict": verdict, "issues": ["fixture issue"]}).to_string();
+            let result = parse_critic_response(&response);
             if verdict == "maybe" {
                 assert!(
                     matches!(result, Err(ReasonerError::Ai(message)) if message.contains("verdict"))

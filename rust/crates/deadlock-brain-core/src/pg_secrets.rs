@@ -12,7 +12,7 @@ use zeroize::{Zeroize, Zeroizing};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Config {
+pub(crate) struct Config {
     project_id: String,
     environment: String,
     secret_path: String,
@@ -74,7 +74,16 @@ pub(super) async fn environment(path: &Path) -> Result<Vec<(String, Zeroizing<St
 fn load_config(path: &Path) -> Result<Config> {
     let data =
         std::fs::read(path).map_err(|_| anyhow!("Infisical Konfiguration ist nicht lesbar."))?;
-    serde_json::from_slice(&data).map_err(|_| anyhow!("Infisical Konfiguration ist ungültig."))
+    if path
+        .extension()
+        .is_some_and(|extension| extension == "toml")
+    {
+        crate::config::load_infisical_settings(path)
+            .map_err(|_| anyhow!("Bot-TOML-Konfiguration ist ungültig."))
+    } else {
+        // Bestehende explizite Legacy-Aufrufer behalten ihren Parser.
+        serde_json::from_slice(&data).map_err(|_| anyhow!("Infisical Konfiguration ist ungültig."))
+    }
 }
 
 async fn fetch_values(config: Config) -> Result<BTreeMap<String, Zeroizing<String>>> {
@@ -162,18 +171,16 @@ fn valid_environment_name(name: &str) -> bool {
 }
 
 fn load_credential(config: &Config) -> Result<Zeroizing<Vec<u8>>> {
-    if let Some(directory) = env::var_os("CREDENTIALS_DIRECTORY") {
-        let path = PathBuf::from(directory).join(&config.credential_name);
-        if path.is_file() {
-            return read_credential_path(&path);
-        }
-    }
+    load_credential_from(
+        config,
+        env::var_os("CREDENTIALS_DIRECTORY").map(PathBuf::from),
+    )
+}
 
-    if let Some(path) = env::var_os("INFISICAL_TOKEN_FILE") {
-        let path = PathBuf::from(path);
-        if path.is_file() {
-            return read_credential_path(&path);
-        }
+fn load_credential_from(config: &Config, directory: Option<PathBuf>) -> Result<Zeroizing<Vec<u8>>> {
+    if let Some(directory) = directory {
+        let path = directory.join(&config.credential_name);
+        return read_credential_path(&path);
     }
 
     if let Some(fd) = config.credential_fd.filter(|fd| *fd >= 3) {
@@ -247,6 +254,28 @@ mod tests {
             b"synthetic-fixture"
         );
         assert_eq!(file.stream_position().unwrap(), offset);
+    }
+
+    #[test]
+    fn missing_systemd_credential_never_falls_back_to_open_descriptor() {
+        use std::os::fd::AsRawFd;
+        let directory = tempfile::tempdir().unwrap();
+        let mut file = tempfile::tempfile().unwrap();
+        file.write_all(b"synthetic-fixture").unwrap();
+        let config = Config {
+            project_id: "fixture".into(),
+            environment: "fixture".into(),
+            secret_path: "/".into(),
+            credential_fd: Some(file.as_raw_fd()),
+            credential_name: "infisical-token".into(),
+            socket_path: "/unavailable".into(),
+            database_secret: "fixture".into(),
+        };
+        assert!(load_credential_from(&config, Some(directory.path().to_path_buf())).is_err());
+        assert_eq!(
+            load_credential_from(&config, None).unwrap().as_slice(),
+            b"synthetic-fixture"
+        );
     }
 
     #[test]

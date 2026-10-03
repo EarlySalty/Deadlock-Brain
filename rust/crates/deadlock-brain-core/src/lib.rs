@@ -3,7 +3,7 @@
 //! Gemeinsamer Kern fuer den schrittweisen Rust-Port von Deadlock-Brain.
 //!
 //! Diese Crate enthaelt nur Querschnittsvertraege: Pfade/Config,
-//! HTTP/Fireworks, Postgres und gemeinsame Datenmodelle. Feature-Logik lebt in den
+//! Lokale Abo-KI, Postgres und gemeinsame Datenmodelle. Feature-Logik lebt in den
 //! nachgelagerten `dbrain-*`-Crates.
 
 pub mod ai;

@@ -91,10 +91,10 @@ pub async fn demo_analyze_match(pool: &PgPool, options: DemoAnalyzeMatchOptions)
     let built = load_demo_context(pool, &account_id, &match_id).await?;
     let request = build_demo_report_request(&built.context, &options.config)?;
     let prompt_text = prompt_text_from_request(&request);
-    let endpoint = format!(
-        "{}/chat/completions",
-        options.config.base_url.trim_end_matches('/')
-    );
+    let endpoint = deadlock_brain_core::config::load_ai_settings()?
+        .cli_path
+        .to_string_lossy()
+        .into_owned();
     if options.dry_run {
         let note = save_demo_report_note(
             pool,
@@ -112,7 +112,8 @@ pub async fn demo_analyze_match(pool: &PgPool, options: DemoAnalyzeMatchOptions)
             "match_id": match_id,
             "model": options.config.model,
             "endpoint": endpoint,
-            "api_key_present": options.config.api_key_present(),
+            "api_key_present": false,
+            "subscription_configured": options.config.subscription_configured(),
             "evidence_count": built.evidence_ids.len(),
             "raw_evidence_count": built.context["evidence_registry"]["raw_count"],
             "derived_evidence_count": built.context["evidence_registry"]["derived_count"],
@@ -136,9 +137,7 @@ pub async fn demo_analyze_match(pool: &PgPool, options: DemoAnalyzeMatchOptions)
         client.chat(&model_request)
     })
     .await
-    .map_err(|error| {
-        LearnError::InvalidInput(format!("Fireworks-Worker abgebrochen: {error}"))
-    })??;
+    .map_err(|error| LearnError::InvalidInput(format!("KI-Aufruf abgebrochen: {error}")))??;
     let raw_report = extract_ai_text(&response);
     if raw_report.trim().is_empty() {
         return Err(LearnError::EmptyAiResponse);
@@ -1024,7 +1023,7 @@ fn parse_and_validate_model_report(
 ) -> Result<Value> {
     let mut report: Value = serde_json::from_str(raw.trim()).map_err(|error| {
         LearnError::InvalidInput(format!(
-            "Fireworks lieferte keinen einzelnen gueltigen JSON-Report: {error}"
+            "Die KI lieferte keinen einzelnen gültigen JSON-Report: {error}"
         ))
     })?;
     if report.get("metadata") != Some(deterministic_metadata) {

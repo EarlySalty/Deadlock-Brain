@@ -15,7 +15,7 @@ pub enum LearnError {
     #[error("{0}")]
     InvalidInput(String),
 
-    #[error("Fireworks response did not include message content.")]
+    #[error("Die KI-Antwort enthält keinen Text.")]
     EmptyAiResponse,
 }
 

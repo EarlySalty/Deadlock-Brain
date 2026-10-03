@@ -1,4 +1,4 @@
-use std::{num, time::SystemTimeError};
+use std::time::SystemTimeError;
 
 use reqwest::StatusCode;
 
@@ -46,32 +46,6 @@ pub enum CoreError {
 
     #[error("Fireworks API-Key fehlt. Setze FIREWORK_API_KEY oder FIREWORKS_API_KEY.")]
     MissingFireworksApiKey,
-}
-
-impl CoreError {
-    pub(crate) fn invalid_integer_env(
-        name: &'static str,
-        value: String,
-        error: num::ParseIntError,
-    ) -> Self {
-        Self::InvalidIntegerEnv {
-            name,
-            value,
-            message: error.to_string(),
-        }
-    }
-
-    pub(crate) fn invalid_float_env(
-        name: &'static str,
-        value: String,
-        error: num::ParseFloatError,
-    ) -> Self {
-        Self::InvalidFloatEnv {
-            name,
-            value,
-            message: error.to_string(),
-        }
-    }
 }
 
 pub type Result<T> = std::result::Result<T, CoreError>;

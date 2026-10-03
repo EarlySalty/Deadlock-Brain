@@ -1,15 +1,12 @@
-use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::{config::Settings, CoreError, Result};
 
-pub const DEFAULT_SYSTEM_PROMPT: &str = "Du bist ein Deadlock-Analyseassistent fuer einen deutschen Discord. Nutze ausschliesslich den bereitgestellten Kontext. Behalte Namen von Items, Heroes, Abilities, Stats und Quellen exakt auf Englisch. Schreibe die Analyse auf Deutsch. Markiere Unsicherheiten und fehlende Daten klar. Erfinde keine Winrates, Pickrates oder Patchdetails.";
+pub const DEFAULT_SYSTEM_PROMPT: &str = "Du bist ein Deadlock-Analyseassistent für einen deutschen Discord. Nutze ausschließlich den bereitgestellten Kontext. Behalte Namen von Items, Heroes, Abilities, Stats und Quellen exakt auf Englisch. Schreibe die Analyse auf Deutsch. Markiere Unsicherheiten und fehlende Daten klar. Erfinde keine Winrates, Pickrates oder Patchdetails.";
 
 #[derive(Clone)]
 pub struct AiConfig {
-    api_key: Option<String>,
-    pub base_url: String,
     pub model: String,
     pub timeout_seconds: u64,
     pub max_completion_tokens: u64,
@@ -22,8 +19,6 @@ impl std::fmt::Debug for AiConfig {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("AiConfig")
-            .field("api_key", &self.api_key.as_ref().map(|_| "<redacted>"))
-            .field("base_url", &self.base_url)
             .field("model", &self.model)
             .field("timeout_seconds", &self.timeout_seconds)
             .field("max_completion_tokens", &self.max_completion_tokens)
@@ -42,8 +37,6 @@ impl AiConfig {
 
     pub fn from_settings(settings: &Settings) -> Self {
         Self {
-            api_key: settings.ai_api_key.clone(),
-            base_url: settings.ai_base_url.clone(),
             model: settings.ai_model.clone(),
             timeout_seconds: settings.ai_timeout_seconds,
             max_completion_tokens: settings.ai_max_completion_tokens,
@@ -53,18 +46,9 @@ impl AiConfig {
         }
     }
 
-    pub fn api_key_present(&self) -> bool {
-        self.api_key
-            .as_ref()
-            .map(|value| !value.trim().is_empty())
-            .unwrap_or(false)
-    }
-
-    fn api_key(&self) -> Result<&str> {
-        self.api_key
-            .as_deref()
-            .filter(|value| !value.trim().is_empty())
-            .ok_or(CoreError::MissingFireworksApiKey)
+    pub fn subscription_configured(&self) -> bool {
+        // Der lokale Abo-Login wird beim tatsächlichen Aufruf geprüft.
+        !self.model.trim().is_empty() && self.timeout_seconds > 0
     }
 }
 
@@ -147,41 +131,55 @@ impl AiClient {
     }
 
     pub fn chat_value(&self, request_payload: &Value) -> Result<Value> {
-        self.call_openai_compatible(request_payload)
-    }
-
-    fn call_openai_compatible(&self, request_payload: &Value) -> Result<Value> {
-        let config = self.config.clone();
-        let request_payload = request_payload.clone();
-        std::thread::spawn(move || call_openai_compatible_sync(&config, &request_payload))
-            .join()
-            .map_err(|_| {
-                CoreError::Io(std::io::Error::other("Fireworks request thread panicked"))
-            })?
+        let settings = crate::config::load_ai_settings()?;
+        let prompt = subscription_prompt(request_payload)?;
+        brain_providers::codex::complete_with_options(
+            &settings.cli_path,
+            &prompt,
+            &settings.model,
+            std::time::Duration::from_secs(settings.timeout_seconds),
+            settings.max_response_bytes,
+            request_payload
+                .get("max_tokens")
+                .and_then(Value::as_u64)
+                .or(Some(settings.ai_max_completion_tokens)),
+            request_payload
+                .get("reasoning_effort")
+                .and_then(Value::as_str)
+                .or(settings.ai_reasoning_effort.as_deref()),
+        )
+        .map_err(|error| CoreError::ModelSelection(error.to_string()))
     }
 }
 
-fn call_openai_compatible_sync(config: &AiConfig, request_payload: &Value) -> Result<Value> {
-    let client = Client::builder()
-        .timeout(std::time::Duration::from_secs(config.timeout_seconds))
-        .user_agent("DeadlockBrain/0.1")
-        .build()?;
-    let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
-    let api_key = config.api_key()?.to_string();
-    let payload = selected_payload(request_payload, crate::model_resolver::model_for_request()?)?;
-    let response = client
-        .post(&url)
-        .bearer_auth(&api_key)
-        .json(&payload)
-        .send()?;
-    parse_response(response, "fireworks_openai_compatible")
-}
-
-fn selected_payload(request: &Value, model: String) -> Result<Value> {
-    let mut payload = request.clone();
-    let object = payload.as_object_mut().ok_or(CoreError::InvalidAiRequest)?;
-    object.insert("model".to_string(), json!(model));
-    Ok(payload)
+fn subscription_prompt(request: &Value) -> Result<String> {
+    let object = request.as_object().ok_or(CoreError::InvalidAiRequest)?;
+    let messages = object
+        .get("messages")
+        .and_then(Value::as_array)
+        .filter(|messages| !messages.is_empty())
+        .ok_or(CoreError::InvalidAiRequest)?;
+    let mut prompt = String::new();
+    for message in messages {
+        let role = message
+            .get("role")
+            .and_then(Value::as_str)
+            .ok_or(CoreError::InvalidAiRequest)?;
+        let content = message
+            .get("content")
+            .and_then(Value::as_str)
+            .ok_or(CoreError::InvalidAiRequest)?;
+        prompt.push_str(&format!("[{role}]\n{content}\n\n"));
+    }
+    if object
+        .get("response_format")
+        .and_then(|format| format.get("type"))
+        .and_then(Value::as_str)
+        == Some("json_object")
+    {
+        prompt.push_str("Antworte ausschließlich mit einem gültigen JSON-Objekt ohne Markdown.\n");
+    }
+    Ok(prompt)
 }
 
 pub fn build_review_request(
@@ -251,8 +249,8 @@ pub fn ai_usage_summary(response: &Value) -> Value {
         "input_sensitive": response.get("input_sensitive").cloned().unwrap_or(Value::Null),
         "output_sensitive": response.get("output_sensitive").cloned().unwrap_or(Value::Null),
         "base_resp": response.get("base_resp").cloned().unwrap_or(Value::Null),
-        "provider": response.get("_provider").cloned().unwrap_or_else(|| json!("fireworks")),
-        "mode": response.get("_ai_mode").cloned().unwrap_or_else(|| json!("fireworks_openai_compatible")),
+        "provider": response.get("_provider").cloned().unwrap_or_else(|| json!("openai_chatgpt_subscription")),
+        "mode": response.get("_ai_mode").cloned().unwrap_or_else(|| json!("codex_local")),
     })
 }
 
@@ -274,49 +272,25 @@ pub fn strip_thinking(text: &str) -> String {
     remaining.trim().to_string()
 }
 
-fn parse_response(response: reqwest::blocking::Response, mode: &str) -> Result<Value> {
-    let status = response.status();
-    let body = response.text()?;
-    if !status.is_success() {
-        return Err(CoreError::HttpStatus {
-            status,
-            url: "Fireworks".to_string(),
-            body: body.chars().take(1000).collect(),
-        });
-    }
-    let mut value: Value = serde_json::from_str(&body)?;
-    if let Some(object) = value.as_object_mut() {
-        object.insert("_http_status".to_string(), json!(status.as_u16()));
-        object.insert("_provider".to_string(), json!("fireworks"));
-        object.insert("_ai_mode".to_string(), json!(mode));
-    }
-    Ok(value)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn central_selection_overrides_stale_caller_model_and_changes_next_request() {
-        let request = json!({"model": "obsolete", "messages": [], "reasoning_effort": "none"});
-        for model in [
-            "accounts/fireworks/models/deepseek-v4p1-flash",
-            "accounts/fireworks/models/deepseek-v4p2-flash",
-        ] {
-            let payload = selected_payload(&request, model.into()).unwrap();
-            assert_eq!(payload["model"], model);
-            assert_eq!(payload["reasoning_effort"], "none");
-        }
-        assert_eq!(request["model"], "obsolete");
+    fn invalid_payload_cannot_bypass_subscription() {
+        assert!(matches!(
+            subscription_prompt(&json!([])),
+            Err(CoreError::InvalidAiRequest)
+        ));
     }
 
     #[test]
-    fn invalid_payload_cannot_bypass_central_model() {
-        assert!(matches!(
-            selected_payload(&json!([]), "selected".into()),
-            Err(CoreError::InvalidAiRequest)
-        ));
+    fn prompt_preserves_messages_and_json_contract() {
+        let prompt = subscription_prompt(&json!({"model": "stale-model", "messages": [{"role": "system", "content": "Regeln"}, {"role": "user", "content": "Daten"}], "response_format": {"type": "json_object"}})).unwrap();
+        assert!(prompt.contains("[system]\nRegeln"));
+        assert!(prompt.contains("[user]\nDaten"));
+        assert!(prompt.contains("gültigen JSON-Objekt"));
+        assert!(!prompt.contains("stale-model"));
     }
 
     #[test]
@@ -331,11 +305,9 @@ mod tests {
     }
 
     #[test]
-    fn serializes_fireworks_token_field() {
+    fn serializes_compatible_token_field() {
         let config = AiConfig {
-            api_key: Some("redacted".to_string()),
-            base_url: "http://localhost".to_string(),
-            model: "accounts/fireworks/models/deepseek-v4p1-flash".to_string(),
+            model: "configured-model".to_string(),
             timeout_seconds: 1,
             max_completion_tokens: 123,
             temperature: 0.2,

@@ -1,0 +1,215 @@
+use anyhow::{bail, ensure, Context, Result};
+use nix::{
+    sys::signal::{killpg, Signal},
+    unistd::Pid,
+};
+use std::os::unix::process::CommandExt;
+use std::{path::Path, process::Stdio, time::Duration};
+use tokio::{
+    io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
+    process::Command,
+};
+
+async fn bounded_read(reader: impl AsyncRead + Unpin, max: usize) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    reader
+        .take((max + 1) as u64)
+        .read_to_end(&mut bytes)
+        .await?;
+    ensure!(
+        bytes.len() <= max,
+        "Prozessausgabe überschreitet die Grenze"
+    );
+    Ok(bytes)
+}
+
+struct ProcessGroup(Pid);
+impl Drop for ProcessGroup {
+    fn drop(&mut self) {
+        match killpg(self.0, Signal::SIGKILL) {
+            Ok(()) | Err(nix::errno::Errno::ESRCH) => {}
+            Err(_) => eprintln!("Prozessgruppe konnte beim Abbruch nicht beendet werden"),
+        }
+    }
+}
+
+pub async fn run(
+    executable: &Path,
+    args: &[String],
+    cwd: &Path,
+    input: &[u8],
+    timeout_ms: u64,
+    max_output: usize,
+) -> Result<Vec<u8>> {
+    let result = run_observed(executable, args, cwd, input, timeout_ms, max_output).await?;
+    ensure!(
+        result.exit_code == Some(0),
+        "Prozess fehlgeschlagen, Exitcode {:?}",
+        result.exit_code
+    );
+    Ok(result.output)
+}
+
+pub struct ProcessResult {
+    pub output: Vec<u8>,
+    pub exit_code: Option<i32>,
+}
+
+pub async fn run_observed(
+    executable: &Path,
+    args: &[String],
+    cwd: &Path,
+    input: &[u8],
+    timeout_ms: u64,
+    max_output: usize,
+) -> Result<ProcessResult> {
+    let mut command = Command::new(executable);
+    command.as_std_mut().process_group(0);
+    // Abo-Aufrufe übernehmen keine API-Schlüssel aus der Dienstumgebung.
+    for name in [
+        "OPENAI_API_KEY",
+        "OPENAI_BASE_URL",
+        "AZURE_OPENAI_API_KEY",
+        "CODEX_API_KEY",
+    ] {
+        command.env_remove(name);
+    }
+    let mut child = command
+        .args(args)
+        .current_dir(cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .context("Prozess konnte nicht gestartet werden")?;
+    let _group = ProcessGroup(Pid::from_raw(i32::try_from(
+        child.id().context("Prozess-ID fehlt")?,
+    )?));
+    let mut stdin = child.stdin.take().context("Prozess-Eingabe fehlt")?;
+    let stdout = child.stdout.take().context("Prozess-Ausgabe fehlt")?;
+    let stderr = child.stderr.take().context("Prozess-Fehlerkanal fehlt")?;
+    let work = async {
+        let write = async move {
+            stdin.write_all(input).await?;
+            stdin.shutdown().await?;
+            drop(stdin);
+            anyhow::Ok(())
+        };
+        let ((), output, _diagnostics, status) = tokio::try_join!(
+            write,
+            bounded_read(stdout, max_output),
+            bounded_read(stderr, max_output),
+            async { Ok::<_, anyhow::Error>(child.wait().await?) }
+        )?;
+        // Fremde Prozessausgabe wird nicht in Fehler oder Logs übernommen.
+        Ok(ProcessResult {
+            output,
+            exit_code: status.code(),
+        })
+    };
+    match tokio::time::timeout(Duration::from_millis(timeout_ms), work).await {
+        Ok(result) => result,
+        Err(_) => {
+            match killpg(_group.0, Signal::SIGKILL) {
+                Ok(()) | Err(nix::errno::Errno::ESRCH) => {}
+                Err(_) => {
+                    bail!("Prozesszeit überschritten; Prozessgruppe konnte nicht beendet werden")
+                }
+            }
+            if let Err(error) = child.kill().await {
+                ensure!(
+                    matches!(
+                        error.kind(),
+                        std::io::ErrorKind::InvalidInput | std::io::ErrorKind::NotFound
+                    ),
+                    "Prozesszeit überschritten; Prozess konnte nicht beendet werden"
+                );
+            }
+            bail!("Prozesszeit überschritten")
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn stdin_is_closed_before_waiting_for_the_child() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = run(
+            Path::new("/bin/cat"),
+            &[],
+            dir.path(),
+            b"harmloser Test",
+            1000,
+            100,
+        )
+        .await
+        .unwrap();
+        assert_eq!(output, b"harmloser Test");
+    }
+    #[tokio::test]
+    async fn oversized_output_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(
+            run(Path::new("/bin/cat"), &[], dir.path(), b"zu lang", 1000, 2)
+                .await
+                .is_err()
+        );
+    }
+    #[tokio::test]
+    async fn timeout_stops_wrapper_and_child_process() {
+        let dir = tempfile::tempdir().unwrap();
+        let pidfile = dir.path().join("child.pid");
+        let args = vec![
+            "-c".into(),
+            "sleep 60 & printf '%s' \"$!\" > \"$1\"; wait".into(),
+            "fixture".into(),
+            pidfile.to_string_lossy().into_owned(),
+        ];
+        assert!(run(Path::new("/bin/sh"), &args, dir.path(), &[], 100, 100)
+            .await
+            .is_err());
+        let pid: u32 = std::fs::read_to_string(pidfile).unwrap().parse().unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+            assert!(
+                stat.contains(") Z "),
+                "Kindprozess läuft nach Timeout weiter"
+            );
+        }
+    }
+    #[tokio::test]
+    async fn dropping_the_future_stops_wrapper_and_child_process() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().to_owned();
+        let pidfile = cwd.join("aborted.pid");
+        let args = vec![
+            "-c".into(),
+            "sleep 60 & printf '%s' \"$!\" > \"$1\"; wait".into(),
+            "fixture".into(),
+            pidfile.to_string_lossy().into_owned(),
+        ];
+        let task =
+            tokio::spawn(
+                async move { run(Path::new("/bin/sh"), &args, &cwd, &[], 10_000, 100).await },
+            );
+        for _ in 0..100 {
+            if pidfile.exists() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let pid: u32 = std::fs::read_to_string(&pidfile).unwrap().parse().unwrap();
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+            assert!(
+                stat.contains(") Z "),
+                "Kindprozess läuft nach Abbruch weiter"
+            );
+        }
+    }
+}

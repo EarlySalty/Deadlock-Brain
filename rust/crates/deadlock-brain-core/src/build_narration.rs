@@ -21,7 +21,7 @@ So gehst du beim Begründen vor (Methodik, kein vorgegebenes Ergebnis):
 - Schadensachse: prüfe, ob die damage_axis eines Items zur Achse des gewählten Pfades passt; liegt der Hauptwert daneben, bleibt er für diesen Build weitgehend wirkungslos.
 - Gewichtung: lies prevalence_builds, winrate und lift_pp zusammen statt einzeln; eine einzelne Zahl trägt keine Aussage. sample_matches und confidence sagen dir, wie sehr du der Zahl traust.
 - Ablauf: nutze buy_phase und synergy_with, um Kauf-Reihenfolge und Zusammenspiel zu erklären.";
-pub const BUILD_NARRATION_USER_PROMPT: &str = "Erkläre den folgenden, bereits berechneten Build verständlich auf Deutsch. Geh die Phasen early/mid/late durch und begründe pro Kern-Item kurz, warum es hier passt — ausschließlich anhand der gelieferten Fakten. Schließe mit einem kurzen Hinweis auf alternative_paths, falls vorhanden. Knapp und konkret, kein Marketing.";
+pub const BUILD_NARRATION_USER_PROMPT: &str = "Erkläre den folgenden, bereits berechneten Build verständlich auf Deutsch. Geh die Phasen early/mid/late durch und begründe pro Kern-Item kurz, warum es hier anhand der gelieferten Fakten passt. Schließe mit einem kurzen Hinweis auf alternative_paths, falls vorhanden. Knapp und konkret, kein Marketing.";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ValidationResult {
@@ -35,14 +35,14 @@ pub struct ValidationViolation {
 }
 
 pub fn narrate_build(ctx: &BuildContext) -> anyhow::Result<String> {
-    let client = AiClient::from_env().context("load Fireworks client from environment")?;
+    let client = AiClient::from_env().context("Lokalen Abo-Connector laden")?;
     let request = build_narration_request(ctx, client.config())?;
     let response = client
         .chat(&request)
-        .context("call Fireworks build narration")?;
+        .context("Build-Erklärung über das Abo anfordern")?;
     let text = extract_ai_text(&response);
     if text.trim().is_empty() {
-        return Err(anyhow!("empty Fireworks response"));
+        return Err(anyhow!("Die KI hat keine Build-Erklärung geliefert"));
     }
     Ok(text)
 }

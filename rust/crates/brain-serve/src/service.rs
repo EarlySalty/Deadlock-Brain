@@ -14,7 +14,10 @@ use axum::{
 use brain_contracts::{PortError, SnapshotReadPort};
 use brain_kernel::{CachedKernel, Kernel};
 use brain_policy::{CredentialRegistry, PolicyEngine};
-use brain_providers::{OpenAiCompatibleProvider, PriceCeiling, ProviderConfig};
+use brain_providers::{
+    codex::CodexSubscriptionProvider, OpenAiCompatibleProvider, PriceCeiling, ProviderConfig,
+    TextProvider,
+};
 use brain_storage::{LocalPgPoolStats, LocalPgReader};
 use dbrain_retrieval::ReleaseRetriever;
 use std::{
@@ -46,7 +49,7 @@ impl Shutdown {
 pub struct Prepared {
     pub config: Config,
     reader: LocalPgReader,
-    provider: OpenAiCompatibleProvider,
+    provider: TextProvider,
     credentials: CredentialRegistry,
     analytics: Option<Arc<AnalyticsRuntime>>,
     shutdown: Arc<Shutdown>,
@@ -102,7 +105,19 @@ impl Prepared {
             output_micros_per_token: price.output_micros_per_token,
         });
         let provider = match config.provider.kind {
-            ProviderKind::OpenaiCompatible => OpenAiCompatibleProvider::new(provider_config),
+            ProviderKind::OpenaiCompatible => {
+                OpenAiCompatibleProvider::new(provider_config).map(TextProvider::Api)
+            }
+            ProviderKind::CodexCli => Ok(TextProvider::Subscription(CodexSubscriptionProvider {
+                executable: config
+                    .provider
+                    .cli_path
+                    .clone()
+                    .ok_or(Error::ProviderConfig)?,
+                model: config.provider.model.clone(),
+                timeout: Duration::from_millis(t.provider_ms),
+                max_response_bytes: config.provider.max_response_bytes,
+            })),
         }
         .map_err(|_| Error::ProviderConfig)?;
         let analytics = config
