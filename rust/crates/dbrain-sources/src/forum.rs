@@ -1187,6 +1187,33 @@ mod scratch_regression_tests {
         )
         .await
         .is_err());
+        let retry_doc = store
+            .upsert_source_document(SourceDocumentInput {
+                source: SOURCE,
+                external_id: "thread:4",
+                title: Some("fixture"),
+                url: Some("https://forums.playdeadlock.com/threads/fixture.4/"),
+                content_type: "application/json",
+                raw_path: &raw,
+                content: b"fixture",
+                metadata: &json!({"complete":false}),
+            })
+            .await
+            .unwrap();
+        assert_eq!(retry_doc, doc);
+        assert!(
+            store_observed_snapshots(&store, &[manifest(vec![1]), post(1, "Fail")], retry_doc)
+                .await
+                .is_err()
+        );
+        let still_complete: bool = sqlx::query_scalar(
+            "SELECT metadata->>'complete'='true' FROM brain.source_documents WHERE id=$1",
+        )
+        .bind(doc)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        assert!(still_complete);
         crate::forum_corpus::publish_archive(pool, pool, "a", "after-failure")
             .await
             .unwrap();
