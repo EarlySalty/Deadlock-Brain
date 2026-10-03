@@ -107,6 +107,9 @@ impl InternalApiService {
         ) {
             Ok(context) => context,
             Err(PolicyError::BudgetExceeded) => return deadline_response(),
+            Err(PolicyError::StatePoisoned) => {
+                return json_error(503, "unavailable", "Interne Policy nicht verfügbar")
+            }
             Err(_) => return json_error(403, "forbidden", "Anfrage nicht intern freigegeben"),
         };
         let evidence = match self
@@ -120,6 +123,7 @@ impl InternalApiService {
                 Ok(evidence)
             }) {
             Ok(evidence) => evidence,
+            Err(brain_contracts::PortError::BudgetExceeded) => return deadline_response(),
             Err(_) => return json_error(503, "unavailable", "Interne Belege nicht verfügbar"),
         };
         if deadline.check().is_err() {
@@ -256,13 +260,41 @@ fn respond(response: ApiResponse) -> axum::response::Response {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use brain_contracts::{store::StoreResult, AuthorizedContext, Evidence, EvidenceKind, PortError};
+    use brain_contracts::{
+        store::StoreResult, AuthorizedContext, Evidence, EvidenceKind, PortError,
+    };
     use brain_policy::{AuthGrant, CredentialRegistry};
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     struct Fixture {
         revoked: Arc<AtomicBool>,
         reads: Arc<AtomicUsize>,
+    }
+
+    struct DeadlineFixture {
+        retrieval_budget: bool,
+        normal: Fixture,
+    }
+    impl RetrievalPort for DeadlineFixture {
+        fn retrieve(
+            &self,
+            query: &Query,
+            context: &AuthorizedContext,
+        ) -> StoreResult<Vec<Evidence>> {
+            if self.retrieval_budget {
+                return Err(PortError::BudgetExceeded);
+            }
+            self.normal.retrieve(query, context)
+        }
+        fn validate_evidence(
+            &self,
+            _: &Query,
+            _: &AuthorizedContext,
+            _: &[Evidence],
+            _: bool,
+        ) -> Result<(), PortError> {
+            Err(PortError::BudgetExceeded)
+        }
     }
     impl RetrievalPort for Fixture {
         fn retrieve(&self, _: &Query, context: &AuthorizedContext) -> StoreResult<Vec<Evidence>> {
@@ -373,6 +405,26 @@ mod tests {
         );
         revoked.store(true, Ordering::SeqCst);
         assert_eq!(call(&service, &query()).status, 503);
+    }
+
+    #[test]
+    fn budgets_der_suche_und_acl_nachpruefung_bleiben_deadlinefehler() {
+        for retrieval_budget in [true, false] {
+            let (mut service, revoked, reads) = service(
+                "second-brain",
+                "internal",
+                &["second_brain.internal"],
+                "internal-release-fixture",
+            );
+            service.retrieval = Arc::new(DeadlineFixture {
+                retrieval_budget,
+                normal: Fixture { revoked, reads },
+            });
+            let response = call(&service, &query());
+            assert_eq!(response.status, 504);
+            assert!(response.body.contains("deadline_exceeded"));
+            assert!(!response.body.contains("Erfundener lokaler Testausschnitt"));
+        }
     }
 
     #[test]

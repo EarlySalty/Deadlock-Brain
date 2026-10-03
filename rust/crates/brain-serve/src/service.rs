@@ -377,7 +377,7 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
     let (operator_stop, mut operator_notice) = tokio::sync::watch::channel(false);
     let mut socket_guard = None;
     let operator = if let Some(config) = &prepared.config.internal_operator {
-        let (listener, guard) = crate::operator_socket::bind(&config.socket)?;
+        let (listener, guard) = crate::operator_socket::bind(&config.socket).await?;
         socket_guard = Some(guard);
         let service = brain_api::internal::InternalApiService::new(
             PolicyEngine::with_ownership_store(

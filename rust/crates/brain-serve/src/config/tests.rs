@@ -260,7 +260,7 @@ fn c9_config() -> serde_json::Value {
 }
 
 #[test]
-fn c9_grants_sind_exakt_und_releasebindungen_werden_beim_neustart_geprueft() {
+fn c9_grants_und_konfigurierte_releasebindungen_sind_exakt() {
     let value = c9_config();
     assert!(parse(&value).is_ok());
     for (index, field, bad) in [

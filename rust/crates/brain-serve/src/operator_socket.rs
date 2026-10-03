@@ -1,7 +1,7 @@
 //! Der Operatorweg akzeptiert nur den freigegebenen lokalen Betriebssystembenutzer.
 use crate::Error;
 use std::{
-    os::unix::fs::{MetadataExt, PermissionsExt},
+    os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt},
     path::{Component, Path, PathBuf},
     time::Duration,
 };
@@ -59,9 +59,31 @@ fn parent_uid(path: &Path) -> Result<u32, Error> {
     Ok(uid)
 }
 
-pub(crate) fn bind(path: &Path) -> Result<(OperatorListener, SocketGuard), Error> {
+pub(crate) async fn bind(path: &Path) -> Result<(OperatorListener, SocketGuard), Error> {
     let uid = parent_uid(path)?;
-    // Vorhandene Sockets werden nie entfernt. Ein fremder oder alter Listener blockiert den Start.
+    match std::fs::symlink_metadata(path) {
+        Ok(previous) => {
+            if !previous.file_type().is_socket()
+                || previous.uid() != uid
+                || previous.mode() & 0o777 != 0o600
+            {
+                return Err(Error::ConfigInvalid("operator_socket"));
+            }
+            // Nur ein nachweislich verwaister eigener Socket darf den Neustart freigeben.
+            match tokio::time::timeout(Duration::from_millis(100), UnixStream::connect(path)).await
+            {
+                Ok(Err(error)) if error.kind() == std::io::ErrorKind::ConnectionRefused => {}
+                _ => return Err(Error::Bind),
+            }
+            let current = std::fs::symlink_metadata(path).map_err(|_| Error::Bind)?;
+            if current.dev() != previous.dev() || current.ino() != previous.ino() {
+                return Err(Error::Bind);
+            }
+            std::fs::remove_file(path).map_err(|_| Error::Bind)?;
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => return Err(Error::Bind),
+    }
     let listener = UnixListener::bind(path).map_err(|_| Error::Bind)?;
     let metadata = std::fs::symlink_metadata(path).map_err(|_| Error::Bind)?;
     let guard = SocketGuard {
@@ -108,11 +130,29 @@ mod tests {
     use axum::serve::Listener;
 
     #[tokio::test]
+    async fn verwaister_socket_erlaubt_neustart_aktive_und_fremde_pfade_bleiben_erhalten() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let path = directory.path().join("operator.sock");
+        let old = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        drop(old);
+        let (listener, guard) = bind(&path).await.unwrap();
+        let inode = std::fs::symlink_metadata(&path).unwrap().ino();
+        assert!(bind(&path).await.is_err());
+        assert_eq!(std::fs::symlink_metadata(&path).unwrap().ino(), inode);
+        drop(listener);
+        drop(guard);
+        std::fs::write(&path, b"Keine Socketdatei").unwrap();
+        assert!(bind(&path).await.is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"Keine Socketdatei");
+    }
+    #[tokio::test]
     async fn private_rechte_und_tatsaechliche_peer_uid_werden_geprueft() {
         let directory = tempfile::tempdir().unwrap();
         std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
         let path = directory.path().join("operator.sock");
-        let (mut listener, guard) = bind(&path).unwrap();
+        let (mut listener, guard) = bind(&path).await.unwrap();
         assert_eq!(std::fs::metadata(&path).unwrap().mode() & 0o777, 0o600);
         let client = UnixStream::connect(&path).await.unwrap();
         let (stream, _) = listener.accept().await;
@@ -125,11 +165,11 @@ mod tests {
                 .await
                 .is_err()
         );
-        assert!(bind(&path).is_err());
+        assert!(bind(&path).await.is_err());
         drop(listener);
         drop(guard);
         assert!(!path.exists());
         std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o750)).unwrap();
-        assert!(bind(&path).is_err());
+        assert!(bind(&path).await.is_err());
     }
 }
