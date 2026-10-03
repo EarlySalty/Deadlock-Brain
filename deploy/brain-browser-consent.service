@@ -9,9 +9,12 @@ Restart=on-failure
 RestartSec=10
 KillMode=control-group
 NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=read-only
+# Der Besitznachweis braucht die Host-Prozesssicht und den bestehenden X11-Zugang.
+PrivateUsers=no
+PrivateTmp=no
+ProtectSystem=no
+ProtectHome=no
+ProtectProc=default
 
 [Install]
 WantedBy=default.target
