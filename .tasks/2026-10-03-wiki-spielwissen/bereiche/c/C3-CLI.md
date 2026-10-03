@@ -1,6 +1,6 @@
 status: aktiv
 Datum: 2026-10-03
-Stand: 2026-10-03T15:39:31Z
+Stand: 2026-10-03T17:33:00Z
 
 # C3: CLI-Quellen und erste gemeinsame Prüfung
 
@@ -26,8 +26,16 @@ Nach API-403 und verlorenen Werkzeugfreigaben dieselbe Sitzung ohne Fork regulä
 
 /usr/bin/time ist nach tatsächlicher Werkzeugvorprobe nicht vorhanden. Vor den betreffenden Aufrufen wurde derselbe aktive eigene Wrapper auf vorhandene Node-Zeit-/VmHWM-Messung korrigiert, keine neue Task oder Installation. Aktiver Skriptdeskriptor und Pfad sind SHA-gleich: 7439f6373314fbdc1811e43fc3851dcb17ab629962c30ce629034f7eabc0a830. VmHWM ist beobachtet mit 2-ms-Abtastung, kein behaupteter exakter wait4-Peak.
 
-## Offene Nachweise
+## Regulärer Folgelauf bxzed33l5
 
-Zwei Reader-PG-Tests zeigen auf fremden festen Socket/Port 55447/Rolle brain_maintenance_test. Keine fremde Fixture oder Readerquelle während aktiver Prüfung ändern. Nach regulärem Ende eng auf den eigenen vorhandenen Scratchvertrag umstellen und wirklich prüfen, keinen Skip als Erfolg melden. Kein tatsächlicher Materialbudget- oder Numericbeweis aus bloßem Quellabschluss.
+Ursprünglicher Wrapper 2401768 trotz automatischer Agentmeldung stopped tatsächlich erhalten. Frühere ps -g-Probe prüfte die Sessionauswahl statt Prozessgruppe; direkte /proc-Prüfung korrigierte den Befund. Kein Doppelstart. Beide Hostlocks, blockierte Gegenproben und frische NonZombie-Proben belegt; fremde Compiler unverändert.
 
-Steam-Deploy nach nötiger D/B/C-Abnahme und Gate zuerst, nicht an kompletten A-Volllauf koppeln. Produktive Gesamtimporte, Wiederholung, Altbestand, kanonische Leserfragen, finale Gates, beide Deploys und Live bleiben offen. Kein Commit, Push, Releasebau oder Produktivimport durch diese Quellenphase.
+Alle 16 stdin-Formatierungen und 16 Formatchecks Exit 0. Runtimefeaturegraph Exit 0: serde_json 1.0.150 mit arbitrary_precision/default/raw_value/std, separater Procmacro-Hostgraph. Sechs-Pakete-Check/all-targets Exit 0, tatsächlicher Check-PID 3082881, 16,733098452 Sekunden. Clippy -D warnings Exit 101, PID 3085518, 33,507366342 Sekunden: unbenutztes BTreeSet in brain-knowledge-import.rs:14. Compiler meldet zusätzlich unbenutzte Produktionsimporte Digest/Sha256 in Zeile 11. Enger späterer Fix: BTreeSet entfernen, sha2 nur bei tatsächlicher Testverwendung importieren; keine Lintunterdrückung. Noch nicht umgesetzt.
+
+Parent bestätigt echten Endmarker C3_EXIT=101 LOCK_FDS_CLOSED, leere eigene PGID 2401768, keine PG-/initdb-/Suites-Logs. Node-Meter bestätigt beide tatsächlichen Childexits. Formatfreeze 389 Dateien, SHA eee298261b076a013d9e01811c4fe55c332482d96130e3970da07ce80fbd860d; exakt zwei erlaubte Readerformatierungen, danach keine Änderung. Vollogs /tmp/brain-c3-cli-check.trDu7q. Kein Testlauf, keine PG-/Reader-/Großzeilen-/Indexresultate; 0 passed und 0 ignored sind kein Grünbeweis oder Baseline.
+
+## Offene Nachweise und Reihenfolge
+
+Reader-Typfehler und beide falschen neuen PG-Fixtures am selben Reader-Owner korrigiert; private Fixture BRAIN_CORE_TEST_PG_SOCKET/55439/brain_core_test mit echter Identitätsprüfung. Tests noch nicht ausgeführt. A-Eigencommit 116f643a unabhängig abgenommen, vier neue Wiki-Module; noch nicht integriert und kein Eingriff in lebenden Freeze.
+
+Punkt 55 vollständig gelesen und an vorhandenen CLI-Owner weitergegeben. Coaching bereits Main/live, keine Coaching-Wartebedingung. Nach bestehendem Prüfende keine neue eigene Schleife, A-Integration oder Releaseprüfung vor abgeschlossenem Launcher ae490cd9 und anschließendem Root-vermitteltem Relay-/Streamstatistikabgleich. Steam-Cutover zurückgestellt. Kein neuer Worker, Sourcefix, Testlauf, Gate, Releasebau oder Produktiveingriff nach diesem Ende. Gesamtimporte, Wiederholung, Altbestand, kanonischer Reader, Releases, Live und Cleanup bleiben offen.

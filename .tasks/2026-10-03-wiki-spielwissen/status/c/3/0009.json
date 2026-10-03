@@ -1,0 +1,28 @@
+{
+  "auftrag": "2026-10-03-wiki-spielwissen",
+  "paket": "c",
+  "versuch": 3,
+  "sequenz": 9,
+  "zeit": "2026-10-03T17:06:55Z",
+  "produzent": "teil-c",
+  "phase": "wartet",
+  "gebaut": "nein",
+  "reviewt": "nein",
+  "gemergt": "nein",
+  "live": "nein",
+  "sha": "f7a03f9aa4c62f0a05814de487cd8ec92b0cb6ea",
+  "nachweise": [
+    "Korrektur des vorherigen Prozessbefunds: ps -g prüfte hier die Sessionauswahl statt Prozessgruppe. Direkte /proc-Prüfung bestätigt weiterhin den ursprünglichen Wrapper 2401768, Startticks 117955302, und einziges flock-Kind 2401771.",
+    "Task bxzed33l5 wartet weiterhin vor erster Hostsperre. FD 8 vorhanden, FD 9 fehlt; stdout/stderr zeigen auf ursprüngliche Taskausgabe, FD 255 dieselbe Wrapperdatei. Logverzeichnis leer, kein Compiler- oder PG-Start. Automatische Agentmeldung stopped war kein Shell-Endbeweis.",
+    "Derselbe CLI-Owner a48b3e3dfac497915 wurde zur Übernahme des tatsächlich bestehenden Laufs fortgesetzt. Kein neuer Wrapper, Thread, Compiler oder Sourcefix.",
+    "389 Dateibindungen geprüft: keine unerwarteten Änderungen gegenüber erstem formatiertem Freeze plus zwei freigegebenen Reader-SHAs.",
+    "Wrapper initdb/pg_ctl start/stop schließen Lock-FDs 8/9 ausdrücklich. Keine eigene Scratch-PG-PID-Datei vorhanden. Beide Hostlocks, frische NonZombie-Probe und maximal zwei Jobs bleiben verbindlich.",
+    "Steam-Schnittstellenabgleich über Root mit Z vor Release beauftragt. Keine konkurrierenden Current-/Appwechsel, fremde Aufgaben unangetastet."
+  ],
+  "blocker": [
+    "Tatsächliche gemeinsame Folgeprüfresultate und reguläres Ende noch offen; stabilen vorhandenen Prüfer erhalten.",
+    "D-Eigencommit, gemeinsame D/B/C-Abnahme/Gate und erster Steam-Deploy/Download/Depotextraktion fehlen.",
+    "A-Gesamtabnahme und Modulcommit sowie produktive Gesamtimporte, Wiederholung, Altbestand, kanonischer Reader, Releases, Live und Cleanup bleiben offen."
+  ],
+  "naechster_schritt": "Denselben tatsächlich bestehenden Lauf bis zu Einzel- und Endmarkern nachhalten, geeignete Steam-Eigenanteile vor Cutover über Root abgleichen und den vollständigen Auftrag weiterführen."
+}
