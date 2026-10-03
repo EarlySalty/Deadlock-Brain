@@ -9,7 +9,7 @@ Restart=on-failure
 RestartSec=10
 KillMode=control-group
 NoNewPrivileges=true
-# Der Besitznachweis braucht die Host-Prozesssicht und den bestehenden X11-Zugang.
+# Der Besitznachweis braucht die Host-Prozesssicht und den lokalen AT-SPI-Bus.
 PrivateUsers=no
 PrivateTmp=no
 ProtectSystem=no
