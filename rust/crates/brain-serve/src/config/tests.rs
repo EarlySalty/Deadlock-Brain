@@ -44,6 +44,10 @@ fn c9_releasebindung_ist_explizit_und_widersprueche_scheitern() {
             .id,
         "docs-r1"
     );
+    let pilot = parse(&value).unwrap();
+    assert_eq!(pilot.credentials[0].actor_id, "pilot-client");
+    assert!(pilot.credentials[0].scopes.contains("docs.public"));
+    assert!(pilot.credentials[0].c9_bound_scope().is_none());
     for invalid in [
         json!({"id":"current","knowledge_version":"docs-v1"}),
         json!({"id":"docs-r1"}),
@@ -263,6 +267,12 @@ fn c9_config() -> serde_json::Value {
 fn c9_grants_und_konfigurierte_releasebindungen_sind_exakt() {
     let value = c9_config();
     assert!(parse(&value).is_ok());
+    let config = parse(&value).unwrap();
+    assert_eq!(config.credentials[1].c9_bound_scope(), Some("docs.public"));
+    assert_eq!(
+        config.internal_operator.as_ref().unwrap().credential.c9_bound_scope(),
+        Some("second_brain.internal")
+    );
     for (index, field, bad) in [
         (1, "actor_id", json!("second-brain")),
         (1, "channel", json!("twitch")),

@@ -154,13 +154,7 @@ async fn initialize(prepared: &Prepared) -> Result<Arc<Health>, Error> {
             credential.release.clone().map(|release| {
                 (
                     release,
-                    credential
-                        .scopes
-                        .iter()
-                        .find(|scope| {
-                            ["docs.public", "second_brain.internal"].contains(&scope.as_str())
-                        })
-                        .cloned(),
+                    credential.c9_bound_scope().map(str::to_owned),
                 )
             })
         })
@@ -227,12 +221,8 @@ async fn initialize(prepared: &Prepared) -> Result<Arc<Health>, Error> {
             .filter_map(|credential| {
                 credential.release.as_ref().and_then(|release| {
                     credential
-                        .scopes
-                        .iter()
-                        .find(|scope| {
-                            ["docs.public", "second_brain.internal"].contains(&scope.as_str())
-                        })
-                        .map(|scope| (release.id.clone(), scope.clone()))
+                        .c9_bound_scope()
+                        .map(|scope| (release.id.clone(), scope.to_owned()))
                 })
             })
             .collect(),

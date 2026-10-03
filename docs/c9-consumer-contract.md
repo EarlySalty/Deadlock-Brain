@@ -16,7 +16,7 @@ Die normale Serverkonfiguration bindet authentifizierte Principals an feste Rele
 
 ## Interner Operatorweg
 
-`/v1/operator/query` wird ausschließlich an einem absoluten privaten Unixsocket registriert. Das Verzeichnis muss dem freigegebenen lokalen Benutzer gehören und Modus `0700` haben; der Socket hat `0600`. Der Listener prüft die tatsächliche Peer-UID über `SO_PEERCRED`. Vorhandene Socketpfade blockieren den Start. Der Client prüft Besitzer und Rechte erneut vor jeder Anfrage.
+`/v1/operator/query` wird ausschließlich an einem absoluten privaten Unixsocket registriert. Das Verzeichnis muss dem freigegebenen lokalen Benutzer gehören und Modus `0700` haben; der Socket hat `0600`. Der Listener prüft die tatsächliche Peer-UID über `SO_PEERCRED`. Aktive Listener und fremde Pfade blockieren den Start. Ein eigener verwaister Socket mit `0600` darf nach begrenzter Verbindungsprobe mit `ConnectionRefused` und erneuter Prüfung seiner unveränderten Inode ersetzt werden. Der Client prüft Besitzer und Rechte erneut vor jeder Anfrage.
 
 Die öffentliche CredentialRegistry enthält die interne Credential nicht. Die öffentlichen Answer- und Retrievalwege verweigern die C9-interne Identität zusätzlich. Der öffentliche Router besitzt keine Operatorroute; eine Weiterleitung auf seinen TCP-Port kann den internen Weg deshalb nicht erreichen.
 

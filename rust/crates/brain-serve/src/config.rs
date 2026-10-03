@@ -159,6 +159,17 @@ pub struct Credential {
     pub release: Option<Release>,
 }
 
+impl Credential {
+    /// Quellenbindung der bestätigten C9-Identitäten, unabhängig von anderen Scope-Trägern.
+    pub(crate) fn c9_bound_scope(&self) -> Option<&'static str> {
+        match (self.actor_id.as_str(), self.channel.as_str()) {
+            ("docs-client", "docs") => Some("docs.public"),
+            ("second-brain", "internal") => Some("second_brain.internal"),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct InternalOperator {
