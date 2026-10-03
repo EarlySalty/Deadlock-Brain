@@ -45,6 +45,23 @@ pub(super) fn command(text: &str) -> Option<AccessInviteCommand> {
             return Some(if cancel {AccessInviteCommand::Cancel{action_id}} else {AccessInviteCommand::Status{action_id}});
         }
     }
+    if matches!(lower.trim_end_matches(['?','.','!']),"kann mich jemand einladen"|"ich möchte eine deadlock-einladung") {
+        return Some(AccessInviteCommand::AwaitCode);
+    }
+    None
+}
+
+pub(super) fn code(text:&str)->Option<AccessInviteCommand> {
+    let trimmed=text.trim();
+    let lower=trimmed.to_lowercase();
+    for prefix in ["mein freundescode:","freundescode:"] {
+        if lower.starts_with(prefix) {
+            let friend_code=trimmed.get(prefix.len()..)?.trim();
+            if friend_code.split_whitespace().count()==1 {
+                return Some(AccessInviteCommand::Request{friend_code:friend_code.into()});
+            }
+        }
+    }
     None
 }
 
@@ -53,11 +70,11 @@ impl GuideRuntime {
         &self, turn:&GuideTurn, epoch:i64, command:AccessInviteCommand,
         deadline:&RequestDeadline,
     )->Result<GuideResult,PortError> {
-        let conversation=GuideConversation {
+        let mut conversation=GuideConversation {
             id:turn.conversation_id.clone().unwrap_or_else(||format!("guide:{}",hex_action(turn))),
             channel_id:turn.channel_id.clone(),thread_id:turn.thread_id.clone(),user_id:turn.user_id.clone(),
             surface:turn.surface,last_user_message_id:turn.message_id.clone(),last_bot_message_id:None,
-            expires_at:now()+self.config.conversation_inactivity_seconds,closed:false,
+            expires_at:now()+self.config.conversation_inactivity_seconds,closed:false,pending_access_invite:false,
         };
         if !self.config.access_invites_enabled || !command.valid()
             || (turn.surface == Surface::Public &&
@@ -69,6 +86,13 @@ impl GuideRuntime {
             return Ok(result);
         }
         match command {
+            AccessInviteCommand::AwaitCode=>{
+                conversation.pending_access_invite=true;
+                if !self.reader.guide_finish(turn,epoch,Some(&conversation),&[],None,deadline)? {return Ok(GuideResult::silent(&turn.request_id));}
+                let mut result=GuideResult::reply(&turn.request_id,"Schick mir deinen eigenen Steam-Freundescode als „Mein Freundescode: …“, dann kann ich die Einladung für dich anstoßen.".into());
+                result.conversation_id=Some(conversation.id);
+                Ok(result)
+            }
             AccessInviteCommand::Request{friend_code}=>{
                 let base=self.config.steam_service_url.as_deref().ok_or_else(|| PortError::InvalidResponse("Einladungsdienst fehlt".into()))?;
                 let token=self.peer_token.as_deref().ok_or_else(|| PortError::PermissionDenied("Einladungszugang fehlt".into()))?;
@@ -135,6 +159,10 @@ mod tests {
     #[test]
     fn nur_konkreter_eigener_auftrag_erzeugt_eine_einladung() {
         assert!(matches!(command("Bitte lade mich ein: ABCD"),Some(AccessInviteCommand::Request{friend_code}) if friend_code=="ABCD"));
+        assert!(matches!(command("Kann mich jemand einladen?"),Some(AccessInviteCommand::AwaitCode)));
+        assert!(matches!(code("Mein Freundescode: ABCD"),Some(AccessInviteCommand::Request{friend_code}) if friend_code=="ABCD"));
+        assert!(code("ABCD").is_none());
+        assert!(code("Mein Freundescode: ABCD für jemand anderen").is_none());
         assert!(matches!(command("Kann mich jemand einladen? Mein Freundescode: ABCD"),Some(AccessInviteCommand::Request{..})));
         for text in ["Lade ihn ein ABCD", "Bitte lade mich nicht ein: ABCD", "Bitte lade mich ein: ABCD für jemand anderen", "Hat jemand einen Code?"] {
             assert!(command(text).is_none());

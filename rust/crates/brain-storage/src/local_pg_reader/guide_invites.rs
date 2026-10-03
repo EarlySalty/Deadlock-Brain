@@ -21,7 +21,7 @@ impl LocalPgReader {
             || conversation.last_user_message_id != turn.message_id {
             return Err(invalid("Einladungsunterhaltung stimmt nicht mit dem Auftrag überein"));
         }
-        if !(1..=3600).contains(&ttl) || target <= 0 { return Err(invalid("Ungültiger Einladungsauftrag")); }
+        if !(1..=86400).contains(&ttl) || target <= 0 { return Err(invalid("Ungültiger Einladungsauftrag")); }
         let actor: i64 = turn.user_id.parse().map_err(|_| invalid("Ungültiges Mitglied"))?;
         let guild: i64 = turn.guild_id.parse().map_err(|_| invalid("Ungültiger Server"))?;
         let channel: i64 = turn.channel_id.parse().map_err(|_| invalid("Ungültiger Kanal"))?;

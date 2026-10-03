@@ -112,6 +112,7 @@ impl GuideTurn {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AccessInviteCommand {
+    AwaitCode,
     Request { friend_code: String },
     Status { action_id: String },
     Cancel { action_id: String },
@@ -119,6 +120,7 @@ pub enum AccessInviteCommand {
 impl AccessInviteCommand {
     pub fn valid(&self) -> bool {
         match self {
+            Self::AwaitCode => true,
             Self::Request { friend_code } => !friend_code.trim().is_empty()
                 && friend_code.len() <= 32
                 && !friend_code.chars().any(char::is_control),
@@ -316,6 +318,8 @@ pub struct GuideConversation {
     pub last_bot_message_id: Option<String>,
     pub expires_at: i64,
     pub closed: bool,
+    #[serde(default)]
+    pub pending_access_invite: bool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

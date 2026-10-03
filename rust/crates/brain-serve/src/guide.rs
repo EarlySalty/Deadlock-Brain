@@ -163,7 +163,8 @@ impl GuideRuntime {
         if turn.human_helped && matches!(turn.addressed, Addressed::Followup | Addressed::CommunityQuestion) {
             return Ok(GuideResult::silent(&turn.request_id));
         }
-        if let Some(command) = turn.access_invite.clone().or_else(|| invites::command(&turn.content)) {
+        if let Some(command) = turn.access_invite.clone().or_else(|| invites::command(&turn.content))
+            .or_else(|| snapshot.conversation.as_ref().filter(|conversation|conversation.pending_access_invite).and_then(|_|invites::code(&turn.content))) {
             return self.access_invite(&turn, snapshot.profile.epoch, command, &deadline);
         }
         if let Some(control) = turn
@@ -286,6 +287,7 @@ impl GuideRuntime {
                 last_bot_message_id: None,
                 expires_at: expires,
                 closed: false,
+            pending_access_invite: false,
             };
             if !self.reader.guide_finish(
                 &turn,
@@ -388,6 +390,7 @@ impl GuideRuntime {
             last_bot_message_id: None,
             expires_at: expires,
             closed: is_closing(&turn.content),
+            pending_access_invite: false,
         };
         let mut updated_history = history;
         if turn.surface == Surface::Dm && snapshot.profile.memory_enabled {
@@ -993,6 +996,7 @@ mod tests {
             last_bot_message_id: Some("398".into()),
             expires_at: 100,
             closed: false,
+            pending_access_invite: false,
         };
         assert!(addressed(&turn, Some(&conv), 50));
         turn.user_id = "201".into();

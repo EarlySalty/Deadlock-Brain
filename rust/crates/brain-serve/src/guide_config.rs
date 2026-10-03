@@ -89,7 +89,7 @@ impl GuideConfig {
                 self.guild_id == "1289721245281292288" && channel == "1426220702054355077"
                 && self.approved_discord_channels.contains(channel))
             && (!self.access_invites_enabled ||
-                (self.access_invite_ttl_seconds.is_some_and(|ttl| (1..=3600).contains(&ttl))
+                (self.access_invite_ttl_seconds.is_some_and(|ttl| (1..=86400).contains(&ttl))
                 && self.steam_service_url.as_ref().is_some_and(|url|
                     reqwest::Url::parse(url).is_ok_and(|parsed|
                         parsed.scheme() == "http" && parsed.host_str() == Some("127.0.0.1")

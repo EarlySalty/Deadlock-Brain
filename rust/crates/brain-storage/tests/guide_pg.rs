@@ -539,6 +539,7 @@ fn sequence_checks(reader: &LocalPgReader, sql: &mut postgres::Client) {
         last_bot_message_id: None,
         expires_at: 1900,
         closed: false,
+            pending_access_invite: false,
     };
     assert!(reader
         .guide_finish(
@@ -676,7 +677,7 @@ fn invite_checks(reader:&LocalPgReader, sql:&mut postgres::Client) {
     let mut original=turn("invite-original",Surface::Dm);
     original.user_id="230".into();
     let profile=reader.guide_claim(&original,&deadline(),1300,false).expect("Einladungsclaim fehlt").expect("Einladungsclaim verworfen").profile;
-    let conversation=GuideConversation{id:"invite-conversation".into(),channel_id:original.channel_id.clone(),thread_id:None,user_id:original.user_id.clone(),surface:original.surface,last_user_message_id:original.message_id.clone(),last_bot_message_id:None,expires_at:1400,closed:false};
+    let conversation=GuideConversation{id:"invite-conversation".into(),channel_id:original.channel_id.clone(),thread_id:None,user_id:original.user_id.clone(),surface:original.surface,last_user_message_id:original.message_id.clone(),last_bot_message_id:None,expires_at:1400,closed:false,pending_access_invite:false};
     let requested=GuideInviteGrant{action_id:"invite:test".into(),target:76561197960265729,ttl_seconds:60,conversation};
     let grant=reader.guide_create_invite_grant(&original,profile.epoch,&requested,&deadline()).expect("Grantanlage fehlgeschlagen").expect("Grant verworfen");
     assert_eq!(grant.turn_id,original.request_id);
@@ -699,12 +700,26 @@ fn invite_checks(reader:&LocalPgReader, sql:&mut postgres::Client) {
     assert!(sql.execute("UPDATE brain.guide_action_grants SET privacy_epoch=privacy_epoch+1 WHERE action_id='invite:test'",&[]).is_err());
     let mut public=turn("invite-public-original",Surface::Public);public.user_id="232".into();
     let profile=reader.guide_claim(&public,&deadline(),1300,false).expect("Öffentlicher Claim fehlt").expect("Öffentlicher Claim verworfen").profile;
-    let conversation=GuideConversation{id:"invite-public-conversation".into(),channel_id:public.channel_id.clone(),thread_id:None,user_id:public.user_id.clone(),surface:Surface::Public,last_user_message_id:public.message_id.clone(),last_bot_message_id:None,expires_at:1400,closed:false};
+    let conversation=GuideConversation{id:"invite-public-conversation".into(),channel_id:public.channel_id.clone(),thread_id:None,user_id:public.user_id.clone(),surface:Surface::Public,last_user_message_id:public.message_id.clone(),last_bot_message_id:None,expires_at:1400,closed:false,pending_access_invite:false};
     reader.guide_create_invite_grant(&public,profile.epoch,&GuideInviteGrant{action_id:"invite:public".into(),target:76561197960265730,ttl_seconds:60,conversation:conversation.clone()},&deadline()).expect("Öffentlicher Grant fehlt").expect("Öffentlicher Grant verworfen");
-    assert_eq!(reader.guide_action_result(&ActionResult{request_id:"invite-public-original:reply".into(),guild_id:public.guild_id.clone(),user_id:public.user_id.clone(),delivery_id:"reply:invite-public-conversation".into(),success:true,reply_message_id:Some("500".into())},&deadline()).expect("Antwortzuordnung fehlgeschlagen"),Some(profile.epoch));
+    assert_eq!(reader.guide_action_result(&ActionResult{request_id:"invite-public-original:reply".into(),guild_id:public.guild_id.clone(),user_id:public.user_id.clone(),delivery_id:"reply:invite-public-conversation".into(),success:true,reply_message_id:Some("500".into()),sent_message_id:None},&deadline()).expect("Antwortzuordnung fehlgeschlagen"),Some(profile.epoch));
     public.request_id="invite-public-followup".into();public.message_id="501".into();public.reply_to_message_id=Some("500".into());public.addressed=Addressed::Reply;public.conversation_id=Some(conversation.id.clone());
     let continued=reader.guide_claim(&public,&deadline(),1301,false).expect("Öffentlicher Folgeclaim fehlt").expect("Öffentlicher Folgeclaim verworfen");
     assert_eq!(continued.conversation.expect("Einladungsunterhaltung fehlt").last_bot_message_id,Some("500".into()));
     sql.execute("UPDATE brain.guide_action_grants SET friend_dispatch_reserved=true WHERE action_id='invite:public'",&[]).expect("Synthetische Reservierung fehlgeschlagen");
     assert!(sql.execute("UPDATE brain.guide_action_grants SET friend_dispatch_reserved=false WHERE action_id='invite:public'",&[]).is_err());
+    let mut awaiting=turn("invite-await-code",Surface::Public);awaiting.user_id="233".into();
+    let snapshot=reader.guide_claim(&awaiting,&deadline(),1300,false).expect("Codeanforderungsclaim fehlt").expect("Codeanforderungsclaim verworfen");
+    let pending=GuideConversation{id:"invite-await-conversation".into(),channel_id:awaiting.channel_id.clone(),thread_id:None,user_id:awaiting.user_id.clone(),surface:Surface::Public,last_user_message_id:awaiting.message_id.clone(),last_bot_message_id:None,expires_at:1400,closed:false,pending_access_invite:true};
+    assert!(reader.guide_finish(&awaiting,snapshot.profile.epoch,Some(&pending),&[],None,&deadline()).expect("Codeanforderung nicht abgeschlossen"));
+    let mut other=awaiting.clone();other.user_id="234".into();other.request_id="invite-foreign-code".into();other.conversation_id=Some(pending.id.clone());
+    assert!(reader.guide_claim(&other,&deadline(),1301,false).expect("Fremdclaim fehlt").expect("Fremdclaim verworfen").conversation.is_none());
+    awaiting.request_id="invite-code-followup".into();awaiting.message_id="402".into();awaiting.addressed=Addressed::Followup;awaiting.conversation_id=Some(pending.id.clone());
+    let follow=reader.guide_claim(&awaiting,&deadline(),1301,false).expect("Codefolgeclaim fehlt").expect("Codefolgeclaim verworfen");
+    assert!(follow.conversation.expect("Codeanforderung verloren").pending_access_invite);
+    let mut done=pending.clone();done.closed=true;done.pending_access_invite=false;done.last_user_message_id=awaiting.message_id.clone();
+    assert!(reader.guide_finish(&awaiting,follow.profile.epoch,Some(&done),&[],None,&deadline()).expect("Abschluss nicht gespeichert"));
+    awaiting.request_id="invite-after-close".into();
+    assert!(reader.guide_claim(&awaiting,&deadline(),1302,false).expect("Abschlussclaim fehlt").expect("Abschlussclaim verworfen").conversation.expect("Abschlusszustand fehlt").closed);
+
 }
