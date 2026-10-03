@@ -51,7 +51,7 @@ impl LocalPgReader {
 
     pub fn check_guide_schema(&self) -> Result<(), PortError> {
         let mut client = self.pool.acquire()?;
-        client.query_schema("SELECT s.guild_id,s.user_id,s.epoch,s.min_event_id,s.profile_json,s.history_json,c.request_id,o.delivery_id,o.expires_at,v.version FROM brain.guide_subjects s,brain.guide_turn_claims c,brain.guide_feedback_outbox o,brain.guide_schema_version v LIMIT 0")?;
+        client.query_schema("SELECT s.guild_id,s.user_id,s.epoch,s.min_event_id,s.turn_sequence,s.legacy_import_eligible,s.profile_json,s.history_json,c.request_id,c.turn_sequence,c.subject_epoch,c.reply_message_id,c.conversation_id,o.delivery_id,o.expires_at,v.version,k.latest_request_id FROM brain.guide_subjects s,brain.guide_turn_claims c,brain.guide_feedback_outbox o,brain.guide_schema_version v,brain.guide_conversations k LIMIT 0")?;
         let row = client.query_one("SELECT version FROM brain.guide_schema_version", &[])?;
         if row.get::<_, i32>(0) != 1 {
             return Err(invalid("Serverguide-Schema ist nicht kompatibel"));
@@ -120,6 +120,8 @@ impl LocalPgReader {
             tx.commit()?;
             return Ok(None);
         }
+        let sequence: i64 = tx.query_one("UPDATE brain.guide_subjects SET turn_sequence=turn_sequence+1,legacy_import_eligible=false WHERE guild_id=$1 AND user_id=$2 RETURNING turn_sequence", &[&turn.guild_id,&turn.user_id])?.get(0);
+        tx.execute("UPDATE brain.guide_turn_claims SET turn_sequence=$4,subject_epoch=$5 WHERE guild_id=$1 AND user_id=$2 AND request_id=$3", &[&turn.guild_id,&turn.user_id,&turn.request_id,&sequence,&profile.epoch])?;
         let mut history = vec![];
         // Öffentliche Züge lesen weder Profildaten noch DM-Verlauf, auch bei gleichem Mitglied.
         if turn.surface == Surface::Dm
@@ -165,7 +167,14 @@ impl LocalPgReader {
             .parse::<i64>()
             .map_err(|_| invalid("Mitgliedskennung ist ungültig"))?;
         tx.query_one("SELECT pg_advisory_xact_lock($1)", &[&(uid ^ i64::MIN)])?;
-        let row=tx.query_one("SELECT epoch,memory_enabled,contact_enabled,globally_opted_out,deleted,profile_json FROM brain.guide_subjects WHERE guild_id=$1 AND user_id=$2 FOR UPDATE", &[&turn.guild_id,&turn.user_id])?;
+        let row=tx.query_one("SELECT epoch,memory_enabled,contact_enabled,globally_opted_out,deleted,profile_json,turn_sequence FROM brain.guide_subjects WHERE guild_id=$1 AND user_id=$2 FOR UPDATE", &[&turn.guild_id,&turn.user_id])?;
+        let interrupt = matches!(control, ProfileControl::Forget | ProfileControl::Memory { enabled: false });
+        let current_sequence: i64 = row.get(6);
+        let current_epoch: i64 = row.get(0);
+        let correlated = tx.query_opt("SELECT turn_sequence FROM brain.guide_turn_claims WHERE guild_id=$1 AND user_id=$2 AND request_id=$3 AND state='claimed' AND subject_epoch=$4", &[&turn.guild_id,&turn.user_id,&turn.request_id,&current_epoch])?;
+        if correlated.is_none_or(|claim| !interrupt && claim.get::<_,i64>(0) != current_sequence) {
+            return Err(PortError::PermissionDenied("Diese Datenschutzaktion ist nicht mehr aktuell. Bitte starte sie erneut.".into()));
+        }
         let mut profile = ProfileSnapshot {
             epoch: row.get(0),
             memory_enabled: row.get(1),
@@ -244,6 +253,7 @@ impl LocalPgReader {
                 tx.execute("UPDATE brain.guide_feedback_outbox SET text=NULL,state='failed' WHERE guild_id=$1 AND user_id=$2 AND state='pending'", &[&turn.guild_id,&turn.user_id])?;
             }
         }
+        tx.execute("UPDATE brain.guide_turn_claims SET state='finished',subject_epoch=$4,turn_sequence=$5 WHERE guild_id=$1 AND user_id=$2 AND request_id=$3", &[&turn.guild_id,&turn.user_id,&turn.request_id,&profile.epoch,&current_sequence])?;
         tx.commit()?;
         Ok(profile)
     }
@@ -263,8 +273,10 @@ impl LocalPgReader {
             .parse::<i64>()
             .map_err(|_| invalid("Mitgliedskennung ist ungültig"))?;
         tx.query_one("SELECT pg_advisory_xact_lock($1)", &[&(uid ^ i64::MIN)])?;
-        let row=tx.query_one("SELECT epoch,memory_enabled,globally_opted_out,deleted FROM brain.guide_subjects WHERE guild_id=$1 AND user_id=$2 FOR UPDATE", &[&turn.guild_id,&turn.user_id])?;
-        if row.get::<_, i64>(0) != epoch {
+        let row=tx.query_one("SELECT epoch,memory_enabled,globally_opted_out,deleted,turn_sequence FROM brain.guide_subjects WHERE guild_id=$1 AND user_id=$2 FOR UPDATE", &[&turn.guild_id,&turn.user_id])?;
+        let sequence: i64 = row.get(4);
+        let current_claim = tx.query_opt("SELECT request_id FROM brain.guide_turn_claims WHERE guild_id=$1 AND user_id=$2 AND request_id=$3 AND state='claimed' AND subject_epoch=$4 AND turn_sequence=$5", &[&turn.guild_id,&turn.user_id,&turn.request_id,&epoch,&sequence])?;
+        if row.get::<_, i64>(0) != epoch || current_claim.is_none() {
             tx.commit()?;
             return Ok(false);
         }
@@ -287,7 +299,8 @@ impl LocalPgReader {
         if let Some(conv) = conversation.filter(|_| !row.get::<_, bool>(3)) {
             let json =
                 serde_json::to_value(conv).map_err(|_| invalid("Unterhaltung ist ungültig"))?;
-            tx.execute("INSERT INTO brain.guide_conversations(guild_id,user_id,conversation_id,surface,state_json,expires_at) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(guild_id,user_id,conversation_id) DO UPDATE SET state_json=EXCLUDED.state_json,expires_at=EXCLUDED.expires_at", &[&turn.guild_id,&turn.user_id,&conv.id,&if conv.surface==Surface::Dm{"dm"}else{"public"},&json,&conv.expires_at])?;
+            tx.execute("INSERT INTO brain.guide_conversations(guild_id,user_id,conversation_id,surface,state_json,expires_at,latest_request_id) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(guild_id,user_id,conversation_id) DO UPDATE SET state_json=EXCLUDED.state_json,expires_at=EXCLUDED.expires_at,latest_request_id=EXCLUDED.latest_request_id", &[&turn.guild_id,&turn.user_id,&conv.id,&if conv.surface==Surface::Dm{"dm"}else{"public"},&json,&conv.expires_at,&turn.request_id])?;
+            tx.execute("UPDATE brain.guide_turn_claims SET conversation_id=$4 WHERE guild_id=$1 AND user_id=$2 AND request_id=$3", &[&turn.guild_id,&turn.user_id,&turn.request_id,&conv.id])?;
         }
         if let Some((id, destination, text)) = feedback {
             tx.execute("INSERT INTO brain.guide_feedback_outbox(guild_id,user_id,delivery_id,destination_channel_id,text,state) VALUES($1,$2,$3,$4,$5,'pending') ON CONFLICT DO NOTHING", &[&turn.guild_id,&turn.user_id,&id,&destination,&text])?;
@@ -308,19 +321,23 @@ impl LocalPgReader {
             .parse::<i64>()
             .map_err(|_| invalid("Mitgliedskennung ist ungültig"))?;
         tx.query_one("SELECT pg_advisory_xact_lock($1)", &[&(uid ^ i64::MIN)])?;
-        let Some(subject) = tx.query_opt("SELECT epoch,deleted FROM brain.guide_subjects WHERE guild_id=$1 AND user_id=$2 FOR UPDATE", &[&action.guild_id,&action.user_id])? else {tx.commit()?;return Ok(None);};
+        let Some(subject) = tx.query_opt("SELECT epoch,deleted,turn_sequence FROM brain.guide_subjects WHERE guild_id=$1 AND user_id=$2 FOR UPDATE", &[&action.guild_id,&action.user_id])? else {tx.commit()?;return Ok(None);};
         let epoch: i64 = subject.get(0);
         if subject.get::<_, bool>(1) {
             tx.commit()?;
             return Ok(None);
         }
         if let Some(conversation) = action.delivery_id.strip_prefix("reply:") {
+            let Some(request) = action.request_id.strip_suffix(":reply") else {tx.commit()?;return Ok(None);};
             if action.success {
                 let bot_message = action
                     .reply_message_id
                     .as_ref()
                     .ok_or_else(|| invalid("Antwortnachweis fehlt"))?;
-                let row=tx.query_opt("SELECT state_json FROM brain.guide_conversations WHERE guild_id=$1 AND user_id=$2 AND conversation_id=$3 FOR UPDATE", &[&action.guild_id,&action.user_id,&conversation])?;
+                let sequence: i64 = subject.get(2);
+                let accepted = tx.execute("UPDATE brain.guide_turn_claims SET reply_message_id=$7 WHERE guild_id=$1 AND user_id=$2 AND request_id=$3 AND subject_epoch=$4 AND turn_sequence=$5 AND conversation_id=$6 AND state='finished' AND reply_message_id IS NULL AND EXISTS(SELECT 1 FROM brain.guide_conversations v WHERE v.guild_id=$1 AND v.user_id=$2 AND v.conversation_id=$6 AND v.latest_request_id=$3)", &[&action.guild_id,&action.user_id,&request,&epoch,&sequence,&conversation,&bot_message])?;
+                if accepted == 0 {tx.commit()?;return Ok(None);}
+                let row=tx.query_opt("SELECT state_json FROM brain.guide_conversations WHERE guild_id=$1 AND user_id=$2 AND conversation_id=$3 AND latest_request_id=$4 FOR UPDATE", &[&action.guild_id,&action.user_id,&conversation,&request])?;
                 if let Some(row) = row {
                     let mut conv: GuideConversation =
                         serde_json::from_value(row.get::<_, Value>(0))

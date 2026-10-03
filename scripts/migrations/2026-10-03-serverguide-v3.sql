@@ -1,0 +1,10 @@
+BEGIN;
+ALTER TABLE brain.guide_subjects ADD COLUMN IF NOT EXISTS turn_sequence BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE brain.guide_subjects ADD COLUMN IF NOT EXISTS legacy_import_eligible BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE brain.guide_turn_claims ADD COLUMN IF NOT EXISTS turn_sequence BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE brain.guide_turn_claims ADD COLUMN IF NOT EXISTS subject_epoch BIGINT NOT NULL DEFAULT -1;
+ALTER TABLE brain.guide_turn_claims ADD COLUMN IF NOT EXISTS reply_message_id TEXT;
+ALTER TABLE brain.guide_turn_claims ADD COLUMN IF NOT EXISTS conversation_id TEXT;
+ALTER TABLE brain.guide_conversations ADD COLUMN IF NOT EXISTS latest_request_id TEXT;
+UPDATE brain.guide_turn_claims SET state='uncertain' WHERE state='claimed' AND subject_epoch<0;
+COMMIT;

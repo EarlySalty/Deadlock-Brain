@@ -40,7 +40,11 @@ impl GuideRuntime {
             }
         }
         let mut messages = BTreeSet::new();
-        for rule in &snapshot.rules {
+        for rule in &mut snapshot.rules {
+            if snapshot.channels.iter().any(|c| c.id == rule.channel_id && (c.deleted || !c.public_readable)) || rule.deleted {
+                rule.text.clear();
+                rule.deleted = true;
+            }
             if !snowflake(&rule.channel_id)
                 || !snowflake(&rule.message_id)
                 || !self
@@ -50,7 +54,7 @@ impl GuideRuntime {
                 || !snapshot
                     .channels
                     .iter()
-                    .any(|c| c.id == rule.channel_id && c.public_readable && !c.deleted)
+                    .any(|c| c.id == rule.channel_id)
                 || !messages.insert(&rule.message_id)
                 || rule.text.len() > 16000
                 || rule.updated_at > current + 30

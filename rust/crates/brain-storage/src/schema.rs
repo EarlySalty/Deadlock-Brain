@@ -84,21 +84,39 @@ impl PgStore {
         .execute(&mut *tx)
         .await
         .map_err(migration_error)?;
-        sqlx::raw_sql(body(sql)?)
-            .execute(&mut *tx)
-            .await
-            .map_err(migration_error)?;
+        let present = sqlx::query("SELECT to_regclass('brain.guide_subjects') IS NOT NULL,to_regclass('brain.guide_schema_version') IS NOT NULL")
+            .fetch_one(&mut *tx).await.map_err(migration_error)?;
+        let existed: bool = present.try_get(0).map_err(migration_error)?;
+        if existed != present.try_get::<bool, _>(1).map_err(migration_error)? {
+            return Err(invalid("Serverguide-Schema ist unvollständig"));
+        }
+        if !existed {
+            sqlx::raw_sql(body(sql)?)
+                .execute(&mut *tx)
+                .await
+                .map_err(migration_error)?;
+        }
         sqlx::raw_sql(body(include_str!(
             "../../../../scripts/migrations/2026-10-03-serverguide-v2.sql"
         ))?)
         .execute(&mut *tx)
         .await
         .map_err(migration_error)?;
+        sqlx::raw_sql(body(include_str!(
+            "../../../../scripts/migrations/2026-10-03-serverguide-v3.sql"
+        ))?)
+        .execute(&mut *tx)
+        .await
+        .map_err(migration_error)?;
+        if !existed {
+            sqlx::query("UPDATE brain.guide_subjects SET legacy_import_eligible=true WHERE epoch=0 AND turn_sequence=0 AND NOT memory_enabled AND NOT contact_enabled AND profile_json='{}'::jsonb AND history_json='[]'::jsonb")
+                .execute(&mut *tx).await.map_err(migration_error)?;
+        }
         tx.commit().await.map_err(migration_error)
     }
 
     pub async fn check_guide(&self) -> Result<(), PortError> {
-        sqlx::query("SELECT s.min_event_id,o.expires_at FROM brain.guide_subjects s,brain.guide_feedback_outbox o LIMIT 0")
+        sqlx::query("SELECT s.min_event_id,s.turn_sequence,s.legacy_import_eligible,c.turn_sequence,c.subject_epoch,c.reply_message_id,c.conversation_id,v.latest_request_id,o.expires_at FROM brain.guide_subjects s,brain.guide_turn_claims c,brain.guide_conversations v,brain.guide_feedback_outbox o LIMIT 0")
             .execute(&self.pool)
             .await
             .map_err(compatibility_error)?;
@@ -148,9 +166,15 @@ impl PgStore {
             if blocked {
                 continue;
             }
-            sqlx::query("INSERT INTO brain.guide_subjects(guild_id,user_id) VALUES($1::bigint::text,$2::bigint::text) ON CONFLICT DO NOTHING").bind(guild).bind(user).execute(&mut *tx).await.map_err(migration_error)?;
+            sqlx::query("INSERT INTO brain.guide_subjects(guild_id,user_id,legacy_import_eligible) VALUES($1::bigint::text,$2::bigint::text,true) ON CONFLICT DO NOTHING").bind(guild).bind(user).execute(&mut *tx).await.map_err(migration_error)?;
+            let pristine: bool = sqlx::query_scalar("SELECT legacy_import_eligible AND epoch=0 AND turn_sequence=0 AND NOT memory_enabled AND NOT contact_enabled AND NOT deleted AND NOT globally_opted_out AND min_event_id=0 AND profile_json='{}'::jsonb AND history_json='[]'::jsonb AND NOT EXISTS(SELECT 1 FROM brain.guide_turn_claims c WHERE c.guild_id=s.guild_id AND c.user_id=s.user_id) AND NOT EXISTS(SELECT 1 FROM brain.guide_conversations c WHERE c.guild_id=s.guild_id AND c.user_id=s.user_id) AND NOT EXISTS(SELECT 1 FROM brain.guide_feedback_outbox c WHERE c.guild_id=s.guild_id AND c.user_id=s.user_id) AND NOT EXISTS(SELECT 1 FROM brain.guide_feedback_drafts c WHERE c.guild_id=s.guild_id AND c.user_id=s.user_id) FROM brain.guide_subjects s WHERE user_id=$1::bigint::text AND guild_id=$2::bigint::text FOR UPDATE")
+                .bind(user).bind(guild).fetch_one(&mut *tx).await.map_err(migration_error)?;
+            if !pristine {
+                sqlx::query("INSERT INTO brain.guide_legacy_imports(guild_id,user_id) VALUES($1::bigint::text,$2::bigint::text) ON CONFLICT DO NOTHING").bind(guild).bind(user).execute(&mut *tx).await.map_err(migration_error)?;
+                continue;
+            }
             // Nur das bekannte Spielzeitfeld. Keine Persönlichkeits-/Rang-/Patenanalyse übernehmen.
-            sqlx::query("UPDATE brain.guide_subjects s SET profile_json=CASE WHEN p.play_times IS NOT NULL AND p.updated_at+make_interval(secs=>$3::bigint::double precision)>now() THEN s.profile_json || jsonb_build_object('play_times',jsonb_build_object('value',left(p.play_times,500),'origin_message_id','legacy-concierge','updated_at',extract(epoch from p.updated_at)::bigint,'expires_at',extract(epoch from p.updated_at)::bigint+$3,'explicitly_stated',false)) ELSE s.profile_json END, history_json=COALESCE((SELECT jsonb_agg(z.entry ORDER BY z.created_at) FROM (SELECT c.created_at,jsonb_build_object('role',c.role,'content',left(c.content,2000),'message_id','legacy-concierge','expires_at',extract(epoch from c.created_at)::bigint+$3) entry FROM bot.concierge_conversations c WHERE c.user_id=$2 AND c.guild_id=$1 AND c.role IN ('user','assistant') AND c.created_at+make_interval(secs=>$3::bigint::double precision)>now() ORDER BY c.created_at DESC LIMIT 8) z),'[]'::jsonb) FROM bot.concierge_profiles p WHERE p.guild_id=$1 AND p.user_id=$2 AND s.guild_id=$1::bigint::text AND s.user_id=$2::bigint::text AND NOT s.deleted AND NOT s.globally_opted_out")
+            sqlx::query("UPDATE brain.guide_subjects s SET memory_enabled=false,contact_enabled=false,epoch=epoch+1,turn_sequence=turn_sequence+1,legacy_import_eligible=false,profile_json=CASE WHEN p.play_times IS NOT NULL AND p.updated_at+make_interval(secs=>$3::bigint::double precision)>now() THEN jsonb_build_object('play_times',jsonb_build_object('value',left(p.play_times,500),'origin_message_id','legacy-concierge','updated_at',extract(epoch from p.updated_at)::bigint,'expires_at',extract(epoch from p.updated_at)::bigint+$3,'explicitly_stated',false)) ELSE '{}'::jsonb END, history_json=COALESCE((SELECT jsonb_agg(z.entry ORDER BY z.created_at) FROM (SELECT c.created_at,jsonb_build_object('role',c.role,'content',left(c.content,2000),'message_id','legacy-concierge','expires_at',extract(epoch from c.created_at)::bigint+$3) entry FROM bot.concierge_conversations c WHERE c.user_id=$2 AND c.guild_id=$1 AND c.role IN ('user','assistant') AND c.created_at+make_interval(secs=>$3::bigint::double precision)>now() ORDER BY c.created_at DESC LIMIT 8) z),'[]'::jsonb) FROM bot.concierge_profiles p WHERE p.guild_id=$1 AND p.user_id=$2 AND NOT p.opted_out AND p.forgot_at IS NULL AND s.guild_id=$1::bigint::text AND s.user_id=$2::bigint::text AND s.legacy_import_eligible AND s.epoch=0 AND s.turn_sequence=0 AND s.profile_json='{}'::jsonb AND s.history_json='[]'::jsonb AND NOT s.memory_enabled AND NOT s.contact_enabled AND NOT s.deleted AND NOT s.globally_opted_out AND s.min_event_id=0")
                 .bind(guild).bind(user).bind(ttl).execute(&mut *tx).await.map_err(migration_error)?;
             sqlx::query("INSERT INTO brain.guide_legacy_imports(guild_id,user_id) VALUES($1::bigint::text,$2::bigint::text) ON CONFLICT DO NOTHING").bind(guild).bind(user).execute(&mut *tx).await.map_err(migration_error)?;
         }
@@ -236,7 +260,7 @@ async fn validate_records(connection: &mut PgConnection) -> Result<(), PortError
         let rows = sqlx::query(
             "SELECT source_id,logical_id,revision,content_hash,tombstone,record_json
             FROM brain.source_record_revisions
-            WHERE $1::bigint::text IS NULL OR (source_id,logical_id,revision)>($1,$2,$3)
+            WHERE $1::text IS NULL OR (source_id,logical_id,revision)>($1,$2,$3)
             ORDER BY source_id,logical_id,revision LIMIT 256",
         )
         .bind(cursor.as_ref().map(|c| &c.0))
@@ -298,7 +322,7 @@ async fn validate_releases(connection: &mut PgConnection) -> Result<(), PortErro
     loop {
         let rows = sqlx::query(
             "SELECT release_id,knowledge_version,patch,release_json
-            FROM brain.corpus_releases_v1 WHERE $1::bigint::text IS NULL OR release_id>$1
+            FROM brain.corpus_releases_v1 WHERE $1::text IS NULL OR release_id>$1
             ORDER BY release_id LIMIT 64",
         )
         .bind(&cursor)
