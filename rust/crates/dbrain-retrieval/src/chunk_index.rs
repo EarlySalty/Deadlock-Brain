@@ -1,4 +1,3 @@
-//! Release-local inverted BM25 index. Query work traverses postings, not corpus documents.
 use brain_contracts::{
     lexical::{fact_names, terms},
     store::record_allowed,
@@ -40,12 +39,34 @@ impl IndexedText {
         match self {
             Self::Knowledge(projection) => {
                 let mut result = ranges(&projection.text[..projection.raw_byte_end], false);
-                result.extend(projection.facts.iter().map(|fact| (fact.byte_start, fact.byte_end)));
+                result.extend(
+                    projection
+                        .facts
+                        .iter()
+                        .map(|fact| (fact.byte_start, fact.byte_end)),
+                );
                 result
             }
             _ => ranges(self.text(), atomic),
         }
     }
+}
+
+fn collect_indexed_texts(
+    texts: impl Iterator<Item = Result<IndexedText, PortError>>,
+    max_bytes: usize,
+) -> Result<Vec<IndexedText>, PortError> {
+    let mut result = Vec::new();
+    let mut total = 0usize;
+    for text in texts {
+        let text = text?;
+        total = total
+            .checked_add(text.text().len())
+            .filter(|total| *total <= max_bytes)
+            .ok_or(PortError::BudgetExceeded)?;
+        result.push(text);
+    }
+    Ok(result)
 }
 
 #[derive(Debug)]
@@ -71,7 +92,6 @@ pub(crate) struct ChunkIndex {
     fact_name_owners: BTreeMap<Vec<String>, BTreeSet<usize>>,
 }
 
-/// No normalization of numeric literals: 6.5, 65, -6.5 and 6,5 remain distinct.
 pub(crate) fn numeric_terms(text: &str) -> BTreeSet<String> {
     terms(text)
         .into_iter()
@@ -83,9 +103,6 @@ pub(crate) fn numeric_terms(text: &str) -> BTreeSet<String> {
         .collect()
 }
 
-/// Exact overlapping UTF-8 slices, covering every byte, including whitespace. Overlap keeps
-/// adjacent key/value lines together in a candidate even when a window cuts a code block.
-/// An indivisible token larger than the target is retained whole, never silently truncated.
 fn ranges(text: &str, atomic: bool) -> Vec<(usize, usize)> {
     if text.is_empty() {
         return Vec::new();
@@ -122,7 +139,6 @@ fn ranges(text: &str, atomic: bool) -> Vec<(usize, usize)> {
         while !text.is_char_boundary(next) {
             next += 1;
         }
-        // Start only at token boundaries, so numbers are never manufactured by slicing.
         next = text[next..end]
             .char_indices()
             .find(|(_, c)| c.is_whitespace())
@@ -144,17 +160,24 @@ impl ChunkIndex {
                 b.revision,
             ))
         });
-        if records.iter().try_fold(0usize, |total, record| {
-            total.checked_add(record.content.len()).filter(|total| *total <= crate::knowledge_projection::MAX_INDEX_BYTES)
-        }).is_none() {
+        if records
+            .iter()
+            .try_fold(0usize, |total, record| {
+                total
+                    .checked_add(record.content.len())
+                    .filter(|total| *total <= crate::knowledge_projection::MAX_INDEX_BYTES)
+            })
+            .is_none()
+        {
             return Err(PortError::BudgetExceeded);
         }
         let mut index = Self {
             release,
-            texts: records
-                .iter()
-                .map(|record| {
-                    if let Some(projection) = crate::knowledge_projection::project_knowledge(record)? {
+            texts: collect_indexed_texts(
+                records.iter().map(|record| {
+                    if let Some(projection) =
+                        crate::knowledge_projection::project_knowledge(record)?
+                    {
                         return Ok(IndexedText::Knowledge(projection));
                     }
                     if record.metadata.get("content_format").map(String::as_str) != Some("html") {
@@ -183,8 +206,9 @@ impl ChunkIndex {
                         return Err(PortError::InvalidResponse("html_projection_binding".into()));
                     }
                     Ok(IndexedText::Html(projection.text))
-                })
-                .collect::<Result<Vec<_>, PortError>>()?,
+                }),
+                crate::knowledge_projection::MAX_INDEX_BYTES,
+            )?,
             records,
             chunks: Vec::new(),
             by_id: BTreeMap::new(),
@@ -194,12 +218,6 @@ impl ChunkIndex {
             average_length: 1.0,
             fact_name_owners: BTreeMap::new(),
         };
-        let projected_bytes = index.texts.iter().try_fold(0usize, |total, text| {
-            total.checked_add(text.text().len()).filter(|total| *total <= crate::knowledge_projection::MAX_INDEX_BYTES)
-        });
-        if projected_bytes.is_none() {
-            return Err(PortError::BudgetExceeded);
-        }
         for (document, record) in index.records.iter().enumerate() {
             if record.tombstone {
                 continue;
@@ -218,7 +236,11 @@ impl ChunkIndex {
                     let mut names = fact_names("", &fact.subject, &BTreeMap::new());
                     names.push(terms(&fact.subject));
                     for name in names.into_iter().filter(|name| !name.is_empty()) {
-                        index.fact_name_owners.entry(name).or_default().insert(document);
+                        index
+                            .fact_name_owners
+                            .entry(name)
+                            .or_default()
+                            .insert(document);
                     }
                 }
             }
@@ -374,8 +396,6 @@ impl ChunkIndex {
         });
         ranked
     }
-    /// Group owners by the specific matched name. Different unambiguous names
-    /// in one question are not themselves an alias collision.
     pub fn matching_fact_owners<'a>(
         &'a self,
         query: &Query,
@@ -456,8 +476,11 @@ impl ChunkIndex {
             citation: if matches!(&self.texts[entry.document], IndexedText::Knowledge(_)) {
                 format!(
                     "brain:{}@{}#basis={}&bytes={}-{}",
-                    entry.id, original.revision, crate::knowledge_projection::KNOWLEDGE_BYTE_BASIS,
-                    entry.start, entry.end
+                    entry.id,
+                    original.revision,
+                    crate::knowledge_projection::KNOWLEDGE_BYTE_BASIS,
+                    entry.start,
+                    entry.end
                 )
             } else {
                 format!(
@@ -498,6 +521,51 @@ impl ChunkIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn projected_budget_stops_before_requesting_later_documents() {
+        let mut projected = 0;
+        let texts = (0..3).map(|_| {
+            projected += 1;
+            assert!(projected <= 2);
+            Ok(IndexedText::Knowledge(
+                crate::knowledge_projection::KnowledgeProjection {
+                    text: "Faktenbeleg".repeat(2),
+                    raw_sha256: String::new(),
+                    semantic_sha256: String::new(),
+                    raw_byte_end: 1,
+                    source_locator: String::new(),
+                    document_evidence_status: String::new(),
+                    facts: Vec::new(),
+                },
+            ))
+        });
+        assert!(matches!(
+            collect_indexed_texts(texts, 30),
+            Err(PortError::BudgetExceeded)
+        ));
+        assert_eq!(projected, 2);
+    }
+
+    #[test]
+    fn projected_budget_accepts_exact_total_and_counts_utf8_bytes() {
+        let texts = vec![
+            Ok(IndexedText::Raw("ä".into())),
+            Ok(IndexedText::Html("ö".into())),
+        ];
+        assert_eq!(
+            collect_indexed_texts(texts.into_iter(), 4).unwrap().len(),
+            2
+        );
+        let texts = vec![
+            Ok(IndexedText::Raw("ä".into())),
+            Ok(IndexedText::Html("ö".into())),
+        ];
+        assert!(matches!(
+            collect_indexed_texts(texts.into_iter(), 3),
+            Err(PortError::BudgetExceeded)
+        ));
+    }
+
     #[test]
     fn chunk_ranges_are_deterministic_utf8_and_cover_every_byte() {
         let text = "Abschnitt äöü 🎯. Exact -123.45%\n\"Key\": \"BonusMaxHealthPerHero\",\n\"Value\": 650\n".repeat(300);

@@ -1,7 +1,6 @@
 use dbrain_sources::knowledge_contract::{
-    sha256_content, validate_knowledge_jsonl, validate_knowledge_jsonl_str,
-    KnowledgeConflictKind, KnowledgeDocument, KnowledgeSourceKind,
-    KNOWLEDGE_CONTRACT_VERSION,
+    sha256_content, validate_knowledge_jsonl, validate_knowledge_jsonl_str, KnowledgeConflictKind,
+    KnowledgeDocument, KnowledgeSourceKind, KNOWLEDGE_CONTRACT_VERSION,
 };
 use serde_json::{json, Value};
 use std::io::{self, BufRead, Cursor, Read};
@@ -63,7 +62,11 @@ fn game() -> Value {
 }
 
 fn jsonl(values: &[Value]) -> String {
-    values.iter().map(Value::to_string).collect::<Vec<_>>().join("\n")
+    values
+        .iter()
+        .map(Value::to_string)
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn assert_field(value: &Value, field: &str) {
@@ -80,7 +83,10 @@ fn wiki_without_facts_and_empty_input_are_valid() {
     assert_eq!(input.documents()[0].line, 1);
     assert!(input.documents()[0].document.facts.is_empty());
     assert!(input.conflicts().is_empty());
-    assert!(validate_knowledge_jsonl_str("").unwrap().documents().is_empty());
+    assert!(validate_knowledge_jsonl_str("")
+        .unwrap()
+        .documents()
+        .is_empty());
 }
 
 #[test]
@@ -95,7 +101,13 @@ fn every_document_field_is_required() {
 
 #[test]
 fn nullable_fields_and_arbitrary_json_fact_values_are_preserved() {
-    for fact_value in [Value::Null, json!(false), json!("12"), json!([1, 2]), json!({"nested": 12})] {
+    for fact_value in [
+        Value::Null,
+        json!(false),
+        json!("12"),
+        json!([1, 2]),
+        json!({"nested": 12}),
+    ] {
         let mut value = wiki();
         let mut extracted = fact();
         extracted["value"] = fact_value.clone();
@@ -175,14 +187,24 @@ fn all_evidence_states_are_accepted_without_promoting_hypotheses() {
         value["facts"] = json!([fact()]);
         value["facts"][0]["evidence_status"] = json!(status);
         let input = validate_knowledge_jsonl_str(&value.to_string()).unwrap();
-        assert_eq!(serde_json::to_value(&input.documents()[0].document).unwrap()["evidence_status"], status);
+        assert_eq!(
+            serde_json::to_value(&input.documents()[0].document).unwrap()["evidence_status"],
+            status
+        );
     }
 }
 
 #[test]
 fn hash_is_lowercase_sha256_of_exact_utf8_bytes() {
-    assert_eq!(sha256_content("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
-    for hash in [wiki()["content_sha256"].as_str().unwrap().to_uppercase(), "0".repeat(64), "f".repeat(63)] {
+    assert_eq!(
+        sha256_content("abc"),
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    );
+    for hash in [
+        wiki()["content_sha256"].as_str().unwrap().to_uppercase(),
+        "0".repeat(64),
+        "f".repeat(63),
+    ] {
         let mut value = wiki();
         value["content_sha256"] = json!(hash);
         assert_field(&value, "content_sha256");
@@ -195,7 +217,10 @@ fn hash_is_lowercase_sha256_of_exact_utf8_bytes() {
 #[test]
 fn unknown_revision_requires_matching_content_hash_and_is_counted() {
     let mut value = wiki();
-    value["revision"] = json!(format!("unknown:{}", value["content_sha256"].as_str().unwrap()));
+    value["revision"] = json!(format!(
+        "unknown:{}",
+        value["content_sha256"].as_str().unwrap()
+    ));
     let input = validate_knowledge_jsonl_str(&value.to_string()).unwrap();
     assert!(input.documents()[0].document.revision_is_unknown());
     assert_eq!(input.unknown_revision_count(), 1);
@@ -212,7 +237,14 @@ fn utc_rfc3339_is_checked_without_substituting_observation_for_revision() {
         value["observed_at"] = json!(timestamp);
         assert!(validate_knowledge_jsonl_str(&value.to_string()).is_ok());
     }
-    for timestamp in ["2026-02-30T12:00:00Z", "2026-10-03", "2026-10-03T12:00:00", "2026-10-03T12:00:00+02:00", "2026-10-03T12:00:00-00:00", "2026-10-03 12:00:00Z"] {
+    for timestamp in [
+        "2026-02-30T12:00:00Z",
+        "2026-10-03",
+        "2026-10-03T12:00:00",
+        "2026-10-03T12:00:00+02:00",
+        "2026-10-03T12:00:00-00:00",
+        "2026-10-03 12:00:00Z",
+    ] {
         let mut value = wiki();
         value["observed_at"] = json!(timestamp);
         assert_field(&value, "observed_at");
@@ -222,9 +254,18 @@ fn utc_rfc3339_is_checked_without_substituting_observation_for_revision() {
 #[test]
 fn wiki_ids_require_source_binding_or_exact_url_hash() {
     let mut value = wiki();
-    value["document_id"] = json!(format!("wiki:deadlock-wiki:url:{}", sha256_content(value["source_locator"].as_str().unwrap())));
+    value["document_id"] = json!(format!(
+        "wiki:deadlock-wiki:url:{}",
+        sha256_content(value["source_locator"].as_str().unwrap())
+    ));
     assert!(validate_knowledge_jsonl_str(&value.to_string()).is_ok());
-    for identifier in ["wiki:other:page:123".to_string(), "wiki:deadlock-wiki:page:0".to_string(), "wiki:deadlock-wiki:page:../1".to_string(), format!("wiki:deadlock-wiki:url:{}", "0".repeat(64)), "game:1422450:hero.txt".to_string()] {
+    for identifier in [
+        "wiki:other:page:123".to_string(),
+        "wiki:deadlock-wiki:page:0".to_string(),
+        "wiki:deadlock-wiki:page:../1".to_string(),
+        format!("wiki:deadlock-wiki:url:{}", "0".repeat(64)),
+        "game:1422450:hero.txt".to_string(),
+    ] {
         value["document_id"] = json!(identifier);
         assert_field(&value, "document_id");
     }
@@ -234,8 +275,19 @@ fn wiki_ids_require_source_binding_or_exact_url_hash() {
 fn game_ids_and_source_locators_reject_absolute_and_unnormalized_paths() {
     let value = game();
     let input = validate_knowledge_jsonl_str(&value.to_string()).unwrap();
-    assert_eq!(input.documents()[0].document.source_kind, KnowledgeSourceKind::GameFile);
-    for identifier in ["game:0:hero.txt", "game:unknown:hero.txt", "game:1422450:/home/user/hero.txt", "game:1422450:../hero.txt", "game:1422450:game//hero.txt", "game:1422450:game/./hero.txt", "game:1422450:game\\hero.txt"] {
+    assert_eq!(
+        input.documents()[0].document.source_kind,
+        KnowledgeSourceKind::GameFile
+    );
+    for identifier in [
+        "game:0:hero.txt",
+        "game:unknown:hero.txt",
+        "game:1422450:/home/user/hero.txt",
+        "game:1422450:../hero.txt",
+        "game:1422450:game//hero.txt",
+        "game:1422450:game/./hero.txt",
+        "game:1422450:game\\hero.txt",
+    ] {
         let mut invalid = value.clone();
         invalid["document_id"] = json!(identifier);
         assert_field(&invalid, "document_id");
@@ -279,12 +331,76 @@ fn conflicting_content_is_reported_and_neither_document_is_overwritten() {
     second["content_sha256"] = json!(sha256_content("Anderer Inhalt"));
     let input = validate_knowledge_jsonl_str(&jsonl(&[first.clone(), second.clone()])).unwrap();
     assert_eq!(input.documents().len(), 2);
-    assert_eq!(input.documents()[0].document.content, first["content"].as_str().unwrap());
-    assert_eq!(input.documents()[1].document.content, second["content"].as_str().unwrap());
-    assert_eq!(input.conflicts()[0].kind, KnowledgeConflictKind::ContentMismatch);
+    assert_eq!(
+        input.documents()[0].document.content,
+        first["content"].as_str().unwrap()
+    );
+    assert_eq!(
+        input.documents()[1].document.content,
+        second["content"].as_str().unwrap()
+    );
+    assert_eq!(
+        input.conflicts()[0].kind,
+        KnowledgeConflictKind::ContentMismatch
+    );
     assert_eq!(input.conflicts()[0].first_line, 1);
     assert_eq!(input.conflicts()[0].line, 2);
     assert!(input.duplicates().is_empty());
+}
+
+#[test]
+fn numeric_wiki_aliases_are_conflicts_and_original_spelling_is_preserved() {
+    for url_identity in [false, true] {
+        for (original, alias) in [("7", "07"), ("0007", "7")] {
+            let mut first = wiki();
+            if url_identity {
+                first["document_id"] = json!(format!(
+                    "wiki:deadlock-wiki:url:{}",
+                    sha256_content(first["source_locator"].as_str().unwrap())
+                ));
+            }
+            first["revision"] = json!(original);
+            for changed in [false, true] {
+                let mut second = first.clone();
+                second["revision"] = json!(alias);
+                if changed {
+                    second["content"] = json!("Anderer Inhalt");
+                    second["content_sha256"] = json!(sha256_content("Anderer Inhalt"));
+                }
+                let input = validate_knowledge_jsonl_str(&jsonl(&[first.clone(), second])).unwrap();
+                assert!(input.duplicates().is_empty());
+                assert_eq!(input.conflicts().len(), 1);
+                assert_eq!(
+                    input.conflicts()[0].kind,
+                    if changed {
+                        KnowledgeConflictKind::ContentMismatch
+                    } else {
+                        KnowledgeConflictKind::RepresentationMismatch
+                    }
+                );
+                assert_eq!(input.documents()[0].document.revision, original);
+                assert_eq!(input.documents()[1].document.revision, alias);
+                assert_eq!(input.conflicts()[0].revision, alias);
+            }
+        }
+    }
+}
+
+#[test]
+fn numeric_game_versions_and_nonnumeric_wiki_versions_remain_distinct() {
+    for (mut first, original, alias) in [
+        (game(), "7", "07"),
+        (wiki(), "build7", "build07"),
+        (wiki(), "7a", "07a"),
+    ] {
+        first["revision"] = json!(original);
+        let mut second = first.clone();
+        second["revision"] = json!(alias);
+        let input = validate_knowledge_jsonl_str(&jsonl(&[first, second])).unwrap();
+        assert!(input.conflicts().is_empty());
+        assert!(input.duplicates().is_empty());
+        assert_eq!(input.documents().len(), 2);
+    }
 }
 
 #[test]
@@ -298,7 +414,10 @@ fn same_revision_hash_with_changed_facts_license_or_metadata_is_a_conflict() {
             _ => second["metadata"] = json!({"extra": 1}),
         }
         let input = validate_knowledge_jsonl_str(&jsonl(&[first, second])).unwrap();
-        assert_eq!(input.conflicts()[0].kind, KnowledgeConflictKind::RepresentationMismatch);
+        assert_eq!(
+            input.conflicts()[0].kind,
+            KnowledgeConflictKind::RepresentationMismatch
+        );
         assert!(input.duplicates().is_empty());
         assert_eq!(input.documents().len(), 2);
     }
@@ -327,18 +446,32 @@ fn changed_source_identity_for_same_game_document_is_reported_across_revisions()
     second["source_id"] = json!("other-source");
     second["revision"] = json!("457");
     let input = validate_knowledge_jsonl_str(&jsonl(&[first, second])).unwrap();
-    assert_eq!(input.conflicts()[0].kind, KnowledgeConflictKind::SourceIdentityMismatch);
+    assert_eq!(
+        input.conflicts()[0].kind,
+        KnowledgeConflictKind::SourceIdentityMismatch
+    );
     assert_eq!(input.documents().len(), 2);
 }
 
 #[test]
 fn unverified_or_denied_license_never_grants_declared_publication() {
-    for (name, allowed, expected) in [("unverified", true, false), ("UNVERIFIED", true, false), ("CC-BY-4.0", false, false), ("CC-BY-4.0", true, true)] {
+    for (name, allowed, expected) in [
+        ("unverified", true, false),
+        ("UNVERIFIED", true, false),
+        ("CC-BY-4.0", false, false),
+        ("CC-BY-4.0", true, true),
+    ] {
         let mut value = wiki();
         value["license"]["name"] = json!(name);
         value["license"]["redistribution_allowed"] = json!(allowed);
         let input = validate_knowledge_jsonl_str(&value.to_string()).unwrap();
-        assert_eq!(input.documents()[0].document.license.publication_permitted_by_declaration(), expected);
+        assert_eq!(
+            input.documents()[0]
+                .document
+                .license
+                .publication_permitted_by_declaration(),
+            expected
+        );
     }
 }
 
@@ -348,7 +481,10 @@ fn whole_input_validation_reports_each_bad_line_and_returns_no_partial_batch() {
     bad["metadata"] = Value::Null;
     let input = format!("{}\n{}\n\nnot json\n{}", wiki(), bad, wiki());
     let errors = validate_knowledge_jsonl_str(&input).unwrap_err().errors;
-    assert_eq!(errors.iter().map(|error| error.line).collect::<Vec<_>>(), vec![2, 3, 4]);
+    assert_eq!(
+        errors.iter().map(|error| error.line).collect::<Vec<_>>(),
+        vec![2, 3, 4]
+    );
     assert_eq!(errors[0].field, "metadata");
 }
 
@@ -366,7 +502,9 @@ fn duplicate_json_keys_are_rejected_including_nested_metadata() {
 
 #[test]
 fn invalid_utf8_and_reader_failures_are_not_skipped() {
-    let errors = validate_knowledge_jsonl(Cursor::new(vec![0xff, b'\n'])).unwrap_err().errors;
+    let errors = validate_knowledge_jsonl(Cursor::new(vec![0xff, b'\n']))
+        .unwrap_err()
+        .errors;
     assert_eq!(errors[0].line, 1);
     assert!(errors[0].message.contains("UTF-8"));
     let errors = validate_knowledge_jsonl(BrokenReader).unwrap_err().errors;

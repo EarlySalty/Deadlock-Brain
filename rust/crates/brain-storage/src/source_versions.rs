@@ -460,13 +460,10 @@ fn matches_original_revision(
     record: &SourceRecordV2,
     input: &VersionedSourceRecord,
 ) -> Result<bool, VersionImportError> {
-    if let Some(original) = record.metadata.get(ORIGINAL_VERSION_KEY) {
-        return Ok(original == &input.original_revision);
-    }
     if let StoreRevision::OriginalWiki(original) = input.revision {
         return Ok(known_wiki_revision(record)? == Some(original));
     }
-    Ok(false)
+    Ok(record.metadata.get(ORIGINAL_VERSION_KEY) == Some(&input.original_revision))
 }
 
 fn known_wiki_revision(record: &SourceRecordV2) -> Result<Option<u64>, VersionImportError> {
@@ -685,6 +682,33 @@ mod tests {
     }
 
     #[test]
+    fn numeric_wiki_aliases_match_without_changing_original_revisions() {
+        for url_identity in [false, true] {
+            for (original, alias) in [("7", "07"), ("0007", "7")] {
+                let first = wiki_version(url_identity, original, "Inhalt", 1_791_028_800);
+                let repeated = wiki_version(url_identity, alias, "Inhalt", 1_791_115_200);
+                let changed = wiki_version(url_identity, alias, "Anderer Inhalt", 1_791_115_200);
+                for incoming in [&repeated, &changed] {
+                    validate(incoming).unwrap();
+                    assert!(matches_original_revision(&first.record, incoming).unwrap());
+                    assert_ne!(
+                        semantic_record(&first.record).unwrap(),
+                        semantic_record(&incoming.record).unwrap()
+                    );
+                    assert_eq!(incoming.original_revision, alias);
+                    assert_eq!(proof(incoming, 1, true).original_revision, alias);
+                }
+            }
+        }
+        let mut game = wiki_version(true, "07", "Inhalt", 1_791_028_800);
+        game.revision = StoreRevision::LocalMonotonic;
+        change_document(&mut game, "source_kind", json!("game_file"));
+        let mut next = game.clone();
+        next.original_revision = "7".into();
+        assert!(!matches_original_revision(&game.record, &next).unwrap());
+    }
+
+    #[test]
     fn numeric_wiki_cannot_use_local_order_or_mismatched_original_revision() {
         for url_identity in [false, true] {
             let mut version = wiki_version(url_identity, "456", "content", 1_791_028_800);
@@ -827,6 +851,25 @@ mod tests {
             assert_eq!(head, serde_json::to_value(&legacy).unwrap());
         }
         for url_identity in [false, true] {
+            for (original, alias) in [("7", "07"), ("0007", "7")] {
+                for content in ["Inhalt", "Anderer Inhalt"] {
+                    let first = wiki_version(url_identity, original, "Inhalt", 1_791_028_800);
+                    let aliased = wiki_version(url_identity, alias, content, 1_791_115_200);
+                    let rejected = store
+                        .import_source_versions(&[first.clone(), aliased])
+                        .await
+                        .unwrap();
+                    assert!(!rejected.committed);
+                    assert_eq!(rejected.conflicts.len(), 1);
+                    assert_eq!(rejected.conflicts[0].original_revision, alias);
+                    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM brain.source_record_revisions WHERE source_id=$1 AND logical_id=$2")
+                        .bind(&first.record.source_id).bind(&first.record.logical_id).fetch_one(&pool).await.unwrap();
+                    assert_eq!(count, 0);
+                    let head_count: i64 = sqlx::query_scalar("SELECT count(*) FROM brain.source_record_heads WHERE source_id=$1 AND logical_id=$2")
+                        .bind(&first.record.source_id).bind(&first.record.logical_id).fetch_one(&pool).await.unwrap();
+                    assert_eq!(head_count, 0);
+                }
+            }
             let newer = wiki_version(url_identity, "456", "Aktueller Inhalt", 1_791_028_800);
             let older = wiki_version(url_identity, "123", "Älterer Inhalt", 1_791_115_200);
             store.apply(&newer.record).await.unwrap();
@@ -850,6 +893,15 @@ mod tests {
             };
             store.publish_release(&release).await.unwrap();
             let before = store.snapshot(&release.release_id).await.unwrap();
+            for content in ["Aktueller Inhalt", "Anderer Inhalt"] {
+                let alias = wiki_version(url_identity, "0456", content, 1_791_115_200);
+                let rejected = store.import_source_versions(&[alias]).await.unwrap();
+                assert!(!rejected.committed);
+                assert_eq!(rejected.conflicts.len(), 1);
+                assert_eq!(rejected.conflicts[0].original_revision, "0456");
+                assert_eq!(rejected.conflicts[0].store_revision, 456);
+                assert_eq!(store.snapshot(&release.release_id).await.unwrap(), before);
+            }
             let historical = store
                 .import_source_versions(std::slice::from_ref(&older))
                 .await

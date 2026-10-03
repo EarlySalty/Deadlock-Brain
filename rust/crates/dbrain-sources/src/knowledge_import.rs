@@ -576,6 +576,27 @@ mod tests {
     }
 
     #[test]
+    fn numeric_wiki_aliases_keep_original_text_but_share_numeric_identity() {
+        for revision in ["7", "07", "0007"] {
+            for url_identity in [false, true] {
+                let input = if url_identity {
+                    url_input(revision, "Quellenbeleg", "2026-10-03T12:00:00Z")
+                } else {
+                    input(revision, "unverified", false)
+                };
+                let prepared = prepare_validated_knowledge(&input, &policy(), "parser-v1").unwrap();
+                let version = &prepared.records()[0];
+                assert_eq!(version.revision, StoreRevision::OriginalWiki(7));
+                assert_eq!(version.original_revision, revision);
+                assert_eq!(version.record.metadata[ORIGINAL_VERSION_KEY], revision);
+                let document: serde_json::Value =
+                    serde_json::from_str(&version.record.metadata[DOCUMENT_METADATA_KEY]).unwrap();
+                assert_eq!(document["revision"], revision);
+            }
+        }
+    }
+
+    #[test]
     fn url_wiki_git_and_unknown_versions_remain_locally_monotonic() {
         for revision in [
             "abcdef0123456789abcdef0123456789abcdef01".to_string(),
