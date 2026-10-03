@@ -137,7 +137,9 @@ impl AiClient {
             &settings.cli_path,
             &prompt,
             &settings.model,
-            std::time::Duration::from_secs(settings.timeout_seconds),
+            std::time::Duration::from_secs(
+                self.config.timeout_seconds.min(settings.timeout_seconds),
+            ),
             settings.max_response_bytes,
             request_payload
                 .get("max_tokens")

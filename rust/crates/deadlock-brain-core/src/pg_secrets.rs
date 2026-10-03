@@ -72,8 +72,6 @@ pub(super) async fn environment(path: &Path) -> Result<Vec<(String, Zeroizing<St
 }
 
 fn load_config(path: &Path) -> Result<Config> {
-    let data =
-        std::fs::read(path).map_err(|_| anyhow!("Infisical Konfiguration ist nicht lesbar."))?;
     if path
         .extension()
         .is_some_and(|extension| extension == "toml")
@@ -82,6 +80,8 @@ fn load_config(path: &Path) -> Result<Config> {
             .map_err(|_| anyhow!("Bot-TOML-Konfiguration ist ungültig."))
     } else {
         // Bestehende explizite Legacy-Aufrufer behalten ihren Parser.
+        let data = crate::config::read_config_file(path)
+            .map_err(|_| anyhow!("Infisical Konfiguration ist nicht lesbar."))?;
         serde_json::from_slice(&data).map_err(|_| anyhow!("Infisical Konfiguration ist ungültig."))
     }
 }
@@ -205,7 +205,7 @@ fn load_credential_from(config: &Config, directory: Option<PathBuf>) -> Result<Z
 }
 
 fn read_credential_path(path: &Path) -> Result<Zeroizing<Vec<u8>>> {
-    let file = std::fs::File::open(path)
+    let file = crate::config::open_regular_file(path)
         .map_err(|_| anyhow!("Infisical Runtime Credential ist nicht lesbar."))?;
     read_credential(&file)
 }
@@ -239,6 +239,28 @@ fn read_credential(file: &std::fs::File) -> Result<Zeroizing<Vec<u8>>> {
 mod tests {
     use super::*;
     use std::io::{Seek, Write};
+
+    #[test]
+    fn credential_paths_reject_writerless_fifo_and_symlink_without_blocking() {
+        let directory = tempfile::tempdir().unwrap();
+        let fifo = directory.path().join("writerless-credential");
+        nix::unistd::mkfifo(
+            &fifo,
+            nix::sys::stat::Mode::S_IRUSR | nix::sys::stat::Mode::S_IWUSR,
+        )
+        .unwrap();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || sender.send(read_credential_path(&fifo)).unwrap());
+        assert!(receiver
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .is_err());
+        let regular = directory.path().join("regular");
+        std::fs::write(&regular, b"synthetic-fixture").unwrap();
+        let symlink = directory.path().join("symlink");
+        std::os::unix::fs::symlink(&regular, &symlink).unwrap();
+        assert!(read_credential_path(&symlink).is_err());
+    }
 
     #[test]
     fn credential_reads_preserve_offset_and_allow_repeated_pool_setup() {

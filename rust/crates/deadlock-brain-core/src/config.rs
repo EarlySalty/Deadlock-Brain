@@ -1,4 +1,11 @@
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    io::{self, Read},
+    os::unix::fs::OpenOptionsExt,
+    path::{Path, PathBuf},
+};
+
+use nix::fcntl::OFlag;
 
 use serde::Deserialize;
 
@@ -104,9 +111,48 @@ struct BotSettings {
     settings: DataSettings,
 }
 
+const MAX_CONFIG_BYTES: u64 = 256 * 1024;
+
+/// Öffnet ausschließlich reguläre Dateien, ohne an einer FIFO oder einem Symlink zu hängen.
+pub(crate) fn open_regular_file(path: &Path) -> io::Result<fs::File> {
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags((OFlag::O_NONBLOCK | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC).bits())
+        .open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Es wird eine reguläre Datei benötigt.",
+        ));
+    }
+    Ok(file)
+}
+
+pub(crate) fn read_config_file(path: &Path) -> io::Result<Vec<u8>> {
+    let file = open_regular_file(path)?;
+    if file.metadata()?.len() > MAX_CONFIG_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Die normale Konfiguration überschreitet ihre Größengrenze.",
+        ));
+    }
+    let mut bytes = Vec::new();
+    file.take(MAX_CONFIG_BYTES + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_CONFIG_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Die normale Konfiguration überschreitet ihre Größengrenze.",
+        ));
+    }
+    Ok(bytes)
+}
+
 fn load_bot_settings(project_root: &std::path::Path) -> Result<BotSettings> {
-    let text = fs::read_to_string(project_root.join("config/bot.toml"))?;
-    let config: BotSettings = toml::from_str(&text).map_err(|_| {
+    let bytes = read_config_file(&project_root.join("config/bot.toml"))?;
+    let text = std::str::from_utf8(&bytes).map_err(|_| {
+        CoreError::ModelSelection("Ungültige Konfiguration in config/bot.toml".into())
+    })?;
+    let config: BotSettings = toml::from_str(text).map_err(|_| {
         CoreError::ModelSelection("Ungültige Konfiguration in config/bot.toml".into())
     })?;
     validate_ai_settings(&config.ai)?;
@@ -253,6 +299,41 @@ pub fn path_env(_name: &'static str, default: PathBuf) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn config_files_reject_fifo_symlink_and_oversize_without_blocking() {
+        let directory = tempfile::tempdir().unwrap();
+        let fifo = directory.path().join("writerless-config");
+        nix::unistd::mkfifo(
+            &fifo,
+            nix::sys::stat::Mode::S_IRUSR | nix::sys::stat::Mode::S_IWUSR,
+        )
+        .unwrap();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || sender.send(read_config_file(&fifo)).unwrap());
+        assert!(receiver
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .unwrap()
+            .is_err());
+
+        let regular = directory.path().join("regular");
+        fs::write(&regular, b"synthetic-config").unwrap();
+        let file = open_regular_file(&regular).unwrap();
+        use std::os::fd::AsRawFd;
+        let descriptor_flags =
+            nix::fcntl::fcntl(file.as_raw_fd(), nix::fcntl::FcntlArg::F_GETFD).unwrap();
+        assert!(nix::fcntl::FdFlag::from_bits_retain(descriptor_flags)
+            .contains(nix::fcntl::FdFlag::FD_CLOEXEC));
+        let status_flags =
+            nix::fcntl::fcntl(file.as_raw_fd(), nix::fcntl::FcntlArg::F_GETFL).unwrap();
+        assert!(OFlag::from_bits_retain(status_flags).contains(OFlag::O_NONBLOCK));
+        let symlink = directory.path().join("symlink");
+        std::os::unix::fs::symlink(&regular, &symlink).unwrap();
+        assert!(read_config_file(&symlink).is_err());
+        assert!(read_config_file(directory.path()).is_err());
+        fs::write(&regular, vec![b'x'; MAX_CONFIG_BYTES as usize + 1]).unwrap();
+        assert!(read_config_file(&regular).is_err());
+    }
 
     #[test]
     fn installed_release_root_never_uses_build_source_or_current_directory() {

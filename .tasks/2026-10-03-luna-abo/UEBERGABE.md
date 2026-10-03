@@ -1,5 +1,11 @@
 # Deadlock Brain über das ChatGPT-Abo
 
+## Aktueller FIFO-Fixstand
+
+Der spätere Nutzerbefund blockiert den historischen Eigenhead `940bb2138d694ada783c2d7d8b4abecb4d20fbed` trotz seiner grünen Quellprüfung und Gate-ALLOW. Writerlose FIFO-Dateien konnten Config- und Credentialöffnungen vor der Dateitypprüfung blockieren. Der anschließende enge Fix betrifft ausschließlich Core `ai.rs`, `config.rs` und `pg_secrets.rs`. Er ist statisch ohne neue P1/P2 geprüft, aber noch nicht durch einen neuen Compiler-, Test- oder Gatelauf. Der vorhandene 657-Test-Beleg gilt ausschließlich für 940bb213. Beide Hostlocks sind frei und alle früheren Prüfprozesse beendet.
+
+Der neue [FIFO-Nachslotplan](FIFO-NACHSLOT.md) dokumentiert die sicheren Dateiöffnungen, die begrenzte Configlektüre, erhaltene Credential-FD-Semantik, das kleinere Aufrufertimeout und die eng begrenzte Folgesuite. Die synthetischen bwrap-/systemd-Hardlinkproben sind zusätzlich vor Ausführung abzustimmen. Dieser neue Stand erhält einen eigenen vollständigen Sourcefreeze und Eigencommit; keine Quellenprüfung oder C9-Gesamtfreigabe wird daraus vorweggenommen.
+
 ## Prüfstand nach der ersten Suite
 
 Die erste eingefrorene TOML-Suite ist beendet: `check`, `test` und `clippy` jeweils Exit 0 mit der im Repository festgelegten Toolchain 1.97.1, `--locked --offline -j 2` und den neun betroffenen Paketen. 657 Tests bestanden, 48 wurden als bestehende ignorierte Tests übersprungen. `SOURCE-MANIFEST.sha256` kennzeichnet die geprüften Dateiinhalte; `SOURCE-DIFF.patch` enthält den damaligen Diff der bereits getrackten Dateien. Dieses erste Artefakt ist kein vollständiges Inhaltsarchiv der damals neuen Dateien. Beide Hostlocks sind freigegeben; die abschließende Prozessprobe zeigte keinen aktiven Compiler.
@@ -10,7 +16,7 @@ Auch mit den ergänzten Schaltern ist die tatsächliche Werkzeugfreiheit weiterh
 
 Konkrete offene Abnahmegrenze: Für CLI 0.160.0 ist keine sichere native Telemetrie belegt, die ausschließlich `inference.tools[]` beim unveränderten OpenAI-/ChatGPT-Abo ausgibt. Rohrequest- oder Traceaufzeichnung ist wegen möglicher privater Promptfelder kein zulässiger Ersatz. Ein isolierter authfreier Loopback-Mock könnte nur seinen lokalen Lauf belegen; mögliche Unterschiede bei Provider, Modellmetadaten und Authpfad verhindern daraus eine Produktionsfreigabe. Der gebündelte gpt-6-luna-Katalog nennt unter anderem ein Freeform-Patchwerkzeug, Code Mode und experimentelle Clock-/Nachrichtenwerkzeuge. Die abschließende Gesamtfreigabe bleibt deshalb offen. Das Gate erhält diesen Befund ausdrücklich; ein grünes Quellgate allein ersetzt ihn nicht.
 
-Maßgeblich ist Fixrunde 2. Ihre eigene Format-, Compiler-, Test- und Clippyprüfung ist grün: 657 Tests bestanden, 48 bestehende Tests ignoriert, Clippy mit `-D warnings`. Maintenance benutzt in `author.rs::codex_args` dieselbe `subscription_config_args()`-Funktion wie Legacy. ChatGPT-Login, OpenAI-Provider und Werkzeugschalter sind gemeinsam festgelegt. Modell, Reasoning, Ausgabeschema, Ergebnisdatei und Zeitlimit bleiben erhalten. C9 besitzt weiterhin TOML-, Registry-, Revalidierungs- und Starterhunks. Das anschließende Gate und die gemeinsame Laufzeitabnahme stehen noch aus.
+Die historische Fixrunde 2 hatte ihre eigene grüne Format-, Compiler-, Test- und Clippyprüfung: 657 Tests bestanden, 48 bestehende Tests ignoriert, Clippy mit `-D warnings`. Ihr Gate endete mit Exit 0 ALLOW und zwei NITs. Der Timeout-NIT wird im aktuellen FIFO-Fix mitbehoben; die tatsächliche Werkzeugfreiheit bleibt offen. Maintenance benutzt weiterhin dieselbe `subscription_config_args()`-Funktion wie Legacy. Modell, Reasoning, Ausgabeschema, Ergebnisdatei und Zeitlimit bleiben erhalten; C9 besitzt TOML-, Registry-, Revalidierungs- und Starterhunks.
 
 Der bestehende Rust-Reviewer hat auch diesen engen Author-/Helperhunk statisch geprüft. Er meldet keine neuen P1- oder P2-Befunde und bestätigt die erhaltenen Authorvorgaben sowie konsistente einzelne `-c`-Argumentpaare. Dieser begrenzte Beleg ersetzt keine Compiler-, Gate-, Werkzeug- oder Abo-Laufzeitprüfung.
 

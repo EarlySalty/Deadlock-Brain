@@ -1,5 +1,7 @@
 # Finale Prüfung und gemeinsame Abnahme
 
+Aktueller Vorrang: Der nachfolgende Nutzerbefund über blockierende FIFO-Öffnungen macht eine weitere enge Fixrunde erforderlich. Der aktuelle ungeprüfte Drei-Dateien-Stand und sein gesondert abzustimmender Prüfplan stehen in [FIFO-NACHSLOT.md](FIFO-NACHSLOT.md). Die unten genannte grüne Fixrunde 2 ist ein historischer Beleg für 940bb213; sie ist keine Freigabe des anschließenden FIFO-Fixes.
+
 Fixrunde 2 ist compilerseitig vollständig geprüft: Format-, Compiler-, Tests und Clippy mit `-D warnings` sind grün, 657 Tests bestanden und 48 ignoriert. Der vollständige Quellinhalt steht in `FIXRUNDE-2-SNAPSHOT.tar` und `FIXRUNDE-2-MANIFEST.sha256`. Die folgenden noch offenen Schritte sind Gate, gemeinsame Integration und tatsächliche Laufzeitabnahme. Die erste Suite und Fixrunde 1 bleiben historische getrennte Artefakte.
 
 ## Nächster eigener Slot
