@@ -600,6 +600,18 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn pending_consent_requires_the_real_process_socket() {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let client = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        let (accepted, _) = listener.accept().unwrap();
+        assert!(super::owns_debug_socket(std::process::id(), port, true));
+        assert!(super::owns_debug_socket(std::process::id(), port, false));
+        assert!(!super::owns_debug_socket(u32::MAX, port, false));
+        drop((client, accepted, listener));
+    }
+
     #[tokio::test]
     #[ignore = "Braucht den geöffneten regulären Brave-Browser"]
     async fn public_forum_browser_smoke() {

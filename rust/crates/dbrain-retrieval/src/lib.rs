@@ -25,8 +25,8 @@ use sqlx::{
 mod chunk_index;
 mod contract_port;
 mod domain_port;
-mod game_wiki;
 mod forum;
+mod game_wiki;
 pub mod html_projection;
 mod hybrid_port;
 mod release_port;
@@ -1020,8 +1020,9 @@ pub async fn ask_context(
     }
     let entity_match = resolve_ask_entity_match(pool, query, &plan).await?;
     let forum_knowledge = forum::search_forum(pool, query).await?;
-    let out_of_domain =
-        !entity_match.matched && !query_has_deadlock_vocabulary(pool, query).await? && forum_knowledge["available"] != true;
+    let out_of_domain = !entity_match.matched
+        && !query_has_deadlock_vocabulary(pool, query).await?
+        && forum_knowledge["available"] != true;
     let intent = if out_of_domain {
         "out_of_domain".to_string()
     } else {
