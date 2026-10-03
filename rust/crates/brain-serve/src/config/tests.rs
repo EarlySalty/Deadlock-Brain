@@ -270,7 +270,12 @@ fn c9_grants_und_konfigurierte_releasebindungen_sind_exakt() {
     let config = parse(&value).unwrap();
     assert_eq!(config.credentials[1].c9_bound_scope(), Some("docs.public"));
     assert_eq!(
-        config.internal_operator.as_ref().unwrap().credential.c9_bound_scope(),
+        config
+            .internal_operator
+            .as_ref()
+            .unwrap()
+            .credential
+            .c9_bound_scope(),
         Some("second_brain.internal")
     );
     for (index, field, bad) in [

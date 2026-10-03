@@ -151,12 +151,10 @@ async fn initialize(prepared: &Prepared) -> Result<Arc<Health>, Error> {
         .config
         .all_credentials()
         .filter_map(|credential| {
-            credential.release.clone().map(|release| {
-                (
-                    release,
-                    credential.c9_bound_scope().map(str::to_owned),
-                )
-            })
+            credential
+                .release
+                .clone()
+                .map(|release| (release, credential.c9_bound_scope().map(str::to_owned)))
         })
         .collect();
     let analytics_patch = prepared
