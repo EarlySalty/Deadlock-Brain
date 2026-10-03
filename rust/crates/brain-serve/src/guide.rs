@@ -620,22 +620,13 @@ fn sharing_refused_or_unclear(body: &str) -> bool {
                             .is_some_and(|word| matches!(*word, "dass" | "ob"));
                         let positive_main =
                             !complement && !negated && positive_sharing_main(&part_words);
-                        let complete_server_assessment = complement
-                            && !part_shares
-                            && part_words
-                                .iter()
-                                .any(|word| matches!(*word, "server" | "kanal" | "kanäle"))
-                            && part_words.last().is_some_and(|word| {
-                                matches!(*word, "ist" | "sind" | "wirkt" | "wirken")
-                            });
                             if !negated_complement
                                 && (positive_main || (complement && positive_complement_pending))
                             {
                             preceding_negation = false;
                             negated_complement = false;
                         } else if complement {
-                            negated_complement |=
-                                preceding_negation && !complete_server_assessment;
+                            negated_complement |= preceding_negation;
                             preceding_negation = false;
                         } else if negated {
                             preceding_negation = true;
@@ -771,7 +762,6 @@ fn sharing_verb(word: &str) -> bool {
             | "geteilt"
             | "gib"
             | "gibst"
-            | "gibt"
             | "geben"
             | "sage"
             | "sag"
@@ -1110,6 +1100,8 @@ mod tests {
             "Ich möchte nicht, dass du das teilst.",
             "Ich möchte nicht, dass du das an das Team übermittelst.",
             "Ich möchte nicht, dass du das den Moderatoren erzählst.",
+            "Ich möchte nicht, dass das Team auf dem Server über mein Problem informiert ist, bitte leite dieses Anliegen weiter.",
+            "Ich finde nicht, dass der Server übersichtlich ist, bitte leite dieses Anliegen weiter.",
         ] {
             let text = format!("Feedback ans Team: {body}");
             assert!(!explicit_feedback(&text), "{text}");
@@ -1118,7 +1110,6 @@ mod tests {
             "Ich finde den Server nicht übersichtlich.",
             "Der Server ist nicht übersichtlich, bitte leite dieses Anliegen weiter.",
             "Ich finde den Server nicht übersichtlich. Bitte leite dieses Anliegen weiter.",
-            "Ich finde nicht, dass der Server übersichtlich ist, bitte leite dieses Anliegen weiter.",
             "Der Kanal ist nicht übersichtlich, ich möchte, dass du das ans Team weiterleitest.",
             "Der Kanal ist nicht übersichtlich, aber ich möchte, dass du das ans Team weiterleitest.",
         ] {
@@ -1129,6 +1120,7 @@ mod tests {
     #[test]
     fn weiterleitung_braucht_eine_positive_konkrete_aufforderung() {
         assert!(explicit_feedback("Feedback ans Team: Mehr Turniere bitte."));
+        assert!(explicit_feedback("Feedback ans Team: Es gibt keine Turniere."));
         assert!(explicit_feedback(
             "Feedback ans Team: Ich finde den Server nicht übersichtlich."
         ));
