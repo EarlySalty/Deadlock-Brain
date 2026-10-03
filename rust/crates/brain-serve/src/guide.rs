@@ -17,8 +17,8 @@ use brain_storage::{GuideSnapshot, LocalPgReader};
 use dbrain_retrieval::ReleaseRetriever;
 use serde::Deserialize;
 use serde_json::json;
-mod knowledge;
 mod invites;
+mod knowledge;
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeSet,
@@ -156,15 +156,32 @@ impl GuideRuntime {
         }
         if !addressed(&turn, snapshot.conversation.as_ref(), now)
             || (turn.addressed == Addressed::CommunityQuestion
-                && !self.config.proactive_channel_allowed(&turn.guild_id, &turn.channel_id))
+                && !self
+                    .config
+                    .proactive_channel_allowed(&turn.guild_id, &turn.channel_id))
         {
             return Ok(GuideResult::silent(&turn.request_id));
         }
-        if turn.human_helped && matches!(turn.addressed, Addressed::Followup | Addressed::CommunityQuestion) {
+        if turn.human_helped
+            && matches!(
+                turn.addressed,
+                Addressed::Followup | Addressed::CommunityQuestion
+            )
+        {
             return Ok(GuideResult::silent(&turn.request_id));
         }
-        if let Some(command) = turn.access_invite.clone().or_else(|| invites::command(&turn.content))
-            .or_else(|| snapshot.conversation.as_ref().filter(|conversation|conversation.pending_access_invite).and_then(|_|invites::code(&turn.content))) {
+        if let Some(command) = turn
+            .access_invite
+            .clone()
+            .or_else(|| invites::command(&turn.content))
+            .or_else(|| {
+                snapshot
+                    .conversation
+                    .as_ref()
+                    .filter(|conversation| conversation.pending_access_invite)
+                    .and_then(|_| invites::code(&turn.content))
+            })
+        {
             return self.access_invite(&turn, snapshot.profile.epoch, command, &deadline);
         }
         if let Some(control) = turn
@@ -287,7 +304,7 @@ impl GuideRuntime {
                 last_bot_message_id: None,
                 expires_at: expires,
                 closed: false,
-            pending_access_invite: false,
+                pending_access_invite: false,
             };
             if !self.reader.guide_finish(
                 &turn,
@@ -519,8 +536,11 @@ fn addressed(turn: &GuideTurn, conversation: Option<&GuideConversation>, now: i6
     }
     match turn.addressed {
         Addressed::Mention | Addressed::Command => true,
-        Addressed::CommunityQuestion => turn.event == Event::Message
-            && turn.thread_id.is_none() && turn.reply_to_message_id.is_none(),
+        Addressed::CommunityQuestion => {
+            turn.event == Event::Message
+                && turn.thread_id.is_none()
+                && turn.reply_to_message_id.is_none()
+        }
         Addressed::TourButton => matches!(turn.event, Event::TourStart | Event::TourStep),
         Addressed::Reply | Addressed::Followup => conversation.is_some_and(|c| {
             !c.closed
@@ -908,7 +928,9 @@ async fn turn_handler(
     .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let request_id = turn.request_id.clone();
     let mut request_runtime = (*runtime).clone();
-    request_runtime.peer_token = headers.get("authorization").and_then(|value| value.to_str().ok())
+    request_runtime.peer_token = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
         .and_then(|value| value.split_once(' ').map(|(_, token)| token.to_owned()));
     let result = tokio::task::spawn_blocking(move || {
         let _permit = permit;

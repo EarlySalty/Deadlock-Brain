@@ -121,12 +121,17 @@ impl AccessInviteCommand {
     pub fn valid(&self) -> bool {
         match self {
             Self::AwaitCode => true,
-            Self::Request { friend_code } => !friend_code.trim().is_empty()
-                && friend_code.len() <= 32
-                && !friend_code.chars().any(char::is_control),
+            Self::Request { friend_code } => {
+                !friend_code.trim().is_empty()
+                    && friend_code.len() <= 32
+                    && !friend_code.chars().any(char::is_control)
+            }
             Self::Status { action_id } | Self::Cancel { action_id } => {
-                !action_id.is_empty() && action_id.len() <= 128
-                    && action_id.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._:-".contains(&byte))
+                !action_id.is_empty()
+                    && action_id.len() <= 128
+                    && action_id
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || b"._:-".contains(&byte))
             }
         }
     }

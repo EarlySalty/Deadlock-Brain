@@ -47,7 +47,7 @@ fn turn(request: &str, surface: Surface) -> GuideTurn {
         content: "Synthetische Frage".into(),
         control: None,
         domain: None,
-            access_invite: None,
+        access_invite: None,
         human_helped: false,
     }
 }
@@ -539,7 +539,7 @@ fn sequence_checks(reader: &LocalPgReader, sql: &mut postgres::Client) {
         last_bot_message_id: None,
         expires_at: 1900,
         closed: false,
-            pending_access_invite: false,
+        pending_access_invite: false,
     };
     assert!(reader
         .guide_finish(
@@ -672,54 +672,235 @@ async fn migration_checks(store: &PgStore, pool: &sqlx::PgPool) {
         .execute(pool).await.unwrap();
 }
 
-fn invite_checks(reader:&LocalPgReader, sql:&mut postgres::Client) {
-    let deadline=||RequestDeadline::after(Duration::from_secs(5));
-    let mut original=turn("invite-original",Surface::Dm);
-    original.user_id="230".into();
-    let profile=reader.guide_claim(&original,&deadline(),1300,false).expect("Einladungsclaim fehlt").expect("Einladungsclaim verworfen").profile;
-    let conversation=GuideConversation{id:"invite-conversation".into(),channel_id:original.channel_id.clone(),thread_id:None,user_id:original.user_id.clone(),surface:original.surface,last_user_message_id:original.message_id.clone(),last_bot_message_id:None,expires_at:1400,closed:false,pending_access_invite:false};
-    let requested=GuideInviteGrant{action_id:"invite:test".into(),target:76561197960265729,ttl_seconds:60,conversation};
-    let grant=reader.guide_create_invite_grant(&original,profile.epoch,&requested,&deadline()).expect("Grantanlage fehlgeschlagen").expect("Grant verworfen");
-    assert_eq!(grant.turn_id,original.request_id);
-    assert!(reader.guide_create_invite_grant(&original,profile.epoch,&requested,&deadline()).expect("Duplikatprüfung fehlgeschlagen").is_none());
-    let mut public=original.clone();public.surface=Surface::Public;
-    assert!(reader.guide_invite_state(&public,profile.epoch,"invite:test",false,&deadline()).expect("Öffentliche Sperrprüfung fehlgeschlagen").is_none());
-    let mut foreign=original.clone();foreign.user_id="231".into();
-    reader.guide_claim(&foreign,&deadline(),1300,false).expect("Fremdclaim fehlgeschlagen");
-    assert!(reader.guide_invite_state(&foreign,0,"invite:test",false,&deadline()).expect("Mitgliedsprüfung fehlgeschlagen").is_none());
-    let mut later=original.clone();later.request_id="invite-later-normal".into();later.message_id="401".into();
-    reader.guide_claim(&later,&deadline(),1300,false).expect("Normaler Folgeclaim fehlgeschlagen");
-    assert_eq!(reader.guide_invite_state(&original,profile.epoch,"invite:test",false,&deadline()).expect("Statusprüfung fehlgeschlagen"),Some(InviteStatus::Queued));
-    let control=control_turn(reader,&later);
-    reader.guide_control(&control,&ProfileControl::Memory{enabled:false},1300,None,&deadline()).expect("Widerruf fehlgeschlagen");
-    assert!(reader.guide_invite_state(&original,profile.epoch,"invite:test",false,&deadline()).expect("Epochenprüfung fehlgeschlagen").is_none());
+fn invite_checks(reader: &LocalPgReader, sql: &mut postgres::Client) {
+    let deadline = || RequestDeadline::after(Duration::from_secs(5));
+    let mut original = turn("invite-original", Surface::Dm);
+    original.user_id = "230".into();
+    let profile = reader
+        .guide_claim(&original, &deadline(), 1300, false)
+        .expect("Einladungsclaim fehlt")
+        .expect("Einladungsclaim verworfen")
+        .profile;
+    let conversation = GuideConversation {
+        id: "invite-conversation".into(),
+        channel_id: original.channel_id.clone(),
+        thread_id: None,
+        user_id: original.user_id.clone(),
+        surface: original.surface,
+        last_user_message_id: original.message_id.clone(),
+        last_bot_message_id: None,
+        expires_at: 1400,
+        closed: false,
+        pending_access_invite: false,
+    };
+    let requested = GuideInviteGrant {
+        action_id: "invite:test".into(),
+        target: 76561197960265729,
+        ttl_seconds: 60,
+        conversation,
+    };
+    let grant = reader
+        .guide_create_invite_grant(&original, profile.epoch, &requested, &deadline())
+        .expect("Grantanlage fehlgeschlagen")
+        .expect("Grant verworfen");
+    assert_eq!(grant.turn_id, original.request_id);
+    assert!(reader
+        .guide_create_invite_grant(&original, profile.epoch, &requested, &deadline())
+        .expect("Duplikatprüfung fehlgeschlagen")
+        .is_none());
+    let mut public = original.clone();
+    public.surface = Surface::Public;
+    assert!(reader
+        .guide_invite_state(&public, profile.epoch, "invite:test", false, &deadline())
+        .expect("Öffentliche Sperrprüfung fehlgeschlagen")
+        .is_none());
+    let mut foreign = original.clone();
+    foreign.user_id = "231".into();
+    reader
+        .guide_claim(&foreign, &deadline(), 1300, false)
+        .expect("Fremdclaim fehlgeschlagen");
+    assert!(reader
+        .guide_invite_state(&foreign, 0, "invite:test", false, &deadline())
+        .expect("Mitgliedsprüfung fehlgeschlagen")
+        .is_none());
+    let mut later = original.clone();
+    later.request_id = "invite-later-normal".into();
+    later.message_id = "401".into();
+    reader
+        .guide_claim(&later, &deadline(), 1300, false)
+        .expect("Normaler Folgeclaim fehlgeschlagen");
+    assert_eq!(
+        reader
+            .guide_invite_state(&original, profile.epoch, "invite:test", false, &deadline())
+            .expect("Statusprüfung fehlgeschlagen"),
+        Some(InviteStatus::Queued)
+    );
+    let control = control_turn(reader, &later);
+    reader
+        .guide_control(
+            &control,
+            &ProfileControl::Memory { enabled: false },
+            1300,
+            None,
+            &deadline(),
+        )
+        .expect("Widerruf fehlgeschlagen");
+    assert!(reader
+        .guide_invite_state(&original, profile.epoch, "invite:test", false, &deadline())
+        .expect("Epochenprüfung fehlgeschlagen")
+        .is_none());
     let revoked:bool=sql.query_one("SELECT revoked_at IS NOT NULL AND steam_id64 IS NULL AND turn_id IS NULL AND source_channel_id IS NULL FROM brain.guide_action_grants WHERE action_id='invite:test'",&[]).expect("Widerrufsnachweis fehlt").get(0);
     assert!(revoked);
-    assert!(sql.execute("UPDATE brain.guide_action_grants SET revoked_at=NULL WHERE action_id='invite:test'",&[]).is_err());
+    assert!(sql
+        .execute(
+            "UPDATE brain.guide_action_grants SET revoked_at=NULL WHERE action_id='invite:test'",
+            &[]
+        )
+        .is_err());
     assert!(sql.execute("UPDATE brain.guide_action_grants SET steam_id64=76561197960265729 WHERE action_id='invite:test'",&[]).is_err());
     assert!(sql.execute("UPDATE brain.guide_action_grants SET privacy_epoch=privacy_epoch+1 WHERE action_id='invite:test'",&[]).is_err());
-    let mut public=turn("invite-public-original",Surface::Public);public.user_id="232".into();
-    let profile=reader.guide_claim(&public,&deadline(),1300,false).expect("Öffentlicher Claim fehlt").expect("Öffentlicher Claim verworfen").profile;
-    let conversation=GuideConversation{id:"invite-public-conversation".into(),channel_id:public.channel_id.clone(),thread_id:None,user_id:public.user_id.clone(),surface:Surface::Public,last_user_message_id:public.message_id.clone(),last_bot_message_id:None,expires_at:1400,closed:false,pending_access_invite:false};
-    reader.guide_create_invite_grant(&public,profile.epoch,&GuideInviteGrant{action_id:"invite:public".into(),target:76561197960265730,ttl_seconds:60,conversation:conversation.clone()},&deadline()).expect("Öffentlicher Grant fehlt").expect("Öffentlicher Grant verworfen");
-    assert_eq!(reader.guide_action_result(&ActionResult{request_id:"invite-public-original:reply".into(),guild_id:public.guild_id.clone(),user_id:public.user_id.clone(),delivery_id:"reply:invite-public-conversation".into(),success:true,reply_message_id:Some("500".into()),sent_message_id:None},&deadline()).expect("Antwortzuordnung fehlgeschlagen"),Some(profile.epoch));
-    public.request_id="invite-public-followup".into();public.message_id="501".into();public.reply_to_message_id=Some("500".into());public.addressed=Addressed::Reply;public.conversation_id=Some(conversation.id.clone());
-    let continued=reader.guide_claim(&public,&deadline(),1301,false).expect("Öffentlicher Folgeclaim fehlt").expect("Öffentlicher Folgeclaim verworfen");
-    assert_eq!(continued.conversation.expect("Einladungsunterhaltung fehlt").last_bot_message_id,Some("500".into()));
+    let mut public = turn("invite-public-original", Surface::Public);
+    public.user_id = "232".into();
+    let profile = reader
+        .guide_claim(&public, &deadline(), 1300, false)
+        .expect("Öffentlicher Claim fehlt")
+        .expect("Öffentlicher Claim verworfen")
+        .profile;
+    let conversation = GuideConversation {
+        id: "invite-public-conversation".into(),
+        channel_id: public.channel_id.clone(),
+        thread_id: None,
+        user_id: public.user_id.clone(),
+        surface: Surface::Public,
+        last_user_message_id: public.message_id.clone(),
+        last_bot_message_id: None,
+        expires_at: 1400,
+        closed: false,
+        pending_access_invite: false,
+    };
+    reader
+        .guide_create_invite_grant(
+            &public,
+            profile.epoch,
+            &GuideInviteGrant {
+                action_id: "invite:public".into(),
+                target: 76561197960265730,
+                ttl_seconds: 60,
+                conversation: conversation.clone(),
+            },
+            &deadline(),
+        )
+        .expect("Öffentlicher Grant fehlt")
+        .expect("Öffentlicher Grant verworfen");
+    assert_eq!(
+        reader
+            .guide_action_result(
+                &ActionResult {
+                    request_id: "invite-public-original:reply".into(),
+                    guild_id: public.guild_id.clone(),
+                    user_id: public.user_id.clone(),
+                    delivery_id: "reply:invite-public-conversation".into(),
+                    success: true,
+                    reply_message_id: Some("500".into()),
+                    sent_message_id: None
+                },
+                &deadline()
+            )
+            .expect("Antwortzuordnung fehlgeschlagen"),
+        Some(profile.epoch)
+    );
+    public.request_id = "invite-public-followup".into();
+    public.message_id = "501".into();
+    public.reply_to_message_id = Some("500".into());
+    public.addressed = Addressed::Reply;
+    public.conversation_id = Some(conversation.id.clone());
+    let continued = reader
+        .guide_claim(&public, &deadline(), 1301, false)
+        .expect("Öffentlicher Folgeclaim fehlt")
+        .expect("Öffentlicher Folgeclaim verworfen");
+    assert_eq!(
+        continued
+            .conversation
+            .expect("Einladungsunterhaltung fehlt")
+            .last_bot_message_id,
+        Some("500".into())
+    );
     sql.execute("UPDATE brain.guide_action_grants SET friend_dispatch_reserved=true WHERE action_id='invite:public'",&[]).expect("Synthetische Reservierung fehlgeschlagen");
     assert!(sql.execute("UPDATE brain.guide_action_grants SET friend_dispatch_reserved=false WHERE action_id='invite:public'",&[]).is_err());
-    let mut awaiting=turn("invite-await-code",Surface::Public);awaiting.user_id="233".into();
-    let snapshot=reader.guide_claim(&awaiting,&deadline(),1300,false).expect("Codeanforderungsclaim fehlt").expect("Codeanforderungsclaim verworfen");
-    let pending=GuideConversation{id:"invite-await-conversation".into(),channel_id:awaiting.channel_id.clone(),thread_id:None,user_id:awaiting.user_id.clone(),surface:Surface::Public,last_user_message_id:awaiting.message_id.clone(),last_bot_message_id:None,expires_at:1400,closed:false,pending_access_invite:true};
-    assert!(reader.guide_finish(&awaiting,snapshot.profile.epoch,Some(&pending),&[],None,&deadline()).expect("Codeanforderung nicht abgeschlossen"));
-    let mut other=awaiting.clone();other.user_id="234".into();other.request_id="invite-foreign-code".into();other.conversation_id=Some(pending.id.clone());
-    assert!(reader.guide_claim(&other,&deadline(),1301,false).expect("Fremdclaim fehlt").expect("Fremdclaim verworfen").conversation.is_none());
-    awaiting.request_id="invite-code-followup".into();awaiting.message_id="402".into();awaiting.addressed=Addressed::Followup;awaiting.conversation_id=Some(pending.id.clone());
-    let follow=reader.guide_claim(&awaiting,&deadline(),1301,false).expect("Codefolgeclaim fehlt").expect("Codefolgeclaim verworfen");
-    assert!(follow.conversation.expect("Codeanforderung verloren").pending_access_invite);
-    let mut done=pending.clone();done.closed=true;done.pending_access_invite=false;done.last_user_message_id=awaiting.message_id.clone();
-    assert!(reader.guide_finish(&awaiting,follow.profile.epoch,Some(&done),&[],None,&deadline()).expect("Abschluss nicht gespeichert"));
-    awaiting.request_id="invite-after-close".into();
-    assert!(reader.guide_claim(&awaiting,&deadline(),1302,false).expect("Abschlussclaim fehlt").expect("Abschlussclaim verworfen").conversation.expect("Abschlusszustand fehlt").closed);
-
+    let mut awaiting = turn("invite-await-code", Surface::Public);
+    awaiting.user_id = "233".into();
+    let snapshot = reader
+        .guide_claim(&awaiting, &deadline(), 1300, false)
+        .expect("Codeanforderungsclaim fehlt")
+        .expect("Codeanforderungsclaim verworfen");
+    let pending = GuideConversation {
+        id: "invite-await-conversation".into(),
+        channel_id: awaiting.channel_id.clone(),
+        thread_id: None,
+        user_id: awaiting.user_id.clone(),
+        surface: Surface::Public,
+        last_user_message_id: awaiting.message_id.clone(),
+        last_bot_message_id: None,
+        expires_at: 1400,
+        closed: false,
+        pending_access_invite: true,
+    };
+    assert!(reader
+        .guide_finish(
+            &awaiting,
+            snapshot.profile.epoch,
+            Some(&pending),
+            &[],
+            None,
+            &deadline()
+        )
+        .expect("Codeanforderung nicht abgeschlossen"));
+    let mut other = awaiting.clone();
+    other.user_id = "234".into();
+    other.request_id = "invite-foreign-code".into();
+    other.conversation_id = Some(pending.id.clone());
+    assert!(reader
+        .guide_claim(&other, &deadline(), 1301, false)
+        .expect("Fremdclaim fehlt")
+        .expect("Fremdclaim verworfen")
+        .conversation
+        .is_none());
+    awaiting.request_id = "invite-code-followup".into();
+    awaiting.message_id = "402".into();
+    awaiting.addressed = Addressed::Followup;
+    awaiting.conversation_id = Some(pending.id.clone());
+    let follow = reader
+        .guide_claim(&awaiting, &deadline(), 1301, false)
+        .expect("Codefolgeclaim fehlt")
+        .expect("Codefolgeclaim verworfen");
+    assert!(
+        follow
+            .conversation
+            .expect("Codeanforderung verloren")
+            .pending_access_invite
+    );
+    let mut done = pending.clone();
+    done.closed = true;
+    done.pending_access_invite = false;
+    done.last_user_message_id = awaiting.message_id.clone();
+    assert!(reader
+        .guide_finish(
+            &awaiting,
+            follow.profile.epoch,
+            Some(&done),
+            &[],
+            None,
+            &deadline()
+        )
+        .expect("Abschluss nicht gespeichert"));
+    awaiting.request_id = "invite-after-close".into();
+    assert!(
+        reader
+            .guide_claim(&awaiting, &deadline(), 1302, false)
+            .expect("Abschlussclaim fehlt")
+            .expect("Abschlussclaim verworfen")
+            .conversation
+            .expect("Abschlusszustand fehlt")
+            .closed
+    );
 }
