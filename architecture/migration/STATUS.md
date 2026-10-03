@@ -38,7 +38,7 @@ Die bisherigen Legacy-Writer und Timer bleiben bis zum jeweiligen belegten Schre
 
 ## Vor G5 zu schließen
 
-1. P/S/Q/K müssen ihren Abschluss oder eine ausdrücklich nichtblockierende Grenze mit SHA und Live-Beweis ablegen. Wiki-Abschluss oder die zeitgerecht dokumentierte Ausnahme bleibt zusätzliche Startbedingung.
+1. P/S/Q/K liefern lokal geprüfte SHAs mit Betriebsverträgen. Z integriert die gekoppelte Gruppe, führt gemeinsame unabhängige Abnahme und Merge-Gate durch und installiert sie. Fachliche Live-Nachweise folgen danach; sie sind keine Voraussetzung für die Codeintegration. Wiki-Abschluss oder die zeitgerecht dokumentierte Ausnahme bleibt zusätzliche Startbedingung für G5.
 2. Ein vorhandener Brain-Release-Weg muss aktuellen Remote-main, Buildherkunft und Deploy-flock belegen. CLI, Server und Maintenance werden gemeinsam betrachtet. Es wird kein Twitch-Installer für Brain verwendet.
 3. Der Übergang vom fortgeschriebenen DL-Main-Bestand über das isolierte Archiv in den Kern braucht einen frischen gebundenen Snapshot und einen Rückweg mit Bestandserhalt. Das September-Archiv reicht dafür nicht.
 4. Q-SLO und K-Consumeranfragen werden nach dem Wechsel erneut geprüft. Alte Writer werden erst nach erfolgreicher Beobachtung endgültig deaktiviert; ersetzte neue Rust-Units unter gleichem Namen bleiben aktiv.
