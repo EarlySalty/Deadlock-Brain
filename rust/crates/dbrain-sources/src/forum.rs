@@ -114,9 +114,12 @@ async fn pull_forum_inner(
     options: &PullForumOptions,
     run_id: i64,
 ) -> Result<Value> {
-    if !options.delay_seconds.is_finite() || options.delay_seconds < 0.5 {
+    if !options.delay_seconds.is_finite()
+        || options.delay_seconds < 0.5
+        || Duration::try_from_secs_f64(options.delay_seconds).is_err()
+    {
         return Err(SourcesError::invalid_input(
-            "delay_seconds muss endlich und mindestens 0,5 sein.",
+            "delay_seconds muss als Dauer darstellbar und mindestens 0,5 sein.",
         ));
     }
 
@@ -1244,6 +1247,15 @@ mod scratch_regression_tests {
             concurrent.is_ok(),
             "Zwei Publisher dürfen den kleinen Pool nicht blockieren."
         );
+        let mut many = vec![manifest((1..=201).collect())];
+        many.extend((1..=201).map(|id| post(id, &format!("Beitrag {id}"))));
+        store_observed_snapshots(&store, &many, doc).await.unwrap();
+        let batches =
+            crate::forum_corpus::publish_archive(&limited, &limited, "a-again", "multiple-batches")
+                .await
+                .unwrap();
+        assert_eq!(batches["posts"], 201);
+        assert_eq!(batches["committed"], 201);
         limited.close().await;
         pool.close().await;
         drop(server);
