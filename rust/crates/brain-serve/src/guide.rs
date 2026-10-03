@@ -432,6 +432,7 @@ fn addressed(turn: &GuideTurn, conversation: Option<&GuideConversation>, now: i6
     }
     match turn.addressed {
         Addressed::Mention | Addressed::Command => true,
+        Addressed::TourButton => matches!(turn.event, Event::TourStart | Event::TourStep),
         Addressed::Reply | Addressed::Followup => conversation.is_some_and(|c| {
             !c.closed
                 && c.surface == turn.surface
@@ -737,6 +738,19 @@ mod tests {
         assert!(!addressed(&turn, Some(&conv), 50));
         turn.addressed = Addressed::Mention;
         assert!(addressed(&turn, None, 50));
+    }
+    #[test]
+    fn nutzerseitige_oeffentliche_tour_bleibt_eine_adressierte_aktion() {
+        let mut turn = turn();
+        turn.addressed = Addressed::TourButton;
+        turn.event = Event::TourStart;
+        assert!(turn.valid() && addressed(&turn, None, 50));
+        turn.event = Event::TourStep;
+        assert!(turn.valid() && addressed(&turn, None, 50));
+        turn.event = Event::Message;
+        assert!(!addressed(&turn, None, 50));
+        turn.addressed = Addressed::Followup;
+        assert!(!addressed(&turn, None, 50));
     }
     #[test]
     fn kontrollerkennung_ist_keine_aktionsaufforderung_im_prompt() {
