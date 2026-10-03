@@ -228,6 +228,16 @@ pub fn loaded_release_bindings_sha256(
 }
 
 impl Config {
+    pub(crate) fn operator_docs_release(&self) -> Option<&Release> {
+        let operator = &self.internal_operator.as_ref()?.release;
+        self.credentials
+            .iter()
+            .filter(|grant| grant.actor_id == "docs-client" && grant.channel == "docs")
+            .filter_map(|grant| grant.release.as_ref())
+            .find(|release| {
+                release.id == operator.id && release.knowledge_version == operator.knowledge_version
+            })
+    }
     pub fn release_bindings_sha256(&self) -> String {
         let releases = std::iter::once(&self.release)
             .chain(

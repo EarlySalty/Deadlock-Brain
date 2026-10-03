@@ -26,6 +26,7 @@ pub struct InternalApiService {
     policy: PolicyEngine,
     retrieval: Arc<dyn RetrievalPort>,
     release: String,
+    public_docs_release: Option<String>,
     deadline_ms: u64,
     budget: Budget,
     slots: Arc<Semaphore>,
@@ -43,10 +44,16 @@ impl InternalApiService {
             policy,
             retrieval: Arc::new(retrieval),
             release,
+            public_docs_release: None,
             deadline_ms,
             budget,
             slots: Arc::new(Semaphore::new(4)),
         }
+    }
+
+    pub fn with_public_docs_release(mut self, release: String) -> Self {
+        self.public_docs_release = Some(release);
+        self
     }
 
     fn allowed(&self, token: &str) -> bool {
@@ -109,12 +116,34 @@ impl InternalApiService {
             Err(PolicyError::BudgetExceeded) => return deadline_response(),
             Err(_) => return json_error(403, "forbidden", "Anfrage nicht intern freigegeben"),
         };
+        let public_docs =
+            self.public_docs_release.as_deref() == Some(context.knowledge_release.as_str());
+        let mut retrieval_query = query.clone();
+        let mut retrieval_context = context.clone();
+        if public_docs {
+            let scopes = BTreeSet::from(["docs.public".into()]);
+            retrieval_query.requested_scopes = scopes.clone();
+            retrieval_context.principal.scopes = scopes;
+        }
         let evidence = match self
             .retrieval
-            .retrieve(&query, &context)
+            .retrieve(&retrieval_query, &retrieval_context)
             .and_then(|evidence| {
-                self.retrieval
-                    .validate_evidence(&query, &context, &evidence, false)?;
+                if !public_docs || !evidence.is_empty() {
+                    self.retrieval.validate_evidence(
+                        &retrieval_query,
+                        &retrieval_context,
+                        &evidence,
+                        false,
+                    )?;
+                }
+                if public_docs && !evidence.is_empty() {
+                    self.retrieval.validate_publication(
+                        &retrieval_query,
+                        &retrieval_context,
+                        &evidence,
+                    )?;
+                }
                 Ok(evidence)
             }) {
             Ok(evidence) => evidence,
@@ -126,9 +155,14 @@ impl InternalApiService {
         if evidence.len() > 100
             || evidence.iter().any(|item| {
                 item.validate().is_err()
-                    || item.visibility != SourceVisibility::Internal
-                    || item.allowed_scopes != BTreeSet::from(["second_brain.internal".into()])
-                    || !brain_policy::evidence_allowed(&context.principal, item)
+                    || if public_docs {
+                        item.visibility != SourceVisibility::Public
+                    } else {
+                        item.visibility != SourceVisibility::Internal
+                            || item.allowed_scopes
+                                != BTreeSet::from(["second_brain.internal".into()])
+                    }
+                    || !brain_policy::evidence_allowed(&retrieval_context.principal, item)
             })
         {
             return json_error(502, "invalid_internal_evidence", "Ungültige interne Belege");
@@ -349,6 +383,142 @@ mod tests {
             &serde_json::to_vec(query).unwrap(),
             RequestDeadline::after(Duration::from_secs(1)),
         )
+    }
+
+    struct PublicDocsFixture {
+        visibility: SourceVisibility,
+        scope: &'static str,
+        revoked: bool,
+    }
+    impl RetrievalPort for PublicDocsFixture {
+        fn retrieve(
+            &self,
+            query: &Query,
+            context: &AuthorizedContext,
+        ) -> StoreResult<Vec<Evidence>> {
+            assert_eq!(context.knowledge_release, "internal-release-fixture");
+            assert_eq!(context.principal.actor_id, "second-brain");
+            assert_eq!(context.principal.channel, "internal");
+            assert!(context.principal.provider_egress.is_empty());
+            if query.requested_scopes != BTreeSet::from(["docs.public".into()]) {
+                return Ok(Vec::new());
+            }
+            assert_eq!(context.principal.scopes, query.requested_scopes);
+            Ok(vec![Evidence {
+                evidence_id: "docs-fixture-e1".into(),
+                source_id: "docs-fixture".into(),
+                logical_id: "public/antwort.html".into(),
+                revision: 1,
+                kind: EvidenceKind::Prose,
+                content: "Freigegebener öffentlicher Dokumentationsausschnitt".into(),
+                citation: "public/antwort.html#1".into(),
+                visibility: self.visibility,
+                allowed_scopes: BTreeSet::from([self.scope.into()]),
+                score: 1.0,
+                provenance: None,
+                patch: None,
+            }])
+        }
+        fn validate_evidence(
+            &self,
+            _: &Query,
+            _: &AuthorizedContext,
+            _: &[Evidence],
+            for_provider: bool,
+        ) -> StoreResult<()> {
+            assert!(!for_provider);
+            if self.revoked {
+                Err(PortError::PermissionDenied("fixture_acl".into()))
+            } else {
+                Ok(())
+            }
+        }
+        fn validate_publication(
+            &self,
+            query: &Query,
+            context: &AuthorizedContext,
+            evidence: &[Evidence],
+        ) -> StoreResult<()> {
+            self.validate_evidence(query, context, evidence, false)
+        }
+    }
+    fn docs_service(
+        visibility: SourceVisibility,
+        scope: &'static str,
+        revoked: bool,
+    ) -> InternalApiService {
+        let (mut service, _, _) = service(
+            "second-brain",
+            "internal",
+            &["second_brain.internal"],
+            "internal-release-fixture",
+        );
+        service.retrieval = Arc::new(PublicDocsFixture {
+            visibility,
+            scope,
+            revoked,
+        });
+        service
+    }
+
+    #[test]
+    fn operator_public_docs_require_an_explicit_matching_release() {
+        for pin in [
+            None,
+            Some("other-release"),
+            Some("internal-release-fixture"),
+        ] {
+            let service = docs_service(SourceVisibility::Public, "docs.public", false);
+            let service = match pin {
+                Some(pin) => service.with_public_docs_release(pin.into()),
+                None => service,
+            };
+            let response = call(&service, &query());
+            assert_eq!(response.status, 200);
+            let answer: InternalAnswerResponse = serde_json::from_str(&response.body).unwrap();
+            assert_eq!(answer.knowledge_release, "internal-release-fixture");
+            assert_eq!(
+                answer.excerpts.len(),
+                usize::from(pin == Some("internal-release-fixture"))
+            );
+            if !answer.excerpts.is_empty() {
+                assert!(answer.validate(&query().request_id));
+                assert_eq!(answer.status, InternalStatus::Answered);
+            }
+        }
+    }
+
+    #[test]
+    fn operator_public_docs_reject_private_evidence_foreign_scopes_and_revocation() {
+        for (visibility, scope, revoked, expected) in [
+            (SourceVisibility::Internal, "docs.public", false, 502),
+            (SourceVisibility::Private, "docs.public", false, 502),
+            (SourceVisibility::Public, "bot.public", false, 502),
+            (SourceVisibility::Public, "docs.public", true, 503),
+        ] {
+            let service = docs_service(visibility, scope, revoked)
+                .with_public_docs_release("internal-release-fixture".into());
+            assert_eq!(call(&service, &query()).status, expected);
+        }
+    }
+
+    #[test]
+    fn operator_public_docs_preserve_authentication_and_wire_scopes() {
+        let service = docs_service(SourceVisibility::Public, "docs.public", false)
+            .with_public_docs_release("internal-release-fixture".into());
+        let mut query = query();
+        assert_eq!(
+            service
+                .handle_query(
+                    None,
+                    &serde_json::to_vec(&query).unwrap(),
+                    RequestDeadline::after(Duration::from_secs(1))
+                )
+                .status,
+            401
+        );
+        query.requested_scopes = BTreeSet::from(["docs.public".into()]);
+        assert_eq!(call(&service, &query).status, 400);
     }
 
     #[test]

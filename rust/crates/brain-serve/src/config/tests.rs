@@ -304,3 +304,19 @@ fn second_brain_credential_ist_in_der_oeffentlichen_registry_unbekannt() {
         .authenticate("synthetic-BRAIN_SERVE_DOCS_PUBLIC_TOKEN")
         .is_ok());
 }
+
+#[test]
+fn operator_docs_release_requires_both_explicit_pins_to_match() {
+    let mut value = c9_config();
+    assert!(parse(&value).unwrap().operator_docs_release().is_none());
+    value["credentials"][1]["release"] = value["internal_operator"]["release"].clone();
+    let config = parse(&value).unwrap();
+    assert_eq!(
+        config.operator_docs_release().unwrap().id,
+        "fixture-internal-release"
+    );
+    value["credentials"][1]["release"]["knowledge_version"] = json!("foreign-version");
+    assert!(parse(&value).unwrap().operator_docs_release().is_none());
+    value["credentials"].as_array_mut().unwrap().remove(1);
+    assert!(parse(&value).unwrap().operator_docs_release().is_none());
+}
