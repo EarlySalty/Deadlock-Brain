@@ -874,10 +874,11 @@ async fn forum_fetch(
     url: &str,
 ) -> Result<(String, bool)> {
     if let Some(browser) = browser.as_mut() {
-        let text = browser
-            .fetch_html(url)
-            .await
-            .map_err(|e| SourcesError::invalid_input(e.to_string()))?;
+        let text = browser.fetch_html(url).await.map_err(|e| {
+            SourcesError::invalid_input(format!(
+                "Zugriff gesperrt: Browserabruf fehlgeschlagen: {e}"
+            ))
+        })?;
         return Ok((response_text_checked(&text)?, false));
     }
     let client = http.clone();
@@ -1205,6 +1206,45 @@ mod scratch_regression_tests {
             .unwrap();
         assert!(source.content.ends_with("\n\nA"));
         assert_eq!(source.revision, 4);
+        let limited = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(2)
+            .acquire_timeout(Duration::from_secs(2))
+            .connect_with((*pool.connect_options()).clone())
+            .await
+            .unwrap();
+        let mut blocker = limited.begin().await.unwrap();
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext('forum-corpus-publish')::bigint)")
+            .execute(&mut *blocker)
+            .await
+            .unwrap();
+        let concurrent = tokio::time::timeout(Duration::from_secs(10), async {
+            let (first, second, ()) = tokio::join!(
+                crate::forum_corpus::publish_archive(
+                    &limited,
+                    &limited,
+                    "a-again",
+                    "concurrent-one"
+                ),
+                crate::forum_corpus::publish_archive(
+                    &limited,
+                    &limited,
+                    "a-again",
+                    "concurrent-two"
+                ),
+                async {
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                    blocker.rollback().await.unwrap();
+                }
+            );
+            first.unwrap();
+            second.unwrap();
+        })
+        .await;
+        assert!(
+            concurrent.is_ok(),
+            "Zwei Publisher dürfen den kleinen Pool nicht blockieren."
+        );
+        limited.close().await;
         pool.close().await;
         drop(server);
     }
