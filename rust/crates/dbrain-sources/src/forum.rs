@@ -1364,6 +1364,13 @@ mod live_browser_contract {
             for url in &index {
                 validate_sitemap_url(url).unwrap();
             }
+            let child = browser.fetch_html(&index[0]).await.unwrap();
+            let threads = parse_threads_from_sitemap(&index[0], &child).unwrap();
+            assert!(!threads.is_empty());
+            eprintln!(
+                "Öffentliche Untersitemapprobe: {} Threads entdeckt.",
+                threads.len()
+            );
         }
         eprintln!(
             "Öffentliche Sitemapprobe: {} Sitemapdateien im Index.",

@@ -603,10 +603,10 @@ const SNAPSHOT: &str = r#"(() => {
   if (address.origin !== 'https://forums.playdeadlock.com' || address.username || address.password ||
       address.search || address.hash || !publicPath) return {url, ready:false};
   const root = document.documentElement;
-  const logged_in = root?.dataset.loggedIn === 'true';
+  const logged_in = root?.dataset?.loggedIn === 'true';
   const xml = document.contentType.includes('xml');
   const sitemap = xml ? document.querySelector('sitemapindex, urlset') : null;
-  const publicSession = root?.dataset.loggedIn === 'false';
+  const publicSession = root?.dataset?.loggedIn === 'false';
   const ready = Boolean(document.readyState === 'complete' && (sitemap ||
     (publicSession && (document.querySelector('.js-post') || document.querySelector('.node') ||
      document.querySelector('.structItem--thread')))));
