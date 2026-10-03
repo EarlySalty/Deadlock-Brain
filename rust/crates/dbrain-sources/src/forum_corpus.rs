@@ -24,8 +24,9 @@ pub(crate) fn record(payload: &Value, revision: u64, observed: i64) -> Result<So
     let post = payload["post_id"]
         .as_u64()
         .ok_or_else(|| invalid("Beitrags-ID fehlt."))?;
-    let url = payload["thread_url"]
+    let url = payload["page_url"]
         .as_str()
+        .or_else(|| payload["thread_url"].as_str())
         .ok_or_else(|| invalid("Threadquelle fehlt."))?;
     if !url.starts_with("https://forums.playdeadlock.com/threads/") {
         return Err(invalid("Ungültige Forumquelle."));
