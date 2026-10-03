@@ -1,17 +1,13 @@
 status: aktiv
 Datum: 2026-10-03
-Stand: 04:33:49 UTC
+Stand: 2026-10-03T05:31:37Z
 
-# Übergabe C
+# Übergabe C2
 
-Worktree `/home/nathanael/.worktrees/brain-wiki-spielwissen-c-integration`, Branch `feat/brain-wiki-spielwissen-c-integration`, HEAD `511a347b653beba13c2bf130f4bead7a7196cc2a`. Eigene Änderungen uncommittiert; fremde Ausgangscommits ausgeschlossen. AN_BEREICHE.md bis Punkt 18 und ergänztes Paket D gelesen. D ist in CONTRACT.md aufgenommen, ohne Schreibrecht an A/B/C-Dateien; D-Übergabe gehört zum Gesamtabschluss.
+C2 a17ac7e9-7f41-44b0-a6e4-901bfafe544f, Paket c/2, Produzent teil-c. Worktree /home/nathanael/.worktrees/brain-wiki-spielwissen-c-integration, Branch feat/brain-wiki-spielwissen-c-integration, unveränderter WIP-SHA b1b9241805f470427570566faca37fc340d1c04c. Sauberer Ausgangsstand, eigener Commit über frisch geholtem origin/main 511a347 bestätigt. Fremde historische Commits bleiben ausgeschlossen.
 
-Bau: Vertragsvalidierung, versionsfester Postgres-Import, Wiki-Reihenfolgefix, Faktenprojektion im bestehenden Brain-Lesepfad und bytegetreue historische JSONL-Partitionierung sind geschrieben. Der Partitionsmodus erhält höchstens 1.000 Dokumentzeilen/64 MiB je Datei und trennt Partitionserfolg von Import/Veröffentlichung. Noch kein erfolgreicher Compiler-, Test-, Import-, Release-, Merge- oder Livenachweis.
+Erfolgreich: native Werkzeuge, ctx_execute/ctx_batch_execute und aktive Elternauswahl GPT 6.1 Sol high. Eigene C2-Startdokumentation 3790d04 auf feat/brain-wiki-spielwissen-c gepusht. ctx_execute_file bleibt verweigert; keine Umgehung.
 
-Prüfung/Fix: Numerischer Wiki-Head-Rückschritt ist statisch korrigiert, reale DB-Probe offen. Neu bestätigte Publish-Blockade: vorhandene checked Batch-API lehnt leere Batches des CLI ab. Frischer Sol-high-Fixer a33779471a5d9a05a ergänzt eine gesicherte Veröffentlichung importierter Köpfe mit erhaltenen Basispins. Die beiden eigenen wartenden Checks wurden vor Compilerstart beendet, zuletzt b6eft4jvk vor dieser Fixrunde. Keine fremden Compiler oder Locks verändert.
+Konkreter WIP-Prüfauftrag läuft nativ mit absolutem rust/Cargo.toml, beiden Hostsperren, frischer Probe und höchstens zwei Jobs. Aktueller belegter Zwischenstand ist beim eigenen Worker für C2-CHECK.md angefordert. Bisher kein neuer Compiler-/Testabschlussbericht. Getrennter lesender Betriebs-Vorcheck ohne produktive Wirkung läuft. Gebaut nein, reviewt nein, gemergt nein, live nein; Import-, DB-, Wiederholungs- und Gesamtgate-Nachweise fehlen. Sol-high-Einzelmodell-Gateweg ist statisch belegt, noch nicht ausgeführt.
 
-Tatsächliche Grenzen: A/B-geprüfte Commits und JSONL fehlen, D-Zugangsergebnis zusätzlich berücksichtigen. Rechte-Fachworker konnte wegen alter context-mode-Berechtigung keine Belege lesen. Nativer Rust-Prüfer beendete sich nach einem widersprechenden rolleninternen cargo-check-Aufruf ohne Root-Cargo.toml; keine Codeprüfung, kein ALLOW und kein gestarteter Compiler. Der passende Manifestpfad ist `rust/Cargo.toml`. Kein eigener Gesamtgate-Nachweis. Context-mode und EnterWorktree bleiben trotz neuer Settings verweigert; vor HTTP/Livearbeit geordnete Wiederaufnahme derselben beendeten Session nötig, keine Duplikation oder Hook-Umgehung. Vorhandener Deploy-Weg und interne Verarbeitungserlaubnis noch nicht nachgewiesen.
-
-Nachweise im C-Koordinationstree: CONTRACT.md, REGISTER.md, DB_PRUEFUNG.md, HANDOFF.md, Status c/1/0004.json. Hauptorchestrator übernimmt zentral.
-
-Nächster Schritt: Publish-Fixer abschließen lassen und stabilen integrierten Stand unter beiden Hostlocks mit maximal zwei Jobs tatsächlich kompilieren. Später echte Größen-/Import-/Wiederholungsproben und konkrete Wissensabfragen unterschiedlicher Mechanikbereiche über bestehenden Brain-Lesepfad, jeweils mit Quelle und Quellversion. Alle alten und neuen Quellen einschließlich 4.417 Hauptdump-Seiten/22.742 historischen Revisionen vollständig berücksichtigen, ohne historische Daten als heutige Vollabdeckung auszugeben oder bestehende Limits anzuheben.
+AN_BEREICHE.md bis Punkt 26 gelesen. A/B/D nicht dupliziert. Kein zweiter HTTP-Corepfad: A-Anbindung an vorhandenen get_bounded und echte Größenprobe bei Integration. Geprüfte eigene A/B/D-Commits und Datenübergaben bleiben Voraussetzung. Nachweise und Rohberichte im bisherigen C-Koordinationstree: REGISTER.md, C2-MODELL-GATE.md, HTTP_WIKI.md, Status c/2/0001.json. Nächster Schritt: laufenden WIP-Prüfnachweis übernehmen und konkrete Funde an frische Fixer geben.
