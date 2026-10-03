@@ -228,6 +228,175 @@ async fn reader_lock_waiters(pool: &sqlx::PgPool) -> i64 {
     .unwrap()
 }
 
+fn c9_readiness_record(source: &str, scope: &str, public: bool) -> SourceRecordV2 {
+    let content = "Synthetischer Readinessbeleg ohne reale Quelldaten".to_owned();
+    let mut record = SourceRecordV2 {
+        source_id: source.into(),
+        logical_id: "fixture/readiness".into(),
+        revision: 1,
+        content_hash: format!("{:x}", Sha256::digest(content.as_bytes())),
+        content,
+        visibility: if public {
+            SourceVisibility::Public
+        } else {
+            SourceVisibility::Internal
+        },
+        allowed_scopes: BTreeSet::from([scope.into()]),
+        tombstone: false,
+        valid_from: None,
+        valid_to: None,
+        metadata: BTreeMap::new(),
+    };
+    let unknown = || Observed::unknown(UnknownReason::NotPresent);
+    let origin = OriginArtifact {
+        identity: SourceIdentity {
+            source_id: source.into(),
+            logical_id: record.logical_id.clone(),
+        },
+        source_revision: SourceRevision::Git {
+            commit: "a".repeat(40),
+        },
+        raw_sha256: record.content_hash.clone(),
+        locator: "fixture://c9-readiness".into(),
+        parser_revision: "scratch.v1".into(),
+        parser_family: "scratch".into(),
+        schema_version: unknown(),
+        schema_sha256: unknown(),
+        retrieved_at: Observed::unknown(UnknownReason::NotPresent),
+        source_time: Observed::unknown(UnknownReason::NotPresent),
+        language: unknown(),
+        origin_artifacts: BTreeSet::new(),
+        derivation_family: unknown(),
+        policy: SourcePolicy {
+            visibility: record.visibility,
+            allowed_scopes: record.allowed_scopes.clone(),
+            authorization_ref: Observed::known("synthetic-scratch-approval".into()),
+            license: unknown(),
+            publication_allowed: public,
+            provider_egress_allowed: public,
+            raw_retention_allowed: false,
+        },
+        validity: GameValidity::unknown(),
+    };
+    origin.bind_record(&mut record).unwrap();
+    record
+}
+
+async fn c9_releasebindungen_durch_echten_start_und_readiness(
+    store: &PgStore,
+    pool: &sqlx::PgPool,
+    base: &Value,
+    environment: &[(&str, &str)],
+    provider_calls: &AtomicUsize,
+) {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut records = vec![
+        c9_readiness_record("docs-c9-public:Deadlock-Docs", "docs.public", true),
+        c9_readiness_record(
+            "second-brain-c9:Deadlock-2nd-Brain",
+            "second_brain.internal",
+            false,
+        ),
+    ];
+    let mut releases = Vec::new();
+    for (index, record) in records.iter().enumerate() {
+        store.apply(record).await.unwrap();
+        let release = CorpusRelease {
+            release_id: format!("c9-readiness-fixture-{index}"),
+            knowledge_version: format!("c9-readiness-version-{index}"),
+            patch: "scratch-c9".into(),
+            created_at_epoch: 1,
+            source_revisions: BTreeMap::from([(
+                record.source_id.clone(),
+                BTreeMap::from([(record.logical_id.clone(), 1)]),
+            )]),
+        };
+        store.publish_release(&release).await.unwrap();
+        releases.push(release);
+    }
+    let mut config = base.clone();
+    config["credentials"].as_array_mut().unwrap().push(json!({
+        "token_env":"BRAIN_SERVE_DOCS_PUBLIC_TOKEN", "actor_id":"docs-client", "channel":"docs",
+        "scopes":["docs.public"], "provider_egress":["public"],
+        "release":{"id":releases[0].release_id,"knowledge_version":releases[0].knowledge_version}
+    }));
+    config["internal_operator"] = json!({
+        "socket":directory.path().join("operator.sock"),
+        "release":{"id":releases[1].release_id,"knowledge_version":releases[1].knowledge_version},
+        "credential":{
+            "token_env":"BRAIN_SERVE_SECOND_BRAIN_TOKEN", "actor_id":"second-brain", "channel":"internal",
+            "scopes":["second_brain.internal"], "provider_egress":[],
+            "release":{"id":releases[1].release_id,"knowledge_version":releases[1].knowledge_version}
+        }
+    });
+    let mut credentials = environment.to_vec();
+    credentials.extend([
+        ("BRAIN_SERVE_DOCS_PUBLIC_TOKEN", "synthetic-docs-readiness"),
+        (
+            "BRAIN_SERVE_SECOND_BRAIN_TOKEN",
+            "synthetic-second-readiness",
+        ),
+    ]);
+    let calls_before = provider_calls.load(Ordering::SeqCst);
+    for index in 0..2 {
+        let mut missing = config.clone();
+        if index == 0 {
+            missing["credentials"]
+                .as_array_mut()
+                .unwrap()
+                .last_mut()
+                .unwrap()["release"]["id"] = json!("missing-c9-fixture");
+        } else {
+            missing["internal_operator"]["release"]["id"] = json!("missing-c9-fixture");
+            missing["internal_operator"]["credential"]["release"]["id"] =
+                json!("missing-c9-fixture");
+        }
+        let mut child = Service::spawn(&missing, &credentials);
+        assert_eq!(child.wait(Duration::from_secs(8)).code(), Some(1));
+        assert!(child.log().contains("release_unavailable"));
+        assert!(!child.log().contains("listening"));
+    }
+    let mut child = Service::spawn(&config, &credentials);
+    let address = child.address();
+    common::assert_ready(&address);
+    for (record, release) in records.iter_mut().zip(&releases) {
+        sqlx::query("DELETE FROM brain.corpus_releases_v1 WHERE release_id=$1")
+            .bind(&release.release_id)
+            .execute(pool)
+            .await
+            .unwrap();
+        assert_eq!(common::get(&address, "/readyz").0, 503);
+        assert_eq!(common::get(&address, "/healthz").0, 200);
+        store.publish_release(release).await.unwrap();
+        common::assert_ready(&address);
+        let mut origin = brain_contracts::source::origin_from_record(record).unwrap();
+        let original_scopes = origin.policy.allowed_scopes.clone();
+        record.revision += 1;
+        origin.policy.allowed_scopes = BTreeSet::from(["revoked.fixture".into()]);
+        origin.bind_record(record).unwrap();
+        store.apply(record).await.unwrap();
+        assert_eq!(common::get(&address, "/readyz").0, 503);
+        record.revision += 1;
+        origin.policy.allowed_scopes = original_scopes;
+        origin.bind_record(record).unwrap();
+        store.apply(record).await.unwrap();
+        common::assert_ready(&address);
+        record.revision += 1;
+        record.tombstone = true;
+        store.apply(record).await.unwrap();
+        assert_eq!(common::get(&address, "/readyz").0, 503);
+        record.revision += 1;
+        record.tombstone = false;
+        store.apply(record).await.unwrap();
+        common::assert_ready(&address);
+    }
+    child.stop();
+    assert!(!directory.path().join("operator.sock").exists());
+    assert_eq!(provider_calls.load(Ordering::SeqCst), calls_before);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "scripts/test_brain_serve.sh: isolated scratch PostgreSQL and real brain-serve child"]
 async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
@@ -487,6 +656,15 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
     let mut environment = common::credentials();
     environment.push(("BRAIN_SERVE_OTHER_TOKEN", OTHER_TOKEN));
     environment.push(("BRAIN_SERVE_INTERNAL_TOKEN", "synthetic-internal-token"));
+
+    c9_releasebindungen_durch_echten_start_und_readiness(
+        &store,
+        &pool,
+        &config,
+        &environment,
+        &provider.calls,
+    )
+    .await;
 
     let incompatible_admin = PgPoolOptions::new()
         .max_connections(1)

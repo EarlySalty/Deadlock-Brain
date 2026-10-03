@@ -66,11 +66,14 @@ impl Service {
             .mode(0o600)
             .open(&config_path)
             .unwrap();
+        let mut serve = config.clone();
+        let operator = serve.as_object_mut().unwrap().remove("internal_operator");
+        let mut root = json!({"brain":{"serve":serve,"infisical":infisical}});
+        if let Some(operator) = operator {
+            root["brain"]["operator"] = operator;
+        }
         config_file
-            .write_all(&fixture_toml::section(
-                &json!({"brain":{"serve":config,"infisical":infisical}}),
-                &[],
-            ))
+            .write_all(&fixture_toml::section(&root, &[]))
             .unwrap();
         let log = directory.path().join("service.log");
         let output = File::create(&log).unwrap();
