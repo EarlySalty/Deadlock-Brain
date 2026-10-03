@@ -49,7 +49,7 @@ pub fn excluded_knowledge_input(
 ) -> bool {
     if metadata.get("source_class").is_some_and(|class| {
         serde_json::from_value::<SourceContentClass>(serde_json::Value::String(class.clone()))
-            .map_or(true, SourceContentClass::excluded)
+            .is_none_or(SourceContentClass::excluded)
     }) {
         return true;
     }

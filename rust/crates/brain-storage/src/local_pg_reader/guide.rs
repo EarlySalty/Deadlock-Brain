@@ -34,7 +34,7 @@ impl LocalPgReader {
             )?
             .is_some_and(|r| r.get::<_, bool>(0) || r.get::<_, bool>(1));
         let subject = tx.query_opt("SELECT deleted,globally_opted_out FROM brain.guide_subjects WHERE guild_id=$1 AND user_id=$2 FOR UPDATE", &[&turn.guild_id,&turn.user_id])?;
-        if blocked || subject.map_or(true, |r| r.get::<_, bool>(0) || r.get::<_, bool>(1)) {
+        if blocked || subject.is_none_or(|r| r.get::<_, bool>(0) || r.get::<_, bool>(1)) {
             tx.commit()?;
             return Ok(None);
         }
