@@ -598,43 +598,39 @@ fn sharing_refused_or_unclear(body: &str) -> bool {
                 .iter()
                 .any(|word| matches!(*word, "wenn" | "würde" | "könnte"));
             shares
-                && (conditional
-                    || clause.contains('?')
-                    || {
-                        let mut preceding_negation = false;
-                        let mut negated_complement = false;
-                        let mut positive_complement_pending = false;
-                        clause.split(',').any(|part| {
-                            let part_words: Vec<_> = part
-                                .split_whitespace()
-                                .map(|word| word.trim_matches(|c: char| !c.is_alphabetic()))
-                                .filter(|word| !word.is_empty())
-                                .collect();
-                            let part_shares = part_words.iter().any(|word| sharing_verb(word));
-                            let negated = part_words.iter().any(|word| {
-                                matches!(
-                                    *word,
-                                    "nicht" | "nie" | "niemals" | "niemand" | "keinesfalls"
-                                ) || word.starts_with("kein")
+                && (conditional || clause.contains('?') || {
+                    let mut preceding_negation = false;
+                    let mut negated_complement = false;
+                    let mut positive_complement_pending = false;
+                    clause.split(',').any(|part| {
+                        let part_words: Vec<_> = part
+                            .split_whitespace()
+                            .map(|word| word.trim_matches(|c: char| !c.is_alphabetic()))
+                            .filter(|word| !word.is_empty())
+                            .collect();
+                        let part_shares = part_words.iter().any(|word| sharing_verb(word));
+                        let negated = part_words.iter().any(|word| {
+                            matches!(
+                                *word,
+                                "nicht" | "nie" | "niemals" | "niemand" | "keinesfalls"
+                            ) || word.starts_with("kein")
                         });
-                            let complement = part_words
-                                .first()
-                                .is_some_and(|word| matches!(*word, "dass" | "ob"));
-                            let positive_main = !complement
-                                && !negated
-                                && positive_sharing_main(&part_words);
-                            if positive_main || (complement && positive_complement_pending) {
-                                preceding_negation = false;
-                                negated_complement = false;
-                            } else if complement {
-                                negated_complement |= preceding_negation;
-                                preceding_negation = false;
-                            } else if negated {
-                                preceding_negation = true;
-                            }
-                            positive_complement_pending = !complement
-                                && !negated
-                                && positive_complement_intro(&part_words);
+                        let complement = part_words
+                            .first()
+                            .is_some_and(|word| matches!(*word, "dass" | "ob"));
+                        let positive_main =
+                            !complement && !negated && positive_sharing_main(&part_words);
+                        if positive_main || (complement && positive_complement_pending) {
+                            preceding_negation = false;
+                            negated_complement = false;
+                        } else if complement {
+                            negated_complement |= preceding_negation;
+                            preceding_negation = false;
+                        } else if negated {
+                            preceding_negation = true;
+                        }
+                        positive_complement_pending =
+                            !complement && !negated && positive_complement_intro(&part_words);
                         let negated_tail = part_words
                             .iter()
                             .skip_while(|word| {
@@ -657,10 +653,10 @@ fn sharing_refused_or_unclear(body: &str) -> bool {
                                 matches!(*word, "nicht" | "niemals" | "nie" | "keinesfalls" | "auf")
                                     || word.starts_with("kein")
                             });
-                            (negated_complement && part_shares)
-                                || (negated && (part_shares || negated_tail))
-                        })
+                        (negated_complement && part_shares)
+                            || (negated && (part_shares || negated_tail))
                     })
+                })
         })
 }
 fn positive_sharing_main(words: &[&str]) -> bool {
@@ -675,22 +671,22 @@ fn positive_sharing_main(words: &[&str]) -> bool {
         .next();
     let imperative = !words.iter().any(|word| matches!(*word, "ich" | "wir"))
         && first.is_some_and(|word| {
-        matches!(
-            *word,
-            "leite"
-                | "teile"
-                | "gib"
-                | "sage"
-                | "sag"
-                | "schick"
-                | "schicke"
-                | "sende"
-                | "versende"
-                | "erzähle"
-                | "zeige"
-                | "übermittle"
-        )
-    });
+            matches!(
+                *word,
+                "leite"
+                    | "teile"
+                    | "gib"
+                    | "sage"
+                    | "sag"
+                    | "schick"
+                    | "schicke"
+                    | "sende"
+                    | "versende"
+                    | "erzähle"
+                    | "zeige"
+                    | "übermittle"
+            )
+        });
     imperative || (words.iter().any(|word| sharing_verb(word)) && positive_modal_main(words))
 }
 fn positive_modal_main(words: &[&str]) -> bool {
