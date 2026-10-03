@@ -182,7 +182,7 @@ fn exercise(config: TestConfig) {
         .is_err());
     reader
         .guide_control(
-            &dm,
+            &control_turn(&reader, &dm),
             &ProfileControl::Memory { enabled: true },
             100,
             Some(1000),
@@ -191,7 +191,7 @@ fn exercise(config: TestConfig) {
         .unwrap();
     let profile = reader
         .guide_control(
-            &dm,
+            &control_turn(&reader, &dm),
             &ProfileControl::Correct {
                 field: ProfileField::PlayTimes,
                 value: "Abends".into(),
@@ -238,7 +238,7 @@ fn exercise(config: TestConfig) {
     }];
     reader
         .guide_control(
-            &dm,
+            &control_turn(&reader, &dm),
             &ProfileControl::Memory { enabled: false },
             102,
             Some(1000),
@@ -256,7 +256,7 @@ fn exercise(config: TestConfig) {
         .is_empty());
     reader
         .guide_control(
-            &dm,
+            &control_turn(&reader, &dm),
             &ProfileControl::Memory { enabled: true },
             104,
             Some(1000),
@@ -265,7 +265,7 @@ fn exercise(config: TestConfig) {
         .unwrap();
     reader
         .guide_control(
-            &dm,
+            &control_turn(&reader, &dm),
             &ProfileControl::Correct {
                 field: ProfileField::CurrentGoals,
                 value: "Mitspieler finden".into(),
@@ -303,7 +303,7 @@ fn exercise(config: TestConfig) {
         .is_none());
     assert!(reader
         .guide_control(
-            &dm,
+            &control_turn(&reader, &dm),
             &ProfileControl::Memory { enabled: true },
             1203,
             Some(1000),
