@@ -52,6 +52,8 @@ pub struct GuideTurn {
     #[serde(default)]
     pub control: Option<ProfileControl>,
     #[serde(default)]
+    pub domain: Option<GuideDomainCommand>,
+    #[serde(default)]
     pub human_helped: bool,
 }
 impl GuideTurn {
@@ -88,6 +90,30 @@ impl GuideTurn {
             && !(self.surface == Surface::Public
                 && matches!(self.addressed, Addressed::Dm | Addressed::Control))
             && self.control.as_ref().is_none_or(ProfileControl::valid)
+            && self.domain.as_ref().is_none_or(|domain| {
+                domain.valid()
+                    && self.addressed == Addressed::Command
+                    && self.event == Event::Message
+                    && self.control.is_none()
+            })
+    }
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GuideDomainCommand {
+    pub request: crate::domain::DomainRequest,
+    pub patch: String,
+    pub mode: String,
+}
+impl GuideDomainCommand {
+    pub fn valid(&self) -> bool {
+        !matches!(self.request, crate::domain::DomainRequest::Card { .. })
+            && self.request.validate().is_ok()
+            && [&self.patch, &self.mode].iter().all(|value| {
+                !value.trim().is_empty()
+                    && value.len() <= 512
+                    && !value.chars().any(char::is_control)
+            })
     }
 }
 pub fn snowflake(value: &str) -> bool {

@@ -46,6 +46,7 @@ fn turn(request: &str, surface: Surface) -> GuideTurn {
         event: Event::Message,
         content: "Synthetische Frage".into(),
         control: None,
+        domain: None,
         human_helped: false,
     }
 }

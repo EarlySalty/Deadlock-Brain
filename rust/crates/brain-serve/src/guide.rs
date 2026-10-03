@@ -7,10 +7,11 @@ use axum::{
     Json, Router,
 };
 use brain_contracts::{
-    guide::*, AnswerProviderPort, AuthorizedContext, Budget, DialogueVisibility, Evidence,
-    EvidenceKind, PortError, Principal, Query, RequestDeadline, RetrievalPort, SourceVisibility,
-    TextDialogue,
+    guide::*, AnswerProfile, AnswerProviderPort, AnswerResponse, AnswerStatus, AuthorizedContext,
+    Budget, DialogueVisibility, Evidence, EvidenceKind, PortError, Principal, Query,
+    RequestDeadline, RetrievalPort, SourceVisibility, TextDialogue,
 };
+use brain_kernel::CachedKernel;
 use brain_policy::CredentialRegistry;
 use brain_providers::OpenAiCompatibleProvider;
 use brain_storage::{GuideSnapshot, LocalPgReader};
@@ -33,6 +34,7 @@ pub struct GuideRuntime {
     reader: LocalPgReader,
     retrieval: ReleaseRetriever<LocalPgReader>,
     provider: OpenAiCompatibleProvider,
+    domain_kernel: Arc<dyn GuideDomainKernel>,
     credentials: CredentialRegistry,
     release: String,
     budget: Budget,
@@ -45,6 +47,7 @@ impl GuideRuntime {
         config: GuideConfig,
         reader: LocalPgReader,
         provider: OpenAiCompatibleProvider,
+        domain_kernel: Arc<dyn GuideDomainKernel>,
         credentials: CredentialRegistry,
         release: String,
         budget: Budget,
@@ -61,6 +64,7 @@ impl GuideRuntime {
             reader,
             retrieval,
             provider,
+            domain_kernel,
             credentials,
             release,
             budget,
@@ -219,7 +223,8 @@ impl GuideRuntime {
                 "Soll ich genau dieses Anliegen an unser Moderatorenteam weitergeben?".into(),
             ));
         }
-        if turn.surface == Surface::Dm
+        if turn.domain.is_none()
+            && turn.surface == Surface::Dm
             && (!self.config.private_dm_egress || !principal.provider_egress.contains("private_dm"))
         {
             return Ok(GuideResult::reply(&turn.request_id,"Private KI-Antworten sind hier noch nicht freigegeben. Meine Tour und deine Datenschutz-Einstellungen erreichst du weiterhin über die vorhandenen Knöpfe.".into()));
@@ -252,6 +257,43 @@ impl GuideRuntime {
             budget: self.budget.clone(),
             request_deadline: Some(deadline.clone()),
         };
+        if let Some(domain) = &turn.domain {
+            let query = domain_query(&turn, domain, &conversation_id);
+            let answer = self
+                .domain_kernel
+                .answer_domain(&self.retrieval, &query, &context);
+            let reply = match answer.status {
+                AnswerStatus::Answered | AnswerStatus::BuildRejected => clean_reply(answer.text)?,
+                AnswerStatus::InsufficientEvidence => "Für diese Spielanfrage fehlen mir noch ausreichend geprüfte Angaben. Patch, Spielmodus und die konkrete Anfrage müssen zu den freigegebenen Spieldaten passen.".into(),
+                _ => return Err(PortError::Unavailable("Spielantwort konnte nicht sicher geprüft werden".into())),
+            };
+            let expires = now + self.config.conversation_inactivity_seconds;
+            let conversation = GuideConversation {
+                id: conversation_id.clone(),
+                channel_id: turn.channel_id.clone(),
+                thread_id: turn.thread_id.clone(),
+                user_id: turn.user_id.clone(),
+                surface: turn.surface,
+                last_user_message_id: turn.message_id.clone(),
+                last_bot_message_id: None,
+                expires_at: expires,
+                closed: false,
+            };
+            if !self.reader.guide_finish(
+                &turn,
+                snapshot.profile.epoch,
+                Some(&conversation),
+                &snapshot.history,
+                None,
+                &deadline,
+            )? {
+                return Ok(GuideResult::silent(&turn.request_id));
+            }
+            let mut result = GuideResult::reply(&turn.request_id, reply);
+            result.conversation_id = Some(conversation_id);
+            result.expires_at = Some(expires);
+            return Ok(result);
+        }
         let mut evidence = if matches!(turn.event, Event::TourStart | Event::TourStep)
             || is_smalltalk(&turn.content)
         {
@@ -415,6 +457,40 @@ impl GuideRuntime {
         Ok(result)
     }
 }
+pub trait GuideDomainKernel: Send + Sync {
+    fn answer_domain(
+        &self,
+        retrieval: &ReleaseRetriever<LocalPgReader>,
+        query: &Query,
+        context: &AuthorizedContext,
+    ) -> AnswerResponse;
+}
+impl<R: RetrievalPort, P: AnswerProviderPort> GuideDomainKernel for CachedKernel<R, P> {
+    fn answer_domain(
+        &self,
+        retrieval: &ReleaseRetriever<LocalPgReader>,
+        query: &Query,
+        context: &AuthorizedContext,
+    ) -> AnswerResponse {
+        self.answer_uncached_for_publication_with_retrieval(retrieval, query, context)
+    }
+}
+fn domain_query(turn: &GuideTurn, domain: &GuideDomainCommand, conversation_id: &str) -> Query {
+    Query {
+        request_id: turn.request_id.clone(),
+        conversation_id: conversation_id.into(),
+        text: "Strukturierte Spielanfrage".into(),
+        domain: Some(domain.request.clone()),
+        requested_scopes: BTreeSet::from(["bot.public".into()]),
+        profile: match domain.request {
+            brain_contracts::domain::DomainRequest::Build { .. }
+            | brain_contracts::domain::DomainRequest::Rule { .. } => AnswerProfile::Build,
+            _ => AnswerProfile::Fact,
+        },
+        patch: Some(domain.patch.clone()),
+        mode: Some(domain.mode.clone()),
+    }
+}
 fn now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -480,6 +556,7 @@ fn is_feedback(text: &str) -> bool {
     let t = text.to_lowercase();
     [
         "serverfeedback",
+        "feedback ans team",
         "verbesserungsvorschlag",
         "kritik am server",
         "wunsch für den server",
@@ -502,28 +579,64 @@ fn explicit_feedback(text: &str) -> bool {
     ]
     .iter()
     .any(|prefix| {
-        t.strip_prefix(prefix).is_some_and(|body| {
-            !body.trim().is_empty()
-                && ![
-                    "nicht weiter",
-                    "nicht teilen",
-                    "nicht schicken",
-                    "nicht senden",
-                    "nicht ans team",
-                    "nicht an das team",
-                    "nicht an moderator",
-                    "niemals weiter",
-                    "niemals teilen",
-                    "keinesfalls weiter",
-                    "nur mit dir",
-                    "bleibt unter uns",
-                    "bleiben unter uns",
-                    "bitte vertraulich",
+        t.strip_prefix(prefix)
+            .is_some_and(|body| !body.trim().is_empty() && !sharing_refused_or_unclear(body))
+    })
+}
+fn sharing_refused_or_unclear(body: &str) -> bool {
+    if body.contains("nur mit dir") || body.contains("unter uns") || body.contains("vertraulich") {
+        return true;
+    }
+    body.split_inclusive(['.', '?', '!', ';', ',', '\n'])
+        .any(|clause| {
+            let words: Vec<_> = clause
+                .split_whitespace()
+                .map(|word| word.trim_matches(|c: char| !c.is_alphabetic()))
+                .filter(|word| !word.is_empty())
+                .collect();
+            let shares = words.iter().any(|word| {
+                matches!(
+                    *word,
+                    "leite"
+                        | "leiten"
+                        | "teile"
+                        | "teilen"
+                        | "geteilt"
+                        | "gib"
+                        | "sage"
+                        | "sag"
+                        | "erfahren"
+                ) || [
+                    "weiterleit",
+                    "weitergeb",
+                    "weitergegeb",
+                    "weitergeleit",
+                    "schick",
+                    "send",
+                    "versend",
+                    "übermittel",
+                    "erzähle",
+                    "zeige",
                 ]
                 .iter()
-                .any(|refusal| body.contains(refusal))
+                .any(|verb| word.starts_with(verb))
+            });
+            shares
+                && (clause.contains('?')
+                    || words.iter().any(|word| {
+                        matches!(
+                            *word,
+                            "nicht"
+                                | "nie"
+                                | "niemals"
+                                | "niemand"
+                                | "keinesfalls"
+                                | "wenn"
+                                | "würde"
+                                | "könnte"
+                        ) || word.starts_with("kein")
+                    }))
         })
-    })
 }
 fn is_closing(text: &str) -> bool {
     matches!(
@@ -700,6 +813,7 @@ mod tests {
             event: Event::Message,
             content: "Und dann?".into(),
             control: None,
+            domain: None,
             human_helped: false,
         }
     }
@@ -739,6 +853,35 @@ mod tests {
         assert!(!addressed(&turn, Some(&conv), 50));
         turn.addressed = Addressed::Mention;
         assert!(addressed(&turn, None, 50));
+    }
+    #[test]
+    fn strukturierte_spielanfrage_uebernimmt_keinen_privaten_freitext() {
+        let mut turn = turn();
+        turn.surface = Surface::Dm;
+        turn.addressed = Addressed::Command;
+        turn.content = "Privates synthetisches Anliegen".into();
+        let domain = GuideDomainCommand {
+            request: brain_contracts::domain::DomainRequest::Build {
+                hero: "synthetic-hero".into(),
+                locale: "de".into(),
+                catalog_id: "synthetic-catalog".into(),
+                items: vec!["synthetic-item".into()],
+            },
+            patch: "synthetic-patch".into(),
+            mode: "synthetic-mode".into(),
+        };
+        turn.domain = Some(domain.clone());
+        assert!(turn.valid());
+        let query = domain_query(&turn, &domain, "conversation-1");
+        assert!(query.validate().is_ok());
+        assert_eq!(query.profile, AnswerProfile::Build);
+        assert!(!query.text.contains("Privates"));
+        assert_eq!(query.domain, Some(domain.request));
+        turn.addressed = Addressed::Dm;
+        assert!(!turn.valid());
+        turn.addressed = Addressed::Command;
+        turn.event = Event::TourStart;
+        assert!(!turn.valid());
     }
     #[test]
     fn nutzerseitige_oeffentliche_tour_bleibt_eine_adressierte_aktion() {
@@ -786,6 +929,10 @@ mod tests {
             "Feedback ans Team: Bitte leite das nicht weiter. Ich möchte es nur mit dir besprechen.",
             "Feedback ans Team: Das soll bitte vertraulich bleiben.",
             "Bitte leite dieses Anliegen ans Team weiter: Bitte nicht teilen.",
+            "Feedback ans Team: Bitte leite das nicht an die Moderatoren weiter.",
+            "Feedback ans Team: Bitte teile das auf keinen Fall.",
+            "Feedback ans Team: Wenn jemand fragt, weiterleiten.",
+            "Feedback ans Team: Soll ich das an die Moderatoren weiterleiten?",
         ] {
             assert!(!explicit_feedback(text), "{text}");
         }

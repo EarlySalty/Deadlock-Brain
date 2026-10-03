@@ -252,18 +252,18 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
     let retrieval = AnalyticsRetriever::new(retrieval, prepared.analytics.clone());
     let public_retrieval =
         ReleaseRetriever::new(prepared.reader.clone(), prepared.config.retrieval.limit);
-    let kernel = CachedKernel::new(
+    let kernel = Arc::new(CachedKernel::new(
         Kernel::new(retrieval, prepared.provider.clone()),
         prepared.config.kernel.cache_entries,
         Duration::from_millis(prepared.config.kernel.cache_ttl_ms),
-    );
+    ));
     let policy = PolicyEngine::with_ownership_store(
         prepared.credentials.clone(),
         Arc::new(prepared.reader.clone()),
     );
     let api = brain_api::ApiService::new(
         policy,
-        kernel,
+        kernel.clone(),
         &prepared.config.release.id,
         prepared.config.timeouts.request_ms,
         (&prepared.config.budgets).into(),
@@ -281,6 +281,7 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
                 guide,
                 prepared.reader.clone(),
                 prepared.provider.clone(),
+                kernel.clone(),
                 prepared.credentials.clone(),
                 prepared.config.release.id.clone(),
                 (&prepared.config.budgets).into(),

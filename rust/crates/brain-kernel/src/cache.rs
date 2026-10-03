@@ -26,6 +26,15 @@ impl<R, P> CachedKernel<R, P> {
     }
 }
 impl<R: RetrievalPort, P: AnswerProviderPort> CachedKernel<R, P> {
+    pub fn answer_uncached_for_publication_with_retrieval<T: RetrievalPort>(
+        &self,
+        retrieval: &T,
+        query: &Query,
+        context: &AuthorizedContext,
+    ) -> AnswerResponse {
+        self.inner
+            .answer_uncached_for_publication_with_retrieval(retrieval, query, context)
+    }
     pub(super) fn answer_cached(
         &self,
         query: &Query,

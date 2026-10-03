@@ -31,6 +31,14 @@ pub trait AnswerKernelPort: Send + Sync {
         )
     }
 }
+impl<K: AnswerKernelPort + ?Sized> AnswerKernelPort for std::sync::Arc<K> {
+    fn answer(&self, query: &Query, context: &AuthorizedContext) -> AnswerResponse {
+        (**self).answer(query, context)
+    }
+    fn answer_for_publication(&self, query: &Query, context: &AuthorizedContext) -> AnswerResponse {
+        (**self).answer_for_publication(query, context)
+    }
+}
 
 #[derive(Clone)]
 pub struct Kernel<R, P> {
@@ -77,6 +85,33 @@ impl<R: RetrievalPort, P: AnswerProviderPort> AnswerKernelPort for Kernel<R, P> 
     }
 }
 impl<R: RetrievalPort, P: AnswerProviderPort> Kernel<R, P> {
+    pub fn answer_uncached_for_publication_with_retrieval<T: RetrievalPort>(
+        &self,
+        retrieval: &T,
+        query: &Query,
+        context: &AuthorizedContext,
+    ) -> AnswerResponse {
+        let bound = context.with_request_deadline();
+        if query.validate().is_err() || query.conversation_id != bound.conversation_id {
+            return response(
+                query,
+                &bound,
+                AnswerStatus::UnauthorizedEvidence,
+                "Anfragekontext ist ungültig.",
+                Vec::new(),
+                Usage::default(),
+            );
+        }
+        execution::answer(
+            retrieval,
+            &self.provider,
+            query,
+            &bound,
+            AnswerPurpose::ExternalPublication,
+            self.clock.as_ref(),
+        )
+        .answer
+    }
     fn answer_with_purpose(
         &self,
         query: &Query,
@@ -234,6 +269,40 @@ mod tests {
         }
     }
 
+    #[test]
+    fn ungecachter_spielpfad_verwendet_keinen_provider_oder_allgemeinen_cache() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let kernel = Arc::new(CachedKernel::new(
+            Kernel::new(
+                FixedRetrieval(vec![]),
+                CountingProvider {
+                    calls: calls.clone(),
+                },
+            ),
+            10,
+            std::time::Duration::from_secs(30),
+        ));
+        let mut query = query(AnswerProfile::Build);
+        query.domain = Some(brain_contracts::domain::DomainRequest::Build {
+            hero: "synthetic-hero".into(),
+            locale: "de".into(),
+            catalog_id: "synthetic-catalog".into(),
+            items: vec!["synthetic-item".into()],
+        });
+        query.patch = Some("p1".into());
+        query.mode = Some("ranked".into());
+        let context = context(&[], &[]);
+        for _ in 0..2 {
+            let answer = kernel.answer_uncached_for_publication_with_retrieval(
+                &FixedRetrieval(vec![]),
+                &query,
+                &context,
+            );
+            assert_eq!(answer.status, AnswerStatus::InsufficientEvidence);
+            assert_eq!(answer.usage.network_rounds, 0);
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
     fn evidence(
         id: &str,
         kind: EvidenceKind,
