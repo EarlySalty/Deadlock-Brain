@@ -673,7 +673,8 @@ fn positive_sharing_main(words: &[&str]) -> bool {
             )
         })
         .next();
-    first.is_some_and(|word| {
+    let imperative = !words.iter().any(|word| matches!(*word, "ich" | "wir"))
+        && first.is_some_and(|word| {
         matches!(
             *word,
             "leite"
@@ -689,7 +690,8 @@ fn positive_sharing_main(words: &[&str]) -> bool {
                 | "zeige"
                 | "übermittle"
         )
-    }) || (words.iter().any(|word| sharing_verb(word)) && positive_modal_main(words))
+    });
+    imperative || (words.iter().any(|word| sharing_verb(word)) && positive_modal_main(words))
 }
 fn positive_modal_main(words: &[&str]) -> bool {
     words
@@ -1078,6 +1080,9 @@ mod tests {
             "Ich möchte nicht, dass du das, ich möchte das betonen, ans Team weiterleitest.",
             "Ich möchte nicht, dass du das, ich möchte ehrlich sein, weiterleitest.",
             "Ich möchte nicht, dass du das, du darfst mir das glauben, weiterleitest.",
+            "Ich möchte nicht, dass du das, sage ich ausdrücklich, weiterleitest.",
+            "Ich möchte nicht, dass du das, sage ich dir, ans Team weiterleitest.",
+            "Ich möchte nicht, dass du das, sagen wir ausdrücklich, weiterleitest.",
         ] {
             let text = format!("Feedback ans Team: {body}");
             assert!(!explicit_feedback(&text), "{text}");
