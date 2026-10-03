@@ -955,6 +955,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "brain-client",
+ "brain-contracts",
+ "brain-feeds",
  "chrono",
  "clap",
  "dbrain-builds",
