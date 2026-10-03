@@ -501,8 +501,27 @@ fn explicit_feedback(text: &str) -> bool {
     ]
     .iter()
     .any(|prefix| {
-        t.strip_prefix(prefix)
-            .is_some_and(|body| !body.trim().is_empty())
+        t.strip_prefix(prefix).is_some_and(|body| {
+            !body.trim().is_empty()
+                && ![
+                    "nicht weiter",
+                    "nicht teilen",
+                    "nicht schicken",
+                    "nicht senden",
+                    "nicht ans team",
+                    "nicht an das team",
+                    "nicht an moderator",
+                    "niemals weiter",
+                    "niemals teilen",
+                    "keinesfalls weiter",
+                    "nur mit dir",
+                    "bleibt unter uns",
+                    "bleiben unter uns",
+                    "bitte vertraulich",
+                ]
+                .iter()
+                .any(|refusal| body.contains(refusal))
+        })
     })
 }
 fn is_closing(text: &str) -> bool {
@@ -760,6 +779,9 @@ mod tests {
             "Er schrieb: „Feedback ans Team: mehr Turniere“",
             "Feedback ans Team:",
             "Kannst du das ans Team weiterleiten?",
+            "Feedback ans Team: Bitte leite das nicht weiter. Ich möchte es nur mit dir besprechen.",
+            "Feedback ans Team: Das soll bitte vertraulich bleiben.",
+            "Bitte leite dieses Anliegen ans Team weiter: Bitte nicht teilen.",
         ] {
             assert!(!explicit_feedback(text), "{text}");
         }
