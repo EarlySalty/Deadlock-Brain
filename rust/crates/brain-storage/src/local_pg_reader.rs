@@ -12,6 +12,7 @@ mod guide_invites;
 mod guide_knowledge;
 use connection::Client;
 pub use guide::GuideSnapshot;
+pub use guide_invites::GuideInviteGrant;
 #[cfg(test)]
 mod review_deadline;
 #[cfg(test)]

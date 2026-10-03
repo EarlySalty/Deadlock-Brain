@@ -1,6 +1,6 @@
 //! Ausschließlich synthetische Daten in der bestehenden isolierten Peer-Testinfrastruktur.
 use brain_contracts::{guide::*, RequestDeadline, SourceRecordV2, SourceVisibility};
-use brain_storage::{LocalPgReader, PgStore};
+use brain_storage::{GuideInviteGrant, LocalPgReader, PgStore};
 use serde::Deserialize;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -676,9 +676,11 @@ fn invite_checks(reader:&LocalPgReader, sql:&mut postgres::Client) {
     let mut original=turn("invite-original",Surface::Dm);
     original.user_id="230".into();
     let profile=reader.guide_claim(&original,&deadline(),1300,false).expect("Einladungsclaim fehlt").expect("Einladungsclaim verworfen").profile;
-    let grant=reader.guide_create_invite_grant(&original,profile.epoch,"invite:test",76561197960265729,60,&deadline()).expect("Grantanlage fehlgeschlagen").expect("Grant verworfen");
+    let conversation=GuideConversation{id:"invite-conversation".into(),channel_id:original.channel_id.clone(),thread_id:None,user_id:original.user_id.clone(),surface:original.surface,last_user_message_id:original.message_id.clone(),last_bot_message_id:None,expires_at:1400,closed:false};
+    let requested=GuideInviteGrant{action_id:"invite:test".into(),target:76561197960265729,ttl_seconds:60,conversation};
+    let grant=reader.guide_create_invite_grant(&original,profile.epoch,&requested,&deadline()).expect("Grantanlage fehlgeschlagen").expect("Grant verworfen");
     assert_eq!(grant.turn_id,original.request_id);
-    assert!(reader.guide_create_invite_grant(&original,profile.epoch,"invite:duplicate",76561197960265729,60,&deadline()).expect("Duplikatprüfung fehlgeschlagen").is_none());
+    assert!(reader.guide_create_invite_grant(&original,profile.epoch,&requested,&deadline()).expect("Duplikatprüfung fehlgeschlagen").is_none());
     let mut public=original.clone();public.surface=Surface::Public;
     assert!(reader.guide_invite_state(&public,profile.epoch,"invite:test",false,&deadline()).expect("Öffentliche Sperrprüfung fehlgeschlagen").is_none());
     let mut foreign=original.clone();foreign.user_id="231".into();
@@ -692,4 +694,17 @@ fn invite_checks(reader:&LocalPgReader, sql:&mut postgres::Client) {
     assert!(reader.guide_invite_state(&original,profile.epoch,"invite:test",false,&deadline()).expect("Epochenprüfung fehlgeschlagen").is_none());
     let revoked:bool=sql.query_one("SELECT revoked_at IS NOT NULL AND steam_id64 IS NULL AND turn_id IS NULL AND source_channel_id IS NULL FROM brain.guide_action_grants WHERE action_id='invite:test'",&[]).expect("Widerrufsnachweis fehlt").get(0);
     assert!(revoked);
+    assert!(sql.execute("UPDATE brain.guide_action_grants SET revoked_at=NULL WHERE action_id='invite:test'",&[]).is_err());
+    assert!(sql.execute("UPDATE brain.guide_action_grants SET steam_id64=76561197960265729 WHERE action_id='invite:test'",&[]).is_err());
+    assert!(sql.execute("UPDATE brain.guide_action_grants SET privacy_epoch=privacy_epoch+1 WHERE action_id='invite:test'",&[]).is_err());
+    let mut public=turn("invite-public-original",Surface::Public);public.user_id="232".into();
+    let profile=reader.guide_claim(&public,&deadline(),1300,false).expect("Öffentlicher Claim fehlt").expect("Öffentlicher Claim verworfen").profile;
+    let conversation=GuideConversation{id:"invite-public-conversation".into(),channel_id:public.channel_id.clone(),thread_id:None,user_id:public.user_id.clone(),surface:Surface::Public,last_user_message_id:public.message_id.clone(),last_bot_message_id:None,expires_at:1400,closed:false};
+    reader.guide_create_invite_grant(&public,profile.epoch,&GuideInviteGrant{action_id:"invite:public".into(),target:76561197960265730,ttl_seconds:60,conversation:conversation.clone()},&deadline()).expect("Öffentlicher Grant fehlt").expect("Öffentlicher Grant verworfen");
+    assert_eq!(reader.guide_action_result(&ActionResult{request_id:"invite-public-original:reply".into(),guild_id:public.guild_id.clone(),user_id:public.user_id.clone(),delivery_id:"reply:invite-public-conversation".into(),success:true,reply_message_id:Some("500".into())},&deadline()).expect("Antwortzuordnung fehlgeschlagen"),Some(profile.epoch));
+    public.request_id="invite-public-followup".into();public.message_id="501".into();public.reply_to_message_id=Some("500".into());public.addressed=Addressed::Reply;public.conversation_id=Some(conversation.id.clone());
+    let continued=reader.guide_claim(&public,&deadline(),1301,false).expect("Öffentlicher Folgeclaim fehlt").expect("Öffentlicher Folgeclaim verworfen");
+    assert_eq!(continued.conversation.expect("Einladungsunterhaltung fehlt").last_bot_message_id,Some("500".into()));
+    sql.execute("UPDATE brain.guide_action_grants SET friend_dispatch_reserved=true WHERE action_id='invite:public'",&[]).expect("Synthetische Reservierung fehlgeschlagen");
+    assert!(sql.execute("UPDATE brain.guide_action_grants SET friend_dispatch_reserved=false WHERE action_id='invite:public'",&[]).is_err());
 }

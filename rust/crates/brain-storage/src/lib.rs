@@ -8,7 +8,7 @@ mod pg_maintenance;
 mod pg_release;
 mod schema;
 pub use domain_reader::DomainReader;
-pub use local_pg_reader::{GuideSnapshot, LocalPgPoolStats, LocalPgReader};
+pub use local_pg_reader::{GuideInviteGrant, GuideSnapshot, LocalPgPoolStats, LocalPgReader};
 pub use memory_repository::validate_release;
 pub use memory_repository::MemoryRepository;
 pub use schema::CORE_SCHEMA_VERSION;

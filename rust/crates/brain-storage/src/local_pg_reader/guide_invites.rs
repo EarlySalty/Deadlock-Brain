@@ -2,11 +2,25 @@
 use super::{invalid, LocalPgReader};
 use brain_contracts::{guide::*, PortError, RequestDeadline};
 
+pub struct GuideInviteGrant {
+    pub action_id: String,
+    pub target: i64,
+    pub ttl_seconds: i64,
+    pub conversation: GuideConversation,
+}
 impl LocalPgReader {
     pub fn guide_create_invite_grant(
-        &self, turn: &GuideTurn, epoch: i64, action: &str, target: i64,
-        ttl: i64, deadline: &RequestDeadline,
+        &self, turn: &GuideTurn, epoch: i64, grant: &GuideInviteGrant, deadline: &RequestDeadline,
     ) -> Result<Option<InviteCorrelation>, PortError> {
+        let action = grant.action_id.as_str();
+        let target = grant.target;
+        let ttl = grant.ttl_seconds;
+        let conversation = &grant.conversation;
+        if conversation.user_id != turn.user_id || conversation.channel_id != turn.channel_id
+            || conversation.thread_id != turn.thread_id || conversation.surface != turn.surface
+            || conversation.last_user_message_id != turn.message_id {
+            return Err(invalid("Einladungsunterhaltung stimmt nicht mit dem Auftrag überein"));
+        }
         if !(1..=3600).contains(&ttl) || target <= 0 { return Err(invalid("Ungültiger Einladungsauftrag")); }
         let actor: i64 = turn.user_id.parse().map_err(|_| invalid("Ungültiges Mitglied"))?;
         let guild: i64 = turn.guild_id.parse().map_err(|_| invalid("Ungültiger Server"))?;
@@ -21,7 +35,9 @@ impl LocalPgReader {
         if !valid { tx.commit()?; return Ok(None); }
         let inserted = tx.execute("INSERT INTO brain.guide_action_grants(action_id,turn_id,actor_id,guild_id,source_channel_id,source_thread_id,source_event_type,source_surface,message_id,privacy_epoch,kind,steam_id64,expires_at) VALUES($1,$2,$3,$4,$5,$6,'message',$7,$8,$9,'deadlock_access_invite',$10,clock_timestamp()+make_interval(secs=>$11::bigint::double precision)) ON CONFLICT DO NOTHING", &[&action,&turn.request_id,&actor,&guild,&channel,&thread,&surface,&message,&epoch,&target,&ttl])?;
         if inserted == 0 { tx.commit()?; return Ok(None); }
-        tx.execute("UPDATE brain.guide_turn_claims SET state='finished' WHERE guild_id=$1 AND user_id=$2 AND request_id=$3", &[&turn.guild_id,&turn.user_id,&turn.request_id])?;
+        let json=serde_json::to_value(conversation).map_err(|_|invalid("Einladungsunterhaltung ist ungültig"))?;
+        tx.execute("INSERT INTO brain.guide_conversations(guild_id,user_id,conversation_id,surface,state_json,expires_at,latest_request_id) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(guild_id,user_id,conversation_id) DO UPDATE SET state_json=EXCLUDED.state_json,expires_at=EXCLUDED.expires_at,latest_request_id=EXCLUDED.latest_request_id", &[&turn.guild_id,&turn.user_id,&conversation.id,&surface,&json,&conversation.expires_at,&turn.request_id])?;
+        tx.execute("UPDATE brain.guide_turn_claims SET state='finished',conversation_id=$4 WHERE guild_id=$1 AND user_id=$2 AND request_id=$3", &[&turn.guild_id,&turn.user_id,&turn.request_id,&conversation.id])?;
         tx.commit()?;
         Ok(Some(InviteCorrelation {action_id:action.into(),turn_id:turn.request_id.clone(),actor_id:actor,guild_id:guild,channel_id:channel,source_thread_id:thread,source_event_type:"message".into(),message_id:message,privacy_epoch:epoch}))
     }

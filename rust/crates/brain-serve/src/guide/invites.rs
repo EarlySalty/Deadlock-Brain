@@ -1,6 +1,7 @@
 //! Einladungen verwenden ausschließlich den bestehenden Steam-Dienst.
 use super::*;
 use serde::{Deserialize, de::DeserializeOwned};
+use brain_storage::GuideInviteGrant;
 use std::io::Read;
 fn bounded_response<T:DeserializeOwned>(response:reqwest::blocking::Response)->Result<T,PortError> {
     let response=response.error_for_status().map_err(|_|PortError::Unavailable("Einladungsdienst nicht erreichbar".into()))?;
@@ -52,11 +53,20 @@ impl GuideRuntime {
         &self, turn:&GuideTurn, epoch:i64, command:AccessInviteCommand,
         deadline:&RequestDeadline,
     )->Result<GuideResult,PortError> {
+        let conversation=GuideConversation {
+            id:turn.conversation_id.clone().unwrap_or_else(||format!("guide:{}",hex_action(turn))),
+            channel_id:turn.channel_id.clone(),thread_id:turn.thread_id.clone(),user_id:turn.user_id.clone(),
+            surface:turn.surface,last_user_message_id:turn.message_id.clone(),last_bot_message_id:None,
+            expires_at:now()+self.config.conversation_inactivity_seconds,closed:false,
+        };
         if !self.config.access_invites_enabled || !command.valid()
             || (turn.surface == Surface::Public &&
                 (turn.guild_id != "1289721245281292288" || turn.channel_id != "1426220702054355077" || turn.thread_id.is_some()))
         {
-            return Ok(GuideResult::reply(&turn.request_id,"Spieleinladungen über mich sind noch nicht freigeschaltet.".into()));
+            if !self.reader.guide_finish(turn,epoch,Some(&conversation),&[],None,deadline)? {return Ok(GuideResult::silent(&turn.request_id));}
+            let mut result=GuideResult::reply(&turn.request_id,"Spieleinladungen über mich sind noch nicht freigeschaltet.".into());
+            result.conversation_id=Some(conversation.id);
+            return Ok(result);
         }
         match command {
             AccessInviteCommand::Request{friend_code}=>{
@@ -75,7 +85,7 @@ impl GuideRuntime {
                 deadline.check()?;
                 let action=hex_action(turn);
                 let ttl=self.config.access_invite_ttl_seconds.ok_or_else(||PortError::InvalidResponse("Einladungsablauf fehlt".into()))?;
-                let Some(correlation)=self.reader.guide_create_invite_grant(turn,epoch,&action,target,ttl as i64,deadline)? else {
+                let Some(correlation)=self.reader.guide_create_invite_grant(turn,epoch,&GuideInviteGrant{action_id:action.clone(),target,ttl_seconds:ttl as i64,conversation:conversation.clone()},deadline)? else {
                     return Ok(GuideResult::silent(&turn.request_id));
                 };
                 // Kein Mitgliedslock liegt während dieses HTTP-Aufrufs auf dem Brain-Pfad.
@@ -87,12 +97,17 @@ impl GuideRuntime {
                 let confirmed=sent.is_ok_and(|response|response.action_id==action && response.turn_id==turn.request_id && matches!(response.status,InviteStatus::Queued|InviteStatus::FriendRequestSent|InviteStatus::WaitingForAcceptance|InviteStatus::InviteSent|InviteStatus::AlreadyHasAccess));
                 let status=self.reader.guide_invite_state(turn,epoch,&action,false,deadline)?;
                 let text=if confirmed {status.map(status_text).unwrap_or("Der Auftrag ist nicht mehr freigegeben.")}else{"Die Übergabe ist nicht bestätigt. Ich starte keinen zweiten Versand. Du kannst den Auftragsstatus prüfen."};
-                Ok(GuideResult::reply(&turn.request_id,format!("{text}\nAuftrag: `{action}`")))
+                let mut result=GuideResult::reply(&turn.request_id,format!("{text}\nAuftrag: `{action}`"));
+                result.conversation_id=Some(conversation.id);
+                Ok(result)
             }
             AccessInviteCommand::Status{action_id}|AccessInviteCommand::Cancel{action_id}=>{
                 let cancel=matches!(turn.access_invite.as_ref(),Some(AccessInviteCommand::Cancel{..})) || command_is_cancel(&turn.content);
                 let status=self.reader.guide_invite_state(turn,epoch,&action_id,cancel,deadline)?;
-                Ok(GuideResult::reply(&turn.request_id,status.map(status_text).unwrap_or("Für diesen Auftrag kann ich dir hier keinen Status zeigen.").into()))
+                if !self.reader.guide_finish(turn,epoch,Some(&conversation),&[],None,deadline)? {return Ok(GuideResult::silent(&turn.request_id));}
+                let mut result=GuideResult::reply(&turn.request_id,status.map(status_text).unwrap_or("Für diesen Auftrag kann ich dir hier keinen Status zeigen.").into());
+                result.conversation_id=Some(conversation.id);
+                Ok(result)
             }
         }
     }
