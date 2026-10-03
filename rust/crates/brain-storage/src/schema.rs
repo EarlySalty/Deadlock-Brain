@@ -108,6 +108,12 @@ impl PgStore {
         .execute(&mut *tx)
         .await
         .map_err(migration_error)?;
+        sqlx::raw_sql(body(include_str!(
+            "../../../../scripts/migrations/2026-10-03-serverguide-v4.sql"
+        ))?)
+        .execute(&mut *tx)
+        .await
+        .map_err(migration_error)?;
         if !existed {
             sqlx::query("UPDATE brain.guide_subjects SET legacy_import_eligible=true WHERE epoch=0 AND turn_sequence=0 AND NOT memory_enabled AND NOT contact_enabled AND profile_json='{}'::jsonb AND history_json='[]'::jsonb")
                 .execute(&mut *tx).await.map_err(migration_error)?;
