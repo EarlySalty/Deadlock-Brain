@@ -495,6 +495,7 @@ fn explicit_feedback(text: &str) -> bool {
         "feedback ans team:",
         "leite bitte dieses anliegen ans team weiter:",
         "bitte leite dieses anliegen ans team weiter:",
+        "bitte leite meinen verbesserungsvorschlag an das moderatorenteam weiter:",
         "leite dieses anliegen ans team weiter:",
         "gib bitte dieses anliegen ans team:",
         "gib dieses anliegen ans team:",
@@ -769,6 +770,9 @@ mod tests {
         ));
         assert!(explicit_feedback(
             "Bitte leite dieses Anliegen ans Team weiter: Warum gibt es keine Turniere?"
+        ));
+        assert!(explicit_feedback(
+            "Bitte leite meinen Verbesserungsvorschlag an das Moderatorenteam weiter: Mehr Turniere bitte."
         ));
         assert!(explicit_feedback(
             "Bitte leite dieses Anliegen ans Team weiter: Mehr Turniere bitte."
