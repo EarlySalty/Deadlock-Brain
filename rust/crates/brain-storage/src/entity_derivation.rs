@@ -1,0 +1,432 @@
+use super::{
+    assemble_profile,
+    compact::compact_document,
+    invalid, project_entity_facts,
+    semantic::{project_semantic_fact, SemanticProjection},
+};
+use crate::Result;
+use brain_contracts::{
+    entity_profile::{EntityIdentity, EntityProfile, EntityProfileFact, ProfileSourceKind},
+    source::{SourcePolicy, SourceRevision},
+    value::{Observed, UnknownReason},
+    CorpusSnapshot, Principal, SourceRecordV2, SourceVisibility,
+};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, BTreeSet};
+
+pub const GIT_DOCUMENT_CONTRACT: &str = "git-entity-document-v1";
+pub const GIT_GAME_FACT_AUTHORIZATION: &str = "VON_HAUPT.md:2026-10-04T15:05:git-spielfakten;DELEGATOR-SPIELWISSEN.md:Modell-Steckbrief;A3_F1_VON_D5.md:2026-10-04T17:58";
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FactPin {
+    pub source_id: String,
+    pub logical_id: String,
+    pub store_revision: u64,
+    pub fact_id: String,
+    pub raw_sha256: String,
+    pub git_commit: String,
+    pub repository_url: String,
+    pub binding_identity: EntityIdentity,
+    pub semantic_projection: SemanticProjection,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GitDocumentReceipt {
+    pub contract_version: String,
+    pub entity_key: String,
+    pub original_release_id: String,
+    pub document_sha256: String,
+    pub fact_pins: Vec<FactPin>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StoredGitBinding {
+    pub source_id: String,
+    pub logical_id: String,
+    pub store_revision: u64,
+    pub original_fact: EntityProfileFact,
+    pub binding_identity: EntityIdentity,
+    pub semantic_projection: Option<SemanticProjection>,
+}
+
+#[derive(Debug, Clone)]
+pub struct GitBlobEvidence {
+    pub source_id: String,
+    pub logical_id: String,
+    pub store_revision: u64,
+    pub git_commit: String,
+    pub repository_url: String,
+    pub bytes: Vec<u8>,
+}
+
+pub fn sha256(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+pub fn receipt_sha256(receipt: &GitDocumentReceipt) -> Result<String> {
+    Ok(sha256(&serde_json::to_vec(receipt)?))
+}
+
+pub fn derived_policy() -> SourcePolicy {
+    SourcePolicy {
+        visibility: SourceVisibility::Public,
+        allowed_scopes: BTreeSet::new(),
+        authorization_ref: Observed::known(GIT_GAME_FACT_AUTHORIZATION.into()),
+        license: Observed::unknown(UnknownReason::NotPresent),
+        publication_allowed: true,
+        provider_egress_allowed: true,
+        raw_retention_allowed: false,
+    }
+}
+
+pub fn git_document_identity(record: &SourceRecordV2) -> Result<(String, String, String)> {
+    let document: Value = serde_json::from_str(
+        record
+            .metadata
+            .get(crate::source_versions::DOCUMENT_METADATA_KEY)
+            .ok_or_else(|| invalid("Originaldokument fehlt"))?,
+    )?;
+    if document["source_kind"] != "game_file" {
+        return Err(invalid("Git-Ableitung benötigt eine Git-Originalquelle"));
+    }
+    let metadata = &document["metadata"];
+    let repository = metadata["provenance"]["repository_url"]
+        .as_str()
+        .filter(|url| {
+            matches!(
+                *url,
+                "https://github.com/deadlock-wiki/deadlock-data"
+                    | "https://github.com/SteamTracking/GameTracking-Deadlock"
+            )
+        })
+        .ok_or_else(|| invalid("Freigegebener Git-Upstream fehlt"))?;
+    let commit = metadata["source_revision"]
+        .as_str()
+        .ok_or_else(|| invalid("Originalcommit fehlt"))?;
+    let commit = commit.strip_prefix("git:").unwrap_or(commit);
+    if commit.len() != 40 || !commit.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(invalid("Vollständiger Gitcommit fehlt"));
+    }
+    let path = metadata["original_relative_path"]
+        .as_str()
+        .ok_or_else(|| invalid("Originalblobpfad fehlt"))?;
+    Ok((commit.into(), repository.into(), path.into()))
+}
+
+pub fn derive_git_profile(
+    entity_key: &str,
+    snapshot: &CorpusSnapshot,
+    operator: &Principal,
+    bindings: &[StoredGitBinding],
+    blobs: &[GitBlobEvidence],
+    live_story: &[brain_contracts::entity_profile::PatchStoryChange],
+) -> Result<(EntityProfile, GitDocumentReceipt)> {
+    let authorized = snapshot
+        .authorized(operator, false)
+        .map_err(|_| invalid("Frische Originalautorisierung fehlt"))?;
+    let mut rows: Vec<_> = bindings.iter().collect();
+    rows.sort_by(|a, b| {
+        (
+            &a.source_id,
+            &a.logical_id,
+            a.store_revision,
+            &a.original_fact.fact_id,
+        )
+            .cmp(&(
+                &b.source_id,
+                &b.logical_id,
+                b.store_revision,
+                &b.original_fact.fact_id,
+            ))
+    });
+    let mut seen = BTreeSet::new();
+    let mut blob_map = BTreeMap::new();
+    for blob in blobs {
+        if blob_map
+            .insert(
+                (&blob.source_id, &blob.logical_id, blob.store_revision),
+                blob,
+            )
+            .is_some()
+        {
+            return Err(invalid("Gitblobbeleg ist nicht eindeutig"));
+        }
+    }
+    let mut entity: Option<EntityIdentity> = None;
+    let mut facts = Vec::new();
+    let mut pins = Vec::new();
+    let mut unknowns = BTreeSet::new();
+    for binding in rows {
+        let key = (
+            &binding.source_id,
+            &binding.logical_id,
+            binding.store_revision,
+        );
+        if !seen.insert((key, &binding.original_fact.fact_id)) {
+            return Err(invalid("Originalbindung ist nicht eindeutig"));
+        }
+        if !authorized
+            .iter()
+            .any(|record| (&record.source_id, &record.logical_id, record.revision) == key)
+        {
+            return Err(invalid("Originalbindung ist nicht mehr autorisiert"));
+        }
+        let record = snapshot
+            .revisions
+            .iter()
+            .find(|record| (&record.source_id, &record.logical_id, record.revision) == key)
+            .ok_or_else(|| invalid("Unveränderlicher Originalpin fehlt"))?;
+        let original =
+            project_entity_facts(record, std::slice::from_ref(&binding.original_fact.fact_id))?
+                .remove(0);
+        if original != binding.original_fact
+            || original.provenance.source_kind != ProfileSourceKind::GameFile
+        {
+            return Err(invalid(
+                "Gespeicherte Originalbindung widerspricht dem Git-Original",
+            ));
+        }
+        let identity = &binding.binding_identity;
+        if identity.entity_key != entity_key
+            || identity.name.trim().is_empty()
+            || identity.name.contains(['/', '\\', ':'])
+            || identity.name.chars().any(char::is_control)
+            || identity.identity_evidence.is_empty()
+            || entity.as_ref().is_some_and(|previous| {
+                previous.kind != identity.kind || previous.name != identity.name
+            })
+        {
+            return Err(invalid(
+                "Gespeicherte Git-Bindungsidentität widerspricht der Entität",
+            ));
+        }
+        let (commit, repository, _) = git_document_identity(record)?;
+        let blob = blob_map
+            .get(&key)
+            .ok_or_else(|| invalid("Tatsächlicher Gitblobbeleg fehlt"))?;
+        let document: Value =
+            serde_json::from_str(&record.metadata[crate::source_versions::DOCUMENT_METADATA_KEY])?;
+        if blob.git_commit != commit
+            || blob.repository_url != repository
+            || blob.bytes != record.content.as_bytes()
+            || sha256(&blob.bytes) != record.content_hash
+            || document["metadata"]["original_sha256"] != record.content_hash
+            || original.provenance.origin.raw_sha256 != record.content_hash
+        {
+            return Err(invalid(
+                "Gitcommit, Upstream oder Originalblob widerspricht dem Beleg",
+            ));
+        }
+        let combined = entity.get_or_insert_with(|| identity.clone());
+        for alias in &identity.aliases {
+            if !combined.aliases.contains(alias) {
+                combined.aliases.push(alias.clone());
+            }
+        }
+        let Some(semantic) = &binding.semantic_projection else {
+            continue;
+        };
+        let mut fact = project_semantic_fact(&original, semantic)?;
+        pins.push(FactPin {
+            source_id: record.source_id.clone(),
+            logical_id: record.logical_id.clone(),
+            store_revision: record.revision,
+            fact_id: original.fact_id.clone(),
+            raw_sha256: record.content_hash.clone(),
+            git_commit: commit.clone(),
+            repository_url: repository,
+            binding_identity: identity.clone(),
+            semantic_projection: semantic.clone(),
+        });
+        if fact.qualifiers.contains_key("semantic_scope") {
+            unknowns.insert(format!("Für {} fehlt eine belegte öffentliche Beschreibung der verschachtelten Variante oder Bedingung", fact.predicate));
+            continue;
+        }
+        for key in [
+            "references_resolved",
+            "type_flags",
+            "unit_status",
+            "unit_inferred",
+        ] {
+            fact.qualifiers.remove(key);
+        }
+        if fact.qualifiers.iter().any(|(key, value)| {
+            !matches!(
+                key.as_str(),
+                "level" | "variant" | "condition" | "ability_name" | "numeric_representation"
+            ) || match value {
+                Value::String(text) => {
+                    text.contains(['/', '\\', ':']) || text.chars().any(char::is_control)
+                }
+                Value::Number(_) => false,
+                _ => true,
+            }
+        }) {
+            unknowns.insert(format!(
+                "Für {} fehlt eine belegte öffentliche Beschreibung der zusätzlichen Bedingungen",
+                fact.predicate
+            ));
+            continue;
+        }
+        fact.fact_id = format!("derived:{}", facts.len());
+        fact.subject = entity_key.into();
+        fact.provenance.origin.identity.source_id = "git-game-facts-derived".into();
+        fact.provenance.origin.identity.logical_id = entity_key.into();
+        fact.provenance.origin.source_revision = SourceRevision::Git {
+            commit: commit.clone(),
+        };
+        fact.provenance.origin.policy = derived_policy();
+        fact.provenance.origin.locator = "git-game-facts-derived".into();
+        fact.provenance.origin.origin_artifacts.clear();
+        fact.provenance.source_span = None;
+        fact.provenance.document_metadata.clear();
+        fact.provenance.license =
+            serde_json::json!({"authorization_ref":GIT_GAME_FACT_AUTHORIZATION});
+        fact.provenance.original_revision = commit;
+        facts.push(fact);
+    }
+    let mut entity = entity.ok_or_else(|| invalid("Freigegebene belegte Git-Zahlen fehlen"))?;
+    let story = sanitize_story(&entity, live_story)?;
+    entity.aliases.clear();
+    entity.identity_evidence = vec![GIT_GAME_FACT_AUTHORIZATION.into()];
+    let mut profile = assemble_profile(entity, None, facts, story);
+    profile.unknowns.extend(unknowns);
+    let receipt = GitDocumentReceipt {
+        contract_version: GIT_DOCUMENT_CONTRACT.into(),
+        entity_key: entity_key.into(),
+        original_release_id: snapshot.release.release_id.clone(),
+        document_sha256: sha256(compact_document(&profile)?.as_bytes()),
+        fact_pins: pins,
+    };
+    Ok((profile, receipt))
+}
+
+pub fn verify_git_document_receipt(
+    record: &SourceRecordV2,
+    receipt: &GitDocumentReceipt,
+    snapshot: &CorpusSnapshot,
+    operator: &Principal,
+    bindings: &[StoredGitBinding],
+    blobs: &[GitBlobEvidence],
+    live_story: &[brain_contracts::entity_profile::PatchStoryChange],
+) -> Result<EntityProfile> {
+    record.validate()?;
+    let origin = brain_contracts::source::origin_from_record(record)
+        .map_err(|_| invalid("Geprüfte eigene Dokumentpolicy fehlt"))?;
+    if origin.policy != derived_policy()
+        || origin.raw_sha256 != record.content_hash
+        || record.metadata.keys().any(|key| {
+            !matches!(
+                key.as_str(),
+                "brain.entity_projection.contract" | "brain.entity_projection.receipt_sha256"
+            ) && key != brain_contracts::source::ORIGIN_METADATA_KEY
+        })
+    {
+        return Err(invalid(
+            "Abgeleitete Dokumentpolicy oder Metadaten widersprechen dem Vertrag",
+        ));
+    }
+    if record.tombstone
+        || record.visibility != SourceVisibility::Public
+        || !record.allowed_scopes.is_empty()
+        || receipt.contract_version != GIT_DOCUMENT_CONTRACT
+        || snapshot.release.release_id != receipt.original_release_id
+        || record.content_hash != receipt.document_sha256
+        || sha256(record.content.as_bytes()) != receipt.document_sha256
+        || record
+            .metadata
+            .get("brain.entity_projection.contract")
+            .map(String::as_str)
+            != Some(GIT_DOCUMENT_CONTRACT)
+        || record
+            .metadata
+            .get("brain.entity_projection.receipt_sha256")
+            != Some(&receipt_sha256(receipt)?)
+    {
+        return Err(invalid(
+            "Abgeleitetes Dokument widerspricht der privaten Quittung",
+        ));
+    }
+    let (profile, expected) = derive_git_profile(
+        &receipt.entity_key,
+        snapshot,
+        operator,
+        bindings,
+        blobs,
+        live_story,
+    )?;
+    if expected != *receipt || compact_document(&profile)? != record.content {
+        return Err(invalid(
+            "Gespeichertes Dokument widerspricht den frischen Originalbelegen",
+        ));
+    }
+    Ok(profile)
+}
+
+fn sanitize_story(
+    entity: &EntityIdentity,
+    story: &[brain_contracts::entity_profile::PatchStoryChange],
+) -> Result<Vec<brain_contracts::entity_profile::PatchStoryChange>> {
+    let mut result = Vec::new();
+    for change in story
+        .iter()
+        .filter(|change| super::intervals::matching_entity(entity, change))
+    {
+        if change.provenance.relation != "brain.patch_changes"
+            || change.provenance.evidence_ref.is_empty()
+        {
+            return Err(invalid("Patch-Story besitzt keinen tatsächlichen DB-Beleg"));
+        }
+        let mut clean = change.clone();
+        let label = |value: &Option<String>| {
+            value
+                .as_ref()
+                .filter(|value| {
+                    !value.is_empty()
+                        && !value.contains(['/', '\\', ':'])
+                        && !value.chars().any(char::is_control)
+                })
+                .cloned()
+        };
+        clean.patch_title = label(&clean.patch_title);
+        clean.entity_name = label(&clean.entity_name);
+        clean.ability_name = label(&clean.ability_name);
+        clean.stat_name = label(&clean.stat_name);
+        let numeric = |value: &Value| match value {
+            Value::Number(_) => value.clone(),
+            Value::String(text) if serde_json::from_str::<serde_json::Number>(text).is_ok() => {
+                value.clone()
+            }
+            _ => Value::Null,
+        };
+        clean.old_value = numeric(&clean.old_value);
+        clean.new_value = numeric(&clean.new_value);
+        clean.confidence = numeric(&clean.confidence);
+        clean.original_line.text = None;
+        clean.original_line.redistribution_allowed = false;
+        clean.additional_fields.retain(|key, value| {
+            matches!(
+                key.as_str(),
+                "unit" | "level" | "variant" | "condition" | "ability_name"
+            ) && match value {
+                Value::String(text) => {
+                    !text.is_empty()
+                        && !text.contains(['/', '\\', ':'])
+                        && !text.chars().any(char::is_control)
+                }
+                Value::Number(_) => true,
+                _ => false,
+            }
+        });
+        result.push(clean);
+    }
+    result.sort_by(|a, b| {
+        (&a.patch_date, &a.provenance.evidence_ref)
+            .cmp(&(&b.patch_date, &b.provenance.evidence_ref))
+    });
+    Ok(result)
+}

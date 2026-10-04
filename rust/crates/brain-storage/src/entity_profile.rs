@@ -17,6 +17,12 @@ pub mod semantic;
 #[path = "entity_intervals.rs"]
 pub mod intervals;
 
+#[path = "entity_compact.rs"]
+pub mod compact;
+
+#[path = "entity_derivation.rs"]
+pub mod derivation;
+
 fn invalid(message: &str) -> StorageError {
     StorageError::Json(<serde_json::Error as serde::de::Error>::custom(message))
 }
