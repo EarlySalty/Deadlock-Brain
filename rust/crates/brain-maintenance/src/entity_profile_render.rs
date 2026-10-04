@@ -1,9 +1,9 @@
 use anyhow::{ensure, Context, Result};
 use brain_contracts::entity_profile::{
     EntityKind, EntityProfile, EntityProfileFact, PatchStoryChange, PatchValidity,
-    ENTITY_PROFILE_VERSION,
+    ProfileSourceKind, ENTITY_PROFILE_VERSION,
 };
-use brain_contracts::{value::Observed, SourceVisibility};
+use brain_contracts::SourceVisibility;
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
@@ -47,37 +47,49 @@ pub fn public_relative_path(profile: &EntityProfile) -> Result<PathBuf> {
         )))
 }
 
+fn public_label(value: &str) -> Option<&str> {
+    let value = value.trim();
+    (!value.is_empty() && !value.contains(['/', '\\', ':', '.']) && !value.contains("game_file"))
+        .then_some(value)
+}
+
 fn public_fact(fact: &EntityProfileFact) -> bool {
-    let policy = &fact.provenance.origin.policy;
-    policy.publication_allowed
-        && policy.visibility == SourceVisibility::Public
-        && policy.allowed_scopes.is_empty()
-        && matches!(&policy.authorization_ref, Observed::Known { value } if !value.trim().is_empty())
-        && matches!(&policy.license, Observed::Known { value } if !value.trim().is_empty() && !value.eq_ignore_ascii_case("unverified"))
+    fact.provenance.source_kind == ProfileSourceKind::GameFile
+        && matches!(
+            fact.provenance.origin.source_revision,
+            brain_contracts::source::SourceRevision::Git { .. }
+        )
+        && fact.provenance.origin.policy.visibility == SourceVisibility::Public
+        && fact.provenance.origin.policy.allowed_scopes.is_empty()
+        && public_label(&fact.predicate).is_some()
         && fact
-            .provenance
-            .license
-            .get("redistribution_allowed")
-            .and_then(serde_json::Value::as_bool)
-            == Some(true)
-        && fact
-            .provenance
-            .license
-            .get("name")
+            .qualifiers
+            .get("gameplay_binding")
             .and_then(serde_json::Value::as_str)
-            .is_some_and(|name| !name.trim().is_empty() && !name.eq_ignore_ascii_case("unverified"))
+            != Some("uninterpreted")
+        && (fact.value.is_number()
+            || (fact
+                .qualifiers
+                .get("numeric_representation")
+                .and_then(serde_json::Value::as_str)
+                == Some("source_numeric_lexeme")
+                && story_number(&fact.value).is_some()))
 }
 
 fn validity(value: &PatchValidity) -> String {
     match value {
-        PatchValidity::Unknown { reason } => format!("Unbekannt: {reason}"),
+        PatchValidity::Unknown { .. } => "Unbekannt: Eine belegte Patchgrenze fehlt.".into(),
         PatchValidity::Known {
             from_patch,
             to_patch_exclusive,
-            evidence_ref,
+            ..
         } => format!(
-            "Ab {from_patch}; bis {} (exklusiv); Beleg: {evidence_ref}",
-            to_patch_exclusive.as_deref().unwrap_or("offen")
+            "Ab {}; bis {} (exklusiv)",
+            public_label(from_patch).unwrap_or("Unbekannt"),
+            match to_patch_exclusive.as_deref() {
+                Some(patch) => public_label(patch).unwrap_or("Unbekannt"),
+                None => "offen",
+            }
         ),
     }
 }
@@ -105,25 +117,49 @@ fn fact_table(html: &mut String, facts: &[EntityProfileFact]) {
                 serde_json::Value::Object(_) => "Objekt",
             };
             html.push_str(&format!(
-                "<tr><td>{}: {} ({})</td><td><code>{}</code> ({})</td><td>{}; <code>{}</code></td><td>{}</td><td>{}; Revision {}; beobachtet {}; Belegstatus {}; Quellspanne {}; Herkunft {}; Parser {}</td></tr>",
-                escape(&fact.fact_id), escape(&fact.predicate), escape(&fact.subject),
+                "<tr><td>{}</td><td><code>{}</code> ({})</td><td>{}; {}</td><td>{}</td><td>Git-Spieldaten</td></tr>",
+                escape(public_label(&fact.predicate).unwrap_or("Unbekannter Wert")),
                 escape(&fact.value.to_string()), value_type,
-                escape(fact.unit.as_deref().unwrap_or("Unbekannt")),
-                escape(&serde_json::Value::Object(fact.qualifiers.clone()).to_string()),
+                escape(fact.unit.as_deref().and_then(public_label).unwrap_or("Unbekannt")),
+                public_conditions(fact),
                 escape(&validity(&fact.validity)),
-                escape(&fact.provenance.origin.identity.source_id),
-                escape(&fact.provenance.original_revision), escape(&fact.provenance.observed_at),
-                escape(&fact.evidence_status), escape(fact.provenance.source_span.as_deref().unwrap_or("Unbekannt")),
-                escape(&fact.provenance.origin.locator), escape(&fact.provenance.origin.parser_revision),
             ));
         } else {
-            html.push_str("<tr><td colspan=\"5\">Ein zugeordneter Beleg ist nur intern verfügbar. Eine öffentliche Freigabe fehlt.</td></tr>");
+            html.push_str(
+                "<tr><td colspan=\"5\">Ein zugeordneter Beleg ist nur intern verfügbar.</td></tr>",
+            );
         }
     }
     if facts.is_empty() {
         html.push_str("<tr><td colspan=\"5\">Keine zugeordneten Werte vorhanden. Der Quellenstand bleibt unvollständig.</td></tr>");
     }
     html.push_str("</tbody></table>");
+}
+
+fn public_conditions(fact: &EntityProfileFact) -> String {
+    let mut values = Vec::new();
+    for (key, label) in [
+        ("level", "Stufe"),
+        ("variant", "Variante"),
+        ("condition", "Bedingung"),
+        ("ability_name", "Fähigkeit"),
+    ] {
+        if let Some(value) = fact.qualifiers.get(key) {
+            let text = match value {
+                serde_json::Value::String(value) => public_label(value).map(str::to_owned),
+                serde_json::Value::Number(value) => Some(value.to_string()),
+                _ => None,
+            };
+            if let Some(text) = text {
+                values.push(format!("{label}: {}", escape(&text)));
+            }
+        }
+    }
+    if values.is_empty() {
+        "Keine öffentliche Bedingung angegeben".into()
+    } else {
+        values.join("; ")
+    }
 }
 
 fn story_number(value: &serde_json::Value) -> Option<String> {
@@ -187,16 +223,13 @@ fn patch_story(html: &mut String, changes: &[PatchStoryChange]) -> Result<()> {
             _ => "unbekannt",
         };
         html.push_str(&format!(
-            "<li><h3>Patch vom {}: {}</h3><p>{}: {}; Fähigkeit: {}; Wert: {}.</p><p>{} Änderungsart: {}; Zahlenrichtung: {}; Konfidenz: {}.</p><p>Herkunft: {}; Quelle: {}; Beleg: {}.</p></li>",
-            escape(&date), escape(change.patch_title.as_deref().unwrap_or("Titel unbekannt")),
-            entity_kind, escape(change.entity_name.as_deref().unwrap_or("Unbekannt")),
-            escape(change.ability_name.as_deref().unwrap_or("Unbekannt")),
-            escape(change.stat_name.as_deref().unwrap_or("Unbekannt")), escape(&values),
+            "<li><h3>Patch vom {}: {}</h3><p>{}: {}; Fähigkeit: {}; Wert: {}.</p><p>{} Änderungsart: {}; Zahlenrichtung: {}; Konfidenz: {}.</p><p>Quelle: Patchhistorie.</p></li>",
+            escape(&date), escape(change.patch_title.as_deref().and_then(public_label).unwrap_or("Titel unbekannt")),
+            entity_kind, escape(change.entity_name.as_deref().and_then(public_label).unwrap_or("Unbekannt")),
+            escape(change.ability_name.as_deref().and_then(public_label).unwrap_or("Unbekannt")),
+            escape(change.stat_name.as_deref().and_then(public_label).unwrap_or("Unbekannt")), escape(&values),
             change_type, direction,
             escape(&story_number(&change.confidence).unwrap_or_else(|| "Unbekannt".into())),
-            escape(&change.provenance.relation),
-            escape(change.provenance.source_url.as_deref().unwrap_or("Unbekannt")),
-            escape(&change.provenance.evidence_ref),
         ));
     }
     html.push_str("</ol>");
@@ -288,11 +321,17 @@ pub fn render_entity_profile(profile: &EntityProfile) -> Result<RenderedEntityPr
     }
     let public_relative_path = public_relative_path(profile)?;
     let brain_document = compact_document(profile)?;
+    let patch = profile
+        .patch
+        .as_deref()
+        .and_then(public_label)
+        .unwrap_or("Unbekannt");
+    let name = public_label(&profile.entity.name).unwrap_or("Entitätsname unbekannt");
     let mut html = format!(
         "<!doctype html><html lang=\"de\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><meta name=\"source-commit\" content=\"{}\"><meta name=\"documentation-status\" content=\"Quellengebundener Steckbrief\"><meta name=\"documentation-version\" content=\"{}\"><title>{}</title></head><body><main><h1>{}</h1><p>{}; Patchstand: {}</p>",
-        escape(profile.patch.as_deref().unwrap_or("Unbekannt")), ENTITY_PROFILE_VERSION,
-        escape(&profile.entity.name), escape(&profile.entity.name), kind(profile.entity.kind).1,
-        escape(profile.patch.as_deref().unwrap_or("Unbekannt")),
+        escape(patch), ENTITY_PROFILE_VERSION,
+        escape(name), escape(name), kind(profile.entity.kind).1,
+        escape(patch),
     );
     html.push_str("<section id=\"werte\"><h2>Aktuelle Werte</h2>");
     fact_table(&mut html, &profile.facts);
@@ -313,7 +352,7 @@ pub fn render_entity_profile(profile: &EntityProfile) -> Result<RenderedEntityPr
         {
             html.push_str(&format!(
                 "<li>{}: {}{}</li>",
-                escape(&fact.fact_id),
+                escape(public_label(&fact.predicate).unwrap_or("Unbekannter Wert")),
                 escape(&fact.value.to_string()),
                 if conflict.preferred_fact_id.as_ref() == Some(&fact_reference(fact)) {
                     " (bevorzugter Beleg)"
@@ -328,14 +367,7 @@ pub fn render_entity_profile(profile: &EntityProfile) -> Result<RenderedEntityPr
     patch_story(&mut html, &profile.patch_story)?;
     html.push_str("</section><section id=\"quellenstand\"><h2>Quellenstand und Lücken</h2>");
     html.push_str(&format!("<p>{} Quellenstände und {} offene Angaben gespeichert. Ein fehlender Patchstand wird nicht aus Beobachtungsdaten abgeleitet.</p>", profile.source_state.len(), profile.unknowns.len()));
-    html.push_str("<ul>");
-    for source in &profile.source_state {
-        html.push_str(&format!("<li>{}</li>", escape(source)));
-    }
-    for unknown in &profile.unknowns {
-        html.push_str(&format!("<li>Unbekannt: {}</li>", escape(unknown)));
-    }
-    html.push_str("</ul>");
+    html.push_str("<p>Git-Spieldaten liefern zugeordnete Zahlen. Wiki-Belege bleiben intern. Die Freigabe der Spielwerte bestätigt keinen aktuellen Patchstand. Technische Herkunft und Einzelheiten zu offenen Angaben bleiben intern.</p>");
     html.push_str("</section></main></body></html>");
     Ok(RenderedEntityProfile {
         brain_document,
@@ -410,6 +442,7 @@ mod tests {
     use brain_contracts::source::{
         GameValidity, OriginArtifact, SourceIdentity, SourcePolicy, SourceRevision,
     };
+    use brain_contracts::value::Observed;
     use serde_json::json;
     use std::collections::BTreeSet;
 
@@ -500,8 +533,8 @@ mod tests {
             for expected in [
                 "700",
                 "HP",
-                "health-1",
-                "Frühere Patchgrenze fehlt",
+                "Lebenspunkte",
+                "Eine belegte Patchgrenze fehlt",
                 "Patchstand: Unbekannt",
                 "Patch-Story",
             ] {
@@ -565,6 +598,174 @@ mod tests {
     }
 
     #[test]
+    fn derived_git_numbers_preserve_restricted_source_and_numeric_string() {
+        let mut profile = fixture(EntityKind::Hero);
+        profile.facts[0]
+            .provenance
+            .origin
+            .policy
+            .publication_allowed = false;
+        profile.facts[0].provenance.origin.policy.license = Observed::known("unverified".into());
+        profile.facts[0].provenance.license =
+            json!({"name":"unverified","redistribution_allowed":false});
+        let mut string = profile.facts[0].clone();
+        string.fact_id = "numeric-string".into();
+        string.value = json!("100.00000000000000001");
+        string.qualifiers.insert(
+            "numeric_representation".into(),
+            json!("source_numeric_lexeme"),
+        );
+        string
+            .qualifiers
+            .insert("variant".into(), json!("Verstärkt"));
+        string
+            .qualifiers
+            .insert("condition".into(), json!("Während der Fähigkeit"));
+        profile.facts.push(string);
+        let original = serde_json::to_value(&profile).unwrap();
+        let rendered = render_entity_profile(&profile).unwrap();
+        for text in [
+            "700",
+            "&quot;100.00000000000000001&quot;",
+            "(Text)",
+            "Stufe: 1",
+            "Variante: Verstärkt",
+            "Bedingung: Während der Fähigkeit",
+            "Patchstand: Unbekannt",
+        ] {
+            assert!(rendered.public_html.contains(text), "{text}");
+        }
+        let internal: serde_json::Value = serde_json::from_str(&rendered.brain_document).unwrap();
+        for (index, fact) in profile.facts.iter().enumerate() {
+            assert_eq!(internal["facts"][index]["value"], fact.value);
+            assert_eq!(internal["facts"][index]["license"], fact.provenance.license);
+            assert_eq!(
+                internal["facts"][index]["policy"],
+                json!(fact.provenance.origin.policy)
+            );
+        }
+        assert_eq!(serde_json::to_value(&profile).unwrap(), original);
+        let root = tempfile::tempdir().unwrap();
+        let first = write_public_html(root.path(), &profile).unwrap();
+        let second = write_public_html(root.path(), &profile).unwrap();
+        assert_eq!(first, second);
+        assert_eq!(fs::read_to_string(second).unwrap(), rendered.public_html);
+    }
+
+    #[test]
+    fn wiki_numbers_and_text_remain_internal_even_with_public_raw_rights() {
+        let mut profile = fixture(EntityKind::Hero);
+        profile.facts[0].provenance.source_kind = ProfileSourceKind::Wiki;
+        profile.facts[0].value = json!(987654321);
+        let mut context = profile.facts[0].clone();
+        context.value = json!("Wörtlicher Wiki-Text");
+        profile.context.push(context);
+        let rendered = render_entity_profile(&profile).unwrap();
+        for text in ["987654321", "Wörtlicher Wiki-Text"] {
+            assert!(rendered.brain_document.contains(text));
+            assert!(!rendered.public_html.contains(text));
+        }
+    }
+
+    #[test]
+    fn public_output_omits_raw_paths_and_pointers_from_all_output_fields() {
+        for raw in [
+            "/home/operator/raw/hero.json",
+            "scripts/heroes/abrams.vdata",
+            "game_file:hero",
+            "file.json_value",
+            "C:\\raw\\hero.json",
+        ] {
+            let mut profile = fixture(EntityKind::Hero);
+            profile.patch = Some(raw.into());
+            profile.entity.name = raw.into();
+            profile.source_state = vec![raw.into()];
+            profile.unknowns = vec![raw.into()];
+            let fact = &mut profile.facts[0];
+            fact.fact_id = raw.into();
+            fact.subject = raw.into();
+            fact.unit = Some(raw.into());
+            fact.evidence_status = raw.into();
+            fact.qualifiers = serde_json::from_value(json!({
+                "source_pointer":raw,"source_lexeme":raw,"condition":raw,"variant":raw,
+                "ability_name":raw,"other":raw,"level":raw
+            }))
+            .unwrap();
+            fact.validity = PatchValidity::Known {
+                from_patch: raw.into(),
+                to_patch_exclusive: Some(raw.into()),
+                evidence_ref: raw.into(),
+            };
+            fact.provenance.origin.locator = raw.into();
+            fact.provenance.origin.identity.logical_id = raw.into();
+            fact.provenance.origin.identity.source_id = raw.into();
+            fact.provenance.origin.parser_revision = raw.into();
+            fact.provenance.source_span = Some(raw.into());
+            fact.provenance.original_revision = raw.into();
+            fact.provenance.observed_at = raw.into();
+            fact.provenance
+                .document_metadata
+                .insert("raw".into(), json!(raw));
+            profile.conflicts.push(ProfileConflict {
+                predicate: raw.into(),
+                preferred_fact_id: Some(fact_reference(fact)),
+                fact_ids: vec![fact_reference(fact)],
+                reason: raw.into(),
+            });
+            let mut story = story_fixture();
+            story.patch_title = Some(raw.into());
+            story.entity_name = Some(raw.into());
+            story.ability_name = Some(raw.into());
+            story.stat_name = Some(raw.into());
+            story.provenance.source_url = Some(raw.into());
+            story.provenance.evidence_ref = raw.into();
+            profile.patch_story.push(story);
+            let original = serde_json::to_value(&profile).unwrap();
+            let rendered = render_entity_profile(&profile).unwrap();
+            assert!(!rendered.public_html.contains(raw), "{raw}");
+            assert!(!rendered.public_html.contains(&escape(raw)), "{raw}");
+            assert!(rendered.public_html.contains("700"));
+            assert!(rendered.public_html.contains("bevorzugter Beleg"));
+            assert!(rendered.public_html.contains("16.09.2026"));
+            assert!(
+                rendered.brain_document.contains(&escape(raw))
+                    || rendered
+                        .brain_document
+                        .contains(&serde_json::to_string(raw).unwrap())
+            );
+            assert_eq!(serde_json::to_value(&profile).unwrap(), original);
+            profile.facts[0].predicate = raw.into();
+            assert!(!render_entity_profile(&profile)
+                .unwrap()
+                .public_html
+                .contains("<code>700</code>"));
+            profile.facts[0].validity = PatchValidity::Unknown { reason: raw.into() };
+            assert!(!render_entity_profile(&profile)
+                .unwrap()
+                .public_html
+                .contains(&escape(raw)));
+        }
+    }
+
+    #[test]
+    fn uninterpreted_leaves_and_unmarked_numeric_strings_remain_internal() {
+        let mut profile = fixture(EntityKind::Hero);
+        profile.facts[0]
+            .qualifiers
+            .insert("gameplay_binding".into(), json!("uninterpreted"));
+        assert!(!render_entity_profile(&profile)
+            .unwrap()
+            .public_html
+            .contains("<code>700</code>"));
+        profile.facts[0].qualifiers.clear();
+        profile.facts[0].value = json!("700");
+        assert!(!render_entity_profile(&profile)
+            .unwrap()
+            .public_html
+            .contains("&quot;700&quot;"));
+    }
+
+    #[test]
     fn public_patch_story_uses_named_numbers_dates_and_provenance() {
         let mut profile = fixture(EntityKind::Hero);
         profile.patch_story.push(story_fixture());
@@ -579,9 +780,7 @@ mod tests {
             "Verstärkung",
             "gestiegen",
             "Konfidenz: 0.8",
-            "brain.patch_changes",
-            "https://example.org/patch",
-            "brain.patch_changes:2026-09-16:abrams:damage",
+            "Quelle: Patchhistorie",
         ] {
             assert!(rendered.public_html.contains(expected), "{expected}");
         }
@@ -736,9 +935,8 @@ mod tests {
     }
 
     #[test]
-    fn scoped_or_unverified_facts_are_not_published() {
+    fn scoped_private_and_non_numeric_facts_are_not_published() {
         let mut profile = fixture(EntityKind::Ability);
-        profile.facts[0].value = json!("Nur mit Grant");
         profile.facts[0]
             .provenance
             .origin
@@ -748,7 +946,7 @@ mod tests {
         assert!(!render_entity_profile(&profile)
             .unwrap()
             .public_html
-            .contains("Nur mit Grant"));
+            .contains("<code>700</code>"));
         profile.facts[0]
             .provenance
             .origin
@@ -757,6 +955,13 @@ mod tests {
             .clear();
         profile.facts[0].provenance.origin.policy.license =
             Observed::unknown(brain_contracts::value::UnknownReason::NotPresent);
+        profile.facts[0].provenance.origin.policy.visibility = SourceVisibility::Private;
+        assert!(!render_entity_profile(&profile)
+            .unwrap()
+            .public_html
+            .contains("<code>700</code>"));
+        profile.facts[0].provenance.origin.policy.visibility = SourceVisibility::Public;
+        profile.facts[0].value = json!("Nur mit Grant");
         assert!(!render_entity_profile(&profile)
             .unwrap()
             .public_html
