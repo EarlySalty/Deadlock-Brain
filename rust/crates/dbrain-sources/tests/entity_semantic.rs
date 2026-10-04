@@ -917,6 +917,79 @@ fn interval_chain_ignores_unrelated_rows_but_rechecks_participating_evidence() {
         &story,
     )
     .unwrap();
+    for (anchor_value, historical_value) in [(json!(120), json!("110")), (json!("120"), json!(110))]
+    {
+        let mut typed_source = source.clone();
+        typed_source["facts"][0]["value"] = anchor_value.clone();
+        if anchor_value.is_number() {
+            typed_source["facts"][0]["qualifiers"]
+                .as_object_mut()
+                .unwrap()
+                .remove("numeric_representation");
+        }
+        let typed_record = prepared(&typed_source);
+        let originals =
+            project_entity_facts(&typed_record, &["health".into(), "patch".into()]).unwrap();
+        let typed_semantic =
+            semantic_projection(&originals[0], "/MaxHealth", &typed_record, &entity)
+                .unwrap()
+                .unwrap();
+        let mut typed_story = story.clone();
+        typed_story[0].new_value = historical_value.clone();
+        typed_story[1].old_value = historical_value.clone();
+        let binding = SemanticBinding {
+            record: &typed_record,
+            identity: &entity,
+        };
+        let intervals = derive_patch_intervals(
+            binding,
+            &originals[0],
+            &originals[1],
+            &typed_semantic,
+            &typed_story,
+        )
+        .unwrap();
+        let historical = project_interval_fact(
+            binding,
+            &originals[0],
+            &originals[1],
+            &typed_semantic,
+            &intervals,
+            &typed_story,
+            "2026-09-15",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(historical.value, historical_value);
+        assert_eq!(originals[0].value, anchor_value);
+        let mut qualifiers = historical.qualifiers.clone();
+        assert_eq!(
+            qualifiers.remove("numeric_representation"),
+            historical_value
+                .is_string()
+                .then(|| json!("source_numeric_lexeme"))
+        );
+        let mut original_qualifiers = typed_semantic.qualifiers.clone();
+        original_qualifiers.remove("numeric_representation");
+        assert_eq!(qualifiers, original_qualifiers);
+        let mut wiki = historical.clone();
+        wiki.provenance.source_kind = brain_contracts::entity_profile::ProfileSourceKind::Wiki;
+        wiki.provenance.origin.identity.source_id = "wiki".into();
+        wiki.value = json!(999);
+        wiki.qualifiers.remove("numeric_representation");
+        let profile = assemble_profile(
+            entity.clone(),
+            Some("2026-09-15".into()),
+            vec![historical, wiki],
+            vec![],
+        );
+        assert_eq!(profile.conflicts.len(), 1);
+        assert!(profile.conflicts[0]
+            .preferred_fact_id
+            .as_ref()
+            .unwrap()
+            .starts_with("game_file:"));
+    }
     let current = project_interval_fact(
         SemanticBinding {
             record: &record,

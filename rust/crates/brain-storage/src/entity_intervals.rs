@@ -85,6 +85,14 @@ pub fn project_interval_fact(
     };
     let mut fact = project_semantic_fact(original, semantic, binding.record, binding.identity)?;
     fact.value = interval.value.clone();
+    if fact.value.is_string() && numeric(&fact.value).is_some() {
+        fact.qualifiers.insert(
+            "numeric_representation".into(),
+            Value::String("source_numeric_lexeme".into()),
+        );
+    } else {
+        fact.qualifiers.remove("numeric_representation");
+    }
     let mut consumer_interval = interval.clone();
     consumer_interval.patch_evidence =
         super::derivation::consumer_patch_story(binding.identity, &interval.patch_evidence)?;
