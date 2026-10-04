@@ -840,6 +840,7 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
         assert!(shared.facts.contains(&fact));
     }
     original_alias_bindings_drive_history_without_consumer_leaks(&store, &pool).await;
+    unicode_bindings_remain_verifiable_after_import(&store).await;
     pool.close().await;
 }
 
@@ -1032,6 +1033,73 @@ async fn original_alias_bindings_drive_history_without_consumer_leaks(
         .await
         .unwrap()
         .is_none());
+}
+
+async fn unicode_bindings_remain_verifiable_after_import(store: &brain_storage::PgStore) {
+    use brain_storage::entity_profile::semantic::project_semantic_fact;
+    use dbrain_sources::entity_binding::{bind_stored_document, CatalogEntity};
+
+    for (index, content) in [
+        r#"{"äther":{"Health":120}}"#,
+        r#"{"0":{"CLASS_NAME":"äTHER","Health":125}}"#,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let document =
+            extracted_game_document_from_source(&format!("unicode-{index}"), "json", content);
+        let record = prepared_game_document(&document);
+        store.apply(&record).await.unwrap();
+        let mut identity = entity(EntityKind::Hero);
+        identity.entity_key = format!("unicode-{index}");
+        identity.name = "Äther".into();
+        let catalog = [CatalogEntity {
+            identity: identity.clone(),
+            identifiers: vec!["Äther".into()],
+        }];
+        let first = bind_stored_document(
+            store,
+            &record.source_id,
+            &record.logical_id,
+            record.revision,
+            &catalog,
+        )
+        .await
+        .unwrap();
+        assert_eq!(first.bound_facts, index + 1);
+        assert_eq!(first.inserted_bindings, index + 1);
+        assert_eq!(first.inserted_projections, 1);
+        let retry = bind_stored_document(
+            store,
+            &record.source_id,
+            &record.logical_id,
+            record.revision,
+            &catalog,
+        )
+        .await
+        .unwrap();
+        assert_eq!(retry.bound_facts, first.bound_facts);
+        assert_eq!(retry.inserted_bindings, 0);
+        assert_eq!(retry.inserted_projections, 0);
+        let bindings = store
+            .stored_git_entity_bindings(&identity.entity_key, &record)
+            .await
+            .unwrap();
+        let health = bindings
+            .iter()
+            .find(|binding| binding.semantic_projection.is_some())
+            .unwrap();
+        let projected = project_semantic_fact(
+            &health.original_fact,
+            health.semantic_projection.as_ref().unwrap(),
+            &record,
+            &health.binding_identity,
+        )
+        .unwrap();
+        assert_eq!(projected.predicate, "health");
+        assert_eq!(projected.value, json!(if index == 0 { 120 } else { 125 }));
+        assert_eq!(health.binding_identity.name, "Äther");
+    }
 }
 
 async fn entity_kinds_are_consistent_across_bindings(

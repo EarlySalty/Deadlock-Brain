@@ -65,7 +65,7 @@ fn bound_relative_pointer(
         std::iter::once(&binding.identity.entity_key)
             .chain(std::iter::once(&binding.identity.name))
             .chain(&binding.identity.aliases)
-            .any(|name| name.eq_ignore_ascii_case(identifier))
+            .any(|name| name.to_lowercase() == identifier.to_lowercase())
     };
     let mut scopes = Vec::new();
     for evidence in &binding.identity.identity_evidence {
@@ -93,7 +93,7 @@ fn bound_relative_pointer(
                 identity_pointer.and_then(|pointer| pointer.rsplit_once('/'))
             {
                 if matches!(
-                    field.to_ascii_lowercase().as_str(),
+                    field.to_lowercase().as_str(),
                     "class_name" | "classname" | "key" | "external_id"
                 ) && identity_fact["value"]
                     .as_str()
