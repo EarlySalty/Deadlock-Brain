@@ -635,6 +635,8 @@ async fn normal_texts_read_live_entity_facts_counts_and_patch_history() {
         ("How many playable heroes are there?", "1 Helden"),
         ("Wie viele Lebenspunkte hat der Held Wächter?", "830"),
         ("How much health does the hero Wächter have?", "830"),
+        ("Welche Lebenspunkte hat Wächter in Version 1.2.3?", "830"),
+        ("Welche Lebenspunkte hat Wächter in Version 6.0.1?", "830"),
         ("Was macht das Item Extended Magazine?", "22"),
         ("Was änderte sich bei Wächter im Patch vom 16.09.?", "18"),
     ] {
@@ -645,7 +647,7 @@ async fn normal_texts_read_live_entity_facts_counts_and_patch_history() {
         assert!(!evidence.is_empty(), "{text}");
         assert!(
             evidence.iter().any(|item| item.content.contains(expected)),
-            "{text}"
+            "{text}: {evidence:?}"
         );
         assert!(evidence
             .iter()
@@ -736,6 +738,39 @@ async fn normal_texts_read_live_entity_facts_counts_and_patch_history() {
         page_id: 123,
         revision_id: 8,
     };
+    origin.policy.allowed_scopes = BTreeSet::from(["bot.public".into()]);
+    scoped.visibility = origin.policy.visibility;
+    scoped.allowed_scopes = origin.policy.allowed_scopes.clone();
+    origin.bind_record(&mut scoped).unwrap();
+    store.apply(&scoped).await.unwrap();
+    for (text, expected) in [
+        ("Wie viele Lebenspunkte hat Wächter?", "830"),
+        ("Wie viele Helden gibt es?", "1 Helden"),
+        ("Was änderte sich bei Wächter im Patch vom 16.09.?", "13"),
+    ] {
+        let mut readable = query(text);
+        readable.patch = None;
+        let evidence =
+            tokio::task::block_in_place(|| retriever.retrieve(&readable, &context)).unwrap();
+        assert!(
+            evidence.iter().any(|item| item.content.contains(expected)),
+            "{text}: {evidence:?}"
+        );
+    }
+    let original_fact: String = sqlx::query_scalar("SELECT fact_json FROM brain.entity_profile_facts_v1 WHERE entity_key='hero:waechter' ORDER BY fact_id LIMIT 1")
+        .fetch_one(&pool).await.unwrap();
+    sqlx::query("UPDATE brain.entity_profile_facts_v1 SET fact_json=jsonb_set(fact_json::jsonb,'{value}','99999'::jsonb)::text WHERE entity_key='hero:waechter' AND fact_json=$1")
+        .bind(&original_fact).execute(&pool).await.unwrap();
+    let mut manipulated = query("Wie viele Lebenspunkte hat Wächter?");
+    manipulated.patch = None;
+    assert!(tokio::task::block_in_place(|| retriever.retrieve(&manipulated, &context)).is_err());
+    sqlx::query("UPDATE brain.entity_profile_facts_v1 SET fact_json=$1 WHERE entity_key='hero:waechter' AND (fact_json::jsonb)->>'value'='99999'")
+        .bind(&original_fact).execute(&pool).await.unwrap();
+    scoped.revision = 9;
+    origin.source_revision = SourceRevision::Wiki {
+        page_id: 123,
+        revision_id: 9,
+    };
     origin.policy.visibility = SourceVisibility::Internal;
     origin.policy.allowed_scopes = BTreeSet::from(["source.review:fixture".into()]);
     scoped.visibility = origin.policy.visibility;
@@ -767,7 +802,7 @@ async fn normal_texts_read_live_entity_facts_counts_and_patch_history() {
     .is_err());
     let mut restricted = hero.clone();
     restricted.tombstone = true;
-    restricted.revision = 9;
+    restricted.revision = 10;
     store.apply(&restricted).await.unwrap();
     assert!(
         tokio::task::block_in_place(|| retriever.retrieve(&historical, &context))

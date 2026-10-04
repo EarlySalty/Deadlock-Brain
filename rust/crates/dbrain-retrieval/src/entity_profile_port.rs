@@ -13,6 +13,18 @@ pub(crate) fn patch_date(text: &str) -> Option<String> {
     });
     let mut dates = Vec::new();
     for capture in expression.captures_iter(text) {
+        let matched = capture.get(0)?;
+        if text[..matched.start()]
+            .chars()
+            .next_back()
+            .is_some_and(|character| character == '.' || character.is_ascii_digit())
+            || text[matched.end()..]
+                .chars()
+                .next()
+                .is_some_and(|character| character == '.' || character.is_ascii_digit())
+        {
+            return None;
+        }
         let (year, month, day) = if let Some(year) = capture.get(1) {
             (Some(year.as_str()), &capture[2], &capture[3])
         } else {
@@ -196,6 +208,7 @@ mod tests {
             "Patch 31.02.2026",
             "Patch 16.09. und 17.09.",
             "Version 0.5.1",
+            "Version 1.2.3",
             "Patch 6.0.1",
             "Zwischen 01.09. und 16.09.",
         ] {
@@ -208,6 +221,8 @@ mod tests {
         for text in [
             "Wie viele Lebenspunkte hat Abrams?",
             "Was macht das Item Mystic Burst?",
+            "Welche Lebenspunkte hat Abrams in Version 1.2.3?",
+            "Welche Lebenspunkte hat Abrams in Version 6.0.1?",
             "Was änderte sich bei Abrams im Patch vom 16.09.?",
         ] {
             let (query, context, reader) = fixture(text);

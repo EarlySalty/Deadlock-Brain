@@ -794,8 +794,14 @@ impl SnapshotReadPort for LocalPgReader {
                 let head: SourceRecordV2 =
                     serde_json::from_value(row.try_get(2).map_err(error)?)
                         .map_err(|_| invalid("Aktuelle Heldenquelle ist ungültig"))?;
-                let Some(record) =
-                    entity_source_visible(&release, record, head, context, provider, purpose)?
+                let Some(_) = entity_source_visible(
+                    &release,
+                    record.clone(),
+                    head,
+                    context,
+                    provider,
+                    purpose,
+                )?
                 else {
                     continue;
                 };
@@ -881,8 +887,8 @@ impl SnapshotReadPort for LocalPgReader {
                 .map_err(|_| invalid("Identitätsquelle ist ungültig"))?;
             let head: SourceRecordV2 = serde_json::from_value(row.try_get(4).map_err(error)?)
                 .map_err(|_| invalid("Aktuelle Identitätsquelle ist ungültig"))?;
-            let Some(record) =
-                entity_source_visible(&release, record, head, context, provider, purpose)?
+            let Some(_) =
+                entity_source_visible(&release, record.clone(), head, context, provider, purpose)?
             else {
                 continue;
             };
@@ -940,12 +946,12 @@ impl SnapshotReadPort for LocalPgReader {
             {
                 continue;
             }
-            let Some(record) =
-                entity_source_visible(&release, record, head, context, provider, purpose)?
+            let Some(effective) =
+                entity_source_visible(&release, record.clone(), head, context, provider, purpose)?
             else {
                 continue;
             };
-            authorized_entity = Some((record.visibility, record.allowed_scopes.clone()));
+            authorized_entity = Some((effective.visibility, effective.allowed_scopes.clone()));
             let facts: Vec<EntityProfileFact> = values
                 .iter()
                 .map(|encoded| {
@@ -960,6 +966,7 @@ impl SnapshotReadPort for LocalPgReader {
                     "Fakten widersprechen dem gespeicherten Originalbeleg",
                 ));
             }
+            let record = effective;
             let bindings: Vec<Option<serde_json::Value>> = row.try_get(3).map_err(error)?;
             if bindings.len() != facts.len() {
                 return Err(invalid("Bindungsidentitäten sind unvollständig"));
