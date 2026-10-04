@@ -1524,6 +1524,11 @@ mod tests {
 
     #[tokio::test]
     async fn local_operator_verifies_raw_sources_without_expanding_the_consumer() {
+        local_operator_retirement_case(true).await;
+        local_operator_retirement_case(false).await;
+    }
+
+    async fn local_operator_retirement_case(tombstone_original: bool) {
         use dbrain_sources::{game_files, knowledge_import};
         let dir = tempfile::tempdir().unwrap();
         let repo = dir.path().join("repo");
@@ -1812,6 +1817,32 @@ mod tests {
         )
         .await
         .unwrap();
+        let html = brain_maintenance::entity_profile_render::write_public_html(
+            dir.path(),
+            verified.profile(),
+        )
+        .unwrap();
+        let mut withdrawn = original.clone();
+        withdrawn.revision += 1;
+        if tombstone_original {
+            withdrawn.tombstone = true;
+        } else {
+            let mut origin = origin_from_record(&withdrawn).unwrap();
+            origin
+                .policy
+                .allowed_scopes
+                .insert("source.review:withdrawn".into());
+            withdrawn.allowed_scopes = origin.policy.allowed_scopes.clone();
+            origin.bind_record(&mut withdrawn).unwrap();
+        }
+        ingest.apply(&withdrawn).await.unwrap();
+        assert!(ingest
+            .snapshot(&originals.release.release_id)
+            .await
+            .unwrap()
+            .authorized(&principal, false)
+            .unwrap()
+            .is_empty());
         assert_eq!(
             brain_maintenance::integration::entity_profiles::retire_removed_git_profiles(
                 &ingest,
@@ -1826,6 +1857,7 @@ mod tests {
             .unwrap(),
             1
         );
+        assert!(!html.exists());
         let retired = brain_maintenance::integration::entity_profiles::publish_refreshed_sources(
             &ingest,
             &ingest_pool,
@@ -1845,6 +1877,20 @@ mod tests {
             .unwrap();
         assert!(empty.release.source_revisions[&sources[0]].is_empty());
         assert!(empty.revisions.contains(original));
+        assert_eq!(
+            brain_maintenance::integration::entity_profiles::retire_removed_git_profiles(
+                &ingest,
+                &ingest_pool,
+                &loaded_config,
+                &principal,
+                &BTreeSet::new(),
+                &allowed,
+                dir.path(),
+            )
+            .await
+            .unwrap(),
+            0
+        );
         check_transition(&base.release, &empty.release, &derived_allowed).unwrap();
         check_rights(&base, &empty, &derived_allowed, Target::EntityProfiles).unwrap();
         check_entity_profile_sources(
@@ -1911,12 +1957,16 @@ mod tests {
         )
         .await
         .is_err());
-        let restored =
+        let restored = {
+            let mut original_restored = original.clone();
+            original_restored.revision = withdrawn.revision + 1;
+            ingest.apply(&original_restored).await.unwrap();
             brain_maintenance::integration::entity_profiles::persist_verified_git_profile(
                 &ingest, &verified,
             )
             .await
-            .unwrap();
+            .unwrap()
+        };
         assert_eq!(restored.revision, document.revision + 2);
         assert!(check_entity_profile_sources(
             &runtime,

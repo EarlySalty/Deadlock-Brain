@@ -105,7 +105,7 @@ pub async fn retire_removed_git_profiles(
     store: &brain_storage::PgStore,
     pool: &sqlx::PgPool,
     config: &crate::config::MaintenanceConfig,
-    principal: &brain_contracts::Principal,
+    _principal: &brain_contracts::Principal,
     current_keys: &BTreeSet<String>,
     owned_sources: &BTreeSet<String>,
     corpus_root: &Path,
@@ -126,8 +126,13 @@ pub async fn retire_removed_git_profiles(
         {
             continue;
         }
-        let private: String = sqlx::query_scalar("SELECT receipt_json FROM brain.entity_derived_receipts_v1 WHERE derived_source_id=$1 AND derived_logical_id=$2 ORDER BY derived_revision DESC LIMIT 1")
-            .bind(&record.source_id).bind(&record.logical_id).fetch_one(pool).await?;
+        let revision = if record.tombstone {
+            record.revision - 1
+        } else {
+            record.revision
+        };
+        let private: String = sqlx::query_scalar("SELECT receipt_json FROM brain.entity_derived_receipts_v1 WHERE derived_source_id=$1 AND derived_logical_id=$2 AND derived_revision=$3")
+            .bind(&record.source_id).bind(&record.logical_id).bind(revision as i64).fetch_one(pool).await?;
         let receipt: GitDocumentReceipt = serde_json::from_str(&private)?;
         ensure!(
             receipt.entity_key == record.logical_id
@@ -146,27 +151,17 @@ pub async fn retire_removed_git_profiles(
         {
             continue;
         }
-        let snapshot = store.snapshot(&receipt.original_release_id).await?;
-        let repositories = registered_git_repositories(config, &snapshot, principal)?;
-        let verified = dbrain_sources::entity_binding::derivation::derive_git_entity_profile(
-            store,
-            &receipt.original_release_id,
-            principal,
-            &receipt.entity_key,
-            &repositories,
-        )
-        .await?;
+        let stored: serde_json::Value = sqlx::query_scalar("SELECT record_json FROM brain.source_record_revisions WHERE source_id=$1 AND logical_id=$2 AND revision=$3")
+            .bind(&record.source_id).bind(&record.logical_id).bind(revision as i64).fetch_one(pool).await?;
+        let previous: brain_contracts::SourceRecordV2 = serde_json::from_value(stored)?;
+        let mut expected = previous.clone();
+        expected.revision = record.revision;
+        expected.tombstone = record.tombstone;
         ensure!(
-            verified.receipt().fact_pins == receipt.fact_pins,
-            "Entfernte Originalbindungen widersprechen der Quittung"
+            !previous.tombstone && expected == record,
+            "entity_profile_retirement_changed"
         );
-        let mut previous = verified.profile().clone();
-        previous.patch_story = stored_patch_story(&record)?;
-        let rendered = crate::entity_profile_render::render_entity_profile(&previous)?;
-        ensure!(
-            rendered.brain_document == record.content,
-            "Entfernter Steckbrief widerspricht seinem Original"
-        );
+        let rendered = retirement_document(store, pool, config, &previous).await?;
         if retire_git_profile(store, &mut record, &rendered, &root).await? {
             retired += 1;
         }
@@ -296,10 +291,20 @@ pub async fn publish_refreshed_sources(
         .map(|head| ((&head.source_id, &head.logical_id), head))
         .collect();
     ensure!(
-        actual.len() == expected_heads.iter().filter(|head| !head.tombstone).count()
+        actual.len()
+            == expected_heads
+                .iter()
+                .filter(|head| candidate
+                    .source_revisions
+                    .get(&head.source_id)
+                    .is_some_and(|pins| pins.contains_key(&head.logical_id)))
+                .count()
             && expected_heads
                 .iter()
-                .filter(|head| !head.tombstone)
+                .filter(|head| candidate
+                    .source_revisions
+                    .get(&head.source_id)
+                    .is_some_and(|pins| pins.contains_key(&head.logical_id)))
                 .all(
                     |head| actual.get(&(&head.source_id, &head.logical_id)).copied() == Some(head)
                 ),
@@ -448,10 +453,10 @@ pub async fn verify_retired_git_documents(
     store: &brain_storage::PgStore,
     pool: &sqlx::PgPool,
     config: &crate::config::MaintenanceConfig,
-    principal: &brain_contracts::Principal,
+    _principal: &brain_contracts::Principal,
     candidate: &brain_contracts::CorpusSnapshot,
 ) -> Result<()> {
-    use brain_storage::entity_profile::derivation::{derived_policy, GitDocumentReceipt};
+    use brain_storage::entity_profile::derivation::derived_policy;
     let rows: Vec<serde_json::Value> = sqlx::query_scalar("SELECT record_json FROM brain.source_record_heads WHERE source_id='git-game-facts-derived' ORDER BY logical_id")
         .fetch_all(pool).await?;
     let heads: Vec<brain_contracts::SourceRecordV2> = rows
@@ -489,21 +494,7 @@ pub async fn verify_retired_git_documents(
             origin.policy == derived_policy(),
             "entity_profile_document_rights"
         );
-        let private: String = sqlx::query_scalar("SELECT receipt_json FROM brain.entity_derived_receipts_v1 WHERE derived_source_id=$1 AND derived_logical_id=$2 AND derived_revision=$3")
-            .bind(&previous.source_id).bind(&previous.logical_id).bind(previous.revision as i64)
-            .fetch_one(pool).await?;
-        let receipt: GitDocumentReceipt = serde_json::from_str(&private)?;
-        let original = store.snapshot(&receipt.original_release_id).await?;
-        verify_git_document(
-            store,
-            pool,
-            config,
-            principal,
-            &previous,
-            &original.release,
-            true,
-        )
-        .await?;
+        retirement_document(store, pool, config, &previous).await?;
     }
     Ok(())
 }
@@ -516,7 +507,164 @@ pub async fn verify_stored_git_document(
     record: &brain_contracts::SourceRecordV2,
     release: &brain_contracts::CorpusRelease,
 ) -> Result<()> {
-    verify_git_document(store, pool, config, principal, record, release, false).await
+    verify_git_document(store, pool, config, principal, record, release).await
+}
+
+async fn retirement_document(
+    store: &brain_storage::PgStore,
+    pool: &sqlx::PgPool,
+    config: &crate::config::MaintenanceConfig,
+    record: &brain_contracts::SourceRecordV2,
+) -> Result<crate::entity_profile_render::RenderedEntityProfile> {
+    use brain_storage::entity_profile::derivation::{
+        derived_policy, git_document_identity, GitDocumentReceipt, GIT_DOCUMENT_CONTRACT,
+    };
+    record.validate()?;
+    let stored: serde_json::Value = sqlx::query_scalar("SELECT record_json FROM brain.source_record_revisions WHERE source_id=$1 AND logical_id=$2 AND revision=$3")
+        .bind(&record.source_id).bind(&record.logical_id).bind(record.revision as i64).fetch_one(pool).await?;
+    ensure!(
+        serde_json::from_value::<brain_contracts::SourceRecordV2>(stored)? == *record,
+        "entity_profile_retirement_changed"
+    );
+    let private: String = sqlx::query_scalar("SELECT receipt_json FROM brain.entity_derived_receipts_v1 WHERE derived_source_id=$1 AND derived_logical_id=$2 AND derived_revision=$3")
+        .bind(&record.source_id).bind(&record.logical_id).bind(record.revision as i64).fetch_one(pool).await?;
+    let receipt: GitDocumentReceipt = serde_json::from_str(&private)?;
+    let origin = brain_contracts::source::origin_from_record(record).map_err(anyhow::Error::msg)?;
+    ensure!(
+        record.source_id == "git-game-facts-derived"
+            && !record.tombstone
+            && receipt.contract_version == GIT_DOCUMENT_CONTRACT
+            && receipt.entity_key == record.logical_id
+            && !receipt.fact_pins.is_empty()
+            && receipt.document_sha256 == record.content_hash
+            && origin.raw_sha256 == record.content_hash
+            && origin.policy == derived_policy()
+            && record.content_hash == crate::digest(record.content.as_bytes())
+            && record
+                .metadata
+                .get("brain.entity_projection.contract")
+                .map(String::as_str)
+                == Some(GIT_DOCUMENT_CONTRACT)
+            && record
+                .metadata
+                .get("brain.entity_projection.receipt_sha256")
+                == Some(&crate::digest(private.as_bytes())),
+        "entity_profile_retirement_receipt"
+    );
+    let snapshot = store.snapshot(&receipt.original_release_id).await?;
+    let mut origins = std::collections::BTreeMap::new();
+    for pin in &receipt.fact_pins {
+        let original = snapshot
+            .revisions
+            .iter()
+            .find(|original| {
+                original.source_id == pin.source_id
+                    && original.logical_id == pin.logical_id
+                    && original.revision == pin.store_revision
+            })
+            .ok_or_else(|| anyhow::anyhow!("Unveränderlicher Originalpin fehlt"))?;
+        ensure!(
+            !original.tombstone
+                && snapshot
+                    .heads
+                    .iter()
+                    .any(|head| head.source_id == pin.source_id
+                        && head.logical_id == pin.logical_id
+                        && head.revision >= pin.store_revision),
+            "Originalhead fehlt"
+        );
+        let (commit, url, path) = git_document_identity(original)?;
+        let original_origin =
+            brain_contracts::source::origin_from_record(original).map_err(anyhow::Error::msg)?;
+        ensure!(
+            commit == pin.git_commit
+                && url == pin.repository_url
+                && original_origin.raw_sha256 == pin.raw_sha256
+                && pin.binding_identity.entity_key == receipt.entity_key,
+            "entity_profile_retirement_original"
+        );
+        let matching: Vec<_> = config
+            .game_sources
+            .iter()
+            .filter(|source| source.origin.trim_end_matches(".git") == url.trim_end_matches(".git"))
+            .collect();
+        ensure!(
+            matching.len() == 1,
+            "Originalrepository ist nicht eindeutig registriert"
+        );
+        crate::config::require_registered_game_source(config, matching[0])?;
+        crate::config::safe_relative(&path)?;
+        ensure!(
+            matching[0]
+                .source_paths
+                .iter()
+                .any(|scope| path == *scope || path.starts_with(&format!("{scope}/"))),
+            "Originalblob liegt außerhalb des registrierten Umfangs"
+        );
+        origins.insert(
+            (pin.source_id.clone(), pin.logical_id.clone(), commit),
+            original_origin,
+        );
+    }
+    let mut compact: serde_json::Value = serde_json::from_str(&record.content)?;
+    let sources = compact["sources"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("Gespeicherte Quellen fehlen"))?
+        .clone();
+    for section in ["facts", "context"] {
+        for fact in compact[section]
+            .as_array_mut()
+            .ok_or_else(|| anyhow::anyhow!("Gespeicherte Fakten fehlen"))?
+        {
+            let source = fact["source_ref"]
+                .as_u64()
+                .and_then(|index| sources.get(index as usize))
+                .ok_or_else(|| anyhow::anyhow!("Gespeicherter Quellenverweis fehlt"))?;
+            let key = (
+                source["source_id"].as_str().unwrap_or("").to_owned(),
+                fact["logical_id"].as_str().unwrap_or("").to_owned(),
+                source["original_revision"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_owned(),
+            );
+            let mut original_origin = origins
+                .iter()
+                .find(|((_, _, commit), _)| commit == &key.2)
+                .map(|(_, origin)| origin.clone())
+                .ok_or_else(|| anyhow::anyhow!("Gespeicherter Fakt hat keinen Originalpin"))?;
+            original_origin.identity.source_id = "git-game-facts-derived".into();
+            original_origin.identity.logical_id = record.logical_id.clone();
+            original_origin.source_revision = brain_contracts::source::SourceRevision::Git {
+                commit: key.2.clone(),
+            };
+            original_origin.policy = derived_policy();
+            original_origin.locator = "git-game-facts-derived".into();
+            original_origin.origin_artifacts.clear();
+            ensure!(
+                key.0 == "git-game-facts-derived"
+                    && key.1 == record.logical_id
+                    && fact["policy"] == serde_json::to_value(&original_origin.policy)?
+                    && fact["locator"].as_str() == Some(original_origin.locator.as_str()),
+                "entity_profile_retirement_original"
+            );
+            fact["provenance"] = serde_json::json!({"source_kind":fact["source_kind"], "origin":original_origin,
+                "original_revision":key.2, "observed_at":fact["observed_at"], "source_span":fact["source_span"],
+                "license":fact["license"], "document_metadata":{}});
+        }
+    }
+    compact["patch_story"] = serde_json::to_value(stored_patch_story(record)?)?;
+    let profile: EntityProfile = serde_json::from_value(compact)?;
+    ensure!(
+        profile.entity.entity_key == record.logical_id,
+        "entity_profile_retirement_entity"
+    );
+    let rendered = crate::entity_profile_render::render_entity_profile(&profile)?;
+    ensure!(
+        rendered.brain_document == record.content,
+        "entity_profile_retirement_document"
+    );
+    Ok(rendered)
 }
 
 fn stored_patch_story(
@@ -544,7 +692,6 @@ async fn verify_git_document(
     principal: &brain_contracts::Principal,
     record: &brain_contracts::SourceRecordV2,
     release: &brain_contracts::CorpusRelease,
-    retired: bool,
 ) -> Result<()> {
     use brain_storage::entity_profile::derivation::verify_git_document_receipt;
     let private: String = sqlx::query_scalar("SELECT receipt_json FROM brain.entity_derived_receipts_v1 WHERE derived_source_id=$1 AND derived_logical_id=$2 AND derived_revision=$3")
@@ -614,40 +761,6 @@ async fn verify_git_document(
                 identity.aliases.push(alias.clone());
             }
         }
-    }
-    if retired {
-        use brain_storage::entity_profile::derivation::GIT_DOCUMENT_CONTRACT;
-        record.validate()?;
-        let origin = brain_contracts::source::origin_from_record(record)
-            .map_err(|_| anyhow::anyhow!("entity_profile_document_rights"))?;
-        ensure!(
-            record.source_id == "git-game-facts-derived"
-                && !record.tombstone
-                && receipt.contract_version == GIT_DOCUMENT_CONTRACT
-                && receipt.entity_key == record.logical_id
-                && receipt.fact_pins == verified.receipt().fact_pins
-                && receipt.document_sha256 == record.content_hash
-                && origin.raw_sha256 == record.content_hash
-                && record.content_hash == crate::digest(record.content.as_bytes())
-                && record
-                    .metadata
-                    .get("brain.entity_projection.contract")
-                    .map(String::as_str)
-                    == Some(GIT_DOCUMENT_CONTRACT)
-                && record
-                    .metadata
-                    .get("brain.entity_projection.receipt_sha256")
-                    == Some(&crate::digest(private.as_bytes())),
-            "entity_profile_retirement_receipt"
-        );
-        let mut previous = verified.profile().clone();
-        previous.patch_story = stored_patch_story(record)?;
-        ensure!(
-            crate::entity_profile_render::render_entity_profile(&previous)?.brain_document
-                == record.content,
-            "entity_profile_retirement_original"
-        );
-        return Ok(());
     }
     let story = store.entity_patch_story(&identity).await?;
     let current = store.snapshot(&receipt.original_release_id).await?;
