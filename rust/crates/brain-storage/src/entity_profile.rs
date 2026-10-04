@@ -110,8 +110,63 @@ pub fn assemble_profile(
     patch_story: Vec<PatchStoryChange>,
 ) -> EntityProfile {
     let mut grouped = BTreeMap::new();
+    let mut unknowns = Vec::new();
     for fact in &facts {
         let mut comparison_qualifiers = fact.qualifiers.clone();
+        if fact.provenance.source_kind == ProfileSourceKind::GameFile
+            && fact.predicate == "file.kv_value"
+        {
+            let pointer = (|| {
+                let path = fact
+                    .provenance
+                    .document_metadata
+                    .get("relative_path")?
+                    .as_str()?;
+                if fact.subject.strip_prefix("game_file:")? != path
+                    || fact
+                        .provenance
+                        .document_metadata
+                        .get("parse_status")?
+                        .as_str()?
+                        != "kv1_lossless_entries"
+                {
+                    return None;
+                }
+                let pointer = fact
+                    .provenance
+                    .source_span
+                    .as_deref()?
+                    .strip_prefix(path)?
+                    .strip_prefix(':')?;
+                if fact.fact_id.strip_prefix("kv:")? != pointer || !pointer.starts_with('/') {
+                    return None;
+                }
+                let key = fact
+                    .qualifiers
+                    .get("source_key")?
+                    .as_str()?
+                    .replace('~', "~0")
+                    .replace('/', "~1");
+                let occurrence = fact.qualifiers.get("occurrence")?.as_u64()?;
+                if !pointer.ends_with(&format!("/{key}/{occurrence}"))
+                    || fact
+                        .qualifiers
+                        .get("source_pointer")
+                        .is_some_and(|value| value.as_str() != Some(pointer))
+                {
+                    return None;
+                }
+                Some(pointer)
+            })();
+            let Some(pointer) = pointer else {
+                unknowns.push(format!(
+                    "KV1-Feldpfad ist nicht vollständig belegt: {}",
+                    fact_reference(fact)
+                ));
+                continue;
+            };
+            comparison_qualifiers.insert("source_pointer".into(), Value::String(pointer.into()));
+        }
         for key in ["source_lexeme", "numeric_representation"] {
             comparison_qualifiers.remove(key);
         }
@@ -168,14 +223,12 @@ pub fn assemble_profile(
         .collect();
     source_state.sort();
     source_state.dedup();
-    let unknowns = if facts
+    if facts
         .iter()
         .any(|f| matches!(f.validity, PatchValidity::Unknown { .. }))
     {
-        vec!["Patchgültigkeit ist für einen Teil der Fakten unbekannt".into()]
-    } else {
-        Vec::new()
-    };
+        unknowns.push("Patchgültigkeit ist für einen Teil der Fakten unbekannt".into());
+    }
     let (context, facts) = facts
         .into_iter()
         .partition(|f| f.evidence_status == "source_statement" && f.value.is_string());

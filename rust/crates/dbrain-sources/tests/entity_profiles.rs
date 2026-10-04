@@ -38,14 +38,22 @@ fn extracted_fact(
     extension: &str,
     number: &str,
 ) -> brain_contracts::entity_profile::EntityProfileFact {
-    use dbrain_sources::game_files::{extract_game_files, GameFileOptions};
-
-    let root = tempfile::tempdir().unwrap();
     let content = if extension == "json" {
         format!("{{\"health\":{number}}}")
     } else {
         format!("{{ health = {number} }}")
     };
+    let document = extracted_game_document(extension, &content);
+    let fact_id = document["facts"][0]["fact_id"].as_str().unwrap().to_owned();
+    project_entity_facts(&prepared_game_document(&document), &[fact_id])
+        .unwrap()
+        .remove(0)
+}
+
+fn extracted_game_document(extension: &str, content: &str) -> Value {
+    use dbrain_sources::game_files::{extract_game_files, GameFileOptions};
+
+    let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join(format!("health.{extension}")), content).unwrap();
     let options = GameFileOptions {
         root: root.path().into(),
@@ -64,18 +72,115 @@ fn extracted_fact(
         max_file_bytes: 1024 * 1024,
     };
     let mut output = Vec::new();
-    let inventory = extract_game_files(&options, &mut output).unwrap();
-    assert_eq!(inventory.facts, 1);
-    let document: Value = serde_json::from_slice(&output).unwrap();
-    let fact_id = document["facts"][0]["fact_id"].as_str().unwrap().to_owned();
-    let input = validate_knowledge_jsonl_str(std::str::from_utf8(&output).unwrap()).unwrap();
+    extract_game_files(&options, &mut output).unwrap();
+    serde_json::from_slice(&output).unwrap()
+}
+
+fn prepared_game_document(document: &Value) -> brain_contracts::SourceRecordV2 {
+    let input = validate_knowledge_jsonl_str(&document.to_string()).unwrap();
     let policy: ImportPolicy = serde_json::from_value(json!({"sources":{"fixture":{
         "internal_read_allowed":true,"raw_retention_allowed":true,"publication_allowed":false,"provider_egress_allowed":false,"authorization_ref":"fixture-grant","provenance_evidence_ref":"fixture-origin","allowed_scopes":[]
     }}})).unwrap();
     let prepared = prepare_validated_knowledge(&input, &policy, "fixture-v1").unwrap();
-    project_entity_facts(&prepared.records()[0].record, &[fact_id])
-        .unwrap()
-        .remove(0)
+    prepared.records()[0].record.clone()
+}
+
+fn kv1_documents(legacy: bool) -> Vec<Value> {
+    [
+        "a { damage 10 damage 11 } a { damage 20 } b { damage 30 } \"a/b~\" { damage 40 }",
+        "a { damage 12 damage 11 } a { damage 20 } b { damage 30 } \"a/b~\" { damage 40 }",
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, content)| {
+        let mut document = extracted_game_document("kv1", content);
+        document["revision"] = json!(format!("kv1-revision-{index}-{legacy}"));
+        if legacy {
+            for fact in document["facts"].as_array_mut().unwrap() {
+                fact["qualifiers"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("source_pointer");
+            }
+        }
+        document
+    })
+    .collect()
+}
+
+#[test]
+fn kv1_profiles_compare_full_original_scope_including_frozen_documents() {
+    for legacy in [false, true] {
+        let mut combined = Vec::new();
+        for document in kv1_documents(legacy) {
+            let record = prepared_game_document(&document);
+            let ids: Vec<String> = document["facts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|fact| fact["fact_id"].as_str().unwrap().into())
+                .collect();
+            let facts = project_entity_facts(&record, &ids).unwrap();
+            assert_eq!(facts.len(), 5);
+            for (fact, original) in facts.iter().zip(document["facts"].as_array().unwrap()) {
+                assert_eq!(fact.subject, "game_file:health.kv1");
+                assert_eq!(fact.value, original["value"]);
+                assert_eq!(
+                    serde_json::to_value(&fact.qualifiers).unwrap(),
+                    original["qualifiers"]
+                );
+                assert_eq!(
+                    fact.provenance.source_span.as_deref(),
+                    original["source_span"].as_str()
+                );
+            }
+            let profile = assemble_profile(entity(EntityKind::Hero), None, facts.clone(), vec![]);
+            assert!(profile.conflicts.is_empty());
+            assert_eq!(profile.facts, facts);
+            combined.extend(facts);
+        }
+        let profile = assemble_profile(entity(EntityKind::Hero), None, combined.clone(), vec![]);
+        assert_eq!(profile.conflicts.len(), 1);
+        assert_eq!(profile.conflicts[0].fact_ids.len(), 2);
+        assert!(profile.conflicts[0]
+            .fact_ids
+            .iter()
+            .all(|id| id.ends_with("kv:/a/0/damage/0")));
+        assert_eq!(profile.facts, combined);
+    }
+}
+
+#[test]
+fn kv1_missing_original_scope_is_visible_and_caller_pointer_cannot_replace_it() {
+    for span in [
+        Value::Null,
+        json!("health.kv1:damage"),
+        json!("other.kv1:/a/0/damage/0"),
+    ] {
+        let documents = kv1_documents(true);
+        let mut facts = Vec::new();
+        for mut document in documents {
+            document["facts"][0]["source_span"] = span.clone();
+            let record = prepared_game_document(&document);
+            facts.extend(project_entity_facts(&record, &["kv:/a/0/damage/0".into()]).unwrap());
+        }
+        for caller_pointer in [None, Some("/a/0/damage/0")] {
+            let mut unbound = facts.clone();
+            if let Some(pointer) = caller_pointer {
+                for fact in &mut unbound {
+                    fact.qualifiers
+                        .insert("source_pointer".into(), json!(pointer));
+                }
+            }
+            let profile = assemble_profile(entity(EntityKind::Hero), None, unbound.clone(), vec![]);
+            assert!(profile.conflicts.is_empty());
+            assert!(profile
+                .unknowns
+                .iter()
+                .any(|gap| gap.contains("KV1-Feldpfad")));
+            assert_eq!(profile.facts, unbound);
+        }
+    }
 }
 
 #[test]
