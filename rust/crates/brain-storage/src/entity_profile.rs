@@ -215,17 +215,28 @@ pub fn assemble_profile(
                         .and_then(Value::as_str)
                         == Some("source_numeric_lexeme")
             });
-            let preferred = group.iter().find(|f| {
-                f.provenance.source_kind
-                    == if numeric {
-                        ProfileSourceKind::GameFile
-                    } else {
-                        ProfileSourceKind::Wiki
-                    }
-            });
+            let mut preferred: Vec<_> = group
+                .iter()
+                .filter(|f| {
+                    f.provenance.source_kind
+                        == if numeric {
+                            ProfileSourceKind::GameFile
+                        } else {
+                            ProfileSourceKind::Wiki
+                        }
+                })
+                .collect();
+            preferred.sort_by_key(|fact| fact_reference(fact));
+            let consistent = preferred
+                .first()
+                .is_some_and(|first| preferred.iter().all(|fact| fact.value == first.value));
             conflicts.push(ProfileConflict {
                 predicate,
-                preferred_fact_id: preferred.map(|f| fact_reference(f)),
+                preferred_fact_id: if consistent {
+                    preferred.first().map(|fact| fact_reference(fact))
+                } else {
+                    None
+                },
                 fact_ids: group.iter().map(|f| fact_reference(f)).collect(),
                 reason: if numeric {
                     "Git-Spieldaten haben Vorrang bei Zahlen; abweichende Belege bleiben erhalten"

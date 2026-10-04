@@ -1046,6 +1046,10 @@ struct ReceiptFixture {
 }
 
 fn receipt_fixture() -> ReceiptFixture {
+    receipt_fixture_with_qualifier(None)
+}
+
+fn receipt_fixture_with_qualifier(qualifier: Option<(&str, &str)>) -> ReceiptFixture {
     use brain_storage::entity_profile::derivation::{GitBlobEvidence, StoredGitBinding};
     let mut directories = Vec::new();
     let mut records = Vec::new();
@@ -1115,7 +1119,10 @@ fn receipt_fixture() -> ReceiptFixture {
         };
         let mut extracted = Vec::new();
         dbrain_sources::game_files::extract_game_files(&options, &mut extracted).unwrap();
-        let doc: Value = serde_json::from_slice(&extracted).unwrap();
+        let mut doc: Value = serde_json::from_slice(&extracted).unwrap();
+        if let Some((key, text)) = qualifier {
+            doc["facts"][0]["qualifiers"][key] = json!(text);
+        }
         let record = prepared(&doc);
         let fact = project_entity_facts(&record, &["json:/hero_test/MaxHealth".into()])
             .unwrap()
@@ -1223,6 +1230,87 @@ fn derived_document(
 }
 
 #[test]
+fn derived_alias_qualifiers_withhold_whole_numbers_and_keep_private_pins() {
+    use brain_storage::entity_profile::{
+        compact::compact_document, derivation::derive_git_profile,
+    };
+    for key in ["variant", "condition", "ability_name"] {
+        for text in ["Interner Bindungsalias", "interner bindungsalias", "Test"] {
+            let mut fixture = receipt_fixture_with_qualifier(Some((key, text)));
+            fixture.bindings[1]
+                .binding_identity
+                .aliases
+                .extend(["Interner Bindungsalias".into(), "Test".into()]);
+            let original_bindings = fixture.bindings.clone();
+            let (profile, receipt) = derive_git_profile(
+                "hero_test",
+                &fixture.snapshot,
+                &fixture.operator,
+                &fixture.bindings,
+                &fixture.blobs,
+                &[],
+            )
+            .unwrap();
+            assert_eq!(receipt.fact_pins.len(), 2);
+            for (pin, binding) in receipt.fact_pins.iter().zip(original_bindings.iter().rev()) {
+                assert_eq!(pin.binding_identity, binding.binding_identity);
+                assert_eq!(
+                    pin.semantic_projection,
+                    binding.semantic_projection.clone().unwrap()
+                );
+                assert_eq!(binding.original_fact.qualifiers[key], text);
+            }
+            assert!(profile.entity.aliases.is_empty());
+            let document = compact_document(&profile).unwrap();
+            assert!(!document.contains("Interner Bindungsalias"));
+            assert!(!document.contains("interner bindungsalias"));
+            if text == "Test" {
+                assert_eq!(profile.facts.len(), 2);
+                assert!(profile
+                    .facts
+                    .iter()
+                    .all(|fact| fact.qualifiers[key] == text));
+            } else {
+                assert!(profile.facts.is_empty());
+                assert!(profile.conflicts.is_empty());
+                assert!(profile
+                    .unknowns
+                    .iter()
+                    .any(|gap| gap.contains("öffentliche Beschreibung")));
+                assert!(!document.contains("120"));
+                assert!(!document.contains("125"));
+            }
+            fixture.bindings.reverse();
+            let reordered = derive_git_profile(
+                "hero_test",
+                &fixture.snapshot,
+                &fixture.operator,
+                &fixture.bindings,
+                &fixture.blobs,
+                &[],
+            )
+            .unwrap();
+            assert_eq!(reordered, (profile, receipt));
+        }
+    }
+    let fixture = receipt_fixture_with_qualifier(Some(("condition", "health < 50.0%")));
+    let (profile, _) = derive_git_profile(
+        "hero_test",
+        &fixture.snapshot,
+        &fixture.operator,
+        &fixture.bindings,
+        &fixture.blobs,
+        &[],
+    )
+    .unwrap();
+    assert_eq!(profile.facts.len(), 2);
+    assert!(profile
+        .facts
+        .iter()
+        .all(|fact| fact.qualifiers["condition"] == "health < 50.0%"));
+}
+
+#[test]
 fn document_receipt_reconstructs_both_git_sources_story_and_exact_output() {
     use brain_storage::entity_profile::derivation::{
         derive_git_profile, verify_git_document_receipt,
@@ -1249,6 +1337,8 @@ fn document_receipt_reconstructs_both_git_sources_story_and_exact_output() {
     )
     .unwrap();
     assert_eq!(profile.facts.len(), 2);
+    assert_eq!(profile.conflicts.len(), 1);
+    assert!(profile.conflicts[0].preferred_fact_id.is_none());
     assert_eq!(receipt.fact_pins.len(), 2);
     assert_eq!(profile.patch_story.len(), 1);
     let record = derived_document(&profile, &receipt);

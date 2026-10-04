@@ -103,6 +103,25 @@ pub fn public_statement_qualifiers(qualifiers: &serde_json::Map<String, Value>) 
             })
 }
 
+fn consumer_statement_qualifiers(
+    entity: &EntityIdentity,
+    qualifiers: &serde_json::Map<String, Value>,
+) -> bool {
+    public_statement_qualifiers(qualifiers)
+        && ["variant", "condition", "ability_name"].iter().all(|key| {
+            qualifiers
+                .get(*key)
+                .and_then(Value::as_str)
+                .is_none_or(|text| {
+                    text.eq_ignore_ascii_case(&entity.name)
+                        || !entity
+                            .aliases
+                            .iter()
+                            .any(|alias| alias.eq_ignore_ascii_case(text))
+                })
+        })
+}
+
 pub(crate) fn consumer_patch_statement(
     change: &brain_contracts::entity_profile::PatchStoryChange,
 ) -> Result<brain_contracts::entity_profile::PatchStoryChange> {
@@ -386,6 +405,17 @@ pub fn derive_git_profile(
         facts.push(fact);
     }
     let mut entity = entity.ok_or_else(|| invalid("Freigegebene belegte Git-Zahlen fehlen"))?;
+    facts.retain(|fact| {
+        if consumer_statement_qualifiers(&entity, &fact.qualifiers) {
+            true
+        } else {
+            unknowns.insert(format!(
+                "Für {} fehlt eine belegte öffentliche Beschreibung der zusätzlichen Bedingungen",
+                fact.predicate
+            ));
+            false
+        }
+    });
     let story = consumer_patch_story(&entity, live_story)?;
     entity.aliases.clear();
     entity.identity_evidence = vec![GIT_GAME_FACT_AUTHORIZATION.into()];
@@ -484,28 +514,25 @@ pub fn consumer_patch_story(
             return Err(invalid("Patch-Story besitzt keinen tatsächlichen DB-Beleg"));
         }
         let mut clean = change.clone();
-        for key in ["variant", "condition", "ability_name"] {
-            if clean
+        if clean
+            .additional_fields
+            .get("ability_name")
+            .and_then(Value::as_str)
+            .is_some_and(|text| {
+                entity
+                    .aliases
+                    .iter()
+                    .any(|alias| alias.eq_ignore_ascii_case(text))
+            })
+        {
+            clean
                 .additional_fields
-                .get(key)
-                .and_then(Value::as_str)
-                .is_some_and(|text| {
-                    entity
-                        .aliases
-                        .iter()
-                        .any(|alias| alias.eq_ignore_ascii_case(text))
-                })
-            {
-                if key == "ability_name" {
-                    clean
-                        .additional_fields
-                        .insert(key.into(), Value::String(entity.name.clone()));
-                } else {
-                    clean
-                        .additional_fields
-                        .insert("semantic_scope".into(), Value::Bool(true));
-                }
-            }
+                .insert("ability_name".into(), Value::String(entity.name.clone()));
+        }
+        if !consumer_statement_qualifiers(entity, &clean.additional_fields) {
+            clean
+                .additional_fields
+                .insert("semantic_scope".into(), Value::Bool(true));
         }
         let mut clean = consumer_patch_statement(&clean)?;
         clean.provenance.evidence_ref = format!(
