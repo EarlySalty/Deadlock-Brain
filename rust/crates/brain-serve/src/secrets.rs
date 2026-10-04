@@ -13,6 +13,7 @@ pub struct Secrets {
     pub(crate) postgres_password: Option<String>,
     pub(crate) credentials: CredentialRegistry,
     pub(crate) internal_credentials: CredentialRegistry,
+    pub(crate) discord_live_token: Option<String>,
 }
 
 impl std::fmt::Debug for Secrets {
@@ -89,6 +90,16 @@ impl Secrets {
     /// Injectable lookup uses the same validation for runtime snapshots and synthetic tests.
     pub fn load(config: &Config, lookup: impl Fn(&str) -> Option<String>) -> Result<Self, Error> {
         config.validate()?;
+        let discord_live_token = lookup("TWITCH_INTERNAL_API_TOKEN")
+            .map(|value| {
+                required(
+                    &|_| Some(value.clone()),
+                    "TWITCH_INTERNAL_API_TOKEN",
+                    "discord_live",
+                    true,
+                )
+            })
+            .transpose()?;
         let provider_key = required(&lookup, &config.provider.api_key_env, "provider", true)?;
         let postgres_password = match config.postgres.auth {
             DatabaseAuth::Peer => None,
@@ -134,6 +145,7 @@ impl Secrets {
             postgres_password,
             credentials: CredentialRegistry::new(grants),
             internal_credentials: CredentialRegistry::new(internal_grants),
+            discord_live_token,
         })
     }
 }
@@ -174,6 +186,29 @@ mod tests {
                 .is_err());
             }
         }
+    }
+
+    #[test]
+    fn vorhandene_interne_referenz_wird_validiert_und_nicht_ausgegeben() {
+        let config = Config::parse(CONFIG).unwrap();
+        let secrets = Secrets::load(&config, |name| {
+            if name == "TWITCH_INTERNAL_API_TOKEN" {
+                Some("synthetische-interne-referenz".into())
+            } else {
+                fixture(name)
+            }
+        })
+        .unwrap();
+        assert!(secrets.discord_live_token.is_some());
+        assert!(!format!("{secrets:?}").contains("synthetische-interne-referenz"));
+        assert!(Secrets::load(&config, |name| {
+            if name == "TWITCH_INTERNAL_API_TOKEN" {
+                Some("ungueltig\n".into())
+            } else {
+                fixture(name)
+            }
+        })
+        .is_err());
     }
 
     #[test]

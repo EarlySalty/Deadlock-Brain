@@ -311,6 +311,46 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
 mod tests {
     use super::*;
 
+    #[test]
+    #[ignore = "Liest ausschließlich öffentliche Live-Fakten über den bestehenden Infisicalzugang."]
+    fn oeffentliche_live_fakten_ueber_bestehenden_resolver() {
+        let config = crate::Config::load(std::path::Path::new(
+            "/home/nathanael/.config/deadlock-brain/brain-serve.json",
+        ))
+        .expect("Bestehende Brainkonfiguration muss gültig sein.");
+        let secrets = crate::Secrets::load_until(
+            &config,
+            std::path::Path::new("/etc/deadlock-brain/infisical.json"),
+            std::time::Instant::now() + Duration::from_secs(30),
+        )
+        .expect("Bestehender Infisicalresolver muss verfügbar sein.");
+        let live = DiscordLive::new(
+            secrets
+                .discord_live_token
+                .expect("Bestehende interne Tokenreferenz muss verfügbar sein."),
+        )
+        .unwrap();
+        let context = AuthorizedContext {
+            principal: brain_contracts::Principal {
+                actor_id: "interne-live-pruefung".into(),
+                channel: "test".into(),
+                scopes: BTreeSet::from(["bot.public".into()]),
+                provider_egress: BTreeSet::new(),
+            },
+            conversation_id: "interne-live-pruefung".into(),
+            knowledge_release: "live-pruefung".into(),
+            deadline_ms: 15000,
+            budget: brain_contracts::Budget::default(),
+            request_deadline: Some(brain_contracts::RequestDeadline::after(
+                Duration::from_secs(15),
+            )),
+        };
+        let facts = live
+            .read(&context)
+            .expect("Öffentliche MCP-Fakten müssen lesbar sein.");
+        println!("{}", facts.content);
+    }
+
     struct Stored;
     impl RetrievalPort for Stored {
         fn retrieve(&self, _: &Query, _: &AuthorizedContext) -> Result<Vec<Evidence>, PortError> {
