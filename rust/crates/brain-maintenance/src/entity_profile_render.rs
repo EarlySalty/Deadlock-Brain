@@ -725,6 +725,48 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Externe Datenprobe: benötigt bereinigte Profile aus der getrennt ausgeführten eingefrorenen Git-/DB-Probe"]
+    fn actual_frozen_profiles_keep_numbers_in_compact_document_and_html() {
+        let profiles: Vec<EntityProfile> =
+            serde_json::from_slice(&fs::read("/tmp/brain-a3-f1-real-profiles.json").unwrap())
+                .unwrap();
+        for (entity_key, predicate, expected) in [
+            ("hero_inferno", "max_health", serde_json::json!("830.0")),
+            (
+                "upgrade_clip_size",
+                "bonus_clip_size_percent",
+                serde_json::json!(30),
+            ),
+        ] {
+            let profile = profiles
+                .iter()
+                .find(|profile| profile.entity.entity_key == entity_key)
+                .unwrap();
+            let fact = profile
+                .facts
+                .iter()
+                .find(|fact| fact.predicate == predicate)
+                .unwrap();
+            assert_eq!(fact.value, expected);
+            let rendered = render_entity_profile(profile).unwrap();
+            assert_eq!(
+                rendered.brain_document,
+                brain_storage::entity_profile::compact::compact_document(profile).unwrap()
+            );
+            assert!(rendered.public_html.contains(predicate));
+            assert!(rendered
+                .public_html
+                .contains(&format!("<code>{}</code>", escape(&fact.value.to_string()))));
+            assert!(!rendered.public_html.contains("semantic_scope"));
+            assert!(!rendered.public_html.contains("source_pointer"));
+            println!(
+                "Bereinigtes Dokument und HTML: {} {}={}; ausdrücklich eingefrorener Originalwert",
+                profile.entity.name, predicate, fact.value
+            );
+        }
+    }
+
+    #[test]
     fn uninterpreted_leaves_and_unmarked_numeric_strings_remain_internal() {
         let mut profile = fixture(EntityKind::Hero);
         profile.facts[0]

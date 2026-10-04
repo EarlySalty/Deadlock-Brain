@@ -160,6 +160,8 @@ pub fn derive_git_profile(
     let mut facts = Vec::new();
     let mut pins = Vec::new();
     let mut unknowns = BTreeSet::new();
+    let mut originals_by_record = BTreeMap::new();
+    let mut verified_git = BTreeMap::new();
     for binding in rows {
         let key = (
             &binding.source_id,
@@ -180,10 +182,28 @@ pub fn derive_git_profile(
             .iter()
             .find(|record| (&record.source_id, &record.logical_id, record.revision) == key)
             .ok_or_else(|| invalid("Unveränderlicher Originalpin fehlt"))?;
-        let original =
-            project_entity_facts(record, std::slice::from_ref(&binding.original_fact.fact_id))?
-                .remove(0);
-        if original != binding.original_fact
+        if let std::collections::btree_map::Entry::Vacant(entry) = originals_by_record.entry(key) {
+            let ids: Vec<_> = bindings
+                .iter()
+                .filter(|candidate| {
+                    (
+                        &candidate.source_id,
+                        &candidate.logical_id,
+                        candidate.store_revision,
+                    ) == key
+                })
+                .map(|candidate| candidate.original_fact.fact_id.clone())
+                .collect();
+            let originals: BTreeMap<_, _> = project_entity_facts(record, &ids)?
+                .into_iter()
+                .map(|fact| (fact.fact_id.clone(), fact))
+                .collect();
+            entry.insert(originals);
+        }
+        let original = originals_by_record[&key]
+            .get(&binding.original_fact.fact_id)
+            .ok_or_else(|| invalid("Gespeicherter Originalfakt fehlt"))?;
+        if *original != binding.original_fact
             || original.provenance.source_kind != ProfileSourceKind::GameFile
         {
             return Err(invalid(
@@ -204,21 +224,30 @@ pub fn derive_git_profile(
                 "Gespeicherte Git-Bindungsidentität widerspricht der Entität",
             ));
         }
-        let (commit, repository, _) = git_document_identity(record)?;
-        let blob = blob_map
-            .get(&key)
-            .ok_or_else(|| invalid("Tatsächlicher Gitblobbeleg fehlt"))?;
-        let document: Value =
-            serde_json::from_str(&record.metadata[crate::source_versions::DOCUMENT_METADATA_KEY])?;
-        if blob.git_commit != commit
-            || blob.repository_url != repository
-            || blob.bytes != record.content.as_bytes()
-            || sha256(&blob.bytes) != record.content_hash
-            || document["metadata"]["original_sha256"] != record.content_hash
-            || original.provenance.origin.raw_sha256 != record.content_hash
-        {
+        if let std::collections::btree_map::Entry::Vacant(entry) = verified_git.entry(key) {
+            let (commit, repository, _) = git_document_identity(record)?;
+            let blob = blob_map
+                .get(&key)
+                .ok_or_else(|| invalid("Tatsächlicher Gitblobbeleg fehlt"))?;
+            let document: Value = serde_json::from_str(
+                &record.metadata[crate::source_versions::DOCUMENT_METADATA_KEY],
+            )?;
+            if blob.git_commit != commit
+                || blob.repository_url != repository
+                || blob.bytes != record.content.as_bytes()
+                || sha256(&blob.bytes) != record.content_hash
+                || document["metadata"]["original_sha256"] != record.content_hash
+            {
+                return Err(invalid(
+                    "Gitcommit, Upstream oder Originalblob widerspricht dem Beleg",
+                ));
+            }
+            entry.insert((commit, repository));
+        }
+        let (commit, repository) = &verified_git[&key];
+        if original.provenance.origin.raw_sha256 != record.content_hash {
             return Err(invalid(
-                "Gitcommit, Upstream oder Originalblob widerspricht dem Beleg",
+                "Originalherkunft widerspricht dem tatsächlichen Gitblob",
             ));
         }
         let combined = entity.get_or_insert_with(|| identity.clone());
@@ -230,7 +259,7 @@ pub fn derive_git_profile(
         let Some(semantic) = &binding.semantic_projection else {
             continue;
         };
-        let mut fact = project_semantic_fact(&original, semantic)?;
+        let mut fact = project_semantic_fact(original, semantic)?;
         pins.push(FactPin {
             source_id: record.source_id.clone(),
             logical_id: record.logical_id.clone(),
@@ -238,7 +267,7 @@ pub fn derive_git_profile(
             fact_id: original.fact_id.clone(),
             raw_sha256: record.content_hash.clone(),
             git_commit: commit.clone(),
-            repository_url: repository,
+            repository_url: repository.clone(),
             binding_identity: identity.clone(),
             semantic_projection: semantic.clone(),
         });
@@ -286,7 +315,7 @@ pub fn derive_git_profile(
         fact.provenance.document_metadata.clear();
         fact.provenance.license =
             serde_json::json!({"authorization_ref":GIT_GAME_FACT_AUTHORIZATION});
-        fact.provenance.original_revision = commit;
+        fact.provenance.original_revision = commit.clone();
         facts.push(fact);
     }
     let mut entity = entity.ok_or_else(|| invalid("Freigegebene belegte Git-Zahlen fehlen"))?;
@@ -422,11 +451,12 @@ fn sanitize_story(
                 _ => false,
             }
         });
-        result.push(clean);
+        result.push((
+            clean.patch_date.clone(),
+            serde_json::to_string(&clean)?,
+            clean,
+        ));
     }
-    result.sort_by(|a, b| {
-        (&a.patch_date, &a.provenance.evidence_ref)
-            .cmp(&(&b.patch_date, &b.provenance.evidence_ref))
-    });
-    Ok(result)
+    result.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
+    Ok(result.into_iter().map(|(_, _, change)| change).collect())
 }

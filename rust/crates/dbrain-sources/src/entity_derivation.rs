@@ -80,7 +80,7 @@ pub async fn derive_git_entity_profile(
                 "Repositoryzuordnung widerspricht dem vollständigen Originalcommit",
             ));
         }
-        pinned.require_origin(&[repository.as_str()])?;
+        pinned.require_origin(&[repository.as_str(), &format!("{repository}.git")])?;
         if seen.insert((
             record.source_id.clone(),
             record.logical_id.clone(),

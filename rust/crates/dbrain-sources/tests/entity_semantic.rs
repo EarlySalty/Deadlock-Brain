@@ -179,7 +179,7 @@ async fn actual_git_documents_bind_all_kinds_idempotently_to_immutable_originals
         .unwrap();
     let store = brain_storage::PgStore::new(pool.clone());
     store.migrate_core().await.unwrap();
-    for migration in [include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-profiles-v1.sql"),include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-profile-binding-identity-v1.sql"),include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-semantic-projection-v1.sql")] {
+    for migration in [include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-profiles-v1.sql"),include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-profile-binding-identity-v1.sql"),include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-semantic-projection-v1.sql"),include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-derived-receipts-v1.sql")] {
         sqlx::raw_sql(migration).execute(&pool).await.unwrap();
     }
     let catalog: Vec<_> = [
@@ -317,6 +317,7 @@ async fn actual_git_documents_bind_all_kinds_idempotently_to_immutable_originals
     let mut count = 0;
     let mut bound = 0;
     let mut numeric = 0;
+    let mut actual_records = Vec::new();
     for line in std::io::BufReader::new(file).lines() {
         let document: Value = serde_json::from_str(&line.unwrap()).unwrap();
         if !matches!(
@@ -379,8 +380,135 @@ async fn actual_git_documents_bind_all_kinds_idempotently_to_immutable_originals
         bound += first.bound_facts;
         numeric += first.inserted_projections;
         count += 1;
+        actual_records.push(record);
     }
     assert_eq!(count, 3);
+    let actual_release = brain_contracts::CorpusRelease {
+        release_id: "actual-frozen-git-release".into(),
+        knowledge_version: "fixture-v1".into(),
+        patch: "unknown".into(),
+        created_at_epoch: 1,
+        source_revisions: std::collections::BTreeMap::from([(
+            actual_records[0].source_id.clone(),
+            actual_records
+                .iter()
+                .map(|record| (record.logical_id.clone(), record.revision))
+                .collect(),
+        )]),
+    };
+    store.publish_release(&actual_release).await.unwrap();
+    let actual_operator = brain_contracts::Principal {
+        actor_id: "fixture".into(),
+        channel: "test".into(),
+        scopes: actual_records
+            .iter()
+            .flat_map(|record| record.allowed_scopes.iter().cloned())
+            .collect(),
+        provider_egress: Default::default(),
+    };
+    let actual_commit = "0d46cdecfccf77adec16aac01af6d30173e0ebb8";
+    let actual_repository = dbrain_sources::git_source::PinnedRepository::open(
+        std::path::Path::new("/home/nathanael/repos/Deadlock-Brain/data/external/deadlock-data"),
+        actual_commit,
+    )
+    .unwrap();
+    let actual_repositories = std::collections::BTreeMap::from([(
+        (actual_records[0].source_id.clone(), actual_commit.into()),
+        actual_repository,
+    )]);
+    let mut actual_profiles = Vec::new();
+    for entry in &catalog {
+        let derived = dbrain_sources::entity_binding::derivation::derive_git_entity_profile(
+            &store,
+            &actual_release.release_id,
+            &actual_operator,
+            &entry.identity.entity_key,
+            &actual_repositories,
+        )
+        .await
+        .unwrap();
+        let compact =
+            brain_storage::entity_profile::compact::compact_document(derived.profile()).unwrap();
+        assert!(!compact.contains("semantic_scope"));
+        assert!(!compact.contains("source_pointer"));
+        for predicate in ["max_health", "bonus_clip_size_percent"] {
+            if let Some(fact) = derived
+                .profile()
+                .facts
+                .iter()
+                .find(|fact| fact.predicate == predicate)
+            {
+                println!(
+                    "Bereinigter eingefrorener Originalwert: {} {}={}; erhaltene Zahlen: {}",
+                    derived.profile().entity.name,
+                    predicate,
+                    fact.value,
+                    derived.profile().facts.len()
+                );
+            }
+        }
+        let document = derived_document(derived.profile(), derived.receipt());
+        store.apply(&document).await.unwrap();
+        sqlx::query("INSERT INTO brain.entity_derived_receipts_v1(derived_source_id,derived_logical_id,derived_revision,receipt_json) VALUES($1,$2,$3,$4)")
+            .bind(&document.source_id).bind(&document.logical_id).bind(document.revision as i64).bind(serde_json::to_string(derived.receipt()).unwrap()).execute(&pool).await.unwrap();
+        let encoded: String = sqlx::query_scalar("SELECT receipt_json FROM brain.entity_derived_receipts_v1 WHERE derived_source_id=$1 AND derived_logical_id=$2 AND derived_revision=$3")
+            .bind(&document.source_id).bind(&document.logical_id).bind(document.revision as i64).fetch_one(&pool).await.unwrap();
+        let stored_receipt: brain_storage::entity_profile::derivation::GitDocumentReceipt =
+            serde_json::from_str(&encoded).unwrap();
+        assert_eq!(&stored_receipt, derived.receipt());
+        let snapshot = store.snapshot(&actual_release.release_id).await.unwrap();
+        let mut actual_blobs = Vec::new();
+        let mut actual_seen = std::collections::BTreeSet::new();
+        for binding in derived.original_pins() {
+            if !actual_seen.insert((
+                binding.source_id.clone(),
+                binding.logical_id.clone(),
+                binding.store_revision,
+            )) {
+                continue;
+            }
+            let record = snapshot
+                .revisions
+                .iter()
+                .find(|record| {
+                    record.source_id == binding.source_id
+                        && record.logical_id == binding.logical_id
+                        && record.revision == binding.store_revision
+                })
+                .unwrap();
+            let (commit, repository, path) =
+                brain_storage::entity_profile::derivation::git_document_identity(record).unwrap();
+            let pinned = &actual_repositories[&(record.source_id.clone(), commit.clone())];
+            pinned
+                .require_origin(&[repository.as_str(), &format!("{repository}.git")])
+                .unwrap();
+            actual_blobs.push(brain_storage::entity_profile::derivation::GitBlobEvidence {
+                source_id: record.source_id.clone(),
+                logical_id: record.logical_id.clone(),
+                store_revision: record.revision,
+                git_commit: commit,
+                repository_url: repository,
+                bytes: pinned.read_blob(&path).unwrap(),
+            });
+        }
+        let story = store.entity_patch_story(&entry.identity).await.unwrap();
+        brain_storage::entity_profile::derivation::verify_git_document_receipt(
+            &document,
+            &stored_receipt,
+            &snapshot,
+            &actual_operator,
+            derived.original_pins(),
+            &actual_blobs,
+            &story,
+        )
+        .unwrap();
+        actual_profiles.push(derived.profile().clone());
+    }
+    std::fs::write(
+        "/tmp/brain-a3-f1-real-profiles.json",
+        serde_json::to_vec(&actual_profiles).unwrap(),
+    )
+    .unwrap();
     let repository = pg.directory.path().join("repository");
     std::fs::create_dir(&repository).unwrap();
     std::fs::write(
@@ -797,7 +925,7 @@ fn derived_document(
     };
     let mut record = brain_contracts::SourceRecordV2 {
         source_id: "git-game-facts-derived".into(),
-        logical_id: "hero_test".into(),
+        logical_id: profile.entity.entity_key.clone(),
         revision: 1,
         content_hash: receipt.document_sha256.clone(),
         content: compact_document(profile).unwrap(),
@@ -879,6 +1007,37 @@ fn document_receipt_reconstructs_both_git_sources_story_and_exact_output() {
         profile
     );
     let mut changed_story = story.clone();
+    let mut variant_story = story[0].clone();
+    variant_story.new_value = json!(150);
+    variant_story
+        .additional_fields
+        .insert("variant".into(), json!("verstärkt"));
+    let mut multiple_story = vec![story[0].clone(), variant_story];
+    let (multiple_profile, multiple_receipt) = derive_git_profile(
+        "hero_test",
+        &fixture.snapshot,
+        &fixture.operator,
+        &fixture.bindings,
+        &fixture.blobs,
+        &multiple_story,
+    )
+    .unwrap();
+    let multiple_document = derived_document(&multiple_profile, &multiple_receipt);
+    multiple_story.reverse();
+    assert_eq!(
+        verify_git_document_receipt(
+            &multiple_document,
+            &multiple_receipt,
+            &fixture.snapshot,
+            &fixture.operator,
+            &fixture.bindings,
+            &fixture.blobs,
+            &multiple_story
+        )
+        .unwrap(),
+        multiple_profile
+    );
+    assert!(multiple_document.content.contains("verstärkt"));
     changed_story[0].new_value = json!(121);
     assert!(verify_git_document_receipt(
         &record,
@@ -969,6 +1128,18 @@ fn document_receipt_rejects_stale_rights_forged_bindings_and_marker_only_claims(
             )
         };
     let mut snapshot = fixture.snapshot.clone();
+    let mut revoked_operator = fixture.operator.clone();
+    revoked_operator.scopes.clear();
+    assert!(verify_git_document_receipt(
+        &record,
+        &receipt,
+        &snapshot,
+        &revoked_operator,
+        &fixture.bindings,
+        &fixture.blobs,
+        &[]
+    )
+    .is_err());
     snapshot.heads[0].tombstone = true;
     assert!(verify(&record, &snapshot, &fixture.bindings).is_err());
     snapshot = fixture.snapshot.clone();

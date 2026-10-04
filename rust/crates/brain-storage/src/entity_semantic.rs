@@ -4,6 +4,15 @@ use brain_contracts::{entity_profile::EntityProfileFact, SourceRecordV2};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+type StoredGitBindingRow = (
+    String,
+    Value,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SemanticProjection {
     pub relative_pointer: String,
@@ -140,7 +149,7 @@ impl PgStore {
         }
         let revision =
             i64::try_from(record.revision).map_err(|_| invalid("Revision ist zu groß"))?;
-        let rows: Vec<(String,Value,Option<String>,Option<String>,Option<String>,Option<String>)> = sqlx::query_as("SELECT f.fact_json,f.binding_identity_json,s.relative_pointer,s.semantic_predicate,s.semantic_qualifiers_json,s.semantic_unit FROM brain.entity_profile_facts_v1 f LEFT JOIN brain.entity_semantic_projections_v1 s USING(entity_key,source_id,logical_id,revision,fact_id) WHERE f.entity_key=$1 AND f.source_id=$2 AND f.logical_id=$3 AND f.revision=$4 ORDER BY f.fact_id")
+        let rows: Vec<StoredGitBindingRow> = sqlx::query_as("SELECT f.fact_json,f.binding_identity_json,s.relative_pointer,s.semantic_predicate,s.semantic_qualifiers_json,s.semantic_unit FROM brain.entity_profile_facts_v1 f LEFT JOIN brain.entity_semantic_projections_v1 s USING(entity_key,source_id,logical_id,revision,fact_id) WHERE f.entity_key=$1 AND f.source_id=$2 AND f.logical_id=$3 AND f.revision=$4 ORDER BY f.fact_id")
             .bind(entity_key).bind(&record.source_id).bind(&record.logical_id).bind(revision).fetch_all(&self.pool).await?;
         let mut bindings = Vec::new();
         for (fact, identity, pointer, predicate, qualifiers, unit) in rows {
