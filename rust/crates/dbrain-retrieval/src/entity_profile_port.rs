@@ -21,7 +21,15 @@ pub(crate) fn patch_date(text: &str) -> Option<String> {
             || text[matched.end()..]
                 .chars()
                 .next()
-                .is_some_and(|character| character == '.' || character.is_ascii_digit())
+                .is_some_and(|character| character.is_ascii_digit())
+            || text[matched.end()..]
+                .strip_prefix('.')
+                .is_some_and(|suffix| {
+                    suffix
+                        .chars()
+                        .next()
+                        .is_some_and(|character| character.is_ascii_digit())
+                })
         {
             return None;
         }
@@ -139,6 +147,9 @@ mod tests {
             if query.text.contains("16.09.") {
                 assert_eq!(date, Some("%-09-16"));
             }
+            if query.text.contains("Version") {
+                assert_eq!(date, None);
+            }
             Ok(Some(self.0.lock().unwrap().clone()))
         }
     }
@@ -197,6 +208,14 @@ mod tests {
         );
         assert_eq!(
             patch_date("Item im Patch 2026-09-16"),
+            Some("2026-09-16".into())
+        );
+        assert_eq!(
+            patch_date("Patch am 16.09.2026."),
+            Some("2026-09-16".into())
+        );
+        assert_eq!(
+            patch_date("Patch am 2026-09-16."),
             Some("2026-09-16".into())
         );
         assert_eq!(patch_date("Wie viele Lebenspunkte hat Abrams?"), None);
