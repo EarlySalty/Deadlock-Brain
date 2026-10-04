@@ -731,15 +731,31 @@ impl SnapshotReadPort for LocalPgReader {
         let words = brain_contracts::lexical::terms(&query.text);
         let pins = serde_json::to_value(&release.source_revisions)
             .map_err(|_| invalid("Release-Pins sind ungültig"))?;
-        let hero_count = (words.contains(&"held".into())
-            || words.contains(&"helden".into())
-            || words.contains(&"hero".into())
-            || words.contains(&"heroes".into())
-            || words.contains(&"heldzahl".into()))
-            && (query.text.to_lowercase().contains("wie viele")
-                || words.contains(&"anzahl".into())
-                || words.contains(&"how".into())
-                || query.text.to_lowercase().contains("heldzahl"));
+        let hero_count = words.iter().any(|word| word == "heldzahl")
+            || words.windows(3).any(|phrase| {
+                matches!(
+                    (phrase[0].as_str(), phrase[1].as_str(), phrase[2].as_str()),
+                    ("wie", "viele", "helden")
+                        | ("how", "many", "heroes")
+                        | ("anzahl", "der", "helden")
+                )
+            })
+            || words.windows(4).any(|phrase| {
+                matches!(
+                    (
+                        phrase[0].as_str(),
+                        phrase[1].as_str(),
+                        phrase[2].as_str(),
+                        phrase[3].as_str()
+                    ),
+                    ("wie", "viele", "spielbare", "helden")
+                        | ("how", "many", "playable", "heroes")
+                        | ("number", "of", "playable", "heroes")
+                )
+            })
+            || words
+                .windows(3)
+                .any(|phrase| phrase[0] == "number" && phrase[1] == "of" && phrase[2] == "heroes");
         if let Some(access) = &self.entity_profile_access {
             if let Some(evidence) = Self::derived_entity_evidence(
                 &mut tx,

@@ -495,6 +495,11 @@ async fn normal_texts_read_live_entity_facts_counts_and_patch_history() {
     let mut hero = record("Gespeicherter Heldenbeleg", "extracted_value");
     let mut document: Value = serde_json::from_str(&hero.metadata[DOCUMENT_METADATA_KEY]).unwrap();
     document["facts"][0]["subject"] = json!("game_file:technische-werte.json");
+    document["facts"].as_array_mut().unwrap().push(json!({
+        "fact_id":"health", "subject":"hero:Wächter", "predicate":"health",
+        "value":830, "unit":"Punkte", "evidence_status":"extracted_value",
+        "source_span":"Page:health", "qualifiers":{}
+    }));
     hero.metadata
         .insert(DOCUMENT_METADATA_KEY.into(), document.to_string());
     store.apply(&hero).await.unwrap();
@@ -507,10 +512,10 @@ async fn normal_texts_read_live_entity_facts_counts_and_patch_history() {
     };
     assert_eq!(
         store
-            .store_entity_fact_bindings(&identity, &hero, &["cooldown-ä".into()])
+            .store_entity_fact_bindings(&identity, &hero, &["cooldown-ä".into(), "health".into()])
             .await
             .unwrap(),
-        1
+        2
     );
     assert_eq!(
         store
@@ -562,8 +567,50 @@ async fn normal_texts_read_live_entity_facts_counts_and_patch_history() {
         )]),
     };
     store.publish_release(&release).await.unwrap();
+    sqlx::raw_sql("CREATE ROLE brain_ingest LOGIN; CREATE ROLE brain_service LOGIN; CREATE ROLE brain_readonly LOGIN; ALTER TABLE brain.entities ADD COLUMN id bigint, ADD COLUMN canonical_name text, ADD COLUMN primary_external_id text; UPDATE brain.entities SET id=1,canonical_name='Wächter',primary_external_id='hero_fixture'; CREATE TABLE brain.entity_aliases(id bigint,entity_id bigint,alias text,alias_kind text)")
+        .execute(&pool).await.unwrap();
+    let grants = include_str!("../../../../ops/brain-postgres/grants.sql")
+        .lines()
+        .filter(|line| !line.starts_with('\\'))
+        .collect::<Vec<_>>()
+        .join("\n");
+    for _ in 0..2 {
+        sqlx::raw_sql(&grants).execute(&pool).await.unwrap();
+    }
+    let ingest_pool = PgPoolOptions::new()
+        .max_connections(2)
+        .connect_with(
+            PgConnectOptions::new_without_pgpass()
+                .host(socket.to_str().unwrap())
+                .port(55440)
+                .username("brain_ingest")
+                .database("postgres"),
+        )
+        .await
+        .unwrap();
+    let catalog: i64 = sqlx::query_scalar("SELECT count(*) FROM brain.entities e LEFT JOIN brain.entity_aliases a ON a.entity_id=e.id")
+        .fetch_one(&ingest_pool).await.unwrap();
+    assert_eq!(catalog, 1);
+    let hero_identity = EntityIdentity {
+        entity_key: "hero:waechter".into(),
+        kind: EntityKind::Hero,
+        name: "Wächter".into(),
+        aliases: vec!["Warden".into()],
+        identity_evidence: vec!["fixture:catalog:1".into()],
+    };
+    assert!(!PgStore::new(ingest_pool.clone())
+        .entity_patch_story(&hero_identity)
+        .await
+        .unwrap()
+        .is_empty());
+    for table in ["entities", "entity_aliases", "patch_changes"] {
+        let rights: (bool,bool,bool,bool) = sqlx::query_as("SELECT has_table_privilege(current_user,$1,'SELECT'),has_table_privilege(current_user,$1,'INSERT'),has_table_privilege(current_user,$1,'UPDATE'),has_table_privilege(current_user,$1,'DELETE')")
+            .bind(format!("brain.{table}")).fetch_one(&ingest_pool).await.unwrap();
+        assert_eq!(rights, (true, false, false, false));
+    }
+    ingest_pool.close().await;
     let reader = tokio::task::block_in_place(|| {
-        LocalPgReader::new(&socket, 55440, "brain_core_test", "postgres")
+        LocalPgReader::new(&socket, 55440, "brain_service", "postgres")
             .unwrap()
             .with_entity_profile_access(
                 || Err(PortError::Unavailable("Fixture ohne Gitdokument".into())),
@@ -585,6 +632,9 @@ async fn normal_texts_read_live_entity_facts_counts_and_patch_history() {
             "12.5",
         ),
         ("Wie viele Helden gibt es?", "1 Helden"),
+        ("How many playable heroes are there?", "1 Helden"),
+        ("Wie viele Lebenspunkte hat der Held Wächter?", "830"),
+        ("How much health does the hero Wächter have?", "830"),
         ("Was macht das Item Extended Magazine?", "22"),
         ("Was änderte sich bei Wächter im Patch vom 16.09.?", "18"),
     ] {
@@ -978,8 +1028,18 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
     store.publish_release(&release).await.unwrap();
     let scopes = Arc::new(Mutex::new(operator.scopes.clone()));
     let fresh_scopes = scopes.clone();
+    sqlx::raw_sql("CREATE ROLE brain_ingest LOGIN; CREATE ROLE brain_service LOGIN; CREATE ROLE brain_readonly LOGIN")
+        .execute(&pool).await.unwrap();
+    let grants = include_str!("../../../../ops/brain-postgres/grants.sql")
+        .lines()
+        .filter(|line| !line.starts_with('\\'))
+        .collect::<Vec<_>>()
+        .join("\n");
+    for _ in 0..2 {
+        sqlx::raw_sql(&grants).execute(&pool).await.unwrap();
+    }
     let reader = tokio::task::block_in_place(|| {
-        LocalPgReader::new(&socket, 55440, "brain_core_test", "postgres")
+        LocalPgReader::new(&socket, 55440, "brain_service", "postgres")
             .unwrap()
             .with_entity_profile_access(
                 move || {
@@ -1035,6 +1095,8 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
     let retriever = ReleaseRetriever::new(reader.clone(), 10);
     for (text, expected) in [
         ("Wie viel MaxHealth ist für Wächter gespeichert?", "830"),
+        ("Wie viele Lebenspunkte hat der Held Wächter?", "830"),
+        ("How much health does the hero Wächter have?", "830"),
         ("Was macht Extended Magazine?", "30"),
     ] {
         let mut query = query(text);
@@ -1119,6 +1181,9 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
     );
     let mut count = query("Wie viele Helden sind gespeichert?");
     count.patch = None;
+    let counted = tokio::task::block_in_place(|| retriever.retrieve(&count, &context)).unwrap();
+    assert!(counted[0].content.contains("1 Helden"));
+    count.text = "How many heroes are playable?".into();
     let counted = tokio::task::block_in_place(|| retriever.retrieve(&count, &context)).unwrap();
     assert!(counted[0].content.contains("1 Helden"));
     for patch in ["2026-08-31", "2026-09-15", "2026-09-16", "2026-09-17"] {

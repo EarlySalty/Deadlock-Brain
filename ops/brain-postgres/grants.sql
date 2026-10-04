@@ -24,6 +24,15 @@ GRANT INSERT ON brain.conversation_owners_v1 TO brain_service;
 
 DO $$
 BEGIN
+  IF to_regclass('brain.entities') IS NOT NULL THEN
+    GRANT SELECT ON brain.entities TO brain_ingest, brain_service;
+  END IF;
+  IF to_regclass('brain.entity_aliases') IS NOT NULL THEN
+    GRANT SELECT ON brain.entity_aliases TO brain_ingest, brain_service;
+  END IF;
+  IF to_regclass('brain.patch_changes') IS NOT NULL THEN
+    GRANT SELECT ON brain.patch_changes TO brain_ingest, brain_service;
+  END IF;
   IF to_regclass('brain.maintenance_sources_v1') IS NOT NULL THEN
     GRANT SELECT ON brain.maintenance_sources_v1 TO brain_service, brain_readonly;
     GRANT SELECT, INSERT, UPDATE ON brain.maintenance_sources_v1 TO brain_ingest;
