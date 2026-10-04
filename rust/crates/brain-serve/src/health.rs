@@ -37,14 +37,23 @@ pub(crate) fn validate_bound_scope(snapshot: &CorpusSnapshot, scope: &str) -> Re
     }
     if scope == "bot.public" {
         let scopes = BTreeSet::from(["bot.public".into()]);
-        if snapshot
+        let public: Vec<_> = snapshot
             .revisions
             .iter()
-            .chain(&snapshot.heads)
-            .any(|record| {
-                record.visibility != SourceVisibility::Public
-                    || record.allowed_scopes != scopes
-                    || record.tombstone
+            .filter(|record| {
+                record.visibility == SourceVisibility::Public && record.allowed_scopes == scopes
+            })
+            .collect();
+        if public.is_empty()
+            || public.iter().any(|record| {
+                record.tombstone
+                    || !snapshot.heads.iter().any(|head| {
+                        head.source_id == record.source_id
+                            && head.logical_id == record.logical_id
+                            && head.visibility == SourceVisibility::Public
+                            && head.allowed_scopes == scopes
+                            && !head.tombstone
+                    })
             })
         {
             return Err(Error::ReleaseUnavailable);
@@ -53,11 +62,16 @@ pub(crate) fn validate_bound_scope(snapshot: &CorpusSnapshot, scope: &str) -> Re
             .authorized_for_publication(&Principal {
                 actor_id: "brain-serve-readiness".into(),
                 channel: "health".into(),
-                scopes,
+                scopes: scopes.clone(),
                 provider_egress: BTreeSet::new(),
             })
             .map_err(|_| Error::ReleaseUnavailable)?;
-        return if published.len() == snapshot.revisions.len() {
+        return if published.len() == public.len()
+            && published.iter().all(|record| {
+                record.visibility == SourceVisibility::Public
+                    && record.allowed_scopes == scopes
+                    && !record.tombstone
+            }) {
             Ok(())
         } else {
             Err(Error::ReleaseUnavailable)
@@ -327,6 +341,45 @@ mod binding_tests {
         changed.heads[0]
             .metadata
             .insert("brain.origin".into(), "{}".into());
+        assert!(validate_bound_scope(&changed, "bot.public").is_err());
+    }
+
+    #[test]
+    fn maintenance_binding_keeps_internal_documents_outside_the_public_view() {
+        let mut snapshot = maintenance_snapshot();
+        let mut internal = snapshot.revisions[0].clone();
+        internal.source_id = "maintenance-internal".into();
+        internal.logical_id = "internal-document".into();
+        internal.visibility = SourceVisibility::Internal;
+        internal.allowed_scopes = BTreeSet::from(["internal_docs".into()]);
+        snapshot.release.source_revisions.insert(
+            internal.source_id.clone(),
+            BTreeMap::from([(internal.logical_id.clone(), 1)]),
+        );
+        snapshot.revisions.push(internal.clone());
+        snapshot.heads.push(internal);
+        assert!(validate_bound_scope(&snapshot, "bot.public").is_ok());
+        let published = snapshot
+            .authorized_for_publication(&Principal {
+                actor_id: "brain-serve-readiness".into(),
+                channel: "health".into(),
+                scopes: BTreeSet::from(["bot.public".into()]),
+                provider_egress: BTreeSet::new(),
+            })
+            .unwrap();
+        assert_eq!(published.len(), 1);
+        assert_eq!(published[0].visibility, SourceVisibility::Public);
+        let mut changed = snapshot.clone();
+        changed.heads[0].visibility = SourceVisibility::Private;
+        assert!(validate_bound_scope(&changed, "bot.public").is_err());
+        let mut changed = snapshot.clone();
+        changed.revisions.remove(0);
+        changed.heads.remove(0);
+        assert!(validate_bound_scope(&changed, "bot.public").is_err());
+        let mut changed = snapshot;
+        changed.revisions[1].visibility = SourceVisibility::Private;
+        changed.revisions[1].allowed_scopes = BTreeSet::from(["bot.public".into()]);
+        changed.heads[1] = changed.revisions[1].clone();
         assert!(validate_bound_scope(&changed, "bot.public").is_err());
     }
 }
