@@ -354,28 +354,52 @@ mod tests {
 
     #[test]
     fn request_budget_limits_retries_and_output_tokens() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let request = read_request(&mut stream);
-            assert!(request.contains("\"max_tokens\":17"));
-            write!(
+        for (model, reasoning_effort) in [
+            ("fixture-model", None),
+            (
+                "accounts/fireworks/models/deepseek-v4p1-flash",
+                Some("none"),
+            ),
+        ] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                let request = read_request(&mut stream);
+                let (_, body) = request.split_once("\r\n\r\n").unwrap();
+                let body: serde_json::Value = serde_json::from_str(body).unwrap();
+                let mut expected = serde_json::json!({
+                    "model": model,
+                    "messages": grounded_messages(&query(), &[]),
+                    "max_tokens": 17,
+                    "stream": false,
+                });
+                if let Some(effort) = reasoning_effort {
+                    expected["reasoning_effort"] = serde_json::json!(effort);
+                }
+                assert_eq!(body, expected);
+                write!(
                 stream,
                 "HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
             )
-            .unwrap();
-        });
+                .unwrap();
+            });
 
-        let mut context = context();
-        context.budget.max_network_rounds = 1;
-        context.budget.max_output_tokens = 17;
-        let error = provider(format!("http://{address}"))
-            .answer(&query(), &context, &[])
-            .unwrap_err();
-        server.join().unwrap();
+            let mut context = context();
+            context.budget.max_network_rounds = 1;
+            context.budget.max_output_tokens = 17;
+            let mut config =
+                ProviderConfig::new("fixture-token", format!("http://{address}"), model);
+            config.retry_attempts = 2;
+            config.retry_backoff = Duration::from_millis(1);
+            let error = OpenAiCompatibleProvider::new(config)
+                .unwrap()
+                .answer(&query(), &context, &[])
+                .unwrap_err();
+            server.join().unwrap();
 
-        assert!(matches!(error, PortError::Unavailable(_)));
+            assert!(matches!(error, PortError::Unavailable(_)));
+        }
     }
 
     #[test]

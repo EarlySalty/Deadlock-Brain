@@ -17,6 +17,9 @@ impl OpenAiCompatibleProvider {
         evidence: &[brain_contracts::Evidence],
     ) -> Result<ProviderAnswer> {
         let mut json = serde_json::to_value(payload).map_err(|_| ProviderError::InvalidConfig)?;
+        if self.config.model == "accounts/fireworks/models/deepseek-v4p1-flash" {
+            json["reasoning_effort"] = serde_json::json!("none");
+        }
         let (bytes, charge) = self.transport_json("chat/completions", &mut json, context, true)?;
         let parsed: ChatResponse = serde_json::from_slice(&bytes)
             .map_err(|_| ProviderError::InvalidResponse("invalid chat schema".into()))?;
