@@ -244,8 +244,14 @@ pub fn collect_wiki_inventory(
                 "Wiki-Zugriff verweigert: HTML statt API-JSON",
             ));
         }
-        Ok(serde_json::from_slice(&response.content)?)
+        decode_api_response(&response.content)
     })
+}
+
+fn decode_api_response(bytes: &[u8]) -> Result<Value> {
+    let text = std::str::from_utf8(bytes)
+        .map_err(|_| SourcesError::invalid_input("Wiki-Antwort enthält ungültiges UTF-8"))?;
+    Ok(crate::knowledge_contract::parse_unique_json(text)?)
 }
 
 pub fn collect_wiki_inventory_with_transport(

@@ -527,9 +527,18 @@ fn normalize_page(
             continue;
         };
         let content_hash = sha256(content.as_bytes());
-        let revision_key = revision_id
-            .map(|id| id.to_string())
-            .unwrap_or_else(|| format!("unknown:{content_hash}"));
+        let revision_key = if representation == "rendered_extract" {
+            format!(
+                "rendered_extract:{}:{content_hash}",
+                revision_id
+                    .map(|id| id.to_string())
+                    .unwrap_or_else(|| "unknown".into())
+            )
+        } else {
+            revision_id
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| format!("unknown:{content_hash}"))
+        };
         let revision_timestamp = revision.get("timestamp").and_then(Value::as_str);
         if revision_timestamp.is_none() {
             gap(out, &document_id, title, "revision_timestamp_unknown");
@@ -578,18 +587,18 @@ fn normalize_page(
                 model.eq_ignore_ascii_case("json") || model.eq_ignore_ascii_case("JsonConfig.Json")
             })
         {
-            let data: Value = serde_json::from_str(content).map_err(|_| {
-                SourcesError::invalid_input("Wiki-Data-Seite enthält ungültiges JSON")
-            })?;
-            flatten_data(
-                &data,
-                "",
-                &document_id,
-                &revision_key,
-                historical,
-                &mut facts,
-                0,
-            )?;
+            match crate::knowledge_contract::parse_unique_json(content) {
+                Ok(data) => flatten_data(
+                    &data,
+                    "",
+                    &document_id,
+                    &revision_key,
+                    historical,
+                    &mut facts,
+                    0,
+                )?,
+                Err(_) => gap(out, &document_id, title, "data_json_invalid_or_ambiguous"),
+            }
         }
         let document = json!({
             "contract_version": CONTRACT_VERSION,
@@ -1012,6 +1021,114 @@ pub(crate) fn validate_observed_at(value: &str) -> Result<()> {
 #[cfg(test)]
 mod precision_tests {
     use super::*;
+
+    fn context() -> WikiSourceContext {
+        WikiSourceContext::from_mediawiki_export("<mediawiki><siteinfo><base>https://deadlock.wiki/Data:Heroes</base><namespaces><namespace key=\"0\"></namespace><namespace key=\"3500\">Data</namespace></namespaces></siteinfo></mediawiki>").unwrap()
+    }
+
+    fn payload(content: &str) -> Value {
+        json!({"query":{"pages":[{"pageid":2880,"ns":3500,"title":"Data:Heroes","revisions":[{"revid":18108,"slots":{"main":{"contentmodel":"json","content":content}}}]}]}})
+    }
+
+    #[test]
+    fn ambiguous_data_retains_original_without_extracted_facts() {
+        for content in [
+            r#"{"value":1.2300,"value":2}"#,
+            r#"{"nested":[{"value":1,"\u0076alue":2}]}"#,
+        ] {
+            let normalized =
+                normalize_api_response(&payload(content), &context(), "2026-10-04T12:00:00Z")
+                    .unwrap();
+            assert_eq!(normalized.documents[0]["content"], content);
+            assert_eq!(
+                normalized.documents[0]["content_sha256"],
+                sha256(content.as_bytes())
+            );
+            assert!(normalized.documents[0]["facts"]
+                .as_array()
+                .unwrap()
+                .is_empty());
+            assert!(normalized
+                .gaps
+                .iter()
+                .any(|gap| gap.reason == "data_json_invalid_or_ambiguous"));
+        }
+    }
+
+    #[test]
+    fn api_decode_rejects_duplicate_keys_and_preserves_numbers() {
+        for text in [
+            r#"{"query":{},"query":{}}"#,
+            r#"{"query":{"pages":[{"revid":1,"revid":2}]}}"#,
+        ] {
+            assert!(super::super::decode_api_response(text.as_bytes()).is_err());
+        }
+        let text = r#"{"query":{"value":20.000010800000002,"large":18446744073709551616001}}"#;
+        let value = super::super::decode_api_response(text.as_bytes()).unwrap();
+        assert_eq!(value["query"]["value"].to_string(), "20.000010800000002");
+        assert_eq!(
+            value["query"]["large"].to_string(),
+            "18446744073709551616001"
+        );
+    }
+
+    #[test]
+    fn extracts_and_raw_revisions_survive_retry_including_frozen_legacy() {
+        let context = context();
+        let observed_at = "2026-10-04T12:00:00Z";
+        let raw = normalize_api_response(&payload(r#"{"value":1.2300}"#), &context, observed_at)
+            .unwrap()
+            .documents
+            .remove(0);
+        let mut rendered = payload("");
+        rendered["query"]["pages"][0]["revisions"][0]["slots"] = Value::Null;
+        rendered["query"]["pages"][0]["extract"] = json!("Gerenderter Wert");
+        let extract = normalize_api_response(&rendered, &context, observed_at)
+            .unwrap()
+            .documents
+            .remove(0);
+        assert_ne!(extract["revision"], raw["revision"]);
+        for legacy in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let store = super::super::storage::WikiSpool::open(root.path(), 1024 * 1024).unwrap();
+            let mut state = super::super::Checkpoint {
+                context: Some(context.clone()),
+                ..Default::default()
+            };
+            store
+                .bind_source(&mut state, Some(&context.source_origin))
+                .unwrap();
+            let mut frozen = extract.clone();
+            if legacy {
+                frozen["revision"] = raw["revision"].clone();
+            }
+            store.persist_document(&frozen).unwrap();
+            let path = std::fs::read_dir(root.path().join("documents"))
+                .unwrap()
+                .next()
+                .unwrap()
+                .unwrap()
+                .path();
+            let original_bytes = std::fs::read(&path).unwrap();
+            for _ in 0..2 {
+                store.persist_document(&raw).unwrap();
+                store.persist_document(&frozen).unwrap();
+                let report = store.publish(&state).unwrap();
+                let text = std::fs::read_to_string(report.documents_path).unwrap();
+                let documents: Vec<Value> = text
+                    .lines()
+                    .map(|line| serde_json::from_str(line).unwrap())
+                    .collect();
+                assert_eq!(documents.len(), 2);
+                assert!(documents.iter().any(|document| document == &raw));
+                assert!(documents
+                    .iter()
+                    .any(|document| document["revision"] == extract["revision"]
+                        && document["content"] == extract["content"]));
+                assert_eq!(std::fs::read(&path).unwrap(), original_bytes);
+            }
+        }
+    }
 
     #[test]
     fn data_numbers_survive_normalization_spool_and_republication() {

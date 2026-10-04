@@ -179,9 +179,28 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
     .execute(&pool)
     .await
     .unwrap();
-    let record = record();
+    let mut record = record();
+    record.allowed_scopes.insert("fixture:read".into());
     store.apply(&record).await.unwrap();
     let entity = entity(EntityKind::Hero);
+    let mut manipulated = record.clone();
+    let document_key = brain_storage::source_versions::DOCUMENT_METADATA_KEY;
+    let mut document: Value = serde_json::from_str(&manipulated.metadata[document_key]).unwrap();
+    document["facts"][0]["value"] = json!(999999);
+    manipulated
+        .metadata
+        .insert(document_key.into(), document.to_string());
+    assert_eq!(manipulated.content, record.content);
+    assert_eq!(manipulated.content_hash, record.content_hash);
+    assert!(store
+        .store_entity_fact_bindings(&entity, &manipulated, &["health".into()])
+        .await
+        .is_err());
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM brain.entity_profile_facts_v1")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
     assert_eq!(
         store
             .store_entity_fact_bindings(&entity, &record, &["health".into()])
@@ -211,5 +230,50 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
         .store_entity_fact_bindings(&conflict, &record, &["health".into()])
         .await
         .is_err());
+    sqlx::raw_sql("CREATE TABLE brain.patch_changes(patch_date text, entity_name text, ability_name text, stat_name text)").execute(&pool).await.unwrap();
+    let release = brain_contracts::CorpusRelease {
+        release_id: "fixture-binding-release".into(),
+        knowledge_version: "k1".into(),
+        patch: "p1".into(),
+        created_at_epoch: 1,
+        source_revisions: std::collections::BTreeMap::from([(
+            record.source_id.clone(),
+            std::collections::BTreeMap::from([(record.logical_id.clone(), record.revision)]),
+        )]),
+    };
+    store.publish_release(&release).await.unwrap();
+    let mut principal = brain_contracts::Principal {
+        actor_id: "fixture".into(),
+        channel: "test".into(),
+        scopes: Default::default(),
+        provider_egress: Default::default(),
+    };
+    let hidden = store
+        .read_entity_profile(&entity.entity_key, &release.release_id, &principal, None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(hidden.facts.is_empty());
+    principal.scopes.insert("fixture:read".into());
+    let visible = store
+        .read_entity_profile(&entity.entity_key, &release.release_id, &principal, None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(visible.facts.len(), 1);
+    assert_eq!(
+        visible.facts[0].value.to_string(),
+        "1.2345678901234567890123456789e+19"
+    );
+    let mut restricted = record.clone();
+    restricted.revision += 1;
+    restricted.allowed_scopes = std::collections::BTreeSet::from(["fixture:restricted".into()]);
+    store.apply(&restricted).await.unwrap();
+    let hidden = store
+        .read_entity_profile(&entity.entity_key, &release.release_id, &principal, None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(hidden.facts.is_empty());
     pool.close().await;
 }

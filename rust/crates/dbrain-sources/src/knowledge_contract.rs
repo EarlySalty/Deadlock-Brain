@@ -626,13 +626,16 @@ fn input_conflict(
     }
 }
 
-fn parse_document(text: &str, line: usize) -> Result<KnowledgeDocument, KnowledgeValidationError> {
+pub(crate) fn parse_unique_json(text: &str) -> Result<Value, serde_json::Error> {
     let mut deserializer = serde_json::Deserializer::from_str(text);
-    let value = UniqueJsonSeed { path: "$".into() }
-        .deserialize(&mut deserializer)
-        .map_err(|error| issue(line, "$", format!("Ungültiges JSON: {error}")))?;
-    deserializer
-        .end()
+    let value = UniqueJsonSeed { path: "$".into() }.deserialize(&mut deserializer)?;
+    deserializer.end()?;
+    drop(value);
+    serde_json::from_str(text)
+}
+
+fn parse_document(text: &str, line: usize) -> Result<KnowledgeDocument, KnowledgeValidationError> {
+    let value = parse_unique_json(text)
         .map_err(|error| issue(line, "$", format!("Ungültiges JSON: {error}")))?;
     validate_shape(&value, line)?;
     drop(value);
