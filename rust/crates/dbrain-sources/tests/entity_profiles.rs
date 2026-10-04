@@ -897,16 +897,11 @@ async fn original_alias_bindings_drive_history_without_consumer_leaks(
     .execute(pool)
     .await
     .unwrap();
-    let mut document = extracted_game_document_from_source(
+    let document = extracted_game_document_from_source(
         "alias-original",
         "json",
-        r#"{"hero_test":{"MaxHealth":120,"CurrentPatch":"2026-09-30","Variants":[{"Damage":20},{"Damage":30}]}}"#,
+        r#"{"hero_test":{"MaxHealth":120,"Variants":[{"Damage":20},{"Damage":30}]}}"#,
     );
-    for fact in document["facts"].as_array_mut().unwrap() {
-        if fact["fact_id"] == "json:/hero_test/CurrentPatch" {
-            fact["predicate"] = json!("current_patch");
-        }
-    }
     let mut record = prepared_game_document(&document);
     let mut origin = brain_contracts::source::origin_from_record(&record).unwrap();
     record
@@ -970,18 +965,6 @@ async fn original_alias_bindings_drive_history_without_consumer_leaks(
         .is_empty());
     sqlx::query("INSERT INTO brain.patch_changes(patch_date,entity_type,entity_name,stat_name,old_value,new_value,raw_line,patch_url) VALUES('2026-09-01','hero','Historischer Privatname','Max Health','100','110','Historischer Privatname','https://example.org/patch'),('2026-09-16','hero','Historischer Privatname','Max Health','110','120','Historischer Privatname','https://example.org/patch')").execute(pool).await.unwrap();
     assert_eq!(store.entity_patch_story(&stored).await.unwrap().len(), 2);
-    assert_eq!(
-        store
-            .store_entity_patch_intervals(
-                &identity.entity_key,
-                &record,
-                health_id,
-                "json:/hero_test/CurrentPatch"
-            )
-            .await
-            .unwrap(),
-        1
-    );
     let variant_id = "json:/hero_test/Variants/1/Damage";
     let fact = project_entity_facts(&record, &[variant_id.into()])
         .unwrap()
@@ -1013,6 +996,21 @@ async fn original_alias_bindings_drive_history_without_consumer_leaks(
         scopes: record.allowed_scopes.clone(),
         provider_egress: Default::default(),
     };
+    let current = store
+        .read_entity_profile(&identity.entity_key, &release.release_id, &principal, None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        current
+            .facts
+            .iter()
+            .find(|fact| fact.predicate == "max_health")
+            .unwrap()
+            .value,
+        json!(120)
+    );
+    assert_eq!(current.patch_story.len(), 2);
     let profile = store
         .read_entity_profile(
             &identity.entity_key,
@@ -1023,8 +1021,11 @@ async fn original_alias_bindings_drive_history_without_consumer_leaks(
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(profile.facts.len(), 1);
-    assert_eq!(profile.facts[0].value, "110");
+    assert!(profile.facts.is_empty());
+    assert!(profile
+        .unknowns
+        .iter()
+        .any(|unknown| unknown.contains("Historische Fakten")));
     assert_eq!(profile.patch_story.len(), 1);
     let consumer = serde_json::to_string(&profile.entity).unwrap();
     assert!(!consumer.contains("Historischer Privatname"));
@@ -1037,6 +1038,27 @@ async fn original_alias_bindings_drive_history_without_consumer_leaks(
     assert!(!serde_json::to_string(&profile)
         .unwrap()
         .contains("Historischer Privatname"));
+    let changes = store
+        .read_entity_profile(
+            &identity.entity_key,
+            &release.release_id,
+            &principal,
+            Some("2026-09-16"),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(changes.facts.is_empty());
+    let change = changes
+        .patch_story
+        .iter()
+        .find(|change| change.patch_date == "2026-09-16")
+        .unwrap();
+    assert_eq!(change.entity_name.as_deref(), Some("Testheld"));
+    assert_eq!(change.stat_name.as_deref(), Some("Max Health"));
+    assert_eq!(change.old_value, "110");
+    assert_eq!(change.new_value, "120");
+    assert_eq!(change.provenance.relation, "brain.patch_changes");
     principal.scopes.clear();
     assert!(store
         .read_entity_profile(&identity.entity_key, &release.release_id, &principal, None)

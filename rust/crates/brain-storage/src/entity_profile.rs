@@ -14,9 +14,6 @@ use std::collections::BTreeMap;
 #[path = "entity_semantic.rs"]
 pub mod semantic;
 
-#[path = "entity_intervals.rs"]
-pub mod intervals;
-
 #[path = "entity_compact.rs"]
 pub mod compact;
 
@@ -418,7 +415,7 @@ impl PgStore {
                 {
                     return Err(invalid("Gespeicherte Bindungsidentität ist ungültig"));
                 }
-                let interval_identity = binding.clone();
+                let semantic_identity = binding.clone();
                 if let Some(identity) = &mut entity {
                     if identity.kind != binding.kind {
                         return Err(invalid("Autorisierte Entitätsbelege widersprechen sich"));
@@ -452,40 +449,7 @@ impl PgStore {
                         qualifiers: serde_json::from_str(&qualifiers)?,
                         unit,
                     };
-                    let stored_interval:Option<String>=sqlx::query_scalar("SELECT interval_json FROM brain.entity_patch_intervals_v1 WHERE entity_key=$1 AND source_id=$2 AND logical_id=$3 AND revision=$4 AND fact_id=$5")
-                            .bind(entity_key).bind(&source.source_id).bind(&source.logical_id).bind(source.revision as i64).bind(&fact.fact_id).fetch_optional(&self.pool).await?;
-                    if let Some(encoded) = stored_interval {
-                        let stored: intervals::IntervalProjection = serde_json::from_str(&encoded)?;
-                        let current = project_entity_facts(
-                            original,
-                            std::slice::from_ref(&stored.current_patch_fact_id),
-                        )?
-                        .remove(0);
-                        let story = self.entity_patch_story(&interval_identity).await?;
-                        let Some(projected) = intervals::project_interval_fact(
-                            semantic::SemanticBinding {
-                                record: original,
-                                identity: &interval_identity,
-                            },
-                            &fact,
-                            &current,
-                            &semantic,
-                            &stored,
-                            &story,
-                            patch.unwrap_or(&stored.current_patch),
-                        )?
-                        else {
-                            continue;
-                        };
-                        projected
-                    } else {
-                        semantic::project_semantic_fact(
-                            &fact,
-                            &semantic,
-                            original,
-                            &interval_identity,
-                        )?
-                    }
+                    semantic::project_semantic_fact(&fact, &semantic, original, &semantic_identity)?
                 } else {
                     fact
                 };

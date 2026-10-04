@@ -1,7 +1,7 @@
 use brain_contracts::entity_profile::{EntityIdentity, EntityKind};
 use brain_storage::entity_profile::{
     assemble_profile, project_entity_facts,
-    semantic::{project_semantic_fact, semantic_projection, SemanticBinding},
+    semantic::{project_semantic_fact, semantic_projection},
 };
 use dbrain_sources::{
     entity_binding::{bind_stored_document, CatalogEntity},
@@ -259,137 +259,22 @@ async fn actual_git_documents_bind_all_kinds_idempotently_to_immutable_originals
     })
     .collect();
     sqlx::raw_sql("CREATE TABLE brain.patch_changes(entity_type text,entity_name text,ability_name text,stat_name text,patch_date text,old_value text,new_value text,unit text,variant text); INSERT INTO brain.patch_changes VALUES('hero','Test',NULL,'Max Health','2026-09-01','100','110','hp','normal'),('hero','Test',NULL,'Max Health','2026-09-16','110','120','hp','normal'),('item','Test',NULL,'Max Health','2026-09-16','900','999','hp','normal')").execute(&pool).await.unwrap();
-    let mut interval_document = document("game_file", json!("120"), "normal");
-    let mut patch_fact = interval_document["facts"][0].clone();
-    patch_fact["fact_id"] = json!("current_patch");
-    patch_fact["predicate"] = json!("current_patch");
-    patch_fact["value"] = json!("2026-09-30");
-    patch_fact["unit"] = Value::Null;
-    patch_fact["qualifiers"] = json!({"source_pointer":"/hero_test/CurrentPatch"});
-    interval_document["facts"]
-        .as_array_mut()
-        .unwrap()
-        .push(patch_fact);
-    let interval_record = prepared(&interval_document);
-    store.apply(&interval_record).await.unwrap();
-    let interval_entity = bound_identity(&interval_record);
-    let interval_catalog = vec![CatalogEntity {
-        identity: interval_entity.clone(),
+    let fixture_record = prepared(&document("game_file", json!("120"), "normal"));
+    store.apply(&fixture_record).await.unwrap();
+    let fixture_entity = bound_identity(&fixture_record);
+    let fixture_catalog = vec![CatalogEntity {
+        identity: fixture_entity.clone(),
         identifiers: vec!["hero_test".into()],
     }];
     bind_stored_document(
         &store,
-        &interval_record.source_id,
-        &interval_record.logical_id,
-        interval_record.revision,
-        &interval_catalog,
+        &fixture_record.source_id,
+        &fixture_record.logical_id,
+        fixture_record.revision,
+        &fixture_catalog,
     )
     .await
     .unwrap();
-    assert_eq!(
-        store
-            .store_entity_patch_intervals("hero_test", &interval_record, "health", "current_patch")
-            .await
-            .unwrap(),
-        1
-    );
-    assert_eq!(
-        store
-            .store_entity_patch_intervals("hero_test", &interval_record, "health", "current_patch")
-            .await
-            .unwrap(),
-        0
-    );
-    let encoded: String = sqlx::query_scalar(
-        "SELECT interval_json FROM brain.entity_patch_intervals_v1 WHERE entity_key='hero_test'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    let intervals: brain_storage::entity_profile::intervals::IntervalProjection =
-        serde_json::from_str(&encoded).unwrap();
-    assert_eq!(intervals.intervals.len(), 2);
-    let originals =
-        project_entity_facts(&interval_record, &["health".into(), "current_patch".into()]).unwrap();
-    let semantic = semantic_projection(
-        &originals[0],
-        "/MaxHealth",
-        &interval_record,
-        &interval_entity,
-    )
-    .unwrap()
-    .unwrap();
-    let story = store.entity_patch_story(&interval_entity).await.unwrap();
-    let previous = brain_storage::entity_profile::intervals::project_interval_fact(
-        SemanticBinding {
-            record: &interval_record,
-            identity: &interval_entity,
-        },
-        &originals[0],
-        &originals[1],
-        &semantic,
-        &intervals,
-        &story,
-        "2026-09-15",
-    )
-    .unwrap()
-    .unwrap();
-    assert_eq!(previous.value, "110");
-    assert_eq!(
-        previous.provenance.document_metadata["derived_interval_evidence"]["patch_evidence"]
-            .as_array()
-            .unwrap()
-            .len(),
-        2
-    );
-    assert!(
-        brain_storage::entity_profile::intervals::project_interval_fact(
-            SemanticBinding {
-                record: &interval_record,
-                identity: &interval_entity
-            },
-            &originals[0],
-            &originals[1],
-            &semantic,
-            &intervals,
-            &story,
-            "2026-08-31"
-        )
-        .unwrap()
-        .is_none()
-    );
-    let mut missing = originals[1].clone();
-    missing.predicate = "file.json_value".into();
-    assert!(
-        brain_storage::entity_profile::intervals::derive_patch_intervals(
-            SemanticBinding {
-                record: &interval_record,
-                identity: &interval_entity
-            },
-            &originals[0],
-            &missing,
-            &semantic,
-            &story
-        )
-        .is_err()
-    );
-    sqlx::query("UPDATE brain.patch_changes SET new_value='121' WHERE entity_type='hero' AND patch_date='2026-09-16'").execute(&pool).await.unwrap();
-    let changed_story = store.entity_patch_story(&interval_entity).await.unwrap();
-    assert!(
-        brain_storage::entity_profile::intervals::project_interval_fact(
-            SemanticBinding {
-                record: &interval_record,
-                identity: &interval_entity
-            },
-            &originals[0],
-            &originals[1],
-            &semantic,
-            &intervals,
-            &changed_story,
-            "2026-09-15"
-        )
-        .is_err()
-    );
     use std::io::BufRead;
     let file=std::fs::File::open("/home/nathanael/.local/share/deadlock-brain/wiki-spielwissen/2026-10-03/b/round3-proof/run-CrJzHxm4/deadlock-data-0d46cdecfccf77adec16aac01af6d30173e0ebb8.jsonl").unwrap();
     let mut count = 0;
@@ -659,7 +544,7 @@ async fn actual_git_documents_bind_all_kinds_idempotently_to_immutable_originals
         &derived_record.source_id,
         &derived_record.logical_id,
         derived_record.revision,
-        &interval_catalog,
+        &fixture_catalog,
     )
     .await
     .unwrap();
@@ -722,7 +607,7 @@ async fn actual_git_documents_bind_all_kinds_idempotently_to_immutable_originals
     store.apply(&unrelated).await.unwrap();
     assert_eq!(
         store
-            .store_entity_fact_bindings(&interval_entity, &unrelated, &["health".into()])
+            .store_entity_fact_bindings(&fixture_entity, &unrelated, &["health".into()])
             .await
             .unwrap(),
         1
@@ -883,291 +768,6 @@ fn consumer_patch_conditions_keep_decimal_thresholds_and_withhold_unsafe_stateme
             .unwrap()
             .contains("fehlt"));
     }
-}
-
-#[test]
-fn interval_chain_ignores_unrelated_rows_but_rechecks_participating_evidence() {
-    use brain_storage::entity_profile::intervals::{derive_patch_intervals, project_interval_fact};
-    let mut source = document("game_file", json!(120), "normal");
-    source["facts"].as_array_mut().unwrap().push(json!({
-        "fact_id":"patch","subject":"game_file:test","predicate":"current_patch",
-        "value":"2026-09-30","unit":null,"evidence_status":"extracted_value",
-        "source_span":"/CurrentPatch","qualifiers":{"source_pointer":"/CurrentPatch"}
-    }));
-    let record = prepared(&source);
-    let facts = project_entity_facts(&record, &["health".into(), "patch".into()]).unwrap();
-    let anchor = facts[0].clone();
-    let mut patch = facts[1].clone();
-    let entity = bound_identity(&record);
-    let semantic = semantic_projection(&anchor, "/MaxHealth", &record, &entity)
-        .unwrap()
-        .unwrap();
-    let mut story = vec![
-        story_change("2026-09-01", 100, 110),
-        story_change("2026-09-16", 110, 120),
-    ];
-    let stored = derive_patch_intervals(
-        SemanticBinding {
-            record: &record,
-            identity: &entity,
-        },
-        &anchor,
-        &patch,
-        &semantic,
-        &story,
-    )
-    .unwrap();
-    for (anchor_value, historical_value) in [(json!(120), json!("110")), (json!("120"), json!(110))]
-    {
-        let mut typed_source = source.clone();
-        typed_source["facts"][0]["value"] = anchor_value.clone();
-        if anchor_value.is_number() {
-            typed_source["facts"][0]["qualifiers"]
-                .as_object_mut()
-                .unwrap()
-                .remove("numeric_representation");
-        }
-        let typed_record = prepared(&typed_source);
-        let originals =
-            project_entity_facts(&typed_record, &["health".into(), "patch".into()]).unwrap();
-        let typed_semantic =
-            semantic_projection(&originals[0], "/MaxHealth", &typed_record, &entity)
-                .unwrap()
-                .unwrap();
-        let mut typed_story = story.clone();
-        typed_story[0].new_value = historical_value.clone();
-        typed_story[1].old_value = historical_value.clone();
-        let binding = SemanticBinding {
-            record: &typed_record,
-            identity: &entity,
-        };
-        let intervals = derive_patch_intervals(
-            binding,
-            &originals[0],
-            &originals[1],
-            &typed_semantic,
-            &typed_story,
-        )
-        .unwrap();
-        let historical = project_interval_fact(
-            binding,
-            &originals[0],
-            &originals[1],
-            &typed_semantic,
-            &intervals,
-            &typed_story,
-            "2026-09-15",
-        )
-        .unwrap()
-        .unwrap();
-        assert_eq!(historical.value, historical_value);
-        assert_eq!(originals[0].value, anchor_value);
-        let mut qualifiers = historical.qualifiers.clone();
-        assert_eq!(
-            qualifiers.remove("numeric_representation"),
-            historical_value
-                .is_string()
-                .then(|| json!("source_numeric_lexeme"))
-        );
-        let mut original_qualifiers = typed_semantic.qualifiers.clone();
-        original_qualifiers.remove("numeric_representation");
-        assert_eq!(qualifiers, original_qualifiers);
-        let mut wiki = historical.clone();
-        wiki.provenance.source_kind = brain_contracts::entity_profile::ProfileSourceKind::Wiki;
-        wiki.provenance.origin.identity.source_id = "wiki".into();
-        wiki.value = json!(999);
-        wiki.qualifiers.remove("numeric_representation");
-        let profile = assemble_profile(
-            entity.clone(),
-            Some("2026-09-15".into()),
-            vec![historical, wiki],
-            vec![],
-        );
-        assert_eq!(profile.conflicts.len(), 1);
-        assert!(profile.conflicts[0]
-            .preferred_fact_id
-            .as_ref()
-            .unwrap()
-            .starts_with("game_file:"));
-    }
-    let current = project_interval_fact(
-        SemanticBinding {
-            record: &record,
-            identity: &entity,
-        },
-        &anchor,
-        &patch,
-        &semantic,
-        &stored,
-        &story,
-        "2026-09-30",
-    )
-    .unwrap()
-    .unwrap();
-    assert!(brain_storage::entity_profile::validity_contains(
-        &current.validity,
-        "2026-09-30"
-    ));
-    assert!(!brain_storage::entity_profile::validity_contains(
-        &current.validity,
-        "2026-10-01"
-    ));
-    let compact = brain_storage::entity_profile::compact::compact_document(&assemble_profile(
-        entity.clone(),
-        Some("2026-09-30".into()),
-        vec![current],
-        vec![],
-    ))
-    .unwrap();
-    let compact: Value = serde_json::from_str(&compact).unwrap();
-    assert_eq!(
-        compact["facts"][0]["validity"]["through_patch_inclusive"],
-        "2026-09-30"
-    );
-    assert!(project_interval_fact(
-        SemanticBinding {
-            record: &record,
-            identity: &entity
-        },
-        &anchor,
-        &patch,
-        &semantic,
-        &stored,
-        &story,
-        "2026-10-01",
-    )
-    .unwrap()
-    .is_none());
-    for fabricated in [
-        {
-            let mut fact = patch.clone();
-            fact.value = json!("2026-10-01");
-            fact
-        },
-        {
-            let mut fact = anchor.clone();
-            fact.predicate = "current_patch".into();
-            fact.value = json!("2026-09-30");
-            fact
-        },
-        {
-            let mut fact = patch.clone();
-            fact.fact_id = "missing-patch".into();
-            fact
-        },
-    ] {
-        assert!(derive_patch_intervals(
-            SemanticBinding {
-                record: &record,
-                identity: &entity
-            },
-            &anchor,
-            &fabricated,
-            &semantic,
-            &story,
-        )
-        .is_err());
-        assert!(project_interval_fact(
-            SemanticBinding {
-                record: &record,
-                identity: &entity
-            },
-            &anchor,
-            &fabricated,
-            &semantic,
-            &stored,
-            &story,
-            "2026-09-30",
-        )
-        .is_err());
-    }
-    story.push(story_change("2026-10-01", 120, 999));
-    for (key, value) in [
-        ("unit", json!("seconds")),
-        ("variant", json!("verstärkt")),
-        ("condition", json!("Im Sprung")),
-        ("level", json!(2)),
-        ("semantic_scope", json!("Variants/1")),
-    ] {
-        let mut other = story_change("2026-09-16", 900, 999);
-        other.additional_fields.insert(key.into(), value);
-        story.push(other);
-    }
-    let mut item = story_change("2026-09-16", 900, 999);
-    item.entity_type = Some("item".into());
-    story.push(item);
-    assert_eq!(
-        derive_patch_intervals(
-            SemanticBinding {
-                record: &record,
-                identity: &entity
-            },
-            &anchor,
-            &patch,
-            &semantic,
-            &story
-        )
-        .unwrap(),
-        stored
-    );
-    assert_eq!(
-        project_interval_fact(
-            SemanticBinding {
-                record: &record,
-                identity: &entity
-            },
-            &anchor,
-            &patch,
-            &semantic,
-            &stored,
-            &story,
-            "2026-09-15"
-        )
-        .unwrap()
-        .unwrap()
-        .value,
-        json!(110)
-    );
-    assert!(project_interval_fact(
-        SemanticBinding {
-            record: &record,
-            identity: &entity
-        },
-        &anchor,
-        &patch,
-        &semantic,
-        &stored,
-        &story,
-        "2026-08-31"
-    )
-    .unwrap()
-    .is_none());
-    story[1].new_value = json!(121);
-    assert!(project_interval_fact(
-        SemanticBinding {
-            record: &record,
-            identity: &entity
-        },
-        &anchor,
-        &patch,
-        &semantic,
-        &stored,
-        &story,
-        "2026-09-15"
-    )
-    .is_err());
-    patch.predicate = "file.json_value".into();
-    assert!(derive_patch_intervals(
-        SemanticBinding {
-            record: &record,
-            identity: &entity
-        },
-        &anchor,
-        &patch,
-        &semantic,
-        &story
-    )
-    .is_err());
 }
 
 struct ReceiptFixture {

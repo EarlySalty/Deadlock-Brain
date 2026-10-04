@@ -493,13 +493,42 @@ pub fn verify_git_document_receipt(
     Ok(profile)
 }
 
+fn matching_entity(
+    entity: &EntityIdentity,
+    change: &brain_contracts::entity_profile::PatchStoryChange,
+) -> bool {
+    let matches = |name: Option<&str>| {
+        name.is_some_and(|name| {
+            std::iter::once(&entity.name)
+                .chain(&entity.aliases)
+                .any(|candidate| candidate.to_lowercase() == name.to_lowercase())
+        })
+    };
+    match entity.kind {
+        brain_contracts::entity_profile::EntityKind::Hero => {
+            change.entity_type.as_deref() == Some("hero")
+                && change.ability_name.is_none()
+                && matches(change.entity_name.as_deref())
+        }
+        brain_contracts::entity_profile::EntityKind::Item => {
+            change.entity_type.as_deref() == Some("item") && matches(change.entity_name.as_deref())
+        }
+        brain_contracts::entity_profile::EntityKind::Ability => {
+            (change.entity_type.as_deref() == Some("ability")
+                && matches(change.entity_name.as_deref()))
+                || (change.entity_type.as_deref() == Some("hero")
+                    && matches(change.ability_name.as_deref()))
+        }
+    }
+}
+
 pub fn consumer_patch_story(
     entity: &EntityIdentity,
     story: &[brain_contracts::entity_profile::PatchStoryChange],
 ) -> Result<Vec<brain_contracts::entity_profile::PatchStoryChange>> {
     let mut result = Vec::new();
     for change in story.iter().filter(|change| {
-        super::intervals::matching_entity(entity, change)
+        matching_entity(entity, change)
             || entity.kind == brain_contracts::entity_profile::EntityKind::Hero
                 && change.entity_type.as_deref() == Some("hero")
                 && change.entity_name.as_ref().is_some_and(|name| {
