@@ -103,6 +103,7 @@ fn query(text: &str) -> Query {
 
 fn context() -> AuthorizedContext {
     AuthorizedContext {
+        discord: None,
         request_deadline: None,
         principal: Principal {
             actor_id: "tester".into(),
@@ -561,10 +562,22 @@ async fn normal_texts_read_live_entity_facts_counts_and_patch_history() {
     };
     store.publish_release(&release).await.unwrap();
     let reader = tokio::task::block_in_place(|| {
-        LocalPgReader::new(&socket, 55440, "brain_core_test", "postgres").unwrap()
+        LocalPgReader::new(&socket, 55440, "brain_core_test", "postgres")
+            .unwrap()
+            .with_entity_profile_access(
+                || Err(PortError::Unavailable("Fixture ohne Gitdokument".into())),
+                |_| Err(PortError::Unavailable("Fixture ohne Gitdokument".into())),
+            )
+            .with_entity_profile_model_consumers(BTreeSet::from([(
+                "tester".into(),
+                "fixture".into(),
+            )]))
+            .unwrap()
     });
     let retriever = ReleaseRetriever::new(reader.clone(), 10);
-    let context = context();
+    let mut context = context();
+    context.principal.scopes = BTreeSet::from(["bot.public".into()]);
+    context.principal.provider_egress = BTreeSet::from(["public".into()]);
     for (text, expected) in [
         (
             "Welche Abklingzeit ist für den Helden Wächter gespeichert?",
@@ -967,8 +980,24 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
                 },
             )
     });
+    let mut context = context();
+    context.principal.scopes = BTreeSet::from(["bot.public".into()]);
+    context.principal.provider_egress = BTreeSet::from(["public".into()]);
+    let mut denied_query = query("Wie viel MaxHealth ist für Wächter gespeichert?");
+    denied_query.patch = None;
+    let disabled = ReleaseRetriever::new(reader.clone(), 10);
+    let denied =
+        tokio::task::block_in_place(|| disabled.retrieve(&denied_query, &context)).unwrap();
+    assert!(denied
+        .iter()
+        .all(|item| !item.evidence_id.starts_with("entity-profile:")));
+    let reader = reader
+        .with_entity_profile_model_consumers(BTreeSet::from([(
+            context.principal.actor_id.clone(),
+            context.principal.channel.clone(),
+        )]))
+        .unwrap();
     let retriever = ReleaseRetriever::new(reader.clone(), 10);
-    let context = context();
     for (text, expected) in [
         ("Wie viel MaxHealth ist für Wächter gespeichert?", "830"),
         ("Was macht Extended Magazine?", "30"),
@@ -999,6 +1028,37 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
             retriever.validate_evidence(&query, &context, &evidence, true)
         })
         .unwrap();
+        for (actor, channel) in [("anderer", "fixture"), ("tester", "anderer")] {
+            let mut denied_context = context.clone();
+            denied_context.principal.actor_id = actor.into();
+            denied_context.principal.channel = channel.into();
+            let denied =
+                tokio::task::block_in_place(|| retriever.retrieve(&query, &denied_context))
+                    .unwrap();
+            assert!(denied
+                .iter()
+                .all(|item| !item.evidence_id.starts_with("entity-profile:")));
+            assert!(tokio::task::block_in_place(|| retriever.validate_evidence(
+                &query,
+                &denied_context,
+                &evidence,
+                true
+            ))
+            .is_err());
+        }
+        let disabled_reader = reader
+            .clone()
+            .with_entity_profile_model_consumers(BTreeSet::new())
+            .unwrap();
+        let disabled = ReleaseRetriever::new(disabled_reader, 10);
+        assert!(tokio::task::block_in_place(
+            || disabled.validate_evidence(&query, &context, &evidence, true)
+        )
+        .is_err());
+        assert!(tokio::task::block_in_place(
+            || disabled.validate_publication(&query, &context, &evidence)
+        )
+        .is_err());
     }
     let mut count = query("Wie viele Helden sind gespeichert?");
     count.patch = None;

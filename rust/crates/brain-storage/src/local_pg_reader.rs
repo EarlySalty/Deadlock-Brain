@@ -699,6 +699,9 @@ impl SnapshotReadPort for LocalPgReader {
             entity_profile::{EntityIdentity, EntityProfileFact},
             SourceRecordV2,
         };
+        if !self.permits_entity_profile_model_context(&context.principal) {
+            return Ok(None);
+        }
         let deadline = context.request_deadline.as_ref();
         request_check(deadline)?;
         let mut client = self.pool.acquire_until(deadline)?;
