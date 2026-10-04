@@ -25,6 +25,7 @@ use sqlx::{
 mod chunk_index;
 mod contract_port;
 mod domain_port;
+mod entity_profile_port;
 mod forum;
 mod game_wiki;
 pub mod html_projection;

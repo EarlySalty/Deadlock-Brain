@@ -278,6 +278,21 @@ impl<S: SnapshotReadPort> RetrievalPort for ReleaseRetriever<S> {
         if crate::domain_port::handles(query) {
             return crate::domain_port::retrieve(&self.store, query, context, false);
         }
+        let profiles = crate::entity_profile_port::retrieve(
+            &self.store,
+            query,
+            context,
+            false,
+            brain_contracts::store::AnswerPurpose::InternalRead,
+        )?;
+        if let Some(profiles) = profiles {
+            return Ok(profiles);
+        }
+        if query.text.to_lowercase().contains("patch")
+            && crate::entity_profile_port::patch_date(&query.text)?.is_some()
+        {
+            return Ok(Vec::new());
+        }
         let index = self.index(query, context)?;
         if query.profile == brain_contracts::AnswerProfile::Fact
             && self.ambiguous_fact_owner(&index, query, context)?
@@ -343,6 +358,24 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
         check_context(query, context)?;
         if evidence.is_empty() || evidence.len() > 100 {
             return Err(denied("invalid evidence pack size"));
+        }
+        if evidence
+            .iter()
+            .any(|item| item.evidence_id.starts_with("entity-profile:"))
+        {
+            let canonical = crate::entity_profile_port::retrieve(
+                &self.store,
+                query,
+                context,
+                for_provider,
+                purpose,
+            )?;
+            if canonical.as_deref().unwrap_or_default() != evidence {
+                return Err(denied(
+                    "Entitätsbelege haben sich geändert oder sind nicht freigegeben",
+                ));
+            }
+            return Ok(());
         }
         if crate::domain_port::handles(query) {
             let canonical =
