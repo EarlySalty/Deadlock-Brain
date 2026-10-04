@@ -60,7 +60,7 @@ struct BotInfo {
 }
 
 fn evidence(facts: Facts) -> Result<Evidence, PortError> {
-    if facts.schema != SOURCE.replace("public-live", "public-facts")
+    if facts.schema != "discord.public-facts.v1"
         || facts.audience != "everyone"
         || facts.cache_seconds > 60
         || facts.cache_seconds == 0
@@ -96,10 +96,7 @@ fn evidence(facts: Facts) -> Result<Evidence, PortError> {
     {
         return Err(denied());
     }
-    let mut lines = vec![format!(
-        "Öffentliche Discord-Live-Fakten, Stand {}.",
-        facts.observed_at
-    )];
+    let mut lines = vec!["Aktuelle öffentliche Discord-Kanäle und Voice-Anzahlen.".to_owned()];
     for c in &facts.channels {
         let kind = match c.kind {
             0 => "Textkanal",
@@ -177,7 +174,7 @@ impl DiscordLive {
     fn read(&self, context: &AuthorizedContext) -> Result<Evidence, PortError> {
         context.check_deadline()?;
         let mut response = self.http.post(ENDPOINT).bearer_auth(&self.token)
-            .timeout(Duration::from_millis(context.deadline_ms.min(15_000)))
+            .timeout(context.remaining_time()?.min(Duration::from_secs(15)))
             .json(&json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"public_server_facts","arguments":{}}}))
             .send().map_err(|_| unavailable())?.error_for_status().map_err(|_| unavailable())?;
         let mut bytes = Vec::new();
@@ -220,7 +217,7 @@ fn relevant(query: &Query) -> bool {
 fn allowed(query: &Query, context: &AuthorizedContext, provider: bool) -> bool {
     query.requested_scopes.contains("bot.public")
         && context.principal.scopes.contains("bot.public")
-        && (!provider || context.principal.provider_egress.contains("bot.public"))
+        && (!provider || context.principal.provider_egress.contains("public"))
 }
 
 pub(crate) struct DiscordRetriever<R> {
@@ -313,6 +310,67 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct Stored;
+    impl RetrievalPort for Stored {
+        fn retrieve(&self, _: &Query, _: &AuthorizedContext) -> Result<Vec<Evidence>, PortError> {
+            Ok(Vec::new())
+        }
+        fn validate_publication(
+            &self,
+            _: &Query,
+            _: &AuthorizedContext,
+            items: &[Evidence],
+        ) -> Result<(), PortError> {
+            if items.is_empty() {
+                Ok(())
+            } else {
+                Err(denied())
+            }
+        }
+    }
+
+    #[test]
+    fn statische_sperre_und_providerfreigabe_bleiben_verbindlich() {
+        let query: Query = serde_json::from_value(json!({"request_id":"r","conversation_id":"c","text":"Welche Lanes gibt es?","requested_scopes":["bot.public"]})).unwrap();
+        let context = AuthorizedContext {
+            principal: brain_contracts::Principal {
+                actor_id: "bot".into(),
+                channel: "test".into(),
+                scopes: BTreeSet::from(["bot.public".into()]),
+                provider_egress: BTreeSet::new(),
+            },
+            conversation_id: "c".into(),
+            knowledge_release: "release".into(),
+            deadline_ms: 1000,
+            budget: brain_contracts::Budget::default(),
+            request_deadline: None,
+        };
+        assert!(allowed(&query, &context, false));
+        assert!(!allowed(&query, &context, true));
+        let adapter = DiscordRetriever::new(Stored, None);
+        let mut item = Evidence {
+            evidence_id: "e".into(),
+            source_id: "docs".into(),
+            logical_id: "l".into(),
+            revision: 1,
+            kind: EvidenceKind::Prose,
+            content: "Lane".into(),
+            citation: "Discord".into(),
+            visibility: SourceVisibility::Public,
+            allowed_scopes: BTreeSet::from(["bot.public".into()]),
+            score: 1.0,
+            provenance: None,
+            patch: None,
+        };
+        assert!(adapter
+            .validate_publication(&query, &context, &[item.clone()])
+            .is_err());
+        item.source_id = SOURCE.into();
+        assert!(adapter
+            .validate_publication(&query, &context, &[item])
+            .is_err());
+    }
     #[test]
     fn private_felder_und_falsche_zulassung_werden_verworfen() {
         let public = json!({"schema":"discord.public-facts.v1","guild_id":"1","observed_at":"jetzt","cache_seconds":60,"audience":"everyone","channels":[{"id":"2","name":"Lane","type":2,"topic":null,"position":0,"parent_id":null}],"voice_counts":[{"channel_id":"2","count":3}],"bot_infos":[]});
