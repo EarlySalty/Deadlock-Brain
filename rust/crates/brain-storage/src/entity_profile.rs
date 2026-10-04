@@ -107,10 +107,14 @@ pub fn validity_contains(validity: &PatchValidity, patch: &str) -> bool {
         PatchValidity::Known {
             from_patch,
             to_patch_exclusive,
+            through_patch_inclusive,
             ..
         } => {
             from_patch.as_str() <= patch
                 && to_patch_exclusive.as_deref().is_none_or(|end| patch < end)
+                && through_patch_inclusive
+                    .as_deref()
+                    .is_none_or(|end| patch <= end)
         }
     }
 }

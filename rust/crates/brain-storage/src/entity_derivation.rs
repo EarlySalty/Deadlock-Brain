@@ -71,6 +71,71 @@ pub fn receipt_sha256(receipt: &GitDocumentReceipt) -> Result<String> {
     Ok(sha256(&serde_json::to_vec(receipt)?))
 }
 
+pub fn public_qualifier_text(value: &Value) -> Option<String> {
+    match value {
+        Value::Number(number) => Some(number.to_string()),
+        Value::String(text) => {
+            let characters: Vec<_> = text.chars().collect();
+            (!text.trim().is_empty()
+                && !text.contains(['/', '\\', ':'])
+                && !text.contains("game_file")
+                && !characters.iter().any(|character| character.is_control())
+                && characters.iter().enumerate().all(|(index, character)| {
+                    *character != '.'
+                        || index > 0
+                            && characters[index - 1].is_ascii_digit()
+                            && characters.get(index + 1).is_some_and(char::is_ascii_digit)
+                }))
+            .then(|| text.clone())
+        }
+        _ => None,
+    }
+}
+
+pub fn public_statement_qualifiers(qualifiers: &serde_json::Map<String, Value>) -> bool {
+    !qualifiers.contains_key("semantic_scope")
+        && ["unit", "level", "variant", "condition", "ability_name"]
+            .iter()
+            .all(|key| {
+                qualifiers
+                    .get(*key)
+                    .is_none_or(|value| value.is_null() || public_qualifier_text(value).is_some())
+            })
+}
+
+pub(crate) fn consumer_patch_statement(
+    change: &brain_contracts::entity_profile::PatchStoryChange,
+) -> Result<brain_contracts::entity_profile::PatchStoryChange> {
+    let mut clean = change.clone();
+    if !public_statement_qualifiers(&clean.additional_fields) {
+        clean.patch_title = None;
+        clean.entity_name = None;
+        clean.ability_name = None;
+        clean.stat_name = None;
+        clean.old_value = Value::Null;
+        clean.new_value = Value::Null;
+        clean.change_type = None;
+        clean.numeric_direction = None;
+        clean.confidence = Value::Null;
+        clean.provenance.source_url = None;
+        clean.provenance.evidence_ref = format!(
+            "brain.patch_changes:{}",
+            sha256(&serde_json::to_vec(change)?)
+        );
+        clean.original_line.text = None;
+        clean.original_line.redistribution_allowed = false;
+        clean.additional_fields.clear();
+        clean.additional_fields.insert(
+            "condition".into(),
+            Value::String(
+                "Eine belegte öffentliche Beschreibung der nötigen Bedingung oder Variante fehlt"
+                    .into(),
+            ),
+        );
+    }
+    Ok(clean)
+}
+
 pub fn derived_policy() -> SourcePolicy {
     SourcePolicy {
         visibility: SourceVisibility::Public,
@@ -283,18 +348,20 @@ pub fn derive_git_profile(
         ] {
             fact.qualifiers.remove(key);
         }
-        if fact.qualifiers.iter().any(|(key, value)| {
-            !matches!(
-                key.as_str(),
-                "level" | "variant" | "condition" | "ability_name" | "numeric_representation"
-            ) || match value {
-                Value::String(text) => {
-                    text.contains(['/', '\\', ':']) || text.chars().any(char::is_control)
+        if !public_statement_qualifiers(&fact.qualifiers)
+            || fact.qualifiers.iter().any(|(key, value)| {
+                !matches!(
+                    key.as_str(),
+                    "level" | "variant" | "condition" | "ability_name" | "numeric_representation"
+                ) || match value {
+                    Value::String(text) => {
+                        text.contains(['/', '\\', ':']) || text.chars().any(char::is_control)
+                    }
+                    Value::Number(_) => false,
+                    _ => true,
                 }
-                Value::Number(_) => false,
-                _ => true,
-            }
-        }) {
+            })
+        {
             unknowns.insert(format!(
                 "Für {} fehlt eine belegte öffentliche Beschreibung der zusätzlichen Bedingungen",
                 fact.predicate
@@ -417,6 +484,30 @@ pub fn consumer_patch_story(
             return Err(invalid("Patch-Story besitzt keinen tatsächlichen DB-Beleg"));
         }
         let mut clean = change.clone();
+        for key in ["variant", "condition", "ability_name"] {
+            if clean
+                .additional_fields
+                .get(key)
+                .and_then(Value::as_str)
+                .is_some_and(|text| {
+                    entity
+                        .aliases
+                        .iter()
+                        .any(|alias| alias.eq_ignore_ascii_case(text))
+                })
+            {
+                if key == "ability_name" {
+                    clean
+                        .additional_fields
+                        .insert(key.into(), Value::String(entity.name.clone()));
+                } else {
+                    clean
+                        .additional_fields
+                        .insert("semantic_scope".into(), Value::Bool(true));
+                }
+            }
+        }
+        let mut clean = consumer_patch_statement(&clean)?;
         clean.provenance.evidence_ref = format!(
             "brain.patch_changes:{}",
             sha256(&serde_json::to_vec(change)?)
@@ -462,15 +553,7 @@ pub fn consumer_patch_story(
             matches!(
                 key.as_str(),
                 "unit" | "level" | "variant" | "condition" | "ability_name"
-            ) && match value {
-                Value::String(text) => {
-                    !text.is_empty()
-                        && !text.contains(['/', '\\', ':'])
-                        && !text.chars().any(char::is_control)
-                }
-                Value::Number(_) => true,
-                _ => false,
-            }
+            ) && public_qualifier_text(value).is_some()
         });
         if let Some(name) = clean.additional_fields.get_mut("ability_name") {
             if name.as_str().is_some_and(|name| {

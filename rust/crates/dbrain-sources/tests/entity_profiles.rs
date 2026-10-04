@@ -377,8 +377,15 @@ fn validity_is_open_or_exclusive_and_unknown_is_not_backdated() {
     let mut validity = PatchValidity::Known {
         from_patch: "2026-09-16".into(),
         to_patch_exclusive: None,
+        through_patch_inclusive: None,
         evidence_ref: "patch-fixture".into(),
     };
+    let serialized = serde_json::to_value(&validity).unwrap();
+    assert!(serialized.get("through_patch_inclusive").is_none());
+    assert_eq!(
+        serde_json::from_value::<PatchValidity>(serialized).unwrap(),
+        validity
+    );
     assert!(!validity_contains(&validity, "2026-09-15"));
     assert!(validity_contains(&validity, "2026-10-04"));
     if let PatchValidity::Known {
@@ -389,6 +396,17 @@ fn validity_is_open_or_exclusive_and_unknown_is_not_backdated() {
     }
     assert!(validity_contains(&validity, "2026-09-29"));
     assert!(!validity_contains(&validity, "2026-09-30"));
+    if let PatchValidity::Known {
+        to_patch_exclusive,
+        through_patch_inclusive,
+        ..
+    } = &mut validity
+    {
+        *to_patch_exclusive = None;
+        *through_patch_inclusive = Some("2026-09-30".into());
+    }
+    assert!(validity_contains(&validity, "2026-09-30"));
+    assert!(!validity_contains(&validity, "2026-10-01"));
     assert!(!validity_contains(
         &PatchValidity::Unknown {
             reason: "fehlt".into()
