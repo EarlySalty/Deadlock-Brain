@@ -530,8 +530,9 @@ impl SnapshotReadPort for LocalPgReader {
         let mut authorized_entity = None;
         for row in rows {
             request_check(deadline)?;
-            let fact: EntityProfileFact = serde_json::from_value(row.try_get(0).map_err(error)?)
-                .map_err(|_| invalid("Faktenbeleg ist ungültig"))?;
+            let encoded: String = row.try_get(0).map_err(error)?;
+            let fact: EntityProfileFact =
+                serde_json::from_str(&encoded).map_err(|_| invalid("Faktenbeleg ist ungültig"))?;
             let record: SourceRecordV2 = serde_json::from_value(row.try_get(1).map_err(error)?)
                 .map_err(|_| invalid("Faktenquelle ist ungültig"))?;
             let head: SourceRecordV2 = serde_json::from_value(row.try_get(2).map_err(error)?)
