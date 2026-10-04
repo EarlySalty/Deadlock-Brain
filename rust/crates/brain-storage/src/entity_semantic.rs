@@ -1,7 +1,7 @@
 use super::{invalid, project_entity_facts};
 use crate::{PgStore, Result};
 use brain_contracts::{
-    entity_profile::{EntityIdentity, EntityProfileFact},
+    entity_profile::{EntityIdentity, EntityProfileFact, ProfileSourceKind},
     SourceRecordV2,
 };
 use serde::{Deserialize, Serialize};
@@ -246,21 +246,16 @@ impl PgStore {
         entity_key: &str,
         record: &SourceRecordV2,
     ) -> Result<Vec<super::derivation::StoredGitBinding>> {
-        let document: Value = serde_json::from_str(
-            record
-                .metadata
-                .get(crate::source_versions::DOCUMENT_METADATA_KEY)
-                .ok_or_else(|| invalid("Originaldokument fehlt"))?,
-        )?;
-        if document["source_kind"] != "game_file" {
-            return Ok(Vec::new());
-        }
         let revision =
             i64::try_from(record.revision).map_err(|_| invalid("Revision ist zu groß"))?;
         let rows: Vec<StoredGitBindingRow> = sqlx::query_as("SELECT f.fact_json,f.binding_identity_json,s.relative_pointer,s.semantic_predicate,s.semantic_qualifiers_json,s.semantic_unit FROM brain.entity_profile_facts_v1 f LEFT JOIN brain.entity_semantic_projections_v1 s USING(entity_key,source_id,logical_id,revision,fact_id) WHERE f.entity_key=$1 AND f.source_id=$2 AND f.logical_id=$3 AND f.revision=$4 ORDER BY f.fact_id")
             .bind(entity_key).bind(&record.source_id).bind(&record.logical_id).bind(revision).fetch_all(&self.pool).await?;
         let mut bindings = Vec::new();
         for (fact, identity, pointer, predicate, qualifiers, unit) in rows {
+            let original_fact: EntityProfileFact = serde_json::from_str(&fact)?;
+            if original_fact.provenance.source_kind != ProfileSourceKind::GameFile {
+                continue;
+            }
             let semantic_projection = match (pointer, predicate, qualifiers) {
                 (Some(relative_pointer), Some(predicate), Some(qualifiers)) => {
                     Some(SemanticProjection {
@@ -277,10 +272,22 @@ impl PgStore {
                 source_id: record.source_id.clone(),
                 logical_id: record.logical_id.clone(),
                 store_revision: record.revision,
-                original_fact: serde_json::from_str(&fact)?,
+                original_fact,
                 binding_identity: serde_json::from_value(identity)?,
                 semantic_projection,
             });
+        }
+        if bindings.is_empty() {
+            return Ok(Vec::new());
+        }
+        let document: Value = serde_json::from_str(
+            record
+                .metadata
+                .get(crate::source_versions::DOCUMENT_METADATA_KEY)
+                .ok_or_else(|| invalid("Originaldokument fehlt"))?,
+        )?;
+        if document["source_kind"] != "game_file" {
+            return Ok(Vec::new());
         }
         Ok(bindings)
     }
