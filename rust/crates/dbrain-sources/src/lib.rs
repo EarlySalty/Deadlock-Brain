@@ -9,6 +9,7 @@ pub mod analytics_runtime;
 pub mod assets_api;
 pub mod deadlock_api;
 pub mod deadlock_data;
+pub mod entity_binding;
 pub mod error;
 pub mod external;
 pub mod forum;
