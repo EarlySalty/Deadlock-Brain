@@ -840,7 +840,45 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
         assert!(shared.facts.contains(&fact));
     }
     original_alias_bindings_drive_history_without_consumer_leaks(&store, &pool).await;
-    unicode_bindings_remain_verifiable_after_import(&store).await;
+    sqlx::raw_sql(
+        "CREATE ROLE brain_ingest LOGIN; CREATE ROLE brain_service; CREATE ROLE brain_readonly",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let grants = include_str!("../../../../ops/brain-postgres/grants.sql")
+        .lines()
+        .filter(|line| !line.starts_with('\\'))
+        .collect::<Vec<_>>()
+        .join("\n");
+    sqlx::raw_sql(&grants).execute(&pool).await.unwrap();
+    sqlx::raw_sql("GRANT SELECT,INSERT,UPDATE ON brain.entity_profile_entities_v1,brain.entity_profile_facts_v1 TO brain_ingest; GRANT SELECT,INSERT ON brain.entity_semantic_projections_v1 TO brain_ingest")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let ingest_pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(4)
+        .connect_with(
+            sqlx::postgres::PgConnectOptions::new_without_pgpass()
+                .host(socket.to_str().unwrap())
+                .port(15446)
+                .username("brain_ingest")
+                .database("postgres"),
+        )
+        .await
+        .unwrap();
+    let raw_rights: (bool, bool, bool, bool) = sqlx::query_as(
+        "SELECT has_table_privilege(current_user,'brain.source_record_revisions','SELECT'),has_table_privilege(current_user,'brain.source_record_revisions','INSERT'),has_table_privilege(current_user,'brain.source_record_revisions','UPDATE'),has_table_privilege(current_user,'brain.source_record_revisions','DELETE')",
+    )
+    .fetch_one(&ingest_pool)
+    .await
+    .unwrap();
+    assert_eq!(raw_rights, (true, true, false, false));
+    unicode_bindings_remain_verifiable_after_import(&brain_storage::PgStore::new(
+        ingest_pool.clone(),
+    ))
+    .await;
+    ingest_pool.close().await;
     pool.close().await;
 }
 

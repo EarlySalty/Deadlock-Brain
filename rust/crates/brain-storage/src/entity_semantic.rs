@@ -367,7 +367,8 @@ impl PgStore {
         let revision =
             i64::try_from(record.revision).map_err(|_| invalid("Revision ist zu groß"))?;
         let mut tx = self.pool.begin().await?;
-        let stored: Value = sqlx::query_scalar("SELECT record_json FROM brain.source_record_revisions WHERE source_id=$1 AND logical_id=$2 AND revision=$3 FOR SHARE")
+        crate::pg_jobs::lock_source(&mut tx, &record.source_id).await?;
+        let stored: Value = sqlx::query_scalar("SELECT record_json FROM brain.source_record_revisions WHERE source_id=$1 AND logical_id=$2 AND revision=$3")
             .bind(&record.source_id).bind(&record.logical_id).bind(revision).fetch_one(&mut *tx).await?;
         if stored != serde_json::to_value(record)? {
             return Err(invalid(
