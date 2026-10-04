@@ -399,6 +399,7 @@ type EntityBlobReader = dyn Fn(
 struct EntityProfileAccess {
     operator: Arc<EntityOperator>,
     blob: Arc<EntityBlobReader>,
+    model_consumers: std::collections::BTreeSet<(String, String)>,
 }
 
 struct EntityDocumentRequest<'a> {
@@ -464,8 +465,49 @@ impl LocalPgReader {
         self.entity_profile_access = Some(EntityProfileAccess {
             operator: Arc::new(operator),
             blob: Arc::new(blob),
+            model_consumers: Default::default(),
         });
         self
+    }
+
+    pub fn with_entity_profile_model_consumers(
+        mut self,
+        consumers: std::collections::BTreeSet<(String, String)>,
+    ) -> Result<Self, PortError> {
+        if consumers.len() > 128
+            || consumers.iter().any(|(actor, channel)| {
+                actor == "second-brain"
+                    || channel == "internal"
+                    || [actor, channel].iter().any(|value| {
+                        value.trim().is_empty()
+                            || value.len() > 128
+                            || value.chars().any(char::is_control)
+                    })
+            })
+        {
+            return Err(invalid("Spielprofil-Modellconsumer ist ungültig"));
+        }
+        if let Some(access) = &mut self.entity_profile_access {
+            access.model_consumers = consumers;
+        } else if !consumers.is_empty() {
+            return Err(invalid("Frischer Spielprofilzugang fehlt"));
+        }
+        Ok(self)
+    }
+
+    pub fn permits_entity_profile_model_context(
+        &self,
+        principal: &brain_contracts::Principal,
+    ) -> bool {
+        use std::collections::BTreeSet;
+        self.entity_profile_access.as_ref().is_some_and(|access| {
+            access
+                .model_consumers
+                .contains(&(principal.actor_id.clone(), principal.channel.clone()))
+                && (principal.scopes == BTreeSet::from(["bot.public".into()])
+                    || principal.scopes == BTreeSet::from(["docs.public".into()]))
+                && principal.provider_egress == BTreeSet::from(["public".into()])
+        })
     }
 
     pub fn entity_profile_operator(

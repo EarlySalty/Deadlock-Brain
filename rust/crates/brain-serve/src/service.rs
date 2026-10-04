@@ -171,6 +171,16 @@ impl Prepared {
             .map_err(|_| Error::ReaderConfig)?;
         let reader =
             entity_profile_reader(reader, config.entity_profile_maintenance_config.as_deref())?;
+        let reader = reader
+            .with_entity_profile_model_consumers(
+                config
+                    .credentials
+                    .iter()
+                    .filter(|credential| credential.entity_profile_model_context)
+                    .map(|credential| (credential.actor_id.clone(), credential.channel.clone()))
+                    .collect(),
+            )
+            .map_err(|_| Error::ReaderConfig)?;
         let mut provider_config = ProviderConfig::new(
             provider_key,
             &config.provider.base_url,
@@ -572,5 +582,56 @@ mod entity_profile_tests {
         let configured = entity_profile_reader(reader, Some(&path)).unwrap();
         assert_eq!(configured.pool_stats().max_connections, maximum);
         assert_eq!(configured.pool_stats().created_connections, 0);
+    }
+
+    #[test]
+    fn model_consumer_binding_is_exact_and_does_not_grant_operator_egress() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("maintenance.json");
+        std::fs::write(
+            &path,
+            br#"{"internal_doc_scopes":["internal_docs"],"game_sources":[]}"#,
+        )
+        .unwrap();
+        let reader = LocalPgReader::new(dir.path(), 5432, "brain_core_test", "postgres").unwrap();
+        let consumers = std::collections::BTreeSet::from([("dl-bot".into(), "discord".into())]);
+        assert!(reader
+            .clone()
+            .with_entity_profile_model_consumers(consumers.clone())
+            .is_err());
+        let configured = entity_profile_reader(reader, Some(&path)).unwrap();
+        let principal = brain_contracts::Principal {
+            actor_id: "dl-bot".into(),
+            channel: "discord".into(),
+            scopes: std::collections::BTreeSet::from(["bot.public".into()]),
+            provider_egress: std::collections::BTreeSet::from(["public".into()]),
+        };
+        assert!(!configured.permits_entity_profile_model_context(&principal));
+        let configured = configured
+            .with_entity_profile_model_consumers(consumers)
+            .unwrap();
+        assert!(configured
+            .clone()
+            .permits_entity_profile_model_context(&principal));
+        for (actor, channel) in [
+            ("docs-client", "docs"),
+            ("dl-bot", "twitch"),
+            ("second-brain", "internal"),
+        ] {
+            let mut other = principal.clone();
+            other.actor_id = actor.into();
+            other.channel = channel.into();
+            assert!(!configured.permits_entity_profile_model_context(&other));
+        }
+        let mut widened = principal;
+        widened.provider_egress.insert("internal".into());
+        assert!(!configured.permits_entity_profile_model_context(&widened));
+        assert_eq!(configured.pool_stats().created_connections, 0);
+        assert!(configured
+            .with_entity_profile_model_consumers(std::collections::BTreeSet::from([(
+                "second-brain".into(),
+                "internal".into()
+            )]))
+            .is_err());
     }
 }
