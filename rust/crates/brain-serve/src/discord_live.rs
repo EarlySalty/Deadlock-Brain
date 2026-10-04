@@ -388,6 +388,7 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
                         self.packing_context(context, &usage)?
                     };
                 let mut candidates = vec![current.clone()];
+                candidates.extend(items.iter().cloned());
                 if !matches!(query.profile, brain_contracts::AnswerProfile::Fact)
                     && brain_contracts::provider_input::grounded_input_ceiling(query, &candidates)
                         > packing_context.budget.max_input_tokens as u64
@@ -416,7 +417,13 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
                         })
                         .collect();
                 }
-                candidates.append(&mut items);
+                candidates.retain(|item| item.source_id == SOURCE);
+                if query.text.to_lowercase().contains("lane") {
+                    items.append(&mut candidates);
+                    candidates = items;
+                } else {
+                    candidates.append(&mut items);
+                }
                 items = dbrain_retrieval::pack(query, &packing_context, candidates)?;
                 let selected_live = items
                     .iter()
@@ -441,12 +448,17 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
         evidence: &[Evidence],
         provider: bool,
     ) -> Result<(), PortError> {
+        if evidence.is_empty() {
+            return Err(denied());
+        }
         let (live, stored): (Vec<_>, Vec<_>) = evidence
             .iter()
             .cloned()
             .partition(|e| e.source_id == SOURCE);
-        self.inner
-            .validate_evidence(query, context, &stored, provider)?;
+        if !stored.is_empty() {
+            self.inner
+                .validate_evidence(query, context, &stored, provider)?;
+        }
         if !live.is_empty() {
             self.validate_live(query, context, &live, provider)?;
         }
@@ -458,11 +470,16 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
         context: &AuthorizedContext,
         evidence: &[Evidence],
     ) -> Result<(), PortError> {
+        if evidence.is_empty() {
+            return Err(denied());
+        }
         let (live, stored): (Vec<_>, Vec<_>) = evidence
             .iter()
             .cloned()
             .partition(|e| e.source_id == SOURCE);
-        self.inner.validate_publication(query, context, &stored)?;
+        if !stored.is_empty() {
+            self.inner.validate_publication(query, context, &stored)?;
+        }
         if !live.is_empty() {
             self.validate_live(query, context, &live, false)?;
         }
@@ -554,6 +571,9 @@ mod tests {
                 json!({"id":"3","name":"Anfänger-Lane","type":2,"topic":null,"position":1,"parent_id":null}),
                 json!({"id":"4","name":"Ranked-Lane","type":2,"topic":null,"position":2,"parent_id":null}),
                 json!({"id":"5","name":"Turnier-Lane","type":2,"topic":null,"position":3,"parent_id":null}),
+                json!({"id":"6","name":"AFK","type":2,"topic":null,"position":4,"parent_id":null}),
+                json!({"id":"7","name":"Team 1","type":2,"topic":null,"position":5,"parent_id":null}),
+                json!({"id":"8","name":"Caster Channel","type":2,"topic":null,"position":6,"parent_id":null}),
             ];
             let panels: Vec<_> = (0..5).map(|i| json!({"channel_id":"2","message_id":format!("{}", 10+i),"text":format!("Öffentliches Panel {i}: {}", "a".repeat(panel_bytes))})).collect();
             let facts = json!({"schema":"discord.public-facts.v1","guild_id":"1","observed_at":Utc::now().to_rfc3339(),"cache_seconds":60,"audience":"everyone","channels":channels,"voice_counts":[{"channel_id":"3","count":3},{"channel_id":"4","count":4},{"channel_id":"5","count":5}],"bot_infos":panels});
@@ -565,7 +585,15 @@ mod tests {
                     let mut item = full_live.clone();
                     item.source_id = "docs.public".into();
                     item.evidence_id = format!("doc-{i}");
-                    item.content = "d".repeat(if i == 0 { 992 } else { 991 });
+                    let prefix = if i == 0 {
+                        "In der Willkommens-DM kannst du Casual, Ranked oder Street Brawl wählen.\n"
+                    } else {
+                        ""
+                    };
+                    item.content = format!(
+                        "{prefix}{}",
+                        "d".repeat((if i == 0 { 992 } else { 991 }) - prefix.len())
+                    );
                     item
                 })
                 .collect();
@@ -611,6 +639,12 @@ mod tests {
                 drop(stream);
                 let (mut stream, _) = listener.accept().unwrap();
                 let payload = request(&mut stream);
+                let instructions = payload["messages"][0]["content"].as_str().unwrap();
+                assert!(instructions.contains("Lanearten aus der gelieferten Doku"));
+                assert!(
+                    instructions.contains("Voice-Kanalliste ist keine Aufzählung von Lanearten")
+                );
+                assert!(!instructions.contains("Casual"));
                 assert_eq!(payload["max_tokens"], 4096);
                 assert!(
                     brain_contracts::provider_input::transport_input_ceiling(&payload, true)
@@ -628,6 +662,13 @@ mod tests {
                     .map(|item| item["id"].clone())
                     .collect();
                 assert!(!ids.is_empty());
+                assert!(supplied["evidence"].as_array().unwrap().iter().any(|item| {
+                    item["id"] == "doc-0"
+                        && item["content"]
+                            .as_str()
+                            .unwrap()
+                            .contains("Casual, Ranked oder Street Brawl")
+                }));
                 let answer = json!({"text":"Es gibt Anfänger-Lane, Ranked-Lane und Turnier-Lane.","cited_evidence_ids":ids});
                 reply(
                     &mut stream,
@@ -643,6 +684,8 @@ mod tests {
             let (items, usage) = adapter.retrieve_with_usage(&query, &context).unwrap();
             assert_eq!(usage.network_rounds, 1);
             assert!(grounded_input_ceiling(&query, &items) <= 8672);
+            assert_eq!(items[0].evidence_id, "doc-0");
+            assert!(items.iter().any(|item| item.evidence_id == "doc-0"));
             let content = items
                 .iter()
                 .map(|item| item.content.as_str())
@@ -801,14 +844,165 @@ mod tests {
             &self,
             _: &Query,
             _: &AuthorizedContext,
-            items: &[Evidence],
+            _: &[Evidence],
         ) -> Result<(), PortError> {
-            if items.is_empty() {
-                Ok(())
-            } else {
-                Err(denied())
+            Err(denied())
+        }
+    }
+
+    #[test]
+    fn reine_live_packs_werden_lokal_und_leere_packs_ablehnend_geprueft() {
+        let query: Query = serde_json::from_value(json!({"request_id":"r","conversation_id":"c","text":"Welche Lanes gibt es?","requested_scopes":["bot.public"]})).unwrap();
+        let context = AuthorizedContext {
+            principal: brain_contracts::Principal {
+                actor_id: "bot".into(),
+                channel: "test".into(),
+                scopes: BTreeSet::from(["bot.public".into()]),
+                provider_egress: BTreeSet::from(["public".into()]),
+            },
+            conversation_id: "c".into(),
+            knowledge_release: "release".into(),
+            deadline_ms: 1000,
+            budget: brain_contracts::Budget::default(),
+            request_deadline: None,
+        };
+        let facts = json!({"schema":"discord.public-facts.v1","guild_id":"1","observed_at":Utc::now().to_rfc3339(),"cache_seconds":60,"audience":"everyone","channels":[],"voice_counts":[],"bot_infos":[]});
+        let (expires, item) = evidence(serde_json::from_value(facts).unwrap()).unwrap();
+        let adapter = DiscordRetriever::new(Stored, None);
+        let items = vec![item.clone()];
+        adapter.observations.lock().unwrap().insert(
+            observation_key(&query, &context).unwrap(),
+            (expires, items.clone()),
+        );
+        for provider in [false, true] {
+            assert!(Stored
+                .validate_evidence(&query, &context, &[], provider)
+                .is_err());
+            assert!(adapter
+                .validate_evidence(&query, &context, &[], provider)
+                .is_err());
+            adapter
+                .validate_evidence(&query, &context, &items, provider)
+                .unwrap();
+        }
+        assert!(adapter.validate_publication(&query, &context, &[]).is_err());
+        adapter
+            .validate_publication(&query, &context, &items)
+            .unwrap();
+        let mut stored = item;
+        stored.source_id = "docs.public".into();
+        let mut mixed = items;
+        mixed.push(stored);
+        for provider in [false, true] {
+            assert!(adapter
+                .validate_evidence(&query, &context, &mixed, provider)
+                .is_err());
+        }
+        assert!(adapter
+            .validate_publication(&query, &context, &mixed)
+            .is_err());
+    }
+
+    #[test]
+    fn historische_live_fragen_erreichen_den_bestehenden_nichts_fall() {
+        use brain_contracts::{AnswerProviderPort, AnswerStatus, ProviderAnswer};
+        use brain_kernel::{AnswerKernelPort, Kernel};
+        use std::{
+            io::{BufRead, BufReader, Write},
+            net::TcpListener,
+        };
+
+        struct KeineHistorie;
+        impl AnswerProviderPort for KeineHistorie {
+            fn answer(
+                &self,
+                query: &Query,
+                _: &AuthorizedContext,
+                items: &[Evidence],
+            ) -> Result<ProviderAnswer, PortError> {
+                assert!(!items.is_empty());
+                assert!(items.iter().all(|item| item.source_id == SOURCE));
+                let messages = brain_contracts::provider_input::grounded_messages(query, items);
+                assert!(messages[0]
+                    .content
+                    .contains("Aktuelle Live-Fakten belegen keinen historischen Zustand"));
+                Ok(ProviderAnswer {
+                    text: String::new(),
+                    cited_evidence_ids: Vec::new(),
+                    usage: Usage {
+                        network_rounds: 1,
+                        ..Usage::default()
+                    },
+                })
             }
         }
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut live = DiscordLive::new("test".into()).unwrap();
+        live.endpoint = format!("http://{}/mcp", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(3)))
+                    .unwrap();
+                let mut reader = BufReader::new(&mut stream);
+                let mut length = 0;
+                loop {
+                    let mut line = String::new();
+                    reader.read_line(&mut line).unwrap();
+                    if line == "\r\n" {
+                        break;
+                    }
+                    if let Some(value) = line.to_lowercase().strip_prefix("content-length:") {
+                        length = value.trim().parse::<usize>().unwrap();
+                    }
+                }
+                reader.read_exact(&mut vec![0; length]).unwrap();
+                let facts = json!({"schema":"discord.public-facts.v1","guild_id":"1","observed_at":Utc::now().to_rfc3339(),"cache_seconds":60,"audience":"everyone","channels":[{"id":"2","name":"Coaching Lane","type":2,"topic":null,"position":0,"parent_id":null}],"voice_counts":[],"bot_infos":[]});
+                let reply = json!({"jsonrpc":"2.0","id":1,"result":{"isError":false,"content":[{"type":"text","text":facts.to_string()}]}}).to_string();
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    reply.len(),
+                    reply
+                )
+                .unwrap();
+            }
+        });
+        let kernel = Kernel::new(
+            DiscordRetriever::new(Stored, Some(Arc::new(live))),
+            KeineHistorie,
+        );
+        let context = AuthorizedContext {
+            principal: brain_contracts::Principal {
+                actor_id: "bot".into(),
+                channel: "test".into(),
+                scopes: BTreeSet::from(["bot.public".into()]),
+                provider_egress: BTreeSet::from(["public".into()]),
+            },
+            conversation_id: "c".into(),
+            knowledge_release: "release".into(),
+            deadline_ms: 10000,
+            budget: brain_contracts::Budget {
+                max_network_rounds: 2,
+                max_input_tokens: 12000,
+                max_output_tokens: 4096,
+                max_cost_micros: 12768,
+            },
+            request_deadline: None,
+        };
+        for date in ["2018", "am 1. Januar 2019"] {
+            let query: Query = serde_json::from_value(json!({"request_id":date,"conversation_id":"c","text":format!("Welche Lanes gab es auf dem Discord-Server {date}?"),"requested_scopes":["bot.public"]})).unwrap();
+            let answer = kernel.answer_for_publication(&query, &context);
+            assert_eq!(answer.status, AnswerStatus::InsufficientEvidence);
+            assert_eq!(
+                answer.text,
+                "Dazu hab ich gerade nichts Genaues, frag am besten direkt im Discord nach."
+            );
+            assert!(answer.citations.is_empty());
+            assert_eq!(answer.usage.network_rounds, 2);
+        }
+        server.join().unwrap();
     }
 
     #[test]
