@@ -12,7 +12,7 @@ fn record() -> brain_contracts::SourceRecordV2 {
         "document_id":"wiki:fixture:page:123","source_locator":"https://example.org/Test","title":"Test","language":"und","revision":"456",
         "observed_at":"2026-10-03T12:00:00Z","content_sha256":sha256_content("Beleg"),"content":"Beleg","evidence_status":"source_statement",
         "license":{"name":"unverified","url":null,"attribution":"Fixture","redistribution_allowed":false},"metadata":{"unknown":"erhalten"},
-        "facts":[{"fact_id":"health","subject":"hero:test","predicate":"health","value":serde_json::from_str::<Value>("1.2345678901234567890123456789e19").unwrap(),"unit":"hp","evidence_status":"extracted_value","source_span":"Test:health","qualifiers":{"condition":"unknown"}}]
+        "facts":[{"fact_id":"health","subject":"hero:test","predicate":"health","value":serde_json::from_str::<Value>("1.2345678901234567890123456789e+19").unwrap(),"unit":"hp","evidence_status":"extracted_value","source_span":"Test:health","qualifiers":{"condition":"unknown"}}]
     });
     let input = validate_knowledge_jsonl_str(&document.to_string()).unwrap();
     let policy: ImportPolicy = serde_json::from_value(json!({"sources":{"fixture":{
@@ -38,7 +38,7 @@ fn values_units_qualifiers_and_rights_remain_lossless() {
     let facts = project_entity_facts(&record(), &["health".into()]).unwrap();
     assert_eq!(
         facts[0].value.to_string(),
-        "1.2345678901234567890123456789e19"
+        "1.2345678901234567890123456789e+19"
     );
     assert_eq!(facts[0].unit.as_deref(), Some("hp"));
     assert_eq!(facts[0].qualifiers["condition"], "unknown");
@@ -203,7 +203,7 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
     let stored: Value = serde_json::from_str(&stored).unwrap();
     assert_eq!(
         stored["value"].to_string(),
-        "1.2345678901234567890123456789e19"
+        "1.2345678901234567890123456789e+19"
     );
     let mut conflict = entity.clone();
     conflict.kind = EntityKind::Item;
