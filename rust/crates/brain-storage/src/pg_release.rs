@@ -104,6 +104,111 @@ async fn imported_release_retry_tx(
 }
 
 impl PgStore {
+    pub async fn persist_entity_document(
+        &self,
+        mut record: SourceRecordV2,
+        receipt_json: &str,
+    ) -> Result<SourceRecordV2, PortError> {
+        use sha2::{Digest, Sha256};
+        record
+            .validate()
+            .map_err(|_| invalid("Steckbriefdatensatz ist ungültig"))?;
+        brain_contracts::source::origin_from_record(&record)
+            .map_err(|_| invalid("Steckbriefherkunft fehlt"))?;
+        let receipt: serde_json::Value = serde_json::from_str(receipt_json)
+            .map_err(|_| invalid("Steckbriefquittung ist ungültig"))?;
+        let document: serde_json::Value = serde_json::from_str(&record.content)
+            .map_err(|_| invalid("Kompakter Steckbrief ist ungültig"))?;
+        let receipt_hash = format!("{:x}", Sha256::digest(receipt_json.as_bytes()));
+        if record.tombstone
+            || record
+                .metadata
+                .get("brain.entity_projection.contract")
+                .map(String::as_str)
+                != Some("git-entity-document-v1")
+            || record
+                .metadata
+                .get("brain.entity_projection.receipt_sha256")
+                != Some(&receipt_hash)
+            || record.content_hash != format!("{:x}", Sha256::digest(record.content.as_bytes()))
+            || receipt["entity_key"].as_str() != Some(record.logical_id.as_str())
+            || receipt["document_sha256"].as_str() != Some(record.content_hash.as_str())
+            || document["entity"]["entity_key"].as_str() != Some(record.logical_id.as_str())
+            || document["contract_version"].as_str()
+                != Some(brain_contracts::entity_profile::ENTITY_PROFILE_VERSION)
+        {
+            return Err(invalid(
+                "Steckbrief und private Quittung widersprechen sich",
+            ));
+        }
+        let stable_receipt = |mut value: serde_json::Value| {
+            if let Some(fields) = value.as_object_mut() {
+                fields.remove("original_release_id");
+            }
+            value
+        };
+        let stable_record = |mut record: SourceRecordV2| {
+            record.revision = 1;
+            record
+                .metadata
+                .remove("brain.entity_projection.receipt_sha256");
+            record
+        };
+        let mut tx = self.pool.begin().await.map_err(database_error)?;
+        lock_source(&mut tx, &record.source_id)
+            .await
+            .map_err(database_error)?;
+        let current: Option<serde_json::Value> = sqlx::query_scalar(
+            "SELECT record_json FROM brain.source_record_heads WHERE source_id=$1 AND logical_id=$2 FOR UPDATE",
+        )
+        .bind(&record.source_id).bind(&record.logical_id)
+        .fetch_optional(&mut *tx).await.map_err(database_error)?;
+        if let Some(current) = current {
+            let current: SourceRecordV2 = serde_json::from_value(current)
+                .map_err(|_| invalid("Gespeicherter Steckbrief ist ungültig"))?;
+            let stored: Option<String> = sqlx::query_scalar(
+                "SELECT receipt_json FROM brain.entity_derived_receipts_v1 WHERE derived_source_id=$1 AND derived_logical_id=$2 AND derived_revision=$3",
+            )
+            .bind(&current.source_id).bind(&current.logical_id).bind(current.revision as i64)
+            .fetch_optional(&mut *tx).await.map_err(database_error)?;
+            let stored = stored.ok_or_else(|| invalid("Private Steckbriefquittung fehlt"))?;
+            if current
+                .metadata
+                .get("brain.entity_projection.receipt_sha256")
+                != Some(&format!("{:x}", Sha256::digest(stored.as_bytes())))
+            {
+                return Err(invalid("Gespeicherte Quittung widerspricht dem Steckbrief"));
+            }
+            let previous: serde_json::Value = serde_json::from_str(&stored)
+                .map_err(|_| invalid("Gespeicherte Steckbriefquittung ist ungültig"))?;
+            if stable_record(current.clone()) == stable_record(record.clone())
+                && stable_receipt(previous) == stable_receipt(receipt)
+            {
+                tx.commit().await.map_err(database_error)?;
+                return Ok(current);
+            }
+        }
+        let maximum: Option<i64> = sqlx::query_scalar(
+            "SELECT max(revision) FROM brain.source_record_revisions WHERE source_id=$1 AND logical_id=$2",
+        )
+        .bind(&record.source_id).bind(&record.logical_id)
+        .fetch_one(&mut *tx).await.map_err(database_error)?;
+        record.revision = maximum
+            .unwrap_or(0)
+            .checked_add(1)
+            .filter(|revision| *revision > 0)
+            .ok_or_else(|| invalid("Steckbriefrevision ist ausgeschöpft"))?
+            as u64;
+        Self::apply_connection(&mut tx, &record)
+            .await
+            .map_err(|_| invalid("Steckbriefspeicherung fehlgeschlagen"))?;
+        sqlx::query("INSERT INTO brain.entity_derived_receipts_v1(derived_source_id,derived_logical_id,derived_revision,receipt_json) VALUES($1,$2,$3,$4)")
+            .bind(&record.source_id).bind(&record.logical_id).bind(record.revision as i64)
+            .bind(receipt_json).execute(&mut *tx).await.map_err(database_error)?;
+        tx.commit().await.map_err(database_error)?;
+        Ok(record)
+    }
+
     pub fn prepare_imported_release(
         base: &CorpusSnapshot,
         sources: &[String],

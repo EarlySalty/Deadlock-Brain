@@ -455,6 +455,174 @@ mod tests {
         pool.close().await;
     }
 
+    #[tokio::test]
+    async fn compact_renderer_document_storage_is_atomic_and_idempotent() {
+        use brain_contracts::{
+            source::{GameValidity, OriginArtifact, SourceIdentity, SourcePolicy, SourceRevision},
+            value::{Observed, UnknownReason},
+            SourceRecordV2, SourceVisibility,
+        };
+        let pg = ScratchPg::start();
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(2)
+            .connect_with(
+                sqlx::postgres::PgConnectOptions::new_without_pgpass()
+                    .host(pg.directory.path().join("socket").to_str().unwrap())
+                    .port(55441)
+                    .username("brain_core_test")
+                    .database("postgres"),
+            )
+            .await
+            .unwrap();
+        let store = brain_storage::PgStore::new(pool.clone());
+        store.migrate_core().await.unwrap();
+        sqlx::raw_sql("CREATE TABLE brain.entity_derived_receipts_v1(derived_source_id text NOT NULL,derived_logical_id text NOT NULL,derived_revision bigint NOT NULL,receipt_json text NOT NULL CHECK(receipt_json NOT LIKE '%sperren%'),PRIMARY KEY(derived_source_id,derived_logical_id,derived_revision),FOREIGN KEY(derived_source_id,derived_logical_id,derived_revision) REFERENCES brain.source_record_revisions(source_id,logical_id,revision))")
+            .execute(&pool).await.unwrap();
+        let mut profile = EntityProfile {
+            contract_version: ENTITY_PROFILE_VERSION.into(),
+            entity: EntityIdentity {
+                entity_key: "hero:fixture".into(),
+                kind: EntityKind::Hero,
+                name: "Fixture".into(),
+                aliases: Vec::new(),
+                identity_evidence: vec!["fixture".into()],
+            },
+            patch: None,
+            source_state: Vec::new(),
+            facts: Vec::new(),
+            context: Vec::new(),
+            conflicts: Vec::new(),
+            patch_story: Vec::new(),
+            unknowns: vec!["Patchstand unbekannt".into()],
+        };
+        let document = |profile: &EntityProfile, original_release_id: &str| {
+            let rendered = crate::entity_profile_render::render_entity_profile(profile).unwrap();
+            let hash = crate::digest(rendered.brain_document.as_bytes());
+            let receipt = serde_json::json!({
+                "contract_version":"git-entity-document-v1",
+                "entity_key":profile.entity.entity_key,
+                "original_release_id":original_release_id,
+                "document_sha256":hash,
+                "fact_pins":[{"fixture":"Private Speicherprobe"}],
+            })
+            .to_string();
+            let policy = SourcePolicy {
+                visibility: SourceVisibility::Public,
+                allowed_scopes: Default::default(),
+                authorization_ref: Observed::known("fixture".into()),
+                license: Observed::unknown(UnknownReason::NotPresent),
+                publication_allowed: true,
+                provider_egress_allowed: false,
+                raw_retention_allowed: false,
+            };
+            let mut record = SourceRecordV2 {
+                source_id: "git-game-facts-derived".into(),
+                logical_id: profile.entity.entity_key.clone(),
+                revision: 1,
+                content_hash: hash.clone(),
+                content: rendered.brain_document,
+                visibility: policy.visibility,
+                allowed_scopes: policy.allowed_scopes.clone(),
+                tombstone: false,
+                valid_from: None,
+                valid_to: None,
+                metadata: std::collections::BTreeMap::from([
+                    (
+                        "brain.entity_projection.contract".into(),
+                        "git-entity-document-v1".into(),
+                    ),
+                    (
+                        "brain.entity_projection.receipt_sha256".into(),
+                        crate::digest(receipt.as_bytes()),
+                    ),
+                ]),
+            };
+            OriginArtifact {
+                identity: SourceIdentity {
+                    source_id: record.source_id.clone(),
+                    logical_id: record.logical_id.clone(),
+                },
+                source_revision: SourceRevision::Api {
+                    api_version: "git-entity-document-v1".into(),
+                    original_revision: Some(hash.clone()),
+                },
+                raw_sha256: hash,
+                locator: "git-game-facts-derived".into(),
+                parser_revision: ENTITY_PROFILE_VERSION.into(),
+                parser_family: "entity-profile-render".into(),
+                schema_version: Observed::known(ENTITY_PROFILE_VERSION.into()),
+                schema_sha256: Observed::unknown(UnknownReason::NotPresent),
+                retrieved_at: Observed::unknown(UnknownReason::NotPresent),
+                source_time: Observed::unknown(UnknownReason::NotPresent),
+                language: Observed::known("de".into()),
+                origin_artifacts: Default::default(),
+                derivation_family: Observed::known("git-entity-document-v1".into()),
+                policy,
+                validity: GameValidity::unknown(),
+            }
+            .bind_record(&mut record)
+            .unwrap();
+            (record, receipt)
+        };
+        let (original, receipt) = document(&profile, "original-r1");
+        let initial = store
+            .persist_entity_document(original.clone(), &receipt)
+            .await
+            .unwrap();
+        assert_eq!(initial.content, original.content);
+        assert_eq!(initial.revision, 1);
+        assert!(initial
+            .metadata
+            .values()
+            .all(|value| !value.contains("Private Speicherprobe")));
+        assert_eq!(
+            store
+                .persist_entity_document(original, &receipt)
+                .await
+                .unwrap(),
+            initial
+        );
+        let (same, refreshed_receipt) = document(&profile, "original-r2");
+        assert_eq!(
+            store
+                .persist_entity_document(same, &refreshed_receipt)
+                .await
+                .unwrap(),
+            initial
+        );
+        profile
+            .unknowns
+            .push("Neuer gespeicherter Quellenhinweis".into());
+        let (changed, changed_receipt) = document(&profile, "original-r2");
+        let updated = store
+            .persist_entity_document(changed, &changed_receipt)
+            .await
+            .unwrap();
+        assert_eq!(updated.revision, 2);
+        assert_ne!(initial.content, updated.content);
+        profile.unknowns.push("Weitere Speicherprobe".into());
+        let (failed, failed_receipt) = document(&profile, "sperren");
+        assert!(store
+            .persist_entity_document(failed, &failed_receipt)
+            .await
+            .is_err());
+        let records: Vec<serde_json::Value> = sqlx::query_scalar("SELECT record_json FROM brain.source_record_revisions WHERE source_id='git-game-facts-derived' ORDER BY revision")
+            .fetch_all(&pool).await.unwrap();
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0]["content"], initial.content);
+        assert_eq!(records[1]["content"], updated.content);
+        let head: i64 = sqlx::query_scalar("SELECT revision FROM brain.source_record_heads WHERE source_id='git-game-facts-derived'")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(head, 2);
+        let receipts: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM brain.entity_derived_receipts_v1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(receipts, 2);
+        pool.close().await;
+    }
+
     #[test]
     fn repeating_profile_preserves_artifacts_and_patch_update_creates_new_outputs() {
         let directory = tempfile::tempdir().unwrap();
