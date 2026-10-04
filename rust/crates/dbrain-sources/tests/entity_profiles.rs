@@ -485,7 +485,6 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
         .await
         .unwrap()
         .is_none());
-    principal.scopes.insert("fixture:extractor".into());
     for (index, record) in extractor_records().into_iter().enumerate() {
         let document: Value = serde_json::from_str(&record.metadata[document_key]).unwrap();
         let ids: Vec<String> = document["facts"]
@@ -523,6 +522,13 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
             ..release.clone()
         };
         store.publish_release(&release).await.unwrap();
+        principal.scopes.clear();
+        assert!(store
+            .read_entity_profile(&identity.entity_key, &release.release_id, &principal, None)
+            .await
+            .unwrap()
+            .is_none());
+        principal.scopes = record.allowed_scopes.clone();
         let actual = store
             .read_entity_profile(&identity.entity_key, &release.release_id, &principal, None)
             .await
