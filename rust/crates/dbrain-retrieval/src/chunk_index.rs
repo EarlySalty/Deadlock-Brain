@@ -278,7 +278,48 @@ impl ChunkIndex {
     }
     pub fn rank(&self, query: &Query, context: &AuthorizedContext) -> Vec<(usize, f64)> {
         let query_words = terms(&query.text);
-        let query_terms: BTreeSet<_> = query_words.iter().cloned().collect();
+        let mut query_terms: BTreeSet<_> = query_words
+            .iter()
+            .filter(|term| {
+                query.profile != AnswerProfile::Explain
+                    || !matches!(
+                        term.as_str(),
+                        "welche"
+                            | "welcher"
+                            | "welches"
+                            | "wie"
+                            | "was"
+                            | "wo"
+                            | "gibt"
+                            | "es"
+                            | "auf"
+                            | "dem"
+                            | "der"
+                            | "die"
+                            | "das"
+                            | "den"
+                            | "ein"
+                            | "eine"
+                            | "und"
+                            | "oder"
+                            | "ist"
+                            | "sind"
+                    )
+            })
+            .cloned()
+            .collect();
+        if query.profile == AnswerProfile::Explain {
+            let singulars: Vec<_> = query_terms
+                .iter()
+                .filter(|term| {
+                    term.len() > 4 && !term.ends_with("ss") && term.chars().all(char::is_alphabetic)
+                })
+                .filter_map(|term| term.strip_suffix('s'))
+                .filter(|term| self.postings.contains_key(*term))
+                .map(str::to_owned)
+                .collect();
+            query_terms.extend(singulars);
+        }
         let fact_documents: Option<BTreeSet<usize>> =
             (query.profile == AnswerProfile::Fact).then(|| {
                 self.fact_name_owners
@@ -311,7 +352,20 @@ impl ChunkIndex {
                 }
                 let tf = frequency as f64;
                 let norm = K1 * (1.0 - B + B * self.lengths[chunk] as f64 / self.average_length);
-                *scores.entry(chunk).or_default() += idf * tf * (K1 + 1.0) / (tf + norm);
+                let record = &self.records[entry.document];
+                let title = record
+                    .metadata
+                    .get("title")
+                    .map(String::as_str)
+                    .unwrap_or_else(|| self.texts[entry.document].lines().next().unwrap_or(""));
+                let title_weight =
+                    if query.profile == AnswerProfile::Explain && terms(title).contains(term) {
+                        2.0
+                    } else {
+                        1.0
+                    };
+                *scores.entry(chunk).or_default() +=
+                    title_weight * idf * tf * (K1 + 1.0) / (tf + norm);
             }
         }
         let mut ranked: Vec<_> = scores.into_iter().collect();

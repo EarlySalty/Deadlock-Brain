@@ -659,3 +659,70 @@ async fn oversized_indivisible_evidence_is_an_explicit_budget_error_not_truncati
         Err(PortError::BudgetExceeded)
     ));
 }
+
+#[tokio::test]
+async fn normal_server_lanes_question_packs_matching_public_documentation() {
+    let documents = [
+        ("public/discord-server/tempvoice-guide.html", "TempVoice — die Anleitung\nÜberblick. TempVoice gibt jeder Gruppe automatisch ihren eigenen Sprachkanal. Diese Anleitung zeigt, wie eine Lane entsteht, was du als Owner steuerst und wie eine Lane wieder endet.\nEine Lane erstellen\nGeh in den sichtbaren Voice-Router. Ohne gespeicherten Standard erstellt der Bot zunächst eine Casual-Lane, zieht dich hinein und macht dich zum Owner. In der einmaligen Willkommens-DM kannst du anschließend Casual, Ranked oder Street Brawl und deine Voreinstellungen wählen. Mit Fertig übernimmst du die Wahl für deine bestehende Lane; es entsteht dadurch keine zweite Lane.\nErreicht dich die Willkommens-DM nicht, nutze die sichtbare Moduswahl im Router-Panel. Der gewählte Modus wird als Standard gespeichert; spätere Router-Beitritte verwenden ihn direkt. Die erste Casual-Lane allein speichert noch keinen Standard.\nDas Lane-Panel\nDeine Lane steuerst du komplett selbst über das sichtbare Lane-Panel. Als Owner kannst du die Lane umbenennen, ein Teilnehmerlimit setzen sowie "),
+        ("public/discord-server/module/voice-lanes.html", "Voice-Lanes (TempVoice)\nÜberblick. Über den Voice-Router bekommst du eine eigene, selbst verwaltete Lane. Diese Seite erklärt, wie sie entsteht, was du als Owner tun kannst und wie Ranked-Lanes funktionieren.\nEigene Lane über den Router\nGeh in den sichtbaren Voice-Router. Ohne gespeicherten Standard erstellt der Bot zunächst eine Casual-Lane, zieht dich hinein und macht dich zum Owner. In der einmaligen Willkommens-DM kannst du anschließend Casual, Ranked oder Street Brawl und deine Voreinstellungen wählen. Mit Fertig übernimmst du die Wahl für deine bestehende Lane; es entsteht dadurch keine zweite Lane.\nErreicht dich die Willkommens-DM nicht, nutze die sichtbare Moduswahl im Router-Panel. Der gewählte Modus wird als Standard gespeichert; spätere Router-Beitritte verwenden ihn direkt. Die erste Casual-Lane allein speichert noch keinen Standard.\nOwner-Funktionen\nÜber das sichtbare Lane-Panel steuerst du deine Lane: umbenennen, ein Teilnehmerlimit setzen sowie Mitglieder kicken, bannen und wieder "),
+        ("public/discord-server/voice-features.html", "Voice-Features\nÜberblick. Die Sprach-Lanes der Community: Wie du über den Router in eine Lane kommst, was du als Owner steuerst, wie Ranked-Lanes funktionieren, was ein Lane-Name anzeigt und wie du optional Feedback gibst.\nVoice-Router und Lanes\nGeh in den sichtbaren Voice-Router. Ohne gespeicherten Standard erstellt der Bot zunächst eine Casual-Lane, zieht dich hinein und macht dich zum Owner. In der einmaligen Willkommens-DM kannst du anschließend Casual, Ranked oder Street Brawl und deine Voreinstellungen wählen. Mit Fertig übernimmst du die Wahl für deine bestehende Lane; es entsteht dadurch keine zweite Lane.\nErreicht dich die Willkommens-DM nicht, nutze die sichtbare Moduswahl im Router-Panel. Der gewählte Modus wird als Standard gespeichert; spätere Router-Beitritte verwenden ihn direkt. Die erste Casual-Lane allein speichert noch keinen Standard.\nDeine Lane steuern\nAls Owner steuerst du deine Lane über das sichtbare Lane-Panel. Du kannst die Lane umbenennen, ein Teilnehmerlimit setzen sowie "),
+        ("public/discord-server/ueber-bot-und-server.html", "Über den Bot und den Server\nKurz: Der Community-Bot unterstützt den Server bei Rollen, Voice-Lanes, Onboarding, Coaching und dem Willkommens-Hub. Für dein Anliegen führt jeweils ein sichtbarer Mitgliedsweg weiter.\nWas der Bot übernimmt\nIm Team-Abschnitt des Willkommens-Hubs ist der Bot als Server-Management sichtbar: Er kümmert sich unter anderem um Rollen, Voice-Lanes, das Onboarding, Coaching-Wege und den Hub selbst. Er wird von der Community laufend weiterentwickelt.\nEin paar Community-Fakten\nDie Deutsche Deadlock Community gibt es seit September 2024.\nDen Server finanziell unterstützen\nWer den Server freiwillig finanziell unterstützen möchte, hat zwei sichtbare Wege: den Discord-Server-Boost direkt in Discord und den sichtbaren Ko-fi-Weg der Community.\nDie Supporter-Rolle auf dem Server bekommst du über einen sichtbaren Ablauf. Die sichtbaren Boost-, Ko-fi- und Supporter-Wege haben jeweils ihre aktuellen sichtbaren Bedingungen und Vorteile; maßgeblich ist der jeweils aktuelle sichtbare "),
+        ("public/discord-server/bots-und-dienste.html", "Bots und Dienste der Deadlock Community\nKurz: Auf dem Server gibt es diese Bots und Dienste: den Community-Bot im Discord, den Steam-Bot, den Twitch-Bot, den Patchnotes-Bot, das Turnierportal und die Website-Portale. Diese Übersicht nennt den Zweck und den sichtbaren Mitgliedsweg jedes Angebots, ohne wechselnde Namen oder nicht sichtbare Funktionen fest zu versprechen. Einen aktuellen Betriebszustand bestätigt sie nicht; bei einem Ausfall führt der sichtbare Menschen-Support weiter.\nCommunity-Bot und Discord-Server\nWas kann die Community alles für dich erledigen? Der Community-Bot unterstützt die sichtbaren Wege für Onboarding und Rollen, Voice-Lanes, Mitspielersuche, Coaching, Scrims und weitere Community-Werkzeuge. Beginne in Willkommen und Kanäle & Rollen; dort findest du die aktuell sichtbaren Bereiche und Einstiege. Von dieser Übersicht gelangst du außerdem zu Steam-Bot, Twitch-Bot, Patchnotes-Bot, Turnierportal und Website-Portalen. Einen kompakten Einstieg bietet Über den Bot und den Server.\n"),
+        ("public/discord-server/module/mitspielersuche-lfg.html", "Benachrichtigungen für passende Gesuche sind optional und selbst wählbar.\nKlassische Textsuche als Alternative\nIst statt des Panels nur ein Textkanal für die Suche sichtbar, nutzt du die klassische Textsuche: Schreib dort eine klare Mitspieler-Suche mit Modus und gewünschter Gruppengröße und warte auf Antworten anderer Mitglieder. Automatische Bot-Vorschläge gibt es nur, wenn diese Suche ausdrücklich aktiviert ist.\nStrukturiertes Ranked-LFG\nBeim strukturierten Ranked-LFG wird ein verifizierter Rang verlangt. Das betrifft nur diesen strukturierten Weg — normale Ranked-Lanes im Voice sind davon getrennt und grundsätzlich offen.\nPraktischer Ablauf: Mitspieler finden · Übersicht: Community-Werkzeuge"),
+        ("public/discord-server/haeufige-probleme.html", "kannst\nBefehle wie /faq müssen auf dem Community-Server ausgeführt werden, nicht in einer DM.\nGibt es schon einen offenen Fragechat, nutze ihn weiter oder beende ihn und starte neu.\nLane-Funktionen setzen voraus, dass du in einer Lane bist beziehungsweise ihr Owner bist.\nMeldet ein angebundener Dienst kurz einen Fehler, versuche die Aktion nach ein paar Sekunden erneut.\nSichtbarer Zustand und sicherer nächster Schritt\n| Was du siehst | Sicherer nächster Schritt\n| /faq wurde außerhalb des Servers benutzt | Den Befehl auf dem Community-Server erneut ausführen.\n| Es gibt bereits einen aktiven Fragechat | Den verlinkten Chat weiterverwenden oder dort Chat beenden nutzen und bei Bedarf neu starten.\n| Der Fragechat ließ sich mit einem gewöhnlichen Fehler nicht erstellen | Später erneut versuchen; bleibt es dabei, den sichtbaren Supportweg nutzen.\n| Die Chat-Anlage wurde ausdrücklich als technisch unsicher gemeldet | Keinen zweiten Chat starten, den sichtbaren Zustand prüfen und ein Ticket öffnen.\n| Der "),
+        ("public/discord-server/custom-games.html", "Custom Games\nÜberblick. Normale Custom Games — also eigene Lobbys ohne Turnier- oder Scrim-Charakter — organisierst du im sichtbaren Custom-Games-Bereich. Zum Treffen dient der zugehörige Voice-Sammelpunkt.\nEin Custom Game organisieren\nEin normales Custom Game organisierst du im sichtbaren Custom-Games-Chat: Dort verabredest du Zeit, Modus und Teilnehmende. Der Bereich ist für spontane eigene Lobbys gedacht; für angemeldete Übungsspiele mit organisierter Lobby nutzt du stattdessen Scrims.\nVoice-Sammelpunkt\nZum gemeinsamen Treffen gibt es einen zugehörigen Voice-Sammelpunkt. Dort findet ihr euch für die eigene Lobby zusammen, bevor es losgeht. Wie Sprach-Lanes allgemein funktionieren, steht in den Voice-Features."),
+        ("public/discord-server/community-tools.html", "einsenden\nGameplay-Clips reichst du über das sichtbare Clip-Panel ein. Ein Klick öffnet zuerst eine Einverständnis-Bestätigung: Du bestätigst, dass du selbst der Ersteller bist oder die Erlaubnis des Erstellers hast. Danach trägst du den vollständigen Web-Link zum Clip, einen Credit beziehungsweise Anzeigenamen und optional etwas Kontext ein; mindestens 1080p sind dabei Voraussetzung, nicht bloß eine Empfehlung. Nach dem Einsenden erlaubst du die freie Verwendung deines Clips; dabei wird dein Credit genannt. Nach dem Absenden bekommst du eine sichtbare Absende-Bestätigung, dass du die Einsendung abgeschickt hast; sie ist aber weder eine Zusage, dass der Clip zugestellt, noch dass er veröffentlicht wird.\nWeitere Gruppen-Werkzeuge\nFür organisierte Spiele gibt es eigene Seiten: Scrims für angemeldete Übungsspiele, Custom Games für eigene Lobbys, Coaching für Trainingsanfragen und Voice-Features für Sprach-Lanes."),
+    ];
+    let records = documents
+        .iter()
+        .map(|(id, content)| {
+            let mut document = record(id, content);
+            document.source_id = "maintenance-docs:public-fixture".into();
+            let escape = |text: &str| {
+                text.replace('&', "&amp;")
+                    .replace('<', "&lt;")
+                    .replace('>', "&gt;")
+            };
+            let (title, body) = content.split_once('\n').unwrap();
+            document.content = format!(
+                "<main><h1>{}</h1><p>{}</p></main>",
+                escape(title),
+                escape(body)
+            );
+            let projection =
+                dbrain_retrieval::html_projection::project_html(&document.content).unwrap();
+            document.content_hash = projection.raw_sha256.clone();
+            projection.bind_metadata(&mut document.metadata);
+            document
+        })
+        .collect();
+    let store = published(records).await;
+    let retriever = ReleaseRetriever::new(store.clone(), 6);
+    let q = query("Welche Lanes gibt es auf dem Discord-Server?");
+    let mut c = context();
+    c.principal.provider_egress.clear();
+    let hits = retriever.retrieve(&q, &c).unwrap();
+    let matches = |hit: &Evidence| hit.content.contains("Casual, Ranked oder Street Brawl");
+    assert!(
+        matches(&hits[0]),
+        "{:?}",
+        hits.iter().map(|hit| &hit.logical_id).collect::<Vec<_>>()
+    );
+    for (id, _) in &documents[..3] {
+        assert!(
+            hits.iter().any(|hit| hit.logical_id == *id && matches(hit)),
+            "{id}"
+        );
+    }
+    retriever.validate_evidence(&q, &c, &hits, false).unwrap();
+    let first = ReleaseRetriever::new(store, 1).retrieve(&q, &c).unwrap();
+    assert!(matches(&first[0]));
+    c.budget.max_input_tokens = grounded_input_ceiling(&q, &first) as u32;
+    let packed = retriever.retrieve(&q, &c).unwrap();
+    assert!(matches(&packed[0]));
+    assert!(grounded_input_ceiling(&q, &packed) <= c.budget.max_input_tokens as u64);
+    assert!(retriever
+        .retrieve(&query("UnbekanntesQuantenportal"), &c)
+        .unwrap()
+        .is_empty());
+}
