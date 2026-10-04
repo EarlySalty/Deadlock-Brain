@@ -294,16 +294,20 @@ impl WikiSpool {
             .ok_or_else(|| SourcesError::invariant("Wiki-Revision fehlt"))?;
         let mut key = sha256(&serde_json::to_vec(&(id, revision))?);
         let mut target = self.records_dir.join(format!("{key}.json"));
+        let mut existing = fs::read(&target);
         if document["metadata"]["content_representation"] == "revision_slot" {
-            if let Some(previous) = self.read_optional_json(&target)? {
+            if let Ok(bytes) = &existing {
+                let previous: Value = serde_json::from_slice(bytes)?;
                 if previous["metadata"]["content_representation"] == "rendered_extract" {
                     validate_document(&previous)?;
+                    sync_parent(&target)?;
                     key = sha256(&serde_json::to_vec(&(id, revision, "revision_slot"))?);
                     target = self.records_dir.join(format!("{key}.json"));
+                    existing = fs::read(&target);
                 }
             }
         }
-        match fs::read(&target) {
+        match existing {
             Ok(bytes) => {
                 let previous: Value = serde_json::from_slice(&bytes)?;
                 validate_document(&previous)?;
@@ -566,7 +570,10 @@ impl WikiSpool {
                 {
                     document["revision"] = json!(format!(
                         "rendered_extract:{}:{}",
-                        document["revision"].as_str().unwrap_or("unknown"),
+                        document["metadata"]["revision_id"]
+                            .as_i64()
+                            .map(|id| id.to_string())
+                            .unwrap_or_else(|| "unknown".into()),
                         document["content_sha256"].as_str().unwrap_or_default()
                     ));
                 }

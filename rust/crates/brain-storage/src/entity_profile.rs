@@ -272,11 +272,20 @@ impl PgStore {
         let mut facts = Vec::new();
         let mut historical_unknown = false;
         for source in visible {
+            let original = snapshot
+                .revisions
+                .iter()
+                .find(|original| {
+                    original.source_id == source.source_id
+                        && original.logical_id == source.logical_id
+                        && original.revision == source.revision
+                })
+                .ok_or_else(|| invalid("Gespeicherte Quellrevision fehlt"))?;
             let values: Vec<String> = sqlx::query_scalar("SELECT fact_json FROM brain.entity_profile_facts_v1 WHERE entity_key=$1 AND source_id=$2 AND logical_id=$3 AND revision=$4 ORDER BY fact_id")
                 .bind(entity_key).bind(&source.source_id).bind(&source.logical_id).bind(source.revision as i64).fetch_all(&self.pool).await?;
             for value in values {
                 let fact: EntityProfileFact = serde_json::from_str(&value)?;
-                if project_entity_facts(&source, std::slice::from_ref(&fact.fact_id))?[0] != fact {
+                if project_entity_facts(original, std::slice::from_ref(&fact.fact_id))?[0] != fact {
                     return Err(invalid("Fakt und freigegebene Quelle widersprechen sich"));
                 }
                 if let Some(patch) = patch {
