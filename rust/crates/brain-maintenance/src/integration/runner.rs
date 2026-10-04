@@ -40,7 +40,10 @@ pub fn require_operator_config(config_path: &Path) -> Result<u32> {
     Ok(uid)
 }
 
-fn local_operator_principal(uid: u32, config_path: &Path) -> Result<brain_contracts::Principal> {
+pub fn local_operator_principal(
+    uid: u32,
+    config_path: &Path,
+) -> Result<brain_contracts::Principal> {
     let config = load_maintenance(config_path)?;
     Ok(brain_contracts::Principal {
         actor_id: format!("unix:{uid}"),
@@ -732,17 +735,10 @@ impl Runner {
         }
         let serve = brain_serve::Config::load(&self.runtime.serve_config)?;
         let release = super::activation::ActivationTarget::SecondBrainInternal.release(&serve)?;
-        let credential = serve
-            .credentials
-            .iter()
-            .find(|grant| grant.actor_id == "second-brain" && grant.channel == "internal")
-            .context("entity_profile_internal_grant")?;
-        let principal = brain_contracts::Principal {
-            actor_id: credential.actor_id.clone(),
-            channel: credential.channel.clone(),
-            scopes: credential.scopes.clone(),
-            provider_egress: credential.provider_egress.clone(),
-        };
+        let principal = local_operator_principal(
+            require_operator_config(&self.runtime.maintenance_config)?,
+            &self.runtime.maintenance_config,
+        )?;
         let keys: Vec<String> = sqlx::query_scalar(
             "SELECT entity_key FROM brain.entity_profile_entities_v1 ORDER BY entity_key",
         )

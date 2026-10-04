@@ -405,22 +405,14 @@ async fn check_entity_profile_sources(
     runtime: &RuntimeConfig,
     candidate: &CorpusSnapshot,
     allowed: &BTreeSet<String>,
-    serve: &brain_serve::Config,
 ) -> Result<()> {
     use dbrain_sources::{knowledge_contract, knowledge_import};
     let config =
         brain_maintenance::integration::runner::load_maintenance(&runtime.maintenance_config)?;
-    let credential = serve
-        .credentials
-        .iter()
-        .find(|grant| grant.actor_id == "second-brain" && grant.channel == "internal")
-        .ok_or_else(|| anyhow::anyhow!("entity_profile_internal_grant"))?;
-    let principal = brain_contracts::Principal {
-        actor_id: credential.actor_id.clone(),
-        channel: credential.channel.clone(),
-        scopes: credential.scopes.clone(),
-        provider_egress: credential.provider_egress.clone(),
-    };
+    let principal = brain_maintenance::integration::runner::local_operator_principal(
+        require_operator_config(&runtime.maintenance_config)?,
+        &runtime.maintenance_config,
+    )?;
     let visible = candidate.authorized(&principal, false)?;
     for id in allowed {
         let matching: Vec<_> = runtime
@@ -745,7 +737,7 @@ async fn run(cli: &Cli) -> Result<Report> {
     check_transition(&base.release, &candidate.release, &allowed)?;
     check_rights(&base, &candidate, &allowed, cli.target)?;
     if cli.target == Target::EntityProfilesInternal {
-        check_entity_profile_sources(&runtime, &candidate, &allowed, &serve).await?;
+        check_entity_profile_sources(&runtime, &candidate, &allowed).await?;
     }
     let prior = artifacts.call_receipt(&identity)?;
     let mut prepared = if let Some(bytes) = prior {
@@ -1353,7 +1345,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn raw_review_sources_cannot_expand_the_normal_consumer() {
+    async fn local_operator_verifies_raw_sources_without_expanding_the_consumer() {
         use dbrain_sources::{game_files, knowledge_import};
         let dir = tempfile::tempdir().unwrap();
         let repo = dir.path().join("repo");
@@ -1437,6 +1429,8 @@ mod tests {
             "id":"game-fixture", "path":repo, "origin":"https://example.invalid/game.git",
             "source_ref":"refs/remotes/origin/main", "source_paths":["heroes.json"]
         }]);
+        config["internal_doc_scopes"] =
+            serde_json::json!(["internal_docs", "source.review:game-fixture"]);
         let config_path = dir.path().join("maintenance.json");
         std::fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
         let mut runtime: serde_json::Value = serde_json::from_str(include_str!(
@@ -1464,17 +1458,33 @@ mod tests {
         assert!(brain_serve::Config::parse(&serde_json::to_vec(&serve_value).unwrap()).is_err());
         let allowed = BTreeSet::from(["game-fixture".into()]);
         let serve = brain_serve::Config::parse(&serde_json::to_vec(&c9_value()).unwrap()).unwrap();
-        assert!(
-            check_entity_profile_sources(&runtime, &candidate, &allowed, &serve)
-                .await
-                .is_err()
-        );
+        let credential = serve
+            .credentials
+            .iter()
+            .find(|grant| grant.actor_id == "second-brain")
+            .unwrap();
+        let consumer = brain_contracts::Principal {
+            actor_id: credential.actor_id.clone(),
+            channel: credential.channel.clone(),
+            scopes: credential.scopes.clone(),
+            provider_egress: credential.provider_egress.clone(),
+        };
+        assert!(candidate.authorized(&consumer, false).unwrap().is_empty());
+        check_entity_profile_sources(&runtime, &candidate, &allowed)
+            .await
+            .unwrap();
+        config["internal_doc_scopes"] = serde_json::json!(["internal_docs"]);
+        std::fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
+        assert!(check_entity_profile_sources(&runtime, &candidate, &allowed)
+            .await
+            .is_err());
+        config["internal_doc_scopes"] =
+            serde_json::json!(["internal_docs", "source.review:game-fixture"]);
+        std::fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
         runtime.entity_profile_sources[0].paths = BTreeSet::from(["other.json".into()]);
-        assert!(
-            check_entity_profile_sources(&runtime, &candidate, &allowed, &serve)
-                .await
-                .is_err()
-        );
+        assert!(check_entity_profile_sources(&runtime, &candidate, &allowed)
+            .await
+            .is_err());
         runtime.entity_profile_sources[0].paths = BTreeSet::from(["heroes.json".into()]);
         let mut changed_policy = policy;
         changed_policy
@@ -1483,11 +1493,9 @@ mod tests {
             .unwrap()
             .authorization_ref = Some("operator:changed".into());
         std::fs::write(&policy_path, serde_json::to_vec(&changed_policy).unwrap()).unwrap();
-        assert!(
-            check_entity_profile_sources(&runtime, &candidate, &allowed, &serve)
-                .await
-                .is_err()
-        );
+        assert!(check_entity_profile_sources(&runtime, &candidate, &allowed)
+            .await
+            .is_err());
     }
 
     #[test]
