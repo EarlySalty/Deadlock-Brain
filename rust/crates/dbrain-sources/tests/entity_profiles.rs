@@ -51,6 +51,10 @@ fn extracted_fact(
 }
 
 fn extracted_game_document(extension: &str, content: &str) -> Value {
+    extracted_game_document_from_source("fixture", extension, content)
+}
+
+fn extracted_game_document_from_source(source_id: &str, extension: &str, content: &str) -> Value {
     use dbrain_sources::game_files::{extract_game_files, GameFileOptions};
 
     let root = tempfile::tempdir().unwrap();
@@ -58,7 +62,7 @@ fn extracted_game_document(extension: &str, content: &str) -> Value {
     let options = GameFileOptions {
         root: root.path().into(),
         app_id: 1422450,
-        source_id: "fixture".into(),
+        source_id: source_id.into(),
         observed_at: "2026-10-03T00:00:00Z".into(),
         build_id: None,
         manifest_id: None,
@@ -78,7 +82,8 @@ fn extracted_game_document(extension: &str, content: &str) -> Value {
 
 fn prepared_game_document(document: &Value) -> brain_contracts::SourceRecordV2 {
     let input = validate_knowledge_jsonl_str(&document.to_string()).unwrap();
-    let policy: ImportPolicy = serde_json::from_value(json!({"sources":{"fixture":{
+    let source = document["source_id"].as_str().unwrap();
+    let policy: ImportPolicy = serde_json::from_value(json!({"sources":{source:{
         "internal_read_allowed":true,"raw_retention_allowed":true,"publication_allowed":false,"provider_egress_allowed":false,"authorization_ref":"fixture-grant","provenance_evidence_ref":"fixture-origin","allowed_scopes":[]
     }}})).unwrap();
     let prepared = prepare_validated_knowledge(&input, &policy, "fixture-v1").unwrap();
@@ -93,8 +98,8 @@ fn kv1_documents(legacy: bool) -> Vec<Value> {
     .into_iter()
     .enumerate()
     .map(|(index, content)| {
-        let mut document = extracted_game_document("kv1", content);
-        document["revision"] = json!(format!("kv1-revision-{index}-{legacy}"));
+        let mut document =
+            extracted_game_document_from_source(&format!("kv1-{index}-{legacy}"), "kv1", content);
         if legacy {
             for fact in document["facts"].as_array_mut().unwrap() {
                 fact["qualifiers"]
@@ -180,6 +185,27 @@ fn kv1_missing_original_scope_is_visible_and_caller_pointer_cannot_replace_it() 
                 .any(|gap| gap.contains("KV1-Feldpfad")));
             assert_eq!(profile.facts, unbound);
         }
+    }
+}
+
+#[test]
+fn json_and_kv3_array_elements_keep_distinct_comparison_scopes() {
+    for (extension, content, count) in [
+        ("json", r#"{"damage":[10,20]}"#, 2),
+        ("kv3", "{ damage = [10,20] damage = 30 }", 3),
+    ] {
+        let document = extracted_game_document(extension, content);
+        let ids: Vec<String> = document["facts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|fact| fact["fact_id"].as_str().unwrap().into())
+            .collect();
+        let facts = project_entity_facts(&prepared_game_document(&document), &ids).unwrap();
+        assert_eq!(facts.len(), count);
+        let profile = assemble_profile(entity(EntityKind::Hero), None, facts.clone(), vec![]);
+        assert!(profile.conflicts.is_empty());
+        assert_eq!(profile.facts, facts);
     }
 }
 
@@ -591,6 +617,14 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
         .await
         .unwrap()
         .is_none());
+    let mut shared_kv1_identity = entity.clone();
+    shared_kv1_identity.entity_key = "kv1-shared".into();
+    let mut shared_kv1_release = release.clone();
+    shared_kv1_release.release_id = "kv1-shared-release".into();
+    shared_kv1_release.source_revisions.clear();
+    let mut shared_kv1_facts = Vec::new();
+    let mut shared_kv1_principal = principal.clone();
+    shared_kv1_principal.scopes.clear();
     for (index, record) in extractor_records().into_iter().enumerate() {
         let document: Value = serde_json::from_str(&record.metadata[document_key]).unwrap();
         let ids: Vec<String> = document["facts"]
@@ -641,7 +675,51 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
             .unwrap()
             .unwrap();
         assert_eq!(actual.entity, identity);
-        assert_eq!(actual.facts, project_entity_facts(&record, &ids).unwrap());
+        let expected = project_entity_facts(&record, &ids).unwrap();
+        assert_eq!(actual.facts.len(), expected.len());
+        for fact in expected {
+            assert!(actual.facts.contains(&fact));
+        }
+        assert!(actual.conflicts.is_empty());
+        if record.source_id.starts_with("kv1-") {
+            shared_kv1_principal
+                .scopes
+                .extend(record.allowed_scopes.clone());
+            store
+                .store_entity_fact_bindings(&shared_kv1_identity, &record, &ids)
+                .await
+                .unwrap();
+            shared_kv1_release.source_revisions.insert(
+                record.source_id.clone(),
+                std::collections::BTreeMap::from([(record.logical_id.clone(), record.revision)]),
+            );
+            shared_kv1_facts.extend(actual.facts);
+            let stored: Value = sqlx::query_scalar("SELECT record_json FROM brain.source_record_revisions WHERE source_id=$1 AND logical_id=$2 AND revision=$3")
+                .bind(&record.source_id).bind(&record.logical_id).bind(i64::try_from(record.revision).unwrap())
+                .fetch_one(&pool).await.unwrap();
+            assert_eq!(stored, serde_json::to_value(&record).unwrap());
+        }
+    }
+    store.publish_release(&shared_kv1_release).await.unwrap();
+    let shared = store
+        .read_entity_profile(
+            &shared_kv1_identity.entity_key,
+            &shared_kv1_release.release_id,
+            &shared_kv1_principal,
+            None,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(shared.facts.len(), 20);
+    assert_eq!(shared.conflicts.len(), 1);
+    assert_eq!(shared.conflicts[0].fact_ids.len(), 4);
+    assert!(shared.conflicts[0]
+        .fact_ids
+        .iter()
+        .all(|id| id.ends_with("kv:/a/0/damage/0")));
+    for fact in shared_kv1_facts {
+        assert!(shared.facts.contains(&fact));
     }
     pool.close().await;
 }
@@ -783,7 +861,8 @@ async fn patch_stories_follow_entity_kind(
 fn extractor_records() -> Vec<brain_contracts::SourceRecordV2> {
     use dbrain_sources::game_files::{extract_game_files, GameFileOptions};
     use dbrain_sources::wiki_inventory::{normalize_api_response, WikiSourceContext};
-    let mut documents = Vec::new();
+    let mut documents = kv1_documents(false);
+    documents.extend(kv1_documents(true));
     for extension in ["txt", "json", "kv3"] {
         let root = tempfile::tempdir().unwrap();
         let content = match extension {
