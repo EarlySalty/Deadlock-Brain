@@ -718,7 +718,7 @@ mod tests {
             .max_connections(2)
             .connect_with(
                 PgConnectOptions::new_without_pgpass()
-                    .host(&socket)
+                    .host(socket)
                     .port(55439)
                     .username("brain_core_test")
                     .database("postgres")

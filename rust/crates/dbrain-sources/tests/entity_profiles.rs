@@ -123,7 +123,7 @@ impl Drop for ScratchPg {
         let _ = std::process::Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
             .args(["-D"])
             .arg(self.directory.path().join("data"))
-            .args(["-m", "immediate", "-w", "stop"])
+            .args(["-m", "fast", "-w", "stop"])
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status();
@@ -180,7 +180,10 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
     .await
     .unwrap();
     let mut record = record();
+    let mut origin = brain_contracts::source::origin_from_record(&record).unwrap();
     record.allowed_scopes.insert("fixture:read".into());
+    origin.policy.allowed_scopes = record.allowed_scopes.clone();
+    origin.bind_record(&mut record).unwrap();
     store.apply(&record).await.unwrap();
     let entity = entity(EntityKind::Hero);
     let mut manipulated = record.clone();
@@ -192,6 +195,13 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
         .insert(document_key.into(), document.to_string());
     assert_eq!(manipulated.content, record.content);
     assert_eq!(manipulated.content_hash, record.content_hash);
+    assert_ne!(
+        serde_json::to_value(&manipulated).unwrap(),
+        serde_json::to_value(&record).unwrap()
+    );
+    let original: Value = sqlx::query_scalar("SELECT record_json FROM brain.source_record_revisions WHERE source_id=$1 AND logical_id=$2 AND revision=$3")
+        .bind(&record.source_id).bind(&record.logical_id).bind(record.revision as i64).fetch_one(&pool).await.unwrap();
+    assert_eq!(original, serde_json::to_value(&record).unwrap());
     assert!(store
         .store_entity_fact_bindings(&entity, &manipulated, &["health".into()])
         .await
@@ -254,7 +264,7 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
         .unwrap()
         .unwrap();
     assert!(hidden.facts.is_empty());
-    principal.scopes.insert("fixture:read".into());
+    principal.scopes = record.allowed_scopes.clone();
     let visible = store
         .read_entity_profile(&entity.entity_key, &release.release_id, &principal, None)
         .await
@@ -268,6 +278,8 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
     let mut restricted = record.clone();
     restricted.revision += 1;
     restricted.allowed_scopes = std::collections::BTreeSet::from(["fixture:restricted".into()]);
+    origin.policy.allowed_scopes = restricted.allowed_scopes.clone();
+    origin.bind_record(&mut restricted).unwrap();
     store.apply(&restricted).await.unwrap();
     let hidden = store
         .read_entity_profile(&entity.entity_key, &release.release_id, &principal, None)
@@ -275,5 +287,16 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
         .unwrap()
         .unwrap();
     assert!(hidden.facts.is_empty());
+    principal.scopes.extend(restricted.allowed_scopes.clone());
+    let visible = store
+        .read_entity_profile(&entity.entity_key, &release.release_id, &principal, None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(visible.facts.len(), 1);
+    assert_eq!(
+        visible.facts[0].provenance.origin.policy.allowed_scopes,
+        record.allowed_scopes
+    );
     pool.close().await;
 }
