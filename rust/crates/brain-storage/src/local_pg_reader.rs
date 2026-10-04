@@ -680,8 +680,9 @@ impl SnapshotReadPort for LocalPgReader {
             {
                 return Err(invalid("Identitätsbindung widerspricht dem Originalbeleg"));
             }
-            if std::iter::once(&identity.name)
-                .chain(identity.aliases.iter())
+            let consumer = crate::entity_profile::consumer_entity_identity(&identity);
+            if std::iter::once(&consumer.name)
+                .chain(consumer.aliases.iter())
                 .any(|name| {
                     let name = brain_contracts::lexical::terms(name);
                     !name.is_empty() && words.windows(name.len()).any(|part| part == name)
@@ -751,8 +752,9 @@ impl SnapshotReadPort for LocalPgReader {
                 if binding.kind != entity.kind {
                     return Err(invalid("Autorisierte Entitätsbelege widersprechen sich"));
                 }
-                let name = &binding.name;
-                authorized_names.insert(name.clone());
+                let consumer = crate::entity_profile::consumer_entity_identity(&binding);
+                let name = &consumer.name;
+                authorized_names.insert(binding.name.clone());
                 authorized_names.extend(binding.aliases.iter().cloned());
                 if patch_date.is_some() {
                     continue;
@@ -837,13 +839,26 @@ impl SnapshotReadPort for LocalPgReader {
                 return Ok(Some(Vec::new()));
             }
             let date: String = dates[0].try_get(0).map_err(error)?;
-            let changes = tx.query("SELECT jsonb_build_object('patch_date',patch_date,'entity_type',entity_type,'entity_name',entity_name,'ability_name',ability_name,'stat_name',stat_name,'old_value',old_value,'new_value',new_value,'change_type',change_type,'confidence',confidence) FROM brain.patch_changes WHERE patch_date::text=$1 AND ((entity_type=$3 AND lower(entity_name)=ANY(SELECT lower(n) FROM unnest($2::text[]) n)) OR ($3='ability' AND entity_type='hero' AND lower(ability_name)=ANY(SELECT lower(n) FROM unnest($2::text[]) n))) ORDER BY stat_name,ability_name,old_value,new_value LIMIT 101", &[&date, &names, &kind])?;
+            let changes = tx.query("SELECT to_jsonb(c) FROM brain.patch_changes c WHERE patch_date::text=$1 AND ((entity_type=$3 AND lower(entity_name)=ANY(SELECT lower(n) FROM unnest($2::text[]) n)) OR ($3='ability' AND entity_type='hero' AND lower(ability_name)=ANY(SELECT lower(n) FROM unnest($2::text[]) n))) ORDER BY stat_name,ability_name,old_value,new_value LIMIT 101", &[&date, &names, &kind])?;
             if changes.len() > 100 {
                 return Err(PortError::BudgetExceeded);
             }
-            for (index, row) in changes.into_iter().enumerate() {
+            let changes = changes
+                .into_iter()
+                .map(|row| {
+                    crate::entity_profile::decode_patch_change(row.try_get(0).map_err(error)?)
+                        .map_err(|_| invalid("DB-Patchänderung ist ungültig"))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let mut internal = entity.clone();
+            internal.aliases = names;
+            let changes =
+                crate::entity_profile::derivation::consumer_patch_story(&internal, &changes)
+                    .map_err(|_| invalid("DB-Patchänderung kann nicht bereinigt werden"))?;
+            for (index, change) in changes.into_iter().enumerate() {
                 request_check(deadline)?;
-                let change: serde_json::Value = row.try_get(0).map_err(error)?;
+                let citation = change.provenance.evidence_ref.clone();
+                let change = serde_json::json!({"patch_date":change.patch_date,"entity_type":change.entity_type,"entity_name":change.entity_name,"ability_name":change.ability_name,"stat_name":change.stat_name,"old_value":change.old_value,"new_value":change.new_value,"change_type":change.change_type,"confidence":change.confidence});
                 evidence.push(brain_contracts::Evidence {
                     evidence_id: format!(
                         "entity-profile:patch:{}:{date}:{index}",
@@ -854,7 +869,7 @@ impl SnapshotReadPort for LocalPgReader {
                     revision: 1,
                     kind: brain_contracts::EvidenceKind::Prose,
                     content: format!("Gespeicherte Patchänderung: {change}"),
-                    citation: format!("brain.patch_changes:{date}:{}", entity.entity_key),
+                    citation,
                     visibility,
                     allowed_scopes: scopes.clone(),
                     score: 1.0,

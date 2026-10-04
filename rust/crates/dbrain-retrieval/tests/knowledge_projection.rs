@@ -547,6 +547,8 @@ async fn normal_texts_read_live_entity_facts_counts_and_patch_history() {
         .unwrap();
     sqlx::query("UPDATE brain.entity_profile_entities_v1 SET identity_json=jsonb_set(jsonb_set(identity_json,'{name}','\"Gesperrter globaler Name\"'::jsonb),'{aliases}','[\"Privater Alias\"]'::jsonb) WHERE entity_key='hero:waechter'")
         .execute(&pool).await.unwrap();
+    sqlx::query("UPDATE brain.patch_changes SET entity_name='Warden' WHERE entity_type='hero' AND entity_name='Wächter' AND patch_date='2026-09-16'")
+        .execute(&pool).await.unwrap();
     let release = CorpusRelease {
         release_id: "r1".into(),
         knowledge_version: "knowledge1".into(),
@@ -568,7 +570,6 @@ async fn normal_texts_read_live_entity_facts_counts_and_patch_history() {
             "Welche Abklingzeit ist für den Helden Wächter gespeichert?",
             "12.5",
         ),
-        ("Welche Abklingzeit hat Warden?", "12.5"),
         ("Wie viele Helden gibt es?", "1 Helden"),
         ("Was macht das Item Extended Magazine?", "22"),
         ("Was änderte sich bei Wächter im Patch vom 16.09.?", "18"),
@@ -594,6 +595,8 @@ async fn normal_texts_read_live_entity_facts_counts_and_patch_history() {
         assert!(evidence.iter().all(|item| {
             !item.content.contains("Gesperrter globaler Name")
                 && !item.content.contains("Privater Alias")
+                && !item.content.contains("Warden")
+                && !item.citation.contains("Warden")
                 && !item.content.contains("game_file:technische-werte.json")
         }));
         tokio::task::block_in_place(|| {
@@ -619,13 +622,20 @@ async fn normal_texts_read_live_entity_facts_counts_and_patch_history() {
     let current =
         tokio::task::block_in_place(|| retriever.retrieve(&historical, &context)).unwrap();
     assert!(current.iter().any(|item| item.content.contains("13")));
-    let mut forbidden_alias = query("Was änderte sich bei Privater Alias im Patch vom 16.09.?");
-    forbidden_alias.patch = None;
-    assert!(
-        tokio::task::block_in_place(|| retriever.retrieve(&forbidden_alias, &context))
-            .unwrap()
-            .is_empty()
-    );
+    for text in [
+        "Was änderte sich bei Privater Alias im Patch vom 16.09.?",
+        "Welche Abklingzeit hat Warden?",
+        "Was änderte sich bei Warden im Patch vom 16.09.?",
+    ] {
+        let mut forbidden_alias = query(text);
+        forbidden_alias.patch = None;
+        assert!(
+            tokio::task::block_in_place(|| retriever.retrieve(&forbidden_alias, &context))
+                .unwrap()
+                .is_empty(),
+            "{text}"
+        );
+    }
     let mut scoped = hero.clone();
     let mut origin = source::origin_from_record(&scoped).unwrap();
     scoped.revision = 8;
@@ -719,7 +729,7 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
         include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-semantic-projection-v1.sql"),
         include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-derived-receipts-v1.sql"),
     ] { sqlx::raw_sql(migration).execute(&pool).await.unwrap(); }
-    sqlx::raw_sql("CREATE TABLE brain.patch_changes(patch_date text,entity_type text,entity_name text,ability_name text,stat_name text,old_value text,new_value text,change_type text,confidence double precision,raw_line text); INSERT INTO brain.patch_changes VALUES('2026-09-16','hero','Wächter',NULL,'MaxHealth','800','830','increase',1,'Gesperrte Originalzeile'),('2025-09-16','item','Wächter',NULL,'Fremdes Feld','777','778','increase',1,'Gesperrte Originalzeile')")
+    sqlx::raw_sql("CREATE TABLE brain.patch_changes(patch_date text,entity_type text,entity_name text,ability_name text,stat_name text,old_value text,new_value text,change_type text,confidence double precision,raw_line text); INSERT INTO brain.patch_changes VALUES('2026-09-16','hero','hero_test',NULL,'MaxHealth','800','830','increase',1,'Gesperrte Originalzeile'),('2025-09-16','item','Wächter',NULL,'Fremdes Feld','777','778','increase',1,'Gesperrte Originalzeile')")
         .execute(&pool).await.unwrap();
     let identities = [
         EntityIdentity {
@@ -742,6 +752,7 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
         (&identities[0], "hero_test", "MaxHealth", 830),
         (&identities[1], "item_test", "BonusClipSizePercent", 30),
     ] {
+        let mut identity = identity.clone();
         let content = json!({identifier:{stat:value}}).to_string();
         let mut original = record(&content, "extracted_value");
         let mut origin = source::origin_from_record(&original).unwrap();
@@ -771,15 +782,22 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
             .metadata
             .insert(ORIGINAL_VERSION_KEY.into(), "a".repeat(40));
         origin.bind_record(&mut original).unwrap();
+        identity.aliases.push(identifier.into());
+        identity.identity_evidence = vec![format!(
+            "{}:{}:{}:/{identifier}",
+            original.source_id,
+            original.logical_id,
+            "a".repeat(40)
+        )];
         store.apply(&original).await.unwrap();
         store
-            .store_entity_fact_bindings(identity, &original, &["stat".into()])
+            .store_entity_fact_bindings(&identity, &original, &["stat".into()])
             .await
             .unwrap();
         let fact = project_entity_facts(&original, &["stat".into()])
             .unwrap()
             .remove(0);
-        let projection = semantic_projection(&fact, &format!("/{stat}"))
+        let projection = semantic_projection(&fact, &format!("/{stat}"), &original, &identity)
             .unwrap()
             .unwrap();
         store
@@ -831,7 +849,10 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
             .stored_git_entity_bindings(&identity.entity_key, original)
             .await
             .unwrap();
-        let story = store.entity_patch_story(identity).await.unwrap();
+        let story = store
+            .entity_patch_story(&bindings[0].binding_identity)
+            .await
+            .unwrap();
         let (profile, receipt) = derive_git_profile(
             &identity.entity_key,
             &snapshot,
@@ -951,6 +972,8 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
             "raw:fixture",
             "original-fixture",
             "Gesperrte Originalzeile",
+            "hero_test",
+            "item_test",
         ] {
             assert!(!evidence[0].content.contains(forbidden));
         }
