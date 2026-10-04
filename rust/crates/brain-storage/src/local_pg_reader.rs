@@ -719,12 +719,17 @@ impl SnapshotReadPort for LocalPgReader {
             if names.is_empty() {
                 return Ok(Some(Vec::new()));
             }
-            let dates = tx.query("SELECT DISTINCT patch_date::text FROM brain.patch_changes WHERE patch_date::text LIKE $1 AND (lower(entity_name)=ANY(SELECT lower(n) FROM unnest($2::text[]) n) OR lower(ability_name)=ANY(SELECT lower(n) FROM unnest($2::text[]) n)) ORDER BY 1 LIMIT 2", &[&date, &names])?;
+            let kind = match entity.kind {
+                brain_contracts::entity_profile::EntityKind::Hero => "hero",
+                brain_contracts::entity_profile::EntityKind::Ability => "ability",
+                brain_contracts::entity_profile::EntityKind::Item => "item",
+            };
+            let dates = tx.query("SELECT DISTINCT patch_date::text FROM brain.patch_changes WHERE patch_date::text LIKE $1 AND ((($3='hero' AND entity_type IN ('hero','hero_internal')) OR ($3='item' AND entity_type IN ('item','item_special'))) AND lower(entity_name)=ANY(SELECT lower(n) FROM unnest($2::text[]) n) OR $3='ability' AND (entity_type IN ('ability','ability_internal') AND (lower(entity_name)=ANY(SELECT lower(n) FROM unnest($2::text[]) n) OR lower(ability_name)=ANY(SELECT lower(n) FROM unnest($2::text[]) n)) OR entity_type IN ('hero','hero_internal') AND lower(ability_name)=ANY(SELECT lower(n) FROM unnest($2::text[]) n))) ORDER BY 1 LIMIT 2", &[&date, &names, &kind])?;
             if dates.len() != 1 {
                 return Ok(Some(Vec::new()));
             }
             let date: String = dates[0].try_get(0).map_err(error)?;
-            let changes = tx.query("SELECT jsonb_build_object('patch_date',patch_date,'entity_name',entity_name,'ability_name',ability_name,'stat_name',stat_name,'old_value',old_value,'new_value',new_value,'change_type',change_type,'confidence',confidence) FROM brain.patch_changes WHERE patch_date::text=$1 AND (lower(entity_name)=ANY(SELECT lower(n) FROM unnest($2::text[]) n) OR lower(ability_name)=ANY(SELECT lower(n) FROM unnest($2::text[]) n)) ORDER BY stat_name,ability_name,old_value,new_value LIMIT 101", &[&date, &names])?;
+            let changes = tx.query("SELECT jsonb_build_object('patch_date',patch_date,'entity_type',entity_type,'entity_name',entity_name,'ability_name',ability_name,'stat_name',stat_name,'old_value',old_value,'new_value',new_value,'change_type',change_type,'confidence',confidence) FROM brain.patch_changes WHERE patch_date::text=$1 AND ((($3='hero' AND entity_type IN ('hero','hero_internal')) OR ($3='item' AND entity_type IN ('item','item_special'))) AND lower(entity_name)=ANY(SELECT lower(n) FROM unnest($2::text[]) n) OR $3='ability' AND (entity_type IN ('ability','ability_internal') AND (lower(entity_name)=ANY(SELECT lower(n) FROM unnest($2::text[]) n) OR lower(ability_name)=ANY(SELECT lower(n) FROM unnest($2::text[]) n)) OR entity_type IN ('hero','hero_internal') AND lower(ability_name)=ANY(SELECT lower(n) FROM unnest($2::text[]) n))) ORDER BY stat_name,ability_name,old_value,new_value LIMIT 101", &[&date, &names, &kind])?;
             if changes.len() > 100 {
                 return Err(PortError::BudgetExceeded);
             }

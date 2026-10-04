@@ -482,7 +482,7 @@ async fn normal_texts_read_live_entity_facts_counts_and_patch_history() {
     .execute(&pool)
     .await
     .unwrap();
-    sqlx::raw_sql("CREATE TABLE brain.entities(entity_type text); INSERT INTO brain.entities VALUES('hero'); CREATE TABLE brain.patch_changes(patch_date text,entity_name text,ability_name text,stat_name text,old_value text,new_value text,change_type text,confidence double precision,raw_line text); INSERT INTO brain.patch_changes VALUES('2026-09-16','Wächter',NULL,'cooldown','18','12.5','decrease',1,'Gesperrter Originaltext')")
+    sqlx::raw_sql("CREATE TABLE brain.entities(entity_type text); INSERT INTO brain.entities VALUES('hero'); CREATE TABLE brain.patch_changes(patch_date text,entity_type text,entity_name text,ability_name text,stat_name text,old_value text,new_value text,change_type text,confidence double precision,raw_line text); INSERT INTO brain.patch_changes VALUES('2026-09-16','hero','Wächter',NULL,'cooldown','18','12.5','decrease',1,'Gesperrter Originaltext'),('2025-09-16','item','Wächter',NULL,'Fremde Änderung','777','778','increase',1,'Gesperrter Originaltext'),('2024-09-16','hero','Anderer Held','Wächter','Fremde Änderung','777','778','increase',1,'Gesperrter Originaltext')")
         .execute(&pool).await.unwrap();
     let hero = record("Gespeicherter Heldenbeleg", "extracted_value");
     store.apply(&hero).await.unwrap();
@@ -575,6 +575,9 @@ async fn normal_texts_read_live_entity_facts_counts_and_patch_history() {
         assert!(evidence
             .iter()
             .all(|item| !item.content.contains("Gesperrter Originaltext")));
+        assert!(evidence
+            .iter()
+            .all(|item| !item.content.contains("Fremde Änderung")));
         tokio::task::block_in_place(|| {
             retriever.validate_evidence(&query, &context, &evidence, false)
         })
