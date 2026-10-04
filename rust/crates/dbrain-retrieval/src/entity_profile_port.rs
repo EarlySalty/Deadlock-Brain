@@ -5,7 +5,7 @@ use chrono::NaiveDate;
 use regex::Regex;
 use std::sync::OnceLock;
 
-pub(crate) fn patch_date(text: &str) -> Result<Option<String>, PortError> {
+pub(crate) fn patch_date(text: &str) -> Option<String> {
     static DATE: OnceLock<Regex> = OnceLock::new();
     let expression = DATE.get_or_init(|| {
         Regex::new(r"\b(?:(\d{4})-(\d{2})-(\d{2})|(\d{1,2})\.(\d{1,2})\.(?:(\d{4})\b)?)")
@@ -22,10 +22,10 @@ pub(crate) fn patch_date(text: &str) -> Result<Option<String>, PortError> {
                 &capture[4],
             )
         };
-        let day: u32 = day.parse().map_err(|_| invalid())?;
-        let month: u32 = month.parse().map_err(|_| invalid())?;
-        let year_number = year.unwrap_or("2000").parse().map_err(|_| invalid())?;
-        NaiveDate::from_ymd_opt(year_number, month, day).ok_or_else(invalid)?;
+        let day: u32 = day.parse().ok()?;
+        let month: u32 = month.parse().ok()?;
+        let year_number = year.unwrap_or("2000").parse().ok()?;
+        NaiveDate::from_ymd_opt(year_number, month, day)?;
         dates.push(year.map_or_else(
             || format!("%-{month:02}-{day:02}"),
             |year| format!("{year}-{month:02}-{day:02}"),
@@ -34,9 +34,9 @@ pub(crate) fn patch_date(text: &str) -> Result<Option<String>, PortError> {
     dates.sort();
     dates.dedup();
     if dates.len() > 1 {
-        return Err(invalid());
+        return None;
     }
-    Ok(dates.pop())
+    dates.pop()
 }
 
 fn invalid() -> PortError {
@@ -51,7 +51,7 @@ pub(crate) fn retrieve<S: SnapshotReadPort>(
     purpose: AnswerPurpose,
 ) -> Result<Option<Vec<Evidence>>, PortError> {
     context.check_deadline()?;
-    let date = patch_date(&query.text)?;
+    let date = patch_date(&query.text);
     let evidence =
         store.read_entity_evidence(query, context, date.as_deref(), provider, purpose)?;
     context.check_deadline()?;
@@ -175,27 +175,31 @@ mod tests {
     #[test]
     fn historical_question_preserves_unknown_year() {
         assert_eq!(
-            patch_date("Was wurde bei Abrams im Patch vom 16.09. geändert?").unwrap(),
+            patch_date("Was wurde bei Abrams im Patch vom 16.09. geändert?"),
             Some("%-09-16".into())
         );
         assert_eq!(
-            patch_date("Abrams am 16.09.2026").unwrap(),
+            patch_date("Abrams am 16.09.2026"),
             Some("2026-09-16".into())
         );
         assert_eq!(
-            patch_date("Item im Patch 2026-09-16").unwrap(),
+            patch_date("Item im Patch 2026-09-16"),
             Some("2026-09-16".into())
         );
-        assert_eq!(
-            patch_date("Wie viele Lebenspunkte hat Abrams?").unwrap(),
-            None
-        );
+        assert_eq!(patch_date("Wie viele Lebenspunkte hat Abrams?"), None);
     }
 
     #[test]
-    fn invalid_and_ambiguous_dates_are_rejected() {
-        assert!(patch_date("Patch 31.02.2026").is_err());
-        assert!(patch_date("Patch 16.09. und 17.09.").is_err());
+    fn ungueltige_und_mehrdeutige_muster_ergeben_keinen_patchtermin() {
+        for text in [
+            "Patch 31.02.2026",
+            "Patch 16.09. und 17.09.",
+            "Version 0.5.1",
+            "Patch 6.0.1",
+            "Zwischen 01.09. und 16.09.",
+        ] {
+            assert_eq!(patch_date(text), None, "{text}");
+        }
     }
 
     #[test]
@@ -217,6 +221,7 @@ mod tests {
                 .validate_evidence(&query, &context, &evidence, false)
                 .is_err());
             reader.0.lock().unwrap().clear();
+            assert!(retriever.retrieve(&query, &context).unwrap().is_empty());
             assert!(retriever
                 .validate_publication(&query, &context, &evidence)
                 .is_err());

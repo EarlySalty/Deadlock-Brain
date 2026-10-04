@@ -288,11 +288,6 @@ impl<S: SnapshotReadPort> RetrievalPort for ReleaseRetriever<S> {
         if let Some(profiles) = profiles {
             return Ok(profiles);
         }
-        if query.text.to_lowercase().contains("patch")
-            && crate::entity_profile_port::patch_date(&query.text)?.is_some()
-        {
-            return Ok(Vec::new());
-        }
         let index = self.index(query, context)?;
         if query.profile == brain_contracts::AnswerProfile::Fact
             && self.ambiguous_fact_owner(&index, query, context)?

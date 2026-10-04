@@ -1045,6 +1045,18 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
         .await
         .unwrap();
     scopes.lock().unwrap().clear();
+    assert!(
+        tokio::task::block_in_place(|| retriever.retrieve(&historical, &context))
+            .unwrap()
+            .is_empty()
+    );
+    assert!(tokio::task::block_in_place(|| retriever.validate_evidence(
+        &historical,
+        &context,
+        &previous,
+        true
+    ))
+    .is_err());
     let mut numeric = query("Welche gespeicherten Zahlen sind 830?");
     numeric.patch = None;
     assert!(

@@ -72,6 +72,33 @@ fn query(text: &str) -> Query {
 }
 
 #[tokio::test]
+async fn versions_mehrdeutige_daten_und_allgemeine_patchfragen_bleiben_suchbar() {
+    let document = record(
+        "patchnotes/2026-09-16",
+        "Patchnotes: Version 0.5.1 und Patch 6.0.1. Zwischen 01.09. und 16.09. gab es Änderungen. Im Patch vom 16.09.2026 kam eine Kartenänderung.",
+    );
+    let store = published(vec![document.clone()]).await;
+    let retriever = ReleaseRetriever::new(store, 6);
+    for text in [
+        "Was kam in Version 0.5.1?",
+        "Was kam in Patch 6.0.1?",
+        "Was änderte sich zwischen 01.09. und 16.09.?",
+        "Was kam im Patch vom 16.09.2026?",
+    ] {
+        let mut question = query(text);
+        question.patch = None;
+        let evidence = retriever.retrieve(&question, &context()).unwrap();
+        assert!(!evidence.is_empty(), "{text}");
+        assert!(evidence
+            .iter()
+            .all(|item| item.logical_id == document.logical_id));
+        retriever
+            .validate_evidence(&question, &context(), &evidence, false)
+            .unwrap();
+    }
+}
+
+#[tokio::test]
 async fn public_maintenance_citations_hide_private_origin_metadata() {
     let mut document = record(
         "public/hilfe.html",
