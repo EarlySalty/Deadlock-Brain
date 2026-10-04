@@ -600,6 +600,48 @@ mod tests {
             .unwrap();
         assert_eq!(updated.revision, 2);
         assert_ne!(initial.content, updated.content);
+        profile
+            .patch_story
+            .push(brain_contracts::entity_profile::PatchStoryChange {
+                patch_date: "2026-09-16".into(),
+                patch_title: Some("Prüfpatch".into()),
+                entity_type: Some("hero".into()),
+                entity_name: Some("Fixture".into()),
+                ability_name: None,
+                stat_name: Some("MaxHealth".into()),
+                old_value: serde_json::json!(30),
+                new_value: serde_json::json!(42),
+                change_type: Some("buff".into()),
+                numeric_direction: Some("increase".into()),
+                confidence: serde_json::json!(1),
+                provenance: brain_contracts::entity_profile::PatchStoryProvenance {
+                    relation: "brain.patch_changes".into(),
+                    source_url: None,
+                    evidence_ref: "fixture:patch:16-09".into(),
+                },
+                original_line: brain_contracts::entity_profile::RestrictedPatchLine {
+                    text: None,
+                    redistribution_allowed: false,
+                },
+                additional_fields: Default::default(),
+            });
+        let (story_document, story_receipt) = document(&profile, "original-r2");
+        let story_updated = store
+            .persist_entity_document(story_document.clone(), &story_receipt)
+            .await
+            .unwrap();
+        assert_eq!(story_updated.revision, 3);
+        let content: serde_json::Value = serde_json::from_str(&story_updated.content).unwrap();
+        assert_eq!(content["patch_story"][0]["patch_date"], "2026-09-16");
+        assert_eq!(content["patch_story"][0]["stat_name"], "MaxHealth");
+        assert_eq!(content["patch_story"][0]["new_value"], 42);
+        assert_eq!(
+            store
+                .persist_entity_document(story_document, &story_receipt)
+                .await
+                .unwrap(),
+            story_updated
+        );
         profile.unknowns.push("Weitere Speicherprobe".into());
         let (failed, failed_receipt) = document(&profile, "sperren");
         assert!(store
@@ -608,18 +650,19 @@ mod tests {
             .is_err());
         let records: Vec<serde_json::Value> = sqlx::query_scalar("SELECT record_json FROM brain.source_record_revisions WHERE source_id='git-game-facts-derived' ORDER BY revision")
             .fetch_all(&pool).await.unwrap();
-        assert_eq!(records.len(), 2);
+        assert_eq!(records.len(), 3);
         assert_eq!(records[0]["content"], initial.content);
         assert_eq!(records[1]["content"], updated.content);
+        assert_eq!(records[2]["content"], story_updated.content);
         let head: i64 = sqlx::query_scalar("SELECT revision FROM brain.source_record_heads WHERE source_id='git-game-facts-derived'")
             .fetch_one(&pool).await.unwrap();
-        assert_eq!(head, 2);
+        assert_eq!(head, 3);
         let receipts: i64 =
             sqlx::query_scalar("SELECT count(*) FROM brain.entity_derived_receipts_v1")
                 .fetch_one(&pool)
                 .await
                 .unwrap();
-        assert_eq!(receipts, 2);
+        assert_eq!(receipts, 3);
         pool.close().await;
     }
 
