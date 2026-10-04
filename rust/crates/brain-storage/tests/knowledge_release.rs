@@ -521,6 +521,13 @@ async fn spielprofilmigration_ist_explizit_wiederholbar_und_erhaelt_tabellenrech
             String::from_utf8_lossy(&output.stderr)
         );
         assert!(invoke("check-entity-profiles").status.success());
+        let rights: (bool, bool, bool, bool) = sqlx::query_as(
+            "SELECT has_table_privilege('brain_ingest','brain.entity_semantic_projections_v1','SELECT'),has_table_privilege('brain_ingest','brain.entity_semantic_projections_v1','INSERT'),has_table_privilege('brain_ingest','brain.entity_semantic_projections_v1','UPDATE'),has_table_privilege('brain_ingest','brain.entity_patch_intervals_v1','UPDATE')",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(rights, (true, true, false, true));
     }
     let grants = include_str!("../../../../ops/brain-postgres/grants.sql")
         .lines()

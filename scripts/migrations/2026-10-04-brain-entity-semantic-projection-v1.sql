@@ -28,7 +28,8 @@ CREATE TABLE brain.entity_patch_intervals_v1 (
 DO $body$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='brain_ingest') THEN
-        GRANT SELECT,INSERT,UPDATE ON brain.entity_semantic_projections_v1,brain.entity_patch_intervals_v1 TO brain_ingest;
+        GRANT SELECT,INSERT ON brain.entity_semantic_projections_v1 TO brain_ingest;
+        GRANT SELECT,INSERT,UPDATE ON brain.entity_patch_intervals_v1 TO brain_ingest;
     END IF;
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='brain_service') THEN
         GRANT SELECT ON brain.entity_semantic_projections_v1,brain.entity_patch_intervals_v1 TO brain_service;
