@@ -494,7 +494,7 @@ fn effective_head(
     };
     Ok(Some(effective))
 }
-pub(crate) fn pack(
+pub fn pack(
     query: &Query,
     context: &AuthorizedContext,
     hits: Vec<Evidence>,

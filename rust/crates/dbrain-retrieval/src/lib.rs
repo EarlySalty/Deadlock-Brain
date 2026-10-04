@@ -37,7 +37,7 @@ pub use game_wiki::{
     GAME_WIKI_DIR_ENV,
 };
 pub use hybrid_port::{fuse_ranked, DenseEntry, DenseIndex, HybridRetriever};
-pub use release_port::ReleaseRetriever;
+pub use release_port::{pack, ReleaseRetriever};
 
 const ASSETS_SOURCE: &str = "deadlock_assets_api";
 const MAX_EVENTS: i64 = 500;

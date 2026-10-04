@@ -303,11 +303,13 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
         }
     };
     let retrieval = AnalyticsRetriever::new(retrieval, prepared.analytics.clone());
-    let retrieval = DiscordRetriever::new(retrieval, prepared.discord_live.clone());
+    let retrieval = DiscordRetriever::new(retrieval, prepared.discord_live.clone())
+        .with_provider(&prepared.config.provider);
     let public_retrieval = DiscordRetriever::new(
         ReleaseRetriever::new(prepared.reader.clone(), prepared.config.retrieval.limit),
         prepared.discord_live.clone(),
-    );
+    )
+    .with_provider(&prepared.config.provider);
     let kernel = CachedKernel::new(
         Kernel::new(retrieval, prepared.provider.clone()),
         prepared.config.kernel.cache_entries,

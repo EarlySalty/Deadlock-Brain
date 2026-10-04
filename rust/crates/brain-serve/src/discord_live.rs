@@ -248,7 +248,9 @@ fn allowed(query: &Query, context: &AuthorizedContext, provider: bool) -> bool {
 pub(crate) struct DiscordRetriever<R> {
     inner: R,
     live: Option<Arc<DiscordLive>>,
-    observations: Mutex<BTreeMap<String, (Instant, Evidence)>>,
+    pricing: Option<brain_providers::PriceCeiling>,
+    retry_attempts: usize,
+    observations: Mutex<BTreeMap<String, (Instant, Vec<Evidence>)>>,
 }
 
 fn observation_key(query: &Query, context: &AuthorizedContext) -> Result<String, PortError> {
@@ -274,8 +276,62 @@ impl<R> DiscordRetriever<R> {
         Self {
             inner,
             live,
+            pricing: None,
+            retry_attempts: 1,
             observations: Mutex::new(BTreeMap::new()),
         }
+    }
+    pub(crate) fn with_provider(mut self, provider: &crate::config::Provider) -> Self {
+        self.pricing = provider.pricing.map(|price| brain_providers::PriceCeiling {
+            input_micros_per_token: price.input_micros_per_token,
+            output_micros_per_token: price.output_micros_per_token,
+        });
+        self.retry_attempts = provider.retry_attempts;
+        self
+    }
+    fn packing_context(
+        &self,
+        context: &AuthorizedContext,
+        usage: &Usage,
+    ) -> Result<AuthorizedContext, PortError> {
+        let mut remaining = context.clone();
+        remaining.budget.max_input_tokens = remaining
+            .budget
+            .max_input_tokens
+            .checked_sub(u32::try_from(usage.input_tokens).map_err(|_| PortError::BudgetExceeded)?)
+            .ok_or(PortError::BudgetExceeded)?;
+        remaining.budget.max_output_tokens = remaining
+            .budget
+            .max_output_tokens
+            .checked_sub(u32::try_from(usage.output_tokens).map_err(|_| PortError::BudgetExceeded)?)
+            .ok_or(PortError::BudgetExceeded)?;
+        remaining.budget.max_cost_micros = remaining
+            .budget
+            .max_cost_micros
+            .checked_sub(usage.cost_micros)
+            .ok_or(PortError::BudgetExceeded)?;
+        let rounds = context
+            .budget
+            .max_network_rounds
+            .checked_sub(usage.network_rounds)
+            .ok_or(PortError::BudgetExceeded)?;
+        let attempts = self.retry_attempts.min(rounds as usize).max(1) as u64;
+        let mut ceiling = remaining.budget.max_input_tokens as u64 / attempts;
+        if let Some(price) = self.pricing {
+            let output_cost = (remaining.budget.max_output_tokens as u64)
+                .checked_mul(price.output_micros_per_token)
+                .ok_or(PortError::BudgetExceeded)?;
+            let input_cost = remaining
+                .budget
+                .max_cost_micros
+                .checked_sub(output_cost)
+                .ok_or(PortError::BudgetExceeded)?;
+            if price.input_micros_per_token > 0 {
+                ceiling = ceiling.min(input_cost / price.input_micros_per_token / attempts);
+            }
+        }
+        remaining.budget.max_input_tokens = ceiling as u32;
+        Ok(remaining)
     }
     fn validate_live(
         &self,
@@ -292,7 +348,7 @@ impl<R> DiscordRetriever<R> {
         let observations = self.observations.lock().map_err(|_| unavailable())?;
         match observations.get(&key) {
             Some((expires, current))
-                if Instant::now() < *expires && items.iter().all(|item| item == current) =>
+                if Instant::now() < *expires && items.iter().all(|item| current.contains(item)) =>
             {
                 Ok(())
             }
@@ -325,14 +381,55 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
                 live_context.budget.max_network_rounds -= usage.network_rounds;
                 let (expires, current) = live.read(&live_context)?;
                 usage.network_rounds += 1;
+                let packing_context =
+                    if matches!(query.profile, brain_contracts::AnswerProfile::Fact) {
+                        context.clone()
+                    } else {
+                        self.packing_context(context, &usage)?
+                    };
+                let mut candidates = vec![current.clone()];
+                if !matches!(query.profile, brain_contracts::AnswerProfile::Fact)
+                    && brain_contracts::provider_input::grounded_input_ceiling(query, &candidates)
+                        > packing_context.budget.max_input_tokens as u64
+                {
+                    let text = query.text.to_lowercase();
+                    let terms: Vec<_> = ["lane", "voice", "kanal", "kanäle", "router"]
+                        .into_iter()
+                        .filter(|term| text.contains(term))
+                        .collect();
+                    let mut lines: Vec<_> = current.content.lines().collect();
+                    lines.sort_by_key(|line| {
+                        let line = line.to_lowercase();
+                        !terms.iter().any(|term| line.contains(term))
+                    });
+                    let mut seen = HashSet::new();
+                    lines.retain(|line| seen.insert(*line));
+                    candidates = lines
+                        .into_iter()
+                        .filter(|line| !line.trim().is_empty())
+                        .map(|line| {
+                            let mut item = current.clone();
+                            item.content = line.to_owned();
+                            item.evidence_id =
+                                format!("discord-live-{:x}", Sha256::digest(line.as_bytes()));
+                            item
+                        })
+                        .collect();
+                }
+                candidates.append(&mut items);
+                items = dbrain_retrieval::pack(query, &packing_context, candidates)?;
+                let selected_live = items
+                    .iter()
+                    .filter(|item| item.source_id == SOURCE)
+                    .cloned()
+                    .collect();
                 let mut observations = self.observations.lock().map_err(|_| unavailable())?;
                 let now = Instant::now();
                 if now >= expires {
                     return Err(denied());
                 }
                 observations.retain(|_, (expires, _)| now < *expires);
-                observations.insert(key, (expires, current.clone()));
-                items.insert(0, current);
+                observations.insert(key, (expires, selected_live));
             }
         }
         Ok((items, usage))
@@ -376,6 +473,275 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn grosse_live_panels_und_doku_passen_gemeinsam_ins_providerbudget() {
+        use brain_contracts::{provider_input::grounded_input_ceiling, AnswerProviderPort};
+        use brain_providers::{OpenAiCompatibleProvider, PriceCeiling, ProviderConfig};
+        use std::{
+            io::{BufRead, BufReader, Write},
+            net::{TcpListener, TcpStream},
+        };
+
+        fn request(stream: &mut TcpStream) -> Value {
+            stream
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut length = 0;
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if line == "\r\n" {
+                    break;
+                }
+                if let Some(value) = line.to_lowercase().strip_prefix("content-length:") {
+                    length = value.trim().parse::<usize>().unwrap();
+                }
+            }
+            let mut bytes = vec![0; length];
+            reader.read_exact(&mut bytes).unwrap();
+            serde_json::from_slice(&bytes).unwrap()
+        }
+        fn reply(stream: &mut TcpStream, body: Value) {
+            let body = body.to_string();
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        }
+        struct Documents(Vec<Evidence>);
+        impl RetrievalPort for Documents {
+            fn retrieve(
+                &self,
+                _: &Query,
+                _: &AuthorizedContext,
+            ) -> Result<Vec<Evidence>, PortError> {
+                Ok(self.0.clone())
+            }
+            fn validate_evidence(
+                &self,
+                _: &Query,
+                _: &AuthorizedContext,
+                items: &[Evidence],
+                _: bool,
+            ) -> Result<(), PortError> {
+                if items.iter().all(|item| self.0.contains(item)) {
+                    Ok(())
+                } else {
+                    Err(denied())
+                }
+            }
+            fn validate_publication(
+                &self,
+                query: &Query,
+                context: &AuthorizedContext,
+                items: &[Evidence],
+            ) -> Result<(), PortError> {
+                self.validate_evidence(query, context, items, false)
+            }
+        }
+        for panel_bytes in [850, 3000] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let endpoint = format!("http://{}", listener.local_addr().unwrap());
+            let mut live = DiscordLive::new("test".into()).unwrap();
+            live.endpoint = format!("{endpoint}/mcp");
+            let channels = vec![
+                json!({"id":"2","name":"Anleitungen","type":0,"topic":null,"position":0,"parent_id":null}),
+                json!({"id":"3","name":"Anfänger-Lane","type":2,"topic":null,"position":1,"parent_id":null}),
+                json!({"id":"4","name":"Ranked-Lane","type":2,"topic":null,"position":2,"parent_id":null}),
+                json!({"id":"5","name":"Turnier-Lane","type":2,"topic":null,"position":3,"parent_id":null}),
+            ];
+            let panels: Vec<_> = (0..5).map(|i| json!({"channel_id":"2","message_id":format!("{}", 10+i),"text":format!("Öffentliches Panel {i}: {}", "a".repeat(panel_bytes))})).collect();
+            let facts = json!({"schema":"discord.public-facts.v1","guild_id":"1","observed_at":Utc::now().to_rfc3339(),"cache_seconds":60,"audience":"everyone","channels":channels,"voice_counts":[{"channel_id":"3","count":3},{"channel_id":"4","count":4},{"channel_id":"5","count":5}],"bot_infos":panels});
+            let full_live = evidence(serde_json::from_value(facts.clone()).unwrap())
+                .unwrap()
+                .1;
+            let documents: Vec<_> = (0..6)
+                .map(|i| {
+                    let mut item = full_live.clone();
+                    item.source_id = "docs.public".into();
+                    item.evidence_id = format!("doc-{i}");
+                    item.content = "d".repeat(if i == 0 { 992 } else { 991 });
+                    item
+                })
+                .collect();
+            assert_eq!(
+                documents
+                    .iter()
+                    .map(|item| item.content.len())
+                    .sum::<usize>(),
+                5947
+            );
+            let query: Query = serde_json::from_value(json!({"request_id":"r","conversation_id":"c","text":"Welche Lanes gibt es auf dem Discord-Server?","requested_scopes":["bot.public"]})).unwrap();
+            let mut context = AuthorizedContext {
+                principal: brain_contracts::Principal {
+                    actor_id: "bot".into(),
+                    channel: "test".into(),
+                    scopes: BTreeSet::from(["bot.public".into()]),
+                    provider_egress: BTreeSet::from(["public".into()]),
+                },
+                conversation_id: "c".into(),
+                knowledge_release: "release".into(),
+                deadline_ms: 10000,
+                budget: brain_contracts::Budget {
+                    max_network_rounds: 2,
+                    max_input_tokens: 12000,
+                    max_output_tokens: 4096,
+                    max_cost_micros: 12768,
+                },
+                request_deadline: None,
+            };
+            let mut unpacked = vec![full_live];
+            unpacked.extend(documents.clone());
+            assert!(grounded_input_ceiling(&query, &unpacked) + 4096 > 12768);
+            let worker = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                assert_eq!(
+                    request(&mut stream)["params"]["name"],
+                    "public_server_facts"
+                );
+                reply(
+                    &mut stream,
+                    json!({"jsonrpc":"2.0","id":1,"result":{"isError":false,"content":[{"type":"text","text":facts.to_string()}]}}),
+                );
+                drop(stream);
+                let (mut stream, _) = listener.accept().unwrap();
+                let payload = request(&mut stream);
+                assert_eq!(payload["max_tokens"], 4096);
+                assert!(
+                    brain_contracts::provider_input::transport_input_ceiling(&payload, true)
+                        .unwrap()
+                        <= 8672
+                );
+                let supplied: Value =
+                    serde_json::from_str(payload["messages"][1]["content"].as_str().unwrap())
+                        .unwrap();
+                let ids: Vec<_> = supplied["evidence"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|item| item["content"].as_str().unwrap().contains("Lane"))
+                    .map(|item| item["id"].clone())
+                    .collect();
+                assert!(!ids.is_empty());
+                let answer = json!({"text":"Es gibt Anfänger-Lane, Ranked-Lane und Turnier-Lane.","cited_evidence_ids":ids});
+                reply(
+                    &mut stream,
+                    json!({"model":"fixture-model","choices":[{"message":{"content":answer.to_string()}}],"usage":{"prompt_tokens":1000,"completion_tokens":40}}),
+                );
+            });
+            let price = PriceCeiling {
+                input_micros_per_token: 1,
+                output_micros_per_token: 1,
+            };
+            let mut adapter = DiscordRetriever::new(Documents(documents), Some(Arc::new(live)));
+            adapter.pricing = Some(price);
+            let (items, usage) = adapter.retrieve_with_usage(&query, &context).unwrap();
+            assert_eq!(usage.network_rounds, 1);
+            assert!(grounded_input_ceiling(&query, &items) <= 8672);
+            let content = items
+                .iter()
+                .map(|item| item.content.as_str())
+                .collect::<Vec<_>>()
+                .join("\n");
+            for lane in [
+                "Anfänger-Lane",
+                "Ranked-Lane",
+                "Turnier-Lane",
+                "3 anwesend",
+                "4 anwesend",
+                "5 anwesend",
+            ] {
+                assert!(content.contains(lane));
+            }
+            for provider in [false, true] {
+                adapter
+                    .validate_evidence(&query, &context, &items, provider)
+                    .unwrap();
+            }
+            adapter
+                .validate_publication(&query, &context, &items)
+                .unwrap();
+            let mut changed = items.clone();
+            changed[0].content.push_str("verändert");
+            assert!(adapter
+                .validate_publication(&query, &context, &changed)
+                .is_err());
+            context.budget.max_network_rounds -= usage.network_rounds;
+            let mut config = ProviderConfig::new("fixture", endpoint, "fixture-model");
+            config.pricing = Some(price);
+            let answer = OpenAiCompatibleProvider::new(config)
+                .unwrap()
+                .answer(&query, &context, &items)
+                .unwrap();
+            assert!(answer.text.contains("Turnier-Lane"));
+            assert_eq!(answer.usage.network_rounds + usage.network_rounds, 2);
+            worker.join().unwrap();
+            let mut other_query = query.clone();
+            other_query.request_id = "anderer-Aufruf".into();
+            assert!(adapter
+                .validate_evidence(&other_query, &context, &items, true)
+                .is_err());
+            adapter
+                .observations
+                .lock()
+                .unwrap()
+                .get_mut(&observation_key(&query, &context).unwrap())
+                .unwrap()
+                .0 = Instant::now();
+            assert!(adapter
+                .validate_publication(&query, &context, &items)
+                .is_err());
+        }
+    }
+
+    #[test]
+    fn packing_reserviert_kosten_nach_bisherigem_verbrauch() {
+        let mut adapter = DiscordRetriever::new(Stored, None);
+        adapter.pricing = Some(brain_providers::PriceCeiling {
+            input_micros_per_token: 2,
+            output_micros_per_token: 3,
+        });
+        let context = AuthorizedContext {
+            principal: brain_contracts::Principal {
+                actor_id: "bot".into(),
+                channel: "test".into(),
+                scopes: BTreeSet::new(),
+                provider_egress: BTreeSet::new(),
+            },
+            conversation_id: "c".into(),
+            knowledge_release: "release".into(),
+            deadline_ms: 1000,
+            budget: brain_contracts::Budget {
+                max_network_rounds: 2,
+                max_input_tokens: 12000,
+                max_output_tokens: 4096,
+                max_cost_micros: 12768,
+            },
+            request_deadline: None,
+        };
+        let usage = Usage {
+            network_rounds: 1,
+            input_tokens: 100,
+            output_tokens: 10,
+            cost_micros: 50,
+            ..Usage::default()
+        };
+        let packed = adapter.packing_context(&context, &usage).unwrap();
+        assert_eq!(
+            packed.budget.max_input_tokens,
+            (12768 - 50 - (4096 - 10) * 3) / 2
+        );
+        adapter.pricing.as_mut().unwrap().output_micros_per_token = u64::MAX;
+        assert!(matches!(
+            adapter.packing_context(&context, &usage),
+            Err(PortError::BudgetExceeded)
+        ));
+    }
 
     #[test]
     #[ignore = "Liest ausschließlich öffentliche Live-Fakten über den bestehenden Infisicalzugang."]
