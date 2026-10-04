@@ -957,6 +957,7 @@ mod kernel_integration_tests {
             domain: None,
         };
         let context = AuthorizedContext {
+            discord: None,
             request_deadline: None,
             principal: Principal {
                 actor_id: "fixture".into(),

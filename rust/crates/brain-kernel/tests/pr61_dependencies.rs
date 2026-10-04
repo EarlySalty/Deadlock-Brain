@@ -117,6 +117,7 @@ fn request() -> Query {
 }
 fn context() -> AuthorizedContext {
     AuthorizedContext {
+        discord: None,
         principal: Principal {
             actor_id: "reviewer".into(),
             channel: "test".into(),

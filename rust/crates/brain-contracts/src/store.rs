@@ -328,6 +328,7 @@ pub fn record_allowed(record: &SourceRecordV2, principal: &Principal, provider: 
         SourceVisibility::Public => "public",
         SourceVisibility::Internal => "internal",
         SourceVisibility::Private => "private",
+        SourceVisibility::RequestScoped => return false,
     };
     let acl = (record.visibility == SourceVisibility::Public || !record.allowed_scopes.is_empty())
         && record.allowed_scopes.is_subset(&principal.scopes);

@@ -32,6 +32,9 @@ impl<R: RetrievalPort, P: AnswerProviderPort> CachedKernel<R, P> {
         context: &AuthorizedContext,
         purpose: AnswerPurpose,
     ) -> KernelAnswer {
+        if context.discord.is_some() {
+            return self.inner.answer_with_purpose(query, context, purpose);
+        }
         let started = Instant::now();
         if context.check_deadline().is_err() {
             return response(

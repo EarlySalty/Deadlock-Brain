@@ -18,6 +18,23 @@ pub struct Config {
     pub analytics: Option<Analytics>,
     pub credentials: Vec<Credential>,
     pub internal_operator: Option<InternalOperator>,
+    #[serde(default)]
+    pub trusted_discord_consumers: Vec<DiscordConsumer>,
+    #[serde(default)]
+    pub discord_live: Option<DiscordLiveConfig>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiscordConsumer {
+    pub actor_id: String,
+    pub channel: String,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiscordLiveConfig {
+    pub token_secret: String,
 }
 
 impl std::fmt::Debug for Config {
@@ -448,6 +465,25 @@ impl Config {
             !self.credentials.is_empty() && self.credentials.len() <= 128,
             "credentials",
         )?;
+        require(
+            self.discord_live
+                .as_ref()
+                .is_none_or(|live| live.token_secret == "DISCORD_PUBLIC_FACTS_TOKEN"),
+            "discord_live",
+        )?;
+        let mut consumers = BTreeSet::new();
+        for consumer in &self.trusted_discord_consumers {
+            require(
+                consumers.insert((&consumer.actor_id, &consumer.channel))
+                    && self.credentials.iter().any(|credential| {
+                        credential.actor_id == consumer.actor_id
+                            && credential.channel == consumer.channel
+                            && credential.scopes == BTreeSet::from(["bot.public".into()])
+                            && credential.provider_egress == BTreeSet::from(["public".into()])
+                    }),
+                "discord_consumers",
+            )?;
+        }
         let mut names = BTreeSet::from([p.api_key_env.as_str()]);
         if let Some(name) = pg.password_env.as_deref() {
             require(names.insert(name), "secret_references")?;

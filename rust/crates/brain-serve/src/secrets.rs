@@ -90,14 +90,14 @@ impl Secrets {
     /// Injectable lookup uses the same validation for runtime snapshots and synthetic tests.
     pub fn load(config: &Config, lookup: impl Fn(&str) -> Option<String>) -> Result<Self, Error> {
         config.validate()?;
-        let discord_live_token = lookup("TWITCH_INTERNAL_API_TOKEN")
-            .map(|value| {
-                required(
-                    &|_| Some(value.clone()),
-                    "TWITCH_INTERNAL_API_TOKEN",
-                    "discord_live",
-                    true,
-                )
+        let discord_live_token = config
+            .discord_live
+            .as_ref()
+            .map(|live| {
+                if live.token_secret != "DISCORD_PUBLIC_FACTS_TOKEN" {
+                    return Err(Error::ConfigInvalid("discord_live"));
+                }
+                required(&lookup, &live.token_secret, "discord_live", true)
             })
             .transpose()?;
         let provider_key = required(&lookup, &config.provider.api_key_env, "provider", true)?;
@@ -190,9 +190,12 @@ mod tests {
 
     #[test]
     fn vorhandene_interne_referenz_wird_validiert_und_nicht_ausgegeben() {
-        let config = Config::parse(CONFIG).unwrap();
+        let mut config = Config::parse(CONFIG).unwrap();
+        config.discord_live = Some(crate::config::DiscordLiveConfig {
+            token_secret: "DISCORD_PUBLIC_FACTS_TOKEN".into(),
+        });
         let secrets = Secrets::load(&config, |name| {
-            if name == "TWITCH_INTERNAL_API_TOKEN" {
+            if name == "DISCORD_PUBLIC_FACTS_TOKEN" {
                 Some("synthetische-interne-referenz".into())
             } else {
                 fixture(name)
@@ -202,7 +205,7 @@ mod tests {
         assert!(secrets.discord_live_token.is_some());
         assert!(!format!("{secrets:?}").contains("synthetische-interne-referenz"));
         assert!(Secrets::load(&config, |name| {
-            if name == "TWITCH_INTERNAL_API_TOKEN" {
+            if name == "DISCORD_PUBLIC_FACTS_TOKEN" {
                 Some("ungueltig\n".into())
             } else {
                 fixture(name)

@@ -1252,6 +1252,7 @@ async fn pilot_phase_reader_failures() {
     let retriever = dbrain_retrieval::ReleaseRetriever::new(reader(&env), 6);
     let q = query("reader-failure", "Abrams", &["docs.public"], None, None);
     let context = AuthorizedContext {
+        discord: None,
         request_deadline: None,
         principal: Principal {
             actor_id: "pilot-reader-failure".into(),

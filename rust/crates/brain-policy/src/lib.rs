@@ -213,6 +213,7 @@ impl PolicyEngine {
             return Err(PolicyError::BudgetExceeded);
         }
         Ok(AuthorizedContext {
+            discord: None,
             principal,
             conversation_id: query.conversation_id.clone(),
             knowledge_release: knowledge_release.into(),

@@ -230,6 +230,7 @@ mod tests {
 
     fn context() -> AuthorizedContext {
         AuthorizedContext {
+            discord: None,
             request_deadline: None,
             principal: Principal {
                 actor_id: "test".into(),

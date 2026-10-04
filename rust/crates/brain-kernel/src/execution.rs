@@ -310,10 +310,20 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
         );
     }
     let egress = evidence.iter().all(|item| {
+        if item.visibility == brain_contracts::SourceVisibility::RequestScoped
+            && !context.discord.as_ref().is_some_and(|request| {
+                request.request_id == query.request_id
+                    && item.allowed_scopes
+                        == std::collections::BTreeSet::from([request.scope.clone()])
+            })
+        {
+            return false;
+        }
         let class = match item.visibility {
             brain_contracts::SourceVisibility::Public => "public",
             brain_contracts::SourceVisibility::Internal => "internal",
             brain_contracts::SourceVisibility::Private => "private",
+            brain_contracts::SourceVisibility::RequestScoped => "discord_request",
         };
         provider_egress_allowed(&context.principal, class)
     });

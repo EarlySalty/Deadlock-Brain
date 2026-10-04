@@ -85,6 +85,7 @@ fn query() -> Query {
 }
 fn context() -> AuthorizedContext {
     AuthorizedContext {
+        discord: None,
         request_deadline: None,
         principal: Principal {
             actor_id: "patch-tester".into(),

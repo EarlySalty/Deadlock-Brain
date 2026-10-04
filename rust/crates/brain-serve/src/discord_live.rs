@@ -14,7 +14,7 @@ use std::{
 };
 
 const SOURCE: &str = "discord.public-live.v1";
-const ENDPOINT: &str = "http://127.0.0.1:8890/mcp";
+const ENDPOINT: &str = "http://127.0.0.1:8890/mcp/public";
 
 fn unavailable() -> PortError {
     PortError::Unavailable("Öffentliche Discord-Live-Fakten sind derzeit nicht verfügbar.".into())
@@ -34,6 +34,40 @@ struct Facts {
     channels: Vec<Channel>,
     voice_counts: Vec<VoiceCount>,
     bot_infos: Vec<BotInfo>,
+    #[serde(default)]
+    tempvoice: TempVoice,
+    #[serde(default)]
+    messages: Vec<History>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct History {
+    channel_id: String,
+    messages: Vec<Message>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Message {
+    id: String,
+    text: String,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TempVoice {
+    category_ids: Vec<String>,
+    join_channel_ids: Vec<String>,
+    open_lanes: Vec<OpenLane>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OpenLane {
+    channel_id: String,
+    count: u64,
+    mode: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -71,8 +105,8 @@ fn evidence(facts: Facts) -> Result<(Instant, Evidence), PortError> {
         .checked_sub(age)
         .filter(|remaining| !remaining.is_zero())
         .ok_or_else(denied)?;
-    if facts.schema != "discord.public-facts.v1"
-        || facts.audience != "everyone"
+    if facts.schema != "discord.public-facts.v2"
+        || !matches!(facts.audience.as_str(), "verified_members" | "requester")
         || facts.cache_seconds > 60
         || facts.cache_seconds == 0
         || facts.guild_id.parse::<u64>().ok().is_none_or(|id| id == 0)
@@ -107,6 +141,33 @@ fn evidence(facts: Facts) -> Result<(Instant, Evidence), PortError> {
         return Err(denied());
     }
     let mut lines = vec!["Aktuelle öffentliche Discord-Kanäle und Voice-Anzahlen.".to_owned()];
+    for id in &facts.tempvoice.category_ids {
+        let category = facts
+            .channels
+            .iter()
+            .find(|channel| channel.id == *id && channel.kind == 4)
+            .ok_or_else(denied)?;
+        lines.push(format!("TempVoice-Kategorie: {}.", category.name));
+    }
+    for id in &facts.tempvoice.join_channel_ids {
+        let channel = facts
+            .channels
+            .iter()
+            .find(|channel| channel.id == *id && channel.kind == 2)
+            .ok_or_else(denied)?;
+        lines.push(format!("Join-to-create: {}.", channel.name));
+    }
+    for lane in &facts.tempvoice.open_lanes {
+        let channel = facts
+            .channels
+            .iter()
+            .find(|channel| channel.id == lane.channel_id && channel.kind == 2)
+            .ok_or_else(denied)?;
+        lines.push(format!(
+            "Offene Lane: {}, Art {}, {} anwesend.",
+            channel.name, lane.mode, lane.count
+        ));
+    }
     for c in &facts.channels {
         let kind = match c.kind {
             0 => "Textkanal",
@@ -149,6 +210,19 @@ fn evidence(facts: Facts) -> Result<(Instant, Evidence), PortError> {
             info.text
         ));
     }
+    for history in &facts.messages {
+        let channel = facts
+            .channels
+            .iter()
+            .find(|channel| channel.id == history.channel_id && matches!(channel.kind, 0 | 5))
+            .ok_or_else(denied)?;
+        for message in &history.messages {
+            if message.id.parse::<u64>().ok().is_none_or(|id| id == 0) {
+                return Err(denied());
+            }
+            lines.push(format!("Nachricht in {}: {}", channel.name, message.text));
+        }
+    }
     let content = lines.join("\n");
     let digest = format!("{:x}", Sha256::digest(content.as_bytes()));
     let expires = received + remaining;
@@ -165,8 +239,8 @@ fn evidence(facts: Facts) -> Result<(Instant, Evidence), PortError> {
             kind: EvidenceKind::Prose,
             content,
             citation: format!("https://discord.com/channels/{}", facts.guild_id),
-            visibility: SourceVisibility::Public,
-            allowed_scopes: BTreeSet::from(["bot.public".into()]),
+            visibility: SourceVisibility::RequestScoped,
+            allowed_scopes: BTreeSet::from(["discord.request:unbound".into()]),
             score: 100.0,
             provenance: None,
             patch: None,
@@ -193,14 +267,32 @@ impl DiscordLive {
             endpoint: ENDPOINT.into(),
         })
     }
+    #[cfg(test)]
     fn read(&self, context: &AuthorizedContext) -> Result<(Instant, Evidence), PortError> {
+        self.read_channel(context, None)
+    }
+
+    fn read_channel(
+        &self,
+        context: &AuthorizedContext,
+        channel_id: Option<u64>,
+    ) -> Result<(Instant, Evidence), PortError> {
         context.check_deadline()?;
         if context.budget.max_network_rounds == 0 {
             return Err(PortError::BudgetExceeded);
         }
-        let mut response = self.http.post(&self.endpoint).bearer_auth(&self.token)
+        let request = context.discord.as_ref().ok_or_else(denied)?;
+        let mut builder = self
+            .http
+            .post(&self.endpoint)
+            .bearer_auth(&self.token)
+            .header("x-discord-request-id", &request.request_id);
+        if let Some(user) = request.user_id {
+            builder = builder.header("x-discord-user-id", user);
+        }
+        let mut response = builder
             .timeout(context.remaining_time()?.min(Duration::from_secs(15)))
-            .json(&json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"public_server_facts","arguments":{}}}))
+            .json(&json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"public_server_facts","arguments":channel_id.map(|channel_id| json!({"channel_id":channel_id})).unwrap_or_else(|| json!({}))}}))
             .send().map_err(|_| unavailable())?.error_for_status().map_err(|_| unavailable())?;
         let mut bytes = Vec::new();
         response
@@ -221,23 +313,27 @@ impl DiscordLive {
         {
             return Err(unavailable());
         }
-        evidence(
+        let (expires, mut item) = evidence(
             serde_json::from_str(
                 result["content"][0]["text"]
                     .as_str()
                     .ok_or_else(unavailable)?,
             )
             .map_err(|_| denied())?,
-        )
+        )?;
+        item.allowed_scopes = BTreeSet::from([request.scope.clone()]);
+        Ok((expires, item))
     }
 }
 
 fn relevant(query: &Query) -> bool {
     let text = query.text.to_lowercase();
     query.domain.is_none()
-        && ["discord", "lane", "voice", "kanal", "kanäle", "router"]
-            .iter()
-            .any(|term| text.contains(term))
+        && [
+            "discord", "lane", "voice", "kanal", "kanäle", "router", "<#",
+        ]
+        .iter()
+        .any(|term| text.contains(term))
 }
 fn allowed(query: &Query, context: &AuthorizedContext, provider: bool) -> bool {
     query.requested_scopes.contains("bot.public")
@@ -266,6 +362,10 @@ fn observation_key(query: &Query, context: &AuthorizedContext) -> Result<String,
         &context.principal,
         &context.conversation_id,
         &context.knowledge_release,
+        &context
+            .discord
+            .as_ref()
+            .map(|request| (&request.user_id, &request.request_id, &request.scope)),
     ))
     .map_err(|_| denied())?;
     Ok(format!("{:x}", Sha256::digest(bytes)))
@@ -379,7 +479,14 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
                 let key = observation_key(query, context)?;
                 let mut live_context = context.clone();
                 live_context.budget.max_network_rounds -= usage.network_rounds;
-                let (expires, current) = live.read(&live_context)?;
+                let channel_id = query
+                    .text
+                    .split("<#")
+                    .nth(1)
+                    .and_then(|suffix| suffix.split('>').next())
+                    .and_then(|id| id.parse::<u64>().ok())
+                    .filter(|id| *id != 0);
+                let (expires, current) = live.read_channel(&live_context, channel_id)?;
                 usage.network_rounds += 1;
                 let packing_context =
                     if matches!(query.profile, brain_contracts::AnswerProfile::Fact) {
@@ -576,7 +683,7 @@ mod tests {
                 json!({"id":"8","name":"Caster Channel","type":2,"topic":null,"position":6,"parent_id":null}),
             ];
             let panels: Vec<_> = (0..5).map(|i| json!({"channel_id":"2","message_id":format!("{}", 10+i),"text":format!("Öffentliches Panel {i}: {}", "a".repeat(panel_bytes))})).collect();
-            let facts = json!({"schema":"discord.public-facts.v1","guild_id":"1","observed_at":Utc::now().to_rfc3339(),"cache_seconds":60,"audience":"everyone","channels":channels,"voice_counts":[{"channel_id":"3","count":3},{"channel_id":"4","count":4},{"channel_id":"5","count":5}],"bot_infos":panels});
+            let facts = json!({"schema":"discord.public-facts.v2","guild_id":"1","observed_at":Utc::now().to_rfc3339(),"cache_seconds":60,"audience":"verified_members","channels":channels,"voice_counts":[{"channel_id":"3","count":3},{"channel_id":"4","count":4},{"channel_id":"5","count":5}],"bot_infos":panels});
             let full_live = evidence(serde_json::from_value(facts.clone()).unwrap())
                 .unwrap()
                 .1;
@@ -606,11 +713,16 @@ mod tests {
             );
             let query: Query = serde_json::from_value(json!({"request_id":"r","conversation_id":"c","text":"Welche Lanes gibt es auf dem Discord-Server?","requested_scopes":["bot.public"]})).unwrap();
             let mut context = AuthorizedContext {
+                discord: Some(brain_contracts::DiscordRequestContext {
+                    user_id: None,
+                    request_id: "r".into(),
+                    scope: "discord.request:unbound".into(),
+                }),
                 principal: brain_contracts::Principal {
                     actor_id: "bot".into(),
                     channel: "test".into(),
-                    scopes: BTreeSet::from(["bot.public".into()]),
-                    provider_egress: BTreeSet::from(["public".into()]),
+                    scopes: BTreeSet::from(["bot.public".into(), "discord.request:unbound".into()]),
+                    provider_egress: BTreeSet::from(["public".into(), "discord_request".into()]),
                 },
                 conversation_id: "c".into(),
                 knowledge_release: "release".into(),
@@ -640,10 +752,8 @@ mod tests {
                 let (mut stream, _) = listener.accept().unwrap();
                 let payload = request(&mut stream);
                 let instructions = payload["messages"][0]["content"].as_str().unwrap();
-                assert!(instructions.contains("Lanearten aus der gelieferten Doku"));
-                assert!(
-                    instructions.contains("Voice-Kanalliste ist keine Aufzählung von Lanearten")
-                );
+                assert!(instructions.contains("aktuell offenen Lanes"));
+                assert!(instructions.contains("Erkläre diese Unterscheidung nicht im Antworttext"));
                 assert!(!instructions.contains("Casual"));
                 assert_eq!(payload["max_tokens"], 4096);
                 assert!(
@@ -750,6 +860,11 @@ mod tests {
             output_micros_per_token: 3,
         });
         let context = AuthorizedContext {
+            discord: Some(brain_contracts::DiscordRequestContext {
+                user_id: None,
+                request_id: "r".into(),
+                scope: "discord.request:unbound".into(),
+            }),
             principal: brain_contracts::Principal {
                 actor_id: "bot".into(),
                 channel: "test".into(),
@@ -806,10 +921,15 @@ mod tests {
         )
         .unwrap();
         let context = AuthorizedContext {
+            discord: Some(brain_contracts::DiscordRequestContext {
+                user_id: None,
+                request_id: "r".into(),
+                scope: "discord.request:unbound".into(),
+            }),
             principal: brain_contracts::Principal {
                 actor_id: "interne-live-pruefung".into(),
                 channel: "test".into(),
-                scopes: BTreeSet::from(["bot.public".into()]),
+                scopes: BTreeSet::from(["bot.public".into(), "discord.request:unbound".into()]),
                 provider_egress: BTreeSet::new(),
             },
             conversation_id: "interne-live-pruefung".into(),
@@ -854,11 +974,16 @@ mod tests {
     fn reine_live_packs_werden_lokal_und_leere_packs_ablehnend_geprueft() {
         let query: Query = serde_json::from_value(json!({"request_id":"r","conversation_id":"c","text":"Welche Lanes gibt es?","requested_scopes":["bot.public"]})).unwrap();
         let context = AuthorizedContext {
+            discord: Some(brain_contracts::DiscordRequestContext {
+                user_id: None,
+                request_id: "r".into(),
+                scope: "discord.request:unbound".into(),
+            }),
             principal: brain_contracts::Principal {
                 actor_id: "bot".into(),
                 channel: "test".into(),
-                scopes: BTreeSet::from(["bot.public".into()]),
-                provider_egress: BTreeSet::from(["public".into()]),
+                scopes: BTreeSet::from(["bot.public".into(), "discord.request:unbound".into()]),
+                provider_egress: BTreeSet::from(["public".into(), "discord_request".into()]),
             },
             conversation_id: "c".into(),
             knowledge_release: "release".into(),
@@ -866,7 +991,7 @@ mod tests {
             budget: brain_contracts::Budget::default(),
             request_deadline: None,
         };
-        let facts = json!({"schema":"discord.public-facts.v1","guild_id":"1","observed_at":Utc::now().to_rfc3339(),"cache_seconds":60,"audience":"everyone","channels":[],"voice_counts":[],"bot_infos":[]});
+        let facts = json!({"schema":"discord.public-facts.v2","guild_id":"1","observed_at":Utc::now().to_rfc3339(),"cache_seconds":60,"audience":"verified_members","channels":[],"voice_counts":[],"bot_infos":[]});
         let (expires, item) = evidence(serde_json::from_value(facts).unwrap()).unwrap();
         let adapter = DiscordRetriever::new(Stored, None);
         let items = vec![item.clone()];
@@ -958,7 +1083,7 @@ mod tests {
                     }
                 }
                 reader.read_exact(&mut vec![0; length]).unwrap();
-                let facts = json!({"schema":"discord.public-facts.v1","guild_id":"1","observed_at":Utc::now().to_rfc3339(),"cache_seconds":60,"audience":"everyone","channels":[{"id":"2","name":"Coaching Lane","type":2,"topic":null,"position":0,"parent_id":null}],"voice_counts":[],"bot_infos":[]});
+                let facts = json!({"schema":"discord.public-facts.v2","guild_id":"1","observed_at":Utc::now().to_rfc3339(),"cache_seconds":60,"audience":"verified_members","channels":[{"id":"2","name":"Coaching Lane","type":2,"topic":null,"position":0,"parent_id":null}],"voice_counts":[],"bot_infos":[]});
                 let reply = json!({"jsonrpc":"2.0","id":1,"result":{"isError":false,"content":[{"type":"text","text":facts.to_string()}]}}).to_string();
                 write!(
                     stream,
@@ -974,11 +1099,16 @@ mod tests {
             KeineHistorie,
         );
         let context = AuthorizedContext {
+            discord: Some(brain_contracts::DiscordRequestContext {
+                user_id: None,
+                request_id: "r".into(),
+                scope: "discord.request:unbound".into(),
+            }),
             principal: brain_contracts::Principal {
                 actor_id: "bot".into(),
                 channel: "test".into(),
-                scopes: BTreeSet::from(["bot.public".into()]),
-                provider_egress: BTreeSet::from(["public".into()]),
+                scopes: BTreeSet::from(["bot.public".into(), "discord.request:unbound".into()]),
+                provider_egress: BTreeSet::from(["public".into(), "discord_request".into()]),
             },
             conversation_id: "c".into(),
             knowledge_release: "release".into(),
@@ -992,6 +1122,8 @@ mod tests {
             request_deadline: None,
         };
         for date in ["2018", "am 1. Januar 2019"] {
+            let mut context = context.clone();
+            context.discord.as_mut().unwrap().request_id = date.into();
             let query: Query = serde_json::from_value(json!({"request_id":date,"conversation_id":"c","text":format!("Welche Lanes gab es auf dem Discord-Server {date}?"),"requested_scopes":["bot.public"]})).unwrap();
             let answer = kernel.answer_for_publication(&query, &context);
             assert_eq!(answer.status, AnswerStatus::InsufficientEvidence);
@@ -1015,7 +1147,7 @@ mod tests {
             (Utc::now() - Duration::from_secs(60)).to_rfc3339(),
             (Utc::now() + Duration::from_secs(60)).to_rfc3339(),
         ] {
-            let facts = json!({"schema":"discord.public-facts.v1","guild_id":"1","observed_at":observed_at,"cache_seconds":60,"audience":"everyone","channels":[],"voice_counts":[],"bot_infos":[]});
+            let facts = json!({"schema":"discord.public-facts.v2","guild_id":"1","observed_at":observed_at,"cache_seconds":60,"audience":"verified_members","channels":[],"voice_counts":[],"bot_infos":[]});
             assert!(evidence(serde_json::from_value(facts).unwrap()).is_err());
         }
     }
@@ -1032,11 +1164,16 @@ mod tests {
         let adapter = DiscordRetriever::new(Stored, Some(Arc::new(live)));
         let query: Query = serde_json::from_value(json!({"request_id":"r","conversation_id":"c","text":"Welche Lanes gibt es?","requested_scopes":["bot.public"]})).unwrap();
         let mut context = AuthorizedContext {
+            discord: Some(brain_contracts::DiscordRequestContext {
+                user_id: None,
+                request_id: "r".into(),
+                scope: "discord.request:unbound".into(),
+            }),
             principal: brain_contracts::Principal {
                 actor_id: "bot".into(),
                 channel: "test".into(),
-                scopes: BTreeSet::from(["bot.public".into()]),
-                provider_egress: BTreeSet::from(["public".into()]),
+                scopes: BTreeSet::from(["bot.public".into(), "discord.request:unbound".into()]),
+                provider_egress: BTreeSet::from(["public".into(), "discord_request".into()]),
             },
             conversation_id: "c".into(),
             knowledge_release: "release".into(),
@@ -1064,7 +1201,7 @@ mod tests {
                 }
                 reader.read_exact(&mut vec![0; length]).unwrap();
                 let observed_at = (Utc::now() - Duration::from_millis(age_ms)).to_rfc3339();
-                let facts = json!({"schema":"discord.public-facts.v1","guild_id":"1","observed_at":observed_at,"cache_seconds":1,"audience":"everyone","channels":[],"voice_counts":[],"bot_infos":[]});
+                let facts = json!({"schema":"discord.public-facts.v2","guild_id":"1","observed_at":observed_at,"cache_seconds":1,"audience":"verified_members","channels":[],"voice_counts":[],"bot_infos":[]});
                 let reply = json!({"jsonrpc":"2.0","id":1,"result":{"isError":false,"content":[{"type":"text","text":facts.to_string()}]}}).to_string();
                 write!(
                     stream,
@@ -1141,11 +1278,16 @@ mod tests {
         let adapter = DiscordRetriever::new(Stored, Some(live.clone()));
         let query: Query = serde_json::from_value(json!({"request_id":"r","conversation_id":"c","text":"Welche Lanes gibt es?","requested_scopes":["bot.public"]})).unwrap();
         let mut context = AuthorizedContext {
+            discord: Some(brain_contracts::DiscordRequestContext {
+                user_id: None,
+                request_id: "r".into(),
+                scope: "discord.request:unbound".into(),
+            }),
             principal: brain_contracts::Principal {
                 actor_id: "bot".into(),
                 channel: "test".into(),
-                scopes: BTreeSet::from(["bot.public".into()]),
-                provider_egress: BTreeSet::from(["public".into()]),
+                scopes: BTreeSet::from(["bot.public".into(), "discord.request:unbound".into()]),
+                provider_egress: BTreeSet::from(["public".into(), "discord_request".into()]),
             },
             conversation_id: "c".into(),
             knowledge_release: "release".into(),
@@ -1153,7 +1295,7 @@ mod tests {
             budget: brain_contracts::Budget::default(),
             request_deadline: None,
         };
-        let public = json!({"schema":"discord.public-facts.v1","guild_id":"1","observed_at":Utc::now().to_rfc3339(),"cache_seconds":60,"audience":"everyone","channels":[{"id":"2","name":"Lane","type":2,"topic":null,"position":0,"parent_id":null}],"voice_counts":[{"channel_id":"2","count":3}],"bot_infos":[]});
+        let public = json!({"schema":"discord.public-facts.v2","guild_id":"1","observed_at":Utc::now().to_rfc3339(),"cache_seconds":60,"audience":"verified_members","channels":[{"id":"2","name":"Lane","type":2,"topic":null,"position":0,"parent_id":null}],"voice_counts":[{"channel_id":"2","count":3}],"bot_infos":[]});
         let item = evidence(serde_json::from_value(public.clone()).unwrap())
             .unwrap()
             .1;
@@ -1284,11 +1426,16 @@ mod tests {
         live.endpoint = format!("http://{}/mcp", listener.local_addr().unwrap());
         let adapter = Arc::new(DiscordRetriever::new(Stored, Some(Arc::new(live))));
         let context = AuthorizedContext {
+            discord: Some(brain_contracts::DiscordRequestContext {
+                user_id: None,
+                request_id: "r".into(),
+                scope: "discord.request:unbound".into(),
+            }),
             principal: brain_contracts::Principal {
                 actor_id: "bot".into(),
                 channel: "test".into(),
-                scopes: BTreeSet::from(["bot.public".into()]),
-                provider_egress: BTreeSet::from(["public".into()]),
+                scopes: BTreeSet::from(["bot.public".into(), "discord.request:unbound".into()]),
+                provider_egress: BTreeSet::from(["public".into(), "discord_request".into()]),
             },
             conversation_id: "c".into(),
             knowledge_release: "release".into(),
@@ -1315,7 +1462,7 @@ mod tests {
                     }
                 }
                 reader.read_exact(&mut vec![0; length]).unwrap();
-                let public = json!({"schema":"discord.public-facts.v1","guild_id":"1","observed_at":Utc::now().to_rfc3339(),"cache_seconds":60,"audience":"everyone","channels":[{"id":"2","name":"Lane","type":2,"topic":null,"position":0,"parent_id":null}],"voice_counts":[{"channel_id":"2","count":count}],"bot_infos":[]});
+                let public = json!({"schema":"discord.public-facts.v2","guild_id":"1","observed_at":Utc::now().to_rfc3339(),"cache_seconds":60,"audience":"verified_members","channels":[{"id":"2","name":"Lane","type":2,"topic":null,"position":0,"parent_id":null}],"voice_counts":[{"channel_id":"2","count":count}],"bot_infos":[]});
                 let reply = json!({"jsonrpc":"2.0","id":1,"result":{"isError":false,"content":[{"type":"text","text":public.to_string()}]}}).to_string();
                 write!(
                     stream,
@@ -1378,10 +1525,15 @@ mod tests {
     fn statische_sperre_und_providerfreigabe_bleiben_verbindlich() {
         let query: Query = serde_json::from_value(json!({"request_id":"r","conversation_id":"c","text":"Welche Lanes gibt es?","requested_scopes":["bot.public"]})).unwrap();
         let context = AuthorizedContext {
+            discord: Some(brain_contracts::DiscordRequestContext {
+                user_id: None,
+                request_id: "r".into(),
+                scope: "discord.request:unbound".into(),
+            }),
             principal: brain_contracts::Principal {
                 actor_id: "bot".into(),
                 channel: "test".into(),
-                scopes: BTreeSet::from(["bot.public".into()]),
+                scopes: BTreeSet::from(["bot.public".into(), "discord.request:unbound".into()]),
                 provider_egress: BTreeSet::new(),
             },
             conversation_id: "c".into(),
@@ -1417,12 +1569,16 @@ mod tests {
     }
     #[test]
     fn private_felder_und_falsche_zulassung_werden_verworfen() {
-        let public = json!({"schema":"discord.public-facts.v1","guild_id":"1","observed_at":Utc::now().to_rfc3339(),"cache_seconds":60,"audience":"everyone","channels":[{"id":"2","name":"Lane","type":2,"topic":null,"position":0,"parent_id":null}],"voice_counts":[{"channel_id":"2","count":3}],"bot_infos":[]});
+        let public = json!({"schema":"discord.public-facts.v2","guild_id":"1","observed_at":Utc::now().to_rfc3339(),"cache_seconds":60,"audience":"verified_members","channels":[{"id":"2","name":"Lane","type":2,"topic":null,"position":0,"parent_id":null}],"voice_counts":[{"channel_id":"2","count":3}],"bot_infos":[]});
         let fact = evidence(serde_json::from_value(public.clone()).unwrap())
             .unwrap()
             .1;
         assert!(fact.content.contains("3 anwesend"));
-        assert_eq!(fact.allowed_scopes, BTreeSet::from(["bot.public".into()]));
+        assert_eq!(fact.visibility, SourceVisibility::RequestScoped);
+        assert_eq!(
+            fact.allowed_scopes,
+            BTreeSet::from(["discord.request:unbound".into()])
+        );
         let mut private = public.clone();
         private["voice_counts"][0]["username"] = json!("privat");
         assert!(serde_json::from_value::<Facts>(private).is_err());

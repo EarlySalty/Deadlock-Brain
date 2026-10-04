@@ -76,6 +76,7 @@ fn request() -> (Query, AuthorizedContext) {
             domain: None,
         },
         AuthorizedContext {
+            discord: None,
             principal: Principal {
                 actor_id: "actor".into(),
                 channel: "test".into(),

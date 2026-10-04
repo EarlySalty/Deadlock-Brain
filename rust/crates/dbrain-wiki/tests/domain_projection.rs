@@ -115,6 +115,7 @@ async fn reviewed_wiki_card_is_retrievable_as_an_exact_source_authorized_fact() 
     store.apply_record(record).unwrap();
     store.publish(&release).await.unwrap();
     let context = AuthorizedContext {
+        discord: None,
         request_deadline: None,
         principal: Principal {
             actor_id: "reviewer".into(),

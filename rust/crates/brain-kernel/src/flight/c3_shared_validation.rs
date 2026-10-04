@@ -93,6 +93,7 @@ fn shared_answer_follower_revalidates_and_distinguishes_reader_failure_from_deni
             domain: None,
         };
         let context = AuthorizedContext {
+            discord: None,
             request_deadline: None,
             principal: Principal {
                 actor_id: "actor".into(),

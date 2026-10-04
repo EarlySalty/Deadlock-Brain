@@ -93,6 +93,11 @@ async fn dispatch<K: AnswerKernelPort + 'static>(
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned);
+    let discord_user = headers
+        .get("x-discord-user-id")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|id| *id != 0);
     if !state.service.authenticate_header(authorization.as_deref()) {
         return respond(json_error(
             401,
@@ -129,9 +134,12 @@ async fn dispatch<K: AnswerKernelPort + 'static>(
                     .service
                     .handle_retrieve_until(authorization.as_deref(), &body, deadline)
             } else {
-                state
-                    .service
-                    .handle_answer_until(authorization.as_deref(), &body, deadline)
+                state.service.handle_answer_with_discord(
+                    authorization.as_deref(),
+                    &body,
+                    deadline,
+                    discord_user,
+                )
             }
         });
         match worker.await {

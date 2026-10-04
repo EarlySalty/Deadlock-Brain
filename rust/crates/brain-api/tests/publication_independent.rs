@@ -85,6 +85,7 @@ fn query(profile: AnswerProfile) -> Query {
 }
 fn context() -> AuthorizedContext {
     AuthorizedContext {
+        discord: None,
         principal: Principal {
             actor_id: "fixture-actor".into(),
             channel: "test".into(),

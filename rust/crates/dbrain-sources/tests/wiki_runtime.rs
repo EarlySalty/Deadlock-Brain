@@ -84,6 +84,7 @@ impl Drop for BlockingDomainReader {
 }
 fn context(release: &str) -> AuthorizedContext {
     AuthorizedContext {
+        discord: None,
         request_deadline: None,
         principal: Principal {
             actor_id: "c5-reviewer".into(),

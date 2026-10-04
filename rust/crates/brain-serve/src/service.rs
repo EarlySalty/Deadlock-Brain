@@ -327,6 +327,14 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
         (&prepared.config.budgets).into(),
     )
     .with_retrieval(public_retrieval)
+    .with_discord_consumers(
+        prepared
+            .config
+            .trusted_discord_consumers
+            .iter()
+            .map(|consumer| (consumer.actor_id.clone(), consumer.channel.clone()))
+            .collect(),
+    )
     .with_release_bindings(
         prepared
             .config

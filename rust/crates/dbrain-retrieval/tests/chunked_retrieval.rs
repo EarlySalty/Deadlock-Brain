@@ -45,6 +45,7 @@ async fn published(records: Vec<SourceRecordV2>) -> MemoryRepository {
 }
 fn context() -> AuthorizedContext {
     AuthorizedContext {
+        discord: None,
         request_deadline: None,
         principal: Principal {
             actor_id: "tester".into(),

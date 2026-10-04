@@ -769,6 +769,7 @@ async fn legacy_core_html_release_projects_without_mutating_historical_provenanc
         domain: None,
     };
     let context = AuthorizedContext {
+        discord: None,
         request_deadline: None,
         principal: Principal {
             actor_id: "operator-fixture".into(),

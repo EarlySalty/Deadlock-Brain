@@ -85,6 +85,9 @@ impl DocumentHead {
         Ok(())
     }
     pub fn allowed(&self, principal: &Principal, provider: bool) -> bool {
+        if self.visibility == SourceVisibility::RequestScoped {
+            return false;
+        }
         if provider
             && !self.canonical_origin().is_ok_and(|origin| {
                 origin.is_none_or(|origin| origin.policy.provider_egress_allowed)
@@ -96,6 +99,7 @@ impl DocumentHead {
             SourceVisibility::Public => "public",
             SourceVisibility::Internal => "internal",
             SourceVisibility::Private => "private",
+            SourceVisibility::RequestScoped => return false,
         };
         let egress = self
             .metadata

@@ -855,6 +855,7 @@ mod tests {
             }
         });
         let context = AuthorizedContext {
+            discord: None,
             principal: Principal {
                 actor_id: "fixture-actor".into(),
                 channel: "fixture-channel".into(),
@@ -902,6 +903,7 @@ mod tests {
         let elapsed_ms = Arc::new(AtomicU64::new(0));
         let reads = Arc::new(AtomicUsize::new(0));
         let context = AuthorizedContext {
+            discord: None,
             principal: Principal {
                 actor_id: "fixture-actor".into(),
                 channel: "fixture-channel".into(),
@@ -1137,6 +1139,7 @@ mod tests {
         };
         let request = answer_query(META_PREDICATE);
         let context = AuthorizedContext {
+            discord: None,
             principal: Principal {
                 actor_id: "fixture-actor".into(),
                 channel: "fixture-channel".into(),

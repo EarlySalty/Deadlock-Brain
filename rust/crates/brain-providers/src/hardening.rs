@@ -48,12 +48,24 @@ pub(super) fn authorize(
         ));
     }
     for item in evidence {
+        if item.visibility == SourceVisibility::RequestScoped
+            && !context.discord.as_ref().is_some_and(|request| {
+                request.request_id == query.request_id
+                    && item.allowed_scopes
+                        == std::collections::BTreeSet::from([request.scope.clone()])
+            })
+        {
+            return Err(ProviderError::InvalidResponse(
+                "request evidence denied".into(),
+            ));
+        }
         item.validate()
             .map_err(|_| ProviderError::InvalidResponse("invalid evidence".into()))?;
         let class = match item.visibility {
             SourceVisibility::Public => "public",
             SourceVisibility::Internal => "internal",
             SourceVisibility::Private => "private",
+            SourceVisibility::RequestScoped => "discord_request",
         };
         if (item.visibility != SourceVisibility::Public && item.allowed_scopes.is_empty())
             || !item.allowed_scopes.is_subset(&context.principal.scopes)

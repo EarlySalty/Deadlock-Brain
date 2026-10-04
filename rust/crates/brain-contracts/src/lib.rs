@@ -50,6 +50,8 @@ pub enum ContractError {
     InvalidStableId,
     #[error("Contract Größenlimit überschritten")]
     LimitExceeded,
+    #[error("Anfragegebundene Inhalte dürfen nicht als Wissensquelle gespeichert werden")]
+    RequestScopedSource,
 }
 
 pub type Result<T> = std::result::Result<T, ContractError>;
@@ -147,6 +149,8 @@ impl Default for Budget {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AuthorizedContext {
+    #[serde(skip)]
+    pub discord: Option<DiscordRequestContext>,
     pub principal: Principal,
     pub conversation_id: String,
     pub knowledge_release: String,
@@ -163,6 +167,14 @@ pub enum SourceVisibility {
     Public,
     Internal,
     Private,
+    RequestScoped,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiscordRequestContext {
+    pub user_id: Option<u64>,
+    pub request_id: String,
+    pub scope: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -188,6 +200,9 @@ pub struct SourceRecordV2 {
 
 impl SourceRecordV2 {
     pub fn validate(&self) -> Result<()> {
+        if self.visibility == SourceVisibility::RequestScoped {
+            return Err(ContractError::RequestScopedSource);
+        }
         if [&self.source_id, &self.logical_id, &self.content_hash]
             .iter()
             .any(|id| id.trim().is_empty() || id.len() > 512 || id.chars().any(char::is_control))
@@ -500,6 +515,28 @@ pub trait AnswerProviderPort: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn anfragebezogene_quellen_duerfen_nicht_persistiert_werden() {
+        let mut source = SourceRecordV2 {
+            source_id: "discord".into(),
+            logical_id: "kanal".into(),
+            revision: 1,
+            content_hash: "hash".into(),
+            content: "Inhalt".into(),
+            visibility: SourceVisibility::Public,
+            allowed_scopes: BTreeSet::new(),
+            tombstone: false,
+            valid_from: None,
+            valid_to: None,
+            metadata: BTreeMap::new(),
+        };
+        assert_eq!(source.validate(), Ok(()));
+        source.visibility = SourceVisibility::Private;
+        assert_eq!(source.validate(), Ok(()));
+        source.visibility = SourceVisibility::RequestScoped;
+        assert_eq!(source.validate(), Err(ContractError::RequestScopedSource));
+    }
 
     #[test]
     fn query_rejects_empty_identity_fields() {

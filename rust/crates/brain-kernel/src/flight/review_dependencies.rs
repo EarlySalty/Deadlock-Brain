@@ -113,6 +113,7 @@ async fn shared_answer_revalidates_uncited_acl_and_tombstone_after_leader_succes
             domain: None,
         };
         let c = AuthorizedContext {
+            discord: None,
             principal: Principal {
                 actor_id: "actor".into(),
                 channel: "test".into(),

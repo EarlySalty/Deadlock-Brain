@@ -172,6 +172,7 @@ async fn postgres_match_commit_release_readback_replay_and_revoke() {
             mode: None,
         };
         let context = AuthorizedContext {
+            discord: None,
             request_deadline: None,
             principal: principal(&["account:281768392"]),
             conversation_id: query.conversation_id.clone(),
@@ -191,6 +192,7 @@ async fn postgres_match_commit_release_readback_replay_and_revoke() {
             .validate_evidence(&query, &context, &evidence, true)
             .is_err());
         let anonymous = AuthorizedContext {
+            discord: None,
             principal: principal(&[]),
             ..context.clone()
         };

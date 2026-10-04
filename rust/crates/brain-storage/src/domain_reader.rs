@@ -294,6 +294,7 @@ mod tests {
     }
     fn context() -> AuthorizedContext {
         AuthorizedContext {
+            discord: None,
             principal: Principal {
                 actor_id: "fixture".into(),
                 channel: "test".into(),

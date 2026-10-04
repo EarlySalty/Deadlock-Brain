@@ -57,15 +57,34 @@ impl AsyncBrainClient {
         })
     }
     pub async fn answer(&self, query: &Query) -> Result<PublicAnswerResponse> {
+        self.answer_with_identity(query, None).await
+    }
+
+    pub async fn answer_for_discord(
+        &self,
+        query: &Query,
+        discord_user_id: u64,
+    ) -> Result<PublicAnswerResponse> {
+        self.answer_with_identity(query, Some(discord_user_id))
+            .await
+    }
+
+    async fn answer_with_identity(
+        &self,
+        query: &Query,
+        discord_user_id: Option<u64>,
+    ) -> Result<PublicAnswerResponse> {
         let request = transport::encode_request(query)?;
-        let mut response = self
+        let mut builder = self
             .client
             .post(format!("{}/v1/answer", self.base_url))
             .header(AUTHORIZATION, self.bearer.clone())
             .header(CONTENT_TYPE, "application/json")
-            .body(request)
-            .send()
-            .await?;
+            .body(request);
+        if let Some(user) = discord_user_id.filter(|id| *id != 0) {
+            builder = builder.header("x-discord-user-id", user);
+        }
+        let mut response = builder.send().await?;
         let status = response.status();
         if response
             .content_length()

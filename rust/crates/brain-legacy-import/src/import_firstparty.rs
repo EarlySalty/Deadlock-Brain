@@ -453,6 +453,7 @@ mod tests {
         store.publish(&release).await.unwrap();
         let kernel = Kernel::new(ReleaseRetriever::new(store, 6), NoProvider);
         let context = AuthorizedContext {
+            discord: None,
             request_deadline: None,
             principal: Principal {
                 actor_id: "projection-test".into(),
