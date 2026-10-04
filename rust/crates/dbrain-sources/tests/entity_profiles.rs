@@ -949,6 +949,49 @@ async fn original_alias_bindings_drive_history_without_consumer_leaks(
         .await
         .unwrap();
     }
+    let mut catalog = catalog;
+    catalog[0]
+        .identity
+        .aliases
+        .push("Zusätzlicher Katalogalias".into());
+    catalog[0]
+        .identity
+        .identity_evidence
+        .push("brain.entity_aliases:200".into());
+    bind_stored_document(
+        store,
+        &record.source_id,
+        &record.logical_id,
+        record.revision,
+        &catalog,
+    )
+    .await
+    .unwrap();
+    let rebound = store
+        .stored_entity_binding_identity(&identity.entity_key, &record, "json:/hero_test/MaxHealth")
+        .await
+        .unwrap();
+    assert!(rebound
+        .identity_evidence
+        .contains(&"brain.entity_aliases:200".into()));
+    let mut wrong = rebound.clone();
+    wrong.kind = EntityKind::Item;
+    assert!(store
+        .store_entity_fact_bindings(&wrong, &record, &ids)
+        .await
+        .is_err());
+    let mut wrong = rebound.clone();
+    wrong.identity_evidence.remove(0);
+    assert!(store
+        .store_entity_fact_bindings(&wrong, &record, &ids)
+        .await
+        .is_err());
+    let mut wrong_record = record.clone();
+    wrong_record.content.push('x');
+    assert!(store
+        .store_entity_fact_bindings(&rebound, &wrong_record, &ids)
+        .await
+        .is_err());
     let health_id = "json:/hero_test/MaxHealth";
     let stored = store
         .stored_entity_binding_identity(&identity.entity_key, &record, health_id)

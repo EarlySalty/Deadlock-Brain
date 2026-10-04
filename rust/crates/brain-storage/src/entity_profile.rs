@@ -350,7 +350,12 @@ impl PgStore {
                 let previous: EntityIdentity = serde_json::from_value(stored_identity)?;
                 let mut expected = entity.clone();
                 expected.aliases = previous.aliases.clone();
+                expected.identity_evidence = previous.identity_evidence.clone();
                 if previous != expected
+                    || previous
+                        .identity_evidence
+                        .iter()
+                        .any(|evidence| !entity.identity_evidence.contains(evidence))
                     || previous
                         .aliases
                         .iter()
