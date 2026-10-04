@@ -236,6 +236,7 @@ pub(crate) struct DiscordRetriever<R> {
 
 fn observation_key(query: &Query, context: &AuthorizedContext) -> Result<String, PortError> {
     let bytes = serde_json::to_vec(&(
+        &query.request_id,
         &query.conversation_id,
         &query.text,
         &query.domain,
@@ -310,15 +311,6 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
                 usage.network_rounds += 1;
                 let mut observations = self.observations.lock().map_err(|_| unavailable())?;
                 observations.retain(|_, (created, _)| created.elapsed() < Duration::from_secs(60));
-                if observations.len() >= 128 {
-                    if let Some(oldest) = observations
-                        .iter()
-                        .min_by_key(|(_, (created, _))| created)
-                        .map(|(key, _)| key.clone())
-                    {
-                        observations.remove(&oldest);
-                    }
-                }
                 observations.insert(key, (Instant::now(), current.clone()));
                 items.insert(0, current);
             }
@@ -596,6 +588,108 @@ mod tests {
             listener.accept().unwrap_err().kind(),
             std::io::ErrorKind::WouldBlock
         );
+    }
+
+    #[test]
+    fn parallele_anfragen_behalten_getrennte_gueltige_beobachtungen() {
+        use std::{
+            io::{BufRead, BufReader, Write},
+            net::TcpListener,
+            sync::Barrier,
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut live = DiscordLive::new("test".into()).unwrap();
+        live.endpoint = format!("http://{}/mcp", listener.local_addr().unwrap());
+        let adapter = Arc::new(DiscordRetriever::new(Stored, Some(Arc::new(live))));
+        let context = AuthorizedContext {
+            principal: brain_contracts::Principal {
+                actor_id: "bot".into(),
+                channel: "test".into(),
+                scopes: BTreeSet::from(["bot.public".into()]),
+                provider_egress: BTreeSet::from(["public".into()]),
+            },
+            conversation_id: "c".into(),
+            knowledge_release: "release".into(),
+            deadline_ms: 10000,
+            budget: brain_contracts::Budget::default(),
+            request_deadline: None,
+        };
+        let server = std::thread::spawn(move || {
+            for count in 1..=130 {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut reader = BufReader::new(&mut stream);
+                let mut length = 0;
+                loop {
+                    let mut line = String::new();
+                    reader.read_line(&mut line).unwrap();
+                    if line == "\r\n" {
+                        break;
+                    }
+                    if let Some(value) = line.to_lowercase().strip_prefix("content-length:") {
+                        length = value.trim().parse::<usize>().unwrap();
+                    }
+                }
+                reader.read_exact(&mut vec![0; length]).unwrap();
+                let public = json!({"schema":"discord.public-facts.v1","guild_id":"1","observed_at":"jetzt","cache_seconds":60,"audience":"everyone","channels":[{"id":"2","name":"Lane","type":2,"topic":null,"position":0,"parent_id":null}],"voice_counts":[{"channel_id":"2","count":count}],"bot_infos":[]});
+                let reply = json!({"jsonrpc":"2.0","id":1,"result":{"isError":false,"content":[{"type":"text","text":public.to_string()}]}}).to_string();
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    reply.len(),
+                    reply
+                )
+                .unwrap();
+            }
+        });
+        let barrier = Arc::new(Barrier::new(2));
+        let workers: Vec<_> = (0..2)
+            .map(|worker| {
+                let adapter = adapter.clone();
+                let context = context.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    let mut results = Vec::new();
+                    for request in 0..65 {
+                        let query: Query = serde_json::from_value(json!({"request_id":format!("r-{worker}-{request}"),"conversation_id":"c","text":"Welche Lanes gibt es?","requested_scopes":["bot.public"]})).unwrap();
+                        barrier.wait();
+                        let (items, usage) = adapter.retrieve_with_usage(&query, &context).unwrap();
+                        assert_eq!(usage.network_rounds, 1);
+                        results.push((query, items));
+                    }
+                    results
+                })
+            })
+            .collect();
+        let results: Vec<_> = workers
+            .into_iter()
+            .flat_map(|worker| worker.join().unwrap())
+            .collect();
+        server.join().unwrap();
+        assert_eq!(adapter.observations.lock().unwrap().len(), 130);
+        let mut local_context = context;
+        local_context.budget.max_network_rounds = 0;
+        for (query, items) in &results {
+            for provider in [false, true] {
+                adapter
+                    .validate_evidence(query, &local_context, items, provider)
+                    .unwrap();
+            }
+            adapter
+                .validate_publication(query, &local_context, items)
+                .unwrap();
+        }
+        let (first_query, first_items) = &results[0];
+        let (other_query, other_items) = &results[65];
+        assert_ne!(first_items, other_items);
+        assert!(adapter
+            .validate_evidence(other_query, &local_context, first_items, true)
+            .is_err());
+        assert!(adapter
+            .validate_publication(first_query, &local_context, other_items)
+            .is_err());
     }
 
     #[test]
