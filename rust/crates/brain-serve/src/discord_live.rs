@@ -6,10 +6,10 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::{BTreeSet, HashSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     io::Read,
-    sync::Arc,
-    time::Duration,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 
 const SOURCE: &str = "discord.public-live.v1";
@@ -160,6 +160,7 @@ fn evidence(facts: Facts) -> Result<Evidence, PortError> {
 pub(crate) struct DiscordLive {
     http: reqwest::blocking::Client,
     token: String,
+    endpoint: String,
 }
 impl DiscordLive {
     pub(crate) fn new(token: String) -> Result<Self, crate::Error> {
@@ -169,11 +170,18 @@ impl DiscordLive {
             .timeout(Duration::from_secs(15))
             .build()
             .map_err(|_| crate::Error::ConfigInvalid("discord_live_http"))?;
-        Ok(Self { http, token })
+        Ok(Self {
+            http,
+            token,
+            endpoint: ENDPOINT.into(),
+        })
     }
     fn read(&self, context: &AuthorizedContext) -> Result<Evidence, PortError> {
         context.check_deadline()?;
-        let mut response = self.http.post(ENDPOINT).bearer_auth(&self.token)
+        if context.budget.max_network_rounds == 0 {
+            return Err(PortError::BudgetExceeded);
+        }
+        let mut response = self.http.post(&self.endpoint).bearer_auth(&self.token)
             .timeout(context.remaining_time()?.min(Duration::from_secs(15)))
             .json(&json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"public_server_facts","arguments":{}}}))
             .send().map_err(|_| unavailable())?.error_for_status().map_err(|_| unavailable())?;
@@ -223,10 +231,33 @@ fn allowed(query: &Query, context: &AuthorizedContext, provider: bool) -> bool {
 pub(crate) struct DiscordRetriever<R> {
     inner: R,
     live: Option<Arc<DiscordLive>>,
+    observations: Mutex<BTreeMap<String, (Instant, Evidence)>>,
 }
+
+fn observation_key(query: &Query, context: &AuthorizedContext) -> Result<String, PortError> {
+    let bytes = serde_json::to_vec(&(
+        &query.conversation_id,
+        &query.text,
+        &query.domain,
+        &query.requested_scopes,
+        &query.profile,
+        &query.patch,
+        &query.mode,
+        &context.principal,
+        &context.conversation_id,
+        &context.knowledge_release,
+    ))
+    .map_err(|_| denied())?;
+    Ok(format!("{:x}", Sha256::digest(bytes)))
+}
+
 impl<R> DiscordRetriever<R> {
     pub(crate) fn new(inner: R, live: Option<Arc<DiscordLive>>) -> Self {
-        Self { inner, live }
+        Self {
+            inner,
+            live,
+            observations: Mutex::new(BTreeMap::new()),
+        }
     }
     fn validate_live(
         &self,
@@ -238,11 +269,18 @@ impl<R> DiscordRetriever<R> {
         if !allowed(query, context, provider) || !relevant(query) {
             return Err(denied());
         }
-        let current = self.live.as_ref().ok_or_else(denied)?.read(context)?;
-        if items.iter().any(|item| item != &current) {
-            return Err(denied());
+        context.check_deadline()?;
+        let key = observation_key(query, context)?;
+        let observations = self.observations.lock().map_err(|_| unavailable())?;
+        match observations.get(&key) {
+            Some((created, current))
+                if created.elapsed() < Duration::from_secs(60)
+                    && items.iter().all(|item| item == current) =>
+            {
+                Ok(())
+            }
+            _ => Err(denied()),
         }
-        Ok(())
     }
 }
 impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
@@ -262,11 +300,27 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
         let (mut items, mut usage) = self.inner.retrieve_with_usage(query, context)?;
         if relevant(query) && allowed(query, context, false) {
             if let Some(live) = &self.live {
-                if context.budget.max_network_rounds < usage.network_rounds.saturating_add(1) {
+                if context.budget.max_network_rounds <= usage.network_rounds {
                     return Err(PortError::BudgetExceeded);
                 }
-                items.insert(0, live.read(context)?);
+                let key = observation_key(query, context)?;
+                let mut live_context = context.clone();
+                live_context.budget.max_network_rounds -= usage.network_rounds;
+                let current = live.read(&live_context)?;
                 usage.network_rounds += 1;
+                let mut observations = self.observations.lock().map_err(|_| unavailable())?;
+                observations.retain(|_, (created, _)| created.elapsed() < Duration::from_secs(60));
+                if observations.len() >= 128 {
+                    if let Some(oldest) = observations
+                        .iter()
+                        .min_by_key(|(_, (created, _))| created)
+                        .map(|(key, _)| key.clone())
+                    {
+                        observations.remove(&oldest);
+                    }
+                }
+                observations.insert(key, (Instant::now(), current.clone()));
+                items.insert(0, current);
             }
         }
         Ok((items, usage))
@@ -356,6 +410,15 @@ mod tests {
         fn retrieve(&self, _: &Query, _: &AuthorizedContext) -> Result<Vec<Evidence>, PortError> {
             Ok(Vec::new())
         }
+        fn validate_evidence(
+            &self,
+            query: &Query,
+            context: &AuthorizedContext,
+            items: &[Evidence],
+            _: bool,
+        ) -> Result<(), PortError> {
+            self.validate_publication(query, context, items)
+        }
         fn validate_publication(
             &self,
             _: &Query,
@@ -368,6 +431,140 @@ mod tests {
                 Err(denied())
             }
         }
+    }
+
+    #[test]
+    fn netzwerkbudget_erfasst_den_abruf_und_validierung_bleibt_lokal() {
+        use std::{
+            io::{BufRead, BufReader, Write},
+            net::TcpListener,
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut live = DiscordLive::new("test".into()).unwrap();
+        live.endpoint = format!("http://{}/mcp", listener.local_addr().unwrap());
+        let live = Arc::new(live);
+        let adapter = DiscordRetriever::new(Stored, Some(live.clone()));
+        let query: Query = serde_json::from_value(json!({"request_id":"r","conversation_id":"c","text":"Welche Lanes gibt es?","requested_scopes":["bot.public"]})).unwrap();
+        let mut context = AuthorizedContext {
+            principal: brain_contracts::Principal {
+                actor_id: "bot".into(),
+                channel: "test".into(),
+                scopes: BTreeSet::from(["bot.public".into()]),
+                provider_egress: BTreeSet::from(["public".into()]),
+            },
+            conversation_id: "c".into(),
+            knowledge_release: "release".into(),
+            deadline_ms: 1000,
+            budget: brain_contracts::Budget::default(),
+            request_deadline: None,
+        };
+        let public = json!({"schema":"discord.public-facts.v1","guild_id":"1","observed_at":"jetzt","cache_seconds":60,"audience":"everyone","channels":[{"id":"2","name":"Lane","type":2,"topic":null,"position":0,"parent_id":null}],"voice_counts":[{"channel_id":"2","count":3}],"bot_infos":[]});
+        let item = evidence(serde_json::from_value(public.clone()).unwrap()).unwrap();
+        context.budget.max_network_rounds = 0;
+        assert!(matches!(
+            live.read(&context),
+            Err(PortError::BudgetExceeded)
+        ));
+        assert!(matches!(
+            adapter.retrieve_with_usage(&query, &context),
+            Err(PortError::BudgetExceeded)
+        ));
+        assert!(adapter
+            .validate_evidence(&query, &context, &[item.clone()], false)
+            .is_err());
+        assert!(adapter
+            .validate_evidence(&query, &context, &[item.clone()], true)
+            .is_err());
+        assert!(adapter
+            .validate_publication(&query, &context, &[item])
+            .is_err());
+        listener.set_nonblocking(true).unwrap();
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+        listener.set_nonblocking(false).unwrap();
+        let server = listener.try_clone().unwrap();
+        let reply = json!({"jsonrpc":"2.0","id":1,"result":{"isError":false,"content":[{"type":"text","text":public.to_string()}]}}).to_string();
+        let worker = std::thread::spawn(move || {
+            let (mut stream, _) = server.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut reader = BufReader::new(&mut stream);
+            let mut length = 0;
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if line == "\r\n" {
+                    break;
+                }
+                if let Some(value) = line.to_lowercase().strip_prefix("content-length:") {
+                    length = value.trim().parse::<usize>().unwrap();
+                }
+            }
+            reader.read_exact(&mut vec![0; length]).unwrap();
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                reply.len(),
+                reply
+            )
+            .unwrap();
+        });
+        context.budget.max_network_rounds = 1;
+        let (items, usage) = adapter.retrieve_with_usage(&query, &context).unwrap();
+        assert_eq!(usage.network_rounds, 1);
+        worker.join().unwrap();
+        context.budget.max_network_rounds = 0;
+        adapter
+            .validate_evidence(&query, &context, &items, false)
+            .unwrap();
+        adapter
+            .validate_evidence(&query, &context, &items, true)
+            .unwrap();
+        adapter
+            .validate_publication(&query, &context, &items)
+            .unwrap();
+        let mut changed = items.clone();
+        changed[0].content.push_str("privat");
+        assert!(adapter
+            .validate_publication(&query, &context, &changed)
+            .is_err());
+        let mut restricted = context.clone();
+        restricted.principal.provider_egress.clear();
+        assert!(adapter
+            .validate_evidence(&query, &restricted, &items, true)
+            .is_err());
+        restricted = context.clone();
+        restricted.principal.scopes.clear();
+        assert!(adapter
+            .validate_publication(&query, &restricted, &items)
+            .is_err());
+        let mut other_query = query.clone();
+        other_query.text.push_str(" Voice");
+        assert!(adapter
+            .validate_evidence(&other_query, &context, &items, false)
+            .is_err());
+        let key = observation_key(&query, &context).unwrap();
+        adapter
+            .observations
+            .lock()
+            .unwrap()
+            .get_mut(&key)
+            .unwrap()
+            .0 = Instant::now() - Duration::from_secs(61);
+        assert!(adapter
+            .validate_evidence(&query, &context, &items, false)
+            .is_err());
+        assert!(adapter
+            .validate_publication(&query, &context, &items)
+            .is_err());
+        listener.set_nonblocking(true).unwrap();
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
     }
 
     #[test]
