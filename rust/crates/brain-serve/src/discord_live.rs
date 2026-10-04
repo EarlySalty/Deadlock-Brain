@@ -5,6 +5,7 @@ use brain_contracts::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use sqlx::types::chrono::{DateTime, Utc};
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
     io::Read,
@@ -59,12 +60,21 @@ struct BotInfo {
     text: String,
 }
 
-fn evidence(facts: Facts) -> Result<Evidence, PortError> {
+fn evidence(facts: Facts) -> Result<(Instant, Evidence), PortError> {
+    let received = Instant::now();
+    let observed = DateTime::parse_from_rfc3339(&facts.observed_at).map_err(|_| denied())?;
+    let age = Utc::now()
+        .signed_duration_since(observed)
+        .to_std()
+        .map_err(|_| denied())?;
+    let remaining = Duration::from_secs(facts.cache_seconds)
+        .checked_sub(age)
+        .filter(|remaining| !remaining.is_zero())
+        .ok_or_else(denied)?;
     if facts.schema != "discord.public-facts.v1"
         || facts.audience != "everyone"
         || facts.cache_seconds > 60
         || facts.cache_seconds == 0
-        || facts.observed_at.is_empty()
         || facts.guild_id.parse::<u64>().ok().is_none_or(|id| id == 0)
     {
         return Err(denied());
@@ -141,20 +151,23 @@ fn evidence(facts: Facts) -> Result<Evidence, PortError> {
     }
     let content = lines.join("\n");
     let digest = format!("{:x}", Sha256::digest(content.as_bytes()));
-    Ok(Evidence {
-        evidence_id: format!("discord-live-{digest}"),
-        source_id: SOURCE.into(),
-        logical_id: format!("discord-guild:{}", facts.guild_id),
-        revision: 1,
-        kind: EvidenceKind::Prose,
-        content,
-        citation: format!("https://discord.com/channels/{}", facts.guild_id),
-        visibility: SourceVisibility::Public,
-        allowed_scopes: BTreeSet::from(["bot.public".into()]),
-        score: 100.0,
-        provenance: None,
-        patch: None,
-    })
+    Ok((
+        received + remaining,
+        Evidence {
+            evidence_id: format!("discord-live-{digest}"),
+            source_id: SOURCE.into(),
+            logical_id: format!("discord-guild:{}", facts.guild_id),
+            revision: 1,
+            kind: EvidenceKind::Prose,
+            content,
+            citation: format!("https://discord.com/channels/{}", facts.guild_id),
+            visibility: SourceVisibility::Public,
+            allowed_scopes: BTreeSet::from(["bot.public".into()]),
+            score: 100.0,
+            provenance: None,
+            patch: None,
+        },
+    ))
 }
 
 pub(crate) struct DiscordLive {
@@ -176,7 +189,7 @@ impl DiscordLive {
             endpoint: ENDPOINT.into(),
         })
     }
-    fn read(&self, context: &AuthorizedContext) -> Result<Evidence, PortError> {
+    fn read(&self, context: &AuthorizedContext) -> Result<(Instant, Evidence), PortError> {
         context.check_deadline()?;
         if context.budget.max_network_rounds == 0 {
             return Err(PortError::BudgetExceeded);
@@ -274,9 +287,8 @@ impl<R> DiscordRetriever<R> {
         let key = observation_key(query, context)?;
         let observations = self.observations.lock().map_err(|_| unavailable())?;
         match observations.get(&key) {
-            Some((created, current))
-                if created.elapsed() < Duration::from_secs(60)
-                    && items.iter().all(|item| item == current) =>
+            Some((expires, current))
+                if Instant::now() < *expires && items.iter().all(|item| item == current) =>
             {
                 Ok(())
             }
@@ -307,11 +319,11 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
                 let key = observation_key(query, context)?;
                 let mut live_context = context.clone();
                 live_context.budget.max_network_rounds -= usage.network_rounds;
-                let current = live.read(&live_context)?;
+                let (expires, current) = live.read(&live_context)?;
                 usage.network_rounds += 1;
                 let mut observations = self.observations.lock().map_err(|_| unavailable())?;
-                observations.retain(|_, (created, _)| created.elapsed() < Duration::from_secs(60));
-                observations.insert(key, (Instant::now(), current.clone()));
+                observations.retain(|_, (expires, _)| Instant::now() < *expires);
+                observations.insert(key, (expires, current.clone()));
                 items.insert(0, current);
             }
         }
@@ -394,7 +406,7 @@ mod tests {
         let facts = live
             .read(&context)
             .expect("Öffentliche MCP-Fakten müssen lesbar sein.");
-        println!("{}", facts.content);
+        println!("{}", facts.1.content);
     }
 
     struct Stored;
@@ -423,6 +435,107 @@ mod tests {
                 Err(denied())
             }
         }
+    }
+
+    #[test]
+    fn alte_ungueltige_und_zukuenftige_beobachtungen_werden_verworfen() {
+        for observed_at in [
+            "".to_owned(),
+            "jetzt".to_owned(),
+            "2026-02-30T12:00:00Z".to_owned(),
+            "2020-01-01T00:00:00Z".to_owned(),
+            (Utc::now() - sqlx::types::chrono::Duration::seconds(60)).to_rfc3339(),
+            (Utc::now() + sqlx::types::chrono::Duration::seconds(60)).to_rfc3339(),
+        ] {
+            let facts = json!({"schema":"discord.public-facts.v1","guild_id":"1","observed_at":observed_at,"cache_seconds":60,"audience":"everyone","channels":[],"voice_counts":[],"bot_infos":[]});
+            assert!(evidence(serde_json::from_value(facts).unwrap()).is_err());
+        }
+    }
+
+    #[test]
+    fn kurze_cachezeit_beginnt_beim_beobachten_und_laeuft_lokal_ab() {
+        use std::{
+            io::{BufRead, BufReader, Write},
+            net::TcpListener,
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut live = DiscordLive::new("test".into()).unwrap();
+        live.endpoint = format!("http://{}/mcp", listener.local_addr().unwrap());
+        let adapter = DiscordRetriever::new(Stored, Some(Arc::new(live)));
+        let query: Query = serde_json::from_value(json!({"request_id":"r","conversation_id":"c","text":"Welche Lanes gibt es?","requested_scopes":["bot.public"]})).unwrap();
+        let mut context = AuthorizedContext {
+            principal: brain_contracts::Principal {
+                actor_id: "bot".into(),
+                channel: "test".into(),
+                scopes: BTreeSet::from(["bot.public".into()]),
+                provider_egress: BTreeSet::from(["public".into()]),
+            },
+            conversation_id: "c".into(),
+            knowledge_release: "release".into(),
+            deadline_ms: 1000,
+            budget: brain_contracts::Budget::default(),
+            request_deadline: None,
+        };
+        let worker = std::thread::spawn(move || {
+            for age_ms in [250, 2000] {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
+                let mut reader = BufReader::new(&mut stream);
+                let mut length = 0;
+                loop {
+                    let mut line = String::new();
+                    reader.read_line(&mut line).unwrap();
+                    if line == "\r\n" {
+                        break;
+                    }
+                    if let Some(value) = line.to_lowercase().strip_prefix("content-length:") {
+                        length = value.trim().parse::<usize>().unwrap();
+                    }
+                }
+                reader.read_exact(&mut vec![0; length]).unwrap();
+                let observed_at =
+                    (Utc::now() - sqlx::types::chrono::Duration::milliseconds(age_ms)).to_rfc3339();
+                let facts = json!({"schema":"discord.public-facts.v1","guild_id":"1","observed_at":observed_at,"cache_seconds":1,"audience":"everyone","channels":[],"voice_counts":[],"bot_infos":[]});
+                let reply = json!({"jsonrpc":"2.0","id":1,"result":{"isError":false,"content":[{"type":"text","text":facts.to_string()}]}}).to_string();
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    reply.len(),
+                    reply
+                )
+                .unwrap();
+            }
+        });
+        let (items, usage) = adapter.retrieve_with_usage(&query, &context).unwrap();
+        assert_eq!(usage.network_rounds, 1);
+        let expires =
+            adapter.observations.lock().unwrap()[&observation_key(&query, &context).unwrap()].0;
+        assert!(expires.saturating_duration_since(Instant::now()) <= Duration::from_millis(750));
+        context.budget.max_network_rounds = 0;
+        for provider in [false, true] {
+            adapter
+                .validate_evidence(&query, &context, &items, provider)
+                .unwrap();
+        }
+        adapter
+            .validate_publication(&query, &context, &items)
+            .unwrap();
+        std::thread::sleep(
+            expires.saturating_duration_since(Instant::now()) + Duration::from_millis(20),
+        );
+        for provider in [false, true] {
+            assert!(adapter
+                .validate_evidence(&query, &context, &items, provider)
+                .is_err());
+        }
+        assert!(adapter
+            .validate_publication(&query, &context, &items)
+            .is_err());
+        context.budget.max_network_rounds = 1;
+        assert!(adapter.retrieve_with_usage(&query, &context).is_err());
+        worker.join().unwrap();
     }
 
     #[test]
@@ -473,8 +586,10 @@ mod tests {
             budget: brain_contracts::Budget::default(),
             request_deadline: None,
         };
-        let public = json!({"schema":"discord.public-facts.v1","guild_id":"1","observed_at":"jetzt","cache_seconds":60,"audience":"everyone","channels":[{"id":"2","name":"Lane","type":2,"topic":null,"position":0,"parent_id":null}],"voice_counts":[{"channel_id":"2","count":3}],"bot_infos":[]});
-        let item = evidence(serde_json::from_value(public.clone()).unwrap()).unwrap();
+        let public = json!({"schema":"discord.public-facts.v1","guild_id":"1","observed_at":Utc::now().to_rfc3339(),"cache_seconds":60,"audience":"everyone","channels":[{"id":"2","name":"Lane","type":2,"topic":null,"position":0,"parent_id":null}],"voice_counts":[{"channel_id":"2","count":3}],"bot_infos":[]});
+        let item = evidence(serde_json::from_value(public.clone()).unwrap())
+            .unwrap()
+            .1;
         context.budget.max_network_rounds = 0;
         assert!(matches!(
             live.read(&context),
@@ -633,7 +748,7 @@ mod tests {
                     }
                 }
                 reader.read_exact(&mut vec![0; length]).unwrap();
-                let public = json!({"schema":"discord.public-facts.v1","guild_id":"1","observed_at":"jetzt","cache_seconds":60,"audience":"everyone","channels":[{"id":"2","name":"Lane","type":2,"topic":null,"position":0,"parent_id":null}],"voice_counts":[{"channel_id":"2","count":count}],"bot_infos":[]});
+                let public = json!({"schema":"discord.public-facts.v1","guild_id":"1","observed_at":Utc::now().to_rfc3339(),"cache_seconds":60,"audience":"everyone","channels":[{"id":"2","name":"Lane","type":2,"topic":null,"position":0,"parent_id":null}],"voice_counts":[{"channel_id":"2","count":count}],"bot_infos":[]});
                 let reply = json!({"jsonrpc":"2.0","id":1,"result":{"isError":false,"content":[{"type":"text","text":public.to_string()}]}}).to_string();
                 write!(
                     stream,
@@ -735,8 +850,10 @@ mod tests {
     }
     #[test]
     fn private_felder_und_falsche_zulassung_werden_verworfen() {
-        let public = json!({"schema":"discord.public-facts.v1","guild_id":"1","observed_at":"jetzt","cache_seconds":60,"audience":"everyone","channels":[{"id":"2","name":"Lane","type":2,"topic":null,"position":0,"parent_id":null}],"voice_counts":[{"channel_id":"2","count":3}],"bot_infos":[]});
-        let fact = evidence(serde_json::from_value(public.clone()).unwrap()).unwrap();
+        let public = json!({"schema":"discord.public-facts.v1","guild_id":"1","observed_at":Utc::now().to_rfc3339(),"cache_seconds":60,"audience":"everyone","channels":[{"id":"2","name":"Lane","type":2,"topic":null,"position":0,"parent_id":null}],"voice_counts":[{"channel_id":"2","count":3}],"bot_infos":[]});
+        let fact = evidence(serde_json::from_value(public.clone()).unwrap())
+            .unwrap()
+            .1;
         assert!(fact.content.contains("3 anwesend"));
         assert_eq!(fact.allowed_scopes, BTreeSet::from(["bot.public".into()]));
         let mut private = public.clone();
