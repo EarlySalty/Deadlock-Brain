@@ -716,6 +716,63 @@ async fn actual_git_documents_bind_all_kinds_idempotently_to_immutable_originals
     assert!(!derived.profile().facts[0]
         .qualifiers
         .contains_key("source_pointer"));
+    let derived_document = derived_document(derived.profile(), derived.receipt());
+    store.apply(&derived_document).await.unwrap();
+    let mut unrelated = prepared(&crate::document("wiki", json!(999), "normal"));
+    store.apply(&unrelated).await.unwrap();
+    assert_eq!(
+        store
+            .store_entity_fact_bindings(&interval_entity, &unrelated, &["health".into()])
+            .await
+            .unwrap(),
+        1
+    );
+    unrelated
+        .metadata
+        .remove(brain_storage::source_versions::DOCUMENT_METADATA_KEY);
+    sqlx::query("UPDATE brain.source_record_revisions SET record_json=$4 WHERE source_id=$1 AND logical_id=$2 AND revision=$3")
+        .bind(&unrelated.source_id).bind(&unrelated.logical_id).bind(unrelated.revision as i64)
+        .bind(serde_json::to_value(&unrelated).unwrap()).execute(&pool).await.unwrap();
+    operator.scopes.extend(unrelated.allowed_scopes.clone());
+    let mut mixed_release = release.clone();
+    mixed_release.release_id = "mixed-fixture-release".into();
+    for record in [&derived_document, &unrelated] {
+        mixed_release
+            .source_revisions
+            .entry(record.source_id.clone())
+            .or_default()
+            .insert(record.logical_id.clone(), record.revision);
+    }
+    store.publish_release(&mixed_release).await.unwrap();
+    for _ in 0..2 {
+        let repeated = dbrain_sources::entity_binding::derivation::derive_git_entity_profile(
+            &store,
+            &mixed_release.release_id,
+            &operator,
+            "hero_test",
+            &repositories,
+        )
+        .await
+        .unwrap();
+        assert_eq!(repeated.profile(), derived.profile());
+        assert_eq!(
+            repeated.original_pins().len(),
+            derived.original_pins().len()
+        );
+        assert_eq!(
+            repeated.original_pins()[0].original_fact,
+            derived.original_pins()[0].original_fact
+        );
+    }
+    let mut missing_original = derived_record.clone();
+    missing_original
+        .metadata
+        .remove(brain_storage::source_versions::DOCUMENT_METADATA_KEY);
+    let error = store
+        .stored_git_entity_bindings("hero_test", &missing_original)
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("Originaldokument fehlt"));
     operator.scopes.clear();
     assert!(
         dbrain_sources::entity_binding::derivation::derive_git_entity_profile(
