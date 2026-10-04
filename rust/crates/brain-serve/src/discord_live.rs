@@ -151,8 +151,12 @@ fn evidence(facts: Facts) -> Result<(Instant, Evidence), PortError> {
     }
     let content = lines.join("\n");
     let digest = format!("{:x}", Sha256::digest(content.as_bytes()));
+    let expires = received + remaining;
+    if Instant::now() >= expires {
+        return Err(denied());
+    }
     Ok((
-        received + remaining,
+        expires,
         Evidence {
             evidence_id: format!("discord-live-{digest}"),
             source_id: SOURCE.into(),
@@ -322,7 +326,11 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
                 let (expires, current) = live.read(&live_context)?;
                 usage.network_rounds += 1;
                 let mut observations = self.observations.lock().map_err(|_| unavailable())?;
-                observations.retain(|_, (expires, _)| Instant::now() < *expires);
+                let now = Instant::now();
+                if now >= expires {
+                    return Err(denied());
+                }
+                observations.retain(|_, (expires, _)| now < *expires);
                 observations.insert(key, (expires, current.clone()));
                 items.insert(0, current);
             }
@@ -444,8 +452,8 @@ mod tests {
             "jetzt".to_owned(),
             "2026-02-30T12:00:00Z".to_owned(),
             "2020-01-01T00:00:00Z".to_owned(),
-            (Utc::now() - sqlx::types::chrono::Duration::seconds(60)).to_rfc3339(),
-            (Utc::now() + sqlx::types::chrono::Duration::seconds(60)).to_rfc3339(),
+            (Utc::now() - Duration::from_secs(60)).to_rfc3339(),
+            (Utc::now() + Duration::from_secs(60)).to_rfc3339(),
         ] {
             let facts = json!({"schema":"discord.public-facts.v1","guild_id":"1","observed_at":observed_at,"cache_seconds":60,"audience":"everyone","channels":[],"voice_counts":[],"bot_infos":[]});
             assert!(evidence(serde_json::from_value(facts).unwrap()).is_err());
@@ -495,8 +503,7 @@ mod tests {
                     }
                 }
                 reader.read_exact(&mut vec![0; length]).unwrap();
-                let observed_at =
-                    (Utc::now() - sqlx::types::chrono::Duration::milliseconds(age_ms)).to_rfc3339();
+                let observed_at = (Utc::now() - Duration::from_millis(age_ms)).to_rfc3339();
                 let facts = json!({"schema":"discord.public-facts.v1","guild_id":"1","observed_at":observed_at,"cache_seconds":1,"audience":"everyone","channels":[],"voice_counts":[],"bot_infos":[]});
                 let reply = json!({"jsonrpc":"2.0","id":1,"result":{"isError":false,"content":[{"type":"text","text":facts.to_string()}]}}).to_string();
                 write!(
