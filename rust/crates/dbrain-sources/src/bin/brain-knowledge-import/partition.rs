@@ -286,6 +286,9 @@ pub(super) fn partition(
     std::fs::create_dir(output_dir).map_err(|_| {
         "Neuer Ausgabeordner kann nicht angelegt werden; keine eigene Ausgabe bestätigt"
     })?;
+    File::open(parent)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|_| "Übergeordneter Ausgabeordner kann nicht dauerhaft gespeichert werden")?;
     for (index, range) in ranges.iter().enumerate() {
         let path = output_dir.join(format!("part-{:06}.jsonl", index + 1));
         if let Err(error) = write_range(&path, saved.as_file_mut(), range) {

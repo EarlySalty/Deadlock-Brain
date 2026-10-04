@@ -666,18 +666,59 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires isolated PostgreSQL Unix socket: BRAIN_CORE_TEST_PG_SOCKET"]
     async fn exact_numbers_survive_import_postgres_retry_and_canonical_projection() {
         use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
-        let socket =
-            std::env::var("BRAIN_CORE_TEST_PG_SOCKET").expect("explicit scratch socket required");
+        struct ScratchPg(tempfile::TempDir);
+        impl Drop for ScratchPg {
+            fn drop(&mut self) {
+                let _ = std::process::Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
+                    .arg("-D")
+                    .arg(self.0.path().join("data"))
+                    .args(["-m", "fast", "-w", "stop"])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status();
+            }
+        }
+        let pg = ScratchPg(tempfile::tempdir().unwrap());
+        let data = pg.0.path().join("data");
+        let socket = pg.0.path().join(".core-test-pg");
+        std::fs::create_dir(&socket).unwrap();
+        assert!(
+            std::process::Command::new("/usr/lib/postgresql/16/bin/initdb")
+                .arg("-D")
+                .arg(&data)
+                .args(["-A", "trust", "-U", "brain_core_test", "--no-locale"])
+                .stdout(std::process::Stdio::null())
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(
+            std::process::Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
+                .arg("-D")
+                .arg(&data)
+                .arg("-l")
+                .arg(pg.0.path().join("postgres.log"))
+                .args([
+                    "-o",
+                    &format!("-k {} -p 55439 -c listen_addresses=''", socket.display()),
+                    "-w",
+                    "start"
+                ])
+                .stdout(std::process::Stdio::null())
+                .status()
+                .unwrap()
+                .success()
+        );
+        let socket = socket.to_str().unwrap();
         assert!(socket.ends_with("/.core-test-pg"));
         assert!(std::path::Path::new(&socket).is_absolute());
         let pool = PgPoolOptions::new()
             .max_connections(2)
             .connect_with(
                 PgConnectOptions::new_without_pgpass()
-                    .host(&socket)
+                    .host(socket)
                     .port(55439)
                     .username("brain_core_test")
                     .database("postgres")
@@ -749,7 +790,10 @@ mod tests {
         let value: serde_json::Value = sqlx::query_scalar("SELECT record_json FROM brain.source_record_heads WHERE source_id=$1 AND logical_id=$2")
             .bind(&source).bind(&document.document_id).fetch_one(&pool).await.unwrap();
         let head: SourceRecordV2 = serde_json::from_value(value).unwrap();
-        assert_eq!(head.revision, 456);
+        assert_eq!(head.revision, 1);
+        assert_eq!(head.metadata[ORIGINAL_VERSION_KEY], "456");
+        assert_eq!(first.storage.versions[0].store_revision, head.revision);
+        assert_eq!(first.storage.versions[0].original_revision, "456");
         let base = brain_contracts::CorpusRelease {
             release_id: format!("{source}-base"),
             knowledge_version: "k1".into(),
@@ -765,7 +809,7 @@ mod tests {
             created_at_epoch: 2,
             source_revisions: BTreeMap::from([(
                 source.clone(),
-                BTreeMap::from([(document.document_id.clone(), 456)]),
+                BTreeMap::from([(document.document_id.clone(), head.revision)]),
             )]),
         };
         store.publish_release(&target).await.unwrap();

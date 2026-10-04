@@ -12,7 +12,7 @@ use sha2::{Digest, Sha256};
 #[path = "game_files/anchored.rs"]
 mod anchored;
 #[path = "game_files/budget.rs"]
-mod budget;
+pub(crate) mod budget;
 #[path = "game_files/json_text.rs"]
 mod json_text;
 #[path = "game_files/kv.rs"]
@@ -766,7 +766,7 @@ fn extract_facts(path: &str, content: &str) -> (Vec<Value>, String) {
             Ok(entries) => {
                 let mut budget = budget::Budget::new();
                 let facts: Result<Vec<Value>, &'static str> = entries.into_iter().map(|entry| {
-                    budget.expanded(&[path.len(), entry.pointer.len(), entry.value.len(), entry.key.len(), entry.conditions.iter().map(String::len).sum()], 1536 + entry.conditions.len() * 128)?;
+                    budget.expanded(&[path.len(), entry.pointer.len(), entry.pointer.len(), entry.value.len(), entry.key.len(), entry.conditions.iter().map(String::len).sum()], 1536 + entry.conditions.len() * 128)?;
                     Ok(json!({
                         "fact_id": format!("kv:{}", entry.pointer),
                         "subject": format!("game_file:{path}"),
@@ -775,7 +775,7 @@ fn extract_facts(path: &str, content: &str) -> (Vec<Value>, String) {
                         "unit": null,
                         "evidence_status": "extracted_value",
                         "source_span": format!("{path}:{}", entry.pointer),
-                        "qualifiers": {"source_key": entry.key, "occurrence": entry.occurrence, "conditions": entry.conditions, "string_encoding": "source_escape_bytes_preserved", "unit_status": "unknown", "gameplay_binding": "uninterpreted"}
+                        "qualifiers": {"source_pointer": entry.pointer, "source_key": entry.key, "occurrence": entry.occurrence, "conditions": entry.conditions, "string_encoding": "source_escape_bytes_preserved", "unit_status": "unknown", "gameplay_binding": "uninterpreted"}
                     }))
                 }).collect();
                 match facts {
@@ -1281,6 +1281,30 @@ mod tests {
         assert_eq!(facts[1]["value"], "13");
         assert_ne!(facts[0]["fact_id"], facts[1]["fact_id"]);
         assert_eq!(facts[0]["qualifiers"]["conditions"][0], "$WIN32");
+        assert_eq!(facts[0]["qualifiers"]["source_pointer"], "/root/0/damage/0");
+        assert_eq!(facts[1]["qualifiers"]["source_pointer"], "/root/0/damage/1");
+    }
+
+    #[test]
+    fn kv_parent_occurrences_and_escaped_keys_keep_full_scope() {
+        let (facts, status) = extract_facts(
+            "scripts/items.txt",
+            "a { damage 10 damage 11 } a { damage 20 } b { damage 30 } \"a/b~\" { damage 40 }",
+        );
+        assert_eq!(status, "kv1_lossless_entries");
+        let pointers = [
+            "/a/0/damage/0",
+            "/a/0/damage/1",
+            "/a/1/damage/0",
+            "/b/0/damage/0",
+            "/a~1b~0/0/damage/0",
+        ];
+        assert_eq!(facts.len(), pointers.len());
+        for (fact, pointer) in facts.iter().zip(pointers) {
+            assert_eq!(fact["qualifiers"]["source_pointer"], pointer);
+            assert_eq!(fact["fact_id"], format!("kv:{pointer}"));
+            assert_eq!(fact["source_span"], format!("scripts/items.txt:{pointer}"));
+        }
     }
 
     #[test]

@@ -110,11 +110,70 @@ pub fn assemble_profile(
     patch_story: Vec<PatchStoryChange>,
 ) -> EntityProfile {
     let mut grouped = BTreeMap::new();
+    let mut unknowns = Vec::new();
     for fact in &facts {
+        let mut comparison_qualifiers = fact.qualifiers.clone();
+        if fact.provenance.source_kind == ProfileSourceKind::GameFile
+            && fact.predicate == "file.kv_value"
+        {
+            let pointer = (|| {
+                let path = fact
+                    .provenance
+                    .document_metadata
+                    .get("relative_path")?
+                    .as_str()?;
+                if fact.subject.strip_prefix("game_file:")? != path
+                    || fact
+                        .provenance
+                        .document_metadata
+                        .get("parse_status")?
+                        .as_str()?
+                        != "kv1_lossless_entries"
+                {
+                    return None;
+                }
+                let pointer = fact
+                    .provenance
+                    .source_span
+                    .as_deref()?
+                    .strip_prefix(path)?
+                    .strip_prefix(':')?;
+                if fact.fact_id.strip_prefix("kv:")? != pointer || !pointer.starts_with('/') {
+                    return None;
+                }
+                let key = fact
+                    .qualifiers
+                    .get("source_key")?
+                    .as_str()?
+                    .replace('~', "~0")
+                    .replace('/', "~1");
+                let occurrence = fact.qualifiers.get("occurrence")?.as_u64()?;
+                if !pointer.ends_with(&format!("/{key}/{occurrence}"))
+                    || fact
+                        .qualifiers
+                        .get("source_pointer")
+                        .is_some_and(|value| value.as_str() != Some(pointer))
+                {
+                    return None;
+                }
+                Some(pointer)
+            })();
+            let Some(pointer) = pointer else {
+                unknowns.push(format!(
+                    "KV1-Feldpfad ist nicht vollständig belegt: {}",
+                    fact_reference(fact)
+                ));
+                continue;
+            };
+            comparison_qualifiers.insert("source_pointer".into(), Value::String(pointer.into()));
+        }
+        for key in ["source_lexeme", "numeric_representation"] {
+            comparison_qualifiers.remove(key);
+        }
         grouped
             .entry((
                 fact.predicate.clone(),
-                serde_json::to_string(&fact.qualifiers).unwrap_or_default(),
+                serde_json::to_string(&comparison_qualifiers).unwrap_or_default(),
                 fact.unit.clone(),
             ))
             .or_insert_with(Vec::new)
@@ -164,14 +223,12 @@ pub fn assemble_profile(
         .collect();
     source_state.sort();
     source_state.dedup();
-    let unknowns = if facts
+    if facts
         .iter()
         .any(|f| matches!(f.validity, PatchValidity::Unknown { .. }))
     {
-        vec!["Patchgültigkeit ist für einen Teil der Fakten unbekannt".into()]
-    } else {
-        Vec::new()
-    };
+        unknowns.push("Patchgültigkeit ist für einen Teil der Fakten unbekannt".into());
+    }
     let (context, facts) = facts
         .into_iter()
         .partition(|f| f.evidence_status == "source_statement" && f.value.is_string());
@@ -212,24 +269,30 @@ impl PgStore {
         {
             return Err(invalid("Belegte Entitätszuordnung fehlt oder ist zu groß"));
         }
-        let facts = project_entity_facts(record, fact_ids)?;
         let identity = serde_json::to_value(entity)?;
         let mut tx = self.pool.begin().await?;
-        sqlx::query("INSERT INTO brain.entity_profile_entities_v1(entity_key,identity_json) VALUES($1,$2) ON CONFLICT(entity_key) DO NOTHING").bind(&entity.entity_key).bind(&identity).execute(&mut *tx).await?;
-        let stored: Value = sqlx::query_scalar("SELECT identity_json FROM brain.entity_profile_entities_v1 WHERE entity_key=$1 FOR UPDATE").bind(&entity.entity_key).fetch_one(&mut *tx).await?;
-        if stored != identity {
-            return Err(invalid("Entitätsidentität widerspricht vorhandenem Beleg"));
+        let revision =
+            i64::try_from(record.revision).map_err(|_| invalid("Revision ist zu groß"))?;
+        let stored: Value = sqlx::query_scalar("SELECT record_json FROM brain.source_record_revisions WHERE source_id=$1 AND logical_id=$2 AND revision=$3 FOR SHARE")
+            .bind(&record.source_id).bind(&record.logical_id).bind(revision).fetch_one(&mut *tx).await?;
+        let original: SourceRecordV2 = serde_json::from_value(stored)?;
+        if serde_json::to_value(&original)? != serde_json::to_value(record)? {
+            return Err(invalid(
+                "Faktenbindung widerspricht der gespeicherten Quellrevision",
+            ));
         }
+        let facts = project_entity_facts(&original, fact_ids)?;
+        sqlx::query("INSERT INTO brain.entity_profile_entities_v1(entity_key,identity_json) VALUES($1,$2) ON CONFLICT(entity_key) DO NOTHING").bind(&entity.entity_key).bind(&identity).execute(&mut *tx).await?;
         let mut inserted = 0;
         for fact in facts {
             let encoded = serde_json::to_string(&fact)?;
-            let revision =
-                i64::try_from(record.revision).map_err(|_| invalid("Revision ist zu groß"))?;
-            inserted += sqlx::query("INSERT INTO brain.entity_profile_facts_v1(entity_key,source_id,logical_id,revision,fact_id,fact_json) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING")
-                .bind(&entity.entity_key).bind(&record.source_id).bind(&record.logical_id).bind(revision).bind(&fact.fact_id).bind(&encoded).execute(&mut *tx).await?.rows_affected() as usize;
+            inserted += sqlx::query("INSERT INTO brain.entity_profile_facts_v1(entity_key,source_id,logical_id,revision,fact_id,fact_json,binding_identity_json) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(entity_key,source_id,logical_id,revision,fact_id) DO UPDATE SET binding_identity_json=EXCLUDED.binding_identity_json WHERE brain.entity_profile_facts_v1.binding_identity_json IS NULL")
+                .bind(&entity.entity_key).bind(&record.source_id).bind(&record.logical_id).bind(revision).bind(&fact.fact_id).bind(&encoded).bind(&identity).execute(&mut *tx).await?.rows_affected() as usize;
             let stored: String = sqlx::query_scalar("SELECT fact_json FROM brain.entity_profile_facts_v1 WHERE entity_key=$1 AND source_id=$2 AND logical_id=$3 AND revision=$4 AND fact_id=$5")
                 .bind(&entity.entity_key).bind(&record.source_id).bind(&record.logical_id).bind(revision).bind(&fact.fact_id).fetch_one(&mut *tx).await?;
-            if stored != encoded {
+            let stored_identity: Value = sqlx::query_scalar("SELECT binding_identity_json FROM brain.entity_profile_facts_v1 WHERE entity_key=$1 AND source_id=$2 AND logical_id=$3 AND revision=$4 AND fact_id=$5")
+                .bind(&entity.entity_key).bind(&record.source_id).bind(&record.logical_id).bind(revision).bind(&fact.fact_id).fetch_one(&mut *tx).await?;
+            if stored != encoded || stored_identity != identity {
                 return Err(invalid("Faktenbeleg widerspricht vorhandenem Import"));
             }
         }
@@ -251,25 +314,52 @@ impl PgStore {
         let visible = snapshot
             .authorized(principal, false)
             .map_err(|_| invalid("Quellenfreigabe fehlt"))?;
-        let identity: Option<Value> = sqlx::query_scalar(
-            "SELECT identity_json FROM brain.entity_profile_entities_v1 WHERE entity_key=$1",
-        )
-        .bind(entity_key)
-        .fetch_optional(&self.pool)
-        .await?;
-        let Some(identity) = identity else {
-            return Ok(None);
-        };
-        let entity: EntityIdentity = serde_json::from_value(identity)?;
+        let mut entity: Option<EntityIdentity> = None;
         let mut facts = Vec::new();
         let mut historical_unknown = false;
         for source in visible {
-            let values: Vec<String> = sqlx::query_scalar("SELECT fact_json FROM brain.entity_profile_facts_v1 WHERE entity_key=$1 AND source_id=$2 AND logical_id=$3 AND revision=$4 ORDER BY fact_id")
+            let original = snapshot
+                .revisions
+                .iter()
+                .find(|original| {
+                    original.source_id == source.source_id
+                        && original.logical_id == source.logical_id
+                        && original.revision == source.revision
+                })
+                .ok_or_else(|| invalid("Gespeicherte Quellrevision fehlt"))?;
+            let values: Vec<(String, Option<Value>)> = sqlx::query_as("SELECT fact_json,binding_identity_json FROM brain.entity_profile_facts_v1 WHERE entity_key=$1 AND source_id=$2 AND logical_id=$3 AND revision=$4 ORDER BY fact_id")
                 .bind(entity_key).bind(&source.source_id).bind(&source.logical_id).bind(source.revision as i64).fetch_all(&self.pool).await?;
-            for value in values {
+            for (value, binding_identity) in values {
                 let fact: EntityProfileFact = serde_json::from_str(&value)?;
-                if fact.provenance.origin.raw_sha256 != source.content_hash {
+                if project_entity_facts(original, std::slice::from_ref(&fact.fact_id))?[0] != fact {
                     return Err(invalid("Fakt und freigegebene Quelle widersprechen sich"));
+                }
+                let binding: EntityIdentity =
+                    serde_json::from_value(binding_identity.ok_or_else(|| {
+                        invalid("Belegte Bindungsidentität fehlt; erneute Zuordnung erforderlich")
+                    })?)?;
+                if binding.entity_key != entity_key
+                    || binding.name.trim().is_empty()
+                    || binding.identity_evidence.is_empty()
+                {
+                    return Err(invalid("Gespeicherte Bindungsidentität ist ungültig"));
+                }
+                if let Some(identity) = &mut entity {
+                    if identity.kind != binding.kind {
+                        return Err(invalid("Autorisierte Entitätsbelege widersprechen sich"));
+                    }
+                    for name in std::iter::once(binding.name).chain(binding.aliases) {
+                        if identity.name != name && !identity.aliases.contains(&name) {
+                            identity.aliases.push(name);
+                        }
+                    }
+                    for evidence in binding.identity_evidence {
+                        if !identity.identity_evidence.contains(&evidence) {
+                            identity.identity_evidence.push(evidence);
+                        }
+                    }
+                } else {
+                    entity = Some(binding);
                 }
                 if let Some(patch) = patch {
                     historical_unknown |= matches!(fact.validity, PatchValidity::Unknown { .. });
@@ -280,6 +370,9 @@ impl PgStore {
                 facts.push(fact);
             }
         }
+        let Some(entity) = entity else {
+            return Ok(None);
+        };
         let mut story = self.entity_patch_story(&entity).await?;
         if let Some(patch) = patch {
             story.retain(|change| change.patch_date.as_str() <= patch);
@@ -301,11 +394,16 @@ impl PgStore {
         let names: Vec<_> = std::iter::once(entity.name.clone())
             .chain(entity.aliases.clone())
             .collect();
+        let kind = match entity.kind {
+            brain_contracts::entity_profile::EntityKind::Hero => "hero",
+            brain_contracts::entity_profile::EntityKind::Ability => "ability",
+            brain_contracts::entity_profile::EntityKind::Item => "item",
+        };
         let mut tx = self.pool.begin().await?;
         sqlx::raw_sql("SET TRANSACTION READ ONLY; SET LOCAL statement_timeout='5000ms'")
             .execute(&mut *tx)
             .await?;
-        let story: Vec<Value> = sqlx::query_scalar("SELECT to_jsonb(c) FROM brain.patch_changes c WHERE lower(c.entity_name)=ANY(SELECT lower(n) FROM unnest($1::text[]) n) OR lower(c.ability_name)=ANY(SELECT lower(n) FROM unnest($1::text[]) n) ORDER BY c.patch_date,c.stat_name").bind(names).fetch_all(&mut *tx).await?;
+        let story: Vec<Value> = sqlx::query_scalar("SELECT to_jsonb(c) FROM brain.patch_changes c WHERE (c.entity_type=$2 AND lower(c.entity_name)=ANY(SELECT lower(n) FROM unnest($1::text[]) n)) OR ($2='ability' AND c.entity_type='hero' AND lower(c.ability_name)=ANY(SELECT lower(n) FROM unnest($1::text[]) n)) ORDER BY c.patch_date,c.stat_name").bind(names).bind(kind).fetch_all(&mut *tx).await?;
         tx.commit().await?;
         story.into_iter().map(decode_patch_change).collect()
     }

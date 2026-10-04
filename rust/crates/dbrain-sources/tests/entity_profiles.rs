@@ -33,6 +33,228 @@ fn entity(kind: EntityKind) -> EntityIdentity {
         identity_evidence: vec!["fixture:identity".into()],
     }
 }
+
+fn extracted_fact(
+    extension: &str,
+    number: &str,
+) -> brain_contracts::entity_profile::EntityProfileFact {
+    let content = if extension == "json" {
+        format!("{{\"health\":{number}}}")
+    } else {
+        format!("{{ health = {number} }}")
+    };
+    let document = extracted_game_document(extension, &content);
+    let fact_id = document["facts"][0]["fact_id"].as_str().unwrap().to_owned();
+    project_entity_facts(&prepared_game_document(&document), &[fact_id])
+        .unwrap()
+        .remove(0)
+}
+
+fn extracted_game_document(extension: &str, content: &str) -> Value {
+    extracted_game_document_from_source("fixture", extension, content)
+}
+
+fn extracted_game_document_from_source(source_id: &str, extension: &str, content: &str) -> Value {
+    use dbrain_sources::game_files::{extract_game_files, GameFileOptions};
+
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join(format!("health.{extension}")), content).unwrap();
+    let options = GameFileOptions {
+        root: root.path().into(),
+        app_id: 1422450,
+        source_id: source_id.into(),
+        observed_at: "2026-10-03T00:00:00Z".into(),
+        build_id: None,
+        manifest_id: None,
+        source_revision: Some("fixture-revision".into()),
+        depot_id: None,
+        language: "und".into(),
+        attribution: "Testdaten".into(),
+        license_name: "fixture".into(),
+        license_url: None,
+        provenance: json!({"fixture":true}),
+        max_file_bytes: 1024 * 1024,
+    };
+    let mut output = Vec::new();
+    extract_game_files(&options, &mut output).unwrap();
+    serde_json::from_slice(&output).unwrap()
+}
+
+fn prepared_game_document(document: &Value) -> brain_contracts::SourceRecordV2 {
+    let input = validate_knowledge_jsonl_str(&document.to_string()).unwrap();
+    let source = document["source_id"].as_str().unwrap();
+    let policy: ImportPolicy = serde_json::from_value(json!({"sources":{source:{
+        "internal_read_allowed":true,"raw_retention_allowed":true,"publication_allowed":false,"provider_egress_allowed":false,"authorization_ref":"fixture-grant","provenance_evidence_ref":"fixture-origin","allowed_scopes":[]
+    }}})).unwrap();
+    let prepared = prepare_validated_knowledge(&input, &policy, "fixture-v1").unwrap();
+    prepared.records()[0].record.clone()
+}
+
+fn kv1_documents(legacy: bool) -> Vec<Value> {
+    [
+        "a { damage 10 damage 11 } a { damage 20 } b { damage 30 } \"a/b~\" { damage 40 }",
+        "a { damage 12 damage 11 } a { damage 20 } b { damage 30 } \"a/b~\" { damage 40 }",
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, content)| {
+        let mut document =
+            extracted_game_document_from_source(&format!("kv1-{index}-{legacy}"), "kv1", content);
+        if legacy {
+            for fact in document["facts"].as_array_mut().unwrap() {
+                fact["qualifiers"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("source_pointer");
+            }
+        }
+        document
+    })
+    .collect()
+}
+
+#[test]
+fn kv1_profiles_compare_full_original_scope_including_frozen_documents() {
+    for legacy in [false, true] {
+        let mut combined = Vec::new();
+        for document in kv1_documents(legacy) {
+            let record = prepared_game_document(&document);
+            let ids: Vec<String> = document["facts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|fact| fact["fact_id"].as_str().unwrap().into())
+                .collect();
+            let facts = project_entity_facts(&record, &ids).unwrap();
+            assert_eq!(facts.len(), 5);
+            for (fact, original) in facts.iter().zip(document["facts"].as_array().unwrap()) {
+                assert_eq!(fact.subject, "game_file:health.kv1");
+                assert_eq!(fact.value, original["value"]);
+                assert_eq!(
+                    serde_json::to_value(&fact.qualifiers).unwrap(),
+                    original["qualifiers"]
+                );
+                assert_eq!(
+                    fact.provenance.source_span.as_deref(),
+                    original["source_span"].as_str()
+                );
+            }
+            let profile = assemble_profile(entity(EntityKind::Hero), None, facts.clone(), vec![]);
+            assert!(profile.conflicts.is_empty());
+            assert_eq!(profile.facts, facts);
+            combined.extend(facts);
+        }
+        let profile = assemble_profile(entity(EntityKind::Hero), None, combined.clone(), vec![]);
+        assert_eq!(profile.conflicts.len(), 1);
+        assert_eq!(profile.conflicts[0].fact_ids.len(), 2);
+        assert!(profile.conflicts[0]
+            .fact_ids
+            .iter()
+            .all(|id| id.ends_with("kv:/a/0/damage/0")));
+        assert_eq!(profile.facts, combined);
+    }
+}
+
+#[test]
+fn kv1_missing_original_scope_is_visible_and_caller_pointer_cannot_replace_it() {
+    for span in [
+        Value::Null,
+        json!("health.kv1:damage"),
+        json!("other.kv1:/a/0/damage/0"),
+    ] {
+        let documents = kv1_documents(true);
+        let mut facts = Vec::new();
+        for mut document in documents {
+            document["facts"][0]["source_span"] = span.clone();
+            let record = prepared_game_document(&document);
+            facts.extend(project_entity_facts(&record, &["kv:/a/0/damage/0".into()]).unwrap());
+        }
+        for caller_pointer in [None, Some("/a/0/damage/0")] {
+            let mut unbound = facts.clone();
+            if let Some(pointer) = caller_pointer {
+                for fact in &mut unbound {
+                    fact.qualifiers
+                        .insert("source_pointer".into(), json!(pointer));
+                }
+            }
+            let profile = assemble_profile(entity(EntityKind::Hero), None, unbound.clone(), vec![]);
+            assert!(profile.conflicts.is_empty());
+            assert!(profile
+                .unknowns
+                .iter()
+                .any(|gap| gap.contains("KV1-Feldpfad")));
+            assert_eq!(profile.facts, unbound);
+        }
+    }
+}
+
+#[test]
+fn json_and_kv3_array_elements_keep_distinct_comparison_scopes() {
+    for (extension, content, count) in [
+        ("json", r#"{"damage":[10,20]}"#, 2),
+        ("kv3", "{ damage = [10,20] damage = 30 }", 3),
+    ] {
+        let document = extracted_game_document(extension, content);
+        let ids: Vec<String> = document["facts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|fact| fact["fact_id"].as_str().unwrap().into())
+            .collect();
+        let facts = project_entity_facts(&prepared_game_document(&document), &ids).unwrap();
+        assert_eq!(facts.len(), count);
+        let profile = assemble_profile(entity(EntityKind::Hero), None, facts.clone(), vec![]);
+        assert!(profile.conflicts.is_empty());
+        assert_eq!(profile.facts, facts);
+    }
+}
+
+#[test]
+fn extractor_lexemes_do_not_hide_conflicts_or_merge_semantic_qualifiers() {
+    for extension in ["json", "kv3"] {
+        for (left, right) in [
+            ("12", "13"),
+            ("12", "340282346638528859811704183484516925440.0"),
+        ] {
+            let facts = vec![
+                extracted_fact(extension, left),
+                extracted_fact(extension, right),
+            ];
+            assert_eq!(facts[0].qualifiers["source_lexeme"], left);
+            assert_eq!(facts[1].qualifiers["source_lexeme"], right);
+            let profile = assemble_profile(entity(EntityKind::Hero), None, facts.clone(), vec![]);
+            assert_eq!(profile.conflicts.len(), 1);
+            assert_eq!(profile.conflicts[0].fact_ids.len(), 2);
+            assert_eq!(profile.facts, facts);
+
+            for key in [
+                "variant",
+                "condition",
+                "level",
+                "source_pointer",
+                "type_flags",
+            ] {
+                let mut separated = facts.clone();
+                separated[0].qualifiers.insert(key.into(), json!("normal"));
+                separated[1]
+                    .qualifiers
+                    .insert(key.into(), json!("enhanced"));
+                let profile =
+                    assemble_profile(entity(EntityKind::Hero), None, separated.clone(), vec![]);
+                assert!(profile.conflicts.is_empty(), "{extension}:{key}");
+                assert_eq!(profile.facts, separated);
+            }
+            let mut separated = facts.clone();
+            separated[0].unit = Some("hp".into());
+            separated[1].unit = Some("percent".into());
+            assert!(
+                assemble_profile(entity(EntityKind::Hero), None, separated, vec![])
+                    .conflicts
+                    .is_empty()
+            );
+        }
+    }
+}
 #[test]
 fn values_units_qualifiers_and_rights_remain_lossless() {
     let facts = project_entity_facts(&record(), &["health".into()]).unwrap();
@@ -66,9 +288,10 @@ fn conflicting_sources_keep_both_values_and_git_preference() {
     let mut git = facts[0].clone();
     git.value = json!("123");
     facts[0].qualifiers.insert(
-        "numeric_representation".into(),
-        json!("source_numeric_lexeme"),
+        "source_lexeme".into(),
+        json!("1.2345678901234567890123456789e+19"),
     );
+    git.qualifiers.insert("source_lexeme".into(), json!("123"));
     git.qualifiers.insert(
         "numeric_representation".into(),
         json!("source_numeric_lexeme"),
@@ -123,7 +346,7 @@ impl Drop for ScratchPg {
         let _ = std::process::Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
             .args(["-D"])
             .arg(self.directory.path().join("data"))
-            .args(["-m", "immediate", "-w", "stop"])
+            .args(["-m", "fast", "-w", "stop"])
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status();
@@ -179,9 +402,47 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
     .execute(&pool)
     .await
     .unwrap();
-    let record = record();
+    sqlx::raw_sql(include_str!(
+        "../../../../scripts/migrations/2026-10-04-brain-entity-profile-binding-identity-v1.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    let mut record = record();
+    let mut origin = brain_contracts::source::origin_from_record(&record).unwrap();
+    record.allowed_scopes.insert("fixture:read".into());
+    origin.policy.allowed_scopes = record.allowed_scopes.clone();
+    origin.bind_record(&mut record).unwrap();
     store.apply(&record).await.unwrap();
-    let entity = entity(EntityKind::Hero);
+    let mut entity = entity(EntityKind::Hero);
+    entity.name = "Vertraulicher Name".into();
+    entity.aliases = vec!["Vertraulicher Alias".into()];
+    entity.identity_evidence = vec!["vertraulicher Beleg".into()];
+    let mut manipulated = record.clone();
+    let document_key = brain_storage::source_versions::DOCUMENT_METADATA_KEY;
+    let mut document: Value = serde_json::from_str(&manipulated.metadata[document_key]).unwrap();
+    document["facts"][0]["value"] = json!(999999);
+    manipulated
+        .metadata
+        .insert(document_key.into(), document.to_string());
+    assert_eq!(manipulated.content, record.content);
+    assert_eq!(manipulated.content_hash, record.content_hash);
+    assert_ne!(
+        serde_json::to_value(&manipulated).unwrap(),
+        serde_json::to_value(&record).unwrap()
+    );
+    let original: Value = sqlx::query_scalar("SELECT record_json FROM brain.source_record_revisions WHERE source_id=$1 AND logical_id=$2 AND revision=$3")
+        .bind(&record.source_id).bind(&record.logical_id).bind(record.revision as i64).fetch_one(&pool).await.unwrap();
+    assert_eq!(original, serde_json::to_value(&record).unwrap());
+    assert!(store
+        .store_entity_fact_bindings(&entity, &manipulated, &["health".into()])
+        .await
+        .is_err());
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM brain.entity_profile_facts_v1")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
     assert_eq!(
         store
             .store_entity_fact_bindings(&entity, &record, &["health".into()])
@@ -211,5 +472,439 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
         .store_entity_fact_bindings(&conflict, &record, &["health".into()])
         .await
         .is_err());
+    sqlx::raw_sql("CREATE TABLE brain.patch_changes(patch_date text, entity_type text, entity_name text, ability_name text, stat_name text, old_value text, new_value text, raw_line text, patch_url text)").execute(&pool).await.unwrap();
+    let release = brain_contracts::CorpusRelease {
+        release_id: "fixture-binding-release".into(),
+        knowledge_version: "k1".into(),
+        patch: "p1".into(),
+        created_at_epoch: 1,
+        source_revisions: std::collections::BTreeMap::from([(
+            record.source_id.clone(),
+            std::collections::BTreeMap::from([(record.logical_id.clone(), record.revision)]),
+        )]),
+    };
+    store.publish_release(&release).await.unwrap();
+    let mut principal = brain_contracts::Principal {
+        actor_id: "fixture".into(),
+        channel: "test".into(),
+        scopes: Default::default(),
+        provider_egress: Default::default(),
+    };
+    let hidden = store
+        .read_entity_profile(&entity.entity_key, &release.release_id, &principal, None)
+        .await
+        .unwrap();
+    assert!(hidden.is_none());
+    principal.scopes = record.allowed_scopes.clone();
+    let visible = store
+        .read_entity_profile(&entity.entity_key, &release.release_id, &principal, None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(visible.facts.len(), 1);
+    assert_eq!(visible.entity, entity);
+    patch_stories_follow_entity_kind(&store, &pool, &record, &release, &principal).await;
+    assert_eq!(
+        visible.facts[0].value.to_string(),
+        "1.2345678901234567890123456789e+19"
+    );
+    sqlx::query(
+        "UPDATE brain.entity_profile_facts_v1 SET binding_identity_json=NULL WHERE entity_key=$1",
+    )
+    .bind(&entity.entity_key)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(store
+        .read_entity_profile(&entity.entity_key, &release.release_id, &principal, None)
+        .await
+        .is_err());
+    assert_eq!(
+        store
+            .store_entity_fact_bindings(&entity, &record, &["health".into()])
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        store
+            .read_entity_profile(&entity.entity_key, &release.release_id, &principal, None)
+            .await
+            .unwrap()
+            .unwrap()
+            .entity,
+        entity
+    );
+    let mut restricted = record.clone();
+    restricted.revision += 1;
+    restricted.allowed_scopes = std::collections::BTreeSet::from(["fixture:restricted".into()]);
+    origin.policy.allowed_scopes = restricted.allowed_scopes.clone();
+    origin.bind_record(&mut restricted).unwrap();
+    store.apply(&restricted).await.unwrap();
+    let hidden = store
+        .read_entity_profile(&entity.entity_key, &release.release_id, &principal, None)
+        .await
+        .unwrap();
+    assert!(hidden.is_none());
+    principal.scopes.extend(restricted.allowed_scopes.clone());
+    let visible = store
+        .read_entity_profile(&entity.entity_key, &release.release_id, &principal, None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(visible.facts.len(), 1);
+    assert_eq!(
+        visible.facts[0].provenance.origin.policy.allowed_scopes,
+        record.allowed_scopes
+    );
+    let mut public = record.clone();
+    let mut public_origin = brain_contracts::source::origin_from_record(&public).unwrap();
+    public.source_id = "public-fixture".into();
+    public.allowed_scopes = std::collections::BTreeSet::from(["fixture:public".into()]);
+    public_origin.identity.source_id = public.source_id.clone();
+    public_origin.policy.allowed_scopes = public.allowed_scopes.clone();
+    public_origin.bind_record(&mut public).unwrap();
+    let mut document: Value = serde_json::from_str(&public.metadata[document_key]).unwrap();
+    document["source_id"] = json!(public.source_id);
+    document["title"] = json!("Öffentlicher Name");
+    public
+        .metadata
+        .insert(document_key.into(), document.to_string());
+    store.apply(&public).await.unwrap();
+    let mut public_entity = entity.clone();
+    public_entity.name = "Öffentlicher Name".into();
+    public_entity.aliases.clear();
+    public_entity.identity_evidence = vec!["public-fixture:identity".into()];
+    store
+        .store_entity_fact_bindings(&public_entity, &public, &["health".into()])
+        .await
+        .unwrap();
+    let mut mixed = release.clone();
+    mixed.release_id = "mixed-release".into();
+    mixed.source_revisions.insert(
+        public.source_id.clone(),
+        std::collections::BTreeMap::from([(public.logical_id.clone(), public.revision)]),
+    );
+    store.publish_release(&mixed).await.unwrap();
+    principal.scopes = public.allowed_scopes.clone();
+    let visible = store
+        .read_entity_profile(&entity.entity_key, &mixed.release_id, &principal, None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(visible.facts.len(), 1);
+    assert_eq!(visible.entity.name, "Öffentlicher Name");
+    assert!(visible.entity.aliases.is_empty());
+    assert!(visible
+        .entity
+        .identity_evidence
+        .iter()
+        .all(|evidence| evidence.starts_with("public-fixture:")));
+    let mut unpinned = mixed.clone();
+    unpinned.release_id = "unpinned-release".into();
+    unpinned.source_revisions.clear();
+    store.publish_release(&unpinned).await.unwrap();
+    assert!(store
+        .read_entity_profile(&entity.entity_key, &unpinned.release_id, &principal, None)
+        .await
+        .unwrap()
+        .is_none());
+    public.revision += 1;
+    public.tombstone = true;
+    store.apply(&public).await.unwrap();
+    assert!(store
+        .read_entity_profile(&entity.entity_key, &mixed.release_id, &principal, None)
+        .await
+        .unwrap()
+        .is_none());
+    let mut shared_kv1_identity = entity.clone();
+    shared_kv1_identity.entity_key = "kv1-shared".into();
+    let mut shared_kv1_release = release.clone();
+    shared_kv1_release.release_id = "kv1-shared-release".into();
+    shared_kv1_release.source_revisions.clear();
+    let mut shared_kv1_facts = Vec::new();
+    let mut shared_kv1_principal = principal.clone();
+    shared_kv1_principal.scopes.clear();
+    for (index, record) in extractor_records().into_iter().enumerate() {
+        let document: Value = serde_json::from_str(&record.metadata[document_key]).unwrap();
+        let ids: Vec<String> = document["facts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| {
+                let subject = f["subject"].as_str().unwrap();
+                assert!(subject.starts_with("game_file:") || subject.starts_with("wiki:"));
+                f["fact_id"].as_str().unwrap().into()
+            })
+            .collect();
+        assert!(!ids.is_empty());
+        let identity = EntityIdentity {
+            entity_key: format!("extractor-{index}"),
+            kind: [EntityKind::Hero, EntityKind::Ability, EntityKind::Item][index % 3],
+            name: format!("Belegter Name {index}"),
+            aliases: vec![format!("Belegter Alias {index}")],
+            identity_evidence: vec![format!("{}:binding", record.logical_id)],
+        };
+        store.apply(&record).await.unwrap();
+        assert_eq!(
+            store
+                .store_entity_fact_bindings(&identity, &record, &ids)
+                .await
+                .unwrap(),
+            ids.len()
+        );
+        let release = brain_contracts::CorpusRelease {
+            release_id: format!("extractor-release-{index}"),
+            source_revisions: std::collections::BTreeMap::from([(
+                record.source_id.clone(),
+                std::collections::BTreeMap::from([(record.logical_id.clone(), record.revision)]),
+            )]),
+            ..release.clone()
+        };
+        store.publish_release(&release).await.unwrap();
+        principal.scopes.clear();
+        assert!(store
+            .read_entity_profile(&identity.entity_key, &release.release_id, &principal, None)
+            .await
+            .unwrap()
+            .is_none());
+        principal.scopes = record.allowed_scopes.clone();
+        let actual = store
+            .read_entity_profile(&identity.entity_key, &release.release_id, &principal, None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(actual.entity, identity);
+        let expected = project_entity_facts(&record, &ids).unwrap();
+        assert_eq!(actual.facts.len(), expected.len());
+        for fact in expected {
+            assert!(actual.facts.contains(&fact));
+        }
+        assert!(actual.conflicts.is_empty());
+        if record.source_id.starts_with("kv1-") {
+            shared_kv1_principal
+                .scopes
+                .extend(record.allowed_scopes.clone());
+            store
+                .store_entity_fact_bindings(&shared_kv1_identity, &record, &ids)
+                .await
+                .unwrap();
+            shared_kv1_release.source_revisions.insert(
+                record.source_id.clone(),
+                std::collections::BTreeMap::from([(record.logical_id.clone(), record.revision)]),
+            );
+            shared_kv1_facts.extend(actual.facts);
+            let stored: Value = sqlx::query_scalar("SELECT record_json FROM brain.source_record_revisions WHERE source_id=$1 AND logical_id=$2 AND revision=$3")
+                .bind(&record.source_id).bind(&record.logical_id).bind(i64::try_from(record.revision).unwrap())
+                .fetch_one(&pool).await.unwrap();
+            assert_eq!(stored, serde_json::to_value(&record).unwrap());
+        }
+    }
+    store.publish_release(&shared_kv1_release).await.unwrap();
+    let shared = store
+        .read_entity_profile(
+            &shared_kv1_identity.entity_key,
+            &shared_kv1_release.release_id,
+            &shared_kv1_principal,
+            None,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(shared.facts.len(), 20);
+    assert_eq!(shared.conflicts.len(), 1);
+    assert_eq!(shared.conflicts[0].fact_ids.len(), 4);
+    assert!(shared.conflicts[0]
+        .fact_ids
+        .iter()
+        .all(|id| id.ends_with("kv:/a/0/damage/0")));
+    for fact in shared_kv1_facts {
+        assert!(shared.facts.contains(&fact));
+    }
     pool.close().await;
+}
+
+async fn patch_stories_follow_entity_kind(
+    store: &brain_storage::PgStore,
+    pool: &sqlx::PgPool,
+    record: &brain_contracts::SourceRecordV2,
+    release: &brain_contracts::CorpusRelease,
+    principal: &brain_contracts::Principal,
+) {
+    sqlx::raw_sql(
+        "INSERT INTO brain.patch_changes VALUES
+        ('2026-09-15','hero','Gleicher Name',NULL,'hero_name','100','110','Beleg','https://example.org/patch'),
+        ('2026-09-16','hero','gleicher alias',NULL,'hero_alias','100','120','Beleg','https://example.org/patch'),
+        ('2026-09-16','hero','Gleicher Name','Zugehörige Fähigkeit','hero_ability','10','12','Beleg','https://example.org/patch'),
+        ('2026-09-16','hero','Gleicher Alias','Fähigkeitsalias','hero_ability_alias','10','13','Beleg','https://example.org/patch'),
+        ('2026-09-15','item','Gleicher Name',NULL,'item_name','100','110','Beleg','https://example.org/patch'),
+        ('2026-09-16','item','gleicher alias',NULL,'item_alias','100','120','Beleg','https://example.org/patch'),
+        ('2026-09-15','ability','GLEICHER NAME',NULL,'ability_name','100','110','Beleg','https://example.org/patch'),
+        ('2026-09-16','ability','Gleicher Alias',NULL,'ability_alias','100','120','Beleg','https://example.org/patch'),
+        ('2026-09-16','hero','Anderer Held','Gleicher Name','ability_on_hero','10','12','Beleg','https://example.org/patch'),
+        ('2026-09-16','hero','Anderer Held','gleicher alias','ability_alias_on_hero','10','13','Beleg','https://example.org/patch'),
+        ('2026-09-16','item','Anderes Item','Gleicher Name','foreign_item_ability',NULL,NULL,NULL,NULL),
+        ('2026-09-16','item','Anderes Item','Gleicher Alias','foreign_item_ability_alias',NULL,NULL,NULL,NULL),
+        ('2026-09-16','general','Gleicher Name','Gleicher Alias','foreign_general',NULL,NULL,NULL,NULL),
+        ('2026-09-16','ability_internal','Gleicher Name','Gleicher Alias','foreign_internal',NULL,NULL,NULL,NULL),
+        ('2026-09-16','item_special','Gleicher Alias',NULL,'foreign_special',NULL,NULL,NULL,NULL)",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+    for (kind, expected) in [
+        (
+            EntityKind::Hero,
+            vec![
+                "hero_name",
+                "hero_ability",
+                "hero_ability_alias",
+                "hero_alias",
+            ],
+        ),
+        (
+            EntityKind::Ability,
+            vec![
+                "ability_name",
+                "ability_alias",
+                "ability_alias_on_hero",
+                "ability_on_hero",
+            ],
+        ),
+        (EntityKind::Item, vec!["item_name", "item_alias"]),
+    ] {
+        let identity = EntityIdentity {
+            entity_key: format!("history-{kind:?}"),
+            kind,
+            name: "Gleicher Name".into(),
+            aliases: vec!["Gleicher Alias".into()],
+            identity_evidence: vec!["fixture:history".into()],
+        };
+        store
+            .store_entity_fact_bindings(&identity, record, &["health".into()])
+            .await
+            .unwrap();
+        let current = store
+            .read_entity_profile(&identity.entity_key, &release.release_id, principal, None)
+            .await
+            .unwrap()
+            .unwrap();
+        let stats: Vec<_> = current
+            .patch_story
+            .iter()
+            .map(|change| change.stat_name.as_deref().unwrap())
+            .collect();
+        assert_eq!(stats, expected, "{kind:?}");
+        assert_eq!(current.facts.len(), 1);
+        for change in &current.patch_story {
+            assert_eq!(change.provenance.relation, "brain.patch_changes");
+            assert_eq!(
+                change.provenance.source_url.as_deref(),
+                Some("https://example.org/patch")
+            );
+            assert!(change
+                .provenance
+                .evidence_ref
+                .starts_with("brain.patch_changes:"));
+            assert_eq!(
+                change.old_value,
+                if change.ability_name.is_some() {
+                    "10"
+                } else {
+                    "100"
+                }
+            );
+            assert_eq!(change.original_line.text.as_deref(), Some("Beleg"));
+            assert!(!change.original_line.redistribution_allowed);
+        }
+        let historical = store
+            .read_entity_profile(
+                &identity.entity_key,
+                &release.release_id,
+                principal,
+                Some("2026-09-15"),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(historical.facts.is_empty());
+        assert!(!historical.unknowns.is_empty());
+        assert_eq!(historical.patch_story.len(), 1);
+        assert_eq!(historical.patch_story[0], current.patch_story[0]);
+        let denied = brain_contracts::Principal {
+            scopes: Default::default(),
+            ..principal.clone()
+        };
+        assert!(store
+            .read_entity_profile(&identity.entity_key, &release.release_id, &denied, None)
+            .await
+            .unwrap()
+            .is_none());
+    }
+    let ability = EntityIdentity {
+        entity_key: "associated-ability".into(),
+        kind: EntityKind::Ability,
+        name: "Zugehörige Fähigkeit".into(),
+        aliases: vec!["Fähigkeitsalias".into()],
+        identity_evidence: vec!["fixture:history".into()],
+    };
+    let story = store.entity_patch_story(&ability).await.unwrap();
+    assert_eq!(
+        story
+            .iter()
+            .map(|change| change.stat_name.as_deref().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["hero_ability", "hero_ability_alias"]
+    );
+}
+
+fn extractor_records() -> Vec<brain_contracts::SourceRecordV2> {
+    use dbrain_sources::game_files::{extract_game_files, GameFileOptions};
+    use dbrain_sources::wiki_inventory::{normalize_api_response, WikiSourceContext};
+    let mut documents = kv1_documents(false);
+    documents.extend(kv1_documents(true));
+    for extension in ["txt", "json", "kv3"] {
+        let root = tempfile::tempdir().unwrap();
+        let content = match extension {
+            "txt" => r#""hero" { "health" "12" }"#,
+            "json" => r#"{"health":12}"#,
+            _ => "{ health = 12 }",
+        };
+        std::fs::write(root.path().join(format!("health.{extension}")), content).unwrap();
+        let options = GameFileOptions {
+            root: root.path().into(),
+            app_id: 1422450,
+            source_id: "fixture".into(),
+            observed_at: "2026-10-03T00:00:00Z".into(),
+            build_id: None,
+            manifest_id: None,
+            source_revision: Some("fixture-revision".into()),
+            depot_id: None,
+            language: "und".into(),
+            attribution: "Testdaten".into(),
+            license_name: "fixture".into(),
+            license_url: None,
+            provenance: json!({"fixture":true}),
+            max_file_bytes: 1024 * 1024,
+        };
+        let mut output = Vec::new();
+        assert_eq!(extract_game_files(&options, &mut output).unwrap().facts, 1);
+        documents.push(serde_json::from_slice::<Value>(&output).unwrap());
+    }
+    for (namespace, id) in [("Data", 3500), ("Bucket", 3501)] {
+        let xml = format!("<mediawiki><siteinfo><base>https://deadlock.wiki/{namespace}:Heroes</base><namespaces><namespace key=\"0\"></namespace><namespace key=\"{id}\">{namespace}</namespace></namespaces></siteinfo></mediawiki>");
+        let context = WikiSourceContext::from_mediawiki_export(&xml).unwrap();
+        let payload = json!({"query":{"pages":[{"pageid":id,"ns":id,"title":format!("{namespace}:Heroes"),"revisions":[{"revid":18108,"slots":{"main":{"contentmodel":"json","content":"{\"health\":12}"}}}]}]}});
+        documents.extend(
+            normalize_api_response(&payload, &context, "2026-10-04T12:00:00Z")
+                .unwrap()
+                .documents,
+        );
+    }
+    documents.into_iter().map(|document| {
+        let source = document["source_id"].as_str().unwrap();
+        let policy: ImportPolicy = serde_json::from_value(json!({"sources":{source:{"internal_read_allowed":true,"raw_retention_allowed":true,"publication_allowed":false,"provider_egress_allowed":false,"authorization_ref":"fixture-grant","provenance_evidence_ref":"fixture-origin","allowed_scopes":["fixture:extractor"]}}})).unwrap();
+        let input = validate_knowledge_jsonl_str(&document.to_string()).unwrap();
+        prepare_validated_knowledge(&input,&policy,"fixture-v1").unwrap().records()[0].record.clone()
+    }).collect()
 }
