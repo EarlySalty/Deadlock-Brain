@@ -1,6 +1,6 @@
 use super::{
     invalid,
-    semantic::{project_semantic_fact, SemanticProjection},
+    semantic::{project_semantic_fact, SemanticBinding, SemanticProjection},
 };
 use crate::{PgStore, Result};
 use brain_contracts::entity_profile::{
@@ -41,7 +41,16 @@ impl PgStore {
             &[anchor_fact_id.into(), current_patch_fact_id.into()],
         )?;
         let story = self.entity_patch_story(&entity).await?;
-        let intervals = derive_patch_intervals(&entity, &facts[0], &facts[1], &semantic, &story)?;
+        let intervals = derive_patch_intervals(
+            SemanticBinding {
+                record: &original,
+                identity: &entity,
+            },
+            &facts[0],
+            &facts[1],
+            &semantic,
+            &story,
+        )?;
         let encoded = serde_json::to_string(&intervals)?;
         let count=sqlx::query("INSERT INTO brain.entity_patch_intervals_v1(entity_key,source_id,logical_id,revision,fact_id,current_patch_fact_id,interval_json) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(entity_key,source_id,logical_id,revision,fact_id) DO UPDATE SET current_patch_fact_id=EXCLUDED.current_patch_fact_id,interval_json=EXCLUDED.interval_json WHERE brain.entity_patch_intervals_v1.interval_json<>EXCLUDED.interval_json")
             .bind(entity_key).bind(&record.source_id).bind(&record.logical_id).bind(revision).bind(anchor_fact_id).bind(current_patch_fact_id).bind(encoded).execute(&self.pool).await?.rows_affected() as usize;
@@ -50,7 +59,7 @@ impl PgStore {
 }
 
 pub fn project_interval_fact(
-    entity: &EntityIdentity,
+    binding: SemanticBinding<'_>,
     original: &EntityProfileFact,
     current_patch_fact: &EntityProfileFact,
     semantic: &SemanticProjection,
@@ -58,7 +67,7 @@ pub fn project_interval_fact(
     story: &[PatchStoryChange],
     patch: &str,
 ) -> Result<Option<EntityProfileFact>> {
-    let expected = derive_patch_intervals(entity, original, current_patch_fact, semantic, story)?;
+    let expected = derive_patch_intervals(binding, original, current_patch_fact, semantic, story)?;
     if expected != *stored {
         return Err(invalid(
             "Gespeicherte Intervalle widersprechen den aktuellen Patchbelegen",
@@ -74,12 +83,24 @@ pub fn project_interval_fact(
     else {
         return Ok(None);
     };
-    let mut fact = project_semantic_fact(original, semantic)?;
+    let mut fact = project_semantic_fact(original, semantic, binding.record, binding.identity)?;
     fact.value = interval.value.clone();
-    fact.validity = interval.validity.clone();
+    let mut consumer_interval = interval.clone();
+    consumer_interval.patch_evidence =
+        super::derivation::consumer_patch_story(binding.identity, &interval.patch_evidence)?;
+    if let PatchValidity::Known { evidence_ref, .. } = &mut consumer_interval.validity {
+        *evidence_ref = consumer_interval
+            .patch_evidence
+            .first()
+            .ok_or_else(|| invalid("Intervall besitzt keinen bereinigten Patchbeleg"))?
+            .provenance
+            .evidence_ref
+            .clone();
+    }
+    fact.validity = consumer_interval.validity.clone();
     fact.provenance.document_metadata.insert(
         "derived_interval_evidence".into(),
-        serde_json::to_value(interval)?,
+        serde_json::to_value(consumer_interval)?,
     );
     fact.provenance.document_metadata.insert(
         "current_patch_fact_id".into(),
@@ -192,13 +213,14 @@ pub(crate) fn matching_entity(entity: &EntityIdentity, change: &PatchStoryChange
 }
 
 pub fn derive_patch_intervals(
-    entity: &EntityIdentity,
+    binding: SemanticBinding<'_>,
     anchor: &EntityProfileFact,
     current_patch_fact: &EntityProfileFact,
     semantic: &SemanticProjection,
     story: &[PatchStoryChange],
 ) -> Result<IntervalProjection> {
-    let anchor = project_semantic_fact(anchor, semantic)?;
+    let entity = binding.identity;
+    let anchor = project_semantic_fact(anchor, semantic, binding.record, binding.identity)?;
     let current_patch = current_patch_fact
         .value
         .as_str()

@@ -1,6 +1,9 @@
 use super::{invalid, project_entity_facts};
 use crate::{PgStore, Result};
-use brain_contracts::{entity_profile::EntityProfileFact, SourceRecordV2};
+use brain_contracts::{
+    entity_profile::{EntityIdentity, EntityProfileFact},
+    SourceRecordV2,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -19,6 +22,92 @@ pub struct SemanticProjection {
     pub predicate: String,
     pub qualifiers: Map<String, Value>,
     pub unit: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SemanticBinding<'a> {
+    pub record: &'a SourceRecordV2,
+    pub identity: &'a EntityIdentity,
+}
+
+fn bound_relative_pointer(
+    fact: &EntityProfileFact,
+    binding: SemanticBinding<'_>,
+) -> Result<String> {
+    let original = project_entity_facts(binding.record, std::slice::from_ref(&fact.fact_id))?;
+    if original[0] != *fact || binding.identity.entity_key.is_empty() {
+        return Err(invalid(
+            "Semantischer Originalbeleg widerspricht der Bindung",
+        ));
+    }
+    let document: Value = serde_json::from_str(
+        &binding.record.metadata[crate::source_versions::DOCUMENT_METADATA_KEY],
+    )?;
+    let pointer = fact
+        .qualifiers
+        .get("source_pointer")
+        .or_else(|| fact.qualifiers.get("json_pointer"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| invalid("Vollständiger Originalpfad fehlt"))?;
+    let evidence_prefix = format!(
+        "{}:{}:{}:",
+        binding.record.source_id, binding.record.logical_id, fact.provenance.original_revision
+    );
+    let matches_identity = |identifier: &str| {
+        std::iter::once(&binding.identity.entity_key)
+            .chain(std::iter::once(&binding.identity.name))
+            .chain(&binding.identity.aliases)
+            .any(|name| name.eq_ignore_ascii_case(identifier))
+    };
+    let mut scopes = Vec::new();
+    for evidence in &binding.identity.identity_evidence {
+        let Some(reference) = evidence.strip_prefix(&evidence_prefix) else {
+            continue;
+        };
+        if let Some(root) = reference.strip_prefix('/') {
+            if !root.is_empty()
+                && !root.contains('/')
+                && !root.bytes().all(|byte| byte.is_ascii_digit())
+                && matches_identity(&root.replace("~1", "/").replace("~0", "~"))
+            {
+                scopes.push(reference.to_owned());
+            }
+        }
+        if let Some(identity_fact) = document["facts"].as_array().and_then(|facts| {
+            facts
+                .iter()
+                .find(|fact| fact["fact_id"].as_str() == Some(reference))
+        }) {
+            let identity_pointer = identity_fact["qualifiers"]["source_pointer"]
+                .as_str()
+                .or_else(|| identity_fact["qualifiers"]["json_pointer"].as_str());
+            if let Some((parent, field)) =
+                identity_pointer.and_then(|pointer| pointer.rsplit_once('/'))
+            {
+                if matches!(
+                    field.to_ascii_lowercase().as_str(),
+                    "class_name" | "classname" | "key" | "external_id"
+                ) && identity_fact["value"]
+                    .as_str()
+                    .is_some_and(matches_identity)
+                {
+                    scopes.push(parent.to_owned());
+                }
+            }
+        }
+    }
+    let scope = scopes
+        .iter()
+        .filter(|scope| {
+            pointer
+                .strip_prefix(scope.as_str())
+                .is_some_and(|rest| rest.starts_with('/'))
+        })
+        .max_by_key(|scope| scope.len())
+        .ok_or_else(|| {
+            invalid("Konkrete Entitätsbindung besitzt keinen passenden Originalbeleg")
+        })?;
+    Ok(pointer[scope.len()..].into())
 }
 
 pub(crate) fn stat_key(value: &str) -> String {
@@ -44,7 +133,13 @@ pub(crate) fn stat_key(value: &str) -> String {
 pub fn semantic_projection(
     fact: &EntityProfileFact,
     relative_pointer: &str,
+    record: &SourceRecordV2,
+    binding_identity: &EntityIdentity,
 ) -> Result<Option<SemanticProjection>> {
+    let binding = SemanticBinding {
+        record,
+        identity: binding_identity,
+    };
     let numeric = fact.value.is_number()
         || (fact
             .qualifiers
@@ -58,14 +153,9 @@ pub fn semantic_projection(
     if !numeric {
         return Ok(None);
     }
-    let pointer = fact
-        .qualifiers
-        .get("source_pointer")
-        .or_else(|| fact.qualifiers.get("json_pointer"))
-        .and_then(Value::as_str);
     if relative_pointer.is_empty()
         || !relative_pointer.starts_with('/')
-        || !pointer.is_some_and(|path| path.ends_with(relative_pointer))
+        || bound_relative_pointer(fact, binding)? != relative_pointer
     {
         return Err(invalid(
             "Semantischer Blattpfad widerspricht dem Originalbeleg",
@@ -119,8 +209,18 @@ pub fn semantic_projection(
 pub fn project_semantic_fact(
     original: &EntityProfileFact,
     projection: &SemanticProjection,
+    record: &SourceRecordV2,
+    binding_identity: &EntityIdentity,
 ) -> Result<EntityProfileFact> {
-    if semantic_projection(original, &projection.relative_pointer)?.as_ref() != Some(projection) {
+    if semantic_projection(
+        original,
+        &projection.relative_pointer,
+        record,
+        binding_identity,
+    )?
+    .as_ref()
+        != Some(projection)
+    {
         return Err(invalid(
             "Semantische Projektion widerspricht dem Originalfakt",
         ));
@@ -263,9 +363,15 @@ impl PgStore {
         let originals = project_entity_facts(record, &ids)?;
         let mut total = 0;
         for ((fact_id, projection), original) in projections.iter().zip(originals) {
-            project_semantic_fact(&original, projection)?;
-            let bound: String = sqlx::query_scalar("SELECT fact_json FROM brain.entity_profile_facts_v1 WHERE entity_key=$1 AND source_id=$2 AND logical_id=$3 AND revision=$4 AND fact_id=$5 FOR SHARE")
+            let (bound, identity): (String, Value) = sqlx::query_as("SELECT fact_json,binding_identity_json FROM brain.entity_profile_facts_v1 WHERE entity_key=$1 AND source_id=$2 AND logical_id=$3 AND revision=$4 AND fact_id=$5 FOR SHARE")
             .bind(entity_key).bind(&record.source_id).bind(&record.logical_id).bind(revision).bind(fact_id).fetch_one(&mut *tx).await?;
+            let identity: EntityIdentity = serde_json::from_value(identity)?;
+            if identity.entity_key != entity_key {
+                return Err(invalid(
+                    "Gespeicherte Entitätsbindung widerspricht der Projektion",
+                ));
+            }
+            project_semantic_fact(&original, projection, record, &identity)?;
             if serde_json::from_str::<EntityProfileFact>(&bound)? != original {
                 return Err(invalid("Originalbindung widerspricht der Projektion"));
             }

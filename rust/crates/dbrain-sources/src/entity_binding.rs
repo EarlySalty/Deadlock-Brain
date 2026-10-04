@@ -368,7 +368,9 @@ pub async fn bind_stored_document(
                 ))
             })?;
         let mut identity = entry.identity.clone();
-        identity.aliases.clear();
+        identity.aliases.extend(entry.identifiers.clone());
+        identity.aliases.sort();
+        identity.aliases.dedup();
         identity.identity_evidence = bindings
             .iter()
             .flat_map(|binding| binding.identity_evidence.clone())
@@ -385,7 +387,8 @@ pub async fn bind_stored_document(
                 .await?;
             let mut projections = Vec::new();
             for (binding, original) in chunk.iter().zip(project_entity_facts(&record, &ids)?) {
-                if let Some(projection) = semantic_projection(&original, &binding.relative_pointer)?
+                if let Some(projection) =
+                    semantic_projection(&original, &binding.relative_pointer, &record, &identity)?
                 {
                     projections.push((original.fact_id, projection));
                 }
