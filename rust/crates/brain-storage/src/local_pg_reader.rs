@@ -1222,7 +1222,97 @@ impl LocalPgReader {
                         provenance: None,
                     });
                 }
-            } else if query.patch.is_none() {
+            } else if let Some(patch) = query.patch.as_deref() {
+                for binding in &bindings {
+                    let Some(semantic) = &binding.semantic_projection else {
+                        continue;
+                    };
+                    let original = snapshot
+                        .revisions
+                        .iter()
+                        .find(|original| {
+                            original.source_id == binding.source_id
+                                && original.logical_id == binding.logical_id
+                                && original.revision == binding.store_revision
+                        })
+                        .ok_or_else(|| invalid("Unveränderlicher Intervallanker fehlt"))?;
+                    let (commit, _, _) =
+                        crate::entity_profile::derivation::git_document_identity(original)
+                            .map_err(|_| invalid("Originalcommit des Intervallankers fehlt"))?;
+                    let candidates: Vec<_> = profile
+                        .facts
+                        .iter()
+                        .filter(|fact| {
+                            fact.predicate == semantic.predicate
+                                && fact.unit == semantic.unit
+                                && fact.value == binding.original_fact.value
+                                && fact.provenance.original_revision == commit
+                        })
+                        .collect();
+                    if candidates.len() != 1 {
+                        continue;
+                    }
+                    let stored: Option<String> = tx.query_opt("SELECT interval_json FROM brain.entity_patch_intervals_v1 WHERE entity_key=$1 AND source_id=$2 AND logical_id=$3 AND revision=$4 AND fact_id=$5", &[&receipt.entity_key,&binding.source_id,&binding.logical_id,&(binding.store_revision as i64),&binding.original_fact.fact_id])?
+                        .map(|row| row.try_get(0).map_err(error)).transpose()?;
+                    let Some(stored) = stored else {
+                        continue;
+                    };
+                    let stored: crate::entity_profile::intervals::IntervalProjection =
+                        serde_json::from_str(&stored).map_err(|_| {
+                            invalid("Gespeicherte Intervallprojektion ist ungültig")
+                        })?;
+                    let current = crate::entity_profile::project_entity_facts(
+                        original,
+                        std::slice::from_ref(&stored.current_patch_fact_id),
+                    )
+                    .map_err(|_| invalid("Originalpatchanker kann nicht geprüft werden"))?
+                    .remove(0);
+                    let Some(projected) = crate::entity_profile::intervals::project_interval_fact(
+                        crate::entity_profile::semantic::SemanticBinding {
+                            record: original,
+                            identity: &binding.binding_identity,
+                        },
+                        &binding.original_fact,
+                        &current,
+                        semantic,
+                        &stored,
+                        &story,
+                        patch,
+                    )
+                    .map_err(|_| invalid("Intervall widerspricht den frischen Originalbelegen"))?
+                    else {
+                        continue;
+                    };
+                    let brain_contracts::entity_profile::PatchValidity::Known {
+                        evidence_ref, ..
+                    } = &projected.validity
+                    else {
+                        continue;
+                    };
+                    let safe = candidates[0];
+                    let content = serde_json::json!({"entity_name":profile.entity.name,"predicate":safe.predicate,"value":projected.value,"unit":safe.unit,"qualifiers":safe.qualifiers,"validity":projected.validity});
+                    if evidence.len() >= 100 {
+                        return Err(PortError::BudgetExceeded);
+                    }
+                    evidence.push(Evidence {
+                        evidence_id: format!(
+                            "entity-profile:interval:{}:{patch}:{}",
+                            record.logical_id, safe.fact_id
+                        ),
+                        source_id: record.source_id.clone(),
+                        logical_id: record.logical_id.clone(),
+                        revision: record.revision,
+                        kind: EvidenceKind::Fact,
+                        content: format!("Belegter historischer Wert: {content}"),
+                        citation: evidence_ref.clone(),
+                        visibility: record.visibility,
+                        allowed_scopes: record.allowed_scopes.clone(),
+                        score: 1.0,
+                        patch: Some(patch.into()),
+                        provenance: None,
+                    });
+                }
+            } else {
                 evidence.push(Evidence {
                     evidence_id: format!(
                         "entity-profile:document:{}:{}",

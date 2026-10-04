@@ -731,6 +731,8 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
     ] { sqlx::raw_sql(migration).execute(&pool).await.unwrap(); }
     sqlx::raw_sql("CREATE TABLE brain.patch_changes(patch_date text,entity_type text,entity_name text,ability_name text,stat_name text,old_value text,new_value text,change_type text,confidence double precision,raw_line text); INSERT INTO brain.patch_changes VALUES('2026-09-16','hero','hero_test',NULL,'MaxHealth','800','830','increase',1,'Gesperrte Originalzeile'),('2025-09-16','item','Wächter',NULL,'Fremdes Feld','777','778','increase',1,'Gesperrte Originalzeile')")
         .execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO brain.patch_changes VALUES('2026-09-01','hero','hero_test',NULL,'MaxHealth','780','800','increase',1,'Gesperrte Originalzeile')")
+        .execute(&pool).await.unwrap();
     let identities = [
         EntityIdentity {
             entity_key: "hero:fixture".into(),
@@ -753,7 +755,11 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
         (&identities[1], "item_test", "BonusClipSizePercent", 30),
     ] {
         let mut identity = identity.clone();
-        let content = json!({identifier:{stat:value}}).to_string();
+        let content = if identity.kind == EntityKind::Hero {
+            json!({identifier:{stat:value,"CurrentPatch":"2026-09-16"}}).to_string()
+        } else {
+            json!({identifier:{stat:value}}).to_string()
+        };
         let mut original = record(&content, "extracted_value");
         let mut origin = source::origin_from_record(&original).unwrap();
         original.logical_id = format!("game:fixture:{identifier}.json");
@@ -775,6 +781,11 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
         document["revision"] = json!("a".repeat(40));
         document["metadata"] = json!({"source_revision":"a".repeat(40),"original_relative_path":format!("{identifier}.json"),"original_sha256":original.content_hash,"provenance":{"repository_url":"https://github.com/deadlock-wiki/deadlock-data"}});
         document["facts"] = json!([{"fact_id":"stat","subject":"game_file:private-fixture.json","predicate":"file.json_value","value":value,"unit":null,"evidence_status":"extracted_value","source_span":format!("/{identifier}/{stat}"),"qualifiers":{"source_pointer":format!("/{identifier}/{stat}")}}]);
+        let mut fact_ids = vec!["stat".into()];
+        if identity.kind == EntityKind::Hero {
+            document["facts"].as_array_mut().unwrap().push(json!({"fact_id":"current_patch","subject":"game_file:private-fixture.json","predicate":"current_patch","value":"2026-09-16","unit":null,"evidence_status":"extracted_value","source_span":format!("/{identifier}/CurrentPatch"),"qualifiers":{"source_pointer":format!("/{identifier}/CurrentPatch")}}));
+            fact_ids.push("current_patch".into());
+        }
         original
             .metadata
             .insert(DOCUMENT_METADATA_KEY.into(), document.to_string());
@@ -791,7 +802,7 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
         )];
         store.apply(&original).await.unwrap();
         store
-            .store_entity_fact_bindings(&identity, &original, &["stat".into()])
+            .store_entity_fact_bindings(&identity, &original, &fact_ids)
             .await
             .unwrap();
         let fact = project_entity_facts(&original, &["stat".into()])
@@ -808,6 +819,17 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
             )
             .await
             .unwrap();
+        if identity.kind == EntityKind::Hero {
+            store
+                .store_entity_patch_intervals(
+                    &identity.entity_key,
+                    &original,
+                    "stat",
+                    "current_patch",
+                )
+                .await
+                .unwrap();
+        }
         originals.push(original);
     }
     let original_release = CorpusRelease {
@@ -986,6 +1008,37 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
     count.patch = None;
     let counted = tokio::task::block_in_place(|| retriever.retrieve(&count, &context)).unwrap();
     assert!(counted[0].content.contains("1 Helden"));
+    let mut interval = query("Wie viel MaxHealth war für Wächter gespeichert?");
+    interval.patch = Some("2026-09-15".into());
+    let historical_value =
+        tokio::task::block_in_place(|| retriever.retrieve(&interval, &context)).unwrap();
+    assert_eq!(historical_value.len(), 1);
+    assert!(historical_value[0]
+        .evidence_id
+        .starts_with("entity-profile:interval:"));
+    assert!(historical_value[0].content.contains("800"));
+    for forbidden in [
+        "hero_test",
+        "private-fixture.json",
+        "raw:fixture",
+        "current_patch_fact_id",
+        "Gesperrte Originalzeile",
+    ] {
+        assert!(!historical_value[0].content.contains(forbidden));
+        assert!(!historical_value[0].citation.contains(forbidden));
+    }
+    tokio::task::block_in_place(|| {
+        retriever.validate_evidence(&interval, &context, &historical_value, true)
+    })
+    .unwrap();
+    for missing_patch in ["2026-08-31", "2026-09-17"] {
+        interval.patch = Some(missing_patch.into());
+        assert!(
+            tokio::task::block_in_place(|| retriever.retrieve(&interval, &context))
+                .unwrap()
+                .is_empty()
+        );
+    }
     let mut historical = query("Was änderte sich bei Wächter im Patch vom 16.09.?");
     historical.patch = None;
     let previous =
