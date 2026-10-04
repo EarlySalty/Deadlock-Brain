@@ -370,9 +370,9 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
         );
     }
     let ids: BTreeSet<_> = answer.cited_evidence_ids.iter().collect();
-    if answer.text.trim().is_empty()
+    let insufficient = answer.text.is_empty() && ids.is_empty();
+    if (!insufficient && (answer.text.trim().is_empty() || ids.is_empty()))
         || answer.text.len() > 64 * 1024
-        || ids.is_empty()
         || ids.len() != answer.cited_evidence_ids.len()
         || ids
             .iter()
@@ -397,6 +397,13 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
         return fail(
             AnswerStatus::BudgetExceeded,
             "Request Deadline erreicht.",
+            usage,
+        );
+    }
+    if insufficient {
+        return fail(
+            AnswerStatus::InsufficientEvidence,
+            "Dazu hab ich gerade nichts Genaues, frag am besten direkt im Discord nach.",
             usage,
         );
     }

@@ -115,6 +115,44 @@ fn fixture<F: FnOnce(ProviderConfig) -> R, R>(
 }
 const CHAT: &str = r#"{"model":"fixture-model","choices":[{"message":{"content":"fixture answer"}}],"usage":{"prompt_tokens":12,"completion_tokens":3}}"#;
 #[test]
+fn grounded_no_answer_signal_is_exact_and_preserves_usage() {
+    let evidence = Evidence {
+        evidence_id: "e1".into(),
+        source_id: "fixture".into(),
+        logical_id: "a".into(),
+        revision: 1,
+        kind: EvidenceKind::Prose,
+        content: "Unpassender Auszug".into(),
+        citation: "fixture:a".into(),
+        visibility: SourceVisibility::Public,
+        allowed_scopes: BTreeSet::new(),
+        score: 1.0,
+        provenance: None,
+        patch: None,
+    };
+    for (text, valid) in [("", true), ("Keine passende Antwort", false), (" ", false)] {
+        let envelope = serde_json::json!({"text":text,"cited_evidence_ids":[]}).to_string();
+        let body = serde_json::json!({"model":"fixture-model","choices":[{"message":{"content":envelope}}],"usage":{"prompt_tokens":12,"completion_tokens":3}}).to_string();
+        let (result, calls) = fixture(
+            vec![(Duration::ZERO, json_response("200 OK", &body))],
+            |c| {
+                OpenAiCompatibleProvider::new(c).unwrap().answer(
+                    &query(),
+                    &context(),
+                    std::slice::from_ref(&evidence),
+                )
+            },
+        );
+        assert_eq!(calls, 1);
+        assert_eq!(result.is_ok(), valid);
+        if let Ok(answer) = result {
+            assert!(answer.text.is_empty());
+            assert!(answer.cited_evidence_ids.is_empty());
+            assert_eq!(answer.usage.output_tokens, 3);
+        }
+    }
+}
+#[test]
 fn authentication_redirect_and_missing_usage_do_not_retry() {
     for response in [json_response("401 Unauthorized","{}"),"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:9/secret\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".into(),json_response("200 OK",r#"{"model":"fixture-model","choices":[{"message":{"content":"no usage"}}]}"#),json_response("200 OK",r#"{"model":"fixture-model","choices":[{"message":{"content":"bad usage"}}],"usage":{}}"#)] {
         let (result,calls)=fixture(vec![(Duration::ZERO,response)],|c|OpenAiCompatibleProvider::new(c).unwrap().answer(&query(),&context(),&[]));assert!(result.is_err());assert_eq!(calls,1);

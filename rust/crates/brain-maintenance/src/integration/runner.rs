@@ -195,6 +195,82 @@ fn local_job_spec(
     spec
 }
 
+async fn approved_public_documents(config: &MaintenanceConfig) -> Result<Vec<CoreDocument>> {
+    use brain_contracts::{
+        source::{GameValidity, OriginArtifact, SourceIdentity},
+        value::{Observed, UnknownReason},
+        SourceVisibility,
+    };
+    let commit = scanner::resolve_ref(&config.docs_repo, &config.docs_ref, &config.bounds).await?;
+    let pinned = dbrain_sources::git_source::PinnedRepository::open(&config.docs_repo, &commit)?;
+    pinned.require_origin(&[&config.docs_origin])?;
+    let mut documents = Vec::new();
+    for repo in &config.repositories {
+        if repo.path != config.docs_repo || repo.origin != config.docs_origin {
+            continue;
+        }
+        for target in &repo.doc_targets {
+            if !target.starts_with("public/discord-server/") {
+                continue;
+            }
+            let policy = repo.document_policy_for(target);
+            ensure!(
+                policy.visibility == SourceVisibility::Public
+                    && policy.allowed_scopes
+                        == std::collections::BTreeSet::from(["bot.public".into()])
+                    && policy.publication_allowed
+                    && policy.provider_egress_allowed
+                    && !policy.raw_retention_allowed
+                    && matches!(&policy.authorization_ref, Observed::Known { value } if !value.trim().is_empty()),
+                "public_docs_approval_missing"
+            );
+            let content = String::from_utf8(pinned.read_blob(target)?)?;
+            crate::html::validate_html_with_assets(
+                Some(&content),
+                &content,
+                &config.registered_assets,
+            )?;
+            let projection = dbrain_retrieval::html_projection::project_html(&content)?;
+            let mut metadata = BTreeMap::from([("content_format".into(), "html".into())]);
+            projection.bind_metadata(&mut metadata);
+            let unknown = || Observed::unknown(UnknownReason::NotPresent);
+            documents.push(CoreDocument {
+                logical_id: target.clone(),
+                origin: OriginArtifact {
+                    identity: SourceIdentity {
+                        source_id: source_id(repo, target),
+                        logical_id: target.clone(),
+                    },
+                    source_revision: SourceRevision::Git {
+                        commit: commit.clone(),
+                    },
+                    raw_sha256: digest(content.as_bytes()),
+                    locator: format!("{}/blob/{commit}/{target}", config.docs_origin),
+                    parser_revision: dbrain_retrieval::html_projection::HTML_PROJECTION_VERSION
+                        .into(),
+                    parser_family: "approved-public-document".into(),
+                    schema_version: unknown(),
+                    schema_sha256: unknown(),
+                    retrieved_at: Observed::unknown(UnknownReason::NotPresent),
+                    source_time: Observed::unknown(UnknownReason::NotPresent),
+                    language: Observed::known("de".into()),
+                    origin_artifacts: Default::default(),
+                    derivation_family: unknown(),
+                    policy: policy.clone(),
+                    validity: GameValidity::unknown(),
+                },
+                content,
+                metadata,
+            });
+        }
+    }
+    ensure!(
+        !documents.is_empty() && documents.len() <= 64,
+        "public_docs_target_count"
+    );
+    Ok(documents)
+}
+
 impl Runner {
     pub async fn open(runtime: RuntimeConfig) -> Result<Self> {
         let config = load_maintenance(&runtime.maintenance_config)?;
@@ -607,14 +683,17 @@ impl Runner {
                     digest(document.content.as_bytes()) == document.origin.raw_sha256,
                     "local_import_hash"
                 );
-                crate::html::validate_html_with_assets(
-                    None,
-                    &document.content,
-                    &config.registered_assets,
-                )?;
                 let pinned =
                     dbrain_sources::git_source::PinnedRepository::open(&repo.path, commit)?;
                 pinned.require_origin(&[&repo.origin])?;
+                let unchanged_public = repo.path == config.docs_repo
+                    && document.logical_id.starts_with("public/discord-server/")
+                    && pinned.read_blob(&document.logical_id)? == document.content.as_bytes();
+                crate::html::validate_html_with_assets(
+                    unchanged_public.then_some(document.content.as_str()),
+                    &document.content,
+                    &config.registered_assets,
+                )?;
                 self.check_registry_policy(repo, &document.logical_id)
                     .await?;
                 self.store
@@ -1655,32 +1734,73 @@ impl Runner {
         Ok(())
     }
 
-    pub async fn import_reviewed(&self) -> Result<serde_json::Value> {
+    pub async fn import_reviewed(mut self, public_docs: bool) -> Result<serde_json::Value> {
         self.require_operator()?;
         self.store.check_maintenance_schema().await?;
         let config = load_maintenance(&self.runtime.maintenance_config)?;
-        self.enqueue_local_imports(&config).await?;
-        for _ in 0..self.runtime.max_jobs_per_tick * 5 {
-            let Some(mut job) = self
-                .store
-                .claim_maintenance(&self.owner, self.runtime.lease_ttl_ms)
-                .await?
-            else {
-                break;
+        let selected = if public_docs {
+            let documents = approved_public_documents(&config).await?;
+            let bytes = serde_json::to_vec(&documents)?;
+            let hash = digest(&bytes);
+            let reference = self.artifacts.put(&bytes, "json")?;
+            let import = super::runtime_config::LocalImport {
+                path: self.runtime.artifact_dir.join(reference),
+                targets: documents.iter().map(|doc| doc.logical_id.clone()).collect(),
+                sha256: hash.clone(),
+                reviewer_id: "workspace-public-docs-approval".into(),
+                review_ref: match &documents[0].origin.policy.authorization_ref {
+                    brain_contracts::value::Observed::Known { value } => value.clone(),
+                    _ => anyhow::bail!("public_docs_approval_missing"),
+                },
             };
-            let lease = job.lease.clone().context("job_lease")?;
-            if !job.checkpoint.artifact_refs.contains_key("local_review")
-                && self.local_document(&job).await?.is_none()
-            {
-                self.store
-                    .retry_maintenance(&lease, "LOCAL_IMPORT_ONLY", 1000)
-                    .await?;
-                break;
-            }
-            if self.advance(&mut job).await.is_err() {
-                self.store
-                    .retry_maintenance(&lease, "LOCAL_IMPORT_FAILED", self.runtime.retry_delay_ms)
-                    .await?;
+            let ids = documents
+                .iter()
+                .map(|doc| {
+                    let repo = config
+                        .repositories
+                        .iter()
+                        .find(|repo| repo.doc_targets.contains(&doc.logical_id))
+                        .expect("Registriertes Dokumentziel");
+                    Some(local_job_spec(&config, repo, doc, &hash).id)
+                })
+                .collect::<Vec<_>>();
+            self.runtime.local_imports.push(import);
+            ids
+        } else {
+            vec![None]
+        };
+        self.enqueue_local_imports(&config).await?;
+        for id in selected {
+            for _ in 0..self.runtime.max_jobs_per_tick * 5 {
+                let Some(mut job) = self
+                    .store
+                    .claim_maintenance_for_job(
+                        &self.owner,
+                        self.runtime.lease_ttl_ms,
+                        id.as_deref(),
+                    )
+                    .await?
+                else {
+                    break;
+                };
+                let lease = job.lease.clone().context("job_lease")?;
+                if !job.checkpoint.artifact_refs.contains_key("local_review")
+                    && self.local_document(&job).await?.is_none()
+                {
+                    self.store
+                        .retry_maintenance(&lease, "LOCAL_IMPORT_ONLY", 1000)
+                        .await?;
+                    break;
+                }
+                if self.advance(&mut job).await.is_err() {
+                    self.store
+                        .retry_maintenance(
+                            &lease,
+                            "LOCAL_IMPORT_FAILED",
+                            self.runtime.retry_delay_ms,
+                        )
+                        .await?;
+                }
             }
         }
         self.status().await

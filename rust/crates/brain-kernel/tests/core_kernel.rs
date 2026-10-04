@@ -429,6 +429,42 @@ async fn forged_provider_citation_is_rejected_and_failure_not_cached() {
     assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
 struct Metered(ReleaseRetriever<MemoryRepository>);
+struct Unanswered;
+impl AnswerProviderPort for Unanswered {
+    fn answer(
+        &self,
+        _: &Query,
+        _: &AuthorizedContext,
+        evidence: &[Evidence],
+    ) -> Result<ProviderAnswer, PortError> {
+        assert!(!evidence.is_empty());
+        Ok(ProviderAnswer {
+            text: String::new(),
+            cited_evidence_ids: Vec::new(),
+            usage: Usage {
+                input_tokens: 10,
+                output_tokens: 5,
+                network_rounds: 1,
+                ..Usage::default()
+            },
+        })
+    }
+}
+
+#[tokio::test]
+async fn irrelevant_excerpts_produce_insufficient_evidence_with_charged_usage() {
+    let kernel = Kernel::new(ReleaseRetriever::new(store().await, 10), Unanswered);
+    let answer = kernel.answer(&query(), &context());
+    assert_eq!(answer.status, AnswerStatus::InsufficientEvidence);
+    assert_eq!(
+        answer.text,
+        "Dazu hab ich gerade nichts Genaues, frag am besten direkt im Discord nach."
+    );
+    assert!(answer.citations.is_empty());
+    assert_eq!(answer.usage.network_rounds, 1);
+    assert_eq!(answer.usage.output_tokens, 5);
+}
+
 impl RetrievalPort for Metered {
     fn retrieve(&self, q: &Query, c: &AuthorizedContext) -> Result<Vec<Evidence>, PortError> {
         self.0.retrieve(q, c)

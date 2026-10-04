@@ -114,7 +114,9 @@ pub fn validate_html_with_assets(
     proposed: &str,
     assets: &[crate::config::AssetProvenance],
 ) -> Result<()> {
-    validate_writing(proposed, true)?;
+    if original != Some(proposed) {
+        validate_writing(proposed, true)?;
+    }
     let document = Html::parse_document(proposed);
     let original_document = original.map(Html::parse_document);
     let mut ids = BTreeSet::new();

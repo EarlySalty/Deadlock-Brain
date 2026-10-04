@@ -55,8 +55,8 @@ impl OpenAiCompatibleProvider {
             })?;
             let unique: std::collections::BTreeSet<_> =
                 grounded.cited_evidence_ids.iter().collect();
-            if grounded.text.trim().is_empty()
-                || unique.is_empty()
+            let insufficient = grounded.text.is_empty() && unique.is_empty();
+            if (!insufficient && (grounded.text.trim().is_empty() || unique.is_empty()))
                 || unique.len() != grounded.cited_evidence_ids.len()
                 || unique
                     .iter()

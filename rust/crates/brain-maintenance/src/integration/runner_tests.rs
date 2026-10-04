@@ -87,6 +87,35 @@ use crate::integration::runtime_config::LocalImport;
 use brain_contracts::CorpusRelease;
 use std::os::unix::fs::PermissionsExt;
 
+#[tokio::test]
+async fn public_import_uses_only_approved_registered_git_blobs() {
+    let (_dir, mut config, mut repo) = fixture();
+    let target = "public/discord-server/module/voice-lanes.html";
+    fs::create_dir_all(config.docs_repo.join("public/discord-server/module")).unwrap();
+    let html = "<!doctype html><html lang='de'><head><title>Lanes</title></head><body><main><h1>Lanes</h1><p>Casual, Ranked und Street Brawl.</p></main></body></html>";
+    fs::write(config.docs_repo.join(target), html).unwrap();
+    pin(&config.docs_repo);
+    repo.path = config.docs_repo.clone();
+    repo.origin = config.docs_origin.clone();
+    repo.doc_targets.push(target.into());
+    let mut policy = repo.policy.clone();
+    policy.allowed_scopes = BTreeSet::from(["bot.public".into()]);
+    repo.target_document_policies.insert(target.into(), policy);
+    config.repositories = vec![repo];
+    fs::write(config.docs_repo.join(target), "Ungeprüfter Arbeitsstand").unwrap();
+    let documents = approved_public_documents(&config).await.unwrap();
+    assert_eq!(documents.len(), 1);
+    assert_eq!(documents[0].logical_id, target);
+    assert_eq!(documents[0].content, html);
+    assert_eq!(documents[0].origin.raw_sha256, digest(html.as_bytes()));
+    config.repositories[0]
+        .target_document_policies
+        .get_mut(target)
+        .unwrap()
+        .authorization_ref = Observed::unknown(brain_contracts::value::UnknownReason::NotPresent);
+    assert!(approved_public_documents(&config).await.is_err());
+}
+
 #[test]
 fn publication_release_identity_accepts_short_and_utf8_job_ids() {
     let (_dir, config, repo) = fixture();

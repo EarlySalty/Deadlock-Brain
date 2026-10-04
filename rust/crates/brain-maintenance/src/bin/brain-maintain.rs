@@ -26,7 +26,10 @@ enum Task {
     },
     Status,
     Migrate,
-    ImportReviewed,
+    ImportReviewed {
+        #[arg(long)]
+        public_docs: bool,
+    },
     ImportC9Release {
         #[arg(long)]
         documents: PathBuf,
@@ -107,7 +110,7 @@ async fn run() -> Result<()> {
     let result = match cli.command {
         Task::Tick { job_id } => runner.tick_for_job(job_id.as_deref()).await?,
         Task::Status => runner.status().await?,
-        Task::ImportReviewed => runner.import_reviewed().await?,
+        Task::ImportReviewed { public_docs } => runner.import_reviewed(public_docs).await?,
         Task::ImportC9Release {
             documents,
             expected_sha256,
