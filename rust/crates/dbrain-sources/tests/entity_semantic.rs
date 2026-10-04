@@ -1,7 +1,7 @@
 use brain_contracts::entity_profile::{EntityIdentity, EntityKind};
 use brain_storage::entity_profile::{
     assemble_profile, project_entity_facts,
-    semantic::{project_semantic_fact, semantic_projection},
+    semantic::{project_semantic_fact, semantic_projection, SemanticBinding},
 };
 use dbrain_sources::{
     entity_binding::{bind_stored_document, CatalogEntity},
@@ -53,28 +53,47 @@ fn identity(kind: EntityKind, key: &str, name: &str) -> EntityIdentity {
     }
 }
 
+fn bound_identity(record: &brain_contracts::SourceRecordV2) -> EntityIdentity {
+    let mut identity = identity(EntityKind::Hero, "hero_test", "Test");
+    let document: Value = serde_json::from_str(
+        &record.metadata[brain_storage::source_versions::DOCUMENT_METADATA_KEY],
+    )
+    .unwrap();
+    identity.identity_evidence.push(format!(
+        "{}:{}:{}:/hero_test",
+        record.source_id,
+        record.logical_id,
+        document["revision"].as_str().unwrap()
+    ));
+    identity
+}
+
 #[test]
 fn canonical_numeric_conflicts_keep_originals_variants_and_exponents() {
+    let records = [
+        prepared(&document("game_file", json!("1.200e+19"), "normal")),
+        prepared(&document("wiki", json!("1.300e+19"), "normal")),
+    ];
     let originals = [
-        project_entity_facts(
-            &prepared(&document("game_file", json!("1.200e+19"), "normal")),
-            &["health".into()],
-        )
-        .unwrap()
-        .remove(0),
-        project_entity_facts(
-            &prepared(&document("wiki", json!("1.300e+19"), "normal")),
-            &["health".into()],
-        )
-        .unwrap()
-        .remove(0),
+        project_entity_facts(&records[0], &["health".into()])
+            .unwrap()
+            .remove(0),
+        project_entity_facts(&records[1], &["health".into()])
+            .unwrap()
+            .remove(0),
     ];
     let projected: Vec<_> = originals
         .iter()
-        .map(|fact| {
+        .zip(&records)
+        .map(|(fact, record)| {
+            let binding = bound_identity(record);
             project_semantic_fact(
                 fact,
-                &semantic_projection(fact, "/MaxHealth").unwrap().unwrap(),
+                &semantic_projection(fact, "/MaxHealth", record, &binding)
+                    .unwrap()
+                    .unwrap(),
+                record,
+                &binding,
             )
             .unwrap()
         })
@@ -107,12 +126,54 @@ fn canonical_numeric_conflicts_keep_originals_variants_and_exponents() {
     )
     .conflicts
     .is_empty());
-    let mut projection = semantic_projection(&originals[0], "/MaxHealth")
+    let binding = bound_identity(&records[0]);
+    let mut projection = semantic_projection(&originals[0], "/MaxHealth", &records[0], &binding)
         .unwrap()
         .unwrap();
     projection.predicate = "damage".into();
-    assert!(project_semantic_fact(&originals[0], &projection).is_err());
-    assert!(semantic_projection(&originals[0], "/Damage").is_err());
+    assert!(project_semantic_fact(&originals[0], &projection, &records[0], &binding).is_err());
+    assert!(semantic_projection(&originals[0], "/Damage", &records[0], &binding).is_err());
+}
+
+#[test]
+fn complete_relative_scope_rejects_truncation_and_caller_markers() {
+    let mut document = document("game_file", json!(30), "normal");
+    document["facts"][0]["qualifiers"]["source_pointer"] = json!("/hero_test/Variants/1/Damage");
+    document["facts"][0]["source_span"] = json!("/hero_test/Variants/1/Damage");
+    let record = prepared(&document);
+    let fact = project_entity_facts(&record, &["health".into()])
+        .unwrap()
+        .remove(0);
+    let identity = bound_identity(&record);
+    assert!(semantic_projection(&fact, "/Damage", &record, &identity).is_err());
+    let projection = semantic_projection(&fact, "/Variants/1/Damage", &record, &identity)
+        .unwrap()
+        .unwrap();
+    assert_eq!(projection.qualifiers["semantic_scope"], "Variants/1");
+    assert_eq!(
+        project_semantic_fact(&fact, &projection, &record, &identity)
+            .unwrap()
+            .value,
+        fact.value
+    );
+    let mut shortened = projection;
+    shortened.relative_pointer = "/Damage".into();
+    shortened.qualifiers.remove("semantic_scope");
+    assert!(project_semantic_fact(&fact, &shortened, &record, &identity).is_err());
+    let mut forged = identity.clone();
+    forged.identity_evidence = vec![format!(
+        "{}:{}:456:/hero_test/Variants/1",
+        record.source_id, record.logical_id
+    )];
+    forged.aliases.push("1".into());
+    assert!(semantic_projection(&fact, "/Damage", &record, &forged).is_err());
+    forged.identity_evidence = vec!["gameplay_binding:belegt".into()];
+    assert!(semantic_projection(&fact, "/Variants/1/Damage", &record, &forged).is_err());
+    let mut changed = fact.clone();
+    changed
+        .qualifiers
+        .insert("source_pointer".into(), json!("/hero_test/Damage"));
+    assert!(semantic_projection(&changed, "/Damage", &record, &identity).is_err());
 }
 
 struct ScratchPg {
@@ -211,7 +272,7 @@ async fn actual_git_documents_bind_all_kinds_idempotently_to_immutable_originals
         .push(patch_fact);
     let interval_record = prepared(&interval_document);
     store.apply(&interval_record).await.unwrap();
-    let interval_entity = identity(EntityKind::Hero, "hero_test", "Test");
+    let interval_entity = bound_identity(&interval_record);
     let interval_catalog = vec![CatalogEntity {
         identity: interval_entity.clone(),
         identifiers: vec!["hero_test".into()],
@@ -250,12 +311,20 @@ async fn actual_git_documents_bind_all_kinds_idempotently_to_immutable_originals
     assert_eq!(intervals.intervals.len(), 2);
     let originals =
         project_entity_facts(&interval_record, &["health".into(), "current_patch".into()]).unwrap();
-    let semantic = semantic_projection(&originals[0], "/MaxHealth")
-        .unwrap()
-        .unwrap();
+    let semantic = semantic_projection(
+        &originals[0],
+        "/MaxHealth",
+        &interval_record,
+        &interval_entity,
+    )
+    .unwrap()
+    .unwrap();
     let story = store.entity_patch_story(&interval_entity).await.unwrap();
     let previous = brain_storage::entity_profile::intervals::project_interval_fact(
-        &interval_entity,
+        SemanticBinding {
+            record: &interval_record,
+            identity: &interval_entity,
+        },
         &originals[0],
         &originals[1],
         &semantic,
@@ -275,7 +344,10 @@ async fn actual_git_documents_bind_all_kinds_idempotently_to_immutable_originals
     );
     assert!(
         brain_storage::entity_profile::intervals::project_interval_fact(
-            &interval_entity,
+            SemanticBinding {
+                record: &interval_record,
+                identity: &interval_entity
+            },
             &originals[0],
             &originals[1],
             &semantic,
@@ -290,7 +362,10 @@ async fn actual_git_documents_bind_all_kinds_idempotently_to_immutable_originals
     missing.predicate = "file.json_value".into();
     assert!(
         brain_storage::entity_profile::intervals::derive_patch_intervals(
-            &interval_entity,
+            SemanticBinding {
+                record: &interval_record,
+                identity: &interval_entity
+            },
             &originals[0],
             &missing,
             &semantic,
@@ -302,7 +377,10 @@ async fn actual_git_documents_bind_all_kinds_idempotently_to_immutable_originals
     let changed_story = store.entity_patch_story(&interval_entity).await.unwrap();
     assert!(
         brain_storage::entity_profile::intervals::project_interval_fact(
-            &interval_entity,
+            SemanticBinding {
+                record: &interval_record,
+                identity: &interval_entity
+            },
             &originals[0],
             &originals[1],
             &semantic,
@@ -703,13 +781,25 @@ fn interval_chain_ignores_unrelated_rows_but_rechecks_participating_evidence() {
     patch.fact_id = "patch".into();
     patch.predicate = "current_patch".into();
     patch.value = json!("2026-09-30");
-    let semantic = semantic_projection(&anchor, "/MaxHealth").unwrap().unwrap();
-    let entity = identity(EntityKind::Hero, "hero_test", "Test");
+    let entity = bound_identity(&record);
+    let semantic = semantic_projection(&anchor, "/MaxHealth", &record, &entity)
+        .unwrap()
+        .unwrap();
     let mut story = vec![
         story_change("2026-09-01", 100, 110),
         story_change("2026-09-16", 110, 120),
     ];
-    let stored = derive_patch_intervals(&entity, &anchor, &patch, &semantic, &story).unwrap();
+    let stored = derive_patch_intervals(
+        SemanticBinding {
+            record: &record,
+            identity: &entity,
+        },
+        &anchor,
+        &patch,
+        &semantic,
+        &story,
+    )
+    .unwrap();
     story.push(story_change("2026-10-01", 120, 999));
     for (key, value) in [
         ("unit", json!("seconds")),
@@ -726,12 +816,25 @@ fn interval_chain_ignores_unrelated_rows_but_rechecks_participating_evidence() {
     item.entity_type = Some("item".into());
     story.push(item);
     assert_eq!(
-        derive_patch_intervals(&entity, &anchor, &patch, &semantic, &story).unwrap(),
+        derive_patch_intervals(
+            SemanticBinding {
+                record: &record,
+                identity: &entity
+            },
+            &anchor,
+            &patch,
+            &semantic,
+            &story
+        )
+        .unwrap(),
         stored
     );
     assert_eq!(
         project_interval_fact(
-            &entity,
+            SemanticBinding {
+                record: &record,
+                identity: &entity
+            },
             &anchor,
             &patch,
             &semantic,
@@ -745,7 +848,10 @@ fn interval_chain_ignores_unrelated_rows_but_rechecks_participating_evidence() {
         json!(110)
     );
     assert!(project_interval_fact(
-        &entity,
+        SemanticBinding {
+            record: &record,
+            identity: &entity
+        },
         &anchor,
         &patch,
         &semantic,
@@ -757,7 +863,10 @@ fn interval_chain_ignores_unrelated_rows_but_rechecks_participating_evidence() {
     .is_none());
     story[1].new_value = json!(121);
     assert!(project_interval_fact(
-        &entity,
+        SemanticBinding {
+            record: &record,
+            identity: &entity
+        },
         &anchor,
         &patch,
         &semantic,
@@ -767,7 +876,17 @@ fn interval_chain_ignores_unrelated_rows_but_rechecks_participating_evidence() {
     )
     .is_err());
     patch.predicate = "file.json_value".into();
-    assert!(derive_patch_intervals(&entity, &anchor, &patch, &semantic, &story).is_err());
+    assert!(derive_patch_intervals(
+        SemanticBinding {
+            record: &record,
+            identity: &entity
+        },
+        &anchor,
+        &patch,
+        &semantic,
+        &story
+    )
+    .is_err());
 }
 
 struct ReceiptFixture {
@@ -853,7 +972,10 @@ fn receipt_fixture() -> ReceiptFixture {
         let fact = project_entity_facts(&record, &["json:/hero_test/MaxHealth".into()])
             .unwrap()
             .remove(0);
-        let projection = semantic_projection(&fact, "/MaxHealth").unwrap().unwrap();
+        let binding_identity = bound_identity(&record);
+        let projection = semantic_projection(&fact, "/MaxHealth", &record, &binding_identity)
+            .unwrap()
+            .unwrap();
         let pinned =
             dbrain_sources::git_source::PinnedRepository::open(directory.path(), &commit).unwrap();
         pinned.require_origin(&[upstream]).unwrap();
@@ -870,7 +992,7 @@ fn receipt_fixture() -> ReceiptFixture {
             logical_id: record.logical_id.clone(),
             store_revision: record.revision,
             original_fact: fact,
-            binding_identity: identity(EntityKind::Hero, "hero_test", "Test"),
+            binding_identity,
             semantic_projection: Some(projection),
         });
         records.push(record);
@@ -957,8 +1079,18 @@ fn document_receipt_reconstructs_both_git_sources_story_and_exact_output() {
     use brain_storage::entity_profile::derivation::{
         derive_git_profile, verify_git_document_receipt,
     };
-    let fixture = receipt_fixture();
-    let story = vec![story_change("2026-09-16", 110, 120)];
+    let mut fixture = receipt_fixture();
+    for binding in &mut fixture.bindings {
+        binding
+            .binding_identity
+            .aliases
+            .push("Interner Historienalias".into());
+    }
+    let mut change = story_change("2026-09-16", 110, 120);
+    change.entity_name = Some("Interner Historienalias".into());
+    change.provenance.evidence_ref =
+        "brain.patch_changes:2026-09-16:Interner Historienalias:MaxHealth".into();
+    let story = vec![change];
     let (profile, receipt) = derive_git_profile(
         "hero_test",
         &fixture.snapshot,
@@ -974,6 +1106,9 @@ fn document_receipt_reconstructs_both_git_sources_story_and_exact_output() {
     let record = derived_document(&profile, &receipt);
     assert!(!record.content.contains("Privater Originaltext"));
     assert!(!record.content.contains("original_relative_path"));
+    assert!(!record.content.contains("Interner Historienalias"));
+    assert!(profile.entity.aliases.is_empty());
+    assert_eq!(profile.patch_story[0].entity_name.as_deref(), Some("Test"));
     assert!(profile
         .facts
         .iter()

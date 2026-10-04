@@ -259,7 +259,7 @@ pub fn derive_git_profile(
         let Some(semantic) = &binding.semantic_projection else {
             continue;
         };
-        let mut fact = project_semantic_fact(original, semantic)?;
+        let mut fact = project_semantic_fact(original, semantic, record, identity)?;
         pins.push(FactPin {
             source_id: record.source_id.clone(),
             logical_id: record.logical_id.clone(),
@@ -319,7 +319,7 @@ pub fn derive_git_profile(
         facts.push(fact);
     }
     let mut entity = entity.ok_or_else(|| invalid("Freigegebene belegte Git-Zahlen fehlen"))?;
-    let story = sanitize_story(&entity, live_story)?;
+    let story = consumer_patch_story(&entity, live_story)?;
     entity.aliases.clear();
     entity.identity_evidence = vec![GIT_GAME_FACT_AUTHORIZATION.into()];
     let mut profile = assemble_profile(entity, None, facts, story);
@@ -396,21 +396,31 @@ pub fn verify_git_document_receipt(
     Ok(profile)
 }
 
-fn sanitize_story(
+pub fn consumer_patch_story(
     entity: &EntityIdentity,
     story: &[brain_contracts::entity_profile::PatchStoryChange],
 ) -> Result<Vec<brain_contracts::entity_profile::PatchStoryChange>> {
     let mut result = Vec::new();
-    for change in story
-        .iter()
-        .filter(|change| super::intervals::matching_entity(entity, change))
-    {
+    for change in story.iter().filter(|change| {
+        super::intervals::matching_entity(entity, change)
+            || entity.kind == brain_contracts::entity_profile::EntityKind::Hero
+                && change.entity_type.as_deref() == Some("hero")
+                && change.entity_name.as_ref().is_some_and(|name| {
+                    std::iter::once(&entity.name)
+                        .chain(&entity.aliases)
+                        .any(|alias| alias.eq_ignore_ascii_case(name))
+                })
+    }) {
         if change.provenance.relation != "brain.patch_changes"
             || change.provenance.evidence_ref.is_empty()
         {
             return Err(invalid("Patch-Story besitzt keinen tatsächlichen DB-Beleg"));
         }
         let mut clean = change.clone();
+        clean.provenance.evidence_ref = format!(
+            "brain.patch_changes:{}",
+            sha256(&serde_json::to_vec(change)?)
+        );
         let label = |value: &Option<String>| {
             value
                 .as_ref()
@@ -422,8 +432,19 @@ fn sanitize_story(
                 .cloned()
         };
         clean.patch_title = label(&clean.patch_title);
-        clean.entity_name = label(&clean.entity_name);
-        clean.ability_name = label(&clean.ability_name);
+        let canonical_label = |value: &Option<String>| {
+            if value.as_ref().is_some_and(|name| {
+                std::iter::once(&entity.name)
+                    .chain(&entity.aliases)
+                    .any(|alias| alias.eq_ignore_ascii_case(name))
+            }) {
+                Some(entity.name.clone())
+            } else {
+                label(value)
+            }
+        };
+        clean.entity_name = canonical_label(&clean.entity_name);
+        clean.ability_name = canonical_label(&clean.ability_name);
         clean.stat_name = label(&clean.stat_name);
         let numeric = |value: &Value| match value {
             Value::Number(_) => value.clone(),
@@ -451,12 +472,22 @@ fn sanitize_story(
                 _ => false,
             }
         });
+        if let Some(name) = clean.additional_fields.get_mut("ability_name") {
+            if name.as_str().is_some_and(|name| {
+                entity
+                    .aliases
+                    .iter()
+                    .any(|alias| alias.eq_ignore_ascii_case(name))
+            }) {
+                *name = Value::String(entity.name.clone());
+            }
+        }
         result.push((
             clean.patch_date.clone(),
             serde_json::to_string(&clean)?,
             clean,
         ));
     }
-    result.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
+    result.sort_by(|a, b| (&a.0, &a.2.stat_name, &a.1).cmp(&(&b.0, &b.2.stat_name, &b.1)));
     Ok(result.into_iter().map(|(_, _, change)| change).collect())
 }

@@ -277,6 +277,16 @@ fn fact_reference(fact: &EntityProfileFact) -> String {
     )
 }
 
+pub fn consumer_entity_identity(identity: &EntityIdentity) -> EntityIdentity {
+    EntityIdentity {
+        entity_key: identity.entity_key.clone(),
+        kind: identity.kind,
+        name: identity.name.clone(),
+        aliases: Vec::new(),
+        identity_evidence: Vec::new(),
+    }
+}
+
 impl PgStore {
     pub async fn store_entity_fact_bindings(
         &self,
@@ -314,8 +324,23 @@ impl PgStore {
                 .bind(&entity.entity_key).bind(&record.source_id).bind(&record.logical_id).bind(revision).bind(&fact.fact_id).fetch_one(&mut *tx).await?;
             let stored_identity: Value = sqlx::query_scalar("SELECT binding_identity_json FROM brain.entity_profile_facts_v1 WHERE entity_key=$1 AND source_id=$2 AND logical_id=$3 AND revision=$4 AND fact_id=$5")
                 .bind(&entity.entity_key).bind(&record.source_id).bind(&record.logical_id).bind(revision).bind(&fact.fact_id).fetch_one(&mut *tx).await?;
-            if stored != encoded || stored_identity != identity {
+            if stored != encoded {
                 return Err(invalid("Faktenbeleg widerspricht vorhandenem Import"));
+            }
+            if stored_identity != identity {
+                let previous: EntityIdentity = serde_json::from_value(stored_identity)?;
+                let mut expected = entity.clone();
+                expected.aliases = previous.aliases.clone();
+                if previous != expected
+                    || previous
+                        .aliases
+                        .iter()
+                        .any(|alias| !entity.aliases.contains(alias))
+                {
+                    return Err(invalid("Faktenbeleg widerspricht vorhandenem Import"));
+                }
+                sqlx::query("UPDATE brain.entity_profile_facts_v1 SET binding_identity_json=$6 WHERE entity_key=$1 AND source_id=$2 AND logical_id=$3 AND revision=$4 AND fact_id=$5")
+                    .bind(&entity.entity_key).bind(&record.source_id).bind(&record.logical_id).bind(revision).bind(&fact.fact_id).bind(&identity).execute(&mut *tx).await?;
             }
         }
         tx.commit().await?;
@@ -416,7 +441,10 @@ impl PgStore {
                         .remove(0);
                         let story = self.entity_patch_story(&interval_identity).await?;
                         let Some(projected) = intervals::project_interval_fact(
-                            &interval_identity,
+                            semantic::SemanticBinding {
+                                record: original,
+                                identity: &interval_identity,
+                            },
                             &fact,
                             &current,
                             &semantic,
@@ -429,7 +457,12 @@ impl PgStore {
                         };
                         projected
                     } else {
-                        semantic::project_semantic_fact(&fact, &semantic)?
+                        semantic::project_semantic_fact(
+                            &fact,
+                            &semantic,
+                            original,
+                            &interval_identity,
+                        )?
                     }
                 } else {
                     fact
@@ -451,7 +484,13 @@ impl PgStore {
         if let Some(patch) = patch {
             story.retain(|change| change.patch_date.as_str() <= patch);
         }
-        let mut profile = assemble_profile(entity, patch.map(str::to_owned), facts, story);
+        let story = derivation::consumer_patch_story(&entity, &story)?;
+        let mut profile = assemble_profile(
+            consumer_entity_identity(&entity),
+            patch.map(str::to_owned),
+            facts,
+            story,
+        );
         if historical_unknown {
             profile.unknowns.push(
                 "Historische Fakten ohne belegte Patchgrenzen wurden nicht als gültig ausgegeben"
