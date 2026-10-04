@@ -30,7 +30,7 @@ pub(crate) fn endpoint(
         || parsed.query().is_some()
         || parsed.fragment().is_some()
         || timeout.is_zero()
-        || timeout > Duration::from_secs(60)
+        || timeout > Duration::from_millis(65_000)
     {
         return Err(ClientError::InvalidBaseUrl);
     }
@@ -110,4 +110,24 @@ pub(crate) fn decode_response(
         .validate(request_id)
         .map_err(|_| ClientError::InvalidResponse)?;
     Ok(answer)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn timeout_erlaubt_65000_und_verweigert_65001_sowie_null() {
+        for (timeout, accepted) in [(1, true), (65_000, true), (65_001, false), (0, false)] {
+            assert_eq!(
+                endpoint(
+                    "http://127.0.0.1:8788",
+                    "fixture-token",
+                    Duration::from_millis(timeout)
+                )
+                .is_ok(),
+                accepted
+            );
+        }
+    }
 }
