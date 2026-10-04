@@ -55,7 +55,7 @@ pub(crate) fn retrieve<S: SnapshotReadPort>(
     let evidence =
         store.read_entity_evidence(query, context, date.as_deref(), provider, purpose)?;
     context.check_deadline()?;
-    let Some(evidence) = evidence else {
+    let Some(mut evidence) = evidence else {
         return Ok(None);
     };
     if evidence
@@ -68,6 +68,30 @@ pub(crate) fn retrieve<S: SnapshotReadPort>(
     }
     for item in &evidence {
         item.validate().map_err(|_| invalid())?;
+    }
+    if evidence.len() > 100 {
+        if query.profile == brain_contracts::AnswerProfile::Fact {
+            return Err(PortError::BudgetExceeded);
+        }
+        let words = brain_contracts::lexical::terms(&query.text);
+        let relevance = |item: &Evidence| {
+            item.provenance
+                .as_ref()
+                .and_then(|provenance| provenance.metadata.get("fact_key"))
+                .map(|key| {
+                    brain_contracts::lexical::terms(key)
+                        .iter()
+                        .filter(|term| words.contains(term))
+                        .count()
+                })
+                .unwrap_or(0)
+        };
+        evidence.sort_by(|left, right| {
+            relevance(right)
+                .cmp(&relevance(left))
+                .then_with(|| left.evidence_id.cmp(&right.evidence_id))
+        });
+        evidence.truncate(100);
     }
     crate::pack(query, context, evidence).map(Some)
 }
