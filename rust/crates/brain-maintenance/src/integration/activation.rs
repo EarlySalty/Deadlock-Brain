@@ -6,7 +6,27 @@ use super::{
 use anyhow::{ensure, Result};
 use brain_contracts::{maintenance::MaintenanceActivationProof, CorpusRelease};
 use serde::{Deserialize, Serialize};
-use std::{path::PathBuf, process::Stdio, time::Duration};
+use std::{path::PathBuf, process::Stdio, sync::LazyLock, time::Duration};
+
+#[derive(Default)]
+struct RestartSchedule {
+    next: Option<tokio::time::Instant>,
+}
+
+impl RestartSchedule {
+    fn record(&mut self, now: tokio::time::Instant) {
+        self.next = Some(now + Duration::from_secs(21));
+    }
+
+    async fn wait(&self) {
+        if let Some(next) = self.next {
+            tokio::time::sleep_until(next).await;
+        }
+    }
+}
+
+static RESTART_SCHEDULE: LazyLock<tokio::sync::Mutex<RestartSchedule>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(RestartSchedule::default()));
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -107,6 +127,31 @@ impl ActivationTarget {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn neustarts_einschliesslich_rollback_respektieren_drei_starts_pro_minute() {
+        let start = tokio::time::Instant::now();
+        let mut schedule = RestartSchedule::default();
+        let mut attempts = Vec::new();
+        for requested in [0, 1, 2, 3, 4, 5] {
+            let now = start + Duration::from_secs(requested);
+            let actual = schedule.next.map_or(now, |next| next.max(now));
+            attempts.push(actual);
+            schedule.record(actual);
+            assert!(
+                attempts
+                    .iter()
+                    .filter(|attempt| actual.duration_since(**attempt) < Duration::from_secs(60))
+                    .count()
+                    <= 3
+            );
+        }
+        assert_eq!(attempts[3].duration_since(start), Duration::from_secs(63));
+        assert_eq!(
+            attempts[4].duration_since(attempts[3]),
+            Duration::from_secs(21)
+        );
+    }
 
     #[test]
     fn public_cutover_preserves_caller_scopes_and_moves_shared_pins_together() {
@@ -308,12 +353,23 @@ impl ActivationPlan {
         Ok(current != self.old_bytes && current != self.new_bytes)
     }
 
+    pub async fn wait_for_restart_window(&self) {
+        if self.old_bytes != self.new_bytes {
+            RESTART_SCHEDULE.lock().await.wait().await;
+        }
+    }
+
     async fn restart_and_health(&self, expected: &[u8]) -> Result<()> {
         let serve = brain_serve::Config::parse(expected)
             .map_err(|_| anyhow::anyhow!("serve_config_invalid"))?;
         let bindings_sha256 = serve.release_bindings_sha256();
         ensure!(serve.bind.ip().is_loopback(), "health_loopback");
         if self.old_bytes != self.new_bytes {
+            {
+                let mut schedule = RESTART_SCHEDULE.lock().await;
+                schedule.wait().await;
+                schedule.record(tokio::time::Instant::now());
+            }
             let mut child = tokio::process::Command::new("/usr/bin/systemctl")
                 .args(["--user", "restart", self.unit.as_str()])
                 .stdin(Stdio::null())

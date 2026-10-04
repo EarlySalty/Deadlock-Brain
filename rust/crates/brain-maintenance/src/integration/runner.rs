@@ -1605,6 +1605,7 @@ impl Runner {
                 return Err(error.into());
             }
         }
+        plan.wait_for_restart_window().await;
         let activate = plan.clone();
         let activation_writer = config_writer.clone();
         let rollback_writer = config_writer.clone();
