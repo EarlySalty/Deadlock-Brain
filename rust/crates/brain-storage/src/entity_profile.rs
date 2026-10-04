@@ -473,7 +473,7 @@ impl PgStore {
     }
 }
 
-fn decode_patch_change(value: Value) -> crate::Result<PatchStoryChange> {
+pub(crate) fn decode_patch_change(value: Value) -> crate::Result<PatchStoryChange> {
     let mut fields = value
         .as_object()
         .cloned()
