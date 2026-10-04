@@ -942,6 +942,7 @@ version = "0.1.0"
 dependencies = [
  "brain-contracts",
  "brain-storage",
+ "chrono",
  "dbrain-normalize",
  "dbrain-retrieval",
  "dbrain-s12-wiki-probe",
