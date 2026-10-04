@@ -185,6 +185,16 @@ pub fn assemble_profile(
         grouped
             .entry((
                 fact.predicate.clone(),
+                matches!(
+                    fact.predicate.as_str(),
+                    "file.kv_value" | "file.json_value" | "file.kv3_value" | "wiki.data.value"
+                )
+                .then(|| {
+                    (
+                        fact.subject.clone(),
+                        fact.provenance.origin.identity.logical_id.clone(),
+                    )
+                }),
                 serde_json::to_string(&comparison_qualifiers).unwrap_or_default(),
                 fact.unit.clone(),
             ))
@@ -192,7 +202,7 @@ pub fn assemble_profile(
             .push(fact);
     }
     let mut conflicts = Vec::new();
-    for ((predicate, _, _), group) in grouped {
+    for ((predicate, _, _, _), group) in grouped {
         if group.iter().any(|f| f.value != group[0].value) {
             let numeric = group.iter().all(|f| {
                 f.value.is_number()
