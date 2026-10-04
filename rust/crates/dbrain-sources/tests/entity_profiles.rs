@@ -371,6 +371,35 @@ fn conflicting_sources_keep_both_values_and_git_preference() {
         .as_ref()
         .unwrap()
         .starts_with("git-fixture:"));
+    let wiki = profile.facts[0].clone();
+    let git = profile.facts[1].clone();
+    for value in [json!("123"), json!("125")] {
+        let mut other_git = git.clone();
+        other_git.value = value.clone();
+        other_git.provenance.origin.identity.source_id = "other-git-fixture".into();
+        let mut facts = vec![wiki.clone(), other_git, git.clone()];
+        let mut preferred = None;
+        for _ in 0..2 {
+            let profile = assemble_profile(entity(EntityKind::Hero), None, facts.clone(), vec![]);
+            assert_eq!(profile.facts, facts);
+            assert_eq!(profile.conflicts.len(), 1);
+            assert_eq!(profile.conflicts[0].fact_ids.len(), 3);
+            if value == git.value {
+                assert!(profile.conflicts[0]
+                    .preferred_fact_id
+                    .as_ref()
+                    .unwrap()
+                    .starts_with("git-fixture:"));
+            } else {
+                assert!(profile.conflicts[0].preferred_fact_id.is_none());
+            }
+            if let Some(previous) = &preferred {
+                assert_eq!(previous, &profile.conflicts[0].preferred_fact_id);
+            }
+            preferred = Some(profile.conflicts[0].preferred_fact_id.clone());
+            facts.reverse();
+        }
+    }
 }
 #[test]
 fn validity_is_open_or_exclusive_and_unknown_is_not_backdated() {
