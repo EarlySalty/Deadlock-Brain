@@ -101,6 +101,136 @@ pub struct PreparedRefresh {
     pub changed_sources: Vec<String>,
 }
 
+pub async fn retire_removed_git_profiles(
+    store: &brain_storage::PgStore,
+    pool: &sqlx::PgPool,
+    config: &crate::config::MaintenanceConfig,
+    principal: &brain_contracts::Principal,
+    current_keys: &BTreeSet<String>,
+    owned_sources: &BTreeSet<String>,
+    corpus_root: &Path,
+) -> Result<usize> {
+    use brain_storage::entity_profile::derivation::{GitDocumentReceipt, GIT_DOCUMENT_CONTRACT};
+    let rows: Vec<serde_json::Value> = sqlx::query_scalar("SELECT record_json FROM brain.source_record_heads WHERE source_id='git-game-facts-derived' ORDER BY logical_id")
+        .fetch_all(pool).await?;
+    let root = corpus_root.canonicalize()?;
+    let mut retired = 0;
+    for row in rows {
+        let mut record: brain_contracts::SourceRecordV2 = serde_json::from_value(row)?;
+        if current_keys.contains(&record.logical_id)
+            || record
+                .metadata
+                .get("brain.entity_projection.contract")
+                .map(String::as_str)
+                != Some(GIT_DOCUMENT_CONTRACT)
+        {
+            continue;
+        }
+        let private: String = sqlx::query_scalar("SELECT receipt_json FROM brain.entity_derived_receipts_v1 WHERE derived_source_id=$1 AND derived_logical_id=$2 ORDER BY derived_revision DESC LIMIT 1")
+            .bind(&record.source_id).bind(&record.logical_id).fetch_one(pool).await?;
+        let receipt: GitDocumentReceipt = serde_json::from_str(&private)?;
+        ensure!(
+            receipt.entity_key == record.logical_id
+                && receipt.document_sha256 == record.content_hash
+                && record.content_hash == crate::digest(record.content.as_bytes())
+                && record
+                    .metadata
+                    .get("brain.entity_projection.receipt_sha256")
+                    == Some(&crate::digest(private.as_bytes())),
+            "Entfernter Steckbrief widerspricht seiner Quittung"
+        );
+        if !receipt
+            .fact_pins
+            .iter()
+            .any(|pin| owned_sources.contains(&pin.source_id))
+        {
+            continue;
+        }
+        let snapshot = store.snapshot(&receipt.original_release_id).await?;
+        let repositories = registered_git_repositories(config, &snapshot, principal)?;
+        let verified = dbrain_sources::entity_binding::derivation::derive_git_entity_profile(
+            store,
+            &receipt.original_release_id,
+            principal,
+            &receipt.entity_key,
+            &repositories,
+        )
+        .await?;
+        ensure!(
+            verified.receipt().fact_pins == receipt.fact_pins,
+            "Entfernte Originalbindungen widersprechen der Quittung"
+        );
+        let compact: serde_json::Value = serde_json::from_str(&record.content)?;
+        let mut previous = verified.profile().clone();
+        previous.patch_story = compact["patch_story"]
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("Gespeicherte Patchbelege fehlen"))?
+            .iter()
+            .map(|change| {
+                let mut change = change.clone();
+                change["additional_fields"] = change["conditions"].take();
+                change["original_line"] =
+                    serde_json::json!({"text":null,"redistribution_allowed":false});
+                serde_json::from_value(change)
+            })
+            .collect::<std::result::Result<_, _>>()?;
+        let rendered = crate::entity_profile_render::render_entity_profile(&previous)?;
+        ensure!(
+            rendered.brain_document == record.content,
+            "Entfernter Steckbrief widerspricht seinem Original"
+        );
+        if retire_git_profile(store, &mut record, &rendered, &root).await? {
+            retired += 1;
+        }
+    }
+    Ok(retired)
+}
+
+async fn retire_git_profile(
+    store: &brain_storage::PgStore,
+    record: &mut brain_contracts::SourceRecordV2,
+    rendered: &crate::entity_profile_render::RenderedEntityProfile,
+    root: &Path,
+) -> Result<bool> {
+    ensure!(
+        record.source_id == "git-game-facts-derived"
+            && record.logical_id
+                == serde_json::from_str::<serde_json::Value>(&rendered.brain_document)?["entity"]
+                    ["entity_key"]
+                    .as_str()
+                    .unwrap_or("")
+            && record.content == rendered.brain_document,
+        "Entfernter Steckbrief ist nicht zugeordnet"
+    );
+    let path = root.join(&rendered.public_relative_path);
+    if let Some(parent) = path.parent().filter(|parent| parent.exists()) {
+        ensure!(
+            parent.canonicalize()? == parent && parent.starts_with(root),
+            "Entfernter HTML-Pfad liegt außerhalb des Corpus"
+        );
+        match std::fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
+                if std::fs::read(&path)? == rendered.public_html.as_bytes() {
+                    std::fs::remove_file(&path)?;
+                }
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    if !record.tombstone {
+        record.revision = record
+            .revision
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("Steckbriefrevision ist ausgeschöpft"))?;
+        record.tombstone = true;
+        store.apply(record).await?;
+        return Ok(true);
+    }
+    Ok(false)
+}
+
 pub async fn publish_refreshed_sources(
     store: &brain_storage::PgStore,
     pool: &sqlx::PgPool,
@@ -127,9 +257,10 @@ pub async fn publish_refreshed_sources(
         pins.remove(source);
     }
     for head in &heads {
-        pins.entry(head.source_id.clone())
-            .or_default()
-            .insert(head.logical_id.clone(), head.revision);
+        let source_pins = pins.entry(head.source_id.clone()).or_default();
+        if !head.tombstone {
+            source_pins.insert(head.logical_id.clone(), head.revision);
+        }
     }
     let changed_sources: Vec<_> = sources
         .iter()
@@ -158,7 +289,7 @@ pub async fn publish_refreshed_sources(
         .chain(
             expected_heads
                 .iter()
-                .filter(|record| sources.contains(&record.source_id))
+                .filter(|record| sources.contains(&record.source_id) && !record.tombstone)
                 .cloned(),
         )
         .collect();
@@ -177,9 +308,10 @@ pub async fn publish_refreshed_sources(
         .map(|head| ((&head.source_id, &head.logical_id), head))
         .collect();
     ensure!(
-        actual.len() == expected_heads.len()
+        actual.len() == expected_heads.iter().filter(|head| !head.tombstone).count()
             && expected_heads
                 .iter()
+                .filter(|head| !head.tombstone)
                 .all(
                     |head| actual.get(&(&head.source_id, &head.logical_id)).copied() == Some(head)
                 ),
@@ -848,6 +980,135 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(receipts, 3);
+        let directory = tempfile::tempdir().unwrap();
+        let artifacts = Artifacts::open(&directory.path().join("artifacts")).unwrap();
+        let mut removed_profile = profile.clone();
+        removed_profile.entity.entity_key = "hero:removed".into();
+        let (removed_document, removed_receipt) = document(&removed_profile, "original-r2");
+        let mut removed = store
+            .persist_entity_document(removed_document.clone(), &removed_receipt)
+            .await
+            .unwrap();
+        let mut foreign_document = story_updated.clone();
+        let mut foreign_origin =
+            brain_contracts::source::origin_from_record(&foreign_document).unwrap();
+        foreign_document.source_id = "foreign-profiles".into();
+        foreign_origin.identity.source_id = foreign_document.source_id.clone();
+        foreign_origin.bind_record(&mut foreign_document).unwrap();
+        store.apply(&foreign_document).await.unwrap();
+        let base = brain_contracts::CorpusRelease {
+            release_id: "profiles-base".into(),
+            knowledge_version: "profiles-base".into(),
+            patch: "unbekannt".into(),
+            created_at_epoch: 1,
+            source_revisions: std::collections::BTreeMap::from([(
+                "git-game-facts-derived".into(),
+                std::collections::BTreeMap::from([
+                    (story_updated.logical_id.clone(), story_updated.revision),
+                    (removed.logical_id.clone(), removed.revision),
+                ]),
+            )]),
+        };
+        let mut base = base;
+        base.source_revisions.insert(
+            foreign_document.source_id.clone(),
+            std::collections::BTreeMap::from([(
+                foreign_document.logical_id.clone(),
+                foreign_document.revision,
+            )]),
+        );
+        store.publish_release(&base).await.unwrap();
+        let rendered =
+            crate::entity_profile_render::render_entity_profile(&removed_profile).unwrap();
+        render_and_export_profiles(&artifacts, &[removed_profile.clone()], directory.path())
+            .unwrap();
+        let own_html = directory.path().join(&rendered.public_relative_path);
+        let foreign_html = directory.path().join("site/entities/foreign.html");
+        std::fs::write(&foreign_html, "Fremder Snapshot").unwrap();
+        assert!(
+            retire_git_profile(&store, &mut removed, &rendered, directory.path())
+                .await
+                .unwrap()
+        );
+        assert!(!own_html.exists());
+        assert_eq!(
+            std::fs::read_to_string(&foreign_html).unwrap(),
+            "Fremder Snapshot"
+        );
+        assert!(
+            !retire_git_profile(&store, &mut removed, &rendered, directory.path())
+                .await
+                .unwrap()
+        );
+        profile
+            .unknowns
+            .push("Aktualisierung der erhaltenen Entität".into());
+        let (changed, changed_receipt) = document(&profile, "original-r3");
+        let changed = store
+            .persist_entity_document(changed, &changed_receipt)
+            .await
+            .unwrap();
+        let sources = vec!["git-game-facts-derived".into()];
+        let published = publish_refreshed_sources(&store, &pool, &base.release_id, &sources)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            published.candidate.source_revisions["git-game-facts-derived"],
+            std::collections::BTreeMap::from([(changed.logical_id.clone(), changed.revision)])
+        );
+        assert!(store
+            .snapshot(&published.candidate.release_id)
+            .await
+            .unwrap()
+            .revisions
+            .contains(&foreign_document));
+        let mut forbidden_tombstone = foreign_document.clone();
+        forbidden_tombstone.tombstone = true;
+        assert!(brain_storage::PgStore::prepare_imported_release(
+            &store.snapshot(&base.release_id).await.unwrap(),
+            &[foreign_document.source_id.clone()],
+            vec![forbidden_tombstone],
+            "foreign-removal",
+            "foreign-removal",
+            2
+        )
+        .is_err());
+        let restored = store
+            .persist_entity_document(removed_document, &removed_receipt)
+            .await
+            .unwrap();
+        assert_eq!(restored.revision, 3);
+        assert!(!restored.tombstone);
+        render_and_export_profiles(&artifacts, &[removed_profile], directory.path()).unwrap();
+        assert!(own_html.exists());
+        let restored_release =
+            publish_refreshed_sources(&store, &pool, &published.candidate.release_id, &sources)
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(
+            restored_release.candidate.source_revisions["git-game-facts-derived"].len(),
+            2
+        );
+        let foreign_page = std::fs::read(&own_html).unwrap();
+        std::fs::write(&own_html, "Fremder Seiteninhalt").unwrap();
+        let mut restored = restored;
+        retire_git_profile(&store, &mut restored, &rendered, directory.path())
+            .await
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&own_html).unwrap(),
+            "Fremder Seiteninhalt"
+        );
+        assert!(!foreign_page.is_empty());
+        assert!(store
+            .snapshot(&base.release_id)
+            .await
+            .unwrap()
+            .revisions
+            .iter()
+            .any(|record| record.logical_id == "hero:removed" && record.revision == 1));
         pool.close().await;
     }
 

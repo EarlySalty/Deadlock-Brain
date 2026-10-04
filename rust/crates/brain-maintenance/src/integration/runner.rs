@@ -820,9 +820,30 @@ impl Runner {
                 profiles.push(profile);
             }
         }
+        let retired = super::entity_profiles::retire_removed_git_profiles(
+            &self.store,
+            &self.pool,
+            config,
+            &principal,
+            &git_semantic_keys,
+            &self
+                .runtime
+                .entity_profile_sources
+                .iter()
+                .map(|source| source.extraction.source_id.clone())
+                .collect(),
+            root,
+        )
+        .await?;
         let prepared =
             super::entity_profiles::render_and_export_profiles(&self.artifacts, &profiles, root)?;
-        if !stored_documents.is_empty() {
+        if !stored_documents.is_empty()
+            || retired > 0
+            || base
+                .release
+                .source_revisions
+                .contains_key("git-game-facts-derived")
+        {
             sources.push("git-game-facts-derived".into());
         }
         let final_prepared = super::entity_profiles::publish_refreshed_sources(

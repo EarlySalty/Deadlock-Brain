@@ -103,6 +103,16 @@ async fn imported_release_retry_tx(
     }
 }
 
+fn retired_entity_document(record: &SourceRecordV2) -> bool {
+    record.tombstone
+        && record.source_id == "git-game-facts-derived"
+        && record
+            .metadata
+            .get("brain.entity_projection.contract")
+            .map(String::as_str)
+            == Some("git-entity-document-v1")
+}
+
 impl PgStore {
     pub async fn persist_entity_document(
         &self,
@@ -163,7 +173,12 @@ impl PgStore {
         )
         .bind(&record.source_id).bind(&record.logical_id)
         .fetch_optional(&mut *tx).await.map_err(database_error)?;
-        if let Some(current) = current {
+        if let Some(current) = current.filter(|current| {
+            !(current["tombstone"] == true
+                && current["source_id"] == "git-game-facts-derived"
+                && current["metadata"]["brain.entity_projection.contract"]
+                    == "git-entity-document-v1")
+        }) {
             let current: SourceRecordV2 = serde_json::from_value(current)
                 .map_err(|_| invalid("Gespeicherter Steckbrief ist ungültig"))?;
             let stored: Option<String> = sqlx::query_scalar(
@@ -244,7 +259,9 @@ impl PgStore {
         }
         let mut seen = BTreeSet::new();
         for record in heads {
-            if record.tombstone || !selected.contains(&record.source_id) {
+            if (record.tombstone && !retired_entity_document(&record))
+                || !selected.contains(&record.source_id)
+            {
                 return Err(invalid(
                     "Importquelle ist zurückgezogen oder nicht ausgewählt",
                 ));
@@ -255,11 +272,13 @@ impl PgStore {
             brain_contracts::source::origin_from_record(&record)
                 .map_err(|_| invalid("Importkopf hat keinen gültigen Herkunftsnachweis"))?;
             seen.insert(record.source_id.clone());
-            release
+            let pins = release
                 .source_revisions
                 .entry(record.source_id.clone())
-                .or_default()
-                .insert(record.logical_id.clone(), record.revision);
+                .or_default();
+            if !record.tombstone {
+                pins.insert(record.logical_id.clone(), record.revision);
+            }
             if expected
                 .insert(
                     (record.source_id.clone(), record.logical_id.clone()),
@@ -320,15 +339,15 @@ impl PgStore {
                 .validate()
                 .map_err(|_| invalid("invalid expected imported head"))?;
             if sources.contains(&record.source_id) {
-                if record.tombstone {
+                if record.tombstone && !retired_entity_document(record) {
                     return Err(invalid("imported source contains a tombstone"));
                 }
                 brain_contracts::source::origin_from_record(record)
                     .map_err(|_| invalid("invalid imported source provenance"))?;
-                selected_pins
-                    .entry(record.source_id.clone())
-                    .or_default()
-                    .insert(record.logical_id.clone(), record.revision);
+                let pins = selected_pins.entry(record.source_id.clone()).or_default();
+                if !record.tombstone {
+                    pins.insert(record.logical_id.clone(), record.revision);
+                }
             }
             if expected
                 .insert(
@@ -375,7 +394,13 @@ impl PgStore {
                     .map(move |logical| (source.clone(), logical.clone()))
             })
             .collect();
-        if expected.keys().cloned().collect::<BTreeSet<_>>() != pin_keys {
+        if expected
+            .iter()
+            .filter(|(_, record)| !record.tombstone || !sources.contains(&record.source_id))
+            .map(|(key, _)| key.clone())
+            .collect::<BTreeSet<_>>()
+            != pin_keys
+        {
             return Err(invalid(
                 "expected imported heads do not cover exact release",
             ));
@@ -417,7 +442,7 @@ impl PgStore {
                     != row
                         .try_get::<bool, _>("tombstone")
                         .map_err(database_error)?
-                || record.tombstone
+                || (record.tombstone && !retired_entity_document(&record))
                 || actual.insert((source, logical), record).is_some()
             {
                 return Err(invalid("stored imported head columns disagree"));

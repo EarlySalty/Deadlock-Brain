@@ -491,6 +491,7 @@ async fn normal_texts_read_live_entity_facts_counts_and_patch_history() {
     .unwrap();
     sqlx::raw_sql("CREATE TABLE brain.entities(entity_type text); INSERT INTO brain.entities VALUES('hero'); CREATE TABLE brain.patch_changes(patch_date text,entity_type text,entity_name text,ability_name text,stat_name text,old_value text,new_value text,change_type text,confidence double precision,raw_line text); INSERT INTO brain.patch_changes VALUES('2026-09-16','hero','Wächter',NULL,'cooldown','18','12.5','decrease',1,'Gesperrter Originaltext'),('2025-09-16','item','Wächter',NULL,'Fremde Änderung','777','778','increase',1,'Gesperrter Originaltext'),('2024-09-16','hero','Anderer Held','Wächter','Fremde Änderung','777','778','increase',1,'Gesperrter Originaltext')")
         .execute(&pool).await.unwrap();
+    sqlx::raw_sql("ALTER TABLE brain.patch_changes ADD COLUMN unit text, ADD COLUMN level text, ADD COLUMN variant text, ADD COLUMN condition text; UPDATE brain.patch_changes SET unit='Sekunden',level='3',variant='geladen',condition='bei Treffer'").execute(&pool).await.unwrap();
     let mut hero = record("Gespeicherter Heldenbeleg", "extracted_value");
     let mut document: Value = serde_json::from_str(&hero.metadata[DOCUMENT_METADATA_KEY]).unwrap();
     document["facts"][0]["subject"] = json!("game_file:technische-werte.json");
@@ -616,6 +617,28 @@ async fn normal_texts_read_live_entity_facts_counts_and_patch_history() {
             retriever.validate_evidence(&query, &context, &evidence, false)
         })
         .unwrap();
+    }
+    let mut partial = query("Was ist Wächterinnen?");
+    partial.patch = None;
+    assert_eq!(
+        tokio::task::block_in_place(|| reader.read_entity_evidence(
+            &partial,
+            &context,
+            None,
+            false,
+            brain_contracts::store::AnswerPurpose::InternalRead
+        ))
+        .unwrap(),
+        None
+    );
+    let mut conditional = query("Was änderte sich bei Wächter im Patch vom 16.09.?");
+    conditional.patch = None;
+    let conditions =
+        tokio::task::block_in_place(|| retriever.retrieve(&conditional, &context)).unwrap();
+    for expected in ["Sekunden", "level", "geladen", "bei Treffer"] {
+        assert!(conditions
+            .iter()
+            .any(|item| item.content.contains(expected)));
     }
     let mut previous_value = query("Welche Abklingzeit hatte Wächter?");
     previous_value.patch = Some("2026-09-16".into());
@@ -753,6 +776,7 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
         .execute(&pool).await.unwrap();
     sqlx::query("INSERT INTO brain.patch_changes VALUES('2026-09-01','hero','hero_test',NULL,'MaxHealth','780','800','increase',1,'Gesperrte Originalzeile')")
         .execute(&pool).await.unwrap();
+    sqlx::raw_sql("ALTER TABLE brain.patch_changes ADD COLUMN unit text, ADD COLUMN level text, ADD COLUMN variant text, ADD COLUMN condition text; UPDATE brain.patch_changes SET unit='Punkte',level='3',variant='geladen',condition='bei Treffer'").execute(&pool).await.unwrap();
     let identities = [
         EntityIdentity {
             entity_key: "hero:fixture".into(),
@@ -1080,6 +1104,19 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
         )
         .is_err());
     }
+    let mut partial = query("Was ist Wächterinnen?");
+    partial.patch = None;
+    assert_eq!(
+        tokio::task::block_in_place(|| reader.read_entity_evidence(
+            &partial,
+            &context,
+            None,
+            false,
+            brain_contracts::store::AnswerPurpose::InternalRead
+        ))
+        .unwrap(),
+        None
+    );
     let mut count = query("Wie viele Helden sind gespeichert?");
     count.patch = None;
     let counted = tokio::task::block_in_place(|| retriever.retrieve(&count, &context)).unwrap();
@@ -1105,6 +1142,9 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
     let previous =
         tokio::task::block_in_place(|| retriever.retrieve(&historical, &context)).unwrap();
     assert!(previous.iter().any(|item| item.content.contains("800")));
+    for expected in ["Punkte", "level", "geladen", "bei Treffer"] {
+        assert!(previous.iter().any(|item| item.content.contains(expected)));
+    }
     assert!(previous
         .iter()
         .all(|item| item.source_id == "brain.patch_changes"

@@ -845,10 +845,22 @@ impl SnapshotReadPort for LocalPgReader {
         if identities.len() > 100 {
             return Err(PortError::BudgetExceeded);
         }
-        let recognized = !identities.is_empty();
+        let mut recognized = false;
         let mut matched = std::collections::BTreeMap::new();
         for row in identities {
             request_check(deadline)?;
+            let key: String = row.try_get(0).map_err(error)?;
+            let identity = entity_binding_identity(&key, row.try_get(1).map_err(error)?)?;
+            if !std::iter::once(&identity.name)
+                .chain(identity.aliases.iter())
+                .any(|name| {
+                    let name = brain_contracts::lexical::terms(name);
+                    !name.is_empty() && words.windows(name.len()).any(|part| part == name)
+                })
+            {
+                continue;
+            }
+            recognized = true;
             let record: SourceRecordV2 = serde_json::from_value(row.try_get(3).map_err(error)?)
                 .map_err(|_| invalid("Identitätsquelle ist ungültig"))?;
             let head: SourceRecordV2 = serde_json::from_value(row.try_get(4).map_err(error)?)
@@ -858,8 +870,6 @@ impl SnapshotReadPort for LocalPgReader {
             else {
                 continue;
             };
-            let key: String = row.try_get(0).map_err(error)?;
-            let identity = entity_binding_identity(&key, row.try_get(1).map_err(error)?)?;
             let fact: EntityProfileFact =
                 serde_json::from_str(&row.try_get::<_, String>(2).map_err(error)?)
                     .map_err(|_| invalid("Identitätsfakt ist ungültig"))?;
@@ -1042,7 +1052,7 @@ impl SnapshotReadPort for LocalPgReader {
             for (index, change) in changes.into_iter().enumerate() {
                 request_check(deadline)?;
                 let citation = change.provenance.evidence_ref.clone();
-                let change = serde_json::json!({"patch_date":change.patch_date,"entity_type":change.entity_type,"entity_name":change.entity_name,"ability_name":change.ability_name,"stat_name":change.stat_name,"old_value":change.old_value,"new_value":change.new_value,"change_type":change.change_type,"confidence":change.confidence});
+                let change = serde_json::json!({"patch_date":change.patch_date,"entity_type":change.entity_type,"entity_name":change.entity_name,"ability_name":change.ability_name,"stat_name":change.stat_name,"old_value":change.old_value,"new_value":change.new_value,"change_type":change.change_type,"confidence":change.confidence,"conditions":change.additional_fields});
                 evidence.push(brain_contracts::Evidence {
                     evidence_id: format!(
                         "entity-profile:patch:{}:{date}:{index}",
@@ -1222,10 +1232,22 @@ impl LocalPgReader {
         let mut evidence = Vec::new();
         let mut names = BTreeSet::new();
         let mut matched = 0usize;
+        let mut recognized = false;
         for row in rows {
             request_check(deadline)?;
             let record: SourceRecordV2 = serde_json::from_value(row.try_get(0).map_err(error)?)
                 .map_err(|_| invalid("Gespeichertes Steckbriefdokument ist ungültig"))?;
+            if !hero_count {
+                let compact: serde_json::Value = serde_json::from_str(&record.content)
+                    .map_err(|_| invalid("Steckbriefinhalt ist ungültig"))?;
+                let name = brain_contracts::lexical::terms(
+                    compact["entity"]["name"].as_str().unwrap_or(""),
+                );
+                if name.is_empty() || !words.windows(name.len()).any(|part| part == name) {
+                    continue;
+                }
+                recognized = true;
+            }
             let head = serde_json::from_value(row.try_get(1).map_err(error)?)
                 .map_err(|_| invalid("Steckbriefhead ist ungültig"))?;
             let Some(record) =
@@ -1387,7 +1409,7 @@ impl LocalPgReader {
                     if evidence.len() >= 100 {
                         return Err(PortError::BudgetExceeded);
                     }
-                    let content = serde_json::json!({"patch_date":change.patch_date,"entity_type":change.entity_type,"entity_name":change.entity_name,"ability_name":change.ability_name,"stat_name":change.stat_name,"old_value":change.old_value,"new_value":change.new_value,"change_type":change.change_type,"confidence":change.confidence});
+                    let content = serde_json::json!({"patch_date":change.patch_date,"entity_type":change.entity_type,"entity_name":change.entity_name,"ability_name":change.ability_name,"stat_name":change.stat_name,"old_value":change.old_value,"new_value":change.new_value,"change_type":change.change_type,"confidence":change.confidence,"conditions":change.additional_fields});
                     evidence.push(Evidence {
                         evidence_id: format!(
                             "entity-profile:patch:{}:{}:{index}",
@@ -1459,7 +1481,11 @@ impl LocalPgReader {
         } else if matched != 1 {
             evidence.clear();
         }
-        Ok(Some(evidence))
+        Ok(if hero_count || recognized {
+            Some(evidence)
+        } else {
+            None
+        })
     }
 
     fn current_maintenance_policies(
