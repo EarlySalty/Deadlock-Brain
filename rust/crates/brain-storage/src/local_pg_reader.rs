@@ -699,7 +699,17 @@ impl SnapshotReadPort for LocalPgReader {
             entity_profile::{EntityIdentity, EntityProfileFact},
             SourceRecordV2,
         };
-        if !self.permits_entity_profile_model_context(&context.principal) {
+        let mut principal = context.principal.clone();
+        if let Some(discord) = &context.discord {
+            if discord.request_id != query.request_id
+                || !discord.scope.starts_with("discord.request:")
+            {
+                return Ok(None);
+            }
+            principal.scopes.remove(&discord.scope);
+            principal.provider_egress.remove("discord_request");
+        }
+        if !self.permits_entity_profile_model_context(&principal) {
             return Ok(None);
         }
         let deadline = context.request_deadline.as_ref();

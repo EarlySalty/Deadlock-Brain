@@ -983,6 +983,17 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
     let mut context = context();
     context.principal.scopes = BTreeSet::from(["bot.public".into()]);
     context.principal.provider_egress = BTreeSet::from(["public".into()]);
+    let request_scope = format!("discord.request:{}", "a".repeat(64));
+    context.principal.scopes.insert(request_scope.clone());
+    context
+        .principal
+        .provider_egress
+        .insert("discord_request".into());
+    context.discord = Some(DiscordRequestContext {
+        user_id: Some(1),
+        request_id: "q1".into(),
+        scope: request_scope,
+    });
     let mut denied_query = query("Wie viel MaxHealth ist für Wächter gespeichert?");
     denied_query.patch = None;
     let disabled = ReleaseRetriever::new(reader.clone(), 10);
@@ -1046,6 +1057,15 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
             ))
             .is_err());
         }
+        let mut mismatched = context.clone();
+        mismatched.discord.as_mut().unwrap().request_id = "andere-anfrage".into();
+        assert!(tokio::task::block_in_place(|| retriever.validate_evidence(
+            &query,
+            &mismatched,
+            &evidence,
+            true
+        ))
+        .is_err());
         let disabled_reader = reader
             .clone()
             .with_entity_profile_model_consumers(BTreeSet::new())
