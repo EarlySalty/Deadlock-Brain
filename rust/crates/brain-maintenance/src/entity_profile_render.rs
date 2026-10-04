@@ -3,7 +3,7 @@ use brain_contracts::entity_profile::{
     EntityKind, EntityProfile, EntityProfileFact, PatchValidity, ENTITY_PROFILE_VERSION,
 };
 use brain_contracts::{value::Observed, SourceVisibility};
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -198,6 +198,28 @@ pub fn render_entity_profile(profile: &EntityProfile) -> Result<RenderedEntityPr
     })
 }
 
+fn publish_html(
+    target: &Path,
+    write: impl FnOnce(&mut fs::File) -> std::io::Result<()>,
+) -> Result<()> {
+    match fs::symlink_metadata(target) {
+        Ok(metadata) => ensure!(
+            metadata.is_file() && !metadata.file_type().is_symlink(),
+            "HTML-Ziel ist keine reguläre Datei"
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    let mut temporary =
+        tempfile::NamedTempFile::new_in(target.parent().context("Ausgabeverzeichnis fehlt")?)?;
+    write(temporary.as_file_mut())
+        .context("HTML-Datei konnte nicht vollständig gesichert werden")?;
+    temporary
+        .persist(target)
+        .context("HTML-Datei konnte nicht atomar veröffentlicht werden")?;
+    Ok(())
+}
+
 pub fn write_public_html(corpus_root: &Path, profile: &EntityProfile) -> Result<PathBuf> {
     let rendered = render_entity_profile(profile)?;
     let root = corpus_root
@@ -223,13 +245,10 @@ pub fn write_public_html(corpus_root: &Path, profile: &EntityProfile) -> Result<
             "Ausgabeverzeichnis ist kein reguläres Verzeichnis"
         );
     }
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&target)
-        .context("HTML-Datei lässt sich nicht neu anlegen; vorhandene Seiten bleiben erhalten")?;
-    file.write_all(rendered.public_html.as_bytes())?;
-    file.sync_all()?;
+    publish_html(&target, |file| {
+        file.write_all(rendered.public_html.as_bytes())?;
+        file.sync_all()
+    })?;
     Ok(target)
 }
 
@@ -382,8 +401,8 @@ mod tests {
     }
 
     #[test]
-    fn html_escapes_input_and_file_output_preserves_existing_pages() {
-        let profile = fixture(EntityKind::Item);
+    fn html_escapes_input_and_file_output_updates_existing_pages() {
+        let mut profile = fixture(EntityKind::Item);
         let root = tempfile::tempdir().unwrap();
         let rendered = render_entity_profile(&profile).unwrap();
         assert!(!rendered.public_html.contains("<script>"));
@@ -391,8 +410,54 @@ mod tests {
         let target = write_public_html(root.path(), &profile).unwrap();
         assert_eq!(fs::read_to_string(&target).unwrap(), rendered.public_html);
         assert!(target.starts_with(root.path()));
-        assert!(write_public_html(root.path(), &profile).is_err());
-        assert_eq!(fs::read_to_string(target).unwrap(), rendered.public_html);
+        profile.facts[0].value = json!(750);
+        assert_eq!(write_public_html(root.path(), &profile).unwrap(), target);
+        assert_eq!(
+            fs::read_to_string(target).unwrap(),
+            render_entity_profile(&profile).unwrap().public_html
+        );
+    }
+
+    #[test]
+    fn failed_writes_and_syncs_preserve_complete_pages_and_allow_retry() {
+        for existing_page in [false, true] {
+            for sync_failure in [false, true] {
+                let mut profile = fixture(EntityKind::Hero);
+                let root = tempfile::tempdir().unwrap();
+                let target = root.path().join(public_relative_path(&profile).unwrap());
+                fs::create_dir_all(target.parent().unwrap()).unwrap();
+                let previous = render_entity_profile(&profile).unwrap().public_html;
+                if existing_page {
+                    write_public_html(root.path(), &profile).unwrap();
+                }
+                profile.facts[0].value = json!(750);
+                let next = render_entity_profile(&profile).unwrap().public_html;
+                assert!(publish_html(&target, |file| {
+                    file.write_all(if sync_failure {
+                        next.as_bytes()
+                    } else {
+                        b"<!doctype html><html>"
+                    })?;
+                    Err(std::io::Error::other(if sync_failure {
+                        "Simulierter Synchronisierungsfehler"
+                    } else {
+                        "Simulierter Schreibfehler"
+                    }))
+                })
+                .is_err());
+                if existing_page {
+                    assert_eq!(fs::read_to_string(&target).unwrap(), previous);
+                } else {
+                    assert!(!target.exists());
+                }
+                assert_eq!(
+                    fs::read_dir(target.parent().unwrap()).unwrap().count(),
+                    usize::from(existing_page)
+                );
+                assert_eq!(write_public_html(root.path(), &profile).unwrap(), target);
+                assert_eq!(fs::read_to_string(&target).unwrap(), next);
+            }
+        }
     }
 
     #[test]
