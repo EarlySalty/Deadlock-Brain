@@ -1,10 +1,13 @@
 use anyhow::{ensure, Context, Result};
 use brain_contracts::entity_profile::{
-    EntityKind, EntityProfile, EntityProfileFact, PatchValidity, ENTITY_PROFILE_VERSION,
+    EntityKind, EntityProfile, EntityProfileFact, PatchStoryChange, PatchValidity,
+    ENTITY_PROFILE_VERSION,
 };
 use brain_contracts::{value::Observed, SourceVisibility};
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,6 +126,155 @@ fn fact_table(html: &mut String, facts: &[EntityProfileFact]) {
     html.push_str("</tbody></table>");
 }
 
+fn story_number(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::Number(number) => Some(number.to_string()),
+        serde_json::Value::String(value) => {
+            serde_json::from_str::<serde_json::Number>(value.trim())
+                .ok()
+                .map(|_| value.trim().to_owned())
+        }
+        _ => None,
+    }
+}
+
+fn patch_story(html: &mut String, changes: &[PatchStoryChange]) -> Result<()> {
+    if changes.is_empty() {
+        html.push_str(
+            "<p>Keine zugeordneten Änderungen gespeichert. Historische Lücken bleiben offen.</p>",
+        );
+        return Ok(());
+    }
+    html.push_str("<ol>");
+    for change in changes {
+        ensure!(
+            change.provenance.relation == "brain.patch_changes"
+                && !change.provenance.evidence_ref.trim().is_empty(),
+            "Patchänderung hat keine belegte Herkunft aus brain.patch_changes"
+        );
+        let date = chrono::NaiveDate::parse_from_str(&change.patch_date, "%Y-%m-%d")
+            .map(|date| date.format("%d.%m.%Y").to_string())
+            .unwrap_or_else(|_| "Unbekannt".into());
+        let entity_kind = match change.entity_type.as_deref() {
+            Some("hero") => "Held",
+            Some("ability") => "Fähigkeit",
+            Some("item") => "Item",
+            _ => "Entität",
+        };
+        let values = match (
+            story_number(&change.old_value),
+            story_number(&change.new_value),
+        ) {
+            (Some(old), Some(new)) => format!("Der Wert wurde von {old} auf {new} geändert."),
+            (None, Some(new)) => format!("Neuer Wert: {new}. Der frühere Wert ist unbekannt."),
+            (Some(old), None) => format!("Früherer Wert: {old}. Der neue Wert ist unbekannt."),
+            (None, None) => "Zahlenwerte sind unbekannt.".into(),
+        };
+        let change_type = match change.change_type.as_deref() {
+            Some("buff") => "Verstärkung",
+            Some("nerf") => "Abschwächung",
+            Some("added") => "Ergänzung",
+            Some("removed") => "Entfernung",
+            Some("bugfix") => "Fehlerkorrektur",
+            Some("rework") => "Überarbeitung",
+            Some("changed") => "Änderung",
+            _ => "Unbekannt",
+        };
+        let direction = match change.numeric_direction.as_deref() {
+            Some("increase" | "increased" | "up") => "gestiegen",
+            Some("decrease" | "decreased" | "down") => "gesunken",
+            Some("unchanged" | "equal") => "unverändert",
+            _ => "unbekannt",
+        };
+        html.push_str(&format!(
+            "<li><h3>Patch vom {}: {}</h3><p>{}: {}; Fähigkeit: {}; Wert: {}.</p><p>{} Änderungsart: {}; Zahlenrichtung: {}; Konfidenz: {}.</p><p>Herkunft: {}; Quelle: {}; Beleg: {}.</p></li>",
+            escape(&date), escape(change.patch_title.as_deref().unwrap_or("Titel unbekannt")),
+            entity_kind, escape(change.entity_name.as_deref().unwrap_or("Unbekannt")),
+            escape(change.ability_name.as_deref().unwrap_or("Unbekannt")),
+            escape(change.stat_name.as_deref().unwrap_or("Unbekannt")), escape(&values),
+            change_type, direction,
+            escape(&story_number(&change.confidence).unwrap_or_else(|| "Unbekannt".into())),
+            escape(&change.provenance.relation),
+            escape(change.provenance.source_url.as_deref().unwrap_or("Unbekannt")),
+            escape(&change.provenance.evidence_ref),
+        ));
+    }
+    html.push_str("</ol>");
+    Ok(())
+}
+
+fn compact_document(profile: &EntityProfile) -> Result<String> {
+    let mut source_refs = BTreeMap::new();
+    let mut sources = Vec::new();
+    let mut compact_fact = |fact: &EntityProfileFact| {
+        let provenance = &fact.provenance;
+        let identity = &provenance.origin.identity;
+        let key = (
+            identity.source_id.clone(),
+            provenance.original_revision.clone(),
+        );
+        let source_ref = *source_refs.entry(key).or_insert_with(|| {
+            sources.push(serde_json::json!({
+                "source_id": identity.source_id,
+                "original_revision": provenance.original_revision,
+            }));
+            sources.len() - 1
+        });
+        serde_json::json!({
+            "fact_id": fact.fact_id,
+            "subject": fact.subject,
+            "predicate": fact.predicate,
+            "value": fact.value,
+            "unit": fact.unit,
+            "qualifiers": fact.qualifiers,
+            "evidence_status": fact.evidence_status,
+            "validity": fact.validity,
+            "source_ref": source_ref,
+            "source_kind": provenance.source_kind,
+            "logical_id": identity.logical_id,
+            "locator": provenance.origin.locator,
+            "source_span": provenance.source_span,
+            "observed_at": provenance.observed_at,
+            "policy": provenance.origin.policy,
+            "license": provenance.license,
+        })
+    };
+    let facts: Vec<_> = profile.facts.iter().map(&mut compact_fact).collect();
+    let context: Vec<_> = profile.context.iter().map(&mut compact_fact).collect();
+    let story: Vec<_> = profile
+        .patch_story
+        .iter()
+        .map(|change| {
+            serde_json::json!({
+                "patch_date": change.patch_date,
+                "patch_title": change.patch_title,
+                "entity_type": change.entity_type,
+                "entity_name": change.entity_name,
+                "ability_name": change.ability_name,
+                "stat_name": change.stat_name,
+                "old_value": change.old_value,
+                "new_value": change.new_value,
+                "change_type": change.change_type,
+                "numeric_direction": change.numeric_direction,
+                "confidence": change.confidence,
+                "provenance": change.provenance,
+            })
+        })
+        .collect();
+    Ok(serde_json::to_string(&serde_json::json!({
+        "contract_version": profile.contract_version,
+        "entity": profile.entity,
+        "patch": profile.patch,
+        "source_state": profile.source_state,
+        "facts": facts,
+        "context": context,
+        "conflicts": profile.conflicts,
+        "patch_story": story,
+        "unknowns": profile.unknowns,
+        "sources": sources,
+    }))?)
+}
+
 pub fn render_entity_profile(profile: &EntityProfile) -> Result<RenderedEntityProfile> {
     ensure!(
         profile.contract_version == ENTITY_PROFILE_VERSION,
@@ -135,7 +287,7 @@ pub fn render_entity_profile(profile: &EntityProfile) -> Result<RenderedEntityPr
             .map_err(anyhow::Error::msg)?;
     }
     let public_relative_path = public_relative_path(profile)?;
-    let brain_document = serde_json::to_string(profile)?;
+    let brain_document = compact_document(profile)?;
     let mut html = format!(
         "<!doctype html><html lang=\"de\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><meta name=\"source-commit\" content=\"{}\"><meta name=\"documentation-status\" content=\"Quellengebundener Steckbrief\"><meta name=\"documentation-version\" content=\"{}\"><title>{}</title></head><body><main><h1>{}</h1><p>{}; Patchstand: {}</p>",
         escape(profile.patch.as_deref().unwrap_or("Unbekannt")), ENTITY_PROFILE_VERSION,
@@ -173,13 +325,7 @@ pub fn render_entity_profile(profile: &EntityProfile) -> Result<RenderedEntityPr
         html.push_str("</ul>");
     }
     html.push_str("</section><section id=\"patch-story\"><h2>Patch-Story</h2>");
-    if profile.patch_story.is_empty() {
-        html.push_str(
-            "<p>Keine zugeordneten Änderungen gespeichert. Historische Lücken bleiben offen.</p>",
-        );
-    } else {
-        html.push_str(&format!("<p>{} Änderungen gespeichert. Die Einzelbelege sind intern verfügbar; ein öffentlicher Freigabevertrag fehlt.</p>", profile.patch_story.len()));
-    }
+    patch_story(&mut html, &profile.patch_story)?;
     html.push_str("</section><section id=\"quellenstand\"><h2>Quellenstand und Lücken</h2>");
     html.push_str(&format!("<p>{} Quellenstände und {} offene Angaben gespeichert. Ein fehlender Patchstand wird nicht aus Beobachtungsdaten abgeleitet.</p>", profile.source_state.len(), profile.unknowns.len()));
     html.push_str("<ul>");
@@ -210,12 +356,14 @@ fn publish_html(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error.into()),
     }
-    let mut temporary =
-        tempfile::NamedTempFile::new_in(target.parent().context("Ausgabeverzeichnis fehlt")?)?;
+    let mut temporary = tempfile::Builder::new()
+        .permissions(fs::Permissions::from_mode(0o666))
+        .tempfile_in(target.parent().context("Ausgabeverzeichnis fehlt")?)?;
     write(temporary.as_file_mut())
         .context("HTML-Datei konnte nicht vollständig gesichert werden")?;
     temporary
         .persist(target)
+        .map_err(|error| error.error)
         .context("HTML-Datei konnte nicht atomar veröffentlicht werden")?;
     Ok(())
 }
@@ -256,7 +404,8 @@ pub fn write_public_html(corpus_root: &Path, profile: &EntityProfile) -> Result<
 mod tests {
     use super::*;
     use brain_contracts::entity_profile::{
-        EntityIdentity, ProfileConflict, ProfileProvenance, ProfileSourceKind,
+        EntityIdentity, PatchStoryProvenance, ProfileConflict, ProfileProvenance,
+        ProfileSourceKind, RestrictedPatchLine,
     };
     use brain_contracts::source::{
         GameValidity, OriginArtifact, SourceIdentity, SourcePolicy, SourceRevision,
@@ -340,10 +489,14 @@ mod tests {
         for entity_kind in [EntityKind::Hero, EntityKind::Ability, EntityKind::Item] {
             let profile = fixture(entity_kind);
             let rendered = render_entity_profile(&profile).unwrap();
+            let document: serde_json::Value =
+                serde_json::from_str(&rendered.brain_document).unwrap();
+            assert_eq!(document["facts"][0]["value"], profile.facts[0].value);
             assert_eq!(
-                serde_json::from_str::<EntityProfile>(&rendered.brain_document).unwrap(),
-                profile
+                document["facts"][0]["qualifiers"],
+                json!(profile.facts[0].qualifiers)
             );
+            assert_eq!(document["sources"].as_array().unwrap().len(), 1);
             for expected in [
                 "700",
                 "HP",
@@ -370,15 +523,137 @@ mod tests {
         wiki.provenance.license = json!({"name":"unverified","redistribution_allowed":false});
         wiki.provenance.origin.policy.publication_allowed = false;
         profile.context.push(wiki);
-        profile
-            .patch_story
-            .push(json!({"raw_text":"Gesperrter Wiki-Patchtext","redistribution_allowed":false}));
+        profile.patch_story.push(story_fixture());
         let rendered = render_entity_profile(&profile).unwrap();
         for text in ["Gesperrter Wiki-Originaltext", "Gesperrter Wiki-Patchtext"] {
-            assert!(rendered.brain_document.contains(text));
+            assert!(serde_json::to_string(&profile).unwrap().contains(text));
             assert!(!rendered.public_html.contains(text));
         }
+        assert!(rendered
+            .brain_document
+            .contains("Gesperrter Wiki-Originaltext"));
+        assert!(!rendered
+            .brain_document
+            .contains("Gesperrter Wiki-Patchtext"));
         assert!(rendered.public_html.contains("nur intern verfügbar"));
+    }
+
+    fn story_fixture() -> PatchStoryChange {
+        PatchStoryChange {
+            patch_date: "2026-09-16".into(),
+            patch_title: Some("September <script>".into()),
+            entity_type: Some("hero".into()),
+            entity_name: Some("Abrams".into()),
+            ability_name: Some("Siphon Life".into()),
+            stat_name: Some("Schaden".into()),
+            old_value: json!("100.00000000000000001"),
+            new_value: json!(123),
+            change_type: Some("buff".into()),
+            numeric_direction: Some("increase".into()),
+            confidence: json!(0.8),
+            provenance: PatchStoryProvenance {
+                relation: "brain.patch_changes".into(),
+                source_url: Some("https://example.org/patch".into()),
+                evidence_ref: "brain.patch_changes:2026-09-16:abrams:damage".into(),
+            },
+            original_line: RestrictedPatchLine {
+                text: Some("Gesperrter Wiki-Patchtext".into()),
+                redistribution_allowed: false,
+            },
+            additional_fields: serde_json::from_value(json!({"extra":"Interner Zusatz"})).unwrap(),
+        }
+    }
+
+    #[test]
+    fn public_patch_story_uses_named_numbers_dates_and_provenance() {
+        let mut profile = fixture(EntityKind::Hero);
+        profile.patch_story.push(story_fixture());
+        let rendered = render_entity_profile(&profile).unwrap();
+        for expected in [
+            "16.09.2026",
+            "September &lt;script&gt;",
+            "Held: Abrams",
+            "Siphon Life",
+            "Schaden",
+            "von 100.00000000000000001 auf 123 geändert",
+            "Verstärkung",
+            "gestiegen",
+            "Konfidenz: 0.8",
+            "brain.patch_changes",
+            "https://example.org/patch",
+            "brain.patch_changes:2026-09-16:abrams:damage",
+        ] {
+            assert!(rendered.public_html.contains(expected), "{expected}");
+        }
+        for internal in ["Gesperrter Wiki-Patchtext", "Interner Zusatz"] {
+            assert!(serde_json::to_string(&profile).unwrap().contains(internal));
+            assert!(!rendered.brain_document.contains(internal));
+            assert!(!rendered.public_html.contains(internal));
+        }
+        let change = &mut profile.patch_story[0];
+        change.old_value = json!({"raw":"Beliebiger Originaltext"});
+        change.new_value = json!("Beliebiger neuer Text");
+        change.confidence = json!(["Interne Konfidenz"]);
+        change.original_line.redistribution_allowed = true;
+        let rendered = render_entity_profile(&profile).unwrap();
+        assert!(rendered.public_html.contains("Zahlenwerte sind unbekannt"));
+        for internal in [
+            "Beliebiger Originaltext",
+            "Beliebiger neuer Text",
+            "Interne Konfidenz",
+            "Gesperrter Wiki-Patchtext",
+        ] {
+            assert!(serde_json::to_string(&profile).unwrap().contains(internal));
+            assert!(!rendered.public_html.contains(internal));
+        }
+    }
+
+    #[test]
+    fn compact_document_preserves_facts_qualifiers_conflicts_and_source_rights() {
+        let mut profile = fixture(EntityKind::Hero);
+        profile.facts[0]
+            .provenance
+            .document_metadata
+            .insert("original_document".into(), json!("x".repeat(4096)));
+        let mut other = profile.facts[0].clone();
+        other.fact_id = "health-2".into();
+        other.value = json!(650);
+        other.qualifiers.insert("level".into(), json!(2));
+        profile.context.push(other.clone());
+        profile.facts.push(other);
+        profile.conflicts.push(ProfileConflict {
+            predicate: "Lebenspunkte".into(),
+            preferred_fact_id: Some(fact_reference(&profile.facts[0])),
+            fact_ids: profile.facts.iter().map(fact_reference).collect(),
+            reason: "Abweichende Werte".into(),
+        });
+        let original = serde_json::to_string(&profile).unwrap();
+        let rendered = render_entity_profile(&profile).unwrap();
+        let document: serde_json::Value = serde_json::from_str(&rendered.brain_document).unwrap();
+        for (section, facts) in [("facts", &profile.facts), ("context", &profile.context)] {
+            assert_eq!(document[section].as_array().unwrap().len(), facts.len());
+            for (index, fact) in facts.iter().enumerate() {
+                for (field, expected) in [
+                    ("value", fact.value.clone()),
+                    ("qualifiers", json!(fact.qualifiers)),
+                    ("unit", json!(fact.unit)),
+                    ("validity", json!(fact.validity)),
+                    ("policy", json!(fact.provenance.origin.policy)),
+                    ("license", fact.provenance.license.clone()),
+                ] {
+                    assert_eq!(document[section][index][field], expected);
+                }
+                assert_eq!(document[section][index]["source_ref"], 0);
+            }
+        }
+        assert_eq!(document["sources"].as_array().unwrap().len(), 1);
+        assert_eq!(document["sources"][0]["original_revision"], "a".repeat(40));
+        assert_eq!(document["conflicts"], json!(profile.conflicts));
+        assert_eq!(document["source_state"], json!(profile.source_state));
+        assert_eq!(document["unknowns"], json!(profile.unknowns));
+        assert!(!rendered.brain_document.contains("original_document"));
+        assert!(rendered.brain_document.len() < original.len());
+        assert_eq!(serde_json::to_string(&profile).unwrap(), original);
     }
 
     #[test]
