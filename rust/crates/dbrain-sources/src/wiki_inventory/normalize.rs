@@ -1,3 +1,6 @@
+#[path = "../game_files/budget.rs"]
+mod allocation_budget;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use regex::Regex;
@@ -595,8 +598,14 @@ fn normalize_page(
                     &revision_key,
                     historical,
                     &mut facts,
-                    0,
+                    &mut FlattenBudget {
+                        depth: 0,
+                        allocation: allocation_budget::Budget::new(),
+                    },
                 )?,
+                Err(error) if error.to_string().contains(allocation_budget::EXCEEDED) => {
+                    return Err(SourcesError::invalid_input(error.to_string()));
+                }
                 Err(_) => gap(out, &document_id, title, "data_json_invalid_or_ambiguous"),
             }
         }
@@ -859,6 +868,11 @@ fn page_kind(namespace: Option<i64>, context: &WikiSourceContext, redirect: bool
     }
 }
 
+struct FlattenBudget {
+    depth: usize,
+    allocation: allocation_budget::Budget,
+}
+
 fn flatten_data(
     value: &Value,
     pointer: &str,
@@ -866,9 +880,9 @@ fn flatten_data(
     revision: &str,
     historical: bool,
     facts: &mut Vec<Value>,
-    depth: usize,
+    budget: &mut FlattenBudget,
 ) -> Result<()> {
-    if depth > 32 || facts.len() > 10_000 {
+    if budget.depth > 32 || facts.len() > 10_000 {
         return Err(SourcesError::invalid_input(
             "Wiki-Data-Struktur überschreitet die Faktengrenzen",
         ));
@@ -876,46 +890,71 @@ fn flatten_data(
     match value {
         Value::Object(object) => {
             for (key, value) in object {
+                budget
+                    .allocation
+                    .expanded(&[pointer.len(), allocation_budget::escaped_len(key)], 192)
+                    .map_err(SourcesError::invalid_input)?;
                 let escaped = key.replace('~', "~0").replace('/', "~1");
-                flatten_data(
+                budget.depth += 1;
+                let result = flatten_data(
                     value,
                     &format!("{pointer}/{escaped}"),
                     document_id,
                     revision,
                     historical,
                     facts,
-                    depth + 1,
-                )?;
+                    budget,
+                );
+                budget.depth -= 1;
+                result?;
             }
         }
         Value::Array(array) => {
             for (index, value) in array.iter().enumerate() {
-                flatten_data(
+                budget
+                    .allocation
+                    .expanded(&[pointer.len()], 192)
+                    .map_err(SourcesError::invalid_input)?;
+                budget.depth += 1;
+                let result = flatten_data(
                     value,
                     &format!("{pointer}/{index}"),
                     document_id,
                     revision,
                     historical,
                     facts,
-                    depth + 1,
-                )?;
+                    budget,
+                );
+                budget.depth -= 1;
+                result?;
             }
         }
-        _ => facts.push(json!({
-            "fact_id": format!("json:{}", sha256(pointer.as_bytes())),
-            "subject": document_id,
-            "predicate": "wiki.data.value",
-            "value": value,
-            "unit": null,
-            "evidence_status": "extracted_value",
-            "source_span": format!("revision:{revision}:json{pointer}"),
-            "qualifiers": {
-                "json_pointer": pointer,
-                "historical": historical,
-                "game_patch_verified": false,
-                "unit_inferred": false,
-            },
-        })),
+        _ => {
+            if facts.len() == 10_000 {
+                return Err(SourcesError::invalid_input(
+                    "Wiki-Data-Struktur überschreitet die Faktengrenzen",
+                ));
+            }
+            budget
+                .allocation
+                .expanded(&[pointer.len(), revision.len(), document_id.len()], 1536)
+                .map_err(SourcesError::invalid_input)?;
+            facts.push(json!({
+                "fact_id": format!("json:{}", sha256(pointer.as_bytes())),
+                "subject": document_id,
+                "predicate": "wiki.data.value",
+                "value": value,
+                "unit": null,
+                "evidence_status": "extracted_value",
+                "source_span": format!("revision:{revision}:json{pointer}"),
+                "qualifiers": {
+                    "json_pointer": pointer,
+                    "historical": historical,
+                    "game_patch_verified": false,
+                    "unit_inferred": false,
+                },
+            }));
+        }
     }
     Ok(())
 }
@@ -1028,6 +1067,66 @@ mod precision_tests {
 
     fn payload(content: &str) -> Value {
         json!({"query":{"pages":[{"pageid":2880,"ns":3500,"title":"Data:Heroes","revisions":[{"revid":18108,"slots":{"main":{"contentmodel":"json","content":content}}}]}]}})
+    }
+
+    #[test]
+    fn path_amplification_is_rejected_before_fact_allocation() {
+        for array in [false, true] {
+            let key = "~/ä".repeat(100);
+            let leaves = if array {
+                json!([1, 2, 3, 4, 5])
+            } else {
+                json!({"a":1,"b":2,"c":3,"d":4,"e":5})
+            };
+            let value = json!({key: leaves});
+            let mut budget = FlattenBudget {
+                depth: 0,
+                allocation: allocation_budget::Budget::new(),
+            };
+            budget
+                .allocation
+                .charge(512 * 1024 * 1024 - 16_000)
+                .unwrap();
+            let mut facts = Vec::new();
+            let error = flatten_data(
+                &value,
+                "",
+                "wiki:fixture",
+                "1",
+                false,
+                &mut facts,
+                &mut budget,
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains(allocation_budget::EXCEEDED));
+            assert!(facts.len() < 5);
+        }
+        let mut nested = json!(1);
+        for _ in 0..33 {
+            nested = json!({"a": nested});
+        }
+        let mut budget = FlattenBudget {
+            depth: 0,
+            allocation: allocation_budget::Budget::new(),
+        };
+        assert!(flatten_data(
+            &nested,
+            "",
+            "wiki:fixture",
+            "1",
+            false,
+            &mut Vec::new(),
+            &mut budget
+        )
+        .is_err());
+        let broad = json!({"x".repeat(100_000): vec![1;10_000]});
+        let error = normalize_api_response(
+            &payload(&broad.to_string()),
+            &context(),
+            "2026-10-04T12:00:00Z",
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains(allocation_budget::EXCEEDED));
     }
 
     #[test]
