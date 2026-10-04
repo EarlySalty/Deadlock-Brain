@@ -191,7 +191,7 @@ pub(crate) fn matching_entity(entity: &EntityIdentity, change: &PatchStoryChange
         name.is_some_and(|name| {
             std::iter::once(&entity.name)
                 .chain(&entity.aliases)
-                .any(|candidate| candidate.eq_ignore_ascii_case(name))
+                .any(|candidate| candidate.to_lowercase() == name.to_lowercase())
         })
     };
     match entity.kind {

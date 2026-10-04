@@ -113,11 +113,11 @@ fn consumer_statement_qualifiers(
                 .get(*key)
                 .and_then(Value::as_str)
                 .is_none_or(|text| {
-                    text.eq_ignore_ascii_case(&entity.name)
+                    text.to_lowercase() == entity.name.to_lowercase()
                         || !entity
                             .aliases
                             .iter()
-                            .any(|alias| alias.eq_ignore_ascii_case(text))
+                            .any(|alias| alias.to_lowercase() == text.to_lowercase())
                 })
         })
 }
@@ -505,7 +505,7 @@ pub fn consumer_patch_story(
                 && change.entity_name.as_ref().is_some_and(|name| {
                     std::iter::once(&entity.name)
                         .chain(&entity.aliases)
-                        .any(|alias| alias.eq_ignore_ascii_case(name))
+                        .any(|alias| alias.to_lowercase() == name.to_lowercase())
                 })
     }) {
         if change.provenance.relation != "brain.patch_changes"
@@ -522,7 +522,7 @@ pub fn consumer_patch_story(
                 entity
                     .aliases
                     .iter()
-                    .any(|alias| alias.eq_ignore_ascii_case(text))
+                    .any(|alias| alias.to_lowercase() == text.to_lowercase())
             })
         {
             clean
@@ -554,7 +554,7 @@ pub fn consumer_patch_story(
             if value.as_ref().is_some_and(|name| {
                 std::iter::once(&entity.name)
                     .chain(&entity.aliases)
-                    .any(|alias| alias.eq_ignore_ascii_case(name))
+                    .any(|alias| alias.to_lowercase() == name.to_lowercase())
             }) {
                 Some(entity.name.clone())
             } else {
@@ -587,7 +587,7 @@ pub fn consumer_patch_story(
                 entity
                     .aliases
                     .iter()
-                    .any(|alias| alias.eq_ignore_ascii_case(name))
+                    .any(|alias| alias.to_lowercase() == name.to_lowercase())
             }) {
                 *name = Value::String(entity.name.clone());
             }

@@ -775,14 +775,16 @@ fn consumer_patch_conditions_keep_decimal_thresholds_and_withhold_unsafe_stateme
     use brain_storage::entity_profile::derivation::consumer_patch_story;
     let mut entity = identity(EntityKind::Hero, "hero_test", "Test");
     entity.aliases.push("private_alias".into());
+    entity.aliases.push("Interner Älias".into());
     for condition in [
         json!("health < 50.0%"),
         json!("/private/health.json"),
         json!({"threshold": 50}),
         json!("private_alias"),
+        json!("interner älias"),
     ] {
         let mut change = story_change("2026-09-16", 998877, 887766);
-        change.entity_name = Some("private_alias".into());
+        change.entity_name = Some("interner älias".into());
         change
             .additional_fields
             .insert("condition".into(), condition.clone());
@@ -808,6 +810,7 @@ fn consumer_patch_conditions_keep_decimal_thresholds_and_withhold_unsafe_stateme
             assert!(document.contains("öffentliche Beschreibung"));
         }
         assert!(!document.contains("private_alias"));
+        assert!(!document.contains("älias"));
         assert!(change.original_line.text.is_some());
     }
     for key in ["variant", "semantic_scope"] {
@@ -1235,12 +1238,19 @@ fn derived_alias_qualifiers_withhold_whole_numbers_and_keep_private_pins() {
         compact::compact_document, derivation::derive_git_profile,
     };
     for key in ["variant", "condition", "ability_name"] {
-        for text in ["Interner Bindungsalias", "interner bindungsalias", "Test"] {
+        for text in [
+            "Interner Bindungsalias",
+            "interner bindungsalias",
+            "Interner Älias",
+            "interner älias",
+            "Test",
+        ] {
             let mut fixture = receipt_fixture_with_qualifier(Some((key, text)));
-            fixture.bindings[1]
-                .binding_identity
-                .aliases
-                .extend(["Interner Bindungsalias".into(), "Test".into()]);
+            fixture.bindings[1].binding_identity.aliases.extend([
+                "Interner Bindungsalias".into(),
+                "Interner Älias".into(),
+                "Test".into(),
+            ]);
             let original_bindings = fixture.bindings.clone();
             let (profile, receipt) = derive_git_profile(
                 "hero_test",
@@ -1264,6 +1274,8 @@ fn derived_alias_qualifiers_withhold_whole_numbers_and_keep_private_pins() {
             let document = compact_document(&profile).unwrap();
             assert!(!document.contains("Interner Bindungsalias"));
             assert!(!document.contains("interner bindungsalias"));
+            assert!(!document.contains("Älias"));
+            assert!(!document.contains("älias"));
             if text == "Test" {
                 assert_eq!(profile.facts.len(), 2);
                 assert!(profile
@@ -1320,12 +1332,12 @@ fn document_receipt_reconstructs_both_git_sources_story_and_exact_output() {
         binding
             .binding_identity
             .aliases
-            .push("Interner Historienalias".into());
+            .push("Interner Älias".into());
     }
     let mut change = story_change("2026-09-16", 110, 120);
-    change.entity_name = Some("Interner Historienalias".into());
+    change.entity_name = Some("interner älias".into());
     change.provenance.evidence_ref =
-        "brain.patch_changes:2026-09-16:Interner Historienalias:MaxHealth".into();
+        "brain.patch_changes:2026-09-16:interner älias:MaxHealth".into();
     let story = vec![change];
     let (profile, receipt) = derive_git_profile(
         "hero_test",
@@ -1344,7 +1356,7 @@ fn document_receipt_reconstructs_both_git_sources_story_and_exact_output() {
     let record = derived_document(&profile, &receipt);
     assert!(!record.content.contains("Privater Originaltext"));
     assert!(!record.content.contains("original_relative_path"));
-    assert!(!record.content.contains("Interner Historienalias"));
+    assert!(!record.content.contains("älias"));
     assert!(profile.entity.aliases.is_empty());
     assert_eq!(profile.patch_story[0].entity_name.as_deref(), Some("Test"));
     assert!(profile
