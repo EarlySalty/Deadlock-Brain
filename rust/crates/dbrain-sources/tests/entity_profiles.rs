@@ -33,6 +33,97 @@ fn entity(kind: EntityKind) -> EntityIdentity {
         identity_evidence: vec!["fixture:identity".into()],
     }
 }
+
+fn extracted_fact(
+    extension: &str,
+    number: &str,
+) -> brain_contracts::entity_profile::EntityProfileFact {
+    use dbrain_sources::game_files::{extract_game_files, GameFileOptions};
+
+    let root = tempfile::tempdir().unwrap();
+    let content = if extension == "json" {
+        format!("{{\"health\":{number}}}")
+    } else {
+        format!("{{ health = {number} }}")
+    };
+    std::fs::write(root.path().join(format!("health.{extension}")), content).unwrap();
+    let options = GameFileOptions {
+        root: root.path().into(),
+        app_id: 1422450,
+        source_id: "fixture".into(),
+        observed_at: "2026-10-03T00:00:00Z".into(),
+        build_id: None,
+        manifest_id: None,
+        source_revision: Some("fixture-revision".into()),
+        depot_id: None,
+        language: "und".into(),
+        attribution: "Testdaten".into(),
+        license_name: "fixture".into(),
+        license_url: None,
+        provenance: json!({"fixture":true}),
+        max_file_bytes: 1024 * 1024,
+    };
+    let mut output = Vec::new();
+    let inventory = extract_game_files(&options, &mut output).unwrap();
+    assert_eq!(inventory.facts, 1);
+    let document: Value = serde_json::from_slice(&output).unwrap();
+    let fact_id = document["facts"][0]["fact_id"].as_str().unwrap().to_owned();
+    let input = validate_knowledge_jsonl_str(std::str::from_utf8(&output).unwrap()).unwrap();
+    let policy: ImportPolicy = serde_json::from_value(json!({"sources":{"fixture":{
+        "internal_read_allowed":true,"raw_retention_allowed":true,"publication_allowed":false,"provider_egress_allowed":false,"authorization_ref":"fixture-grant","provenance_evidence_ref":"fixture-origin","allowed_scopes":[]
+    }}})).unwrap();
+    let prepared = prepare_validated_knowledge(&input, &policy, "fixture-v1").unwrap();
+    project_entity_facts(&prepared.records()[0].record, &[fact_id])
+        .unwrap()
+        .remove(0)
+}
+
+#[test]
+fn extractor_lexemes_do_not_hide_conflicts_or_merge_semantic_qualifiers() {
+    for extension in ["json", "kv3"] {
+        for (left, right) in [
+            ("12", "13"),
+            ("12", "340282346638528859811704183484516925440.0"),
+        ] {
+            let facts = vec![
+                extracted_fact(extension, left),
+                extracted_fact(extension, right),
+            ];
+            assert_eq!(facts[0].qualifiers["source_lexeme"], left);
+            assert_eq!(facts[1].qualifiers["source_lexeme"], right);
+            let profile = assemble_profile(entity(EntityKind::Hero), None, facts.clone(), vec![]);
+            assert_eq!(profile.conflicts.len(), 1);
+            assert_eq!(profile.conflicts[0].fact_ids.len(), 2);
+            assert_eq!(profile.facts, facts);
+
+            for key in [
+                "variant",
+                "condition",
+                "level",
+                "source_pointer",
+                "type_flags",
+            ] {
+                let mut separated = facts.clone();
+                separated[0].qualifiers.insert(key.into(), json!("normal"));
+                separated[1]
+                    .qualifiers
+                    .insert(key.into(), json!("enhanced"));
+                let profile =
+                    assemble_profile(entity(EntityKind::Hero), None, separated.clone(), vec![]);
+                assert!(profile.conflicts.is_empty(), "{extension}:{key}");
+                assert_eq!(profile.facts, separated);
+            }
+            let mut separated = facts.clone();
+            separated[0].unit = Some("hp".into());
+            separated[1].unit = Some("percent".into());
+            assert!(
+                assemble_profile(entity(EntityKind::Hero), None, separated, vec![])
+                    .conflicts
+                    .is_empty()
+            );
+        }
+    }
+}
 #[test]
 fn values_units_qualifiers_and_rights_remain_lossless() {
     let facts = project_entity_facts(&record(), &["health".into()]).unwrap();
@@ -66,9 +157,10 @@ fn conflicting_sources_keep_both_values_and_git_preference() {
     let mut git = facts[0].clone();
     git.value = json!("123");
     facts[0].qualifiers.insert(
-        "numeric_representation".into(),
-        json!("source_numeric_lexeme"),
+        "source_lexeme".into(),
+        json!("1.2345678901234567890123456789e+19"),
     );
+    git.qualifiers.insert("source_lexeme".into(), json!("123"));
     git.qualifiers.insert(
         "numeric_representation".into(),
         json!("source_numeric_lexeme"),

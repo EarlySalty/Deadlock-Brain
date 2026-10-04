@@ -519,6 +519,34 @@ impl WikiSpool {
     }
 
     pub(super) fn publish(&self, state: &Checkpoint) -> Result<WikiInventoryReport> {
+        let mut gaps = state.gaps.clone();
+        let conflict_dir = self.root.join("conflicts");
+        if conflict_dir.exists() {
+            let mut conflict_paths = fs::read_dir(&conflict_dir)?
+                .map(|entry| entry.map(|entry| entry.path()))
+                .collect::<std::io::Result<Vec<_>>>()?;
+            conflict_paths.sort();
+            for path in conflict_paths {
+                if !path
+                    .extension()
+                    .is_some_and(|extension| extension == "json")
+                {
+                    continue;
+                }
+                let document = self.read_optional_json(&path)?.ok_or_else(|| {
+                    SourcesError::invalid_input("Wiki-Konfliktdatei ist verschwunden")
+                })?;
+                validate_document(&document)?;
+                let gap = super::WikiGap {
+                    document_id: document["document_id"].as_str().map(str::to_owned),
+                    title: document["title"].as_str().map(str::to_owned),
+                    reason: "content_conflict".into(),
+                };
+                if !gaps.contains(&gap) {
+                    gaps.push(gap);
+                }
+            }
+        }
         let mut record_paths = Vec::new();
         for entry in fs::read_dir(&self.records_dir)? {
             let entry = entry?;
@@ -643,7 +671,7 @@ impl WikiSpool {
             source_id: state.source_id.clone(),
             inventory_complete: complete,
             content_complete: complete
-                && state.gaps.is_empty()
+                && gaps.is_empty()
                 && state.pages.values().all(|page| page.content_available),
             namespace_counts,
             namespaces_completed: completed,
@@ -651,7 +679,7 @@ impl WikiSpool {
             inventory_pages: state.pages.len(),
             documents: document_count,
             unknown_revisions,
-            gaps: state.gaps.clone(),
+            gaps,
             access_block: state.access_block.clone(),
             documents_path: target,
             inventory_path: self.root.join("inventory.json"),
@@ -911,4 +939,90 @@ fn sync_parent(path: &Path) -> Result<()> {
         File::open(parent)?.sync_all()?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::wiki_inventory::{
+        collect_wiki_inventory_with_transport, read_wiki_inventory_report, WikiInventoryOptions,
+    };
+    use std::collections::VecDeque;
+
+    #[test]
+    fn persisted_content_conflict_remains_a_gap_after_original_retry_and_namespace_completion() {
+        let root = tempfile::tempdir().unwrap();
+        let options = WikiInventoryOptions {
+            enabled: true,
+            access_policy_reviewed: true,
+            observed_at: "2026-10-04T00:00:00Z".into(),
+            ..Default::default()
+        };
+        let site = json!({"query": {
+            "general": {"server":"https://deadlock.wiki","lang":"en"},
+            "rightsinfo": {"text":"Creative Commons Attribution-NonCommercial-ShareAlike","url":"https://creativecommons.org/licenses/by-nc-sa/4.0/"},
+            "namespaces": {"0":{"id":0,"name":""},"10":{"id":10,"name":"Template"}}
+        }});
+        let capture = |content: &str| {
+            json!({"batchcomplete":true,"query":{"pages":[{
+                "pageid":1,"ns":0,"title":"Testseite",
+                "revisions":[{"revid":101,"timestamp":"2026-10-03T00:00:00Z",
+                    "slots":{"main":{"contentmodel":"wikitext","*":content}}}]
+            }]}})
+        };
+        let mut first = capture("Originaltext");
+        first["continue"] = json!({"continue":"||","gapcontinue":"Testseite"});
+        let mut responses = VecDeque::from([site, first, capture("Abweichender Text")]);
+        let error = collect_wiki_inventory_with_transport(root.path(), &options, |_| {
+            Ok(responses.pop_front().unwrap())
+        })
+        .unwrap_err();
+        assert!(error.to_string().contains("Konflikt"), "{error}");
+        let snapshot = |directory: &str| {
+            fs::read_dir(root.path().join(directory))
+                .unwrap()
+                .map(|entry| {
+                    let path = entry.unwrap().path();
+                    let bytes = fs::read(&path).unwrap();
+                    (path, bytes)
+                })
+                .collect::<BTreeMap<_, _>>()
+        };
+        let originals = snapshot("documents");
+        let conflicts = snapshot("conflicts");
+        assert_eq!(originals.len(), 1);
+        assert_eq!(conflicts.len(), 1);
+        let partial = read_wiki_inventory_report(root.path(), options.max_total_bytes).unwrap();
+        assert!(!partial.content_complete);
+        assert_eq!(partial.gaps.len(), 1);
+        assert_eq!(partial.gaps[0].reason, "content_conflict");
+        let mut responses =
+            VecDeque::from([capture("Originaltext"), json!({"batchcomplete":true})]);
+        let report = collect_wiki_inventory_with_transport(root.path(), &options, |_| {
+            Ok(responses.pop_front().unwrap())
+        })
+        .unwrap();
+        assert!(responses.is_empty());
+        assert!(report.inventory_complete);
+        assert_eq!(report.namespaces_completed, vec![0, 10]);
+        assert!(!report.content_complete);
+        assert_eq!(report.gaps, partial.gaps);
+        assert_eq!(
+            report.gaps[0].document_id.as_deref(),
+            Some("wiki:deadlock-wiki:page:1")
+        );
+        assert_eq!(report.gaps[0].title.as_deref(), Some("Testseite"));
+        assert_eq!(snapshot("documents"), originals);
+        assert_eq!(snapshot("conflicts"), conflicts);
+        let bytes = fs::read(&report.documents_path).unwrap();
+        let repeated = collect_wiki_inventory_with_transport(root.path(), &options, |_| {
+            panic!("Abgeschlossenes Inventar darf keinen Abruf auslösen")
+        })
+        .unwrap();
+        assert!(!repeated.content_complete);
+        assert_eq!(repeated.gaps, report.gaps);
+        assert_eq!(fs::read(repeated.documents_path).unwrap(), bytes);
+        assert_eq!(snapshot("documents"), originals);
+        assert_eq!(snapshot("conflicts"), conflicts);
+    }
 }

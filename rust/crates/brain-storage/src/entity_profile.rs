@@ -111,10 +111,14 @@ pub fn assemble_profile(
 ) -> EntityProfile {
     let mut grouped = BTreeMap::new();
     for fact in &facts {
+        let mut comparison_qualifiers = fact.qualifiers.clone();
+        for key in ["source_lexeme", "numeric_representation"] {
+            comparison_qualifiers.remove(key);
+        }
         grouped
             .entry((
                 fact.predicate.clone(),
-                serde_json::to_string(&fact.qualifiers).unwrap_or_default(),
+                serde_json::to_string(&comparison_qualifiers).unwrap_or_default(),
                 fact.unit.clone(),
             ))
             .or_insert_with(Vec::new)
