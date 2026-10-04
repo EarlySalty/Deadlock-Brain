@@ -1,3 +1,6 @@
+#[path = "game_files/budget.rs"]
+mod allocation_budget;
+
 use chrono::DateTime;
 use serde::de::{DeserializeSeed, Error as _, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -628,7 +631,12 @@ fn input_conflict(
 
 pub(crate) fn parse_unique_json(text: &str) -> Result<Value, serde_json::Error> {
     let mut deserializer = serde_json::Deserializer::from_str(text);
-    let value = UniqueJsonSeed { path: "$".into() }.deserialize(&mut deserializer)?;
+    let mut budget = allocation_budget::Budget::new();
+    let value = UniqueJsonSeed {
+        path: "$".into(),
+        budget: &mut budget,
+    }
+    .deserialize(&mut deserializer)?;
     deserializer.end()?;
     drop(value);
     serde_json::from_str(text)
@@ -1010,11 +1018,12 @@ fn required_value<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Value, D
     Value::deserialize(deserializer)
 }
 
-struct UniqueJsonSeed {
+struct UniqueJsonSeed<'a> {
     path: String,
+    budget: &'a mut allocation_budget::Budget,
 }
 
-impl<'de> DeserializeSeed<'de> for UniqueJsonSeed {
+impl<'de> DeserializeSeed<'de> for UniqueJsonSeed<'_> {
     type Value = Value;
 
     fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<Value, D::Error> {
@@ -1022,7 +1031,7 @@ impl<'de> DeserializeSeed<'de> for UniqueJsonSeed {
     }
 }
 
-impl<'de> Visitor<'de> for UniqueJsonSeed {
+impl<'de> Visitor<'de> for UniqueJsonSeed<'_> {
     type Value = Value;
 
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -1061,9 +1070,17 @@ impl<'de> Visitor<'de> for UniqueJsonSeed {
 
     fn visit_seq<A: SeqAccess<'de>>(self, mut sequence: A) -> Result<Value, A::Error> {
         let mut values = Vec::new();
-        while let Some(value) = sequence.next_element_seed(UniqueJsonSeed {
-            path: format!("{}[{}]", self.path, values.len()),
-        })? {
+        loop {
+            self.budget
+                .expanded(&[self.path.len()], 192)
+                .map_err(A::Error::custom)?;
+            let Some(value) = sequence.next_element_seed(UniqueJsonSeed {
+                path: format!("{}[{}]", self.path, values.len()),
+                budget: self.budget,
+            })?
+            else {
+                break;
+            };
             values.push(value);
         }
         Ok(Value::Array(values))
@@ -1072,6 +1089,12 @@ impl<'de> Visitor<'de> for UniqueJsonSeed {
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Value, A::Error> {
         let mut values = Map::new();
         while let Some(key) = map.next_key::<String>()? {
+            self.budget
+                .expanded(
+                    &[self.path.len(), allocation_budget::escaped_len(&key)],
+                    192,
+                )
+                .map_err(A::Error::custom)?;
             if values.contains_key(&key) {
                 return Err(A::Error::custom(format!(
                     "Doppelter Objektschlüssel in {}.{key}",
@@ -1080,9 +1103,53 @@ impl<'de> Visitor<'de> for UniqueJsonSeed {
             }
             let value = map.next_value_seed(UniqueJsonSeed {
                 path: format!("{}.{key}", self.path),
+                budget: self.budget,
             })?;
             values.insert(key, value);
         }
         Ok(Value::Object(values))
+    }
+}
+
+#[cfg(test)]
+mod path_budget_tests {
+    use super::*;
+
+    #[test]
+    fn diagnostic_paths_have_a_cumulative_budget() {
+        for text in [
+            json_text(false),
+            json_text(true),
+            format!("{}1{}", "{\"long_key\":".repeat(24), "}".repeat(24)),
+        ] {
+            let mut budget = allocation_budget::Budget::new();
+            budget.charge(512 * 1024 * 1024 - 2048).unwrap();
+            let mut parser = serde_json::Deserializer::from_str(&text);
+            let error = UniqueJsonSeed {
+                path: "$".into(),
+                budget: &mut budget,
+            }
+            .deserialize(&mut parser)
+            .unwrap_err();
+            assert!(error.to_string().contains(allocation_budget::EXCEEDED));
+        }
+        let text = serde_json::json!({"x".repeat(100_000): vec![1; 10_000]}).to_string();
+        assert!(parse_unique_json(&text)
+            .unwrap_err()
+            .to_string()
+            .contains(allocation_budget::EXCEEDED));
+        assert!(parse_unique_json(r#"{"a":[{"b":1,"b":2}]}"#)
+            .unwrap_err()
+            .to_string()
+            .contains("$.a[0].b"));
+    }
+
+    fn json_text(array: bool) -> String {
+        let leaves = if array {
+            serde_json::json!([1, 2, 3, 4, 5])
+        } else {
+            serde_json::json!({"a":1,"b":2,"c":3,"d":4,"e":5})
+        };
+        serde_json::json!({"key".repeat(20): leaves}).to_string()
     }
 }

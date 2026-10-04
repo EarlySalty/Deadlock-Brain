@@ -271,6 +271,12 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
     .execute(&pool)
     .await
     .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../../../scripts/migrations/2026-10-04-brain-entity-profile-binding-identity-v1.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
     let mut record = record();
     let mut origin = brain_contracts::source::origin_from_record(&record).unwrap();
     record.allowed_scopes.insert("fixture:read".into());
@@ -365,14 +371,37 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
         .unwrap()
         .unwrap();
     assert_eq!(visible.facts.len(), 1);
-    assert_eq!(visible.entity.name, "Test");
-    assert!(visible.entity.aliases.is_empty());
-    assert_eq!(visible.entity.identity_evidence.len(), 1);
-    assert!(visible.entity.identity_evidence[0].starts_with("fixture:"));
-    assert_ne!(visible.entity, entity);
+    assert_eq!(visible.entity, entity);
     assert_eq!(
         visible.facts[0].value.to_string(),
         "1.2345678901234567890123456789e+19"
+    );
+    sqlx::query(
+        "UPDATE brain.entity_profile_facts_v1 SET binding_identity_json=NULL WHERE entity_key=$1",
+    )
+    .bind(&entity.entity_key)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(store
+        .read_entity_profile(&entity.entity_key, &release.release_id, &principal, None)
+        .await
+        .is_err());
+    assert_eq!(
+        store
+            .store_entity_fact_bindings(&entity, &record, &["health".into()])
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        store
+            .read_entity_profile(&entity.entity_key, &release.release_id, &principal, None)
+            .await
+            .unwrap()
+            .unwrap()
+            .entity,
+        entity
     );
     let mut restricted = record.clone();
     restricted.revision += 1;
@@ -410,8 +439,12 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
         .metadata
         .insert(document_key.into(), document.to_string());
     store.apply(&public).await.unwrap();
+    let mut public_entity = entity.clone();
+    public_entity.name = "Öffentlicher Name".into();
+    public_entity.aliases.clear();
+    public_entity.identity_evidence = vec!["public-fixture:identity".into()];
     store
-        .store_entity_fact_bindings(&entity, &public, &["health".into()])
+        .store_entity_fact_bindings(&public_entity, &public, &["health".into()])
         .await
         .unwrap();
     let mut mixed = release.clone();
@@ -452,5 +485,101 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
         .await
         .unwrap()
         .is_none());
+    principal.scopes.insert("fixture:extractor".into());
+    for (index, record) in extractor_records().into_iter().enumerate() {
+        let document: Value = serde_json::from_str(&record.metadata[document_key]).unwrap();
+        let ids: Vec<String> = document["facts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| {
+                let subject = f["subject"].as_str().unwrap();
+                assert!(subject.starts_with("game_file:") || subject.starts_with("wiki:"));
+                f["fact_id"].as_str().unwrap().into()
+            })
+            .collect();
+        assert!(!ids.is_empty());
+        let identity = EntityIdentity {
+            entity_key: format!("extractor-{index}"),
+            kind: [EntityKind::Hero, EntityKind::Ability, EntityKind::Item][index % 3],
+            name: format!("Belegter Name {index}"),
+            aliases: vec![format!("Belegter Alias {index}")],
+            identity_evidence: vec![format!("{}:binding", record.logical_id)],
+        };
+        store.apply(&record).await.unwrap();
+        assert_eq!(
+            store
+                .store_entity_fact_bindings(&identity, &record, &ids)
+                .await
+                .unwrap(),
+            ids.len()
+        );
+        let release = brain_contracts::CorpusRelease {
+            release_id: format!("extractor-release-{index}"),
+            source_revisions: std::collections::BTreeMap::from([(
+                record.source_id.clone(),
+                std::collections::BTreeMap::from([(record.logical_id.clone(), record.revision)]),
+            )]),
+            ..release.clone()
+        };
+        store.publish_release(&release).await.unwrap();
+        let actual = store
+            .read_entity_profile(&identity.entity_key, &release.release_id, &principal, None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(actual.entity, identity);
+        assert_eq!(actual.facts, project_entity_facts(&record, &ids).unwrap());
+    }
     pool.close().await;
+}
+
+fn extractor_records() -> Vec<brain_contracts::SourceRecordV2> {
+    use dbrain_sources::game_files::{extract_game_files, GameFileOptions};
+    use dbrain_sources::wiki_inventory::{normalize_api_response, WikiSourceContext};
+    let mut documents = Vec::new();
+    for extension in ["txt", "json", "kv3"] {
+        let root = tempfile::tempdir().unwrap();
+        let content = match extension {
+            "txt" => r#""hero" { "health" "12" }"#,
+            "json" => r#"{"health":12}"#,
+            _ => "{ health = 12 }",
+        };
+        std::fs::write(root.path().join(format!("health.{extension}")), content).unwrap();
+        let options = GameFileOptions {
+            root: root.path().into(),
+            app_id: 1422450,
+            source_id: "fixture".into(),
+            observed_at: "2026-10-03T00:00:00Z".into(),
+            build_id: None,
+            manifest_id: None,
+            source_revision: Some("fixture-revision".into()),
+            depot_id: None,
+            language: "und".into(),
+            attribution: "Testdaten".into(),
+            license_name: "fixture".into(),
+            license_url: None,
+            provenance: json!({"fixture":true}),
+            max_file_bytes: 1024 * 1024,
+        };
+        let mut output = Vec::new();
+        assert_eq!(extract_game_files(&options, &mut output).unwrap().facts, 1);
+        documents.push(serde_json::from_slice::<Value>(&output).unwrap());
+    }
+    for (namespace, id) in [("Data", 3500), ("Bucket", 3501)] {
+        let xml = format!("<mediawiki><siteinfo><base>https://deadlock.wiki/{namespace}:Heroes</base><namespaces><namespace key=\"0\"></namespace><namespace key=\"{id}\">{namespace}</namespace></namespaces></siteinfo></mediawiki>");
+        let context = WikiSourceContext::from_mediawiki_export(&xml).unwrap();
+        let payload = json!({"query":{"pages":[{"pageid":id,"ns":id,"title":format!("{namespace}:Heroes"),"revisions":[{"revid":18108,"slots":{"main":{"contentmodel":"json","content":"{\"health\":12}"}}}]}]}});
+        documents.extend(
+            normalize_api_response(&payload, &context, "2026-10-04T12:00:00Z")
+                .unwrap()
+                .documents,
+        );
+    }
+    documents.into_iter().map(|document| {
+        let source = document["source_id"].as_str().unwrap();
+        let policy: ImportPolicy = serde_json::from_value(json!({"sources":{source:{"internal_read_allowed":true,"raw_retention_allowed":true,"publication_allowed":false,"provider_egress_allowed":false,"authorization_ref":"fixture-grant","provenance_evidence_ref":"fixture-origin","allowed_scopes":["fixture:extractor"]}}})).unwrap();
+        let input = validate_knowledge_jsonl_str(&document.to_string()).unwrap();
+        prepare_validated_knowledge(&input,&policy,"fixture-v1").unwrap().records()[0].record.clone()
+    }).collect()
 }

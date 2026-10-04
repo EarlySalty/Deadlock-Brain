@@ -1,9 +1,9 @@
 use crate::{PgStore, StorageError};
 use brain_contracts::{
     entity_profile::{
-        EntityIdentity, EntityKind, EntityProfile, EntityProfileFact, PatchStoryChange,
-        PatchStoryProvenance, PatchValidity, ProfileConflict, ProfileProvenance, ProfileSourceKind,
-        RestrictedPatchLine, ENTITY_PROFILE_VERSION,
+        EntityIdentity, EntityProfile, EntityProfileFact, PatchStoryChange, PatchStoryProvenance,
+        PatchValidity, ProfileConflict, ProfileProvenance, ProfileSourceKind, RestrictedPatchLine,
+        ENTITY_PROFILE_VERSION,
     },
     source::origin_from_record,
     SourceRecordV2,
@@ -230,18 +230,16 @@ impl PgStore {
         }
         let facts = project_entity_facts(&original, fact_ids)?;
         sqlx::query("INSERT INTO brain.entity_profile_entities_v1(entity_key,identity_json) VALUES($1,$2) ON CONFLICT(entity_key) DO NOTHING").bind(&entity.entity_key).bind(&identity).execute(&mut *tx).await?;
-        let stored: Value = sqlx::query_scalar("SELECT identity_json FROM brain.entity_profile_entities_v1 WHERE entity_key=$1 FOR UPDATE").bind(&entity.entity_key).fetch_one(&mut *tx).await?;
-        if stored != identity {
-            return Err(invalid("Entitätsidentität widerspricht vorhandenem Beleg"));
-        }
         let mut inserted = 0;
         for fact in facts {
             let encoded = serde_json::to_string(&fact)?;
-            inserted += sqlx::query("INSERT INTO brain.entity_profile_facts_v1(entity_key,source_id,logical_id,revision,fact_id,fact_json) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING")
-                .bind(&entity.entity_key).bind(&record.source_id).bind(&record.logical_id).bind(revision).bind(&fact.fact_id).bind(&encoded).execute(&mut *tx).await?.rows_affected() as usize;
+            inserted += sqlx::query("INSERT INTO brain.entity_profile_facts_v1(entity_key,source_id,logical_id,revision,fact_id,fact_json,binding_identity_json) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(entity_key,source_id,logical_id,revision,fact_id) DO UPDATE SET binding_identity_json=EXCLUDED.binding_identity_json WHERE brain.entity_profile_facts_v1.binding_identity_json IS NULL")
+                .bind(&entity.entity_key).bind(&record.source_id).bind(&record.logical_id).bind(revision).bind(&fact.fact_id).bind(&encoded).bind(&identity).execute(&mut *tx).await?.rows_affected() as usize;
             let stored: String = sqlx::query_scalar("SELECT fact_json FROM brain.entity_profile_facts_v1 WHERE entity_key=$1 AND source_id=$2 AND logical_id=$3 AND revision=$4 AND fact_id=$5")
                 .bind(&entity.entity_key).bind(&record.source_id).bind(&record.logical_id).bind(revision).bind(&fact.fact_id).fetch_one(&mut *tx).await?;
-            if stored != encoded {
+            let stored_identity: Value = sqlx::query_scalar("SELECT binding_identity_json FROM brain.entity_profile_facts_v1 WHERE entity_key=$1 AND source_id=$2 AND logical_id=$3 AND revision=$4 AND fact_id=$5")
+                .bind(&entity.entity_key).bind(&record.source_id).bind(&record.logical_id).bind(revision).bind(&fact.fact_id).fetch_one(&mut *tx).await?;
+            if stored != encoded || stored_identity != identity {
                 return Err(invalid("Faktenbeleg widerspricht vorhandenem Import"));
             }
         }
@@ -276,48 +274,39 @@ impl PgStore {
                         && original.revision == source.revision
                 })
                 .ok_or_else(|| invalid("Gespeicherte Quellrevision fehlt"))?;
-            let values: Vec<String> = sqlx::query_scalar("SELECT fact_json FROM brain.entity_profile_facts_v1 WHERE entity_key=$1 AND source_id=$2 AND logical_id=$3 AND revision=$4 ORDER BY fact_id")
+            let values: Vec<(String, Option<Value>)> = sqlx::query_as("SELECT fact_json,binding_identity_json FROM brain.entity_profile_facts_v1 WHERE entity_key=$1 AND source_id=$2 AND logical_id=$3 AND revision=$4 ORDER BY fact_id")
                 .bind(entity_key).bind(&source.source_id).bind(&source.logical_id).bind(source.revision as i64).fetch_all(&self.pool).await?;
-            for value in values {
+            for (value, binding_identity) in values {
                 let fact: EntityProfileFact = serde_json::from_str(&value)?;
                 if project_entity_facts(original, std::slice::from_ref(&fact.fact_id))?[0] != fact {
                     return Err(invalid("Fakt und freigegebene Quelle widersprechen sich"));
                 }
-                let kind = [
-                    ("hero", EntityKind::Hero),
-                    ("ability", EntityKind::Ability),
-                    ("item", EntityKind::Item),
-                ]
-                .into_iter()
-                .find_map(|(prefix, kind)| {
-                    (fact.subject == format!("{prefix}:{entity_key}")).then_some(kind)
-                });
-                if let Some(kind) = kind {
-                    let document: Value = serde_json::from_str(
-                        &original.metadata[crate::source_versions::DOCUMENT_METADATA_KEY],
-                    )?;
-                    let name = document["title"]
-                        .as_str()
-                        .filter(|name| !name.trim().is_empty())
-                        .ok_or_else(|| invalid("Belegter Entitätsname fehlt"))?;
-                    let evidence = format!("{}:title", fact_reference(&fact));
-                    let identity = entity.get_or_insert_with(|| EntityIdentity {
-                        entity_key: entity_key.into(),
-                        kind,
-                        name: name.into(),
-                        aliases: Vec::new(),
-                        identity_evidence: Vec::new(),
-                    });
-                    if identity.kind != kind {
+                let binding: EntityIdentity =
+                    serde_json::from_value(binding_identity.ok_or_else(|| {
+                        invalid("Belegte Bindungsidentität fehlt; erneute Zuordnung erforderlich")
+                    })?)?;
+                if binding.entity_key != entity_key
+                    || binding.name.trim().is_empty()
+                    || binding.identity_evidence.is_empty()
+                {
+                    return Err(invalid("Gespeicherte Bindungsidentität ist ungültig"));
+                }
+                if let Some(identity) = &mut entity {
+                    if identity.kind != binding.kind {
                         return Err(invalid("Autorisierte Entitätsbelege widersprechen sich"));
                     }
-                    if identity.name != name && !identity.aliases.iter().any(|alias| alias == name)
-                    {
-                        identity.aliases.push(name.into());
+                    for name in std::iter::once(binding.name).chain(binding.aliases) {
+                        if identity.name != name && !identity.aliases.contains(&name) {
+                            identity.aliases.push(name);
+                        }
                     }
-                    if !identity.identity_evidence.contains(&evidence) {
-                        identity.identity_evidence.push(evidence);
+                    for evidence in binding.identity_evidence {
+                        if !identity.identity_evidence.contains(&evidence) {
+                            identity.identity_evidence.push(evidence);
+                        }
                     }
+                } else {
+                    entity = Some(binding);
                 }
                 if let Some(patch) = patch {
                     historical_unknown |= matches!(fact.validity, PatchValidity::Unknown { .. });
