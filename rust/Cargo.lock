@@ -415,6 +415,7 @@ dependencies = [
  "brain-storage",
  "chrono",
  "clap",
+ "dbrain-normalize",
  "dbrain-retrieval",
  "dbrain-sources",
  "dl-token-secrets",

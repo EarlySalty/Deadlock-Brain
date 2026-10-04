@@ -31,6 +31,26 @@ BEGIN
   IF to_regclass('brain.maintenance_jobs_v1') IS NOT NULL THEN
     GRANT SELECT, INSERT, UPDATE ON brain.maintenance_jobs_v1 TO brain_ingest;
   END IF;
+  IF to_regclass('brain.entity_profile_entities_v1') IS NOT NULL THEN
+    GRANT SELECT ON brain.entity_profile_entities_v1 TO brain_service, brain_readonly;
+    GRANT SELECT, INSERT, UPDATE ON brain.entity_profile_entities_v1 TO brain_ingest;
+  END IF;
+  IF to_regclass('brain.entity_profile_facts_v1') IS NOT NULL THEN
+    GRANT SELECT ON brain.entity_profile_facts_v1 TO brain_service, brain_readonly;
+    GRANT SELECT, INSERT, UPDATE ON brain.entity_profile_facts_v1 TO brain_ingest;
+  END IF;
+  IF to_regclass('brain.entity_semantic_projections_v1') IS NOT NULL THEN
+    GRANT SELECT ON brain.entity_semantic_projections_v1 TO brain_service, brain_readonly;
+    GRANT SELECT, INSERT ON brain.entity_semantic_projections_v1 TO brain_ingest;
+  END IF;
+  IF to_regclass('brain.entity_patch_intervals_v1') IS NOT NULL THEN
+    GRANT SELECT ON brain.entity_patch_intervals_v1 TO brain_service, brain_readonly;
+    GRANT SELECT, INSERT, UPDATE ON brain.entity_patch_intervals_v1 TO brain_ingest;
+  END IF;
+  IF to_regclass('brain.entity_derived_receipts_v1') IS NOT NULL THEN
+    GRANT SELECT ON brain.entity_derived_receipts_v1 TO brain_service, brain_readonly;
+    GRANT SELECT, INSERT ON brain.entity_derived_receipts_v1 TO brain_ingest;
+  END IF;
   IF EXISTS (SELECT FROM pg_namespace WHERE nspname = 'brain_legacy') THEN
     EXECUTE 'REVOKE ALL ON SCHEMA brain_legacy FROM PUBLIC';
     EXECUTE 'GRANT USAGE ON SCHEMA brain_legacy TO brain_readonly';

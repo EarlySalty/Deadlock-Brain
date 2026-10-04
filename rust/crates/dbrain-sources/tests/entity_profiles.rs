@@ -371,14 +371,50 @@ fn conflicting_sources_keep_both_values_and_git_preference() {
         .as_ref()
         .unwrap()
         .starts_with("git-fixture:"));
+    let wiki = profile.facts[0].clone();
+    let git = profile.facts[1].clone();
+    for value in [json!("123"), json!("125")] {
+        let mut other_git = git.clone();
+        other_git.value = value.clone();
+        other_git.provenance.origin.identity.source_id = "other-git-fixture".into();
+        let mut facts = vec![wiki.clone(), other_git, git.clone()];
+        let mut preferred = None;
+        for _ in 0..2 {
+            let profile = assemble_profile(entity(EntityKind::Hero), None, facts.clone(), vec![]);
+            assert_eq!(profile.facts, facts);
+            assert_eq!(profile.conflicts.len(), 1);
+            assert_eq!(profile.conflicts[0].fact_ids.len(), 3);
+            if value == git.value {
+                assert!(profile.conflicts[0]
+                    .preferred_fact_id
+                    .as_ref()
+                    .unwrap()
+                    .starts_with("git-fixture:"));
+            } else {
+                assert!(profile.conflicts[0].preferred_fact_id.is_none());
+            }
+            if let Some(previous) = &preferred {
+                assert_eq!(previous, &profile.conflicts[0].preferred_fact_id);
+            }
+            preferred = Some(profile.conflicts[0].preferred_fact_id.clone());
+            facts.reverse();
+        }
+    }
 }
 #[test]
 fn validity_is_open_or_exclusive_and_unknown_is_not_backdated() {
     let mut validity = PatchValidity::Known {
         from_patch: "2026-09-16".into(),
         to_patch_exclusive: None,
+        through_patch_inclusive: None,
         evidence_ref: "patch-fixture".into(),
     };
+    let serialized = serde_json::to_value(&validity).unwrap();
+    assert!(serialized.get("through_patch_inclusive").is_none());
+    assert_eq!(
+        serde_json::from_value::<PatchValidity>(serialized).unwrap(),
+        validity
+    );
     assert!(!validity_contains(&validity, "2026-09-15"));
     assert!(validity_contains(&validity, "2026-10-04"));
     if let PatchValidity::Known {
@@ -389,6 +425,17 @@ fn validity_is_open_or_exclusive_and_unknown_is_not_backdated() {
     }
     assert!(validity_contains(&validity, "2026-09-29"));
     assert!(!validity_contains(&validity, "2026-09-30"));
+    if let PatchValidity::Known {
+        to_patch_exclusive,
+        through_patch_inclusive,
+        ..
+    } = &mut validity
+    {
+        *to_patch_exclusive = None;
+        *through_patch_inclusive = Some("2026-09-30".into());
+    }
+    assert!(validity_contains(&validity, "2026-09-30"));
+    assert!(!validity_contains(&validity, "2026-10-01"));
     assert!(!validity_contains(
         &PatchValidity::Unknown {
             reason: "fehlt".into()
@@ -566,7 +613,10 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
         .unwrap()
         .unwrap();
     assert_eq!(visible.facts.len(), 1);
-    assert_eq!(visible.entity, entity);
+    assert_eq!(
+        visible.entity,
+        brain_storage::entity_profile::consumer_entity_identity(&entity)
+    );
     entity_kinds_are_consistent_across_bindings(&store, &pool, &principal).await;
     patch_stories_follow_entity_kind(&store, &pool, &record, &release, &principal).await;
     assert_eq!(
@@ -598,7 +648,7 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
             .unwrap()
             .unwrap()
             .entity,
-        entity
+        brain_storage::entity_profile::consumer_entity_identity(&entity)
     );
     let mut restricted = record.clone();
     restricted.revision += 1;
@@ -739,7 +789,10 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(actual.entity, identity);
+        assert_eq!(
+            actual.entity,
+            brain_storage::entity_profile::consumer_entity_identity(&identity)
+        );
         let expected = project_entity_facts(&record, &ids).unwrap();
         assert_eq!(actual.facts.len(), expected.len());
         for fact in expected {
@@ -786,7 +839,327 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
     for fact in shared_kv1_facts {
         assert!(shared.facts.contains(&fact));
     }
+    original_alias_bindings_drive_history_without_consumer_leaks(&store, &pool).await;
+    sqlx::raw_sql(
+        "CREATE ROLE brain_ingest LOGIN; CREATE ROLE brain_service; CREATE ROLE brain_readonly",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let grants = include_str!("../../../../ops/brain-postgres/grants.sql")
+        .lines()
+        .filter(|line| !line.starts_with('\\'))
+        .collect::<Vec<_>>()
+        .join("\n");
+    sqlx::raw_sql(&grants).execute(&pool).await.unwrap();
+    sqlx::raw_sql("GRANT SELECT,INSERT,UPDATE ON brain.entity_profile_entities_v1,brain.entity_profile_facts_v1 TO brain_ingest; GRANT SELECT,INSERT ON brain.entity_semantic_projections_v1 TO brain_ingest")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let ingest_pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(4)
+        .connect_with(
+            sqlx::postgres::PgConnectOptions::new_without_pgpass()
+                .host(socket.to_str().unwrap())
+                .port(15446)
+                .username("brain_ingest")
+                .database("postgres"),
+        )
+        .await
+        .unwrap();
+    let raw_rights: (bool, bool, bool, bool) = sqlx::query_as(
+        "SELECT has_table_privilege(current_user,'brain.source_record_revisions','SELECT'),has_table_privilege(current_user,'brain.source_record_revisions','INSERT'),has_table_privilege(current_user,'brain.source_record_revisions','UPDATE'),has_table_privilege(current_user,'brain.source_record_revisions','DELETE')",
+    )
+    .fetch_one(&ingest_pool)
+    .await
+    .unwrap();
+    assert_eq!(raw_rights, (true, true, false, false));
+    unicode_bindings_remain_verifiable_after_import(&brain_storage::PgStore::new(
+        ingest_pool.clone(),
+    ))
+    .await;
+    ingest_pool.close().await;
     pool.close().await;
+}
+
+async fn original_alias_bindings_drive_history_without_consumer_leaks(
+    store: &brain_storage::PgStore,
+    pool: &sqlx::PgPool,
+) {
+    use brain_storage::entity_profile::{
+        consumer_entity_identity,
+        semantic::{project_semantic_fact, semantic_projection},
+    };
+    use dbrain_sources::entity_binding::{bind_document, bind_stored_document, CatalogEntity};
+    sqlx::raw_sql(include_str!(
+        "../../../../scripts/migrations/2026-10-04-brain-entity-semantic-projection-v1.sql"
+    ))
+    .execute(pool)
+    .await
+    .unwrap();
+    let document = extracted_game_document_from_source(
+        "alias-original",
+        "json",
+        r#"{"hero_test":{"MaxHealth":120,"Variants":[{"Damage":20},{"Damage":30}]}}"#,
+    );
+    let mut record = prepared_game_document(&document);
+    let mut origin = brain_contracts::source::origin_from_record(&record).unwrap();
+    record
+        .allowed_scopes
+        .insert("fixture:alias-original".into());
+    origin.policy.allowed_scopes = record.allowed_scopes.clone();
+    origin.bind_record(&mut record).unwrap();
+    store.apply(&record).await.unwrap();
+    let mut identity = entity(EntityKind::Hero);
+    identity.entity_key = "alias-original-hero".into();
+    identity.name = "Testheld".into();
+    identity.aliases = vec!["Historischer Privatname".into()];
+    let catalog = vec![CatalogEntity {
+        identity: identity.clone(),
+        identifiers: vec!["hero_test".into()],
+    }];
+    let knowledge = serde_json::from_value(document).unwrap();
+    let coverage = bind_document(&knowledge, &catalog);
+    let mut previous = identity.clone();
+    previous.aliases.clear();
+    previous.identity_evidence = coverage
+        .bindings
+        .iter()
+        .flat_map(|binding| binding.identity_evidence.clone())
+        .collect();
+    previous.identity_evidence.sort();
+    previous.identity_evidence.dedup();
+    let ids: Vec<_> = coverage
+        .bindings
+        .iter()
+        .map(|binding| binding.fact.fact_id.clone())
+        .collect();
+    store
+        .store_entity_fact_bindings(&previous, &record, &ids)
+        .await
+        .unwrap();
+    for _ in 0..2 {
+        bind_stored_document(
+            store,
+            &record.source_id,
+            &record.logical_id,
+            record.revision,
+            &catalog,
+        )
+        .await
+        .unwrap();
+    }
+    let health_id = "json:/hero_test/MaxHealth";
+    let stored = store
+        .stored_entity_binding_identity(&identity.entity_key, &record, health_id)
+        .await
+        .unwrap();
+    assert!(stored.aliases.contains(&"Historischer Privatname".into()));
+    assert!(stored.aliases.contains(&"hero_test".into()));
+    assert_eq!(
+        consumer_entity_identity(&stored).aliases,
+        Vec::<String>::new()
+    );
+    assert!(consumer_entity_identity(&stored)
+        .identity_evidence
+        .is_empty());
+    sqlx::query("INSERT INTO brain.patch_changes(patch_date,entity_type,entity_name,stat_name,old_value,new_value,raw_line,patch_url) VALUES('2026-09-01','hero','Historischer Privatname','Max Health','100','110','Historischer Privatname','https://example.org/patch'),('2026-09-16','hero','Historischer Privatname','Max Health','110','120','Historischer Privatname','https://example.org/patch')").execute(pool).await.unwrap();
+    assert_eq!(store.entity_patch_story(&stored).await.unwrap().len(), 2);
+    let variant_id = "json:/hero_test/Variants/1/Damage";
+    let fact = project_entity_facts(&record, &[variant_id.into()])
+        .unwrap()
+        .remove(0);
+    let mut forged = semantic_projection(&fact, "/Variants/1/Damage", &record, &stored)
+        .unwrap()
+        .unwrap();
+    forged.relative_pointer = "/Damage".into();
+    forged.qualifiers.remove("semantic_scope");
+    assert!(project_semantic_fact(&fact, &forged, &record, &stored).is_err());
+    assert!(store
+        .store_entity_semantic_projection(&identity.entity_key, &record, variant_id, &forged)
+        .await
+        .is_err());
+    let release = brain_contracts::CorpusRelease {
+        release_id: "alias-original-release".into(),
+        knowledge_version: "fixture".into(),
+        patch: "unknown".into(),
+        created_at_epoch: 1,
+        source_revisions: std::collections::BTreeMap::from([(
+            record.source_id.clone(),
+            std::collections::BTreeMap::from([(record.logical_id.clone(), record.revision)]),
+        )]),
+    };
+    store.publish_release(&release).await.unwrap();
+    let mut principal = brain_contracts::Principal {
+        actor_id: "fixture".into(),
+        channel: "test".into(),
+        scopes: record.allowed_scopes.clone(),
+        provider_egress: Default::default(),
+    };
+    let current = store
+        .read_entity_profile(&identity.entity_key, &release.release_id, &principal, None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        current
+            .facts
+            .iter()
+            .find(|fact| fact.predicate == "max_health")
+            .unwrap()
+            .value,
+        json!(120)
+    );
+    assert_eq!(current.patch_story.len(), 2);
+    let profile = store
+        .read_entity_profile(
+            &identity.entity_key,
+            &release.release_id,
+            &principal,
+            Some("2026-09-15"),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(profile.facts.is_empty());
+    assert!(profile
+        .unknowns
+        .iter()
+        .any(|unknown| unknown.contains("Historische Fakten")));
+    assert_eq!(profile.patch_story.len(), 1);
+    let consumer = serde_json::to_string(&profile.entity).unwrap();
+    assert!(!consumer.contains("Historischer Privatname"));
+    let story = serde_json::to_string(&profile.patch_story).unwrap();
+    assert!(!story.contains("Historischer Privatname"));
+    assert_eq!(
+        profile.patch_story[0].entity_name.as_deref(),
+        Some("Testheld")
+    );
+    assert!(!serde_json::to_string(&profile)
+        .unwrap()
+        .contains("Historischer Privatname"));
+    let changes = store
+        .read_entity_profile(
+            &identity.entity_key,
+            &release.release_id,
+            &principal,
+            Some("2026-09-16"),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(changes.facts.is_empty());
+    let change = changes
+        .patch_story
+        .iter()
+        .find(|change| change.patch_date == "2026-09-16")
+        .unwrap();
+    assert_eq!(change.entity_name.as_deref(), Some("Testheld"));
+    assert_eq!(change.stat_name.as_deref(), Some("Max Health"));
+    assert_eq!(change.old_value, "110");
+    assert_eq!(change.new_value, "120");
+    assert_eq!(change.provenance.relation, "brain.patch_changes");
+    principal.scopes.clear();
+    assert!(store
+        .read_entity_profile(&identity.entity_key, &release.release_id, &principal, None)
+        .await
+        .unwrap()
+        .is_none());
+    principal.scopes = record.allowed_scopes.clone();
+    let mut revoked = record.clone();
+    revoked.revision += 1;
+    revoked
+        .allowed_scopes
+        .insert("fixture:alias-revoked".into());
+    origin.policy.allowed_scopes = revoked.allowed_scopes.clone();
+    origin.bind_record(&mut revoked).unwrap();
+    store.apply(&revoked).await.unwrap();
+    assert!(store
+        .read_entity_profile(&identity.entity_key, &release.release_id, &principal, None)
+        .await
+        .unwrap()
+        .is_none());
+    principal.scopes = revoked.allowed_scopes.clone();
+    assert!(store
+        .read_entity_profile(&identity.entity_key, &release.release_id, &principal, None)
+        .await
+        .unwrap()
+        .is_some());
+    revoked.revision += 1;
+    revoked.tombstone = true;
+    store.apply(&revoked).await.unwrap();
+    assert!(store
+        .read_entity_profile(&identity.entity_key, &release.release_id, &principal, None)
+        .await
+        .unwrap()
+        .is_none());
+}
+
+async fn unicode_bindings_remain_verifiable_after_import(store: &brain_storage::PgStore) {
+    use brain_storage::entity_profile::semantic::project_semantic_fact;
+    use dbrain_sources::entity_binding::{bind_stored_document, CatalogEntity};
+
+    for (index, content) in [
+        r#"{"äther":{"Health":120}}"#,
+        r#"{"0":{"CLASS_NAME":"äTHER","Health":125}}"#,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let document =
+            extracted_game_document_from_source(&format!("unicode-{index}"), "json", content);
+        let record = prepared_game_document(&document);
+        store.apply(&record).await.unwrap();
+        let mut identity = entity(EntityKind::Hero);
+        identity.entity_key = format!("unicode-{index}");
+        identity.name = "Äther".into();
+        let catalog = [CatalogEntity {
+            identity: identity.clone(),
+            identifiers: vec!["Äther".into()],
+        }];
+        let first = bind_stored_document(
+            store,
+            &record.source_id,
+            &record.logical_id,
+            record.revision,
+            &catalog,
+        )
+        .await
+        .unwrap();
+        assert_eq!(first.bound_facts, index + 1);
+        assert_eq!(first.inserted_bindings, index + 1);
+        assert_eq!(first.inserted_projections, 1);
+        let retry = bind_stored_document(
+            store,
+            &record.source_id,
+            &record.logical_id,
+            record.revision,
+            &catalog,
+        )
+        .await
+        .unwrap();
+        assert_eq!(retry.bound_facts, first.bound_facts);
+        assert_eq!(retry.inserted_bindings, 0);
+        assert_eq!(retry.inserted_projections, 0);
+        let bindings = store
+            .stored_git_entity_bindings(&identity.entity_key, &record)
+            .await
+            .unwrap();
+        let health = bindings
+            .iter()
+            .find(|binding| binding.semantic_projection.is_some())
+            .unwrap();
+        let projected = project_semantic_fact(
+            &health.original_fact,
+            health.semantic_projection.as_ref().unwrap(),
+            &record,
+            &health.binding_identity,
+        )
+        .unwrap();
+        assert_eq!(projected.predicate, "health");
+        assert_eq!(projected.value, json!(if index == 0 { 120 } else { 125 }));
+        assert_eq!(health.binding_identity.name, "Äther");
+    }
 }
 
 async fn entity_kinds_are_consistent_across_bindings(
@@ -1003,7 +1376,7 @@ async fn patch_stories_follow_entity_kind(
                     "100"
                 }
             );
-            assert_eq!(change.original_line.text.as_deref(), Some("Beleg"));
+            assert!(change.original_line.text.is_none());
             assert!(!change.original_line.redistribution_allowed);
         }
         let historical = store

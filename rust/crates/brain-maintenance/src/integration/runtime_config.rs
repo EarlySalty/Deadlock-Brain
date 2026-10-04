@@ -9,6 +9,8 @@ use std::{
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RuntimeConfig {
+    #[serde(skip)]
+    pub loaded_from: Option<PathBuf>,
     pub maintenance_config: PathBuf,
     pub postgres: brain_serve::config::Postgres,
     pub serve_config: PathBuf,
@@ -23,6 +25,22 @@ pub struct RuntimeConfig {
     pub retry_delay_ms: u64,
     #[serde(default)]
     pub local_imports: Vec<LocalImport>,
+    #[serde(default)]
+    pub entity_profile_corpus_root: Option<PathBuf>,
+    #[serde(default)]
+    pub entity_profile_sources: Vec<EntityProfileSource>,
+    #[serde(default)]
+    pub entity_profile_patch_raw_dir: Option<PathBuf>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EntityProfileSource {
+    pub repository_id: String,
+    pub paths: std::collections::BTreeSet<String>,
+    pub extraction: dbrain_sources::game_files::GameFileOptions,
+    pub import_policy: PathBuf,
+    pub canonical_raw_dir: Option<PathBuf>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -46,7 +64,7 @@ pub fn read_bounded(path: &Path, maximum: usize) -> Result<Vec<u8>> {
 
 impl RuntimeConfig {
     pub fn load(path: &Path) -> Result<Self> {
-        let config: Self = serde_json::from_slice(&read_bounded(path, 65536)?)
+        let mut config: Self = serde_json::from_slice(&read_bounded(path, 65536)?)
             .map_err(|_| anyhow::anyhow!("runtime_config_schema"))?;
         for path in [
             &config.maintenance_config,
@@ -75,6 +93,41 @@ impl RuntimeConfig {
             "retry_delay"
         );
         ensure!(config.local_imports.len() <= 32, "local_import_limit");
+        if let Some(root) = &config.entity_profile_corpus_root {
+            ensure!(root.is_absolute(), "entity_profile_corpus_root");
+        }
+        if let Some(raw_dir) = &config.entity_profile_patch_raw_dir {
+            ensure!(
+                raw_dir.is_absolute() && config.entity_profile_corpus_root.is_some(),
+                "entity_profile_patch_raw_dir"
+            );
+        }
+        ensure!(
+            config.entity_profile_sources.len() <= 32,
+            "entity_profile_source_limit"
+        );
+        let mut identities = std::collections::BTreeSet::new();
+        for source in &config.entity_profile_sources {
+            ensure!(
+                !source.repository_id.is_empty()
+                    && config.entity_profile_corpus_root.is_some()
+                    && !source.extraction.source_id.is_empty()
+                    && identities.insert(&source.extraction.source_id)
+                    && source.extraction.build_id.is_none()
+                    && source.extraction.manifest_id.is_none()
+                    && !source.paths.is_empty()
+                    && source.paths.len() <= 64
+                    && source.import_policy.is_absolute()
+                    && source
+                        .canonical_raw_dir
+                        .as_ref()
+                        .is_none_or(|path| path.is_absolute()),
+                "entity_profile_source"
+            );
+            for path in &source.paths {
+                crate::config::safe_relative(path)?;
+            }
+        }
         for import in &config.local_imports {
             ensure!(
                 !import.targets.is_empty() && import.targets.len() <= 64,
@@ -121,6 +174,7 @@ impl RuntimeConfig {
                 || config.postgres.auth == brain_serve::config::DatabaseAuth::Peer,
             "migration_peer_required"
         );
+        config.loaded_from = Some(path.to_owned());
         Ok(config)
     }
 }

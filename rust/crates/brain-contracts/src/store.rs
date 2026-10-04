@@ -154,6 +154,17 @@ pub struct CorpusSnapshot {
     pub heads: Vec<SourceRecordV2>,
 }
 pub trait SnapshotReadPort: Send + Sync {
+    fn read_entity_evidence(
+        &self,
+        _query: &crate::Query,
+        _context: &crate::AuthorizedContext,
+        _patch_date: Option<&str>,
+        _provider: bool,
+        _purpose: AnswerPurpose,
+    ) -> StoreResult<Option<Vec<crate::Evidence>>> {
+        Ok(None)
+    }
+
     fn read_snapshot(&self, release_id: &str) -> StoreResult<CorpusSnapshot>;
     /// Request adapters override this to bound pool/statement waits as well as handoffs.
     fn read_snapshot_until(

@@ -1,6 +1,5 @@
 #![forbid(unsafe_code)]
 
-#[cfg(test)]
 use brain_contracts::{CorpusRelease, SourceRecordV2};
 use brain_storage::PgStore;
 use dbrain_sources::knowledge_contract::validate_knowledge_jsonl;
@@ -16,7 +15,6 @@ use std::fs::File;
 use std::io::{BufReader, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-#[cfg(test)]
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[path = "brain-knowledge-import/runtime.rs"]
@@ -327,11 +325,100 @@ async fn pool(args: &Arguments) -> Result<sqlx::PgPool, String> {
     runtime::connect(&args.path("--runtime-config")?, infisical.as_deref()).await
 }
 
-async fn publish(_: &Arguments, _: &PgStore, _: &sqlx::PgPool) -> Result<Value, String> {
-    Err("Veröffentlichung bleibt bis zur geordneten Übernahme der bestehenden Release-/Indexprüfung gesperrt".into())
+async fn publish(args: &Arguments, store: &PgStore, pool: &sqlx::PgPool) -> Result<Value, String> {
+    let base = store
+        .snapshot(args.required("--base-release")?)
+        .await
+        .map_err(|_| "Basisrelease kann nicht vollständig gelesen werden")?;
+    let rows: Vec<Value> = sqlx::query_scalar(
+        "SELECT record_json FROM brain.source_record_heads WHERE source_id = ANY($1) ORDER BY source_id,logical_id",
+    ).bind(&args.sources).fetch_all(pool).await
+        .map_err(|_| "Ausdrücklich benannte Quellköpfe können nicht gelesen werden")?;
+    let heads = rows
+        .into_iter()
+        .map(|row| {
+            serde_json::from_value(row)
+                .map_err(|_| "Gespeicherter Quellkopf ist ungültig".to_owned())
+        })
+        .collect::<Result<Vec<SourceRecordV2>, String>>()?;
+    let PreparedPublication {
+        release,
+        expected_heads,
+        source_counts: added,
+        largest_content_bytes,
+    } = prepare_publication(args, &base, heads)?;
+    let release = store
+        .imported_release_for_retry(&release)
+        .await
+        .map_err(|_| {
+            "Bestehender Release hat eine abweichende Identität oder ungültige Erstellungszeit"
+        })?;
+    let pinned_records = base
+        .revisions
+        .into_iter()
+        .filter(|record| !args.sources.contains(&record.source_id))
+        .chain(
+            expected_heads
+                .iter()
+                .filter(|record| args.sources.contains(&record.source_id))
+                .cloned(),
+        )
+        .collect();
+    let index_proof = dbrain_retrieval::preflight_release_index(release.clone(), pinned_records)
+        .map_err(|_| "Vollständiger gepinnter Release verletzt die bestehende Index-/Projektionsgrenze oder seinen Herkunftsvertrag; keine Veröffentlichung")?;
+    let document_count: usize = release.source_revisions.values().map(BTreeMap::len).sum();
+    let previous_pins = base
+        .release
+        .source_revisions
+        .values()
+        .map(BTreeMap::len)
+        .sum::<usize>();
+    let committed_count = store.publish_imported_heads_checked(
+        args.required("--base-release")?, &args.sources, &release, &expected_heads,
+    ).await.map_err(|_| "Releaseveröffentlichung fehlgeschlagen; Kopfstand oder Rechte müssen erneut geprüft werden")?;
+    let release = store
+        .imported_release_for_retry(&release)
+        .await
+        .map_err(|_| "Veröffentlichter Retry-Release entspricht nicht dem geprüften Manifest")?;
+    let verified = store
+        .snapshot(&release.release_id)
+        .await
+        .map_err(|_| "Veröffentlichter Release kann nicht nachgelesen werden")?;
+    let verified_heads: BTreeMap<_, _> = verified
+        .heads
+        .iter()
+        .map(|record| {
+            (
+                (record.source_id.clone(), record.logical_id.clone()),
+                record,
+            )
+        })
+        .collect();
+    if verified.release != release
+        || verified.revisions.len() != document_count
+        || committed_count != document_count
+        || verified_heads.len() != expected_heads.len()
+        || expected_heads.iter().any(|record| {
+            verified_heads
+                .get(&(record.source_id.clone(), record.logical_id.clone()))
+                .copied()
+                != Some(record)
+        })
+    {
+        return Err(
+            "Nachgelesener Release entspricht nicht dem geprüften Manifest und Kopfstand".into(),
+        );
+    }
+    Ok(json!({
+        "published": true, "activated": false, "release_id": release.release_id,
+        "knowledge_version": release.knowledge_version, "base_release": base.release.release_id,
+        "previous_pins": previous_pins, "documents": document_count,
+        "selected_source_heads": added, "largest_content_bytes": largest_content_bytes,
+        "release_index": index_proof,
+        "activation_required": "Der bestehende Brain-Dienst muss diesen Release ausdrücklich auswählen."
+    }))
 }
 
-#[cfg(test)]
 struct PreparedPublication {
     release: CorpusRelease,
     expected_heads: Vec<SourceRecordV2>,
@@ -339,88 +426,44 @@ struct PreparedPublication {
     largest_content_bytes: usize,
 }
 
-#[cfg(test)]
 fn prepare_publication(
     args: &Arguments,
     base: &brain_contracts::CorpusSnapshot,
     heads: Vec<SourceRecordV2>,
 ) -> Result<PreparedPublication, String> {
-    let mut expected: BTreeMap<(String, String), SourceRecordV2> = base
-        .heads
-        .iter()
-        .filter(|record| !args.sources.contains(&record.source_id))
-        .map(|record| {
-            (
-                (record.source_id.clone(), record.logical_id.clone()),
-                record.clone(),
-            )
-        })
-        .collect();
-    let mut release = CorpusRelease {
-        release_id: args.required("--release-id")?.to_owned(),
-        knowledge_version: args.required("--knowledge-version")?.to_owned(),
-        patch: base.release.patch.clone(),
-        created_at_epoch: i64::try_from(
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_err(|_| "Systemzeit ist ungültig")?
-                .as_secs(),
-        )
-        .map_err(|_| "Systemzeit ist zu groß")?,
-        source_revisions: base.release.source_revisions.clone(),
-    };
-    for source in &args.sources {
-        release.source_revisions.remove(source);
-    }
+    let created_at_epoch = i64::try_from(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| "Systemzeit ist ungültig")?
+            .as_secs(),
+    )
+    .map_err(|_| "Systemzeit ist zu groß")?;
     let mut added: BTreeMap<String, usize> = args
         .sources
         .iter()
         .map(|source| (source.clone(), 0))
         .collect();
     let mut largest_content_bytes = 0;
-    for record in heads {
-        if record.tombstone {
-            return Err(
-                "Benannte Quelle enthält einen zurückgezogenen Kopf; Release bleibt unverändert"
-                    .into(),
-            );
-        }
-        record
-            .validate()
-            .map_err(|_| "Gespeicherter Quellkopf verletzt den Vertrag")?;
-        brain_contracts::source::origin_from_record(&record)
-            .map_err(|_| "Importierter Quellkopf hat keinen gültigen Herkunftsnachweis")?;
+    for record in &heads {
         largest_content_bytes = largest_content_bytes.max(record.content.len());
         *added
             .get_mut(&record.source_id)
             .ok_or("Unerwartete Quelle beim Releaseaufbau")? += 1;
-        release
-            .source_revisions
-            .entry(record.source_id.clone())
-            .or_default()
-            .insert(record.logical_id.clone(), record.revision);
-        if expected
-            .insert(
-                (record.source_id.clone(), record.logical_id.clone()),
-                record,
-            )
-            .is_some()
-        {
-            return Err("Gespeicherte Quelle enthält einen doppelten Kopf".into());
-        }
     }
-    if added.values().any(|count| *count == 0) {
-        return Err("Mindestens eine benannte Quelle hat keine gespeicherten Dokumente".into());
-    }
-    let document_count: usize = release.source_revisions.values().map(BTreeMap::len).sum();
-    if document_count > 10_000 {
-        return Err("Release überschreitet die bestehende Grenze von 10.000 Dokumenten".into());
-    }
-    brain_storage::validate_release(&release)
-        .map_err(|_| "Release verletzt den bestehenden Vertrag".to_owned())?;
+    let (release, expected_heads) = PgStore::prepare_imported_release(
+        base,
+        &args.sources,
+        heads,
+        args.required("--release-id")?,
+        args.required("--knowledge-version")?,
+        created_at_epoch,
+    )
+    .map_err(|_| {
+        "Release verletzt den bestehenden Vertrag oder enthält ungültige Quellköpfe".to_owned()
+    })?;
     Ok(PreparedPublication {
         release,
-        expected_heads: expected.into_values().collect(),
+        expected_heads,
         source_counts: added,
         largest_content_bytes,
     })

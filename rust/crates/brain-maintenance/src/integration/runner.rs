@@ -40,14 +40,17 @@ pub fn require_operator_config(config_path: &Path) -> Result<u32> {
     Ok(uid)
 }
 
-fn local_operator_principal(uid: u32, config_path: &Path) -> Result<brain_contracts::Principal> {
+pub fn local_operator_principal(
+    uid: u32,
+    config_path: &Path,
+) -> Result<brain_contracts::Principal> {
     let config = load_maintenance(config_path)?;
-    Ok(brain_contracts::Principal {
-        actor_id: format!("unix:{uid}"),
-        channel: "local-operator".into(),
-        scopes: config.internal_doc_scopes,
-        provider_egress: Default::default(),
-    })
+    let principal = brain_storage::LocalPgReader::entity_profile_operator(config_path, uid)?;
+    ensure!(
+        principal.scopes == config.internal_doc_scopes,
+        "operator_config_changed"
+    );
+    Ok(principal)
 }
 
 pub fn load_maintenance(path: &Path) -> Result<MaintenanceConfig> {
@@ -61,6 +64,7 @@ pub fn load_maintenance(path: &Path) -> Result<MaintenanceConfig> {
 pub struct Runner {
     runtime: RuntimeConfig,
     pub(super) store: PgStore,
+    pool: sqlx::PgPool,
     artifacts: Artifacts,
     jev: Zeroizing<String>,
     pub(super) owner: String,
@@ -310,7 +314,8 @@ impl Runner {
         );
         config.validate()?;
         Ok(Self {
-            store: PgStore::new(pool),
+            store: PgStore::new(pool.clone()),
+            pool,
             runtime,
             artifacts,
             jev,
@@ -412,12 +417,45 @@ impl Runner {
             }
         }
         let mut isolated_errors = Vec::new();
-        for repo in &config.repositories {
+        let mut fresh_sources = BTreeMap::new();
+        let sources = config
+            .repositories
+            .iter()
+            .map(|repo| {
+                (
+                    repo.id.as_str(),
+                    repo.path.as_path(),
+                    repo.source_ref.as_str(),
+                    false,
+                )
+            })
+            .chain(config.game_sources.iter().map(|source| {
+                (
+                    source.id.as_str(),
+                    source.path.as_path(),
+                    source.source_ref.as_str(),
+                    true,
+                )
+            }));
+        for (id, path, source_ref, game_source) in sources {
             let mut failure_stage = "REPOSITORY_REGISTRATION_INVALID";
-            let result: Result<()> = async {
-                crate::config::require_registered(&config, repo)?;
-                let branch = repo
-                    .source_ref
+            let result: Result<String> = async {
+                if game_source {
+                    let source = config
+                        .game_sources
+                        .iter()
+                        .find(|source| source.id == id)
+                        .context("game_source_registration")?;
+                    crate::config::require_registered_game_source(&config, source)?;
+                } else {
+                    let repo = config
+                        .repositories
+                        .iter()
+                        .find(|repo| repo.id == id)
+                        .context("repository_registration")?;
+                    crate::config::require_registered(&config, repo)?;
+                }
+                let branch = source_ref
                     .strip_prefix("refs/remotes/origin/")
                     .context("source_ref")?;
                 failure_stage = "SOURCE_FETCH_FAILED";
@@ -431,15 +469,31 @@ impl Runner {
                         "origin".into(),
                         branch.into(),
                     ],
-                    &repo.path,
+                    path,
                     &[],
                     config.bounds.git_timeout_ms,
                     65536,
                 )
                 .await?;
                 failure_stage = "SOURCE_RESOLVE_FAILED";
-                let sha =
-                    scanner::resolve_ref(&repo.path, &repo.source_ref, &config.bounds).await?;
+                scanner::resolve_ref(path, source_ref, &config.bounds).await
+            }
+            .await;
+            match result {
+                Ok(sha) => {
+                    fresh_sources.insert(id.to_owned(), sha);
+                }
+                Err(_) => isolated_errors.push(json!({"repo":id,"code":failure_stage})),
+            }
+        }
+        for repo in &config.repositories {
+            let mut failure_stage = "REPOSITORY_REGISTRATION_INVALID";
+            let result: Result<()> = async {
+                crate::config::require_registered(&config, repo)?;
+                let sha = fresh_sources
+                    .get(&repo.id)
+                    .context("source_fetch_failed")?
+                    .clone();
                 for target in &repo.doc_targets {
                     failure_stage = "TARGET_QUEUE_CHECK_FAILED";
                     let recent = self
@@ -598,9 +652,202 @@ impl Runner {
             }
         }
         let mut status = self.status().await?;
+        if self.runtime.entity_profile_corpus_root.is_some() {
+            match self.refresh_entity_profiles(&config, &fresh_sources).await {
+                Ok(profiles) => status["entity_profiles"] = profiles,
+                Err(_) => {
+                    isolated_errors.push(json!({"code":"ENTITY_PROFILE_REFRESH_FAILED"}));
+                }
+            }
+        }
         status["isolated_errors"] = json!(isolated_errors);
         self.write_status(&status)?;
         Ok(status)
+    }
+
+    async fn refresh_entity_profiles(
+        &self,
+        config: &MaintenanceConfig,
+        fresh_sources: &BTreeMap<String, String>,
+    ) -> Result<serde_json::Value> {
+        let root = self
+            .runtime
+            .entity_profile_corpus_root
+            .as_ref()
+            .context("entity_profile_corpus_root")?;
+        let artifacts = self.artifacts.clone();
+        let publication_lock =
+            tokio::task::spawn_blocking(move || artifacts.publication_lock()).await??;
+        let mut imports = Vec::new();
+        for source in &self.runtime.entity_profile_sources {
+            let repo = config
+                .game_sources
+                .iter()
+                .find(|repo| repo.id == source.repository_id)
+                .context("entity_profile_repository")?;
+            crate::config::require_registered_game_source(config, repo)?;
+            ensure!(
+                source.paths.iter().all(|path| repo
+                    .source_paths
+                    .iter()
+                    .any(|scope| path == scope || path.starts_with(&format!("{scope}/")))),
+                "entity_profile_source_scope"
+            );
+            let sha = fresh_sources
+                .get(&source.repository_id)
+                .context("entity_profile_source_fetch_failed")?;
+            let pinned = dbrain_sources::git_source::PinnedRepository::open(&repo.path, sha)?;
+            pinned.require_origin(&[&repo.origin])?;
+            imports.push(
+                super::entity_profiles::refresh_git_knowledge(
+                    source,
+                    &pinned,
+                    &repo.path,
+                    &self.store,
+                    &self.pool,
+                )
+                .await?,
+            );
+        }
+        let patches = if let Some(raw_dir) = &self.runtime.entity_profile_patch_raw_dir {
+            Some(super::entity_profiles::refresh_patch_history(&self.pool, raw_dir).await?)
+        } else {
+            None
+        };
+        let serve = brain_serve::Config::load(&self.runtime.serve_config)?;
+        let release = super::activation::ActivationTarget::Standard.release(&serve)?;
+        let mut sources: Vec<_> = self
+            .runtime
+            .entity_profile_sources
+            .iter()
+            .map(|source| source.extraction.source_id.clone())
+            .collect();
+        let base = self.store.snapshot(&release.id).await?;
+        for record in &base.revisions {
+            if let Some(encoded) = record
+                .metadata
+                .get(brain_storage::source_versions::DOCUMENT_METADATA_KEY)
+            {
+                let document: serde_json::Value = serde_json::from_str(encoded)?;
+                if document["source_kind"] == "wiki" && !sources.contains(&record.source_id) {
+                    sources.push(record.source_id.clone());
+                }
+            }
+        }
+        let prepared = super::entity_profiles::publish_refreshed_sources(
+            &self.store,
+            &self.pool,
+            &release.id,
+            &sources,
+        )
+        .await?;
+        let original_release = prepared
+            .as_ref()
+            .map(|prepared| &prepared.candidate)
+            .unwrap_or(&base.release);
+        let principal = local_operator_principal(
+            require_operator_config(&self.runtime.maintenance_config)?,
+            &self.runtime.maintenance_config,
+        )?;
+        let snapshot = self.store.snapshot(&original_release.release_id).await?;
+        let catalog = dbrain_sources::entity_binding::load_entity_catalog(&self.pool).await?;
+        let mut bindings = Vec::new();
+        for record in snapshot.authorized(&principal, false)? {
+            if record
+                .metadata
+                .contains_key(brain_storage::source_versions::DOCUMENT_METADATA_KEY)
+            {
+                bindings.push(
+                    dbrain_sources::entity_binding::bind_stored_document(
+                        &self.store,
+                        &record.source_id,
+                        &record.logical_id,
+                        record.revision,
+                        &catalog,
+                    )
+                    .await?,
+                );
+            }
+        }
+        let repositories =
+            super::entity_profiles::registered_git_repositories(config, &snapshot, &principal)?;
+        let mut git_semantic_keys = std::collections::BTreeSet::new();
+        for record in snapshot.authorized(&principal, false)? {
+            let Some(encoded) = record
+                .metadata
+                .get(brain_storage::source_versions::DOCUMENT_METADATA_KEY)
+            else {
+                continue;
+            };
+            let document: serde_json::Value = serde_json::from_str(encoded)?;
+            if document["source_kind"] != "game_file" {
+                continue;
+            }
+            let keys: Vec<String> = sqlx::query_scalar("SELECT DISTINCT entity_key FROM brain.entity_semantic_projections_v1 WHERE source_id=$1 AND logical_id=$2 AND revision=$3")
+                .bind(&record.source_id).bind(&record.logical_id).bind(record.revision as i64)
+                .fetch_all(&self.pool).await?;
+            git_semantic_keys.extend(keys);
+        }
+        let keys = self
+            .store
+            .list_bound_entity_keys(&original_release.release_id, &principal)
+            .await?;
+        let mut profiles = Vec::new();
+        let mut stored_documents = Vec::new();
+        for key in keys {
+            if git_semantic_keys.contains(&key) {
+                let verified =
+                    dbrain_sources::entity_binding::derivation::derive_git_entity_profile(
+                        &self.store,
+                        &original_release.release_id,
+                        &principal,
+                        &key,
+                        &repositories,
+                    )
+                    .await?;
+                let record =
+                    super::entity_profiles::persist_verified_git_profile(&self.store, &verified)
+                        .await?;
+                profiles.push(verified.profile().clone());
+                stored_documents.push(record);
+                continue;
+            }
+            if let Some(profile) = self
+                .store
+                .read_entity_profile(&key, &original_release.release_id, &principal, None)
+                .await?
+            {
+                profiles.push(profile);
+            }
+        }
+        let prepared =
+            super::entity_profiles::render_and_export_profiles(&self.artifacts, &profiles, root)?;
+        if !stored_documents.is_empty() {
+            sources.push("git-game-facts-derived".into());
+        }
+        let final_prepared = super::entity_profiles::publish_refreshed_sources(
+            &self.store,
+            &self.pool,
+            &base.release.release_id,
+            &sources,
+        )
+        .await?;
+        let release_id = final_prepared
+            .as_ref()
+            .map(|prepared| prepared.candidate.release_id.clone())
+            .unwrap_or_else(|| base.release.release_id.clone());
+        drop(publication_lock);
+        if let Some(prepared) = &final_prepared {
+            super::entity_profiles::activate_refreshed_sources(&self.runtime, prepared).await?;
+        }
+        Ok(
+            json!({"release_id": release_id, "imports": imports, "patches": patches, "bindings": bindings, "stored_documents": stored_documents.len(), "rendered": prepared.len(), "profiles": prepared.iter().map(|profile| json!({
+            "entity_key": profile.entity_key,
+            "profile_sha256": profile.profile_sha256,
+            "brain_document": profile.brain_document_ref,
+            "public_html": profile.public_html_ref
+        })).collect::<Vec<_>>()}),
+        )
     }
 
     async fn handle_failed_advance(

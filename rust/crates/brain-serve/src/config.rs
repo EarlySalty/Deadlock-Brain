@@ -18,6 +18,7 @@ pub struct Config {
     pub analytics: Option<Analytics>,
     pub credentials: Vec<Credential>,
     pub internal_operator: Option<InternalOperator>,
+    pub entity_profile_maintenance_config: Option<std::path::PathBuf>,
     #[serde(default)]
     pub trusted_discord_consumers: Vec<DiscordConsumer>,
     #[serde(default)]
@@ -172,6 +173,8 @@ pub struct Credential {
     pub channel: String,
     pub scopes: BTreeSet<String>,
     pub provider_egress: BTreeSet<String>,
+    #[serde(default)]
+    pub entity_profile_model_context: bool,
     /// Optionaler fester Wissensstand; ohne Override bleibt das bisherige Release.
     pub release: Option<Release>,
 }
@@ -348,6 +351,17 @@ impl Config {
     }
 
     pub fn validate(&self) -> Result<(), Error> {
+        require(
+            self.entity_profile_maintenance_config
+                .as_ref()
+                .is_none_or(|path| {
+                    path.is_absolute()
+                        && path
+                            .to_str()
+                            .is_some_and(|path| !path.chars().any(char::is_control))
+                }),
+            "entity_profile_maintenance_config",
+        )?;
         let pg = &self.postgres;
         require(
             pg.socket_dir.is_absolute()
@@ -489,8 +503,28 @@ impl Config {
             require(names.insert(name), "secret_references")?;
         }
         let mut bindings = std::collections::BTreeMap::new();
+        let mut entity_model_bindings = std::collections::BTreeMap::new();
         let mut internal_count = 0;
         for grant in &self.credentials {
+            require(
+                !grant.entity_profile_model_context
+                    || (self.entity_profile_maintenance_config.is_some()
+                        && grant.actor_id != "second-brain"
+                        && grant.channel != "internal"
+                        && (grant.scopes == BTreeSet::from(["bot.public".into()])
+                            || grant.scopes == BTreeSet::from(["docs.public".into()]))
+                        && grant.provider_egress == BTreeSet::from(["public".into()])),
+                "entity_profile_model_context",
+            )?;
+            if let Some(previous) = entity_model_bindings.insert(
+                (&grant.actor_id, &grant.channel),
+                grant.entity_profile_model_context,
+            ) {
+                require(
+                    previous == grant.entity_profile_model_context,
+                    "entity_profile_model_context",
+                )?;
+            }
             let release = grant.release.as_ref().unwrap_or(&self.release);
             require(
                 identifier(&release.id, 512)
@@ -576,3 +610,74 @@ impl Config {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod entity_profile_tests {
+    #[test]
+    fn model_context_preserves_grants_and_requires_explicit_normal_consumer() {
+        let mut value: serde_json::Value = serde_json::from_slice(include_bytes!(
+            "../../../../config/brain-serve.example.json"
+        ))
+        .unwrap();
+        let baseline = super::Config::parse(&serde_json::to_vec(&value).unwrap()).unwrap();
+        assert!(!baseline.credentials[0].entity_profile_model_context);
+        value["credentials"][0]["entity_profile_model_context"] = serde_json::json!(true);
+        assert!(matches!(
+            super::Config::parse(&serde_json::to_vec(&value).unwrap()),
+            Err(crate::Error::ConfigInvalid("entity_profile_model_context"))
+        ));
+        value["entity_profile_maintenance_config"] =
+            serde_json::json!("/etc/deadlock-brain/maintenance.json");
+        let enabled = super::Config::parse(&serde_json::to_vec(&value).unwrap()).unwrap();
+        assert!(enabled.credentials[0].entity_profile_model_context);
+        assert_eq!(
+            enabled.credentials[0].scopes,
+            baseline.credentials[0].scopes
+        );
+        assert_eq!(
+            enabled.credentials[0].provider_egress,
+            baseline.credentials[0].provider_egress
+        );
+        for (field, replacement) in [
+            ("actor_id", serde_json::json!("second-brain")),
+            ("channel", serde_json::json!("internal")),
+            ("scopes", serde_json::json!(["second_brain.internal"])),
+            ("provider_egress", serde_json::json!([])),
+            ("provider_egress", serde_json::json!(["public", "internal"])),
+        ] {
+            let mut invalid = value.clone();
+            invalid["credentials"][0][field] = replacement;
+            assert!(matches!(
+                super::Config::parse(&serde_json::to_vec(&invalid).unwrap()),
+                Err(crate::Error::ConfigInvalid("entity_profile_model_context"))
+            ));
+        }
+        let mut duplicate = value["credentials"][0].clone();
+        duplicate["token_env"] = serde_json::json!("OTHER_PROFILE_TOKEN");
+        duplicate["entity_profile_model_context"] = serde_json::json!(false);
+        value["credentials"].as_array_mut().unwrap().push(duplicate);
+        assert!(matches!(
+            super::Config::parse(&serde_json::to_vec(&value).unwrap()),
+            Err(crate::Error::ConfigInvalid("entity_profile_model_context"))
+        ));
+    }
+
+    #[test]
+    fn optional_maintenance_path_preserves_defaults_and_requires_absolute_paths() {
+        let mut value: serde_json::Value = serde_json::from_slice(include_bytes!(
+            "../../../../config/brain-serve.example.json"
+        ))
+        .unwrap();
+        assert!(super::Config::parse(&serde_json::to_vec(&value).unwrap())
+            .unwrap()
+            .entity_profile_maintenance_config
+            .is_none());
+        value["entity_profile_maintenance_config"] =
+            serde_json::json!("/etc/deadlock-brain/maintenance.json");
+        assert!(super::Config::parse(&serde_json::to_vec(&value).unwrap()).is_ok());
+        for path in ["maintenance.json", "/etc/maintenance\n.json"] {
+            value["entity_profile_maintenance_config"] = serde_json::json!(path);
+            assert!(super::Config::parse(&serde_json::to_vec(&value).unwrap()).is_err());
+        }
+    }
+}

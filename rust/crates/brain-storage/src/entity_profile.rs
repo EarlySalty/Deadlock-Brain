@@ -11,6 +11,15 @@ use brain_contracts::{
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+#[path = "entity_semantic.rs"]
+pub mod semantic;
+
+#[path = "entity_compact.rs"]
+pub mod compact;
+
+#[path = "entity_derivation.rs"]
+pub mod derivation;
+
 fn invalid(message: &str) -> StorageError {
     StorageError::Json(<serde_json::Error as serde::de::Error>::custom(message))
 }
@@ -95,10 +104,14 @@ pub fn validity_contains(validity: &PatchValidity, patch: &str) -> bool {
         PatchValidity::Known {
             from_patch,
             to_patch_exclusive,
+            through_patch_inclusive,
             ..
         } => {
             from_patch.as_str() <= patch
                 && to_patch_exclusive.as_deref().is_none_or(|end| patch < end)
+                && through_patch_inclusive
+                    .as_deref()
+                    .is_none_or(|end| patch <= end)
         }
     }
 }
@@ -199,17 +212,28 @@ pub fn assemble_profile(
                         .and_then(Value::as_str)
                         == Some("source_numeric_lexeme")
             });
-            let preferred = group.iter().find(|f| {
-                f.provenance.source_kind
-                    == if numeric {
-                        ProfileSourceKind::GameFile
-                    } else {
-                        ProfileSourceKind::Wiki
-                    }
-            });
+            let mut preferred: Vec<_> = group
+                .iter()
+                .filter(|f| {
+                    f.provenance.source_kind
+                        == if numeric {
+                            ProfileSourceKind::GameFile
+                        } else {
+                            ProfileSourceKind::Wiki
+                        }
+                })
+                .collect();
+            preferred.sort_by_key(|fact| fact_reference(fact));
+            let consistent = preferred
+                .first()
+                .is_some_and(|first| preferred.iter().all(|fact| fact.value == first.value));
             conflicts.push(ProfileConflict {
                 predicate,
-                preferred_fact_id: preferred.map(|f| fact_reference(f)),
+                preferred_fact_id: if consistent {
+                    preferred.first().map(|fact| fact_reference(fact))
+                } else {
+                    None
+                },
                 fact_ids: group.iter().map(|f| fact_reference(f)).collect(),
                 reason: if numeric {
                     "Git-Spieldaten haben Vorrang bei Zahlen; abweichende Belege bleiben erhalten"
@@ -265,6 +289,16 @@ fn fact_reference(fact: &EntityProfileFact) -> String {
     )
 }
 
+pub fn consumer_entity_identity(identity: &EntityIdentity) -> EntityIdentity {
+    EntityIdentity {
+        entity_key: identity.entity_key.clone(),
+        kind: identity.kind,
+        name: identity.name.clone(),
+        aliases: Vec::new(),
+        identity_evidence: Vec::new(),
+    }
+}
+
 impl PgStore {
     pub async fn store_entity_fact_bindings(
         &self,
@@ -281,9 +315,10 @@ impl PgStore {
         }
         let identity = serde_json::to_value(entity)?;
         let mut tx = self.pool.begin().await?;
+        crate::pg_jobs::lock_source(&mut tx, &record.source_id).await?;
         let revision =
             i64::try_from(record.revision).map_err(|_| invalid("Revision ist zu groß"))?;
-        let stored: Value = sqlx::query_scalar("SELECT record_json FROM brain.source_record_revisions WHERE source_id=$1 AND logical_id=$2 AND revision=$3 FOR SHARE")
+        let stored: Value = sqlx::query_scalar("SELECT record_json FROM brain.source_record_revisions WHERE source_id=$1 AND logical_id=$2 AND revision=$3")
             .bind(&record.source_id).bind(&record.logical_id).bind(revision).fetch_one(&mut *tx).await?;
         let original: SourceRecordV2 = serde_json::from_value(stored)?;
         if serde_json::to_value(&original)? != serde_json::to_value(record)? {
@@ -308,8 +343,23 @@ impl PgStore {
                 .bind(&entity.entity_key).bind(&record.source_id).bind(&record.logical_id).bind(revision).bind(&fact.fact_id).fetch_one(&mut *tx).await?;
             let stored_identity: Value = sqlx::query_scalar("SELECT binding_identity_json FROM brain.entity_profile_facts_v1 WHERE entity_key=$1 AND source_id=$2 AND logical_id=$3 AND revision=$4 AND fact_id=$5")
                 .bind(&entity.entity_key).bind(&record.source_id).bind(&record.logical_id).bind(revision).bind(&fact.fact_id).fetch_one(&mut *tx).await?;
-            if stored != encoded || stored_identity != identity {
+            if stored != encoded {
                 return Err(invalid("Faktenbeleg widerspricht vorhandenem Import"));
+            }
+            if stored_identity != identity {
+                let previous: EntityIdentity = serde_json::from_value(stored_identity)?;
+                let mut expected = entity.clone();
+                expected.aliases = previous.aliases.clone();
+                if previous != expected
+                    || previous
+                        .aliases
+                        .iter()
+                        .any(|alias| !entity.aliases.contains(alias))
+                {
+                    return Err(invalid("Faktenbeleg widerspricht vorhandenem Import"));
+                }
+                sqlx::query("UPDATE brain.entity_profile_facts_v1 SET binding_identity_json=$6 WHERE entity_key=$1 AND source_id=$2 AND logical_id=$3 AND revision=$4 AND fact_id=$5")
+                    .bind(&entity.entity_key).bind(&record.source_id).bind(&record.logical_id).bind(revision).bind(&fact.fact_id).bind(&identity).execute(&mut *tx).await?;
             }
         }
         tx.commit().await?;
@@ -333,6 +383,11 @@ impl PgStore {
         let mut entity: Option<EntityIdentity> = None;
         let mut facts = Vec::new();
         let mut historical_unknown = false;
+        let semantic_ready: bool = sqlx::query_scalar(
+            "SELECT to_regclass('brain.entity_semantic_projections_v1') IS NOT NULL",
+        )
+        .fetch_one(&self.pool)
+        .await?;
         for source in visible {
             let original = snapshot
                 .revisions
@@ -360,6 +415,7 @@ impl PgStore {
                 {
                     return Err(invalid("Gespeicherte Bindungsidentität ist ungültig"));
                 }
+                let semantic_identity = binding.clone();
                 if let Some(identity) = &mut entity {
                     if identity.kind != binding.kind {
                         return Err(invalid("Autorisierte Entitätsbelege widersprechen sich"));
@@ -377,13 +433,34 @@ impl PgStore {
                 } else {
                     entity = Some(binding);
                 }
+                let projection: Option<(String, String, String, Option<String>)> = if semantic_ready
+                {
+                    sqlx::query_as("SELECT relative_pointer,semantic_predicate,semantic_qualifiers_json,semantic_unit FROM brain.entity_semantic_projections_v1 WHERE entity_key=$1 AND source_id=$2 AND logical_id=$3 AND revision=$4 AND fact_id=$5")
+                    .bind(entity_key).bind(&source.source_id).bind(&source.logical_id).bind(source.revision as i64).bind(&fact.fact_id).fetch_optional(&self.pool).await?
+                } else {
+                    None
+                };
+                let projected = if let Some((relative_pointer, predicate, qualifiers, unit)) =
+                    projection
+                {
+                    let semantic = semantic::SemanticProjection {
+                        relative_pointer,
+                        predicate,
+                        qualifiers: serde_json::from_str(&qualifiers)?,
+                        unit,
+                    };
+                    semantic::project_semantic_fact(&fact, &semantic, original, &semantic_identity)?
+                } else {
+                    fact
+                };
                 if let Some(patch) = patch {
-                    historical_unknown |= matches!(fact.validity, PatchValidity::Unknown { .. });
-                    if !validity_contains(&fact.validity, patch) {
+                    historical_unknown |=
+                        matches!(projected.validity, PatchValidity::Unknown { .. });
+                    if !validity_contains(&projected.validity, patch) {
                         continue;
                     }
                 }
-                facts.push(fact);
+                facts.push(projected);
             }
         }
         let Some(entity) = entity else {
@@ -393,7 +470,13 @@ impl PgStore {
         if let Some(patch) = patch {
             story.retain(|change| change.patch_date.as_str() <= patch);
         }
-        let mut profile = assemble_profile(entity, patch.map(str::to_owned), facts, story);
+        let story = derivation::consumer_patch_story(&entity, &story)?;
+        let mut profile = assemble_profile(
+            consumer_entity_identity(&entity),
+            patch.map(str::to_owned),
+            facts,
+            story,
+        );
         if historical_unknown {
             profile.unknowns.push(
                 "Historische Fakten ohne belegte Patchgrenzen wurden nicht als gültig ausgegeben"
@@ -425,7 +508,7 @@ impl PgStore {
     }
 }
 
-fn decode_patch_change(value: Value) -> crate::Result<PatchStoryChange> {
+pub(crate) fn decode_patch_change(value: Value) -> crate::Result<PatchStoryChange> {
     let mut fields = value
         .as_object()
         .cloned()

@@ -28,6 +28,8 @@ pub enum PatchValidity {
     Known {
         from_patch: String,
         to_patch_exclusive: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        through_patch_inclusive: Option<String>,
         evidence_ref: String,
     },
 }

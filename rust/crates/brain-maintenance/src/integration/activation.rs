@@ -72,7 +72,7 @@ impl ActivationTarget {
         }
     }
 
-    fn replace_pin(
+    pub fn replace_pin(
         self,
         value: &mut serde_json::Value,
         config: &brain_serve::Config,

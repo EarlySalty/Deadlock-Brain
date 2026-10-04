@@ -159,6 +159,16 @@ fn local_operator_reloads_internal_scopes_without_provider_egress() {
         metadata: BTreeMap::new(),
     };
     let first = local_operator_principal(1000, &path).unwrap();
+    assert_eq!(
+        first,
+        brain_storage::LocalPgReader::entity_profile_operator(&path, 1000).unwrap()
+    );
+    assert!(brain_storage::LocalPgReader::entity_profile_operator(&path, 0).is_err());
+    assert!(brain_storage::LocalPgReader::entity_profile_operator(
+        Path::new("maintenance.json"),
+        1000
+    )
+    .is_err());
     assert!(brain_contracts::store::record_allowed(
         &record, &first, false
     ));
@@ -204,7 +214,7 @@ async fn setup() -> (
         )
         .await
         .unwrap();
-    let store = PgStore::new(pool);
+    let store = PgStore::new(pool.clone());
     store.check_maintenance_schema().await.unwrap();
     let release_id = format!("runner-fixture-{}", chrono::Utc::now().timestamp_micros());
     store
@@ -238,6 +248,7 @@ async fn setup() -> (
     let runner = Runner {
         runtime,
         store,
+        pool,
         artifacts,
         jev: Zeroizing::new("fixture-unused".into()),
         owner: release_id,
