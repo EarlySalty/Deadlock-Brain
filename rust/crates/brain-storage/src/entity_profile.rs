@@ -341,11 +341,16 @@ impl PgStore {
         let names: Vec<_> = std::iter::once(entity.name.clone())
             .chain(entity.aliases.clone())
             .collect();
+        let kind = match entity.kind {
+            brain_contracts::entity_profile::EntityKind::Hero => "hero",
+            brain_contracts::entity_profile::EntityKind::Ability => "ability",
+            brain_contracts::entity_profile::EntityKind::Item => "item",
+        };
         let mut tx = self.pool.begin().await?;
         sqlx::raw_sql("SET TRANSACTION READ ONLY; SET LOCAL statement_timeout='5000ms'")
             .execute(&mut *tx)
             .await?;
-        let story: Vec<Value> = sqlx::query_scalar("SELECT to_jsonb(c) FROM brain.patch_changes c WHERE lower(c.entity_name)=ANY(SELECT lower(n) FROM unnest($1::text[]) n) OR lower(c.ability_name)=ANY(SELECT lower(n) FROM unnest($1::text[]) n) ORDER BY c.patch_date,c.stat_name").bind(names).fetch_all(&mut *tx).await?;
+        let story: Vec<Value> = sqlx::query_scalar("SELECT to_jsonb(c) FROM brain.patch_changes c WHERE (c.entity_type=$2 AND lower(c.entity_name)=ANY(SELECT lower(n) FROM unnest($1::text[]) n)) OR ($2='ability' AND c.entity_type='hero' AND lower(c.ability_name)=ANY(SELECT lower(n) FROM unnest($1::text[]) n)) ORDER BY c.patch_date,c.stat_name").bind(names).bind(kind).fetch_all(&mut *tx).await?;
         tx.commit().await?;
         story.into_iter().map(decode_patch_change).collect()
     }
