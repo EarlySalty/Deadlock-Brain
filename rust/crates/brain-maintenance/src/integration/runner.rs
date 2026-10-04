@@ -715,7 +715,7 @@ impl Runner {
             None
         };
         let serve = brain_serve::Config::load(&self.runtime.serve_config)?;
-        let release = super::activation::ActivationTarget::SecondBrainInternal.release(&serve)?;
+        let release = super::activation::ActivationTarget::Standard.release(&serve)?;
         let mut sources: Vec<_> = self
             .runtime
             .entity_profile_sources

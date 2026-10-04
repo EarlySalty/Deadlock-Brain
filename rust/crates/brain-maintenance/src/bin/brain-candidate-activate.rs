@@ -28,6 +28,7 @@ use std::{
 enum Target {
     Standard,
     SecondBrainInternal,
+    EntityProfiles,
     EntityProfilesInternal,
 }
 
@@ -112,7 +113,7 @@ struct Report {
 impl Cli {
     fn activation_target(&self) -> ActivationTarget {
         match self.target {
-            Target::Standard => ActivationTarget::Standard,
+            Target::Standard | Target::EntityProfiles => ActivationTarget::Standard,
             Target::SecondBrainInternal | Target::EntityProfilesInternal => {
                 ActivationTarget::SecondBrainInternal
             }
@@ -289,7 +290,9 @@ fn check_rights(
         channel: "local-operator".into(),
         scopes: match target {
             Target::Standard => BTreeSet::new(),
-            Target::SecondBrainInternal | Target::EntityProfilesInternal => internal_scopes.clone(),
+            Target::SecondBrainInternal
+            | Target::EntityProfiles
+            | Target::EntityProfilesInternal => internal_scopes.clone(),
         },
         provider_egress: BTreeSet::new(),
     };
@@ -378,7 +381,7 @@ fn check_rights(
                     ),
                 "internal_source_rights"
             ),
-            Target::EntityProfilesInternal => {
+            Target::EntityProfiles | Target::EntityProfilesInternal => {
                 if record.source_id == "git-game-facts-derived" {
                     ensure!(
                         origin.policy
@@ -594,28 +597,9 @@ fn check_config_transition(
 ) -> Result<()> {
     let mut expected: serde_json::Value = serde_json::from_slice(old)?;
     let pin = serde_json::json!({"id":candidate.release_id,"knowledge_version":candidate.knowledge_version});
-    match target {
-        ActivationTarget::Standard => expected["release"] = pin,
-        ActivationTarget::SecondBrainInternal => {
-            let grants = expected["credentials"]
-                .as_array()
-                .ok_or_else(|| anyhow::anyhow!("internal_grants"))?;
-            let indices: Vec<_> = grants
-                .iter()
-                .enumerate()
-                .filter(|(_, grant)| {
-                    grant["actor_id"] == "second-brain" && grant["channel"] == "internal"
-                })
-                .map(|(index, _)| index)
-                .collect();
-            ensure!(
-                indices.len() == 1 && expected["internal_operator"].is_object(),
-                "internal_grants"
-            );
-            expected["credentials"][indices[0]]["release"] = pin.clone();
-            expected["internal_operator"]["release"] = pin;
-        }
-    }
+    let config =
+        brain_serve::Config::parse(old).map_err(|_| anyhow::anyhow!("serve_config_invalid"))?;
+    target.replace_pin(&mut expected, &config, pin)?;
     ensure!(
         expected == serde_json::from_slice::<serde_json::Value>(new)?,
         "journal_unrelated_config"
@@ -688,7 +672,10 @@ async fn run(cli: &Cli) -> Result<Report> {
     let allowed = cli.sources()?;
     if cli.maintenance_credential_stdin {
         ensure!(
-            cli.target == Target::EntityProfilesInternal,
+            matches!(
+                cli.target,
+                Target::EntityProfiles | Target::EntityProfilesInternal
+            ),
             "maintenance_credential_target"
         );
         credential_stdin_to_fd5()?;
@@ -801,7 +788,10 @@ async fn run(cli: &Cli) -> Result<Report> {
     )?;
     check_transition(&base.release, &candidate.release, &allowed)?;
     check_rights(&base, &candidate, &allowed, cli.target)?;
-    if cli.target == Target::EntityProfilesInternal {
+    if matches!(
+        cli.target,
+        Target::EntityProfiles | Target::EntityProfilesInternal
+    ) {
         check_entity_profile_sources(&runtime, &store, &pool, &base, &candidate, &allowed).await?;
     }
     let prior = artifacts.call_receipt(&identity)?;
@@ -1195,11 +1185,7 @@ mod tests {
 
     #[test]
     fn independent_consumer_and_operator_pins_cannot_change() {
-        let old = serde_json::json!({
-            "release":{"id":"base","knowledge_version":"base-kv"},
-            "credentials":[{"actor_id":"second-brain","channel":"internal","release":{"id":"internal","knowledge_version":"internal-kv"}}],
-            "internal_operator":{"release":{"id":"internal","knowledge_version":"internal-kv"}}
-        });
+        let old = c9_value();
         let mut new = old.clone();
         new["release"] = serde_json::json!({"id":"candidate","knowledge_version":"candidate-kv"});
         let candidate = release("candidate", "candidate-kv", 2);
@@ -1210,7 +1196,7 @@ mod tests {
             ActivationTarget::Standard,
         )
         .unwrap();
-        new["credentials"][0]["release"]["id"] = serde_json::json!("changed");
+        new["credentials"][2]["release"]["id"] = serde_json::json!("changed");
         assert!(check_config_transition(
             &serde_json::to_vec(&old).unwrap(),
             &serde_json::to_vec(&new).unwrap(),
@@ -1377,17 +1363,21 @@ mod tests {
         let base = snapshot(first, "base");
         let candidate = snapshot(next, "candidate");
         let allowed = BTreeSet::from(["game-fixture".into()]);
-        check_rights(&base, &candidate, &allowed, Target::EntityProfilesInternal).unwrap();
+        for target in [Target::EntityProfiles, Target::EntityProfilesInternal] {
+            check_rights(&base, &candidate, &allowed, target).unwrap();
+        }
         assert!(check_rights(&base, &candidate, &allowed, Target::SecondBrainInternal).is_err());
         let feed_base = snapshot(feed_record(1), "base");
         let feed_candidate = snapshot(feed_record(2), "candidate");
-        assert!(check_rights(
-            &feed_base,
-            &feed_candidate,
-            &BTreeSet::from(["google-sheet/fixture".into()]),
-            Target::EntityProfilesInternal
-        )
-        .is_err());
+        for target in [Target::EntityProfiles, Target::EntityProfilesInternal] {
+            assert!(check_rights(
+                &feed_base,
+                &feed_candidate,
+                &BTreeSet::from(["google-sheet/fixture".into()]),
+                target
+            )
+            .is_err());
+        }
         for variant in 0..3 {
             let mut changed = candidate.clone();
             let mut origin = origin_from_record(&changed.revisions[0]).unwrap();
@@ -1403,10 +1393,75 @@ mod tests {
             }
             origin.bind_record(&mut changed.revisions[0]).unwrap();
             changed.heads = changed.revisions.clone();
-            assert!(
-                check_rights(&base, &changed, &allowed, Target::EntityProfilesInternal).is_err()
+            for target in [Target::EntityProfiles, Target::EntityProfilesInternal] {
+                assert!(check_rights(&base, &changed, &allowed, target).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn spielprofile_waehlen_standardplan_mit_gekoppelten_pins() {
+        let cli = Cli::try_parse_from([
+            "brain-candidate-activate",
+            "--config",
+            "/tmp/runtime.json",
+            "--target",
+            "entity-profiles",
+            "--base-release-id",
+            "base",
+            "--base-release-sha256",
+            &"a".repeat(64),
+            "--candidate-release-id",
+            "candidate",
+            "--candidate-release-sha256",
+            &"b".repeat(64),
+            "--expected-serve-config-sha256",
+            &"c".repeat(64),
+            "--allow-source",
+            "git-game-facts-derived",
+        ])
+        .unwrap();
+        assert_eq!(cli.activation_target(), ActivationTarget::Standard);
+        let mut old = c9_value();
+        old["credentials"][1]["scopes"] = serde_json::json!(["bot.public"]);
+        let base_pin = old["release"].clone();
+        old["credentials"][1]["release"] = base_pin.clone();
+        old["credentials"][2]["release"] = base_pin.clone();
+        old["internal_operator"]["release"] = base_pin;
+        let (_dir, artifacts, writer, runtime) = plan_fixture(&old);
+        let candidate = release("candidate", "candidate-kv", 2);
+        let plan = ActivationPlan::prepare_target(
+            &runtime,
+            &artifacts,
+            &candidate,
+            &writer,
+            cli.activation_target(),
+        )
+        .unwrap();
+        let journal: Journal =
+            serde_json::from_slice(&artifacts.read(plan.journal_ref()).unwrap()).unwrap();
+        let new_bytes = artifacts.read(&journal.new_config).unwrap();
+        let new: serde_json::Value = serde_json::from_slice(&new_bytes).unwrap();
+        assert_eq!(new["release"]["id"], "candidate");
+        for index in [1, 2] {
+            assert_eq!(new["credentials"][index]["release"], new["release"]);
+            assert_eq!(
+                new["credentials"][index]["scopes"],
+                old["credentials"][index]["scopes"]
+            );
+            assert_eq!(
+                new["credentials"][index]["provider_egress"],
+                old["credentials"][index]["provider_egress"]
             );
         }
+        assert_eq!(new["internal_operator"]["release"], new["release"]);
+        check_config_transition(
+            &serde_json::to_vec(&old).unwrap(),
+            &new_bytes,
+            &candidate,
+            cli.activation_target(),
+        )
+        .unwrap();
     }
 
     #[tokio::test]

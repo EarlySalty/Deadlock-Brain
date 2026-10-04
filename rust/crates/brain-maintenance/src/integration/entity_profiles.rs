@@ -209,7 +209,7 @@ pub async fn activate_refreshed_sources(
         "--config".into(),
         runtime_path.to_string_lossy().into_owned(),
         "--target".into(),
-        "entity-profiles-internal".into(),
+        "entity-profiles".into(),
         "--base-release-id".into(),
         prepared.base.release_id.clone(),
         "--base-release-sha256".into(),
@@ -245,7 +245,7 @@ pub async fn activate_refreshed_sources(
         "entity_profile_activation_unverified"
     );
     let serve = brain_serve::Config::load(&runtime.serve_config)?;
-    let active = super::activation::ActivationTarget::SecondBrainInternal.release(&serve)?;
+    let active = super::activation::ActivationTarget::Standard.release(&serve)?;
     ensure!(
         active.id == prepared.candidate.release_id
             && active.knowledge_version == prepared.candidate.knowledge_version,
