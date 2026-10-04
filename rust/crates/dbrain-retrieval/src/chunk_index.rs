@@ -210,6 +210,12 @@ impl ChunkIndex {
         release: CorpusRelease,
         mut records: Vec<SourceRecordV2>,
     ) -> Result<Self, PortError> {
+        records.retain(|record| {
+            record.source_id != "git-game-facts-derived"
+                && !record
+                    .metadata
+                    .contains_key("brain.entity_projection.contract")
+        });
         records.sort_by(|a, b| {
             (&a.source_id, &a.logical_id, a.revision).cmp(&(
                 &b.source_id,

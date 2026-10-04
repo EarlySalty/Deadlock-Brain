@@ -1081,6 +1081,13 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
         .await
         .unwrap();
     scopes.lock().unwrap().clear();
+    let mut numeric = query("Welche gespeicherten Zahlen sind 830?");
+    numeric.patch = None;
+    assert!(
+        tokio::task::block_in_place(|| retriever.retrieve(&numeric, &context))
+            .unwrap()
+            .is_empty()
+    );
     let mut current = query("Wie viel MaxHealth hat Wächter?");
     current.patch = None;
     assert!(
