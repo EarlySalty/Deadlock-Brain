@@ -293,6 +293,12 @@ impl PgStore {
         }
         let facts = project_entity_facts(&original, fact_ids)?;
         sqlx::query("INSERT INTO brain.entity_profile_entities_v1(entity_key,identity_json) VALUES($1,$2) ON CONFLICT(entity_key) DO NOTHING").bind(&entity.entity_key).bind(&identity).execute(&mut *tx).await?;
+        let stored_identity: Value = sqlx::query_scalar("SELECT identity_json FROM brain.entity_profile_entities_v1 WHERE entity_key=$1 FOR UPDATE")
+            .bind(&entity.entity_key).fetch_one(&mut *tx).await?;
+        let stored_entity: EntityIdentity = serde_json::from_value(stored_identity)?;
+        if stored_entity.kind != entity.kind {
+            return Err(invalid("Entitätsart widerspricht vorhandener Zuordnung"));
+        }
         let mut inserted = 0;
         for fact in facts {
             let encoded = serde_json::to_string(&fact)?;

@@ -448,7 +448,7 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
             .success()
     );
     let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(1)
+        .max_connections(4)
         .connect_with(
             sqlx::postgres::PgConnectOptions::new_without_pgpass()
                 .host(socket.to_str().unwrap())
@@ -567,6 +567,7 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
         .unwrap();
     assert_eq!(visible.facts.len(), 1);
     assert_eq!(visible.entity, entity);
+    entity_kinds_are_consistent_across_bindings(&store, &pool, &principal).await;
     patch_stories_follow_entity_kind(&store, &pool, &record, &release, &principal).await;
     assert_eq!(
         visible.facts[0].value.to_string(),
@@ -786,6 +787,130 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
         assert!(shared.facts.contains(&fact));
     }
     pool.close().await;
+}
+
+async fn entity_kinds_are_consistent_across_bindings(
+    store: &brain_storage::PgStore,
+    pool: &sqlx::PgPool,
+    principal: &brain_contracts::Principal,
+) {
+    let document_key = brain_storage::source_versions::DOCUMENT_METADATA_KEY;
+    let mut document: Value = serde_json::from_str(&record().metadata[document_key]).unwrap();
+    document["source_id"] = json!("kind-fixture");
+    document["document_id"] = json!("wiki:kind-fixture:page:123");
+    let mut other_fact = document["facts"][0].clone();
+    other_fact["fact_id"] = json!("damage");
+    document["facts"].as_array_mut().unwrap().push(other_fact);
+    let first = prepared_game_document(&document);
+    store.apply(&first).await.unwrap();
+    let mut candidates = vec![(first.clone(), "damage")];
+    for (field, value) in [
+        ("source_id", "other-source"),
+        ("document_id", "wiki:kind-fixture:page:789"),
+        ("revision", "457"),
+    ] {
+        let mut next = document.clone();
+        next[field] = json!(value);
+        if field == "source_id" {
+            next["document_id"] = json!("wiki:other-source:page:123");
+        }
+        let mut record = prepared_game_document(&next);
+        if field == "revision" {
+            record.revision = first.revision + 1;
+        }
+        store.apply(&record).await.unwrap();
+        candidates.push((record, "health"));
+    }
+    let mut reader = principal.clone();
+    reader.scopes.extend(first.allowed_scopes.clone());
+    for (record, _) in &candidates {
+        reader.scopes.extend(record.allowed_scopes.clone());
+    }
+    for (index, (second, fact_id)) in candidates.iter().enumerate() {
+        let mut hero = entity(EntityKind::Hero);
+        hero.entity_key = format!("kind-consistency-{index}");
+        let mut item = hero.clone();
+        item.kind = EntityKind::Item;
+        store
+            .store_entity_fact_bindings(&hero, &first, &["health".into()])
+            .await
+            .unwrap();
+        assert!(store
+            .store_entity_fact_bindings(&item, second, &[(*fact_id).into()])
+            .await
+            .is_err());
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM brain.entity_profile_facts_v1 WHERE entity_key=$1",
+        )
+        .bind(&hero.entity_key)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 1);
+        let mut compatible = hero.clone();
+        compatible.name = "Weiterer belegter Name".into();
+        store
+            .store_entity_fact_bindings(&compatible, second, &[(*fact_id).into()])
+            .await
+            .unwrap();
+        let mut revisions = std::collections::BTreeMap::new();
+        for record in [&first, second] {
+            revisions
+                .entry(record.source_id.clone())
+                .or_insert_with(std::collections::BTreeMap::new)
+                .insert(record.logical_id.clone(), record.revision);
+        }
+        let release = brain_contracts::CorpusRelease {
+            release_id: format!("kind-consistency-{index}"),
+            knowledge_version: "k1".into(),
+            patch: "p1".into(),
+            created_at_epoch: 1,
+            source_revisions: revisions,
+        };
+        store.publish_release(&release).await.unwrap();
+        let profile = store
+            .read_entity_profile(&hero.entity_key, &release.release_id, &reader, None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(profile.entity.kind, EntityKind::Hero);
+        assert_eq!(
+            profile.facts.len(),
+            if index == 3 { 1 } else { 2 },
+            "Fall {index}"
+        );
+    }
+    for (index, same_kind) in [false, true].into_iter().enumerate() {
+        let mut hero = entity(EntityKind::Hero);
+        hero.entity_key = format!("concurrent-kind-{index}");
+        let mut other = hero.clone();
+        other.kind = if same_kind {
+            EntityKind::Hero
+        } else {
+            EntityKind::Item
+        };
+        let first_ids = ["health".into()];
+        let second_ids = ["damage".into()];
+        let (left, right) = tokio::join!(
+            store.store_entity_fact_bindings(&hero, &first, &first_ids),
+            store.store_entity_fact_bindings(&other, &first, &second_ids),
+        );
+        assert_eq!(
+            usize::from(left.is_ok()) + usize::from(right.is_ok()),
+            if same_kind { 2 } else { 1 }
+        );
+        let identities: Vec<Value> = sqlx::query_scalar(
+            "SELECT binding_identity_json FROM brain.entity_profile_facts_v1 WHERE entity_key=$1",
+        )
+        .bind(&hero.entity_key)
+        .fetch_all(pool)
+        .await
+        .unwrap();
+        assert_eq!(identities.len(), if same_kind { 2 } else { 1 });
+        assert!(identities
+            .iter()
+            .all(|identity| identity["kind"] == identities[0]["kind"]));
+    }
 }
 
 async fn patch_stories_follow_entity_kind(
