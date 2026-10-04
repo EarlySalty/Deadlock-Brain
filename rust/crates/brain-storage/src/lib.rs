@@ -1,12 +1,14 @@
 #![forbid(unsafe_code)]
 
 mod domain_reader;
+pub mod entity_profile;
 mod local_pg_reader;
 mod memory_repository;
 mod pg_jobs;
 mod pg_maintenance;
 mod pg_release;
 mod schema;
+pub mod source_versions;
 pub use domain_reader::DomainReader;
 pub use local_pg_reader::{LocalPgPoolStats, LocalPgReader};
 pub use memory_repository::validate_release;
