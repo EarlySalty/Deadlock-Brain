@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 pub struct MaintenanceConfig {
     pub repo_roots: Vec<PathBuf>,
     pub repositories: Vec<RepositoryConfig>,
+    #[serde(default)]
+    pub game_sources: Vec<GitGameSource>,
     pub docs_repo: PathBuf,
     pub docs_origin: String,
     pub docs_ref: String,
@@ -57,6 +59,42 @@ pub struct RepositoryConfig {
     pub code_only_migration_targets: std::collections::BTreeSet<String>,
     pub code_only_export_approved: bool,
     pub deployed_sha_file: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GitGameSource {
+    pub id: String,
+    pub path: PathBuf,
+    pub origin: String,
+    pub source_ref: String,
+    pub source_paths: Vec<String>,
+}
+
+pub fn require_registered_game_source(
+    config: &MaintenanceConfig,
+    source: &GitGameSource,
+) -> Result<()> {
+    if let Some(path) = &config.loaded_from {
+        let bytes = crate::integration::runtime_config::read_bounded(path, 256 * 1024)?;
+        let current: MaintenanceConfig = serde_json::from_slice(&bytes)
+            .map_err(|_| anyhow::anyhow!("Aktuelle Spielquellenregistrierung ist ungültig"))?;
+        current.validate()?;
+        ensure!(
+            serde_json::to_value(&current)? == serde_json::to_value(config)?,
+            "Spielquellenregistrierung wurde verändert"
+        );
+    }
+    let current = config
+        .game_sources
+        .iter()
+        .find(|candidate| candidate.id == source.id)
+        .ok_or_else(|| anyhow::anyhow!("Spielquelle ist nicht registriert"))?;
+    ensure!(
+        serde_json::to_value(current)? == serde_json::to_value(source)?,
+        "Spielquelle widerspricht der Registrierung"
+    );
+    Ok(())
 }
 
 impl RepositoryConfig {
@@ -201,7 +239,8 @@ impl MaintenanceConfig {
         ensure!(
             self.bounds.max_repositories > 0
                 && self.bounds.max_repositories <= 256
-                && self.repositories.len() <= self.bounds.max_repositories,
+                && self.repositories.len() + self.game_sources.len()
+                    <= self.bounds.max_repositories,
             "Repo-Grenze überschritten"
         );
         ensure!(
@@ -237,6 +276,22 @@ impl MaintenanceConfig {
         let mut ids = std::collections::BTreeSet::new();
         let mut targets = std::collections::BTreeSet::new();
         let mut outputs = std::collections::BTreeSet::new();
+        for source in &self.game_sources {
+            ensure!(
+                !source.id.is_empty() && ids.insert(&source.id),
+                "Spielquellen-ID fehlt oder ist doppelt"
+            );
+            ensure!(
+                source.path.is_absolute()
+                    && !source.origin.is_empty()
+                    && !source.source_paths.is_empty(),
+                "Gepinnte Git-Spielquellenregistrierung ist unvollständig"
+            );
+            validate_ref(&source.source_ref)?;
+            for path in &source.source_paths {
+                safe_relative(path)?;
+            }
+        }
         for repo in &self.repositories {
             ensure!(
                 !["rs-relay", "ai-coach", "TradingBot"]
@@ -435,6 +490,35 @@ mod tests {
         }
         assert!(safe_doc_target("internal/bot/befehle.md").is_ok());
     }
+    #[test]
+    fn game_sources_are_explicit_and_document_targets_remain_required() {
+        let mut config: MaintenanceConfig =
+            serde_json::from_str(include_str!("../config/maintenance.example.json")).unwrap();
+        config.game_sources.push(GitGameSource {
+            id: "deadlock-data".into(),
+            path: PathBuf::from("/home/nathanael/repos/deadlock-data"),
+            origin: "https://github.com/deadlock-wiki/deadlock-data.git".into(),
+            source_ref: "refs/remotes/origin/master".into(),
+            source_paths: vec!["data/json".into()],
+        });
+        config.validate().unwrap();
+        require_registered_game_source(&config, &config.game_sources[0]).unwrap();
+        let mut changed = config.game_sources[0].clone();
+        changed.source_ref = "refs/remotes/origin/other".into();
+        assert!(require_registered_game_source(&config, &changed).is_err());
+        let mut invalid = config.clone();
+        invalid.game_sources[0].source_ref = "HEAD".into();
+        assert!(invalid.validate().is_err());
+        let mut invalid = config.clone();
+        invalid.game_sources[0].source_paths.clear();
+        assert!(invalid.validate().is_err());
+        let mut invalid = config.clone();
+        invalid.game_sources[0].id = invalid.repositories[0].id.clone();
+        assert!(invalid.validate().is_err());
+        config.repositories[0].doc_targets.clear();
+        assert!(config.validate().is_err());
+    }
+
     #[test]
     fn branch_resolution_accepts_only_origin_refs() {
         assert!(validate_ref("refs/remotes/origin/main").is_ok());

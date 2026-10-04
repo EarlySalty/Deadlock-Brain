@@ -201,15 +201,16 @@ async fn imported_heads_preserve_base_and_block_preparation_commit_races() {
     for record in &imported {
         store.apply(record).await.unwrap();
     }
-    let mut proposed = release(&format!("{prefix}-published"), &imported);
-    proposed
-        .source_revisions
-        .extend(base.source_revisions.clone());
-    let expected: Vec<_> = imported
-        .iter()
-        .cloned()
-        .chain([newer_old.clone()])
-        .collect();
+    let base_snapshot = store.snapshot(&base.release_id).await.unwrap();
+    let (proposed, expected) = PgStore::prepare_imported_release(
+        &base_snapshot,
+        &selected,
+        imported.clone(),
+        &format!("{prefix}-published"),
+        "fixture-v1",
+        1,
+    )
+    .unwrap();
     assert_eq!(
         store
             .publish_imported_heads_checked(&base.release_id, &selected, &proposed, &expected)

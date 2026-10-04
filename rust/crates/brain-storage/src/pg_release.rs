@@ -104,6 +104,76 @@ async fn imported_release_retry_tx(
 }
 
 impl PgStore {
+    pub fn prepare_imported_release(
+        base: &CorpusSnapshot,
+        sources: &[String],
+        heads: Vec<SourceRecordV2>,
+        release_id: &str,
+        knowledge_version: &str,
+        created_at_epoch: i64,
+    ) -> Result<(CorpusRelease, Vec<SourceRecordV2>), PortError> {
+        let selected: BTreeSet<_> = sources.iter().cloned().collect();
+        if selected.is_empty() || selected.len() != sources.len() || created_at_epoch < 0 {
+            return Err(invalid("Eindeutige ausgewählte Importquellen fehlen"));
+        }
+        let mut expected: BTreeMap<_, _> = base
+            .heads
+            .iter()
+            .filter(|record| !selected.contains(&record.source_id))
+            .map(|record| {
+                (
+                    (record.source_id.clone(), record.logical_id.clone()),
+                    record.clone(),
+                )
+            })
+            .collect();
+        let mut release = CorpusRelease {
+            release_id: release_id.into(),
+            knowledge_version: knowledge_version.into(),
+            patch: base.release.patch.clone(),
+            created_at_epoch,
+            source_revisions: base.release.source_revisions.clone(),
+        };
+        for source in sources {
+            release.source_revisions.remove(source);
+        }
+        let mut seen = BTreeSet::new();
+        for record in heads {
+            if record.tombstone || !selected.contains(&record.source_id) {
+                return Err(invalid(
+                    "Importquelle ist zurückgezogen oder nicht ausgewählt",
+                ));
+            }
+            record
+                .validate()
+                .map_err(|_| invalid("Importkopf verletzt den Vertrag"))?;
+            brain_contracts::source::origin_from_record(&record)
+                .map_err(|_| invalid("Importkopf hat keinen gültigen Herkunftsnachweis"))?;
+            seen.insert(record.source_id.clone());
+            release
+                .source_revisions
+                .entry(record.source_id.clone())
+                .or_default()
+                .insert(record.logical_id.clone(), record.revision);
+            if expected
+                .insert(
+                    (record.source_id.clone(), record.logical_id.clone()),
+                    record,
+                )
+                .is_some()
+            {
+                return Err(invalid("Importquelle enthält einen doppelten Kopf"));
+            }
+        }
+        if seen.len() != selected.len() {
+            return Err(invalid(
+                "Ausgewählte Importquelle hat keine gespeicherten Dokumente",
+            ));
+        }
+        validate_release(&release)?;
+        Ok((release, expected.into_values().collect()))
+    }
+
     pub async fn imported_release_for_retry(
         &self,
         proposed: &CorpusRelease,

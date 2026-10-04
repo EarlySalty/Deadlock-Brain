@@ -55,6 +55,37 @@ pub struct ProcessResult {
     pub exit_code: Option<i32>,
 }
 
+enum ProcessInput<'a> {
+    Bytes(&'a [u8]),
+    File(std::fs::File),
+}
+
+pub async fn run_with_credential(
+    executable: &Path,
+    args: &[String],
+    cwd: &Path,
+    credential: std::fs::File,
+    timeout_ms: u64,
+    max_output: usize,
+) -> Result<Vec<u8>> {
+    ensure!(credential.metadata()?.is_file(), "credential_regular_file");
+    let result = run_observed_input(
+        executable,
+        args,
+        cwd,
+        ProcessInput::File(credential),
+        timeout_ms,
+        max_output,
+    )
+    .await?;
+    ensure!(
+        result.exit_code == Some(0),
+        "Prozess fehlgeschlagen, Exitcode {:?}",
+        result.exit_code
+    );
+    Ok(result.output)
+}
+
 pub async fn run_observed(
     executable: &Path,
     args: &[String],
@@ -63,12 +94,35 @@ pub async fn run_observed(
     timeout_ms: u64,
     max_output: usize,
 ) -> Result<ProcessResult> {
+    run_observed_input(
+        executable,
+        args,
+        cwd,
+        ProcessInput::Bytes(input),
+        timeout_ms,
+        max_output,
+    )
+    .await
+}
+
+async fn run_observed_input(
+    executable: &Path,
+    args: &[String],
+    cwd: &Path,
+    input: ProcessInput<'_>,
+    timeout_ms: u64,
+    max_output: usize,
+) -> Result<ProcessResult> {
+    let (stdin, input_bytes) = match input {
+        ProcessInput::Bytes(bytes) => (Stdio::piped(), Some(bytes)),
+        ProcessInput::File(file) => (Stdio::from(file), None),
+    };
     let mut command = Command::new(executable);
     command.as_std_mut().process_group(0);
     let mut child = command
         .args(args)
         .current_dir(cwd)
-        .stdin(Stdio::piped())
+        .stdin(stdin)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true)
@@ -77,14 +131,17 @@ pub async fn run_observed(
     let _group = ProcessGroup(Pid::from_raw(i32::try_from(
         child.id().context("Prozess-ID fehlt")?,
     )?));
-    let mut stdin = child.stdin.take().context("Prozess-Eingabe fehlt")?;
+    let stdin = child.stdin.take();
     let stdout = child.stdout.take().context("Prozess-Ausgabe fehlt")?;
     let stderr = child.stderr.take().context("Prozess-Fehlerkanal fehlt")?;
     let work = async {
         let write = async move {
-            stdin.write_all(input).await?;
-            stdin.shutdown().await?;
-            drop(stdin);
+            if let Some(input) = input_bytes {
+                let mut stdin = stdin.context("Prozess-Eingabe fehlt")?;
+                stdin.write_all(input).await?;
+                stdin.shutdown().await?;
+                drop(stdin);
+            }
             anyhow::Ok(())
         };
         let ((), output, _diagnostics, status) = tokio::try_join!(

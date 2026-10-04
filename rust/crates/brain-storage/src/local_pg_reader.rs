@@ -475,8 +475,6 @@ impl SnapshotReadPort for LocalPgReader {
     ) -> Result<Option<Vec<brain_contracts::Evidence>>, PortError> {
         use brain_contracts::{
             entity_profile::{EntityIdentity, EntityProfileFact, PatchValidity},
-            source::origin_from_record,
-            store::AnswerPurpose,
             SourceRecordV2,
         };
         let deadline = context.request_deadline.as_ref();
@@ -495,8 +493,85 @@ impl SnapshotReadPort for LocalPgReader {
             .ok_or_else(|| invalid("Release fehlt"))?,
         )?;
         validate_release(&release)?;
-        let identities = tx.query("SELECT identity_json FROM brain.entity_profile_entities_v1 e WHERE position(lower(e.identity_json->>'name') in lower($1))>0 OR EXISTS(SELECT 1 FROM jsonb_array_elements_text(e.identity_json->'aliases') a WHERE a.value<>'' AND position(lower(a.value) in lower($1))>0) ORDER BY entity_key LIMIT 3", &[&query.text])?;
         let words = brain_contracts::lexical::terms(&query.text);
+        let hero_count = (words.contains(&"held".into())
+            || words.contains(&"helden".into())
+            || words.contains(&"hero".into())
+            || words.contains(&"heroes".into())
+            || words.contains(&"heldzahl".into()))
+            && (query.text.to_lowercase().contains("wie viele")
+                || words.contains(&"anzahl".into())
+                || words.contains(&"how".into())
+                || query.text.to_lowercase().contains("heldzahl"));
+        if hero_count {
+            if patch_date.is_some()
+                || query.patch.is_some()
+                || purpose == brain_contracts::store::AnswerPurpose::ExternalPublication
+            {
+                return Ok(Some(Vec::new()));
+            }
+            let pins = serde_json::to_value(&release.source_revisions)
+                .map_err(|_| invalid("Release-Pins sind ungültig"))?;
+            let rows = tx.query("SELECT DISTINCT e.entity_key,r.record_json,h.record_json FROM brain.entity_profile_entities_v1 e JOIN brain.entity_profile_facts_v1 f USING(entity_key) JOIN brain.source_record_revisions r USING(source_id,logical_id,revision) JOIN brain.source_record_heads h USING(source_id,logical_id) WHERE e.identity_json->>'kind'='hero' AND ($1::jsonb->f.source_id->>f.logical_id)::bigint=f.revision ORDER BY e.entity_key LIMIT 1001", &[&pins])?;
+            if rows.len() > 1000 {
+                return Err(PortError::BudgetExceeded);
+            }
+            let mut heroes = std::collections::BTreeSet::new();
+            for row in rows {
+                request_check(deadline)?;
+                let record: SourceRecordV2 = serde_json::from_value(row.try_get(1).map_err(error)?)
+                    .map_err(|_| invalid("Heldenquelle ist ungültig"))?;
+                let head: SourceRecordV2 =
+                    serde_json::from_value(row.try_get(2).map_err(error)?)
+                        .map_err(|_| invalid("Aktuelle Heldenquelle ist ungültig"))?;
+                if entity_source_visible(&release, record, head, context, provider, purpose)?
+                    .is_some()
+                {
+                    heroes.insert(row.try_get::<_, String>(0).map_err(error)?);
+                }
+            }
+            if heroes.is_empty() {
+                return Ok(Some(Vec::new()));
+            }
+            let canonical: Option<i64> = if tx
+                .query_one("SELECT to_regclass('brain.entities') IS NOT NULL", &[])?
+                .try_get::<_, bool>(0)
+                .map_err(error)?
+            {
+                Some(
+                    tx.query_one(
+                        "SELECT count(*) FROM brain.entities WHERE entity_type='hero'",
+                        &[],
+                    )?
+                    .try_get(0)
+                    .map_err(error)?,
+                )
+            } else {
+                None
+            };
+            let coverage = if canonical == Some(heroes.len() as i64) {
+                "Die belegte Liste deckt den gespeicherten Heldenkatalog vollständig ab."
+            } else {
+                "Die vollständige Abdeckung des Heldenkatalogs ist nicht belegt."
+            };
+            let result = brain_contracts::Evidence {
+                evidence_id: "entity-profile:hero-count".into(),
+                source_id: "brain.entity_profile_entities_v1".into(),
+                logical_id: "hero-count".into(),
+                revision: 1,
+                kind: brain_contracts::EvidenceKind::Prose,
+                content: format!("Im freigegebenen DB-Quellenstand sind {} Helden belegt. {coverage} Patchaktualität ist damit nicht belegt.", heroes.len()),
+                citation: format!("brain.entity_profile_entities_v1:{}", release.release_id),
+                visibility: brain_contracts::SourceVisibility::Internal,
+                allowed_scopes: context.principal.scopes.clone(),
+                score: 1.0,
+                patch: None,
+                provenance: None,
+            };
+            tx.commit()?;
+            return Ok(Some(vec![result]));
+        }
+        let identities = tx.query("SELECT identity_json FROM brain.entity_profile_entities_v1 e WHERE position(lower(e.identity_json->>'name') in lower($1))>0 OR EXISTS(SELECT 1 FROM jsonb_array_elements_text(e.identity_json->'aliases') a WHERE a.value<>'' AND position(lower(a.value) in lower($1))>0) ORDER BY entity_key LIMIT 3", &[&query.text])?;
         let mut matched = Vec::new();
         for row in identities {
             let identity: EntityIdentity =
@@ -522,17 +597,13 @@ impl SnapshotReadPort for LocalPgReader {
         let entity = &matched[0];
         let pins = serde_json::to_value(&release.source_revisions)
             .map_err(|_| invalid("Release-Pins sind ungültig"))?;
-        let rows = tx.query("SELECT f.fact_json,r.record_json,h.record_json FROM brain.entity_profile_facts_v1 f JOIN brain.source_record_revisions r USING(source_id,logical_id,revision) JOIN brain.source_record_heads h USING(source_id,logical_id) WHERE f.entity_key=$1 AND ($2::jsonb->f.source_id->>f.logical_id)::bigint=f.revision ORDER BY f.source_id,f.logical_id,f.revision,f.fact_id LIMIT 1001", &[&entity.entity_key, &pins])?;
-        if rows.len() > 1000 {
-            return Err(PortError::BudgetExceeded);
-        }
+        let rows = tx.query("WITH selected AS (SELECT f.* FROM brain.entity_profile_facts_v1 f WHERE f.entity_key=$1 AND ($2::jsonb->f.source_id->>f.logical_id)::bigint=f.revision ORDER BY (SELECT count(*) FROM unnest($3::text[]) word WHERE length(word)>2 AND position(word in lower((f.fact_json::jsonb)->>'predicate'))>0) DESC,f.source_id,f.logical_id,f.revision,f.fact_id LIMIT 101) SELECT array_agg(f.fact_json ORDER BY f.fact_id),r.record_json,h.record_json FROM selected f JOIN brain.source_record_revisions r USING(source_id,logical_id,revision) JOIN brain.source_record_heads h USING(source_id,logical_id) GROUP BY f.source_id,f.logical_id,f.revision,r.record_json,h.record_json ORDER BY f.source_id,f.logical_id,f.revision", &[&entity.entity_key, &pins, &words])?;
         let mut evidence = Vec::new();
         let mut authorized_entity = None;
+        let mut authorized_names = std::collections::BTreeSet::new();
         for row in rows {
             request_check(deadline)?;
-            let encoded: String = row.try_get(0).map_err(error)?;
-            let fact: EntityProfileFact =
-                serde_json::from_str(&encoded).map_err(|_| invalid("Faktenbeleg ist ungültig"))?;
+            let values: Vec<String> = row.try_get(0).map_err(error)?;
             let record: SourceRecordV2 = serde_json::from_value(row.try_get(1).map_err(error)?)
                 .map_err(|_| invalid("Faktenquelle ist ungültig"))?;
             let head: SourceRecordV2 = serde_json::from_value(row.try_get(2).map_err(error)?)
@@ -545,106 +616,109 @@ impl SnapshotReadPort for LocalPgReader {
             {
                 continue;
             }
-            if origin_from_record(&record).map_err(PortError::InvalidResponse)?
-                != fact.provenance.origin
-            {
-                return Err(invalid(
-                    "Faktenherkunft widerspricht der gespeicherten Quelle",
-                ));
-            }
-            let mut view_release = release.clone();
-            view_release.source_revisions = std::collections::BTreeMap::from([(
-                record.source_id.clone(),
-                std::collections::BTreeMap::from([(record.logical_id.clone(), record.revision)]),
-            )]);
-            let view = CorpusSnapshot {
-                release: view_release,
-                revisions: vec![record.clone()],
-                heads: vec![head],
-            };
-            let visible = if purpose == AnswerPurpose::ExternalPublication {
-                view.authorized_for_publication(&context.principal)?
-            } else {
-                view.authorized(&context.principal, provider)?
-            };
-            let Some(record) = visible.into_iter().find(|record| {
-                brain_contracts::store::record_allowed(record, &context.principal, provider)
-            }) else {
+            let Some(record) =
+                entity_source_visible(&release, record, head, context, provider, purpose)?
+            else {
                 continue;
             };
             authorized_entity = Some((record.visibility, record.allowed_scopes.clone()));
-            if patch_date.is_some() {
-                continue;
+            let facts: Vec<EntityProfileFact> = values
+                .iter()
+                .map(|encoded| {
+                    serde_json::from_str(encoded).map_err(|_| invalid("Faktenbeleg ist ungültig"))
+                })
+                .collect::<Result<_, _>>()?;
+            let ids: Vec<_> = facts.iter().map(|fact| fact.fact_id.clone()).collect();
+            let originals = crate::entity_profile::project_entity_facts(&record, &ids)
+                .map_err(|_| invalid("Originalfakten können nicht geprüft werden"))?;
+            if originals != facts {
+                return Err(invalid(
+                    "Fakten widersprechen dem gespeicherten Originalbeleg",
+                ));
             }
-            let requested = query.patch.as_deref();
-            let known = match &fact.validity {
-                PatchValidity::Known {
-                    from_patch,
-                    to_patch_exclusive,
-                    ..
-                } => {
-                    let patch = requested.unwrap_or(&release.patch);
-                    from_patch.as_str() <= patch
-                        && to_patch_exclusive.as_deref().is_none_or(|end| patch < end)
+            for fact in facts {
+                request_check(deadline)?;
+                let name = fact
+                    .subject
+                    .strip_prefix("hero:")
+                    .or_else(|| fact.subject.strip_prefix("ability:"))
+                    .or_else(|| fact.subject.strip_prefix("item:"));
+                if let Some(name) = name.filter(|name| !name.trim().is_empty()) {
+                    authorized_names.insert(name.to_owned());
                 }
-                PatchValidity::Unknown { .. } => false,
-            };
-            if requested.is_some() && !known {
-                continue;
-            }
-            let mut metadata = record.metadata.clone();
-            metadata.insert("name".into(), entity.name.clone());
-            metadata.insert("aliases".into(), entity.aliases.join(","));
-            metadata.insert("entity_key".into(), entity.entity_key.clone());
-            metadata.insert("fact_key".into(), fact.predicate.clone());
-            let content = format!("entity: {}\n{}: {}\nEinheit: {}\nQualifier: {}\nQuellenstand: {}\nPatchgültigkeit: {}", entity.name, fact.predicate, fact.value, fact.unit.as_deref().unwrap_or("unbekannt"), serde_json::to_string(&fact.qualifiers).map_err(|_| invalid("Qualifier sind ungültig"))?, fact.provenance.observed_at, if known { "belegt" } else { "unbekannt; kein belegter aktueller Patchwert" });
-            evidence.push(brain_contracts::Evidence {
-                evidence_id: format!(
-                    "entity-profile:{}:{}:{}:{}:{}",
-                    entity.entity_key,
-                    record.source_id,
-                    record.logical_id,
-                    record.revision,
-                    fact.fact_id
-                ),
-                source_id: record.source_id.clone(),
-                logical_id: record.logical_id.clone(),
-                revision: record.revision,
-                kind: if known && fact.evidence_status == "extracted_value" {
-                    brain_contracts::EvidenceKind::Fact
-                } else {
-                    brain_contracts::EvidenceKind::Prose
-                },
-                content,
-                citation: fact.provenance.origin.locator.clone(),
-                visibility: record.visibility,
-                allowed_scopes: record.allowed_scopes.clone(),
-                score: 1.0,
-                patch: requested.filter(|_| known).map(str::to_owned),
-                provenance: Some(brain_contracts::ChunkProvenance {
-                    document: brain_contracts::DocumentRevision {
-                        source_id: record.source_id.clone(),
-                        logical_id: record.logical_id.clone(),
-                        revision: record.revision,
-                        content_hash: record.content_hash.clone(),
+                if patch_date.is_some() {
+                    continue;
+                }
+                let requested = query.patch.as_deref();
+                let known = match &fact.validity {
+                    PatchValidity::Known {
+                        from_patch,
+                        to_patch_exclusive,
+                        ..
+                    } => {
+                        let patch = requested.unwrap_or(&release.patch);
+                        from_patch.as_str() <= patch
+                            && to_patch_exclusive.as_deref().is_none_or(|end| patch < end)
+                    }
+                    PatchValidity::Unknown { .. } => false,
+                };
+                if requested.is_some() && !known {
+                    continue;
+                }
+                let mut metadata = std::collections::BTreeMap::new();
+                metadata.insert("name".into(), name.unwrap_or(&fact.subject).to_owned());
+                metadata.insert("entity_key".into(), entity.entity_key.clone());
+                metadata.insert("fact_key".into(), fact.predicate.clone());
+                let content = format!("entity: {}\n{}: {}\nEinheit: {}\nQualifier: {}\nQuellenstand: {}\nPatchgültigkeit: {}", name.unwrap_or(&fact.subject), fact.predicate, fact.value, fact.unit.as_deref().unwrap_or("unbekannt"), serde_json::to_string(&fact.qualifiers).map_err(|_| invalid("Qualifier sind ungültig"))?, fact.provenance.observed_at, if known { "belegt" } else { "unbekannt; kein belegter aktueller Patchwert" });
+                evidence.push(brain_contracts::Evidence {
+                    evidence_id: format!(
+                        "entity-profile:{}:{}:{}:{}:{}",
+                        entity.entity_key,
+                        record.source_id,
+                        record.logical_id,
+                        record.revision,
+                        fact.fact_id
+                    ),
+                    source_id: record.source_id.clone(),
+                    logical_id: record.logical_id.clone(),
+                    revision: record.revision,
+                    kind: if known && fact.evidence_status == "extracted_value" {
+                        brain_contracts::EvidenceKind::Fact
+                    } else {
+                        brain_contracts::EvidenceKind::Prose
                     },
-                    chunker_version: "entity-profile-db-v1".into(),
-                    ordinal: 0,
-                    byte_start: 0,
-                    byte_end: record.content.len(),
-                    source_locator: fact.provenance.origin.locator.clone(),
-                    release_id: release.release_id.clone(),
-                    knowledge_version: release.knowledge_version.clone(),
-                    valid_from: None,
-                    valid_to: None,
-                    metadata,
-                }),
-            });
+                    content,
+                    citation: fact.provenance.origin.locator.clone(),
+                    visibility: record.visibility,
+                    allowed_scopes: record.allowed_scopes.clone(),
+                    score: 1.0,
+                    patch: requested.filter(|_| known).map(str::to_owned),
+                    provenance: Some(brain_contracts::ChunkProvenance {
+                        document: brain_contracts::DocumentRevision {
+                            source_id: record.source_id.clone(),
+                            logical_id: record.logical_id.clone(),
+                            revision: record.revision,
+                            content_hash: record.content_hash.clone(),
+                        },
+                        chunker_version: "entity-profile-db-v1".into(),
+                        ordinal: 0,
+                        byte_start: 0,
+                        byte_end: record.content.len(),
+                        source_locator: fact.provenance.origin.locator.clone(),
+                        release_id: release.release_id.clone(),
+                        knowledge_version: release.knowledge_version.clone(),
+                        valid_from: None,
+                        valid_to: None,
+                        metadata,
+                    }),
+                });
+            }
         }
         if let (Some(date), Some((visibility, scopes))) = (patch_date, authorized_entity) {
-            let names: Vec<_> = std::iter::once(entity.name.clone())
-                .chain(entity.aliases.clone())
-                .collect();
+            let names: Vec<_> = authorized_names.into_iter().collect();
+            if names.is_empty() {
+                return Ok(Some(Vec::new()));
+            }
             let dates = tx.query("SELECT DISTINCT patch_date::text FROM brain.patch_changes WHERE patch_date::text LIKE $1 AND (lower(entity_name)=ANY(SELECT lower(n) FROM unnest($2::text[]) n) OR lower(ability_name)=ANY(SELECT lower(n) FROM unnest($2::text[]) n)) ORDER BY 1 LIMIT 2", &[&date, &names])?;
             if dates.len() != 1 {
                 return Ok(Some(Vec::new()));
@@ -666,7 +740,7 @@ impl SnapshotReadPort for LocalPgReader {
                     logical_id: entity.entity_key.clone(),
                     revision: 1,
                     kind: brain_contracts::EvidenceKind::Prose,
-                    content: format!("Gespeicherte Patchänderung für {}: {}", entity.name, change),
+                    content: format!("Gespeicherte Patchänderung: {change}"),
                     citation: format!("brain.patch_changes:{date}:{}", entity.entity_key),
                     visibility,
                     allowed_scopes: scopes.clone(),
@@ -711,6 +785,34 @@ impl SnapshotReadPort for LocalPgReader {
         result
     }
 }
+fn entity_source_visible(
+    release: &brain_contracts::CorpusRelease,
+    record: brain_contracts::SourceRecordV2,
+    head: brain_contracts::SourceRecordV2,
+    context: &brain_contracts::AuthorizedContext,
+    provider: bool,
+    purpose: brain_contracts::store::AnswerPurpose,
+) -> Result<Option<brain_contracts::SourceRecordV2>, PortError> {
+    let mut view_release = release.clone();
+    view_release.source_revisions = std::collections::BTreeMap::from([(
+        record.source_id.clone(),
+        std::collections::BTreeMap::from([(record.logical_id.clone(), record.revision)]),
+    )]);
+    let view = CorpusSnapshot {
+        release: view_release,
+        revisions: vec![record],
+        heads: vec![head],
+    };
+    let visible = if purpose == brain_contracts::store::AnswerPurpose::ExternalPublication {
+        view.authorized_for_publication(&context.principal)?
+    } else {
+        view.authorized(&context.principal, provider)?
+    };
+    Ok(visible.into_iter().find(|record| {
+        brain_contracts::store::record_allowed(record, &context.principal, provider)
+    }))
+}
+
 impl LocalPgReader {
     fn current_maintenance_policies(
         client: &mut Client,

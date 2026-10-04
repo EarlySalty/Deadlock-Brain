@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use serde_json::{json, Map, Value};
-use sqlx::Row;
+use sqlx::{PgPool, Row};
 
 use crate::{
     store::{
@@ -33,9 +33,17 @@ pub fn classify_source_kind(url: Option<&str>) -> &'static str {
     }
 }
 
-pub async fn pull_patchnotes(raw_dir: &Path, _options: PullPatchnotesOptions) -> Result<Value> {
+pub async fn pull_patchnotes(raw_dir: &Path, options: PullPatchnotesOptions) -> Result<Value> {
     let pool = open_pool().await?;
-    let store = SourceStore::new(&pool, raw_dir)?;
+    pull_patchnotes_with_pool(&pool, raw_dir, options).await
+}
+
+pub async fn pull_patchnotes_with_pool(
+    pool: &PgPool,
+    raw_dir: &Path,
+    _options: PullPatchnotesOptions,
+) -> Result<Value> {
+    let store = SourceStore::new(pool, raw_dir)?;
     let run_id = store.begin_run("patchnotes").await?;
     let outcome = pull_patchnotes_inner(&store).await;
     complete_run(&store, run_id, outcome).await

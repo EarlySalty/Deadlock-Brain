@@ -1,4 +1,3 @@
-//! Release-local inverted BM25 index. Query work traverses postings, not corpus documents.
 use brain_contracts::{
     lexical::{fact_names, terms},
     store::record_allowed,
@@ -16,6 +15,61 @@ const K1: f64 = 1.2;
 const B: f64 = 0.75;
 
 #[derive(Debug)]
+enum IndexedText {
+    Raw(String),
+    Html(String),
+    Knowledge(crate::knowledge_projection::KnowledgeProjection),
+}
+
+impl IndexedText {
+    fn text(&self) -> &str {
+        match self {
+            Self::Raw(text) | Self::Html(text) => text,
+            Self::Knowledge(projection) => &projection.text,
+        }
+    }
+    fn chunker_version(&self) -> &str {
+        match self {
+            Self::Raw(_) => CHUNKER_VERSION,
+            Self::Html(_) => HTML_CHUNKER_VERSION,
+            Self::Knowledge(_) => crate::knowledge_projection::KNOWLEDGE_CHUNKER_VERSION,
+        }
+    }
+    fn ranges(&self, atomic: bool) -> Vec<(usize, usize)> {
+        match self {
+            Self::Knowledge(projection) => {
+                let mut result = ranges(&projection.text[..projection.raw_byte_end], false);
+                result.extend(
+                    projection
+                        .facts
+                        .iter()
+                        .map(|fact| (fact.byte_start, fact.byte_end)),
+                );
+                result
+            }
+            _ => ranges(self.text(), atomic),
+        }
+    }
+}
+
+fn collect_indexed_texts(
+    texts: impl Iterator<Item = Result<IndexedText, PortError>>,
+    max_bytes: usize,
+) -> Result<Vec<IndexedText>, PortError> {
+    let mut result = Vec::new();
+    let mut total = 0usize;
+    for text in texts {
+        let text = text?;
+        total = total
+            .checked_add(text.text().len())
+            .filter(|total| *total <= max_bytes)
+            .ok_or(PortError::BudgetExceeded)?;
+        result.push(text);
+    }
+    Ok(result)
+}
+
+#[derive(Debug)]
 pub(crate) struct IndexedChunk {
     pub document: usize,
     pub start: usize,
@@ -28,7 +82,7 @@ pub(crate) struct IndexedChunk {
 pub(crate) struct ChunkIndex {
     pub release: CorpusRelease,
     pub records: Vec<SourceRecordV2>,
-    texts: Vec<String>,
+    texts: Vec<IndexedText>,
     pub chunks: Vec<IndexedChunk>,
     pub by_id: BTreeMap<String, usize>,
     pub by_document: BTreeMap<(String, String, u64), Vec<usize>>,
@@ -38,7 +92,6 @@ pub(crate) struct ChunkIndex {
     fact_name_owners: BTreeMap<Vec<String>, BTreeSet<usize>>,
 }
 
-/// No normalization of numeric literals: 6.5, 65, -6.5 and 6,5 remain distinct.
 pub(crate) fn numeric_terms(text: &str) -> BTreeSet<String> {
     terms(text)
         .into_iter()
@@ -50,9 +103,6 @@ pub(crate) fn numeric_terms(text: &str) -> BTreeSet<String> {
         .collect()
 }
 
-/// Exact overlapping UTF-8 slices, covering every byte, including whitespace. Overlap keeps
-/// adjacent key/value lines together in a candidate even when a window cuts a code block.
-/// An indivisible token larger than the target is retained whole, never silently truncated.
 fn ranges(text: &str, atomic: bool) -> Vec<(usize, usize)> {
     if text.is_empty() {
         return Vec::new();
@@ -89,7 +139,6 @@ fn ranges(text: &str, atomic: bool) -> Vec<(usize, usize)> {
         while !text.is_char_boundary(next) {
             next += 1;
         }
-        // Start only at token boundaries, so numbers are never manufactured by slicing.
         next = text[next..end]
             .char_indices()
             .find(|(_, c)| c.is_whitespace())
@@ -97,6 +146,63 @@ fn ranges(text: &str, atomic: bool) -> Vec<(usize, usize)> {
         start = next;
     }
     result
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ReleaseIndexProof {
+    pub documents: usize,
+    pub indexed_documents: usize,
+    pub projected_bytes: usize,
+    pub chunks: usize,
+}
+
+pub fn preflight_release_index(
+    release: CorpusRelease,
+    records: Vec<SourceRecordV2>,
+) -> Result<ReleaseIndexProof, PortError> {
+    brain_storage::validate_release(&release)?;
+    let documents = release
+        .source_revisions
+        .values()
+        .map(BTreeMap::len)
+        .sum::<usize>();
+    let mut seen = BTreeSet::new();
+    for record in &records {
+        record
+            .validate()
+            .map_err(|_| PortError::InvalidResponse("invalid preflight revision".into()))?;
+        if release
+            .source_revisions
+            .get(&record.source_id)
+            .and_then(|pins| pins.get(&record.logical_id))
+            != Some(&record.revision)
+            || !seen.insert((&record.source_id, &record.logical_id))
+        {
+            return Err(PortError::InvalidResponse(
+                "preflight records differ from exact release pins".into(),
+            ));
+        }
+    }
+    if seen.len() != documents {
+        return Err(PortError::InvalidResponse(
+            "preflight is missing pinned revisions".into(),
+        ));
+    }
+    drop(seen);
+    let prose = records
+        .into_iter()
+        .filter(|record| {
+            !record.metadata.contains_key("domain_contract")
+                && record.metadata.get("kind").map(String::as_str) != Some("domain_input")
+        })
+        .collect();
+    let index = ChunkIndex::build(release, prose)?;
+    Ok(ReleaseIndexProof {
+        documents,
+        indexed_documents: index.records.len(),
+        projected_bytes: index.texts.iter().map(|text| text.text().len()).sum(),
+        chunks: index.chunks.len(),
+    })
 }
 
 impl ChunkIndex {
@@ -111,16 +217,28 @@ impl ChunkIndex {
                 b.revision,
             ))
         });
-        if records.iter().map(|r| r.content.len()).sum::<usize>() > 256 * 1024 * 1024 {
+        if records
+            .iter()
+            .try_fold(0usize, |total, record| {
+                total
+                    .checked_add(record.content.len())
+                    .filter(|total| *total <= crate::knowledge_projection::MAX_INDEX_BYTES)
+            })
+            .is_none()
+        {
             return Err(PortError::BudgetExceeded);
         }
         let mut index = Self {
             release,
-            texts: records
-                .iter()
-                .map(|record| {
+            texts: collect_indexed_texts(
+                records.iter().map(|record| {
+                    if let Some(projection) =
+                        crate::knowledge_projection::project_knowledge(record)?
+                    {
+                        return Ok(IndexedText::Knowledge(projection));
+                    }
                     if record.metadata.get("content_format").map(String::as_str) != Some("html") {
-                        return Ok(record.content.clone());
+                        return Ok(IndexedText::Raw(record.content.clone()));
                     }
                     let projection = crate::html_projection::project_html(&record.content)?;
                     let legacy = [
@@ -144,9 +262,10 @@ impl ChunkIndex {
                     {
                         return Err(PortError::InvalidResponse("html_projection_binding".into()));
                     }
-                    Ok(projection.text)
-                })
-                .collect::<Result<Vec<_>, PortError>>()?,
+                    Ok(IndexedText::Html(projection.text))
+                }),
+                crate::knowledge_projection::MAX_INDEX_BYTES,
+            )?,
             records,
             chunks: Vec::new(),
             by_id: BTreeMap::new(),
@@ -169,21 +288,28 @@ impl ChunkIndex {
                         .insert(document);
                 }
             }
-            // Typed facts/rules are indivisible objects, not prose. Oversized objects fail
-            // explicitly at packing rather than turning fragments into authoritative facts.
+            if let IndexedText::Knowledge(projection) = &index.texts[document] {
+                for fact in &projection.facts {
+                    let mut names = fact_names("", &fact.subject, &BTreeMap::new());
+                    names.push(terms(&fact.subject));
+                    for name in names.into_iter().filter(|name| !name.is_empty()) {
+                        index
+                            .fact_name_owners
+                            .entry(name)
+                            .or_default()
+                            .insert(document);
+                    }
+                }
+            }
             let atomic = record.metadata.contains_key("domain_contract")
                 || matches!(
                     record.metadata.get("kind").map(String::as_str),
                     Some("fact" | "rule")
                 );
-            let text = &index.texts[document];
-            let chunker_version =
-                if record.metadata.get("content_format").map(String::as_str) == Some("html") {
-                    HTML_CHUNKER_VERSION
-                } else {
-                    CHUNKER_VERSION
-                };
-            for (ordinal, (start, end)) in ranges(text, atomic).into_iter().enumerate() {
+            let indexed_text = &index.texts[document];
+            let text = indexed_text.text();
+            let chunker_version = indexed_text.chunker_version();
+            for (ordinal, (start, end)) in indexed_text.ranges(atomic).into_iter().enumerate() {
                 if index.chunks.len() >= 500_000 {
                     return Err(PortError::BudgetExceeded);
                 }
@@ -198,7 +324,13 @@ impl ChunkIndex {
                     end,
                 ))
                 .expect("identity serializes");
-                let id = format!("ev-{:x}", Sha256::digest(identity));
+                let id = if let IndexedText::Knowledge(projection) = indexed_text {
+                    let bound = serde_json::to_vec(&(&identity, &projection.semantic_sha256))
+                        .expect("projection identity serializes");
+                    format!("ev-{:x}", Sha256::digest(bound))
+                } else {
+                    format!("ev-{:x}", Sha256::digest(identity))
+                };
                 let chunk_id = index.chunks.len();
                 let text = &text[start..end];
                 let mut words = terms(text);
@@ -357,7 +489,13 @@ impl ChunkIndex {
                     .metadata
                     .get("title")
                     .map(String::as_str)
-                    .unwrap_or_else(|| self.texts[entry.document].lines().next().unwrap_or(""));
+                    .unwrap_or_else(|| {
+                        self.texts[entry.document]
+                            .text()
+                            .lines()
+                            .next()
+                            .unwrap_or("")
+                    });
                 let title_weight =
                     if query.profile == AnswerProfile::Explain && terms(title).contains(term) {
                         2.0
@@ -375,8 +513,6 @@ impl ChunkIndex {
         });
         ranked
     }
-    /// Group owners by the specific matched name. Different unambiguous names
-    /// in one question are not themselves an alias collision.
     pub fn matching_fact_owners<'a>(
         &'a self,
         query: &Query,
@@ -412,7 +548,9 @@ impl ChunkIndex {
         let original = &self.records[entry.document];
         let public_maintenance = original.source_id.starts_with("maintenance-docs:")
             && effective.visibility == brain_contracts::SourceVisibility::Public;
-        let locator = if public_maintenance {
+        let locator = if let IndexedText::Knowledge(projection) = &self.texts[entry.document] {
+            projection.source_locator.clone()
+        } else if public_maintenance {
             original.logical_id.clone()
         } else {
             original
@@ -446,23 +584,38 @@ impl ChunkIndex {
             source_id: original.source_id.clone(),
             logical_id: original.logical_id.clone(),
             revision: original.revision,
-            kind: match original.metadata.get("kind").map(String::as_str) {
-                Some("fact") => EvidenceKind::Fact,
-                Some("rule") => EvidenceKind::Rule,
-                Some("mechanic") => EvidenceKind::Mechanic,
-                Some("population") => EvidenceKind::Population,
-                Some("replay") => EvidenceKind::Replay,
-                _ => EvidenceKind::Prose,
+            kind: if matches!(&self.texts[entry.document], IndexedText::Knowledge(_)) {
+                EvidenceKind::Prose
+            } else {
+                match original.metadata.get("kind").map(String::as_str) {
+                    Some("fact") => EvidenceKind::Fact,
+                    Some("rule") => EvidenceKind::Rule,
+                    Some("mechanic") => EvidenceKind::Mechanic,
+                    Some("population") => EvidenceKind::Population,
+                    Some("replay") => EvidenceKind::Replay,
+                    _ => EvidenceKind::Prose,
+                }
             },
             content: if original.source_id == "playdeadlock_forum" {
-                format!("Forumbericht, unbestätigt. Aktuelle Gültigkeit und Behebung unbekannt. Beitragsdatum: {}. Quelle: {}.\n\n{}", original.metadata.get("source_date").map(String::as_str).unwrap_or("unknown"), locator, &self.texts[entry.document][entry.start..entry.end])
+                format!("Forumbericht, unbestätigt. Aktuelle Gültigkeit und Behebung unbekannt. Beitragsdatum: {}. Quelle: {}.\n\n{}", original.metadata.get("source_date").map(String::as_str).unwrap_or("unknown"), locator, &self.texts[entry.document].text()[entry.start..entry.end])
             } else {
-                self.texts[entry.document][entry.start..entry.end].into()
+                self.texts[entry.document].text()[entry.start..entry.end].into()
             },
-            citation: format!(
-                "brain:{}@{}#bytes={}-{}",
-                entry.id, original.revision, entry.start, entry.end
-            ),
+            citation: if matches!(&self.texts[entry.document], IndexedText::Knowledge(_)) {
+                format!(
+                    "brain:{}@{}#basis={}&bytes={}-{}",
+                    entry.id,
+                    original.revision,
+                    crate::knowledge_projection::KNOWLEDGE_BYTE_BASIS,
+                    entry.start,
+                    entry.end
+                )
+            } else {
+                format!(
+                    "brain:{}@{}#bytes={}-{}",
+                    entry.id, original.revision, entry.start, entry.end
+                )
+            },
             visibility: effective.visibility,
             allowed_scopes: effective.allowed_scopes.clone(),
             score,
@@ -472,14 +625,7 @@ impl ChunkIndex {
             },
             provenance: Some(ChunkProvenance {
                 document: self.document(chunk),
-                chunker_version: if original.metadata.get("content_format").map(String::as_str)
-                    == Some("html")
-                {
-                    HTML_CHUNKER_VERSION
-                } else {
-                    CHUNKER_VERSION
-                }
-                .into(),
+                chunker_version: self.texts[entry.document].chunker_version().into(),
                 ordinal: entry.ordinal,
                 byte_start: entry.start,
                 byte_end: entry.end,
@@ -488,7 +634,9 @@ impl ChunkIndex {
                 knowledge_version: self.release.knowledge_version.clone(),
                 valid_from: original.valid_from.clone(),
                 valid_to: original.valid_to.clone(),
-                metadata: if public_maintenance {
+                metadata: if let IndexedText::Knowledge(projection) = &self.texts[entry.document] {
+                    projection.provenance_metadata(original, entry.start)
+                } else if public_maintenance {
                     public_metadata
                 } else {
                     original.metadata.clone()
@@ -501,6 +649,104 @@ impl ChunkIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn release_preflight_uses_exact_pins_and_the_same_index_counts() {
+        let record = SourceRecordV2 {
+            source_id: "legacy".into(),
+            logical_id: "document".into(),
+            revision: 2,
+            content_hash: format!("{:x}", Sha256::digest("Überliefert".as_bytes())),
+            content: "Überliefert".into(),
+            visibility: brain_contracts::SourceVisibility::Internal,
+            allowed_scopes: BTreeSet::new(),
+            tombstone: false,
+            valid_from: None,
+            valid_to: None,
+            metadata: BTreeMap::new(),
+        };
+        let release = CorpusRelease {
+            release_id: "preflight".into(),
+            knowledge_version: "knowledge".into(),
+            patch: "patch".into(),
+            created_at_epoch: 1,
+            source_revisions: BTreeMap::from([(
+                "legacy".into(),
+                BTreeMap::from([("document".into(), 2)]),
+            )]),
+        };
+        let index = ChunkIndex::build(release.clone(), vec![record.clone()]).unwrap();
+        let proof = preflight_release_index(release.clone(), vec![record.clone()]).unwrap();
+        assert_eq!(proof.documents, 1);
+        assert_eq!(proof.indexed_documents, index.records.len());
+        assert_eq!(proof.projected_bytes, index.texts[0].text().len());
+        assert_eq!(proof.chunks, index.chunks.len());
+        assert!(preflight_release_index(release.clone(), Vec::new()).is_err());
+        assert!(
+            preflight_release_index(release.clone(), vec![record.clone(), record.clone()]).is_err()
+        );
+        let mut newer = record.clone();
+        newer.revision = 3;
+        assert!(preflight_release_index(release.clone(), vec![newer]).is_err());
+        let mut excessive = release.clone();
+        excessive.source_revisions.insert(
+            "many".into(),
+            (0..10_000).map(|id| (id.to_string(), 1)).collect(),
+        );
+        assert!(preflight_release_index(excessive, vec![record.clone()]).is_err());
+        let mut domain = record;
+        domain.metadata.insert("kind".into(), "domain_input".into());
+        let proof = preflight_release_index(release, vec![domain]).unwrap();
+        assert_eq!(proof.documents, 1);
+        assert_eq!(proof.indexed_documents, 0);
+        assert_eq!(proof.projected_bytes, 0);
+        assert_eq!(proof.chunks, 0);
+    }
+
+    #[test]
+    fn projected_budget_stops_before_requesting_later_documents() {
+        let mut projected = 0;
+        let texts = (0..3).map(|_| {
+            projected += 1;
+            assert!(projected <= 2);
+            Ok(IndexedText::Knowledge(
+                crate::knowledge_projection::KnowledgeProjection {
+                    text: "Faktenbeleg".repeat(2),
+                    raw_sha256: String::new(),
+                    semantic_sha256: String::new(),
+                    raw_byte_end: 1,
+                    source_locator: String::new(),
+                    document_evidence_status: String::new(),
+                    facts: Vec::new(),
+                },
+            ))
+        });
+        assert!(matches!(
+            collect_indexed_texts(texts, 30),
+            Err(PortError::BudgetExceeded)
+        ));
+        assert_eq!(projected, 2);
+    }
+
+    #[test]
+    fn projected_budget_accepts_exact_total_and_counts_utf8_bytes() {
+        let texts = vec![
+            Ok(IndexedText::Raw("ä".into())),
+            Ok(IndexedText::Html("ö".into())),
+        ];
+        assert_eq!(
+            collect_indexed_texts(texts.into_iter(), 4).unwrap().len(),
+            2
+        );
+        let texts = vec![
+            Ok(IndexedText::Raw("ä".into())),
+            Ok(IndexedText::Html("ö".into())),
+        ];
+        assert!(matches!(
+            collect_indexed_texts(texts.into_iter(), 3),
+            Err(PortError::BudgetExceeded)
+        ));
+    }
+
     #[test]
     fn chunk_ranges_are_deterministic_utf8_and_cover_every_byte() {
         let text = "Abschnitt äöü 🎯. Exact -123.45%\n\"Key\": \"BonusMaxHealthPerHero\",\n\"Value\": 650\n".repeat(300);

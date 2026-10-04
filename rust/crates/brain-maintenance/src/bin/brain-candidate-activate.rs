@@ -28,6 +28,7 @@ use std::{
 enum Target {
     Standard,
     SecondBrainInternal,
+    EntityProfilesInternal,
 }
 
 #[derive(Parser)]
@@ -50,6 +51,8 @@ struct Cli {
     allow_source: Vec<String>,
     #[arg(long)]
     apply: bool,
+    #[arg(long)]
+    maintenance_credential_stdin: bool,
 }
 
 #[derive(Serialize)]
@@ -110,7 +113,9 @@ impl Cli {
     fn activation_target(&self) -> ActivationTarget {
         match self.target {
             Target::Standard => ActivationTarget::Standard,
-            Target::SecondBrainInternal => ActivationTarget::SecondBrainInternal,
+            Target::SecondBrainInternal | Target::EntityProfilesInternal => {
+                ActivationTarget::SecondBrainInternal
+            }
         }
     }
 
@@ -284,7 +289,7 @@ fn check_rights(
         channel: "local-operator".into(),
         scopes: match target {
             Target::Standard => BTreeSet::new(),
-            Target::SecondBrainInternal => internal_scopes.clone(),
+            Target::SecondBrainInternal | Target::EntityProfilesInternal => internal_scopes.clone(),
         },
         provider_egress: BTreeSet::new(),
     };
@@ -373,6 +378,15 @@ fn check_rights(
                     ),
                 "internal_source_rights"
             ),
+            Target::EntityProfilesInternal => ensure!(
+                !internal_feed_source(&record.source_id)
+                    && record.visibility == SourceVisibility::Internal
+                    && !origin.policy.publication_allowed
+                    && !origin.policy.provider_egress_allowed
+                    && origin.policy.raw_retention_allowed
+                    && origin.parser_family == "dbrain-sources/wiki-spielwissen",
+                "entity_profile_source_rights"
+            ),
         }
         if let Some(old) = old {
             let old_origin =
@@ -382,6 +396,116 @@ fn check_rights(
                     && record.metadata.get("egress") == old.metadata.get("egress"),
                 "source_policy_changed"
             );
+        }
+    }
+    Ok(())
+}
+
+async fn check_entity_profile_sources(
+    runtime: &RuntimeConfig,
+    candidate: &CorpusSnapshot,
+    allowed: &BTreeSet<String>,
+    serve: &brain_serve::Config,
+) -> Result<()> {
+    use dbrain_sources::{knowledge_contract, knowledge_import};
+    let config =
+        brain_maintenance::integration::runner::load_maintenance(&runtime.maintenance_config)?;
+    let credential = serve
+        .credentials
+        .iter()
+        .find(|grant| grant.actor_id == "second-brain" && grant.channel == "internal")
+        .ok_or_else(|| anyhow::anyhow!("entity_profile_internal_grant"))?;
+    let principal = brain_contracts::Principal {
+        actor_id: credential.actor_id.clone(),
+        channel: credential.channel.clone(),
+        scopes: credential.scopes.clone(),
+        provider_egress: credential.provider_egress.clone(),
+    };
+    let visible = candidate.authorized(&principal, false)?;
+    for id in allowed {
+        let matching: Vec<_> = runtime
+            .entity_profile_sources
+            .iter()
+            .filter(|source| source.extraction.source_id == *id)
+            .collect();
+        ensure!(matching.len() == 1, "entity_profile_source_registration");
+        let source = matching[0];
+        let repo = config
+            .game_sources
+            .iter()
+            .find(|repo| repo.id == source.repository_id)
+            .ok_or_else(|| anyhow::anyhow!("entity_profile_repository"))?;
+        brain_maintenance::config::require_registered_game_source(&config, repo)?;
+        let sha =
+            brain_maintenance::scanner::resolve_ref(&repo.path, &repo.source_ref, &config.bounds)
+                .await?;
+        let pinned = dbrain_sources::git_source::PinnedRepository::open(&repo.path, &sha)?;
+        pinned.require_origin(&[&repo.origin])?;
+        let policy: knowledge_import::ImportPolicy =
+            serde_json::from_slice(&protected_file(&source.import_policy, 256 * 1024)?)?;
+        let records: Vec<_> = candidate
+            .revisions
+            .iter()
+            .filter(|record| record.source_id == *id)
+            .collect();
+        ensure!(!records.is_empty(), "entity_profile_source_empty");
+        for record in records {
+            ensure!(
+                visible.contains(record),
+                "entity_profile_source_inaccessible"
+            );
+            dbrain_retrieval::knowledge_projection::project_knowledge(record)?
+                .ok_or_else(|| anyhow::anyhow!("entity_profile_document_missing"))?;
+            let encoded = record
+                .metadata
+                .get(brain_storage::source_versions::DOCUMENT_METADATA_KEY)
+                .ok_or_else(|| anyhow::anyhow!("entity_profile_document_missing"))?;
+            let document: knowledge_contract::KnowledgeDocument = serde_json::from_str(encoded)?;
+            ensure!(
+                document.source_kind == knowledge_contract::KnowledgeSourceKind::GameFile
+                    && document
+                        .metadata
+                        .get("source_revision")
+                        .and_then(serde_json::Value::as_str)
+                        == Some(sha.as_str()),
+                "entity_profile_git_revision"
+            );
+            let path = document
+                .metadata
+                .get("original_relative_path")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| anyhow::anyhow!("entity_profile_original_path"))?;
+            brain_maintenance::config::safe_relative(path)?;
+            for scopes in [&source.paths, &repo.source_paths.iter().cloned().collect()] {
+                ensure!(
+                    scopes
+                        .iter()
+                        .any(|scope| path == scope || path.starts_with(&format!("{scope}/"))),
+                    "entity_profile_source_scope"
+                );
+            }
+            ensure!(
+                document
+                    .metadata
+                    .get("original_sha256")
+                    .and_then(serde_json::Value::as_str)
+                    == Some(digest(&pinned.read_blob(path)?).as_str()),
+                "entity_profile_git_blob"
+            );
+            let origin = origin_from_record(record)
+                .map_err(|_| anyhow::anyhow!("entity_profile_original_origin"))?;
+            let prepared = knowledge_import::prepare_knowledge_jsonl(
+                std::io::Cursor::new(encoded.as_bytes()),
+                &policy,
+                &origin.parser_revision,
+            )?;
+            ensure!(
+                prepared.records().len() == 1,
+                "entity_profile_import_rights"
+            );
+            let expected = origin_from_record(&prepared.records()[0].record)
+                .map_err(|_| anyhow::anyhow!("entity_profile_import_origin"))?;
+            ensure!(expected == origin, "entity_profile_original_policy_changed");
         }
     }
     Ok(())
@@ -505,6 +629,13 @@ fn position(current: &[u8], old: &[u8], new: &[u8]) -> Result<Position> {
 
 async fn run(cli: &Cli) -> Result<Report> {
     let allowed = cli.sources()?;
+    if cli.maintenance_credential_stdin {
+        ensure!(
+            cli.target == Target::EntityProfilesInternal,
+            "maintenance_credential_target"
+        );
+        credential_stdin_to_fd5()?;
+    }
     let runtime_bytes = protected_file(&cli.config, 65536)?;
     let runtime = RuntimeConfig::load(&cli.config)?;
     ensure!(
@@ -613,6 +744,9 @@ async fn run(cli: &Cli) -> Result<Report> {
     )?;
     check_transition(&base.release, &candidate.release, &allowed)?;
     check_rights(&base, &candidate, &allowed, cli.target)?;
+    if cli.target == Target::EntityProfilesInternal {
+        check_entity_profile_sources(&runtime, &candidate, &allowed, &serve).await?;
+    }
     let prior = artifacts.call_receipt(&identity)?;
     let mut prepared = if let Some(bytes) = prior {
         let prepared: Prepared = serde_json::from_slice(&bytes)?;
@@ -764,6 +898,15 @@ async fn run(cli: &Cli) -> Result<Report> {
     Ok(report)
 }
 
+fn credential_stdin_to_fd5() -> Result<()> {
+    ensure!(
+        std::fs::metadata("/proc/self/fd/0")?.is_file(),
+        "credential_regular_file"
+    );
+    nix::unistd::dup2(0, 5)?;
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -787,6 +930,47 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "Wird von der FD-Prozessregression mit einem regulären Test-stdin gestartet"]
+    fn credential_transfer_child() {
+        credential_stdin_to_fd5().unwrap();
+        let bytes = std::fs::read("/proc/self/fd/5").unwrap();
+        assert_eq!(digest(&bytes), digest(b"FD-Pruefwert"));
+    }
+
+    #[tokio::test]
+    async fn credential_stdin_reaches_child_fd5_without_changing_parent_cloexec() {
+        use std::os::fd::AsRawFd;
+        let dir = tempfile::tempdir().unwrap();
+        let credential = tempfile::tempfile().unwrap();
+        (&credential).write_all(b"FD-Pruefwert").unwrap();
+        let fd = credential.as_raw_fd();
+        let before = nix::fcntl::fcntl(fd, nix::fcntl::FcntlArg::F_GETFD).unwrap();
+        assert!(
+            nix::fcntl::FdFlag::from_bits_retain(before).contains(nix::fcntl::FdFlag::FD_CLOEXEC)
+        );
+        let output = brain_maintenance::process::run_with_credential(
+            &std::env::current_exe().unwrap(),
+            &[
+                "--exact".into(),
+                "tests::credential_transfer_child".into(),
+                "--ignored".into(),
+                "--nocapture".into(),
+            ],
+            dir.path(),
+            credential.try_clone().unwrap(),
+            5000,
+            4096,
+        )
+        .await
+        .unwrap();
+        assert!(String::from_utf8(output).unwrap().contains("1 passed"));
+        assert_eq!(
+            nix::fcntl::fcntl(fd, nix::fcntl::FcntlArg::F_GETFD).unwrap(),
+            before
+        );
+    }
 
     fn release(id: &str, version: &str, own_revision: u64) -> CorpusRelease {
         CorpusRelease {
@@ -1119,6 +1303,191 @@ mod tests {
             changed.heads = changed.revisions.clone();
             assert!(check_rights(&base, &changed, &allowed, Target::SecondBrainInternal).is_err());
         }
+    }
+
+    #[test]
+    fn entity_variant_preserves_feed_isolation_and_original_rights() {
+        let mut first = feed_record(1);
+        let mut origin = origin_from_record(&first).unwrap();
+        first.source_id = "game-fixture".into();
+        first.allowed_scopes = BTreeSet::from(["source.review:game-fixture".into()]);
+        origin.identity.source_id = first.source_id.clone();
+        origin.policy.allowed_scopes = first.allowed_scopes.clone();
+        origin.parser_family = "dbrain-sources/wiki-spielwissen".into();
+        origin.bind_record(&mut first).unwrap();
+        let mut next = first.clone();
+        next.revision = 2;
+        let base = snapshot(first, "base");
+        let candidate = snapshot(next, "candidate");
+        let allowed = BTreeSet::from(["game-fixture".into()]);
+        check_rights(&base, &candidate, &allowed, Target::EntityProfilesInternal).unwrap();
+        assert!(check_rights(&base, &candidate, &allowed, Target::SecondBrainInternal).is_err());
+        let feed_base = snapshot(feed_record(1), "base");
+        let feed_candidate = snapshot(feed_record(2), "candidate");
+        assert!(check_rights(
+            &feed_base,
+            &feed_candidate,
+            &BTreeSet::from(["google-sheet/fixture".into()]),
+            Target::EntityProfilesInternal
+        )
+        .is_err());
+        for variant in 0..3 {
+            let mut changed = candidate.clone();
+            let mut origin = origin_from_record(&changed.revisions[0]).unwrap();
+            match variant {
+                0 => origin.policy.publication_allowed = true,
+                1 => {
+                    origin.policy.allowed_scopes.insert("foreign.scope".into());
+                }
+                _ => origin.parser_family = "patchnotes".into(),
+            };
+            if variant == 1 {
+                changed.revisions[0].allowed_scopes = origin.policy.allowed_scopes.clone();
+            }
+            origin.bind_record(&mut changed.revisions[0]).unwrap();
+            changed.heads = changed.revisions.clone();
+            assert!(
+                check_rights(&base, &changed, &allowed, Target::EntityProfilesInternal).is_err()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn raw_review_sources_cannot_expand_the_normal_consumer() {
+        use dbrain_sources::{game_files, knowledge_import};
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        std::fs::create_dir(&repo).unwrap();
+        let git = |args: &[&str]| {
+            let output = std::process::Command::new("/usr/bin/git")
+                .args(args)
+                .current_dir(&repo)
+                .output()
+                .unwrap();
+            assert!(output.status.success());
+            String::from_utf8(output.stdout).unwrap().trim().to_owned()
+        };
+        git(&["init", "--quiet"]);
+        let content = br#"{"hero_fixture":{"cooldown":12.5}}"#;
+        std::fs::write(repo.join("heroes.json"), content).unwrap();
+        git(&["add", "heroes.json"]);
+        git(&[
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "--quiet",
+            "-m",
+            "Fixture",
+        ]);
+        git(&[
+            "remote",
+            "add",
+            "origin",
+            "https://example.invalid/game.git",
+        ]);
+        let sha = git(&["rev-parse", "HEAD"]);
+        git(&["update-ref", "refs/remotes/origin/main", &sha]);
+        let options = game_files::GameFileOptions {
+            root: repo.clone(),
+            app_id: 1422450,
+            source_id: "game-fixture".into(),
+            observed_at: "2026-10-04T12:00:00Z".into(),
+            build_id: None,
+            manifest_id: None,
+            source_revision: Some(sha.clone()),
+            depot_id: None,
+            language: "en".into(),
+            attribution: "Fixture".into(),
+            license_name: "unverified".into(),
+            license_url: None,
+            provenance: serde_json::json!({"git_commit":sha}),
+            max_file_bytes: 4096,
+        };
+        let mut jsonl = Vec::new();
+        game_files::extract_game_files(&options, &mut jsonl).unwrap();
+        let policy = knowledge_import::ImportPolicy {
+            sources: BTreeMap::from([(
+                options.source_id.clone(),
+                knowledge_import::ImportGrant {
+                    internal_read_allowed: true,
+                    raw_retention_allowed: true,
+                    authorization_ref: Some("operator:fixture".into()),
+                    provenance_evidence_ref: Some("fixture:git".into()),
+                    ..Default::default()
+                },
+            )]),
+        };
+        let imported = knowledge_import::prepare_knowledge_jsonl(
+            std::io::Cursor::new(jsonl),
+            &policy,
+            game_files::EXTRACTOR_VERSION,
+        )
+        .unwrap();
+        assert_eq!(imported.records().len(), 1);
+        let record = imported.records()[0].record.clone();
+        let candidate = snapshot(record, "candidate");
+        let policy_path = dir.path().join("policy.json");
+        std::fs::write(&policy_path, serde_json::to_vec(&policy).unwrap()).unwrap();
+        std::fs::set_permissions(&policy_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let mut config: serde_json::Value =
+            serde_json::from_str(include_str!("../../config/maintenance.example.json")).unwrap();
+        config["game_sources"] = serde_json::json!([{
+            "id":"game-fixture", "path":repo, "origin":"https://example.invalid/game.git",
+            "source_ref":"refs/remotes/origin/main", "source_paths":["heroes.json"]
+        }]);
+        let config_path = dir.path().join("maintenance.json");
+        std::fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
+        let mut runtime: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../ops/brain-maintenance/runtime.example.json"
+        ))
+        .unwrap();
+        runtime["maintenance_config"] = serde_json::json!(config_path);
+        runtime["entity_profile_corpus_root"] = serde_json::json!(dir.path());
+        runtime["entity_profile_sources"] = serde_json::json!([{
+            "repository_id":"game-fixture", "paths":["heroes.json"], "extraction":options,
+            "import_policy":policy_path, "canonical_raw_dir":null
+        }]);
+        let runtime_path = dir.path().join("runtime.json");
+        std::fs::write(&runtime_path, serde_json::to_vec(&runtime).unwrap()).unwrap();
+        let mut runtime = RuntimeConfig::load(&runtime_path).unwrap();
+        let mut serve_value = c9_value();
+        let credential = serve_value["credentials"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|grant| grant["actor_id"] == "second-brain")
+            .unwrap();
+        credential["scopes"] =
+            serde_json::json!(["second_brain.internal", "source.review:game-fixture"]);
+        assert!(brain_serve::Config::parse(&serde_json::to_vec(&serve_value).unwrap()).is_err());
+        let allowed = BTreeSet::from(["game-fixture".into()]);
+        let serve = brain_serve::Config::parse(&serde_json::to_vec(&c9_value()).unwrap()).unwrap();
+        assert!(
+            check_entity_profile_sources(&runtime, &candidate, &allowed, &serve)
+                .await
+                .is_err()
+        );
+        runtime.entity_profile_sources[0].paths = BTreeSet::from(["other.json".into()]);
+        assert!(
+            check_entity_profile_sources(&runtime, &candidate, &allowed, &serve)
+                .await
+                .is_err()
+        );
+        runtime.entity_profile_sources[0].paths = BTreeSet::from(["heroes.json".into()]);
+        let mut changed_policy = policy;
+        changed_policy
+            .sources
+            .get_mut("game-fixture")
+            .unwrap()
+            .authorization_ref = Some("operator:changed".into());
+        std::fs::write(&policy_path, serde_json::to_vec(&changed_policy).unwrap()).unwrap();
+        assert!(
+            check_entity_profile_sources(&runtime, &candidate, &allowed, &serve)
+                .await
+                .is_err()
+        );
     }
 
     #[test]

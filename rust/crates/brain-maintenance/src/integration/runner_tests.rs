@@ -204,7 +204,7 @@ async fn setup() -> (
         )
         .await
         .unwrap();
-    let store = PgStore::new(pool);
+    let store = PgStore::new(pool.clone());
     store.check_maintenance_schema().await.unwrap();
     let release_id = format!("runner-fixture-{}", chrono::Utc::now().timestamp_micros());
     store
@@ -238,6 +238,7 @@ async fn setup() -> (
     let runner = Runner {
         runtime,
         store,
+        pool,
         artifacts,
         jev: Zeroizing::new("fixture-unused".into()),
         owner: release_id,
