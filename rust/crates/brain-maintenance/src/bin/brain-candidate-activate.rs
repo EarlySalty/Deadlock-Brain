@@ -1442,7 +1442,7 @@ mod tests {
             "remote",
             "add",
             "origin",
-            "https://example.invalid/game.git",
+            "https://github.com/deadlock-wiki/deadlock-data.git",
         ]);
         let sha = git(&["rev-parse", "HEAD"]);
         git(&["update-ref", "refs/remotes/origin/main", &sha]);
@@ -1459,7 +1459,7 @@ mod tests {
             attribution: "Fixture".into(),
             license_name: "unverified".into(),
             license_url: None,
-            provenance: serde_json::json!({"git_commit":sha}),
+            provenance: serde_json::json!({"git_commit":sha,"repository_url":"https://github.com/deadlock-wiki/deadlock-data"}),
             max_file_bytes: 4096,
         };
         let mut jsonl = Vec::new();
@@ -1491,7 +1491,7 @@ mod tests {
         let mut config: serde_json::Value =
             serde_json::from_str(include_str!("../../config/maintenance.example.json")).unwrap();
         config["game_sources"] = serde_json::json!([{
-            "id":"game-fixture", "path":repo, "origin":"https://example.invalid/game.git",
+            "id":"game-fixture", "path":repo, "origin":"https://github.com/deadlock-wiki/deadlock-data.git",
             "source_ref":"refs/remotes/origin/main", "source_paths":["heroes.json"]
         }]);
         config["internal_doc_scopes"] =
@@ -1535,6 +1535,31 @@ mod tests {
             provider_egress: credential.provider_egress.clone(),
         };
         assert!(candidate.authorized(&consumer, false).unwrap().is_empty());
+        let (registered_path, commit, registered_origin, origin, relative_path) =
+            brain_storage::LocalPgReader::entity_profile_repository(
+                &config_path,
+                1000,
+                &candidate.revisions[0],
+            )
+            .unwrap();
+        assert_eq!(registered_path, repo);
+        assert_eq!(commit, sha);
+        assert_eq!(relative_path, "heroes.json");
+        let pinned =
+            dbrain_sources::git_source::PinnedRepository::open(&registered_path, &commit).unwrap();
+        pinned.require_origin(&[&registered_origin]).unwrap();
+        assert_eq!(origin, "https://github.com/deadlock-wiki/deadlock-data");
+        assert_eq!(pinned.read_blob(&relative_path).unwrap(), content);
+        config["game_sources"][0]["source_paths"] = serde_json::json!(["other.json"]);
+        std::fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
+        assert!(brain_storage::LocalPgReader::entity_profile_repository(
+            &config_path,
+            1000,
+            &candidate.revisions[0]
+        )
+        .is_err());
+        config["game_sources"][0]["source_paths"] = serde_json::json!(["heroes.json"]);
+        std::fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
         let pool = PgPoolOptions::new().connect_lazy_with(PgConnectOptions::new());
         let store = brain_storage::PgStore::new(pool.clone());
         check_entity_profile_sources(&runtime, &store, &pool, &candidate, &candidate, &allowed)

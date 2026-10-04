@@ -45,12 +45,12 @@ pub fn local_operator_principal(
     config_path: &Path,
 ) -> Result<brain_contracts::Principal> {
     let config = load_maintenance(config_path)?;
-    Ok(brain_contracts::Principal {
-        actor_id: format!("unix:{uid}"),
-        channel: "local-operator".into(),
-        scopes: config.internal_doc_scopes,
-        provider_egress: Default::default(),
-    })
+    let principal = brain_storage::LocalPgReader::entity_profile_operator(config_path, uid)?;
+    ensure!(
+        principal.scopes == config.internal_doc_scopes,
+        "operator_config_changed"
+    );
+    Ok(principal)
 }
 
 pub fn load_maintenance(path: &Path) -> Result<MaintenanceConfig> {

@@ -18,6 +18,7 @@ pub struct Config {
     pub analytics: Option<Analytics>,
     pub credentials: Vec<Credential>,
     pub internal_operator: Option<InternalOperator>,
+    pub entity_profile_maintenance_config: Option<std::path::PathBuf>,
 }
 
 impl std::fmt::Debug for Config {
@@ -331,6 +332,17 @@ impl Config {
     }
 
     pub fn validate(&self) -> Result<(), Error> {
+        require(
+            self.entity_profile_maintenance_config
+                .as_ref()
+                .is_none_or(|path| {
+                    path.is_absolute()
+                        && path
+                            .to_str()
+                            .is_some_and(|path| !path.chars().any(char::is_control))
+                }),
+            "entity_profile_maintenance_config",
+        )?;
         let pg = &self.postgres;
         require(
             pg.socket_dir.is_absolute()
@@ -540,3 +552,25 @@ impl Config {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod entity_profile_tests {
+    #[test]
+    fn optional_maintenance_path_preserves_defaults_and_requires_absolute_paths() {
+        let mut value: serde_json::Value = serde_json::from_slice(include_bytes!(
+            "../../../../config/brain-serve.example.json"
+        ))
+        .unwrap();
+        assert!(super::Config::parse(&serde_json::to_vec(&value).unwrap())
+            .unwrap()
+            .entity_profile_maintenance_config
+            .is_none());
+        value["entity_profile_maintenance_config"] =
+            serde_json::json!("/etc/deadlock-brain/maintenance.json");
+        assert!(super::Config::parse(&serde_json::to_vec(&value).unwrap()).is_ok());
+        for path in ["maintenance.json", "/etc/maintenance\n.json"] {
+            value["entity_profile_maintenance_config"] = serde_json::json!(path);
+            assert!(super::Config::parse(&serde_json::to_vec(&value).unwrap()).is_err());
+        }
+    }
+}

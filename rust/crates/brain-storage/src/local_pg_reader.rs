@@ -21,6 +21,68 @@ use std::{
 };
 use wait_queue::WaitQueue;
 
+#[derive(serde::Deserialize)]
+struct EntityMaintenanceConfig {
+    internal_doc_scopes: std::collections::BTreeSet<String>,
+    #[serde(default)]
+    game_sources: Vec<EntityGameSource>,
+}
+
+#[derive(serde::Deserialize)]
+struct EntityGameSource {
+    id: String,
+    path: PathBuf,
+    origin: String,
+    source_ref: String,
+    source_paths: Vec<String>,
+}
+
+fn entity_maintenance_config(path: &Path, uid: u32) -> Result<EntityMaintenanceConfig, PortError> {
+    use std::{io::Read, os::unix::fs::MetadataExt};
+    if !path.is_absolute() || uid != 1000 {
+        return Err(PortError::PermissionDenied(
+            "Lokale Operatoridentität fehlt".into(),
+        ));
+    }
+    let metadata = std::fs::symlink_metadata(path)
+        .map_err(|_| invalid("Bestehende Wartungskonfiguration ist nicht lesbar"))?;
+    if metadata.uid() != uid && metadata.uid() != 0 {
+        return Err(PortError::PermissionDenied(
+            "Wartungskonfiguration gehört nicht zum Operator".into(),
+        ));
+    }
+    let file = std::fs::File::open(path)
+        .map_err(|_| invalid("Bestehende Wartungskonfiguration ist nicht lesbar"))?;
+    if !file
+        .metadata()
+        .map_err(|_| invalid("Wartungsdatei kann nicht geprüft werden"))?
+        .is_file()
+    {
+        return Err(invalid("Wartungskonfiguration ist keine reguläre Datei"));
+    }
+    let mut bytes = Vec::new();
+    file.take(256 * 1024 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| invalid("Wartungskonfiguration kann nicht gelesen werden"))?;
+    if bytes.len() > 256 * 1024 {
+        return Err(invalid(
+            "Wartungskonfiguration überschreitet die bestehende Grenze",
+        ));
+    }
+    let config: EntityMaintenanceConfig = serde_json::from_slice(&bytes)
+        .map_err(|_| invalid("Operatorfelder der Wartungskonfiguration sind ungültig"))?;
+    if config.internal_doc_scopes.is_empty()
+        || config.internal_doc_scopes.len() > 64
+        || config
+            .internal_doc_scopes
+            .iter()
+            .any(|scope| scope.trim().is_empty() || scope.chars().any(char::is_control))
+    {
+        return Err(invalid("Bestehende interne Dokumentscopes sind ungültig"));
+    }
+    Ok(config)
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct LocalPgPoolStats {
     pub max_connections: u32,
@@ -406,6 +468,81 @@ impl LocalPgReader {
         self
     }
 
+    pub fn entity_profile_operator(
+        config_path: &Path,
+        uid: u32,
+    ) -> Result<brain_contracts::Principal, PortError> {
+        let config = entity_maintenance_config(config_path, uid)?;
+        Ok(brain_contracts::Principal {
+            actor_id: format!("unix:{uid}"),
+            channel: "local-operator".into(),
+            scopes: config.internal_doc_scopes,
+            provider_egress: Default::default(),
+        })
+    }
+
+    pub fn entity_profile_repository(
+        config_path: &Path,
+        uid: u32,
+        record: &brain_contracts::SourceRecordV2,
+    ) -> Result<(PathBuf, String, String, String, String), PortError> {
+        let config = entity_maintenance_config(config_path, uid)?;
+        let (commit, origin, path) =
+            crate::entity_profile::derivation::git_document_identity(record)
+                .map_err(|_| invalid("Originalgitbindung ist ungültig"))?;
+        let matching: Vec<_> = config
+            .game_sources
+            .iter()
+            .filter(|source| {
+                source.origin.trim_end_matches(".git") == origin.trim_end_matches(".git")
+            })
+            .collect();
+        if matching.len() != 1 {
+            return Err(invalid(
+                "Originalrepository ist nicht eindeutig registriert",
+            ));
+        }
+        let source = matching[0];
+        let relative = |value: &str| {
+            !value.is_empty()
+                && !value.starts_with('-')
+                && !value.contains(['\\', ':', '\0', '\n', '\r'])
+                && Path::new(value)
+                    .components()
+                    .all(|part| matches!(part, std::path::Component::Normal(_)))
+                && value
+                    .split('/')
+                    .all(|part| !part.is_empty() && part != "." && part != "..")
+        };
+        if source.id.is_empty()
+            || !source.path.is_absolute()
+            || source.source_paths.is_empty()
+            || !source.source_paths.iter().all(|path| relative(path))
+            || !source.source_ref.starts_with("refs/remotes/origin/")
+            || !source
+                .source_ref
+                .bytes()
+                .all(|character| character.is_ascii_alphanumeric() || b"/_-.".contains(&character))
+            || source.source_ref.contains("..")
+            || !relative(&path)
+            || !source
+                .source_paths
+                .iter()
+                .any(|scope| path == *scope || path.starts_with(&format!("{scope}/")))
+        {
+            return Err(invalid(
+                "Originalblob liegt außerhalb der gültigen Spielquellenregistrierung",
+            ));
+        }
+        Ok((
+            source.path.clone(),
+            commit,
+            source.origin.clone(),
+            origin,
+            path,
+        ))
+    }
+
     /// Compatibility configuration for non-service callers. Service composition should use
     /// with_pool_options so the hard connection cap and acquire wait are explicit.
     pub fn with_connection_options(
@@ -517,7 +654,7 @@ impl SnapshotReadPort for LocalPgReader {
         purpose: brain_contracts::store::AnswerPurpose,
     ) -> Result<Option<Vec<brain_contracts::Evidence>>, PortError> {
         use brain_contracts::{
-            entity_profile::{EntityIdentity, EntityProfileFact, PatchValidity},
+            entity_profile::{EntityIdentity, EntityProfileFact},
             SourceRecordV2,
         };
         let deadline = context.request_deadline.as_ref();
@@ -760,18 +897,10 @@ impl SnapshotReadPort for LocalPgReader {
                     continue;
                 }
                 let requested = query.patch.as_deref();
-                let known = match &fact.validity {
-                    PatchValidity::Known {
-                        from_patch,
-                        to_patch_exclusive,
-                        ..
-                    } => {
-                        let patch = requested.unwrap_or(&release.patch);
-                        from_patch.as_str() <= patch
-                            && to_patch_exclusive.as_deref().is_none_or(|end| patch < end)
-                    }
-                    PatchValidity::Unknown { .. } => false,
-                };
+                let known = crate::entity_profile::validity_contains(
+                    &fact.validity,
+                    requested.unwrap_or(&release.patch),
+                );
                 if requested.is_some() && !known {
                     continue;
                 }

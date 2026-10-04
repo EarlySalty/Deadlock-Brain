@@ -20,14 +20,86 @@ use brain_storage::{LocalPgPoolStats, LocalPgReader};
 use dbrain_retrieval::ReleaseRetriever;
 use std::{
     future::IntoFuture,
+    io::Read,
+    path::Path,
     sync::{atomic::Ordering, Arc, Mutex},
     time::{Duration, Instant},
 };
+
+fn entity_profile_effective_uid() -> Result<u32, PortError> {
+    let mut status = String::new();
+    std::fs::File::open("/proc/self/status")
+        .and_then(|file| file.take(16 * 1024).read_to_string(&mut status))
+        .map_err(|_| {
+            PortError::PermissionDenied("Lokale Operatoridentität kann nicht geprüft werden".into())
+        })?;
+    status
+        .lines()
+        .find_map(|line| line.strip_prefix("Uid:"))
+        .and_then(|uids| uids.split_ascii_whitespace().nth(1))
+        .and_then(|uid| uid.parse().ok())
+        .ok_or_else(|| PortError::PermissionDenied("Tatsächliche effektive UID fehlt".into()))
+}
+
+fn entity_profile_reader(
+    reader: LocalPgReader,
+    config_path: Option<&Path>,
+) -> Result<LocalPgReader, Error> {
+    let Some(config_path) = config_path else {
+        return Ok(reader);
+    };
+    let uid = entity_profile_effective_uid().map_err(|_| Error::ReaderConfig)?;
+    LocalPgReader::entity_profile_operator(config_path, uid).map_err(|_| Error::ReaderConfig)?;
+    let operator_config = config_path.to_owned();
+    let blob_config = operator_config.clone();
+    Ok(reader.with_entity_profile_access(
+        move || {
+            LocalPgReader::entity_profile_operator(
+                &operator_config,
+                entity_profile_effective_uid()?,
+            )
+        },
+        move |record| {
+            let (repository_path, commit, registered_origin, repository_url, path) =
+                LocalPgReader::entity_profile_repository(
+                    &blob_config,
+                    entity_profile_effective_uid()?,
+                    record,
+                )?;
+            let pinned =
+                dbrain_sources::git_source::PinnedRepository::open(&repository_path, &commit)
+                    .map_err(|_| {
+                        PortError::InvalidResponse(
+                            "Registriertes Originalrepository kann nicht gelesen werden".into(),
+                        )
+                    })?;
+            pinned.require_origin(&[&registered_origin]).map_err(|_| {
+                PortError::InvalidResponse(
+                    "Originalrepository widerspricht seiner Registrierung".into(),
+                )
+            })?;
+            let bytes = pinned.read_blob(&path).map_err(|_| {
+                PortError::InvalidResponse(
+                    "Gepinnter Originalblob kann nicht gelesen werden".into(),
+                )
+            })?;
+            Ok(brain_storage::entity_profile::derivation::GitBlobEvidence {
+                source_id: record.source_id.clone(),
+                logical_id: record.logical_id.clone(),
+                store_revision: record.revision,
+                git_commit: commit,
+                repository_url,
+                bytes,
+            })
+        },
+    ))
+}
 
 struct Shutdown {
     deadline: Mutex<Option<Instant>>,
     budget: Duration,
 }
+
 impl Shutdown {
     fn begin(&self) -> Instant {
         let mut guard = self.deadline.lock().unwrap_or_else(|p| p.into_inner());
@@ -97,6 +169,8 @@ impl Prepared {
                 )
             })
             .map_err(|_| Error::ReaderConfig)?;
+        let reader =
+            entity_profile_reader(reader, config.entity_profile_maintenance_config.as_deref())?;
         let mut provider_config = ProviderConfig::new(
             provider_key,
             &config.provider.base_url,
@@ -466,4 +540,37 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
     drop(socket_guard);
     log_pool_stats(prepared.reader.pool_stats());
     result.and(operator_result)
+}
+
+#[cfg(test)]
+mod entity_profile_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn effective_uid_matches_kernel_peer_credentials() {
+        let (stream, _peer) = tokio::net::UnixStream::pair().unwrap();
+        assert_eq!(
+            entity_profile_effective_uid().unwrap(),
+            stream.peer_cred().unwrap().uid()
+        );
+    }
+
+    #[test]
+    fn configured_reader_requires_existing_operator_config_without_new_pool() {
+        let dir = tempfile::tempdir().unwrap();
+        let reader = LocalPgReader::new(dir.path(), 5432, "brain_core_test", "postgres").unwrap();
+        let maximum = reader.pool_stats().max_connections;
+        let unchanged = entity_profile_reader(reader.clone(), None).unwrap();
+        assert_eq!(unchanged.pool_stats().max_connections, maximum);
+        let path = dir.path().join("maintenance.json");
+        assert!(entity_profile_reader(reader.clone(), Some(&path)).is_err());
+        std::fs::write(
+            &path,
+            br#"{"internal_doc_scopes":["internal_docs"],"game_sources":[]}"#,
+        )
+        .unwrap();
+        let configured = entity_profile_reader(reader, Some(&path)).unwrap();
+        assert_eq!(configured.pool_stats().max_connections, maximum);
+        assert_eq!(configured.pool_stats().created_connections, 0);
+    }
 }

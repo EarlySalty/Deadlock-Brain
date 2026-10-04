@@ -1031,6 +1031,23 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
         retriever.validate_evidence(&interval, &context, &historical_value, true)
     })
     .unwrap();
+    interval.patch = Some("2026-09-16".into());
+    let last = tokio::task::block_in_place(|| retriever.retrieve(&interval, &context)).unwrap();
+    assert_eq!(last.len(), 1);
+    let serialized: Value = serde_json::from_str(
+        last[0]
+            .content
+            .strip_prefix("Belegter historischer Wert: ")
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        serialized["validity"]["through_patch_inclusive"],
+        "2026-09-16"
+    );
+    assert_eq!(serialized["value"], 830);
+    tokio::task::block_in_place(|| retriever.validate_evidence(&interval, &context, &last, true))
+        .unwrap();
     for missing_patch in ["2026-08-31", "2026-09-17"] {
         interval.patch = Some(missing_patch.into());
         assert!(
