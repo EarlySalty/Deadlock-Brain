@@ -1,5 +1,4 @@
-#[path = "game_files/budget.rs"]
-mod allocation_budget;
+use crate::game_files::budget as allocation_budget;
 
 use chrono::DateTime;
 use serde::de::{DeserializeSeed, Error as _, MapAccess, SeqAccess, Visitor};

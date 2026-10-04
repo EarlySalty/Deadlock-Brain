@@ -12,7 +12,7 @@ use sha2::{Digest, Sha256};
 #[path = "game_files/anchored.rs"]
 mod anchored;
 #[path = "game_files/budget.rs"]
-mod budget;
+pub(crate) mod budget;
 #[path = "game_files/json_text.rs"]
 mod json_text;
 #[path = "game_files/kv.rs"]
