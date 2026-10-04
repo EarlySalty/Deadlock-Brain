@@ -482,9 +482,19 @@ async fn normal_texts_read_live_entity_facts_counts_and_patch_history() {
     .execute(&pool)
     .await
     .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../../../scripts/migrations/2026-10-04-brain-entity-profile-binding-identity-v1.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
     sqlx::raw_sql("CREATE TABLE brain.entities(entity_type text); INSERT INTO brain.entities VALUES('hero'); CREATE TABLE brain.patch_changes(patch_date text,entity_type text,entity_name text,ability_name text,stat_name text,old_value text,new_value text,change_type text,confidence double precision,raw_line text); INSERT INTO brain.patch_changes VALUES('2026-09-16','hero','Wächter',NULL,'cooldown','18','12.5','decrease',1,'Gesperrter Originaltext'),('2025-09-16','item','Wächter',NULL,'Fremde Änderung','777','778','increase',1,'Gesperrter Originaltext'),('2024-09-16','hero','Anderer Held','Wächter','Fremde Änderung','777','778','increase',1,'Gesperrter Originaltext')")
         .execute(&pool).await.unwrap();
-    let hero = record("Gespeicherter Heldenbeleg", "extracted_value");
+    let mut hero = record("Gespeicherter Heldenbeleg", "extracted_value");
+    let mut document: Value = serde_json::from_str(&hero.metadata[DOCUMENT_METADATA_KEY]).unwrap();
+    document["facts"][0]["subject"] = json!("game_file:technische-werte.json");
+    hero.metadata
+        .insert(DOCUMENT_METADATA_KEY.into(), document.to_string());
     store.apply(&hero).await.unwrap();
     let identity = EntityIdentity {
         entity_key: "hero:waechter".into(),
@@ -535,6 +545,8 @@ async fn normal_texts_read_live_entity_facts_counts_and_patch_history() {
         .store_entity_fact_bindings(&identity, &item, &["cooldown-ä".into()])
         .await
         .unwrap();
+    sqlx::query("UPDATE brain.entity_profile_entities_v1 SET identity_json=jsonb_set(jsonb_set(identity_json,'{name}','\"Gesperrter globaler Name\"'::jsonb),'{aliases}','[\"Privater Alias\"]'::jsonb) WHERE entity_key='hero:waechter'")
+        .execute(&pool).await.unwrap();
     let release = CorpusRelease {
         release_id: "r1".into(),
         knowledge_version: "knowledge1".into(),
@@ -546,16 +558,17 @@ async fn normal_texts_read_live_entity_facts_counts_and_patch_history() {
         )]),
     };
     store.publish_release(&release).await.unwrap();
-    let retriever = tokio::task::block_in_place(|| {
-        let reader = LocalPgReader::new(&socket, 55440, "brain_core_test", "postgres").unwrap();
-        ReleaseRetriever::new(reader, 10)
+    let reader = tokio::task::block_in_place(|| {
+        LocalPgReader::new(&socket, 55440, "brain_core_test", "postgres").unwrap()
     });
+    let retriever = ReleaseRetriever::new(reader.clone(), 10);
     let context = context();
     for (text, expected) in [
         (
             "Welche Abklingzeit ist für den Helden Wächter gespeichert?",
             "12.5",
         ),
+        ("Welche Abklingzeit hat Warden?", "12.5"),
         ("Wie viele Helden gibt es?", "1 Helden"),
         ("Was macht das Item Extended Magazine?", "22"),
         ("Was änderte sich bei Wächter im Patch vom 16.09.?", "18"),
@@ -578,6 +591,11 @@ async fn normal_texts_read_live_entity_facts_counts_and_patch_history() {
         assert!(evidence
             .iter()
             .all(|item| !item.content.contains("Fremde Änderung")));
+        assert!(evidence.iter().all(|item| {
+            !item.content.contains("Gesperrter globaler Name")
+                && !item.content.contains("Privater Alias")
+                && !item.content.contains("game_file:technische-werte.json")
+        }));
         tokio::task::block_in_place(|| {
             retriever.validate_evidence(&query, &context, &evidence, false)
         })
@@ -601,9 +619,52 @@ async fn normal_texts_read_live_entity_facts_counts_and_patch_history() {
     let current =
         tokio::task::block_in_place(|| retriever.retrieve(&historical, &context)).unwrap();
     assert!(current.iter().any(|item| item.content.contains("13")));
+    let mut forbidden_alias = query("Was änderte sich bei Privater Alias im Patch vom 16.09.?");
+    forbidden_alias.patch = None;
+    assert!(
+        tokio::task::block_in_place(|| retriever.retrieve(&forbidden_alias, &context))
+            .unwrap()
+            .is_empty()
+    );
+    let mut scoped = hero.clone();
+    let mut origin = source::origin_from_record(&scoped).unwrap();
+    scoped.revision = 8;
+    origin.source_revision = SourceRevision::Wiki {
+        page_id: 123,
+        revision_id: 8,
+    };
+    origin.policy.visibility = SourceVisibility::Internal;
+    origin.policy.allowed_scopes = BTreeSet::from(["source.review:fixture".into()]);
+    scoped.visibility = origin.policy.visibility;
+    scoped.allowed_scopes = origin.policy.allowed_scopes.clone();
+    origin.bind_record(&mut scoped).unwrap();
+    store.apply(&scoped).await.unwrap();
+    assert_eq!(
+        tokio::task::block_in_place(|| reader.read_entity_evidence(
+            &historical,
+            &context,
+            Some("%-09-16"),
+            false,
+            brain_contracts::store::AnswerPurpose::InternalRead,
+        ))
+        .unwrap(),
+        Some(Vec::new())
+    );
+    assert!(
+        tokio::task::block_in_place(|| retriever.retrieve(&historical, &context))
+            .unwrap()
+            .is_empty()
+    );
+    assert!(tokio::task::block_in_place(|| retriever.validate_evidence(
+        &historical,
+        &context,
+        &current,
+        false
+    ))
+    .is_err());
     let mut restricted = hero.clone();
     restricted.tombstone = true;
-    restricted.revision = 8;
+    restricted.revision = 9;
     store.apply(&restricted).await.unwrap();
     assert!(
         tokio::task::block_in_place(|| retriever.retrieve(&historical, &context))
@@ -617,6 +678,6 @@ async fn normal_texts_read_live_entity_facts_counts_and_patch_history() {
         false
     ))
     .is_err());
-    tokio::task::block_in_place(|| drop(retriever));
+    tokio::task::block_in_place(|| drop((retriever, reader)));
     pool.close().await;
 }

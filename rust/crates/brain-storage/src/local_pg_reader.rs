@@ -494,6 +494,8 @@ impl SnapshotReadPort for LocalPgReader {
         )?;
         validate_release(&release)?;
         let words = brain_contracts::lexical::terms(&query.text);
+        let pins = serde_json::to_value(&release.source_revisions)
+            .map_err(|_| invalid("Release-Pins sind ungültig"))?;
         let hero_count = (words.contains(&"held".into())
             || words.contains(&"helden".into())
             || words.contains(&"hero".into())
@@ -510,9 +512,7 @@ impl SnapshotReadPort for LocalPgReader {
             {
                 return Ok(Some(Vec::new()));
             }
-            let pins = serde_json::to_value(&release.source_revisions)
-                .map_err(|_| invalid("Release-Pins sind ungültig"))?;
-            let rows = tx.query("SELECT DISTINCT e.entity_key,r.record_json,h.record_json FROM brain.entity_profile_entities_v1 e JOIN brain.entity_profile_facts_v1 f USING(entity_key) JOIN brain.source_record_revisions r USING(source_id,logical_id,revision) JOIN brain.source_record_heads h USING(source_id,logical_id) WHERE e.identity_json->>'kind'='hero' AND ($1::jsonb->f.source_id->>f.logical_id)::bigint=f.revision ORDER BY e.entity_key LIMIT 1001", &[&pins])?;
+            let rows = tx.query("SELECT DISTINCT ON(f.entity_key,f.source_id,f.logical_id,f.revision) f.entity_key,r.record_json,h.record_json,f.fact_json,f.binding_identity_json FROM brain.entity_profile_facts_v1 f JOIN brain.source_record_revisions r USING(source_id,logical_id,revision) JOIN brain.source_record_heads h USING(source_id,logical_id) WHERE f.binding_identity_json->>'kind'='hero' AND ($1::jsonb->f.source_id->>f.logical_id)::bigint=f.revision ORDER BY f.entity_key,f.source_id,f.logical_id,f.revision,f.fact_id LIMIT 1001", &[&pins])?;
             if rows.len() > 1000 {
                 return Err(PortError::BudgetExceeded);
             }
@@ -524,11 +524,27 @@ impl SnapshotReadPort for LocalPgReader {
                 let head: SourceRecordV2 =
                     serde_json::from_value(row.try_get(2).map_err(error)?)
                         .map_err(|_| invalid("Aktuelle Heldenquelle ist ungültig"))?;
-                if entity_source_visible(&release, record, head, context, provider, purpose)?
-                    .is_some()
+                let Some(record) =
+                    entity_source_visible(&release, record, head, context, provider, purpose)?
+                else {
+                    continue;
+                };
+                let key: String = row.try_get(0).map_err(error)?;
+                let fact: EntityProfileFact =
+                    serde_json::from_str(&row.try_get::<_, String>(3).map_err(error)?)
+                        .map_err(|_| invalid("Heldenfakt ist ungültig"))?;
+                let binding = entity_binding_identity(&key, row.try_get(4).map_err(error)?)?;
+                if binding.kind != brain_contracts::entity_profile::EntityKind::Hero
+                    || crate::entity_profile::project_entity_facts(
+                        &record,
+                        std::slice::from_ref(&fact.fact_id),
+                    )
+                    .map_err(|_| invalid("Originalheldenfakt kann nicht geprüft werden"))?
+                        != [fact]
                 {
-                    heroes.insert(row.try_get::<_, String>(0).map_err(error)?);
+                    return Err(invalid("Heldenbindung widerspricht dem Originalbeleg"));
                 }
+                heroes.insert(key);
             }
             if heroes.is_empty() {
                 return Ok(Some(Vec::new()));
@@ -571,12 +587,37 @@ impl SnapshotReadPort for LocalPgReader {
             tx.commit()?;
             return Ok(Some(vec![result]));
         }
-        let identities = tx.query("SELECT identity_json FROM brain.entity_profile_entities_v1 e WHERE position(lower(e.identity_json->>'name') in lower($1))>0 OR EXISTS(SELECT 1 FROM jsonb_array_elements_text(e.identity_json->'aliases') a WHERE a.value<>'' AND position(lower(a.value) in lower($1))>0) ORDER BY entity_key LIMIT 3", &[&query.text])?;
-        let mut matched = Vec::new();
+        let identities = tx.query("SELECT DISTINCT ON(f.entity_key,f.source_id,f.logical_id,f.revision,f.binding_identity_json) f.entity_key,f.binding_identity_json,f.fact_json,r.record_json,h.record_json FROM brain.entity_profile_facts_v1 f JOIN brain.source_record_revisions r USING(source_id,logical_id,revision) JOIN brain.source_record_heads h USING(source_id,logical_id) WHERE ($2::jsonb->f.source_id->>f.logical_id)::bigint=f.revision AND (position(lower(f.binding_identity_json->>'name') in lower($1))>0 OR EXISTS(SELECT 1 FROM jsonb_array_elements_text(f.binding_identity_json->'aliases') a WHERE a.value<>'' AND position(lower(a.value) in lower($1))>0)) ORDER BY f.entity_key,f.source_id,f.logical_id,f.revision,f.binding_identity_json,f.fact_id LIMIT 101", &[&query.text,&pins])?;
+        if identities.len() > 100 {
+            return Err(PortError::BudgetExceeded);
+        }
+        let recognized = !identities.is_empty();
+        let mut matched = std::collections::BTreeMap::new();
         for row in identities {
-            let identity: EntityIdentity =
-                serde_json::from_value(row.try_get(0).map_err(error)?)
-                    .map_err(|_| invalid("Entitätsidentität ist ungültig"))?;
+            request_check(deadline)?;
+            let record: SourceRecordV2 = serde_json::from_value(row.try_get(3).map_err(error)?)
+                .map_err(|_| invalid("Identitätsquelle ist ungültig"))?;
+            let head: SourceRecordV2 = serde_json::from_value(row.try_get(4).map_err(error)?)
+                .map_err(|_| invalid("Aktuelle Identitätsquelle ist ungültig"))?;
+            let Some(record) =
+                entity_source_visible(&release, record, head, context, provider, purpose)?
+            else {
+                continue;
+            };
+            let key: String = row.try_get(0).map_err(error)?;
+            let identity = entity_binding_identity(&key, row.try_get(1).map_err(error)?)?;
+            let fact: EntityProfileFact =
+                serde_json::from_str(&row.try_get::<_, String>(2).map_err(error)?)
+                    .map_err(|_| invalid("Identitätsfakt ist ungültig"))?;
+            if crate::entity_profile::project_entity_facts(
+                &record,
+                std::slice::from_ref(&fact.fact_id),
+            )
+            .map_err(|_| invalid("Originalidentitätsfakt kann nicht geprüft werden"))?
+                != [fact]
+            {
+                return Err(invalid("Identitätsbindung widerspricht dem Originalbeleg"));
+            }
             if std::iter::once(&identity.name)
                 .chain(identity.aliases.iter())
                 .any(|name| {
@@ -584,20 +625,22 @@ impl SnapshotReadPort for LocalPgReader {
                     !name.is_empty() && words.windows(name.len()).any(|part| part == name)
                 })
             {
-                matched.push(identity);
+                if let Some(previous) = matched.insert(key, identity.clone()) {
+                    if previous.kind != identity.kind {
+                        return Err(invalid("Autorisierte Entitätsbelege widersprechen sich"));
+                    }
+                }
             }
         }
         if matched.len() != 1 {
-            return Ok(if matched.is_empty() {
+            return Ok(if matched.is_empty() && !recognized {
                 None
             } else {
                 Some(Vec::new())
             });
         }
-        let entity = &matched[0];
-        let pins = serde_json::to_value(&release.source_revisions)
-            .map_err(|_| invalid("Release-Pins sind ungültig"))?;
-        let rows = tx.query("WITH selected AS (SELECT f.* FROM brain.entity_profile_facts_v1 f WHERE f.entity_key=$1 AND ($2::jsonb->f.source_id->>f.logical_id)::bigint=f.revision ORDER BY (SELECT count(*) FROM unnest($3::text[]) word WHERE length(word)>2 AND position(word in lower((f.fact_json::jsonb)->>'predicate'))>0) DESC,f.source_id,f.logical_id,f.revision,f.fact_id LIMIT 101) SELECT array_agg(f.fact_json ORDER BY f.fact_id),r.record_json,h.record_json FROM selected f JOIN brain.source_record_revisions r USING(source_id,logical_id,revision) JOIN brain.source_record_heads h USING(source_id,logical_id) GROUP BY f.source_id,f.logical_id,f.revision,r.record_json,h.record_json ORDER BY f.source_id,f.logical_id,f.revision", &[&entity.entity_key, &pins, &words])?;
+        let entity: &EntityIdentity = matched.values().next().expect("ein Entitätsbeleg");
+        let rows = tx.query("WITH selected AS (SELECT f.* FROM brain.entity_profile_facts_v1 f WHERE f.entity_key=$1 AND ($2::jsonb->f.source_id->>f.logical_id)::bigint=f.revision ORDER BY (SELECT count(*) FROM unnest($3::text[]) word WHERE length(word)>2 AND position(word in lower((f.fact_json::jsonb)->>'predicate'))>0) DESC,f.source_id,f.logical_id,f.revision,f.fact_id LIMIT 101) SELECT array_agg(f.fact_json ORDER BY f.fact_id),r.record_json,h.record_json,array_agg(f.binding_identity_json ORDER BY f.fact_id) FROM selected f JOIN brain.source_record_revisions r USING(source_id,logical_id,revision) JOIN brain.source_record_heads h USING(source_id,logical_id) GROUP BY f.source_id,f.logical_id,f.revision,r.record_json,h.record_json ORDER BY f.source_id,f.logical_id,f.revision", &[&entity.entity_key, &pins, &words])?;
         let mut evidence = Vec::new();
         let mut authorized_entity = None;
         let mut authorized_names = std::collections::BTreeSet::new();
@@ -636,16 +679,19 @@ impl SnapshotReadPort for LocalPgReader {
                     "Fakten widersprechen dem gespeicherten Originalbeleg",
                 ));
             }
-            for fact in facts {
+            let bindings: Vec<Option<serde_json::Value>> = row.try_get(3).map_err(error)?;
+            if bindings.len() != facts.len() {
+                return Err(invalid("Bindungsidentitäten sind unvollständig"));
+            }
+            for (fact, binding) in facts.into_iter().zip(bindings) {
                 request_check(deadline)?;
-                let name = fact
-                    .subject
-                    .strip_prefix("hero:")
-                    .or_else(|| fact.subject.strip_prefix("ability:"))
-                    .or_else(|| fact.subject.strip_prefix("item:"));
-                if let Some(name) = name.filter(|name| !name.trim().is_empty()) {
-                    authorized_names.insert(name.to_owned());
+                let binding = entity_binding_identity(&entity.entity_key, binding)?;
+                if binding.kind != entity.kind {
+                    return Err(invalid("Autorisierte Entitätsbelege widersprechen sich"));
                 }
+                let name = &binding.name;
+                authorized_names.insert(name.clone());
+                authorized_names.extend(binding.aliases.iter().cloned());
                 if patch_date.is_some() {
                     continue;
                 }
@@ -666,10 +712,10 @@ impl SnapshotReadPort for LocalPgReader {
                     continue;
                 }
                 let mut metadata = std::collections::BTreeMap::new();
-                metadata.insert("name".into(), name.unwrap_or(&fact.subject).to_owned());
+                metadata.insert("name".into(), name.to_owned());
                 metadata.insert("entity_key".into(), entity.entity_key.clone());
                 metadata.insert("fact_key".into(), fact.predicate.clone());
-                let content = format!("entity: {}\n{}: {}\nEinheit: {}\nQualifier: {}\nQuellenstand: {}\nPatchgültigkeit: {}", name.unwrap_or(&fact.subject), fact.predicate, fact.value, fact.unit.as_deref().unwrap_or("unbekannt"), serde_json::to_string(&fact.qualifiers).map_err(|_| invalid("Qualifier sind ungültig"))?, fact.provenance.observed_at, if known { "belegt" } else { "unbekannt; kein belegter aktueller Patchwert" });
+                let content = format!("entity: {}\n{}: {}\nEinheit: {}\nQualifier: {}\nQuellenstand: {}\nPatchgültigkeit: {}", name, fact.predicate, fact.value, fact.unit.as_deref().unwrap_or("unbekannt"), serde_json::to_string(&fact.qualifiers).map_err(|_| invalid("Qualifier sind ungültig"))?, fact.provenance.observed_at, if known { "belegt" } else { "unbekannt; kein belegter aktueller Patchwert" });
                 evidence.push(brain_contracts::Evidence {
                     evidence_id: format!(
                         "entity-profile:{}:{}:{}:{}:{}",
@@ -789,6 +835,23 @@ impl SnapshotReadPort for LocalPgReader {
         request_check(deadline)?;
         result
     }
+}
+fn entity_binding_identity(
+    entity_key: &str,
+    binding: Option<serde_json::Value>,
+) -> Result<brain_contracts::entity_profile::EntityIdentity, PortError> {
+    let identity: brain_contracts::entity_profile::EntityIdentity =
+        serde_json::from_value(binding.ok_or_else(|| {
+            invalid("Belegte Bindungsidentität fehlt; erneute Zuordnung erforderlich")
+        })?)
+        .map_err(|_| invalid("Bindungsidentität ist ungültig"))?;
+    if identity.entity_key != entity_key
+        || identity.name.trim().is_empty()
+        || identity.identity_evidence.is_empty()
+    {
+        return Err(invalid("Gespeicherte Bindungsidentität ist ungültig"));
+    }
+    Ok(identity)
 }
 fn entity_source_visible(
     release: &brain_contracts::CorpusRelease,
