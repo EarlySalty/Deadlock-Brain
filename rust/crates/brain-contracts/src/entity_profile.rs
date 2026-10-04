@@ -82,6 +82,37 @@ pub struct EntityProfile {
     pub facts: Vec<EntityProfileFact>,
     pub context: Vec<EntityProfileFact>,
     pub conflicts: Vec<ProfileConflict>,
-    pub patch_story: Vec<Value>,
+    pub patch_story: Vec<PatchStoryChange>,
     pub unknowns: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PatchStoryChange {
+    pub patch_date: String,
+    pub patch_title: Option<String>,
+    pub entity_type: Option<String>,
+    pub entity_name: Option<String>,
+    pub ability_name: Option<String>,
+    pub stat_name: Option<String>,
+    pub old_value: Value,
+    pub new_value: Value,
+    pub change_type: Option<String>,
+    pub numeric_direction: Option<String>,
+    pub confidence: Value,
+    pub provenance: PatchStoryProvenance,
+    pub original_line: RestrictedPatchLine,
+    pub additional_fields: Map<String, Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PatchStoryProvenance {
+    pub relation: String,
+    pub source_url: Option<String>,
+    pub evidence_ref: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RestrictedPatchLine {
+    pub text: Option<String>,
+    pub redistribution_allowed: bool,
 }
