@@ -326,8 +326,8 @@ impl<R> DiscordRetriever<R> {
                 .max_cost_micros
                 .checked_sub(output_cost)
                 .ok_or(PortError::BudgetExceeded)?;
-            if price.input_micros_per_token > 0 {
-                ceiling = ceiling.min(input_cost / price.input_micros_per_token / attempts);
+            if let Some(cost_ceiling) = input_cost.checked_div(price.input_micros_per_token) {
+                ceiling = ceiling.min(cost_ceiling / attempts);
             }
         }
         remaining.budget.max_input_tokens = ceiling as u32;
