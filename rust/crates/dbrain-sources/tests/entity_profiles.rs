@@ -256,6 +256,70 @@ fn extractor_lexemes_do_not_hide_conflicts_or_merge_semantic_qualifiers() {
     }
 }
 #[test]
+fn generic_fields_keep_subject_and_document_binding_in_comparison() {
+    for predicate in [
+        "file.kv_value",
+        "file.json_value",
+        "file.kv3_value",
+        "wiki.data.value",
+    ] {
+        let mut health = extracted_fact("json", "100");
+        health.predicate = predicate.into();
+        health
+            .qualifiers
+            .insert("source_pointer".into(), json!("/value"));
+        if predicate == "file.kv_value" {
+            health.fact_id = "kv:/value/0".into();
+            health.provenance.source_span = Some("health.kv1:/value/0".into());
+            health.subject = "game_file:health.kv1".into();
+            health
+                .provenance
+                .document_metadata
+                .insert("relative_path".into(), json!("health.kv1"));
+            health
+                .provenance
+                .document_metadata
+                .insert("parse_status".into(), json!("kv1_lossless_entries"));
+            health
+                .qualifiers
+                .insert("source_pointer".into(), json!("/value/0"));
+            health
+                .qualifiers
+                .insert("source_key".into(), json!("value"));
+            health.qualifiers.insert("occurrence".into(), json!(0));
+        }
+        let mut damage = health.clone();
+        damage.value = json!("20");
+        for change_subject in [false, true] {
+            let mut separate = damage.clone();
+            if change_subject {
+                separate.subject = "game_file:damage.kv1".into();
+                if predicate == "file.kv_value" {
+                    separate.provenance.source_span = Some("damage.kv1:/value/0".into());
+                    separate
+                        .provenance
+                        .document_metadata
+                        .insert("relative_path".into(), json!("damage.kv1"));
+                }
+            } else {
+                separate.provenance.origin.identity.logical_id = "damage-document".into();
+            }
+            let facts = vec![health.clone(), separate];
+            let profile = assemble_profile(entity(EntityKind::Hero), None, facts.clone(), vec![]);
+            assert!(profile.conflicts.is_empty(), "{predicate}:{change_subject}");
+            assert_eq!(profile.facts, facts);
+        }
+        damage.provenance.origin.identity.source_id = "second-evidence".into();
+        assert_eq!(
+            assemble_profile(entity(EntityKind::Hero), None, vec![health, damage], vec![])
+                .conflicts
+                .len(),
+            1
+        );
+    }
+}
+
+#[test]
 fn values_units_qualifiers_and_rights_remain_lossless() {
     let facts = project_entity_facts(&record(), &["health".into()]).unwrap();
     assert_eq!(
