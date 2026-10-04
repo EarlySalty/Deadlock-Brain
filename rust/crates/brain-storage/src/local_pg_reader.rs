@@ -323,6 +323,30 @@ impl ClientPool {
 #[derive(Clone)]
 pub struct LocalPgReader {
     pool: Arc<ClientPool>,
+    entity_profile_access: Option<EntityProfileAccess>,
+}
+
+type EntityOperator = dyn Fn() -> Result<brain_contracts::Principal, PortError> + Send + Sync;
+type EntityBlobReader = dyn Fn(
+        &brain_contracts::SourceRecordV2,
+    ) -> Result<crate::entity_profile::derivation::GitBlobEvidence, PortError>
+    + Send
+    + Sync;
+
+#[derive(Clone)]
+struct EntityProfileAccess {
+    operator: Arc<EntityOperator>,
+    blob: Arc<EntityBlobReader>,
+}
+
+struct EntityDocumentRequest<'a> {
+    release: &'a CorpusRelease,
+    query: &'a brain_contracts::Query,
+    context: &'a brain_contracts::AuthorizedContext,
+    patch_date: Option<&'a str>,
+    provider: bool,
+    purpose: brain_contracts::store::AnswerPurpose,
+    hero_count: bool,
 }
 
 impl std::fmt::Debug for LocalPgReader {
@@ -361,7 +385,25 @@ impl LocalPgReader {
         };
         Ok(Self {
             pool: Arc::new(ClientPool::new(config, 4, Duration::from_secs(2))?),
+            entity_profile_access: None,
         })
+    }
+
+    pub fn with_entity_profile_access<O, B>(mut self, operator: O, blob: B) -> Self
+    where
+        O: Fn() -> Result<brain_contracts::Principal, PortError> + Send + Sync + 'static,
+        B: Fn(
+                &brain_contracts::SourceRecordV2,
+            ) -> Result<crate::entity_profile::derivation::GitBlobEvidence, PortError>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.entity_profile_access = Some(EntityProfileAccess {
+            operator: Arc::new(operator),
+            blob: Arc::new(blob),
+        });
+        self
     }
 
     /// Compatibility configuration for non-service callers. Service composition should use
@@ -415,6 +457,7 @@ impl LocalPgReader {
         config.lock_timeout = lock_timeout;
         Ok(Self {
             pool: Arc::new(ClientPool::new(config, max_connections, acquire_timeout)?),
+            entity_profile_access: self.entity_profile_access,
         })
     }
 
@@ -505,6 +548,25 @@ impl SnapshotReadPort for LocalPgReader {
                 || words.contains(&"anzahl".into())
                 || words.contains(&"how".into())
                 || query.text.to_lowercase().contains("heldzahl"));
+        if let Some(access) = &self.entity_profile_access {
+            if let Some(evidence) = Self::derived_entity_evidence(
+                &mut tx,
+                access,
+                EntityDocumentRequest {
+                    release: &release,
+                    query,
+                    context,
+                    patch_date,
+                    provider,
+                    purpose,
+                    hero_count,
+                },
+            )? {
+                request_check(deadline)?;
+                tx.commit()?;
+                return Ok(Some(evidence));
+            }
+        }
         if hero_count {
             if patch_date.is_some()
                 || query.patch.is_some()
@@ -882,6 +944,325 @@ fn entity_source_visible(
 }
 
 impl LocalPgReader {
+    fn entity_snapshot_tx(
+        tx: &mut connection::Transaction<'_>,
+        release_id: &str,
+    ) -> Result<CorpusSnapshot, PortError> {
+        let release = Self::release_row(
+            tx.query_opt(
+                "SELECT release_json FROM brain.corpus_releases_v1 WHERE release_id=$1",
+                &[&release_id],
+            )?
+            .ok_or_else(|| invalid("Originalrelease fehlt"))?,
+        )?;
+        validate_release(&release)?;
+        let pins = serde_json::to_value(&release.source_revisions)
+            .map_err(|_| invalid("Originalpins sind ungültig"))?;
+        let rows = tx.query("SELECT r.record_json,h.record_json FROM jsonb_each($1::jsonb) s CROSS JOIN LATERAL jsonb_each_text(s.value) d JOIN brain.source_record_revisions r ON r.source_id=s.key AND r.logical_id=d.key AND r.revision=d.value::bigint JOIN brain.source_record_heads h ON h.source_id=r.source_id AND h.logical_id=r.logical_id ORDER BY r.source_id,r.logical_id", &[&pins])?;
+        let mut snapshot = CorpusSnapshot {
+            release,
+            revisions: Vec::new(),
+            heads: Vec::new(),
+        };
+        for row in rows {
+            snapshot.revisions.push(
+                serde_json::from_value(row.try_get(0).map_err(error)?)
+                    .map_err(|_| invalid("Originalrevision ist ungültig"))?,
+            );
+            snapshot.heads.push(
+                serde_json::from_value(row.try_get(1).map_err(error)?)
+                    .map_err(|_| invalid("Originalhead ist ungültig"))?,
+            );
+        }
+        Ok(snapshot)
+    }
+
+    fn derived_entity_evidence(
+        tx: &mut connection::Transaction<'_>,
+        access: &EntityProfileAccess,
+        request: EntityDocumentRequest<'_>,
+    ) -> Result<Option<Vec<brain_contracts::Evidence>>, PortError> {
+        use crate::entity_profile::{
+            derivation::{verify_git_document_receipt, GitDocumentReceipt, StoredGitBinding},
+            semantic::SemanticProjection,
+        };
+        use brain_contracts::{
+            entity_profile::{EntityKind, EntityProfileFact, ProfileSourceKind},
+            ChunkProvenance, DocumentRevision, Evidence, EvidenceKind, SourceRecordV2,
+        };
+        use std::collections::{BTreeMap, BTreeSet};
+        let EntityDocumentRequest {
+            release,
+            query,
+            context,
+            patch_date,
+            provider,
+            purpose,
+            hero_count,
+        } = request;
+        let deadline = context.request_deadline.as_ref();
+        request_check(deadline)?;
+        if !release
+            .source_revisions
+            .contains_key("git-game-facts-derived")
+        {
+            return Ok(None);
+        }
+        let pins = serde_json::to_value(&release.source_revisions)
+            .map_err(|_| invalid("Releasepins sind ungültig"))?;
+        let rows = tx.query("SELECT r.record_json,h.record_json FROM brain.source_record_revisions r JOIN brain.source_record_heads h USING(source_id,logical_id) WHERE r.source_id='git-game-facts-derived' AND ($1::jsonb->r.source_id->>r.logical_id)::bigint=r.revision AND ($3 OR position(lower((r.record_json->>'content')::jsonb->'entity'->>'name') in lower($2))>0) ORDER BY r.logical_id LIMIT 1001", &[&pins,&query.text,&hero_count])?;
+        if rows.len() > 1000 {
+            return Err(PortError::BudgetExceeded);
+        }
+        if rows.is_empty() {
+            return Ok(if hero_count { Some(Vec::new()) } else { None });
+        }
+        let operator = (access.operator)()?;
+        let words = brain_contracts::lexical::terms(&query.text);
+        let mut snapshots = BTreeMap::new();
+        let mut evidence = Vec::new();
+        let mut names = BTreeSet::new();
+        let mut matched = 0usize;
+        for row in rows {
+            request_check(deadline)?;
+            let record: SourceRecordV2 = serde_json::from_value(row.try_get(0).map_err(error)?)
+                .map_err(|_| invalid("Gespeichertes Steckbriefdokument ist ungültig"))?;
+            let head = serde_json::from_value(row.try_get(1).map_err(error)?)
+                .map_err(|_| invalid("Steckbriefhead ist ungültig"))?;
+            let Some(record) =
+                entity_source_visible(release, record, head, context, provider, purpose)?
+            else {
+                continue;
+            };
+            let private: String = tx.query_opt("SELECT receipt_json FROM brain.entity_derived_receipts_v1 WHERE derived_source_id=$1 AND derived_logical_id=$2 AND derived_revision=$3", &[&record.source_id,&record.logical_id,&(record.revision as i64)])?
+                .ok_or_else(|| invalid("Private Steckbriefquittung fehlt"))?
+                .try_get(0).map_err(error)?;
+            let receipt: GitDocumentReceipt = serde_json::from_str(&private)
+                .map_err(|_| invalid("Private Steckbriefquittung ist ungültig"))?;
+            if !snapshots.contains_key(&receipt.original_release_id) {
+                let snapshot = Self::entity_snapshot_tx(tx, &receipt.original_release_id)?;
+                snapshots.insert(receipt.original_release_id.clone(), snapshot);
+            }
+            let snapshot = &snapshots[&receipt.original_release_id];
+            let authorized = snapshot.authorized(&operator, false)?;
+            let original_pins = serde_json::to_value(&snapshot.release.source_revisions)
+                .map_err(|_| invalid("Originalpins sind ungültig"))?;
+            let rows = tx.query("SELECT f.source_id,f.logical_id,f.revision,f.fact_json,f.binding_identity_json,s.relative_pointer,s.semantic_predicate,s.semantic_qualifiers_json,s.semantic_unit FROM brain.entity_profile_facts_v1 f LEFT JOIN brain.entity_semantic_projections_v1 s USING(entity_key,source_id,logical_id,revision,fact_id) WHERE f.entity_key=$1 AND ($2::jsonb->f.source_id->>f.logical_id)::bigint=f.revision ORDER BY f.source_id,f.logical_id,f.revision,f.fact_id", &[&receipt.entity_key,&original_pins])?;
+            let mut bindings = Vec::new();
+            let mut blobs = Vec::new();
+            let mut seen = BTreeSet::new();
+            let mut denied = false;
+            for row in rows {
+                request_check(deadline)?;
+                let source_id: String = row.try_get(0).map_err(error)?;
+                let logical_id: String = row.try_get(1).map_err(error)?;
+                let revision: i64 = row.try_get(2).map_err(error)?;
+                let original: EntityProfileFact =
+                    serde_json::from_str(&row.try_get::<_, String>(3).map_err(error)?)
+                        .map_err(|_| invalid("Gespeicherte Originalbindung ist ungültig"))?;
+                if original.provenance.source_kind != ProfileSourceKind::GameFile {
+                    continue;
+                }
+                if release
+                    .source_revisions
+                    .get(&source_id)
+                    .and_then(|documents| documents.get(&logical_id))
+                    .copied()
+                    != Some(revision as u64)
+                    || !authorized.iter().any(|record| {
+                        record.source_id == source_id
+                            && record.logical_id == logical_id
+                            && record.revision == revision as u64
+                    })
+                {
+                    denied = true;
+                    break;
+                }
+                let pointer: Option<String> = row.try_get(5).map_err(error)?;
+                let predicate: Option<String> = row.try_get(6).map_err(error)?;
+                let qualifiers: Option<String> = row.try_get(7).map_err(error)?;
+                let semantic_projection = match (pointer, predicate, qualifiers) {
+                    (Some(relative_pointer), Some(predicate), Some(qualifiers)) => {
+                        Some(SemanticProjection {
+                            relative_pointer,
+                            predicate,
+                            qualifiers: serde_json::from_str(&qualifiers)
+                                .map_err(|_| invalid("Gespeicherte Qualifier sind ungültig"))?,
+                            unit: row.try_get(8).map_err(error)?,
+                        })
+                    }
+                    (None, None, None) => None,
+                    _ => return Err(invalid("Gespeicherte Semantik ist unvollständig")),
+                };
+                let binding_identity =
+                    entity_binding_identity(&receipt.entity_key, row.try_get(4).map_err(error)?)?;
+                if seen.insert((source_id.clone(), logical_id.clone(), revision)) {
+                    let original = snapshot
+                        .revisions
+                        .iter()
+                        .find(|record| {
+                            record.source_id == source_id
+                                && record.logical_id == logical_id
+                                && record.revision == revision as u64
+                        })
+                        .ok_or_else(|| invalid("Originalrevision fehlt"))?;
+                    blobs.push((access.blob)(original)?);
+                }
+                bindings.push(StoredGitBinding {
+                    source_id,
+                    logical_id,
+                    store_revision: revision as u64,
+                    original_fact: original,
+                    binding_identity,
+                    semantic_projection,
+                });
+            }
+            if denied {
+                continue;
+            }
+            let mut identity = bindings
+                .first()
+                .ok_or_else(|| invalid("Originalbindungen fehlen"))?
+                .binding_identity
+                .clone();
+            for binding in &bindings {
+                for alias in &binding.binding_identity.aliases {
+                    if !identity.aliases.contains(alias) {
+                        identity.aliases.push(alias.clone());
+                    }
+                }
+            }
+            let story_names: Vec<_> = std::iter::once(identity.name.clone())
+                .chain(identity.aliases.clone())
+                .collect();
+            let kind = match identity.kind {
+                EntityKind::Hero => "hero",
+                EntityKind::Ability => "ability",
+                EntityKind::Item => "item",
+            };
+            let story_rows = tx.query("SELECT to_jsonb(c) FROM brain.patch_changes c WHERE (c.entity_type=$2 AND lower(c.entity_name)=ANY(SELECT lower(n) FROM unnest($1::text[]) n)) OR ($2='ability' AND c.entity_type='hero' AND lower(c.ability_name)=ANY(SELECT lower(n) FROM unnest($1::text[]) n)) ORDER BY c.patch_date,c.stat_name", &[&story_names,&kind])?;
+            let story = story_rows
+                .into_iter()
+                .map(|row| {
+                    crate::entity_profile::decode_patch_change(row.try_get(0).map_err(error)?)
+                        .map_err(|_| invalid("DB-Patchänderung ist ungültig"))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let profile = verify_git_document_receipt(
+                &record, &receipt, snapshot, &operator, &bindings, &blobs, &story,
+            )
+            .map_err(|_| invalid("Steckbrief widerspricht den frischen Originalbelegen"))?;
+            request_check(deadline)?;
+            if hero_count {
+                if profile.entity.kind == EntityKind::Hero {
+                    names.insert(profile.entity.entity_key);
+                }
+                continue;
+            }
+            let name = brain_contracts::lexical::terms(&profile.entity.name);
+            if name.is_empty() || !words.windows(name.len()).any(|part| part == name) {
+                continue;
+            }
+            matched += 1;
+            if let Some(date) = patch_date {
+                let dates: BTreeSet<_> = profile
+                    .patch_story
+                    .iter()
+                    .filter(|change| {
+                        date.strip_prefix("%-").map_or_else(
+                            || change.patch_date == date,
+                            |suffix| change.patch_date.ends_with(suffix),
+                        )
+                    })
+                    .map(|change| change.patch_date.clone())
+                    .collect();
+                if dates.len() != 1 {
+                    continue;
+                }
+                for (index, change) in profile
+                    .patch_story
+                    .iter()
+                    .filter(|change| dates.contains(&change.patch_date))
+                    .enumerate()
+                {
+                    if evidence.len() >= 100 {
+                        return Err(PortError::BudgetExceeded);
+                    }
+                    let content = serde_json::json!({"patch_date":change.patch_date,"entity_type":change.entity_type,"entity_name":change.entity_name,"ability_name":change.ability_name,"stat_name":change.stat_name,"old_value":change.old_value,"new_value":change.new_value,"change_type":change.change_type,"confidence":change.confidence});
+                    evidence.push(Evidence {
+                        evidence_id: format!(
+                            "entity-profile:patch:{}:{}:{index}",
+                            record.logical_id, change.patch_date
+                        ),
+                        source_id: "brain.patch_changes".into(),
+                        logical_id: record.logical_id.clone(),
+                        revision: 1,
+                        kind: EvidenceKind::Prose,
+                        content: format!("Gespeicherte Patchänderung: {content}"),
+                        citation: change.provenance.evidence_ref.clone(),
+                        visibility: record.visibility,
+                        allowed_scopes: record.allowed_scopes.clone(),
+                        score: 1.0,
+                        patch: Some(change.patch_date.clone()),
+                        provenance: None,
+                    });
+                }
+            } else if query.patch.is_none() {
+                evidence.push(Evidence {
+                    evidence_id: format!(
+                        "entity-profile:document:{}:{}",
+                        record.logical_id, record.revision
+                    ),
+                    source_id: record.source_id.clone(),
+                    logical_id: record.logical_id.clone(),
+                    revision: record.revision,
+                    kind: EvidenceKind::Prose,
+                    content: record.content.clone(),
+                    citation: record.logical_id.clone(),
+                    visibility: record.visibility,
+                    allowed_scopes: record.allowed_scopes.clone(),
+                    score: 1.0,
+                    patch: None,
+                    provenance: Some(ChunkProvenance {
+                        document: DocumentRevision {
+                            source_id: record.source_id.clone(),
+                            logical_id: record.logical_id.clone(),
+                            revision: record.revision,
+                            content_hash: record.content_hash.clone(),
+                        },
+                        chunker_version: "entity-profile-document-v1".into(),
+                        ordinal: 0,
+                        byte_start: 0,
+                        byte_end: record.content.len(),
+                        source_locator: record.logical_id,
+                        release_id: release.release_id.clone(),
+                        knowledge_version: release.knowledge_version.clone(),
+                        valid_from: None,
+                        valid_to: None,
+                        metadata: record.metadata,
+                    }),
+                });
+            }
+        }
+        request_check(deadline)?;
+        if (access.operator)()? != operator {
+            return Err(invalid("Lokale Originalautorisierung wurde verändert"));
+        }
+        if hero_count {
+            if patch_date.is_some() || query.patch.is_some() || names.is_empty() {
+                return Ok(Some(Vec::new()));
+            }
+            evidence.push(Evidence {
+                evidence_id: format!("entity-profile:count:{}:{}",release.release_id,names.len()),source_id: "git-game-facts-derived".into(),logical_id: "hero-count".into(),revision: 1,
+                kind: EvidenceKind::Fact,content: format!("Gespeicherter Steckbriefbestand: {} Helden. Quellenstand: {}; keine belegte aktuelle Patchzahl.",names.len(),release.release_id),
+                citation: format!("git-game-facts-derived:{}",release.release_id),visibility: brain_contracts::SourceVisibility::Public,allowed_scopes: Default::default(),score: 1.0,patch: None,provenance: None,
+            });
+        } else if matched != 1 {
+            evidence.clear();
+        }
+        Ok(Some(evidence))
+    }
+
     fn current_maintenance_policies(
         client: &mut Client,
         sources: &[String],

@@ -378,15 +378,25 @@ fn check_rights(
                     ),
                 "internal_source_rights"
             ),
-            Target::EntityProfilesInternal => ensure!(
-                !internal_feed_source(&record.source_id)
-                    && record.visibility == SourceVisibility::Internal
-                    && !origin.policy.publication_allowed
-                    && !origin.policy.provider_egress_allowed
-                    && origin.policy.raw_retention_allowed
-                    && origin.parser_family == "dbrain-sources/wiki-spielwissen",
-                "entity_profile_source_rights"
-            ),
+            Target::EntityProfilesInternal => {
+                if record.source_id == "git-game-facts-derived" {
+                    ensure!(
+                        origin.policy
+                            == brain_storage::entity_profile::derivation::derived_policy(),
+                        "entity_profile_document_rights"
+                    );
+                } else {
+                    ensure!(
+                        !internal_feed_source(&record.source_id)
+                            && record.visibility == SourceVisibility::Internal
+                            && !origin.policy.publication_allowed
+                            && !origin.policy.provider_egress_allowed
+                            && origin.policy.raw_retention_allowed
+                            && origin.parser_family == "dbrain-sources/wiki-spielwissen",
+                        "entity_profile_source_rights"
+                    );
+                }
+            }
         }
         if let Some(old) = old {
             let old_origin =
@@ -403,6 +413,9 @@ fn check_rights(
 
 async fn check_entity_profile_sources(
     runtime: &RuntimeConfig,
+    store: &brain_storage::PgStore,
+    pool: &sqlx::PgPool,
+    base: &CorpusSnapshot,
     candidate: &CorpusSnapshot,
     allowed: &BTreeSet<String>,
 ) -> Result<()> {
@@ -415,6 +428,58 @@ async fn check_entity_profile_sources(
     )?;
     let visible = candidate.authorized(&principal, false)?;
     for id in allowed {
+        if id == "git-game-facts-derived" {
+            let records: Vec<_> = candidate
+                .revisions
+                .iter()
+                .filter(|record| record.source_id == *id)
+                .collect();
+            ensure!(!records.is_empty(), "entity_profile_document_empty");
+            for record in records {
+                ensure!(
+                    visible.contains(record),
+                    "entity_profile_document_inaccessible"
+                );
+                brain_maintenance::integration::entity_profiles::verify_stored_git_document(
+                    store,
+                    pool,
+                    &config,
+                    &principal,
+                    record,
+                    &candidate.release,
+                )
+                .await?;
+            }
+            continue;
+        }
+        if base.release.source_revisions.contains_key(id) {
+            let records: Vec<_> = candidate
+                .revisions
+                .iter()
+                .filter(|record| record.source_id == *id)
+                .collect();
+            let mut wiki = !records.is_empty();
+            for record in &records {
+                let encoded = record
+                    .metadata
+                    .get(brain_storage::source_versions::DOCUMENT_METADATA_KEY)
+                    .ok_or_else(|| anyhow::anyhow!("entity_profile_document_missing"))?;
+                let document: knowledge_contract::KnowledgeDocument =
+                    serde_json::from_str(encoded)?;
+                wiki &= document.source_kind == knowledge_contract::KnowledgeSourceKind::Wiki;
+            }
+            if wiki {
+                for record in records {
+                    ensure!(
+                        visible.contains(record),
+                        "entity_profile_source_inaccessible"
+                    );
+                    dbrain_retrieval::knowledge_projection::project_knowledge(record)?
+                        .ok_or_else(|| anyhow::anyhow!("entity_profile_document_missing"))?;
+                }
+                continue;
+            }
+        }
         let matching: Vec<_> = runtime
             .entity_profile_sources
             .iter()
@@ -737,7 +802,7 @@ async fn run(cli: &Cli) -> Result<Report> {
     check_transition(&base.release, &candidate.release, &allowed)?;
     check_rights(&base, &candidate, &allowed, cli.target)?;
     if cli.target == Target::EntityProfilesInternal {
-        check_entity_profile_sources(&runtime, &candidate, &allowed).await?;
+        check_entity_profile_sources(&runtime, &store, &pool, &base, &candidate, &allowed).await?;
     }
     let prior = artifacts.call_receipt(&identity)?;
     let mut prepared = if let Some(bytes) = prior {
@@ -1470,21 +1535,27 @@ mod tests {
             provider_egress: credential.provider_egress.clone(),
         };
         assert!(candidate.authorized(&consumer, false).unwrap().is_empty());
-        check_entity_profile_sources(&runtime, &candidate, &allowed)
+        let pool = PgPoolOptions::new().connect_lazy_with(PgConnectOptions::new());
+        let store = brain_storage::PgStore::new(pool.clone());
+        check_entity_profile_sources(&runtime, &store, &pool, &candidate, &candidate, &allowed)
             .await
             .unwrap();
         config["internal_doc_scopes"] = serde_json::json!(["internal_docs"]);
         std::fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
-        assert!(check_entity_profile_sources(&runtime, &candidate, &allowed)
-            .await
-            .is_err());
+        assert!(check_entity_profile_sources(
+            &runtime, &store, &pool, &candidate, &candidate, &allowed
+        )
+        .await
+        .is_err());
         config["internal_doc_scopes"] =
             serde_json::json!(["internal_docs", "source.review:game-fixture"]);
         std::fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
         runtime.entity_profile_sources[0].paths = BTreeSet::from(["other.json".into()]);
-        assert!(check_entity_profile_sources(&runtime, &candidate, &allowed)
-            .await
-            .is_err());
+        assert!(check_entity_profile_sources(
+            &runtime, &store, &pool, &candidate, &candidate, &allowed
+        )
+        .await
+        .is_err());
         runtime.entity_profile_sources[0].paths = BTreeSet::from(["heroes.json".into()]);
         let mut changed_policy = policy;
         changed_policy
@@ -1493,9 +1564,11 @@ mod tests {
             .unwrap()
             .authorization_ref = Some("operator:changed".into());
         std::fs::write(&policy_path, serde_json::to_vec(&changed_policy).unwrap()).unwrap();
-        assert!(check_entity_profile_sources(&runtime, &candidate, &allowed)
-            .await
-            .is_err());
+        assert!(check_entity_profile_sources(
+            &runtime, &store, &pool, &candidate, &candidate, &allowed
+        )
+        .await
+        .is_err());
     }
 
     #[test]

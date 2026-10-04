@@ -681,3 +681,330 @@ async fn normal_texts_read_live_entity_facts_counts_and_patch_history() {
     tokio::task::block_in_place(|| drop((retriever, reader)));
     pool.close().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs() {
+    use brain_contracts::entity_profile::{EntityIdentity, EntityKind, ENTITY_PROFILE_VERSION};
+    use brain_storage::{
+        entity_profile::{
+            compact::compact_document,
+            derivation::{
+                derive_git_profile, derived_policy, git_document_identity, receipt_sha256,
+                GitBlobEvidence, GIT_DOCUMENT_CONTRACT,
+            },
+            project_entity_facts,
+            semantic::semantic_projection,
+        },
+        LocalPgReader, PgStore,
+    };
+    use std::sync::{Arc, Mutex};
+    let pg = ScratchPg::start();
+    let socket = pg.directory.join("socket");
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(2)
+        .connect_with(
+            sqlx::postgres::PgConnectOptions::new_without_pgpass()
+                .host(socket.to_str().unwrap())
+                .port(55440)
+                .username("brain_core_test")
+                .database("postgres"),
+        )
+        .await
+        .unwrap();
+    let store = PgStore::new(pool.clone());
+    store.migrate_core().await.unwrap();
+    for migration in [
+        include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-profiles-v1.sql"),
+        include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-profile-binding-identity-v1.sql"),
+        include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-semantic-projection-v1.sql"),
+        include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-derived-receipts-v1.sql"),
+    ] { sqlx::raw_sql(migration).execute(&pool).await.unwrap(); }
+    sqlx::raw_sql("CREATE TABLE brain.patch_changes(patch_date text,entity_type text,entity_name text,ability_name text,stat_name text,old_value text,new_value text,change_type text,confidence double precision,raw_line text); INSERT INTO brain.patch_changes VALUES('2026-09-16','hero','Wächter',NULL,'MaxHealth','800','830','increase',1,'Gesperrte Originalzeile'),('2025-09-16','item','Wächter',NULL,'Fremdes Feld','777','778','increase',1,'Gesperrte Originalzeile')")
+        .execute(&pool).await.unwrap();
+    let identities = [
+        EntityIdentity {
+            entity_key: "hero:fixture".into(),
+            kind: EntityKind::Hero,
+            name: "Wächter".into(),
+            aliases: Vec::new(),
+            identity_evidence: vec!["fixture:hero".into()],
+        },
+        EntityIdentity {
+            entity_key: "item:fixture".into(),
+            kind: EntityKind::Item,
+            name: "Extended Magazine".into(),
+            aliases: Vec::new(),
+            identity_evidence: vec!["fixture:item".into()],
+        },
+    ];
+    let mut originals = Vec::new();
+    for (identity, identifier, stat, value) in [
+        (&identities[0], "hero_test", "MaxHealth", 830),
+        (&identities[1], "item_test", "BonusClipSizePercent", 30),
+    ] {
+        let content = json!({identifier:{stat:value}}).to_string();
+        let mut original = record(&content, "extracted_value");
+        let mut origin = source::origin_from_record(&original).unwrap();
+        original.logical_id = format!("game:fixture:{identifier}.json");
+        original.visibility = SourceVisibility::Internal;
+        original.allowed_scopes = BTreeSet::from(["raw:fixture".into()]);
+        origin.identity.logical_id = original.logical_id.clone();
+        origin.source_revision = SourceRevision::Api {
+            api_version: "wiki-spielwissen-v1".into(),
+            original_revision: Some("a".repeat(40)),
+        };
+        origin.policy.visibility = original.visibility;
+        origin.policy.allowed_scopes = original.allowed_scopes.clone();
+        origin.policy.provider_egress_allowed = false;
+        origin.policy.publication_allowed = false;
+        let mut document: Value =
+            serde_json::from_str(&original.metadata[DOCUMENT_METADATA_KEY]).unwrap();
+        document["source_kind"] = json!("game_file");
+        document["document_id"] = json!(original.logical_id);
+        document["revision"] = json!("a".repeat(40));
+        document["metadata"] = json!({"source_revision":"a".repeat(40),"original_relative_path":format!("{identifier}.json"),"original_sha256":original.content_hash,"provenance":{"repository_url":"https://github.com/deadlock-wiki/deadlock-data"}});
+        document["facts"] = json!([{"fact_id":"stat","subject":"game_file:private-fixture.json","predicate":"file.json_value","value":value,"unit":null,"evidence_status":"extracted_value","source_span":format!("/{identifier}/{stat}"),"qualifiers":{"source_pointer":format!("/{identifier}/{stat}")}}]);
+        original
+            .metadata
+            .insert(DOCUMENT_METADATA_KEY.into(), document.to_string());
+        original
+            .metadata
+            .insert(ORIGINAL_VERSION_KEY.into(), "a".repeat(40));
+        origin.bind_record(&mut original).unwrap();
+        store.apply(&original).await.unwrap();
+        store
+            .store_entity_fact_bindings(identity, &original, &["stat".into()])
+            .await
+            .unwrap();
+        let fact = project_entity_facts(&original, &["stat".into()])
+            .unwrap()
+            .remove(0);
+        let projection = semantic_projection(&fact, &format!("/{stat}"))
+            .unwrap()
+            .unwrap();
+        store
+            .store_entity_semantic_projections(
+                &identity.entity_key,
+                &original,
+                &[("stat".into(), projection)],
+            )
+            .await
+            .unwrap();
+        originals.push(original);
+    }
+    let original_release = CorpusRelease {
+        release_id: "original-fixture".into(),
+        knowledge_version: "original-fixture-v1".into(),
+        patch: "unbekannt".into(),
+        created_at_epoch: 1,
+        source_revisions: BTreeMap::from([(
+            "fixture".into(),
+            originals
+                .iter()
+                .map(|record| (record.logical_id.clone(), record.revision))
+                .collect(),
+        )]),
+    };
+    store.publish_release(&original_release).await.unwrap();
+    let operator = Principal {
+        actor_id: "unix:fixture".into(),
+        channel: "local-operator".into(),
+        scopes: BTreeSet::from(["raw:fixture".into()]),
+        provider_egress: Default::default(),
+    };
+    let snapshot = store.snapshot(&original_release.release_id).await.unwrap();
+    let blob = |record: &SourceRecordV2| {
+        let (commit, repository, path) = git_document_identity(record).unwrap();
+        assert!(path.ends_with(".json"));
+        GitBlobEvidence {
+            source_id: record.source_id.clone(),
+            logical_id: record.logical_id.clone(),
+            store_revision: record.revision,
+            git_commit: commit,
+            repository_url: repository,
+            bytes: record.content.as_bytes().to_vec(),
+        }
+    };
+    let mut documents = Vec::new();
+    for (identity, original) in identities.iter().zip(&originals) {
+        let bindings = store
+            .stored_git_entity_bindings(&identity.entity_key, original)
+            .await
+            .unwrap();
+        let story = store.entity_patch_story(identity).await.unwrap();
+        let (profile, receipt) = derive_git_profile(
+            &identity.entity_key,
+            &snapshot,
+            &operator,
+            &bindings,
+            &[blob(original)],
+            &story,
+        )
+        .unwrap();
+        let content = compact_document(&profile).unwrap();
+        let mut document = SourceRecordV2 {
+            source_id: "git-game-facts-derived".into(),
+            logical_id: identity.entity_key.clone(),
+            revision: 1,
+            content_hash: receipt.document_sha256.clone(),
+            content,
+            visibility: SourceVisibility::Public,
+            allowed_scopes: Default::default(),
+            tombstone: false,
+            valid_from: None,
+            valid_to: None,
+            metadata: BTreeMap::from([
+                (
+                    "brain.entity_projection.contract".into(),
+                    GIT_DOCUMENT_CONTRACT.into(),
+                ),
+                (
+                    "brain.entity_projection.receipt_sha256".into(),
+                    receipt_sha256(&receipt).unwrap(),
+                ),
+            ]),
+        };
+        let mut origin = source::origin_from_record(original).unwrap();
+        origin.identity = SourceIdentity {
+            source_id: document.source_id.clone(),
+            logical_id: document.logical_id.clone(),
+        };
+        origin.source_revision = SourceRevision::Api {
+            api_version: GIT_DOCUMENT_CONTRACT.into(),
+            original_revision: Some(document.content_hash.clone()),
+        };
+        origin.raw_sha256 = document.content_hash.clone();
+        origin.locator = document.source_id.clone();
+        origin.parser_family = "entity-profile-render".into();
+        origin.parser_revision = ENTITY_PROFILE_VERSION.into();
+        origin.schema_version = Observed::known(ENTITY_PROFILE_VERSION.into());
+        origin.origin_artifacts.clear();
+        origin.derivation_family = Observed::known(GIT_DOCUMENT_CONTRACT.into());
+        origin.policy = derived_policy();
+        origin.bind_record(&mut document).unwrap();
+        documents.push(
+            store
+                .persist_entity_document(document, &serde_json::to_string(&receipt).unwrap())
+                .await
+                .unwrap(),
+        );
+    }
+    let mut release = original_release.clone();
+    release.release_id = "r1".into();
+    release.knowledge_version = "knowledge1".into();
+    release.source_revisions.insert(
+        "git-game-facts-derived".into(),
+        documents
+            .iter()
+            .map(|record| (record.logical_id.clone(), record.revision))
+            .collect(),
+    );
+    store.publish_release(&release).await.unwrap();
+    let scopes = Arc::new(Mutex::new(operator.scopes.clone()));
+    let fresh_scopes = scopes.clone();
+    let reader = tokio::task::block_in_place(|| {
+        LocalPgReader::new(&socket, 55440, "brain_core_test", "postgres")
+            .unwrap()
+            .with_entity_profile_access(
+                move || {
+                    Ok(Principal {
+                        actor_id: "unix:fixture".into(),
+                        channel: "local-operator".into(),
+                        scopes: fresh_scopes.lock().unwrap().clone(),
+                        provider_egress: Default::default(),
+                    })
+                },
+                move |record| {
+                    let (commit, repository, _path) = git_document_identity(record)
+                        .map_err(|_| PortError::InvalidResponse("Fixture-Gitbeleg fehlt".into()))?;
+                    Ok(GitBlobEvidence {
+                        source_id: record.source_id.clone(),
+                        logical_id: record.logical_id.clone(),
+                        store_revision: record.revision,
+                        git_commit: commit,
+                        repository_url: repository,
+                        bytes: record.content.as_bytes().to_vec(),
+                    })
+                },
+            )
+    });
+    let retriever = ReleaseRetriever::new(reader.clone(), 10);
+    let context = context();
+    for (text, expected) in [
+        ("Wie viel MaxHealth ist für Wächter gespeichert?", "830"),
+        ("Was macht Extended Magazine?", "30"),
+    ] {
+        let mut query = query(text);
+        query.patch = None;
+        let evidence =
+            tokio::task::block_in_place(|| retriever.retrieve(&query, &context)).unwrap();
+        assert_eq!(evidence.len(), 1);
+        assert!(evidence[0]
+            .evidence_id
+            .starts_with("entity-profile:document:"));
+        assert!(evidence[0].content.contains(expected));
+        assert!(documents
+            .iter()
+            .any(|document| document.content == evidence[0].content));
+        for forbidden in [
+            "private-fixture.json",
+            "raw:fixture",
+            "original-fixture",
+            "Gesperrte Originalzeile",
+        ] {
+            assert!(!evidence[0].content.contains(forbidden));
+        }
+        tokio::task::block_in_place(|| {
+            retriever.validate_evidence(&query, &context, &evidence, true)
+        })
+        .unwrap();
+    }
+    let mut count = query("Wie viele Helden sind gespeichert?");
+    count.patch = None;
+    let counted = tokio::task::block_in_place(|| retriever.retrieve(&count, &context)).unwrap();
+    assert!(counted[0].content.contains("1 Helden"));
+    let mut historical = query("Was änderte sich bei Wächter im Patch vom 16.09.?");
+    historical.patch = None;
+    let previous =
+        tokio::task::block_in_place(|| retriever.retrieve(&historical, &context)).unwrap();
+    assert!(previous.iter().any(|item| item.content.contains("800")));
+    assert!(previous
+        .iter()
+        .all(|item| item.source_id == "brain.patch_changes"
+            && !item.content.contains("Originalzeile")));
+    sqlx::query("UPDATE brain.patch_changes SET new_value='831' WHERE patch_date='2026-09-16'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(tokio::task::block_in_place(|| retriever.validate_evidence(
+        &historical,
+        &context,
+        &previous,
+        true
+    ))
+    .is_err());
+    sqlx::query("UPDATE brain.patch_changes SET new_value='830' WHERE patch_date='2026-09-16'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    scopes.lock().unwrap().clear();
+    let mut current = query("Wie viel MaxHealth hat Wächter?");
+    current.patch = None;
+    assert!(
+        tokio::task::block_in_place(|| retriever.retrieve(&current, &context))
+            .unwrap()
+            .is_empty()
+    );
+    scopes.lock().unwrap().insert("raw:fixture".into());
+    let mut tombstone = originals[0].clone();
+    tombstone.revision += 1;
+    tombstone.tombstone = true;
+    store.apply(&tombstone).await.unwrap();
+    assert!(
+        tokio::task::block_in_place(|| retriever.retrieve(&current, &context))
+            .unwrap()
+            .is_empty()
+    );
+    tokio::task::block_in_place(|| drop((retriever, reader)));
+    pool.close().await;
+}
