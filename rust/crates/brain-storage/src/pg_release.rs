@@ -364,7 +364,7 @@ impl PgStore {
         }
         let mut tx = self.pool.begin().await.map_err(database_error)?;
         let base_value: serde_json::Value = sqlx::query_scalar(
-            "SELECT release_json FROM brain.corpus_releases_v1 WHERE release_id=$1 FOR SHARE",
+            "SELECT release_json FROM brain.corpus_releases_v1 WHERE release_id=$1",
         )
         .bind(base_release_id)
         .fetch_optional(&mut *tx)

@@ -437,7 +437,12 @@ async fn check_entity_profile_sources(
                 .iter()
                 .filter(|record| record.source_id == *id)
                 .collect();
-            ensure!(!records.is_empty(), "entity_profile_document_empty");
+            if records.is_empty() {
+                brain_maintenance::integration::entity_profiles::verify_retired_git_documents(
+                    store, pool, &config, &principal, candidate,
+                )
+                .await?;
+            }
             for record in records {
                 ensure!(
                     visible.contains(record),
@@ -977,6 +982,59 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct ScratchPg {
+        directory: tempfile::TempDir,
+    }
+
+    impl ScratchPg {
+        fn start() -> Self {
+            let instance = Self {
+                directory: tempfile::tempdir().unwrap(),
+            };
+            let data = instance.directory.path().join("data");
+            let socket = instance.directory.path().join("socket");
+            std::fs::create_dir(&socket).unwrap();
+            assert!(
+                std::process::Command::new("/usr/lib/postgresql/16/bin/initdb")
+                    .arg("-D")
+                    .arg(&data)
+                    .args(["-A", "trust", "-U", "brain_core_test", "--no-locale"])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+            let options = format!("-k {} -p 55442 -c listen_addresses=''", socket.display());
+            assert!(
+                std::process::Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
+                    .arg("-D")
+                    .arg(data)
+                    .arg("-l")
+                    .arg(instance.directory.path().join("postgres.log"))
+                    .args(["-o", &options, "-w", "start"])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+            instance
+        }
+    }
+
+    impl Drop for ScratchPg {
+        fn drop(&mut self) {
+            let _ = std::process::Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
+                .arg("-D")
+                .arg(self.directory.path().join("data"))
+                .args(["-m", "immediate", "-w", "stop"])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
+        }
+    }
 
     #[test]
     #[ignore = "Wird von der FD-Prozessregression mit einem regulären Test-stdin gestartet"]
@@ -1620,6 +1678,290 @@ mod tests {
         check_entity_profile_sources(&runtime, &store, &pool, &candidate, &candidate, &allowed)
             .await
             .unwrap();
+        let pg = ScratchPg::start();
+        let pool = PgPoolOptions::new()
+            .max_connections(2)
+            .connect_with(
+                PgConnectOptions::new_without_pgpass()
+                    .host(pg.directory.path().join("socket").to_str().unwrap())
+                    .port(55442)
+                    .username("brain_core_test")
+                    .database("postgres"),
+            )
+            .await
+            .unwrap();
+        let store = brain_storage::PgStore::new(pool.clone());
+        store.migrate_core().await.unwrap();
+        store.migrate_entity_profiles().await.unwrap();
+        sqlx::raw_sql("CREATE ROLE brain_ingest LOGIN; CREATE ROLE brain_service LOGIN; CREATE ROLE brain_readonly LOGIN; CREATE TABLE brain.entities(id bigint,entity_type text,canonical_name text,primary_external_id text); CREATE TABLE brain.entity_aliases(id bigint,entity_id bigint,alias text,alias_kind text); INSERT INTO brain.entities VALUES(1,'hero','Fixture','hero_fixture')")
+            .execute(&pool).await.unwrap();
+        let grants = include_str!("../../../../../ops/brain-postgres/grants.sql")
+            .lines()
+            .filter(|line| !line.starts_with('\\'))
+            .collect::<Vec<_>>()
+            .join("\n");
+        for _ in 0..2 {
+            sqlx::raw_sql(&grants).execute(&pool).await.unwrap();
+        }
+        sqlx::raw_sql("CREATE TABLE brain.patch_changes(patch_date text,entity_type text,entity_name text,ability_name text,stat_name text,old_value text,new_value text,change_type text,confidence double precision,raw_line text); INSERT INTO brain.patch_changes VALUES('2026-09-16','hero','Fixture',NULL,'Health','500','550','increase',1,'Gesperrte Originalzeile')")
+            .execute(&pool).await.unwrap();
+        sqlx::raw_sql(&grants).execute(&pool).await.unwrap();
+        let ingest_pool = PgPoolOptions::new()
+            .max_connections(2)
+            .connect_with(
+                PgConnectOptions::new_without_pgpass()
+                    .host(pg.directory.path().join("socket").to_str().unwrap())
+                    .port(55442)
+                    .username("brain_ingest")
+                    .database("postgres"),
+            )
+            .await
+            .unwrap();
+        let ingest = brain_storage::PgStore::new(ingest_pool.clone());
+        let catalog = dbrain_sources::entity_binding::load_entity_catalog(&ingest_pool)
+            .await
+            .unwrap();
+        assert_eq!(catalog.len(), 1);
+        let loaded_config =
+            brain_maintenance::integration::runner::load_maintenance(&config_path).unwrap();
+        let principal = brain_maintenance::integration::runner::local_operator_principal(
+            require_operator_config(&config_path).unwrap(),
+            &config_path,
+        )
+        .unwrap();
+        let pinned = dbrain_sources::git_source::PinnedRepository::open(&repo, &sha).unwrap();
+        brain_maintenance::integration::entity_profiles::refresh_git_knowledge(
+            &runtime.entity_profile_sources[0],
+            &pinned,
+            &repo,
+            &ingest,
+            &ingest_pool,
+        )
+        .await
+        .unwrap();
+        let original = &candidate.revisions[0];
+        dbrain_sources::entity_binding::bind_stored_document(
+            &ingest,
+            &original.source_id,
+            &original.logical_id,
+            original.revision,
+            &catalog,
+        )
+        .await
+        .unwrap();
+        ingest.publish_release(&candidate.release).await.unwrap();
+        let originals = ingest
+            .snapshot(&candidate.release.release_id)
+            .await
+            .unwrap();
+        let original = &originals.revisions[0];
+        let repositories =
+            brain_maintenance::integration::entity_profiles::registered_git_repositories(
+                &loaded_config,
+                &originals,
+                &principal,
+            )
+            .unwrap();
+        let verified = dbrain_sources::entity_binding::derivation::derive_git_entity_profile(
+            &ingest,
+            &originals.release.release_id,
+            &principal,
+            &catalog[0].identity.entity_key,
+            &repositories,
+        )
+        .await
+        .unwrap();
+        let document =
+            brain_maintenance::integration::entity_profiles::persist_verified_git_profile(
+                &ingest, &verified,
+            )
+            .await
+            .unwrap();
+        let sources = vec!["git-game-facts-derived".into()];
+        let initial = brain_maintenance::integration::entity_profiles::publish_refreshed_sources(
+            &ingest,
+            &ingest_pool,
+            &candidate.release.release_id,
+            &sources,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let derived_allowed = BTreeSet::from([sources[0].clone()]);
+        assert!(check_entity_profile_sources(
+            &runtime,
+            &ingest,
+            &ingest_pool,
+            &candidate,
+            &candidate,
+            &derived_allowed
+        )
+        .await
+        .is_err());
+        let initial_snapshot = ingest
+            .snapshot(&initial.candidate.release_id)
+            .await
+            .unwrap();
+        check_entity_profile_sources(
+            &runtime,
+            &ingest,
+            &ingest_pool,
+            &candidate,
+            &initial_snapshot,
+            &derived_allowed,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            brain_maintenance::integration::entity_profiles::retire_removed_git_profiles(
+                &ingest,
+                &ingest_pool,
+                &loaded_config,
+                &principal,
+                &BTreeSet::new(),
+                &allowed,
+                dir.path()
+            )
+            .await
+            .unwrap(),
+            1
+        );
+        let retired = brain_maintenance::integration::entity_profiles::publish_refreshed_sources(
+            &ingest,
+            &ingest_pool,
+            &initial.candidate.release_id,
+            &sources,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let base = ingest
+            .snapshot(&initial.candidate.release_id)
+            .await
+            .unwrap();
+        let empty = ingest
+            .snapshot(&retired.candidate.release_id)
+            .await
+            .unwrap();
+        assert!(empty.release.source_revisions[&sources[0]].is_empty());
+        assert!(empty.revisions.contains(original));
+        check_transition(&base.release, &empty.release, &derived_allowed).unwrap();
+        check_rights(&base, &empty, &derived_allowed, Target::EntityProfiles).unwrap();
+        check_entity_profile_sources(
+            &runtime,
+            &ingest,
+            &ingest_pool,
+            &base,
+            &empty,
+            &derived_allowed,
+        )
+        .await
+        .unwrap();
+        check_entity_profile_sources(
+            &runtime,
+            &ingest,
+            &ingest_pool,
+            &empty,
+            &empty,
+            &derived_allowed,
+        )
+        .await
+        .unwrap();
+        sqlx::query("UPDATE brain.patch_changes SET new_value='600'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        check_entity_profile_sources(
+            &runtime,
+            &ingest,
+            &ingest_pool,
+            &empty,
+            &empty,
+            &derived_allowed,
+        )
+        .await
+        .unwrap();
+        sqlx::query("UPDATE brain.patch_changes SET new_value='550'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(
+            brain_maintenance::integration::entity_profiles::publish_refreshed_sources(
+                &ingest,
+                &ingest_pool,
+                &empty.release.release_id,
+                &sources
+            )
+            .await
+            .unwrap()
+            .is_none()
+        );
+        let mut forged = empty.clone();
+        forged.release.source_revisions.insert(
+            sources[0].clone(),
+            BTreeMap::from([(document.logical_id.clone(), document.revision)]),
+        );
+        assert!(check_entity_profile_sources(
+            &runtime,
+            &ingest,
+            &ingest_pool,
+            &base,
+            &forged,
+            &derived_allowed
+        )
+        .await
+        .is_err());
+        let restored =
+            brain_maintenance::integration::entity_profiles::persist_verified_git_profile(
+                &ingest, &verified,
+            )
+            .await
+            .unwrap();
+        assert_eq!(restored.revision, document.revision + 2);
+        assert!(check_entity_profile_sources(
+            &runtime,
+            &ingest,
+            &ingest_pool,
+            &empty,
+            &empty,
+            &derived_allowed
+        )
+        .await
+        .is_err());
+        let reappeared =
+            brain_maintenance::integration::entity_profiles::publish_refreshed_sources(
+                &ingest,
+                &ingest_pool,
+                &empty.release.release_id,
+                &sources,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        let reappeared = ingest
+            .snapshot(&reappeared.candidate.release_id)
+            .await
+            .unwrap();
+        check_transition(&empty.release, &reappeared.release, &derived_allowed).unwrap();
+        check_rights(
+            &empty,
+            &reappeared,
+            &derived_allowed,
+            Target::EntityProfiles,
+        )
+        .unwrap();
+        check_entity_profile_sources(
+            &runtime,
+            &ingest,
+            &ingest_pool,
+            &empty,
+            &reappeared,
+            &derived_allowed,
+        )
+        .await
+        .unwrap();
+        ingest_pool.close().await;
+        pool.close().await;
         config["internal_doc_scopes"] = serde_json::json!(["internal_docs"]);
         std::fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
         assert!(check_entity_profile_sources(
