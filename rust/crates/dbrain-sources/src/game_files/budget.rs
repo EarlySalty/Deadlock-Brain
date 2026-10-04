@@ -1,9 +1,9 @@
 // Conservative cumulative allocation accounting, including downstream fact expansion.
 // Charges never get refunded, so transient copies and retained values share a bound.
-pub(super) const EXCEEDED: &str = "allocation_budget_exceeded_preserved_as_text";
+pub(crate) const EXCEEDED: &str = "allocation_budget_exceeded_preserved_as_text";
 const MAX_BYTES: usize = 512 * 1024 * 1024;
 
-pub(super) struct Budget {
+pub(crate) struct Budget {
     remaining: usize,
 }
 impl Budget {
@@ -24,6 +24,6 @@ impl Budget {
         self.charge(bytes)
     }
 }
-pub(super) fn escaped_len(key: &str) -> usize {
+pub(crate) fn escaped_len(key: &str) -> usize {
     key.len() + key.bytes().filter(|b| matches!(b, b'~' | b'/')).count()
 }
