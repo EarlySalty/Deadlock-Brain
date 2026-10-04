@@ -319,6 +319,11 @@ impl WikiSpool {
                 }
                 if previous["content_sha256"] != document["content_sha256"]
                     || previous["content"] != document["content"]
+                    || previous["facts"] != document["facts"]
+                    || previous["metadata"]["content_model"]
+                        != document["metadata"]["content_model"]
+                    || previous["metadata"]["content_representation"]
+                        != document["metadata"]["content_representation"]
                 {
                     let conflict_dir = self.root.join("conflicts");
                     let conflict_key = format!(
@@ -735,6 +740,9 @@ fn provenance_assertion(document: &Value) -> Value {
         "source_fetched_at": metadata["source_fetched_at"],
         "license_observed_at": metadata["license_observed_at"],
         "provenance_capture_format": metadata["provenance_capture_format"],
+        "facts": document["facts"],
+        "content_model": metadata["content_model"],
+        "content_representation": metadata["content_representation"],
     })
 }
 

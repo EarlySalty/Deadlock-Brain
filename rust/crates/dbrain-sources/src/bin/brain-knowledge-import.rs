@@ -238,6 +238,9 @@ fn write_report(path: &Path, value: &Value) -> Result<(), String> {
         .map_err(|_| "Bericht kann nicht dauerhaft gespeichert werden")?;
     file.persist_noclobber(path)
         .map_err(|_| "Bericht kann nicht ohne Überschreiben veröffentlicht werden")?;
+    File::open(parent)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|_| "Berichtsordner kann nicht dauerhaft gespeichert werden")?;
     Ok(())
 }
 
@@ -294,6 +297,9 @@ fn write_partition(path: &Path, bytes: &[u8]) -> Result<(), String> {
         .map_err(|_| "Partition kann nicht dauerhaft gespeichert werden")?;
     file.persist_noclobber(path)
         .map_err(|_| "Partition kann nicht ohne Überschreiben veröffentlicht werden")?;
+    File::open(parent)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|_| "Partitionsordner kann nicht dauerhaft gespeichert werden")?;
     Ok(())
 }
 

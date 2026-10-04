@@ -136,6 +136,9 @@ fn supplement_entry(previous: &Value, incoming: &Value) -> Value {
         "source_fetched_at": metadata["source_fetched_at"],
         "license_observed_at": metadata["license_observed_at"],
         "provenance_capture_format": metadata["provenance_capture_format"],
+        "facts": incoming["facts"],
+        "content_model": metadata["content_model"],
+        "content_representation": metadata["content_representation"],
     });
     json!({
         "document_id": previous["document_id"],
@@ -1806,6 +1809,89 @@ fn source_namespace_names_distinguish_updates_json_data_and_bucket() {
         normalize_api_response(&capture(bucket), &context, &options().observed_at).unwrap();
     assert_eq!(bucket.documents[0]["metadata"]["page_kind"], "bucket_data");
     assert_eq!(bucket.documents[0]["facts"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn same_revision_content_model_and_facts_are_preserved_in_both_spool_branches() {
+    let dir = tempdir().unwrap();
+    let mut site = site();
+    site["query"]["namespaces"] =
+        json!({"0":{"id":0,"name":""},"3002":{"id":3002,"canonical":"Data"}});
+    let context = WikiSourceContext::from_siteinfo(&site).unwrap();
+    let raw_page = |model: Option<&str>, content: &str| {
+        let mut page = page(1, 3002, 101, content);
+        page["revisions"][0]["slots"]["main"]
+            .as_object_mut()
+            .unwrap()
+            .remove("contentmodel");
+        if let Some(model) = model {
+            page["revisions"][0]["slots"]["main"]["contentmodel"] = json!(model);
+        }
+        page
+    };
+    let original_content = r#"{"health":12}"#;
+    let mut first = capture(raw_page(None, original_content));
+    first["continue"] = json!({"continue":"||","gapcontinue":"Page 1"});
+    let mut responses = VecDeque::from([
+        site,
+        json!({"batchcomplete":true}),
+        first,
+        capture(raw_page(Some("json"), original_content)),
+    ]);
+    let error = collect_wiki_inventory_with_transport(dir.path(), &options(), |_| {
+        Ok(responses.pop_front().unwrap())
+    })
+    .unwrap_err();
+    assert!(error.to_string().contains("Konflikt"));
+    let originals = spool_snapshot(&dir.path().join("documents"));
+    let conflicts = spool_snapshot(&dir.path().join("conflicts"));
+    assert_eq!(originals.len(), 1);
+    assert_eq!(conflicts.len(), 1);
+    let original: Value = serde_json::from_slice(originals.values().next().unwrap()).unwrap();
+    let conflict: Value = serde_json::from_slice(conflicts.values().next().unwrap()).unwrap();
+    assert!(original["metadata"]["content_model"].is_null());
+    assert_eq!(conflict["metadata"]["content_model"], "json");
+    assert_eq!(conflict["facts"][0]["value"], 12);
+    {
+        let store = storage::WikiSpool::open(dir.path(), options().max_total_bytes).unwrap();
+        let mut state = store.read_checkpoint().unwrap();
+        store
+            .bind_source(&mut state, Some(&context.source_origin))
+            .unwrap();
+        let enriched = conflict.clone();
+        assert!(store.persist_document(&enriched).is_err());
+        let mut changed = enriched.clone();
+        changed["facts"][0]["value"] = json!(13);
+        assert!(store.persist_document(&changed).is_err());
+        let saved = spool_snapshot(&dir.path().join("provenance"));
+        let supplements: Value = serde_json::from_slice(saved.values().next().unwrap()).unwrap();
+        assert_eq!(supplements[0]["assertion"]["facts"][0]["value"], 13);
+        assert_eq!(supplements[0]["assertion"]["content_model"], "json");
+        assert!(store.persist_document(&changed).is_err());
+        assert_eq!(saved, spool_snapshot(&dir.path().join("provenance")));
+        let mut changed_model = enriched.clone();
+        changed_model["metadata"]["content_model"] = json!("JsonConfig.Json");
+        assert!(store.persist_document(&changed_model).is_err());
+        let saved = spool_snapshot(&dir.path().join("provenance"));
+        let supplements: Value = serde_json::from_slice(saved.values().next().unwrap()).unwrap();
+        assert_eq!(
+            supplements[1]["assertion"]["content_model"],
+            "JsonConfig.Json"
+        );
+        assert_eq!(supplements[1]["assertion"]["facts"], enriched["facts"]);
+        assert!(store.persist_document(&changed_model).is_err());
+        assert_eq!(saved, spool_snapshot(&dir.path().join("provenance")));
+        store.persist_document(&original).unwrap();
+        store.persist_document(&original).unwrap();
+        let report = store.publish(&state).unwrap();
+        assert!(!report.content_complete);
+        assert!(report
+            .gaps
+            .iter()
+            .any(|gap| gap.reason == "content_conflict"));
+    }
+    assert_eq!(originals, spool_snapshot(&dir.path().join("documents")));
+    assert_eq!(conflicts, spool_snapshot(&dir.path().join("conflicts")));
 }
 
 #[test]

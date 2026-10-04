@@ -277,7 +277,10 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
     origin.policy.allowed_scopes = record.allowed_scopes.clone();
     origin.bind_record(&mut record).unwrap();
     store.apply(&record).await.unwrap();
-    let entity = entity(EntityKind::Hero);
+    let mut entity = entity(EntityKind::Hero);
+    entity.name = "Vertraulicher Name".into();
+    entity.aliases = vec!["Vertraulicher Alias".into()];
+    entity.identity_evidence = vec!["vertraulicher Beleg".into()];
     let mut manipulated = record.clone();
     let document_key = brain_storage::source_versions::DOCUMENT_METADATA_KEY;
     let mut document: Value = serde_json::from_str(&manipulated.metadata[document_key]).unwrap();
@@ -353,9 +356,8 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
     let hidden = store
         .read_entity_profile(&entity.entity_key, &release.release_id, &principal, None)
         .await
-        .unwrap()
         .unwrap();
-    assert!(hidden.facts.is_empty());
+    assert!(hidden.is_none());
     principal.scopes = record.allowed_scopes.clone();
     let visible = store
         .read_entity_profile(&entity.entity_key, &release.release_id, &principal, None)
@@ -363,6 +365,11 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
         .unwrap()
         .unwrap();
     assert_eq!(visible.facts.len(), 1);
+    assert_eq!(visible.entity.name, "Test");
+    assert!(visible.entity.aliases.is_empty());
+    assert_eq!(visible.entity.identity_evidence.len(), 1);
+    assert!(visible.entity.identity_evidence[0].starts_with("fixture:"));
+    assert_ne!(visible.entity, entity);
     assert_eq!(
         visible.facts[0].value.to_string(),
         "1.2345678901234567890123456789e+19"
@@ -376,9 +383,8 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
     let hidden = store
         .read_entity_profile(&entity.entity_key, &release.release_id, &principal, None)
         .await
-        .unwrap()
         .unwrap();
-    assert!(hidden.facts.is_empty());
+    assert!(hidden.is_none());
     principal.scopes.extend(restricted.allowed_scopes.clone());
     let visible = store
         .read_entity_profile(&entity.entity_key, &release.release_id, &principal, None)
@@ -390,5 +396,61 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
         visible.facts[0].provenance.origin.policy.allowed_scopes,
         record.allowed_scopes
     );
+    let mut public = record.clone();
+    let mut public_origin = brain_contracts::source::origin_from_record(&public).unwrap();
+    public.source_id = "public-fixture".into();
+    public.allowed_scopes = std::collections::BTreeSet::from(["fixture:public".into()]);
+    public_origin.identity.source_id = public.source_id.clone();
+    public_origin.policy.allowed_scopes = public.allowed_scopes.clone();
+    public_origin.bind_record(&mut public).unwrap();
+    let mut document: Value = serde_json::from_str(&public.metadata[document_key]).unwrap();
+    document["source_id"] = json!(public.source_id);
+    document["title"] = json!("Öffentlicher Name");
+    public
+        .metadata
+        .insert(document_key.into(), document.to_string());
+    store.apply(&public).await.unwrap();
+    store
+        .store_entity_fact_bindings(&entity, &public, &["health".into()])
+        .await
+        .unwrap();
+    let mut mixed = release.clone();
+    mixed.release_id = "mixed-release".into();
+    mixed.source_revisions.insert(
+        public.source_id.clone(),
+        std::collections::BTreeMap::from([(public.logical_id.clone(), public.revision)]),
+    );
+    store.publish_release(&mixed).await.unwrap();
+    principal.scopes = public.allowed_scopes.clone();
+    let visible = store
+        .read_entity_profile(&entity.entity_key, &mixed.release_id, &principal, None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(visible.facts.len(), 1);
+    assert_eq!(visible.entity.name, "Öffentlicher Name");
+    assert!(visible.entity.aliases.is_empty());
+    assert!(visible
+        .entity
+        .identity_evidence
+        .iter()
+        .all(|evidence| evidence.starts_with("public-fixture:")));
+    let mut unpinned = mixed.clone();
+    unpinned.release_id = "unpinned-release".into();
+    unpinned.source_revisions.clear();
+    store.publish_release(&unpinned).await.unwrap();
+    assert!(store
+        .read_entity_profile(&entity.entity_key, &unpinned.release_id, &principal, None)
+        .await
+        .unwrap()
+        .is_none());
+    public.revision += 1;
+    public.tombstone = true;
+    store.apply(&public).await.unwrap();
+    assert!(store
+        .read_entity_profile(&entity.entity_key, &mixed.release_id, &principal, None)
+        .await
+        .unwrap()
+        .is_none());
     pool.close().await;
 }
