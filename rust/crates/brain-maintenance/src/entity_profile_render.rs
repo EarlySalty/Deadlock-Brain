@@ -4,7 +4,6 @@ use brain_contracts::entity_profile::{
     ProfileSourceKind, ENTITY_PROFILE_VERSION,
 };
 use brain_contracts::SourceVisibility;
-use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
@@ -61,6 +60,8 @@ fn public_fact(fact: &EntityProfileFact) -> bool {
         )
         && fact.provenance.origin.policy.visibility == SourceVisibility::Public
         && fact.provenance.origin.policy.allowed_scopes.is_empty()
+        && fact.provenance.origin.policy.publication_allowed
+        && !fact.qualifiers.contains_key("semantic_scope")
         && public_label(&fact.predicate).is_some()
         && fact
             .qualifiers
@@ -124,6 +125,11 @@ fn fact_table(html: &mut String, facts: &[EntityProfileFact]) {
                 public_conditions(fact),
                 escape(&validity(&fact.validity)),
             ));
+        } else if fact.qualifiers.contains_key("semantic_scope") {
+            html.push_str(&format!(
+                "<tr><td colspan=\"5\">Für {} fehlt eine belegte öffentliche Beschreibung der verschachtelten Variante oder Bedingung.</td></tr>",
+                escape(public_label(&fact.predicate).unwrap_or("diesen Wert")),
+            ));
         } else {
             html.push_str(
                 "<tr><td colspan=\"5\">Ein zugeordneter Beleg ist nur intern verfügbar.</td></tr>",
@@ -137,14 +143,19 @@ fn fact_table(html: &mut String, facts: &[EntityProfileFact]) {
 }
 
 fn public_conditions(fact: &EntityProfileFact) -> String {
+    public_qualifiers(&fact.qualifiers)
+}
+
+fn public_qualifiers(qualifiers: &serde_json::Map<String, serde_json::Value>) -> String {
     let mut values = Vec::new();
     for (key, label) in [
         ("level", "Stufe"),
         ("variant", "Variante"),
         ("condition", "Bedingung"),
         ("ability_name", "Fähigkeit"),
+        ("unit", "Einheit"),
     ] {
-        if let Some(value) = fact.qualifiers.get(key) {
+        if let Some(value) = qualifiers.get(key) {
             let text = match value {
                 serde_json::Value::String(value) => public_label(value).map(str::to_owned),
                 serde_json::Value::Number(value) => Some(value.to_string()),
@@ -223,13 +234,14 @@ fn patch_story(html: &mut String, changes: &[PatchStoryChange]) -> Result<()> {
             _ => "unbekannt",
         };
         html.push_str(&format!(
-            "<li><h3>Patch vom {}: {}</h3><p>{}: {}; Fähigkeit: {}; Wert: {}.</p><p>{} Änderungsart: {}; Zahlenrichtung: {}; Konfidenz: {}.</p><p>Quelle: Patchhistorie.</p></li>",
+            "<li><h3>Patch vom {}: {}</h3><p>{}: {}; Fähigkeit: {}; Wert: {}.</p><p>{} Änderungsart: {}; Zahlenrichtung: {}; Konfidenz: {}.</p><p>{}</p><p>Quelle: Patchhistorie.</p></li>",
             escape(&date), escape(change.patch_title.as_deref().and_then(public_label).unwrap_or("Titel unbekannt")),
             entity_kind, escape(change.entity_name.as_deref().and_then(public_label).unwrap_or("Unbekannt")),
             escape(change.ability_name.as_deref().and_then(public_label).unwrap_or("Unbekannt")),
             escape(change.stat_name.as_deref().and_then(public_label).unwrap_or("Unbekannt")), escape(&values),
             change_type, direction,
             escape(&story_number(&change.confidence).unwrap_or_else(|| "Unbekannt".into())),
+            public_qualifiers(&change.additional_fields),
         ));
     }
     html.push_str("</ol>");
@@ -237,75 +249,9 @@ fn patch_story(html: &mut String, changes: &[PatchStoryChange]) -> Result<()> {
 }
 
 fn compact_document(profile: &EntityProfile) -> Result<String> {
-    let mut source_refs = BTreeMap::new();
-    let mut sources = Vec::new();
-    let mut compact_fact = |fact: &EntityProfileFact| {
-        let provenance = &fact.provenance;
-        let identity = &provenance.origin.identity;
-        let key = (
-            identity.source_id.clone(),
-            provenance.original_revision.clone(),
-        );
-        let source_ref = *source_refs.entry(key).or_insert_with(|| {
-            sources.push(serde_json::json!({
-                "source_id": identity.source_id,
-                "original_revision": provenance.original_revision,
-            }));
-            sources.len() - 1
-        });
-        serde_json::json!({
-            "fact_id": fact.fact_id,
-            "subject": fact.subject,
-            "predicate": fact.predicate,
-            "value": fact.value,
-            "unit": fact.unit,
-            "qualifiers": fact.qualifiers,
-            "evidence_status": fact.evidence_status,
-            "validity": fact.validity,
-            "source_ref": source_ref,
-            "source_kind": provenance.source_kind,
-            "logical_id": identity.logical_id,
-            "locator": provenance.origin.locator,
-            "source_span": provenance.source_span,
-            "observed_at": provenance.observed_at,
-            "policy": provenance.origin.policy,
-            "license": provenance.license,
-        })
-    };
-    let facts: Vec<_> = profile.facts.iter().map(&mut compact_fact).collect();
-    let context: Vec<_> = profile.context.iter().map(&mut compact_fact).collect();
-    let story: Vec<_> = profile
-        .patch_story
-        .iter()
-        .map(|change| {
-            serde_json::json!({
-                "patch_date": change.patch_date,
-                "patch_title": change.patch_title,
-                "entity_type": change.entity_type,
-                "entity_name": change.entity_name,
-                "ability_name": change.ability_name,
-                "stat_name": change.stat_name,
-                "old_value": change.old_value,
-                "new_value": change.new_value,
-                "change_type": change.change_type,
-                "numeric_direction": change.numeric_direction,
-                "confidence": change.confidence,
-                "provenance": change.provenance,
-            })
-        })
-        .collect();
-    Ok(serde_json::to_string(&serde_json::json!({
-        "contract_version": profile.contract_version,
-        "entity": profile.entity,
-        "patch": profile.patch,
-        "source_state": profile.source_state,
-        "facts": facts,
-        "context": context,
-        "conflicts": profile.conflicts,
-        "patch_story": story,
-        "unknowns": profile.unknowns,
-        "sources": sources,
-    }))?)
+    Ok(brain_storage::entity_profile::compact::compact_document(
+        profile,
+    )?)
 }
 
 pub fn render_entity_profile(profile: &EntityProfile) -> Result<RenderedEntityProfile> {
@@ -351,14 +297,15 @@ pub fn render_entity_profile(profile: &EntityProfile) -> Result<RenderedEntityPr
             })
         {
             html.push_str(&format!(
-                "<li>{}: {}{}</li>",
+                "<li>{}: {}{}; {}</li>",
                 escape(public_label(&fact.predicate).unwrap_or("Unbekannter Wert")),
                 escape(&fact.value.to_string()),
                 if conflict.preferred_fact_id.as_ref() == Some(&fact_reference(fact)) {
                     " (bevorzugter Beleg)"
                 } else {
                     ""
-                }
+                },
+                public_conditions(fact)
             ));
         }
         html.push_str("</ul>");
@@ -598,7 +545,7 @@ mod tests {
     }
 
     #[test]
-    fn derived_git_numbers_preserve_restricted_source_and_numeric_string() {
+    fn restricted_original_numbers_stay_internal_until_publication_is_allowed() {
         let mut profile = fixture(EntityKind::Hero);
         profile.facts[0]
             .provenance
@@ -622,6 +569,14 @@ mod tests {
             .qualifiers
             .insert("condition".into(), json!("Während der Fähigkeit"));
         profile.facts.push(string);
+        let original = serde_json::to_value(&profile).unwrap();
+        let rendered = render_entity_profile(&profile).unwrap();
+        assert!(!rendered.public_html.contains("<code>700</code>"));
+        assert!(!rendered.public_html.contains("100.00000000000000001"));
+        assert_eq!(serde_json::to_value(&profile).unwrap(), original);
+        for fact in &mut profile.facts {
+            fact.provenance.origin.policy.publication_allowed = true;
+        }
         let original = serde_json::to_value(&profile).unwrap();
         let rendered = render_entity_profile(&profile).unwrap();
         for text in [
@@ -650,6 +605,28 @@ mod tests {
         let second = write_public_html(root.path(), &profile).unwrap();
         assert_eq!(first, second);
         assert_eq!(fs::read_to_string(second).unwrap(), rendered.public_html);
+    }
+
+    #[test]
+    fn unlabelled_nested_variants_report_a_gap_without_numbers_or_pointers() {
+        let mut profile = fixture(EntityKind::Hero);
+        profile.facts[0]
+            .qualifiers
+            .insert("semantic_scope".into(), json!("Variants/0"));
+        let mut second = profile.facts[0].clone();
+        second.value = json!(123456);
+        second
+            .qualifiers
+            .insert("semantic_scope".into(), json!("Variants/1"));
+        profile.facts.push(second);
+        let rendered = render_entity_profile(&profile).unwrap();
+        assert!(rendered
+            .public_html
+            .contains("fehlt eine belegte öffentliche Beschreibung"));
+        for forbidden in ["<code>700</code>", "123456", "Variants/0", "Variants/1"] {
+            assert!(!rendered.public_html.contains(forbidden));
+        }
+        assert!(rendered.brain_document.contains("Variants/0"));
     }
 
     #[test]

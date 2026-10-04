@@ -64,6 +64,9 @@ pub fn project_interval_fact(
             "Gespeicherte Intervalle widersprechen den aktuellen Patchbelegen",
         ));
     }
+    if patch > stored.current_patch.as_str() {
+        return Ok(None);
+    }
     let Some(interval) = stored
         .intervals
         .iter()
@@ -162,7 +165,7 @@ fn date(value: &str) -> bool {
     year > 0 && day > 0 && day <= days
 }
 
-fn matching_entity(entity: &EntityIdentity, change: &PatchStoryChange) -> bool {
+pub(crate) fn matching_entity(entity: &EntityIdentity, change: &PatchStoryChange) -> bool {
     let matches = |name: Option<&str>| {
         name.is_some_and(|name| {
             std::iter::once(&entity.name)
@@ -217,6 +220,10 @@ pub fn derive_patch_intervals(
                     .stat_name
                     .as_deref()
                     .is_some_and(|stat| super::semantic::stat_key(stat) == semantic.predicate)
+                && change.patch_date.as_str() <= current_patch
+                && change.additional_fields.get("unit").and_then(Value::as_str)
+                    == semantic.unit.as_deref()
+                && matching_qualifiers(&semantic.qualifiers, &change.additional_fields)
         })
         .cloned()
         .collect();
@@ -226,7 +233,6 @@ pub fn derive_patch_intervals(
     changes.sort_by(|left, right| left.patch_date.cmp(&right.patch_date));
     for change in &changes {
         if !date(&change.patch_date)
-            || change.patch_date.as_str() > current_patch
             || change.provenance.relation != "brain.patch_changes"
             || change.provenance.evidence_ref.is_empty()
             || change.additional_fields.get("unit").and_then(Value::as_str)
@@ -235,21 +241,6 @@ pub fn derive_patch_intervals(
             return Err(invalid(
                 "Patchdatum, Einheit oder Patchbeleg passt nicht zum Anker",
             ));
-        }
-        for (key, value) in &semantic.qualifiers {
-            if !matches!(
-                key.as_str(),
-                "numeric_representation"
-                    | "references_resolved"
-                    | "type_flags"
-                    | "unit_status"
-                    | "unit_inferred"
-            ) && change.additional_fields.get(key) != Some(value)
-            {
-                return Err(invalid(
-                    "Patchvariante oder Bedingung passt nicht zum Originalfakt",
-                ));
-            }
         }
     }
     if changes
@@ -290,4 +281,29 @@ pub fn derive_patch_intervals(
         current_patch: current_patch.into(),
         intervals,
     })
+}
+
+fn matching_qualifiers(
+    anchor: &serde_json::Map<String, Value>,
+    fields: &serde_json::Map<String, Value>,
+) -> bool {
+    let technical = |key: &str| {
+        matches!(
+            key,
+            "numeric_representation"
+                | "references_resolved"
+                | "type_flags"
+                | "unit_status"
+                | "unit_inferred"
+        )
+    };
+    anchor
+        .iter()
+        .all(|(key, value)| technical(key) || fields.get(key) == Some(value))
+        && fields.iter().all(|(key, value)| {
+            matches!(key.as_str(), "unit" | "old_number" | "new_number")
+                || technical(key)
+                || anchor.get(key) == Some(value)
+                || value.is_null() && !anchor.contains_key(key)
+        })
 }
