@@ -1,9 +1,9 @@
 use crate::{PgStore, StorageError};
 use brain_contracts::{
     entity_profile::{
-        EntityIdentity, EntityProfile, EntityProfileFact, PatchStoryChange, PatchStoryProvenance,
-        PatchValidity, ProfileConflict, ProfileProvenance, ProfileSourceKind, RestrictedPatchLine,
-        ENTITY_PROFILE_VERSION,
+        EntityIdentity, EntityKind, EntityProfile, EntityProfileFact, PatchStoryChange,
+        PatchStoryProvenance, PatchValidity, ProfileConflict, ProfileProvenance, ProfileSourceKind,
+        RestrictedPatchLine, ENTITY_PROFILE_VERSION,
     },
     source::origin_from_record,
     SourceRecordV2,
@@ -263,16 +263,7 @@ impl PgStore {
         let visible = snapshot
             .authorized(principal, false)
             .map_err(|_| invalid("Quellenfreigabe fehlt"))?;
-        let identity: Option<Value> = sqlx::query_scalar(
-            "SELECT identity_json FROM brain.entity_profile_entities_v1 WHERE entity_key=$1",
-        )
-        .bind(entity_key)
-        .fetch_optional(&self.pool)
-        .await?;
-        let Some(identity) = identity else {
-            return Ok(None);
-        };
-        let entity: EntityIdentity = serde_json::from_value(identity)?;
+        let mut entity: Option<EntityIdentity> = None;
         let mut facts = Vec::new();
         let mut historical_unknown = false;
         for source in visible {
@@ -292,6 +283,42 @@ impl PgStore {
                 if project_entity_facts(original, std::slice::from_ref(&fact.fact_id))?[0] != fact {
                     return Err(invalid("Fakt und freigegebene Quelle widersprechen sich"));
                 }
+                let kind = [
+                    ("hero", EntityKind::Hero),
+                    ("ability", EntityKind::Ability),
+                    ("item", EntityKind::Item),
+                ]
+                .into_iter()
+                .find_map(|(prefix, kind)| {
+                    (fact.subject == format!("{prefix}:{entity_key}")).then_some(kind)
+                });
+                if let Some(kind) = kind {
+                    let document: Value = serde_json::from_str(
+                        &original.metadata[crate::source_versions::DOCUMENT_METADATA_KEY],
+                    )?;
+                    let name = document["title"]
+                        .as_str()
+                        .filter(|name| !name.trim().is_empty())
+                        .ok_or_else(|| invalid("Belegter Entitätsname fehlt"))?;
+                    let evidence = format!("{}:title", fact_reference(&fact));
+                    let identity = entity.get_or_insert_with(|| EntityIdentity {
+                        entity_key: entity_key.into(),
+                        kind,
+                        name: name.into(),
+                        aliases: Vec::new(),
+                        identity_evidence: Vec::new(),
+                    });
+                    if identity.kind != kind {
+                        return Err(invalid("Autorisierte Entitätsbelege widersprechen sich"));
+                    }
+                    if identity.name != name && !identity.aliases.iter().any(|alias| alias == name)
+                    {
+                        identity.aliases.push(name.into());
+                    }
+                    if !identity.identity_evidence.contains(&evidence) {
+                        identity.identity_evidence.push(evidence);
+                    }
+                }
                 if let Some(patch) = patch {
                     historical_unknown |= matches!(fact.validity, PatchValidity::Unknown { .. });
                     if !validity_contains(&fact.validity, patch) {
@@ -301,6 +328,9 @@ impl PgStore {
                 facts.push(fact);
             }
         }
+        let Some(entity) = entity else {
+            return Ok(None);
+        };
         let mut story = self.entity_patch_story(&entity).await?;
         if let Some(patch) = patch {
             story.retain(|change| change.patch_date.as_str() <= patch);
