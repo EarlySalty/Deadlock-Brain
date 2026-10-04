@@ -439,6 +439,29 @@ mod tests {
             io::{BufRead, BufReader, Write},
             net::TcpListener,
         };
+        struct ChargedStored(u32);
+        impl RetrievalPort for ChargedStored {
+            fn retrieve(
+                &self,
+                _: &Query,
+                _: &AuthorizedContext,
+            ) -> Result<Vec<Evidence>, PortError> {
+                Ok(Vec::new())
+            }
+            fn retrieve_with_usage(
+                &self,
+                _: &Query,
+                _: &AuthorizedContext,
+            ) -> Result<(Vec<Evidence>, Usage), PortError> {
+                Ok((
+                    Vec::new(),
+                    Usage {
+                        network_rounds: self.0,
+                        ..Usage::default()
+                    },
+                ))
+            }
+        }
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let mut live = DiscordLive::new("test".into()).unwrap();
         live.endpoint = format!("http://{}/mcp", listener.local_addr().unwrap());
@@ -470,14 +493,22 @@ mod tests {
             Err(PortError::BudgetExceeded)
         ));
         assert!(adapter
-            .validate_evidence(&query, &context, &[item.clone()], false)
+            .validate_evidence(&query, &context, std::slice::from_ref(&item), false)
             .is_err());
         assert!(adapter
-            .validate_evidence(&query, &context, &[item.clone()], true)
+            .validate_evidence(&query, &context, std::slice::from_ref(&item), true)
             .is_err());
         assert!(adapter
             .validate_publication(&query, &context, &[item])
             .is_err());
+        for rounds in [1, u32::MAX] {
+            context.budget.max_network_rounds = rounds;
+            let charged = DiscordRetriever::new(ChargedStored(rounds), Some(live.clone()));
+            assert!(matches!(
+                charged.retrieve_with_usage(&query, &context),
+                Err(PortError::BudgetExceeded)
+            ));
+        }
         listener.set_nonblocking(true).unwrap();
         assert_eq!(
             listener.accept().unwrap_err().kind(),
