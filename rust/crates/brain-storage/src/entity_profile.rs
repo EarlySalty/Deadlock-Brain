@@ -11,6 +11,12 @@ use brain_contracts::{
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+#[path = "entity_semantic.rs"]
+pub mod semantic;
+
+#[path = "entity_intervals.rs"]
+pub mod intervals;
+
 fn invalid(message: &str) -> StorageError {
     StorageError::Json(<serde_json::Error as serde::de::Error>::custom(message))
 }
@@ -317,6 +323,11 @@ impl PgStore {
         let mut entity: Option<EntityIdentity> = None;
         let mut facts = Vec::new();
         let mut historical_unknown = false;
+        let semantic_ready: bool = sqlx::query_scalar(
+            "SELECT to_regclass('brain.entity_semantic_projections_v1') IS NOT NULL",
+        )
+        .fetch_one(&self.pool)
+        .await?;
         for source in visible {
             let original = snapshot
                 .revisions
@@ -344,6 +355,7 @@ impl PgStore {
                 {
                     return Err(invalid("Gespeicherte Bindungsidentität ist ungültig"));
                 }
+                let interval_identity = binding.clone();
                 if let Some(identity) = &mut entity {
                     if identity.kind != binding.kind {
                         return Err(invalid("Autorisierte Entitätsbelege widersprechen sich"));
@@ -361,13 +373,59 @@ impl PgStore {
                 } else {
                     entity = Some(binding);
                 }
+                let projection: Option<(String, String, String, Option<String>)> = if semantic_ready
+                {
+                    sqlx::query_as("SELECT relative_pointer,semantic_predicate,semantic_qualifiers_json,semantic_unit FROM brain.entity_semantic_projections_v1 WHERE entity_key=$1 AND source_id=$2 AND logical_id=$3 AND revision=$4 AND fact_id=$5")
+                    .bind(entity_key).bind(&source.source_id).bind(&source.logical_id).bind(source.revision as i64).bind(&fact.fact_id).fetch_optional(&self.pool).await?
+                } else {
+                    None
+                };
+                let projected = if let Some((relative_pointer, predicate, qualifiers, unit)) =
+                    projection
+                {
+                    let semantic = semantic::SemanticProjection {
+                        relative_pointer,
+                        predicate,
+                        qualifiers: serde_json::from_str(&qualifiers)?,
+                        unit,
+                    };
+                    let stored_interval:Option<String>=sqlx::query_scalar("SELECT interval_json FROM brain.entity_patch_intervals_v1 WHERE entity_key=$1 AND source_id=$2 AND logical_id=$3 AND revision=$4 AND fact_id=$5")
+                            .bind(entity_key).bind(&source.source_id).bind(&source.logical_id).bind(source.revision as i64).bind(&fact.fact_id).fetch_optional(&self.pool).await?;
+                    if let Some(encoded) = stored_interval {
+                        let stored: intervals::IntervalProjection = serde_json::from_str(&encoded)?;
+                        let current = project_entity_facts(
+                            original,
+                            std::slice::from_ref(&stored.current_patch_fact_id),
+                        )?
+                        .remove(0);
+                        let story = self.entity_patch_story(&interval_identity).await?;
+                        let Some(projected) = intervals::project_interval_fact(
+                            &interval_identity,
+                            &fact,
+                            &current,
+                            &semantic,
+                            &stored,
+                            &story,
+                            patch.unwrap_or(&stored.current_patch),
+                        )?
+                        else {
+                            continue;
+                        };
+                        projected
+                    } else {
+                        semantic::project_semantic_fact(&fact, &semantic)?
+                    }
+                } else {
+                    fact
+                };
                 if let Some(patch) = patch {
-                    historical_unknown |= matches!(fact.validity, PatchValidity::Unknown { .. });
-                    if !validity_contains(&fact.validity, patch) {
+                    historical_unknown |=
+                        matches!(projected.validity, PatchValidity::Unknown { .. });
+                    if !validity_contains(&projected.validity, patch) {
                         continue;
                     }
                 }
-                facts.push(fact);
+                facts.push(projected);
             }
         }
         let Some(entity) = entity else {

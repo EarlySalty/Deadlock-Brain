@@ -7,6 +7,9 @@ use sqlx::{PgPool, Row};
 
 use crate::knowledge_contract::{KnowledgeDocument, KnowledgeFact, KnowledgeSourceKind};
 
+#[path = "entity_derivation.rs"]
+pub mod derivation;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CatalogEntity {
     pub identity: EntityIdentity,
@@ -308,4 +311,90 @@ fn numeric_fact(fact: &KnowledgeFact) -> bool {
             && fact.value.as_str().is_some_and(|text| {
                 serde_json::from_str::<Value>(text).is_ok_and(|value| value.is_number())
             }))
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct StoredBindingSummary {
+    pub bound_facts: usize,
+    pub inserted_bindings: usize,
+    pub inserted_projections: usize,
+    pub entity_keys: Vec<String>,
+    pub unresolved_fact_ids: Vec<String>,
+    pub ambiguous_fact_ids: Vec<String>,
+}
+
+pub async fn bind_stored_document(
+    store: &brain_storage::PgStore,
+    source_id: &str,
+    logical_id: &str,
+    revision: u64,
+    catalog: &[CatalogEntity],
+) -> brain_storage::Result<StoredBindingSummary> {
+    use brain_storage::entity_profile::{project_entity_facts, semantic::semantic_projection};
+    let record = store
+        .stored_entity_source(source_id, logical_id, revision)
+        .await?;
+    let document: KnowledgeDocument = serde_json::from_str(
+        record
+            .metadata
+            .get(brain_storage::source_versions::DOCUMENT_METADATA_KEY)
+            .ok_or_else(|| {
+                brain_storage::StorageError::Json(<serde_json::Error as serde::de::Error>::custom(
+                    "Originaldokument fehlt",
+                ))
+            })?,
+    )?;
+    let coverage = bind_document(&document, catalog);
+    let mut result = StoredBindingSummary {
+        bound_facts: coverage.bindings.len(),
+        unresolved_fact_ids: coverage.unresolved_fact_ids,
+        ambiguous_fact_ids: coverage.ambiguous_fact_ids,
+        ..Default::default()
+    };
+    let mut grouped: BTreeMap<String, Vec<FactBinding>> = BTreeMap::new();
+    for binding in coverage.bindings {
+        grouped
+            .entry(binding.entity_key.clone())
+            .or_default()
+            .push(binding);
+    }
+    for (key, bindings) in grouped {
+        let entry = catalog
+            .iter()
+            .find(|entry| entry.identity.entity_key == key)
+            .ok_or_else(|| {
+                brain_storage::StorageError::Json(<serde_json::Error as serde::de::Error>::custom(
+                    "Katalogbeleg fehlt",
+                ))
+            })?;
+        let mut identity = entry.identity.clone();
+        identity.aliases.clear();
+        identity.identity_evidence = bindings
+            .iter()
+            .flat_map(|binding| binding.identity_evidence.clone())
+            .collect();
+        identity.identity_evidence.sort();
+        identity.identity_evidence.dedup();
+        for chunk in bindings.chunks(10_000) {
+            let ids: Vec<_> = chunk
+                .iter()
+                .map(|binding| binding.fact.fact_id.clone())
+                .collect();
+            result.inserted_bindings += store
+                .store_entity_fact_bindings(&identity, &record, &ids)
+                .await?;
+            let mut projections = Vec::new();
+            for (binding, original) in chunk.iter().zip(project_entity_facts(&record, &ids)?) {
+                if let Some(projection) = semantic_projection(&original, &binding.relative_pointer)?
+                {
+                    projections.push((original.fact_id, projection));
+                }
+            }
+            result.inserted_projections += store
+                .store_entity_semantic_projections(&key, &record, &projections)
+                .await?;
+        }
+        result.entity_keys.push(key);
+    }
+    Ok(result)
 }
