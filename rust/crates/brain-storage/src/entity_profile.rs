@@ -212,9 +212,19 @@ impl PgStore {
         {
             return Err(invalid("Belegte Entitätszuordnung fehlt oder ist zu groß"));
         }
-        let facts = project_entity_facts(record, fact_ids)?;
         let identity = serde_json::to_value(entity)?;
         let mut tx = self.pool.begin().await?;
+        let revision =
+            i64::try_from(record.revision).map_err(|_| invalid("Revision ist zu groß"))?;
+        let stored: Value = sqlx::query_scalar("SELECT record_json FROM brain.source_record_revisions WHERE source_id=$1 AND logical_id=$2 AND revision=$3 FOR SHARE")
+            .bind(&record.source_id).bind(&record.logical_id).bind(revision).fetch_one(&mut *tx).await?;
+        let original: SourceRecordV2 = serde_json::from_value(stored)?;
+        if serde_json::to_value(&original)? != serde_json::to_value(record)? {
+            return Err(invalid(
+                "Faktenbindung widerspricht der gespeicherten Quellrevision",
+            ));
+        }
+        let facts = project_entity_facts(&original, fact_ids)?;
         sqlx::query("INSERT INTO brain.entity_profile_entities_v1(entity_key,identity_json) VALUES($1,$2) ON CONFLICT(entity_key) DO NOTHING").bind(&entity.entity_key).bind(&identity).execute(&mut *tx).await?;
         let stored: Value = sqlx::query_scalar("SELECT identity_json FROM brain.entity_profile_entities_v1 WHERE entity_key=$1 FOR UPDATE").bind(&entity.entity_key).fetch_one(&mut *tx).await?;
         if stored != identity {
@@ -223,8 +233,6 @@ impl PgStore {
         let mut inserted = 0;
         for fact in facts {
             let encoded = serde_json::to_string(&fact)?;
-            let revision =
-                i64::try_from(record.revision).map_err(|_| invalid("Revision ist zu groß"))?;
             inserted += sqlx::query("INSERT INTO brain.entity_profile_facts_v1(entity_key,source_id,logical_id,revision,fact_id,fact_json) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING")
                 .bind(&entity.entity_key).bind(&record.source_id).bind(&record.logical_id).bind(revision).bind(&fact.fact_id).bind(&encoded).execute(&mut *tx).await?.rows_affected() as usize;
             let stored: String = sqlx::query_scalar("SELECT fact_json FROM brain.entity_profile_facts_v1 WHERE entity_key=$1 AND source_id=$2 AND logical_id=$3 AND revision=$4 AND fact_id=$5")
@@ -268,7 +276,7 @@ impl PgStore {
                 .bind(entity_key).bind(&source.source_id).bind(&source.logical_id).bind(source.revision as i64).fetch_all(&self.pool).await?;
             for value in values {
                 let fact: EntityProfileFact = serde_json::from_str(&value)?;
-                if fact.provenance.origin.raw_sha256 != source.content_hash {
+                if project_entity_facts(&source, std::slice::from_ref(&fact.fact_id))?[0] != fact {
                     return Err(invalid("Fakt und freigegebene Quelle widersprechen sich"));
                 }
                 if let Some(patch) = patch {

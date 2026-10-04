@@ -292,8 +292,17 @@ impl WikiSpool {
         let revision = document["revision"]
             .as_str()
             .ok_or_else(|| SourcesError::invariant("Wiki-Revision fehlt"))?;
-        let key = sha256(&serde_json::to_vec(&(id, revision))?);
-        let target = self.records_dir.join(format!("{key}.json"));
+        let mut key = sha256(&serde_json::to_vec(&(id, revision))?);
+        let mut target = self.records_dir.join(format!("{key}.json"));
+        if document["metadata"]["content_representation"] == "revision_slot" {
+            if let Some(previous) = self.read_optional_json(&target)? {
+                if previous["metadata"]["content_representation"] == "rendered_extract" {
+                    validate_document(&previous)?;
+                    key = sha256(&serde_json::to_vec(&(id, revision, "revision_slot"))?);
+                    target = self.records_dir.join(format!("{key}.json"));
+                }
+            }
+        }
         match fs::read(&target) {
             Ok(bytes) => {
                 let previous: Value = serde_json::from_slice(&bytes)?;
@@ -550,6 +559,17 @@ impl WikiSpool {
                     .and_then(|name| name.to_str())
                     .ok_or_else(|| SourcesError::invalid_input("Ungültiger Wiki-Spoolschlüssel"))?;
                 self.enrich_document(key, &mut document)?;
+                if document["metadata"]["content_representation"] == "rendered_extract"
+                    && !document["revision"]
+                        .as_str()
+                        .is_some_and(|revision| revision.starts_with("rendered_extract:"))
+                {
+                    document["revision"] = json!(format!(
+                        "rendered_extract:{}:{}",
+                        document["revision"].as_str().unwrap_or("unknown"),
+                        document["content_sha256"].as_str().unwrap_or_default()
+                    ));
+                }
                 let bytes = serde_json::to_vec(&document)?;
                 total_bytes = total_bytes
                     .checked_add(bytes.len())
