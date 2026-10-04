@@ -673,7 +673,7 @@ fn position(current: &[u8], old: &[u8], new: &[u8]) -> Result<Position> {
     }
 }
 
-async fn run(cli: &Cli) -> Result<Report> {
+fn start(cli: &Cli) -> Result<(BTreeSet<String>, tokio::runtime::Runtime)> {
     let allowed = cli.sources()?;
     if cli.maintenance_credential_stdin {
         ensure!(
@@ -685,6 +685,13 @@ async fn run(cli: &Cli) -> Result<Report> {
         );
         credential_stdin_to_fd5()?;
     }
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    Ok((allowed, runtime))
+}
+
+async fn run(cli: &Cli, allowed: BTreeSet<String>) -> Result<Report> {
     let runtime_bytes = protected_file(&cli.config, 65536)?;
     let runtime = RuntimeConfig::load(&cli.config)?;
     ensure!(
@@ -959,10 +966,11 @@ fn credential_stdin_to_fd5() -> Result<()> {
     Ok(())
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let cli = Cli::parse();
-    let report = match run(&cli).await {
+    let report = match start(&cli)
+        .and_then(|(allowed, runtime)| runtime.block_on(run(&cli, allowed)))
+    {
         Ok(report) => report,
         Err(_) => {
             eprintln!("Kandidatenaktivierung gesperrt: Prüfung fehlgeschlagen. Kein Aktivierungsnachweis.");
@@ -1039,9 +1047,55 @@ mod tests {
     #[test]
     #[ignore = "Wird von der FD-Prozessregression mit einem regulären Test-stdin gestartet"]
     fn credential_transfer_child() {
-        credential_stdin_to_fd5().unwrap();
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        assert_eq!(
+            nix::fcntl::fcntl(5, nix::fcntl::FcntlArg::F_GETFD),
+            Err(nix::errno::Errno::EBADF)
+        );
+        let mut cli = Cli::try_parse_from([
+            "brain-candidate-activate",
+            "--config",
+            "/absolute/runtime.json",
+            "--target",
+            "entity-profiles",
+            "--base-release-id",
+            "base",
+            "--base-release-sha256",
+            &"a".repeat(64),
+            "--candidate-release-id",
+            "candidate",
+            "--candidate-release-sha256",
+            &"b".repeat(64),
+            "--expected-serve-config-sha256",
+            &"c".repeat(64),
+            "--allow-source",
+            "game-fixture",
+            "--maintenance-credential-stdin",
+        ])
+        .unwrap();
+        cli.target = Target::Standard;
+        assert!(start(&cli).is_err());
+        assert_eq!(
+            nix::fcntl::fcntl(5, nix::fcntl::FcntlArg::F_GETFD),
+            Err(nix::errno::Errno::EBADF)
+        );
+        cli.target = Target::EntityProfiles;
+        let (allowed, runtime) = start(&cli).unwrap();
+        assert_eq!(allowed, BTreeSet::from(["game-fixture".into()]));
         let bytes = std::fs::read("/proc/self/fd/5").unwrap();
         assert_eq!(digest(&bytes), digest(b"FD-Pruefwert"));
+        runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(2), async {
+                let (mut reader, mut writer) = tokio::net::UnixStream::pair().unwrap();
+                let mut received = [0; 2];
+                tokio::try_join!(reader.read_exact(&mut received), writer.write_all(b"io"))
+                    .unwrap();
+                assert_eq!(&received, b"io");
+            })
+            .await
+            .unwrap();
+        });
     }
 
     #[tokio::test]
