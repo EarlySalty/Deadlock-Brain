@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+#![recursion_limit = "256"]
 
 //! Source-Ingestion-Crate fuer Assets, Patchnotes, Sheets, Statlocker und Wiki.
 
@@ -13,14 +14,18 @@ pub mod external;
 pub mod forum;
 pub mod forum_browser;
 pub mod forum_corpus;
+pub mod game_files;
 pub mod git_source;
 pub mod google_sheet;
+pub mod knowledge_contract;
+pub mod knowledge_import;
 pub mod patchnotes_db;
 pub mod reddit;
 pub mod schema_signal;
 pub mod schema_watch;
 pub mod source_pins;
 pub mod statlocker;
+pub mod wiki_inventory;
 pub use dbrain_s12_wiki_probe::{capture as wiki_capture, knowledge as wiki_knowledge};
 pub mod wiki;
 pub mod wiki_capture_io;

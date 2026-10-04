@@ -16,6 +16,7 @@ sqlx = { workspace = true, features = ["json"] }
 postgres = { workspace = true, features = ["with-serde_json-1"] }
 # Already locked transitively by postgres; expose the same driver for bounded startup.
 tokio-postgres = { version = "=0.7.18", features = ["with-serde_json-1"] }
+sha2.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
