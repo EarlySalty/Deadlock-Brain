@@ -76,7 +76,7 @@ fn query(id: &str) -> Query {
         request_id: id.into(),
         conversation_id: format!("conversation-{id}"),
         text: "Abrams".into(),
-        requested_scopes: BTreeSet::from(["docs.public".into()]),
+        requested_scopes: BTreeSet::from(["bot.public".into()]),
         profile: AnswerProfile::Explain,
         patch: None,
         mode: None,
@@ -356,7 +356,7 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
         content: "Hero: Egressprobe\nmax health: 777\n".into(),
         content_hash: String::new(),
         visibility: SourceVisibility::Public,
-        allowed_scopes: BTreeSet::from(["docs.public".into()]),
+        allowed_scopes: BTreeSet::from(["bot.public".into()]),
         tombstone: false,
         valid_from: None,
         valid_to: None,
@@ -470,15 +470,18 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
     config["postgres"]["username"] = json!("brain_core_test");
     config["postgres"]["database"] = json!("brain_serve_test");
     config["postgres"]["max_connections"] = json!(4);
-    config["credentials"][0]["scopes"] = json!(["docs.public", "game.public"]);
+    config["credentials"][0]["actor_id"] = json!("process-fixture");
+    config["credentials"][0]["channel"] = json!("pilot");
+    config["credentials"][0]["release"] = Value::Null;
+    config["credentials"][0]["scopes"] = json!(["bot.public", "game.public"]);
     config["provider"]["base_url"] = json!(format!("http://{provider_address}"));
     config["kernel"]["cache_entries"] = json!(0);
     config["timeouts"]["postgres_connect_ms"] = json!(500);
-    config["timeouts"]["postgres_pool_wait_ms"] = json!(150);
+    config["timeouts"]["postgres_pool_wait_ms"] = json!(500);
     config["timeouts"]["readiness_ms"] = json!(1000);
     config["credentials"].as_array_mut().unwrap().push(json!({
         "token_env": "BRAIN_SERVE_OTHER_TOKEN", "actor_id": "another-client", "channel": "pilot",
-        "scopes": ["docs.public"], "provider_egress": ["public"]
+        "scopes": ["bot.public"], "provider_egress": ["public"]
     }));
     config["credentials"].as_array_mut().unwrap().push(json!({
         "token_env": "BRAIN_SERVE_INTERNAL_TOKEN", "actor_id": "internal-client", "channel": "pilot",
@@ -506,7 +509,11 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
     let mut incompatible = Service::spawn(&incompatible_config, &environment);
     let incompatible_status = incompatible.wait(Duration::from_secs(8));
     assert_eq!(incompatible_status.code(), Some(1));
-    assert!(incompatible.log().contains("core_schema_incompatible"));
+    assert!(
+        incompatible.log().contains("core_schema_incompatible"),
+        "{}",
+        incompatible.log()
+    );
     assert!(!incompatible.log().contains("listening"));
     let schema_version: i32 =
         sqlx::query_scalar("SELECT schema_version FROM brain.core_schema_version WHERE singleton")
@@ -577,9 +584,17 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
         common::get(&address, "/healthz"),
         (200, r#"{"status":"ok"}"#.into())
     );
+    let (ready_status, ready_body) = common::get(&address, "/readyz");
+    assert_eq!(ready_status, 200);
+    let expected_config: brain_serve::Config = serde_json::from_value(config.clone()).unwrap();
     assert_eq!(
-        common::get(&address, "/readyz"),
-        (200, r#"{"status":"ready"}"#.into())
+        serde_json::from_str::<Value>(&ready_body).unwrap(),
+        json!({
+            "status": "ready",
+            "release_id": "pilot-r1",
+            "knowledge_version": "pilot-knowledge-v1",
+            "release_bindings_sha256": expected_config.release_bindings_sha256()
+        })
     );
     let supported_schema: i32 =
         sqlx::query_scalar("SELECT schema_version FROM brain.core_schema_version WHERE singleton")
