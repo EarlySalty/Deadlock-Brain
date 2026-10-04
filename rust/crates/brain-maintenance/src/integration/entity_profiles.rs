@@ -988,7 +988,9 @@ mod tests {
             )
             .await
             .unwrap();
-        sqlx::raw_sql("CREATE SCHEMA brain; CREATE SCHEMA patchnotes;")
+        let owner = brain_storage::PgStore::new(pool.clone());
+        owner.migrate_core().await.unwrap();
+        sqlx::raw_sql("CREATE SCHEMA patchnotes; CREATE ROLE brain_ingest LOGIN; CREATE ROLE brain_service LOGIN; CREATE ROLE brain_readonly LOGIN;")
             .execute(&pool)
             .await
             .unwrap();
@@ -1000,12 +1002,54 @@ mod tests {
             CREATE TABLE brain.entities(id bigserial PRIMARY KEY,entity_type text NOT NULL,canonical_name text NOT NULL);
             CREATE TABLE brain.entity_aliases(entity_id bigint,alias text);
             CREATE TABLE brain.patch_events(id bigserial PRIMARY KEY,patch_snapshot_id bigint,legacy_patch_snapshot_id bigint,patch_external_id text,patch_title text,patch_url text,source_kind text,posted_at timestamptz,line_index bigint,section text,entity_type text,entity_name text,subject text,change_type text,raw_line text,normalized_line text,old_value text,new_value text,confidence double precision,metadata jsonb,event_hash text UNIQUE,created_at timestamptz);
+            CREATE VIEW brain.patch_changes AS SELECT patch_title,posted_at::date AS patch_date,entity_type,entity_name,NULL::text AS ability_name,NULL::text AS stat_name,old_value,new_value,change_type,NULL::text AS numeric_direction,raw_line,patch_url,confidence FROM brain.patch_events;
             CREATE TABLE patchnotes.changelog_posts(id bigint PRIMARY KEY,title text,url text,posted_at timestamptz,raw_content text,translated_content text);
             INSERT INTO brain.entities(entity_type,canonical_name) VALUES('hero','Warden');
             INSERT INTO patchnotes.changelog_posts VALUES(1,'09-16-2026 Update','https://forums.playdeadlock.com/threads/fixture1','2026-09-16T12:00:00Z','Warden\n- Health increased from 500 to 550',NULL);")
             .execute(&pool).await.unwrap();
+        sqlx::raw_sql(include_str!(
+            "../../../../../scripts/migrations/2026-10-04-brain-entity-derived-receipts-v1.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        for _ in 0..2 {
+            let grants = std::process::Command::new("/usr/lib/postgresql/16/bin/psql")
+                .arg("-X")
+                .arg("-h")
+                .arg(pg.directory.path().join("socket"))
+                .args(["-p", "55441", "-U", "brain_core_test", "-d", "postgres"])
+                .args(["-v", "db=postgres", "-f"])
+                .arg(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../../ops/brain-postgres/grants.sql"
+                ))
+                .output()
+                .unwrap();
+            assert!(
+                grants.status.success(),
+                "{}",
+                String::from_utf8_lossy(&grants.stderr)
+            );
+        }
+        let ingest_pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(2)
+            .connect_with(
+                sqlx::postgres::PgConnectOptions::new_without_pgpass()
+                    .host(pg.directory.path().join("socket").to_str().unwrap())
+                    .port(55441)
+                    .username("brain_ingest")
+                    .database("postgres"),
+            )
+            .await
+            .unwrap();
+        let role: String = sqlx::query_scalar("SELECT current_user::text")
+            .fetch_one(&ingest_pool)
+            .await
+            .unwrap();
+        assert_eq!(role, "brain_ingest");
         let raw = pg.directory.path().join("raw");
-        let initial = refresh_patch_history(&pool, &raw).await.unwrap();
+        let initial = refresh_patch_history(&ingest_pool, &raw).await.unwrap();
         assert!(initial["parsed"]["events_inserted"].as_i64().unwrap() > 0);
         assert_eq!(initial["parsed"]["deleted_before_parse"], 0);
         let first: Vec<(i64, String)> =
@@ -1013,7 +1057,7 @@ mod tests {
                 .fetch_all(&pool)
                 .await
                 .unwrap();
-        let repeated = refresh_patch_history(&pool, &raw).await.unwrap();
+        let repeated = refresh_patch_history(&ingest_pool, &raw).await.unwrap();
         assert_eq!(repeated["parsed"]["events_inserted"], 0);
         assert_eq!(
             sqlx::query_as::<_, (i64, String)>(
@@ -1026,16 +1070,92 @@ mod tests {
         );
         sqlx::query("INSERT INTO patchnotes.changelog_posts VALUES(2,'09-30-2026 Update','https://forums.playdeadlock.com/threads/fixture2','2026-09-30T12:00:00Z','Warden\n- Health increased from 550 to 600',NULL)")
             .execute(&pool).await.unwrap();
-        let updated = refresh_patch_history(&pool, &raw).await.unwrap();
+        let updated = refresh_patch_history(&ingest_pool, &raw).await.unwrap();
         assert!(updated["parsed"]["events_inserted"].as_i64().unwrap() > 0);
         assert_eq!(updated["parsed"]["deleted_before_parse"], 0);
         let historical: Vec<(i64,String)> = sqlx::query_as("SELECT id,event_hash FROM brain.patch_events WHERE posted_at::date='2026-09-16' ORDER BY id")
             .fetch_all(&pool).await.unwrap();
         assert_eq!(historical, first);
         assert_eq!(
-            refresh_patch_history(&pool, &raw).await.unwrap()["parsed"]["events_inserted"],
+            refresh_patch_history(&ingest_pool, &raw).await.unwrap()["parsed"]["events_inserted"],
             0
         );
+        let event: (String, String, String) = sqlx::query_as("SELECT entity_name,old_value,new_value FROM brain.patch_events WHERE posted_at::date='2026-09-30'")
+            .fetch_one(&ingest_pool).await.unwrap();
+        assert_eq!(event, ("Warden".into(), "550".into(), "600".into()));
+        let ingest = brain_storage::PgStore::new(ingest_pool.clone());
+        let entity = EntityIdentity {
+            entity_key: "hero:Warden".into(),
+            kind: EntityKind::Hero,
+            name: "Warden".into(),
+            aliases: Vec::new(),
+            identity_evidence: vec!["fixture".into()],
+        };
+        let story = ingest.entity_patch_story(&entity).await.unwrap();
+        assert_eq!(story.len(), 2);
+        assert_eq!(story[1].new_value, serde_json::json!("600"));
+        let profile = EntityProfile {
+            contract_version: ENTITY_PROFILE_VERSION.into(),
+            entity,
+            patch: Some("2026-09-30".into()),
+            source_state: Vec::new(),
+            facts: Vec::new(),
+            context: Vec::new(),
+            conflicts: Vec::new(),
+            patch_story: story,
+            unknowns: Vec::new(),
+        };
+        let rendered = crate::entity_profile_render::render_entity_profile(&profile).unwrap();
+        use brain_storage::entity_profile::derivation::{
+            derived_policy, GitDocumentReceipt, GIT_DOCUMENT_CONTRACT,
+        };
+        let receipt = GitDocumentReceipt {
+            contract_version: GIT_DOCUMENT_CONTRACT.into(),
+            entity_key: profile.entity.entity_key.clone(),
+            original_release_id: "fixture-release".into(),
+            document_sha256: crate::digest(rendered.brain_document.as_bytes()),
+            fact_pins: Vec::new(),
+        };
+        let (record, private) =
+            entity_profile_document(&profile, &receipt, derived_policy()).unwrap();
+        let stored = ingest
+            .persist_entity_document(record, &private)
+            .await
+            .unwrap();
+        assert_eq!(stored.content, rendered.brain_document);
+        assert!(stored.content.contains("600"));
+        for table in ["source_documents", "entity_snapshots", "patch_events"] {
+            for operation in ["UPDATE", "DELETE"] {
+                let allowed: bool =
+                    sqlx::query_scalar("SELECT has_table_privilege(current_user,$1,$2)")
+                        .bind(format!("brain.{table}"))
+                        .bind(operation)
+                        .fetch_one(&ingest_pool)
+                        .await
+                        .unwrap();
+                assert!(!allowed);
+            }
+            assert!(sqlx::query(&format!("UPDATE brain.{table} SET id=id"))
+                .execute(&ingest_pool)
+                .await
+                .is_err());
+            assert!(sqlx::query(&format!("DELETE FROM brain.{table}"))
+                .execute(&ingest_pool)
+                .await
+                .is_err());
+        }
+        let completed: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM brain.source_runs WHERE status='ok' AND finished_at IS NOT NULL",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(completed, 4);
+        assert!(sqlx::query("UPDATE brain.source_runs SET source='fremd'")
+            .execute(&ingest_pool)
+            .await
+            .is_err());
+        ingest_pool.close().await;
         pool.close().await;
     }
 

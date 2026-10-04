@@ -23,7 +23,38 @@ GRANT SELECT ON brain.core_schema_version, brain.corpus_releases_v1,
 GRANT INSERT ON brain.conversation_owners_v1 TO brain_service;
 
 DO $$
+DECLARE
+  patch_table text;
+  patch_sequence text;
 BEGIN
+  IF to_regclass('patchnotes.changelog_posts') IS NOT NULL THEN
+    GRANT USAGE ON SCHEMA patchnotes TO brain_ingest;
+    GRANT SELECT ON patchnotes.changelog_posts TO brain_ingest;
+  END IF;
+  IF to_regclass('brain.source_runs') IS NOT NULL THEN
+    GRANT SELECT (id), INSERT (source, status, started_at),
+      UPDATE (status, finished_at, summary) ON brain.source_runs TO brain_ingest;
+  END IF;
+  IF to_regclass('brain.source_documents') IS NOT NULL THEN
+    GRANT SELECT, INSERT ON brain.source_documents TO brain_ingest;
+  END IF;
+  IF to_regclass('brain.entity_snapshots') IS NOT NULL THEN
+    GRANT SELECT, INSERT ON brain.entity_snapshots TO brain_ingest;
+  END IF;
+  IF to_regclass('brain.patch_events') IS NOT NULL THEN
+    GRANT SELECT, INSERT ON brain.patch_events TO brain_ingest;
+  END IF;
+  FOREACH patch_table IN ARRAY ARRAY[
+    'brain.source_runs', 'brain.source_documents',
+    'brain.entity_snapshots', 'brain.patch_events'
+  ] LOOP
+    IF to_regclass(patch_table) IS NOT NULL THEN
+      patch_sequence := pg_get_serial_sequence(patch_table, 'id');
+      IF patch_sequence IS NOT NULL THEN
+        EXECUTE format('GRANT USAGE ON SEQUENCE %s TO brain_ingest', patch_sequence);
+      END IF;
+    END IF;
+  END LOOP;
   IF to_regclass('brain.entities') IS NOT NULL THEN
     GRANT SELECT ON brain.entities TO brain_ingest, brain_service;
   END IF;
