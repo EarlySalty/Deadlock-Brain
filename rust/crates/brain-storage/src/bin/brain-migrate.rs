@@ -6,7 +6,7 @@ use serde::Deserialize;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgSslMode};
 use std::{path::PathBuf, process::ExitCode, time::Duration};
 
-const USAGE: &str = "Usage: brain-migrate <check|up> --config <non-secret-local-postgres.json>";
+const USAGE: &str = "Aufruf: brain-migrate <check|up|check-entity-profiles|up-entity-profiles> --config <non-secret-local-postgres.json>";
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Config {
@@ -36,11 +36,22 @@ async fn main() -> ExitCode {
         println!("{USAGE}");
         return ExitCode::SUCCESS;
     }
-    if args.len() != 3 || args[1] != "--config" || (args[0] != "check" && args[0] != "up") {
+    if args.len() != 3
+        || args[1] != "--config"
+        || !["check", "up", "check-entity-profiles", "up-entity-profiles"]
+            .iter()
+            .any(|command| args[0] == *command)
+    {
         eprintln!("{USAGE}");
         return ExitCode::FAILURE;
     }
-    match run(args[0] == "up", PathBuf::from(&args[2])).await {
+    match run(
+        args[0] == "up" || args[0] == "up-entity-profiles",
+        args[0] == "check-entity-profiles" || args[0] == "up-entity-profiles",
+        PathBuf::from(&args[2]),
+    )
+    .await
+    {
         Ok(()) => ExitCode::SUCCESS,
         Err(message) => {
             eprintln!("brain-migrate: {message}");
@@ -49,7 +60,7 @@ async fn main() -> ExitCode {
     }
 }
 
-async fn run(upgrade: bool, path: PathBuf) -> Result<(), String> {
+async fn run(upgrade: bool, entity_profiles: bool, path: PathBuf) -> Result<(), String> {
     if std::env::var_os("PGOPTIONS").is_some() {
         return Err("ambient PGOPTIONS is not allowed; use the explicit local config".into());
     }
@@ -74,13 +85,25 @@ async fn run(upgrade: bool, path: PathBuf) -> Result<(), String> {
         .await
         .map_err(|_| "local PostgreSQL connection failed (check peer auth and role)")?;
     let store = PgStore::new(pool.clone());
-    let result = if upgrade {
-        store.migrate_core().await
-    } else {
-        store.check_core_schema().await
+    let result = match (entity_profiles, upgrade) {
+        (true, true) => store.migrate_entity_profiles().await,
+        (true, false) => store.check_entity_profile_schema().await,
+        (false, true) => store.migrate_core().await,
+        (false, false) => store.check_core_schema().await,
     };
     pool.close().await;
     result.map_err(|e| e.to_string())?;
+    if entity_profiles {
+        println!(
+            "Spielprofilschema: {}",
+            if upgrade {
+                "Migration geprüft"
+            } else {
+                "Lesende Prüfung bestanden"
+            }
+        );
+        return Ok(());
+    }
     println!(
         "core schema v{CORE_SCHEMA_VERSION} / {STORE_VERSION}: {}",
         if upgrade {

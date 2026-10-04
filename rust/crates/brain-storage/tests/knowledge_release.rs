@@ -455,3 +455,188 @@ async fn imported_heads_preserve_base_and_block_preparation_commit_races() {
     assert!(store.imported_release_for_retry(&first).await.is_err());
     pool.close().await;
 }
+
+#[tokio::test]
+async fn spielprofilmigration_ist_explizit_wiederholbar_und_erhaelt_tabellenrechte() {
+    use brain_contracts::entity_profile::{EntityIdentity, EntityKind};
+    let pg = ScratchPg::start();
+    let socket = pg.directory.join("socket");
+    let connect = |role: &str| {
+        PgPoolOptions::new().max_connections(1).connect_with(
+            PgConnectOptions::new_without_pgpass()
+                .host(socket.to_str().unwrap())
+                .port(55439)
+                .username(role)
+                .database("postgres")
+                .password(""),
+        )
+    };
+    let pool = connect("brain_core_test").await.unwrap();
+    let store = PgStore::new(pool.clone());
+    store.migrate_core().await.unwrap();
+    sqlx::raw_sql("CREATE ROLE brain_ingest LOGIN; CREATE ROLE brain_service LOGIN; CREATE ROLE brain_readonly LOGIN")
+        .execute(&pool).await.unwrap();
+    let config_path = pg.directory.join("migration.json");
+    std::fs::write(
+        &config_path,
+        serde_json::to_vec(&serde_json::json!({
+            "socket": socket, "port":55439, "database":"postgres", "user":"brain_core_test"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let invoke = |mode: &str| {
+        std::process::Command::new(env!("CARGO_BIN_EXE_brain-migrate"))
+            .arg(mode)
+            .arg("--config")
+            .arg(&config_path)
+            .output()
+            .unwrap()
+    };
+    assert!(!invoke("check-entity-profiles").status.success());
+    let exists: bool =
+        sqlx::query_scalar("SELECT to_regclass('brain.entity_profile_entities_v1') IS NOT NULL")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(!exists);
+    let mut original = record("migration-game", "original", 1);
+    original.metadata.insert(
+        brain_storage::source_versions::DOCUMENT_METADATA_KEY.into(),
+        serde_json::json!({
+            "document_id":original.logical_id,"source_id":original.source_id,
+            "content_sha256":original.content_hash,"content":original.content,
+            "source_kind":"game_file","revision":"fixture-v1","observed_at":"2026-10-04",
+            "license":null,"metadata":{},
+            "facts":[{"fact_id":"health","subject":"hero:Migrationsheld","predicate":"Health",
+                "value":830,"unit":null,"qualifiers":{},"evidence_status":"structural_match","source_span":null}]
+        }).to_string(),
+    );
+    store.apply(&original).await.unwrap();
+    for _ in 0..2 {
+        let output = invoke("up-entity-profiles");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(invoke("check-entity-profiles").status.success());
+    }
+    let grants = include_str!("../../../../ops/brain-postgres/grants.sql")
+        .lines()
+        .filter(|line| !line.starts_with('\\'))
+        .collect::<Vec<_>>()
+        .join("\n");
+    for _ in 0..2 {
+        sqlx::raw_sql(&grants).execute(&pool).await.unwrap();
+    }
+    let ingest_pool = connect("brain_ingest").await.unwrap();
+    let ingest = PgStore::new(ingest_pool.clone());
+    ingest.check_entity_profile_schema().await.unwrap();
+    assert!(ingest.migrate_entity_profiles().await.is_err());
+    let raw_rights: (bool, bool, bool) = sqlx::query_as(
+        "SELECT has_table_privilege(current_user,'brain.source_record_revisions','SELECT'),has_table_privilege(current_user,'brain.source_record_revisions','INSERT'),has_table_privilege(current_user,'brain.source_record_revisions','UPDATE')",
+    )
+    .fetch_one(&ingest_pool)
+    .await
+    .unwrap();
+    assert_eq!(raw_rights, (true, true, false));
+    let entity = EntityIdentity {
+        entity_key: "migration-hero".into(),
+        kind: EntityKind::Hero,
+        name: "Migrationsheld".into(),
+        aliases: Vec::new(),
+        identity_evidence: vec!["fixture-v1".into()],
+    };
+    assert_eq!(
+        ingest
+            .store_entity_fact_bindings(&entity, &original, &["health".into()])
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        ingest
+            .store_entity_fact_bindings(&entity, &original, &["health".into()])
+            .await
+            .unwrap(),
+        0
+    );
+    sqlx::query(
+        "UPDATE brain.entity_profile_facts_v1 SET binding_identity_json=NULL WHERE entity_key=$1",
+    )
+    .bind(&entity.entity_key)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        ingest
+            .store_entity_fact_bindings(&entity, &original, &["health".into()])
+            .await
+            .unwrap(),
+        1
+    );
+    sqlx::query("INSERT INTO brain.entity_semantic_projections_v1(entity_key,source_id,logical_id,revision,fact_id,relative_pointer,semantic_predicate,semantic_qualifiers_json) VALUES($1,$2,$3,1,'health','/hero/Health','Health','{}') ON CONFLICT DO NOTHING")
+        .bind(&entity.entity_key).bind(&original.source_id).bind(&original.logical_id).execute(&ingest_pool).await.unwrap();
+    for value in ["first", "second"] {
+        sqlx::query("INSERT INTO brain.entity_patch_intervals_v1(entity_key,source_id,logical_id,revision,fact_id,current_patch_fact_id,interval_json) VALUES($1,$2,$3,1,'health','patch',$4) ON CONFLICT(entity_key,source_id,logical_id,revision,fact_id) DO UPDATE SET interval_json=EXCLUDED.interval_json")
+            .bind(&entity.entity_key).bind(&original.source_id).bind(&original.logical_id).bind(value).execute(&ingest_pool).await.unwrap();
+    }
+    sqlx::query("INSERT INTO brain.entity_derived_receipts_v1(derived_source_id,derived_logical_id,derived_revision,receipt_json) VALUES($1,$2,1,'{}')")
+        .bind(&original.source_id).bind(&original.logical_id).execute(&ingest_pool).await.unwrap();
+    for table in [
+        "entity_profile_entities_v1",
+        "entity_profile_facts_v1",
+        "entity_semantic_projections_v1",
+        "entity_patch_intervals_v1",
+        "entity_derived_receipts_v1",
+    ] {
+        let delete: bool =
+            sqlx::query_scalar("SELECT has_table_privilege(current_user,$1,'DELETE')")
+                .bind(format!("brain.{table}"))
+                .fetch_one(&ingest_pool)
+                .await
+                .unwrap();
+        assert!(!delete);
+    }
+    for table in [
+        "entity_semantic_projections_v1",
+        "entity_derived_receipts_v1",
+    ] {
+        let update: bool =
+            sqlx::query_scalar("SELECT has_table_privilege(current_user,$1,'UPDATE')")
+                .bind(format!("brain.{table}"))
+                .fetch_one(&ingest_pool)
+                .await
+                .unwrap();
+        assert!(!update);
+    }
+    for role in ["brain_service", "brain_readonly"] {
+        let role_pool = connect(role).await.unwrap();
+        let reader = PgStore::new(role_pool.clone());
+        reader.check_entity_profile_schema().await.unwrap();
+        assert!(reader.migrate_entity_profiles().await.is_err());
+        assert!(sqlx::query("DELETE FROM brain.entity_derived_receipts_v1")
+            .execute(&role_pool)
+            .await
+            .is_err());
+        let receipts: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM brain.entity_derived_receipts_v1")
+                .fetch_one(&role_pool)
+                .await
+                .unwrap();
+        assert_eq!(receipts, 1);
+        role_pool.close().await;
+    }
+    assert!(invoke("up-entity-profiles").status.success());
+    let unchanged: serde_json::Value = sqlx::query_scalar("SELECT record_json FROM brain.source_record_revisions WHERE source_id=$1 AND logical_id=$2 AND revision=1")
+        .bind(&original.source_id).bind(&original.logical_id).fetch_one(&pool).await.unwrap();
+    assert_eq!(unchanged, serde_json::to_value(original).unwrap());
+    let retained: i64 = sqlx::query_scalar("SELECT count(*) FROM brain.entity_profile_facts_v1")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(retained, 1);
+    ingest_pool.close().await;
+    pool.close().await;
+}

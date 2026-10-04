@@ -9,6 +9,33 @@ const V1: &str = include_str!("../../../../scripts/migrations/2026-09-24-brain-c
 const V2: &str = include_str!("../../../../scripts/migrations/2026-09-25-brain-core-jobs-v2.sql");
 const VERSION: &str =
     include_str!("../../../../scripts/migrations/2026-09-26-brain-core-compatibility-v2.sql");
+const ENTITY_MIGRATIONS: [(&str, &str); 4] = [
+    (
+        include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-profiles-v1.sql"),
+        "SELECT CASE WHEN to_regclass('brain.entity_profile_entities_v1') IS NULL AND to_regclass('brain.entity_profile_facts_v1') IS NULL THEN 0 WHEN to_regclass('brain.entity_profile_entities_v1') IS NOT NULL AND to_regclass('brain.entity_profile_facts_v1') IS NOT NULL THEN 1 ELSE 2 END",
+    ),
+    (
+        include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-profile-binding-identity-v1.sql"),
+        "SELECT CASE WHEN EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('brain.entity_profile_facts_v1') AND attname='binding_identity_json' AND NOT attisdropped) THEN 1 ELSE 0 END",
+    ),
+    (
+        include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-semantic-projection-v1.sql"),
+        "SELECT CASE WHEN to_regclass('brain.entity_semantic_projections_v1') IS NULL AND to_regclass('brain.entity_patch_intervals_v1') IS NULL THEN 0 WHEN to_regclass('brain.entity_semantic_projections_v1') IS NOT NULL AND to_regclass('brain.entity_patch_intervals_v1') IS NOT NULL THEN 1 ELSE 2 END",
+    ),
+    (
+        include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-derived-receipts-v1.sql"),
+        "SELECT CASE WHEN to_regclass('brain.entity_derived_receipts_v1') IS NULL THEN 0 ELSE 1 END",
+    ),
+];
+const ENTITY_SHAPE_PROBE: &str = "SELECT e.entity_key,e.identity_json,
+    f.entity_key,f.source_id,f.logical_id,f.revision,f.fact_id,f.fact_json,f.binding_identity_json,
+    s.entity_key,s.source_id,s.logical_id,s.revision,s.fact_id,s.relative_pointer,
+    s.semantic_predicate,s.semantic_qualifiers_json,s.semantic_unit,
+    i.entity_key,i.source_id,i.logical_id,i.revision,i.fact_id,i.current_patch_fact_id,i.interval_json,
+    d.derived_source_id,d.derived_logical_id,d.derived_revision,d.receipt_json
+    FROM brain.entity_profile_entities_v1 e,brain.entity_profile_facts_v1 f,
+         brain.entity_semantic_projections_v1 s,brain.entity_patch_intervals_v1 i,
+         brain.entity_derived_receipts_v1 d LIMIT 0";
 
 fn invalid(message: &str) -> PortError {
     PortError::InvalidResponse(message.into())
@@ -74,6 +101,65 @@ pub(crate) const SHAPE_PROBE: &str = "SELECT r.source_id,r.logical_id,r.revision
     LIMIT 0";
 
 impl PgStore {
+    pub async fn check_entity_profile_schema(&self) -> Result<(), PortError> {
+        self.check_core_schema().await?;
+        let mut tx = self.pool.begin().await.map_err(compatibility_error)?;
+        sqlx::raw_sql("SET TRANSACTION READ ONLY; SET LOCAL statement_timeout='5000ms'")
+            .execute(&mut *tx)
+            .await
+            .map_err(compatibility_error)?;
+        sqlx::query(ENTITY_SHAPE_PROBE)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|_| invalid("Spielprofilschema fehlt oder ist nicht lesbar"))?;
+        tx.commit().await.map_err(compatibility_error)
+    }
+
+    pub async fn migrate_entity_profiles(&self) -> Result<(), PortError> {
+        self.check_core_schema().await?;
+        let mut tx = self.pool.begin().await.map_err(migration_error)?;
+        sqlx::raw_sql(
+            "SET LOCAL lock_timeout='5000ms'; SET LOCAL statement_timeout='60000ms';
+             SELECT pg_advisory_xact_lock(742110026112::bigint)",
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(migration_error)?;
+        check_version(&mut tx).await?;
+        let owner: bool = sqlx::query_scalar(
+            "SELECT pg_has_role(current_user,nspowner,'USAGE') FROM pg_namespace WHERE nspname='brain'",
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(migration_error)?;
+        if !owner {
+            return Err(invalid(
+                "Spielprofilmigration benötigt den vorhandenen Schemaowner",
+            ));
+        }
+        for (migration, state_query) in ENTITY_MIGRATIONS {
+            match sqlx::query_scalar::<_, i32>(state_query)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(migration_error)?
+            {
+                0 => {
+                    sqlx::raw_sql(body(migration)?)
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(migration_error)?;
+                }
+                1 => {}
+                _ => return Err(invalid("Spielprofilschema ist nur teilweise vorhanden")),
+            }
+        }
+        sqlx::query(ENTITY_SHAPE_PROBE)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(migration_error)?;
+        tx.commit().await.map_err(migration_error)
+    }
+
     /// Service startup preflight. SELECT-only; no automatic migration or repair.
     /// Call before admitting traffic/jobs, including when the schema already exists.
     pub async fn check_core_schema(&self) -> Result<(), PortError> {
@@ -274,5 +360,8 @@ mod tests {
         }
         assert!(body("BEGIN; SELECT 1; COMMIT; SELECT 2;").is_err());
         assert!(body("BEGIN; COMMIT; BEGIN; COMMIT;").is_err());
+        for (migration, _) in ENTITY_MIGRATIONS {
+            assert!(body(migration).is_ok());
+        }
     }
 }
