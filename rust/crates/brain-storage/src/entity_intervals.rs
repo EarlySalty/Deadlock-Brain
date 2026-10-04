@@ -221,6 +221,7 @@ pub fn derive_patch_intervals(
 ) -> Result<IntervalProjection> {
     let entity = binding.identity;
     let anchor = project_semantic_fact(anchor, semantic, binding.record, binding.identity)?;
+    super::semantic::verify_bound_original(current_patch_fact, binding)?;
     let current_patch = current_patch_fact
         .value
         .as_str()
@@ -292,6 +293,7 @@ pub fn derive_patch_intervals(
             validity: PatchValidity::Known {
                 from_patch: change.patch_date.clone(),
                 to_patch_exclusive: changes.get(index + 1).map(|next| next.patch_date.clone()),
+                through_patch_inclusive: (index + 1 == changes.len()).then(|| current_patch.into()),
                 evidence_ref: change.provenance.evidence_ref.clone(),
             },
             patch_evidence: changes[index..].to_vec(),

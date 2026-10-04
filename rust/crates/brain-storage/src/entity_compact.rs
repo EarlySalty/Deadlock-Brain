@@ -2,6 +2,17 @@ use brain_contracts::entity_profile::{EntityProfile, EntityProfileFact};
 use std::collections::BTreeMap;
 
 pub fn compact_document(profile: &EntityProfile) -> crate::Result<String> {
+    let withheld: Vec<_> = profile
+        .facts
+        .iter()
+        .chain(&profile.context)
+        .filter(|fact| !super::derivation::public_statement_qualifiers(&fact.qualifiers))
+        .map(super::fact_reference)
+        .collect();
+    let mut unknowns = profile.unknowns.clone();
+    if !withheld.is_empty() {
+        unknowns.push("Eine Aussage wird zurückgehalten: Eine belegte öffentliche Beschreibung der nötigen Bedingung oder Variante fehlt".into());
+    }
     let mut source_refs = BTreeMap::new();
     let mut sources = Vec::new();
     let mut compact_fact = |fact: &EntityProfileFact| {
@@ -37,13 +48,29 @@ pub fn compact_document(profile: &EntityProfile) -> crate::Result<String> {
             "license": provenance.license,
         })
     };
-    let facts: Vec<_> = profile.facts.iter().map(&mut compact_fact).collect();
-    let context: Vec<_> = profile.context.iter().map(&mut compact_fact).collect();
+    let facts: Vec<_> = profile
+        .facts
+        .iter()
+        .filter(|fact| !withheld.contains(&super::fact_reference(fact)))
+        .map(&mut compact_fact)
+        .collect();
+    let context: Vec<_> = profile
+        .context
+        .iter()
+        .filter(|fact| !withheld.contains(&super::fact_reference(fact)))
+        .map(&mut compact_fact)
+        .collect();
+    let conflicts: Vec<_> = profile
+        .conflicts
+        .iter()
+        .filter(|conflict| !conflict.fact_ids.iter().any(|id| withheld.contains(id)))
+        .collect();
     let story: Vec<_> = profile
         .patch_story
         .iter()
         .map(|change| {
-            serde_json::json!({
+            let change = super::derivation::consumer_patch_statement(change)?;
+            Ok(serde_json::json!({
                 "patch_date": change.patch_date,
                 "patch_title": change.patch_title,
                 "entity_type": change.entity_type,
@@ -57,9 +84,9 @@ pub fn compact_document(profile: &EntityProfile) -> crate::Result<String> {
                 "confidence": change.confidence,
                 "conditions": change.additional_fields.iter().filter(|(key,_)| matches!(key.as_str(),"unit" | "level" | "variant" | "condition" | "ability_name")).collect::<BTreeMap<_,_>>(),
                 "provenance": change.provenance,
-            })
+            }))
         })
-        .collect();
+        .collect::<crate::Result<_>>()?;
     Ok(serde_json::to_string(&serde_json::json!({
         "contract_version": profile.contract_version,
         "entity": profile.entity,
@@ -67,9 +94,9 @@ pub fn compact_document(profile: &EntityProfile) -> crate::Result<String> {
         "source_state": profile.source_state,
         "facts": facts,
         "context": context,
-        "conflicts": profile.conflicts,
+        "conflicts": conflicts,
         "patch_story": story,
-        "unknowns": profile.unknowns,
+        "unknowns": unknowns,
         "sources": sources,
     }))?)
 }

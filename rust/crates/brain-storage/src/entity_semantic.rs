@@ -30,16 +30,24 @@ pub struct SemanticBinding<'a> {
     pub identity: &'a EntityIdentity,
 }
 
-fn bound_relative_pointer(
+pub(crate) fn verify_bound_original(
     fact: &EntityProfileFact,
     binding: SemanticBinding<'_>,
-) -> Result<String> {
+) -> Result<()> {
     let original = project_entity_facts(binding.record, std::slice::from_ref(&fact.fact_id))?;
     if original[0] != *fact || binding.identity.entity_key.is_empty() {
         return Err(invalid(
             "Semantischer Originalbeleg widerspricht der Bindung",
         ));
     }
+    Ok(())
+}
+
+fn bound_relative_pointer(
+    fact: &EntityProfileFact,
+    binding: SemanticBinding<'_>,
+) -> Result<String> {
+    verify_bound_original(fact, binding)?;
     let document: Value = serde_json::from_str(
         &binding.record.metadata[crate::source_versions::DOCUMENT_METADATA_KEY],
     )?;

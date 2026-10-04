@@ -771,16 +771,73 @@ fn story_change(
 }
 
 #[test]
+fn consumer_patch_conditions_keep_decimal_thresholds_and_withhold_unsafe_statements() {
+    use brain_storage::entity_profile::derivation::consumer_patch_story;
+    let mut entity = identity(EntityKind::Hero, "hero_test", "Test");
+    entity.aliases.push("private_alias".into());
+    for condition in [
+        json!("health < 50.0%"),
+        json!("/private/health.json"),
+        json!({"threshold": 50}),
+        json!("private_alias"),
+    ] {
+        let mut change = story_change("2026-09-16", 998877, 887766);
+        change.entity_name = Some("private_alias".into());
+        change
+            .additional_fields
+            .insert("condition".into(), condition.clone());
+        let story = consumer_patch_story(&entity, &[change.clone()]).unwrap();
+        assert_eq!(story.len(), 1);
+        let document = brain_storage::entity_profile::compact::compact_document(&assemble_profile(
+            brain_storage::entity_profile::consumer_entity_identity(&entity),
+            None,
+            vec![],
+            story.clone(),
+        ))
+        .unwrap();
+        if condition == json!("health < 50.0%") {
+            assert_eq!(story[0].additional_fields["condition"], condition);
+            assert_eq!(story[0].new_value, json!(887766));
+            assert!(document.contains("health < 50.0%"));
+        } else {
+            assert!(story[0].old_value.is_null());
+            assert!(story[0].new_value.is_null());
+            assert!(story[0].stat_name.is_none());
+            assert!(!document.contains("998877"));
+            assert!(!document.contains("887766"));
+            assert!(document.contains("öffentliche Beschreibung"));
+        }
+        assert!(!document.contains("private_alias"));
+        assert!(change.original_line.text.is_some());
+    }
+    for key in ["variant", "semantic_scope"] {
+        let mut change = story_change("2026-09-16", 998877, 887766);
+        change
+            .additional_fields
+            .insert(key.into(), json!("/private/variant"));
+        let story = consumer_patch_story(&entity, &[change]).unwrap();
+        assert!(story[0].old_value.is_null());
+        assert!(story[0].new_value.is_null());
+        assert!(story[0].additional_fields["condition"]
+            .as_str()
+            .unwrap()
+            .contains("fehlt"));
+    }
+}
+
+#[test]
 fn interval_chain_ignores_unrelated_rows_but_rechecks_participating_evidence() {
     use brain_storage::entity_profile::intervals::{derive_patch_intervals, project_interval_fact};
-    let record = prepared(&document("game_file", json!(120), "normal"));
-    let anchor = project_entity_facts(&record, &["health".into()])
-        .unwrap()
-        .remove(0);
-    let mut patch = anchor.clone();
-    patch.fact_id = "patch".into();
-    patch.predicate = "current_patch".into();
-    patch.value = json!("2026-09-30");
+    let mut source = document("game_file", json!(120), "normal");
+    source["facts"].as_array_mut().unwrap().push(json!({
+        "fact_id":"patch","subject":"game_file:test","predicate":"current_patch",
+        "value":"2026-09-30","unit":null,"evidence_status":"extracted_value",
+        "source_span":"/CurrentPatch","qualifiers":{"source_pointer":"/CurrentPatch"}
+    }));
+    let record = prepared(&source);
+    let facts = project_entity_facts(&record, &["health".into(), "patch".into()]).unwrap();
+    let anchor = facts[0].clone();
+    let mut patch = facts[1].clone();
     let entity = bound_identity(&record);
     let semantic = semantic_projection(&anchor, "/MaxHealth", &record, &entity)
         .unwrap()
@@ -800,6 +857,97 @@ fn interval_chain_ignores_unrelated_rows_but_rechecks_participating_evidence() {
         &story,
     )
     .unwrap();
+    let current = project_interval_fact(
+        SemanticBinding {
+            record: &record,
+            identity: &entity,
+        },
+        &anchor,
+        &patch,
+        &semantic,
+        &stored,
+        &story,
+        "2026-09-30",
+    )
+    .unwrap()
+    .unwrap();
+    assert!(brain_storage::entity_profile::validity_contains(
+        &current.validity,
+        "2026-09-30"
+    ));
+    assert!(!brain_storage::entity_profile::validity_contains(
+        &current.validity,
+        "2026-10-01"
+    ));
+    let compact = brain_storage::entity_profile::compact::compact_document(&assemble_profile(
+        entity.clone(),
+        Some("2026-09-30".into()),
+        vec![current],
+        vec![],
+    ))
+    .unwrap();
+    let compact: Value = serde_json::from_str(&compact).unwrap();
+    assert_eq!(
+        compact["facts"][0]["validity"]["through_patch_inclusive"],
+        "2026-09-30"
+    );
+    assert!(project_interval_fact(
+        SemanticBinding {
+            record: &record,
+            identity: &entity
+        },
+        &anchor,
+        &patch,
+        &semantic,
+        &stored,
+        &story,
+        "2026-10-01",
+    )
+    .unwrap()
+    .is_none());
+    for fabricated in [
+        {
+            let mut fact = patch.clone();
+            fact.value = json!("2026-10-01");
+            fact
+        },
+        {
+            let mut fact = anchor.clone();
+            fact.predicate = "current_patch".into();
+            fact.value = json!("2026-09-30");
+            fact
+        },
+        {
+            let mut fact = patch.clone();
+            fact.fact_id = "missing-patch".into();
+            fact
+        },
+    ] {
+        assert!(derive_patch_intervals(
+            SemanticBinding {
+                record: &record,
+                identity: &entity
+            },
+            &anchor,
+            &fabricated,
+            &semantic,
+            &story,
+        )
+        .is_err());
+        assert!(project_interval_fact(
+            SemanticBinding {
+                record: &record,
+                identity: &entity
+            },
+            &anchor,
+            &fabricated,
+            &semantic,
+            &stored,
+            &story,
+            "2026-09-30",
+        )
+        .is_err());
+    }
     story.push(story_change("2026-10-01", 120, 999));
     for (key, value) in [
         ("unit", json!("seconds")),
