@@ -59,7 +59,40 @@ impl ActivationTarget {
         pin: serde_json::Value,
     ) -> Result<()> {
         match self {
-            Self::Standard => value["release"] = pin,
+            Self::Standard => {
+                let matches_current = |release: &brain_serve::config::Release| {
+                    release.id == config.release.id
+                        && release.knowledge_version == config.release.knowledge_version
+                };
+                let mut public_docs_bound = false;
+                for (index, grant) in config.credentials.iter().enumerate() {
+                    if grant.actor_id == "docs-client"
+                        && grant.channel == "docs"
+                        && grant.scopes == std::collections::BTreeSet::from(["bot.public".into()])
+                        && grant.release.as_ref().is_some_and(matches_current)
+                    {
+                        value["credentials"][index]["release"] = pin.clone();
+                        public_docs_bound = true;
+                    }
+                }
+                if public_docs_bound
+                    && config
+                        .internal_operator
+                        .as_ref()
+                        .is_some_and(|operator| matches_current(&operator.release))
+                {
+                    let index = self.internal_index(config)?;
+                    if config.credentials[index]
+                        .release
+                        .as_ref()
+                        .is_some_and(matches_current)
+                    {
+                        value["credentials"][index]["release"] = pin.clone();
+                        value["internal_operator"]["release"] = pin.clone();
+                    }
+                }
+                value["release"] = pin;
+            }
             Self::SecondBrainInternal => {
                 let index = self.internal_index(config)?;
                 value["credentials"][index]["release"] = pin.clone();
@@ -67,6 +100,59 @@ impl ActivationTarget {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn public_cutover_preserves_caller_scopes_and_moves_shared_pins_together() {
+        let mut value: serde_json::Value = serde_json::from_slice(include_bytes!(
+            "../../../../../config/brain-serve.example.json"
+        ))
+        .unwrap();
+        let old = value["release"].clone();
+        value["credentials"] = json!([
+            {"token_env":"TWITCH_INTERNAL_API_TOKEN","actor_id":"twitch-bot","channel":"twitch","scopes":["bot.public"],"provider_egress":["public"]},
+            {"token_env":"BRAIN_SERVE_DOCS_PUBLIC_TOKEN","actor_id":"docs-client","channel":"docs","scopes":["bot.public"],"provider_egress":["public"],"release":old},
+            {"token_env":"BRAIN_SERVE_SECOND_BRAIN_TOKEN","actor_id":"second-brain","channel":"internal","scopes":["second_brain.internal"],"provider_egress":[],"release":old}
+        ]);
+        value["internal_operator"] = json!({"socket":"/tmp/brain-operator.sock","release":old});
+        let config = brain_serve::Config::parse(&serde_json::to_vec(&value).unwrap()).unwrap();
+        let next = json!({"id":"maintenance-next","knowledge_version":"docs-next"});
+        ActivationTarget::Standard
+            .replace_pin(&mut value, &config, next.clone())
+            .unwrap();
+        assert_eq!(value["release"], next);
+        assert_eq!(value["credentials"][1]["release"], next);
+        assert_eq!(value["credentials"][2]["release"], next);
+        assert_eq!(value["internal_operator"]["release"], next);
+        assert_eq!(
+            value["credentials"][2]["scopes"],
+            json!(["second_brain.internal"])
+        );
+        assert_eq!(value["credentials"][2]["provider_egress"], json!([]));
+        assert_eq!(
+            value["internal_operator"]["socket"],
+            "/tmp/brain-operator.sock"
+        );
+        brain_serve::Config::parse(&serde_json::to_vec(&value).unwrap()).unwrap();
+        let separate = json!({"id":"internal-separate","knowledge_version":"internal-v1"});
+        value["credentials"][2]["release"] = separate.clone();
+        value["internal_operator"]["release"] = separate.clone();
+        let config = brain_serve::Config::parse(&serde_json::to_vec(&value).unwrap()).unwrap();
+        let later = json!({"id":"maintenance-later","knowledge_version":"docs-later"});
+        ActivationTarget::Standard
+            .replace_pin(&mut value, &config, later.clone())
+            .unwrap();
+        assert_eq!(value["release"], later);
+        assert_eq!(value["credentials"][1]["release"], later);
+        assert_eq!(value["credentials"][2]["release"], separate);
+        assert_eq!(value["internal_operator"]["release"], separate);
+        brain_serve::Config::parse(&serde_json::to_vec(&value).unwrap()).unwrap();
     }
 }
 
