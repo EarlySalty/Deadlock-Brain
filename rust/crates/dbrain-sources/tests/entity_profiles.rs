@@ -341,7 +341,7 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
         .store_entity_fact_bindings(&conflict, &record, &["health".into()])
         .await
         .is_err());
-    sqlx::raw_sql("CREATE TABLE brain.patch_changes(patch_date text, entity_name text, ability_name text, stat_name text)").execute(&pool).await.unwrap();
+    sqlx::raw_sql("CREATE TABLE brain.patch_changes(patch_date text, entity_type text, entity_name text, ability_name text, stat_name text, old_value text, new_value text, raw_line text, patch_url text)").execute(&pool).await.unwrap();
     let release = brain_contracts::CorpusRelease {
         release_id: "fixture-binding-release".into(),
         knowledge_version: "k1".into(),
@@ -372,6 +372,7 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
         .unwrap();
     assert_eq!(visible.facts.len(), 1);
     assert_eq!(visible.entity, entity);
+    patch_stories_follow_entity_kind(&store, &pool, &record, &release, &principal).await;
     assert_eq!(
         visible.facts[0].value.to_string(),
         "1.2345678901234567890123456789e+19"
@@ -538,6 +539,140 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
         assert_eq!(actual.facts, project_entity_facts(&record, &ids).unwrap());
     }
     pool.close().await;
+}
+
+async fn patch_stories_follow_entity_kind(
+    store: &brain_storage::PgStore,
+    pool: &sqlx::PgPool,
+    record: &brain_contracts::SourceRecordV2,
+    release: &brain_contracts::CorpusRelease,
+    principal: &brain_contracts::Principal,
+) {
+    sqlx::raw_sql(
+        "INSERT INTO brain.patch_changes VALUES
+        ('2026-09-15','hero','Gleicher Name',NULL,'hero_name','100','110','Beleg','https://example.org/patch'),
+        ('2026-09-16','hero','gleicher alias',NULL,'hero_alias','100','120','Beleg','https://example.org/patch'),
+        ('2026-09-16','hero','Gleicher Name','Zugehörige Fähigkeit','hero_ability','10','12','Beleg','https://example.org/patch'),
+        ('2026-09-16','hero','Gleicher Alias','Fähigkeitsalias','hero_ability_alias','10','13','Beleg','https://example.org/patch'),
+        ('2026-09-15','item','Gleicher Name',NULL,'item_name','100','110','Beleg','https://example.org/patch'),
+        ('2026-09-16','item','gleicher alias',NULL,'item_alias','100','120','Beleg','https://example.org/patch'),
+        ('2026-09-15','ability','GLEICHER NAME',NULL,'ability_name','100','110','Beleg','https://example.org/patch'),
+        ('2026-09-16','ability','Gleicher Alias',NULL,'ability_alias','100','120','Beleg','https://example.org/patch'),
+        ('2026-09-16','hero','Anderer Held','Gleicher Name','ability_on_hero','10','12','Beleg','https://example.org/patch'),
+        ('2026-09-16','hero','Anderer Held','gleicher alias','ability_alias_on_hero','10','13','Beleg','https://example.org/patch'),
+        ('2026-09-16','item','Anderes Item','Gleicher Name','foreign_item_ability',NULL,NULL,NULL,NULL),
+        ('2026-09-16','item','Anderes Item','Gleicher Alias','foreign_item_ability_alias',NULL,NULL,NULL,NULL),
+        ('2026-09-16','general','Gleicher Name','Gleicher Alias','foreign_general',NULL,NULL,NULL,NULL),
+        ('2026-09-16','ability_internal','Gleicher Name','Gleicher Alias','foreign_internal',NULL,NULL,NULL,NULL),
+        ('2026-09-16','item_special','Gleicher Alias',NULL,'foreign_special',NULL,NULL,NULL,NULL)",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+    for (kind, expected) in [
+        (
+            EntityKind::Hero,
+            vec![
+                "hero_name",
+                "hero_ability",
+                "hero_ability_alias",
+                "hero_alias",
+            ],
+        ),
+        (
+            EntityKind::Ability,
+            vec![
+                "ability_name",
+                "ability_alias",
+                "ability_alias_on_hero",
+                "ability_on_hero",
+            ],
+        ),
+        (EntityKind::Item, vec!["item_name", "item_alias"]),
+    ] {
+        let identity = EntityIdentity {
+            entity_key: format!("history-{kind:?}"),
+            kind,
+            name: "Gleicher Name".into(),
+            aliases: vec!["Gleicher Alias".into()],
+            identity_evidence: vec!["fixture:history".into()],
+        };
+        store
+            .store_entity_fact_bindings(&identity, record, &["health".into()])
+            .await
+            .unwrap();
+        let current = store
+            .read_entity_profile(&identity.entity_key, &release.release_id, principal, None)
+            .await
+            .unwrap()
+            .unwrap();
+        let stats: Vec<_> = current
+            .patch_story
+            .iter()
+            .map(|change| change.stat_name.as_deref().unwrap())
+            .collect();
+        assert_eq!(stats, expected, "{kind:?}");
+        assert_eq!(current.facts.len(), 1);
+        for change in &current.patch_story {
+            assert_eq!(change.provenance.relation, "brain.patch_changes");
+            assert_eq!(
+                change.provenance.source_url.as_deref(),
+                Some("https://example.org/patch")
+            );
+            assert!(change
+                .provenance
+                .evidence_ref
+                .starts_with("brain.patch_changes:"));
+            assert_eq!(
+                change.old_value,
+                if change.ability_name.is_some() {
+                    "10"
+                } else {
+                    "100"
+                }
+            );
+            assert_eq!(change.original_line.text.as_deref(), Some("Beleg"));
+            assert!(!change.original_line.redistribution_allowed);
+        }
+        let historical = store
+            .read_entity_profile(
+                &identity.entity_key,
+                &release.release_id,
+                principal,
+                Some("2026-09-15"),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(historical.facts.is_empty());
+        assert!(!historical.unknowns.is_empty());
+        assert_eq!(historical.patch_story.len(), 1);
+        assert_eq!(historical.patch_story[0], current.patch_story[0]);
+        let denied = brain_contracts::Principal {
+            scopes: Default::default(),
+            ..principal.clone()
+        };
+        assert!(store
+            .read_entity_profile(&identity.entity_key, &release.release_id, &denied, None)
+            .await
+            .unwrap()
+            .is_none());
+    }
+    let ability = EntityIdentity {
+        entity_key: "associated-ability".into(),
+        kind: EntityKind::Ability,
+        name: "Zugehörige Fähigkeit".into(),
+        aliases: vec!["Fähigkeitsalias".into()],
+        identity_evidence: vec!["fixture:history".into()],
+    };
+    let story = store.entity_patch_story(&ability).await.unwrap();
+    assert_eq!(
+        story
+            .iter()
+            .map(|change| change.stat_name.as_deref().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["hero_ability", "hero_ability_alias"]
+    );
 }
 
 fn extractor_records() -> Vec<brain_contracts::SourceRecordV2> {
