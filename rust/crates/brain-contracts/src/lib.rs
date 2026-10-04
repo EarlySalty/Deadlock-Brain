@@ -11,6 +11,7 @@ pub use deadline::RequestDeadline;
 pub mod domain;
 pub mod domain_knowledge;
 pub mod embedding;
+pub mod entity_profile;
 pub mod external;
 pub mod feeds;
 pub mod internal_api;
