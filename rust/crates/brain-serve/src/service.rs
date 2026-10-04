@@ -3,6 +3,7 @@
 use crate::{
     analytics::{AnalyticsRetriever, AnalyticsRuntime},
     config::{ProviderKind, RetrievalKind},
+    discord_live::{DiscordLive, DiscordRetriever},
     health::{self, Health},
     log_event, Config, Error, Secrets,
 };
@@ -50,6 +51,7 @@ pub struct Prepared {
     credentials: CredentialRegistry,
     internal_credentials: CredentialRegistry,
     analytics: Option<Arc<AnalyticsRuntime>>,
+    discord_live: Option<Arc<DiscordLive>>,
     shutdown: Arc<Shutdown>,
     startup_deadline: Instant,
 }
@@ -75,7 +77,12 @@ impl Prepared {
             postgres_password,
             credentials,
             internal_credentials,
+            discord_live_token,
         } = secrets;
+        let discord_live = discord_live_token
+            .map(DiscordLive::new)
+            .transpose()?
+            .map(Arc::new);
         let t = &config.timeouts;
         let pg = &config.postgres;
         let reader = LocalPgReader::new(&pg.socket_dir, pg.port, &pg.username, &pg.database)
@@ -126,6 +133,7 @@ impl Prepared {
             credentials,
             internal_credentials,
             analytics,
+            discord_live,
             shutdown,
             startup_deadline: deadline,
         })
@@ -295,8 +303,11 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
         }
     };
     let retrieval = AnalyticsRetriever::new(retrieval, prepared.analytics.clone());
-    let public_retrieval =
-        ReleaseRetriever::new(prepared.reader.clone(), prepared.config.retrieval.limit);
+    let retrieval = DiscordRetriever::new(retrieval, prepared.discord_live.clone());
+    let public_retrieval = DiscordRetriever::new(
+        ReleaseRetriever::new(prepared.reader.clone(), prepared.config.retrieval.limit),
+        prepared.discord_live.clone(),
+    );
     let kernel = CachedKernel::new(
         Kernel::new(retrieval, prepared.provider.clone()),
         prepared.config.kernel.cache_entries,
