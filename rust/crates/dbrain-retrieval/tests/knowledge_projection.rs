@@ -604,6 +604,13 @@ async fn normal_texts_read_live_entity_facts_counts_and_patch_history() {
         })
         .unwrap();
     }
+    let mut previous_value = query("Welche Abklingzeit hatte Wächter?");
+    previous_value.patch = Some("2026-09-16".into());
+    assert!(
+        tokio::task::block_in_place(|| retriever.retrieve(&previous_value, &context))
+            .unwrap()
+            .is_empty()
+    );
     let mut historical = query("Was änderte sich bei Wächter im Patch vom 16.09.?");
     historical.patch = None;
     let previous =
@@ -819,17 +826,6 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
             )
             .await
             .unwrap();
-        if identity.kind == EntityKind::Hero {
-            store
-                .store_entity_patch_intervals(
-                    &identity.entity_key,
-                    &original,
-                    "stat",
-                    "current_patch",
-                )
-                .await
-                .unwrap();
-        }
         originals.push(original);
     }
     let original_release = CorpusRelease {
@@ -1008,54 +1004,22 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
     count.patch = None;
     let counted = tokio::task::block_in_place(|| retriever.retrieve(&count, &context)).unwrap();
     assert!(counted[0].content.contains("1 Helden"));
-    let mut interval = query("Wie viel MaxHealth war für Wächter gespeichert?");
-    interval.patch = Some("2026-09-15".into());
-    let historical_value =
-        tokio::task::block_in_place(|| retriever.retrieve(&interval, &context)).unwrap();
-    assert_eq!(historical_value.len(), 1);
-    assert!(historical_value[0]
-        .evidence_id
-        .starts_with("entity-profile:interval:"));
-    assert!(historical_value[0].content.contains("800"));
-    for forbidden in [
-        "hero_test",
-        "private-fixture.json",
-        "raw:fixture",
-        "current_patch_fact_id",
-        "Gesperrte Originalzeile",
-    ] {
-        assert!(!historical_value[0].content.contains(forbidden));
-        assert!(!historical_value[0].citation.contains(forbidden));
-    }
-    tokio::task::block_in_place(|| {
-        retriever.validate_evidence(&interval, &context, &historical_value, true)
-    })
-    .unwrap();
-    interval.patch = Some("2026-09-16".into());
-    let last = tokio::task::block_in_place(|| retriever.retrieve(&interval, &context)).unwrap();
-    assert_eq!(last.len(), 1);
-    let serialized: Value = serde_json::from_str(
-        last[0]
-            .content
-            .strip_prefix("Belegter historischer Wert: ")
-            .unwrap(),
-    )
-    .unwrap();
-    assert_eq!(
-        serialized["validity"]["through_patch_inclusive"],
-        "2026-09-16"
-    );
-    assert_eq!(serialized["value"], 830);
-    tokio::task::block_in_place(|| retriever.validate_evidence(&interval, &context, &last, true))
-        .unwrap();
-    for missing_patch in ["2026-08-31", "2026-09-17"] {
-        interval.patch = Some(missing_patch.into());
+    for patch in ["2026-08-31", "2026-09-15", "2026-09-16", "2026-09-17"] {
+        let mut previous_value = query("Wie viel MaxHealth war für Wächter gespeichert?");
+        previous_value.patch = Some(patch.into());
         assert!(
-            tokio::task::block_in_place(|| retriever.retrieve(&interval, &context))
+            tokio::task::block_in_place(|| retriever.retrieve(&previous_value, &context))
                 .unwrap()
                 .is_empty()
         );
     }
+    let mut missing_date = query("Was änderte sich bei Wächter im Patch vom 15.09.?");
+    missing_date.patch = None;
+    assert!(
+        tokio::task::block_in_place(|| retriever.retrieve(&missing_date, &context))
+            .unwrap()
+            .is_empty()
+    );
     let mut historical = query("Was änderte sich bei Wächter im Patch vom 16.09.?");
     historical.patch = None;
     let previous =
