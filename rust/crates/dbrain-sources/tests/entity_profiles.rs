@@ -1228,7 +1228,7 @@ async fn private_einheiten_bleiben_bei_gespeicherter_neuableitung_in_den_origina
             .unwrap();
         assert_eq!(bindings.len(), 2);
         let originals = serde_json::to_value(
-            &bindings
+            bindings
                 .iter()
                 .map(|binding| &binding.original_fact)
                 .collect::<Vec<_>>(),
@@ -1305,7 +1305,7 @@ async fn private_einheiten_bleiben_bei_gespeicherter_neuableitung_in_den_origina
             .unwrap();
         assert_eq!(
             serde_json::to_value(
-                &fresh_bindings
+                fresh_bindings
                     .iter()
                     .map(|binding| &binding.original_fact)
                     .collect::<Vec<_>>()
