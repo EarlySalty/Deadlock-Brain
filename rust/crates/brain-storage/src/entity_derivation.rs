@@ -367,7 +367,11 @@ pub fn derive_git_profile(
         ] {
             fact.qualifiers.remove(key);
         }
-        if !public_statement_qualifiers(&fact.qualifiers)
+        if fact
+            .unit
+            .as_ref()
+            .is_some_and(|unit| public_qualifier_text(&Value::String(unit.clone())).is_none())
+            || !public_statement_qualifiers(&fact.qualifiers)
             || fact.qualifiers.iter().any(|(key, value)| {
                 !matches!(
                     key.as_str(),

@@ -6,7 +6,15 @@ pub fn compact_document(profile: &EntityProfile) -> crate::Result<String> {
         .facts
         .iter()
         .chain(&profile.context)
-        .filter(|fact| !super::derivation::public_statement_qualifiers(&fact.qualifiers))
+        .filter(|fact| {
+            !super::derivation::public_statement_qualifiers(&fact.qualifiers)
+                || fact.unit.as_ref().is_some_and(|unit| {
+                    super::derivation::public_qualifier_text(&serde_json::Value::String(
+                        unit.clone(),
+                    ))
+                    .is_none()
+                })
+        })
         .map(super::fact_reference)
         .collect();
     let mut unknowns = profile.unknowns.clone();

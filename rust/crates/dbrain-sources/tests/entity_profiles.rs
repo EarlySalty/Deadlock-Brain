@@ -840,6 +840,8 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
         assert!(shared.facts.contains(&fact));
     }
     original_alias_bindings_drive_history_without_consumer_leaks(&store, &pool).await;
+    private_einheiten_bleiben_bei_gespeicherter_neuableitung_in_den_originalpins(&store, &pool)
+        .await;
     sqlx::raw_sql(
         "CREATE ROLE brain_ingest LOGIN; CREATE ROLE brain_service; CREATE ROLE brain_readonly",
     )
@@ -1136,6 +1138,214 @@ async fn original_alias_bindings_drive_history_without_consumer_leaks(
         .await
         .unwrap()
         .is_none());
+}
+
+async fn private_einheiten_bleiben_bei_gespeicherter_neuableitung_in_den_originalpins(
+    store: &brain_storage::PgStore,
+    pool: &sqlx::PgPool,
+) {
+    use brain_storage::entity_profile::{
+        compact::compact_document,
+        derivation::{
+            derive_git_profile, derived_policy, receipt_sha256, verify_git_document_receipt,
+            GitBlobEvidence, GitDocumentReceipt, GIT_DOCUMENT_CONTRACT,
+        },
+    };
+    use dbrain_sources::entity_binding::{bind_stored_document, CatalogEntity};
+
+    sqlx::raw_sql(include_str!(
+        "../../../../scripts/migrations/2026-10-04-brain-entity-derived-receipts-v1.sql"
+    ))
+    .execute(pool)
+    .await
+    .unwrap();
+    for (index, unit) in [
+        "/private/health.json",
+        "private/health.json",
+        "../health.json",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut document = extracted_game_document_from_source(
+            &format!("unit-original-{index}"),
+            "json",
+            r#"{"hero_test":{"Health":998877,"Damage":25}}"#,
+        );
+        let commit = "a".repeat(40);
+        document["revision"] = json!(format!("git:{commit}"));
+        document["metadata"]["source_revision"] = json!(format!("git:{commit}"));
+        document["metadata"]["provenance"]["repository_url"] =
+            json!("https://github.com/deadlock-wiki/deadlock-data");
+        for fact in document["facts"].as_array_mut().unwrap() {
+            fact["unit"] = if fact["value"] == json!(998877) {
+                json!(unit)
+            } else {
+                json!("HP")
+            };
+        }
+        let mut record = prepared_game_document(&document);
+        let mut original_origin = brain_contracts::source::origin_from_record(&record).unwrap();
+        record.allowed_scopes.insert("fixture:unit-original".into());
+        original_origin.policy.allowed_scopes = record.allowed_scopes.clone();
+        original_origin.bind_record(&mut record).unwrap();
+        store.apply(&record).await.unwrap();
+        let mut identity = entity(EntityKind::Hero);
+        identity.entity_key = format!("unit-hero-{index}");
+        bind_stored_document(
+            store,
+            &record.source_id,
+            &record.logical_id,
+            record.revision,
+            &[CatalogEntity {
+                identity: identity.clone(),
+                identifiers: vec!["hero_test".into()],
+            }],
+        )
+        .await
+        .unwrap();
+        let release = brain_contracts::CorpusRelease {
+            release_id: format!("unit-release-{index}"),
+            knowledge_version: "fixture".into(),
+            patch: "unknown".into(),
+            created_at_epoch: 1,
+            source_revisions: std::collections::BTreeMap::from([(
+                record.source_id.clone(),
+                std::collections::BTreeMap::from([(record.logical_id.clone(), record.revision)]),
+            )]),
+        };
+        store.publish_release(&release).await.unwrap();
+        let principal = brain_contracts::Principal {
+            actor_id: "fixture".into(),
+            channel: "test".into(),
+            scopes: record.allowed_scopes.clone(),
+            provider_egress: Default::default(),
+        };
+        let snapshot = store.snapshot(&release.release_id).await.unwrap();
+        let bindings = store
+            .stored_git_entity_bindings(&identity.entity_key, &record)
+            .await
+            .unwrap();
+        assert_eq!(bindings.len(), 2);
+        let originals = serde_json::to_value(
+            &bindings
+                .iter()
+                .map(|binding| &binding.original_fact)
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+        let blobs = [GitBlobEvidence {
+            source_id: record.source_id.clone(),
+            logical_id: record.logical_id.clone(),
+            store_revision: record.revision,
+            git_commit: commit,
+            repository_url: "https://github.com/deadlock-wiki/deadlock-data".into(),
+            bytes: record.content.as_bytes().to_vec(),
+        }];
+        let (profile, receipt) = derive_git_profile(
+            &identity.entity_key,
+            &snapshot,
+            &principal,
+            &bindings,
+            &blobs,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(receipt.fact_pins.len(), 2);
+        assert!(receipt
+            .fact_pins
+            .iter()
+            .any(|pin| pin.semantic_projection.unit.as_deref() == Some(unit)));
+        assert_eq!(profile.facts.len(), 1);
+        assert_eq!(profile.facts[0].value, 25);
+        assert_eq!(profile.facts[0].unit.as_deref(), Some("HP"));
+        let content = compact_document(&profile).unwrap();
+        assert!(!content.contains(unit));
+        assert!(!content.contains("998877"));
+        assert!(content.contains("öffentliche Beschreibung"));
+        let mut derived = record.clone();
+        derived.source_id = "git-game-facts-derived".into();
+        derived.logical_id = identity.entity_key.clone();
+        derived.content = content;
+        derived.content_hash = receipt.document_sha256.clone();
+        derived.visibility = brain_contracts::SourceVisibility::Public;
+        derived.allowed_scopes.clear();
+        derived.metadata = std::collections::BTreeMap::from([
+            (
+                "brain.entity_projection.contract".into(),
+                GIT_DOCUMENT_CONTRACT.into(),
+            ),
+            (
+                "brain.entity_projection.receipt_sha256".into(),
+                receipt_sha256(&receipt).unwrap(),
+            ),
+        ]);
+        let mut origin = brain_contracts::source::origin_from_record(&record).unwrap();
+        origin.identity.source_id = derived.source_id.clone();
+        origin.identity.logical_id = derived.logical_id.clone();
+        origin.raw_sha256 = derived.content_hash.clone();
+        origin.locator = "git-game-facts-derived".into();
+        origin.origin_artifacts.clear();
+        origin.policy = derived_policy();
+        origin.bind_record(&mut derived).unwrap();
+        let saved = store
+            .persist_entity_document(derived, &serde_json::to_string(&receipt).unwrap())
+            .await
+            .unwrap();
+        let stored_record: Value = sqlx::query_scalar("SELECT record_json FROM brain.source_record_revisions WHERE source_id=$1 AND logical_id=$2 AND revision=$3")
+            .bind(&saved.source_id).bind(&saved.logical_id).bind(saved.revision as i64).fetch_one(pool).await.unwrap();
+        let saved: brain_contracts::SourceRecordV2 = serde_json::from_value(stored_record).unwrap();
+        let stored_receipt: String = sqlx::query_scalar("SELECT receipt_json FROM brain.entity_derived_receipts_v1 WHERE derived_source_id=$1 AND derived_logical_id=$2 AND derived_revision=$3")
+            .bind(&saved.source_id).bind(&saved.logical_id).bind(saved.revision as i64).fetch_one(pool).await.unwrap();
+        let stored_receipt: GitDocumentReceipt = serde_json::from_str(&stored_receipt).unwrap();
+        let fresh_snapshot = store.snapshot(&release.release_id).await.unwrap();
+        let fresh_bindings = store
+            .stored_git_entity_bindings(&identity.entity_key, &record)
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(
+                &fresh_bindings
+                    .iter()
+                    .map(|binding| &binding.original_fact)
+                    .collect::<Vec<_>>()
+            )
+            .unwrap(),
+            originals
+        );
+        let revalidated = verify_git_document_receipt(
+            &saved,
+            &stored_receipt,
+            &fresh_snapshot,
+            &principal,
+            &fresh_bindings,
+            &blobs,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(revalidated, profile);
+        assert_eq!(compact_document(&revalidated).unwrap(), saved.content);
+        let repeated = derive_git_profile(
+            &identity.entity_key,
+            &fresh_snapshot,
+            &principal,
+            &fresh_bindings,
+            &blobs,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(repeated.1, stored_receipt);
+        assert_eq!(
+            store
+                .persist_entity_document(
+                    saved.clone(),
+                    &serde_json::to_string(&stored_receipt).unwrap()
+                )
+                .await
+                .unwrap(),
+            saved
+        );
+    }
 }
 
 async fn unicode_bindings_remain_verifiable_after_import(store: &brain_storage::PgStore) {

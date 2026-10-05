@@ -663,6 +663,61 @@ mod tests {
     }
 
     #[test]
+    fn einheiten_und_werte_werden_in_fakten_und_kontext_gemeinsam_zurueckgehalten() {
+        for unit in [
+            "/private/health.json",
+            "private/health.json",
+            "../health.json",
+            "C:\\private\\health.json",
+            "HP",
+        ] {
+            let mut profile = fixture(EntityKind::Hero);
+            profile.facts[0].unit = Some(unit.into());
+            let mut context = profile.facts[0].clone();
+            context.fact_id = "context-health".into();
+            context.value = json!(998877);
+            profile.context.push(context);
+            profile.conflicts.push(ProfileConflict {
+                predicate: "Lebenspunkte".into(),
+                preferred_fact_id: Some(fact_reference(&profile.facts[0])),
+                fact_ids: profile
+                    .facts
+                    .iter()
+                    .chain(&profile.context)
+                    .map(fact_reference)
+                    .collect(),
+                reason: "Widerspruch".into(),
+            });
+            let original = serde_json::to_value(&profile).unwrap();
+            let rendered = render_entity_profile(&profile).unwrap();
+            let document: serde_json::Value =
+                serde_json::from_str(&rendered.brain_document).unwrap();
+            if unit == "HP" {
+                for section in ["facts", "context"] {
+                    assert_eq!(document[section][0]["unit"], "HP");
+                }
+                assert_eq!(document["facts"][0]["value"], 700);
+                assert_eq!(document["context"][0]["value"], 998877);
+                assert!(rendered.public_html.contains("<code>700</code>"));
+                assert!(rendered.public_html.contains("<code>998877</code>"));
+                assert!(rendered.public_html.contains("HP"));
+                assert_eq!(document["conflicts"].as_array().unwrap().len(), 1);
+                assert_eq!(document["sources"].as_array().unwrap().len(), 1);
+            } else {
+                for section in ["facts", "context", "conflicts", "sources"] {
+                    assert!(document[section].as_array().unwrap().is_empty());
+                }
+                for text in [unit, "700", "998877", "bevorzugter Beleg"] {
+                    assert!(!rendered.public_html.contains(text));
+                    assert!(!rendered.brain_document.contains(text));
+                }
+                assert!(rendered.brain_document.contains("öffentliche Beschreibung"));
+            }
+            assert_eq!(serde_json::to_value(&profile).unwrap(), original);
+        }
+    }
+
+    #[test]
     fn conditions_and_values_are_published_or_withheld_together() {
         for condition in [
             json!("health < 50.0%"),
