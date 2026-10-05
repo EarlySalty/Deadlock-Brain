@@ -1193,6 +1193,177 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Lokaler Profilbeleg mit lesend übernommenem Livebestand"]
+    async fn live_original_profile_path() {
+        use std::io::Write;
+        let pg = ScratchPg::start();
+        let socket = pg.directory.path().join("socket");
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(2)
+            .connect_with(
+                sqlx::postgres::PgConnectOptions::new_without_pgpass()
+                    .host(socket.to_str().unwrap())
+                    .port(55441)
+                    .username("brain_core_test")
+                    .database("postgres"),
+            )
+            .await
+            .unwrap();
+        let store = brain_storage::PgStore::new(pool.clone());
+        store.migrate_core().await.unwrap();
+        store.migrate_entity_profiles().await.unwrap();
+        sqlx::raw_sql("CREATE SCHEMA patchnotes")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let mut runtime = super::super::runtime_config::RuntimeConfig::load(Path::new(
+            "/etc/deadlock-brain/maintenance-runtime.json",
+        ))
+        .unwrap();
+        let config = super::super::runner::load_maintenance(&runtime.maintenance_config).unwrap();
+        let serve = brain_serve::Config::load(&runtime.serve_config).unwrap();
+        let base_id = super::super::activation::ActivationTarget::Standard
+            .release(&serve)
+            .unwrap()
+            .id
+            .clone();
+        let principal = super::super::runner::local_operator_principal(
+            super::super::runner::require_operator_config(&runtime.maintenance_config).unwrap(),
+            &runtime.maintenance_config,
+        )
+        .unwrap();
+        let live = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect_with(
+                sqlx::postgres::PgConnectOptions::new_without_pgpass()
+                    .host("/run/deadlock-brain-postgresql")
+                    .port(5446)
+                    .username("brain_migrate")
+                    .database("brain"),
+            )
+            .await
+            .unwrap();
+        sqlx::query("SET default_transaction_read_only=on")
+            .execute(&live)
+            .await
+            .unwrap();
+        let base = brain_storage::PgStore::new(live.clone())
+            .snapshot(&base_id)
+            .await
+            .unwrap();
+        let mut sources: Vec<_> = base.release.source_revisions.keys().cloned().collect();
+        sources.extend(
+            runtime
+                .entity_profile_sources
+                .iter()
+                .map(|source| source.extraction.source_id.clone()),
+        );
+        let heads: Vec<serde_json::Value> = sqlx::query_scalar(
+            "SELECT row_to_json(h) FROM brain.source_record_heads h WHERE source_id=ANY($1)",
+        )
+        .bind(&sources)
+        .fetch_all(&live)
+        .await
+        .unwrap();
+        for head in heads {
+            let revision: serde_json::Value = sqlx::query_scalar("SELECT row_to_json(r) FROM brain.source_record_revisions r WHERE source_id=$1 AND logical_id=$2 AND revision=$3")
+                .bind(head["source_id"].as_str().unwrap()).bind(head["logical_id"].as_str().unwrap()).bind(head["revision"].as_i64().unwrap())
+                .fetch_one(&live).await.unwrap();
+            sqlx::query("INSERT INTO brain.source_record_revisions SELECT * FROM json_populate_record(NULL::brain.source_record_revisions,$1::json) ON CONFLICT DO NOTHING")
+                .bind(revision).execute(&pool).await.unwrap();
+            sqlx::query("INSERT INTO brain.source_record_heads SELECT * FROM json_populate_record(NULL::brain.source_record_heads,$1::json)")
+                .bind(head).execute(&pool).await.unwrap();
+        }
+        for record in &base.revisions {
+            let revision: serde_json::Value = sqlx::query_scalar("SELECT row_to_json(r) FROM brain.source_record_revisions r WHERE source_id=$1 AND logical_id=$2 AND revision=$3")
+                .bind(&record.source_id).bind(&record.logical_id).bind(record.revision as i64).fetch_one(&live).await.unwrap();
+            sqlx::query("INSERT INTO brain.source_record_revisions SELECT * FROM json_populate_record(NULL::brain.source_record_revisions,$1::json) ON CONFLICT DO NOTHING")
+                .bind(revision).execute(&pool).await.unwrap();
+        }
+        store.publish_release(&base.release).await.unwrap();
+        live.close().await;
+        let dump = std::process::Command::new("pg_dump")
+            .args([
+                "--no-owner",
+                "--no-acl",
+                "--no-password",
+                "-h",
+                "/run/deadlock-brain-postgresql",
+                "-p",
+                "5446",
+                "-U",
+                "brain_migrate",
+                "-d",
+                "brain",
+            ])
+            .args([
+                "-t",
+                "brain.source_runs",
+                "-t",
+                "brain.source_documents",
+                "-t",
+                "brain.entity_snapshots",
+                "-t",
+                "brain.entities",
+                "-t",
+                "brain.entity_aliases",
+                "-t",
+                "brain.patch_events",
+                "-t",
+                "brain.patch_event_enrichments",
+                "-t",
+                "patchnotes.changelog_posts",
+                "-t",
+                "brain.patch_changes",
+            ])
+            .output()
+            .unwrap();
+        assert!(dump.status.success());
+        let mut restore = std::process::Command::new("psql")
+            .args([
+                "-X",
+                "-v",
+                "ON_ERROR_STOP=1",
+                "-h",
+                socket.to_str().unwrap(),
+                "-p",
+                "55441",
+                "-U",
+                "brain_core_test",
+                "-d",
+                "postgres",
+            ])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        restore
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(&dump.stdout)
+            .unwrap();
+        assert!(restore.wait().unwrap().success());
+        runtime.entity_profile_corpus_root = Some(pg.directory.path().join("corpus"));
+        std::fs::create_dir(runtime.entity_profile_corpus_root.as_ref().unwrap()).unwrap();
+        let artifacts = Artifacts::open(&pg.directory.path().join("artifacts")).unwrap();
+        let result = super::super::runner::refresh_entity_profile_documents(
+            &store, &pool, &config, &principal, &artifacts, &base_id, &runtime,
+        )
+        .await;
+        match result {
+            Ok((status, _)) => eprintln!(
+                "profiles={} stored_documents={} bindings={}",
+                status["profiles"].as_array().unwrap().len(),
+                status["stored_documents"],
+                status["bindings"].as_array().unwrap().len()
+            ),
+            Err(error) => panic!("Profilpfad: {error:#}"),
+        }
+        pool.close().await;
+    }
+
+    #[tokio::test]
     #[ignore = "Lokaler Beleg mit den vorgegebenen Originalpins"]
     async fn pinned_original_import() {
         let pg = ScratchPg::start();
