@@ -334,6 +334,11 @@ impl PgStore {
         if stored_entity.kind != entity.kind {
             return Err(invalid("Entitätsart widerspricht vorhandener Zuordnung"));
         }
+        let semantic_ready: bool = sqlx::query_scalar(
+            "SELECT to_regclass('brain.entity_semantic_projections_v1') IS NOT NULL",
+        )
+        .fetch_one(&mut *tx)
+        .await?;
         let mut inserted = 0;
         for fact in facts {
             let encoded = serde_json::to_string(&fact)?;
@@ -362,6 +367,23 @@ impl PgStore {
                         .any(|alias| !entity.aliases.contains(alias))
                 {
                     return Err(invalid("Faktenbeleg widerspricht vorhandenem Import"));
+                }
+                let projection: Option<(String, String, String, Option<String>)> = if semantic_ready
+                {
+                    sqlx::query_as("SELECT relative_pointer,semantic_predicate,semantic_qualifiers_json,semantic_unit FROM brain.entity_semantic_projections_v1 WHERE entity_key=$1 AND source_id=$2 AND logical_id=$3 AND revision=$4 AND fact_id=$5")
+                        .bind(&entity.entity_key).bind(&record.source_id).bind(&record.logical_id).bind(revision).bind(&fact.fact_id).fetch_optional(&mut *tx).await?
+                } else {
+                    None
+                };
+                if let Some((relative_pointer, predicate, qualifiers, unit)) = projection {
+                    let projection = semantic::SemanticProjection {
+                        relative_pointer,
+                        predicate,
+                        qualifiers: serde_json::from_str(&qualifiers)?,
+                        unit,
+                    };
+                    semantic::project_semantic_fact(&fact, &projection, &original, &previous)?;
+                    semantic::project_semantic_fact(&fact, &projection, &original, entity)?;
                 }
                 sqlx::query("UPDATE brain.entity_profile_facts_v1 SET binding_identity_json=$6 WHERE entity_key=$1 AND source_id=$2 AND logical_id=$3 AND revision=$4 AND fact_id=$5")
                     .bind(&entity.entity_key).bind(&record.source_id).bind(&record.logical_id).bind(revision).bind(&fact.fact_id).bind(&identity).execute(&mut *tx).await?;

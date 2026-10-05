@@ -46,6 +46,7 @@ pub(crate) fn verify_bound_original(
 fn bound_relative_pointer(
     fact: &EntityProfileFact,
     binding: SemanticBinding<'_>,
+    relative_pointer: &str,
 ) -> Result<String> {
     verify_bound_original(fact, binding)?;
     let document: Value = serde_json::from_str(
@@ -111,7 +112,7 @@ fn bound_relative_pointer(
                 .strip_prefix(scope.as_str())
                 .is_some_and(|rest| rest.starts_with('/'))
         })
-        .max_by_key(|scope| scope.len())
+        .find(|scope| &pointer[scope.len()..] == relative_pointer)
         .ok_or_else(|| {
             invalid("Konkrete Entitätsbindung besitzt keinen passenden Originalbeleg")
         })?;
@@ -163,7 +164,7 @@ pub fn semantic_projection(
     }
     if relative_pointer.is_empty()
         || !relative_pointer.starts_with('/')
-        || bound_relative_pointer(fact, binding)? != relative_pointer
+        || bound_relative_pointer(fact, binding, relative_pointer)? != relative_pointer
     {
         return Err(invalid(
             "Semantischer Blattpfad widerspricht dem Originalbeleg",

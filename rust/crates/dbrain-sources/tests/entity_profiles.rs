@@ -1170,7 +1170,7 @@ async fn private_einheiten_bleiben_bei_gespeicherter_neuableitung_in_den_origina
         let mut document = extracted_game_document_from_source(
             &format!("unit-original-{index}"),
             "json",
-            r#"{"hero_test":{"Health":998877,"Damage":25}}"#,
+            r#"{"hero_test":{"Health":998877,"Damage":25,"Variants":[{"class_name":"nested_test","Bonus":30}]}}"#,
         );
         let commit = "a".repeat(40);
         document["revision"] = json!(format!("git:{commit}"));
@@ -1178,6 +1178,9 @@ async fn private_einheiten_bleiben_bei_gespeicherter_neuableitung_in_den_origina
         document["metadata"]["provenance"]["repository_url"] =
             json!("https://github.com/deadlock-wiki/deadlock-data");
         for fact in document["facts"].as_array_mut().unwrap() {
+            if fact["fact_id"] == "json:/hero_test/Variants/0/Bonus" {
+                fact["qualifiers"]["condition"] = json!("bei Treffer");
+            }
             fact["unit"] = if fact["value"] == json!(998877) {
                 json!(unit)
             } else {
@@ -1192,15 +1195,16 @@ async fn private_einheiten_bleiben_bei_gespeicherter_neuableitung_in_den_origina
         store.apply(&record).await.unwrap();
         let mut identity = entity(EntityKind::Hero);
         identity.entity_key = format!("unit-hero-{index}");
+        let mut catalog = vec![CatalogEntity {
+            identity: identity.clone(),
+            identifiers: vec!["hero_test".into()],
+        }];
         bind_stored_document(
             store,
             &record.source_id,
             &record.logical_id,
             record.revision,
-            &[CatalogEntity {
-                identity: identity.clone(),
-                identifiers: vec!["hero_test".into()],
-            }],
+            &catalog,
         )
         .await
         .unwrap();
@@ -1226,7 +1230,7 @@ async fn private_einheiten_bleiben_bei_gespeicherter_neuableitung_in_den_origina
             .stored_git_entity_bindings(&identity.entity_key, &record)
             .await
             .unwrap();
-        assert_eq!(bindings.len(), 2);
+        assert_eq!(bindings.len(), 4);
         let originals = serde_json::to_value(
             bindings
                 .iter()
@@ -1251,7 +1255,7 @@ async fn private_einheiten_bleiben_bei_gespeicherter_neuableitung_in_den_origina
             &[],
         )
         .unwrap();
-        assert_eq!(receipt.fact_pins.len(), 2);
+        assert_eq!(receipt.fact_pins.len(), 3);
         assert!(receipt
             .fact_pins
             .iter()
@@ -1298,11 +1302,101 @@ async fn private_einheiten_bleiben_bei_gespeicherter_neuableitung_in_den_origina
         let stored_receipt: String = sqlx::query_scalar("SELECT receipt_json FROM brain.entity_derived_receipts_v1 WHERE derived_source_id=$1 AND derived_logical_id=$2 AND derived_revision=$3")
             .bind(&saved.source_id).bind(&saved.logical_id).bind(saved.revision as i64).fetch_one(pool).await.unwrap();
         let stored_receipt: GitDocumentReceipt = serde_json::from_str(&stored_receipt).unwrap();
+        let before = store
+            .read_entity_profile(&identity.entity_key, &release.release_id, &principal, None)
+            .await
+            .unwrap()
+            .unwrap();
+        catalog[0].identifiers.push("nested_test".into());
+        catalog[0]
+            .identity
+            .aliases
+            .push("Zusätzlicher Katalogalias".into());
+        catalog[0]
+            .identity
+            .identity_evidence
+            .push("brain.entity_aliases:201".into());
+        for _ in 0..2 {
+            let result = bind_stored_document(
+                store,
+                &record.source_id,
+                &record.logical_id,
+                record.revision,
+                &catalog,
+            )
+            .await
+            .unwrap();
+            assert_eq!(result.inserted_bindings, 0);
+            assert_eq!(result.inserted_projections, 0);
+            assert_eq!(
+                store
+                    .read_entity_profile(
+                        &identity.entity_key,
+                        &release.release_id,
+                        &principal,
+                        None
+                    )
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                before
+            );
+        }
         let fresh_snapshot = store.snapshot(&release.release_id).await.unwrap();
         let fresh_bindings = store
             .stored_git_entity_bindings(&identity.entity_key, &record)
             .await
             .unwrap();
+        for invalid_case in 0..3 {
+            let mut wrong = catalog.clone();
+            match invalid_case {
+                0 => wrong[0].identity.kind = EntityKind::Item,
+                1 => wrong[0].identity.name = "Fremde Entität".into(),
+                _ => {
+                    wrong[0].identity.identity_evidence.remove(0);
+                }
+            };
+            assert!(bind_stored_document(
+                store,
+                &record.source_id,
+                &record.logical_id,
+                record.revision,
+                &wrong
+            )
+            .await
+            .is_err());
+            let unchanged = store
+                .stored_git_entity_bindings(&identity.entity_key, &record)
+                .await
+                .unwrap();
+            for (before, after) in fresh_bindings.iter().zip(unchanged) {
+                assert_eq!(before.original_fact, after.original_fact);
+                assert_eq!(before.binding_identity, after.binding_identity);
+                assert_eq!(before.semantic_projection, after.semantic_projection);
+            }
+        }
+        for pin in &stored_receipt.fact_pins {
+            let fresh = fresh_bindings
+                .iter()
+                .find(|binding| binding.original_fact.fact_id == pin.fact_id)
+                .unwrap();
+            assert_eq!(
+                fresh.semantic_projection.as_ref(),
+                Some(&pin.semantic_projection)
+            );
+            assert!(fresh
+                .binding_identity
+                .aliases
+                .contains(&"nested_test".into()));
+        }
+        let nested = fresh_bindings
+            .iter()
+            .find(|binding| binding.original_fact.fact_id == "json:/hero_test/Variants/0/Bonus")
+            .unwrap();
+        let projection = nested.semantic_projection.as_ref().unwrap();
+        assert_eq!(projection.relative_pointer, "/Variants/0/Bonus");
+        assert_eq!(projection.qualifiers["semantic_scope"], "Variants/0");
+        assert_eq!(projection.qualifiers["condition"], "bei Treffer");
         assert_eq!(
             serde_json::to_value(
                 fresh_bindings
@@ -1334,7 +1428,37 @@ async fn private_einheiten_bleiben_bei_gespeicherter_neuableitung_in_den_origina
             &[],
         )
         .unwrap();
-        assert_eq!(repeated.1, stored_receipt);
+        assert_eq!(repeated.0, profile);
+        assert_eq!(repeated.1.document_sha256, stored_receipt.document_sha256);
+        let mut invalid_bindings = fresh_bindings.clone();
+        invalid_bindings[0].binding_identity.kind = EntityKind::Item;
+        assert!(verify_git_document_receipt(
+            &saved,
+            &stored_receipt,
+            &fresh_snapshot,
+            &principal,
+            &invalid_bindings,
+            &blobs,
+            &[]
+        )
+        .is_err());
+        let mut invalid_bindings = fresh_bindings.clone();
+        for binding in &mut invalid_bindings {
+            binding
+                .binding_identity
+                .identity_evidence
+                .retain(|evidence| evidence != &identity.identity_evidence[0]);
+        }
+        assert!(verify_git_document_receipt(
+            &saved,
+            &stored_receipt,
+            &fresh_snapshot,
+            &principal,
+            &invalid_bindings,
+            &blobs,
+            &[]
+        )
+        .is_err());
         assert_eq!(
             store
                 .persist_entity_document(

@@ -481,7 +481,7 @@ pub fn verify_git_document_receipt(
             "Abgeleitetes Dokument widerspricht der privaten Quittung",
         ));
     }
-    let (profile, expected) = derive_git_profile(
+    let (profile, mut expected) = derive_git_profile(
         &receipt.entity_key,
         snapshot,
         operator,
@@ -489,6 +489,37 @@ pub fn verify_git_document_receipt(
         blobs,
         live_story,
     )?;
+    for fresh in &mut expected.fact_pins {
+        if let Some(pin) = receipt.fact_pins.iter().find(|pin| {
+            pin.source_id == fresh.source_id
+                && pin.logical_id == fresh.logical_id
+                && pin.store_revision == fresh.store_revision
+                && pin.fact_id == fresh.fact_id
+        }) {
+            let current = &fresh.binding_identity;
+            let mut previous = current.clone();
+            previous.aliases = pin.binding_identity.aliases.clone();
+            previous.identity_evidence = pin.binding_identity.identity_evidence.clone();
+            if previous != pin.binding_identity
+                || pin
+                    .binding_identity
+                    .aliases
+                    .iter()
+                    .any(|alias| !current.aliases.contains(alias))
+                || pin
+                    .binding_identity
+                    .identity_evidence
+                    .iter()
+                    .any(|evidence| !current.identity_evidence.contains(evidence))
+                || fresh.semantic_projection != pin.semantic_projection
+            {
+                return Err(invalid(
+                    "Gepinnte Bindung widerspricht den frischen Originalbelegen",
+                ));
+            }
+            fresh.binding_identity = pin.binding_identity.clone();
+        }
+    }
     if expected != *receipt || compact_document(&profile)? != record.content {
         return Err(invalid(
             "Gespeichertes Dokument widerspricht den frischen Originalbelegen",
