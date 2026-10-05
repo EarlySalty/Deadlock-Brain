@@ -2417,7 +2417,7 @@ mod tests {
             )
             .await
             .is_err());
-            let mut unregistered = runtime.clone();
+            let mut unregistered = RuntimeConfig::load(&runtime_path).unwrap();
             unregistered.entity_profile_sources.clear();
             assert!(check_entity_profile_sources(
                 &unregistered,
