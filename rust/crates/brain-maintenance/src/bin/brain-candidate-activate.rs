@@ -486,14 +486,9 @@ async fn check_entity_profile_sources(
                 .iter()
                 .filter(|record| record.source_id == *id)
                 .collect();
-            let mut wiki = base.revisions.iter().any(|record| {
-                record.source_id == *id
-                    && record
-                        .metadata
-                        .get(brain_storage::source_versions::DOCUMENT_METADATA_KEY)
-                        .and_then(|encoded| serde_json::from_str::<serde_json::Value>(encoded).ok())
-                        .is_some_and(|document| document["source_kind"] == "wiki")
-            });
+            let mut wiki =
+                brain_maintenance::integration::runner::existing_wiki_source(pool, base, id)
+                    .await?;
             for record in &records {
                 let encoded = record
                     .metadata
@@ -2285,6 +2280,10 @@ mod tests {
             let mut original_restored = original.clone();
             original_restored.revision = withdrawn.revision + 1;
             ingest.apply(&original_restored).await.unwrap();
+            if let Some(wiki) = wiki_heads.first_mut() {
+                wiki.revision += 2;
+                ingest.apply(wiki).await.unwrap();
+            }
             brain_maintenance::integration::entity_profiles::persist_verified_git_profile(
                 &ingest, &verified,
             )
@@ -2320,6 +2319,10 @@ mod tests {
             .snapshot(&reappeared.candidate.release_id)
             .await
             .unwrap();
+        assert!(reappeared.revisions.contains(&preserved));
+        for wiki in &wiki_heads {
+            assert!(reappeared.revisions.contains(wiki));
+        }
         check_transition(&empty.release, &reappeared.release, &derived_allowed).unwrap();
         check_rights(
             &empty,
@@ -2338,6 +2341,95 @@ mod tests {
         )
         .await
         .unwrap();
+        if tombstone_original {
+            let (_, repeated) =
+                brain_maintenance::integration::runner::refresh_entity_profile_documents(
+                    &ingest,
+                    &ingest_pool,
+                    &loaded_config,
+                    &principal,
+                    &artifacts,
+                    &reappeared.release.release_id,
+                    &runtime,
+                )
+                .await
+                .unwrap();
+            assert!(repeated.is_none());
+            let mut new_source_base = empty.clone();
+            new_source_base.release.source_revisions.remove("existing");
+            assert!(check_entity_profile_sources(
+                &runtime,
+                &ingest,
+                &ingest_pool,
+                &new_source_base,
+                &reappeared,
+                &derived_allowed,
+            )
+            .await
+            .is_err());
+            let mut mixed = reappeared.clone();
+            let record = mixed
+                .revisions
+                .iter_mut()
+                .find(|record| record.source_id == "existing")
+                .unwrap();
+            let mut encoded: serde_json::Value = serde_json::from_str(
+                &record.metadata[brain_storage::source_versions::DOCUMENT_METADATA_KEY],
+            )
+            .unwrap();
+            encoded["source_kind"] = serde_json::json!("game_file");
+            record.metadata.insert(
+                brain_storage::source_versions::DOCUMENT_METADATA_KEY.into(),
+                serde_json::to_string(&encoded).unwrap(),
+            );
+            assert!(check_entity_profile_sources(
+                &runtime,
+                &ingest,
+                &ingest_pool,
+                &empty,
+                &mixed,
+                &derived_allowed,
+            )
+            .await
+            .is_err());
+            let mut mislabeled = reappeared.clone();
+            let record = mislabeled
+                .revisions
+                .iter_mut()
+                .find(|record| record.source_id == "game-fixture")
+                .unwrap();
+            let mut encoded: serde_json::Value = serde_json::from_str(
+                &record.metadata[brain_storage::source_versions::DOCUMENT_METADATA_KEY],
+            )
+            .unwrap();
+            encoded["source_kind"] = serde_json::json!("wiki");
+            record.metadata.insert(
+                brain_storage::source_versions::DOCUMENT_METADATA_KEY.into(),
+                serde_json::to_string(&encoded).unwrap(),
+            );
+            assert!(check_entity_profile_sources(
+                &runtime,
+                &ingest,
+                &ingest_pool,
+                &empty,
+                &mislabeled,
+                &derived_allowed,
+            )
+            .await
+            .is_err());
+            let mut unregistered = runtime.clone();
+            unregistered.entity_profile_sources.clear();
+            assert!(check_entity_profile_sources(
+                &unregistered,
+                &ingest,
+                &ingest_pool,
+                &empty,
+                &reappeared,
+                &derived_allowed,
+            )
+            .await
+            .is_err());
+        }
         ingest_pool.close().await;
         pool.close().await;
         config["internal_doc_scopes"] = serde_json::json!(["internal_docs"]);

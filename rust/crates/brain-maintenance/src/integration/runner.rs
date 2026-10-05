@@ -1997,6 +1997,52 @@ impl Runner {
     }
 }
 
+pub async fn existing_wiki_source(
+    pool: &sqlx::PgPool,
+    base: &brain_contracts::CorpusSnapshot,
+    source_id: &str,
+) -> Result<bool> {
+    let Some(pins) = base.release.source_revisions.get(source_id) else {
+        return Ok(false);
+    };
+    let records = if pins.is_empty() {
+        let rows: Vec<serde_json::Value> = sqlx::query_scalar(
+            "SELECT record_json FROM brain.source_record_heads WHERE source_id=$1 ORDER BY logical_id",
+        )
+        .bind(source_id)
+        .fetch_all(pool)
+        .await?;
+        rows.into_iter()
+            .map(serde_json::from_value)
+            .collect::<std::result::Result<Vec<brain_contracts::SourceRecordV2>, _>>()?
+    } else {
+        base.revisions
+            .iter()
+            .filter(|record| record.source_id == source_id)
+            .cloned()
+            .collect()
+    };
+    if records.is_empty() {
+        return Ok(false);
+    }
+    for record in records {
+        let Some(encoded) = record
+            .metadata
+            .get(brain_storage::source_versions::DOCUMENT_METADATA_KEY)
+        else {
+            return Ok(false);
+        };
+        let document: dbrain_sources::knowledge_contract::KnowledgeDocument =
+            serde_json::from_str(encoded)?;
+        if document.source_kind != dbrain_sources::knowledge_contract::KnowledgeSourceKind::Wiki {
+            return Ok(false);
+        }
+        dbrain_retrieval::knowledge_projection::project_knowledge(&record)?
+            .context("entity_profile_document_missing")?;
+    }
+    Ok(true)
+}
+
 pub async fn refresh_entity_profile_documents(
     store: &PgStore,
     pool: &sqlx::PgPool,
@@ -2019,15 +2065,9 @@ pub async fn refresh_entity_profile_documents(
         .map(|source| source.extraction.source_id.clone())
         .collect();
     let base = store.snapshot(base_id).await?;
-    for record in &base.revisions {
-        if let Some(encoded) = record
-            .metadata
-            .get(brain_storage::source_versions::DOCUMENT_METADATA_KEY)
-        {
-            let document: serde_json::Value = serde_json::from_str(encoded)?;
-            if document["source_kind"] == "wiki" && !sources.contains(&record.source_id) {
-                sources.push(record.source_id.clone());
-            }
+    for source_id in base.release.source_revisions.keys() {
+        if !sources.contains(source_id) && existing_wiki_source(pool, &base, source_id).await? {
+            sources.push(source_id.clone());
         }
     }
     let prepared =

@@ -360,7 +360,11 @@ async fn publish(args: &Arguments, store: &PgStore, pool: &sqlx::PgPool) -> Resu
         .chain(
             expected_heads
                 .iter()
-                .filter(|record| args.sources.contains(&record.source_id))
+                .filter(|record| {
+                    args.sources.contains(&record.source_id)
+                        && release.source_revisions[&record.source_id].get(&record.logical_id)
+                            == Some(&record.revision)
+                })
                 .cloned(),
         )
         .collect();
@@ -394,15 +398,21 @@ async fn publish(args: &Arguments, store: &PgStore, pool: &sqlx::PgPool) -> Resu
             )
         })
         .collect();
+    let release_heads: Vec<_> = expected_heads
+        .iter()
+        .filter(|record| {
+            release.source_revisions[&record.source_id].contains_key(&record.logical_id)
+        })
+        .collect();
     if verified.release != release
         || verified.revisions.len() != document_count
         || committed_count != document_count
-        || verified_heads.len() != expected_heads.len()
-        || expected_heads.iter().any(|record| {
+        || verified_heads.len() != release_heads.len()
+        || release_heads.iter().any(|record| {
             verified_heads
                 .get(&(record.source_id.clone(), record.logical_id.clone()))
                 .copied()
-                != Some(record)
+                != Some(*record)
         })
     {
         return Err(
@@ -1101,8 +1111,61 @@ mod tests {
         assert_eq!(prepared.largest_content_bytes, head.content.len());
     }
 
-    #[test]
-    fn publication_rejects_empty_duplicate_tombstone_and_invalid_origin_heads() {
+    struct ScratchPg {
+        directory: tempfile::TempDir,
+    }
+
+    impl ScratchPg {
+        fn start() -> Self {
+            let instance = Self {
+                directory: tempfile::tempdir().unwrap(),
+            };
+            let data = instance.directory.path().join("data");
+            let socket = instance.directory.path().join("socket");
+            std::fs::create_dir(&socket).unwrap();
+            assert!(
+                std::process::Command::new("/usr/lib/postgresql/16/bin/initdb")
+                    .arg("-D")
+                    .arg(&data)
+                    .args(["-A", "trust", "-U", "brain_core_test", "--no-locale"])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+            let options = format!("-k {} -p 55443 -c listen_addresses=''", socket.display());
+            assert!(
+                std::process::Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
+                    .arg("-D")
+                    .arg(data)
+                    .arg("-l")
+                    .arg(instance.directory.path().join("postgres.log"))
+                    .args(["-o", &options, "-w", "start"])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+            instance
+        }
+    }
+
+    impl Drop for ScratchPg {
+        fn drop(&mut self) {
+            let _ = std::process::Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
+                .arg("-D")
+                .arg(self.directory.path().join("data"))
+                .args(["-m", "immediate", "-w", "stop"])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
+        }
+    }
+
+    #[tokio::test]
+    async fn publication_rejects_invalid_heads_and_publishes_git_and_wiki_withdrawals() {
         let args = publication_args(&["deadlock-wiki"]);
         let base = publication_base();
         let head = imported_head();
@@ -1114,6 +1177,99 @@ mod tests {
         let mut invalid = head;
         invalid.metadata.clear();
         assert!(prepare_publication(&args, &base, vec![invalid]).is_err());
+
+        let pg = ScratchPg::start();
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(2)
+            .connect_with(
+                sqlx::postgres::PgConnectOptions::new_without_pgpass()
+                    .host(pg.directory.path().join("socket").to_str().unwrap())
+                    .port(55443)
+                    .username("brain_core_test")
+                    .database("postgres"),
+            )
+            .await
+            .unwrap();
+        let store = PgStore::new(pool.clone());
+        store.migrate_core().await.unwrap();
+        for kind in ["wiki", "game_file"] {
+            let mut original = imported_head();
+            let mut encoded: Value = serde_json::from_str(
+                &original.metadata[brain_storage::source_versions::DOCUMENT_METADATA_KEY],
+            )
+            .unwrap();
+            encoded["source_kind"] = json!(kind);
+            original.metadata.insert(
+                brain_storage::source_versions::DOCUMENT_METADATA_KEY.into(),
+                serde_json::to_string(&encoded).unwrap(),
+            );
+            original.revision = if kind == "wiki" { 1 } else { 4 };
+            store.apply(&original).await.unwrap();
+            let mut kept = original.clone();
+            kept.source_id = format!("kept-{kind}");
+            encoded["source_id"] = json!(kept.source_id);
+            kept.metadata.insert(
+                brain_storage::source_versions::DOCUMENT_METADATA_KEY.into(),
+                serde_json::to_string(&encoded).unwrap(),
+            );
+            let mut origin = brain_contracts::source::origin_from_record(&original).unwrap();
+            origin.identity.source_id = kept.source_id.clone();
+            origin.bind_record(&mut kept).unwrap();
+            store.apply(&kept).await.unwrap();
+            let base = CorpusRelease {
+                release_id: format!("base-{kind}"),
+                knowledge_version: format!("base-{kind}"),
+                patch: "fixture".into(),
+                created_at_epoch: 1,
+                source_revisions: BTreeMap::from([
+                    (
+                        original.source_id.clone(),
+                        BTreeMap::from([(original.logical_id.clone(), original.revision)]),
+                    ),
+                    (
+                        kept.source_id.clone(),
+                        BTreeMap::from([(kept.logical_id.clone(), kept.revision)]),
+                    ),
+                ]),
+            };
+            store.publish_release(&base).await.unwrap();
+            let mut withdrawn = original.clone();
+            withdrawn.revision += 1;
+            withdrawn.tombstone = true;
+            store.apply(&withdrawn).await.unwrap();
+            let mut args = publication_args(&[&original.source_id]);
+            args.values
+                .insert("--base-release".into(), base.release_id.clone());
+            args.values
+                .insert("--release-id".into(), format!("withdrawn-{kind}"));
+            args.values
+                .insert("--knowledge-version".into(), format!("withdrawn-{kind}"));
+            for _ in 0..2 {
+                let proof = publish(&args, &store, &pool).await.unwrap();
+                assert_eq!(proof["published"], true);
+                assert_eq!(proof["documents"], 1);
+                let snapshot = store
+                    .snapshot(args.required("--release-id").unwrap())
+                    .await
+                    .unwrap();
+                assert!(snapshot.release.source_revisions[&original.source_id].is_empty());
+                assert_eq!(snapshot.revisions, vec![kept.clone()]);
+                assert_eq!(snapshot.heads, vec![kept.clone()]);
+            }
+            let mut forged = withdrawn.clone();
+            forged.revision += 1;
+            store.apply(&forged).await.unwrap();
+            args.values
+                .insert("--release-id".into(), format!("unproven-{kind}"));
+            args.values
+                .insert("--knowledge-version".into(), format!("unproven-{kind}"));
+            assert!(publish(&args, &store, &pool).await.is_err());
+            assert!(store
+                .snapshot(args.required("--release-id").unwrap())
+                .await
+                .is_err());
+        }
+        pool.close().await;
     }
 
     #[test]
