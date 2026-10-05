@@ -113,7 +113,116 @@ fn retired_entity_document(record: &SourceRecordV2) -> bool {
             == Some("git-entity-document-v1")
 }
 
+fn withdrawn_imported_original(record: &SourceRecordV2) -> bool {
+    if !record.tombstone || record.revision <= 1 {
+        return false;
+    }
+    let Some(document) = record
+        .metadata
+        .get(crate::source_versions::DOCUMENT_METADATA_KEY)
+        .and_then(|encoded| serde_json::from_str::<serde_json::Value>(encoded).ok())
+    else {
+        return false;
+    };
+    document["contract_version"] == "wiki-spielwissen-v1"
+        && matches!(document["source_kind"].as_str(), Some("game_file" | "wiki"))
+        && document["source_id"].as_str() == Some(record.source_id.as_str())
+        && document["document_id"].as_str() == Some(record.logical_id.as_str())
+        && document["content"].as_str() == Some(record.content.as_str())
+        && document["content_sha256"].as_str() == Some(record.content_hash.as_str())
+        && document["revision"].as_str().is_some_and(|revision| {
+            !revision.is_empty()
+                && record
+                    .metadata
+                    .get(crate::source_versions::ORIGINAL_VERSION_KEY)
+                    .map(String::as_str)
+                    == Some(revision)
+        })
+}
+
+async fn verify_withdrawn_original_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    record: &SourceRecordV2,
+) -> Result<(), PortError> {
+    let previous = sqlx::query("SELECT revision,content_hash,tombstone,record_json FROM brain.source_record_revisions WHERE source_id=$1 AND logical_id=$2 AND revision=$3")
+        .bind(&record.source_id).bind(&record.logical_id).bind((record.revision - 1) as i64)
+        .fetch_optional(&mut **tx).await.map_err(database_error)?
+        .ok_or_else(|| invalid("Belegte aktive Originalrevision fehlt"))?;
+    let original: SourceRecordV2 =
+        serde_json::from_value(previous.try_get("record_json").map_err(database_error)?)
+            .map_err(|_| invalid("Gespeicherte Originalrevision ist ungültig"))?;
+    original
+        .validate()
+        .map_err(|_| invalid("Originalrevision verletzt den Vertrag"))?;
+    brain_contracts::source::origin_from_record(&original)
+        .map_err(|_| invalid("Originalherkunft fehlt"))?;
+    let mut expected = original.clone();
+    expected.revision = record.revision;
+    expected.tombstone = true;
+    let published: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM brain.corpus_releases_v1 WHERE release_json->'source_revisions'->($1::text)->>($2::text)=$3)")
+        .bind(&original.source_id).bind(&original.logical_id).bind(original.revision.to_string())
+        .fetch_one(&mut **tx).await.map_err(database_error)?;
+    if original.tombstone
+        || expected != *record
+        || !published
+        || previous
+            .try_get::<i64, _>("revision")
+            .map_err(database_error)?
+            != original.revision as i64
+        || previous
+            .try_get::<String, _>("content_hash")
+            .map_err(database_error)?
+            != original.content_hash
+        || previous
+            .try_get::<bool, _>("tombstone")
+            .map_err(database_error)?
+            != original.tombstone
+    {
+        return Err(invalid(
+            "Rücknahme widerspricht dem veröffentlichten Original",
+        ));
+    }
+    Ok(())
+}
+
 impl PgStore {
+    pub async fn verify_withdrawn_imported_source(&self, source_id: &str) -> Result<(), PortError> {
+        let mut tx = self.pool.begin().await.map_err(database_error)?;
+        lock_source(&mut tx, source_id)
+            .await
+            .map_err(database_error)?;
+        let rows = sqlx::query("SELECT logical_id,revision,content_hash,tombstone,record_json FROM brain.source_record_heads WHERE source_id=$1 FOR SHARE")
+            .bind(source_id).fetch_all(&mut *tx).await.map_err(database_error)?;
+        if rows.is_empty() {
+            return Err(invalid("Zurückgezogene Originalheads fehlen"));
+        }
+        for row in rows {
+            let record: SourceRecordV2 =
+                serde_json::from_value(row.try_get("record_json").map_err(database_error)?)
+                    .map_err(|_| invalid("Originalhead ist ungültig"))?;
+            if record.source_id != source_id
+                || !withdrawn_imported_original(&record)
+                || row
+                    .try_get::<String, _>("logical_id")
+                    .map_err(database_error)?
+                    != record.logical_id
+                || row.try_get::<i64, _>("revision").map_err(database_error)?
+                    != record.revision as i64
+                || row
+                    .try_get::<String, _>("content_hash")
+                    .map_err(database_error)?
+                    != record.content_hash
+                || !row
+                    .try_get::<bool, _>("tombstone")
+                    .map_err(database_error)?
+            {
+                return Err(invalid("Originalhead ist nicht vollständig zurückgezogen"));
+            }
+            verify_withdrawn_original_tx(&mut tx, &record).await?;
+        }
+        tx.commit().await.map_err(database_error)
+    }
+
     pub async fn persist_entity_document(
         &self,
         mut record: SourceRecordV2,
@@ -259,7 +368,9 @@ impl PgStore {
         }
         let mut seen = BTreeSet::new();
         for record in heads {
-            if (record.tombstone && !retired_entity_document(&record))
+            if (record.tombstone
+                && !retired_entity_document(&record)
+                && !withdrawn_imported_original(&record))
                 || !selected.contains(&record.source_id)
             {
                 return Err(invalid(
@@ -339,7 +450,10 @@ impl PgStore {
                 .validate()
                 .map_err(|_| invalid("invalid expected imported head"))?;
             if sources.contains(&record.source_id) {
-                if record.tombstone && !retired_entity_document(record) {
+                if record.tombstone
+                    && !retired_entity_document(record)
+                    && !withdrawn_imported_original(record)
+                {
                     return Err(invalid("imported source contains a tombstone"));
                 }
                 brain_contracts::source::origin_from_record(record)
@@ -442,7 +556,9 @@ impl PgStore {
                     != row
                         .try_get::<bool, _>("tombstone")
                         .map_err(database_error)?
-                || (record.tombstone && !retired_entity_document(&record))
+                || (record.tombstone
+                    && !retired_entity_document(&record)
+                    && !withdrawn_imported_original(&record))
                 || actual.insert((source, logical), record).is_some()
             {
                 return Err(invalid("stored imported head columns disagree"));
@@ -455,6 +571,12 @@ impl PgStore {
             .collect();
         if actual != selected_expected {
             return Err(invalid("imported source heads changed before release"));
+        }
+        for record in actual
+            .values()
+            .filter(|record| withdrawn_imported_original(record))
+        {
+            verify_withdrawn_original_tx(&mut tx, record).await?;
         }
         let base_readback = snapshot_tx(&mut tx, base_release_id).await?;
         if base_readback.release != base {

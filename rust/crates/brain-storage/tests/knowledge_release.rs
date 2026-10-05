@@ -453,6 +453,109 @@ async fn imported_heads_preserve_base_and_block_preparation_commit_races() {
     sqlx::query("UPDATE brain.corpus_releases_v1 SET knowledge_version='fixture-corrupt' WHERE release_id=$1")
         .bind(&concurrent.release_id).execute(&pool).await.unwrap();
     assert!(store.imported_release_for_retry(&first).await.is_err());
+    for kind in ["game_file", "wiki"] {
+        let mut raw = record(&format!("{prefix}-raw-{kind}"), "original", 1);
+        raw.metadata.insert(
+            brain_storage::source_versions::ORIGINAL_VERSION_KEY.into(),
+            "1".into(),
+        );
+        raw.metadata.insert(brain_storage::source_versions::DOCUMENT_METADATA_KEY.into(), serde_json::json!({
+            "contract_version":"wiki-spielwissen-v1", "source_kind":kind, "source_id":raw.source_id,
+            "document_id":raw.logical_id, "revision":"1", "content":raw.content, "content_sha256":raw.content_hash
+        }).to_string());
+        store.apply(&raw).await.unwrap();
+        let raw_base = release(
+            &format!("{prefix}-raw-base-{kind}"),
+            std::slice::from_ref(&raw),
+        );
+        store.publish_release(&raw_base).await.unwrap();
+        let mut withdrawn = raw.clone();
+        withdrawn.revision += 1;
+        withdrawn.tombstone = true;
+        store.apply(&withdrawn).await.unwrap();
+        let selected = vec![raw.source_id.clone()];
+        let snapshot = store.snapshot(&raw_base.release_id).await.unwrap();
+        let (candidate, expected) = PgStore::prepare_imported_release(
+            &snapshot,
+            &selected,
+            vec![withdrawn.clone()],
+            &format!("{prefix}-raw-retired-{kind}"),
+            "raw-retired",
+            2,
+        )
+        .unwrap();
+        assert!(candidate.source_revisions[&raw.source_id].is_empty());
+        let mut altered = withdrawn.clone();
+        let mut origin = brain_contracts::source::origin_from_record(&altered).unwrap();
+        altered.allowed_scopes.insert("knowledge:restricted".into());
+        origin.policy.allowed_scopes = altered.allowed_scopes.clone();
+        origin.bind_record(&mut altered).unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        write_record(&mut tx, &altered).await;
+        tx.commit().await.unwrap();
+        let (_, altered_expected) = PgStore::prepare_imported_release(
+            &snapshot,
+            &selected,
+            vec![altered],
+            &candidate.release_id,
+            &candidate.knowledge_version,
+            2,
+        )
+        .unwrap();
+        assert!(store
+            .publish_imported_heads_checked(
+                &raw_base.release_id,
+                &selected,
+                &candidate,
+                &altered_expected
+            )
+            .await
+            .is_err());
+        let mut tx = pool.begin().await.unwrap();
+        write_record(&mut tx, &withdrawn).await;
+        tx.commit().await.unwrap();
+        assert_eq!(
+            store
+                .publish_imported_heads_checked(
+                    &raw_base.release_id,
+                    &selected,
+                    &candidate,
+                    &expected
+                )
+                .await
+                .unwrap(),
+            0
+        );
+        assert!(store
+            .snapshot(&candidate.release_id)
+            .await
+            .unwrap()
+            .revisions
+            .is_empty());
+        assert!(store
+            .snapshot(&raw_base.release_id)
+            .await
+            .unwrap()
+            .revisions
+            .contains(&raw));
+        let mut unproven = raw.clone();
+        unproven.revision = 3;
+        let mut tx = pool.begin().await.unwrap();
+        write_record(&mut tx, &unproven).await;
+        tx.commit().await.unwrap();
+        unproven.revision = 4;
+        unproven.tombstone = true;
+        store.apply(&unproven).await.unwrap();
+        assert!(store
+            .publish_imported_heads_checked(
+                &raw_base.release_id,
+                &selected,
+                &candidate,
+                &[unproven]
+            )
+            .await
+            .is_err());
+    }
     pool.close().await;
 }
 

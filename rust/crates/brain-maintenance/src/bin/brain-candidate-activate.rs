@@ -466,13 +466,34 @@ async fn check_entity_profile_sources(
             }
             continue;
         }
+        if base
+            .release
+            .source_revisions
+            .get(id)
+            .is_some_and(BTreeMap::is_empty)
+            && candidate
+                .release
+                .source_revisions
+                .get(id)
+                .is_some_and(BTreeMap::is_empty)
+        {
+            store.verify_withdrawn_imported_source(id).await?;
+            continue;
+        }
         if base.release.source_revisions.contains_key(id) {
             let records: Vec<_> = candidate
                 .revisions
                 .iter()
                 .filter(|record| record.source_id == *id)
                 .collect();
-            let mut wiki = !records.is_empty();
+            let mut wiki = base.revisions.iter().any(|record| {
+                record.source_id == *id
+                    && record
+                        .metadata
+                        .get(brain_storage::source_versions::DOCUMENT_METADATA_KEY)
+                        .and_then(|encoded| serde_json::from_str::<serde_json::Value>(encoded).ok())
+                        .is_some_and(|document| document["source_kind"] == "wiki")
+            });
             for record in &records {
                 let encoded = record
                     .metadata
@@ -483,6 +504,9 @@ async fn check_entity_profile_sources(
                 wiki &= document.source_kind == knowledge_contract::KnowledgeSourceKind::Wiki;
             }
             if wiki {
+                if records.is_empty() {
+                    store.verify_withdrawn_imported_source(id).await?;
+                }
                 for record in records {
                     ensure!(
                         visible.contains(record),
@@ -519,7 +543,9 @@ async fn check_entity_profile_sources(
             .iter()
             .filter(|record| record.source_id == *id)
             .collect();
-        ensure!(!records.is_empty(), "entity_profile_source_empty");
+        if records.is_empty() {
+            store.verify_withdrawn_imported_source(id).await?;
+        }
         for record in records {
             ensure!(
                 visible.contains(record),
@@ -1933,6 +1959,87 @@ mod tests {
         .await
         .unwrap()
         .unwrap();
+        let mut initial = initial;
+        let mut preserved = document.clone();
+        let mut origin = origin_from_record(&preserved).unwrap();
+        preserved.source_id = "foreign-profiles".into();
+        origin.identity.source_id = preserved.source_id.clone();
+        origin.bind_record(&mut preserved).unwrap();
+        ingest.apply(&preserved).await.unwrap();
+        let mut extra = initial.candidate.clone();
+        extra.release_id = "mixed-profile-base".into();
+        extra.knowledge_version = extra.release_id.clone();
+        extra.source_revisions.insert(
+            preserved.source_id.clone(),
+            BTreeMap::from([(preserved.logical_id.clone(), preserved.revision)]),
+        );
+        let mut wiki_heads = Vec::new();
+        if tombstone_original {
+            for source_id in ["existing", "existing-kept"] {
+                let mut wiki = original.clone();
+                wiki.source_id = source_id.into();
+                wiki.logical_id = format!("wiki:{source_id}:page:1");
+                wiki.revision = 1;
+                let mut encoded: serde_json::Value = serde_json::from_str(
+                    &wiki.metadata[brain_storage::source_versions::DOCUMENT_METADATA_KEY],
+                )
+                .unwrap();
+                encoded["source_kind"] = serde_json::json!("wiki");
+                encoded["source_id"] = serde_json::json!(wiki.source_id);
+                encoded["document_id"] = serde_json::json!(wiki.logical_id);
+                encoded["revision"] = serde_json::json!("1");
+                encoded["facts"] = serde_json::json!([]);
+                encoded["source_locator"] =
+                    serde_json::json!("https://example.invalid/wiki/fixture");
+                wiki.metadata.insert(
+                    brain_storage::source_versions::DOCUMENT_METADATA_KEY.into(),
+                    serde_json::to_string(&encoded).unwrap(),
+                );
+                wiki.metadata.insert(
+                    brain_storage::source_versions::ORIGINAL_VERSION_KEY.into(),
+                    "1".into(),
+                );
+                let mut origin = origin_from_record(original).unwrap();
+                origin.identity.source_id = wiki.source_id.clone();
+                origin.identity.logical_id = wiki.logical_id.clone();
+                origin.source_revision = brain_contracts::source::SourceRevision::Api {
+                    api_version: "wiki-spielwissen-v1".into(),
+                    original_revision: Some("1".into()),
+                };
+                origin.locator = "https://example.invalid/wiki/fixture".into();
+                origin.policy.allowed_scopes = original.allowed_scopes.clone();
+                wiki.allowed_scopes = origin.policy.allowed_scopes.clone();
+                origin.bind_record(&mut wiki).unwrap();
+                let imported = ingest
+                    .import_source_versions(&[
+                        brain_storage::source_versions::VersionedSourceRecord {
+                            record: wiki.clone(),
+                            original_revision: "1".into(),
+                            revision: brain_storage::source_versions::StoreRevision::OriginalWiki(
+                                1,
+                            ),
+                            fact_count: 0,
+                        },
+                    ])
+                    .await
+                    .unwrap();
+                assert!(imported.committed);
+                extra
+                    .source_revisions
+                    .entry(wiki.source_id.clone())
+                    .or_default()
+                    .insert(wiki.logical_id.clone(), wiki.revision);
+                wiki_heads.push(wiki);
+            }
+        }
+        ingest.publish_release(&extra).await.unwrap();
+        initial.candidate = extra;
+        if let Some(wiki) = wiki_heads.first() {
+            let mut withdrawn = wiki.clone();
+            withdrawn.revision += 1;
+            withdrawn.tombstone = true;
+            ingest.apply(&withdrawn).await.unwrap();
+        }
         let foreign_html = dir.path().join("site/entities/foreign.html");
         std::fs::write(&foreign_html, "Fremde Seite").unwrap();
         let mut withdrawn = original.clone();
@@ -1956,30 +2063,48 @@ mod tests {
             .authorized(&principal, false)
             .unwrap()
             .is_empty());
-        assert_eq!(
-            brain_maintenance::integration::entity_profiles::retire_removed_git_profiles(
+        let retired = if tombstone_original {
+            let (status, retired) =
+                brain_maintenance::integration::runner::refresh_entity_profile_documents(
+                    &ingest,
+                    &ingest_pool,
+                    &loaded_config,
+                    &principal,
+                    &artifacts,
+                    &initial.candidate.release_id,
+                    &runtime,
+                )
+                .await
+                .unwrap();
+            assert_eq!(status["rendered"], 0);
+            retired.unwrap()
+        } else {
+            assert_eq!(
+                brain_maintenance::integration::entity_profiles::retire_removed_git_profiles(
+                    &ingest,
+                    &ingest_pool,
+                    &loaded_config,
+                    &principal,
+                    &BTreeSet::new(),
+                    &allowed,
+                    dir.path(),
+                )
+                .await
+                .unwrap(),
+                1
+            );
+            brain_maintenance::integration::entity_profiles::publish_refreshed_sources(
                 &ingest,
                 &ingest_pool,
-                &loaded_config,
-                &principal,
-                &BTreeSet::new(),
-                &allowed,
-                dir.path()
+                &initial.candidate.release_id,
+                &sources,
             )
             .await
-            .unwrap(),
-            1
-        );
+            .unwrap()
+            .unwrap()
+        };
         assert!(!html.exists());
-        let retired = brain_maintenance::integration::entity_profiles::publish_refreshed_sources(
-            &ingest,
-            &ingest_pool,
-            &initial.candidate.release_id,
-            &sources,
-        )
-        .await
-        .unwrap()
-        .unwrap();
+        let derived_allowed: BTreeSet<_> = retired.changed_sources.iter().cloned().collect();
         let base = ingest
             .snapshot(&initial.candidate.release_id)
             .await
@@ -1989,7 +2114,29 @@ mod tests {
             .await
             .unwrap();
         assert!(empty.release.source_revisions[&sources[0]].is_empty());
-        assert!(empty.revisions.contains(original));
+        assert_eq!(empty.revisions.contains(original), !tombstone_original);
+        assert!(empty.revisions.contains(&preserved));
+        if let Some(kept) = wiki_heads.get(1) {
+            assert!(empty.revisions.contains(kept));
+            assert!(
+                !empty.release.source_revisions["existing"].contains_key(&wiki_heads[0].logical_id)
+            );
+        }
+        if tombstone_original {
+            let (_, repeated) =
+                brain_maintenance::integration::runner::refresh_entity_profile_documents(
+                    &ingest,
+                    &ingest_pool,
+                    &loaded_config,
+                    &principal,
+                    &artifacts,
+                    &empty.release.release_id,
+                    &runtime,
+                )
+                .await
+                .unwrap();
+            assert!(repeated.is_none());
+        }
         std::fs::write(&html, &older_html).unwrap();
         assert!(check_entity_profile_sources(
             &runtime,
@@ -2155,16 +2302,20 @@ mod tests {
         )
         .await
         .is_err());
-        let reappeared =
-            brain_maintenance::integration::entity_profiles::publish_refreshed_sources(
+        let (_, reappeared) =
+            brain_maintenance::integration::runner::refresh_entity_profile_documents(
                 &ingest,
                 &ingest_pool,
+                &loaded_config,
+                &principal,
+                &artifacts,
                 &empty.release.release_id,
-                &sources,
+                &runtime,
             )
             .await
-            .unwrap()
             .unwrap();
+        let reappeared = reappeared.unwrap();
+        let derived_allowed = reappeared.changed_sources.iter().cloned().collect();
         let reappeared = ingest
             .snapshot(&reappeared.candidate.release_id)
             .await

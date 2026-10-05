@@ -670,11 +670,6 @@ impl Runner {
         config: &MaintenanceConfig,
         fresh_sources: &BTreeMap<String, String>,
     ) -> Result<serde_json::Value> {
-        let root = self
-            .runtime
-            .entity_profile_corpus_root
-            .as_ref()
-            .context("entity_profile_corpus_root")?;
         let artifacts = self.artifacts.clone();
         let publication_lock =
             tokio::task::spawn_blocking(move || artifacts.publication_lock()).await??;
@@ -716,159 +711,27 @@ impl Runner {
         };
         let serve = brain_serve::Config::load(&self.runtime.serve_config)?;
         let release = super::activation::ActivationTarget::Standard.release(&serve)?;
-        let mut sources: Vec<_> = self
-            .runtime
-            .entity_profile_sources
-            .iter()
-            .map(|source| source.extraction.source_id.clone())
-            .collect();
-        let base = self.store.snapshot(&release.id).await?;
-        for record in &base.revisions {
-            if let Some(encoded) = record
-                .metadata
-                .get(brain_storage::source_versions::DOCUMENT_METADATA_KEY)
-            {
-                let document: serde_json::Value = serde_json::from_str(encoded)?;
-                if document["source_kind"] == "wiki" && !sources.contains(&record.source_id) {
-                    sources.push(record.source_id.clone());
-                }
-            }
-        }
-        let prepared = super::entity_profiles::publish_refreshed_sources(
-            &self.store,
-            &self.pool,
-            &release.id,
-            &sources,
-        )
-        .await?;
-        let original_release = prepared
-            .as_ref()
-            .map(|prepared| &prepared.candidate)
-            .unwrap_or(&base.release);
         let principal = local_operator_principal(
             require_operator_config(&self.runtime.maintenance_config)?,
             &self.runtime.maintenance_config,
         )?;
-        let snapshot = self.store.snapshot(&original_release.release_id).await?;
-        let catalog = dbrain_sources::entity_binding::load_entity_catalog(&self.pool).await?;
-        let mut bindings = Vec::new();
-        for record in snapshot.authorized(&principal, false)? {
-            if record
-                .metadata
-                .contains_key(brain_storage::source_versions::DOCUMENT_METADATA_KEY)
-            {
-                bindings.push(
-                    dbrain_sources::entity_binding::bind_stored_document(
-                        &self.store,
-                        &record.source_id,
-                        &record.logical_id,
-                        record.revision,
-                        &catalog,
-                    )
-                    .await?,
-                );
-            }
-        }
-        let repositories =
-            super::entity_profiles::registered_git_repositories(config, &snapshot, &principal)?;
-        let mut git_semantic_keys = std::collections::BTreeSet::new();
-        for record in snapshot.authorized(&principal, false)? {
-            let Some(encoded) = record
-                .metadata
-                .get(brain_storage::source_versions::DOCUMENT_METADATA_KEY)
-            else {
-                continue;
-            };
-            let document: serde_json::Value = serde_json::from_str(encoded)?;
-            if document["source_kind"] != "game_file" {
-                continue;
-            }
-            let keys: Vec<String> = sqlx::query_scalar("SELECT DISTINCT entity_key FROM brain.entity_semantic_projections_v1 WHERE source_id=$1 AND logical_id=$2 AND revision=$3")
-                .bind(&record.source_id).bind(&record.logical_id).bind(record.revision as i64)
-                .fetch_all(&self.pool).await?;
-            git_semantic_keys.extend(keys);
-        }
-        let keys = self
-            .store
-            .list_bound_entity_keys(&original_release.release_id, &principal)
-            .await?;
-        let mut profiles = Vec::new();
-        let mut stored_documents = Vec::new();
-        for key in keys {
-            if git_semantic_keys.contains(&key) {
-                let verified =
-                    dbrain_sources::entity_binding::derivation::derive_git_entity_profile(
-                        &self.store,
-                        &original_release.release_id,
-                        &principal,
-                        &key,
-                        &repositories,
-                    )
-                    .await?;
-                let record =
-                    super::entity_profiles::persist_verified_git_profile(&self.store, &verified)
-                        .await?;
-                profiles.push(verified.profile().clone());
-                stored_documents.push(record);
-                continue;
-            }
-            if let Some(profile) = self
-                .store
-                .read_entity_profile(&key, &original_release.release_id, &principal, None)
-                .await?
-            {
-                profiles.push(profile);
-            }
-        }
-        let retired = super::entity_profiles::retire_removed_git_profiles(
+        let (mut status, final_prepared) = refresh_entity_profile_documents(
             &self.store,
             &self.pool,
             config,
             &principal,
-            &git_semantic_keys,
-            &self
-                .runtime
-                .entity_profile_sources
-                .iter()
-                .map(|source| source.extraction.source_id.clone())
-                .collect(),
-            root,
+            &self.artifacts,
+            &release.id,
+            &self.runtime,
         )
         .await?;
-        let prepared =
-            super::entity_profiles::render_and_export_profiles(&self.artifacts, &profiles, root)?;
-        if !stored_documents.is_empty()
-            || retired > 0
-            || base
-                .release
-                .source_revisions
-                .contains_key("git-game-facts-derived")
-        {
-            sources.push("git-game-facts-derived".into());
-        }
-        let final_prepared = super::entity_profiles::publish_refreshed_sources(
-            &self.store,
-            &self.pool,
-            &base.release.release_id,
-            &sources,
-        )
-        .await?;
-        let release_id = final_prepared
-            .as_ref()
-            .map(|prepared| prepared.candidate.release_id.clone())
-            .unwrap_or_else(|| base.release.release_id.clone());
         drop(publication_lock);
         if let Some(prepared) = &final_prepared {
             super::entity_profiles::activate_refreshed_sources(&self.runtime, prepared).await?;
         }
-        Ok(
-            json!({"release_id": release_id, "imports": imports, "patches": patches, "bindings": bindings, "stored_documents": stored_documents.len(), "rendered": prepared.len(), "profiles": prepared.iter().map(|profile| json!({
-            "entity_key": profile.entity_key,
-            "profile_sha256": profile.profile_sha256,
-            "brain_document": profile.brain_document_ref,
-            "public_html": profile.public_html_ref
-        })).collect::<Vec<_>>()}),
-        )
+        status["imports"] = json!(imports);
+        status["patches"] = json!(patches);
+        Ok(status)
     }
 
     async fn handle_failed_advance(
@@ -2132,4 +1995,156 @@ impl Runner {
             "results":matches.into_iter().take(3).map(|(_,value)|value).collect::<Vec<_>>()}),
         )
     }
+}
+
+pub async fn refresh_entity_profile_documents(
+    store: &PgStore,
+    pool: &sqlx::PgPool,
+    config: &MaintenanceConfig,
+    principal: &brain_contracts::Principal,
+    artifacts: &Artifacts,
+    base_id: &str,
+    runtime: &RuntimeConfig,
+) -> Result<(
+    serde_json::Value,
+    Option<super::entity_profiles::PreparedRefresh>,
+)> {
+    let root = runtime
+        .entity_profile_corpus_root
+        .as_ref()
+        .context("entity_profile_corpus_root")?;
+    let mut sources: Vec<_> = runtime
+        .entity_profile_sources
+        .iter()
+        .map(|source| source.extraction.source_id.clone())
+        .collect();
+    let base = store.snapshot(base_id).await?;
+    for record in &base.revisions {
+        if let Some(encoded) = record
+            .metadata
+            .get(brain_storage::source_versions::DOCUMENT_METADATA_KEY)
+        {
+            let document: serde_json::Value = serde_json::from_str(encoded)?;
+            if document["source_kind"] == "wiki" && !sources.contains(&record.source_id) {
+                sources.push(record.source_id.clone());
+            }
+        }
+    }
+    let prepared =
+        super::entity_profiles::publish_refreshed_sources(store, pool, base_id, &sources).await?;
+    let original_release = prepared
+        .as_ref()
+        .map(|prepared| &prepared.candidate)
+        .unwrap_or(&base.release);
+    let snapshot = store.snapshot(&original_release.release_id).await?;
+    let catalog = dbrain_sources::entity_binding::load_entity_catalog(pool).await?;
+    let mut bindings = Vec::new();
+    for record in snapshot.authorized(principal, false)? {
+        if record
+            .metadata
+            .contains_key(brain_storage::source_versions::DOCUMENT_METADATA_KEY)
+        {
+            bindings.push(
+                dbrain_sources::entity_binding::bind_stored_document(
+                    store,
+                    &record.source_id,
+                    &record.logical_id,
+                    record.revision,
+                    &catalog,
+                )
+                .await?,
+            );
+        }
+    }
+    let repositories =
+        super::entity_profiles::registered_git_repositories(config, &snapshot, principal)?;
+    let mut git_semantic_keys = std::collections::BTreeSet::new();
+    for record in snapshot.authorized(principal, false)? {
+        let Some(encoded) = record
+            .metadata
+            .get(brain_storage::source_versions::DOCUMENT_METADATA_KEY)
+        else {
+            continue;
+        };
+        let document: serde_json::Value = serde_json::from_str(encoded)?;
+        if document["source_kind"] != "game_file" {
+            continue;
+        }
+        let keys: Vec<String> = sqlx::query_scalar("SELECT DISTINCT entity_key FROM brain.entity_semantic_projections_v1 WHERE source_id=$1 AND logical_id=$2 AND revision=$3")
+                .bind(&record.source_id).bind(&record.logical_id).bind(record.revision as i64)
+                .fetch_all(pool).await?;
+        git_semantic_keys.extend(keys);
+    }
+    let keys = store
+        .list_bound_entity_keys(&original_release.release_id, principal)
+        .await?;
+    let mut profiles = Vec::new();
+    let mut stored_documents = Vec::new();
+    for key in keys {
+        if git_semantic_keys.contains(&key) {
+            let verified = dbrain_sources::entity_binding::derivation::derive_git_entity_profile(
+                store,
+                &original_release.release_id,
+                principal,
+                &key,
+                &repositories,
+            )
+            .await?;
+            let record =
+                super::entity_profiles::persist_verified_git_profile(store, &verified).await?;
+            profiles.push(verified.profile().clone());
+            stored_documents.push(record);
+            continue;
+        }
+        if let Some(profile) = store
+            .read_entity_profile(&key, &original_release.release_id, principal, None)
+            .await?
+        {
+            profiles.push(profile);
+        }
+    }
+    let retired = super::entity_profiles::retire_removed_git_profiles(
+        store,
+        pool,
+        config,
+        principal,
+        &git_semantic_keys,
+        &runtime
+            .entity_profile_sources
+            .iter()
+            .map(|source| source.extraction.source_id.clone())
+            .collect(),
+        root,
+    )
+    .await?;
+    let prepared = super::entity_profiles::render_and_export_profiles(artifacts, &profiles, root)?;
+    if !stored_documents.is_empty()
+        || retired > 0
+        || base
+            .release
+            .source_revisions
+            .contains_key("git-game-facts-derived")
+    {
+        sources.push("git-game-facts-derived".into());
+    }
+    let final_prepared = super::entity_profiles::publish_refreshed_sources(
+        store,
+        pool,
+        &base.release.release_id,
+        &sources,
+    )
+    .await?;
+    let release_id = final_prepared
+        .as_ref()
+        .map(|prepared| prepared.candidate.release_id.clone())
+        .unwrap_or_else(|| base.release.release_id.clone());
+    Ok((
+        json!({"release_id": release_id, "bindings": bindings, "stored_documents": stored_documents.len(), "rendered": prepared.len(), "profiles": prepared.iter().map(|profile| json!({
+        "entity_key": profile.entity_key,
+        "profile_sha256": profile.profile_sha256,
+        "brain_document": profile.brain_document_ref,
+        "public_html": profile.public_html_ref
+    })).collect::<Vec<_>>()}),
+        final_prepared,
+    ))
 }
