@@ -1200,6 +1200,111 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Lesender Guardbeleg am gespeicherten Originalkandidaten"]
+    async fn live_candidate_operator_access() {
+        let runtime = super::super::runtime_config::RuntimeConfig::load(Path::new(
+            "/etc/deadlock-brain/maintenance-runtime.json",
+        ))
+        .unwrap();
+        let principal = super::super::runner::local_operator_principal(
+            super::super::runner::require_operator_config(&runtime.maintenance_config).unwrap(),
+            &runtime.maintenance_config,
+        )
+        .unwrap();
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect_with(
+                sqlx::postgres::PgConnectOptions::new_without_pgpass()
+                    .host("/run/deadlock-brain-postgresql")
+                    .port(5446)
+                    .username("brain_migrate")
+                    .database("brain"),
+            )
+            .await
+            .unwrap();
+        sqlx::query("SET default_transaction_read_only=on")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let snapshot = brain_storage::PgStore::new(pool.clone())
+            .snapshot(
+                "entity-profiles-817ab280def6d4a49f4a8834200e931c95c8b8d09ae89ed2ea06b28ccd7ef1bf",
+            )
+            .await
+            .unwrap();
+        let sources: BTreeSet<_> = runtime
+            .entity_profile_sources
+            .iter()
+            .map(|source| source.extraction.source_id.as_str())
+            .collect();
+        let originals: Vec<_> = snapshot
+            .revisions
+            .iter()
+            .filter(|record| sources.contains(record.source_id.as_str()))
+            .collect();
+        assert_eq!(originals.len(), 112);
+        let required_scopes: BTreeSet<_> = originals
+            .iter()
+            .flat_map(|record| record.allowed_scopes.iter().cloned())
+            .chain(principal.scopes.iter().cloned())
+            .collect();
+        let missing: BTreeSet<_> = required_scopes
+            .difference(&principal.scopes)
+            .cloned()
+            .collect();
+        assert_eq!(
+            missing,
+            BTreeSet::from([
+                "source.review:deadlock-wiki-deadlock-data".into(),
+                "source.review:steamtracking-gametracking-deadlock".into(),
+            ])
+        );
+        let permission_model = brain_contracts::Principal {
+            scopes: required_scopes,
+            ..principal.clone()
+        };
+        for source in &sources {
+            let records: Vec<_> = originals
+                .iter()
+                .filter(|record| record.source_id == *source)
+                .collect();
+            let actual = records
+                .iter()
+                .filter(|record| brain_contracts::store::record_allowed(record, &principal, false))
+                .count();
+            let modeled = records
+                .iter()
+                .filter(|record| {
+                    brain_contracts::store::record_allowed(record, &permission_model, false)
+                })
+                .count();
+            assert_eq!(actual, 0);
+            assert_eq!(modeled, records.len());
+            for record in records {
+                let head = snapshot
+                    .heads
+                    .iter()
+                    .find(|head| {
+                        head.source_id == record.source_id && head.logical_id == record.logical_id
+                    })
+                    .unwrap();
+                assert_eq!(head, *record);
+                assert!(brain_contracts::store::record_allowed(
+                    head,
+                    &permission_model,
+                    false
+                ));
+            }
+            eprintln!(
+                "source={} originals={} visible={} permission_model_visible={}",
+                source, modeled, actual, modeled
+            );
+        }
+        eprintln!("missing_scopes={missing:?}");
+        pool.close().await;
+    }
+
+    #[tokio::test]
     #[ignore = "Lokaler Profilbeleg mit lesend übernommenem Livebestand"]
     async fn live_original_profile_path() {
         use std::io::Write;
