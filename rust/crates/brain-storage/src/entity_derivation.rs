@@ -16,6 +16,9 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
+#[path = "game_file_facts.rs"]
+pub mod game_file_facts;
+
 pub const GIT_DOCUMENT_CONTRACT: &str = "git-entity-document-v1";
 pub const GIT_GAME_FACT_AUTHORIZATION: &str = "VON_HAUPT.md:2026-10-04T15:05:git-spielfakten;DELEGATOR-SPIELWISSEN.md:Modell-Steckbrief;A3_F1_VON_D5.md:2026-10-04T17:58";
 
@@ -246,6 +249,7 @@ pub fn derive_git_profile(
     let mut unknowns = BTreeSet::new();
     let mut originals_by_record = BTreeMap::new();
     let mut verified_git = BTreeMap::new();
+    let mut blob_facts = BTreeMap::new();
     for binding in rows {
         let key = (
             &binding.source_id,
@@ -309,7 +313,7 @@ pub fn derive_git_profile(
             ));
         }
         if let std::collections::btree_map::Entry::Vacant(entry) = verified_git.entry(key) {
-            let (commit, repository, _) = git_document_identity(record)?;
+            let (commit, repository, path) = git_document_identity(record)?;
             let blob = blob_map
                 .get(&key)
                 .ok_or_else(|| invalid("Tatsächlicher Gitblobbeleg fehlt"))?;
@@ -326,7 +330,62 @@ pub fn derive_git_profile(
                     "Gitcommit, Upstream oder Originalblob widerspricht dem Beleg",
                 ));
             }
+            let canonical_path = document["metadata"]["relative_path"]
+                .as_str()
+                .ok_or_else(|| invalid("Originalressourcenpfad fehlt"))?;
+            let canonical_blob_path = game_file_facts::canonical_resource_path(
+                document["metadata"]["source_layout"].as_str(),
+                &path,
+                true,
+            );
+            if canonical_path != canonical_blob_path {
+                return Err(invalid(
+                    "Originalressourcenpfad widerspricht dem Gitblobpfad",
+                ));
+            }
+            let content = std::str::from_utf8(&blob.bytes)
+                .map_err(|_| invalid("Gitblob ist kein belegter Originaltext"))?;
+            let (parsed, status) = game_file_facts::extract_facts(canonical_path, content);
+            if document["metadata"]["parse_status"] != status {
+                return Err(invalid("Originalparserstatus widerspricht dem Gitblob"));
+            }
+            let mut parsed_by_id = BTreeMap::new();
+            for fact in parsed {
+                let id = fact["fact_id"]
+                    .as_str()
+                    .ok_or_else(|| invalid("Originalparser liefert keine Faktidentität"))?
+                    .to_owned();
+                if parsed_by_id.insert(id, fact).is_some() {
+                    return Err(invalid("Originalblobfeld ist nicht eindeutig"));
+                }
+            }
+            blob_facts.insert(key, parsed_by_id);
             entry.insert((commit, repository));
+        }
+        let parsed = blob_facts[&key]
+            .get(&original.fact_id)
+            .ok_or_else(|| invalid("Gebundenes Originalfeld fehlt im Gitblob"))?;
+        if parsed["subject"].as_str() != Some(original.subject.as_str())
+            || parsed["predicate"].as_str() != Some(original.predicate.as_str())
+            || (original.predicate == "file.kv_value"
+                && original.qualifiers.contains_key("json_pointer"))
+            || parsed["value"] != original.value
+            || parsed["source_span"].as_str() != original.provenance.source_span.as_deref()
+            || parsed["evidence_status"].as_str() != Some(original.evidence_status.as_str())
+            || parsed["qualifiers"]
+                .as_object()
+                .ok_or_else(|| invalid("Originalparserqualifier fehlen"))?
+                .iter()
+                .any(|(key, value)| {
+                    !(original.predicate == "file.kv_value"
+                        && key == "source_pointer"
+                        && !original.qualifiers.contains_key(key))
+                        && original.qualifiers.get(key) != Some(value)
+                })
+        {
+            return Err(invalid(
+                "Gebundener Originalfakt widerspricht seinem Gitblobfeld",
+            ));
         }
         let (commit, repository) = &verified_git[&key];
         if original.provenance.origin.raw_sha256 != record.content_hash {

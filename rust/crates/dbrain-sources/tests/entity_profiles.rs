@@ -463,7 +463,7 @@ impl Drop for ScratchPg {
             .status();
     }
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
     let pg = ScratchPg {
         directory: tempfile::tempdir().unwrap(),
@@ -842,6 +842,7 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
     original_alias_bindings_drive_history_without_consumer_leaks(&store, &pool).await;
     private_einheiten_bleiben_bei_gespeicherter_neuableitung_in_den_originalpins(&store, &pool)
         .await;
+    gitblobfelder_werden_im_normalen_ableitungs_und_abrufweg_geprüft(&store, &pool, &socket).await;
     sqlx::raw_sql(
         "CREATE ROLE brain_ingest LOGIN; CREATE ROLE brain_service; CREATE ROLE brain_readonly",
     )
@@ -1846,4 +1847,361 @@ fn extractor_records() -> Vec<brain_contracts::SourceRecordV2> {
         let input = validate_knowledge_jsonl_str(&document.to_string()).unwrap();
         prepare_validated_knowledge(&input,&policy,"fixture-v1").unwrap().records()[0].record.clone()
     }).collect()
+}
+
+async fn gitblobfelder_werden_im_normalen_ableitungs_und_abrufweg_geprüft(
+    store: &brain_storage::PgStore,
+    pool: &sqlx::PgPool,
+    socket: &std::path::Path,
+) {
+    use brain_contracts::store::SnapshotReadPort;
+    use brain_storage::entity_profile::{
+        compact::compact_document,
+        derivation::{
+            derive_git_profile, derived_policy, receipt_sha256, sha256,
+            verify_git_document_receipt, GitBlobEvidence, GIT_DOCUMENT_CONTRACT,
+        },
+    };
+    use dbrain_sources::{
+        entity_binding::derivation::derive_git_entity_profile,
+        entity_binding::{bind_stored_document, CatalogEntity},
+        git_source::PinnedRepository,
+    };
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let directory = tempfile::tempdir().unwrap();
+    let formats = [
+        ("json", r#"{"hero_test":{"MaxHealth":120,"Damage":999,"Speed":1.234567890123456789e+19,"Armor":9007199254740993}}"#),
+        ("kv3", "{ hero_test = { MaxHealth = 120 Damage = 999 Speed = 1.234567890123456789e+19 Armor = 9007199254740993 } }"),
+        ("kv1", "hero_test { MaxHealth 120 Damage 999 Speed 1.234567890123456789e+19 Armor 9007199254740993 }")
+    ];
+    for (extension, content) in formats {
+        std::fs::write(
+            directory.path().join(format!("health.{extension}")),
+            content,
+        )
+        .unwrap();
+    }
+    let upstream = "https://github.com/deadlock-wiki/deadlock-data";
+    for args in [
+        vec!["init", "-q"],
+        vec!["config", "user.email", "fixture@example.org"],
+        vec!["config", "user.name", "Testdaten"],
+        vec!["remote", "add", "origin", upstream],
+        vec!["add", "."],
+        vec!["commit", "-qm", "Testdaten"],
+    ] {
+        assert!(std::process::Command::new("git")
+            .arg("-C")
+            .arg(directory.path())
+            .args(args)
+            .status()
+            .unwrap()
+            .success());
+    }
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(directory.path())
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let commit = String::from_utf8(output.stdout).unwrap().trim().to_owned();
+    let pinned = PinnedRepository::open(directory.path(), &commit).unwrap();
+    for (extension, content) in formats {
+        let mut clean = None;
+        for case in 0..5 {
+            if extension == "kv1" && case == 4 {
+                continue;
+            }
+            let source_id = format!("blobfield-{extension}-{case}");
+            let mut document = extracted_game_document_from_source(&source_id, extension, content);
+            document["revision"] = json!(format!("git:{commit}"));
+            document["metadata"]["source_revision"] = json!(format!("git:{commit}"));
+            document["metadata"]["provenance"]["repository_url"] = json!(upstream);
+            let facts = document["facts"].as_array_mut().unwrap();
+            let health = facts
+                .iter_mut()
+                .find(|fact| fact["fact_id"].as_str().unwrap().contains("MaxHealth"))
+                .unwrap();
+            match case {
+                1 | 3 => {
+                    health["value"] = if extension == "kv1" {
+                        json!(if case == 1 { "777" } else { "999" })
+                    } else {
+                        json!(if case == 1 { 777 } else { 999 })
+                    };
+                    if extension != "kv1" {
+                        health["qualifiers"]["source_lexeme"] =
+                            json!(if case == 1 { "777" } else { "999" });
+                    }
+                }
+                2 => {
+                    let pointer = health["qualifiers"]["source_pointer"]
+                        .as_str()
+                        .unwrap()
+                        .replace("MaxHealth", "Damage");
+                    health["qualifiers"]["source_pointer"] = json!(pointer);
+                    if extension == "json" {
+                        health["qualifiers"]["json_pointer"] = json!(pointer);
+                    }
+                }
+                4 => health["qualifiers"]["source_lexeme"] = json!("0120"),
+                _ => {}
+            }
+            let record = prepared_game_document(&document);
+            assert_eq!(
+                pinned.read_blob(&format!("health.{extension}")).unwrap(),
+                record.content.as_bytes()
+            );
+            store.apply(&record).await.unwrap();
+            let mut identity = entity(EntityKind::Hero);
+            identity.entity_key = format!("blobfield-{extension}");
+            identity.name = format!("Blobheld {extension}");
+            let catalog = [CatalogEntity {
+                identity: identity.clone(),
+                identifiers: vec!["hero_test".into()],
+            }];
+            bind_stored_document(
+                store,
+                &record.source_id,
+                &record.logical_id,
+                record.revision,
+                &catalog,
+            )
+            .await
+            .unwrap();
+            let release = brain_contracts::CorpusRelease {
+                release_id: source_id.clone(),
+                knowledge_version: "fixture".into(),
+                patch: "unknown".into(),
+                created_at_epoch: 1,
+                source_revisions: BTreeMap::from([(
+                    record.source_id.clone(),
+                    BTreeMap::from([(record.logical_id.clone(), record.revision)]),
+                )]),
+            };
+            store.publish_release(&release).await.unwrap();
+            let operator = brain_contracts::Principal {
+                actor_id: "fixture".into(),
+                channel: "test".into(),
+                scopes: record.allowed_scopes.clone(),
+                provider_egress: BTreeSet::new(),
+            };
+            let repositories =
+                BTreeMap::from([((source_id.clone(), commit.clone()), pinned.clone())]);
+            let snapshot = store.snapshot(&release.release_id).await.unwrap();
+            let bindings = store
+                .stored_git_entity_bindings(&identity.entity_key, &record)
+                .await
+                .unwrap();
+            assert_eq!(bindings.len(), 4);
+            let blobs = [GitBlobEvidence {
+                source_id: source_id.clone(),
+                logical_id: record.logical_id.clone(),
+                store_revision: record.revision,
+                git_commit: commit.clone(),
+                repository_url: upstream.into(),
+                bytes: pinned.read_blob(&format!("health.{extension}")).unwrap(),
+            }];
+            if extension != "json" {
+                let result = derive_git_profile(
+                    &identity.entity_key,
+                    &snapshot,
+                    &operator,
+                    &bindings,
+                    &blobs,
+                    &[],
+                );
+                if case == 0 {
+                    assert!(result.is_ok());
+                    let profile = store
+                        .read_entity_profile(
+                            &identity.entity_key,
+                            &release.release_id,
+                            &operator,
+                            None,
+                        )
+                        .await
+                        .unwrap()
+                        .unwrap();
+                    assert!(profile
+                        .facts
+                        .iter()
+                        .any(|fact| fact.value == "1.234567890123456789e+19"));
+                    assert!(profile
+                        .facts
+                        .iter()
+                        .any(|fact| fact.value == json!(9007199254740993_u64)
+                            || fact.value == "9007199254740993"));
+                } else {
+                    assert!(result.is_err(), "{extension}/{case}");
+                }
+                continue;
+            }
+            let result = derive_git_entity_profile(
+                store,
+                &release.release_id,
+                &operator,
+                &identity.entity_key,
+                &repositories,
+            )
+            .await;
+            if case == 0 {
+                let verified = result.unwrap();
+                assert!(verified
+                    .profile()
+                    .facts
+                    .iter()
+                    .any(|fact| fact.value == "1.234567890123456789e+19"
+                        && fact.qualifiers["numeric_representation"] == "source_numeric_lexeme"));
+                assert!(verified
+                    .profile()
+                    .facts
+                    .iter()
+                    .any(|fact| fact.value == json!(9007199254740993_u64)));
+                clean = Some((verified.profile().clone(), verified.receipt().clone()));
+            } else {
+                assert!(result.is_err(), "{extension}/{case}");
+            }
+            if case == 2 || case == 4 {
+                continue;
+            }
+            let (mut profile, mut receipt) = clean.clone().unwrap();
+            if case != 0 {
+                profile
+                    .facts
+                    .iter_mut()
+                    .find(|fact| fact.predicate == "max_health")
+                    .unwrap()
+                    .value = json!(if case == 1 { 777 } else { 999 });
+            }
+            receipt.original_release_id = release.release_id.clone();
+            for pin in &mut receipt.fact_pins {
+                let binding = bindings
+                    .iter()
+                    .find(|binding| binding.original_fact.fact_id == pin.fact_id)
+                    .unwrap();
+                pin.source_id = source_id.clone();
+                pin.binding_identity = binding.binding_identity.clone();
+                pin.semantic_projection = binding.semantic_projection.clone().unwrap();
+            }
+            let mut derived = record.clone();
+            derived.source_id = "git-game-facts-derived".into();
+            derived.logical_id = identity.entity_key.clone();
+            derived.content = compact_document(&profile).unwrap();
+            derived.content_hash = sha256(derived.content.as_bytes());
+            receipt.document_sha256 = derived.content_hash.clone();
+            derived.visibility = brain_contracts::SourceVisibility::Public;
+            derived.allowed_scopes.clear();
+            derived.metadata = BTreeMap::from([
+                (
+                    "brain.entity_projection.contract".into(),
+                    GIT_DOCUMENT_CONTRACT.into(),
+                ),
+                (
+                    "brain.entity_projection.receipt_sha256".into(),
+                    receipt_sha256(&receipt).unwrap(),
+                ),
+            ]);
+            let mut origin = brain_contracts::source::origin_from_record(&record).unwrap();
+            origin.identity.source_id = derived.source_id.clone();
+            origin.identity.logical_id = derived.logical_id.clone();
+            origin.raw_sha256 = derived.content_hash.clone();
+            origin.locator = "git-game-facts-derived".into();
+            origin.origin_artifacts.clear();
+            origin.policy = derived_policy();
+            origin.bind_record(&mut derived).unwrap();
+            let saved = store
+                .persist_entity_document(derived, &serde_json::to_string(&receipt).unwrap())
+                .await
+                .unwrap();
+            let receipt_json: String = sqlx::query_scalar("SELECT receipt_json FROM brain.entity_derived_receipts_v1 WHERE derived_source_id=$1 AND derived_logical_id=$2 AND derived_revision=$3")
+                .bind(&saved.source_id).bind(&saved.logical_id).bind(saved.revision as i64).fetch_one(pool).await.unwrap();
+            let stored_receipt = serde_json::from_str(&receipt_json).unwrap();
+            let checked = verify_git_document_receipt(
+                &saved,
+                &stored_receipt,
+                &snapshot,
+                &operator,
+                &bindings,
+                &blobs,
+                &[],
+            );
+            if case == 0 {
+                assert_eq!(checked.unwrap(), profile);
+            } else {
+                assert!(checked.is_err());
+            }
+            let mut public_release = release.clone();
+            public_release.release_id = format!("{source_id}-derived");
+            public_release.source_revisions.insert(
+                saved.source_id.clone(),
+                BTreeMap::from([(saved.logical_id.clone(), saved.revision)]),
+            );
+            store.publish_release(&public_release).await.unwrap();
+            let operator_copy = operator.clone();
+            let blob_copy = blobs[0].clone();
+            let reader = tokio::task::block_in_place(|| {
+                brain_storage::LocalPgReader::new(socket, 15446, "fixture", "postgres")
+                    .unwrap()
+                    .with_entity_profile_access(
+                        move || Ok(operator_copy.clone()),
+                        move |_| Ok(blob_copy.clone()),
+                    )
+                    .with_entity_profile_model_consumers(BTreeSet::from([(
+                        "fixture".into(),
+                        "test".into(),
+                    )]))
+                    .unwrap()
+            });
+            let query = brain_contracts::Query {
+                request_id: "blobfield".into(),
+                conversation_id: "blobfield".into(),
+                text: format!("Welche Gesundheit hat {}?", identity.name),
+                requested_scopes: BTreeSet::new(),
+                profile: Default::default(),
+                patch: None,
+                mode: None,
+                domain: None,
+            };
+            let mut consumer = operator.clone();
+            consumer.scopes = BTreeSet::from(["bot.public".into()]);
+            consumer.provider_egress = BTreeSet::from(["public".into()]);
+            let context = brain_contracts::AuthorizedContext {
+                discord: None,
+                request_deadline: None,
+                principal: consumer,
+                conversation_id: query.conversation_id.clone(),
+                knowledge_release: public_release.release_id,
+                deadline_ms: 30000,
+                budget: Default::default(),
+            };
+            assert_eq!(
+                store
+                    .snapshot(&context.knowledge_release)
+                    .await
+                    .unwrap()
+                    .authorized(&context.principal, false)
+                    .unwrap()
+                    .len(),
+                1,
+                "{saved:?}"
+            );
+            let evidence = tokio::task::block_in_place(|| {
+                reader.read_entity_evidence(
+                    &query,
+                    &context,
+                    None,
+                    false,
+                    brain_contracts::store::AnswerPurpose::InternalRead,
+                )
+            });
+            if case == 0 {
+                assert!(!evidence.unwrap().unwrap().is_empty());
+            } else {
+                assert!(evidence.is_err());
+            }
+        }
+    }
 }
