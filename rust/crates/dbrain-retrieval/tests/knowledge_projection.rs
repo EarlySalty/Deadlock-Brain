@@ -827,8 +827,8 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
         entity_profile::{
             compact::compact_document,
             derivation::{
-                derive_git_profile, derived_policy, git_document_identity, receipt_sha256,
-                GitBlobEvidence, GIT_DOCUMENT_CONTRACT,
+                derive_git_profile, derived_policy, game_file_facts::extract_facts,
+                git_document_identity, receipt_sha256, GitBlobEvidence, GIT_DOCUMENT_CONTRACT,
             },
             project_entity_facts,
             semantic::semantic_projection,
@@ -908,13 +908,21 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
         document["source_kind"] = json!("game_file");
         document["document_id"] = json!(original.logical_id);
         document["revision"] = json!("a".repeat(40));
-        document["metadata"] = json!({"source_revision":"a".repeat(40),"original_relative_path":format!("{identifier}.json"),"original_sha256":original.content_hash,"provenance":{"repository_url":"https://github.com/deadlock-wiki/deadlock-data"}});
-        document["facts"] = json!([{"fact_id":"stat","subject":"game_file:private-fixture.json","predicate":"file.json_value","value":value,"unit":null,"evidence_status":"extracted_value","source_span":format!("/{identifier}/{stat}"),"qualifiers":{"source_pointer":format!("/{identifier}/{stat}")}}]);
-        let mut fact_ids = vec!["stat".into()];
-        if identity.kind == EntityKind::Hero {
-            document["facts"].as_array_mut().unwrap().push(json!({"fact_id":"current_patch","subject":"game_file:private-fixture.json","predicate":"current_patch","value":"2026-09-16","unit":null,"evidence_status":"extracted_value","source_span":format!("/{identifier}/CurrentPatch"),"qualifiers":{"source_pointer":format!("/{identifier}/CurrentPatch")}}));
-            fact_ids.push("current_patch".into());
-        }
+        let path = format!("{identifier}.json");
+        let (facts, parse_status) = extract_facts(&path, &original.content);
+        let fact_ids: Vec<String> = facts
+            .iter()
+            .map(|fact| fact["fact_id"].as_str().unwrap().to_owned())
+            .collect();
+        let stat_fact_id = facts
+            .iter()
+            .find(|fact| fact["qualifiers"]["source_pointer"] == format!("/{identifier}/{stat}"))
+            .unwrap()["fact_id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        document["metadata"] = json!({"source_revision":"a".repeat(40),"relative_path":path,"original_relative_path":path,"parse_status":parse_status,"original_sha256":original.content_hash,"provenance":{"repository_url":"https://github.com/deadlock-wiki/deadlock-data"}});
+        document["facts"] = json!(facts);
         original
             .metadata
             .insert(DOCUMENT_METADATA_KEY.into(), document.to_string());
@@ -934,7 +942,7 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
             .store_entity_fact_bindings(&identity, &original, &fact_ids)
             .await
             .unwrap();
-        let fact = project_entity_facts(&original, &["stat".into()])
+        let fact = project_entity_facts(&original, std::slice::from_ref(&stat_fact_id))
             .unwrap()
             .remove(0);
         let projection = semantic_projection(&fact, &format!("/{stat}"), &original, &identity)
@@ -944,7 +952,7 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
             .store_entity_semantic_projections(
                 &identity.entity_key,
                 &original,
-                &[("stat".into(), projection)],
+                &[(stat_fact_id, projection)],
             )
             .await
             .unwrap();
