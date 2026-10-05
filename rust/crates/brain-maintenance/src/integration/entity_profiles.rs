@@ -119,7 +119,7 @@ pub async fn refresh_git_knowledge(
                     .iter()
                     .filter(|file| file.disposition == "extracted")
                     .nth(issue.line.checked_sub(1)?)
-                    .map(|file| file.path.clone())
+                    .map(|file| file.relative_path.clone())
             });
             anyhow::Error::new(error).context(context)
         })?;
