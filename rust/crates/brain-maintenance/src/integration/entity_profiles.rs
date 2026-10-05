@@ -1,10 +1,65 @@
 use super::artifacts::Artifacts;
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context, Result};
 use brain_contracts::entity_profile::EntityProfile;
 use std::{
     collections::BTreeSet,
     path::{Component, Path, PathBuf},
 };
+
+#[derive(Debug)]
+struct GitKnowledgeStep {
+    source_id: String,
+    commit: String,
+    step: &'static str,
+    document_path: Option<String>,
+}
+
+impl std::fmt::Display for GitKnowledgeStep {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "Spielquellenimport: {}", self.step)
+    }
+}
+
+impl std::error::Error for GitKnowledgeStep {}
+
+pub(super) fn refresh_failure(error: &anyhow::Error) -> serde_json::Value {
+    let mut status = serde_json::json!({"code": "ENTITY_PROFILE_REFRESH_FAILED"});
+    if let Some(step) = error.downcast_ref::<GitKnowledgeStep>() {
+        status["source_id"] = serde_json::json!(step.source_id);
+        status["commit"] = serde_json::json!(step.commit);
+        status["step"] = serde_json::json!(step.step);
+        if let Some(path) = &step.document_path {
+            status["document_path"] = serde_json::json!(path);
+        }
+    }
+    if let Some(validation) =
+        error.downcast_ref::<dbrain_sources::knowledge_contract::KnowledgeValidationErrors>()
+    {
+        status["validation"] = serde_json::json!(validation.errors.iter().map(|issue| {
+            serde_json::json!({
+                "line": issue.line,
+                "cause": if issue.message.contains("allocation_budget_exceeded_preserved_as_text") {
+                    "allocation_budget_exceeded_preserved_as_text"
+                } else if issue.message == "Nichtleerer Text ohne Steuerzeichen erforderlich" {
+                    "Nichtleerer Text ohne Steuerzeichen erforderlich"
+                } else { "Wissensvertrag verletzt" }
+            })
+        }).collect::<Vec<_>>());
+    } else if let Some(database) = error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<sqlx::Error>())
+    {
+        status["cause"] = serde_json::json!("Datenbankfehler");
+        if let Some(database) = database.as_database_error() {
+            status["sqlstate"] = serde_json::json!(database.code());
+        }
+    } else if let Some(io) = error.downcast_ref::<std::io::Error>() {
+        status["cause"] = serde_json::json!(format!("Dateizugriff: {:?}", io.kind()));
+    } else {
+        status["cause"] = serde_json::json!("Steckbriefaktualisierung abgebrochen");
+    }
+    status
+}
 
 pub async fn refresh_git_knowledge(
     source: &super::runtime_config::EntityProfileSource,
@@ -14,10 +69,16 @@ pub async fn refresh_git_knowledge(
     pool: &sqlx::PgPool,
 ) -> Result<serde_json::Value> {
     use dbrain_sources::{game_files, knowledge_contract, knowledge_import};
+    let step = |step| GitKnowledgeStep {
+        source_id: source.extraction.source_id.clone(),
+        commit: pinned.commit().to_owned(),
+        step,
+        document_path: None,
+    };
     let staged = tempfile::tempdir()?;
     let mut files = std::collections::BTreeMap::new();
     for prefix in &source.paths {
-        for blob in pinned.files(prefix)? {
+        for blob in pinned.files(prefix).context(step("Git-Dateiliste"))? {
             files.insert(blob.path.clone(), blob);
         }
     }
@@ -32,7 +93,8 @@ pub async fn refresh_git_knowledge(
                 .parent()
                 .ok_or_else(|| anyhow::anyhow!("Quellpfad fehlt"))?,
         )?;
-        std::fs::write(target, pinned.read_blob(path)?)?;
+        std::fs::write(target, pinned.read_blob(path).context(step("Git-Blob"))?)
+            .context(step("Dateibereitstellung"))?;
     }
     let mut options = source.extraction.clone();
     options.root = staged.path().to_owned();
@@ -40,22 +102,37 @@ pub async fn refresh_git_knowledge(
     options.observed_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     options.provenance["git_commit"] = serde_json::json!(pinned.commit());
     let mut output = tempfile::tempfile()?;
-    let inventory = game_files::extract_game_files(&options, &mut output)?;
+    let inventory =
+        game_files::extract_game_files(&options, &mut output).context(step("Extraktion"))?;
     ensure!(
         inventory.gaps.is_empty(),
         "Spielquellenextraktion meldet offene Lücken"
     );
     use std::io::{Seek, SeekFrom};
     output.seek(SeekFrom::Start(0))?;
-    let input = knowledge_contract::validate_knowledge_jsonl(std::io::BufReader::new(output))?;
+    let input = knowledge_contract::validate_knowledge_jsonl(std::io::BufReader::new(output))
+        .map_err(|error| {
+            let mut context = step("JSONL-Validierung");
+            context.document_path = error.errors.first().and_then(|issue| {
+                inventory
+                    .files
+                    .iter()
+                    .filter(|file| file.disposition == "extracted")
+                    .nth(issue.line.checked_sub(1)?)
+                    .map(|file| file.path.clone())
+            });
+            anyhow::Error::new(error).context(context)
+        })?;
     let policy: knowledge_import::ImportPolicy = serde_json::from_slice(
         &super::runtime_config::read_bounded(&source.import_policy, 256 * 1024)?,
-    )?;
+    )
+    .context(step("Importfreigabe"))?;
     let prepared = knowledge_import::prepare_validated_knowledge(
         &input,
         &policy,
         game_files::EXTRACTOR_VERSION,
-    )?;
+    )
+    .context(step("Importvorbereitung"))?;
     if let Some(raw_dir) = &source.canonical_raw_dir {
         dbrain_sources::deadlock_data::pull_deadlock_data_with_pool(
             pool,
@@ -74,7 +151,9 @@ pub async fn refresh_git_knowledge(
         .await?;
         dbrain_normalize::normalize_entities(pool, false).await?;
     }
-    let imported = knowledge_import::import_prepared_knowledge(store, prepared).await?;
+    let imported = knowledge_import::import_prepared_knowledge(store, prepared)
+        .await
+        .context(step("Dokumentspeicherung"))?;
     ensure!(imported.complete, "Spielquellenimport ist unvollständig");
     Ok(
         serde_json::json!({"source_id": options.source_id, "commit": pinned.commit(), "documents": inventory.documents, "facts": inventory.facts, "import": imported}),
@@ -1036,6 +1115,127 @@ mod tests {
                 .stderr(std::process::Stdio::null())
                 .status();
         }
+    }
+
+    #[tokio::test]
+    async fn import_validation_failure_is_visible_without_raw_values() {
+        let directory = tempfile::tempdir().unwrap();
+        let git = |args: &[&str]| {
+            let output = std::process::Command::new("/usr/bin/git")
+                .current_dir(directory.path())
+                .args([
+                    "-c",
+                    "core.hooksPath=/dev/null",
+                    "-c",
+                    "user.name=Prüfung",
+                    "-c",
+                    "user.email=test@example.invalid",
+                ])
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(output.status.success());
+            String::from_utf8(output.stdout).unwrap().trim().to_owned()
+        };
+        git(&["init", "--quiet"]);
+        std::fs::write(directory.path().join("stats.json"), br#"{"health":550}"#).unwrap();
+        git(&["add", "stats.json"]);
+        git(&["commit", "--quiet", "-m", "Prüfbeleg"]);
+        let commit = git(&["rev-parse", "HEAD"]);
+        let source = super::super::runtime_config::EntityProfileSource {
+            repository_id: "fixture".into(),
+            paths: BTreeSet::from(["stats.json".into()]),
+            extraction: dbrain_sources::game_files::GameFileOptions {
+                root: directory.path().to_owned(),
+                app_id: 1422450,
+                source_id: "fixture".into(),
+                observed_at: "2026-10-05T03:00:00Z".into(),
+                build_id: None,
+                manifest_id: None,
+                source_revision: None,
+                depot_id: None,
+                language: "privater\nWert".into(),
+                attribution: "Prüfbeleg".into(),
+                license_name: "unverified".into(),
+                license_url: None,
+                provenance: serde_json::json!({}),
+                max_file_bytes: 8388608,
+            },
+            import_policy: directory.path().join("unbenutzt.json"),
+            canonical_raw_dir: None,
+        };
+        let pinned =
+            dbrain_sources::git_source::PinnedRepository::open(directory.path(), &commit).unwrap();
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy_with(sqlx::postgres::PgConnectOptions::new_without_pgpass());
+        let store = brain_storage::PgStore::new(pool.clone());
+        let error = refresh_git_knowledge(&source, &pinned, directory.path(), &store, &pool)
+            .await
+            .unwrap_err();
+        let status = refresh_failure(&error);
+        assert_eq!(status["code"], "ENTITY_PROFILE_REFRESH_FAILED");
+        assert_eq!(status["source_id"], "fixture");
+        assert_eq!(status["commit"], commit);
+        assert_eq!(status["step"], "JSONL-Validierung");
+        assert_eq!(status["document_path"], "stats.json");
+        assert_eq!(status["validation"][0]["line"], 1);
+        assert_eq!(
+            status["validation"][0]["cause"],
+            "Nichtleerer Text ohne Steuerzeichen erforderlich"
+        );
+        assert!(!status.to_string().contains("privater"));
+        let database_error =
+            anyhow::Error::new(sqlx::Error::Protocol("privater SQL-Nutzwert".into()));
+        assert!(!refresh_failure(&database_error)
+            .to_string()
+            .contains("Nutzwert"));
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    #[ignore = "Lokaler Beleg mit den vorgegebenen Originalpins"]
+    async fn pinned_original_import() {
+        let pg = ScratchPg::start();
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(2)
+            .connect_with(
+                sqlx::postgres::PgConnectOptions::new_without_pgpass()
+                    .host(pg.directory.path().join("socket").to_str().unwrap())
+                    .port(55441)
+                    .username("brain_core_test")
+                    .database("postgres"),
+            )
+            .await
+            .unwrap();
+        let store = brain_storage::PgStore::new(pool.clone());
+        store.migrate_core().await.unwrap();
+        let value: serde_json::Value = serde_json::from_slice(
+            &std::fs::read("/etc/deadlock-brain/maintenance-runtime.json").unwrap(),
+        )
+        .unwrap();
+        for (index, commit) in [
+            (1, "e0b9830a7f69726c933da90446e669ad276e73f8"),
+            (0, "46c3fd0cfbf2108f48123e1dddd59e416db1b7ee"),
+        ] {
+            let mut source: super::super::runtime_config::EntityProfileSource =
+                serde_json::from_value(value["entity_profile_sources"][index].clone()).unwrap();
+            source.canonical_raw_dir = None;
+            let repo = source.extraction.root.clone();
+            let pinned = dbrain_sources::git_source::PinnedRepository::open(&repo, commit).unwrap();
+            let result = refresh_git_knowledge(&source, &pinned, &repo, &store, &pool).await;
+            match result {
+                Ok(status) => eprintln!(
+                    "commit={} documents={} facts={}",
+                    status["commit"], status["documents"], status["facts"]
+                ),
+                Err(error) => panic!("{}", refresh_failure(&error)),
+            }
+            let revisions: Vec<String> = sqlx::query_scalar("SELECT record_json->'metadata'->>'wiki-spielwissen.original_revision' FROM brain.source_record_heads WHERE source_id=$1")
+                .bind(&source.extraction.source_id).fetch_all(&pool).await.unwrap();
+            assert!(!revisions.is_empty());
+            assert!(revisions.iter().all(|revision| revision == commit));
+        }
+        pool.close().await;
     }
 
     #[tokio::test]

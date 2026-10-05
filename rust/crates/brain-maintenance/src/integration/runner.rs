@@ -655,8 +655,8 @@ impl Runner {
         if self.runtime.entity_profile_corpus_root.is_some() {
             match self.refresh_entity_profiles(&config, &fresh_sources).await {
                 Ok(profiles) => status["entity_profiles"] = profiles,
-                Err(_) => {
-                    isolated_errors.push(json!({"code":"ENTITY_PROFILE_REFRESH_FAILED"}));
+                Err(error) => {
+                    isolated_errors.push(super::entity_profiles::refresh_failure(&error));
                 }
             }
         }

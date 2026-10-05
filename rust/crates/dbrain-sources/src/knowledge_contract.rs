@@ -631,8 +631,9 @@ fn input_conflict(
 pub(crate) fn parse_unique_json(text: &str) -> Result<Value, serde_json::Error> {
     let mut deserializer = serde_json::Deserializer::from_str(text);
     let mut budget = allocation_budget::Budget::new();
+    let mut path = String::from("$");
     let value = UniqueJsonSeed {
-        path: "$".into(),
+        path: &mut path,
         budget: &mut budget,
     }
     .deserialize(&mut deserializer)?;
@@ -1018,8 +1019,28 @@ fn required_value<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Value, D
 }
 
 struct UniqueJsonSeed<'a> {
-    path: String,
+    path: &'a mut String,
     budget: &'a mut allocation_budget::Budget,
+}
+
+impl UniqueJsonSeed<'_> {
+    fn extend_path<E: serde::de::Error>(&mut self, suffix: &str) -> Result<(), E> {
+        let required = self
+            .path
+            .len()
+            .checked_add(suffix.len())
+            .ok_or_else(|| E::custom(allocation_budget::EXCEEDED))?;
+        if required > self.path.capacity() {
+            self.budget
+                .expanded(&[required - self.path.capacity()], 0)
+                .map_err(E::custom)?;
+            self.path
+                .try_reserve_exact(required - self.path.len())
+                .map_err(E::custom)?;
+        }
+        self.path.push_str(suffix);
+        Ok(())
+    }
 }
 
 impl<'de> DeserializeSeed<'de> for UniqueJsonSeed<'_> {
@@ -1067,17 +1088,18 @@ impl<'de> Visitor<'de> for UniqueJsonSeed<'_> {
         Ok(Value::Null)
     }
 
-    fn visit_seq<A: SeqAccess<'de>>(self, mut sequence: A) -> Result<Value, A::Error> {
+    fn visit_seq<A: SeqAccess<'de>>(mut self, mut sequence: A) -> Result<Value, A::Error> {
         let mut values = Vec::new();
         loop {
-            self.budget
-                .expanded(&[self.path.len()], 192)
-                .map_err(A::Error::custom)?;
-            let Some(value) = sequence.next_element_seed(UniqueJsonSeed {
-                path: format!("{}[{}]", self.path, values.len()),
+            self.budget.expanded(&[], 192).map_err(A::Error::custom)?;
+            let parent_length = self.path.len();
+            self.extend_path(&format!("[{}]", values.len()))?;
+            let next = sequence.next_element_seed(UniqueJsonSeed {
+                path: self.path,
                 budget: self.budget,
-            })?
-            else {
+            });
+            self.path.truncate(parent_length);
+            let Some(value) = next? else {
                 break;
             };
             values.push(value);
@@ -1085,26 +1107,30 @@ impl<'de> Visitor<'de> for UniqueJsonSeed<'_> {
         Ok(Value::Array(values))
     }
 
-    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Value, A::Error> {
+    fn visit_map<A: MapAccess<'de>>(mut self, mut map: A) -> Result<Value, A::Error> {
         let mut values = Map::new();
         while let Some(key) = map.next_key::<String>()? {
             self.budget
-                .expanded(
-                    &[self.path.len(), allocation_budget::escaped_len(&key)],
-                    192,
-                )
+                .expanded(&[allocation_budget::escaped_len(&key)], 192)
                 .map_err(A::Error::custom)?;
             if values.contains_key(&key) {
+                self.budget
+                    .expanded(&[self.path.len(), key.len()], 192)
+                    .map_err(A::Error::custom)?;
                 return Err(A::Error::custom(format!(
                     "Doppelter Objektschlüssel in {}.{key}",
                     self.path
                 )));
             }
+            let parent_length = self.path.len();
+            self.extend_path(".")?;
+            self.extend_path(&key)?;
             let value = map.next_value_seed(UniqueJsonSeed {
-                path: format!("{}.{key}", self.path),
+                path: self.path,
                 budget: self.budget,
-            })?;
-            values.insert(key, value);
+            });
+            self.path.truncate(parent_length);
+            values.insert(key, value?);
         }
         Ok(Value::Object(values))
     }
@@ -1122,10 +1148,11 @@ mod path_budget_tests {
             format!("{}1{}", "{\"long_key\":".repeat(24), "}".repeat(24)),
         ] {
             let mut budget = allocation_budget::Budget::new();
-            budget.charge(512 * 1024 * 1024 - 2048).unwrap();
+            budget.charge(512 * 1024 * 1024 - 1024).unwrap();
             let mut parser = serde_json::Deserializer::from_str(&text);
+            let mut path = String::from("$");
             let error = UniqueJsonSeed {
-                path: "$".into(),
+                path: &mut path,
                 budget: &mut budget,
             }
             .deserialize(&mut parser)
@@ -1133,10 +1160,13 @@ mod path_budget_tests {
             assert!(error.to_string().contains(allocation_budget::EXCEEDED));
         }
         let text = serde_json::json!({"x".repeat(100_000): vec![1; 10_000]}).to_string();
-        assert!(parse_unique_json(&text)
-            .unwrap_err()
-            .to_string()
-            .contains(allocation_budget::EXCEEDED));
+        assert_eq!(
+            parse_unique_json(&text).unwrap()["x".repeat(100_000)]
+                .as_array()
+                .unwrap()
+                .len(),
+            10_000
+        );
         assert!(parse_unique_json(r#"{"a":[{"b":1,"b":2}]}"#)
             .unwrap_err()
             .to_string()
