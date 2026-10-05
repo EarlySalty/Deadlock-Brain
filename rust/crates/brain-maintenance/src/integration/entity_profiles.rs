@@ -1080,7 +1080,14 @@ mod tests {
                 std::process::Command::new("/usr/lib/postgresql/16/bin/initdb")
                     .arg("-D")
                     .arg(&data)
-                    .args(["-A", "trust", "-U", "brain_core_test", "--no-locale"])
+                    .args([
+                        "-A",
+                        "trust",
+                        "-U",
+                        "brain_core_test",
+                        "--no-locale",
+                        "--encoding=UTF8"
+                    ])
                     .stdout(std::process::Stdio::null())
                     .stderr(std::process::Stdio::null())
                     .status()
