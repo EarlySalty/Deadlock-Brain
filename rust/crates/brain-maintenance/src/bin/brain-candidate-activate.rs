@@ -437,12 +437,18 @@ async fn check_entity_profile_sources(
                 .iter()
                 .filter(|record| record.source_id == *id)
                 .collect();
-            if records.is_empty() {
-                brain_maintenance::integration::entity_profiles::verify_retired_git_documents(
-                    store, pool, &config, &principal, candidate,
-                )
-                .await?;
-            }
+            brain_maintenance::integration::entity_profiles::verify_retired_git_documents(
+                store,
+                pool,
+                &config,
+                &principal,
+                candidate,
+                runtime
+                    .entity_profile_corpus_root
+                    .as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("entity_profile_corpus_root"))?,
+            )
+            .await?;
             for record in records {
                 ensure!(
                     visible.contains(record),
@@ -1876,6 +1882,59 @@ mod tests {
             verified.profile(),
         )
         .unwrap();
+        let older_html = std::fs::read(&html).unwrap();
+        sqlx::query("UPDATE brain.patch_changes SET new_value='600'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let verified = dbrain_sources::entity_binding::derivation::derive_git_entity_profile(
+            &ingest,
+            &originals.release.release_id,
+            &principal,
+            &catalog[0].identity.entity_key,
+            &repositories,
+        )
+        .await
+        .unwrap();
+        let updated =
+            brain_maintenance::integration::entity_profiles::persist_verified_git_profile(
+                &ingest, &verified,
+            )
+            .await
+            .unwrap();
+        assert_eq!(updated.revision, document.revision + 1);
+        assert_ne!(updated.content, document.content);
+        let document = updated;
+        let artifacts = Artifacts::open(&dir.path().join("artifacts")).unwrap();
+        let mut first_profile = verified.profile().clone();
+        first_profile.entity.entity_key = "item:exportprobe".into();
+        first_profile.entity.kind = brain_contracts::entity_profile::EntityKind::Item;
+        let first_html = dir.path().join(
+            brain_maintenance::entity_profile_render::public_relative_path(&first_profile).unwrap(),
+        );
+        let parent = html.parent().unwrap();
+        let permissions = std::fs::metadata(parent).unwrap().permissions();
+        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let export = brain_maintenance::integration::entity_profiles::render_and_export_profiles(
+            &artifacts,
+            &[first_profile, verified.profile().clone()],
+            dir.path(),
+        );
+        std::fs::set_permissions(parent, permissions).unwrap();
+        assert!(export.is_err());
+        assert!(first_html.is_file());
+        assert_eq!(std::fs::read(&html).unwrap(), older_html);
+        let initial = brain_maintenance::integration::entity_profiles::publish_refreshed_sources(
+            &ingest,
+            &ingest_pool,
+            &initial.candidate.release_id,
+            &sources,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let foreign_html = dir.path().join("site/entities/foreign.html");
+        std::fs::write(&foreign_html, "Fremde Seite").unwrap();
         let mut withdrawn = original.clone();
         withdrawn.revision += 1;
         if tombstone_original {
@@ -1931,6 +1990,17 @@ mod tests {
             .unwrap();
         assert!(empty.release.source_revisions[&sources[0]].is_empty());
         assert!(empty.revisions.contains(original));
+        std::fs::write(&html, &older_html).unwrap();
+        assert!(check_entity_profile_sources(
+            &runtime,
+            &ingest,
+            &ingest_pool,
+            &base,
+            &empty,
+            &derived_allowed,
+        )
+        .await
+        .is_err());
         assert_eq!(
             brain_maintenance::integration::entity_profiles::retire_removed_git_profiles(
                 &ingest,
@@ -1945,6 +2015,59 @@ mod tests {
             .unwrap(),
             0
         );
+        assert!(!html.exists());
+        assert_eq!(
+            std::fs::read_to_string(&foreign_html).unwrap(),
+            "Fremde Seite"
+        );
+        std::fs::write(&html, "Fremder Seiteninhalt").unwrap();
+        check_entity_profile_sources(
+            &runtime,
+            &ingest,
+            &ingest_pool,
+            &base,
+            &empty,
+            &derived_allowed,
+        )
+        .await
+        .unwrap();
+        brain_maintenance::integration::entity_profiles::retire_removed_git_profiles(
+            &ingest,
+            &ingest_pool,
+            &loaded_config,
+            &principal,
+            &BTreeSet::new(),
+            &allowed,
+            dir.path(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&html).unwrap(),
+            "Fremder Seiteninhalt"
+        );
+        std::fs::remove_file(&html).unwrap();
+        std::os::unix::fs::symlink(&foreign_html, &html).unwrap();
+        brain_maintenance::integration::entity_profiles::retire_removed_git_profiles(
+            &ingest,
+            &ingest_pool,
+            &loaded_config,
+            &principal,
+            &BTreeSet::new(),
+            &allowed,
+            dir.path(),
+        )
+        .await
+        .unwrap();
+        assert!(std::fs::symlink_metadata(&html)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(
+            std::fs::read_to_string(&foreign_html).unwrap(),
+            "Fremde Seite"
+        );
+        std::fs::remove_file(&html).unwrap();
         check_transition(&base.release, &empty.release, &derived_allowed).unwrap();
         check_rights(&base, &empty, &derived_allowed, Target::EntityProfiles).unwrap();
         check_entity_profile_sources(
@@ -1967,7 +2090,7 @@ mod tests {
         )
         .await
         .unwrap();
-        sqlx::query("UPDATE brain.patch_changes SET new_value='600'")
+        sqlx::query("UPDATE brain.patch_changes SET new_value='650'")
             .execute(&pool)
             .await
             .unwrap();
@@ -1981,7 +2104,7 @@ mod tests {
         )
         .await
         .unwrap();
-        sqlx::query("UPDATE brain.patch_changes SET new_value='550'")
+        sqlx::query("UPDATE brain.patch_changes SET new_value='600'")
             .execute(&pool)
             .await
             .unwrap();

@@ -161,7 +161,7 @@ pub async fn retire_removed_git_profiles(
             !previous.tombstone && expected == record,
             "entity_profile_retirement_changed"
         );
-        let rendered = retirement_document(store, pool, config, &previous).await?;
+        let rendered = retirement_documents(store, pool, config, &previous).await?;
         if retire_git_profile(store, &mut record, &rendered, &root).await? {
             retired += 1;
         }
@@ -172,9 +172,12 @@ pub async fn retire_removed_git_profiles(
 async fn retire_git_profile(
     store: &brain_storage::PgStore,
     record: &mut brain_contracts::SourceRecordV2,
-    rendered: &crate::entity_profile_render::RenderedEntityProfile,
+    history: &[crate::entity_profile_render::RenderedEntityProfile],
     root: &Path,
 ) -> Result<bool> {
+    let rendered = history
+        .last()
+        .ok_or_else(|| anyhow::anyhow!("Gespeicherte Steckbriefhistorie fehlt"))?;
     ensure!(
         record.source_id == "git-game-facts-derived"
             && record.logical_id
@@ -185,22 +188,8 @@ async fn retire_git_profile(
             && record.content == rendered.brain_document,
         "Entfernter Steckbrief ist nicht zugeordnet"
     );
-    let path = root.join(&rendered.public_relative_path);
-    if let Some(parent) = path.parent().filter(|parent| parent.exists()) {
-        ensure!(
-            parent.canonicalize()? == parent && parent.starts_with(root),
-            "Entfernter HTML-Pfad liegt außerhalb des Corpus"
-        );
-        match std::fs::symlink_metadata(&path) {
-            Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
-                if std::fs::read(&path)? == rendered.public_html.as_bytes() {
-                    std::fs::remove_file(&path)?;
-                }
-            }
-            Ok(_) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.into()),
-        }
+    if let Some(path) = owned_retirement_html(root, history)? {
+        std::fs::remove_file(path)?;
     }
     if !record.tombstone {
         record.revision = record
@@ -212,6 +201,43 @@ async fn retire_git_profile(
         return Ok(true);
     }
     Ok(false)
+}
+
+fn owned_retirement_html(
+    root: &Path,
+    history: &[crate::entity_profile_render::RenderedEntityProfile],
+) -> Result<Option<PathBuf>> {
+    let rendered = history
+        .last()
+        .ok_or_else(|| anyhow::anyhow!("Gespeicherte Steckbriefhistorie fehlt"))?;
+    ensure!(
+        history
+            .iter()
+            .all(|revision| revision.public_relative_path == rendered.public_relative_path),
+        "Historische HTML-Pfade widersprechen der Entität"
+    );
+    let path = root.join(&rendered.public_relative_path);
+    if let Some(parent) = path.parent().filter(|parent| parent.exists()) {
+        ensure!(
+            parent.canonicalize()? == parent && parent.starts_with(root),
+            "Entfernter HTML-Pfad liegt außerhalb des Corpus"
+        );
+        match std::fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
+                let content = std::fs::read(&path)?;
+                if history
+                    .iter()
+                    .any(|revision| content == revision.public_html.as_bytes())
+                {
+                    return Ok(Some(path));
+                }
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(None)
 }
 
 pub async fn publish_refreshed_sources(
@@ -455,6 +481,7 @@ pub async fn verify_retired_git_documents(
     config: &crate::config::MaintenanceConfig,
     _principal: &brain_contracts::Principal,
     candidate: &brain_contracts::CorpusSnapshot,
+    corpus_root: &Path,
 ) -> Result<()> {
     use brain_storage::entity_profile::derivation::derived_policy;
     let rows: Vec<serde_json::Value> = sqlx::query_scalar("SELECT record_json FROM brain.source_record_heads WHERE source_id='git-game-facts-derived' ORDER BY logical_id")
@@ -464,15 +491,23 @@ pub async fn verify_retired_git_documents(
         .map(serde_json::from_value)
         .collect::<std::result::Result<_, _>>()?;
     ensure!(!heads.is_empty(), "entity_profile_document_empty");
-    ensure!(
-        candidate
-            .release
-            .source_revisions
-            .get("git-game-facts-derived")
-            .is_none_or(|pins| pins.is_empty()),
-        "entity_profile_retirement_pins"
-    );
+    let root = corpus_root.canonicalize()?;
+    let pins = candidate
+        .release
+        .source_revisions
+        .get("git-game-facts-derived");
     for head in heads {
+        if !head.tombstone {
+            ensure!(
+                pins.and_then(|pins| pins.get(&head.logical_id)) == Some(&head.revision),
+                "entity_profile_retirement_head"
+            );
+            continue;
+        }
+        ensure!(
+            pins.is_none_or(|pins| !pins.contains_key(&head.logical_id)),
+            "entity_profile_retirement_pins"
+        );
         ensure!(
             head.tombstone && head.revision > 1,
             "entity_profile_retirement_head"
@@ -494,7 +529,11 @@ pub async fn verify_retired_git_documents(
             origin.policy == derived_policy(),
             "entity_profile_document_rights"
         );
-        retirement_document(store, pool, config, &previous).await?;
+        let history = retirement_documents(store, pool, config, &previous).await?;
+        ensure!(
+            owned_retirement_html(&root, &history)?.is_none(),
+            "Eigene zurückgezogene HTML-Seite ist noch veröffentlicht"
+        );
     }
     Ok(())
 }
@@ -508,6 +547,31 @@ pub async fn verify_stored_git_document(
     release: &brain_contracts::CorpusRelease,
 ) -> Result<()> {
     verify_git_document(store, pool, config, principal, record, release).await
+}
+
+async fn retirement_documents(
+    store: &brain_storage::PgStore,
+    pool: &sqlx::PgPool,
+    config: &crate::config::MaintenanceConfig,
+    record: &brain_contracts::SourceRecordV2,
+) -> Result<Vec<crate::entity_profile_render::RenderedEntityProfile>> {
+    let rows: Vec<serde_json::Value> = sqlx::query_scalar("SELECT record_json FROM brain.source_record_revisions WHERE source_id=$1 AND logical_id=$2 AND revision<=$3 ORDER BY revision")
+        .bind(&record.source_id).bind(&record.logical_id).bind(record.revision as i64)
+        .fetch_all(pool).await?;
+    let mut history = Vec::new();
+    for row in rows {
+        let revision: brain_contracts::SourceRecordV2 = serde_json::from_value(row)?;
+        if !revision.tombstone {
+            history.push(retirement_document(store, pool, config, &revision).await?);
+        }
+    }
+    ensure!(
+        history
+            .last()
+            .is_some_and(|rendered| rendered.brain_document == record.content),
+        "entity_profile_retirement_changed"
+    );
+    Ok(history)
 }
 
 async fn retirement_document(
@@ -1374,21 +1438,27 @@ mod tests {
         let own_html = directory.path().join(&rendered.public_relative_path);
         let foreign_html = directory.path().join("site/entities/foreign.html");
         std::fs::write(&foreign_html, "Fremder Snapshot").unwrap();
-        assert!(
-            retire_git_profile(&store, &mut removed, &rendered, directory.path())
-                .await
-                .unwrap()
-        );
+        assert!(retire_git_profile(
+            &store,
+            &mut removed,
+            std::slice::from_ref(&rendered),
+            directory.path()
+        )
+        .await
+        .unwrap());
         assert!(!own_html.exists());
         assert_eq!(
             std::fs::read_to_string(&foreign_html).unwrap(),
             "Fremder Snapshot"
         );
-        assert!(
-            !retire_git_profile(&store, &mut removed, &rendered, directory.path())
-                .await
-                .unwrap()
-        );
+        assert!(!retire_git_profile(
+            &store,
+            &mut removed,
+            std::slice::from_ref(&rendered),
+            directory.path()
+        )
+        .await
+        .unwrap());
         profile
             .unknowns
             .push("Aktualisierung der erhaltenen Entität".into());
@@ -1443,9 +1513,14 @@ mod tests {
         let foreign_page = std::fs::read(&own_html).unwrap();
         std::fs::write(&own_html, "Fremder Seiteninhalt").unwrap();
         let mut restored = restored;
-        retire_git_profile(&store, &mut restored, &rendered, directory.path())
-            .await
-            .unwrap();
+        retire_git_profile(
+            &store,
+            &mut restored,
+            std::slice::from_ref(&rendered),
+            directory.path(),
+        )
+        .await
+        .unwrap();
         assert_eq!(
             std::fs::read_to_string(&own_html).unwrap(),
             "Fremder Seiteninhalt"
