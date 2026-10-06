@@ -505,7 +505,12 @@ mod binding_tests {
         assert!(validate_bound_scope(&snapshot, "bot.public").is_ok());
         snapshot.revisions[2].tombstone = false;
         snapshot.revisions[2].revision = 1;
-        snapshot.release.source_revisions.get_mut("git-game-facts-derived").unwrap().insert("retired-hero".into(), 1);
+        snapshot
+            .release
+            .source_revisions
+            .get_mut("git-game-facts-derived")
+            .unwrap()
+            .insert("retired-hero".into(), 1);
         assert!(validate_bound_scope(&snapshot, "bot.public").is_ok());
         let mut denied = snapshot.clone();
         denied.heads[0].tombstone = true;
