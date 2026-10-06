@@ -1,0 +1,33 @@
+SHA-Backup der gesicherten WIP-Stände, 06.10.2026 22:48 Uhr CEST
+Jede Zeile wurde gegen origin geprüft. Diese Stände sind ungeprüfte Sicherungen.
+Keine Main-, Build- oder Deploy-Freigabe. Worktrees bleiben bis zur Entscheidung erhalten.
+Format: SHA Commitdatum lokaler Branch | Worktree | Remote-Branch
+
+36588adda03e6ed35bf56d14469f54b9e3f57ccd 2026-10-06T22:35:44+02:00 feat/brain-meta-publish-emojis | /home/nathanael/.worktrees/Deadlock-Brain-meta-publish | feat/brain-meta-publish-emojis
+8318690c5e7ad7ac0ec704ae7551955450962ee4 2026-10-06T22:36:34+02:00 fix/paket-b-timer-20260930 | /home/nathanael/.worktrees/Deadlock-Brain-paket-b-timer | fix/paket-b-timer-20260930
+3d74ae5419c665b8a57235a220198ef57e37071d 2026-10-06T22:37:00+02:00 fix/brain-rust-cutover-gate-20260930 | /home/nathanael/.worktrees/Deadlock-Brain-rust-cutover-gate-20260930 | fix/brain-rust-cutover-gate-20260930
+e2bd0b22c6970257c071b871aa4be00620ab5be5 2026-10-06T22:37:29+02:00 codex/core-completion-20260925 | /home/nathanael/.worktrees/brain-core-completion-20260925 | codex/core-completion-20260925
+7e4d5e6c32f4e7ee60600a3347440e5258f98514 2026-10-06T22:37:54+02:00 feat/brain-final-integration-20260921 | /home/nathanael/.worktrees/brain-final-integration-20260921 | feat/brain-final-integration-20260921
+0e91b9772930d823f29f2d1b45154d3723d406ba 2026-10-06T22:38:23+02:00 codex/brain-functional-closeout-20260930 | /home/nathanael/.worktrees/brain-functional-closeout-20260930 | backup/wip-functional-closeout-20261006
+38e4e559d6bd60735448b6c893edf8e007238d4d 2026-10-06T22:39:30+02:00 feat/brain-global-toml-20260920 | /home/nathanael/.worktrees/brain-global-toml-20260920 | feat/brain-global-toml-20260920
+ee85ff147d488b86ba23f16be95f0f18d580406f 2026-10-06T22:40:22+02:00 codex/brain-luna-abo-20261003 | /home/nathanael/.worktrees/brain-luna-abo-20261003 | codex/brain-luna-abo-20261003
+6c6dd8baf60a91f21ef1986d205a41230a555387 2026-10-06T22:40:58+02:00 integration/pr61-luna-20261001 | /home/nathanael/.worktrees/brain-pr61-luna-integration-20261001 | integration/pr61-luna-20261001
+4dbf394040d958034d9619ea1e5f0acc65ad65ff 2026-10-06T22:41:29+02:00 integration/brain-v1-closeout-20261001 | /home/nathanael/.worktrees/brain-v1-closeout-20261001 | integration/brain-v1-closeout-20261001
+28ac5c6fd2c10fc6e1a7ed3059a2b42347650e3f 2026-10-06T22:42:01+02:00 backup/wip-pr61-review-20261006 | /home/nathanael/.worktrees/brain-pr61-review-20260930 | backup/wip-pr61-review-20261006
+7d60f287d5dad8165d91f4b4a0598e61df85a02e 2026-10-06T22:42:43+02:00 backup/wip-pr61-scratch-20261006 | /tmp/brain-pr61-review-9635592 | backup/wip-pr61-scratch-20261006
+79f5a020fdec562658a8d947bce32321e48974db 2026-10-06T22:43:17+02:00 feat/brain-release-completion-20260921 | /home/nathanael/.worktrees/brain-release-completion-20260921 | feat/brain-release-completion-20260921
+f34cd8670496195203d22009ff6f48a27245474c 2026-10-06T22:43:42+02:00 luna/finish-brain-rust-cutover-20261001 | /home/nathanael/.worktrees/luna-brain-rust-cutover-20261001 | luna/finish-brain-rust-cutover-20261001
+1f4bb8744142ab489b1a25e3f2523431147944b8 2026-10-06T22:44:06+02:00 codex/luna-native/brain-pr4-evidence-20261001 | /home/nathanael/.worktrees/luna-native-brain-pr4-evidence-20261001 | codex/luna-native/brain-pr4-evidence-20261001
+209f1fbbdd2f8b13c858d586e13ba6005f2fb01e 2026-10-06T22:45:28+02:00 feat/brain-wiki-spielwissen-c | /home/nathanael/.worktrees/brain-wiki-spielwissen-c | feat/brain-wiki-spielwissen-c
+80d1ca81adbab0667cfc5ce83c1915c718778026 2026-10-06T22:45:51+02:00 feat/brain-wiki-spielwissen-a | /home/nathanael/.worktrees/brain-wiki-spielwissen-a | feat/brain-wiki-spielwissen-a
+b9be82cea88853b9c1042122d484a2ddf309d13f 2026-10-06T22:46:18+02:00 feat/brain-wiki-spielwissen-b | /home/nathanael/.worktrees/brain-wiki-spielwissen-b | feat/brain-wiki-spielwissen-b
+60610fce6392b8ab83e28deb85eddb0a8c7fc05c 2026-10-06T22:46:43+02:00 feat/brain-wiki-spielwissen-d | /home/nathanael/.worktrees/brain-wiki-spielwissen-d | feat/brain-wiki-spielwissen-d
+2f35c6b4ec63a39c6f48f3ce34404489c4862d81 2026-10-06T22:47:11+02:00 worktree-wiki-spielwissen-status-s | /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/wiki-spielwissen-status-s | worktree-wiki-spielwissen-status-s
+74f6500eb92fc578878b31a459e02f7071dfcbd9 2026-10-06T22:34:56+02:00 feat/brain-wiki-spielwissen-c-integration | /home/nathanael/.worktrees/brain-wiki-spielwissen-c-integration | backup/wip-wiki-c-integration-20261006
+
+Teilweise lokale Restartefakte:
+brain-luna-abo-20261003: drei .tar-Snapshots nicht veröffentlicht.
+brain-wiki-spielwissen-a: Datendateien, Messausgaben und Build-Artefakte nicht veröffentlicht.
+brain-wiki-spielwissen-b und -d: zusätzliche Messausgaben nicht veröffentlicht.
+brain-fertig-r, brain-fertig-z, brain-wiki-hero-knowledge-20260924: unversionierte target-Verzeichnisse nicht als Quellcode gesichert.
+Kanonischer Checkout, fünf gesperrte G5-Worktrees und aktive Arbeit wurden nicht verändert.
